@@ -82,7 +82,8 @@ export const useServerStore = create<ServerState>()((set, get) => ({
     set({ servers });
 
     // If active server is not in the list, set to default or first server
-    if (servers.length > 0 && !servers.find(s => s.id === state.activeServerId)) {
+    // Skip for gateway targets — they aren't in the direct servers list
+    if (servers.length > 0 && !isGatewayTarget(state.activeServerId || '') && !servers.find(s => s.id === state.activeServerId)) {
       const defaultServer = servers.find(s => s.isDefault);
       const firstServer = servers[0];
       set({ activeServerId: defaultServer?.id || firstServer?.id || null });

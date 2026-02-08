@@ -133,11 +133,11 @@ async function fetchLocalApi<T>(
 }
 
 // ============================================
-// Projects API
+// Projects API — routes to active server
 // ============================================
 
 export async function getProjects(): Promise<Project[]> {
-  const result = await fetchLocalApi<Project[]>('/api/projects');
+  const result = await fetchApi<Project[]>('/api/projects');
   if (!result.success || !result.data) {
     throw new Error(result.error?.message || 'Failed to fetch projects');
   }
@@ -150,7 +150,7 @@ export async function createProject(data: {
   providerId?: string;
   rootPath?: string;
 }): Promise<Project> {
-  const result = await fetchLocalApi<Project>('/api/projects', {
+  const result = await fetchApi<Project>('/api/projects', {
     method: 'POST',
     body: JSON.stringify(data)
   });
@@ -164,7 +164,7 @@ export async function updateProject(
   id: string,
   data: Partial<Project>
 ): Promise<void> {
-  const result = await fetchLocalApi<void>(`/api/projects/${id}`, {
+  const result = await fetchApi<void>(`/api/projects/${id}`, {
     method: 'PUT',
     body: JSON.stringify(data)
   });
@@ -174,7 +174,7 @@ export async function updateProject(
 }
 
 export async function deleteProject(id: string): Promise<void> {
-  const result = await fetchLocalApi<void>(`/api/projects/${id}`, {
+  const result = await fetchApi<void>(`/api/projects/${id}`, {
     method: 'DELETE'
   });
   if (!result.success) {
@@ -183,12 +183,12 @@ export async function deleteProject(id: string): Promise<void> {
 }
 
 // ============================================
-// Sessions API
+// Sessions API — routes to active server
 // ============================================
 
 export async function getSessions(projectId?: string): Promise<Session[]> {
   const query = projectId ? `?projectId=${projectId}` : '';
-  const result = await fetchLocalApi<Session[]>(`/api/sessions${query}`);
+  const result = await fetchApi<Session[]>(`/api/sessions${query}`);
   if (!result.success || !result.data) {
     throw new Error(result.error?.message || 'Failed to fetch sessions');
   }
@@ -200,7 +200,7 @@ export async function createSession(data: {
   name?: string;
   providerId?: string;
 }): Promise<Session> {
-  const result = await fetchLocalApi<Session>('/api/sessions', {
+  const result = await fetchApi<Session>('/api/sessions', {
     method: 'POST',
     body: JSON.stringify(data)
   });
@@ -214,7 +214,7 @@ export async function updateSession(
   id: string,
   data: Partial<Session>
 ): Promise<void> {
-  const result = await fetchLocalApi<void>(`/api/sessions/${id}`, {
+  const result = await fetchApi<void>(`/api/sessions/${id}`, {
     method: 'PUT',
     body: JSON.stringify(data)
   });
@@ -224,7 +224,7 @@ export async function updateSession(
 }
 
 export async function deleteSession(id: string): Promise<void> {
-  const result = await fetchLocalApi<void>(`/api/sessions/${id}`, {
+  const result = await fetchApi<void>(`/api/sessions/${id}`, {
     method: 'DELETE'
   });
   if (!result.success) {

@@ -9,11 +9,11 @@ export function useDataLoader() {
   const loadData = useCallback(async () => {
     if (connectionStatus !== 'connected') return;
 
-    console.log('[DataLoader] Loading data from local server via HTTP');
+    console.log(`[DataLoader] Loading data for server: ${activeServerId}`);
 
     try {
-      // Load servers, projects, and sessions from the local server.
-      // These API functions always target the local backend via fetchLocalApi.
+      // Servers list is always local config (getServers uses fetchLocalApi)
+      // Projects and sessions route to the active server (fetchApi)
       const [servers, projects, sessions] = await Promise.all([
         api.getServers(),
         api.getProjects(),
@@ -25,7 +25,7 @@ export function useDataLoader() {
     } catch (err) {
       console.error('[DataLoader] Error loading data:', err);
     }
-  }, [connectionStatus]);
+  }, [connectionStatus, activeServerId]);
 
   // Load data when connected or server changes
   useEffect(() => {
