@@ -9,7 +9,6 @@ import type {
   DirectoryListingResponse,
   CommandExecuteRequest,
   CommandExecuteResponse,
-  ApiKeyInfo,
   ServerInfo,
   ServerGatewayConfig,
   ServerGatewayStatus
@@ -54,27 +53,18 @@ function getBaseUrl(): string {
 function getAuthHeaders(): HeadersInit {
   const activeId = useServerStore.getState().activeServerId;
 
-  // Gateway target: use gatewaySecret:apiKey compound auth
+  // Gateway target: use gatewaySecret for HTTP proxy auth
   if (isGatewayTarget(activeId)) {
-    const backendId = parseBackendId(activeId!);
-    const { gatewaySecret, backendApiKeys } = useGatewayStore.getState();
-    const apiKey = backendApiKeys[backendId];
-    if (gatewaySecret && apiKey) {
+    const { gatewaySecret } = useGatewayStore.getState();
+    if (gatewaySecret) {
       return {
-        'Authorization': `Bearer ${gatewaySecret}:${apiKey}`
+        'Authorization': `Bearer ${gatewaySecret}`
       };
     }
-    return {};
   }
 
-  // Direct server: use apiKey
-  const server = useServerStore.getState().getActiveServer();
-  if (!server?.apiKey) {
-    return {};
-  }
-  return {
-    'Authorization': `Bearer ${server.apiKey}`
-  };
+  // Direct server: no auth needed (server trusts localhost connections)
+  return {};
 }
 
 async function fetchApi<T>(
@@ -114,13 +104,8 @@ function getLocalBaseUrl(): string {
 }
 
 function getLocalAuthHeaders(): HeadersInit {
-  const server = useServerStore.getState().getDefaultServer();
-  if (!server?.apiKey) {
-    return {};
-  }
-  return {
-    'Authorization': `Bearer ${server.apiKey}`
-  };
+  // Local server trusts localhost connections, no auth needed
+  return {};
 }
 
 async function fetchLocalApi<T>(
@@ -467,66 +452,6 @@ export async function getServerInfo(address: string): Promise<ServerInfo> {
   const result: ApiResponse<ServerInfo> = await response.json();
   if (!result.success || !result.data) {
     throw new Error(result.error?.message || 'Failed to get server info');
-  }
-  return result.data;
-}
-
-/**
- * Verify an API key with a server
- * @param address Server address
- * @param apiKey API key to verify
- * @returns true if the key is valid
- */
-export async function verifyApiKey(address: string, apiKey: string): Promise<boolean> {
-  const url = address.includes('://') ? address : `http://${address}`;
-  try {
-    const response = await fetch(`${url}/api/auth/verify`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`
-      }
-    });
-    return response.ok;
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Get API key info (only works when connected to local server)
- * This endpoint uses localOnlyMiddleware (not authMiddleware), so it doesn't require API Key.
- * We make a direct fetch call without authentication headers to support initial API Key fetch.
- */
-export async function getApiKeyInfo(): Promise<ApiKeyInfo> {
-  const baseUrl = getLocalBaseUrl();
-  const response = await fetch(`${baseUrl}/api/auth/key`, {
-    headers: {
-      'Content-Type': 'application/json'
-    }
-  });
-
-  if (response.status === 403) {
-    throw new AuthError('Local access only - this endpoint is not available for remote connections');
-  }
-
-  const result: ApiResponse<ApiKeyInfo> = await response.json();
-  if (!result.success || !result.data) {
-    throw new Error(result.error?.message || 'Failed to get API key info');
-  }
-  return result.data;
-}
-
-/**
- * Regenerate API key (only works when connected to local server)
- * This will disconnect all remote clients
- */
-export async function regenerateApiKey(): Promise<ApiKeyInfo> {
-  const result = await fetchLocalApi<ApiKeyInfo>('/api/auth/key/regenerate', {
-    method: 'POST'
-  });
-  if (!result.success || !result.data) {
-    throw new Error(result.error?.message || 'Failed to regenerate API key');
   }
   return result.data;
 }

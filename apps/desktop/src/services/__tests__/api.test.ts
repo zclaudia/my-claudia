@@ -30,13 +30,11 @@ vi.mock('../../stores/serverStore', () => ({
         id: 'server-1',
         name: 'Test Server',
         address: 'localhost:3100',
-        apiKey: 'test-key',
       }),
       getDefaultServer: () => ({
         id: 'server-1',
         name: 'Test Server',
         address: 'localhost:3100',
-        apiKey: 'test-key',
       }),
     }),
   },

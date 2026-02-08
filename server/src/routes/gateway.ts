@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import type { Database } from 'better-sqlite3';
+import type { GatewayBackendInfo } from '@my-claudia/shared';
 
 export interface GatewayConfig {
   id: number;
@@ -8,6 +9,7 @@ export interface GatewayConfig {
   gatewaySecret: string | null;
   backendName: string | null;
   backendId: string | null;
+  registerAsBackend: boolean;
   proxyUrl?: string | null;
   proxyUsername?: string | null;
   proxyPassword?: string | null;
@@ -20,7 +22,10 @@ export interface GatewayStatus {
   connected: boolean;
   backendId: string | null;
   gatewayUrl: string | null;
+  gatewaySecret: string | null;
   backendName: string | null;
+  registerAsBackend: boolean;
+  discoveredBackends: GatewayBackendInfo[];
 }
 
 export function createGatewayRouter(
@@ -36,6 +41,7 @@ export function createGatewayRouter(
     try {
       const row = db.prepare(`
         SELECT id, enabled, gateway_url, gateway_secret, backend_name, backend_id,
+               register_as_backend,
                proxy_url, proxy_username, proxy_password,
                created_at, updated_at
         FROM gateway_config
@@ -56,6 +62,7 @@ export function createGatewayRouter(
         gatewaySecret: row.gateway_secret,
         backendName: row.backend_name,
         backendId: row.backend_id,
+        registerAsBackend: row.register_as_backend === 1,
         proxyUrl: row.proxy_url,
         proxyUsername: row.proxy_username,
         proxyPassword: row.proxy_password,
@@ -86,7 +93,7 @@ export function createGatewayRouter(
   // Update Gateway configuration
   router.put('/config', async (req: Request, res: Response) => {
     try {
-      const { enabled, gatewayUrl, gatewaySecret, backendName, proxyUrl, proxyUsername, proxyPassword } = req.body;
+      const { enabled, gatewayUrl, gatewaySecret, backendName, registerAsBackend, proxyUrl, proxyUsername, proxyPassword } = req.body;
 
       // Validate required fields if enabling
       if (enabled && (!gatewayUrl || !gatewaySecret)) {
@@ -122,6 +129,11 @@ export function createGatewayRouter(
         params.push(backendName);
       }
 
+      if (typeof registerAsBackend === 'boolean') {
+        updates.push('register_as_backend = ?');
+        params.push(registerAsBackend ? 1 : 0);
+      }
+
       if (proxyUrl !== undefined) {
         updates.push('proxy_url = ?');
         params.push(proxyUrl);
@@ -151,6 +163,7 @@ export function createGatewayRouter(
       // Get updated config
       const row = db.prepare(`
         SELECT id, enabled, gateway_url, gateway_secret, backend_name, backend_id,
+               register_as_backend,
                proxy_url, proxy_username, proxy_password,
                created_at, updated_at
         FROM gateway_config
@@ -164,6 +177,7 @@ export function createGatewayRouter(
         gatewaySecret: row.gateway_secret,
         backendName: row.backend_name,
         backendId: row.backend_id,
+        registerAsBackend: row.register_as_backend === 1,
         proxyUrl: row.proxy_url,
         proxyUsername: row.proxy_username,
         proxyPassword: row.proxy_password,
@@ -220,6 +234,7 @@ export function createGatewayRouter(
     try {
       const row = db.prepare(`
         SELECT id, enabled, gateway_url, gateway_secret, backend_name, backend_id,
+               register_as_backend,
                proxy_url, proxy_username, proxy_password,
                created_at, updated_at
         FROM gateway_config
@@ -240,6 +255,7 @@ export function createGatewayRouter(
         gatewaySecret: row.gateway_secret,
         backendName: row.backend_name,
         backendId: row.backend_id,
+        registerAsBackend: row.register_as_backend === 1,
         proxyUrl: row.proxy_url,
         proxyUsername: row.proxy_username,
         proxyPassword: row.proxy_password,

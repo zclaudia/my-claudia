@@ -25,22 +25,12 @@ import { createGatewayRouter, type GatewayConfig, type GatewayStatus } from './r
 import { createServerRoutes } from './routes/servers.js';
 import { createImportRoutes } from './routes/import.js';
 import { runClaude, type PermissionDecision, type SystemInfo } from './providers/claude-sdk.js';
-import {
-  loadOrCreateApiKey,
-  regenerateApiKey,
-  getMaskedApiKey,
-  getFullApiKey,
-  validateApiKey,
-  getAuthConfigPath
-} from './auth.js';
+import { safeCompare } from './auth.js';
 
 // Phase 2: Router architecture (CRUD routes migrated to HTTP REST)
 import { createRouter } from './router/index.js';
 import { loggingMiddleware as routerLoggingMiddleware } from './middleware/logging.js';
 import { errorHandlingMiddleware as routerErrorMiddleware } from './middleware/error.js';
-
-// Load API key on startup
-const API_KEY = loadOrCreateApiKey();
 
 // Check if input is a slash command
 function isSlashCommand(input: string): boolean {
@@ -142,31 +132,7 @@ function isLocalhost(req: Request | IncomingMessage): boolean {
   return ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1';
 }
 
-// Authentication middleware for REST API
-// All connections require API Key authentication (including localhost)
-function authMiddleware(req: Request, res: Response, next: NextFunction): void {
-  const authHeader = req.headers.authorization;
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    res.status(401).json({
-      success: false,
-      error: { code: 'UNAUTHORIZED', message: 'Authentication required' }
-    });
-    return;
-  }
-
-  const token = authHeader.slice(7);
-  if (!validateApiKey(token)) {
-    res.status(401).json({
-      success: false,
-      error: { code: 'INVALID_API_KEY', message: 'Invalid API key' }
-    });
-    return;
-  }
-
-  next();
-}
-
-// Local-only middleware (for API key management endpoints)
+// Local-only middleware (for admin endpoints like import, gateway config)
 function localOnlyMiddleware(req: Request, res: Response, next: NextFunction): void {
   if (!isLocalhost(req)) {
     res.status(403).json({
@@ -215,6 +181,7 @@ export interface ServerContext {
   connectGateway: (config: GatewayConfig) => Promise<void>;
   disconnectGateway: () => Promise<void>;
   updateGatewayBackendId: (backendId: string | null) => void;
+  updateDiscoveredBackends: (backends: import('@my-claudia/shared').GatewayBackendInfo[]) => void;
   setGatewayConnector: (connector: (config: GatewayConfig) => Promise<void>) => void;
   setGatewayDisconnector: (disconnector: () => Promise<void>) => void;
 }
@@ -241,58 +208,14 @@ export async function createServer(): Promise<ServerContext> {
     res.json({ status: 'ok', timestamp: Date.now() });
   });
 
-  // Authentication endpoints (some are local-only)
-
   // Get server info (public - no auth required)
-  // Returns whether this connection is from localhost (used by client to determine UI features)
   app.get('/api/server/info', (req: Request, res: Response) => {
     const isLocal = isLocalhost(req);
     res.json({
       success: true,
       data: {
         version: '1.0.0',
-        requiresAuth: !isLocal,
-        isLocalConnection: isLocal  // Backend determines if client is connecting locally
-      }
-    });
-  });
-
-  // Verify API key (requires auth)
-  app.post('/api/auth/verify', authMiddleware, (_req: Request, res: Response) => {
-    res.json({ success: true });
-  });
-
-  // Get API key info (local only)
-  app.get('/api/auth/key', localOnlyMiddleware, (_req: Request, res: Response) => {
-    res.json({
-      success: true,
-      data: {
-        maskedKey: getMaskedApiKey(),
-        fullKey: getFullApiKey(),
-        configPath: getAuthConfigPath()
-      }
-    });
-  });
-
-  // Regenerate API key (local only)
-  app.post('/api/auth/key/regenerate', localOnlyMiddleware, (_req: Request, res: Response) => {
-    const newKey = regenerateApiKey();
-
-    // Disconnect all remote (non-local) clients
-    clients.forEach((client, id) => {
-      if (!client.isLocal) {
-        client.ws.close(4001, 'API Key rotated');
-        clients.delete(id);
-      }
-    });
-
-    res.json({
-      success: true,
-      data: {
-        maskedKey: getMaskedApiKey(),
-        fullKey: newKey,
-        configPath: getAuthConfigPath(),
-        message: 'API Key regenerated. All remote connections have been disconnected.'
+        isLocalConnection: isLocal
       }
     });
   });
@@ -303,7 +226,10 @@ export async function createServer(): Promise<ServerContext> {
     connected: false,
     backendId: null,
     gatewayUrl: null,
-    backendName: null
+    gatewaySecret: null,
+    backendName: null,
+    registerAsBackend: true,
+    discoveredBackends: []
   };
 
   // Gateway connector functions (to be implemented when gateway client support is added)
@@ -332,6 +258,33 @@ export async function createServer(): Promise<ServerContext> {
         UPDATE gateway_config SET backend_id = ?, updated_at = ? WHERE id = 1
       `).run(backendId, Date.now());
     }
+  };
+
+  // Authentication middleware for REST API
+  // Local requests are always allowed. Remote requests require gateway secret.
+  const authMiddleware = (req: Request, res: Response, next: NextFunction): void => {
+    // Local connections are always trusted
+    if (isLocalhost(req)) {
+      next();
+      return;
+    }
+
+    // Remote connections: require gateway secret as Bearer token
+    const authHeader = req.headers.authorization;
+    if (authHeader?.startsWith('Bearer ') && gatewayStatus.gatewaySecret) {
+      const token = authHeader.slice(7);
+      // Support both plain gatewaySecret and legacy gatewaySecret:apiKey format
+      const secretPart = token.includes(':') ? token.split(':')[0] : token;
+      if (safeCompare(secretPart, gatewayStatus.gatewaySecret)) {
+        next();
+        return;
+      }
+    }
+
+    res.status(401).json({
+      success: false,
+      error: { code: 'UNAUTHORIZED', message: 'Authentication required' }
+    });
   };
 
   // API routes (protected by auth middleware)
@@ -384,13 +337,12 @@ export async function createServer(): Promise<ServerContext> {
   wss.on('connection', (ws: WebSocket, req: IncomingMessage) => {
     const clientId = uuidv4();
     const clientIsLocal = isLocalhost(req);
-    // All connections require authentication via API Key
     const client: ConnectedClient = {
       id: clientId,
       ws,
       isAlive: true,
       isLocal: clientIsLocal,
-      authenticated: false  // All clients must authenticate with API Key
+      authenticated: false
     };
     clients.set(clientId, client);
 
@@ -411,25 +363,15 @@ export async function createServer(): Promise<ServerContext> {
         // Handle auth message for unauthenticated clients
         if (!client.authenticated) {
           if (message.type === 'auth') {
-            // Local clients always authenticate successfully (bypass API key validation)
-            // Remote clients must provide valid API key
-            if (client.isLocal || validateApiKey(message.apiKey)) {
-              client.authenticated = true;
-              console.log(`Client ${clientId} authenticated successfully (isLocal: ${client.isLocal})`);
-              sendMessage(ws, {
-                type: 'auth_result',
-                success: true,
-                isLocalConnection: client.isLocal
-              } as AuthResultMessage);
-            } else {
-              console.log(`Client ${clientId} authentication failed: invalid API key`);
-              sendMessage(ws, {
-                type: 'auth_result',
-                success: false,
-                error: 'Invalid API key'
-              } as AuthResultMessage);
-              ws.close(4001, 'Authentication failed');
-            }
+            // All direct WebSocket clients are trusted (local connections)
+            // Remote access is handled via gateway, not direct WebSocket
+            client.authenticated = true;
+            console.log(`Client ${clientId} authenticated (isLocal: ${client.isLocal})`);
+            sendMessage(ws, {
+              type: 'auth_result',
+              success: true,
+              isLocalConnection: client.isLocal
+            } as AuthResultMessage);
             return;
           }
 
@@ -533,7 +475,10 @@ export async function createServer(): Promise<ServerContext> {
         connected: false,
         backendId: null,
         gatewayUrl: config.gatewayUrl,
-        backendName: config.backendName
+        gatewaySecret: config.gatewaySecret,
+        backendName: config.backendName,
+        registerAsBackend: config.registerAsBackend !== false,
+        discoveredBackends: []
       };
       await gatewayConnector(config);
     },
@@ -544,7 +489,10 @@ export async function createServer(): Promise<ServerContext> {
         connected: false,
         backendId: null,
         gatewayUrl: null,
-        backendName: null
+        gatewaySecret: null,
+        backendName: null,
+        registerAsBackend: true,
+        discoveredBackends: []
       };
     },
     updateGatewayBackendId: (backendId: string | null) => {
@@ -555,6 +503,9 @@ export async function createServer(): Promise<ServerContext> {
           UPDATE gateway_config SET backend_id = ?, updated_at = ? WHERE id = 1
         `).run(backendId, Date.now());
       }
+    },
+    updateDiscoveredBackends: (backends: import('@my-claudia/shared').GatewayBackendInfo[]) => {
+      gatewayStatus.discoveredBackends = backends;
     }
   };
 }

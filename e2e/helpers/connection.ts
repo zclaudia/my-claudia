@@ -77,9 +77,6 @@ export async function createModeConfig(browser: BrowserAdapter, mode: ModeConfig
     const backendIdInput = browser.locator('input[placeholder*="Backend ID"]');
     await backendIdInput.fill(mode.backendId || '');
 
-    const backendApiKeyInput = browser.locator('input[placeholder*="Backend API Key"]').first();
-    await backendApiKeyInput.fill(mode.apiKey || '');
-
     if (mode.proxyUrl) {
       const proxyUrlInput = browser.locator('input[placeholder*="Proxy URL"]');
       await proxyUrlInput.fill(mode.proxyUrl);

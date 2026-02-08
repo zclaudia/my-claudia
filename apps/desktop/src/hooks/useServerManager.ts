@@ -18,7 +18,7 @@ export function useServerManager() {
   }, []);
 
   const addServer = useCallback(
-    async (server: Omit<BackendServer, 'id' | 'createdAt' | 'requiresAuth' | 'lastConnected'>) => {
+    async (server: Omit<BackendServer, 'id' | 'createdAt' | 'lastConnected'>) => {
       await api.createServer(server as any);
       await refreshServers();
     },

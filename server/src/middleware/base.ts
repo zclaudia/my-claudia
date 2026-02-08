@@ -10,7 +10,6 @@ export interface ConnectedClient {
   ws: any;  // WebSocket instance
   authenticated: boolean;
   isLocal: boolean;
-  apiKey?: string;
 }
 
 /**

@@ -72,7 +72,7 @@ export function createServerRoutes(db: Database.Database): Router {
   // Create server
   router.post('/', (req: Request, res: Response) => {
     try {
-      const { name, address, apiKey, clientId, isDefault, requiresAuth } = req.body;
+      const { name, address, clientId, isDefault } = req.body;
 
       if (!name || !address) {
         res.status(400).json({
@@ -101,10 +101,10 @@ export function createServerRoutes(db: Database.Database): Router {
         name,
         address,
         'direct',
-        apiKey || null,
+        null,  // api_key (deprecated)
         clientId || null,
         isDefault ? 1 : 0,
-        requiresAuth ? 1 : 0,
+        0,  // requires_auth (deprecated)
         now,
         now
       );
@@ -113,10 +113,8 @@ export function createServerRoutes(db: Database.Database): Router {
         id,
         name,
         address,
-        apiKey,
         clientId,
         isDefault: isDefault || false,
-        requiresAuth: requiresAuth || false,
         createdAt: now
       };
 
@@ -133,7 +131,7 @@ export function createServerRoutes(db: Database.Database): Router {
   // Update server
   router.put('/:id', (req: Request, res: Response) => {
     try {
-      const { name, address, apiKey, clientId, isDefault, requiresAuth, lastConnected } = req.body;
+      const { name, address, clientId, isDefault, lastConnected } = req.body;
       const now = Date.now();
 
       // If this server is set as default, unset other defaults
@@ -147,10 +145,8 @@ export function createServerRoutes(db: Database.Database): Router {
 
       if (name !== undefined) { updates.push('name = ?'); values.push(name); }
       if (address !== undefined) { updates.push('address = ?'); values.push(address); }
-      if (apiKey !== undefined) { updates.push('api_key = ?'); values.push(apiKey || null); }
       if (clientId !== undefined) { updates.push('client_id = ?'); values.push(clientId || null); }
       if (isDefault !== undefined) { updates.push('is_default = ?'); values.push(isDefault ? 1 : 0); }
-      if (requiresAuth !== undefined) { updates.push('requires_auth = ?'); values.push(requiresAuth ? 1 : 0); }
       if (lastConnected !== undefined) { updates.push('last_connected = ?'); values.push(lastConnected); }
 
       updates.push('updated_at = ?');

@@ -15,6 +15,7 @@ import { useProjectStore } from '../stores/projectStore';
 import { usePermissionStore } from '../stores/permissionStore';
 import { GatewayTransport } from './transport/GatewayTransport';
 import { toGatewayServerId, isGatewayTarget, parseBackendId } from '../stores/gatewayStore';
+import { getServerGatewayStatus } from '../services/api';
 
 const RECONNECT_INTERVAL = 3000;
 const MAX_RECONNECT_ATTEMPTS = 10;
@@ -29,7 +30,6 @@ export function useGatewayConnection() {
   const {
     gatewayUrl,
     gatewaySecret,
-    backendApiKeys,
     setConnected,
     setDiscoveredBackends,
     setBackendAuthStatus
@@ -65,6 +65,36 @@ export function useGatewayConnection() {
   useEffect(() => {
     selectedSessionIdRef.current = selectedSessionId;
   }, [selectedSessionId]);
+
+  // Poll server gateway status and sync to store
+  useEffect(() => {
+    let mounted = true;
+
+    const syncFromServer = async () => {
+      try {
+        const status = await getServerGatewayStatus();
+        if (!mounted) return;
+        // Sync as soon as gateway is enabled with URL/secret configured,
+        // don't wait for connected=true (that requires async gateway handshake)
+        if (status.enabled && status.gatewayUrl && status.gatewaySecret) {
+          useGatewayStore.getState().syncFromServer(
+            status.gatewayUrl,
+            status.gatewaySecret,
+            status.discoveredBackends
+          );
+        } else {
+          useGatewayStore.getState().syncFromServer(null, null, []);
+        }
+      } catch {
+        // Server not reachable, skip
+      }
+    };
+
+    syncFromServer();
+    const interval = setInterval(syncFromServer, 10000);
+
+    return () => { mounted = false; clearInterval(interval); };
+  }, []);
 
   /**
    * Handle a backend message (same logic as useMultiServerSocket's message handler)
@@ -242,17 +272,8 @@ export function useGatewayConnection() {
           const serverId = toGatewayServerId(backendId);
           setServerConnectionStatus(serverId, 'connected');
           setServerLocalConnection(serverId, false);
-
-          // After auth, send an auth message to the backend through the gateway
-          // This authenticates the client with the backend's own auth system
-          const apiKey = useGatewayStore.getState().backendApiKeys[backendId];
-          if (apiKey && transport) {
-            const authMsg: ClientMessage = {
-              type: 'auth',
-              apiKey
-            };
-            transport.sendToBackend(backendId, authMsg);
-          }
+          reconnectAttemptRef.current = 0;
+          updateLastConnected(serverId);
         } else {
           const serverId = toGatewayServerId(backendId);
           setServerConnectionStatus(serverId, 'error', error);
@@ -348,14 +369,11 @@ export function useGatewayConnection() {
     // Already authenticated
     if (transportRef.current.isBackendAuthenticated(backendId)) return;
 
-    const apiKey = backendApiKeys[backendId];
-    if (apiKey) {
-      console.log(`[GatewayConn] Auto-authenticating backend: ${backendId}`);
-      setBackendAuthStatus(backendId, 'pending');
-      setServerConnectionStatus(activeServerId, 'connecting');
-      transportRef.current.authenticateBackend(backendId, apiKey);
-    }
-  }, [activeServerId, backendApiKeys, setBackendAuthStatus, setServerConnectionStatus]);
+    console.log(`[GatewayConn] Auto-authenticating backend: ${backendId}`);
+    setBackendAuthStatus(backendId, 'pending');
+    setServerConnectionStatus(activeServerId, 'connecting');
+    transportRef.current.authenticateBackend(backendId);
+  }, [activeServerId, setBackendAuthStatus, setServerConnectionStatus]);
 
   // Heartbeat for the gateway connection
   useEffect(() => {
@@ -377,14 +395,8 @@ export function useGatewayConnection() {
       return;
     }
 
-    const apiKey = useGatewayStore.getState().backendApiKeys[backendId];
-    if (!apiKey) {
-      console.error('[GatewayConn] No API key stored for backend:', backendId);
-      return;
-    }
-
     setBackendAuthStatus(backendId, 'pending');
-    transport.authenticateBackend(backendId, apiKey);
+    transport.authenticateBackend(backendId);
   }, [setBackendAuthStatus]);
 
   const sendToBackend = useCallback((backendId: string, message: ClientMessage) => {

@@ -32,8 +32,6 @@ export class ServerRepository extends BaseRepository<
       isDefault: row.is_default === 1,
       lastConnected: row.last_connected,
       createdAt: row.created_at,
-      requiresAuth: row.requires_auth === 1,
-      apiKey: row.api_key,
       clientId: row.client_id,
       connectionMode: row.connection_mode
     };
@@ -59,10 +57,10 @@ export class ServerRepository extends BaseRepository<
         data.name,
         data.address,
         data.connectionMode || 'direct',
-        data.apiKey || null,
+        null,  // api_key (deprecated)
         data.clientId || null,
         data.isDefault ? 1 : 0,
-        data.requiresAuth ? 1 : 0,
+        0,  // requires_auth (deprecated)
         now,
         now,
         data.lastConnected || null
@@ -90,10 +88,6 @@ export class ServerRepository extends BaseRepository<
       updates.push('connection_mode = ?');
       params.push(data.connectionMode);
     }
-    if (data.apiKey !== undefined) {
-      updates.push('api_key = ?');
-      params.push(data.apiKey);
-    }
     if (data.clientId !== undefined) {
       updates.push('client_id = ?');
       params.push(data.clientId);
@@ -101,10 +95,6 @@ export class ServerRepository extends BaseRepository<
     if (data.isDefault !== undefined) {
       updates.push('is_default = ?');
       params.push(data.isDefault ? 1 : 0);
-    }
-    if (data.requiresAuth !== undefined) {
-      updates.push('requires_auth = ?');
-      params.push(data.requiresAuth ? 1 : 0);
     }
     if (data.lastConnected !== undefined) {
       updates.push('last_connected = ?');

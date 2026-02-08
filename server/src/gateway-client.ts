@@ -14,10 +14,11 @@ import type {
   GatewayClientDisconnectedMessage,
   GatewayHttpProxyRequest,
   GatewayHttpProxyResponse,
+  GatewayBackendsListMessage,
+  GatewayBackendInfo,
   ClientMessage,
   ServerMessage
 } from '@my-claudia/shared';
-import { validateApiKey } from './auth.js';
 
 // Config storage path
 const CONFIG_DIR = path.join(os.homedir(), '.my-claudia');
@@ -33,6 +34,7 @@ interface GatewayClientConfig {
   gatewaySecret: string;
   name?: string;
   serverPort?: number;  // Local server port for HTTP proxy requests
+  visible?: boolean;    // Whether to register as visible backend (default true)
   proxyUrl?: string;
   proxyAuth?: {
     username: string;
@@ -90,6 +92,8 @@ export class GatewayClient {
 
   // Track authenticated clients (client auth is verified by backend)
   private authenticatedClients = new Set<string>();
+  // Discovered backends from gateway
+  private discoveredBackends: GatewayBackendInfo[] = [];
   // Flag to prevent reconnection after intentional disconnect
   private intentionalDisconnect = false;
 
@@ -175,6 +179,7 @@ export class GatewayClient {
       console.log('[Gateway] Disconnected');
       this.isConnected = false;
       this.backendId = null;
+      this.discoveredBackends = [];
       this.scheduleReconnect();
     });
 
@@ -199,6 +204,7 @@ export class GatewayClient {
     }
     this.isConnected = false;
     this.backendId = null;
+    this.discoveredBackends = [];
   }
 
   /**
@@ -227,6 +233,13 @@ export class GatewayClient {
   }
 
   /**
+   * Get discovered backends from gateway
+   */
+  getDiscoveredBackends(): GatewayBackendInfo[] {
+    return this.discoveredBackends;
+  }
+
+  /**
    * Check if connected to Gateway
    */
   isGatewayConnected(): boolean {
@@ -240,7 +253,8 @@ export class GatewayClient {
       type: 'register',
       gatewaySecret: this.config.gatewaySecret,
       deviceId: this.deviceId,
-      name: this.config.name
+      name: this.config.name,
+      visible: this.config.visible !== false
     };
 
     this.ws.send(JSON.stringify(registerMessage));
@@ -259,6 +273,13 @@ export class GatewayClient {
           this.ws?.close();
         }
         break;
+
+      case 'backends_list': {
+        const backendsMsg = message as GatewayBackendsListMessage;
+        this.discoveredBackends = backendsMsg.backends;
+        console.log(`[Gateway] Discovered backends: ${backendsMsg.backends.length}`);
+        break;
+      }
 
       case 'client_connected':
         this.handleClientConnected(message as GatewayClientConnectedMessage);
@@ -332,22 +353,14 @@ export class GatewayClient {
   private handleClientAuth(message: GatewayClientAuthMessage): void {
     console.log(`[Gateway] Client auth request: ${message.clientId}`);
 
-    // Validate the API key
-    const isValid = validateApiKey(message.apiKey);
+    // Trust clients from gateway — no per-backend API key validation
+    this.authenticatedClients.add(message.clientId);
+    console.log(`[Gateway] Client ${message.clientId} authenticated (trusted via gateway)`);
 
-    if (isValid) {
-      this.authenticatedClients.add(message.clientId);
-      console.log(`[Gateway] Client ${message.clientId} authenticated successfully`);
-    } else {
-      console.log(`[Gateway] Client ${message.clientId} authentication failed`);
-    }
-
-    // Send auth result back to Gateway
     const response: BackendToGatewayMessage = {
       type: 'client_auth_result',
       clientId: message.clientId,
-      success: isValid,
-      error: isValid ? undefined : 'Invalid API key'
+      success: true
     };
 
     this.ws?.send(JSON.stringify(response));

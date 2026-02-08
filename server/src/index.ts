@@ -26,6 +26,7 @@ function loadGatewayConfig(): GatewayConfig | null {
     const db = initDatabase();
     const row = db.prepare(`
       SELECT id, enabled, gateway_url, gateway_secret, backend_name, backend_id,
+             register_as_backend,
              proxy_url, proxy_username, proxy_password,
              created_at, updated_at
       FROM gateway_config
@@ -41,6 +42,7 @@ function loadGatewayConfig(): GatewayConfig | null {
       gatewaySecret: row.gateway_secret,
       backendName: row.backend_name,
       backendId: row.backend_id,
+      registerAsBackend: row.register_as_backend === 1,
       proxyUrl: row.proxy_url,
       proxyUsername: row.proxy_username,
       proxyPassword: row.proxy_password,
@@ -75,7 +77,8 @@ async function connectToGateway(config: GatewayConfig): Promise<void> {
     gatewayUrl: config.gatewayUrl,
     gatewaySecret: config.gatewaySecret,
     name: config.backendName || `Backend on ${os.hostname()}`,
-    serverPort: PORT
+    serverPort: PORT,
+    visible: config.registerAsBackend !== false
   };
 
   // Add proxy configuration if provided
@@ -123,29 +126,36 @@ async function connectToGateway(config: GatewayConfig): Promise<void> {
 
   gatewayClient.connect();
 
-  // Update backend ID when registered
-  const checkBackendId = setInterval(() => {
-    const backendId = gatewayClient?.getBackendId();
-    if (backendId && serverContext) {
-      serverContext.updateGatewayBackendId(backendId);
-      console.log(`[Gateway] Backend ID updated: ${backendId}`);
-      clearInterval(checkBackendId);
+  // Sync gateway status periodically (backendId + discoveredBackends)
+  const syncGatewayStatus = setInterval(() => {
+    if (gatewayClient && serverContext) {
+      const backendId = gatewayClient.getBackendId();
+      if (backendId) {
+        serverContext.updateGatewayBackendId(backendId);
+      }
+      serverContext.updateDiscoveredBackends(gatewayClient.getDiscoveredBackends());
     }
-  }, 1000);
+  }, 2000);
 
-  // Stop checking after 30 seconds
-  setTimeout(() => clearInterval(checkBackendId), 30000);
+  // Store interval reference for cleanup on disconnect
+  (gatewayClient as any)._syncInterval = syncGatewayStatus;
 }
 
 // Disconnect from Gateway
 async function disconnectFromGateway(): Promise<void> {
   if (gatewayClient) {
     console.log('📡 Disconnecting from Gateway...');
+    // Clear sync interval
+    const syncInterval = (gatewayClient as any)._syncInterval;
+    if (syncInterval) {
+      clearInterval(syncInterval);
+    }
     gatewayClient.disconnect();
     gatewayClient = null;
     virtualClients.clear();
     if (serverContext) {
       serverContext.updateGatewayBackendId(null);
+      serverContext.updateDiscoveredBackends([]);
     }
   }
 }
@@ -166,13 +176,14 @@ async function main() {
       // Priority 1: Environment variables (for backward compatibility)
       if (GATEWAY_URL && GATEWAY_SECRET) {
         console.log(`\n🌐 Gateway connection from environment variables`);
-        await connectToGateway({
+        await connectGateway({
           id: 1,
           enabled: true,
           gatewayUrl: GATEWAY_URL,
           gatewaySecret: GATEWAY_SECRET,
           backendName: GATEWAY_NAME,
           backendId: null,
+          registerAsBackend: true,
           createdAt: Date.now(),
           updatedAt: Date.now()
         });
@@ -182,7 +193,7 @@ async function main() {
         const dbConfig = loadGatewayConfig();
         if (dbConfig && dbConfig.enabled && dbConfig.gatewayUrl && dbConfig.gatewaySecret) {
           console.log(`\n🌐 Gateway connection from database configuration`);
-          await connectToGateway(dbConfig);
+          await connectGateway(dbConfig);
         }
       }
     });

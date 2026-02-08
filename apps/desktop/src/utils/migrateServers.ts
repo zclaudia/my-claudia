@@ -5,7 +5,7 @@ import type { BackendServer } from '@my-claudia/shared';
  * from localStorage to database
  */
 export async function migrateServersFromLocalStorage(
-  addServer: (server: Omit<BackendServer, 'id' | 'createdAt' | 'requiresAuth' | 'lastConnected'>) => void
+  addServer: (server: Omit<BackendServer, 'id' | 'createdAt' | 'lastConnected'>) => void
 ): Promise<number> {
   const OLD_STORAGE_KEY = 'my-claudia-servers';
 
@@ -40,7 +40,7 @@ export async function migrateServersFromLocalStorage(
 
     // Migrate each server
     for (const server of serversToMigrate) {
-      const { id, createdAt, requiresAuth, lastConnected, ...serverData } = server;
+      const { id, createdAt, lastConnected, ...serverData } = server;
 
       // Ensure required fields exist
       const validatedData = {

@@ -14,7 +14,6 @@ import { useServerStore } from '../stores/serverStore';
 import { usePermissionStore } from '../stores/permissionStore';
 import { DirectTransport } from './transport/DirectTransport';
 import type { Transport } from './transport/BaseTransport';
-import { getApiKeyInfo } from '../services/api';
 import { useGatewayConnection } from './useGatewayConnection';
 import { isGatewayTarget, parseBackendId } from '../stores/gatewayStore';
 
@@ -60,8 +59,7 @@ export function useMultiServerSocket() {
     activeServerId,
     setServerConnectionStatus,
     setServerLocalConnection,
-    updateLastConnected,
-    setApiKey
+    updateLastConnected
   } = useServerStore();
 
   const { setPendingRequest } = usePermissionStore();
@@ -100,17 +98,6 @@ export function useMultiServerSocket() {
               state.reconnectAttempts = 0;
             }
             updateLastConnected(serverId);
-            // Fetch and store API key for local connections
-            const server = servers.find(s => s.id === serverId);
-            if (message.isLocalConnection && server && !server.apiKey) {
-              getApiKeyInfo().then(keyInfo => {
-                if (keyInfo.fullKey) {
-                  setApiKey(serverId, keyInfo.fullKey);
-                }
-              }).catch(err => {
-                console.error(`[Socket:${serverId}] Failed to fetch API key:`, err);
-              });
-            }
           } else {
             console.error(`[Socket:${serverId}] Authentication failed:`, message.error);
             setServerConnectionStatus(serverId, 'error', message.error);
@@ -222,8 +209,7 @@ export function useMultiServerSocket() {
     addSessionUsage,
     setServerConnectionStatus,
     setServerLocalConnection,
-    updateLastConnected,
-    setApiKey
+    updateLastConnected
   ]);
 
   /**
@@ -241,8 +227,7 @@ export function useMultiServerSocket() {
 
         // Send authentication message
         const authMessage: ClientMessage = {
-          type: 'auth',
-          apiKey: server.apiKey || ''
+          type: 'auth'
         };
 
         const state = transportsRef.current.get(server.id);

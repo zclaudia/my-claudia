@@ -153,8 +153,7 @@ async function testMiddleware() {
       id: 'test-client',
       ws: null,
       authenticated,
-      isLocal,
-      apiKey: authenticated ? 'test-key' : undefined
+      isLocal
     },
     request: createRequest('test.request', { test: 'data' }),
     db,

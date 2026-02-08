@@ -6,7 +6,7 @@ import { errorResponse } from './base.js';
  *
  * Verifies that the client is authenticated before allowing the request to proceed.
  * Local clients (connected directly to the server) are automatically allowed.
- * Remote clients must have a valid API key.
+ * Remote clients must be authenticated (e.g., via gateway).
  *
  * Benefits:
  * - Single source of truth for authentication check

@@ -20,6 +20,7 @@ export function ServerGatewayConfig() {
   const [gatewayUrl, setGatewayUrl] = useState('');
   const [gatewaySecret, setGatewaySecret] = useState('');
   const [backendName, setBackendName] = useState('');
+  const [registerAsBackend, setRegisterAsBackend] = useState(true);
   const [proxyUrl, setProxyUrl] = useState('');
   const [proxyUsername, setProxyUsername] = useState('');
   const [proxyPassword, setProxyPassword] = useState('');
@@ -52,6 +53,7 @@ export function ServerGatewayConfig() {
       setEnabled(configData.enabled);
       setGatewayUrl(configData.gatewayUrl || '');
       setBackendName(configData.backendName || '');
+      setRegisterAsBackend(configData.registerAsBackend !== false);
       setProxyUrl(configData.proxyUrl || '');
       setProxyUsername(configData.proxyUsername || '');
       // Don't set secrets from API (they're masked)
@@ -81,7 +83,8 @@ export function ServerGatewayConfig() {
       const updates: any = {
         enabled,
         gatewayUrl: gatewayUrl.trim(),
-        backendName: backendName.trim()
+        backendName: backendName.trim(),
+        registerAsBackend
       };
 
       // Only include secret if it's been changed
@@ -159,10 +162,10 @@ export function ServerGatewayConfig() {
     <div className="p-4 space-y-4">
       <div>
         <h3 className="text-lg font-semibold mb-2 text-foreground">
-          Server Gateway Configuration
+          Gateway Configuration
         </h3>
         <p className="text-sm text-muted-foreground mb-4">
-          Connect your backend server to a Gateway to enable remote access from mobile devices.
+          Connect your server to a Gateway for remote access and to discover other backends.
         </p>
       </div>
 
@@ -198,6 +201,24 @@ export function ServerGatewayConfig() {
         </div>
       )}
 
+      {/* Discovered Backends */}
+      {status?.connected && status.discoveredBackends && status.discoveredBackends.length > 0 && (
+        <div className="bg-muted rounded-lg p-3 space-y-2">
+          <h4 className="text-sm font-semibold text-foreground">
+            Discovered Backends ({status.discoveredBackends.length})
+          </h4>
+          {status.discoveredBackends.map((b) => (
+            <div key={b.backendId} className="flex items-center justify-between text-sm">
+              <div className="flex items-center gap-2">
+                <span className={`w-1.5 h-1.5 rounded-full ${b.online ? 'bg-success' : 'bg-muted-foreground'}`} />
+                <span className="text-foreground">{b.name}</span>
+              </div>
+              <span className="text-xs text-muted-foreground font-mono">{b.backendId}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
       {/* Enable/Disable Toggle */}
       <div className="flex items-center justify-between">
         <label className="text-sm font-medium text-foreground">
@@ -213,6 +234,32 @@ export function ServerGatewayConfig() {
           <span
             className={`inline-block h-4 w-4 transform rounded-full bg-background transition-transform ${
               enabled ? 'translate-x-6' : 'translate-x-1'
+            }`}
+          />
+        </button>
+      </div>
+
+      {/* Register as Backend Toggle */}
+      <div className="flex items-center justify-between">
+        <div>
+          <label className="text-sm font-medium text-foreground">
+            Register as Backend
+          </label>
+          <p className="text-xs text-muted-foreground">
+            Make this server available for other clients through the gateway
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => setRegisterAsBackend(!registerAsBackend)}
+          disabled={!enabled}
+          className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+            registerAsBackend ? 'bg-primary' : 'bg-muted'
+          } disabled:opacity-50`}
+        >
+          <span
+            className={`inline-block h-4 w-4 transform rounded-full bg-background transition-transform ${
+              registerAsBackend ? 'translate-x-6' : 'translate-x-1'
             }`}
           />
         </button>
@@ -300,8 +347,8 @@ export function ServerGatewayConfig() {
                 data-testid="proxy-url-input"
                 className="w-full px-3 py-2 border border-border rounded-lg
                          bg-input text-foreground
-                         placeholder-gray-400 dark:placeholder-gray-500
-                         focus:ring-2 focus:ring-blue-500 focus:border-transparent
+                         placeholder:text-muted-foreground
+                         focus:ring-2 focus:ring-primary focus:border-transparent
                          disabled:opacity-50 disabled:cursor-not-allowed"
               />
               <p className="text-xs text-muted-foreground mt-1">
@@ -324,8 +371,8 @@ export function ServerGatewayConfig() {
                     data-testid="proxy-username-input"
                     className="w-full px-3 py-2 border border-border rounded-lg
                              bg-input text-foreground
-                             placeholder-gray-400 dark:placeholder-gray-500
-                             focus:ring-2 focus:ring-blue-500 focus:border-transparent
+                             placeholder:text-muted-foreground
+                             focus:ring-2 focus:ring-primary focus:border-transparent
                              disabled:opacity-50 disabled:cursor-not-allowed"
                   />
                 </div>
@@ -343,8 +390,8 @@ export function ServerGatewayConfig() {
                     data-testid="proxy-password-input"
                     className="w-full px-3 py-2 border border-border rounded-lg
                              bg-input text-foreground
-                             placeholder-gray-400 dark:placeholder-gray-500
-                             focus:ring-2 focus:ring-blue-500 focus:border-transparent
+                             placeholder:text-muted-foreground
+                             focus:ring-2 focus:ring-primary focus:border-transparent
                              disabled:opacity-50 disabled:cursor-not-allowed"
                   />
                   <p className="text-xs text-muted-foreground mt-1">

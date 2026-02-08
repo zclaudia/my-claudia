@@ -17,9 +17,6 @@ export interface BackendServer {
   isDefault: boolean;
   lastConnected?: number; // 上次连接时间
   createdAt: number;
-  // Authentication fields
-  requiresAuth?: boolean; // Whether this server requires authentication (false for localhost)
-  apiKey?: string;        // Stored API key for remote servers
   clientId?: string;      // Optional client ID for multi-backend direct connections
   // Legacy fields (kept for backward compatibility with existing DB entries)
   connectionMode?: 'direct' | 'gateway';
@@ -113,6 +110,11 @@ export const LOCAL_COMMANDS: SlashCommand[] = [
   { command: '/clear', description: 'Clear chat history', source: 'local' },
   { command: '/help', description: 'Show help information', source: 'local' },
   { command: '/model', description: 'Show current model/provider info', source: 'local' },
+  { command: '/status', description: 'Show system status', source: 'local' },
+  { command: '/cost', description: 'Show token usage', source: 'local' },
+  { command: '/memory', description: 'Show CLAUDE.md info', source: 'local' },
+  { command: '/config', description: 'Open settings', source: 'local' },
+  { command: '/new-session', description: 'Create new session', source: 'local' },
 ];
 
 // CLI pass-through commands (sent directly to Claude SDK)
@@ -259,10 +261,9 @@ export type ClientMessage =
   | GetSessionMessagesMessage
   | GetProviderCommandsMessage;
 
-// Authentication message (sent after WebSocket connection for remote servers)
+// Authentication message (sent after WebSocket connection)
 export interface AuthMessage {
   type: 'auth';
-  apiKey: string;
 }
 
 // Permission modes supported by Claude SDK
@@ -729,23 +730,11 @@ export interface CommandExecuteResponse {
 }
 
 // ============================================
-// Authentication Types
+// Server Info Types
 // ============================================
-
-export interface ApiKeyInfo {
-  maskedKey: string;      // Partially hidden key for display (e.g., "mca_****xxxx")
-  fullKey: string;        // Full key (only available via local access)
-  configPath: string;     // Path to the auth config file
-}
-
-export interface ApiKeyRegenerateResponse extends ApiKeyInfo {
-  success: boolean;
-  message: string;
-}
 
 export interface ServerInfo {
   version: string;
-  requiresAuth: boolean;  // Whether this connection requires authentication
   isLocalConnection: boolean;  // Whether the client is connecting from localhost (determined by server)
 }
 
@@ -767,6 +756,7 @@ export interface GatewayRegisterMessage {
   gatewaySecret: string;
   deviceId: string;
   name?: string;
+  visible?: boolean;  // Default true. If false, connects to gateway but is not listed as available backend
 }
 
 export interface GatewayRegisterResultMessage {
@@ -780,7 +770,6 @@ export interface GatewayRegisterResultMessage {
 export interface GatewayClientAuthMessage {
   type: 'client_auth';
   clientId: string;
-  apiKey: string;
 }
 
 // Backend's response to client auth
@@ -841,7 +830,6 @@ export interface GatewayBackendsListMessage {
 export interface GatewayConnectBackendMessage {
   type: 'connect_backend';
   backendId: string;
-  apiKey: string;
 }
 
 export interface GatewayBackendAuthResultMessage {
@@ -902,6 +890,7 @@ export interface GatewayHttpProxyResponse {
 // Union types for Gateway messages
 export type GatewayToBackendMessage =
   | GatewayRegisterResultMessage
+  | GatewayBackendsListMessage
   | GatewayClientAuthMessage
   | GatewayForwardedMessage
   | GatewayClientConnectedMessage
@@ -939,6 +928,7 @@ export interface ServerGatewayConfig {
   gatewaySecret: string | null;
   backendName: string | null;
   backendId: string | null;
+  registerAsBackend?: boolean;
   proxyUrl?: string | null;
   proxyUsername?: string | null;
   proxyPassword?: string | null;
@@ -951,5 +941,8 @@ export interface ServerGatewayStatus {
   connected: boolean;
   backendId: string | null;
   gatewayUrl: string | null;
+  gatewaySecret: string | null;
   backendName: string | null;
+  registerAsBackend: boolean;
+  discoveredBackends: GatewayBackendInfo[];
 }

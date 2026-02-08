@@ -34,6 +34,7 @@ interface ConnectedBackend {
   name: string;         // Display name
   ws: WebSocket;
   isAlive: boolean;
+  visible: boolean;     // Whether this backend appears in backends_list for others
 }
 
 // Connected client
@@ -233,7 +234,7 @@ export function createGatewayServer(config: GatewayConfig): Server {
         return;
       }
 
-      // Parse authorization header: Bearer gatewaySecret:apiKey
+      // Parse authorization header: Bearer gatewaySecret
       const authHeader = req.headers.authorization;
       if (!authHeader || !authHeader.startsWith('Bearer ')) {
         res.status(401).json({
@@ -244,17 +245,9 @@ export function createGatewayServer(config: GatewayConfig): Server {
       }
 
       const token = authHeader.slice(7);
+      // Support both "Bearer secret" and legacy "Bearer secret:apiKey" format
       const colonIndex = token.indexOf(':');
-      if (colonIndex === -1) {
-        res.status(401).json({
-          success: false,
-          error: { code: 'UNAUTHORIZED', message: 'Invalid credentials' }
-        });
-        return;
-      }
-
-      const gatewaySecret = token.slice(0, colonIndex);
-      const apiKey = token.slice(colonIndex + 1);
+      const gatewaySecret = colonIndex !== -1 ? token.slice(0, colonIndex) : token;
 
       // Validate gateway secret (timing-safe)
       if (!safeCompare(gatewaySecret, config.gatewaySecret)) {
@@ -287,8 +280,7 @@ export function createGatewayServer(config: GatewayConfig): Server {
         method: req.method,
         path: targetPath,
         headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${apiKey}`
+          'Content-Type': 'application/json'
         },
         body: ['GET', 'HEAD'].includes(req.method) ? undefined : JSON.stringify(req.body)
       };
@@ -523,25 +515,31 @@ export function createGatewayServer(config: GatewayConfig): Server {
       backendConnections.delete(existingBackend.ws);
     }
 
+    const visible = message.visible !== false; // Default true
+
     const backend: ConnectedBackend = {
       id: uuidv4(),
       backendId,
       deviceId: message.deviceId,
       name,
       ws,
-      isAlive: true
+      isAlive: true,
+      visible
     };
 
     backends.set(backendId, backend);
     backendConnections.set(ws, backend);
 
-    console.log(`Backend registered: ${backendId} (${name})`);
+    console.log(`Backend registered: ${backendId} (${name})${visible ? '' : ' [hidden]'}`);
 
     sendToWs(ws, {
       type: 'register_result',
       success: true,
       backendId
     });
+
+    // Broadcast updated backends list to all connected backends
+    broadcastBackendsListToBackends();
 
     return backendId;
   }
@@ -615,6 +613,29 @@ export function createGatewayServer(config: GatewayConfig): Server {
     backendConnections.delete(backend.ws);
     backends.delete(backendId);
     backend.ws.terminate();
+
+    // Broadcast updated backends list to remaining backends
+    broadcastBackendsListToBackends();
+  }
+
+  /**
+   * Broadcast current backends list to all connected backends.
+   * Only visible backends are included in the list, but ALL backends receive it.
+   */
+  function broadcastBackendsListToBackends(): void {
+    const backendList: GatewayBackendInfo[] = [];
+    backends.forEach((backend) => {
+      if (backend.visible) {
+        backendList.push({
+          backendId: backend.backendId,
+          name: backend.name,
+          online: true
+        });
+      }
+    });
+    backends.forEach((backend) => {
+      sendToWs(backend.ws, { type: 'backends_list', backends: backendList });
+    });
   }
 
   // --- Client handlers ---
@@ -663,11 +684,13 @@ export function createGatewayServer(config: GatewayConfig): Server {
       case 'list_backends': {
         const backendList: GatewayBackendInfo[] = [];
         backends.forEach((backend) => {
-          backendList.push({
-            backendId: backend.backendId,
-            name: backend.name,
-            online: true
-          });
+          if (backend.visible) {
+            backendList.push({
+              backendId: backend.backendId,
+              name: backend.name,
+              online: true
+            });
+          }
         });
         sendToWs(client.ws, {
           type: 'backends_list',
@@ -696,11 +719,10 @@ export function createGatewayServer(config: GatewayConfig): Server {
           clientId
         });
 
-        // Forward auth request to backend
+        // Forward auth request to backend (no apiKey — backend trusts gateway)
         sendToWs(backend.ws, {
           type: 'client_auth',
-          clientId,
-          apiKey: connectMsg.apiKey
+          clientId
         });
         break;
       }

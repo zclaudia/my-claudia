@@ -110,9 +110,6 @@ export function ImportDialog({ isOpen, onClose }: ImportDialogProps) {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          ...(server?.apiKey && {
-            'Authorization': `Bearer ${server.clientId ? `${server.clientId}:${server.apiKey}` : server.apiKey}`
-          })
         },
         body: JSON.stringify({ claudeCliPath: path })
       });
@@ -174,9 +171,6 @@ export function ImportDialog({ isOpen, onClose }: ImportDialogProps) {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          ...(server?.apiKey && {
-            'Authorization': `Bearer ${server.clientId ? `${server.clientId}:${server.apiKey}` : server.apiKey}`
-          })
         },
         body: JSON.stringify({
           claudeCliPath,

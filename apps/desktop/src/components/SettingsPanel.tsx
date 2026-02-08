@@ -1,12 +1,13 @@
 import { useState } from 'react';
 import { useServerStore } from '../stores/serverStore';
+import { useGatewayStore, toGatewayServerId } from '../stores/gatewayStore';
+import { useUIStore, type FontSizePreset } from '../stores/uiStore';
 import { ProviderManager } from './ProviderManager';
 import { ThemeToggle } from './ThemeToggle';
-import { ApiKeyManager } from './ApiKeyManager';
 import { ServerGatewayConfig } from './ServerGatewayConfig';
 import { ImportDialog } from './ImportDialog';
 
-type SettingsTab = 'general' | 'servers' | 'import' | 'providers' | 'security' | 'gateway';
+type SettingsTab = 'general' | 'servers' | 'import' | 'providers' | 'gateway';
 
 interface SettingsPanelProps {
   isOpen: boolean;
@@ -71,15 +72,6 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
         </svg>
       )
     },
-    {
-      id: 'security',
-      label: 'Security',
-      icon: (
-        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
-        </svg>
-      )
-    }
   ];
 
   return (
@@ -125,14 +117,25 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
               <div className="space-y-6">
                 <div>
                   <h3 className="text-sm font-medium mb-3">Appearance</h3>
-                  <div className="flex items-center justify-between p-3 bg-secondary/50 rounded-lg">
-                    <div className="flex items-center gap-2">
-                      <svg className="w-4 h-4 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
-                      </svg>
-                      <span className="text-sm">Theme</span>
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between p-3 bg-secondary/50 rounded-lg">
+                      <div className="flex items-center gap-2">
+                        <svg className="w-4 h-4 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
+                        </svg>
+                        <span className="text-sm">Theme</span>
+                      </div>
+                      <ThemeToggle />
                     </div>
-                    <ThemeToggle />
+                    <div className="flex items-center justify-between p-3 bg-secondary/50 rounded-lg">
+                      <div className="flex items-center gap-2">
+                        <svg className="w-4 h-4 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h8m-8 6h16" />
+                        </svg>
+                        <span className="text-sm">Font Size</span>
+                      </div>
+                      <FontSizeToggle />
+                    </div>
                   </div>
                 </div>
 
@@ -163,9 +166,9 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
             {activeTab === 'servers' && (
               <div className="space-y-4">
                 <p className="text-sm text-muted-foreground">
-                  Manage your backend server connections. Use Client ID when connecting through a gateway that routes to multiple backends.
+                  View your backend server connections. Local server connects directly; gateway backends are discovered automatically.
                 </p>
-                <ServerListManager />
+                <ServerInfoPanel />
               </div>
             )}
 
@@ -214,27 +217,12 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
             )}
 
             {activeTab === 'gateway' && (
-              <div className="space-y-4">
+              <div className="space-y-6">
                 <ServerGatewayConfig />
               </div>
             )}
 
-            {activeTab === 'security' && (
-              <div className="space-y-4">
-                <p className="text-sm text-muted-foreground">
-                  Manage authentication for remote access to this server.
-                </p>
-                {isConnected ? (
-                  <ApiKeyManager />
-                ) : (
-                  <div className="p-4 bg-secondary/50 border border-border rounded-lg">
-                    <p className="text-sm text-muted-foreground">
-                      Connect to a server to view security settings.
-                    </p>
-                  </div>
-                )}
-              </div>
-            )}
+
           </div>
         </div>
       </div>
@@ -248,6 +236,28 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
   );
 }
 
+const FONT_SIZE_OPTIONS: { key: FontSizePreset; label: string }[] = [
+  { key: 'small', label: 'Small' },
+  { key: 'medium', label: 'Medium' },
+  { key: 'large', label: 'Large' },
+];
+
+function FontSizeToggle() {
+  const { fontSize, setFontSize } = useUIStore();
+
+  return (
+    <select
+      value={fontSize}
+      onChange={(e) => setFontSize(e.target.value as FontSizePreset)}
+      className="px-2 py-1 bg-secondary border border-border rounded text-sm cursor-pointer focus:outline-none focus:border-primary"
+    >
+      {FONT_SIZE_OPTIONS.map((opt) => (
+        <option key={opt.key} value={opt.key}>{opt.label}</option>
+      ))}
+    </select>
+  );
+}
+
 // Inline version of ProviderManager for the settings panel
 function ProviderManagerInline() {
   // We'll reuse the ProviderManager but render it inline
@@ -258,128 +268,121 @@ function ProviderManagerInline() {
   );
 }
 
-// Server list manager for editing server settings
-function ServerListManager() {
-  const { servers, activeServerId } = useServerStore();
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [editClientId, setEditClientId] = useState('');
-  const [editApiKey, setEditApiKey] = useState('');
+// Read-only server info panel
+function ServerInfoPanel() {
+  const { servers, activeServerId, connections } = useServerStore();
+  const { isConnected: isGatewayConnected, discoveredBackends, backendAuthStatus } = useGatewayStore();
 
-  const startEditing = (server: typeof servers[0]) => {
-    setEditingId(server.id);
-    setEditClientId(server.clientId || '');
-    setEditApiKey(server.apiKey || '');
+  const getStatusInfo = (status?: string) => {
+    switch (status) {
+      case 'connected':
+        return { color: 'bg-success', text: 'Connected' };
+      case 'connecting':
+        return { color: 'bg-warning', text: 'Connecting' };
+      case 'error':
+        return { color: 'bg-destructive', text: 'Error' };
+      default:
+        return { color: 'bg-muted-foreground', text: 'Disconnected' };
+    }
   };
 
-  const saveEditing = (_serverId: string) => {
-    // TODO: Update server via WebSocket instead of direct store mutation
-    // sendMessage({ type: 'update_server', id: serverId, server: { clientId, apiKey } });
-    console.warn('Server update not implemented - requires WebSocket migration');
-    setEditingId(null);
-  };
-
-  const cancelEditing = () => {
-    setEditingId(null);
-    setEditClientId('');
-    setEditApiKey('');
-  };
+  // Filter out legacy gateway-mode servers (these are now handled via gateway discovery)
+  const directServers = servers.filter(s => s.connectionMode !== 'gateway');
 
   return (
     <div className="space-y-3">
-      {servers.map((server) => (
-        <div
-          key={server.id}
-          className={`p-3 border rounded-lg ${
-            server.id === activeServerId ? 'border-primary bg-primary/5' : 'border-border'
-          }`}
-        >
-          {/* Header with name and badges */}
-          <div className="flex flex-wrap items-center gap-2 mb-1">
-            <span className="font-medium text-sm">{server.name}</span>
-            {server.isDefault && (
-              <span className="px-1.5 py-0.5 bg-primary/20 text-primary text-xs rounded">
-                Default
-              </span>
-            )}
-            {server.id === activeServerId && (
-              <span className="px-1.5 py-0.5 bg-success/20 text-success text-xs rounded">
-                Active
-              </span>
-            )}
+      {/* Direct servers */}
+      {directServers.map((server) => {
+        const conn = connections[server.id];
+        const status = getStatusInfo(conn?.status);
+        return (
+          <div
+            key={server.id}
+            className={`p-3 border rounded-lg ${
+              server.id === activeServerId ? 'border-primary bg-primary/5' : 'border-border'
+            }`}
+          >
+            <div className="flex flex-wrap items-center gap-2 mb-2">
+              <span className="font-medium text-sm">{server.name}</span>
+              {server.isDefault && (
+                <span className="px-1.5 py-0.5 bg-primary/20 text-primary text-xs rounded">Default</span>
+              )}
+              {server.id === activeServerId && (
+                <span className="px-1.5 py-0.5 bg-success/20 text-success text-xs rounded">Active</span>
+              )}
+            </div>
+            <div className="space-y-1 text-sm">
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Address</span>
+                <span>{server.address}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Status</span>
+                <span className="flex items-center gap-1.5">
+                  <span className={`w-1.5 h-1.5 rounded-full ${status.color}`} />
+                  {status.text}
+                </span>
+              </div>
+            </div>
           </div>
+        );
+      })}
 
-          {/* Address */}
-          <div className="text-xs text-muted-foreground mb-2">{server.address}</div>
+      {/* Gateway backends */}
+      {isGatewayConnected && discoveredBackends.length > 0 && (
+        <>
+          <div className="text-xs font-medium text-muted-foreground uppercase tracking-wider pt-2">
+            Via Gateway
+          </div>
+          {discoveredBackends.map((backend) => {
+            const gwServerId = toGatewayServerId(backend.backendId);
+            const authStatus = backendAuthStatus[backend.backendId];
+            const isActive = activeServerId === gwServerId;
 
-          {editingId === server.id ? (
-            /* Edit mode */
-            <div className="space-y-3 mt-3 pt-3 border-t border-border">
-              <div>
-                <label className="text-xs text-muted-foreground block mb-1">
-                  Client ID (optional, for gateway routing)
-                </label>
-                <input
-                  type="text"
-                  value={editClientId}
-                  onChange={(e) => setEditClientId(e.target.value)}
-                  placeholder="e.g., home-mac"
-                  className="w-full px-2 py-1.5 bg-input border border-border rounded text-sm focus:outline-none focus:border-primary"
-                />
-              </div>
-              <div>
-                <label className="text-xs text-muted-foreground block mb-1">API Key</label>
-                <input
-                  type="password"
-                  value={editApiKey}
-                  onChange={(e) => setEditApiKey(e.target.value)}
-                  placeholder="mca_..."
-                  className="w-full px-2 py-1.5 bg-input border border-border rounded text-sm focus:outline-none focus:border-primary"
-                />
-              </div>
-              {/* Action buttons */}
-              <div className="flex gap-2 pt-1">
-                <button
-                  onClick={() => saveEditing(server.id)}
-                  className="flex-1 px-3 py-1.5 text-sm bg-primary text-primary-foreground rounded hover:bg-primary/90"
-                >
-                  Save
-                </button>
-                <button
-                  onClick={cancelEditing}
-                  className="flex-1 px-3 py-1.5 text-sm bg-secondary rounded hover:bg-muted"
-                >
-                  Cancel
-                </button>
-              </div>
-            </div>
-          ) : (
-            /* View mode */
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="flex flex-wrap gap-2 text-xs">
-                {server.clientId && (
-                  <span className="px-2 py-0.5 bg-secondary rounded">
-                    ID: {server.clientId}
-                  </span>
-                )}
-                {server.apiKey && (
-                  <span className="px-2 py-0.5 bg-secondary rounded">
-                    API Key: ****{server.apiKey.slice(-4)}
-                  </span>
-                )}
-                {!server.clientId && !server.apiKey && (
-                  <span className="text-muted-foreground">No authentication configured</span>
-                )}
-              </div>
-              <button
-                onClick={() => startEditing(server)}
-                className="px-3 py-1 text-xs bg-secondary rounded hover:bg-muted shrink-0"
+            let statusText = 'Offline';
+            let statusColor = 'bg-muted-foreground';
+            if (backend.online && authStatus === 'authenticated') {
+              statusText = 'Connected';
+              statusColor = 'bg-success';
+            } else if (backend.online && authStatus === 'pending') {
+              statusText = 'Connecting';
+              statusColor = 'bg-warning';
+            } else if (backend.online) {
+              statusText = 'Online';
+              statusColor = 'bg-blue-400';
+            }
+
+            return (
+              <div
+                key={backend.backendId}
+                className={`p-3 border rounded-lg ${
+                  isActive ? 'border-primary bg-primary/5' : 'border-border'
+                } ${!backend.online ? 'opacity-60' : ''}`}
               >
-                Edit
-              </button>
-            </div>
-          )}
-        </div>
-      ))}
+                <div className="flex flex-wrap items-center gap-2 mb-2">
+                  <span className="font-medium text-sm">{backend.name}</span>
+                  {isActive && (
+                    <span className="px-1.5 py-0.5 bg-success/20 text-success text-xs rounded">Active</span>
+                  )}
+                </div>
+                <div className="space-y-1 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Backend ID</span>
+                    <span>{backend.backendId}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Status</span>
+                    <span className="flex items-center gap-1.5">
+                      <span className={`w-1.5 h-1.5 rounded-full ${statusColor}`} />
+                      {statusText}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </>
+      )}
     </div>
   );
 }

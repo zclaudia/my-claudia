@@ -70,7 +70,7 @@ export class GatewayTransport {
   /**
    * Authenticate to a specific backend through the gateway
    */
-  authenticateBackend(backendId: string, apiKey: string): void {
+  authenticateBackend(backendId: string): void {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN || !this.gatewayAuthenticated) {
       console.error('[GatewayTransport] Cannot authenticate backend: not connected to gateway');
       this.config.onBackendAuthResult(backendId, false, 'Not connected to gateway');
@@ -79,8 +79,7 @@ export class GatewayTransport {
 
     const msg: ClientToGatewayMessage = {
       type: 'connect_backend',
-      backendId,
-      apiKey
+      backendId
     };
     this.ws.send(JSON.stringify(msg));
   }

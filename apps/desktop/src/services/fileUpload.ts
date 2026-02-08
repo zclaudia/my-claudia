@@ -78,14 +78,6 @@ export async function uploadFile(
 
     xhr.open('POST', uploadUrl);
 
-    // Add authorization header if needed
-    if (server.apiKey) {
-      const token = server.clientId
-        ? `${server.clientId}:${server.apiKey}`
-        : server.apiKey;
-      xhr.setRequestHeader('Authorization', `Bearer ${token}`);
-    }
-
     xhr.send(formData);
   });
 }
@@ -141,14 +133,6 @@ export async function downloadFile(fileId: string): Promise<{
   const headers: HeadersInit = {
     'Content-Type': 'application/json'
   };
-
-  // Add authorization header if needed
-  if (server.apiKey) {
-    const token = server.clientId
-      ? `${server.clientId}:${server.apiKey}`
-      : server.apiKey;
-    headers['Authorization'] = `Bearer ${token}`;
-  }
 
   const response = await fetch(downloadUrl, { headers });
 

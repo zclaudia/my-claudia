@@ -32,7 +32,6 @@ interface ServerState {
   setServerConnectionStatus: (serverId: string, status: ConnectionStatus, error?: string) => void;
   setServerLocalConnection: (serverId: string, isLocal: boolean | null) => void;
   updateLastConnected: (id: string) => void;
-  setApiKey: (serverId: string, apiKey: string) => void;
 
   // Getters
   getActiveServer: () => BackendServer | undefined;
@@ -80,23 +79,12 @@ export const useServerStore = create<ServerState>()((set, get) => ({
 
     const state = get();
 
-    // Merge with existing servers to preserve runtime data (like apiKey)
-    const mergedServers = servers.map(newServer => {
-      const existingServer = state.servers.find(s => s.id === newServer.id);
-      // If server exists in memory and has an apiKey, preserve it
-      if (existingServer?.apiKey && !newServer.apiKey) {
-        console.log(`[ServerStore] Preserving API key for server: ${newServer.id}`);
-        return { ...newServer, apiKey: existingServer.apiKey };
-      }
-      return newServer;
-    });
-
-    set({ servers: mergedServers });
+    set({ servers });
 
     // If active server is not in the list, set to default or first server
-    if (mergedServers.length > 0 && !mergedServers.find(s => s.id === state.activeServerId)) {
-      const defaultServer = mergedServers.find(s => s.isDefault);
-      const firstServer = mergedServers[0];
+    if (servers.length > 0 && !servers.find(s => s.id === state.activeServerId)) {
+      const defaultServer = servers.find(s => s.isDefault);
+      const firstServer = servers[0];
       set({ activeServerId: defaultServer?.id || firstServer?.id || null });
     }
   },
@@ -250,13 +238,5 @@ export const useServerStore = create<ServerState>()((set, get) => ({
     const state = get();
     if (!state.activeServerId) return undefined;
     return state.connections[state.activeServerId];
-  },
-
-  setApiKey: (serverId, apiKey) => {
-    set((state) => ({
-      servers: state.servers.map((s) =>
-        s.id === serverId ? { ...s, apiKey } : s
-      )
-    }));
   }
 }));

@@ -6,21 +6,8 @@ import * as api from '../services/api';
 export function useDataLoader() {
   const { connectionStatus, activeServerId } = useServerStore();
 
-  // Track local server's apiKey to know when it's available for authenticated requests.
-  // Data loading always targets the local server regardless of which server is active.
-  const localApiKey = useServerStore(
-    (s) => s.servers.find((srv) => srv.isDefault)?.apiKey
-  );
-
   const loadData = useCallback(async () => {
     if (connectionStatus !== 'connected') return;
-
-    // Wait for local server's API key to be available before making authenticated requests.
-    // The API key is fetched asynchronously after WebSocket auth succeeds.
-    if (!localApiKey) {
-      console.log('[DataLoader] Waiting for local API key...');
-      return;
-    }
 
     console.log('[DataLoader] Loading data from local server via HTTP');
 
@@ -38,9 +25,9 @@ export function useDataLoader() {
     } catch (err) {
       console.error('[DataLoader] Error loading data:', err);
     }
-  }, [connectionStatus, localApiKey]);
+  }, [connectionStatus]);
 
-  // Load data when connected, server changes, or local apiKey becomes available
+  // Load data when connected or server changes
   useEffect(() => {
     if (connectionStatus === 'connected') {
       const timer = setTimeout(() => {
@@ -48,7 +35,7 @@ export function useDataLoader() {
       }, 100);
       return () => clearTimeout(timer);
     }
-  }, [loadData, activeServerId, connectionStatus, localApiKey]);
+  }, [loadData, activeServerId, connectionStatus]);
 
   // Note: Session messages are loaded by ChatInterface with pagination support
 

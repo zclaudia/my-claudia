@@ -218,6 +218,13 @@ function runMigrations(db: Database.Database): void {
             VALUES (NEW.rowid, NEW.content, NEW.session_id, NEW.role);
         END;
       `
+    },
+    {
+      name: '006_register_as_backend',
+      sql: `
+        -- Add register_as_backend column to gateway_config table
+        ALTER TABLE gateway_config ADD COLUMN register_as_backend INTEGER NOT NULL DEFAULT 1;
+      `
     }
   ];
 
