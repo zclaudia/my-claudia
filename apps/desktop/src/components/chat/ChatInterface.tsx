@@ -4,7 +4,6 @@ import { MessageInput, type Attachment } from './MessageInput';
 import { ToolCallList } from './ToolCallItem';
 import { LoadingIndicator } from './LoadingIndicator';
 import { PermissionModeToggle } from './PermissionModeToggle';
-import { FontSizeSelector } from './FontSizeSelector';
 import { SystemInfoButton } from './SystemInfoButton';
 import { ModelSelector } from './ModelSelector';
 import { TokenUsageDisplay } from './TokenUsageDisplay';
@@ -392,7 +391,10 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
           createdAt: Date.now(),
         });
     }
-  }, [sessionId, clearMessages, addMessage]);
+
+    // Scroll to bottom after command output
+    setTimeout(() => scrollToBottom(), 100);
+  }, [sessionId, clearMessages, addMessage, scrollToBottom]);
 
   const handleCommand = useCallback(async (command: string, args: string) => {
     // Find the command definition to check its source
@@ -429,8 +431,8 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
       projectPath: currentProject?.rootPath,
       projectName: currentProject?.name,
       sessionId,
-      provider: currentSession?.providerId || currentProject?.providerId,
-      model: 'claude', // Could be enhanced to get actual model
+      provider: currentSession?.providerId || currentProject?.providerId || 'claude',
+      model: modelOverride || 'default'
     };
 
     try {
@@ -545,17 +547,6 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
             outputTokens={currentUsage.outputTokens}
           />
           <div className="flex-1" />
-          <button
-            onClick={() => handleCommand('/compact', '')}
-            disabled={isLoading || !isConnected}
-            className="px-2.5 py-1.5 rounded-full text-xs font-medium border border-border
-              hover:border-primary/50 active:bg-muted transition-colors min-h-[36px]
-              disabled:opacity-50 disabled:cursor-not-allowed text-muted-foreground"
-            title="Compact conversation context"
-          >
-            Compact
-          </button>
-          <FontSizeSelector />
           <SystemInfoButton systemInfo={currentSystemInfo} />
         </div>
         <MessageInput

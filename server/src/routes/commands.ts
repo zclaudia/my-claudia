@@ -39,24 +39,15 @@ const builtInHandlers: Record<string, (args: string[], context: CommandExecuteRe
   }),
 
   '/help': (_args, _context) => {
-    const helpText = `# My Claudia Commands
+    const helpText = `**Built-in Commands:**
 
-## Built-in Commands
+${LOCAL_COMMANDS.map(cmd => `- \`${cmd.command}\` — ${cmd.description}`).join('\n')}
 
-${LOCAL_COMMANDS.map(cmd => `### ${cmd.command}
-${cmd.description}
-`).join('\n')}
+**Custom Commands:**
 
-## Custom Commands
-
-Custom commands can be created in:
 - Project: \`.claude/commands/\` (project-specific)
 - User: \`~/.claude/commands/\` (available in all projects)
-
-### Command Syntax
-
-- **Arguments**: Use \`$ARGUMENTS\` for all args or \`$1\`, \`$2\`, etc. for positional
-- **File Includes**: Use \`@filename\` to include file contents
+- Use \`$ARGUMENTS\` or \`$1\`, \`$2\` for args, \`@filename\` for file includes
 `;
 
     return {
@@ -92,16 +83,20 @@ Custom commands can be created in:
     };
   },
 
-  '/model': (_args, context) => ({
-    type: 'builtin',
-    command: '/model',
-    action: 'model',
-    data: {
-      model: context?.model || 'claude-sonnet-4-20250514',
-      provider: context?.provider || 'claude',
-      message: `Current model: ${context?.model || 'claude-sonnet-4-20250514'}\nProvider: ${context?.provider || 'claude'}`
-    }
-  }),
+  '/model': (_args, context) => {
+    const model = context?.model || 'default';
+    const provider = context?.provider || 'claude';
+    let message = '**Model Info:**\n\n';
+    message += `- **Model:** ${model}\n`;
+    message += `- **Provider:** ${provider}\n`;
+
+    return {
+      type: 'builtin',
+      command: '/model',
+      action: 'model',
+      data: { model, provider, message }
+    };
+  },
 
   '/cost': (_args, context) => {
     const tokenUsage = context?.tokenUsage || { used: 0, total: 160000 };

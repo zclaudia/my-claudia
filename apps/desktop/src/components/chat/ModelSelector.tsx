@@ -50,12 +50,12 @@ export function ModelSelector({ value, onChange, disabled }: ModelSelectorProps)
           }
         `}
       >
-        <span>{currentLabel}</span>
+        <span>🧠 Model: {currentLabel}</span>
         <span className="text-[10px] text-muted-foreground">&#9662;</span>
       </button>
 
       {isOpen && (
-        <div className="absolute top-full left-0 mt-1 z-50 bg-popover border border-border rounded-lg shadow-lg py-1 min-w-[120px]">
+        <div className="absolute bottom-full left-0 mb-1 z-50 bg-popover border border-border rounded-lg shadow-lg py-1 min-w-[120px]">
           {MODEL_OPTIONS.map((option) => (
             <button
               key={option.id}
