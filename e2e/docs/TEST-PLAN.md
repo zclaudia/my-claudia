@@ -26,6 +26,13 @@
 | 加载指示器 | 等待响应时显示加载动画 | LoadingIndicator.tsx |
 | 取消运行 | 运行中可取消当前请求 | ChatInterface.tsx |
 | Markdown 渲染 | 消息支持 Markdown 格式显示 | MessageList.tsx |
+| Tool 结果持久化 | tool_use/tool_result 写入 metadata，刷新后恢复 | server.ts, chatStore.ts, MessageList.tsx |
+| 内联 Diff 视图 | Edit tool 自动显示红删绿增的 diff | DiffViewer.tsx, ToolCallItem.tsx |
+| 终端风格 Bash 输出 | 深色背景、等宽字体、默认 10 行 + "展开全部" | ToolCallItem.tsx |
+| Model 切换 | 工具栏下拉选择 Default/Opus/Sonnet/Haiku | ModelSelector.tsx, ChatInterface.tsx |
+| Token 用量显示 | 显示累计 input/output tokens，接近上限变色 | TokenUsageDisplay.tsx, chatStore.ts |
+| Compact 快捷按钮 | 工具栏按钮触发 /compact 命令压缩上下文 | ChatInterface.tsx |
+| 字体大小切换 | 小/中/大三档字体大小调整 | FontSizeSelector.tsx |
 
 ### 3. 斜杠命令 (/)
 
@@ -109,7 +116,23 @@
 | SOCKS5 代理 | 配置代理服务器连接 | ServerGatewayConfig.tsx |
 | 系统信息 | 显示版本、模型、连接信息 | SystemInfoButton.tsx |
 
-### 12. 安全特性
+### 12. 会话管理增强
+
+| 功能 | 描述 | 关键文件 |
+|------|------|----------|
+| 会话导出 Markdown | 导出完整会话为 Markdown（消息 + tool 摘要 + token 统计） | sessions.ts, api.ts, Sidebar.tsx |
+| 跨会话全文搜索 | FTS5 全文搜索消息内容，300ms debounce | sessions.ts, db.ts, Sidebar.tsx |
+| 搜索结果导航 | 点击搜索结果跳转到对应会话 | Sidebar.tsx |
+
+### 13. 移动端触控优化
+
+| 功能 | 描述 | 关键文件 |
+|------|------|----------|
+| 44px 最小触控区域 | 所有按钮和可交互元素 ≥ 44x44px | Sidebar.tsx, PermissionModal.tsx |
+| active: 触控反馈 | 触摸时有 active 状态高亮样式 | 各组件 |
+| 移动端上下文菜单 | 三点菜单按钮增大触控区域 | Sidebar.tsx |
+
+### 14. 安全特性
 
 | 功能 | 描述 | 关键文件 |
 |------|------|----------|
@@ -288,16 +311,48 @@
 | M6 | 断网重连后消息不丢失 | 🔀 | 编程式模拟断网，AI 验证恢复 |
 | M7 | 页面刷新后数据持久化 | 🔀 | 编程式刷新页面，extract 验证数据恢复 |
 
+### 模块 N：Tool 持久化与 Diff 视图
+
+| # | 测试用例 | 方式 | 说明 |
+|---|---------|------|------|
+| N1 | 发消息触发 tool 调用后刷新页面，tool 结果仍显示 | 🔧 | 编程式刷新 + 验证 metadata 中 toolCalls 恢复 |
+| N2 | Edit tool 输出自动显示内联 diff（红删绿增） | 🔧 | 验证 DiffViewer 渲染 +/- 行和颜色 |
+| N3 | Bash tool 输出以终端风格显示（深色背景等宽字体） | 🔧 | 验证 CSS class 和样式属性 |
+| N4 | 终端输出默认折叠 10 行，点击展开全部 | 🔀 | AI 点击展开，编程式验证行数变化 |
+| N5 | Tool 调用状态图标（running/completed/error） | 🔧 | 验证 status icon 和颜色变化 |
+
+### 模块 O：开发效率工具
+
+| # | 测试用例 | 方式 | 说明 |
+|---|---------|------|------|
+| O1 | Model 切换器显示当前模型名称并可切换 | 🤖 | 自然语言："Select Sonnet from the model dropdown" |
+| O2 | 切换 Model 后发消息，run_start 包含新 model | 🔧 | 拦截 WebSocket 消息验证 model 字段 |
+| O3 | Token 用量显示并随每次对话累加 | 🔧 | 发送消息后验证 token 计数增加 |
+| O4 | Token 超过 80% 上限时显示红色警告 | 🔧 | 注入大量 token 数据验证颜色变化 |
+| O5 | 点击 Compact 按钮发送 /compact 命令 | 🤖 | 自然语言："Click the Compact button in the toolbar" |
+| O6 | 字体大小切换在 Small/Medium/Large 间切换 | 🤖 | 自然语言操作字体按钮 |
+
+### 模块 P：会话管理增强
+
+| # | 测试用例 | 方式 | 说明 |
+|---|---------|------|------|
+| P1 | 右键菜单导出会话为 Markdown 文件 | 🤖 | 自然语言："Click export in the session menu" |
+| P2 | 导出内容包含消息、时间戳和 tool 调用摘要 | 🔧 | API 直接调用验证返回的 markdown 内容结构 |
+| P3 | 搜索框输入关键词返回匹配消息列表 | 🔀 | AI 输入搜索词，编程式验证结果数量和内容 |
+| P4 | 搜索 debounce 300ms 后才发出 HTTP 请求 | 🔧 | 监控网络请求计时验证防抖 |
+| P5 | 点击搜索结果跳转到对应会话并高亮 | 🤖 | 自然语言点击搜索结果 |
+| P6 | 搜索结果跨项目，不受当前选中项目限制 | 🔧 | 创建多项目多会话验证搜索范围 |
+
 ---
 
 ## 三、测试分布统计
 
 | 方式 | 数量 | 占比 |
 |------|------|------|
-| 🤖 自然语言 | 30 | 37% |
-| 🔧 编程式 | 33 | 41% |
-| 🔀 混合模式 | 18 | 22% |
-| **合计** | **81** | **100%** |
+| 🤖 自然语言 | 36 | 37% |
+| 🔧 编程式 | 41 | 42% |
+| 🔀 混合模式 | 20 | 21% |
+| **合计** | **97** | **100%** |
 
 ### 自然语言测试的优势场景
 
@@ -331,12 +386,15 @@
 | security.spec.ts | K1-K6 | ✅ 已有 |
 | socks5-proxy.spec.ts | H (代理部分) | ✅ 已有 |
 | shared/chat.spec.ts | B1 部分 | ✅ 已有 |
-| — | C (斜杠命令) | ❌ 待新增 |
-| — | D (文件引用) | ❌ 待新增 |
-| — | F (权限系统) | ❌ 待新增 |
-| — | I (设置面板) | ❌ 待新增 |
-| — | A (完整项目管理) | ⚠️ 部分覆盖 |
-| — | M (自然语言工作流) | ❌ 待新增 |
+| slash-commands.spec.ts | C1-C9 | ✅ 已有 |
+| file-reference.spec.ts | D1-D7 | ✅ 已有 |
+| permission-system.spec.ts | F1-F8 | ✅ 已有 |
+| settings-panel.spec.ts | I1-I6 | ✅ 已有 |
+| project-management.spec.ts | A1-A11 | ✅ 已有 |
+| workflows.spec.ts | M1-M7 | ✅ 已有 |
+| tool-persistence.spec.ts | N1-N5 | ❌ 待新增 |
+| dev-tools.spec.ts | O1-O6 | ❌ 待新增 |
+| session-management.spec.ts | P1-P6 | ❌ 待新增 |
 
 ---
 
@@ -346,14 +404,19 @@
 - **C1-C9**: 斜杠命令 — 刚修复的功能，需要回归测试
 - **D1-D7**: 文件引用 — 刚修复的功能，需要回归测试
 - **M1**: 完整工作流 — 端到端验证核心路径
+- **N1**: Tool 持久化 — 移动端数据不丢失的核心保障
 
 ### P1 — 重要功能
 - **A1-A11**: 项目管理完整测试
 - **B1-B8**: 聊天核心功能
 - **F1-F8**: 权限系统
+- **N2-N5**: Diff 视图和终端输出 — 代码审查核心
+- **O1-O4**: Model/Token — 开发成本控制
 
 ### P2 — 辅助功能
 - **I1-I6**: 设置面板
 - **M2-M7**: 跨功能工作流
 - **E7**: 删除附件
 - **G2-G5**: 服务器管理 UI
+- **O5-O6**: Compact 和字体 — 开发效率辅助
+- **P1-P6**: 会话导出和搜索 — 长期开发组织

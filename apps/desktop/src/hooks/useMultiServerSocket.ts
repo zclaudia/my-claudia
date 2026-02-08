@@ -50,6 +50,7 @@ export function useMultiServerSocket() {
     finalizeToolCallsToMessage,
     setSystemInfo,
     clearSystemInfo,
+    addSessionUsage,
   } = useChatStore();
 
   const { selectedSessionId } = useProjectStore();
@@ -149,6 +150,9 @@ export function useMultiServerSocket() {
             setCurrentRunId(null);
             if (currentSessionId) {
               finalizeToolCallsToMessage(currentSessionId);
+              if (message.usage) {
+                addSessionUsage(currentSessionId, message.usage);
+              }
             }
           }
           break;
@@ -215,6 +219,7 @@ export function useMultiServerSocket() {
     setPendingRequest,
     setSystemInfo,
     clearSystemInfo,
+    addSessionUsage,
     setServerConnectionStatus,
     setServerLocalConnection,
     updateLastConnected,

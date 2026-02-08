@@ -140,12 +140,12 @@ export function PermissionModal({ request, onDecision }: PermissionModalProps) {
 
         {/* Remember checkbox */}
         <div className="px-5 py-3">
-          <label className="flex items-center gap-2 cursor-pointer">
+          <label className="flex items-center gap-3 cursor-pointer min-h-[44px]">
             <input
               type="checkbox"
               checked={remember}
               onChange={(e) => setRemember(e.target.checked)}
-              className="rounded border-input bg-background text-primary focus:ring-primary"
+              className="w-5 h-5 rounded border-input bg-background text-primary focus:ring-primary"
             />
             <span className="text-sm text-foreground">
               Remember this decision for this session
@@ -157,13 +157,13 @@ export function PermissionModal({ request, onDecision }: PermissionModalProps) {
         <div className="px-5 py-4 bg-muted/30 flex gap-3">
           <button
             onClick={handleDeny}
-            className="flex-1 px-4 py-2.5 bg-secondary hover:bg-secondary/80 text-secondary-foreground rounded-lg font-medium transition-colors"
+            className="flex-1 px-4 py-3 bg-secondary hover:bg-secondary/80 active:bg-secondary/70 text-secondary-foreground rounded-lg font-medium transition-colors"
           >
             Deny
           </button>
           <button
             onClick={handleAllow}
-            className="flex-1 px-4 py-2.5 bg-success hover:bg-success/80 text-success-foreground rounded-lg font-medium transition-colors"
+            className="flex-1 px-4 py-3 bg-success hover:bg-success/80 active:bg-success/70 text-success-foreground rounded-lg font-medium transition-colors"
           >
             Allow
           </button>

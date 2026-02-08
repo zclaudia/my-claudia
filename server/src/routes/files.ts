@@ -1,4 +1,4 @@
-import { Router, Request, Response } from 'express';
+import { Router, Request, Response, NextFunction } from 'express';
 import * as fs from 'fs';
 import * as path from 'path';
 import multer from 'multer';
@@ -62,42 +62,60 @@ export function createFilesRoutes(): Router {
 
   // POST /api/files/upload
   // Upload a file and get fileId
-  router.post('/upload', upload.single('file'), (req: Request, res: Response) => {
-    try {
-      if (!req.file) {
-        res.status(400).json({
+  router.post('/upload', (req: Request, res: Response, next: NextFunction) => {
+    upload.single('file')(req, res, (err: unknown) => {
+      if (err instanceof multer.MulterError) {
+        if (err.code === 'LIMIT_FILE_SIZE') {
+          return res.status(413).json({
+            success: false,
+            error: { code: 'FILE_TOO_LARGE', message: 'File exceeds 10MB limit' }
+          });
+        }
+        return res.status(400).json({
           success: false,
-          error: { code: 'NO_FILE', message: 'No file provided' }
+          error: { code: 'UPLOAD_ERROR', message: err.message }
         });
-        return;
+      }
+      if (err) {
+        return next(err);
       }
 
-      // Convert to base64
-      const base64Data = req.file.buffer.toString('base64');
-
-      // Store file
-      const fileId = fileStore.storeFile(
-        req.file.originalname,
-        req.file.mimetype,
-        base64Data
-      );
-
-      res.json({
-        success: true,
-        data: {
-          fileId,
-          name: req.file.originalname,
-          mimeType: req.file.mimetype,
-          size: req.file.size
+      try {
+        if (!req.file) {
+          res.status(400).json({
+            success: false,
+            error: { code: 'NO_FILE', message: 'No file provided' }
+          });
+          return;
         }
-      });
-    } catch (error) {
-      console.error('[Files] Error uploading file:', error);
-      res.status(500).json({
-        success: false,
-        error: { code: 'UPLOAD_ERROR', message: 'Failed to upload file' }
-      });
-    }
+
+        // Convert to base64
+        const base64Data = req.file.buffer.toString('base64');
+
+        // Store file
+        const fileId = fileStore.storeFile(
+          req.file.originalname,
+          req.file.mimetype,
+          base64Data
+        );
+
+        res.json({
+          success: true,
+          data: {
+            fileId,
+            name: req.file.originalname,
+            mimeType: req.file.mimetype,
+            size: req.file.size
+          }
+        });
+      } catch (error) {
+        console.error('[Files] Error uploading file:', error);
+        res.status(500).json({
+          success: false,
+          error: { code: 'UPLOAD_ERROR', message: 'Failed to upload file' }
+        });
+      }
+    });
   });
 
   // GET /api/files/list

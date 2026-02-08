@@ -10,6 +10,10 @@ describe('chatStore', () => {
       pagination: {},
       isLoading: false,
       currentRunId: null,
+      activeToolCalls: {},
+      toolCallsHistory: [],
+      sessionUsage: {},
+      modelOverride: '',
     });
   });
 
@@ -219,6 +223,153 @@ describe('chatStore', () => {
       const pagination = useChatStore.getState().pagination['session-1'];
       expect(pagination?.total).toBe(1);
       expect(pagination?.newestTimestamp).toBe(timestamp);
+    });
+  });
+
+  describe('sessionUsage', () => {
+    it('addSessionUsage initializes usage for new session', () => {
+      useChatStore.getState().addSessionUsage('session-1', { inputTokens: 100, outputTokens: 50 });
+
+      const usage = useChatStore.getState().sessionUsage['session-1'];
+      expect(usage).toEqual({ inputTokens: 100, outputTokens: 50 });
+    });
+
+    it('addSessionUsage accumulates tokens across multiple calls', () => {
+      useChatStore.getState().addSessionUsage('session-1', { inputTokens: 100, outputTokens: 50 });
+      useChatStore.getState().addSessionUsage('session-1', { inputTokens: 200, outputTokens: 75 });
+
+      const usage = useChatStore.getState().sessionUsage['session-1'];
+      expect(usage).toEqual({ inputTokens: 300, outputTokens: 125 });
+    });
+
+    it('addSessionUsage does not affect other sessions', () => {
+      useChatStore.getState().addSessionUsage('session-1', { inputTokens: 100, outputTokens: 50 });
+      useChatStore.getState().addSessionUsage('session-2', { inputTokens: 200, outputTokens: 75 });
+
+      expect(useChatStore.getState().sessionUsage['session-1']).toEqual({ inputTokens: 100, outputTokens: 50 });
+      expect(useChatStore.getState().sessionUsage['session-2']).toEqual({ inputTokens: 200, outputTokens: 75 });
+    });
+  });
+
+  describe('modelOverride', () => {
+    it('setModelOverride sets model string', () => {
+      useChatStore.getState().setModelOverride('claude-opus-4-6');
+      expect(useChatStore.getState().modelOverride).toBe('claude-opus-4-6');
+    });
+
+    it('setModelOverride with empty string clears to default', () => {
+      useChatStore.getState().setModelOverride('claude-opus-4-6');
+      useChatStore.getState().setModelOverride('');
+      expect(useChatStore.getState().modelOverride).toBe('');
+    });
+  });
+
+  describe('toolCalls', () => {
+    it('addToolCall creates a new running tool call', () => {
+      useChatStore.getState().addToolCall('tc-1', 'Read', { file_path: '/foo.ts' });
+
+      const tc = useChatStore.getState().activeToolCalls['tc-1'];
+      expect(tc).toBeDefined();
+      expect(tc.toolName).toBe('Read');
+      expect(tc.status).toBe('running');
+      expect(tc.toolInput).toEqual({ file_path: '/foo.ts' });
+    });
+
+    it('addToolCall appends to toolCallsHistory in order', () => {
+      useChatStore.getState().addToolCall('tc-1', 'Read', {});
+      useChatStore.getState().addToolCall('tc-2', 'Edit', {});
+
+      const history = useChatStore.getState().toolCallsHistory;
+      expect(history).toHaveLength(2);
+      expect(history[0].id).toBe('tc-1');
+      expect(history[1].id).toBe('tc-2');
+    });
+
+    it('updateToolCallResult marks tool as completed', () => {
+      useChatStore.getState().addToolCall('tc-1', 'Read', {});
+      useChatStore.getState().updateToolCallResult('tc-1', 'file content here');
+
+      const tc = useChatStore.getState().activeToolCalls['tc-1'];
+      expect(tc.status).toBe('completed');
+      expect(tc.result).toBe('file content here');
+      expect(tc.isError).toBeUndefined();
+    });
+
+    it('updateToolCallResult marks tool as error when isError is true', () => {
+      useChatStore.getState().addToolCall('tc-1', 'Bash', {});
+      useChatStore.getState().updateToolCallResult('tc-1', 'command failed', true);
+
+      const tc = useChatStore.getState().activeToolCalls['tc-1'];
+      expect(tc.status).toBe('error');
+      expect(tc.isError).toBe(true);
+    });
+
+    it('updateToolCallResult also updates toolCallsHistory', () => {
+      useChatStore.getState().addToolCall('tc-1', 'Read', {});
+      useChatStore.getState().updateToolCallResult('tc-1', 'done');
+
+      const history = useChatStore.getState().toolCallsHistory;
+      expect(history[0].status).toBe('completed');
+    });
+
+    it('updateToolCallResult does nothing for unknown tool id', () => {
+      useChatStore.getState().addToolCall('tc-1', 'Read', {});
+      useChatStore.getState().updateToolCallResult('tc-unknown', 'result');
+
+      // Original tool call should be unchanged
+      expect(useChatStore.getState().activeToolCalls['tc-1'].status).toBe('running');
+    });
+
+    it('clearToolCalls empties both activeToolCalls and history', () => {
+      useChatStore.getState().addToolCall('tc-1', 'Read', {});
+      useChatStore.getState().addToolCall('tc-2', 'Edit', {});
+      useChatStore.getState().clearToolCalls();
+
+      expect(useChatStore.getState().activeToolCalls).toEqual({});
+      expect(useChatStore.getState().toolCallsHistory).toEqual([]);
+    });
+
+    it('finalizeToolCallsToMessage attaches tool calls to last assistant message', () => {
+      // Set up an assistant message
+      const message = createMessage({ id: 'msg-1', role: 'assistant', content: 'Response' });
+      useChatStore.getState().addMessage('session-1', message);
+
+      // Add tool calls
+      useChatStore.getState().addToolCall('tc-1', 'Read', { file_path: '/a.ts' });
+      useChatStore.getState().updateToolCallResult('tc-1', 'contents');
+
+      // Finalize
+      useChatStore.getState().finalizeToolCallsToMessage('session-1');
+
+      const messages = useChatStore.getState().messages['session-1'];
+      expect(messages[0].toolCalls).toHaveLength(1);
+      expect(messages[0].toolCalls![0].toolName).toBe('Read');
+      expect(messages[0].toolCalls![0].status).toBe('completed');
+
+      // Tool calls should be cleared
+      expect(useChatStore.getState().activeToolCalls).toEqual({});
+      expect(useChatStore.getState().toolCallsHistory).toEqual([]);
+    });
+
+    it('finalizeToolCallsToMessage does nothing if last message is not assistant', () => {
+      const message = createMessage({ id: 'msg-1', role: 'user', content: 'User msg' });
+      useChatStore.getState().addMessage('session-1', message);
+      useChatStore.getState().addToolCall('tc-1', 'Read', {});
+
+      useChatStore.getState().finalizeToolCallsToMessage('session-1');
+
+      // Tool calls should remain
+      expect(useChatStore.getState().toolCallsHistory).toHaveLength(1);
+    });
+
+    it('finalizeToolCallsToMessage does nothing if no tool calls exist', () => {
+      const message = createMessage({ id: 'msg-1', role: 'assistant', content: 'Response' });
+      useChatStore.getState().addMessage('session-1', message);
+
+      useChatStore.getState().finalizeToolCallsToMessage('session-1');
+
+      const messages = useChatStore.getState().messages['session-1'];
+      expect(messages[0].toolCalls).toBeUndefined();
     });
   });
 });

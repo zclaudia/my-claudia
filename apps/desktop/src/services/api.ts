@@ -282,6 +282,38 @@ export async function getSessionMessages(
 }
 
 // ============================================
+// Session Export & Search API
+// ============================================
+
+export async function exportSession(sessionId: string): Promise<{ markdown: string; sessionName: string }> {
+  const result = await fetchApi<{ markdown: string; sessionName: string }>(`/api/sessions/${sessionId}/export`);
+  if (!result.success || !result.data) {
+    throw new Error(result.error?.message || 'Failed to export session');
+  }
+  return result.data;
+}
+
+export interface SearchResult {
+  id: string;
+  sessionId: string;
+  role: string;
+  content: string;
+  createdAt: number;
+  sessionName: string | null;
+}
+
+export async function searchMessages(query: string, projectId?: string): Promise<SearchResult[]> {
+  const params = new URLSearchParams({ q: query });
+  if (projectId) params.set('projectId', projectId);
+
+  const result = await fetchApi<{ results: SearchResult[] }>(`/api/sessions/search/messages?${params}`);
+  if (!result.success || !result.data) {
+    throw new Error(result.error?.message || 'Failed to search messages');
+  }
+  return result.data.results;
+}
+
+// ============================================
 // Providers API
 // ============================================
 

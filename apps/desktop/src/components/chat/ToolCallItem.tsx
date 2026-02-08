@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type { ToolCallState } from '../../stores/chatStore';
 import { getToolIcon } from '../../config/icons';
+import { DiffViewer } from './DiffViewer';
 
 interface ToolCallItemProps {
   toolCall: ToolCallState;
@@ -38,22 +39,144 @@ function formatToolInput(toolName: string, input: unknown): string {
   }
 }
 
-// Format tool result for display
+// Format tool result for display (no truncation — UI handles collapse/expand)
 function formatToolResult(result: unknown): string {
   if (typeof result === 'string') {
-    // Trim leading/trailing whitespace from command output
-    const trimmed = result.trim();
-    // Truncate long strings
-    if (trimmed.length > 500) {
-      return trimmed.substring(0, 500) + '... (truncated)';
-    }
-    return trimmed;
+    return result.trim();
   }
-  const json = JSON.stringify(result, null, 2);
-  if (json.length > 500) {
-    return json.substring(0, 500) + '... (truncated)';
+  return JSON.stringify(result, null, 2);
+}
+
+// Max lines to show before collapsing terminal output
+const TERMINAL_PREVIEW_LINES = 10;
+
+// Terminal-style output for Bash commands
+function TerminalOutput({ content, isError }: { content: string; isError?: boolean }) {
+  const [isFullyExpanded, setIsFullyExpanded] = useState(false);
+  const lines = content.split('\n');
+  const needsCollapse = lines.length > TERMINAL_PREVIEW_LINES;
+  const displayContent = needsCollapse && !isFullyExpanded
+    ? lines.slice(0, TERMINAL_PREVIEW_LINES).join('\n')
+    : content;
+
+  return (
+    <div className="rounded-lg overflow-hidden border border-zinc-700">
+      <pre
+        data-testid="tool-result"
+        className={`text-xs font-mono p-3 overflow-x-auto whitespace-pre-wrap break-words ${
+          isError
+            ? 'bg-red-950 text-red-300'
+            : 'bg-zinc-900 text-zinc-200'
+        }`}
+      >
+        {displayContent}
+      </pre>
+      {needsCollapse && (
+        <button
+          onClick={() => setIsFullyExpanded(!isFullyExpanded)}
+          className="w-full px-3 py-1.5 text-xs text-zinc-400 bg-zinc-800 hover:bg-zinc-700 active:bg-zinc-600 transition-colors text-center"
+        >
+          {isFullyExpanded
+            ? 'Collapse'
+            : `Show all ${lines.length} lines`}
+        </button>
+      )}
+    </div>
+  );
+}
+
+// Render expanded content based on tool type
+function ToolExpandedContent({ toolName, toolInput, status, result, isError }: {
+  toolName: string;
+  toolInput: unknown;
+  status: ToolCallState['status'];
+  result?: unknown;
+  isError?: boolean;
+}) {
+  const input = toolInput as Record<string, unknown> | undefined;
+
+  // Edit tool: show inline diff
+  if (toolName === 'Edit' && input?.old_string && input?.new_string) {
+    return (
+      <div className="px-3 pb-3 border-t border-border/50">
+        <div className="mt-2">
+          <DiffViewer
+            oldString={String(input.old_string)}
+            newString={String(input.new_string)}
+            filePath={input.file_path ? String(input.file_path) : undefined}
+          />
+        </div>
+        {/* Show result only if there's an error */}
+        {status !== 'running' && isError && result !== undefined && (
+          <div className="mt-2">
+            <pre
+              data-testid="tool-result"
+              className="text-xs rounded p-2 overflow-x-auto whitespace-pre-wrap break-words bg-destructive/20 text-destructive"
+            >
+              {formatToolResult(result)}
+            </pre>
+          </div>
+        )}
+      </div>
+    );
   }
-  return json;
+
+  // Bash tool: terminal-style rendering
+  if (toolName === 'Bash') {
+    const command = input?.command ? String(input.command) : '';
+    return (
+      <div className="px-3 pb-3 border-t border-border/50">
+        {/* Command */}
+        {command && (
+          <div className="mt-2">
+            <div className="rounded-lg overflow-hidden border border-zinc-700">
+              <pre className="text-xs font-mono p-2 bg-zinc-900 text-green-400 overflow-x-auto whitespace-pre-wrap break-words">
+                <span className="text-zinc-500 select-none">$ </span>{command}
+              </pre>
+            </div>
+          </div>
+        )}
+        {/* Output */}
+        {status !== 'running' && result !== undefined && (
+          <div className="mt-2">
+            <TerminalOutput content={formatToolResult(result)} isError={isError} />
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // Default: generic JSON input + result
+  return (
+    <div className="px-3 pb-3 border-t border-border/50">
+      {/* Input */}
+      <div className="mt-2">
+        <div className="text-xs text-muted-foreground mb-1">Input:</div>
+        <pre className="text-xs bg-muted/50 rounded p-2 overflow-x-auto text-foreground whitespace-pre-wrap break-words">
+          {JSON.stringify(toolInput, null, 2)}
+        </pre>
+      </div>
+
+      {/* Result */}
+      {status !== 'running' && result !== undefined && (
+        <div className="mt-2">
+          <div className="text-xs text-muted-foreground mb-1">
+            {isError ? 'Error:' : 'Result:'}
+          </div>
+          <pre
+            data-testid="tool-result"
+            className={`text-xs rounded p-2 overflow-x-auto max-h-96 overflow-y-auto whitespace-pre-wrap break-words ${
+              isError
+                ? 'bg-destructive/20 text-destructive'
+                : 'bg-muted/50 text-foreground'
+            }`}
+          >
+            {formatToolResult(result)}
+          </pre>
+        </div>
+      )}
+    </div>
+  );
 }
 
 export function ToolCallItem({ toolCall }: ToolCallItemProps) {
@@ -77,7 +200,7 @@ export function ToolCallItem({ toolCall }: ToolCallItemProps) {
       {/* Header - clickable to expand/collapse */}
       <button
         onClick={() => setIsExpanded(!isExpanded)}
-        className="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-muted/50 rounded-lg transition-colors"
+        className="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-muted/50 active:bg-muted/50 rounded-lg transition-colors"
       >
         {/* Status indicator */}
         {status === 'running' ? (
@@ -103,36 +226,15 @@ export function ToolCallItem({ toolCall }: ToolCallItemProps) {
         </span>
       </button>
 
-      {/* Expanded content */}
+      {/* Expanded content — tool-specific rendering */}
       {isExpanded && (
-        <div className="px-3 pb-3 border-t border-border/50">
-          {/* Input */}
-          <div className="mt-2">
-            <div className="text-xs text-muted-foreground mb-1">Input:</div>
-            <pre className="text-xs bg-muted/50 rounded p-2 overflow-x-auto text-foreground">
-              {JSON.stringify(toolInput, null, 2)}
-            </pre>
-          </div>
-
-          {/* Result (if completed) */}
-          {status !== 'running' && result !== undefined && (
-            <div className="mt-2">
-              <div className="text-xs text-muted-foreground mb-1">
-                {isError ? 'Error:' : 'Result:'}
-              </div>
-              <pre
-                data-testid="tool-result"
-                className={`text-xs rounded p-2 overflow-x-auto ${
-                  isError
-                    ? 'bg-destructive/20 text-destructive'
-                    : 'bg-muted/50 text-foreground'
-                }`}
-              >
-                {formatToolResult(result)}
-              </pre>
-            </div>
-          )}
-        </div>
+        <ToolExpandedContent
+          toolName={toolName}
+          toolInput={toolInput}
+          status={status}
+          result={result}
+          isError={isError}
+        />
       )}
     </div>
   );

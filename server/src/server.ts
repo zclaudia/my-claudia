@@ -11,6 +11,7 @@ import type {
   ErrorMessage,
   ProviderConfig,
   AuthResultMessage,
+  ToolCall,
   Request as CorrelatedRequest
 } from '@my-claudia/shared';
 import { isRequest } from '@my-claudia/shared';
@@ -657,6 +658,7 @@ async function handleRunStart(
     input: string;
     providerId?: string;
     permissionMode?: 'default' | 'acceptEdits' | 'bypassPermissions' | 'plan';
+    model?: string;
   },
   db: ReturnType<typeof initDatabase>
 ): Promise<void> {
@@ -730,6 +732,9 @@ async function handleRunStart(
   // Track tool_use_id to tool_name mapping for this run
   const toolUseIdToName = new Map<string, string>();
 
+  // Collect tool calls for persistence in message metadata
+  const collectedToolCalls: (ToolCall & { toolUseId: string })[] = [];
+
   // Send run started
   sendMessage(client.ws, {
     type: 'run_started',
@@ -765,7 +770,8 @@ async function handleRunStart(
         sessionId: sdkSessionId,
         cliPath: providerConfig?.cliPath,
         env: providerConfig?.env,
-        permissionMode: message.permissionMode  // Pass permission mode to SDK
+        permissionMode: message.permissionMode,  // Pass permission mode to SDK
+        model: message.model,  // Pass model override to SDK
       },
       // Permission request callback
       async (request) => {
@@ -857,6 +863,12 @@ async function handleRunStart(
           if (msg.toolUseId && msg.toolName) {
             toolUseIdToName.set(msg.toolUseId, msg.toolName);
           }
+          // Collect for persistence
+          collectedToolCalls.push({
+            toolUseId: msg.toolUseId || '',
+            name: msg.toolName || '',
+            input: msg.toolInput,
+          });
           sendMessage(client.ws, {
             type: 'tool_use',
             runId,
@@ -871,6 +883,12 @@ async function handleRunStart(
           // Look up tool name from our tracking map
           const toolName = msg.toolUseId ? toolUseIdToName.get(msg.toolUseId) || '' : '';
           console.log(`[Tool Result] ${msg.toolUseId} (${toolName}) - error: ${msg.isToolError}`);
+          // Update collected tool call with output
+          const collected = collectedToolCalls.find(tc => tc.toolUseId === msg.toolUseId);
+          if (collected) {
+            collected.output = msg.toolResult;
+            collected.isError = msg.isToolError || false;
+          }
           sendMessage(client.ws, {
             type: 'tool_result',
             runId,
@@ -911,6 +929,17 @@ async function handleRunStart(
           // Save assistant message to database
           if (fullContent) {
             const assistantMessageId = uuidv4();
+            // Build metadata with usage and persisted tool calls
+            const metadata: Record<string, unknown> = {};
+            if (msg.usage) {
+              metadata.usage = msg.usage;
+            }
+            if (collectedToolCalls.length > 0) {
+              // Strip internal toolUseId before persisting
+              metadata.toolCalls = collectedToolCalls.map(({ name, input, output, isError }) => ({
+                name, input, output, isError
+              }));
+            }
             db.prepare(`
               INSERT INTO messages (id, session_id, role, content, metadata, created_at)
               VALUES (?, ?, 'assistant', ?, ?, ?)
@@ -918,7 +947,7 @@ async function handleRunStart(
               assistantMessageId,
               message.sessionId,
               fullContent,
-              msg.usage ? JSON.stringify({ usage: msg.usage }) : null,
+              Object.keys(metadata).length > 0 ? JSON.stringify(metadata) : null,
               Date.now()
             );
           }

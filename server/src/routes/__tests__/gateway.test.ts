@@ -903,11 +903,13 @@ describe('Gateway API Integration Tests', () => {
         .expect(200);
       expect(response.body.success).toBe(true);
 
-      // Step 3: Enable gateway
+      // Step 3: Enable gateway (must include required gatewayUrl/gatewaySecret since validation checks req.body)
       response = await request(app)
         .put('/api/gateway/config')
         .send({
-          enabled: true
+          enabled: true,
+          gatewayUrl: 'https://gateway.example.com',
+          gatewaySecret: 'my-secret'
         })
         .expect(200);
       expect(response.body.success).toBe(true);

@@ -25,13 +25,34 @@ import {
 vi.mock('../../stores/serverStore', () => ({
   useServerStore: {
     getState: () => ({
+      activeServerId: 'server-1',
       getActiveServer: () => ({
         id: 'server-1',
         name: 'Test Server',
         address: 'localhost:3100',
+        apiKey: 'test-key',
+      }),
+      getDefaultServer: () => ({
+        id: 'server-1',
+        name: 'Test Server',
+        address: 'localhost:3100',
+        apiKey: 'test-key',
       }),
     }),
   },
+}));
+
+// Mock the gatewayStore
+vi.mock('../../stores/gatewayStore', () => ({
+  useGatewayStore: {
+    getState: () => ({
+      gatewayUrl: null,
+      gatewaySecret: null,
+      backendApiKeys: {},
+    }),
+  },
+  isGatewayTarget: () => false,
+  parseBackendId: () => '',
 }));
 
 // Mock fetch globally
@@ -46,12 +67,16 @@ describe('api', () => {
   // Helper to setup fetch mock response
   const mockResponse = <T>(data: T, success = true) => {
     mockFetch.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
       json: () => Promise.resolve({ success, data }),
     });
   };
 
   const mockError = (message: string, code = 'ERROR') => {
     mockFetch.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
       json: () => Promise.resolve({
         success: false,
         error: { code, message },

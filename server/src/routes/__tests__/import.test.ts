@@ -318,7 +318,7 @@ describe('Import API Integration Tests', () => {
       expect(response.body.data.imported).toBe(2);
 
       const sessions = db.prepare('SELECT * FROM sessions').all();
-      expect(sessions).toHaveLength(3); // 1 existing + 2 imported
+      expect(sessions).toHaveLength(2); // 2 imported (no pre-existing session in this test)
     });
 
     it('should handle errors gracefully and report them', async () => {

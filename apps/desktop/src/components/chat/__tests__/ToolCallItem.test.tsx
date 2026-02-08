@@ -170,8 +170,8 @@ describe('ToolCallItem', () => {
     });
   });
 
-  describe('formatToolResult truncation', () => {
-    it('truncates long string results', () => {
+  describe('formatToolResult (no truncation)', () => {
+    it('shows full long string results without truncation', () => {
       const longResult = 'A'.repeat(600);
       const toolCall = createToolCall({
         status: 'completed',
@@ -181,10 +181,12 @@ describe('ToolCallItem', () => {
 
       fireEvent.click(screen.getByRole('button'));
 
-      expect(screen.getByText(/\.\.\. \(truncated\)/)).toBeInTheDocument();
+      // B0: truncation removed — full content is shown, UI handles collapse/expand
+      const resultEl = screen.getByTestId('tool-result');
+      expect(resultEl.textContent).toContain('A'.repeat(600));
     });
 
-    it('truncates long JSON results', () => {
+    it('shows full long JSON results without truncation', () => {
       const longResult = { data: 'A'.repeat(600) };
       const toolCall = createToolCall({
         status: 'completed',
@@ -194,7 +196,9 @@ describe('ToolCallItem', () => {
 
       fireEvent.click(screen.getByRole('button'));
 
-      expect(screen.getByText(/\.\.\. \(truncated\)/)).toBeInTheDocument();
+      // B0: truncation removed — full JSON is shown
+      const resultEl = screen.getByTestId('tool-result');
+      expect(resultEl.textContent).toContain('A'.repeat(600));
     });
   });
 

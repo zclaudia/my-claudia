@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { Message, SystemInfo, PermissionMode } from '@my-claudia/shared';
+import type { Message, SystemInfo, PermissionMode, UsageInfo } from '@my-claudia/shared';
 
 interface PaginationInfo {
   total: number;
@@ -39,6 +39,10 @@ interface ChatState {
   currentSystemInfo: SystemInfo | null;
   // Current permission mode
   permissionMode: PermissionMode;
+  // Accumulated token usage per session
+  sessionUsage: Record<string, { inputTokens: number; outputTokens: number }>;
+  // Model override (user-selected model, empty = use default)
+  modelOverride: string;
 
   // Actions
   setMessages: (sessionId: string, messages: MessageWithToolCalls[], pagination?: Omit<PaginationInfo, 'isLoadingMore'>) => void;
@@ -64,6 +68,12 @@ interface ChatState {
   // Permission mode actions
   setPermissionMode: (mode: PermissionMode) => void;
 
+  // Usage tracking
+  addSessionUsage: (sessionId: string, usage: UsageInfo) => void;
+
+  // Model override
+  setModelOverride: (model: string) => void;
+
   // Getters
   getPagination: (sessionId: string) => PaginationInfo | undefined;
   getActiveToolCalls: () => ToolCallState[];
@@ -84,6 +94,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
   toolCallsHistory: [],
   currentSystemInfo: null,
   permissionMode: 'default',
+  sessionUsage: {},
+  modelOverride: '',
 
   setMessages: (sessionId, messages, pagination) =>
     set((state) => ({
@@ -238,6 +250,24 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   // Permission mode actions
   setPermissionMode: (mode) => set({ permissionMode: mode }),
+
+  // Usage tracking
+  addSessionUsage: (sessionId, usage) =>
+    set((state) => {
+      const existing = state.sessionUsage[sessionId] || { inputTokens: 0, outputTokens: 0 };
+      return {
+        sessionUsage: {
+          ...state.sessionUsage,
+          [sessionId]: {
+            inputTokens: existing.inputTokens + usage.inputTokens,
+            outputTokens: existing.outputTokens + usage.outputTokens,
+          },
+        },
+      };
+    }),
+
+  // Model override
+  setModelOverride: (model) => set({ modelOverride: model }),
 
   getPagination: (sessionId) => get().pagination[sessionId],
 

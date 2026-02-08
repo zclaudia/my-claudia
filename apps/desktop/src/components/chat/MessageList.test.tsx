@@ -2,6 +2,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { MessageList } from './MessageList';
 import type { Message } from '@my-claudia/shared';
+import { ThemeProvider } from '../../contexts/ThemeContext';
+import type { ReactElement } from 'react';
 
 // Mock clipboard API
 const mockWriteText = vi.fn().mockResolvedValue(undefined);
@@ -9,6 +11,11 @@ Object.defineProperty(navigator, 'clipboard', {
   value: { writeText: mockWriteText },
   writable: true,
 });
+
+// Helper to render with ThemeProvider (needed for CodeBlock's useTheme)
+function renderWithTheme(ui: ReactElement) {
+  return render(<ThemeProvider>{ui}</ThemeProvider>);
+}
 
 describe('MessageList', () => {
   beforeEach(() => {
@@ -104,7 +111,7 @@ describe('MessageList', () => {
           content: '```javascript\nconst x = 1;\n```',
         }),
       ];
-      render(<MessageList messages={messages} />);
+      renderWithTheme(<MessageList messages={messages} />);
 
       expect(screen.getByText('javascript')).toBeInTheDocument();
       expect(screen.getByText(/const/)).toBeInTheDocument();
@@ -160,9 +167,9 @@ describe('MessageList', () => {
           content: '```js\nconst x = 1;\n```',
         }),
       ];
-      render(<MessageList messages={messages} />);
+      renderWithTheme(<MessageList messages={messages} />);
 
-      const copyButton = screen.getByText('Copy');
+      const copyButton = screen.getByText('Copy code');
       expect(copyButton).toBeInTheDocument();
     });
 
@@ -173,9 +180,9 @@ describe('MessageList', () => {
           content: '```js\nconst x = 1;\n```',
         }),
       ];
-      render(<MessageList messages={messages} />);
+      renderWithTheme(<MessageList messages={messages} />);
 
-      const copyButton = screen.getByText('Copy');
+      const copyButton = screen.getByText('Copy code');
       fireEvent.click(copyButton);
 
       await waitFor(() => {
@@ -190,9 +197,9 @@ describe('MessageList', () => {
           content: '```js\nconst x = 1;\n```',
         }),
       ];
-      render(<MessageList messages={messages} />);
+      renderWithTheme(<MessageList messages={messages} />);
 
-      const copyButton = screen.getByText('Copy');
+      const copyButton = screen.getByText('Copy code');
       fireEvent.click(copyButton);
 
       await waitFor(() => {

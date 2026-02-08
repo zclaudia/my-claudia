@@ -197,6 +197,7 @@ export interface ToolCall {
   name: string;
   input: unknown;
   output?: unknown;
+  isError?: boolean;
 }
 
 export interface UsageInfo {
@@ -274,6 +275,7 @@ export interface RunStartMessage {
   input: string;
   providerId?: string;
   permissionMode?: PermissionMode;  // Optional: defaults to 'default'
+  model?: string;  // Optional: override model (e.g. 'claude-sonnet-4-5-20250929')
 }
 
 export interface RunCancelMessage {

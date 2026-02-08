@@ -65,10 +65,22 @@ describe('sessions routes', () => {
   });
 
   beforeEach(() => {
-    // Clear all data before each test
+    // Drop FTS trigger to avoid conflicts during cleanup, then recreate
+    db.exec('DROP TRIGGER IF EXISTS messages_fts_insert');
+    db.exec('DROP TABLE IF EXISTS messages_fts');
     db.exec('DELETE FROM messages');
     db.exec('DELETE FROM sessions');
     db.exec('DELETE FROM projects');
+    // Recreate FTS table and trigger
+    db.exec(`
+      CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(
+        content, session_id UNINDEXED, role UNINDEXED
+      );
+      CREATE TRIGGER IF NOT EXISTS messages_fts_insert AFTER INSERT ON messages BEGIN
+        INSERT INTO messages_fts(rowid, content, session_id, role)
+          VALUES (NEW.rowid, NEW.content, NEW.session_id, NEW.role);
+      END;
+    `);
 
     // Create a test project
     const now = Date.now();
@@ -428,6 +440,199 @@ describe('sessions routes', () => {
       // Verify in database
       const row = db.prepare('SELECT metadata FROM messages WHERE id = ?').get(res.body.data.id) as { metadata: string };
       expect(JSON.parse(row.metadata)).toEqual(metadata);
+    });
+  });
+
+  describe('GET /api/sessions/:id/export', () => {
+    beforeEach(() => {
+      const now = Date.now();
+      db.prepare(`
+        INSERT INTO sessions (id, project_id, name, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?)
+      `).run('s1', 'project-1', 'Export Test Session', now, now);
+    });
+
+    it('returns markdown with session name and messages', async () => {
+      const now = Date.now();
+      db.prepare(`
+        INSERT INTO messages (id, session_id, role, content, created_at)
+        VALUES (?, ?, ?, ?, ?)
+      `).run('m1', 's1', 'user', 'Hello Claude', now);
+      db.prepare(`
+        INSERT INTO messages (id, session_id, role, content, created_at)
+        VALUES (?, ?, ?, ?, ?)
+      `).run('m2', 's1', 'assistant', 'Hello! How can I help?', now + 1000);
+
+      const res = await request(app).get('/api/sessions/s1/export');
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.data.sessionName).toBe('Export Test Session');
+      expect(res.body.data.markdown).toContain('# Export Test Session');
+      expect(res.body.data.markdown).toContain('## User');
+      expect(res.body.data.markdown).toContain('Hello Claude');
+      expect(res.body.data.markdown).toContain('## Assistant');
+      expect(res.body.data.markdown).toContain('Hello! How can I help?');
+    });
+
+    it('includes tool calls summary from metadata', async () => {
+      const now = Date.now();
+      const metadata = {
+        toolCalls: [
+          { name: 'Read', input: { file_path: '/foo.ts' }, output: 'contents', isError: false },
+          { name: 'Bash', input: { command: 'ls' }, output: 'error', isError: true },
+        ],
+      };
+      db.prepare(`
+        INSERT INTO messages (id, session_id, role, content, metadata, created_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).run('m1', 's1', 'assistant', 'Done', JSON.stringify(metadata), now);
+
+      const res = await request(app).get('/api/sessions/s1/export');
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.markdown).toContain('**Tool Calls:**');
+      expect(res.body.data.markdown).toContain('**Read**');
+      expect(res.body.data.markdown).toContain('ok');
+      expect(res.body.data.markdown).toContain('**Bash**');
+      expect(res.body.data.markdown).toContain('error');
+    });
+
+    it('includes token usage from metadata', async () => {
+      const now = Date.now();
+      const metadata = {
+        usage: { inputTokens: 1500, outputTokens: 800 },
+      };
+      db.prepare(`
+        INSERT INTO messages (id, session_id, role, content, metadata, created_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).run('m1', 's1', 'assistant', 'Response', JSON.stringify(metadata), now);
+
+      const res = await request(app).get('/api/sessions/s1/export');
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.markdown).toContain('Tokens:');
+      expect(res.body.data.markdown).toContain('1,500');
+      expect(res.body.data.markdown).toContain('800');
+    });
+
+    it('returns 404 for non-existent session', async () => {
+      const res = await request(app).get('/api/sessions/nonexistent/export');
+
+      expect(res.status).toBe(404);
+      expect(res.body.success).toBe(false);
+    });
+
+    it('uses "Untitled Session" for session without name', async () => {
+      const now = Date.now();
+      db.prepare(`
+        INSERT INTO sessions (id, project_id, name, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?)
+      `).run('s2', 'project-1', null, now, now);
+
+      const res = await request(app).get('/api/sessions/s2/export');
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.markdown).toContain('# Untitled Session');
+    });
+  });
+
+  describe('GET /api/sessions/search/messages', () => {
+    beforeEach(() => {
+      const now = Date.now();
+      db.prepare(`
+        INSERT INTO sessions (id, project_id, name, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?)
+      `).run('s1', 'project-1', 'Session 1', now, now);
+
+      // Insert messages that will be indexed by FTS trigger
+      db.prepare(`
+        INSERT INTO messages (id, session_id, role, content, created_at)
+        VALUES (?, ?, ?, ?, ?)
+      `).run('m1', 's1', 'user', 'How to implement authentication?', now);
+      db.prepare(`
+        INSERT INTO messages (id, session_id, role, content, created_at)
+        VALUES (?, ?, ?, ?, ?)
+      `).run('m2', 's1', 'assistant', 'You can use JWT tokens for authentication.', now + 1000);
+      db.prepare(`
+        INSERT INTO messages (id, session_id, role, content, created_at)
+        VALUES (?, ?, ?, ?, ?)
+      `).run('m3', 's1', 'user', 'Tell me about database migrations.', now + 2000);
+    });
+
+    it('returns matching messages for search query', async () => {
+      const res = await request(app).get('/api/sessions/search/messages?q=authentication');
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.data.results.length).toBeGreaterThanOrEqual(1);
+      expect(res.body.data.results.some((r: { content: string }) => r.content.includes('authentication'))).toBe(true);
+    });
+
+    it('returns empty results for empty query', async () => {
+      const res = await request(app).get('/api/sessions/search/messages?q=');
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.results).toEqual([]);
+    });
+
+    it('filters by projectId', async () => {
+      const now = Date.now();
+      // Create another project with a session and message
+      db.prepare(`
+        INSERT INTO projects (id, name, type, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?)
+      `).run('project-2', 'Other Project', 'code', now, now);
+      db.prepare(`
+        INSERT INTO sessions (id, project_id, name, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?)
+      `).run('s2', 'project-2', 'Session 2', now, now);
+      db.prepare(`
+        INSERT INTO messages (id, session_id, role, content, created_at)
+        VALUES (?, ?, ?, ?, ?)
+      `).run('m4', 's2', 'user', 'Authentication in project 2', now);
+
+      const res = await request(app).get('/api/sessions/search/messages?q=authentication&projectId=project-1');
+
+      expect(res.status).toBe(200);
+      // All results should be from project-1
+      for (const result of res.body.data.results) {
+        expect(result.sessionId).toBe('s1');
+      }
+    });
+
+    it('truncates content to 200 characters', async () => {
+      const now = Date.now();
+      const longContent = 'authentication '.repeat(50); // > 200 chars
+      db.prepare(`
+        INSERT INTO messages (id, session_id, role, content, created_at)
+        VALUES (?, ?, ?, ?, ?)
+      `).run('m-long', 's1', 'user', longContent, now + 5000);
+
+      const res = await request(app).get('/api/sessions/search/messages?q=authentication');
+
+      expect(res.status).toBe(200);
+      const longResult = res.body.data.results.find((r: { id: string }) => r.id === 'm-long');
+      if (longResult) {
+        expect(longResult.content.length).toBeLessThanOrEqual(203); // 200 + "..."
+        expect(longResult.content.endsWith('...')).toBe(true);
+      }
+    });
+
+    it('respects limit parameter', async () => {
+      const res = await request(app).get('/api/sessions/search/messages?q=authentication&limit=1');
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.results.length).toBeLessThanOrEqual(1);
+    });
+
+    it('includes session name in results', async () => {
+      const res = await request(app).get('/api/sessions/search/messages?q=authentication');
+
+      expect(res.status).toBe(200);
+      if (res.body.data.results.length > 0) {
+        expect(res.body.data.results[0].sessionName).toBe('Session 1');
+      }
     });
   });
 });

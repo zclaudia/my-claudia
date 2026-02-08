@@ -171,6 +171,126 @@ export function createSessionRoutes(db: Database.Database): Router {
     }
   });
 
+  // Export session as Markdown
+  router.get('/:id/export', (req: Request, res: Response) => {
+    try {
+      const session = db.prepare(`
+        SELECT id, project_id as projectId, name, created_at as createdAt
+        FROM sessions WHERE id = ?
+      `).get(req.params.id) as { id: string; projectId: string; name?: string; createdAt: number } | undefined;
+
+      if (!session) {
+        res.status(404).json({
+          success: false,
+          error: { code: 'NOT_FOUND', message: 'Session not found' }
+        });
+        return;
+      }
+
+      const messages = db.prepare(`
+        SELECT role, content, metadata, created_at as createdAt
+        FROM messages WHERE session_id = ? ORDER BY created_at ASC
+      `).all(req.params.id) as Array<{ role: string; content: string; metadata: string | null; createdAt: number }>;
+
+      const lines: string[] = [];
+      const sessionName = session.name || 'Untitled Session';
+      lines.push(`# ${sessionName}`);
+      lines.push(`Created: ${new Date(session.createdAt).toLocaleString()}`);
+      lines.push('', '---', '');
+
+      for (const msg of messages) {
+        const roleLabel = msg.role === 'user' ? 'User' : msg.role === 'assistant' ? 'Assistant' : 'System';
+        const time = new Date(msg.createdAt).toLocaleTimeString();
+        lines.push(`## ${roleLabel} *(${time})*`, '', msg.content, '');
+
+        if (msg.metadata) {
+          try {
+            const meta = JSON.parse(msg.metadata);
+            if (meta.toolCalls?.length > 0) {
+              lines.push('**Tool Calls:**');
+              for (const tc of meta.toolCalls) {
+                const status = tc.isError ? 'error' : 'ok';
+                const inp = tc.input && typeof tc.input === 'object'
+                  ? ((tc.input as Record<string, unknown>).file_path || (tc.input as Record<string, unknown>).command || (tc.input as Record<string, unknown>).pattern || '')
+                  : '';
+                lines.push(`- **${tc.name}** \`${inp}\` → ${status}`);
+              }
+              lines.push('');
+            }
+            if (meta.usage) {
+              lines.push(`*Tokens: ${(meta.usage.inputTokens || 0).toLocaleString()} in / ${(meta.usage.outputTokens || 0).toLocaleString()} out*`, '');
+            }
+          } catch { /* ignore */ }
+        }
+        lines.push('---', '');
+      }
+
+      res.json({ success: true, data: { markdown: lines.join('\n'), sessionName } } as ApiResponse<{ markdown: string; sessionName: string }>);
+    } catch (error) {
+      console.error('Error exporting session:', error);
+      res.status(500).json({ success: false, error: { code: 'DB_ERROR', message: 'Failed to export session' } });
+    }
+  });
+
+  // Search messages across sessions using FTS5
+  router.get('/search/messages', (req: Request, res: Response) => {
+    try {
+      const q = req.query.q as string;
+      const projectId = req.query.projectId as string | undefined;
+      const limit = Math.min(parseInt(req.query.limit as string) || 50, 100);
+
+      if (!q || q.trim().length === 0) {
+        res.json({ success: true, data: { results: [] } });
+        return;
+      }
+
+      const safeQuery = q.replace(/"/g, '""');
+
+      let sql: string;
+      let params: (string | number)[];
+
+      if (projectId) {
+        sql = `
+          SELECT m.id, m.session_id as sessionId, m.role, m.content, m.created_at as createdAt,
+                 s.name as sessionName
+          FROM messages_fts f
+          JOIN messages m ON m.rowid = f.rowid
+          JOIN sessions s ON m.session_id = s.id
+          WHERE messages_fts MATCH ? AND s.project_id = ?
+          ORDER BY rank
+          LIMIT ?
+        `;
+        params = [`"${safeQuery}"`, projectId, limit];
+      } else {
+        sql = `
+          SELECT m.id, m.session_id as sessionId, m.role, m.content, m.created_at as createdAt,
+                 s.name as sessionName
+          FROM messages_fts f
+          JOIN messages m ON m.rowid = f.rowid
+          JOIN sessions s ON m.session_id = s.id
+          WHERE messages_fts MATCH ?
+          ORDER BY rank
+          LIMIT ?
+        `;
+        params = [`"${safeQuery}"`, limit];
+      }
+
+      const results = db.prepare(sql).all(...params) as Array<{
+        id: string; sessionId: string; role: string; content: string; createdAt: number; sessionName: string | null;
+      }>;
+
+      const truncated = results.map(r => ({
+        ...r,
+        content: r.content.length > 200 ? r.content.substring(0, 200) + '...' : r.content,
+      }));
+
+      res.json({ success: true, data: { results: truncated } });
+    } catch (error) {
+      console.error('Error searching messages:', error);
+      res.status(500).json({ success: false, error: { code: 'DB_ERROR', message: 'Failed to search messages' } });
+    }
+  });
+
   // Get messages for a session (with pagination support)
   // Query params:
   //   - limit: number of messages to fetch (default: 50)

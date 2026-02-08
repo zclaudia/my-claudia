@@ -54,7 +54,8 @@ export function useGatewayConnection() {
     clearToolCalls,
     finalizeToolCallsToMessage,
     setSystemInfo,
-    clearSystemInfo
+    clearSystemInfo,
+    addSessionUsage,
   } = useChatStore();
 
   const { selectedSessionId } = useProjectStore();
@@ -131,6 +132,9 @@ export function useGatewayConnection() {
           setCurrentRunId(null);
           if (currentSessionId) {
             finalizeToolCallsToMessage(currentSessionId);
+            if (msg.usage) {
+              addSessionUsage(currentSessionId, msg.usage);
+            }
           }
         }
         break;
@@ -194,6 +198,7 @@ export function useGatewayConnection() {
     setPendingRequest,
     setSystemInfo,
     clearSystemInfo,
+    addSessionUsage,
     setServerConnectionStatus,
     setServerLocalConnection,
     updateLastConnected

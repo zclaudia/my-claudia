@@ -6,12 +6,35 @@ import { LoadingIndicator } from './LoadingIndicator';
 import { PermissionModeToggle } from './PermissionModeToggle';
 import { FontSizeSelector } from './FontSizeSelector';
 import { SystemInfoButton } from './SystemInfoButton';
+import { ModelSelector } from './ModelSelector';
+import { TokenUsageDisplay } from './TokenUsageDisplay';
 import { useChatStore } from '../../stores/chatStore';
 import { useProjectStore } from '../../stores/projectStore';
 import { useConnection } from '../../contexts/ConnectionContext';
 import * as api from '../../services/api';
 import { uploadFile } from '../../services/fileUpload';
-import type { CommandExecuteResponse, MessageAttachment, MessageInput as MessageInputData } from '@my-claudia/shared';
+import type { CommandExecuteResponse, Message, MessageAttachment, MessageInput as MessageInputData } from '@my-claudia/shared';
+import type { MessageWithToolCalls } from '../../stores/chatStore';
+
+// Restore tool calls from persisted metadata when loading messages from the server
+function restoreToolCalls(messages: Message[]): MessageWithToolCalls[] {
+  return messages.map(msg => {
+    if (msg.metadata?.toolCalls && msg.metadata.toolCalls.length > 0) {
+      return {
+        ...msg,
+        toolCalls: msg.metadata.toolCalls.map((tc, i) => ({
+          id: `persisted-${msg.id}-${i}`,
+          toolName: tc.name,
+          toolInput: tc.input,
+          status: tc.isError ? 'error' as const : 'completed' as const,
+          result: tc.output,
+          isError: tc.isError,
+        })),
+      };
+    }
+    return msg;
+  });
+}
 
 interface ChatInterfaceProps {
   sessionId: string;
@@ -33,7 +56,10 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
     activeToolCalls,
     currentSystemInfo,
     permissionMode,
-    setPermissionMode
+    setPermissionMode,
+    sessionUsage,
+    modelOverride,
+    setModelOverride,
   } = useChatStore();
   const { projects, sessions, providerCommands } = useProjectStore();
   const { sendMessage: wsSendMessage, isConnected } = useConnection();
@@ -43,6 +69,7 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
 
   const sessionMessages = messages[sessionId] || [];
   const sessionPagination = pagination[sessionId];
+  const currentUsage = sessionUsage[sessionId] || { inputTokens: 0, outputTokens: 0 };
 
   // Get current session and project to determine provider
   const currentSession = sessions.find(s => s.id === sessionId);
@@ -66,7 +93,7 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
           before
         });
 
-        prependMessages(sessionId, result.messages, result.pagination);
+        prependMessages(sessionId, restoreToolCalls(result.messages), result.pagination);
       } else {
         // Initial load via HTTP
         if (!isConnected) {
@@ -80,7 +107,7 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
           limit: MESSAGES_PER_PAGE
         });
 
-        setMessages(sessionId, result.messages, result.pagination);
+        setMessages(sessionId, restoreToolCalls(result.messages), result.pagination);
         setInitialLoadDone(true);
         // Scroll to bottom on initial load - use instant to avoid visible scroll animation
         setTimeout(() => scrollToBottom(true), 0);
@@ -235,7 +262,8 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
       clientRequestId: crypto.randomUUID(),
       sessionId,
       input: fullContent,
-      permissionMode,  // Pass current permission mode
+      permissionMode,
+      model: modelOverride || undefined,
     });
 
     // Scroll to bottom after sending
@@ -388,6 +416,7 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
         sessionId,
         input: commandText,
         permissionMode,
+        model: modelOverride || undefined,
       });
       return;
     }
@@ -432,6 +461,7 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
           sessionId,
           input: result.content,
           permissionMode,
+          model: modelOverride || undefined,
         });
       }
     } catch (error) {
@@ -446,7 +476,7 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
         createdAt: Date.now(),
       });
     }
-  }, [sessionId, addMessage, wsSendMessage, commands, currentSession, currentProject, handleBuiltInCommand, permissionMode]);
+  }, [sessionId, addMessage, wsSendMessage, commands, currentSession, currentProject, handleBuiltInCommand, permissionMode, modelOverride]);
 
   const handleCancelRun = () => {
     if (!currentRunId) return;
@@ -499,12 +529,32 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
       {/* Input */}
       <div className="border-t border-border p-2 md:p-4">
         {/* Toolbar */}
-        <div className="mb-2 md:mb-3 flex items-center justify-between gap-2 md:gap-4">
+        <div className="mb-2 md:mb-3 flex items-center gap-2 md:gap-3 flex-wrap">
           <PermissionModeToggle
             mode={permissionMode}
             onModeChange={setPermissionMode}
             disabled={isLoading}
           />
+          <ModelSelector
+            value={modelOverride}
+            onChange={setModelOverride}
+            disabled={isLoading}
+          />
+          <TokenUsageDisplay
+            inputTokens={currentUsage.inputTokens}
+            outputTokens={currentUsage.outputTokens}
+          />
+          <div className="flex-1" />
+          <button
+            onClick={() => handleCommand('/compact', '')}
+            disabled={isLoading || !isConnected}
+            className="px-2.5 py-1.5 rounded-full text-xs font-medium border border-border
+              hover:border-primary/50 active:bg-muted transition-colors min-h-[36px]
+              disabled:opacity-50 disabled:cursor-not-allowed text-muted-foreground"
+            title="Compact conversation context"
+          >
+            Compact
+          </button>
           <FontSizeSelector />
           <SystemInfoButton systemInfo={currentSystemInfo} />
         </div>

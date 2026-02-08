@@ -10,6 +10,7 @@ export interface ClaudeRunOptions {
   env?: Record<string, string>;
   cliPath?: string;
   permissionMode?: PermissionMode;  // 'default' | 'acceptEdits' | 'bypassPermissions' | 'plan'
+  model?: string;  // Override model (e.g. 'claude-sonnet-4-5-20250929')
 }
 
 export interface PermissionDecision {
@@ -132,6 +133,12 @@ export async function* runClaude(
     allowedTools: options.allowedTools || [],
     disallowedTools: options.disallowedTools || [],
   };
+
+  // Set model override
+  if (options.model) {
+    sdkOptions.model = options.model;
+    console.log('[Claude SDK] Model override:', options.model);
+  }
 
   // Set permission mode (defaults to 'default' if not specified)
   if (options.permissionMode) {

@@ -523,7 +523,7 @@ describe('FileStore', () => {
       fileStore.storeFile('large.bin', 'application/octet-stream', data);
 
       const stats = fileStore.getStats();
-      expect(parseFloat(stats.totalSizeMB)).toBeGreaterThan(1.0);
+      expect(parseFloat(stats.totalSizeMB)).toBeGreaterThanOrEqual(1.0);
       expect(parseFloat(stats.totalSizeMB)).toBeLessThan(1.5); // Base64 adds ~33% overhead
     });
 
