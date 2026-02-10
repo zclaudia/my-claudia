@@ -22,9 +22,36 @@ export function MessageList({ messages }: MessageListProps) {
     );
   }
 
+  // Filter out empty user messages (likely permission approvals or empty inputs)
+  const filteredMessages = messages.filter((message) => {
+    // Keep all non-user messages (assistant, system, etc.)
+    if (message.role !== 'user') {
+      return true;
+    }
+
+    // For user messages, check if content is empty
+    let textContent = message.content;
+    let hasAttachments = false;
+
+    // Try to parse as MessageInput JSON
+    try {
+      const parsed: MessageInput = JSON.parse(message.content);
+      if (typeof parsed === 'object' && 'text' in parsed) {
+        textContent = parsed.text || '';
+        hasAttachments = (parsed.attachments?.length || 0) > 0;
+      }
+    } catch {
+      // Not JSON, use as plain text
+      textContent = message.content;
+    }
+
+    // Keep message if it has text content or attachments
+    return textContent.trim().length > 0 || hasAttachments;
+  });
+
   return (
     <div className="space-y-4">
-      {messages.map((message) => (
+      {filteredMessages.map((message) => (
         <MessageItem key={message.id} message={message} />
       ))}
     </div>
@@ -219,7 +246,7 @@ function MessageItem({ message }: { message: MessageWithToolCalls }) {
         }`}
       >
         {isUser ? (
-          <div>
+          <div className="text-sm">
             {/* Display attachments */}
             {attachments.length > 0 && (
               <div className="space-y-2 mb-2">
@@ -229,7 +256,7 @@ function MessageItem({ message }: { message: MessageWithToolCalls }) {
               </div>
             )}
             {/* Display text */}
-            <p className="whitespace-pre-wrap">{textContent}</p>
+            <p className="whitespace-pre-wrap leading-relaxed">{textContent}</p>
           </div>
         ) : (
           <div className="prose dark:prose-invert prose-sm max-w-none">

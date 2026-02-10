@@ -2,6 +2,8 @@ import { Router, Request, Response } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import type Database from 'better-sqlite3';
 import type { Session, Message, ApiResponse } from '@my-claudia/shared';
+import { saveSearchHistory, getSearchHistory, clearSearchHistory, getSearchSuggestions } from '../storage/search-history.js';
+import { extractAndIndexMetadata } from '../storage/metadata-extractor.js';
 
 export function createSessionRoutes(db: Database.Database): Router {
   const router = Router();
@@ -150,8 +152,35 @@ export function createSessionRoutes(db: Database.Database): Router {
 
   // Delete session
   router.delete('/:id', (req: Request, res: Response) => {
+    const sessionId = req.params.id;
+
     try {
-      const result = db.prepare('DELETE FROM sessions WHERE id = ?').run(req.params.id);
+      // Check if session exists
+      const session = db.prepare('SELECT id FROM sessions WHERE id = ?').get(sessionId);
+      if (!session) {
+        res.status(404).json({
+          success: false,
+          error: { code: 'NOT_FOUND', message: 'Session not found' }
+        });
+        return;
+      }
+
+      // Disable recursive triggers to avoid FTS trigger conflicts
+      db.pragma('recursive_triggers = OFF');
+
+      let result;
+      try {
+        // Use a transaction and simple CASCADE deletion
+        const deleteTransaction = db.transaction(() => {
+          // Simply delete the session - CASCADE will handle all children
+          return db.prepare('DELETE FROM sessions WHERE id = ?').run(sessionId);
+        });
+
+        result = deleteTransaction();
+      } finally {
+        // Always re-enable recursive triggers
+        db.pragma('recursive_triggers = ON');
+      }
 
       if (result.changes === 0) {
         res.status(404).json({
@@ -161,9 +190,16 @@ export function createSessionRoutes(db: Database.Database): Router {
         return;
       }
 
+      console.log(`[Delete Session] Successfully deleted session ${sessionId}`);
       res.json({ success: true } as ApiResponse<void>);
     } catch (error) {
       console.error('Error deleting session:', error);
+
+      // Log full error for debugging
+      if (error && typeof error === 'object' && 'code' in error) {
+        console.error('[Delete Session] SQLite error code:', (error as any).code);
+      }
+
       res.status(500).json({
         success: false,
         error: { code: 'DB_ERROR', message: 'Failed to delete session' }
@@ -237,7 +273,14 @@ export function createSessionRoutes(db: Database.Database): Router {
     try {
       const q = req.query.q as string;
       const projectId = req.query.projectId as string | undefined;
+      const role = req.query.role as string | undefined;
+      const sessionIds = req.query.sessionIds as string | undefined;
+      const startDate = req.query.startDate ? parseInt(req.query.startDate as string) : undefined;
+      const endDate = req.query.endDate ? parseInt(req.query.endDate as string) : undefined;
+      const sort = (req.query.sort as string) || 'relevance';
+      const scope = (req.query.scope as string) || 'messages'; // 'messages', 'files', 'tool_calls', 'all'
       const limit = Math.min(parseInt(req.query.limit as string) || 50, 100);
+      const offset = Math.max(parseInt(req.query.offset as string) || 0, 0);
 
       if (!q || q.trim().length === 0) {
         res.json({ success: true, data: { results: [] } });
@@ -245,49 +288,215 @@ export function createSessionRoutes(db: Database.Database): Router {
       }
 
       const safeQuery = q.replace(/"/g, '""');
+      let results: Array<{
+        id: string; sessionId: string; role: string; content: string; createdAt: number; sessionName: string | null; resultType?: string;
+      }> = [];
 
-      let sql: string;
-      let params: (string | number)[];
+      // Helper function to build session filter conditions
+      const buildSessionFilters = (prefix: string): { conditions: string[]; params: (string | number)[] } => {
+        const conditions: string[] = [];
+        const params: (string | number)[] = [];
 
-      if (projectId) {
-        sql = `
+        if (projectId) {
+          conditions.push(`${prefix}.project_id = ?`);
+          params.push(projectId);
+        }
+
+        if (sessionIds) {
+          const ids = sessionIds.split(',').filter(id => id.trim());
+          if (ids.length > 0) {
+            const placeholders = ids.map(() => '?').join(',');
+            conditions.push(`${prefix}.session_id IN (${placeholders})`);
+            params.push(...ids);
+          }
+        }
+
+        if (startDate) {
+          conditions.push(`${prefix}.created_at >= ?`);
+          params.push(startDate);
+        }
+        if (endDate) {
+          conditions.push(`${prefix}.created_at <= ?`);
+          params.push(endDate);
+        }
+
+        return { conditions, params };
+      };
+
+      // Search messages
+      if (scope === 'messages' || scope === 'all') {
+        const conditions: string[] = ['messages_fts MATCH ?'];
+        const params: (string | number)[] = [`"${safeQuery}"`];
+
+        if (role && (role === 'user' || role === 'assistant')) {
+          conditions.push('m.role = ?');
+          params.push(role);
+        }
+
+        const sessionFilters = buildSessionFilters('m');
+        conditions.push(...sessionFilters.conditions.map(c => c.replace('m.session_id', 's.id').replace('m.project_id', 's.project_id').replace('m.created_at', 'm.created_at')));
+        params.push(...sessionFilters.params);
+
+        let orderBy = 'ORDER BY rank';
+        if (sort === 'newest') {
+          orderBy = 'ORDER BY m.created_at DESC';
+        } else if (sort === 'oldest') {
+          orderBy = 'ORDER BY m.created_at ASC';
+        } else if (sort === 'session') {
+          orderBy = 'ORDER BY m.session_id, m.created_at DESC';
+        }
+
+        const sql = `
           SELECT m.id, m.session_id as sessionId, m.role, m.content, m.created_at as createdAt,
-                 s.name as sessionName
+                 s.name as sessionName, 'message' as resultType
           FROM messages_fts f
           JOIN messages m ON m.rowid = f.rowid
           JOIN sessions s ON m.session_id = s.id
-          WHERE messages_fts MATCH ? AND s.project_id = ?
-          ORDER BY rank
-          LIMIT ?
+          WHERE ${conditions.join(' AND ')}
+          ${orderBy}
+          LIMIT ? OFFSET ?
         `;
-        params = [`"${safeQuery}"`, projectId, limit];
-      } else {
-        sql = `
-          SELECT m.id, m.session_id as sessionId, m.role, m.content, m.created_at as createdAt,
-                 s.name as sessionName
-          FROM messages_fts f
-          JOIN messages m ON m.rowid = f.rowid
-          JOIN sessions s ON m.session_id = s.id
-          WHERE messages_fts MATCH ?
-          ORDER BY rank
-          LIMIT ?
-        `;
-        params = [`"${safeQuery}"`, limit];
+        params.push(limit, offset);
+
+        results = db.prepare(sql).all(...params) as typeof results;
       }
 
-      const results = db.prepare(sql).all(...params) as Array<{
-        id: string; sessionId: string; role: string; content: string; createdAt: number; sessionName: string | null;
-      }>;
+      // Search files
+      if (scope === 'files' || scope === 'all') {
+        const params: (string | number)[] = [`"${safeQuery}"`];
+        const sessionFilters = buildSessionFilters('fr');
+        const conditions = sessionFilters.conditions.map(c => c.replace('fr.session_id', 's.id').replace('fr.project_id', 's.project_id').replace('fr.created_at', 'fr.created_at'));
+        params.push(...sessionFilters.params);
+
+        let orderBy = scope === 'files' ? 'ORDER BY rank' : '';
+        if (sort === 'newest') {
+          orderBy = 'ORDER BY fr.created_at DESC';
+        } else if (sort === 'oldest') {
+          orderBy = 'ORDER BY fr.created_at ASC';
+        }
+
+        const whereClause = conditions.length > 0 ? `AND ${conditions.join(' AND ')}` : '';
+        const sql = `
+          SELECT fr.message_id as id, fr.session_id as sessionId, '' as role,
+                 fr.file_path || ' (' || fr.source_type || ')' as content,
+                 fr.created_at as createdAt, s.name as sessionName, 'file' as resultType
+          FROM files_fts f
+          JOIN file_references fr ON fr.id = f.rowid
+          JOIN sessions s ON fr.session_id = s.id
+          WHERE files_fts MATCH ? ${whereClause}
+          ${orderBy}
+          LIMIT ? OFFSET ?
+        `;
+        params.push(limit, offset);
+
+        const fileResults = db.prepare(sql).all(...params) as typeof results;
+        results = scope === 'all' ? [...results, ...fileResults] : fileResults;
+      }
+
+      // Search tool calls
+      if (scope === 'tool_calls' || scope === 'all') {
+        const params: (string | number)[] = [`"${safeQuery}"`];
+        const sessionFilters = buildSessionFilters('tc');
+        const conditions = sessionFilters.conditions.map(c => c.replace('tc.session_id', 's.id').replace('tc.project_id', 's.project_id').replace('tc.created_at', 'tc.created_at'));
+        params.push(...sessionFilters.params);
+
+        let orderBy = scope === 'tool_calls' ? 'ORDER BY rank' : '';
+        if (sort === 'newest') {
+          orderBy = 'ORDER BY tc.created_at DESC';
+        } else if (sort === 'oldest') {
+          orderBy = 'ORDER BY tc.created_at ASC';
+        }
+
+        const whereClause = conditions.length > 0 ? `AND ${conditions.join(' AND ')}` : '';
+        const sql = `
+          SELECT tc.message_id as id, tc.session_id as sessionId, '' as role,
+                 tc.tool_name || ': ' || COALESCE(SUBSTR(tc.tool_input, 1, 100), '') as content,
+                 tc.created_at as createdAt, s.name as sessionName, 'tool_call' as resultType
+          FROM tool_calls_fts f
+          JOIN tool_call_records tc ON tc.id = f.rowid
+          JOIN sessions s ON tc.session_id = s.id
+          WHERE tool_calls_fts MATCH ? ${whereClause}
+          ${orderBy}
+          LIMIT ? OFFSET ?
+        `;
+        params.push(limit, offset);
+
+        const toolResults = db.prepare(sql).all(...params) as typeof results;
+        results = scope === 'all' ? [...results, ...toolResults] : toolResults;
+      }
+
+      // If scope is 'all', sort the combined results
+      if (scope === 'all') {
+        if (sort === 'newest') {
+          results.sort((a, b) => b.createdAt - a.createdAt);
+        } else if (sort === 'oldest') {
+          results.sort((a, b) => a.createdAt - b.createdAt);
+        }
+        results = results.slice(0, limit);
+      }
 
       const truncated = results.map(r => ({
         ...r,
         content: r.content.length > 200 ? r.content.substring(0, 200) + '...' : r.content,
       }));
 
+      // Save search history
+      try {
+        saveSearchHistory(db, q.trim(), results.length);
+      } catch (err) {
+        console.error('Error saving search history:', err);
+        // Don't fail the request if history saving fails
+      }
+
       res.json({ success: true, data: { results: truncated } });
     } catch (error) {
       console.error('Error searching messages:', error);
       res.status(500).json({ success: false, error: { code: 'DB_ERROR', message: 'Failed to search messages' } });
+    }
+  });
+
+  // Get search history
+  router.get('/search/history', (req: Request, res: Response) => {
+    try {
+      const userId = (req.query.userId as string) || 'default';
+      const limit = Math.min(parseInt(req.query.limit as string) || 10, 50);
+
+      const history = getSearchHistory(db, userId, limit);
+
+      res.json({ success: true, data: { history } });
+    } catch (error) {
+      console.error('Error fetching search history:', error);
+      res.status(500).json({ success: false, error: { code: 'DB_ERROR', message: 'Failed to fetch search history' } });
+    }
+  });
+
+  // Clear search history
+  router.delete('/search/history', (req: Request, res: Response) => {
+    try {
+      const userId = (req.query.userId as string) || 'default';
+
+      clearSearchHistory(db, userId);
+
+      res.json({ success: true, data: { cleared: true } });
+    } catch (error) {
+      console.error('Error clearing search history:', error);
+      res.status(500).json({ success: false, error: { code: 'DB_ERROR', message: 'Failed to clear search history' } });
+    }
+  });
+
+  // Get search suggestions
+  router.get('/search/suggestions', (req: Request, res: Response) => {
+    try {
+      const prefix = (req.query.prefix as string) || '';
+      const userId = (req.query.userId as string) || 'default';
+      const limit = Math.min(parseInt(req.query.limit as string) || 5, 10);
+
+      const suggestions = getSearchSuggestions(db, prefix, userId, limit);
+
+      res.json({ success: true, data: { suggestions } });
+    } catch (error) {
+      console.error('Error fetching search suggestions:', error);
+      res.status(500).json({ success: false, error: { code: 'DB_ERROR', message: 'Failed to fetch search suggestions' } });
     }
   });
 
@@ -410,10 +619,16 @@ export function createSessionRoutes(db: Database.Database): Router {
       const id = uuidv4();
       const now = Date.now();
 
-      db.prepare(`
+      const insertResult = db.prepare(`
         INSERT INTO messages (id, session_id, role, content, metadata, created_at)
         VALUES (?, ?, ?, ?, ?, ?)
       `).run(id, req.params.id, role, content, metadata ? JSON.stringify(metadata) : null, now);
+
+      // Extract and index metadata for extended search
+      if (metadata) {
+        const messageRowid = insertResult.lastInsertRowid as number;
+        extractAndIndexMetadata(db, id, messageRowid, req.params.id, metadata, now);
+      }
 
       // Update session updated_at
       db.prepare('UPDATE sessions SET updated_at = ? WHERE id = ?').run(now, req.params.id);

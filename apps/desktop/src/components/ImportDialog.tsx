@@ -1,6 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useServerStore } from '../stores/serverStore';
 import { useProjectStore } from '../stores/projectStore';
+import * as api from '../services/api';
 
 interface ImportDialogProps {
   isOpen: boolean;
@@ -42,14 +43,18 @@ export function ImportDialog({ isOpen, onClose }: ImportDialogProps) {
   const [importResult, setImportResult] = useState<ImportResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [visibleProjectsCount, setVisibleProjectsCount] = useState(10); // Pagination for large lists
 
   const server = useServerStore((state) => state.getDefaultServer());
-  const projects = useProjectStore((state) => state.projects);
+  const projects = useProjectStore((state) => state.projects) || [];
 
   // Set default project when projects are loaded
   useEffect(() => {
     if (projects.length > 0 && !targetProjectId) {
-      setTargetProjectId(projects[0].id);
+      const firstProject = projects[0];
+      if (firstProject && firstProject.id) {
+        setTargetProjectId(firstProject.id);
+      }
     }
   }, [projects, targetProjectId]);
 
@@ -62,6 +67,16 @@ export function ImportDialog({ isOpen, onClose }: ImportDialogProps) {
     return `http://${address}`;
   };
 
+  // Memoize visible projects to avoid re-rendering on every state change
+  const visibleProjects = useMemo(() => {
+    if (!scannedData?.projects) return [];
+    return scannedData.projects.slice(0, visibleProjectsCount);
+  }, [scannedData, visibleProjectsCount]);
+
+  const hasMoreProjects = useMemo(() => {
+    return (scannedData?.projects?.length || 0) > visibleProjectsCount;
+  }, [scannedData, visibleProjectsCount]);
+
   // Reset state when closing
   const handleClose = () => {
     setStep(ImportStep.SELECT_DIRECTORY);
@@ -72,6 +87,7 @@ export function ImportDialog({ isOpen, onClose }: ImportDialogProps) {
     setImportResult(null);
     setError(null);
     setLoading(false);
+    setVisibleProjectsCount(10);
     onClose();
   };
 
@@ -118,7 +134,14 @@ export function ImportDialog({ isOpen, onClose }: ImportDialogProps) {
 
       if (result.success) {
         setScannedData(result.data);
-        setStep(ImportStep.PREVIEW_SESSIONS);
+        // Reset pagination counter
+        setVisibleProjectsCount(10);
+
+        // Delay step transition to allow data to be processed
+        // This prevents UI blocking with large datasets
+        setTimeout(() => {
+          setStep(ImportStep.PREVIEW_SESSIONS);
+        }, 100);
       } else {
         setError(result.error?.message || 'Failed to scan directory');
       }
@@ -153,9 +176,9 @@ export function ImportDialog({ isOpen, onClose }: ImportDialogProps) {
       // Build imports array
       const imports = Array.from(selectedSessions).map(sessionId => {
         let projectPath = '';
-        for (const project of scannedData.projects) {
-          if (project.sessions.find(s => s.id === sessionId)) {
-            projectPath = project.path;
+        for (const project of scannedData.projects || []) {
+          if (project && project.sessions && project.sessions.find(s => s && s.id === sessionId)) {
+            projectPath = project.path || '';
             break;
           }
         }
@@ -184,6 +207,14 @@ export function ImportDialog({ isOpen, onClose }: ImportDialogProps) {
       if (result.success) {
         setImportResult(result.data);
         setStep(ImportStep.COMPLETE);
+
+        // Refresh sessions list to show imported sessions
+        try {
+          const sessions = await api.getSessions();
+          useProjectStore.getState().setSessions(sessions);
+        } catch (refreshErr) {
+          console.error('[ImportDialog] Failed to refresh sessions:', refreshErr);
+        }
       } else {
         setError(result.error?.message || 'Import failed');
         setStep(ImportStep.CONFIGURE);
@@ -264,16 +295,42 @@ export function ImportDialog({ isOpen, onClose }: ImportDialogProps) {
           {/* Step 2: Preview Sessions */}
           {step === ImportStep.PREVIEW_SESSIONS && scannedData && (
             <div className="space-y-4">
-              <p className="text-sm text-muted-foreground">
-                Select the sessions you want to import. Found {scannedData.projects.reduce((sum, p) => sum + p.sessions.length, 0)} sessions across {scannedData.projects.length} projects.
-              </p>
+              <div className="flex items-center justify-between">
+                <p className="text-sm text-muted-foreground">
+                  Select the sessions you want to import. Found {scannedData.projects?.reduce((sum, p) => sum + (p.sessions?.length || 0), 0) || 0} sessions across {scannedData.projects?.length || 0} projects.
+                </p>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => {
+                      const allSessionIds = new Set<string>();
+                      (scannedData.projects || []).forEach(project => {
+                        (project.sessions || []).forEach(session => {
+                          if (session && session.id) {
+                            allSessionIds.add(session.id);
+                          }
+                        });
+                      });
+                      setSelectedSessions(allSessionIds);
+                    }}
+                    className="px-3 py-1 text-xs bg-primary text-primary-foreground rounded hover:opacity-90"
+                  >
+                    Select All
+                  </button>
+                  <button
+                    onClick={() => setSelectedSessions(new Set())}
+                    className="px-3 py-1 text-xs bg-secondary text-secondary-foreground rounded hover:opacity-90"
+                  >
+                    Clear All
+                  </button>
+                </div>
+              </div>
 
-              {scannedData.projects.map(project => (
+              {visibleProjects.map(project => (
                 <div key={project.path} className="border border-border rounded-lg p-4">
-                  <h3 className="font-medium mb-3 text-sm">{project.path}</h3>
+                  <h3 className="font-medium mb-3 text-sm">{project.path || 'Unknown path'}</h3>
 
                   <div className="space-y-2">
-                    {project.sessions.map(session => (
+                    {(project.sessions || []).map(session => (
                       <label key={session.id} className="flex items-start gap-2 cursor-pointer">
                         <input
                           type="checkbox"
@@ -300,6 +357,16 @@ export function ImportDialog({ isOpen, onClose }: ImportDialogProps) {
                   </div>
                 </div>
               ))}
+
+              {/* Load more button for pagination */}
+              {hasMoreProjects && (
+                <button
+                  onClick={() => setVisibleProjectsCount(prev => prev + 10)}
+                  className="w-full px-4 py-2 bg-secondary text-secondary-foreground rounded hover:opacity-90 text-sm"
+                >
+                  Load {Math.min(10, (scannedData.projects?.length || 0) - visibleProjectsCount)} more projects...
+                </button>
+              )}
 
               <div className="flex justify-between pt-2">
                 <button
@@ -336,11 +403,13 @@ export function ImportDialog({ isOpen, onClose }: ImportDialogProps) {
                     onChange={(e) => setTargetProjectId(e.target.value)}
                     className="w-full px-3 py-2 bg-input border border-border rounded text-sm"
                   >
-                    {projects.map((project) => (
-                      <option key={project.id} value={project.id}>
-                        {project.name}
-                      </option>
-                    ))}
+                    {projects
+                      .filter((project) => project && project.id && project.name)
+                      .map((project) => (
+                        <option key={project.id} value={project.id}>
+                          {project.name}
+                        </option>
+                      ))}
                   </select>
                 ) : (
                   <div className="p-3 bg-destructive/10 border border-destructive rounded text-sm text-destructive">

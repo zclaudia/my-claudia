@@ -66,6 +66,10 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const [initialLoadDone, setInitialLoadDone] = useState(false);
 
+  // State for restoring message after cancel
+  const [lastSentMessage, setLastSentMessage] = useState<{ content: string; attachments?: Attachment[] } | null>(null);
+  const [restoreMessage, setRestoreMessage] = useState<{ content: string; attachments?: Attachment[] } | null>(null);
+
   const sessionMessages = messages[sessionId] || [];
   const sessionPagination = pagination[sessionId];
   const currentUsage = sessionUsage[sessionId] || { inputTokens: 0, outputTokens: 0 };
@@ -207,8 +211,27 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
     }
   }, [sessionMessages.length, initialLoadDone]);
 
+  // Scroll to bottom when tool calls are updated (during streaming)
+  useEffect(() => {
+    if (initialLoadDone && Object.keys(activeToolCalls).length > 0) {
+      const container = messagesContainerRef.current;
+      if (!container) return;
+
+      // Only auto-scroll if user is near the bottom
+      const isNearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 200;
+      if (isNearBottom) {
+        scrollToBottom();
+      }
+    }
+  }, [activeToolCalls, initialLoadDone, scrollToBottom]);
+
   const handleSendMessage = async (content: string, attachments?: Attachment[]) => {
     if ((!content.trim() && !attachments?.length) || !isConnected) return;
+
+    // Save the message for potential restore after cancel
+    setLastSentMessage({ content, attachments });
+    // Clear any previous restore message
+    setRestoreMessage(null);
 
     // Upload files first and get fileIds
     let uploadedAttachments: MessageAttachment[] = [];
@@ -481,8 +504,21 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
   }, [sessionId, addMessage, wsSendMessage, commands, currentSession, currentProject, handleBuiltInCommand, permissionMode, modelOverride]);
 
   const handleCancelRun = () => {
-    if (!currentRunId) return;
+    // Restore last sent message to input
+    if (lastSentMessage) {
+      setRestoreMessage(lastSentMessage);
+      setLastSentMessage(null);
+    }
 
+    if (!currentRunId) {
+      console.warn('[ChatInterface] No currentRunId to cancel');
+      // Even if no runId, stop loading state locally
+      useChatStore.getState().setLoading(false);
+      useChatStore.getState().clearToolCalls();
+      return;
+    }
+
+    console.log('[ChatInterface] Cancelling run:', currentRunId);
     wsSendMessage({
       type: 'run_cancel',
       runId: currentRunId,
@@ -557,6 +593,8 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
           projectRoot={currentProject?.rootPath}
           disabled={!isConnected}
           isLoading={isLoading}
+          initialValue={restoreMessage?.content}
+          initialAttachments={restoreMessage?.attachments}
           placeholder={
             !isConnected
               ? 'Connecting...'

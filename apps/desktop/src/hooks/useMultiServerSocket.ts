@@ -437,7 +437,15 @@ export function useMultiServerSocket() {
     if (activeServerId && !isGatewayTarget(activeServerId)) {
       const state = transportsRef.current.get(activeServerId);
       if (!state || !state.transport.isConnected()) {
-        connectServerRef.current(activeServerId);
+        // Add small delay on initial connection to allow backend server to fully start
+        // This prevents connection errors when app starts before server is ready
+        const delay = !state ? 800 : 0; // 800ms for initial connection, immediate for reconnection
+        const timeoutId = setTimeout(() => {
+          connectServerRef.current(activeServerId);
+        }, delay);
+
+        // Cleanup timeout if effect re-runs or component unmounts
+        return () => clearTimeout(timeoutId);
       }
     }
   }, [activeServerId]);

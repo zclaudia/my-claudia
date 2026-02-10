@@ -212,11 +212,11 @@ export function ToolCallItem({ toolCall }: ToolCallItemProps) {
         )}
 
         {/* Tool icon and name */}
-        <span className="text-sm">{icon}</span>
-        <span className="text-sm font-medium text-foreground" data-testid="tool-name">{toolName}</span>
+        <span className="text-xs">{icon}</span>
+        <span className="text-xs font-medium text-foreground" data-testid="tool-name">{toolName}</span>
 
         {/* Summary */}
-        <span className="flex-1 text-sm text-muted-foreground truncate ml-2">
+        <span className="flex-1 text-xs text-muted-foreground truncate ml-2">
           {summary}
         </span>
 
@@ -292,8 +292,11 @@ function getStatusIcon(status: ToolCallState['status']): string {
   }
 }
 
+const MAX_VISIBLE_TOOLS = 5;
+
 export function ToolCallList({ toolCalls, defaultCollapsed = false }: ToolCallListProps) {
   const [isCollapsed, setIsCollapsed] = useState(defaultCollapsed);
+  const [showAll, setShowAll] = useState(false);
 
   if (toolCalls.length === 0) return null;
 
@@ -343,6 +346,13 @@ export function ToolCallList({ toolCalls, defaultCollapsed = false }: ToolCallLi
     );
   }
 
+  // Auto-collapse if there are more than MAX_VISIBLE_TOOLS
+  const hasMany = toolCalls.length > MAX_VISIBLE_TOOLS;
+  const visibleToolCalls = showAll || !hasMany
+    ? toolCalls
+    : toolCalls.slice(-MAX_VISIBLE_TOOLS);
+  const hiddenCount = toolCalls.length - visibleToolCalls.length;
+
   return (
     <div className="space-y-1">
       {/* Collapse button */}
@@ -355,7 +365,18 @@ export function ToolCallList({ toolCalls, defaultCollapsed = false }: ToolCallLi
           <span>Collapse tool calls</span>
         </button>
       )}
-      {toolCalls.map((tc) => (
+
+      {/* Show collapsed older tools if any */}
+      {hasMany && !showAll && hiddenCount > 0 && (
+        <button
+          onClick={() => setShowAll(true)}
+          className="px-3 py-1.5 text-xs bg-muted/50 rounded-lg hover:bg-muted transition-colors cursor-pointer w-full text-left text-muted-foreground"
+        >
+          <span>▶ Show {hiddenCount} earlier tool call{hiddenCount > 1 ? 's' : ''}</span>
+        </button>
+      )}
+
+      {visibleToolCalls.map((tc) => (
         <ToolCallItem key={tc.id} toolCall={tc} />
       ))}
     </div>

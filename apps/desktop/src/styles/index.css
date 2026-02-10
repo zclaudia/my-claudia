@@ -219,16 +219,24 @@ body {
 
 /* Chat font sizing via CSS variables (set by uiStore) */
 .prose.prose-sm {
-  font-size: var(--chat-font-prose, 0.875rem);
+  font-size: var(--chat-font-prose, 0.875rem); /* 14px - same as text-sm */
 }
-.prose.prose-sm :where(h1):not(:where([class~="not-prose"], [class~="not-prose"] *)) {
-  font-size: var(--chat-font-h1, 1.715em);
+
+/* Unify all font sizes in prose to base size (14px) */
+.prose.prose-sm :where(h1, h2, h3, h4, h5, h6):not(:where([class~="not-prose"], [class~="not-prose"] *)) {
+  font-size: 0.875rem; /* 14px - same as base */
+  font-weight: 600; /* Keep bold for visual distinction */
+  margin-top: 1.5em; /* More space above headings */
+  margin-bottom: 0.75em; /* More space below headings */
 }
-.prose.prose-sm :where(h2):not(:where([class~="not-prose"], [class~="not-prose"] *)) {
-  font-size: var(--chat-font-h2, 1.43em);
+.prose.prose-sm :where(table, th, td):not(:where([class~="not-prose"], [class~="not-prose"] *)) {
+  font-size: 0.875rem; /* 14px */
 }
-.prose.prose-sm :where(h3):not(:where([class~="not-prose"], [class~="not-prose"] *)) {
-  font-size: var(--chat-font-h3, 1.286em);
+.prose.prose-sm :where(blockquote):not(:where([class~="not-prose"], [class~="not-prose"] *)) {
+  font-size: 0.875rem; /* 14px */
+}
+.prose.prose-sm :where(code):not(:where([class~="not-prose"], [class~="not-prose"] *)) {
+  font-size: 0.875rem; /* 14px */
 }
 
 /* Hide scrollbar but keep scroll functionality */
@@ -239,4 +247,27 @@ body {
 
 .scrollbar-hidden::-webkit-scrollbar {
   display: none; /* Chrome/Safari/Opera */
+}
+
+/* Increase line spacing in chat messages */
+.prose :where(p):not(:where([class~="not-prose"], [class~="not-prose"] *)) {
+  line-height: 1.8;
+  margin-top: 0.75em;
+  margin-bottom: 0.75em;
+}
+
+.prose :where(ul, ol):not(:where([class~="not-prose"], [class~="not-prose"] *)) {
+  margin-top: 0.75em;
+  margin-bottom: 0.75em;
+}
+
+.prose :where(li):not(:where([class~="not-prose"], [class~="not-prose"] *)) {
+  margin-top: 0.35em;
+  margin-bottom: 0.35em;
+  line-height: 1.75;
+}
+
+.prose :where(pre):not(:where([class~="not-prose"], [class~="not-prose"] *)) {
+  margin-top: 1em;
+  margin-bottom: 1em;
 }

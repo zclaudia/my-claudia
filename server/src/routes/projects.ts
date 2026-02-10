@@ -166,8 +166,35 @@ export function createProjectRoutes(db: Database.Database): Router {
 
   // Delete project
   router.delete('/:id', (req: Request, res: Response) => {
+    const projectId = req.params.id;
+
     try {
-      const result = db.prepare('DELETE FROM projects WHERE id = ?').run(req.params.id);
+      // Check if project exists
+      const project = db.prepare('SELECT id FROM projects WHERE id = ?').get(projectId);
+      if (!project) {
+        res.status(404).json({
+          success: false,
+          error: { code: 'NOT_FOUND', message: 'Project not found' }
+        });
+        return;
+      }
+
+      // Disable recursive triggers to avoid FTS trigger conflicts
+      db.pragma('recursive_triggers = OFF');
+
+      let result;
+      try {
+        // Use a transaction and simple CASCADE deletion
+        const deleteTransaction = db.transaction(() => {
+          // Simply delete the project - CASCADE will handle all children
+          return db.prepare('DELETE FROM projects WHERE id = ?').run(projectId);
+        });
+
+        result = deleteTransaction();
+      } finally {
+        // Always re-enable recursive triggers
+        db.pragma('recursive_triggers = ON');
+      }
 
       if (result.changes === 0) {
         res.status(404).json({
@@ -177,9 +204,16 @@ export function createProjectRoutes(db: Database.Database): Router {
         return;
       }
 
+      console.log(`[Delete Project] Successfully deleted project ${projectId}`);
       res.json({ success: true } as ApiResponse<void>);
     } catch (error) {
       console.error('Error deleting project:', error);
+
+      // Log full error for debugging
+      if (error && typeof error === 'object' && 'code' in error) {
+        console.error('[Delete Project] SQLite error code:', (error as any).code);
+      }
+
       res.status(500).json({
         success: false,
         error: { code: 'DB_ERROR', message: 'Failed to delete project' }

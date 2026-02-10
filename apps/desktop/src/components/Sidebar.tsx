@@ -1,10 +1,11 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { useProjectStore } from '../stores/projectStore';
 import { useServerStore } from '../stores/serverStore';
 import { ProjectSettings } from './ProjectSettings';
 import { SettingsPanel } from './SettingsPanel';
+import { SearchFilters } from './SearchFilters';
 import * as api from '../services/api';
-import type { SearchResult } from '../services/api';
+import type { SearchResult, SearchHistoryEntry, SearchFilters as Filters } from '../services/api';
 
 interface SidebarProps {
   collapsed: boolean;
@@ -45,9 +46,29 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [isSearching, setIsSearching] = useState(false);
+  const [searchHistory, setSearchHistory] = useState<SearchHistoryEntry[]>([]);
+  const [showSearchHistory, setShowSearchHistory] = useState(false);
+  const [showFilters, setShowFilters] = useState(false);
+  const [searchFilters, setSearchFilters] = useState<Filters>({});
+  const [searchOffset, setSearchOffset] = useState(0);
+  const [hasMoreResults, setHasMoreResults] = useState(false);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
   const searchTimerRef = useRef<number | null>(null);
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
 
   const settingsProject = settingsProjectId ? projects?.find(p => p.id === settingsProjectId) || null : null;
+
+  // Memoize sessions grouped by project ID to avoid repeated filtering
+  // This significantly improves performance when toggling project expansion
+  const sessionsByProject = useMemo(() => {
+    const grouped = new Map<string, typeof sessions>();
+    sessions.forEach(session => {
+      const projectSessions = grouped.get(session.projectId) || [];
+      projectSessions.push(session);
+      grouped.set(session.projectId, projectSessions);
+    });
+    return grouped;
+  }, [sessions]);
 
   const toggleProject = (projectId: string) => {
     const newExpanded = new Set(expandedProjects);
@@ -57,7 +78,8 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
       newExpanded.add(projectId);
     }
     setExpandedProjects(newExpanded);
-    selectProject(projectId);
+    // Don't select project on toggle - only toggle expand/collapse state
+    // This prevents unnecessary re-renders of ChatInterface and MessageList
   };
 
   const isConnected = connectionStatus === 'connected';
@@ -146,29 +168,109 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
     }
   }, []);
 
-  const handleSearch = useCallback((query: string) => {
+  // Load search history on mount
+  useEffect(() => {
+    const loadSearchHistory = async () => {
+      try {
+        const history = await api.getSearchHistory();
+        setSearchHistory(history);
+      } catch (error) {
+        console.error('Failed to load search history:', error);
+      }
+    };
+    loadSearchHistory();
+  }, []);
+
+  const handleSearch = useCallback((query: string, filters?: Filters) => {
     setSearchQuery(query);
+    setShowSearchHistory(false); // Hide history when typing
+    setSearchOffset(0); // Reset offset for new search
     if (searchTimerRef.current) {
       clearTimeout(searchTimerRef.current);
     }
     if (!query.trim()) {
       setSearchResults([]);
       setIsSearching(false);
+      setHasMoreResults(false);
       return;
     }
     setIsSearching(true);
     searchTimerRef.current = window.setTimeout(async () => {
       try {
-        const results = await api.searchMessages(query.trim());
+        const filtersToUse = filters || searchFilters;
+        const pageSize = 50;
+        const results = await api.searchMessages(query.trim(), { ...filtersToUse, limit: pageSize, offset: 0 });
         setSearchResults(results);
+        setHasMoreResults(results.length === pageSize); // If we got full page, there might be more
+        // Reload search history after search
+        const history = await api.getSearchHistory();
+        setSearchHistory(history);
       } catch (error) {
         console.error('Search failed:', error);
         setSearchResults([]);
+        setHasMoreResults(false);
       } finally {
         setIsSearching(false);
       }
     }, 300);
+  }, [searchFilters]);
+
+  const handleLoadMore = useCallback(async () => {
+    if (!searchQuery.trim() || isLoadingMore) return;
+
+    setIsLoadingMore(true);
+    try {
+      const pageSize = 50;
+      const newOffset = searchOffset + pageSize;
+      const results = await api.searchMessages(searchQuery.trim(), {
+        ...searchFilters,
+        limit: pageSize,
+        offset: newOffset
+      });
+
+      setSearchResults(prev => [...prev, ...results]);
+      setSearchOffset(newOffset);
+      setHasMoreResults(results.length === pageSize);
+    } catch (error) {
+      console.error('Load more failed:', error);
+    } finally {
+      setIsLoadingMore(false);
+    }
+  }, [searchQuery, searchFilters, searchOffset, isLoadingMore]);
+
+  const handleSelectHistoryItem = useCallback((query: string) => {
+    handleSearch(query);
+    setShowSearchHistory(false);
+  }, [handleSearch]);
+
+  const handleSearchFocus = useCallback(() => {
+    if (!searchQuery.trim() && searchHistory.length > 0) {
+      setShowSearchHistory(true);
+    }
+  }, [searchQuery, searchHistory.length]);
+
+  const handleSearchBlur = useCallback(() => {
+    // Delay hiding to allow clicking on history items
+    setTimeout(() => setShowSearchHistory(false), 200);
   }, []);
+
+  const handleClearHistory = useCallback(async () => {
+    try {
+      await api.clearSearchHistory();
+      setSearchHistory([]);
+      setShowSearchHistory(false);
+    } catch (error) {
+      console.error('Failed to clear search history:', error);
+    }
+  }, []);
+
+  const handleFiltersChange = useCallback((filters: Filters) => {
+    setSearchFilters(filters);
+    // Re-run search with new filters if there's a query
+    if (searchQuery.trim()) {
+      handleSearch(searchQuery, filters);
+    }
+  }, [searchQuery, handleSearch]);
 
   // Mobile: render as overlay drawer
   if (isMobile) {
@@ -208,15 +310,50 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
           </div>
 
           {/* Search */}
-          <div className="px-3 py-2 border-b border-border">
+          <div className="px-3 py-2 border-b border-border relative">
             <input
               type="text"
               value={searchQuery}
               onChange={(e) => handleSearch(e.target.value)}
+              onFocus={handleSearchFocus}
+              onBlur={handleSearchBlur}
               placeholder="Search messages..."
+              spellCheck={false}
+              autoCorrect="off"
+              autoCapitalize="off"
+              autoComplete="off"
               className="w-full px-3 py-2.5 bg-secondary border border-border rounded text-sm focus:outline-none focus:border-primary"
             />
           </div>
+
+          {/* Search History */}
+          {showSearchHistory && !searchQuery.trim() && searchHistory.length > 0 && (
+            <div className="border-b border-border max-h-60 overflow-y-auto">
+              <div className="flex items-center justify-between px-3 py-2 bg-secondary/50">
+                <span className="text-xs text-muted-foreground font-medium">Recent Searches</span>
+                <button
+                  onClick={handleClearHistory}
+                  className="text-xs text-muted-foreground hover:text-foreground px-1"
+                >
+                  Clear
+                </button>
+              </div>
+              {searchHistory.map((entry) => (
+                <button
+                  key={entry.id}
+                  onClick={() => handleSelectHistoryItem(entry.query)}
+                  className="w-full px-3 py-2.5 text-left text-sm hover:bg-secondary active:bg-secondary border-b border-border/50 last:border-0"
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="truncate flex-1">{entry.query}</span>
+                    <span className="text-xs text-muted-foreground ml-2 flex-shrink-0">
+                      {entry.resultCount}
+                    </span>
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
 
           {/* Search Results */}
           {searchQuery.trim() && (
@@ -226,21 +363,37 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
               ) : searchResults.length === 0 ? (
                 <div className="px-3 py-2 text-xs text-muted-foreground">No results</div>
               ) : (
-                searchResults.map((r) => (
-                  <button
-                    key={r.id}
-                    onClick={() => {
-                      selectSession(r.sessionId);
-                      setSearchQuery('');
-                      setSearchResults([]);
-                      if (onClose) onClose();
-                    }}
-                    className="w-full text-left px-3 py-2.5 text-xs hover:bg-secondary active:bg-secondary border-b border-border/50 last:border-0"
-                  >
-                    <div className="font-medium text-foreground truncate">{r.sessionName || 'Untitled'}</div>
-                    <div className="text-muted-foreground mt-0.5 line-clamp-2">{r.content}</div>
-                  </button>
-                ))
+                <>
+                  {searchResults.map((r) => (
+                    <button
+                      key={r.id}
+                      onClick={() => {
+                        selectSession(r.sessionId);
+                        setSearchQuery('');
+                        setSearchResults([]);
+                        if (onClose) onClose();
+                      }}
+                      className="w-full text-left px-3 py-2.5 text-xs hover:bg-secondary active:bg-secondary border-b border-border/50 last:border-0"
+                    >
+                      <div className="font-medium text-foreground truncate">{r.sessionName || 'Untitled'}</div>
+                      <div className="text-muted-foreground mt-0.5 line-clamp-2">{r.content}</div>
+                      {r.resultType && r.resultType !== 'message' && (
+                        <div className="text-xs text-primary mt-1">
+                          {r.resultType === 'file' ? '📄 File' : '🔧 Tool'}
+                        </div>
+                      )}
+                    </button>
+                  ))}
+                  {hasMoreResults && (
+                    <button
+                      onClick={handleLoadMore}
+                      disabled={isLoadingMore}
+                      className="w-full px-3 py-2 text-xs text-primary hover:bg-secondary disabled:opacity-50"
+                    >
+                      {isLoadingMore ? 'Loading...' : `Load More (${searchResults.length} shown)`}
+                    </button>
+                  )}
+                </>
               )}
             </div>
           )}
@@ -396,6 +549,19 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
                               Settings
                             </button>
                             <button
+                              onClick={() => {
+                                setCreatingSessionForProject(project.id);
+                                setContextMenuProject(null);
+                              }}
+                              disabled={!isConnected}
+                              className="w-full text-left px-3 py-3 text-sm hover:bg-secondary active:bg-secondary flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                              </svg>
+                              New Session
+                            </button>
+                            <button
                               onClick={() => handleDeleteProject(project.id)}
                               className="w-full text-left px-3 py-3 text-sm text-destructive hover:bg-secondary active:bg-secondary flex items-center gap-2"
                             >
@@ -412,8 +578,7 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
                     {/* Sessions */}
                     {expandedProjects.has(project.id) && (
                       <ul className="ml-6 mt-1 space-y-1" data-testid="session-list">
-                        {sessions
-                          .filter((s) => s.projectId === project.id)
+                        {(sessionsByProject.get(project.id) || [])
                           .map((session) => (
                             <li key={session.id} className="relative group" data-testid="session-item">
                               <div className="flex items-center">
@@ -470,8 +635,8 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
                             </li>
                           ))}
 
-                        {/* New session form or button */}
-                        {creatingSessionForProject === project.id ? (
+                        {/* New session form */}
+                        {creatingSessionForProject === project.id && (
                           <li>
                             <input
                               type="text"
@@ -506,32 +671,7 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
                               </button>
                             </div>
                           </li>
-                        ) : isLocalConnection !== false ? (
-                          <li>
-                            <button
-                              onClick={() => setCreatingSessionForProject(project.id)}
-                              disabled={!isConnected}
-                              data-testid="new-session-btn"
-                              className="w-full text-left px-2 py-2.5 rounded text-sm text-primary/70 hover:text-primary active:text-primary border border-dashed border-primary/30 hover:border-primary/50 flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
-                              title={!isConnected ? "Connect to server first" : "New Session"}
-                            >
-                              <svg
-                                className="w-3 h-3"
-                                fill="none"
-                                stroke="currentColor"
-                                viewBox="0 0 24 24"
-                              >
-                                <path
-                                  strokeLinecap="round"
-                                  strokeLinejoin="round"
-                                  strokeWidth={2}
-                                  d="M12 4v16m8-8H4"
-                                />
-                              </svg>
-                              New Session
-                            </button>
-                          </li>
-                        ) : null}
+                        )}
                       </ul>
                     )}
                   </li>
@@ -587,16 +727,17 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
     );
   }
 
-  // Desktop: collapsed state - just show a thin border, toggle is in header
-  if (collapsed) {
-    return (
-      <div className="w-0 bg-card border-r border-border flex-shrink-0" />
-    );
-  }
-
-  // Desktop: expanded state
+  // Desktop: use CSS to show/hide sidebar instead of unmounting
+  // This avoids expensive remounting and improves toggle performance
   return (
-    <div className="w-64 bg-card border-r border-border flex flex-col">
+    <div
+      className={`bg-card border-r border-border flex flex-col transition-[width] duration-150 ease-out ${
+        collapsed ? 'w-0 overflow-hidden' : 'w-64'
+      }`}
+    >
+      {/* Only render content when not collapsed to improve performance */}
+      {!collapsed && (
+        <>
       {/* Header - only shown if hideHeader is false */}
       {!hideHeader && (
         <div
@@ -635,14 +776,71 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
       )}
 
       {/* Search */}
-      <div className="px-3 py-2">
-        <input
-          type="text"
-          value={searchQuery}
-          onChange={(e) => handleSearch(e.target.value)}
-          placeholder="Search messages..."
-          className="w-full px-2 py-1 bg-secondary border border-border rounded text-sm focus:outline-none focus:border-primary"
-        />
+      <div className="px-3 py-2 relative">
+        <div className="flex items-center gap-1">
+          <input
+            ref={searchInputRef}
+            type="text"
+            value={searchQuery}
+            onChange={(e) => handleSearch(e.target.value)}
+            onFocus={handleSearchFocus}
+            onBlur={handleSearchBlur}
+            placeholder="Search messages..."
+            spellCheck={false}
+            autoCorrect="off"
+            autoCapitalize="off"
+            autoComplete="off"
+            className="flex-1 px-2 py-1 bg-secondary border border-border rounded text-sm focus:outline-none focus:border-primary"
+          />
+          <button
+            onClick={() => setShowFilters(!showFilters)}
+            className={`p-1 rounded hover:bg-secondary ${showFilters ? 'bg-secondary text-primary' : 'text-muted-foreground'}`}
+            title="Filters"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
+            </svg>
+          </button>
+        </div>
+
+        {/* Search History Dropdown */}
+        {showSearchHistory && !searchQuery.trim() && searchHistory.length > 0 && (
+          <div className="absolute top-full left-3 right-3 mt-1 bg-card border border-border rounded shadow-lg z-50 max-h-48 overflow-y-auto">
+            <div className="flex items-center justify-between px-2 py-1.5 border-b border-border">
+              <span className="text-xs text-muted-foreground font-medium">Recent Searches</span>
+              <button
+                onClick={handleClearHistory}
+                className="text-xs text-muted-foreground hover:text-foreground px-1"
+              >
+                Clear
+              </button>
+            </div>
+            {searchHistory.map((entry) => (
+              <button
+                key={entry.id}
+                onClick={() => handleSelectHistoryItem(entry.query)}
+                className="w-full px-2 py-1.5 text-left text-sm hover:bg-secondary flex items-center justify-between group"
+              >
+                <span className="truncate flex-1">{entry.query}</span>
+                <span className="text-xs text-muted-foreground ml-2 flex-shrink-0">
+                  {entry.resultCount} results
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* Search Filters */}
+        {showFilters && (
+          <div className="absolute top-full left-3 right-3 mt-1 z-50">
+            <SearchFilters
+              filters={searchFilters}
+              sessions={sessions}
+              onFiltersChange={handleFiltersChange}
+              onClose={() => setShowFilters(false)}
+            />
+          </div>
+        )}
       </div>
 
       {/* Search Results */}
@@ -653,20 +851,36 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
           ) : searchResults.length === 0 ? (
             <div className="px-2 py-1.5 text-xs text-muted-foreground">No results</div>
           ) : (
-            searchResults.map((r) => (
-              <button
-                key={r.id}
-                onClick={() => {
-                  selectSession(r.sessionId);
-                  setSearchQuery('');
-                  setSearchResults([]);
-                }}
-                className="w-full text-left px-2 py-1.5 text-xs hover:bg-secondary border-b border-border/50 last:border-0"
-              >
-                <div className="font-medium text-foreground truncate">{r.sessionName || 'Untitled'}</div>
-                <div className="text-muted-foreground mt-0.5 line-clamp-2">{r.content}</div>
-              </button>
-            ))
+            <>
+              {searchResults.map((r) => (
+                <button
+                  key={r.id}
+                  onClick={() => {
+                    selectSession(r.sessionId);
+                    setSearchQuery('');
+                    setSearchResults([]);
+                  }}
+                  className="w-full text-left px-2 py-1.5 text-xs hover:bg-secondary border-b border-border/50 last:border-0"
+                >
+                  <div className="font-medium text-foreground truncate">{r.sessionName || 'Untitled'}</div>
+                  <div className="text-muted-foreground mt-0.5 line-clamp-2">{r.content}</div>
+                  {r.resultType && r.resultType !== 'message' && (
+                    <div className="text-xs text-primary mt-0.5">
+                      {r.resultType === 'file' ? '📄 File' : '🔧 Tool'}
+                    </div>
+                  )}
+                </button>
+              ))}
+              {hasMoreResults && (
+                <button
+                  onClick={handleLoadMore}
+                  disabled={isLoadingMore}
+                  className="w-full px-2 py-1.5 text-xs text-primary hover:bg-secondary disabled:opacity-50"
+                >
+                  {isLoadingMore ? 'Loading...' : `Load More (${searchResults.length} shown)`}
+                </button>
+              )}
+            </>
           )}
         </div>
       )}
@@ -822,6 +1036,19 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
                         Settings
                       </button>
                       <button
+                        onClick={() => {
+                          setCreatingSessionForProject(project.id);
+                          setContextMenuProject(null);
+                        }}
+                        disabled={!isConnected}
+                        className="w-full text-left px-3 py-1.5 text-sm hover:bg-secondary flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                        </svg>
+                        New Session
+                      </button>
+                      <button
                         onClick={() => handleDeleteProject(project.id)}
                         className="w-full text-left px-3 py-1.5 text-sm text-destructive hover:bg-secondary flex items-center gap-2"
                       >
@@ -838,8 +1065,7 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
                 {/* Sessions */}
                 {expandedProjects.has(project.id) && (
                   <ul className="ml-6 mt-1 space-y-1" data-testid="session-list">
-                    {sessions
-                      .filter((s) => s.projectId === project.id)
+                    {(sessionsByProject.get(project.id) || [])
                       .map((session) => (
                         <li key={session.id} className="relative group" data-testid="session-item">
                           <div className="flex items-center">
@@ -849,7 +1075,7 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
                                 // Auto-close sidebar on mobile
                                 if (isMobile && onClose) onClose();
                               }}
-                              className={`flex-1 min-w-0 h-7 text-left px-2 rounded text-sm truncate flex items-center ${
+                              className={`flex-1 min-w-0 h-7 text-left px-2 rounded text-sm truncate flex items-center border border-transparent ${
                                 selectedSessionId === session.id
                                   ? 'bg-primary text-primary-foreground'
                                   : 'text-muted-foreground hover:bg-secondary hover:text-foreground'
@@ -896,8 +1122,8 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
                         </li>
                       ))}
 
-                    {/* New session form or button */}
-                    {creatingSessionForProject === project.id ? (
+                    {/* New session form */}
+                    {creatingSessionForProject === project.id && (
                       <li>
                         <input
                           type="text"
@@ -932,32 +1158,7 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
                           </button>
                         </div>
                       </li>
-                    ) : isLocalConnection !== false ? (
-                      <li>
-                        <button
-                          onClick={() => setCreatingSessionForProject(project.id)}
-                          disabled={!isConnected}
-                          data-testid="new-session-btn"
-                          className="w-full text-left px-2 py-1 rounded text-sm text-primary/70 hover:text-primary border border-dashed border-primary/30 hover:border-primary/50 flex items-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed"
-                          title={!isConnected ? "Connect to server first" : "New Session"}
-                        >
-                          <svg
-                            className="w-3 h-3"
-                            fill="none"
-                            stroke="currentColor"
-                            viewBox="0 0 24 24"
-                          >
-                            <path
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              strokeWidth={2}
-                              d="M12 4v16m8-8H4"
-                            />
-                          </svg>
-                          New Session
-                        </button>
-                      </li>
-                    ) : null}
+                    )}
                   </ul>
                 )}
               </li>
@@ -1008,6 +1209,8 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
         isOpen={showSettings}
         onClose={() => setShowSettings(false)}
       />
+      </>
+    )}
     </div>
   );
 }

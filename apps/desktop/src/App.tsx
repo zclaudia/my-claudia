@@ -54,9 +54,15 @@ function AppContent() {
 
   return (
     <div className="flex flex-col h-screen bg-background text-foreground">
+      {/* macOS Traffic Lights Space - draggable area */}
+      <div
+        className="hidden md:block h-[28px] bg-card flex-shrink-0"
+        data-tauri-drag-region
+      />
+
       {/* Unified Header - spans full width */}
       <header
-        className="h-14 border-b border-border flex items-center px-2 md:px-4 bg-card flex-shrink-0 md:mt-[28px]"
+        className="h-14 border-b border-border flex items-center px-2 md:px-4 bg-card flex-shrink-0"
         style={{ paddingTop: 'env(safe-area-inset-top, 0px)' }}
         data-tauri-drag-region
       >

@@ -401,7 +401,7 @@ export async function createServer(): Promise<ServerContext> {
         }
 
         // No router match - handle with legacy switch statement
-        await handleClientMessage(client, message, db);
+        await handleClientMessage(client, message, db, clients);
       } catch (error) {
         console.error('Error handling message:', error);
         sendMessage(ws, {
@@ -419,7 +419,7 @@ export async function createServer(): Promise<ServerContext> {
       // Cancel any active runs for this client
       activeRuns.forEach((run, runId) => {
         if (run.clientId === clientId) {
-          cancelRun(runId);
+          cancelRun(runId, clients);
         }
       });
     });
@@ -460,7 +460,7 @@ export async function createServer(): Promise<ServerContext> {
       }
 
       // No router match - handle with legacy switch statement
-      await handleClientMessage(client, message, db);
+      await handleClientMessage(client, message, db, clients);
     },
     getGatewayStatus: () => gatewayStatus,
     setGatewayConnector: (connector: (config: GatewayConfig) => Promise<void>) => {
@@ -518,7 +518,7 @@ function sendMessage(ws: WebSocket, message: ServerMessage): void {
   }
 }
 
-function cancelRun(runId: string): void {
+function cancelRun(runId: string, clients: Map<string, ConnectedClient>): void {
   const run = activeRuns.get(runId);
   if (run) {
     // Reject all pending permissions
@@ -527,6 +527,17 @@ function cancelRun(runId: string): void {
       resolve({ behavior: 'deny', message: 'Run cancelled' });
     });
     run.pendingPermissions.clear();
+
+    // Notify client that run was cancelled
+    const client = clients.get(run.clientId);
+    if (client) {
+      sendMessage(client.ws, {
+        type: 'run_failed',
+        runId,
+        error: 'Run cancelled by user'
+      });
+    }
+
     activeRuns.delete(runId);
     console.log(`Run ${runId} cancelled`);
   }
@@ -567,7 +578,8 @@ function parseMessage(data: string): { request: CorrelatedRequest; isOldFormat: 
 async function handleClientMessage(
   client: ConnectedClient,
   message: ClientMessage,
-  db: ReturnType<typeof initDatabase>
+  db: ReturnType<typeof initDatabase>,
+  clients: Map<string, ConnectedClient>
 ): Promise<void> {
   switch (message.type) {
     case 'auth':
@@ -584,7 +596,7 @@ async function handleClientMessage(
       break;
 
     case 'run_cancel':
-      handleRunCancel(message.runId);
+      handleRunCancel(message.runId, clients);
       break;
 
     case 'permission_decision':
@@ -929,8 +941,8 @@ async function handleRunStart(
   }
 }
 
-function handleRunCancel(runId: string): void {
-  cancelRun(runId);
+function handleRunCancel(runId: string, clients: Map<string, ConnectedClient>): void {
+  cancelRun(runId, clients);
 }
 
 function handlePermissionDecision(message: {

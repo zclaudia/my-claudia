@@ -20,6 +20,8 @@ interface MessageInputProps {
   disabled?: boolean;
   isLoading?: boolean;
   placeholder?: string;
+  initialValue?: string;      // Initial value to set (e.g., for restoring after cancel)
+  initialAttachments?: Attachment[]; // Initial attachments to restore
 }
 
 // State for @ mention feature
@@ -107,6 +109,8 @@ export function MessageInput({
   disabled = false,
   isLoading = false,
   placeholder = 'Type a message... (Enter to send)',
+  initialValue,
+  initialAttachments,
 }: MessageInputProps) {
   const isMobile = useIsMobile();
   const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad|iPod/.test(navigator.platform);
@@ -115,11 +119,38 @@ export function MessageInput({
   const [showCommands, setShowCommands] = useState(false);
   const [selectedCommandIndex, setSelectedCommandIndex] = useState(0);
   const [mentionState, setMentionState] = useState<MentionState>(initialMentionState);
+  const [isComposing, setIsComposing] = useState(false); // Track IME composition state
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const commandListRef = useRef<HTMLDivElement>(null);
   const mentionListRef = useRef<HTMLDivElement>(null);
+  const compositionTimeoutRef = useRef<number | null>(null); // Timer for composition end delay
+
+  // Update value when initialValue changes (e.g., after cancel to restore previous message)
+  useEffect(() => {
+    if (initialValue !== undefined) {
+      setValue(initialValue);
+      // Focus textarea after setting value
+      setTimeout(() => textareaRef.current?.focus(), 0);
+    }
+  }, [initialValue]);
+
+  // Update attachments when initialAttachments changes
+  useEffect(() => {
+    if (initialAttachments !== undefined) {
+      setAttachments(initialAttachments);
+    }
+  }, [initialAttachments]);
+
+  // Cleanup composition timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (compositionTimeoutRef.current) {
+        clearTimeout(compositionTimeoutRef.current);
+      }
+    };
+  }, []);
 
   // Filter commands based on input
   const filteredCommands = value.startsWith('/')
@@ -425,7 +456,9 @@ export function MessageInput({
 
     // Enter to send (without Shift)
     // Shift+Enter to add newline (default behavior, no preventDefault)
-    if (e.key === 'Enter' && !e.shiftKey) {
+    // Don't send if IME is composing (e.g., selecting Chinese characters)
+    // Check both our state and the event's isComposing property for maximum compatibility
+    if (e.key === 'Enter' && !e.shiftKey && !isComposing && !e.nativeEvent.isComposing) {
       e.preventDefault();
       handleSend();
       return;
@@ -691,8 +724,29 @@ export function MessageInput({
             onChange={handleChange}
             onKeyDown={handleKeyDown}
             onPaste={handlePaste}
+            onCompositionStart={() => {
+              // Clear any pending timeout and immediately mark as composing
+              if (compositionTimeoutRef.current) {
+                clearTimeout(compositionTimeoutRef.current);
+                compositionTimeoutRef.current = null;
+              }
+              setIsComposing(true);
+            }}
+            onCompositionEnd={() => {
+              // Use 50ms delay to handle browser timing differences
+              // Firefox fires compositionEnd before Enter keydown
+              // Safari fires them in opposite order
+              compositionTimeoutRef.current = setTimeout(() => {
+                setIsComposing(false);
+                compositionTimeoutRef.current = null;
+              }, 50);
+            }}
             disabled={disabled}
             placeholder={placeholder}
+            spellCheck={false}
+            autoCorrect="off"
+            autoCapitalize="off"
+            autoComplete="off"
             rows={1}
             className="w-full bg-input border border-border rounded-lg px-4 py-3 text-foreground placeholder-muted-foreground focus:outline-none focus:border-primary resize-none disabled:opacity-50 disabled:cursor-not-allowed"
             style={{ fontSize: 'var(--chat-font-input, 0.875rem)' }}
