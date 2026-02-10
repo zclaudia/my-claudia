@@ -14,14 +14,16 @@ export function useDataLoader() {
     try {
       // Servers list is always local config (getServers uses fetchLocalApi)
       // Projects and sessions route to the active server (fetchApi)
-      const [servers, projects, sessions] = await Promise.all([
+      const [servers, projects, sessions, providers] = await Promise.all([
         api.getServers(),
         api.getProjects(),
-        api.getSessions()
+        api.getSessions(),
+        api.getProviders()
       ]);
       useServerStore.getState().setServers(servers);
       useProjectStore.getState().setProjects(projects);
       useProjectStore.getState().setSessions(sessions);
+      useProjectStore.getState().setProviders(providers);
     } catch (err) {
       console.error('[DataLoader] Error loading data:', err);
     }

@@ -3,6 +3,7 @@ import type {
   Session,
   Message,
   ProviderConfig,
+  ProviderCapabilities,
   BackendServer,
   SlashCommand,
   ApiResponse,
@@ -451,6 +452,26 @@ export async function getProviderTypeCommands(
   const result = await fetchLocalApi<SlashCommand[]>(`/api/providers/type/${providerType}/commands${query}`);
   if (!result.success || !result.data) {
     throw new Error(result.error?.message || 'Failed to fetch provider type commands');
+  }
+  return result.data;
+}
+
+export async function getProviderCapabilities(
+  providerId: string
+): Promise<ProviderCapabilities> {
+  const result = await fetchLocalApi<ProviderCapabilities>(`/api/providers/${providerId}/capabilities`);
+  if (!result.success || !result.data) {
+    throw new Error(result.error?.message || 'Failed to fetch provider capabilities');
+  }
+  return result.data;
+}
+
+export async function getProviderTypeCapabilities(
+  providerType: string
+): Promise<ProviderCapabilities> {
+  const result = await fetchLocalApi<ProviderCapabilities>(`/api/providers/type/${providerType}/capabilities`);
+  if (!result.success || !result.data) {
+    throw new Error(result.error?.message || 'Failed to fetch provider type capabilities');
   }
   return result.data;
 }

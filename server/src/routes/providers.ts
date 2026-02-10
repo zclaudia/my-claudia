@@ -1,9 +1,13 @@
 import { Router, Request, Response } from 'express';
 import { v4 as uuidv4 } from 'uuid';
+import fs from 'fs';
+import path from 'path';
+import os from 'os';
 import type Database from 'better-sqlite3';
-import type { ProviderConfig, ApiResponse, SlashCommand } from '@my-claudia/shared';
-import { LOCAL_COMMANDS, CLI_COMMANDS } from '@my-claudia/shared';
+import type { ProviderConfig, ApiResponse, SlashCommand, ProviderCapabilities, ModeOption, ModelOption } from '@my-claudia/shared';
+import { LOCAL_COMMANDS, CLI_COMMANDS, PROVIDER_COMMANDS } from '@my-claudia/shared';
 import { scanCustomCommands } from '../utils/command-scanner.js';
+import { openCodeServerManager } from '../providers/opencode-sdk.js';
 
 // Database row type (different from ProviderConfig due to SQLite types)
 interface ProviderRow {
@@ -105,6 +109,15 @@ export function createProviderRoutes(db: Database.Database): Router {
         return;
       }
 
+      const VALID_PROVIDER_TYPES = ['claude', 'opencode'];
+      if (type && !VALID_PROVIDER_TYPES.includes(type)) {
+        res.status(400).json({
+          success: false,
+          error: { code: 'VALIDATION_ERROR', message: `Invalid provider type. Must be one of: ${VALID_PROVIDER_TYPES.join(', ')}` }
+        });
+        return;
+      }
+
       const id = uuidv4();
       const now = Date.now();
 
@@ -153,6 +166,15 @@ export function createProviderRoutes(db: Database.Database): Router {
     try {
       const { name, type, cliPath, env, isDefault } = req.body;
       const now = Date.now();
+
+      const VALID_PROVIDER_TYPES = ['claude', 'opencode'];
+      if (type && !VALID_PROVIDER_TYPES.includes(type)) {
+        res.status(400).json({
+          success: false,
+          error: { code: 'VALIDATION_ERROR', message: `Invalid provider type. Must be one of: ${VALID_PROVIDER_TYPES.join(', ')}` }
+        });
+        return;
+      }
 
       // If this provider is becoming default, unset other defaults
       if (isDefault) {
@@ -221,11 +243,10 @@ export function createProviderRoutes(db: Database.Database): Router {
 
   // Get commands for a provider
   // Query params: ?projectRoot=<path> - optional, to include project-level custom commands
-  // Note: We only return LOCAL_COMMANDS + custom commands, not provider commands
-  // (provider commands like /compact, /login, /mcp are used in CLI directly)
-  router.get('/:id/commands', (req: Request, res: Response) => {
+  router.get('/:id/commands', async (req: Request, res: Response) => {
     try {
-      const row = db.prepare('SELECT type FROM providers WHERE id = ?').get(req.params.id) as { type: string } | undefined;
+      const row = db.prepare('SELECT type, cli_path as cliPath, env FROM providers WHERE id = ?')
+        .get(req.params.id) as { type: string; cliPath: string | null; env: string | null } | undefined;
 
       if (!row) {
         res.status(404).json({
@@ -235,15 +256,23 @@ export function createProviderRoutes(db: Database.Database): Router {
         return;
       }
 
-      // Scan custom commands (global + project if projectRoot provided)
       const projectRoot = req.query.projectRoot as string | undefined;
       const customCommands = scanCustomCommands({ projectRoot });
+      const providerCommands = await getProviderCommands(
+        row.type,
+        row.cliPath || undefined,
+        row.env ? JSON.parse(row.env) : undefined
+      );
 
-      // Combine: local + CLI pass-through + custom commands
+      // Deduplicate: provider commands take priority over custom commands with same name
+      const providerCommandNames = new Set(providerCommands.map(c => c.command));
+      const dedupedCustom = customCommands.filter(c => !providerCommandNames.has(c.command));
+
       const allCommands: SlashCommand[] = [
         ...LOCAL_COMMANDS,
         ...CLI_COMMANDS,
-        ...customCommands
+        ...providerCommands,
+        ...dedupedCustom
       ];
 
       res.json({ success: true, data: allCommands } as ApiResponse<SlashCommand[]>);
@@ -258,18 +287,21 @@ export function createProviderRoutes(db: Database.Database): Router {
 
   // Get commands for a provider type (without needing a provider ID)
   // Query params: ?projectRoot=<path> - optional, to include project-level custom commands
-  // Note: We only return LOCAL_COMMANDS + custom commands, not provider commands
-  router.get('/type/:type/commands', (req: Request, res: Response) => {
+  router.get('/type/:type/commands', async (req: Request, res: Response) => {
     try {
-      // Scan custom commands (global + project if projectRoot provided)
       const projectRoot = req.query.projectRoot as string | undefined;
       const customCommands = scanCustomCommands({ projectRoot });
+      const providerCommands = await getProviderCommands(req.params.type);
 
-      // Combine: local + CLI pass-through + custom commands
+      // Deduplicate: provider commands take priority over custom commands with same name
+      const providerCommandNames = new Set(providerCommands.map(c => c.command));
+      const dedupedCustom = customCommands.filter(c => !providerCommandNames.has(c.command));
+
       const allCommands: SlashCommand[] = [
         ...LOCAL_COMMANDS,
         ...CLI_COMMANDS,
-        ...customCommands
+        ...providerCommands,
+        ...dedupedCustom
       ];
 
       res.json({ success: true, data: allCommands } as ApiResponse<SlashCommand[]>);
@@ -316,5 +348,308 @@ export function createProviderRoutes(db: Database.Database): Router {
     }
   });
 
+  // Get capabilities by provider type (fallback when no provider ID is configured)
+  router.get('/type/:type/capabilities', async (req: Request, res: Response) => {
+    try {
+      const capabilities = await getProviderCapabilities(req.params.type);
+      res.json({ success: true, data: capabilities } as ApiResponse<ProviderCapabilities>);
+    } catch (error) {
+      console.error('Error fetching provider type capabilities:', error);
+      res.status(500).json({
+        success: false,
+        error: { code: 'SERVER_ERROR', message: 'Failed to fetch provider capabilities' }
+      });
+    }
+  });
+
+  // Get provider capabilities (modes + models)
+  // Returns what UI selectors should display — fully provider-agnostic
+  router.get('/:id/capabilities', async (req: Request, res: Response) => {
+    try {
+      const row = db.prepare(`
+        SELECT id, name, type, cli_path as cliPath, env
+        FROM providers WHERE id = ?
+      `).get(req.params.id) as { id: string; name: string; type: string; cliPath: string | null; env: string | null } | undefined;
+
+      if (!row) {
+        res.status(404).json({
+          success: false,
+          error: { code: 'NOT_FOUND', message: 'Provider not found' }
+        });
+        return;
+      }
+
+      const capabilities = await getProviderCapabilities(
+        row.type,
+        row.cliPath || undefined,
+        row.env ? JSON.parse(row.env) : undefined
+      );
+
+      res.json({ success: true, data: capabilities } as ApiResponse<ProviderCapabilities>);
+    } catch (error) {
+      console.error('Error fetching provider capabilities:', error);
+      res.status(500).json({
+        success: false,
+        error: { code: 'SERVER_ERROR', message: 'Failed to fetch provider capabilities' }
+      });
+    }
+  });
+
   return router;
+}
+
+// ============================================
+// Provider Capabilities Helpers
+// ============================================
+
+function getClaudeCapabilities(): ProviderCapabilities {
+  return {
+    modeLabel: 'Mode',
+    defaultModeId: 'default',
+    modes: [
+      { id: 'default', label: 'Default', icon: '🛡️', description: 'Standard mode - requires confirmation for tool calls' },
+      { id: 'plan', label: 'Plan', icon: '📋', description: 'Planning mode - creates a plan before executing' },
+      { id: 'acceptEdits', label: 'Auto-Edit', icon: '✏️', description: 'Auto-approve file edits only' },
+      { id: 'bypassPermissions', label: 'Bypass', icon: '⚡', description: 'Skip all permission checks (use with caution)' },
+    ],
+    models: [
+      { id: '', label: 'Default' },
+      { id: 'claude-opus-4-6', label: 'Opus' },
+      { id: 'claude-sonnet-4-5-20250929', label: 'Sonnet' },
+      { id: 'claude-haiku-4-5-20251001', label: 'Haiku' },
+    ],
+  };
+}
+
+/** Read opencode.json config to find configured providers and their models */
+function readOpenCodeConfig(): { providerIds: string[]; configModels: Map<string, Array<{ id: string; name: string }>> } | null {
+  try {
+    const configDir = process.env.OPENCODE_CONFIG_DIR || path.join(os.homedir(), '.config', 'opencode');
+    const configPath = path.join(configDir, 'opencode.json');
+
+    if (!fs.existsSync(configPath)) return null;
+
+    const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+    const providerSection = config.provider;
+    if (!providerSection || typeof providerSection !== 'object') return null;
+
+    const providerIds = Object.keys(providerSection);
+    const configModels = new Map<string, Array<{ id: string; name: string }>>();
+
+    for (const [providerId, providerDef] of Object.entries(providerSection)) {
+      const def = providerDef as { name?: string; models?: Record<string, { name?: string }> };
+      if (def.models && typeof def.models === 'object') {
+        configModels.set(providerId, Object.entries(def.models).map(([modelId, modelDef]) => ({
+          id: modelId,
+          name: modelDef.name || modelId,
+        })));
+      }
+    }
+
+    return { providerIds, configModels };
+  } catch (error) {
+    console.error('[Capabilities] Failed to read opencode config:', error);
+    return null;
+  }
+}
+
+async function getOpenCodeCapabilities(
+  cliPath?: string,
+  env?: Record<string, string>
+): Promise<ProviderCapabilities> {
+  // Default fallback in case OpenCode server isn't available
+  const fallback: ProviderCapabilities = {
+    modeLabel: 'Agent',
+    defaultModeId: 'build',
+    modes: [
+      { id: 'build', label: 'Build', description: 'Default agent with all tools enabled' },
+      { id: 'plan', label: 'Plan', description: 'Analysis and planning only, no file edits' },
+    ],
+    models: [{ id: '', label: 'Default' }],
+  };
+
+  // Read opencode.json to know which providers are truly configured
+  const openCodeConfig = readOpenCodeConfig();
+  const configuredProviderIds = openCodeConfig?.providerIds || [];
+
+  try {
+    // Use a temporary cwd for capabilities query
+    const cwd = process.cwd();
+    const server = await openCodeServerManager.ensureServer(cwd, { cliPath, env });
+    const baseUrl = server.baseUrl;
+
+    // Fetch agents and providers in parallel
+    const [agentsResp, providerResp] = await Promise.all([
+      fetch(`${baseUrl}/agent`).catch(() => null),
+      fetch(`${baseUrl}/provider`).catch(() => null),
+    ]);
+
+    // Parse agents
+    const modes: ModeOption[] = [];
+    if (agentsResp?.ok) {
+      const agents = await agentsResp.json() as Array<{ name: string; mode: string }>;
+      for (const agent of agents) {
+        if (agent.mode === 'primary') {
+          modes.push({
+            id: agent.name,
+            label: agent.name.charAt(0).toUpperCase() + agent.name.slice(1),
+            description: `${agent.name} agent`,
+          });
+        }
+      }
+    }
+
+    // Build models from config + serve API
+    const models: ModelOption[] = [{ id: '', label: 'Default' }];
+
+    // Track which configured providers we've already handled via config models
+    const handledProviders = new Set<string>();
+
+    // First: add models explicitly defined in opencode.json config
+    if (openCodeConfig?.configModels) {
+      for (const [providerId, configModelList] of openCodeConfig.configModels) {
+        // Look up provider display name from serve API if available
+        let providerName = providerId;
+        if (providerResp?.ok) {
+          // We'll parse the API data below, for now just use providerId
+        }
+        for (const model of configModelList) {
+          models.push({
+            id: `${providerId}/${model.id}`,
+            label: model.name,
+            group: providerName,
+          });
+        }
+        handledProviders.add(providerId);
+      }
+    }
+
+    // Second: for configured providers WITHOUT explicit models in config,
+    // use models from the serve API (filtered to only configured providers)
+    if (providerResp?.ok) {
+      const data = await providerResp.json() as {
+        all: Array<{ id: string; name: string; models: Record<string, { id: string; name: string; providerID: string }> }>;
+        connected: string[];
+        default: Record<string, string>;
+      };
+
+      for (const provider of data.all) {
+        // Skip providers not in opencode.json config
+        if (!configuredProviderIds.includes(provider.id)) continue;
+        // Skip providers already handled via config models
+        if (handledProviders.has(provider.id)) {
+          // But update the group name if serve API has a better display name
+          if (provider.name) {
+            for (const m of models) {
+              if (m.group === provider.id) {
+                m.group = provider.name;
+              }
+            }
+          }
+          continue;
+        }
+
+        const groupName = provider.name || provider.id;
+        for (const model of Object.values(provider.models)) {
+          models.push({
+            id: `${provider.id}/${model.id}`,
+            label: model.name || model.id,
+            group: groupName,
+          });
+        }
+      }
+    }
+
+    return {
+      modeLabel: 'Agent',
+      defaultModeId: modes[0]?.id || 'build',
+      modes: modes.length > 0 ? modes : fallback.modes,
+      models: models.length > 1 ? models : fallback.models,
+    };
+  } catch (error) {
+    console.error('[Capabilities] Failed to fetch OpenCode capabilities:', error);
+
+    // Even if the serve API fails, we can still return models from config
+    if (openCodeConfig?.configModels && openCodeConfig.configModels.size > 0) {
+      const models: ModelOption[] = [{ id: '', label: 'Default' }];
+      for (const [providerId, configModelList] of openCodeConfig.configModels) {
+        for (const model of configModelList) {
+          models.push({
+            id: `${providerId}/${model.id}`,
+            label: model.name,
+            group: providerId,
+          });
+        }
+      }
+      return { ...fallback, models };
+    }
+
+    return fallback;
+  }
+}
+
+async function getProviderCapabilities(
+  providerType: string,
+  cliPath?: string,
+  env?: Record<string, string>
+): Promise<ProviderCapabilities> {
+  switch (providerType) {
+    case 'opencode':
+      return getOpenCodeCapabilities(cliPath, env);
+    case 'claude':
+    default:
+      return getClaudeCapabilities();
+  }
+}
+
+// ============================================
+// Provider Commands Helpers
+// ============================================
+
+async function getOpenCodeCommands(
+  cliPath?: string,
+  env?: Record<string, string>
+): Promise<SlashCommand[]> {
+  try {
+    const cwd = process.cwd();
+    const server = await openCodeServerManager.ensureServer(cwd, { cliPath, env });
+    const resp = await fetch(`${server.baseUrl}/command`).catch(() => null);
+    if (!resp?.ok) return [];
+
+    const commands = await resp.json() as Array<{
+      name: string;
+      description: string;
+      source: string;
+    }>;
+
+    return commands.map(cmd => {
+      // Map OpenCode source to SlashCommand source
+      let source: SlashCommand['source'] = 'provider';
+      if (cmd.source === 'mcp') source = 'plugin';
+
+      return {
+        command: `/${cmd.name}`,
+        description: cmd.description,
+        source,
+      };
+    });
+  } catch (error) {
+    console.error('[Commands] Failed to fetch OpenCode commands:', error);
+    return [];
+  }
+}
+
+async function getProviderCommands(
+  providerType: string,
+  cliPath?: string,
+  env?: Record<string, string>
+): Promise<SlashCommand[]> {
+  switch (providerType) {
+    case 'opencode':
+      return getOpenCodeCommands(cliPath, env);
+    case 'claude':
+      return PROVIDER_COMMANDS.claude || [];
+    default:
+      return [];
+  }
 }

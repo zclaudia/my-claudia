@@ -4,6 +4,7 @@ import { GatewayClient } from './gateway-client.js';
 import type { ServerMessage } from '@my-claudia/shared';
 import { initDatabase } from './storage/db.js';
 import type { GatewayConfig } from './routes/gateway.js';
+import { openCodeServerManager } from './providers/opencode-sdk.js';
 
 const PORT = parseInt(process.env.PORT || '3100', 10);
 // Listen on 0.0.0.0 to allow connections from other devices on the network
@@ -199,13 +200,16 @@ async function main() {
     });
 
     // Graceful shutdown
-    const shutdown = () => {
+    const shutdown = async () => {
       console.log('\n🛑 Shutting down server...');
 
       // Disconnect from Gateway
       if (gatewayClient) {
         gatewayClient.disconnect();
       }
+
+      // Stop all managed OpenCode server processes
+      await openCodeServerManager.stopAll();
 
       server.close(() => {
         console.log('✅ Server closed');

@@ -19,7 +19,7 @@ export function ProviderManager({ isOpen, onClose, inline = false }: ProviderMan
   const [editingProvider, setEditingProvider] = useState<ProviderConfig | null>(null);
 
   // Form state
-  type ProviderType = 'claude' | 'cursor' | 'codex' | 'openrouter' | 'glm' | 'custom';
+  type ProviderType = 'claude' | 'opencode';
   const [formName, setFormName] = useState('');
   const [formType, setFormType] = useState<ProviderType>('claude');
   const [formCliPath, setFormCliPath] = useState('');
@@ -149,7 +149,7 @@ export function ProviderManager({ isOpen, onClose, inline = false }: ProviderMan
           type="text"
           value={formName}
           onChange={(e) => setFormName(e.target.value)}
-          placeholder="e.g., Personal Claude, Work Claude, GLM"
+          placeholder="e.g., Personal Claude, My OpenCode"
           className="w-full px-3 py-2 bg-secondary border border-border rounded-lg text-sm focus:outline-none focus:border-primary"
         />
       </div>
@@ -162,11 +162,7 @@ export function ProviderManager({ isOpen, onClose, inline = false }: ProviderMan
           className="w-full px-3 py-2 bg-secondary border border-border rounded-lg text-sm focus:outline-none focus:border-primary"
         >
           <option value="claude">Claude</option>
-          <option value="glm">GLM (Zhipu)</option>
-          <option value="openrouter">OpenRouter</option>
-          <option value="cursor">Cursor</option>
-          <option value="codex">Codex</option>
-          <option value="custom">Custom</option>
+          <option value="opencode">OpenCode</option>
         </select>
       </div>
 
@@ -176,10 +172,10 @@ export function ProviderManager({ isOpen, onClose, inline = false }: ProviderMan
           type="text"
           value={formCliPath}
           onChange={(e) => setFormCliPath(e.target.value)}
-          placeholder="/path/to/claude"
+          placeholder={formType === 'opencode' ? '/path/to/opencode' : '/path/to/claude'}
           className="w-full px-3 py-2 bg-secondary border border-border rounded-lg text-sm focus:outline-none focus:border-primary font-mono"
         />
-        <p className="text-xs text-muted-foreground mt-1">Custom path to Claude CLI binary</p>
+        <p className="text-xs text-muted-foreground mt-1">Custom path to {formType === 'opencode' ? 'OpenCode' : 'Claude'} CLI binary</p>
       </div>
 
       <div>
@@ -187,7 +183,11 @@ export function ProviderManager({ isOpen, onClose, inline = false }: ProviderMan
         <textarea
           value={formEnv}
           onChange={(e) => setFormEnv(e.target.value)}
-          placeholder={`{
+          placeholder={formType === 'opencode'
+? `{
+"OPENCODE_SERVER_PASSWORD": "your-password"
+}`
+: `{
 "ANTHROPIC_API_KEY": "your-key",
 "ANTHROPIC_BASE_URL": "https://..."
 }`}
@@ -195,7 +195,7 @@ export function ProviderManager({ isOpen, onClose, inline = false }: ProviderMan
           className="w-full px-3 py-2 bg-secondary border border-border rounded-lg text-sm focus:outline-none focus:border-primary font-mono"
         />
         <p className="text-xs text-muted-foreground mt-1">
-          Environment variables to pass to Claude CLI (e.g., HOME, ANTHROPIC_API_KEY, ANTHROPIC_BASE_URL)
+          Environment variables to pass to the CLI (e.g., API keys, custom settings)
         </p>
       </div>
 

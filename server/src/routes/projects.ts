@@ -179,22 +179,7 @@ export function createProjectRoutes(db: Database.Database): Router {
         return;
       }
 
-      // Disable recursive triggers to avoid FTS trigger conflicts
-      db.pragma('recursive_triggers = OFF');
-
-      let result;
-      try {
-        // Use a transaction and simple CASCADE deletion
-        const deleteTransaction = db.transaction(() => {
-          // Simply delete the project - CASCADE will handle all children
-          return db.prepare('DELETE FROM projects WHERE id = ?').run(projectId);
-        });
-
-        result = deleteTransaction();
-      } finally {
-        // Always re-enable recursive triggers
-        db.pragma('recursive_triggers = ON');
-      }
+      const result = db.prepare('DELETE FROM projects WHERE id = ?').run(projectId);
 
       if (result.changes === 0) {
         res.status(404).json({

@@ -165,22 +165,7 @@ export function createSessionRoutes(db: Database.Database): Router {
         return;
       }
 
-      // Disable recursive triggers to avoid FTS trigger conflicts
-      db.pragma('recursive_triggers = OFF');
-
-      let result;
-      try {
-        // Use a transaction and simple CASCADE deletion
-        const deleteTransaction = db.transaction(() => {
-          // Simply delete the session - CASCADE will handle all children
-          return db.prepare('DELETE FROM sessions WHERE id = ?').run(sessionId);
-        });
-
-        result = deleteTransaction();
-      } finally {
-        // Always re-enable recursive triggers
-        db.pragma('recursive_triggers = ON');
-      }
+      const result = db.prepare('DELETE FROM sessions WHERE id = ?').run(sessionId);
 
       if (result.changes === 0) {
         res.status(404).json({

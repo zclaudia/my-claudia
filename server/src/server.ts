@@ -25,6 +25,7 @@ import { createGatewayRouter, type GatewayConfig, type GatewayStatus } from './r
 import { createServerRoutes } from './routes/servers.js';
 import { createImportRoutes } from './routes/import.js';
 import { runClaude, type PermissionDecision, type SystemInfo } from './providers/claude-sdk.js';
+import { runOpenCode, abortOpenCodeSession, openCodeServerManager } from './providers/opencode-sdk.js';
 import { safeCompare } from './auth.js';
 
 // Phase 2: Router architecture (CRUD routes migrated to HTTP REST)
@@ -115,6 +116,8 @@ interface ActiveRun {
   runId: string;
   clientId: string;
   abortController?: AbortController;
+  openCodeSessionId?: string;  // For aborting opencode runs
+  openCodeCwd?: string;        // cwd for opencode server lookup
   pendingPermissions: Map<string, {
     resolve: (decision: PermissionDecision) => void;
     timeout: NodeJS.Timeout | null;
@@ -528,6 +531,13 @@ function cancelRun(runId: string, clients: Map<string, ConnectedClient>): void {
     });
     run.pendingPermissions.clear();
 
+    // Abort opencode session if applicable
+    if (run.openCodeSessionId && run.openCodeCwd) {
+      abortOpenCodeSession(run.openCodeCwd, run.openCodeSessionId).catch(err => {
+        console.error(`Failed to abort opencode session: ${err}`);
+      });
+    }
+
     // Notify client that run was cancelled
     const client = clients.get(run.clientId);
     if (client) {
@@ -621,6 +631,7 @@ async function handleRunStart(
     input: string;
     providerId?: string;
     permissionMode?: 'default' | 'acceptEdits' | 'bypassPermissions' | 'plan';
+    mode?: string;   // Generic mode/agent ID (new unified field)
     model?: string;
   },
   db: ReturnType<typeof initDatabase>
@@ -725,47 +736,62 @@ async function handleRunStart(
       console.log('[@ Mention] Processed input:', processedInput);
     }
 
-    // Run Claude with streaming
-    for await (const msg of runClaude(
-      processedInput,
-      {
-        cwd,
-        sessionId: sdkSessionId,
-        cliPath: providerConfig?.cliPath,
-        env: providerConfig?.env,
-        permissionMode: message.permissionMode,  // Pass permission mode to SDK
-        model: message.model,  // Pass model override to SDK
-      },
-      // Permission request callback
-      async (request) => {
-        return new Promise<PermissionDecision>((resolve) => {
-          // Set timeout for auto-deny only if timeoutSeconds > 0
-          // timeoutSeconds = 0 means no timeout (wait indefinitely)
-          let timeout: ReturnType<typeof setTimeout> | null = null;
-          if (request.timeoutSeconds > 0) {
-            const timeoutMs = request.timeoutSeconds * 1000;
-            timeout = setTimeout(() => {
-              activeRun.pendingPermissions.delete(request.requestId);
-              resolve({ behavior: 'deny', message: 'Permission request timed out' });
-            }, timeoutMs);
-          }
+    // Permission request callback (shared by claude and opencode)
+    const permissionCallback = async (request: import('@my-claudia/shared').PermissionRequest) => {
+      return new Promise<PermissionDecision>((resolve) => {
+        let timeout: ReturnType<typeof setTimeout> | null = null;
+        if (request.timeoutSeconds > 0) {
+          const timeoutMs = request.timeoutSeconds * 1000;
+          timeout = setTimeout(() => {
+            activeRun.pendingPermissions.delete(request.requestId);
+            resolve({ behavior: 'deny', message: 'Permission request timed out' });
+          }, timeoutMs);
+        }
 
-          // Store the resolver
-          activeRun.pendingPermissions.set(request.requestId, { resolve, timeout });
-          console.log(`[Permission] Stored pending permission ${request.requestId} in run ${runId} (timeout: ${request.timeoutSeconds > 0 ? request.timeoutSeconds + 's' : 'none'})`);
+        activeRun.pendingPermissions.set(request.requestId, { resolve, timeout });
+        console.log(`[Permission] Stored pending permission ${request.requestId} in run ${runId} (timeout: ${request.timeoutSeconds > 0 ? request.timeoutSeconds + 's' : 'none'})`);
 
-          // Send permission request to client
-          sendMessage(client.ws, {
-            type: 'permission_request',
-            requestId: request.requestId,
-            toolName: request.toolName,
-            detail: request.detail,
-            timeoutSeconds: request.timeoutSeconds
-          });
-          console.log(`[Permission] Sent permission request ${request.requestId} to client`);
+        sendMessage(client.ws, {
+          type: 'permission_request',
+          requestId: request.requestId,
+          toolName: request.toolName,
+          detail: request.detail,
+          timeoutSeconds: request.timeoutSeconds
         });
-      }
-    )) {
+        console.log(`[Permission] Sent permission request ${request.requestId} to client`);
+      });
+    };
+
+    // Select provider runner based on type
+    // Resolve mode: prefer new unified `mode` field, fall back to legacy `permissionMode`
+    const modeValue = message.mode || message.permissionMode || 'default';
+    const providerType = providerConfig?.type || 'claude';
+    const providerRunner = providerType === 'opencode'
+      ? runOpenCode(processedInput, {
+          cwd,
+          sessionId: sdkSessionId,
+          cliPath: providerConfig?.cliPath,
+          env: providerConfig?.env,
+          model: message.model,
+          agent: modeValue,       // OpenCode: mode maps to agent
+        }, permissionCallback)
+      : runClaude(processedInput, {
+          cwd,
+          sessionId: sdkSessionId,
+          cliPath: providerConfig?.cliPath,
+          env: providerConfig?.env,
+          permissionMode: modeValue as 'default' | 'acceptEdits' | 'bypassPermissions' | 'plan',
+          model: message.model,
+        }, permissionCallback);
+
+    // Store opencode session info for abort support
+    if (providerType === 'opencode') {
+      activeRun.openCodeCwd = cwd;
+      // openCodeSessionId will be set when we receive the init message
+    }
+
+    // Run provider with streaming
+    for await (const msg of providerRunner) {
       // Check if run was cancelled
       if (!activeRuns.has(runId)) {
         break;
@@ -799,6 +825,11 @@ async function handleRunStart(
             db.prepare(`
               UPDATE sessions SET sdk_session_id = ?, updated_at = ? WHERE id = ?
             `).run(sdkSessionId, Date.now(), message.sessionId);
+
+            // Store for opencode abort support
+            if (providerType === 'opencode') {
+              activeRun.openCodeSessionId = sdkSessionId;
+            }
 
             sendMessage(client.ws, {
               type: 'session_created',

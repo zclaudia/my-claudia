@@ -3,7 +3,7 @@ import { MessageList } from './MessageList';
 import { MessageInput, type Attachment } from './MessageInput';
 import { ToolCallList } from './ToolCallItem';
 import { LoadingIndicator } from './LoadingIndicator';
-import { PermissionModeToggle } from './PermissionModeToggle';
+import { ModeSelector } from './ModeSelector';
 import { SystemInfoButton } from './SystemInfoButton';
 import { ModelSelector } from './ModelSelector';
 import { TokenUsageDisplay } from './TokenUsageDisplay';
@@ -12,7 +12,7 @@ import { useProjectStore } from '../../stores/projectStore';
 import { useConnection } from '../../contexts/ConnectionContext';
 import * as api from '../../services/api';
 import { uploadFile } from '../../services/fileUpload';
-import type { CommandExecuteResponse, Message, MessageAttachment, MessageInput as MessageInputData } from '@my-claudia/shared';
+import type { CommandExecuteResponse, Message, MessageAttachment, MessageInput as MessageInputData, ProviderCapabilities } from '@my-claudia/shared';
 import type { MessageWithToolCalls } from '../../stores/chatStore';
 
 // Restore tool calls from persisted metadata when loading messages from the server
@@ -54,13 +54,13 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
     currentRunId,
     activeToolCalls,
     currentSystemInfo,
-    permissionMode,
-    setPermissionMode,
+    mode,
+    setMode,
     sessionUsage,
     modelOverride,
     setModelOverride,
   } = useChatStore();
-  const { projects, sessions, providerCommands } = useProjectStore();
+  const { projects, sessions, providerCommands, providerCapabilities, setProviderCapabilities } = useProjectStore();
   const { sendMessage: wsSendMessage, isConnected } = useConnection();
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
@@ -193,8 +193,36 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
     }
   }, [currentSession?.providerId, currentProject?.providerId, currentProject?.rootPath, isConnected]);
 
-  // Get commands for current provider (fallback to _default)
+  // Derive provider ID and fetch capabilities when it changes
   const providerId = currentSession?.providerId || currentProject?.providerId;
+  // Cache key: use providerId if set, otherwise '_default' for Claude defaults
+  const capsCacheKey = providerId || '_default';
+
+  useEffect(() => {
+    if (!isConnected) return;
+    // Skip if already cached
+    if (providerCapabilities[capsCacheKey]) return;
+
+    const fetchCaps = providerId
+      ? api.getProviderCapabilities(providerId)
+      : api.getProviderTypeCapabilities('claude');
+
+    fetchCaps
+      .then(caps => {
+        setProviderCapabilities(capsCacheKey, caps);
+        // Set default mode if not already set
+        if (caps.defaultModeId && !useChatStore.getState().mode) {
+          useChatStore.getState().setMode(caps.defaultModeId);
+        }
+      })
+      .catch(err => {
+        console.error('Failed to load provider capabilities:', err);
+      });
+  }, [capsCacheKey, providerId, isConnected, providerCapabilities, setProviderCapabilities]);
+
+  const capabilities: ProviderCapabilities | null = providerCapabilities[capsCacheKey] || null;
+
+  // Get commands for current provider (fallback to _default)
   const commands = providerCommands[providerId || '_default'] || [];
 
   // Scroll to bottom when new messages arrive (but not when loading history)
@@ -284,7 +312,7 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
       clientRequestId: crypto.randomUUID(),
       sessionId,
       input: fullContent,
-      permissionMode,
+      mode: mode || undefined,
       model: modelOverride || undefined,
     });
 
@@ -423,6 +451,32 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
     // Find the command definition to check its source
     const commandDef = commands.find(c => c.command === command);
 
+    // Handle /help locally with dynamic command list
+    if (command === '/help') {
+      const grouped: Record<string, typeof commands> = {};
+      for (const cmd of commands) {
+        const label = cmd.source === 'local' ? 'Built-in Commands'
+          : cmd.source === 'provider' ? 'Provider Commands'
+          : cmd.source === 'custom' ? 'Custom Commands'
+          : cmd.source === 'plugin' ? 'Plugin Commands'
+          : 'Other Commands';
+        (grouped[label] ||= []).push(cmd);
+      }
+      const sections = Object.entries(grouped)
+        .map(([label, cmds]) =>
+          `**${label}:**\n\n${cmds.map(c => `- \`${c.command}\` — ${c.description}`).join('\n')}`
+        )
+        .join('\n\n');
+      addMessage(sessionId, {
+        id: crypto.randomUUID(),
+        sessionId,
+        role: 'system',
+        content: sections,
+        createdAt: Date.now(),
+      });
+      return;
+    }
+
     // Plugin commands and provider commands should be passed directly to Claude SDK
     // They are handled by Claude CLI's plugin system or built-in CLI commands
     if (commandDef?.source === 'plugin' || commandDef?.source === 'provider') {
@@ -440,7 +494,7 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
         clientRequestId: crypto.randomUUID(),
         sessionId,
         input: commandText,
-        permissionMode,
+        mode: mode || undefined,
         model: modelOverride || undefined,
       });
       return;
@@ -485,7 +539,7 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
           clientRequestId: crypto.randomUUID(),
           sessionId,
           input: result.content,
-          permissionMode,
+          mode: mode || undefined,
           model: modelOverride || undefined,
         });
       }
@@ -501,7 +555,7 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
         createdAt: Date.now(),
       });
     }
-  }, [sessionId, addMessage, wsSendMessage, commands, currentSession, currentProject, handleBuiltInCommand, permissionMode, modelOverride]);
+  }, [sessionId, addMessage, wsSendMessage, commands, currentSession, currentProject, handleBuiltInCommand, mode, modelOverride]);
 
   const handleCancelRun = () => {
     // Restore last sent message to input
@@ -568,12 +622,14 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
       <div className="border-t border-border p-2 md:p-4">
         {/* Toolbar */}
         <div className="mb-2 md:mb-3 flex items-center gap-2 md:gap-3 flex-wrap">
-          <PermissionModeToggle
-            mode={permissionMode}
-            onModeChange={setPermissionMode}
+          <ModeSelector
+            capabilities={capabilities}
+            value={mode}
+            onChange={setMode}
             disabled={isLoading}
           />
           <ModelSelector
+            capabilities={capabilities}
             value={modelOverride}
             onChange={setModelOverride}
             disabled={isLoading}
@@ -600,8 +656,8 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
               ? 'Connecting...'
               : isLoading
               ? 'Waiting for response...'
-              : permissionMode === 'plan'
-              ? 'Plan Mode: Ask Claude to analyze and plan (no code changes)...'
+              : mode === 'plan'
+              ? 'Plan Mode: Analyze and plan (no code changes)...'
               : 'Type a message... (Enter to send)'
           }
         />

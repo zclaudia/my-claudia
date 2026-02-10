@@ -334,6 +334,41 @@ function runMigrations(db: Database.Database): void {
         CREATE INDEX IF NOT EXISTS idx_tool_call_records_message ON tool_call_records(message_id);
         CREATE INDEX IF NOT EXISTS idx_tool_call_records_session ON tool_call_records(session_id);
       `
+    },
+    {
+      name: '009_fix_messages_fts_triggers',
+      sql: `
+        -- Fix messages_fts triggers: SQLite 3.49+ broke the special 'delete' command
+        -- for regular (non-content-synced) FTS5 tables. Use standard DELETE instead.
+
+        DROP TRIGGER IF EXISTS messages_fts_delete;
+        CREATE TRIGGER messages_fts_delete AFTER DELETE ON messages BEGIN
+          DELETE FROM messages_fts WHERE rowid = OLD.rowid;
+        END;
+
+        DROP TRIGGER IF EXISTS messages_fts_update;
+        CREATE TRIGGER messages_fts_update AFTER UPDATE ON messages BEGIN
+          DELETE FROM messages_fts WHERE rowid = OLD.rowid;
+          INSERT INTO messages_fts(rowid, content, session_id, role)
+            VALUES (NEW.rowid, NEW.content, NEW.session_id, NEW.role);
+        END;
+      `
+    },
+    {
+      name: '010_cleanup_legacy_provider_types',
+      sql: `
+        -- Migrate any legacy provider types to 'claude'
+        UPDATE providers SET type = 'claude' WHERE type NOT IN ('claude', 'opencode');
+      `
+    },
+    {
+      name: '011_fix_orphaned_fts_rows',
+      sql: `
+        -- Clean up orphaned FTS rows left by the broken delete trigger (pre-009).
+        -- The old trigger used the FTS5 'delete' command which stopped working in
+        -- SQLite 3.49+, leaving FTS rows behind when messages were deleted.
+        DELETE FROM messages_fts WHERE rowid NOT IN (SELECT rowid FROM messages);
+      `
     }
   ];
 

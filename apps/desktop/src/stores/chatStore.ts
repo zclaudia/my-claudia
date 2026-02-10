@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { Message, SystemInfo, PermissionMode, UsageInfo } from '@my-claudia/shared';
+import type { Message, SystemInfo, UsageInfo } from '@my-claudia/shared';
 
 interface PaginationInfo {
   total: number;
@@ -37,8 +37,8 @@ interface ChatState {
   toolCallsHistory: ToolCallState[];
   // Current system info from Claude SDK init message
   currentSystemInfo: SystemInfo | null;
-  // Current permission mode
-  permissionMode: PermissionMode;
+  // Current mode (generic — permission mode for Claude, agent for OpenCode, etc.)
+  mode: string;
   // Accumulated token usage per session
   sessionUsage: Record<string, { inputTokens: number; outputTokens: number }>;
   // Model override (user-selected model, empty = use default)
@@ -65,8 +65,8 @@ interface ChatState {
   setSystemInfo: (info: SystemInfo) => void;
   clearSystemInfo: () => void;
 
-  // Permission mode actions
-  setPermissionMode: (mode: PermissionMode) => void;
+  // Mode actions
+  setMode: (mode: string) => void;
 
   // Usage tracking
   addSessionUsage: (sessionId: string, usage: UsageInfo) => void;
@@ -93,7 +93,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   activeToolCalls: {},
   toolCallsHistory: [],
   currentSystemInfo: null,
-  permissionMode: 'default',
+  mode: 'default',
   sessionUsage: {},
   modelOverride: '',
 
@@ -248,8 +248,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
   setSystemInfo: (info) => set({ currentSystemInfo: info }),
   clearSystemInfo: () => set({ currentSystemInfo: null }),
 
-  // Permission mode actions
-  setPermissionMode: (mode) => set({ permissionMode: mode }),
+  // Mode actions
+  setMode: (mode) => set({ mode }),
 
   // Usage tracking
   addSessionUsage: (sessionId, usage) =>

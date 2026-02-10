@@ -1,12 +1,14 @@
 import { create } from 'zustand';
-import type { Project, Session, SlashCommand } from '@my-claudia/shared';
+import type { Project, Session, SlashCommand, ProviderConfig, ProviderCapabilities } from '@my-claudia/shared';
 
 interface ProjectState {
   projects: Project[];
   sessions: Session[];
+  providers: ProviderConfig[];
   selectedProjectId: string | null;
   selectedSessionId: string | null;
   providerCommands: Record<string, SlashCommand[]>;
+  providerCapabilities: Record<string, ProviderCapabilities>;
 
   // Actions
   setProjects: (projects: Project[]) => void;
@@ -19,18 +21,23 @@ interface ProjectState {
   updateSession: (id: string, updates: Partial<Session>) => void;
   deleteSession: (id: string) => void;
 
+  setProviders: (providers: ProviderConfig[]) => void;
+
   selectProject: (id: string | null) => void;
   selectSession: (id: string | null) => void;
 
   setProviderCommands: (providerId: string, commands: SlashCommand[]) => void;
+  setProviderCapabilities: (providerId: string, capabilities: ProviderCapabilities) => void;
 }
 
 export const useProjectStore = create<ProjectState>((set) => ({
   projects: [],
   sessions: [],
+  providers: [],
   selectedProjectId: null,
   selectedSessionId: null,
   providerCommands: {},
+  providerCapabilities: {},
 
   setProjects: (projects) => set({ projects }),
 
@@ -76,6 +83,8 @@ export const useProjectStore = create<ProjectState>((set) => ({
         state.selectedSessionId === id ? null : state.selectedSessionId,
     })),
 
+  setProviders: (providers) => set({ providers }),
+
   selectProject: (id) => set({ selectedProjectId: id }),
 
   selectSession: (id) =>
@@ -92,6 +101,14 @@ export const useProjectStore = create<ProjectState>((set) => ({
       providerCommands: {
         ...state.providerCommands,
         [providerId]: commands,
+      },
+    })),
+
+  setProviderCapabilities: (providerId, capabilities) =>
+    set((state) => ({
+      providerCapabilities: {
+        ...state.providerCapabilities,
+        [providerId]: capabilities,
       },
     })),
 }));

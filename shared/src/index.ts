@@ -26,7 +26,7 @@ export interface BackendServer {
 // Provider Types
 // ============================================
 
-export type ProviderType = 'claude' | 'cursor' | 'codex' | 'openrouter' | 'glm' | 'custom';
+export type ProviderType = 'claude' | 'opencode';
 
 export interface ProviderConfig {
   id: string;
@@ -88,20 +88,8 @@ export const PROVIDER_COMMANDS: Record<ProviderType, SlashCommand[]> = {
     { command: '/terminal-setup', description: 'Setup terminal integration', source: 'provider' },
     { command: '/install-github-app', description: 'Install GitHub App', source: 'provider' },
   ],
-  cursor: [
-    // Cursor-specific commands can be added here
-  ],
-  codex: [
-    // Codex-specific commands can be added here
-  ],
-  openrouter: [
-    // OpenRouter typically doesn't have CLI commands
-  ],
-  glm: [
-    // GLM-specific commands can be added here
-  ],
-  custom: [
-    // Custom providers may define their own commands
+  opencode: [
+    // OpenCode handles its own commands internally via its TUI/server
   ],
 };
 
@@ -269,13 +257,42 @@ export interface AuthMessage {
 // Permission modes supported by Claude SDK
 export type PermissionMode = 'default' | 'acceptEdits' | 'bypassPermissions' | 'plan';
 
+// ============================================
+// Provider Capabilities (drives UI selectors)
+// ============================================
+
+/** A selectable option in the Mode dropdown (permission mode, agent, etc.) */
+export interface ModeOption {
+  id: string;           // Value sent to server (e.g. 'default', 'plan', 'build')
+  label: string;        // Display text (e.g. 'Default', 'Plan')
+  description?: string; // Tooltip / subtitle
+  icon?: string;        // Emoji or icon identifier
+}
+
+/** A selectable option in the Model dropdown */
+export interface ModelOption {
+  id: string;           // Value sent to server (e.g. 'claude-sonnet-4-5-20250929')
+  label: string;        // Display text (e.g. 'Sonnet')
+  group?: string;       // Optional grouping (e.g. provider name in OpenCode)
+}
+
+/** What a provider supports — drives the UI selectors */
+export interface ProviderCapabilities {
+  modes: ModeOption[];    // Empty array → hide mode selector entirely
+  models: ModelOption[];  // Empty array → hide model selector entirely
+  modeLabel?: string;     // Custom label: "Mode" (Claude) / "Agent" (OpenCode)
+  modelLabel?: string;    // Custom label: "Model" for all
+  defaultModeId?: string; // Which mode is selected by default
+}
+
 export interface RunStartMessage {
   type: 'run_start';
   clientRequestId: string;
   sessionId: string;
   input: string;
   providerId?: string;
-  permissionMode?: PermissionMode;  // Optional: defaults to 'default'
+  permissionMode?: PermissionMode;  // Kept for backwards compat
+  mode?: string;  // Generic mode/agent ID (new unified field)
   model?: string;  // Optional: override model (e.g. 'claude-sonnet-4-5-20250929')
 }
 
