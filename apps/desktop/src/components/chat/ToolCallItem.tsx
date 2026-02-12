@@ -34,6 +34,10 @@ function formatToolInput(toolName: string, input: unknown): string {
       return obj.url as string || JSON.stringify(input);
     case 'WebSearch':
       return obj.query as string || JSON.stringify(input);
+    case 'AskUserQuestion': {
+      const questions = (obj.questions as Array<{ question: string }>) || [];
+      return `${questions.length} question${questions.length !== 1 ? 's' : ''}`;
+    }
     default:
       return JSON.stringify(input, null, 2);
   }
@@ -140,6 +144,56 @@ function ToolExpandedContent({ toolName, toolInput, status, result, isError }: {
         {status !== 'running' && result !== undefined && (
           <div className="mt-2">
             <TerminalOutput content={formatToolResult(result)} isError={isError} />
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // AskUserQuestion: show formatted questions and user's answer
+  if (toolName === 'AskUserQuestion' && input?.questions) {
+    const questions = input.questions as Array<{
+      question: string;
+      header: string;
+      options: Array<{ label: string; description: string }>;
+      multiSelect?: boolean;
+    }>;
+
+    return (
+      <div className="px-3 pb-3 border-t border-border/50">
+        <div className="mt-2 space-y-3">
+          {questions.map((q, idx) => (
+            <div key={idx}>
+              <div className="flex items-start gap-2 mb-1.5">
+                <span className="inline-block px-1.5 py-0.5 bg-primary/20 text-primary text-[10px] rounded font-medium flex-shrink-0">
+                  {q.header}
+                </span>
+                <span className="text-xs text-foreground">{q.question}</span>
+              </div>
+              <div className="ml-2 space-y-1">
+                {q.options.map((opt) => (
+                  <div key={opt.label} className="flex items-start gap-2 text-xs">
+                    <span className="text-muted-foreground flex-shrink-0">{q.multiSelect ? '☐' : '○'}</span>
+                    <div>
+                      <span className="text-foreground">{opt.label}</span>
+                      {opt.description && (
+                        <span className="text-muted-foreground ml-1">- {opt.description}</span>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* Show user's answer (comes as the deny message) */}
+        {status !== 'running' && result !== undefined && (
+          <div className="mt-3">
+            <div className="text-xs text-muted-foreground mb-1">User's Answer:</div>
+            <pre className="text-xs bg-primary/10 rounded p-2 overflow-x-auto whitespace-pre-wrap break-words text-foreground">
+              {formatToolResult(result)}
+            </pre>
           </div>
         )}
       </div>
@@ -277,6 +331,10 @@ function getToolCallSummary(tc: ToolCallState): string {
       return `🔎 ${String(input.query || '').substring(0, 15)}`;
     case 'TodoWrite':
       return '📋 Update todos';
+    case 'AskUserQuestion': {
+      const questions = (input.questions as Array<{ header: string }>) || [];
+      return `❓ ${questions[0]?.header || 'question'}`;
+    }
     default:
       return `🔧 ${tc.toolName}`;
   }

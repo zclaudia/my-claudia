@@ -12,6 +12,7 @@ import { useChatStore } from '../stores/chatStore';
 import { useProjectStore } from '../stores/projectStore';
 import { useServerStore } from '../stores/serverStore';
 import { usePermissionStore } from '../stores/permissionStore';
+import { useAskUserQuestionStore } from '../stores/askUserQuestionStore';
 import { DirectTransport } from './transport/DirectTransport';
 import type { Transport } from './transport/BaseTransport';
 import { useGatewayConnection } from './useGatewayConnection';
@@ -59,6 +60,7 @@ export function useMultiServerSocket() {
     activeServerId,
     setServerConnectionStatus,
     setServerLocalConnection,
+    setServerFeatures,
     updateLastConnected
   } = useServerStore();
 
@@ -91,6 +93,9 @@ export function useMultiServerSocket() {
         case 'auth_result':
           setServerConnectionStatus(serverId, 'connected');
           setServerLocalConnection(serverId, message.isLocalConnection || false);
+          if (message.features) {
+            setServerFeatures(serverId, message.features);
+          }
           if (message.success) {
             console.log(`[Socket:${serverId}] Authentication successful`);
             const state = transportsRef.current.get(serverId);
@@ -135,6 +140,7 @@ export function useMultiServerSocket() {
           if (serverId === activeServerId) {
             setLoading(false);
             setCurrentRunId(null);
+            useAskUserQuestionStore.getState().clearRequest();
             if (currentSessionId) {
               finalizeToolCallsToMessage(currentSessionId);
               if (message.usage) {
@@ -148,6 +154,7 @@ export function useMultiServerSocket() {
           if (serverId === activeServerId) {
             setLoading(false);
             setCurrentRunId(null);
+            useAskUserQuestionStore.getState().clearRequest();
             if (currentSessionId) {
               finalizeToolCallsToMessage(currentSessionId);
             }
@@ -174,6 +181,15 @@ export function useMultiServerSocket() {
               toolName: message.toolName,
               detail: message.detail,
               timeoutSec: message.timeoutSeconds
+            });
+          }
+          break;
+
+        case 'ask_user_question':
+          if (serverId === activeServerId) {
+            useAskUserQuestionStore.getState().setPendingRequest({
+              requestId: message.requestId,
+              questions: message.questions
             });
           }
           break;
@@ -209,6 +225,7 @@ export function useMultiServerSocket() {
     addSessionUsage,
     setServerConnectionStatus,
     setServerLocalConnection,
+    setServerFeatures,
     updateLastConnected
   ]);
 

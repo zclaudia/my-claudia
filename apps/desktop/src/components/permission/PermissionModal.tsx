@@ -9,10 +9,11 @@ interface PermissionRequest {
 
 interface PermissionModalProps {
   request: PermissionRequest | null;
+  queueSize?: number;
   onDecision: (requestId: string, allow: boolean, remember?: boolean) => void;
 }
 
-export function PermissionModal({ request, onDecision }: PermissionModalProps) {
+export function PermissionModal({ request, queueSize = 0, onDecision }: PermissionModalProps) {
   const [remainingTime, setRemainingTime] = useState(0);
   const [remember, setRemember] = useState(false);
 
@@ -87,8 +88,15 @@ export function PermissionModal({ request, onDecision }: PermissionModalProps) {
                 />
               </svg>
             </div>
-            <div>
-              <h2 className="text-lg font-semibold text-card-foreground">Permission Required</h2>
+            <div className="flex-1">
+              <div className="flex items-center gap-2">
+                <h2 className="text-lg font-semibold text-card-foreground">Permission Required</h2>
+                {queueSize > 1 && (
+                  <span className="px-1.5 py-0.5 bg-warning/20 text-warning text-xs rounded font-medium">
+                    +{queueSize - 1} more
+                  </span>
+                )}
+              </div>
               <p className="text-sm text-muted-foreground">
                 Claude wants to use a tool that requires your approval
               </p>

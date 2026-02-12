@@ -12,10 +12,16 @@ import type {
   CommandExecuteResponse,
   ServerInfo,
   ServerGatewayConfig,
-  ServerGatewayStatus
+  ServerGatewayStatus,
+  ServerFeature
 } from '@my-claudia/shared';
 import { useServerStore } from '../stores/serverStore';
 import { useGatewayStore, isGatewayTarget, parseBackendId } from '../stores/gatewayStore';
+
+/** Check if the active server advertises a specific feature. */
+function activeServerSupports(feature: ServerFeature): boolean {
+  return useServerStore.getState().activeServerSupports(feature);
+}
 
 // Custom error class for authentication errors
 export class AuthError extends Error {
@@ -377,7 +383,7 @@ export async function getSearchSuggestions(prefix: string, userId?: string, limi
 // ============================================
 
 export async function getProviders(): Promise<ProviderConfig[]> {
-  const result = await fetchLocalApi<ProviderConfig[]>('/api/providers');
+  const result = await fetchApi<ProviderConfig[]>('/api/providers');
   if (!result.success || !result.data) {
     throw new Error(result.error?.message || 'Failed to fetch providers');
   }
@@ -391,7 +397,7 @@ export async function createProvider(data: {
   env?: Record<string, string>;
   isDefault?: boolean;
 }): Promise<ProviderConfig> {
-  const result = await fetchLocalApi<ProviderConfig>('/api/providers', {
+  const result = await fetchApi<ProviderConfig>('/api/providers', {
     method: 'POST',
     body: JSON.stringify(data)
   });
@@ -405,7 +411,7 @@ export async function updateProvider(
   id: string,
   data: Partial<ProviderConfig>
 ): Promise<void> {
-  const result = await fetchLocalApi<void>(`/api/providers/${id}`, {
+  const result = await fetchApi<void>(`/api/providers/${id}`, {
     method: 'PUT',
     body: JSON.stringify(data)
   });
@@ -415,7 +421,7 @@ export async function updateProvider(
 }
 
 export async function deleteProvider(id: string): Promise<void> {
-  const result = await fetchLocalApi<void>(`/api/providers/${id}`, {
+  const result = await fetchApi<void>(`/api/providers/${id}`, {
     method: 'DELETE'
   });
   if (!result.success) {
@@ -424,7 +430,11 @@ export async function deleteProvider(id: string): Promise<void> {
 }
 
 export async function setDefaultProvider(id: string): Promise<void> {
-  const result = await fetchLocalApi<void>(`/api/providers/${id}/set-default`, {
+  if (!activeServerSupports('setDefaultProvider')) {
+    console.warn('[API] setDefaultProvider not supported by active server, skipping');
+    return;
+  }
+  const result = await fetchApi<void>(`/api/providers/${id}/set-default`, {
     method: 'POST'
   });
   if (!result.success) {
@@ -437,11 +447,16 @@ export async function getProviderCommands(
   projectRoot?: string
 ): Promise<SlashCommand[]> {
   const query = projectRoot ? `?projectRoot=${encodeURIComponent(projectRoot)}` : '';
-  const result = await fetchLocalApi<SlashCommand[]>(`/api/providers/${providerId}/commands${query}`);
-  if (!result.success || !result.data) {
-    throw new Error(result.error?.message || 'Failed to fetch provider commands');
+  if (activeServerSupports('providerCommands')) {
+    const result = await fetchApi<SlashCommand[]>(`/api/providers/${providerId}/commands${query}`);
+    if (result.success && result.data) return result.data;
   }
-  return result.data;
+  // Degrade: query local server for default commands
+  const localResult = await fetchLocalApi<SlashCommand[]>(`/api/providers/type/claude/commands${query}`);
+  if (!localResult.success || !localResult.data) {
+    throw new Error(localResult.error?.message || 'Failed to fetch provider commands');
+  }
+  return localResult.data;
 }
 
 export async function getProviderTypeCommands(
@@ -449,31 +464,44 @@ export async function getProviderTypeCommands(
   projectRoot?: string
 ): Promise<SlashCommand[]> {
   const query = projectRoot ? `?projectRoot=${encodeURIComponent(projectRoot)}` : '';
-  const result = await fetchLocalApi<SlashCommand[]>(`/api/providers/type/${providerType}/commands${query}`);
-  if (!result.success || !result.data) {
-    throw new Error(result.error?.message || 'Failed to fetch provider type commands');
+  if (activeServerSupports('providerCommands')) {
+    const result = await fetchApi<SlashCommand[]>(`/api/providers/type/${providerType}/commands${query}`);
+    if (result.success && result.data) return result.data;
   }
-  return result.data;
+  const localResult = await fetchLocalApi<SlashCommand[]>(`/api/providers/type/${providerType}/commands${query}`);
+  if (!localResult.success || !localResult.data) {
+    throw new Error(localResult.error?.message || 'Failed to fetch provider type commands');
+  }
+  return localResult.data;
 }
 
 export async function getProviderCapabilities(
   providerId: string
 ): Promise<ProviderCapabilities> {
-  const result = await fetchLocalApi<ProviderCapabilities>(`/api/providers/${providerId}/capabilities`);
-  if (!result.success || !result.data) {
-    throw new Error(result.error?.message || 'Failed to fetch provider capabilities');
+  if (activeServerSupports('providerCapabilities')) {
+    const result = await fetchApi<ProviderCapabilities>(`/api/providers/${providerId}/capabilities`);
+    if (result.success && result.data) return result.data;
   }
-  return result.data;
+  // Degrade: query local server for default capabilities
+  const localResult = await fetchLocalApi<ProviderCapabilities>(`/api/providers/type/claude/capabilities`);
+  if (!localResult.success || !localResult.data) {
+    throw new Error(localResult.error?.message || 'Failed to fetch provider capabilities');
+  }
+  return localResult.data;
 }
 
 export async function getProviderTypeCapabilities(
   providerType: string
 ): Promise<ProviderCapabilities> {
-  const result = await fetchLocalApi<ProviderCapabilities>(`/api/providers/type/${providerType}/capabilities`);
-  if (!result.success || !result.data) {
-    throw new Error(result.error?.message || 'Failed to fetch provider type capabilities');
+  if (activeServerSupports('providerCapabilities')) {
+    const result = await fetchApi<ProviderCapabilities>(`/api/providers/type/${providerType}/capabilities`);
+    if (result.success && result.data) return result.data;
   }
-  return result.data;
+  const localResult = await fetchLocalApi<ProviderCapabilities>(`/api/providers/type/${providerType}/capabilities`);
+  if (!localResult.success || !localResult.data) {
+    throw new Error(localResult.error?.message || 'Failed to fetch provider type capabilities');
+  }
+  return localResult.data;
 }
 
 // ============================================

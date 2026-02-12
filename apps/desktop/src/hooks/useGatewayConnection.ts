@@ -13,6 +13,7 @@ import { useServerStore } from '../stores/serverStore';
 import { useChatStore } from '../stores/chatStore';
 import { useProjectStore } from '../stores/projectStore';
 import { usePermissionStore } from '../stores/permissionStore';
+import { useAskUserQuestionStore } from '../stores/askUserQuestionStore';
 import { GatewayTransport } from './transport/GatewayTransport';
 import { toGatewayServerId, isGatewayTarget, parseBackendId } from '../stores/gatewayStore';
 import { getServerGatewayStatus } from '../services/api';
@@ -40,6 +41,7 @@ export function useGatewayConnection() {
     activeServerId,
     setServerConnectionStatus,
     setServerLocalConnection,
+    setServerFeatures,
     updateLastConnected
   } = useServerStore();
 
@@ -160,6 +162,7 @@ export function useGatewayConnection() {
         if (serverId === currentActiveId) {
           setLoading(false);
           setCurrentRunId(null);
+          useAskUserQuestionStore.getState().clearRequest();
           if (currentSessionId) {
             finalizeToolCallsToMessage(currentSessionId);
             if (msg.usage) {
@@ -173,6 +176,7 @@ export function useGatewayConnection() {
         if (serverId === currentActiveId) {
           setLoading(false);
           setCurrentRunId(null);
+          useAskUserQuestionStore.getState().clearRequest();
           if (currentSessionId) {
             finalizeToolCallsToMessage(currentSessionId);
           }
@@ -199,6 +203,15 @@ export function useGatewayConnection() {
             toolName: msg.toolName,
             detail: msg.detail,
             timeoutSec: msg.timeoutSeconds
+          });
+        }
+        break;
+
+      case 'ask_user_question':
+        if (serverId === currentActiveId) {
+          useAskUserQuestionStore.getState().setPendingRequest({
+            requestId: (msg as any).requestId,
+            questions: (msg as any).questions
           });
         }
         break;
@@ -265,13 +278,16 @@ export function useGatewayConnection() {
       onBackendsUpdated: (backends) => {
         setDiscoveredBackends(backends);
       },
-      onBackendAuthResult: (backendId, success, error) => {
+      onBackendAuthResult: (backendId, success, error, features) => {
         setBackendAuthStatus(backendId, success ? 'authenticated' : 'failed');
 
         if (success) {
           const serverId = toGatewayServerId(backendId);
           setServerConnectionStatus(serverId, 'connected');
           setServerLocalConnection(serverId, false);
+          if (features) {
+            setServerFeatures(serverId, features);
+          }
           reconnectAttemptRef.current = 0;
           updateLastConnected(serverId);
         } else {
@@ -296,6 +312,7 @@ export function useGatewayConnection() {
     setBackendAuthStatus,
     setServerConnectionStatus,
     setServerLocalConnection,
+    setServerFeatures,
     handleBackendMessage
   ]);
 

@@ -3,6 +3,7 @@ import { Sidebar } from './components/Sidebar';
 import { ChatInterface } from './components/chat/ChatInterface';
 import { ServerSelector } from './components/ServerSelector';
 import { PermissionModal } from './components/permission/PermissionModal';
+import { AskUserQuestionModal } from './components/permission/AskUserQuestionModal';
 import { ThemeProvider } from './contexts/ThemeContext';
 import { ConnectionProvider, useConnection } from './contexts/ConnectionContext';
 import { useDataLoader } from './hooks/useDataLoader';
@@ -10,6 +11,7 @@ import { useServerManager } from './hooks/useServerManager';
 import { useServerStore } from './stores/serverStore';
 import { useProjectStore } from './stores/projectStore';
 import { usePermissionStore } from './stores/permissionStore';
+import { useAskUserQuestionStore } from './stores/askUserQuestionStore';
 import { useIsMobile } from './hooks/useMediaQuery';
 import { migrateServersFromLocalStorage, needsMigration } from './utils/migrateServers';
 
@@ -18,7 +20,8 @@ function AppContent() {
   const { addServer } = useServerManager();
   const { connectionStatus } = useServerStore();
   const { selectedSessionId } = useProjectStore();
-  const { pendingRequest, clearRequest } = usePermissionStore();
+  const { pendingRequest, pendingRequests, clearRequest } = usePermissionStore();
+  const { pendingRequest: askUserRequest, clearRequest: clearAskUserRequest } = useAskUserQuestionStore();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const isMobile = useIsMobile();
@@ -50,6 +53,18 @@ function AppContent() {
       clearRequest();
     },
     [sendMessage, clearRequest]
+  );
+
+  const handleAskUserAnswer = useCallback(
+    (requestId: string, formattedAnswer: string) => {
+      sendMessage({
+        type: 'ask_user_answer',
+        requestId,
+        formattedAnswer
+      });
+      clearAskUserRequest();
+    },
+    [sendMessage, clearAskUserRequest]
   );
 
   return (
@@ -154,7 +169,14 @@ function AppContent() {
       {/* Permission Modal */}
       <PermissionModal
         request={pendingRequest}
+        queueSize={pendingRequests.length}
         onDecision={handlePermissionDecision}
+      />
+
+      {/* AskUserQuestion Modal */}
+      <AskUserQuestionModal
+        request={askUserRequest}
+        onAnswer={handleAskUserAnswer}
       />
     </div>
   );

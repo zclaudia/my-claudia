@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { BackendServer } from '@my-claudia/shared';
+import type { BackendServer, ServerFeature } from '@my-claudia/shared';
 import { useGatewayStore, isGatewayTarget, parseBackendId } from './gatewayStore';
 
 // Per-server connection state
@@ -7,6 +7,7 @@ export interface ServerConnection {
   status: 'connected' | 'connecting' | 'disconnected' | 'error';
   error: string | null;
   isLocalConnection: boolean | null;
+  features: ServerFeature[];  // Empty = legacy server (no features advertised)
 }
 
 export type ConnectionStatus = ServerConnection['status'];
@@ -31,6 +32,7 @@ interface ServerState {
   // New per-server setters
   setServerConnectionStatus: (serverId: string, status: ConnectionStatus, error?: string) => void;
   setServerLocalConnection: (serverId: string, isLocal: boolean | null) => void;
+  setServerFeatures: (serverId: string, features: ServerFeature[]) => void;
   updateLastConnected: (id: string) => void;
 
   // Getters
@@ -38,6 +40,7 @@ interface ServerState {
   getDefaultServer: () => BackendServer | undefined;
   getServerConnection: (serverId: string) => ServerConnection | undefined;
   getActiveServerConnection: () => ServerConnection | undefined;
+  activeServerSupports: (feature: ServerFeature) => boolean;
 }
 
 // Note: Server list is now loaded from database via WebSocket
@@ -58,7 +61,8 @@ const DEFAULT_SERVER: BackendServer = {
 const DEFAULT_CONNECTION: ServerConnection = {
   status: 'disconnected',
   error: null,
-  isLocalConnection: null
+  isLocalConnection: null,
+  features: [],
 };
 
 export const useServerStore = create<ServerState>()((set, get) => ({
@@ -195,6 +199,22 @@ export const useServerStore = create<ServerState>()((set, get) => ({
     set(updates);
   },
 
+  setServerFeatures: (serverId, features) => {
+    const state = get();
+    const newConnection: ServerConnection = {
+      ...DEFAULT_CONNECTION,
+      ...state.connections[serverId],
+      features
+    };
+
+    set({
+      connections: {
+        ...state.connections,
+        [serverId]: newConnection
+      }
+    });
+  },
+
   updateLastConnected: (id) => {
     set((state) => ({
       servers: state.servers.map((s) =>
@@ -239,5 +259,13 @@ export const useServerStore = create<ServerState>()((set, get) => ({
     const state = get();
     if (!state.activeServerId) return undefined;
     return state.connections[state.activeServerId];
+  },
+
+  activeServerSupports: (feature) => {
+    const state = get();
+    if (!state.activeServerId) return false;
+    const conn = state.connections[state.activeServerId];
+    if (!conn || conn.features.length === 0) return false;
+    return conn.features.includes(feature);
   }
 }));

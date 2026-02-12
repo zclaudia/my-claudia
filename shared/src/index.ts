@@ -229,6 +229,7 @@ export type ClientMessage =
   | RunStartMessage
   | RunCancelMessage
   | PermissionDecisionMessage
+  | AskUserAnswerMessage
   | PingMessage
   | GetProjectsMessage
   | GetSessionsMessage
@@ -306,6 +307,13 @@ export interface PermissionDecisionMessage {
   requestId: string;
   allow: boolean;
   remember?: boolean;
+}
+
+// AskUserQuestion answer (Client → Server)
+export interface AskUserAnswerMessage {
+  type: 'ask_user_answer';
+  requestId: string;
+  formattedAnswer: string;  // Pre-formatted readable text for Claude
 }
 
 export interface PingMessage {
@@ -417,6 +425,7 @@ export type ServerMessage =
   | RunCompletedMessage
   | RunFailedMessage
   | PermissionRequestMessage
+  | AskUserQuestionMessage
   | PongMessage
   | ErrorMessage
   | ProjectsListMessage
@@ -448,6 +457,8 @@ export interface AuthResultMessage {
   success: boolean;
   error?: string;
   isLocalConnection?: boolean;  // Whether the connection is from localhost
+  serverVersion?: string;       // Server version string
+  features?: ServerFeature[];   // Server-advertised feature flags
 }
 
 export interface RunStartedMessage {
@@ -522,6 +533,25 @@ export interface PermissionRequestMessage {
   toolName: string;
   detail: string;
   timeoutSeconds: number;
+}
+
+// AskUserQuestion: interactive question UI (Server → Client)
+export interface AskUserQuestionOption {
+  label: string;
+  description: string;
+}
+
+export interface AskUserQuestionItem {
+  question: string;
+  header: string;
+  options: AskUserQuestionOption[];
+  multiSelect?: boolean;
+}
+
+export interface AskUserQuestionMessage {
+  type: 'ask_user_question';
+  requestId: string;
+  questions: AskUserQuestionItem[];
 }
 
 export interface PongMessage {
@@ -747,12 +777,36 @@ export interface CommandExecuteResponse {
 }
 
 // ============================================
+// Server Feature Negotiation
+// ============================================
+
+/** Features a server can advertise. Frontend uses these to decide
+ *  whether to call certain API endpoints or show certain UI. */
+export type ServerFeature =
+  | 'providerCapabilities'   // GET /api/providers/:id/capabilities, /type/:type/capabilities
+  | 'providerCommands'       // GET /api/providers/:id/commands, /type/:type/commands
+  | 'setDefaultProvider'     // POST /api/providers/:id/set-default
+  | 'search'                 // GET /api/sessions/search/*
+  | 'fileUpload'             // POST /api/files/upload
+  ;
+
+/** All features supported by the current server version. */
+export const ALL_SERVER_FEATURES: ServerFeature[] = [
+  'providerCapabilities',
+  'providerCommands',
+  'setDefaultProvider',
+  'search',
+  'fileUpload',
+];
+
+// ============================================
 // Server Info Types
 // ============================================
 
 export interface ServerInfo {
   version: string;
   isLocalConnection: boolean;  // Whether the client is connecting from localhost (determined by server)
+  features?: ServerFeature[];  // Server-advertised feature flags
 }
 
 // ============================================
@@ -795,6 +849,7 @@ export interface GatewayClientAuthResultMessage {
   clientId: string;
   success: boolean;
   error?: string;
+  features?: ServerFeature[];   // Backend-advertised feature flags
 }
 
 // Wrapper for forwarded messages from client to backend
@@ -854,6 +909,7 @@ export interface GatewayBackendAuthResultMessage {
   backendId: string;
   success: boolean;
   error?: string;
+  features?: ServerFeature[];   // Backend-advertised feature flags (passthrough)
 }
 
 export interface GatewayBackendDisconnectedMessage {

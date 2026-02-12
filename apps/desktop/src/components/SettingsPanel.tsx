@@ -1,13 +1,15 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useServerStore } from '../stores/serverStore';
 import { useGatewayStore, toGatewayServerId } from '../stores/gatewayStore';
 import { useUIStore, type FontSizePreset } from '../stores/uiStore';
+import { useConnection } from '../contexts/ConnectionContext';
 import { ProviderManager } from './ProviderManager';
 import { ThemeToggle } from './ThemeToggle';
 import { ServerGatewayConfig } from './ServerGatewayConfig';
 import { ImportDialog } from './ImportDialog';
+import type { GatewayBackendInfo } from '@my-claudia/shared';
 
-type SettingsTab = 'general' | 'servers' | 'import' | 'providers' | 'gateway';
+type SettingsTab = 'general' | 'connections' | 'providers' | 'gateway' | 'import';
 
 interface SettingsPanelProps {
   isOpen: boolean;
@@ -17,15 +19,54 @@ interface SettingsPanelProps {
 export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
   const [activeTab, setActiveTab] = useState<SettingsTab>('general');
   const [importDialogOpen, setImportDialogOpen] = useState(false);
-  const { connectionStatus, getActiveServer } = useServerStore();
+  const [serverPickerOpen, setServerPickerOpen] = useState(false);
+
+  const {
+    connectionStatus,
+    getActiveServer,
+    activeServerId,
+    servers,
+    connections,
+    setActiveServer
+  } = useServerStore();
+  const {
+    isConnected: isGatewayConnected,
+    discoveredBackends,
+    backendAuthStatus
+  } = useGatewayStore();
+  const { connectServer } = useConnection();
 
   const isConnected = connectionStatus === 'connected';
   const activeServer = getActiveServer();
+  const isLocalServer = activeServerId === 'local';
+  const directServers = servers.filter(s => s.connectionMode !== 'gateway');
+
+  // Reset tab if current tab is not available for the new server type
+  useEffect(() => {
+    if (!isLocalServer && (activeTab === 'import' || activeTab === 'gateway')) {
+      setActiveTab('providers');
+    }
+  }, [activeServerId, activeTab, isLocalServer]);
+
+  const handleServerSwitch = (serverId: string) => {
+    setActiveServer(serverId);
+    connectServer(serverId);
+    setServerPickerOpen(false);
+  };
+
+  const handleBackendSwitch = (backend: GatewayBackendInfo) => {
+    if (!backend.online) return;
+    const serverId = toGatewayServerId(backend.backendId);
+    setActiveServer(serverId);
+    connectServer(serverId);
+    setServerPickerOpen(false);
+  };
 
   if (!isOpen) return null;
 
-  // Build tabs based on context - Providers and Security only shown for local server
-  const tabs: { id: SettingsTab; label: string; icon: JSX.Element }[] = [
+  // --- Tab definitions ---
+
+  const appTabs: { id: SettingsTab; label: string; icon: JSX.Element }[] = [
     {
       id: 'general',
       label: 'General',
@@ -37,23 +78,17 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
       )
     },
     {
-      id: 'servers',
-      label: 'Servers',
+      id: 'connections',
+      label: 'Connections',
       icon: (
         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01" />
         </svg>
       )
     },
-    {
-      id: 'import',
-      label: 'Import',
-      icon: (
-        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
-        </svg>
-      )
-    },
+  ];
+
+  const serverTabs: { id: SettingsTab; label: string; icon: JSX.Element }[] = [
     {
       id: 'providers',
       label: 'Providers',
@@ -63,16 +98,56 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
         </svg>
       )
     },
-    {
-      id: 'gateway',
-      label: 'Gateway',
-      icon: (
-        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9" />
-        </svg>
-      )
-    },
+    ...(isLocalServer ? [
+      {
+        id: 'gateway' as SettingsTab,
+        label: 'Gateway',
+        icon: (
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9" />
+          </svg>
+        )
+      },
+      {
+        id: 'import' as SettingsTab,
+        label: 'Import',
+        icon: (
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+          </svg>
+        )
+      },
+    ] : []),
   ];
+
+  // --- Tab button renderer ---
+
+  const renderTabButton = (tab: { id: SettingsTab; label: string; icon: JSX.Element }) => (
+    <button
+      key={tab.id}
+      onClick={() => setActiveTab(tab.id)}
+      data-testid={`${tab.id}-tab`}
+      className={`flex-shrink-0 px-3 py-2 rounded text-sm flex items-center gap-2 transition-colors ${
+        activeTab === tab.id
+          ? 'bg-primary text-primary-foreground'
+          : 'text-muted-foreground hover:bg-secondary hover:text-foreground'
+      }`}
+    >
+      {tab.icon}
+      <span className="whitespace-nowrap">{tab.label}</span>
+    </button>
+  );
+
+  // --- Connection status helper for server picker ---
+
+  const getStatusColor = (status?: string) => {
+    switch (status) {
+      case 'connected': return 'bg-success';
+      case 'connecting': return 'bg-warning animate-pulse';
+      case 'error': return 'bg-destructive';
+      default: return 'bg-muted-foreground';
+    }
+  };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-2 md:p-4">
@@ -93,22 +168,109 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
 
         <div className="flex flex-col md:flex-row flex-1 overflow-hidden">
           {/* Tabs - horizontal on mobile, vertical sidebar on desktop */}
-          <div className="flex md:flex-col md:w-40 border-b md:border-b-0 md:border-r border-border p-1 md:p-2 gap-1 overflow-x-auto md:overflow-x-visible shrink-0">
-            {tabs.map((tab) => (
+          <div className="flex md:flex-col md:w-44 border-b md:border-b-0 md:border-r border-border p-1 md:p-2 gap-0.5 overflow-x-auto md:overflow-x-visible shrink-0">
+            {/* Section: App */}
+            <div className="hidden md:block px-3 py-1.5 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
+              App
+            </div>
+            {appTabs.map(renderTabButton)}
+
+            {/* Section: Server (with server picker dropdown) */}
+            <div className="hidden md:block relative border-t border-border mt-2">
               <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
-                data-testid={`${tab.id}-tab`}
-                className={`flex-shrink-0 px-3 py-2 rounded text-sm flex items-center gap-2 transition-colors ${
-                  activeTab === tab.id
-                    ? 'bg-primary text-primary-foreground'
-                    : 'text-muted-foreground hover:bg-secondary hover:text-foreground'
-                }`}
+                onClick={() => setServerPickerOpen(!serverPickerOpen)}
+                className="w-full px-3 pt-3 pb-1.5 flex items-center justify-between group"
               >
-                {tab.icon}
-                <span className="whitespace-nowrap">{tab.label}</span>
+                <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider truncate" title={activeServer?.name || 'Server'}>
+                  {activeServer?.name || 'Server'}
+                </span>
+                <svg
+                  className={`w-3 h-3 text-muted-foreground group-hover:text-foreground transition-transform ${serverPickerOpen ? 'rotate-180' : ''}`}
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                </svg>
               </button>
-            ))}
+
+              {/* Server picker dropdown */}
+              {serverPickerOpen && (
+                <>
+                  <div className="fixed inset-0 z-40" onClick={() => setServerPickerOpen(false)} />
+                  <div className="absolute left-1 right-1 top-full bg-card border border-border rounded-lg shadow-lg z-50 max-h-60 overflow-y-auto">
+                    {/* Direct servers */}
+                    {directServers.map((server) => {
+                      const isActive = server.id === activeServerId;
+                      return (
+                        <button
+                          key={server.id}
+                          onClick={() => handleServerSwitch(server.id)}
+                          className={`w-full px-3 py-2 text-left hover:bg-muted flex items-center gap-2 text-sm ${
+                            isActive ? 'bg-muted' : ''
+                          }`}
+                        >
+                          <span className={`w-2 h-2 rounded-full flex-shrink-0 ${getStatusColor(connections[server.id]?.status)}`} />
+                          <span className="truncate flex-1" title={server.name}>{server.name}</span>
+                          {isActive && (
+                            <span className="px-1.5 py-0.5 bg-primary/20 text-primary text-[10px] rounded flex-shrink-0">
+                              Active
+                            </span>
+                          )}
+                        </button>
+                      );
+                    })}
+
+                    {/* Gateway backends */}
+                    {isGatewayConnected && discoveredBackends.length > 0 && (
+                      <>
+                        <div className="px-3 py-1 text-[10px] font-medium text-muted-foreground uppercase tracking-wider bg-secondary/50 border-t border-border">
+                          Via Gateway
+                        </div>
+                        {discoveredBackends.map((backend) => {
+                          const gwId = toGatewayServerId(backend.backendId);
+                          const isActive = activeServerId === gwId;
+                          const authStatus = backendAuthStatus[backend.backendId];
+                          let statusColor = 'bg-muted-foreground';
+                          if (backend.online && authStatus === 'authenticated') statusColor = 'bg-success';
+                          else if (backend.online && authStatus === 'pending') statusColor = 'bg-warning animate-pulse';
+                          else if (backend.online) statusColor = 'bg-blue-400';
+
+                          return (
+                            <button
+                              key={backend.backendId}
+                              onClick={() => handleBackendSwitch(backend)}
+                              disabled={!backend.online}
+                              className={`w-full px-3 py-2 text-left hover:bg-muted flex items-center gap-2 text-sm ${
+                                isActive ? 'bg-muted' : ''
+                              } ${!backend.online ? 'opacity-50 cursor-not-allowed' : ''}`}
+                            >
+                              <span className={`w-2 h-2 rounded-full flex-shrink-0 ${statusColor}`} />
+                              <span className="truncate flex-1" title={backend.name}>{backend.name}</span>
+                              {isActive && (
+                                <span className="px-1.5 py-0.5 bg-primary/20 text-primary text-[10px] rounded flex-shrink-0">
+                                  Active
+                                </span>
+                              )}
+                              {!backend.online && (
+                                <span className="text-[10px] text-muted-foreground flex-shrink-0">Offline</span>
+                              )}
+                            </button>
+                          );
+                        })}
+                      </>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
+
+            {/* Mobile: show server name as a label before server tabs */}
+            <div className="md:hidden px-2 py-1 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider border-l border-border ml-1">
+              {activeServer?.name || 'Server'}
+            </div>
+
+            {serverTabs.map(renderTabButton)}
           </div>
 
           {/* Content area */}
@@ -163,12 +325,37 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
               </div>
             )}
 
-            {activeTab === 'servers' && (
+            {activeTab === 'connections' && (
               <div className="space-y-4">
                 <p className="text-sm text-muted-foreground">
                   View your backend server connections. Local server connects directly; gateway backends are discovered automatically.
                 </p>
                 <ServerInfoPanel />
+              </div>
+            )}
+
+            {activeTab === 'providers' && (
+              <div className="space-y-4">
+                {!isLocalServer && activeServer && (
+                  <div className="flex items-center gap-2 px-3 py-2 bg-primary/10 border border-primary/20 rounded-lg text-sm">
+                    <svg className="w-4 h-4 text-primary shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    <span>
+                      Managing providers on <strong>{activeServer.name}</strong>
+                    </span>
+                  </div>
+                )}
+                <p className="text-sm text-muted-foreground">
+                  Manage AI providers for your projects on this server. Each provider can have different CLI paths and environment variables.
+                </p>
+                <ProviderManagerInline key={activeServerId || 'none'} />
+              </div>
+            )}
+
+            {activeTab === 'gateway' && (
+              <div className="space-y-6">
+                <ServerGatewayConfig />
               </div>
             )}
 
@@ -206,23 +393,6 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
                 </div>
               </div>
             )}
-
-            {activeTab === 'providers' && (
-              <div className="space-y-4">
-                <p className="text-sm text-muted-foreground">
-                  Manage AI providers for your projects. Each provider can have different CLI paths and environment variables.
-                </p>
-                <ProviderManagerInline />
-              </div>
-            )}
-
-            {activeTab === 'gateway' && (
-              <div className="space-y-6">
-                <ServerGatewayConfig />
-              </div>
-            )}
-
-
           </div>
         </div>
       </div>

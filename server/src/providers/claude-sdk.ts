@@ -168,6 +168,21 @@ export async function* runClaude(
       toolInput: unknown,
       context: unknown
     ) => {
+      // Intercept AskUserQuestion — handled interactively via client UI
+      // Always route through permission callback regardless of allowed/disallowed lists
+      if (toolName === 'AskUserQuestion') {
+        const requestId = crypto.randomUUID();
+        const decision = await onPermissionRequest({
+          requestId,
+          toolName: 'AskUserQuestion',
+          toolInput,
+          detail: JSON.stringify(toolInput, null, 2),
+          timeoutSeconds: 0,
+        });
+        // Deny the tool but include user's answers in message for Claude to read
+        return { behavior: 'deny', message: decision.message || 'No answer provided' };
+      }
+
       // Check allowed/disallowed lists first
       if (options.allowedTools?.includes(toolName)) {
         return { behavior: 'allow', updatedInput: toolInput };

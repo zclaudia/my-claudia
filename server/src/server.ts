@@ -14,7 +14,7 @@ import type {
   ToolCall,
   Request as CorrelatedRequest
 } from '@my-claudia/shared';
-import { isRequest } from '@my-claudia/shared';
+import { isRequest, ALL_SERVER_FEATURES } from '@my-claudia/shared';
 import { initDatabase } from './storage/db.js';
 import { createProjectRoutes } from './routes/projects.js';
 import { createSessionRoutes } from './routes/sessions.js';
@@ -217,8 +217,9 @@ export async function createServer(): Promise<ServerContext> {
     res.json({
       success: true,
       data: {
-        version: '1.0.0',
-        isLocalConnection: isLocal
+        version: '1.1.0',
+        isLocalConnection: isLocal,
+        features: ALL_SERVER_FEATURES,
       }
     });
   });
@@ -373,7 +374,9 @@ export async function createServer(): Promise<ServerContext> {
             sendMessage(ws, {
               type: 'auth_result',
               success: true,
-              isLocalConnection: client.isLocal
+              isLocalConnection: client.isLocal,
+              serverVersion: '1.1.0',
+              features: ALL_SERVER_FEATURES,
             } as AuthResultMessage);
             return;
           }
@@ -613,6 +616,10 @@ async function handleClientMessage(
       handlePermissionDecision(message);
       break;
 
+    case 'ask_user_answer':
+      handleAskUserAnswer(message);
+      break;
+
     default:
       sendMessage(client.ws, {
         type: 'error',
@@ -751,14 +758,25 @@ async function handleRunStart(
         activeRun.pendingPermissions.set(request.requestId, { resolve, timeout });
         console.log(`[Permission] Stored pending permission ${request.requestId} in run ${runId} (timeout: ${request.timeoutSeconds > 0 ? request.timeoutSeconds + 's' : 'none'})`);
 
-        sendMessage(client.ws, {
-          type: 'permission_request',
-          requestId: request.requestId,
-          toolName: request.toolName,
-          detail: request.detail,
-          timeoutSeconds: request.timeoutSeconds
-        });
-        console.log(`[Permission] Sent permission request ${request.requestId} to client`);
+        // AskUserQuestion: send interactive question UI instead of generic permission dialog
+        if (request.toolName === 'AskUserQuestion') {
+          const toolInput = request.toolInput as { questions?: Array<any> };
+          sendMessage(client.ws, {
+            type: 'ask_user_question',
+            requestId: request.requestId,
+            questions: toolInput.questions || [],
+          } as import('@my-claudia/shared').AskUserQuestionMessage);
+          console.log(`[Permission] Sent ask_user_question ${request.requestId} to client (${(toolInput.questions || []).length} questions)`);
+        } else {
+          sendMessage(client.ws, {
+            type: 'permission_request',
+            requestId: request.requestId,
+            toolName: request.toolName,
+            detail: request.detail,
+            timeoutSeconds: request.timeoutSeconds
+          });
+          console.log(`[Permission] Sent permission request ${request.requestId} to client`);
+        }
       });
     };
 
@@ -1007,5 +1025,29 @@ function handlePermissionDecision(message: {
   }
 
   console.warn(`[Permission] Request ${message.requestId} not found in any active run`);
+}
+
+function handleAskUserAnswer(message: {
+  type: 'ask_user_answer';
+  requestId: string;
+  formattedAnswer: string;
+}): void {
+  console.log(`[AskUser] Received answer for ${message.requestId}`);
+
+  // Find the run with this pending permission (reuses the same pendingPermissions map)
+  for (const [, run] of activeRuns.entries()) {
+    const pending = run.pendingPermissions.get(message.requestId);
+    if (pending) {
+      if (pending.timeout) clearTimeout(pending.timeout);
+      run.pendingPermissions.delete(message.requestId);
+      // Resolve with deny + user's formatted answer as the message
+      // Claude reads this message and treats it as the user's response
+      pending.resolve({ behavior: 'deny', message: message.formattedAnswer });
+      console.log(`[AskUser] ${message.requestId}: answered - resolved!`);
+      return;
+    }
+  }
+
+  console.warn(`[AskUser] Request ${message.requestId} not found in any active run`);
 }
 

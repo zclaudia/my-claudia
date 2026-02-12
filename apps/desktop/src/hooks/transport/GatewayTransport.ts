@@ -9,6 +9,7 @@
 import type {
   ClientMessage,
   ServerMessage,
+  ServerFeature,
   GatewayBackendInfo,
   ClientToGatewayMessage,
   GatewayToClientMessage
@@ -21,7 +22,7 @@ export interface GatewayTransportConfig {
   onDisconnected: () => void;
   onError: (error: Event | string) => void;
   onBackendsUpdated: (backends: GatewayBackendInfo[]) => void;
-  onBackendAuthResult: (backendId: string, success: boolean, error?: string) => void;
+  onBackendAuthResult: (backendId: string, success: boolean, error?: string, features?: ServerFeature[]) => void;
   onBackendMessage: (backendId: string, message: ServerMessage) => void;
   onBackendDisconnected: (backendId: string) => void;
 }
@@ -183,7 +184,7 @@ export class GatewayTransport {
           console.error('[GatewayTransport] Backend auth failed:', message.backendId, message.error);
           this.authenticatedBackends.delete(message.backendId);
         }
-        this.config.onBackendAuthResult(message.backendId, message.success, message.error);
+        this.config.onBackendAuthResult(message.backendId, message.success, message.error, (message as any).features);
         break;
 
       case 'backend_message':

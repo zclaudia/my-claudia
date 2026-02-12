@@ -1,0 +1,95 @@
+#!/usr/bin/env bash
+#
+# My Claudia Server — one-command deploy for remote backends
+#
+# Usage:
+#   git pull && ./scripts/deploy-server.sh
+#
+# What it does:
+#   1. pnpm install (if lockfile changed)
+#   2. Build shared → server
+#   3. Create / update systemd service
+#   4. Restart the service
+#
+set -euo pipefail
+
+SERVICE_NAME="my-claudia-server"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+DATA_DIR="$HOME/.my-claudia"
+ENV_FILE="$DATA_DIR/.env"
+SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
+
+RED='\033[0;31m'; GREEN='\033[0;32m'; BLUE='\033[0;34m'; NC='\033[0m'
+info() { echo -e "${BLUE}▸${NC} $*"; }
+ok()   { echo -e "${GREEN}✓${NC} $*"; }
+die()  { echo -e "${RED}✗${NC} $*" >&2; exit 1; }
+
+# ── Resolve paths ─────────────────────────────────────────────
+NODE_BIN="$(command -v node 2>/dev/null)" || die "node not found"
+PNPM_BIN="$(command -v pnpm 2>/dev/null)" || die "pnpm not found"
+NODE_DIR="$(dirname "$NODE_BIN")"
+
+# ── 1. Install deps ──────────────────────────────────────────
+info "Installing dependencies..."
+cd "$PROJECT_ROOT"
+pnpm install --frozen-lockfile 2>/dev/null || pnpm install
+ok "Dependencies installed"
+
+# ── 2. Build ──────────────────────────────────────────────────
+info "Building shared..."
+pnpm --filter @my-claudia/shared run build
+info "Building server..."
+pnpm --filter @my-claudia/server run build
+ok "Build complete"
+
+# ── 3. Ensure ~/.my-claudia/.env ──────────────────────────────
+mkdir -p "$DATA_DIR"
+if [[ ! -f "$ENV_FILE" ]]; then
+  info "Creating default $ENV_FILE"
+  cat > "$ENV_FILE" <<'EOF'
+PORT=3100
+SERVER_HOST=0.0.0.0
+# GATEWAY_URL=wss://your-gateway
+# GATEWAY_SECRET=
+# GATEWAY_NAME=
+EOF
+  ok "Created $ENV_FILE — edit if needed"
+fi
+
+# ── 4. Create / update systemd unit ─────────────────────────
+info "Writing systemd service..."
+
+UNIT="[Unit]
+Description=My Claudia Server
+After=network.target
+
+[Service]
+Type=simple
+User=$USER
+WorkingDirectory=$PROJECT_ROOT
+EnvironmentFile=$ENV_FILE
+Environment=PATH=$NODE_DIR:/usr/local/bin:/usr/bin:/bin
+Environment=NODE_ENV=production
+ExecStart=$NODE_BIN $PROJECT_ROOT/server/dist/index.js
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target"
+
+echo "$UNIT" | sudo tee "$SERVICE_FILE" > /dev/null
+sudo systemctl daemon-reload
+sudo systemctl enable "$SERVICE_NAME" --quiet 2>/dev/null
+ok "Systemd unit updated"
+
+# ── 5. Restart ────────────────────────────────────────────────
+info "Restarting service..."
+sudo systemctl restart "$SERVICE_NAME"
+ok "Service restarted"
+
+# ── Status ────────────────────────────────────────────────────
+echo ""
+systemctl --no-pager status "$SERVICE_NAME" --lines=5 || true
+echo ""
+ok "Deploy complete. Logs: journalctl -u $SERVICE_NAME -f"

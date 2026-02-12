@@ -17,8 +17,9 @@ import type {
   GatewayBackendsListMessage,
   GatewayBackendInfo,
   ClientMessage,
-  ServerMessage
+  ServerMessage,
 } from '@my-claudia/shared';
+import { ALL_SERVER_FEATURES } from '@my-claudia/shared';
 
 // Config storage path
 const CONFIG_DIR = path.join(os.homedir(), '.my-claudia');
@@ -360,7 +361,8 @@ export class GatewayClient {
     const response: BackendToGatewayMessage = {
       type: 'client_auth_result',
       clientId: message.clientId,
-      success: true
+      success: true,
+      features: ALL_SERVER_FEATURES,
     };
 
     this.ws?.send(JSON.stringify(response));

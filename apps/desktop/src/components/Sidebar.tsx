@@ -30,7 +30,7 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
     deleteSession,
   } = useProjectStore();
 
-  const { connectionStatus, isLocalConnection } = useServerStore();
+  const { connectionStatus } = useServerStore();
 
   const [expandedProjects, setExpandedProjects] = useState<Set<string>>(new Set());
   const [showNewProjectForm, setShowNewProjectForm] = useState(false);
@@ -85,7 +85,7 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
   const isConnected = connectionStatus === 'connected';
 
   const handleCreateProject = async () => {
-    if (!newProjectName.trim() || !isConnected || isLocalConnection === false) return;
+    if (!newProjectName.trim() || !isConnected) return;
 
     setCreatingProject(true);
     try {
@@ -109,7 +109,7 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
   };
 
   const handleCreateSession = async (projectId: string) => {
-    if (!isConnected || isLocalConnection === false) return;
+    if (!isConnected) return;
 
     try {
       const session = await api.createSession({
@@ -126,7 +126,7 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
   };
 
   const handleDeleteProject = async (projectId: string) => {
-    if (!isConnected || isLocalConnection === false) return;
+    if (!isConnected) return;
 
     try {
       await api.deleteProject(projectId);
@@ -138,7 +138,7 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
   };
 
   const handleDeleteSession = async (sessionId: string) => {
-    if (!isConnected || isLocalConnection === false) return;
+    if (!isConnected) return;
 
     try {
       await api.deleteSession(sessionId);
@@ -404,7 +404,7 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
               <span className="text-xs font-semibold text-muted-foreground uppercase leading-none">
                 Projects
               </span>
-              {isLocalConnection !== false && (
+              {(
                 <button
                   onClick={() => setShowNewProjectForm(true)}
                   disabled={!isConnected}
@@ -515,8 +515,8 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
                         </svg>
                         <span className="truncate font-semibold">{project.name}</span>
                       </button>
-                      {/* Project menu button - only show for local connections */}
-                      {isLocalConnection !== false && (
+                      {/* Project menu button */}
+                      {(
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
@@ -530,8 +530,8 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
                         </button>
                       )}
 
-                      {/* Project context menu - only show for local connections */}
-                      {isLocalConnection !== false && contextMenuProject === project.id && (
+                      {/* Project context menu */}
+                      {contextMenuProject === project.id && (
                         <>
                           <div className="fixed inset-0 z-40" onClick={() => setContextMenuProject(null)} />
                           <div className="absolute right-0 top-full mt-1 w-44 bg-popover border border-border rounded-lg shadow-lg z-50">
@@ -621,7 +621,7 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
                                     >
                                       Export Markdown
                                     </button>
-                                    {isLocalConnection !== false && (
+                                    {(
                                       <button
                                         onClick={() => handleDeleteSession(session.id)}
                                         className="w-full text-left px-3 py-3 text-sm text-destructive hover:bg-secondary active:bg-secondary"
@@ -891,7 +891,7 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
           <span className="text-xs font-semibold text-muted-foreground uppercase leading-none">
             Projects
           </span>
-          {isLocalConnection !== false && (
+          {(
             <button
               onClick={() => setShowNewProjectForm(true)}
               disabled={!isConnected}
@@ -1002,8 +1002,8 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
                     </svg>
                     <span className="truncate font-semibold">{project.name}</span>
                   </button>
-                  {/* Project menu button - only show for local connections */}
-                  {isLocalConnection !== false && (
+                  {/* Project menu button */}
+                  {(
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
@@ -1017,8 +1017,8 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
                     </button>
                   )}
 
-                  {/* Project context menu - only show for local connections */}
-                  {isLocalConnection !== false && contextMenuProject === project.id && (
+                  {/* Project context menu */}
+                  {contextMenuProject === project.id && (
                   <>
                     <div className="fixed inset-0 z-40" onClick={() => setContextMenuProject(null)} />
                     <div className="absolute right-0 top-full mt-1 w-36 bg-popover border border-border rounded shadow-lg z-50">
@@ -1108,7 +1108,7 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
                                 >
                                   Export Markdown
                                 </button>
-                                {isLocalConnection !== false && (
+                                {(
                                   <button
                                     onClick={() => handleDeleteSession(session.id)}
                                     className="w-full text-left px-3 py-1.5 text-sm text-destructive hover:bg-secondary"

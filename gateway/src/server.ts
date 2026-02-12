@@ -225,18 +225,10 @@ export function createGatewayServer(config: GatewayConfig): Server {
       const { backendId } = req.params;
       const clientIp = req.ip || req.socket.remoteAddress || 'unknown';
 
-      // Rate limit check
-      if (!checkRateLimit(clientIp)) {
-        res.status(429).json({
-          success: false,
-          error: { code: 'RATE_LIMITED', message: 'Too many requests, try again later' }
-        });
-        return;
-      }
-
       // Parse authorization header: Bearer gatewaySecret
       const authHeader = req.headers.authorization;
       if (!authHeader || !authHeader.startsWith('Bearer ')) {
+        checkRateLimit(clientIp);
         res.status(401).json({
           success: false,
           error: { code: 'UNAUTHORIZED', message: 'Authorization required' }
@@ -251,6 +243,14 @@ export function createGatewayServer(config: GatewayConfig): Server {
 
       // Validate gateway secret (timing-safe)
       if (!safeCompare(gatewaySecret, config.gatewaySecret)) {
+        // Rate limit only failed auth attempts to prevent brute-force
+        if (!checkRateLimit(clientIp)) {
+          res.status(429).json({
+            success: false,
+            error: { code: 'RATE_LIMITED', message: 'Too many requests, try again later' }
+          });
+          return;
+        }
         res.status(401).json({
           success: false,
           error: { code: 'UNAUTHORIZED', message: 'Invalid credentials' }
@@ -560,7 +560,8 @@ export function createGatewayServer(config: GatewayConfig): Server {
             type: 'backend_auth_result',
             backendId,
             success: message.success,
-            error: message.error
+            error: message.error,
+            features: message.features,
           });
         }
         break;
