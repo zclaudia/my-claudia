@@ -27,6 +27,7 @@ import { createImportRoutes } from './routes/import.js';
 import { runClaude, type PermissionDecision, type SystemInfo } from './providers/claude-sdk.js';
 import { runOpenCode, abortOpenCodeSession, openCodeServerManager } from './providers/opencode-sdk.js';
 import { safeCompare } from './auth.js';
+import { extractAndIndexMetadata, removeIndexedMetadata } from './storage/metadata-extractor.js';
 
 // Phase 2: Router architecture (CRUD routes migrated to HTTP REST)
 import { createRouter } from './router/index.js';
@@ -123,6 +124,13 @@ interface ActiveRun {
     resolve: (decision: PermissionDecision) => void;
     timeout: NodeJS.Timeout | null;
   }>;
+  // Streaming state for message persistence (allows cancelRun to save partial content)
+  db: ReturnType<typeof initDatabase>;
+  sessionId: string;
+  assistantMessageId: string;
+  fullContent: string;
+  collectedToolCalls: (ToolCall & { toolUseId: string })[];
+  saveInterval?: NodeJS.Timeout;
 }
 
 const activeRuns = new Map<string, ActiveRun>();
@@ -528,6 +536,12 @@ function sendMessage(ws: WebSocket, message: ServerMessage): void {
 function cancelRun(runId: string): void {
   const run = activeRuns.get(runId);
   if (run) {
+    // Stop periodic save
+    if (run.saveInterval) {
+      clearInterval(run.saveInterval);
+      run.saveInterval = undefined;
+    }
+
     // Reject all pending permissions
     run.pendingPermissions.forEach(({ resolve, timeout }) => {
       if (timeout) clearTimeout(timeout);
@@ -542,6 +556,16 @@ function cancelRun(runId: string): void {
       });
     }
 
+    // Save accumulated content before discarding the run
+    try {
+      upsertAssistantMessage(run, { indexMetadata: true });
+      if (run.fullContent) {
+        console.log(`[Cancel] Saved partial assistant message for run ${runId} (${run.fullContent.length} chars)`);
+      }
+    } catch (err) {
+      console.error(`[Cancel] Failed to save partial message for run ${runId}:`, err);
+    }
+
     // Notify client that run was cancelled (uses stored client ref — works for both
     // real WebSocket clients and virtual gateway clients)
     sendMessage(run.client.ws, {
@@ -554,6 +578,56 @@ function cancelRun(runId: string): void {
     console.log(`Run ${runId} cancelled`);
   }
 }
+
+/**
+ * Upsert assistant message to database.
+ * Uses INSERT ... ON CONFLICT to avoid duplicates — safe to call multiple times
+ * with the same assistantMessageId (periodic saves, cancel saves, final save).
+ */
+function upsertAssistantMessage(
+  run: ActiveRun,
+  options?: { usage?: { inputTokens: number; outputTokens: number }; indexMetadata?: boolean }
+): void {
+  if (!run.fullContent) return;
+
+  const metadata: Record<string, unknown> = {};
+  if (options?.usage) {
+    metadata.usage = options.usage;
+  }
+  if (run.collectedToolCalls.length > 0) {
+    metadata.toolCalls = run.collectedToolCalls.map(({ name, input, output, isError }) => ({
+      name, input, output, isError
+    }));
+  }
+
+  const metadataJson = Object.keys(metadata).length > 0 ? JSON.stringify(metadata) : null;
+
+  run.db.prepare(`
+    INSERT INTO messages (id, session_id, role, content, metadata, created_at)
+    VALUES (?, ?, 'assistant', ?, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET
+      content = excluded.content,
+      metadata = excluded.metadata
+  `).run(
+    run.assistantMessageId,
+    run.sessionId,
+    run.fullContent,
+    metadataJson,
+    Date.now()
+  );
+
+  // Extended indexing (file_references, tool_call_records) — only on final/cancel save
+  if (options?.indexMetadata && metadataJson) {
+    const row = run.db.prepare('SELECT rowid FROM messages WHERE id = ?').get(run.assistantMessageId) as { rowid: number } | undefined;
+    if (row) {
+      // Clean previous index entries then re-extract
+      removeIndexedMetadata(run.db, run.assistantMessageId);
+      extractAndIndexMetadata(run.db, run.assistantMessageId, row.rowid, run.sessionId, metadata as any, Date.now());
+    }
+  }
+}
+
+const PERIODIC_SAVE_INTERVAL_MS = 5000;
 
 /**
  * Parse incoming message - supports both old and new formats
@@ -701,20 +775,22 @@ async function handleRunStart(
     }
   }
 
-  // Create active run tracking
+  // Create active run tracking (includes streaming state for message persistence)
   const activeRun: ActiveRun = {
     runId,
     clientId: client.id,
     client,
-    pendingPermissions: new Map()
+    pendingPermissions: new Map(),
+    db,
+    sessionId: message.sessionId,
+    assistantMessageId: uuidv4(),
+    fullContent: '',
+    collectedToolCalls: [],
   };
   activeRuns.set(runId, activeRun);
 
   // Track tool_use_id to tool_name mapping for this run
   const toolUseIdToName = new Map<string, string>();
-
-  // Collect tool calls for persistence in message metadata
-  const collectedToolCalls: (ToolCall & { toolUseId: string })[] = [];
 
   // Send run started
   sendMessage(client.ws, {
@@ -732,7 +808,6 @@ async function handleRunStart(
 
   try {
     const cwd = session.root_path || process.cwd();
-    let fullContent = '';
     let sdkSessionId = session.sdk_session_id || undefined;
     let systemInfo: SystemInfo | undefined;
 
@@ -808,6 +883,15 @@ async function handleRunStart(
       // openCodeSessionId will be set when we receive the init message
     }
 
+    // Start periodic save for message persistence (survives cancel/disconnect)
+    activeRun.saveInterval = setInterval(() => {
+      try {
+        upsertAssistantMessage(activeRun);
+      } catch (err) {
+        console.error(`[Periodic Save] Failed for run ${runId}:`, err);
+      }
+    }, PERIODIC_SAVE_INTERVAL_MS);
+
     // Run provider with streaming
     for await (const msg of providerRunner) {
       // Check if run was cancelled
@@ -859,7 +943,7 @@ async function handleRunStart(
 
         case 'assistant':
           if (msg.content) {
-            fullContent += msg.content;
+            activeRun.fullContent += msg.content;
             sendMessage(client.ws, {
               type: 'delta',
               runId,
@@ -876,7 +960,7 @@ async function handleRunStart(
             toolUseIdToName.set(msg.toolUseId, msg.toolName);
           }
           // Collect for persistence
-          collectedToolCalls.push({
+          activeRun.collectedToolCalls.push({
             toolUseId: msg.toolUseId || '',
             name: msg.toolName || '',
             input: msg.toolInput,
@@ -896,7 +980,7 @@ async function handleRunStart(
           const toolName = msg.toolUseId ? toolUseIdToName.get(msg.toolUseId) || '' : '';
           console.log(`[Tool Result] ${msg.toolUseId} (${toolName}) - error: ${msg.isToolError}`);
           // Update collected tool call with output
-          const collected = collectedToolCalls.find(tc => tc.toolUseId === msg.toolUseId);
+          const collected = activeRun.collectedToolCalls.find(tc => tc.toolUseId === msg.toolUseId);
           if (collected) {
             collected.output = msg.toolResult;
             collected.isError = msg.isToolError || false;
@@ -915,7 +999,7 @@ async function handleRunStart(
         case 'result':
           // If result has content (some commands return content in result), send it
           if (msg.content) {
-            fullContent += msg.content;
+            activeRun.fullContent += msg.content;
             sendMessage(client.ws, {
               type: 'delta',
               runId,
@@ -925,11 +1009,11 @@ async function handleRunStart(
 
           // If this was a system-info command and we got no content, use systemInfo
           const inputTrimmed = message.input.trim().toLowerCase();
-          if (!fullContent && SYSTEM_INFO_COMMANDS.includes(inputTrimmed) && systemInfo) {
+          if (!activeRun.fullContent && SYSTEM_INFO_COMMANDS.includes(inputTrimmed) && systemInfo) {
             console.log(`[System Info] Building output for "${message.input}" from init data`);
             const statusOutput = buildStatusOutput(systemInfo);
             if (statusOutput) {
-              fullContent = statusOutput;
+              activeRun.fullContent = statusOutput;
               sendMessage(client.ws, {
                 type: 'delta',
                 runId,
@@ -938,31 +1022,11 @@ async function handleRunStart(
             }
           }
 
-          // Save assistant message to database
-          if (fullContent) {
-            const assistantMessageId = uuidv4();
-            // Build metadata with usage and persisted tool calls
-            const metadata: Record<string, unknown> = {};
-            if (msg.usage) {
-              metadata.usage = msg.usage;
-            }
-            if (collectedToolCalls.length > 0) {
-              // Strip internal toolUseId before persisting
-              metadata.toolCalls = collectedToolCalls.map(({ name, input, output, isError }) => ({
-                name, input, output, isError
-              }));
-            }
-            db.prepare(`
-              INSERT INTO messages (id, session_id, role, content, metadata, created_at)
-              VALUES (?, ?, 'assistant', ?, ?, ?)
-            `).run(
-              assistantMessageId,
-              message.sessionId,
-              fullContent,
-              Object.keys(metadata).length > 0 ? JSON.stringify(metadata) : null,
-              Date.now()
-            );
-          }
+          // Final save — upsert with usage info and metadata indexing
+          upsertAssistantMessage(activeRun, {
+            usage: msg.usage,
+            indexMetadata: true
+          });
 
           sendMessage(client.ws, {
             type: 'run_completed',
@@ -974,12 +1038,24 @@ async function handleRunStart(
     }
   } catch (error) {
     console.error('Run error:', error);
+    // Save any accumulated content before reporting failure
+    try {
+      upsertAssistantMessage(activeRun, { indexMetadata: true });
+    } catch (saveErr) {
+      console.error(`[Error Save] Failed for run ${runId}:`, saveErr);
+    }
     sendMessage(client.ws, {
       type: 'run_failed',
       runId,
       error: error instanceof Error ? error.message : 'Unknown error'
     });
   } finally {
+    // Stop periodic save
+    if (activeRun.saveInterval) {
+      clearInterval(activeRun.saveInterval);
+      activeRun.saveInterval = undefined;
+    }
+
     // Cleanup
     activeRuns.delete(runId);
 
