@@ -50,7 +50,8 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
     prependMessages,
     clearMessages,
     setLoadingMore,
-    isLoading,
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    isLoading: _globalIsLoading,
     currentRunId,
     activeToolCalls,
     currentSystemInfo,
@@ -59,7 +60,10 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
     sessionUsage,
     modelOverride,
     setModelOverride,
+    isSessionLoading,
   } = useChatStore();
+  // Only show loading for THIS session's active run
+  const isLoading = isSessionLoading(sessionId);
   const { projects, sessions, providerCommands, providerCapabilities, setProviderCapabilities } = useProjectStore();
   const { sendMessage: wsSendMessage, isConnected } = useConnection();
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -568,6 +572,7 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
       console.warn('[ChatInterface] No currentRunId to cancel');
       // Even if no runId, stop loading state locally
       useChatStore.getState().setLoading(false);
+      useChatStore.getState().setActiveRunSessionId(null);
       useChatStore.getState().clearToolCalls();
       return;
     }

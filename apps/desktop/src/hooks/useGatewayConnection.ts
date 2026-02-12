@@ -51,6 +51,7 @@ export function useGatewayConnection() {
     appendToLastMessage,
     setLoading,
     setCurrentRunId,
+    setActiveRunSessionId,
     addToolCall,
     updateToolCallResult,
     clearToolCalls,
@@ -117,6 +118,10 @@ export function useGatewayConnection() {
       msg = message;
     }
 
+    // For streaming messages, use activeRunSessionId (the session that started the run)
+    // instead of selectedSessionId (which session the user is currently viewing)
+    const getRunSessionId = () => useChatStore.getState().activeRunSessionId;
+
     switch (msg.type) {
       case 'auth_result':
         if (msg.success) {
@@ -134,16 +139,20 @@ export function useGatewayConnection() {
       case 'pong':
         break;
 
-      case 'delta':
-        if (serverId === currentActiveId && currentSessionId) {
-          appendToLastMessage(currentSessionId, msg.content);
+      case 'delta': {
+        const runSession = getRunSessionId();
+        if (serverId === currentActiveId && runSession) {
+          appendToLastMessage(runSession, msg.content);
         }
         break;
+      }
 
       case 'run_started':
         if (serverId === currentActiveId) {
           setLoading(true);
           setCurrentRunId(msg.runId);
+          // Lock the session for this run — all subsequent messages route here
+          setActiveRunSessionId(currentSessionId);
           clearToolCalls();
           clearSystemInfo();
           if (currentSessionId) {
@@ -158,31 +167,37 @@ export function useGatewayConnection() {
         }
         break;
 
-      case 'run_completed':
+      case 'run_completed': {
+        const runSession = getRunSessionId();
         if (serverId === currentActiveId) {
           setLoading(false);
           setCurrentRunId(null);
+          setActiveRunSessionId(null);
           useAskUserQuestionStore.getState().clearRequest();
-          if (currentSessionId) {
-            finalizeToolCallsToMessage(currentSessionId);
+          if (runSession) {
+            finalizeToolCallsToMessage(runSession);
             if (msg.usage) {
-              addSessionUsage(currentSessionId, msg.usage);
+              addSessionUsage(runSession, msg.usage);
             }
           }
         }
         break;
+      }
 
-      case 'run_failed':
+      case 'run_failed': {
+        const runSession = getRunSessionId();
         if (serverId === currentActiveId) {
           setLoading(false);
           setCurrentRunId(null);
+          setActiveRunSessionId(null);
           useAskUserQuestionStore.getState().clearRequest();
-          if (currentSessionId) {
-            finalizeToolCallsToMessage(currentSessionId);
+          if (runSession) {
+            finalizeToolCallsToMessage(runSession);
           }
           console.error(`[GatewayConn:${backendId}] Run failed:`, msg.error);
         }
         break;
+      }
 
       case 'tool_use':
         if (serverId === currentActiveId) {
@@ -234,6 +249,7 @@ export function useGatewayConnection() {
     appendToLastMessage,
     setLoading,
     setCurrentRunId,
+    setActiveRunSessionId,
     addToolCall,
     updateToolCallResult,
     clearToolCalls,

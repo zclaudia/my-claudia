@@ -44,6 +44,7 @@ export function useMultiServerSocket() {
     appendToLastMessage,
     setLoading,
     setCurrentRunId,
+    setActiveRunSessionId,
     addToolCall,
     updateToolCallResult,
     clearToolCalls,
@@ -89,6 +90,10 @@ export function useMultiServerSocket() {
         message = rawMessage as ServerMessage;
       }
 
+      // For streaming messages, use activeRunSessionId (the session that started the run)
+      // instead of selectedSessionId (which session the user is currently viewing)
+      const getRunSessionId = () => useChatStore.getState().activeRunSessionId;
+
       switch (message.type) {
         case 'auth_result':
           setServerConnectionStatus(serverId, 'connected');
@@ -112,16 +117,20 @@ export function useMultiServerSocket() {
         case 'pong':
           break;
 
-        case 'delta':
-          if (serverId === activeServerId && currentSessionId) {
-            appendToLastMessage(currentSessionId, message.content);
+        case 'delta': {
+          const runSession = getRunSessionId();
+          if (serverId === activeServerId && runSession) {
+            appendToLastMessage(runSession, message.content);
           }
           break;
+        }
 
         case 'run_started':
           if (serverId === activeServerId) {
             setLoading(true);
             setCurrentRunId(message.runId);
+            // Lock the session for this run — all subsequent messages route here
+            setActiveRunSessionId(currentSessionId);
             clearToolCalls();
             clearSystemInfo();
             if (currentSessionId) {
@@ -136,31 +145,37 @@ export function useMultiServerSocket() {
           }
           break;
 
-        case 'run_completed':
+        case 'run_completed': {
+          const runSession = getRunSessionId();
           if (serverId === activeServerId) {
             setLoading(false);
             setCurrentRunId(null);
+            setActiveRunSessionId(null);
             useAskUserQuestionStore.getState().clearRequest();
-            if (currentSessionId) {
-              finalizeToolCallsToMessage(currentSessionId);
+            if (runSession) {
+              finalizeToolCallsToMessage(runSession);
               if (message.usage) {
-                addSessionUsage(currentSessionId, message.usage);
+                addSessionUsage(runSession, message.usage);
               }
             }
           }
           break;
+        }
 
-        case 'run_failed':
+        case 'run_failed': {
+          const runSession = getRunSessionId();
           if (serverId === activeServerId) {
             setLoading(false);
             setCurrentRunId(null);
+            setActiveRunSessionId(null);
             useAskUserQuestionStore.getState().clearRequest();
-            if (currentSessionId) {
-              finalizeToolCallsToMessage(currentSessionId);
+            if (runSession) {
+              finalizeToolCallsToMessage(runSession);
             }
             console.error(`[Socket:${serverId}] Run failed:`, message.error);
           }
           break;
+        }
 
         case 'tool_use':
           if (serverId === activeServerId) {
@@ -215,6 +230,7 @@ export function useMultiServerSocket() {
     appendToLastMessage,
     setLoading,
     setCurrentRunId,
+    setActiveRunSessionId,
     addToolCall,
     updateToolCallResult,
     clearToolCalls,

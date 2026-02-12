@@ -31,6 +31,8 @@ interface ChatState {
   pagination: Record<string, PaginationInfo>;
   isLoading: boolean;
   currentRunId: string | null;
+  // Which session owns the current active run (for correct message routing)
+  activeRunSessionId: string | null;
   // Active tool calls for current run (keyed by tool_use_id)
   activeToolCalls: Record<string, ToolCallState>;
   // Tool calls history for current run (preserves order)
@@ -54,6 +56,7 @@ interface ChatState {
   setLoading: (loading: boolean) => void;
   setLoadingMore: (sessionId: string, loading: boolean) => void;
   setCurrentRunId: (runId: string | null) => void;
+  setActiveRunSessionId: (sessionId: string | null) => void;
 
   // Tool call actions
   addToolCall: (toolUseId: string, toolName: string, toolInput: unknown) => void;
@@ -77,6 +80,7 @@ interface ChatState {
   // Getters
   getPagination: (sessionId: string) => PaginationInfo | undefined;
   getActiveToolCalls: () => ToolCallState[];
+  isSessionLoading: (sessionId: string) => boolean;
 }
 
 const DEFAULT_PAGINATION: PaginationInfo = {
@@ -90,6 +94,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   pagination: {},
   isLoading: false,
   currentRunId: null,
+  activeRunSessionId: null,
   activeToolCalls: {},
   toolCallsHistory: [],
   currentSystemInfo: null,
@@ -178,6 +183,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     })),
 
   setCurrentRunId: (runId) => set({ currentRunId: runId }),
+  setActiveRunSessionId: (sessionId) => set({ activeRunSessionId: sessionId }),
 
   // Tool call actions
   addToolCall: (toolUseId, toolName, toolInput) =>
@@ -272,4 +278,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
   getPagination: (sessionId) => get().pagination[sessionId],
 
   getActiveToolCalls: () => Object.values(get().activeToolCalls),
+
+  isSessionLoading: (sessionId) => {
+    const state = get();
+    return state.isLoading && state.activeRunSessionId === sessionId;
+  },
 }));
