@@ -1,6 +1,7 @@
 import { spawn, type ChildProcess } from 'child_process';
 import type { PermissionRequest } from '@my-claudia/shared';
 import type { ClaudeMessage, SystemInfo, PermissionDecision, PermissionCallback } from './claude-sdk.js';
+import { prepareInput, cleanupTempFiles } from './claude-sdk.js';
 
 export { type ClaudeMessage, type PermissionDecision, type PermissionCallback };
 
@@ -347,68 +348,79 @@ export async function* runOpenCode(
     return;
   }
 
-  // Send message asynchronously
-  const messageBody: Record<string, unknown> = {
-    parts: [{ type: 'text', text: input }],
-  };
+  // Parse input: extract text and save image attachments to temp files
+  const { text: promptText, tempFiles } = await prepareInput(input);
 
-  if (options.model) {
-    // OpenCode model format: "providerID/modelID" (e.g. "anthropic/claude-sonnet-4-5-20250929")
-    const slashIndex = options.model.indexOf('/');
-    if (slashIndex !== -1) {
-      messageBody.model = {
-        providerID: options.model.slice(0, slashIndex),
-        modelID: options.model.slice(slashIndex + 1),
-      };
-    }
-  }
-
-  // Include agent if specified (maps UI mode to OpenCode agent)
-  if (options.agent) {
-    messageBody.agentID = options.agent;
-  }
-
-  console.log(`[OpenCode] Sending prompt to session ${sessionId}:`, JSON.stringify(messageBody).slice(0, 200));
   try {
-    const sendResponse = await fetch(`${baseUrl}/session/${sessionId}/prompt_async`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(messageBody),
-    });
-    console.log(`[OpenCode] prompt_async response: status=${sendResponse.status} ${sendResponse.statusText}`);
-    if (!sendResponse.ok) {
-      const errorBody = await sendResponse.text().catch(() => '');
-      console.error(`[OpenCode] prompt_async error body:`, errorBody);
-      yield { type: 'error', error: `Failed to send message: ${sendResponse.statusText} - ${errorBody}` };
-      return;
-    }
-  } catch (error) {
-    console.error(`[OpenCode] prompt_async failed:`, error);
-    yield { type: 'error', error: `Failed to send message: ${error}` };
-    return;
-  }
+    // Send message asynchronously
+    const messageBody: Record<string, unknown> = {
+      parts: [{ type: 'text', text: promptText }],
+    };
 
-  // Process SSE events (filter by our sessionId since it's a global stream)
-  console.log(`[OpenCode] Processing SSE events for session ${sessionId}...`);
-  try {
-    for await (const sseEvent of parseSSEStream(sseResponse)) {
-      const messages = mapOpenCodeEvent(sseEvent.data, sessionId, onPermissionRequest);
-      for await (const msg of messages) {
-        yield msg;
-        if (msg.type === 'result' || msg.type === 'error') {
-          return;
-        }
+    if (options.model) {
+      // OpenCode model format: "providerID/modelID" (e.g. "anthropic/claude-sonnet-4-5-20250929")
+      const slashIndex = options.model.indexOf('/');
+      if (slashIndex !== -1) {
+        messageBody.model = {
+          providerID: options.model.slice(0, slashIndex),
+          modelID: options.model.slice(slashIndex + 1),
+        };
       }
     }
-  } catch (error) {
-    console.log('[OpenCode] SSE stream ended:', error);
-  }
 
-  console.log('[OpenCode] SSE stream finished without explicit result, yielding completion');
-  yield {
-    type: 'result',
-    isComplete: true,
-  };
+    // Include agent if specified (maps UI mode to OpenCode agent)
+    if (options.agent) {
+      messageBody.agentID = options.agent;
+    }
+
+    console.log(`[OpenCode] Sending prompt to session ${sessionId}:`, JSON.stringify(messageBody).slice(0, 200));
+    try {
+      const sendResponse = await fetch(`${baseUrl}/session/${sessionId}/prompt_async`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(messageBody),
+      });
+      console.log(`[OpenCode] prompt_async response: status=${sendResponse.status} ${sendResponse.statusText}`);
+      if (!sendResponse.ok) {
+        const errorBody = await sendResponse.text().catch(() => '');
+        console.error(`[OpenCode] prompt_async error body:`, errorBody);
+        yield { type: 'error', error: `Failed to send message: ${sendResponse.statusText} - ${errorBody}` };
+        return;
+      }
+    } catch (error) {
+      console.error(`[OpenCode] prompt_async failed:`, error);
+      yield { type: 'error', error: `Failed to send message: ${error}` };
+      return;
+    }
+
+    // Process SSE events (filter by our sessionId since it's a global stream)
+    console.log(`[OpenCode] Processing SSE events for session ${sessionId}...`);
+    try {
+      for await (const sseEvent of parseSSEStream(sseResponse)) {
+        const messages = mapOpenCodeEvent(sseEvent.data, sessionId, onPermissionRequest);
+        for await (const msg of messages) {
+          yield msg;
+          if (msg.type === 'result' || msg.type === 'error') {
+            return;
+          }
+        }
+      }
+    } catch (error) {
+      console.log('[OpenCode] SSE stream ended:', error);
+    }
+
+    console.log('[OpenCode] SSE stream finished without explicit result, yielding completion');
+    yield {
+      type: 'result',
+      isComplete: true,
+    };
+  } finally {
+    // Clean up temp files after run completes (or fails)
+    if (tempFiles.length > 0) {
+      cleanupTempFiles(tempFiles);
+      console.log(`[OpenCode] Cleaned up ${tempFiles.length} temp file(s)`);
+    }
+  }
 }
 
 /**

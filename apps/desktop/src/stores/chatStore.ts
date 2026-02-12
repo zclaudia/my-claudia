@@ -29,14 +29,12 @@ interface ChatState {
   messages: Record<string, MessageWithToolCalls[]>;
   // Pagination info per session
   pagination: Record<string, PaginationInfo>;
-  isLoading: boolean;
-  currentRunId: string | null;
-  // Which session owns the current active run (for correct message routing)
-  activeRunSessionId: string | null;
-  // Active tool calls for current run (keyed by tool_use_id)
-  activeToolCalls: Record<string, ToolCallState>;
-  // Tool calls history for current run (preserves order)
-  toolCallsHistory: ToolCallState[];
+  // Active runs: runId → sessionId (supports concurrent runs)
+  activeRuns: Record<string, string>;
+  // Active tool calls per run: runId → { toolUseId → ToolCallState }
+  activeToolCalls: Record<string, Record<string, ToolCallState>>;
+  // Tool calls history per run: runId → ToolCallState[] (preserves order)
+  toolCallsHistory: Record<string, ToolCallState[]>;
   // Current system info from Claude SDK init message
   currentSystemInfo: SystemInfo | null;
   // Current mode (generic — permission mode for Claude, agent for OpenCode, etc.)
@@ -46,23 +44,22 @@ interface ChatState {
   // Model override (user-selected model, empty = use default)
   modelOverride: string;
 
-  // Actions
+  // Actions — Messages
   setMessages: (sessionId: string, messages: MessageWithToolCalls[], pagination?: Omit<PaginationInfo, 'isLoadingMore'>) => void;
   prependMessages: (sessionId: string, messages: MessageWithToolCalls[], pagination?: Omit<PaginationInfo, 'isLoadingMore'>) => void;
   addMessage: (sessionId: string, message: MessageWithToolCalls) => void;
   appendToLastMessage: (sessionId: string, content: string) => void;
   clearMessages: (sessionId: string) => void;
-
-  setLoading: (loading: boolean) => void;
   setLoadingMore: (sessionId: string, loading: boolean) => void;
-  setCurrentRunId: (runId: string | null) => void;
-  setActiveRunSessionId: (sessionId: string | null) => void;
 
-  // Tool call actions
-  addToolCall: (toolUseId: string, toolName: string, toolInput: unknown) => void;
-  updateToolCallResult: (toolUseId: string, result: unknown, isError?: boolean) => void;
-  clearToolCalls: () => void;
-  finalizeToolCallsToMessage: (sessionId: string) => void;
+  // Actions — Run lifecycle
+  startRun: (runId: string, sessionId: string) => void;
+  endRun: (runId: string) => void;
+
+  // Actions — Tool calls (per run)
+  addToolCall: (runId: string, toolUseId: string, toolName: string, toolInput: unknown) => void;
+  updateToolCallResult: (runId: string, toolUseId: string, result: unknown, isError?: boolean) => void;
+  finalizeToolCallsToMessage: (runId: string) => void;
 
   // System info actions
   setSystemInfo: (info: SystemInfo) => void;
@@ -79,8 +76,9 @@ interface ChatState {
 
   // Getters
   getPagination: (sessionId: string) => PaginationInfo | undefined;
-  getActiveToolCalls: () => ToolCallState[];
   isSessionLoading: (sessionId: string) => boolean;
+  getSessionRunId: (sessionId: string) => string | null;
+  getSessionToolCalls: (sessionId: string) => ToolCallState[];
 }
 
 const DEFAULT_PAGINATION: PaginationInfo = {
@@ -92,11 +90,9 @@ const DEFAULT_PAGINATION: PaginationInfo = {
 export const useChatStore = create<ChatState>((set, get) => ({
   messages: {},
   pagination: {},
-  isLoading: false,
-  currentRunId: null,
-  activeRunSessionId: null,
+  activeRuns: {},
   activeToolCalls: {},
-  toolCallsHistory: [],
+  toolCallsHistory: {},
   currentSystemInfo: null,
   mode: 'default',
   sessionUsage: {},
@@ -169,8 +165,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
       pagination: { ...state.pagination, [sessionId]: DEFAULT_PAGINATION },
     })),
 
-  setLoading: (loading) => set({ isLoading: loading }),
-
   setLoadingMore: (sessionId, loading) =>
     set((state) => ({
       pagination: {
@@ -182,11 +176,30 @@ export const useChatStore = create<ChatState>((set, get) => ({
       },
     })),
 
-  setCurrentRunId: (runId) => set({ currentRunId: runId }),
-  setActiveRunSessionId: (sessionId) => set({ activeRunSessionId: sessionId }),
+  // ── Run lifecycle ──────────────────────────────────────────────
 
-  // Tool call actions
-  addToolCall: (toolUseId, toolName, toolInput) =>
+  startRun: (runId, sessionId) =>
+    set((state) => ({
+      activeRuns: { ...state.activeRuns, [runId]: sessionId },
+      activeToolCalls: { ...state.activeToolCalls, [runId]: {} },
+      toolCallsHistory: { ...state.toolCallsHistory, [runId]: [] },
+    })),
+
+  endRun: (runId) =>
+    set((state) => {
+      const { [runId]: _removedRun, ...remainingRuns } = state.activeRuns;
+      const { [runId]: _removedTC, ...remainingTC } = state.activeToolCalls;
+      const { [runId]: _removedHist, ...remainingHist } = state.toolCallsHistory;
+      return {
+        activeRuns: remainingRuns,
+        activeToolCalls: remainingTC,
+        toolCallsHistory: remainingHist,
+      };
+    }),
+
+  // ── Tool call actions (per run) ────────────────────────────────
+
+  addToolCall: (runId, toolUseId, toolName, toolInput) =>
     set((state) => {
       const newToolCall: ToolCallState = {
         id: toolUseId,
@@ -194,18 +207,25 @@ export const useChatStore = create<ChatState>((set, get) => ({
         toolInput,
         status: 'running',
       };
+      const runToolCalls = state.activeToolCalls[runId] || {};
+      const runHistory = state.toolCallsHistory[runId] || [];
       return {
         activeToolCalls: {
           ...state.activeToolCalls,
-          [toolUseId]: newToolCall,
+          [runId]: { ...runToolCalls, [toolUseId]: newToolCall },
         },
-        toolCallsHistory: [...state.toolCallsHistory, newToolCall],
+        toolCallsHistory: {
+          ...state.toolCallsHistory,
+          [runId]: [...runHistory, newToolCall],
+        },
       };
     }),
 
-  updateToolCallResult: (toolUseId, result, isError) =>
+  updateToolCallResult: (runId, toolUseId, result, isError) =>
     set((state) => {
-      const existing = state.activeToolCalls[toolUseId];
+      const runToolCalls = state.activeToolCalls[runId];
+      if (!runToolCalls) return state;
+      const existing = runToolCalls[toolUseId];
       if (!existing) return state;
 
       const updatedToolCall = {
@@ -215,38 +235,39 @@ export const useChatStore = create<ChatState>((set, get) => ({
         isError,
       };
 
+      const runHistory = state.toolCallsHistory[runId] || [];
       return {
         activeToolCalls: {
           ...state.activeToolCalls,
-          [toolUseId]: updatedToolCall,
+          [runId]: { ...runToolCalls, [toolUseId]: updatedToolCall },
         },
-        // Also update in history
-        toolCallsHistory: state.toolCallsHistory.map(tc =>
-          tc.id === toolUseId ? updatedToolCall : tc
-        ),
+        toolCallsHistory: {
+          ...state.toolCallsHistory,
+          [runId]: runHistory.map(tc => tc.id === toolUseId ? updatedToolCall : tc),
+        },
       };
     }),
 
-  clearToolCalls: () => set({ activeToolCalls: {}, toolCallsHistory: [] }),
-
   // Finalize tool calls by attaching them to the last assistant message
-  finalizeToolCallsToMessage: (sessionId) =>
+  finalizeToolCallsToMessage: (runId) =>
     set((state) => {
+      const sessionId = state.activeRuns[runId];
+      if (!sessionId) return state;
+
       const sessionMessages = state.messages[sessionId] || [];
-      if (sessionMessages.length === 0 || state.toolCallsHistory.length === 0) return state;
+      const runHistory = state.toolCallsHistory[runId] || [];
+      if (sessionMessages.length === 0 || runHistory.length === 0) return state;
 
       const lastMessage = sessionMessages[sessionMessages.length - 1];
       if (lastMessage.role !== 'assistant') return state;
 
       const updatedMessages = [
         ...sessionMessages.slice(0, -1),
-        { ...lastMessage, toolCalls: [...state.toolCallsHistory] },
+        { ...lastMessage, toolCalls: [...runHistory] },
       ];
 
       return {
         messages: { ...state.messages, [sessionId]: updatedMessages },
-        activeToolCalls: {},
-        toolCallsHistory: [],
       };
     }),
 
@@ -277,10 +298,23 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   getPagination: (sessionId) => get().pagination[sessionId],
 
-  getActiveToolCalls: () => Object.values(get().activeToolCalls),
-
   isSessionLoading: (sessionId) => {
+    const { activeRuns } = get();
+    return Object.values(activeRuns).includes(sessionId);
+  },
+
+  getSessionRunId: (sessionId) => {
+    const { activeRuns } = get();
+    for (const [runId, sid] of Object.entries(activeRuns)) {
+      if (sid === sessionId) return runId;
+    }
+    return null;
+  },
+
+  getSessionToolCalls: (sessionId) => {
     const state = get();
-    return state.isLoading && state.activeRunSessionId === sessionId;
+    const runId = state.getSessionRunId(sessionId);
+    if (!runId) return [];
+    return Object.values(state.activeToolCalls[runId] || {});
   },
 }));

@@ -49,12 +49,10 @@ export function useGatewayConnection() {
   const {
     addMessage,
     appendToLastMessage,
-    setLoading,
-    setCurrentRunId,
-    setActiveRunSessionId,
+    startRun,
+    endRun,
     addToolCall,
     updateToolCallResult,
-    clearToolCalls,
     finalizeToolCallsToMessage,
     setSystemInfo,
     clearSystemInfo,
@@ -118,10 +116,6 @@ export function useGatewayConnection() {
       msg = message;
     }
 
-    // For streaming messages, use activeRunSessionId (the session that started the run)
-    // instead of selectedSessionId (which session the user is currently viewing)
-    const getRunSessionId = () => useChatStore.getState().activeRunSessionId;
-
     switch (msg.type) {
       case 'auth_result':
         if (msg.success) {
@@ -140,7 +134,7 @@ export function useGatewayConnection() {
         break;
 
       case 'delta': {
-        const runSession = getRunSessionId();
+        const runSession = useChatStore.getState().activeRuns[msg.runId];
         if (serverId === currentActiveId && runSession) {
           appendToLastMessage(runSession, msg.content);
         }
@@ -148,52 +142,42 @@ export function useGatewayConnection() {
       }
 
       case 'run_started':
-        if (serverId === currentActiveId) {
-          setLoading(true);
-          setCurrentRunId(msg.runId);
-          // Lock the session for this run — all subsequent messages route here
-          setActiveRunSessionId(currentSessionId);
-          clearToolCalls();
+        if (serverId === currentActiveId && currentSessionId) {
+          startRun(msg.runId, currentSessionId);
           clearSystemInfo();
-          if (currentSessionId) {
-            addMessage(currentSessionId, {
-              id: msg.runId,
-              sessionId: currentSessionId,
-              role: 'assistant',
-              content: '',
-              createdAt: Date.now()
-            });
-          }
+          addMessage(currentSessionId, {
+            id: msg.runId,
+            sessionId: currentSessionId,
+            role: 'assistant',
+            content: '',
+            createdAt: Date.now()
+          });
         }
         break;
 
       case 'run_completed': {
-        const runSession = getRunSessionId();
+        const runSession = useChatStore.getState().activeRuns[msg.runId];
         if (serverId === currentActiveId) {
-          setLoading(false);
-          setCurrentRunId(null);
-          setActiveRunSessionId(null);
-          useAskUserQuestionStore.getState().clearRequest();
           if (runSession) {
-            finalizeToolCallsToMessage(runSession);
+            finalizeToolCallsToMessage(msg.runId);
             if (msg.usage) {
               addSessionUsage(runSession, msg.usage);
             }
           }
+          endRun(msg.runId);
+          useAskUserQuestionStore.getState().clearRequest();
         }
         break;
       }
 
       case 'run_failed': {
-        const runSession = getRunSessionId();
+        const runSession = useChatStore.getState().activeRuns[msg.runId];
         if (serverId === currentActiveId) {
-          setLoading(false);
-          setCurrentRunId(null);
-          setActiveRunSessionId(null);
-          useAskUserQuestionStore.getState().clearRequest();
           if (runSession) {
-            finalizeToolCallsToMessage(runSession);
+            finalizeToolCallsToMessage(msg.runId);
           }
+          endRun(msg.runId);
+          useAskUserQuestionStore.getState().clearRequest();
           console.error(`[GatewayConn:${backendId}] Run failed:`, msg.error);
         }
         break;
@@ -201,13 +185,13 @@ export function useGatewayConnection() {
 
       case 'tool_use':
         if (serverId === currentActiveId) {
-          addToolCall(msg.toolUseId, msg.toolName, msg.toolInput);
+          addToolCall(msg.runId, msg.toolUseId, msg.toolName, msg.toolInput);
         }
         break;
 
       case 'tool_result':
         if (serverId === currentActiveId) {
-          updateToolCallResult(msg.toolUseId, msg.result, msg.isError);
+          updateToolCallResult(msg.runId, msg.toolUseId, msg.result, msg.isError);
         }
         break;
 
@@ -247,12 +231,10 @@ export function useGatewayConnection() {
   }, [
     addMessage,
     appendToLastMessage,
-    setLoading,
-    setCurrentRunId,
-    setActiveRunSessionId,
+    startRun,
+    endRun,
     addToolCall,
     updateToolCallResult,
-    clearToolCalls,
     finalizeToolCallsToMessage,
     setPendingRequest,
     setSystemInfo,

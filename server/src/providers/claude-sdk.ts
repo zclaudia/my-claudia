@@ -1,6 +1,10 @@
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import type { ProviderConfig, PermissionRequest, PermissionMode, MessageInput, MessageAttachment } from '@my-claudia/shared';
 import { fileStore } from '../storage/fileStore.js';
+import * as fs from 'fs';
+import * as path from 'path';
+import * as os from 'os';
+import * as crypto from 'crypto';
 
 export interface ClaudeRunOptions {
   cwd: string;
@@ -57,66 +61,96 @@ async function getFileData(fileId: string): Promise<string | null> {
   return null;
 }
 
+// ── Temp file utilities for image attachments ──────────────────
+
+const UPLOAD_TMP_DIR = path.join(os.tmpdir(), 'claudia-uploads');
+
+function ensureTmpDir() {
+  if (!fs.existsSync(UPLOAD_TMP_DIR)) {
+    fs.mkdirSync(UPLOAD_TMP_DIR, { recursive: true });
+  }
+}
+
+function mimeToExt(mimeType: string): string {
+  const map: Record<string, string> = {
+    'image/png': 'png',
+    'image/jpeg': 'jpg',
+    'image/gif': 'gif',
+    'image/webp': 'webp',
+    'image/svg+xml': 'svg',
+    'image/bmp': 'bmp',
+  };
+  return map[mimeType] || 'png';
+}
+
+export function cleanupTempFiles(files: string[]) {
+  for (const f of files) {
+    try { fs.unlinkSync(f); } catch { /* ignore */ }
+  }
+}
+
+interface PreparedInput {
+  text: string;
+  tempFiles: string[];
+}
+
 /**
- * Prepare Claude content blocks from input
- * Supports both plain text and structured MessageInput with attachments
+ * Parse MessageInput, save image attachments to temp files,
+ * and return prompt text with file references.
+ *
+ * Claude CLI's Read tool is multimodal — it can read image files natively.
+ * By saving images to disk and referencing them in the prompt, the CLI
+ * will use its Read tool to view the images.
  */
-async function prepareClaudeContent(input: string): Promise<any> {
-  // Try to parse as MessageInput
+export async function prepareInput(input: string): Promise<PreparedInput> {
   let messageInput: MessageInput;
   try {
     messageInput = JSON.parse(input);
-    // Check if it's actually a MessageInput object
     if (typeof messageInput !== 'object' || !('text' in messageInput)) {
-      // Not a MessageInput, treat as plain text
-      return input;
+      return { text: input, tempFiles: [] };
     }
   } catch {
-    // Not JSON, treat as plain text
-    return input;
+    return { text: input, tempFiles: [] };
   }
 
-  // Build content blocks
-  const content: any[] = [];
-
-  // Add text block
-  if (messageInput.text) {
-    content.push({
-      type: 'text',
-      text: messageInput.text
-    });
+  // No attachments — just return the text
+  if (!messageInput.attachments || messageInput.attachments.length === 0) {
+    return { text: messageInput.text || input, tempFiles: [] };
   }
 
-  // Add image blocks
-  if (messageInput.attachments && messageInput.attachments.length > 0) {
-    for (const attachment of messageInput.attachments) {
-      if (attachment.type === 'image') {
-        // Fetch file data
-        const fileData = await getFileData(attachment.fileId);
+  const tempFiles: string[] = [];
+  const imageRefs: string[] = [];
 
-        if (fileData) {
-          console.log(`[Claude SDK] Adding image ${attachment.name} to content blocks`);
-          content.push({
-            type: 'image',
-            source: {
-              type: 'base64',
-              media_type: attachment.mimeType,
-              data: fileData
-            }
-          });
-        } else {
-          console.warn(`[Claude SDK] Could not load image ${attachment.fileId}, skipping`);
-        }
+  ensureTmpDir();
+
+  for (const attachment of messageInput.attachments) {
+    if (attachment.type === 'image') {
+      const fileData = await getFileData(attachment.fileId);
+      if (fileData) {
+        const ext = mimeToExt(attachment.mimeType);
+        const fileName = `${crypto.randomUUID()}.${ext}`;
+        const filePath = path.join(UPLOAD_TMP_DIR, fileName);
+
+        fs.writeFileSync(filePath, Buffer.from(fileData, 'base64'));
+        tempFiles.push(filePath);
+        imageRefs.push(filePath);
+        console.log(`[Claude SDK] Saved image ${attachment.name} → ${filePath}`);
+      } else {
+        console.warn(`[Claude SDK] Could not load image ${attachment.fileId}, skipping`);
       }
     }
   }
 
-  // If we built content blocks, return them; otherwise return text only
-  if (content.length > 1 || (content.length === 1 && content[0].type !== 'text')) {
-    return content;
+  // Build prompt text with image file references
+  let text = messageInput.text || '';
+  if (imageRefs.length > 0) {
+    const refs = imageRefs
+      .map(p => `[Attached image: ${p}]`)
+      .join('\n');
+    text = `${refs}\n\n${text}`;
   }
 
-  return messageInput.text || input;
+  return { text, tempFiles };
 }
 
 /**
@@ -183,6 +217,14 @@ export async function* runClaude(
         return { behavior: 'deny', message: decision.message || 'No answer provided' };
       }
 
+      // Auto-approve Read for temp upload files (user-uploaded images)
+      if (toolName === 'Read' && typeof toolInput === 'object' && toolInput !== null) {
+        const filePath = (toolInput as Record<string, unknown>).file_path;
+        if (typeof filePath === 'string' && filePath.startsWith(UPLOAD_TMP_DIR + '/')) {
+          return { behavior: 'allow', updatedInput: toolInput };
+        }
+      }
+
       // Check allowed/disallowed lists first
       if (options.allowedTools?.includes(toolName)) {
         return { behavior: 'allow', updatedInput: toolInput };
@@ -211,24 +253,37 @@ export async function* runClaude(
   }
 
   // Prepare content (handles both text and structured input with attachments)
-  const preparedContent = await prepareClaudeContent(input);
+  const { text: promptText, tempFiles } = await prepareInput(input);
 
-  // Start the query
-  const queryInstance = query({
-    prompt: preparedContent,
-    options: sdkOptions,
-  });
+  // Grant CLI access to temp upload directory so it can read attached images
+  if (tempFiles.length > 0) {
+    sdkOptions.additionalDirectories = [UPLOAD_TMP_DIR];
+  }
 
-  // Stream messages
-  for await (const message of queryInstance) {
-    const transformed = transformMessage(message);
-    // transformMessage can return a single message or array of messages
-    if (Array.isArray(transformed)) {
-      for (const msg of transformed) {
-        yield msg;
+  try {
+    // Start the query
+    const queryInstance = query({
+      prompt: promptText,
+      options: sdkOptions,
+    });
+
+    // Stream messages
+    for await (const message of queryInstance) {
+      const transformed = transformMessage(message);
+      // transformMessage can return a single message or array of messages
+      if (Array.isArray(transformed)) {
+        for (const msg of transformed) {
+          yield msg;
+        }
+      } else {
+        yield transformed;
       }
-    } else {
-      yield transformed;
+    }
+  } finally {
+    // Clean up temp files after run completes (or fails)
+    if (tempFiles.length > 0) {
+      cleanupTempFiles(tempFiles);
+      console.log(`[Claude SDK] Cleaned up ${tempFiles.length} temp file(s)`);
     }
   }
 }

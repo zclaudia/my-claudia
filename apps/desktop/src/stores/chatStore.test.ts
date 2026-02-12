@@ -8,10 +8,9 @@ describe('chatStore', () => {
     useChatStore.setState({
       messages: {},
       pagination: {},
-      isLoading: false,
-      currentRunId: null,
+      activeRuns: {},
       activeToolCalls: {},
-      toolCallsHistory: [],
+      toolCallsHistory: {},
       sessionUsage: {},
       modelOverride: '',
     });
@@ -144,29 +143,58 @@ describe('chatStore', () => {
     });
   });
 
-  describe('setLoading', () => {
-    it('sets loading state to true', () => {
-      useChatStore.getState().setLoading(true);
-      expect(useChatStore.getState().isLoading).toBe(true);
+  describe('run lifecycle', () => {
+    it('startRun registers a run and initializes tool call state', () => {
+      useChatStore.getState().startRun('run-1', 'session-1');
+
+      expect(useChatStore.getState().activeRuns['run-1']).toBe('session-1');
+      expect(useChatStore.getState().activeToolCalls['run-1']).toEqual({});
+      expect(useChatStore.getState().toolCallsHistory['run-1']).toEqual([]);
     });
 
-    it('sets loading state to false', () => {
-      useChatStore.getState().setLoading(true);
-      useChatStore.getState().setLoading(false);
-      expect(useChatStore.getState().isLoading).toBe(false);
-    });
-  });
+    it('endRun removes the run and its tool call state', () => {
+      useChatStore.getState().startRun('run-1', 'session-1');
+      useChatStore.getState().endRun('run-1');
 
-  describe('setCurrentRunId', () => {
-    it('sets current run ID', () => {
-      useChatStore.getState().setCurrentRunId('run-123');
-      expect(useChatStore.getState().currentRunId).toBe('run-123');
+      expect(useChatStore.getState().activeRuns['run-1']).toBeUndefined();
+      expect(useChatStore.getState().activeToolCalls['run-1']).toBeUndefined();
+      expect(useChatStore.getState().toolCallsHistory['run-1']).toBeUndefined();
     });
 
-    it('clears current run ID', () => {
-      useChatStore.getState().setCurrentRunId('run-123');
-      useChatStore.getState().setCurrentRunId(null);
-      expect(useChatStore.getState().currentRunId).toBeNull();
+    it('isSessionLoading returns true when session has an active run', () => {
+      useChatStore.getState().startRun('run-1', 'session-1');
+
+      expect(useChatStore.getState().isSessionLoading('session-1')).toBe(true);
+      expect(useChatStore.getState().isSessionLoading('session-2')).toBe(false);
+    });
+
+    it('isSessionLoading returns false after endRun', () => {
+      useChatStore.getState().startRun('run-1', 'session-1');
+      useChatStore.getState().endRun('run-1');
+
+      expect(useChatStore.getState().isSessionLoading('session-1')).toBe(false);
+    });
+
+    it('getSessionRunId returns active runId for a session', () => {
+      useChatStore.getState().startRun('run-1', 'session-1');
+
+      expect(useChatStore.getState().getSessionRunId('session-1')).toBe('run-1');
+      expect(useChatStore.getState().getSessionRunId('session-2')).toBeNull();
+    });
+
+    it('supports multiple concurrent runs', () => {
+      useChatStore.getState().startRun('run-1', 'session-1');
+      useChatStore.getState().startRun('run-2', 'session-2');
+
+      expect(useChatStore.getState().isSessionLoading('session-1')).toBe(true);
+      expect(useChatStore.getState().isSessionLoading('session-2')).toBe(true);
+      expect(useChatStore.getState().getSessionRunId('session-1')).toBe('run-1');
+      expect(useChatStore.getState().getSessionRunId('session-2')).toBe('run-2');
+
+      // End one run, the other should still be active
+      useChatStore.getState().endRun('run-1');
+      expect(useChatStore.getState().isSessionLoading('session-1')).toBe(false);
+      expect(useChatStore.getState().isSessionLoading('session-2')).toBe(true);
     });
   });
 
@@ -265,10 +293,17 @@ describe('chatStore', () => {
   });
 
   describe('toolCalls', () => {
-    it('addToolCall creates a new running tool call', () => {
-      useChatStore.getState().addToolCall('tc-1', 'Read', { file_path: '/foo.ts' });
+    const RUN_ID = 'run-1';
 
-      const tc = useChatStore.getState().activeToolCalls['tc-1'];
+    beforeEach(() => {
+      // Start a run so tool calls have a context
+      useChatStore.getState().startRun(RUN_ID, 'session-1');
+    });
+
+    it('addToolCall creates a new running tool call', () => {
+      useChatStore.getState().addToolCall(RUN_ID, 'tc-1', 'Read', { file_path: '/foo.ts' });
+
+      const tc = useChatStore.getState().activeToolCalls[RUN_ID]['tc-1'];
       expect(tc).toBeDefined();
       expect(tc.toolName).toBe('Read');
       expect(tc.status).toBe('running');
@@ -276,57 +311,84 @@ describe('chatStore', () => {
     });
 
     it('addToolCall appends to toolCallsHistory in order', () => {
-      useChatStore.getState().addToolCall('tc-1', 'Read', {});
-      useChatStore.getState().addToolCall('tc-2', 'Edit', {});
+      useChatStore.getState().addToolCall(RUN_ID, 'tc-1', 'Read', {});
+      useChatStore.getState().addToolCall(RUN_ID, 'tc-2', 'Edit', {});
 
-      const history = useChatStore.getState().toolCallsHistory;
+      const history = useChatStore.getState().toolCallsHistory[RUN_ID];
       expect(history).toHaveLength(2);
       expect(history[0].id).toBe('tc-1');
       expect(history[1].id).toBe('tc-2');
     });
 
     it('updateToolCallResult marks tool as completed', () => {
-      useChatStore.getState().addToolCall('tc-1', 'Read', {});
-      useChatStore.getState().updateToolCallResult('tc-1', 'file content here');
+      useChatStore.getState().addToolCall(RUN_ID, 'tc-1', 'Read', {});
+      useChatStore.getState().updateToolCallResult(RUN_ID, 'tc-1', 'file content here');
 
-      const tc = useChatStore.getState().activeToolCalls['tc-1'];
+      const tc = useChatStore.getState().activeToolCalls[RUN_ID]['tc-1'];
       expect(tc.status).toBe('completed');
       expect(tc.result).toBe('file content here');
       expect(tc.isError).toBeUndefined();
     });
 
     it('updateToolCallResult marks tool as error when isError is true', () => {
-      useChatStore.getState().addToolCall('tc-1', 'Bash', {});
-      useChatStore.getState().updateToolCallResult('tc-1', 'command failed', true);
+      useChatStore.getState().addToolCall(RUN_ID, 'tc-1', 'Bash', {});
+      useChatStore.getState().updateToolCallResult(RUN_ID, 'tc-1', 'command failed', true);
 
-      const tc = useChatStore.getState().activeToolCalls['tc-1'];
+      const tc = useChatStore.getState().activeToolCalls[RUN_ID]['tc-1'];
       expect(tc.status).toBe('error');
       expect(tc.isError).toBe(true);
     });
 
     it('updateToolCallResult also updates toolCallsHistory', () => {
-      useChatStore.getState().addToolCall('tc-1', 'Read', {});
-      useChatStore.getState().updateToolCallResult('tc-1', 'done');
+      useChatStore.getState().addToolCall(RUN_ID, 'tc-1', 'Read', {});
+      useChatStore.getState().updateToolCallResult(RUN_ID, 'tc-1', 'done');
 
-      const history = useChatStore.getState().toolCallsHistory;
+      const history = useChatStore.getState().toolCallsHistory[RUN_ID];
       expect(history[0].status).toBe('completed');
     });
 
     it('updateToolCallResult does nothing for unknown tool id', () => {
-      useChatStore.getState().addToolCall('tc-1', 'Read', {});
-      useChatStore.getState().updateToolCallResult('tc-unknown', 'result');
+      useChatStore.getState().addToolCall(RUN_ID, 'tc-1', 'Read', {});
+      useChatStore.getState().updateToolCallResult(RUN_ID, 'tc-unknown', 'result');
 
       // Original tool call should be unchanged
-      expect(useChatStore.getState().activeToolCalls['tc-1'].status).toBe('running');
+      expect(useChatStore.getState().activeToolCalls[RUN_ID]['tc-1'].status).toBe('running');
     });
 
-    it('clearToolCalls empties both activeToolCalls and history', () => {
-      useChatStore.getState().addToolCall('tc-1', 'Read', {});
-      useChatStore.getState().addToolCall('tc-2', 'Edit', {});
-      useChatStore.getState().clearToolCalls();
+    it('endRun cleans up tool calls for that run', () => {
+      useChatStore.getState().addToolCall(RUN_ID, 'tc-1', 'Read', {});
+      useChatStore.getState().addToolCall(RUN_ID, 'tc-2', 'Edit', {});
+      useChatStore.getState().endRun(RUN_ID);
 
-      expect(useChatStore.getState().activeToolCalls).toEqual({});
-      expect(useChatStore.getState().toolCallsHistory).toEqual([]);
+      expect(useChatStore.getState().activeToolCalls[RUN_ID]).toBeUndefined();
+      expect(useChatStore.getState().toolCallsHistory[RUN_ID]).toBeUndefined();
+    });
+
+    it('tool calls from different runs are isolated', () => {
+      useChatStore.getState().startRun('run-2', 'session-2');
+      useChatStore.getState().addToolCall(RUN_ID, 'tc-1', 'Read', {});
+      useChatStore.getState().addToolCall('run-2', 'tc-2', 'Edit', {});
+
+      expect(Object.keys(useChatStore.getState().activeToolCalls[RUN_ID])).toEqual(['tc-1']);
+      expect(Object.keys(useChatStore.getState().activeToolCalls['run-2'])).toEqual(['tc-2']);
+
+      // End one run, other's tool calls remain
+      useChatStore.getState().endRun(RUN_ID);
+      expect(useChatStore.getState().activeToolCalls[RUN_ID]).toBeUndefined();
+      expect(useChatStore.getState().activeToolCalls['run-2']['tc-2']).toBeDefined();
+    });
+
+    it('getSessionToolCalls returns tool calls for the session active run', () => {
+      useChatStore.getState().addToolCall(RUN_ID, 'tc-1', 'Read', { file_path: '/a.ts' });
+      useChatStore.getState().addToolCall(RUN_ID, 'tc-2', 'Edit', {});
+
+      const toolCalls = useChatStore.getState().getSessionToolCalls('session-1');
+      expect(toolCalls).toHaveLength(2);
+      expect(toolCalls.map(tc => tc.id).sort()).toEqual(['tc-1', 'tc-2']);
+    });
+
+    it('getSessionToolCalls returns empty for session without active run', () => {
+      expect(useChatStore.getState().getSessionToolCalls('session-other')).toEqual([]);
     });
 
     it('finalizeToolCallsToMessage attaches tool calls to last assistant message', () => {
@@ -335,38 +397,34 @@ describe('chatStore', () => {
       useChatStore.getState().addMessage('session-1', message);
 
       // Add tool calls
-      useChatStore.getState().addToolCall('tc-1', 'Read', { file_path: '/a.ts' });
-      useChatStore.getState().updateToolCallResult('tc-1', 'contents');
+      useChatStore.getState().addToolCall(RUN_ID, 'tc-1', 'Read', { file_path: '/a.ts' });
+      useChatStore.getState().updateToolCallResult(RUN_ID, 'tc-1', 'contents');
 
-      // Finalize
-      useChatStore.getState().finalizeToolCallsToMessage('session-1');
+      // Finalize (now takes runId, looks up sessionId from activeRuns)
+      useChatStore.getState().finalizeToolCallsToMessage(RUN_ID);
 
       const messages = useChatStore.getState().messages['session-1'];
       expect(messages[0].toolCalls).toHaveLength(1);
       expect(messages[0].toolCalls![0].toolName).toBe('Read');
       expect(messages[0].toolCalls![0].status).toBe('completed');
-
-      // Tool calls should be cleared
-      expect(useChatStore.getState().activeToolCalls).toEqual({});
-      expect(useChatStore.getState().toolCallsHistory).toEqual([]);
     });
 
     it('finalizeToolCallsToMessage does nothing if last message is not assistant', () => {
       const message = createMessage({ id: 'msg-1', role: 'user', content: 'User msg' });
       useChatStore.getState().addMessage('session-1', message);
-      useChatStore.getState().addToolCall('tc-1', 'Read', {});
+      useChatStore.getState().addToolCall(RUN_ID, 'tc-1', 'Read', {});
 
-      useChatStore.getState().finalizeToolCallsToMessage('session-1');
+      useChatStore.getState().finalizeToolCallsToMessage(RUN_ID);
 
       // Tool calls should remain
-      expect(useChatStore.getState().toolCallsHistory).toHaveLength(1);
+      expect(useChatStore.getState().toolCallsHistory[RUN_ID]).toHaveLength(1);
     });
 
     it('finalizeToolCallsToMessage does nothing if no tool calls exist', () => {
       const message = createMessage({ id: 'msg-1', role: 'assistant', content: 'Response' });
       useChatStore.getState().addMessage('session-1', message);
 
-      useChatStore.getState().finalizeToolCallsToMessage('session-1');
+      useChatStore.getState().finalizeToolCallsToMessage(RUN_ID);
 
       const messages = useChatStore.getState().messages['session-1'];
       expect(messages[0].toolCalls).toBeUndefined();

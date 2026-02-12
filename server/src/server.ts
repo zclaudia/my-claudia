@@ -115,6 +115,7 @@ interface ConnectedClient {
 interface ActiveRun {
   runId: string;
   clientId: string;
+  client: ConnectedClient;      // Direct reference (works for both real WS and virtual gateway clients)
   abortController?: AbortController;
   openCodeSessionId?: string;  // For aborting opencode runs
   openCodeCwd?: string;        // cwd for opencode server lookup
@@ -425,7 +426,7 @@ export async function createServer(): Promise<ServerContext> {
       // Cancel any active runs for this client
       activeRuns.forEach((run, runId) => {
         if (run.clientId === clientId) {
-          cancelRun(runId, clients);
+          cancelRun(runId);
         }
       });
     });
@@ -524,7 +525,7 @@ function sendMessage(ws: WebSocket, message: ServerMessage): void {
   }
 }
 
-function cancelRun(runId: string, clients: Map<string, ConnectedClient>): void {
+function cancelRun(runId: string): void {
   const run = activeRuns.get(runId);
   if (run) {
     // Reject all pending permissions
@@ -541,15 +542,13 @@ function cancelRun(runId: string, clients: Map<string, ConnectedClient>): void {
       });
     }
 
-    // Notify client that run was cancelled
-    const client = clients.get(run.clientId);
-    if (client) {
-      sendMessage(client.ws, {
-        type: 'run_failed',
-        runId,
-        error: 'Run cancelled by user'
-      });
-    }
+    // Notify client that run was cancelled (uses stored client ref — works for both
+    // real WebSocket clients and virtual gateway clients)
+    sendMessage(run.client.ws, {
+      type: 'run_failed',
+      runId,
+      error: 'Run cancelled by user'
+    });
 
     activeRuns.delete(runId);
     console.log(`Run ${runId} cancelled`);
@@ -609,7 +608,7 @@ async function handleClientMessage(
       break;
 
     case 'run_cancel':
-      handleRunCancel(message.runId, clients);
+      handleRunCancel(message.runId);
       break;
 
     case 'permission_decision':
@@ -706,6 +705,7 @@ async function handleRunStart(
   const activeRun: ActiveRun = {
     runId,
     clientId: client.id,
+    client,
     pendingPermissions: new Map()
   };
   activeRuns.set(runId, activeRun);
@@ -990,8 +990,8 @@ async function handleRunStart(
   }
 }
 
-function handleRunCancel(runId: string, clients: Map<string, ConnectedClient>): void {
-  cancelRun(runId, clients);
+function handleRunCancel(runId: string): void {
+  cancelRun(runId);
 }
 
 function handlePermissionDecision(message: {

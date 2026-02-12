@@ -2,6 +2,7 @@ import { useState } from 'react';
 import type { ToolCallState } from '../../stores/chatStore';
 import { getToolIcon } from '../../config/icons';
 import { DiffViewer } from './DiffViewer';
+import { CodeViewer } from './CodeViewer';
 
 interface ToolCallItemProps {
   toolCall: ToolCallState;
@@ -121,6 +122,44 @@ function ToolExpandedContent({ toolName, toolInput, status, result, isError }: {
             </pre>
           </div>
         )}
+      </div>
+    );
+  }
+
+  // Write tool: show file content with syntax highlighting
+  if (toolName === 'Write' && input?.content) {
+    return (
+      <div className="px-3 pb-3 border-t border-border/50">
+        <div className="mt-2">
+          <CodeViewer
+            content={String(input.content)}
+            filePath={input.file_path ? String(input.file_path) : undefined}
+          />
+        </div>
+        {status !== 'running' && isError && result !== undefined && (
+          <div className="mt-2">
+            <pre
+              data-testid="tool-result"
+              className="text-xs rounded p-2 overflow-x-auto whitespace-pre-wrap break-words bg-destructive/20 text-destructive"
+            >
+              {formatToolResult(result)}
+            </pre>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // Read tool: show file content with syntax highlighting
+  if (toolName === 'Read' && status !== 'running' && result !== undefined) {
+    return (
+      <div className="px-3 pb-3 border-t border-border/50">
+        <div className="mt-2">
+          <CodeViewer
+            content={formatToolResult(result)}
+            filePath={input?.file_path ? String(input.file_path) : undefined}
+          />
+        </div>
       </div>
     );
   }

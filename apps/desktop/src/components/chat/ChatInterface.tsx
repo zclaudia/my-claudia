@@ -50,10 +50,6 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
     prependMessages,
     clearMessages,
     setLoadingMore,
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    isLoading: _globalIsLoading,
-    currentRunId,
-    activeToolCalls,
     currentSystemInfo,
     mode,
     setMode,
@@ -61,9 +57,13 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
     modelOverride,
     setModelOverride,
     isSessionLoading,
+    getSessionRunId,
+    getSessionToolCalls,
   } = useChatStore();
-  // Only show loading for THIS session's active run
+  // Only show loading/toolCalls for THIS session's active run
   const isLoading = isSessionLoading(sessionId);
+  const sessionRunId = getSessionRunId(sessionId);
+  const sessionToolCalls = getSessionToolCalls(sessionId);
   const { projects, sessions, providerCommands, providerCapabilities, setProviderCapabilities } = useProjectStore();
   const { sendMessage: wsSendMessage, isConnected } = useConnection();
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -245,7 +245,7 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
 
   // Scroll to bottom when tool calls are updated (during streaming)
   useEffect(() => {
-    if (initialLoadDone && Object.keys(activeToolCalls).length > 0) {
+    if (initialLoadDone && sessionToolCalls.length > 0) {
       const container = messagesContainerRef.current;
       if (!container) return;
 
@@ -255,7 +255,7 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
         scrollToBottom();
       }
     }
-  }, [activeToolCalls, initialLoadDone, scrollToBottom]);
+  }, [sessionToolCalls, initialLoadDone, scrollToBottom]);
 
   const handleSendMessage = async (content: string, attachments?: Attachment[]) => {
     if ((!content.trim() && !attachments?.length) || !isConnected) return;
@@ -568,19 +568,15 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
       setLastSentMessage(null);
     }
 
-    if (!currentRunId) {
-      console.warn('[ChatInterface] No currentRunId to cancel');
-      // Even if no runId, stop loading state locally
-      useChatStore.getState().setLoading(false);
-      useChatStore.getState().setActiveRunSessionId(null);
-      useChatStore.getState().clearToolCalls();
+    if (!sessionRunId) {
+      console.warn('[ChatInterface] No active run for this session');
       return;
     }
 
-    console.log('[ChatInterface] Cancelling run:', currentRunId);
+    console.log('[ChatInterface] Cancelling run:', sessionRunId);
     wsSendMessage({
       type: 'run_cancel',
-      runId: currentRunId,
+      runId: sessionRunId,
     });
   };
 
@@ -614,9 +610,9 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
         <LoadingIndicator isLoading={isLoading} />
 
         {/* Active tool calls (shown during streaming) */}
-        {Object.keys(activeToolCalls).length > 0 && (
+        {sessionToolCalls.length > 0 && (
           <div className="mt-4 px-4">
-            <ToolCallList toolCalls={Object.values(activeToolCalls)} />
+            <ToolCallList toolCalls={sessionToolCalls} />
           </div>
         )}
 
