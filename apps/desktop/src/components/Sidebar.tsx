@@ -4,6 +4,7 @@ import { useServerStore } from '../stores/serverStore';
 import { ProjectSettings } from './ProjectSettings';
 import { SettingsPanel } from './SettingsPanel';
 import { SearchFilters } from './SearchFilters';
+import { RemoteSessionsList } from './RemoteSessionsList';
 import * as api from '../services/api';
 import type { SearchResult, SearchHistoryEntry, SearchFilters as Filters } from '../services/api';
 
@@ -680,6 +681,15 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
             )}
           </div>
 
+          {/* Remote Sessions */}
+          <RemoteSessionsList
+            onSessionSelect={(backendId, sessionId) => {
+              // TODO: Handle remote session selection
+              console.log(`Selected remote session: ${sessionId} on backend ${backendId}`);
+              if (onClose) onClose();
+            }}
+          />
+
           {/* Settings Button */}
           <div className="border-t border-border p-2">
             <button
@@ -1166,6 +1176,14 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
           </ul>
         )}
       </div>
+
+      {/* Remote Sessions */}
+      <RemoteSessionsList
+        onSessionSelect={(backendId, sessionId) => {
+          // TODO: Handle remote session selection
+          console.log(`Selected remote session: ${sessionId} on backend ${backendId}`);
+        }}
+      />
 
       {/* Settings Button */}
       <div className="border-t border-border p-2">

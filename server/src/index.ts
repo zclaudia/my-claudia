@@ -1,6 +1,7 @@
 import * as os from 'os';
-import { createServer, createVirtualClient, type ServerContext } from './server.js';
+import { createServer, createVirtualClient, activeRuns, type ServerContext } from './server.js';
 import { GatewayClient } from './gateway-client.js';
+import { setGatewayClient } from './gateway-instance.js';
 import type { ServerMessage } from '@my-claudia/shared';
 import { initDatabase } from './storage/db.js';
 import type { GatewayConfig } from './routes/gateway.js';
@@ -93,9 +94,13 @@ async function connectToGateway(config: GatewayConfig): Promise<void> {
     }
   }
 
-  gatewayClient = new GatewayClient(gatewayClientConfig);
-
   if (!serverContext) return;
+
+  // Create GatewayClient with db and activeRuns dependencies
+  gatewayClient = new GatewayClient(gatewayClientConfig, serverContext.db, activeRuns);
+
+  // Set global instance for access from routes
+  setGatewayClient(gatewayClient);
 
   // Set up message handler - integrate with server's message handling
   gatewayClient.onMessage(async (clientId, message) => {
@@ -153,6 +158,7 @@ async function disconnectFromGateway(): Promise<void> {
     }
     gatewayClient.disconnect();
     gatewayClient = null;
+    setGatewayClient(null);  // Clear global instance
     virtualClients.clear();
     if (serverContext) {
       serverContext.updateGatewayBackendId(null);

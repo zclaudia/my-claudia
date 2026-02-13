@@ -46,6 +46,10 @@ interface GatewayClientConfig {
 type MessageHandler = (clientId: string, message: ClientMessage) => Promise<ServerMessage | null>;
 type ClientEventHandler = (clientId: string) => void;
 
+// Database and ActiveRun types (to be injected)
+type Database = any;  // Will be the better-sqlite3 database instance
+type ActiveRunsMap = Map<string, any>;  // sessionId -> ActiveRun
+
 /**
  * Get or create a stable device ID for this backend
  */
@@ -98,9 +102,15 @@ export class GatewayClient {
   // Flag to prevent reconnection after intentional disconnect
   private intentionalDisconnect = false;
 
-  constructor(config: GatewayClientConfig) {
+  // Dependencies for session broadcasting
+  private db: Database | null = null;
+  private activeRuns: ActiveRunsMap | null = null;
+
+  constructor(config: GatewayClientConfig, db?: Database, activeRuns?: ActiveRunsMap) {
     this.config = config;
     this.deviceId = getOrCreateDeviceId();
+    this.db = db || null;
+    this.activeRuns = activeRuns || null;
   }
 
   /**
@@ -301,6 +311,13 @@ export class GatewayClient {
       case 'http_proxy_request':
         this.handleHttpProxyRequest(message as GatewayHttpProxyRequest);
         break;
+
+      case 'client_subscribed': {
+        const { clientId } = message as any;
+        console.log(`[GatewayClient] Client ${clientId} subscribed to this backend`);
+        this.sendSessionsListToClient(clientId);
+        break;
+      }
     }
   }
 
@@ -422,5 +439,79 @@ export class GatewayClient {
     this.reconnectTimeout = setTimeout(() => {
       this.connect();
     }, this.reconnectInterval);
+  }
+
+  /**
+   * Send current sessions list to a newly subscribed client
+   */
+  private sendSessionsListToClient(clientId: string): void {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      console.error('[GatewayClient] Cannot send sessions list: not connected');
+      return;
+    }
+
+    if (!this.db || !this.activeRuns) {
+      console.warn('[GatewayClient] Cannot send sessions list: db or activeRuns not available');
+      return;
+    }
+
+    try {
+      // Get all sessions from database
+      const sessions = this.db.prepare(`
+        SELECT id, project_id as projectId, name, provider_id as providerId,
+               created_at as createdAt, updated_at as updatedAt
+        FROM sessions
+        ORDER BY updated_at DESC
+      `).all();
+
+      // Add isActive status based on activeRuns
+      const sessionsWithStatus = sessions.map((session: any) => ({
+        id: session.id,
+        projectId: session.projectId,
+        name: session.name,
+        providerId: session.providerId,
+        createdAt: session.createdAt,
+        updatedAt: session.updatedAt,
+        isActive: this.activeRuns!.has(session.id)
+      }));
+
+      // Send via send_to_client message
+      const message: BackendToGatewayMessage = {
+        type: 'send_to_client',
+        clientId,
+        message: {
+          type: 'backend_sessions_list',
+          backendId: this.backendId || '',
+          sessions: sessionsWithStatus
+        }
+      };
+
+      this.ws.send(JSON.stringify(message));
+      console.log(`[GatewayClient] Sent ${sessions.length} sessions to client ${clientId}`);
+    } catch (error) {
+      console.error('[GatewayClient] Failed to send sessions list:', error);
+    }
+  }
+
+  /**
+   * Broadcast a session event to all subscribed clients
+   */
+  public broadcastSessionEvent(
+    eventType: 'created' | 'updated' | 'deleted',
+    session: any
+  ): void {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      console.error('[GatewayClient] Cannot broadcast session event: not connected');
+      return;
+    }
+
+    const message: BackendToGatewayMessage = {
+      type: 'broadcast_session_event',
+      eventType,
+      session
+    };
+
+    this.ws.send(JSON.stringify(message));
+    console.log(`[GatewayClient] Broadcasted session ${eventType}: ${session.id}`);
   }
 }

@@ -938,6 +938,59 @@ export interface GatewayErrorMessage {
   backendId?: string;
 }
 
+// --- Session Sync Protocol (Backend → Client via Gateway) ---
+
+// Backend sends full session list to a newly subscribed client
+export interface BackendSessionsListMessage {
+  type: 'backend_sessions_list';
+  backendId: string;
+  sessions: Array<{
+    id: string;
+    projectId: string;
+    name?: string;
+    providerId?: string;
+    createdAt: number;
+    updatedAt: number;
+    isActive: boolean;  // Whether there's an active run for this session
+  }>;
+}
+
+// Backend broadcasts session event to all subscribed clients
+export interface BackendSessionEventMessage {
+  type: 'backend_session_event';
+  backendId: string;
+  eventType: 'created' | 'updated' | 'deleted';
+  session: {
+    id: string;
+    projectId: string;
+    name?: string;
+    providerId?: string;
+    createdAt: number;
+    updatedAt: number;
+    isActive?: boolean;
+  };
+}
+
+// Backend → Gateway: request to broadcast session event to all subscribers
+export interface GatewayBroadcastSessionEventMessage {
+  type: 'broadcast_session_event';
+  eventType: 'created' | 'updated' | 'deleted';
+  session: Session;
+}
+
+// Gateway → Backend: notification that a client has subscribed
+export interface GatewayClientSubscribedMessage {
+  type: 'client_subscribed';
+  clientId: string;
+}
+
+// Gateway → Client: send specific message to a single client
+export interface GatewaySendToClientMessage {
+  type: 'send_to_client';
+  clientId: string;
+  message: ServerMessage | BackendSessionsListMessage | BackendSessionEventMessage;
+}
+
 // --- Gateway HTTP Proxy Protocol ---
 // Used when clients connect through Gateway and need to make REST API calls
 // to a backend that may be behind NAT.
@@ -968,12 +1021,15 @@ export type GatewayToBackendMessage =
   | GatewayForwardedMessage
   | GatewayClientConnectedMessage
   | GatewayClientDisconnectedMessage
+  | GatewayClientSubscribedMessage
   | GatewayHttpProxyRequest;
 
 export type BackendToGatewayMessage =
   | GatewayRegisterMessage
   | GatewayClientAuthResultMessage
   | GatewayBackendResponseMessage
+  | GatewayBroadcastSessionEventMessage
+  | GatewaySendToClientMessage
   | GatewayHttpProxyResponse;
 
 export type ClientToGatewayMessage =

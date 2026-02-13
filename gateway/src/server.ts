@@ -64,6 +64,7 @@ export function createGatewayServer(config: GatewayConfig): Server {
   const backends = new Map<string, ConnectedBackend>();  // backendId -> backend
   const clients = new Map<string, ConnectedClient>();    // clientId -> client
   const backendConnections = new Map<WebSocket, ConnectedBackend>();  // ws -> backend (for lookup)
+  const backendSubscriptions = new Map<string, Set<string>>();  // backendId -> Set<clientId> (subscription tracking)
 
   // Pending HTTP proxy requests: requestId -> { resolve, timeout }
   const pendingHttpRequests = new Map<string, {
@@ -555,6 +556,19 @@ export function createGatewayServer(config: GatewayConfig): Server {
         if (client) {
           if (message.success) {
             client.backendAuths.add(backendId);
+
+            // Auto-subscribe client to this backend's sessions
+            if (!backendSubscriptions.has(backendId)) {
+              backendSubscriptions.set(backendId, new Set());
+            }
+            backendSubscriptions.get(backendId)!.add(message.clientId);
+            console.log(`[Gateway] Client ${message.clientId} auto-subscribed to backend ${backendId}`);
+
+            // Notify backend about new subscriber
+            sendToWs(backend.ws, {
+              type: 'client_subscribed',
+              clientId: message.clientId
+            });
           }
           sendToWs(client.ws, {
             type: 'backend_auth_result',
@@ -588,6 +602,51 @@ export function createGatewayServer(config: GatewayConfig): Server {
           clearTimeout(pending.timeout);
           pendingHttpRequests.delete(proxyMsg.requestId);
           pending.resolve(proxyMsg);
+        }
+        break;
+      }
+
+      case 'broadcast_session_event': {
+        // Broadcast session event to all subscribed clients
+        const subscribers = backendSubscriptions.get(backendId);
+        if (!subscribers || subscribers.size === 0) {
+          console.log(`[Gateway] No subscribers for backend ${backendId}`);
+          break;
+        }
+
+        // Forward event to all subscribed clients
+        subscribers.forEach((clientId) => {
+          const client = clients.get(clientId);
+          if (client && client.ws.readyState === WebSocket.OPEN) {
+            sendToWs(client.ws, {
+              type: 'backend_message',
+              backendId,
+              message: {
+                type: 'backend_session_event',
+                backendId,
+                eventType: message.eventType,
+                session: message.session
+              }
+            });
+          }
+        });
+
+        console.log(`[Gateway] Broadcasted ${message.eventType} event for session ${message.session.id} to ${subscribers.size} clients`);
+        break;
+      }
+
+      case 'send_to_client': {
+        // Send specific message to a single client
+        const client = clients.get(message.clientId);
+        if (client && client.ws.readyState === WebSocket.OPEN) {
+          sendToWs(client.ws, {
+            type: 'backend_message',
+            backendId,
+            message: message.message
+          });
+          console.log(`[Gateway] Sent message to client ${message.clientId} from backend ${backendId}`);
+        } else {
+          console.log(`[Gateway] Failed to send message - client ${message.clientId} not found or disconnected`);
         }
         break;
       }
@@ -784,6 +843,19 @@ export function createGatewayServer(config: GatewayConfig): Server {
           type: 'client_disconnected',
           clientId
         });
+      }
+    });
+
+    // Remove from all subscriptions
+    backendSubscriptions.forEach((subscribers, backendId) => {
+      if (subscribers.has(clientId)) {
+        subscribers.delete(clientId);
+        console.log(`[Gateway] Client ${clientId} unsubscribed from backend ${backendId}`);
+
+        // Clean up empty subscription sets
+        if (subscribers.size === 0) {
+          backendSubscriptions.delete(backendId);
+        }
       }
     });
 

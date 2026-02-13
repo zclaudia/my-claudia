@@ -12,8 +12,12 @@ import type {
   ServerFeature,
   GatewayBackendInfo,
   ClientToGatewayMessage,
-  GatewayToClientMessage
+  GatewayToClientMessage,
+  BackendSessionsListMessage,
+  BackendSessionEventMessage
 } from '@my-claudia/shared';
+import { useSessionsStore } from '../../stores/sessionsStore';
+import { startSessionSync, stopSessionSync } from '../../services/sessionSync';
 
 export interface GatewayTransportConfig {
   url: string;
@@ -138,6 +142,10 @@ export class GatewayTransport {
       this.ws = null;
       this.gatewayAuthenticated = false;
       this.authenticatedBackends.clear();
+      // Stop all periodic syncs when Gateway disconnects
+      stopSessionSync();
+      // Clear all remote sessions
+      useSessionsStore.getState().clearAllSessions();
       this.config.onDisconnected();
     };
 
@@ -180,6 +188,8 @@ export class GatewayTransport {
         if (message.success) {
           console.log('[GatewayTransport] Backend authenticated:', message.backendId);
           this.authenticatedBackends.add(message.backendId);
+          // Start periodic sync for this backend as fallback to WebSocket push
+          startSessionSync(message.backendId);
         } else {
           console.error('[GatewayTransport] Backend auth failed:', message.backendId, message.error);
           this.authenticatedBackends.delete(message.backendId);
@@ -190,13 +200,25 @@ export class GatewayTransport {
       case 'backend_message':
         // Unwrap and forward the backend message
         if (message.message && message.backendId) {
-          this.config.onBackendMessage(message.backendId, message.message);
+          // Check if it's a session-related message
+          const innerMessage = message.message as any;
+          if (innerMessage.type === 'backend_sessions_list') {
+            this.handleSessionsList(innerMessage as BackendSessionsListMessage);
+          } else if (innerMessage.type === 'backend_session_event') {
+            this.handleSessionEvent(innerMessage as BackendSessionEventMessage);
+          } else {
+            this.config.onBackendMessage(message.backendId, message.message);
+          }
         }
         break;
 
       case 'backend_disconnected':
         console.log('[GatewayTransport] Backend disconnected:', message.backendId);
         this.authenticatedBackends.delete(message.backendId);
+        // Stop periodic sync for this backend
+        stopSessionSync(message.backendId);
+        // Clear sessions for this backend
+        useSessionsStore.getState().clearBackendSessions(message.backendId);
         this.config.onBackendDisconnected(message.backendId);
         break;
 
@@ -208,5 +230,19 @@ export class GatewayTransport {
       default:
         console.warn('[GatewayTransport] Unknown message type:', (message as any).type);
     }
+  }
+
+  private handleSessionsList(message: BackendSessionsListMessage): void {
+    console.log(`[GatewayTransport] Received ${message.sessions.length} sessions from backend ${message.backendId}`);
+    useSessionsStore.getState().setRemoteSessions(message.backendId, message.sessions);
+  }
+
+  private handleSessionEvent(message: BackendSessionEventMessage): void {
+    console.log(`[GatewayTransport] Session ${message.eventType}: ${message.session.id} on backend ${message.backendId}`);
+    useSessionsStore.getState().handleSessionEvent(
+      message.backendId,
+      message.eventType,
+      message.session as any
+    );
   }
 }

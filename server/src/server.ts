@@ -302,7 +302,7 @@ export async function createServer(): Promise<ServerContext> {
 
   // API routes (protected by auth middleware)
   app.use('/api/projects', authMiddleware, createProjectRoutes(db));
-  app.use('/api/sessions', authMiddleware, createSessionRoutes(db));
+  app.use('/api/sessions', authMiddleware, createSessionRoutes(db, activeRuns));
   app.use('/api/providers', authMiddleware, createProviderRoutes(db));
   app.use('/api/servers', authMiddleware, createServerRoutes(db));
   app.use('/api/files', authMiddleware, createFilesRoutes());

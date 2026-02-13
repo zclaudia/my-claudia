@@ -4,8 +4,11 @@ import type Database from 'better-sqlite3';
 import type { Session, Message, ApiResponse } from '@my-claudia/shared';
 import { saveSearchHistory, getSearchHistory, clearSearchHistory, getSearchSuggestions } from '../storage/search-history.js';
 import { extractAndIndexMetadata } from '../storage/metadata-extractor.js';
+import { getGatewayClient } from '../gateway-instance.js';
 
-export function createSessionRoutes(db: Database.Database): Router {
+type ActiveRunsMap = Map<string, any>;
+
+export function createSessionRoutes(db: Database.Database, activeRuns: ActiveRunsMap): Router {
   const router = Router();
 
   // Get all sessions (optionally filtered by project)
@@ -107,6 +110,12 @@ export function createSessionRoutes(db: Database.Database): Router {
         updatedAt: now
       };
 
+      // Broadcast session created event to subscribed clients
+      const gatewayClient = getGatewayClient();
+      if (gatewayClient) {
+        gatewayClient.broadcastSessionEvent('created', session);
+      }
+
       res.status(201).json({ success: true, data: session } as ApiResponse<Session>);
     } catch (error) {
       console.error('Error creating session:', error);
@@ -140,6 +149,21 @@ export function createSessionRoutes(db: Database.Database): Router {
         return;
       }
 
+      // Broadcast session updated event to subscribed clients
+      const gatewayClient = getGatewayClient();
+      if (gatewayClient) {
+        // Fetch updated session to broadcast
+        const updatedSession = db.prepare(`
+          SELECT id, project_id as projectId, name, provider_id as providerId,
+                 created_at as createdAt, updated_at as updatedAt
+          FROM sessions WHERE id = ?
+        `).get(req.params.id) as Session | undefined;
+
+        if (updatedSession) {
+          gatewayClient.broadcastSessionEvent('updated', updatedSession);
+        }
+      }
+
       res.json({ success: true } as ApiResponse<void>);
     } catch (error) {
       console.error('Error updating session:', error);
@@ -155,8 +179,13 @@ export function createSessionRoutes(db: Database.Database): Router {
     const sessionId = req.params.id;
 
     try {
-      // Check if session exists
-      const session = db.prepare('SELECT id FROM sessions WHERE id = ?').get(sessionId);
+      // Fetch full session before deleting (for broadcasting)
+      const session = db.prepare(`
+        SELECT id, project_id as projectId, name, provider_id as providerId,
+               created_at as createdAt, updated_at as updatedAt
+        FROM sessions WHERE id = ?
+      `).get(sessionId) as Session | undefined;
+
       if (!session) {
         res.status(404).json({
           success: false,
@@ -173,6 +202,12 @@ export function createSessionRoutes(db: Database.Database): Router {
           error: { code: 'NOT_FOUND', message: 'Session not found' }
         });
         return;
+      }
+
+      // Broadcast session deleted event to subscribed clients
+      const gatewayClient = getGatewayClient();
+      if (gatewayClient) {
+        gatewayClient.broadcastSessionEvent('deleted', session);
       }
 
       console.log(`[Delete Session] Successfully deleted session ${sessionId}`);
@@ -633,6 +668,62 @@ export function createSessionRoutes(db: Database.Database): Router {
       res.status(500).json({
         success: false,
         error: { code: 'DB_ERROR', message: 'Failed to create message' }
+      });
+    }
+  });
+
+  // Sync sessions (for periodic client sync as fallback to WebSocket push)
+  router.get('/sync', (req: Request, res: Response) => {
+    try {
+      const { since } = req.query;
+      const sinceTimestamp = since ? parseInt(since as string, 10) : 0;
+
+      if (isNaN(sinceTimestamp) || sinceTimestamp < 0) {
+        res.status(400).json({
+          success: false,
+          error: { code: 'VALIDATION_ERROR', message: 'Invalid since parameter' }
+        });
+        return;
+      }
+
+      // Get all sessions updated after the given timestamp
+      const sessions = db.prepare(`
+        SELECT id, project_id as projectId, name, provider_id as providerId,
+               created_at as createdAt, updated_at as updatedAt
+        FROM sessions
+        WHERE updated_at > ?
+        ORDER BY updated_at DESC
+      `).all(sinceTimestamp) as Session[];
+
+      // Attach isActive status based on activeRuns
+      const sessionsWithStatus = sessions.map(session => ({
+        id: session.id,
+        projectId: session.projectId,
+        name: session.name,
+        providerId: session.providerId,
+        createdAt: session.createdAt,
+        updatedAt: session.updatedAt,
+        isActive: activeRuns.has(session.id)
+      }));
+
+      // Return sessions with current server timestamp
+      res.json({
+        success: true,
+        data: {
+          sessions: sessionsWithStatus,
+          timestamp: Date.now(),  // Client uses this for next sync
+          total: sessionsWithStatus.length
+        }
+      } as ApiResponse<{
+        sessions: Array<Session & { isActive: boolean }>;
+        timestamp: number;
+        total: number;
+      }>);
+    } catch (error) {
+      console.error('Error syncing sessions:', error);
+      res.status(500).json({
+        success: false,
+        error: { code: 'SYNC_ERROR', message: 'Failed to sync sessions' }
       });
     }
   });
