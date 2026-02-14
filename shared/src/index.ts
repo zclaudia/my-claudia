@@ -422,6 +422,7 @@ export type ServerMessage =
   | RunFailedMessage
   | PermissionRequestMessage
   | AskUserQuestionMessage
+  | AgentPermissionInterceptedMessage
   | PongMessage
   | ErrorMessage
   | ProjectsListMessage
@@ -548,6 +549,16 @@ export interface AskUserQuestionMessage {
   type: 'ask_user_question';
   requestId: string;
   questions: AskUserQuestionItem[];
+}
+
+// Agent permission auto-approval notification (Server → Client)
+export interface AgentPermissionInterceptedMessage {
+  type: 'agent_permission_intercepted';
+  toolName: string;
+  decision: 'approve' | 'deny';
+  reason: string;
+  sessionId: string;     // The session whose permission was intercepted
+  runId: string;
 }
 
 export interface PongMessage {
@@ -1041,6 +1052,23 @@ export type GatewayToClientMessage =
   | GatewayBackendDisconnectedMessage
   | GatewayBackendMessageMessage
   | GatewayErrorMessage;
+
+// ============================================
+// Agent Assistant Types
+// ============================================
+
+export interface AgentPermissionPolicy {
+  enabled: boolean;
+  trustLevel: 'conservative' | 'moderate' | 'aggressive';
+  customRules: AgentPermissionRule[];
+  escalateAlways: string[];     // tool names that always go to user
+}
+
+export interface AgentPermissionRule {
+  toolName: string;      // exact match or '*'
+  pattern?: string;      // optional regex on detail
+  action: 'approve' | 'deny' | 'escalate';
+}
 
 // ============================================
 // Server Gateway Configuration Types

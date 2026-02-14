@@ -16,6 +16,7 @@ export interface ClaudeRunOptions {
   cliPath?: string;
   permissionMode?: PermissionMode;  // 'default' | 'acceptEdits' | 'bypassPermissions' | 'plan'
   model?: string;  // Override model (e.g. 'claude-sonnet-4-5-20250929')
+  systemPrompt?: string;  // Appended to system prompt
 }
 
 export interface PermissionDecision {
@@ -167,6 +168,10 @@ export async function* runClaude(
     cwd: options.cwd,
     allowedTools: options.allowedTools || [],
     disallowedTools: options.disallowedTools || [],
+    // Capture stderr for debugging
+    stderr: (data: string) => {
+      console.error('[Claude SDK stderr]', data);
+    },
   };
 
   // Set model override
@@ -178,6 +183,10 @@ export async function* runClaude(
   // Set permission mode (defaults to 'default' if not specified)
   if (options.permissionMode) {
     sdkOptions.permissionMode = options.permissionMode;
+    // bypassPermissions requires this safety flag
+    if (options.permissionMode === 'bypassPermissions') {
+      sdkOptions.allowDangerouslySkipPermissions = true;
+    }
     console.log('[Claude SDK] Permission mode:', options.permissionMode);
   }
 
@@ -186,15 +195,28 @@ export async function* runClaude(
     sdkOptions.resume = options.sessionId;
   }
 
+  // Append system prompt (e.g. for agent sessions)
+  // Uses preset form to keep Claude Code's default prompt and append custom instructions
+  if (options.systemPrompt) {
+    sdkOptions.systemPrompt = {
+      type: 'preset',
+      preset: 'claude_code',
+      append: options.systemPrompt,
+    };
+    console.log('[Claude SDK] Appending system prompt (' + options.systemPrompt.length + ' chars)');
+  }
+
   // Set custom CLI path if provided (for multi-config support)
   if (options.cliPath) {
     sdkOptions.pathToClaudeCodeExecutable = options.cliPath;
   }
 
-  // Set custom environment variables (for multi-config support)
-  // Remove CLAUDECODE env var to prevent nested session detection
-  if (options.env) {
-    const cleanEnv = { ...options.env };
+  // Set environment variables for the child process.
+  // ALWAYS remove CLAUDECODE to prevent "nested session" detection
+  // when our server itself runs inside a Claude Code session (e.g. during development).
+  {
+    const baseEnv = options.env || { ...process.env } as Record<string, string>;
+    const cleanEnv = { ...baseEnv };
     delete (cleanEnv as Record<string, unknown>).CLAUDECODE;
     sdkOptions.env = cleanEnv;
   }

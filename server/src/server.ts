@@ -24,6 +24,8 @@ import { createCommandsRoutes } from './routes/commands.js';
 import { createGatewayRouter, type GatewayConfig, type GatewayStatus } from './routes/gateway.js';
 import { createServerRoutes } from './routes/servers.js';
 import { createImportRoutes } from './routes/import.js';
+import { createAgentRoutes, isAgentSession } from './routes/agent.js';
+import { PermissionEvaluator, getAgentPermissionPolicy } from './agent/permission-evaluator.js';
 import type { PermissionDecision, SystemInfo } from './providers/claude-sdk.js';
 import { openCodeServerManager } from './providers/opencode-sdk.js';
 import { providerRegistry } from './providers/registry.js';
@@ -309,6 +311,7 @@ export async function createServer(): Promise<ServerContext> {
   app.use('/api/servers', authMiddleware, createServerRoutes(db));
   app.use('/api/files', authMiddleware, createFilesRoutes());
   app.use('/api/commands', authMiddleware, createCommandsRoutes());
+  app.use('/api/agent', authMiddleware, createAgentRoutes(db));
   app.use('/api/import', localOnlyMiddleware, createImportRoutes(db));
   app.use('/api/server/gateway', localOnlyMiddleware, createGatewayRouter(
     db,
@@ -723,7 +726,7 @@ async function handleRunStart(
 
   // Get session info
   const session = db.prepare(`
-    SELECT s.id, s.project_id, s.sdk_session_id, p.root_path, p.provider_id
+    SELECT s.id, s.project_id, s.sdk_session_id, p.root_path, p.provider_id, p.system_prompt
     FROM sessions s
     LEFT JOIN projects p ON s.project_id = p.id
     WHERE s.id = ?
@@ -733,6 +736,7 @@ async function handleRunStart(
     sdk_session_id: string | null;
     root_path: string | null;
     provider_id: string | null;
+    system_prompt: string | null;
   } | undefined;
 
   if (!session) {
@@ -824,6 +828,46 @@ async function handleRunStart(
     // Permission request callback (shared by claude and opencode)
     const permissionCallback = async (request: import('@my-claudia/shared').PermissionRequest) => {
       return new Promise<PermissionDecision>((resolve) => {
+        // --- Agent permission interception ---
+        // Don't intercept agent's own permissions (already handled by bypassPermissions)
+        if (!isAgentSession(db, session.project_id)) {
+          const agentPolicy = getAgentPermissionPolicy(db);
+          if (agentPolicy?.enabled) {
+            const evaluator = new PermissionEvaluator();
+            const decision = evaluator.evaluate(
+              request.toolName, request.toolInput, request.detail, agentPolicy
+            );
+            if (decision === 'approve') {
+              console.log(`[Agent] Auto-approved ${request.toolName} for run ${runId}`);
+              sendMessage(client.ws, {
+                type: 'agent_permission_intercepted',
+                toolName: request.toolName,
+                decision: 'approve',
+                reason: `Auto-approved by agent policy (${agentPolicy.trustLevel})`,
+                sessionId: message.sessionId,
+                runId,
+              } as import('@my-claudia/shared').AgentPermissionInterceptedMessage);
+              resolve({ behavior: 'allow', updatedInput: request.toolInput });
+              return;
+            }
+            if (decision === 'deny') {
+              console.log(`[Agent] Auto-denied ${request.toolName} for run ${runId}`);
+              sendMessage(client.ws, {
+                type: 'agent_permission_intercepted',
+                toolName: request.toolName,
+                decision: 'deny',
+                reason: `Auto-denied by agent policy (${agentPolicy.trustLevel})`,
+                sessionId: message.sessionId,
+                runId,
+              } as import('@my-claudia/shared').AgentPermissionInterceptedMessage);
+              resolve({ behavior: 'deny', message: 'Denied by agent policy' });
+              return;
+            }
+            // 'escalate' → fall through to normal user UI flow
+          }
+        }
+        // --- End agent interception ---
+
         let timeout: ReturnType<typeof setTimeout> | null = null;
         if (request.timeoutSeconds > 0) {
           const timeoutMs = request.timeoutSeconds * 1000;
@@ -860,8 +904,15 @@ async function handleRunStart(
 
     // Select provider runner via registry
     // Resolve mode: prefer new unified `mode` field, fall back to legacy `permissionMode`
-    const modeValue = message.mode || message.permissionMode || 'default';
+    let modeValue = message.mode || message.permissionMode || 'default';
     const providerType = providerConfig?.type || 'claude';
+
+    // Agent session detection: force bypassPermissions for agent's own operations
+    const agentSession = isAgentSession(db, session.project_id);
+    if (agentSession) {
+      modeValue = 'bypassPermissions';
+      console.log(`[Agent] Detected agent session ${message.sessionId}, forcing bypassPermissions`);
+    }
     const adapter = providerRegistry.getOrDefault(providerType);
 
     const runOptions = {
@@ -871,6 +922,7 @@ async function handleRunStart(
       env: providerConfig?.env,
       mode: modeValue,
       model: message.model,
+      systemPrompt: session.system_prompt || undefined,
     };
 
     const providerRunner = adapter.run(processedInput, runOptions, permissionCallback);

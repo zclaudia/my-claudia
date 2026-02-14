@@ -11,6 +11,7 @@ export interface RunOptions {
   env?: Record<string, string>;
   mode?: string;          // permission mode (claude) or agent (opencode)
   model?: string;
+  systemPrompt?: string;  // Appended to system prompt (e.g. for agent sessions)
 }
 
 /** Provider adapter interface */

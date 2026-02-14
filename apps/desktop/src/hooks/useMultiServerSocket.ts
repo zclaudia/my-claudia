@@ -13,6 +13,7 @@ import { useProjectStore } from '../stores/projectStore';
 import { useServerStore } from '../stores/serverStore';
 import { usePermissionStore } from '../stores/permissionStore';
 import { useAskUserQuestionStore } from '../stores/askUserQuestionStore';
+import { useAgentStore } from '../stores/agentStore';
 import { DirectTransport } from './transport/DirectTransport';
 import type { Transport } from './transport/BaseTransport';
 import { useGatewayConnection } from './useGatewayConnection';
@@ -113,14 +114,33 @@ export function useMultiServerSocket() {
 
         case 'delta': {
           const runSession = useChatStore.getState().activeRuns[message.runId];
-          if (serverId === activeServerId && runSession) {
+          if (runSession && (serverId === activeServerId || message.runId === useAgentStore.getState().activeRunId)) {
             appendToLastMessage(runSession, message.content);
+            // Mark unread for agent if panel is closed
+            if (message.runId === useAgentStore.getState().activeRunId && !useAgentStore.getState().isExpanded) {
+              useAgentStore.getState().setHasUnread(true);
+            }
           }
           break;
         }
 
-        case 'run_started':
-          if (serverId === activeServerId && currentSessionId) {
+        case 'run_started': {
+          const isAgentRun = message.clientRequestId?.startsWith('agent_');
+          if (isAgentRun) {
+            const agentSessionId = useAgentStore.getState().agentSessionId;
+            if (agentSessionId) {
+              startRun(message.runId, agentSessionId);
+              useAgentStore.getState().setActiveRunId(message.runId);
+              useAgentStore.getState().setLoading(true);
+              addMessage(agentSessionId, {
+                id: message.runId,
+                sessionId: agentSessionId,
+                role: 'assistant',
+                content: '',
+                createdAt: Date.now()
+              });
+            }
+          } else if (serverId === activeServerId && currentSessionId) {
             startRun(message.runId, currentSessionId);
             clearSystemInfo();
             addMessage(currentSessionId, {
@@ -134,17 +154,25 @@ export function useMultiServerSocket() {
             useProjectStore.getState().setSessionActive(currentSessionId, true);
           }
           break;
+        }
 
         case 'run_completed': {
           const runSession = useChatStore.getState().activeRuns[message.runId];
-          if (serverId === activeServerId) {
+          // Clean up agent run state
+          if (message.runId === useAgentStore.getState().activeRunId) {
+            useAgentStore.getState().setActiveRunId(null);
+            useAgentStore.getState().setLoading(false);
+          }
+          if (serverId === activeServerId || runSession) {
             if (runSession) {
               finalizeToolCallsToMessage(message.runId);
               if (message.usage) {
                 addSessionUsage(runSession, message.usage);
               }
-              // Update session active status
-              useProjectStore.getState().setSessionActive(runSession, false);
+              // Update session active status (skip for agent sessions)
+              if (runSession !== useAgentStore.getState().agentSessionId) {
+                useProjectStore.getState().setSessionActive(runSession, false);
+              }
             }
             endRun(message.runId);
             useAskUserQuestionStore.getState().clearRequest();
@@ -154,11 +182,22 @@ export function useMultiServerSocket() {
 
         case 'run_failed': {
           const runSession = useChatStore.getState().activeRuns[message.runId];
-          if (serverId === activeServerId) {
+          // Clean up agent run state
+          if (message.runId === useAgentStore.getState().activeRunId) {
+            useAgentStore.getState().setActiveRunId(null);
+            useAgentStore.getState().setLoading(false);
+          }
+          if (serverId === activeServerId || runSession) {
             if (runSession) {
+              // Show error in the assistant message so user can see what went wrong
+              if (message.error) {
+                appendToLastMessage(runSession, `\n\n**Error:** ${message.error}`);
+              }
               finalizeToolCallsToMessage(message.runId);
-              // Update session active status
-              useProjectStore.getState().setSessionActive(runSession, false);
+              // Update session active status (skip for agent sessions)
+              if (runSession !== useAgentStore.getState().agentSessionId) {
+                useProjectStore.getState().setSessionActive(runSession, false);
+              }
             }
             endRun(message.runId);
             useAskUserQuestionStore.getState().clearRequest();
@@ -168,13 +207,13 @@ export function useMultiServerSocket() {
         }
 
         case 'tool_use':
-          if (serverId === activeServerId) {
+          if (serverId === activeServerId || message.runId === useAgentStore.getState().activeRunId) {
             addToolCall(message.runId, message.toolUseId, message.toolName, message.toolInput);
           }
           break;
 
         case 'tool_result':
-          if (serverId === activeServerId) {
+          if (serverId === activeServerId || message.runId === useAgentStore.getState().activeRunId) {
             updateToolCallResult(message.runId, message.toolUseId, message.result, message.isError);
           }
           break;
@@ -202,6 +241,19 @@ export function useMultiServerSocket() {
         case 'system_info':
           if (serverId === activeServerId) {
             setSystemInfo(message.systemInfo);
+          }
+          break;
+
+        case 'agent_permission_intercepted':
+          // Record interception in agent store (updates badge count)
+          useAgentStore.getState().recordInterception(
+            message.toolName,
+            message.decision,
+            message.sessionId
+          );
+          // If agent panel is closed, mark unread
+          if (!useAgentStore.getState().isExpanded) {
+            useAgentStore.getState().setHasUnread(true);
           }
           break;
 

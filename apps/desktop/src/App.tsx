@@ -4,6 +4,7 @@ import { ChatInterface } from './components/chat/ChatInterface';
 import { ServerSelector } from './components/ServerSelector';
 import { PermissionModal } from './components/permission/PermissionModal';
 import { AskUserQuestionModal } from './components/permission/AskUserQuestionModal';
+import { AgentWidget } from './components/agent/AgentWidget';
 import { ThemeProvider } from './contexts/ThemeContext';
 import { ConnectionProvider, useConnection } from './contexts/ConnectionContext';
 import { useDataLoader } from './hooks/useDataLoader';
@@ -178,6 +179,9 @@ function AppContent() {
         request={askUserRequest}
         onAnswer={handleAskUserAnswer}
       />
+
+      {/* Agent Widget */}
+      <AgentWidget />
     </div>
   );
 }

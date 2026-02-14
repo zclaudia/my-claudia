@@ -75,7 +75,7 @@ describe('command-scanner', () => {
 
       expect(result).toHaveLength(1);
       expect(result[0]).toEqual({
-        command: '/project:deploy',
+        command: '/deploy',
         description: 'Deploy project',
         source: 'custom',
         scope: 'project',

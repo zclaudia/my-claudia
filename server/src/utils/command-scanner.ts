@@ -17,7 +17,7 @@ import type { SlashCommand } from '@my-claudia/shared';
  *
  * The command name is derived from the filename:
  * - Global: review.md -> /review
- * - Project: fix-issue.md -> /project:fix-issue
+ * - Project: fix-issue.md -> /fix-issue
  * - Plugin: code-review.md from plugin "code-review" -> /code-review:code-review
  */
 
@@ -119,12 +119,9 @@ function scanDirectory(
       // Extract command name from filename
       const baseName = path.basename(file, '.md');
 
-      // Build command name based on scope
-      // Global: /review
-      // Project: /project:fix-issue
-      const commandName = scope === 'global'
-        ? `/${baseName}`
-        : `/project:${baseName}`;
+      // Command name: /<baseName> for both global and project scopes
+      // (matches Claude Code CLI behavior — project commands don't need a prefix)
+      const commandName = `/${baseName}`;
 
       // Read file content to extract description
       let description = 'Custom command';
@@ -269,12 +266,18 @@ export function scanCustomCommands(options: ScanOptions = {}): SlashCommand[] {
 
   // Scan global commands (~/.claude/commands)
   const globalDir = path.join(os.homedir(), '.claude', 'commands');
-  commands.push(...scanDirectory(globalDir, 'global'));
+  const globalCommands = scanDirectory(globalDir, 'global');
 
   // Scan project commands if projectRoot is provided
+  // Project commands take priority over global ones with the same name
   if (options.projectRoot) {
     const projectDir = path.join(options.projectRoot, '.claude', 'commands');
-    commands.push(...scanDirectory(projectDir, 'project'));
+    const projectCommands = scanDirectory(projectDir, 'project');
+    const projectNames = new Set(projectCommands.map(c => c.command));
+    commands.push(...projectCommands);
+    commands.push(...globalCommands.filter(c => !projectNames.has(c.command)));
+  } else {
+    commands.push(...globalCommands);
   }
 
   // Scan plugin commands

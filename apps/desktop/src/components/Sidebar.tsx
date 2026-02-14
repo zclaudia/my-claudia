@@ -31,6 +31,7 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
     addSession,
     deleteProject,
     deleteSession,
+    updateSession,
   } = useProjectStore();
 
   const { connectionStatus, setActiveServer } = useServerStore();
@@ -44,6 +45,8 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
   const [newSessionName, setNewSessionName] = useState('');
   const [contextMenuProject, setContextMenuProject] = useState<string | null>(null);
   const [contextMenuSession, setContextMenuSession] = useState<string | null>(null);
+  const [renamingSessionId, setRenamingSessionId] = useState<string | null>(null);
+  const [renameSessionValue, setRenameSessionValue] = useState('');
   const [settingsProjectId, setSettingsProjectId] = useState<string | null>(null);
   const [showSettings, setShowSettings] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -73,8 +76,8 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
     return grouped;
   }, [sessions]);
 
-  // Show all projects
-  const filteredProjects = projects;
+  // Show all projects except the internal agent project
+  const filteredProjects = projects.filter(p => p.name !== '_Agent Assistant');
 
   // Get sessions for a specific project
   const getFilteredSessionsForProject = useCallback((projectId: string) => {
@@ -158,6 +161,27 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
     } catch (error) {
       console.error('Failed to delete session:', error);
     }
+  };
+
+  const handleRenameSession = async (sessionId: string) => {
+    const newName = renameSessionValue.trim();
+    if (!newName || !isConnected) {
+      setRenamingSessionId(null);
+      return;
+    }
+    try {
+      await api.updateSession(sessionId, { name: newName });
+      updateSession(sessionId, { name: newName });
+    } catch (error) {
+      console.error('Failed to rename session:', error);
+    }
+    setRenamingSessionId(null);
+  };
+
+  const startRenamingSession = (sessionId: string, currentName: string) => {
+    setRenamingSessionId(sessionId);
+    setRenameSessionValue(currentName || '');
+    setContextMenuSession(null);
   };
 
   const handleExportSession = useCallback(async (sessionId: string) => {
@@ -595,20 +619,34 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
                           .map((session) => (
                             <li key={session.id} className="relative group" data-testid="session-item">
                               <div className="flex items-center">
-                                <button
-                                  onClick={() => {
-                                    selectSession(session.id);
-                                    // Auto-close sidebar on mobile
-                                    if (onClose) onClose();
-                                  }}
-                                  className={`flex-1 min-w-0 min-h-[44px] text-left px-2 rounded text-sm truncate flex items-center ${
-                                    selectedSessionId === session.id
-                                      ? 'bg-primary text-primary-foreground'
-                                      : 'text-muted-foreground hover:bg-secondary active:bg-secondary hover:text-foreground'
-                                  }`}
-                                >
-                                  {session.name || 'Untitled Session'}
-                                </button>
+                                {renamingSessionId === session.id ? (
+                                  <input
+                                    autoFocus
+                                    type="text"
+                                    value={renameSessionValue}
+                                    onChange={(e) => setRenameSessionValue(e.target.value)}
+                                    onKeyDown={(e) => {
+                                      if (e.key === 'Enter') handleRenameSession(session.id);
+                                      if (e.key === 'Escape') setRenamingSessionId(null);
+                                    }}
+                                    onBlur={() => handleRenameSession(session.id)}
+                                    className="flex-1 min-w-0 min-h-[44px] px-2 rounded text-sm bg-secondary border border-border text-foreground outline-none"
+                                  />
+                                ) : (
+                                  <button
+                                    onClick={() => {
+                                      selectSession(session.id);
+                                      if (onClose) onClose();
+                                    }}
+                                    className={`flex-1 min-w-0 min-h-[44px] text-left px-2 rounded text-sm truncate flex items-center ${
+                                      selectedSessionId === session.id
+                                        ? 'bg-primary text-primary-foreground'
+                                        : 'text-muted-foreground hover:bg-secondary active:bg-secondary hover:text-foreground'
+                                    }`}
+                                  >
+                                    {session.name || 'Untitled Session'}
+                                  </button>
+                                )}
                                 {/* Session menu button */}
                                 <button
                                   onClick={(e) => {
@@ -629,19 +667,23 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
                                   <div className="fixed inset-0 z-40" onClick={() => setContextMenuSession(null)} />
                                   <div className="absolute right-0 top-full mt-1 w-40 bg-popover border border-border rounded-lg shadow-lg z-50">
                                     <button
+                                      onClick={() => startRenamingSession(session.id, session.name || '')}
+                                      className="w-full text-left px-3 py-3 text-sm hover:bg-secondary active:bg-secondary"
+                                    >
+                                      Rename
+                                    </button>
+                                    <button
                                       onClick={() => handleExportSession(session.id)}
                                       className="w-full text-left px-3 py-3 text-sm hover:bg-secondary active:bg-secondary"
                                     >
                                       Export Markdown
                                     </button>
-                                    {(
-                                      <button
-                                        onClick={() => handleDeleteSession(session.id)}
-                                        className="w-full text-left px-3 py-3 text-sm text-destructive hover:bg-secondary active:bg-secondary"
-                                      >
-                                        Delete Session
-                                      </button>
-                                    )}
+                                    <button
+                                      onClick={() => handleDeleteSession(session.id)}
+                                      className="w-full text-left px-3 py-3 text-sm text-destructive hover:bg-secondary active:bg-secondary"
+                                    >
+                                      Delete Session
+                                    </button>
                                   </div>
                                 </>
                               )}
@@ -1102,20 +1144,34 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
                       .map((session) => (
                         <li key={session.id} className="relative group" data-testid="session-item">
                           <div className="flex items-center">
-                            <button
-                              onClick={() => {
-                                selectSession(session.id);
-                                // Auto-close sidebar on mobile
-                                if (isMobile && onClose) onClose();
-                              }}
-                              className={`flex-1 min-w-0 h-7 text-left px-2 rounded text-sm truncate flex items-center border border-transparent ${
-                                selectedSessionId === session.id
-                                  ? 'bg-primary text-primary-foreground'
-                                  : 'text-muted-foreground hover:bg-secondary hover:text-foreground'
-                              }`}
-                            >
-                              {session.name || 'Untitled Session'}
-                            </button>
+                            {renamingSessionId === session.id ? (
+                              <input
+                                autoFocus
+                                type="text"
+                                value={renameSessionValue}
+                                onChange={(e) => setRenameSessionValue(e.target.value)}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') handleRenameSession(session.id);
+                                  if (e.key === 'Escape') setRenamingSessionId(null);
+                                }}
+                                onBlur={() => handleRenameSession(session.id)}
+                                className="flex-1 min-w-0 h-7 px-2 rounded text-sm bg-secondary border border-border text-foreground outline-none"
+                              />
+                            ) : (
+                              <button
+                                onClick={() => {
+                                  selectSession(session.id);
+                                  if (isMobile && onClose) onClose();
+                                }}
+                                className={`flex-1 min-w-0 h-7 text-left px-2 rounded text-sm truncate flex items-center border border-transparent ${
+                                  selectedSessionId === session.id
+                                    ? 'bg-primary text-primary-foreground'
+                                    : 'text-muted-foreground hover:bg-secondary hover:text-foreground'
+                                }`}
+                              >
+                                {session.name || 'Untitled Session'}
+                              </button>
+                            )}
                             {/* Session menu button */}
                             <button
                               onClick={(e) => {
@@ -1136,19 +1192,23 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
                               <div className="fixed inset-0 z-40" onClick={() => setContextMenuSession(null)} />
                               <div className="absolute right-0 top-full mt-1 w-40 bg-popover border border-border rounded shadow-lg z-50">
                                 <button
+                                  onClick={() => startRenamingSession(session.id, session.name || '')}
+                                  className="w-full text-left px-3 py-1.5 text-sm hover:bg-secondary"
+                                >
+                                  Rename
+                                </button>
+                                <button
                                   onClick={() => handleExportSession(session.id)}
                                   className="w-full text-left px-3 py-1.5 text-sm hover:bg-secondary"
                                 >
                                   Export Markdown
                                 </button>
-                                {(
-                                  <button
-                                    onClick={() => handleDeleteSession(session.id)}
-                                    className="w-full text-left px-3 py-1.5 text-sm text-destructive hover:bg-secondary"
-                                  >
-                                    Delete Session
-                                  </button>
-                                )}
+                                <button
+                                  onClick={() => handleDeleteSession(session.id)}
+                                  className="w-full text-left px-3 py-1.5 text-sm text-destructive hover:bg-secondary"
+                                >
+                                  Delete Session
+                                </button>
                               </div>
                             </>
                           )}
