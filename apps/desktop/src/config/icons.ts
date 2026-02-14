@@ -105,14 +105,6 @@ export const ICONS = {
     default: '📄',
   },
 
-  // Permission mode icons - used in PermissionModeToggle
-  permissionModes: {
-    default: '🛡️',
-    plan: '📋',
-    acceptEdits: '✏️',
-    bypassPermissions: '⚡',
-  },
-
   // System info icons - used in SystemInfoButton and SystemInfoPanel
   systemInfo: {
     model: '🤖',
@@ -148,7 +140,6 @@ export const ICONS = {
 // Type exports for type-safe icon access
 export type ToolIconKey = keyof typeof ICONS.tools;
 export type FileTypeIconKey = keyof typeof ICONS.fileTypes;
-export type PermissionModeIconKey = keyof typeof ICONS.permissionModes;
 export type SystemInfoIconKey = keyof typeof ICONS.systemInfo;
 export type StatusIconKey = keyof typeof ICONS.status;
 export type MessageIconKey = keyof typeof ICONS.message;
@@ -164,10 +155,6 @@ export function getFileIcon(filename: string, isDirectory = false): string {
   }
   const ext = filename.toLowerCase().match(/\.[^.]+$/)?.[0] || '';
   return ICONS.fileTypes[ext as FileTypeIconKey] || ICONS.fileTypes.default;
-}
-
-export function getPermissionModeIcon(mode: string): string {
-  return ICONS.permissionModes[mode as PermissionModeIconKey] || ICONS.permissionModes.default;
 }
 
 export function getStatusIcon(status: string): string {

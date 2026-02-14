@@ -152,6 +152,8 @@ export function useGatewayConnection() {
             content: '',
             createdAt: Date.now()
           });
+          // Update session active status
+          useProjectStore.getState().setSessionActive(currentSessionId, true);
         }
         break;
 
@@ -163,6 +165,8 @@ export function useGatewayConnection() {
             if (msg.usage) {
               addSessionUsage(runSession, msg.usage);
             }
+            // Update session active status
+            useProjectStore.getState().setSessionActive(runSession, false);
           }
           endRun(msg.runId);
           useAskUserQuestionStore.getState().clearRequest();
@@ -175,6 +179,8 @@ export function useGatewayConnection() {
         if (serverId === currentActiveId) {
           if (runSession) {
             finalizeToolCallsToMessage(msg.runId);
+            // Update session active status
+            useProjectStore.getState().setSessionActive(runSession, false);
           }
           endRun(msg.runId);
           useAskUserQuestionStore.getState().clearRequest();

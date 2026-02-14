@@ -130,6 +130,8 @@ export function useMultiServerSocket() {
               content: '',
               createdAt: Date.now()
             });
+            // Update session active status
+            useProjectStore.getState().setSessionActive(currentSessionId, true);
           }
           break;
 
@@ -141,6 +143,8 @@ export function useMultiServerSocket() {
               if (message.usage) {
                 addSessionUsage(runSession, message.usage);
               }
+              // Update session active status
+              useProjectStore.getState().setSessionActive(runSession, false);
             }
             endRun(message.runId);
             useAskUserQuestionStore.getState().clearRequest();
@@ -153,6 +157,8 @@ export function useMultiServerSocket() {
           if (serverId === activeServerId) {
             if (runSession) {
               finalizeToolCallsToMessage(message.runId);
+              // Update session active status
+              useProjectStore.getState().setSessionActive(runSession, false);
             }
             endRun(message.runId);
             useAskUserQuestionStore.getState().clearRequest();

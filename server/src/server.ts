@@ -24,8 +24,9 @@ import { createCommandsRoutes } from './routes/commands.js';
 import { createGatewayRouter, type GatewayConfig, type GatewayStatus } from './routes/gateway.js';
 import { createServerRoutes } from './routes/servers.js';
 import { createImportRoutes } from './routes/import.js';
-import { runClaude, type PermissionDecision, type SystemInfo } from './providers/claude-sdk.js';
-import { runOpenCode, abortOpenCodeSession, openCodeServerManager } from './providers/opencode-sdk.js';
+import type { PermissionDecision, SystemInfo } from './providers/claude-sdk.js';
+import { openCodeServerManager } from './providers/opencode-sdk.js';
+import { providerRegistry } from './providers/registry.js';
 import { safeCompare } from './auth.js';
 import { extractAndIndexMetadata, removeIndexedMetadata } from './storage/metadata-extractor.js';
 
@@ -118,8 +119,9 @@ interface ActiveRun {
   clientId: string;
   client: ConnectedClient;      // Direct reference (works for both real WS and virtual gateway clients)
   abortController?: AbortController;
-  openCodeSessionId?: string;  // For aborting opencode runs
-  openCodeCwd?: string;        // cwd for opencode server lookup
+  providerType?: string;         // Provider type for this run (e.g. 'claude', 'opencode')
+  providerSessionId?: string;    // Provider session ID (for abort support)
+  providerCwd?: string;          // Provider cwd (for abort support)
   pendingPermissions: Map<string, {
     resolve: (decision: PermissionDecision) => void;
     timeout: NodeJS.Timeout | null;
@@ -549,10 +551,11 @@ function cancelRun(runId: string): void {
     });
     run.pendingPermissions.clear();
 
-    // Abort opencode session if applicable
-    if (run.openCodeSessionId && run.openCodeCwd) {
-      abortOpenCodeSession(run.openCodeCwd, run.openCodeSessionId).catch(err => {
-        console.error(`Failed to abort opencode session: ${err}`);
+    // Abort provider session if applicable
+    if (run.providerSessionId && run.providerCwd && run.providerType) {
+      const adapter = providerRegistry.get(run.providerType);
+      adapter?.abort?.(run.providerSessionId, run.providerCwd).catch(err => {
+        console.error(`Failed to abort provider session: ${err}`);
       });
     }
 
@@ -855,33 +858,27 @@ async function handleRunStart(
       });
     };
 
-    // Select provider runner based on type
+    // Select provider runner via registry
     // Resolve mode: prefer new unified `mode` field, fall back to legacy `permissionMode`
     const modeValue = message.mode || message.permissionMode || 'default';
     const providerType = providerConfig?.type || 'claude';
-    const providerRunner = providerType === 'opencode'
-      ? runOpenCode(processedInput, {
-          cwd,
-          sessionId: sdkSessionId,
-          cliPath: providerConfig?.cliPath,
-          env: providerConfig?.env,
-          model: message.model,
-          agent: modeValue,       // OpenCode: mode maps to agent
-        }, permissionCallback)
-      : runClaude(processedInput, {
-          cwd,
-          sessionId: sdkSessionId,
-          cliPath: providerConfig?.cliPath,
-          env: providerConfig?.env,
-          permissionMode: modeValue as 'default' | 'acceptEdits' | 'bypassPermissions' | 'plan',
-          model: message.model,
-        }, permissionCallback);
+    const adapter = providerRegistry.getOrDefault(providerType);
 
-    // Store opencode session info for abort support
-    if (providerType === 'opencode') {
-      activeRun.openCodeCwd = cwd;
-      // openCodeSessionId will be set when we receive the init message
-    }
+    const runOptions = {
+      cwd,
+      sessionId: sdkSessionId,
+      cliPath: providerConfig?.cliPath,
+      env: providerConfig?.env,
+      mode: modeValue,
+      model: message.model,
+    };
+
+    const providerRunner = adapter.run(processedInput, runOptions, permissionCallback);
+
+    // Store provider info for abort support
+    activeRun.providerType = providerType;
+    const runState = adapter.getRunState?.(runOptions) || {};
+    Object.assign(activeRun, runState);
 
     // Start periodic save for message persistence (survives cancel/disconnect)
     activeRun.saveInterval = setInterval(() => {
@@ -928,10 +925,8 @@ async function handleRunStart(
               UPDATE sessions SET sdk_session_id = ?, updated_at = ? WHERE id = ?
             `).run(sdkSessionId, Date.now(), message.sessionId);
 
-            // Store for opencode abort support
-            if (providerType === 'opencode') {
-              activeRun.openCodeSessionId = sdkSessionId;
-            }
+            // Store session ID for provider abort support
+            activeRun.providerSessionId = sdkSessionId;
 
             sendMessage(client.ws, {
               type: 'session_created',

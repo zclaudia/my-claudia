@@ -65,7 +65,7 @@ export function ModeSelector({ capabilities, value, onChange, disabled }: ModeSe
           }
         `}
       >
-        <ModeIcon />
+        {current.icon ? <span>{current.icon}</span> : <ModeIcon />}
         <span>{current.label}</span>
         <span className="text-[10px] text-muted-foreground">&#9662;</span>
       </button>
@@ -89,6 +89,7 @@ export function ModeSelector({ capabilities, value, onChange, disabled }: ModeSe
                 }
               `}
             >
+              {option.icon && <span className="text-sm">{option.icon}</span>}
               <div className="flex flex-col">
                 <span>{option.label}</span>
                 {option.description && (

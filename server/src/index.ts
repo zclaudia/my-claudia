@@ -6,6 +6,7 @@ import type { ServerMessage } from '@my-claudia/shared';
 import { initDatabase } from './storage/db.js';
 import type { GatewayConfig } from './routes/gateway.js';
 import { openCodeServerManager } from './providers/opencode-sdk.js';
+import { checkVersionCompatibility } from './providers/claude-sdk.js';
 
 const PORT = parseInt(process.env.PORT || '3100', 10);
 // Listen on 0.0.0.0 to allow connections from other devices on the network
@@ -175,6 +176,9 @@ async function main() {
     // Set gateway connector/disconnector implementations
     serverContext.setGatewayConnector(connectToGateway);
     serverContext.setGatewayDisconnector(disconnectFromGateway);
+
+    // Check SDK/CLI version compatibility (non-blocking)
+    checkVersionCompatibility().catch(() => {});
 
     server.listen(PORT, HOST, async () => {
       console.log(`🚀 My Claudia Server running at http://${HOST}:${PORT}`);

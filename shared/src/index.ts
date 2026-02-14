@@ -54,44 +54,39 @@ export interface SlashCommand {
   filePath?: string;      // For custom/plugin commands: path to the .md file
 }
 
-// Commands supported by each provider type
-export const PROVIDER_COMMANDS: Record<ProviderType, SlashCommand[]> = {
-  claude: [
-    // Session management
-    { command: '/compact', description: 'Compact conversation history', source: 'provider' },
-    { command: '/context', description: 'Show context usage', source: 'provider' },
-    { command: '/cost', description: 'Show token usage and cost', source: 'provider' },
-    { command: '/status', description: 'Show account and system info', source: 'provider' },
-    { command: '/export', description: 'Export conversation', source: 'provider' },
-    // Configuration
-    { command: '/config', description: 'Open Claude config', source: 'provider' },
-    { command: '/memory', description: 'Edit CLAUDE.md memory', source: 'provider' },
-    { command: '/init', description: 'Initialize project with CLAUDE.md', source: 'provider' },
-    { command: '/allowed-tools', description: 'Configure tool permissions', source: 'provider' },
-    { command: '/permissions', description: 'Review current permissions', source: 'provider' },
-    { command: '/hooks', description: 'Configure hooks', source: 'provider' },
-    // Account
-    { command: '/login', description: 'Login to Claude', source: 'provider' },
-    { command: '/logout', description: 'Logout from Claude', source: 'provider' },
-    // Tools & integrations
-    { command: '/doctor', description: 'Diagnose installation issues', source: 'provider' },
-    { command: '/mcp', description: 'Manage MCP servers', source: 'provider' },
-    { command: '/agents', description: 'Manage agents', source: 'provider' },
-    { command: '/plugin', description: 'Manage plugins', source: 'provider' },
-    { command: '/ide', description: 'Manage IDE integrations', source: 'provider' },
-    { command: '/shells', description: 'Manage background shells', source: 'provider' },
-    // Code workflow
-    { command: '/review', description: 'Request code review', source: 'provider' },
-    { command: '/pr-comments', description: 'View PR review comments', source: 'provider' },
-    // UI/UX
-    { command: '/vim', description: 'Toggle vim mode', source: 'provider' },
-    { command: '/terminal-setup', description: 'Setup terminal integration', source: 'provider' },
-    { command: '/install-github-app', description: 'Install GitHub App', source: 'provider' },
-  ],
-  opencode: [
-    // OpenCode handles its own commands internally via its TUI/server
-  ],
-};
+// Fallback Claude commands (used when CLI is not available for dynamic discovery)
+export const CLAUDE_FALLBACK_COMMANDS: SlashCommand[] = [
+  // Session management
+  { command: '/compact', description: 'Compact conversation history', source: 'provider' },
+  { command: '/context', description: 'Show context usage', source: 'provider' },
+  { command: '/cost', description: 'Show token usage and cost', source: 'provider' },
+  { command: '/status', description: 'Show account and system info', source: 'provider' },
+  { command: '/export', description: 'Export conversation', source: 'provider' },
+  // Configuration
+  { command: '/config', description: 'Open Claude config', source: 'provider' },
+  { command: '/memory', description: 'Edit CLAUDE.md memory', source: 'provider' },
+  { command: '/init', description: 'Initialize project with CLAUDE.md', source: 'provider' },
+  { command: '/allowed-tools', description: 'Configure tool permissions', source: 'provider' },
+  { command: '/permissions', description: 'Review current permissions', source: 'provider' },
+  { command: '/hooks', description: 'Configure hooks', source: 'provider' },
+  // Account
+  { command: '/login', description: 'Login to Claude', source: 'provider' },
+  { command: '/logout', description: 'Logout from Claude', source: 'provider' },
+  // Tools & integrations
+  { command: '/doctor', description: 'Diagnose installation issues', source: 'provider' },
+  { command: '/mcp', description: 'Manage MCP servers', source: 'provider' },
+  { command: '/agents', description: 'Manage agents', source: 'provider' },
+  { command: '/plugin', description: 'Manage plugins', source: 'provider' },
+  { command: '/ide', description: 'Manage IDE integrations', source: 'provider' },
+  { command: '/shells', description: 'Manage background shells', source: 'provider' },
+  // Code workflow
+  { command: '/review', description: 'Request code review', source: 'provider' },
+  { command: '/pr-comments', description: 'View PR review comments', source: 'provider' },
+  // UI/UX
+  { command: '/vim', description: 'Toggle vim mode', source: 'provider' },
+  { command: '/terminal-setup', description: 'Setup terminal integration', source: 'provider' },
+  { command: '/install-github-app', description: 'Install GitHub App', source: 'provider' },
+];
 
 // Local UI commands (always available, handled by frontend)
 export const LOCAL_COMMANDS: SlashCommand[] = [
@@ -147,6 +142,7 @@ export interface Session {
   sdkSessionId?: string;
   createdAt: number;
   updatedAt: number;
+  isActive?: boolean;  // Whether this session has an active AI request running
 }
 
 // ============================================

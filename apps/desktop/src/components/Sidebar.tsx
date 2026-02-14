@@ -4,9 +4,11 @@ import { useServerStore } from '../stores/serverStore';
 import { ProjectSettings } from './ProjectSettings';
 import { SettingsPanel } from './SettingsPanel';
 import { SearchFilters } from './SearchFilters';
-import { RemoteSessionsList } from './RemoteSessionsList';
+import { ActiveSessionsPanel } from './ActiveSessionsPanel';
 import * as api from '../services/api';
 import type { SearchResult, SearchHistoryEntry, SearchFilters as Filters } from '../services/api';
+import { filterSessions } from '../utils/filterHelpers';
+import type { FilterState } from '../types/filter';
 
 interface SidebarProps {
   collapsed: boolean;
@@ -31,7 +33,7 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
     deleteSession,
   } = useProjectStore();
 
-  const { connectionStatus } = useServerStore();
+  const { connectionStatus, setActiveServer } = useServerStore();
 
   const [expandedProjects, setExpandedProjects] = useState<Set<string>>(new Set());
   const [showNewProjectForm, setShowNewProjectForm] = useState(false);
@@ -70,6 +72,14 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
     });
     return grouped;
   }, [sessions]);
+
+  // Show all projects
+  const filteredProjects = projects;
+
+  // Get sessions for a specific project
+  const getFilteredSessionsForProject = useCallback((projectId: string) => {
+    return sessionsByProject.get(projectId) || [];
+  }, [sessionsByProject]);
 
   const toggleProject = (projectId: string) => {
     const newExpanded = new Set(expandedProjects);
@@ -486,9 +496,11 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
 
             {projects.length === 0 ? (
               <p className="text-sm text-muted-foreground px-2">No projects yet</p>
+            ) : filteredProjects.length === 0 ? (
+              <p className="text-sm text-muted-foreground px-2">No active sessions</p>
             ) : (
               <ul className="space-y-0.5">
-                {projects.map((project) => (
+                {filteredProjects.map((project) => (
                   <li key={project.id}>
                     <div className="flex items-center group relative">
                       <button
@@ -579,7 +591,7 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
                     {/* Sessions */}
                     {expandedProjects.has(project.id) && (
                       <ul className="ml-6 mt-1 space-y-1" data-testid="session-list">
-                        {(sessionsByProject.get(project.id) || [])
+                        {getFilteredSessionsForProject(project.id)
                           .map((session) => (
                             <li key={session.id} className="relative group" data-testid="session-item">
                               <div className="flex items-center">
@@ -681,14 +693,23 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
             )}
           </div>
 
-          {/* Remote Sessions */}
-          <RemoteSessionsList
-            onSessionSelect={(backendId, sessionId) => {
-              // TODO: Handle remote session selection
-              console.log(`Selected remote session: ${sessionId} on backend ${backendId}`);
-              if (onClose) onClose();
-            }}
-          />
+          {/* Active Sessions - Fixed at bottom */}
+          <div className="flex-shrink-0">
+            <ActiveSessionsPanel
+              onSessionSelect={(backendId, sessionId) => {
+                // Handle session selection - switch backend if needed, then select session
+                if (backendId === 'local' || backendId === '__local__') {
+                  // Local session - just select it
+                  selectSession(sessionId);
+                } else {
+                  // Remote session - switch to the backend first, then select session
+                  setActiveServer(`gateway:${backendId}`);
+                  selectSession(sessionId);
+                }
+                if (onClose) onClose();
+              }}
+            />
+          </div>
 
           {/* Settings Button */}
           <div className="border-t border-border p-2">
@@ -982,9 +1003,11 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
 
         {projects.length === 0 ? (
           <p className="text-sm text-muted-foreground px-2">No projects yet</p>
+        ) : filteredProjects.length === 0 ? (
+          <p className="text-sm text-muted-foreground px-2">No active sessions</p>
         ) : (
           <ul className="space-y-1">
-            {projects.map((project) => (
+            {filteredProjects.map((project) => (
               <li key={project.id}>
                 <div className="flex items-center group relative">
                   <button
@@ -1075,7 +1098,7 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
                 {/* Sessions */}
                 {expandedProjects.has(project.id) && (
                   <ul className="ml-6 mt-1 space-y-1" data-testid="session-list">
-                    {(sessionsByProject.get(project.id) || [])
+                    {getFilteredSessionsForProject(project.id)
                       .map((session) => (
                         <li key={session.id} className="relative group" data-testid="session-item">
                           <div className="flex items-center">
@@ -1177,13 +1200,22 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
         )}
       </div>
 
-      {/* Remote Sessions */}
-      <RemoteSessionsList
-        onSessionSelect={(backendId, sessionId) => {
-          // TODO: Handle remote session selection
-          console.log(`Selected remote session: ${sessionId} on backend ${backendId}`);
-        }}
-      />
+      {/* Active Sessions - Fixed at bottom */}
+      <div className="flex-shrink-0">
+        <ActiveSessionsPanel
+          onSessionSelect={(backendId, sessionId) => {
+            // Handle session selection - switch backend if needed, then select session
+            if (backendId === 'local' || backendId === '__local__') {
+              // Local session - just select it
+              selectSession(sessionId);
+            } else {
+              // Remote session - switch to the backend first, then select session
+              setActiveServer(`gateway:${backendId}`);
+              selectSession(sessionId);
+            }
+          }}
+        />
+      </div>
 
       {/* Settings Button */}
       <div className="border-t border-border p-2">

@@ -5,9 +5,10 @@ import path from 'path';
 import os from 'os';
 import type Database from 'better-sqlite3';
 import type { ProviderConfig, ApiResponse, SlashCommand, ProviderCapabilities, ModeOption, ModelOption } from '@my-claudia/shared';
-import { LOCAL_COMMANDS, CLI_COMMANDS, PROVIDER_COMMANDS } from '@my-claudia/shared';
+import { LOCAL_COMMANDS, CLI_COMMANDS, CLAUDE_FALLBACK_COMMANDS } from '@my-claudia/shared';
 import { scanCustomCommands } from '../utils/command-scanner.js';
 import { openCodeServerManager } from '../providers/opencode-sdk.js';
+import { fetchClaudeModels, fetchClaudeCommands } from '../providers/claude-sdk.js';
 
 // Database row type (different from ProviderConfig due to SQLite types)
 interface ProviderRow {
@@ -402,7 +403,34 @@ export function createProviderRoutes(db: Database.Database): Router {
 // Provider Capabilities Helpers
 // ============================================
 
-function getClaudeCapabilities(): ProviderCapabilities {
+async function getClaudeCapabilities(
+  cliPath?: string,
+  env?: Record<string, string>
+): Promise<ProviderCapabilities> {
+  const fallbackModels: ModelOption[] = [
+    { id: '', label: 'Default' },
+    { id: 'claude-opus-4-6', label: 'Opus 4.6' },
+    { id: 'claude-sonnet-4-5-20250929', label: 'Sonnet 4.5' },
+    { id: 'claude-haiku-4-5-20251001', label: 'Haiku 4.5' },
+  ];
+
+  let models: ModelOption[] = fallbackModels;
+
+  try {
+    const modelInfos = await fetchClaudeModels(cliPath, env);
+    if (modelInfos.length > 0) {
+      models = [
+        { id: '', label: 'Default' },
+        ...modelInfos.map(m => ({
+          id: m.value,
+          label: m.description || m.displayName,
+        })),
+      ];
+    }
+  } catch (error) {
+    console.error('[Capabilities] Failed to fetch Claude models, using fallback:', error);
+  }
+
   return {
     modeLabel: 'Mode',
     defaultModeId: 'default',
@@ -412,12 +440,7 @@ function getClaudeCapabilities(): ProviderCapabilities {
       { id: 'acceptEdits', label: 'Auto-Edit', icon: '✏️', description: 'Auto-approve file edits only' },
       { id: 'bypassPermissions', label: 'Bypass', icon: '⚡', description: 'Skip all permission checks (use with caution)' },
     ],
-    models: [
-      { id: '', label: 'Default' },
-      { id: 'claude-opus-4-6', label: 'Opus' },
-      { id: 'claude-sonnet-4-5-20250929', label: 'Sonnet' },
-      { id: 'claude-haiku-4-5-20251001', label: 'Haiku' },
-    ],
+    models,
   };
 }
 
@@ -598,7 +621,7 @@ async function getProviderCapabilities(
       return getOpenCodeCapabilities(cliPath, env);
     case 'claude':
     default:
-      return getClaudeCapabilities();
+      return getClaudeCapabilities(cliPath, env);
   }
 }
 
@@ -639,6 +662,25 @@ async function getOpenCodeCommands(
   }
 }
 
+async function getClaudeCommands(
+  cliPath?: string,
+  env?: Record<string, string>
+): Promise<SlashCommand[]> {
+  try {
+    const sdkCommands = await fetchClaudeCommands(cliPath, env);
+    if (sdkCommands.length > 0) {
+      return sdkCommands.map(cmd => ({
+        command: cmd.name.startsWith('/') ? cmd.name : `/${cmd.name}`,
+        description: cmd.description,
+        source: 'provider' as const,
+      }));
+    }
+  } catch (error) {
+    console.error('[Commands] Failed to fetch Claude commands, using fallback:', error);
+  }
+  return CLAUDE_FALLBACK_COMMANDS;
+}
+
 async function getProviderCommands(
   providerType: string,
   cliPath?: string,
@@ -648,7 +690,7 @@ async function getProviderCommands(
     case 'opencode':
       return getOpenCodeCommands(cliPath, env);
     case 'claude':
-      return PROVIDER_COMMANDS.claude || [];
+      return getClaudeCommands(cliPath, env);
     default:
       return [];
   }

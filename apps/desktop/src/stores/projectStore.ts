@@ -20,6 +20,7 @@ interface ProjectState {
   addSession: (session: Session) => void;
   updateSession: (id: string, updates: Partial<Session>) => void;
   deleteSession: (id: string) => void;
+  setSessionActive: (sessionId: string, isActive: boolean) => void;
 
   setProviders: (providers: ProviderConfig[]) => void;
 
@@ -81,6 +82,13 @@ export const useProjectStore = create<ProjectState>((set) => ({
       sessions: state.sessions.filter((s) => s.id !== id),
       selectedSessionId:
         state.selectedSessionId === id ? null : state.selectedSessionId,
+    })),
+
+  setSessionActive: (sessionId, isActive) =>
+    set((state) => ({
+      sessions: state.sessions.map((s) =>
+        s.id === sessionId ? { ...s, isActive } : s
+      ),
     })),
 
   setProviders: (providers) => set({ providers }),
