@@ -47,6 +47,16 @@ All responses are JSON with the format: { "success": boolean, "data": ... } or {
 - \`GET ${baseUrl}/api/servers\` — List backend servers
 - \`POST ${baseUrl}/api/servers\` — Add server. Body: { "name": "...", "address": "..." }
 
+### Supervisions (Auto-supervision)
+- \`POST ${baseUrl}/api/supervisions\` — Create supervision. Body: { "sessionId": "...", "goal": "...", "subtasks": ["task1",...], "maxIterations": 10 }
+- \`GET ${baseUrl}/api/supervisions\` — List all supervisions
+- \`GET ${baseUrl}/api/supervisions/session/:sessionId\` — Get active supervision for a session
+- \`GET ${baseUrl}/api/supervisions/:id\` — Get supervision by ID
+- \`GET ${baseUrl}/api/supervisions/:id/logs\` — Get supervision logs
+- \`POST ${baseUrl}/api/supervisions/:id/pause\` — Pause supervision
+- \`POST ${baseUrl}/api/supervisions/:id/resume\` — Resume. Optional body: { "maxIterations": 20 }
+- \`POST ${baseUrl}/api/supervisions/:id/cancel\` — Cancel supervision
+
 ### Files
 - \`GET ${baseUrl}/api/files/list?projectRoot=/path&relativePath=src\` — List directory contents
 - \`GET ${baseUrl}/api/files/content?projectRoot=/path&relativePath=file.ts\` — Read file content

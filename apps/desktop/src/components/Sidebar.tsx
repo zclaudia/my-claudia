@@ -1,10 +1,13 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { useProjectStore } from '../stores/projectStore';
 import { useServerStore } from '../stores/serverStore';
+import { useSupervisionStore } from '../stores/supervisionStore';
 import { ProjectSettings } from './ProjectSettings';
 import { SettingsPanel } from './SettingsPanel';
 import { SearchFilters } from './SearchFilters';
 import { ActiveSessionsPanel } from './ActiveSessionsPanel';
+import { ArchivedSessionsDialog } from './ArchivedSessionsDialog';
+import { SuperviseDialog } from './SuperviseDialog';
 import * as api from '../services/api';
 import type { SearchResult, SearchHistoryEntry, SearchFilters as Filters } from '../services/api';
 import { filterSessions } from '../utils/filterHelpers';
@@ -35,6 +38,7 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
   } = useProjectStore();
 
   const { connectionStatus, setActiveServer } = useServerStore();
+  const supervisions = useSupervisionStore((s) => s.supervisions);
 
   const [expandedProjects, setExpandedProjects] = useState<Set<string>>(new Set());
   const [showNewProjectForm, setShowNewProjectForm] = useState(false);
@@ -56,6 +60,8 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
   const [showSearchHistory, setShowSearchHistory] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
   const [searchFilters, setSearchFilters] = useState<Filters>({});
+  const [showArchivedDialog, setShowArchivedDialog] = useState(false);
+  const [superviseSessionId, setSuperviseSessionId] = useState<string | null>(null);
   const [searchOffset, setSearchOffset] = useState(0);
   const [hasMoreResults, setHasMoreResults] = useState(false);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
@@ -151,15 +157,15 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
     }
   };
 
-  const handleDeleteSession = async (sessionId: string) => {
+  const handleArchiveSession = async (sessionId: string) => {
     if (!isConnected) return;
 
     try {
-      await api.deleteSession(sessionId);
-      deleteSession(sessionId);
+      await api.archiveSessions([sessionId]);
+      deleteSession(sessionId);  // Remove from store (reuse existing action)
       setContextMenuSession(null);
     } catch (error) {
-      console.error('Failed to delete session:', error);
+      console.error('Failed to archive session:', error);
     }
   };
 
@@ -679,10 +685,10 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
                                       Export Markdown
                                     </button>
                                     <button
-                                      onClick={() => handleDeleteSession(session.id)}
-                                      className="w-full text-left px-3 py-3 text-sm text-destructive hover:bg-secondary active:bg-secondary"
+                                      onClick={() => handleArchiveSession(session.id)}
+                                      className="w-full text-left px-3 py-3 text-sm hover:bg-secondary active:bg-secondary"
                                     >
-                                      Delete Session
+                                      Archive
                                     </button>
                                   </div>
                                 </>
@@ -735,8 +741,17 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
             )}
           </div>
 
-          {/* Active Sessions - Fixed at bottom */}
+          {/* Archived Sessions entry + Active Sessions - Fixed at bottom */}
           <div className="flex-shrink-0">
+            <button
+              onClick={() => setShowArchivedDialog(true)}
+              className="w-full px-4 py-2 text-sm text-muted-foreground hover:text-foreground hover:bg-secondary flex items-center gap-2"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" />
+              </svg>
+              Archived Sessions
+            </button>
             <ActiveSessionsPanel
               onSessionSelect={(backendId, sessionId) => {
                 // Handle session selection - switch backend if needed, then select session
@@ -1163,13 +1178,25 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
                                   selectSession(session.id);
                                   if (isMobile && onClose) onClose();
                                 }}
-                                className={`flex-1 min-w-0 h-7 text-left px-2 rounded text-sm truncate flex items-center border border-transparent ${
+                                className={`flex-1 min-w-0 h-7 text-left px-2 rounded text-sm truncate flex items-center gap-1 border border-transparent ${
                                   selectedSessionId === session.id
                                     ? 'bg-primary text-primary-foreground'
                                     : 'text-muted-foreground hover:bg-secondary hover:text-foreground'
                                 }`}
                               >
-                                {session.name || 'Untitled Session'}
+                                <span className="truncate">{session.name || 'Untitled Session'}</span>
+                                {supervisions[session.id] && (
+                                  <span
+                                    className={`ml-auto w-2 h-2 rounded-full shrink-0 ${
+                                      supervisions[session.id].status === 'active'
+                                        ? 'bg-green-500 animate-pulse'
+                                        : supervisions[session.id].status === 'paused'
+                                          ? 'bg-yellow-500'
+                                          : ''
+                                    }`}
+                                    title={`Supervised: ${supervisions[session.id].goal} (${supervisions[session.id].currentIteration}/${supervisions[session.id].maxIterations})`}
+                                  />
+                                )}
                               </button>
                             )}
                             {/* Session menu button */}
@@ -1190,7 +1217,7 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
                           {contextMenuSession === session.id && (
                             <>
                               <div className="fixed inset-0 z-40" onClick={() => setContextMenuSession(null)} />
-                              <div className="absolute right-0 top-full mt-1 w-40 bg-popover border border-border rounded shadow-lg z-50">
+                              <div className="absolute right-0 top-full mt-1 w-44 bg-popover border border-border rounded shadow-lg z-50">
                                 <button
                                   onClick={() => startRenamingSession(session.id, session.name || '')}
                                   className="w-full text-left px-3 py-1.5 text-sm hover:bg-secondary"
@@ -1203,11 +1230,58 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
                                 >
                                   Export Markdown
                                 </button>
+                                {/* Supervision actions */}
+                                {!supervisions[session.id] || ['completed', 'failed', 'cancelled'].includes(supervisions[session.id].status) ? (
+                                  <button
+                                    onClick={() => {
+                                      setSuperviseSessionId(session.id);
+                                      setContextMenuSession(null);
+                                    }}
+                                    disabled={!isConnected}
+                                    className="w-full text-left px-3 py-1.5 text-sm hover:bg-secondary disabled:opacity-50"
+                                  >
+                                    Supervise
+                                  </button>
+                                ) : (
+                                  <>
+                                    {supervisions[session.id].status === 'active' && (
+                                      <button
+                                        onClick={async () => {
+                                          await api.pauseSupervision(supervisions[session.id].id);
+                                          setContextMenuSession(null);
+                                        }}
+                                        className="w-full text-left px-3 py-1.5 text-sm hover:bg-secondary"
+                                      >
+                                        Pause Supervision
+                                      </button>
+                                    )}
+                                    {supervisions[session.id].status === 'paused' && (
+                                      <button
+                                        onClick={async () => {
+                                          await api.resumeSupervision(supervisions[session.id].id);
+                                          setContextMenuSession(null);
+                                        }}
+                                        className="w-full text-left px-3 py-1.5 text-sm hover:bg-secondary"
+                                      >
+                                        Resume Supervision
+                                      </button>
+                                    )}
+                                    <button
+                                      onClick={async () => {
+                                        await api.cancelSupervision(supervisions[session.id].id);
+                                        setContextMenuSession(null);
+                                      }}
+                                      className="w-full text-left px-3 py-1.5 text-sm text-destructive hover:bg-secondary"
+                                    >
+                                      Cancel Supervision
+                                    </button>
+                                  </>
+                                )}
                                 <button
-                                  onClick={() => handleDeleteSession(session.id)}
-                                  className="w-full text-left px-3 py-1.5 text-sm text-destructive hover:bg-secondary"
+                                  onClick={() => handleArchiveSession(session.id)}
+                                  className="w-full text-left px-3 py-1.5 text-sm hover:bg-secondary"
                                 >
-                                  Delete Session
+                                  Archive
                                 </button>
                               </div>
                             </>
@@ -1321,6 +1395,17 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
       />
       </>
     )}
+
+    <ArchivedSessionsDialog
+      isOpen={showArchivedDialog}
+      onClose={() => setShowArchivedDialog(false)}
+    />
+
+    <SuperviseDialog
+      sessionId={superviseSessionId}
+      isOpen={!!superviseSessionId}
+      onClose={() => setSuperviseSessionId(null)}
+    />
     </div>
   );
 }

@@ -267,8 +267,8 @@ describe('claude-sdk', () => {
         options: expect.objectContaining({
           cwd: '/my-project',
           resume: 'resume-session-123',
-          cli_path: '/custom/claude',
-          env: { API_KEY: 'secret' },
+          pathToClaudeCodeExecutable: '/custom/claude',
+          env: expect.objectContaining({ API_KEY: 'secret' }),
         })
       });
     });
@@ -351,8 +351,8 @@ describe('claude-sdk', () => {
         prompt: 'Hello',
         options: expect.objectContaining({
           cwd: '/project',
-          cli_path: '/custom/claude-cli',
-          env: { ANTHROPIC_API_KEY: 'test-key' },
+          pathToClaudeCodeExecutable: '/custom/claude-cli',
+          env: expect.objectContaining({ ANTHROPIC_API_KEY: 'test-key' }),
         })
       });
     });

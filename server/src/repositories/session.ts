@@ -33,7 +33,8 @@ export class SessionRepository extends BaseRepository<
       type: row.type || 'regular',
       parentSessionId: row.parent_session_id || undefined,
       createdAt: row.created_at,
-      updatedAt: row.updated_at
+      updatedAt: row.updated_at,
+      archivedAt: row.archived_at || undefined
     };
   }
 
@@ -94,6 +95,10 @@ export class SessionRepository extends BaseRepository<
     if (data.parentSessionId !== undefined) {
       updates.push('parent_session_id = ?');
       params.push(data.parentSessionId);
+    }
+    if (data.archivedAt !== undefined) {
+      updates.push('archived_at = ?');
+      params.push(data.archivedAt || null);
     }
 
     // Always update timestamp

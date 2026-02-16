@@ -36,6 +36,7 @@ vi.mock('../../stores/serverStore', () => ({
         name: 'Test Server',
         address: 'localhost:3100',
       }),
+      activeServerSupports: () => true,
     }),
   },
 }));
@@ -59,7 +60,7 @@ vi.stubGlobal('fetch', mockFetch);
 
 describe('api', () => {
   beforeEach(() => {
-    vi.clearAllMocks();
+    vi.resetAllMocks();
   });
 
   // Helper to setup fetch mock response

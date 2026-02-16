@@ -22,6 +22,7 @@ describe('Gateway API Integration Tests', () => {
         gateway_secret TEXT,
         backend_name TEXT,
         backend_id TEXT,
+        register_as_backend INTEGER NOT NULL DEFAULT 1,
         proxy_url TEXT,
         proxy_username TEXT,
         proxy_password TEXT,

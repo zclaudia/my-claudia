@@ -241,6 +241,34 @@ export async function deleteSession(id: string): Promise<void> {
   }
 }
 
+export async function archiveSessions(sessionIds: string[]): Promise<void> {
+  const result = await fetchApi<void>('/api/sessions/archive', {
+    method: 'POST',
+    body: JSON.stringify({ sessionIds })
+  });
+  if (!result.success) {
+    throw new Error(result.error?.message || 'Failed to archive sessions');
+  }
+}
+
+export async function restoreSessions(sessionIds: string[]): Promise<void> {
+  const result = await fetchApi<void>('/api/sessions/restore', {
+    method: 'POST',
+    body: JSON.stringify({ sessionIds })
+  });
+  if (!result.success) {
+    throw new Error(result.error?.message || 'Failed to restore sessions');
+  }
+}
+
+export async function getArchivedSessions(): Promise<Session[]> {
+  const result = await fetchApi<Session[]>('/api/sessions/archived');
+  if (!result.success || !result.data) {
+    throw new Error(result.error?.message || 'Failed to fetch archived sessions');
+  }
+  return result.data;
+}
+
 interface PaginationInfo {
   total: number;
   hasMore: boolean;
@@ -736,4 +764,96 @@ export async function updateAgentConfig(config: {
   if (!result.success) {
     throw new Error(result.error?.message || 'Failed to update agent config');
   }
+}
+
+// ============================================
+// Supervisions API — routes to active server
+// ============================================
+
+import type { Supervision, SupervisionLog } from '@my-claudia/shared';
+
+export async function planSupervision(data: {
+  sessionId: string;
+  hint?: string;
+}): Promise<{ goal: string; subtasks: string[]; estimatedIterations: number }> {
+  const result = await fetchApi<{ goal: string; subtasks: string[]; estimatedIterations: number }>('/api/supervisions/plan', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+  if (!result.success || !result.data) {
+    throw new Error(result.error?.message || 'Failed to plan supervision');
+  }
+  return result.data;
+}
+
+export async function createSupervision(data: {
+  sessionId: string;
+  goal: string;
+  subtasks?: string[];
+  maxIterations?: number;
+  cooldownSeconds?: number;
+}): Promise<Supervision> {
+  const result = await fetchApi<Supervision>('/api/supervisions', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+  if (!result.success || !result.data) {
+    throw new Error(result.error?.message || 'Failed to create supervision');
+  }
+  return result.data;
+}
+
+export async function getSupervisions(): Promise<Supervision[]> {
+  const result = await fetchApi<Supervision[]>('/api/supervisions');
+  if (!result.success || !result.data) {
+    throw new Error(result.error?.message || 'Failed to fetch supervisions');
+  }
+  return result.data;
+}
+
+export async function getSupervisionBySession(sessionId: string): Promise<Supervision | null> {
+  const result = await fetchApi<Supervision | null>(`/api/supervisions/session/${sessionId}`);
+  if (!result.success) {
+    throw new Error(result.error?.message || 'Failed to get supervision');
+  }
+  return result.data ?? null;
+}
+
+export async function getSupervisionLogs(id: string): Promise<SupervisionLog[]> {
+  const result = await fetchApi<SupervisionLog[]>(`/api/supervisions/${id}/logs`);
+  if (!result.success || !result.data) {
+    throw new Error(result.error?.message || 'Failed to get supervision logs');
+  }
+  return result.data;
+}
+
+export async function pauseSupervision(id: string): Promise<Supervision> {
+  const result = await fetchApi<Supervision>(`/api/supervisions/${id}/pause`, {
+    method: 'POST',
+  });
+  if (!result.success || !result.data) {
+    throw new Error(result.error?.message || 'Failed to pause supervision');
+  }
+  return result.data;
+}
+
+export async function resumeSupervision(id: string, options?: { maxIterations?: number }): Promise<Supervision> {
+  const result = await fetchApi<Supervision>(`/api/supervisions/${id}/resume`, {
+    method: 'POST',
+    body: JSON.stringify(options || {}),
+  });
+  if (!result.success || !result.data) {
+    throw new Error(result.error?.message || 'Failed to resume supervision');
+  }
+  return result.data;
+}
+
+export async function cancelSupervision(id: string): Promise<Supervision> {
+  const result = await fetchApi<Supervision>(`/api/supervisions/${id}/cancel`, {
+    method: 'POST',
+  });
+  if (!result.success || !result.data) {
+    throw new Error(result.error?.message || 'Failed to cancel supervision');
+  }
+  return result.data;
 }

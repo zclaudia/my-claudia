@@ -25,6 +25,9 @@ function createTestDb(): Database.Database {
       name TEXT,
       provider_id TEXT,
       sdk_session_id TEXT,
+      type TEXT DEFAULT 'regular',
+      parent_session_id TEXT,
+      archived_at INTEGER,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL,
       FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
@@ -47,7 +50,8 @@ function createTestDb(): Database.Database {
 function createTestApp(db: Database.Database) {
   const app = express();
   app.use(express.json());
-  app.use('/api/sessions', createSessionRoutes(db));
+  const activeRuns = new Map<string, any>();
+  app.use('/api/sessions', createSessionRoutes(db, activeRuns));
   return app;
 }
 

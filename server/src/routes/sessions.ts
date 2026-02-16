@@ -11,28 +11,34 @@ type ActiveRunsMap = Map<string, any>;
 export function createSessionRoutes(db: Database.Database, activeRuns: ActiveRunsMap): Router {
   const router = Router();
 
-  // Get all sessions (optionally filtered by project)
+  // Get all sessions (optionally filtered by project, excludes archived by default)
   router.get('/', (req: Request, res: Response) => {
     try {
-      const { projectId } = req.query;
+      const { projectId, includeArchived } = req.query;
 
-      let query = `
-        SELECT id, project_id as projectId, name, provider_id as providerId,
-               sdk_session_id as sdkSessionId, type, parent_session_id as parentSessionId,
-               created_at as createdAt, updated_at as updatedAt
-        FROM sessions
-      `;
-
+      const conditions: string[] = [];
       const params: string[] = [];
 
       if (projectId) {
-        query += ' WHERE project_id = ?';
+        conditions.push('project_id = ?');
         params.push(projectId as string);
       }
 
-      query += ' ORDER BY updated_at DESC';
+      if (includeArchived !== 'true') {
+        conditions.push('archived_at IS NULL');
+      }
 
-      const sessions = db.prepare(query).all(...params) as Session[];
+      const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+
+      const sessions = db.prepare(`
+        SELECT id, project_id as projectId, name, provider_id as providerId,
+               sdk_session_id as sdkSessionId, type, parent_session_id as parentSessionId,
+               archived_at as archivedAt,
+               created_at as createdAt, updated_at as updatedAt
+        FROM sessions
+        ${where}
+        ORDER BY updated_at DESC
+      `).all(...params) as Session[];
 
       res.json({ success: true, data: sessions } as ApiResponse<Session[]>);
     } catch (error) {
@@ -44,12 +50,187 @@ export function createSessionRoutes(db: Database.Database, activeRuns: ActiveRun
     }
   });
 
+  // Get archived sessions
+  router.get('/archived', (req: Request, res: Response) => {
+    try {
+      const sessions = db.prepare(`
+        SELECT id, project_id as projectId, name, provider_id as providerId,
+               sdk_session_id as sdkSessionId, type, parent_session_id as parentSessionId,
+               archived_at as archivedAt,
+               created_at as createdAt, updated_at as updatedAt
+        FROM sessions
+        WHERE archived_at IS NOT NULL
+        ORDER BY archived_at DESC
+      `).all() as Session[];
+
+      res.json({ success: true, data: sessions } as ApiResponse<Session[]>);
+    } catch (error) {
+      console.error('Error fetching archived sessions:', error);
+      res.status(500).json({
+        success: false,
+        error: { code: 'DB_ERROR', message: 'Failed to fetch archived sessions' }
+      });
+    }
+  });
+
+  // Archive sessions (single or batch)
+  router.post('/archive', (req: Request, res: Response) => {
+    try {
+      const { sessionIds } = req.body;
+
+      if (!sessionIds || !Array.isArray(sessionIds) || sessionIds.length === 0) {
+        res.status(400).json({
+          success: false,
+          error: { code: 'VALIDATION_ERROR', message: 'sessionIds array is required' }
+        });
+        return;
+      }
+
+      const now = Date.now();
+      const stmt = db.prepare('UPDATE sessions SET archived_at = ?, updated_at = ? WHERE id = ?');
+      const transaction = db.transaction(() => {
+        for (const id of sessionIds) {
+          stmt.run(now, now, id);
+        }
+      });
+      transaction();
+
+      // Broadcast archive events
+      const gatewayClient = getGatewayClient();
+      if (gatewayClient) {
+        for (const id of sessionIds) {
+          const session = db.prepare(`
+            SELECT id, project_id as projectId, name, provider_id as providerId,
+                   archived_at as archivedAt, created_at as createdAt, updated_at as updatedAt
+            FROM sessions WHERE id = ?
+          `).get(id) as Session | undefined;
+          if (session) {
+            gatewayClient.broadcastSessionEvent('updated', session);
+          }
+        }
+      }
+
+      res.json({ success: true, data: { archived: sessionIds.length } } as ApiResponse<{ archived: number }>);
+    } catch (error) {
+      console.error('Error archiving sessions:', error);
+      res.status(500).json({
+        success: false,
+        error: { code: 'DB_ERROR', message: 'Failed to archive sessions' }
+      });
+    }
+  });
+
+  // Restore archived sessions (single or batch)
+  router.post('/restore', (req: Request, res: Response) => {
+    try {
+      const { sessionIds } = req.body;
+
+      if (!sessionIds || !Array.isArray(sessionIds) || sessionIds.length === 0) {
+        res.status(400).json({
+          success: false,
+          error: { code: 'VALIDATION_ERROR', message: 'sessionIds array is required' }
+        });
+        return;
+      }
+
+      const now = Date.now();
+      const stmt = db.prepare('UPDATE sessions SET archived_at = NULL, updated_at = ? WHERE id = ?');
+      const transaction = db.transaction(() => {
+        for (const id of sessionIds) {
+          stmt.run(now, id);
+        }
+      });
+      transaction();
+
+      // Broadcast restore events
+      const gatewayClient = getGatewayClient();
+      if (gatewayClient) {
+        for (const id of sessionIds) {
+          const session = db.prepare(`
+            SELECT id, project_id as projectId, name, provider_id as providerId,
+                   archived_at as archivedAt, created_at as createdAt, updated_at as updatedAt
+            FROM sessions WHERE id = ?
+          `).get(id) as Session | undefined;
+          if (session) {
+            gatewayClient.broadcastSessionEvent('updated', session);
+          }
+        }
+      }
+
+      res.json({ success: true, data: { restored: sessionIds.length } } as ApiResponse<{ restored: number }>);
+    } catch (error) {
+      console.error('Error restoring sessions:', error);
+      res.status(500).json({
+        success: false,
+        error: { code: 'DB_ERROR', message: 'Failed to restore sessions' }
+      });
+    }
+  });
+
+  // Sync sessions (for periodic client sync as fallback to WebSocket push)
+  router.get('/sync', (req: Request, res: Response) => {
+    try {
+      const { since } = req.query;
+      const sinceTimestamp = since ? parseInt(since as string, 10) : 0;
+
+      if (isNaN(sinceTimestamp) || sinceTimestamp < 0) {
+        res.status(400).json({
+          success: false,
+          error: { code: 'VALIDATION_ERROR', message: 'Invalid since parameter' }
+        });
+        return;
+      }
+
+      // Get all non-archived sessions updated after the given timestamp
+      const sessions = db.prepare(`
+        SELECT id, project_id as projectId, name, provider_id as providerId,
+               archived_at as archivedAt,
+               created_at as createdAt, updated_at as updatedAt
+        FROM sessions
+        WHERE updated_at > ? AND archived_at IS NULL
+        ORDER BY updated_at DESC
+      `).all(sinceTimestamp) as Session[];
+
+      // Attach isActive status based on activeRuns
+      const sessionsWithStatus = sessions.map(session => ({
+        id: session.id,
+        projectId: session.projectId,
+        name: session.name,
+        providerId: session.providerId,
+        createdAt: session.createdAt,
+        updatedAt: session.updatedAt,
+        isActive: activeRuns.has(session.id)
+      }));
+
+      // Return sessions with current server timestamp
+      res.json({
+        success: true,
+        data: {
+          sessions: sessionsWithStatus,
+          timestamp: Date.now(),  // Client uses this for next sync
+          total: sessionsWithStatus.length
+        }
+      } as ApiResponse<{
+        sessions: Array<Session & { isActive: boolean }>;
+        timestamp: number;
+        total: number;
+      }>);
+    } catch (error) {
+      console.error('Error syncing sessions:', error);
+      res.status(500).json({
+        success: false,
+        error: { code: 'SYNC_ERROR', message: 'Failed to sync sessions' }
+      });
+    }
+  });
+
   // Get single session
   router.get('/:id', (req: Request, res: Response) => {
     try {
       const session = db.prepare(`
         SELECT id, project_id as projectId, name, provider_id as providerId,
                sdk_session_id as sdkSessionId, type, parent_session_id as parentSessionId,
+               archived_at as archivedAt,
                created_at as createdAt, updated_at as updatedAt
         FROM sessions WHERE id = ?
       `).get(req.params.id) as Session | undefined;
@@ -674,62 +855,6 @@ export function createSessionRoutes(db: Database.Database, activeRuns: ActiveRun
       res.status(500).json({
         success: false,
         error: { code: 'DB_ERROR', message: 'Failed to create message' }
-      });
-    }
-  });
-
-  // Sync sessions (for periodic client sync as fallback to WebSocket push)
-  router.get('/sync', (req: Request, res: Response) => {
-    try {
-      const { since } = req.query;
-      const sinceTimestamp = since ? parseInt(since as string, 10) : 0;
-
-      if (isNaN(sinceTimestamp) || sinceTimestamp < 0) {
-        res.status(400).json({
-          success: false,
-          error: { code: 'VALIDATION_ERROR', message: 'Invalid since parameter' }
-        });
-        return;
-      }
-
-      // Get all sessions updated after the given timestamp
-      const sessions = db.prepare(`
-        SELECT id, project_id as projectId, name, provider_id as providerId,
-               created_at as createdAt, updated_at as updatedAt
-        FROM sessions
-        WHERE updated_at > ?
-        ORDER BY updated_at DESC
-      `).all(sinceTimestamp) as Session[];
-
-      // Attach isActive status based on activeRuns
-      const sessionsWithStatus = sessions.map(session => ({
-        id: session.id,
-        projectId: session.projectId,
-        name: session.name,
-        providerId: session.providerId,
-        createdAt: session.createdAt,
-        updatedAt: session.updatedAt,
-        isActive: activeRuns.has(session.id)
-      }));
-
-      // Return sessions with current server timestamp
-      res.json({
-        success: true,
-        data: {
-          sessions: sessionsWithStatus,
-          timestamp: Date.now(),  // Client uses this for next sync
-          total: sessionsWithStatus.length
-        }
-      } as ApiResponse<{
-        sessions: Array<Session & { isActive: boolean }>;
-        timestamp: number;
-        total: number;
-      }>);
-    } catch (error) {
-      console.error('Error syncing sessions:', error);
-      res.status(500).json({
-        success: false,
-        error: { code: 'SYNC_ERROR', message: 'Failed to sync sessions' }
       });
     }
   });

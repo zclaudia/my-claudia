@@ -14,6 +14,7 @@ import { useServerStore } from '../stores/serverStore';
 import { usePermissionStore } from '../stores/permissionStore';
 import { useAskUserQuestionStore } from '../stores/askUserQuestionStore';
 import { useAgentStore } from '../stores/agentStore';
+import { useSupervisionStore } from '../stores/supervisionStore';
 import { DirectTransport } from './transport/DirectTransport';
 import type { Transport } from './transport/BaseTransport';
 import { useGatewayConnection } from './useGatewayConnection';
@@ -294,6 +295,18 @@ export function useMultiServerSocket() {
           // Always mark as unread — user needs to take action
           if (!agentStore.isExpanded) {
             agentStore.setHasUnread(true);
+          }
+          break;
+        }
+
+        case 'supervision_update': {
+          const supStore = useSupervisionStore.getState();
+          const sup = (message as any).supervision;
+          if (['completed', 'failed', 'cancelled'].includes(sup.status)) {
+            supStore.updateSupervision(sup);
+            setTimeout(() => supStore.removeSupervision(sup.sessionId), 10000);
+          } else {
+            supStore.updateSupervision(sup);
           }
           break;
         }

@@ -149,6 +149,56 @@ export interface Session {
   createdAt: number;
   updatedAt: number;
   isActive?: boolean;  // Whether this session has an active AI request running
+  archivedAt?: number; // Timestamp when session was archived, undefined = not archived
+}
+
+// ============================================
+// Supervision Types
+// ============================================
+
+export type SupervisionStatus = 'active' | 'paused' | 'completed' | 'failed' | 'cancelled';
+
+export interface SupervisionSubtask {
+  id: number;              // 从 1 开始的序号
+  description: string;
+  status: 'pending' | 'in_progress' | 'completed';
+  completedAt?: number;
+}
+
+export interface Supervision {
+  id: string;
+  sessionId: string;
+  goal: string;
+  subtasks?: SupervisionSubtask[];
+  status: SupervisionStatus;
+  maxIterations: number;
+  currentIteration: number;
+  cooldownSeconds: number;
+  lastRunId?: string;
+  errorMessage?: string;
+  createdAt: number;
+  updatedAt: number;
+  completedAt?: number;
+}
+
+export type SupervisionLogEvent =
+  | 'iteration_started' | 'iteration_completed' | 'iteration_failed'
+  | 'subtask_completed' | 'goal_completed'
+  | 'paused' | 'resumed' | 'cancelled';
+
+export interface SupervisionLog {
+  id: string;
+  supervisionId: string;
+  iteration?: number;
+  event: SupervisionLogEvent;
+  detail?: Record<string, unknown>;
+  createdAt: number;
+}
+
+export interface SupervisionUpdateMessage {
+  type: 'supervision_update';
+  supervision: Supervision;
+  log?: SupervisionLog;
 }
 
 // ============================================
@@ -456,7 +506,8 @@ export type ServerMessage =
   | ProjectsDeletedMessage
   | ProvidersCreatedMessage
   | ProvidersUpdatedMessage
-  | ProvidersDeletedMessage;
+  | ProvidersDeletedMessage
+  | SupervisionUpdateMessage;
 
 // Authentication result message
 export interface AuthResultMessage {

@@ -26,6 +26,8 @@ import { createServerRoutes } from './routes/servers.js';
 import { createImportRoutes } from './routes/import.js';
 import { createOpenCodeImportRoutes } from './routes/import-opencode.js';
 import { createAgentRoutes } from './routes/agent.js';
+import { createSupervisionRoutes } from './routes/supervisions.js';
+import { SupervisorService } from './services/supervisor-service.js';
 import { PermissionEvaluator, getAgentPermissionPolicy, getProjectPermissionOverride, mergePolicy } from './agent/permission-evaluator.js';
 import type { PermissionDecision, SystemInfo } from './providers/claude-sdk.js';
 import { openCodeServerManager } from './providers/opencode-sdk.js';
@@ -202,7 +204,7 @@ function localOnlyMiddleware(req: Request, res: Response, next: NextFunction): v
 
 // Export types for Gateway integration
 export type { ConnectedClient };
-export { sendMessage, handleClientMessage, activeRuns };
+export { sendMessage, handleClientMessage, activeRuns, handleRunStart };
 
 // Message sender interface for abstraction
 export interface MessageSender {
@@ -359,6 +361,11 @@ export async function createServer(): Promise<ServerContext> {
   app.use('/api/agent', authMiddleware, createAgentRoutes(db));
   app.use('/api/import', localOnlyMiddleware, createImportRoutes(db));
   app.use('/api/import', localOnlyMiddleware, createOpenCodeImportRoutes(db));
+
+  // Supervision routes + service
+  const supervisorService = new SupervisorService(db);
+  app.use('/api/supervisions', authMiddleware, createSupervisionRoutes(supervisorService));
+
   app.use('/api/server/gateway', localOnlyMiddleware, createGatewayRouter(
     db,
     getGatewayStatus,
@@ -500,6 +507,16 @@ export async function createServer(): Promise<ServerContext> {
   wss.on('close', () => {
     clearInterval(pingInterval);
   });
+
+  // Start supervisor polling with broadcast to all authenticated clients
+  supervisorService.setBroadcast((msg) => {
+    clients.forEach((client) => {
+      if (client.authenticated) {
+        sendMessage(client.ws, msg);
+      }
+    });
+  });
+  supervisorService.start(3000);
 
   return {
     server,

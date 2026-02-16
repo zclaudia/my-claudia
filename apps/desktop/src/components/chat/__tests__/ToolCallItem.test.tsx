@@ -55,6 +55,7 @@ describe('ToolCallItem', () => {
 
     it('expands to show full input JSON when clicked', () => {
       const toolCall = createToolCall({
+        toolName: 'CustomTool',
         toolInput: { file_path: '/project/test.ts', encoding: 'utf-8' },
       });
       render(<ToolCallItem toolCall={toolCall} />);
@@ -63,11 +64,13 @@ describe('ToolCallItem', () => {
       fireEvent.click(screen.getByRole('button'));
 
       expect(screen.getByText('Input:')).toBeInTheDocument();
-      expect(screen.getByText(/"file_path":/)).toBeInTheDocument();
+      // The JSON input appears both in the summary and expanded input section
+      expect(screen.getAllByText(/"file_path":/).length).toBeGreaterThanOrEqual(1);
     });
 
     it('shows result when expanded and completed', () => {
       const toolCall = createToolCall({
+        toolName: 'CustomTool',
         status: 'completed',
         result: 'Test result content',
       });
@@ -95,6 +98,7 @@ describe('ToolCallItem', () => {
 
     it('shows Error label when isError is true', () => {
       const toolCall = createToolCall({
+        toolName: 'CustomTool',
         status: 'completed',
         isError: true,
         result: 'Command failed',
@@ -174,6 +178,7 @@ describe('ToolCallItem', () => {
     it('shows full long string results without truncation', () => {
       const longResult = 'A'.repeat(600);
       const toolCall = createToolCall({
+        toolName: 'CustomTool',
         status: 'completed',
         result: longResult,
       });
@@ -189,6 +194,7 @@ describe('ToolCallItem', () => {
     it('shows full long JSON results without truncation', () => {
       const longResult = { data: 'A'.repeat(600) };
       const toolCall = createToolCall({
+        toolName: 'CustomTool',
         status: 'completed',
         result: longResult,
       });

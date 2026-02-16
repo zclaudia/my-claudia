@@ -3,8 +3,9 @@ import { usePermissionStore, type PermissionRequest } from '../permissionStore';
 
 describe('permissionStore', () => {
   beforeEach(() => {
-    // Reset store state before each test
+    // Reset store state before each test (queue + compat field)
     usePermissionStore.setState({
+      pendingRequests: [],
       pendingRequest: null,
     });
   });
@@ -28,14 +29,17 @@ describe('permissionStore', () => {
     expect(usePermissionStore.getState().pendingRequest).toEqual(request);
   });
 
-  it('setPendingRequest can update existing request', () => {
+  it('setPendingRequest enqueues multiple requests (pendingRequest is first in queue)', () => {
     const request1 = createRequest({ requestId: 'req-1' });
     const request2 = createRequest({ requestId: 'req-2', toolName: 'Write' });
 
     usePermissionStore.getState().setPendingRequest(request1);
     usePermissionStore.getState().setPendingRequest(request2);
 
-    expect(usePermissionStore.getState().pendingRequest).toEqual(request2);
+    // pendingRequest is the first item in the FIFO queue
+    expect(usePermissionStore.getState().pendingRequest).toEqual(request1);
+    expect(usePermissionStore.getState().pendingRequests).toHaveLength(2);
+    expect(usePermissionStore.getState().pendingRequests[1]).toEqual(request2);
   });
 
   it('clearRequest sets pendingRequest to null', () => {
