@@ -206,6 +206,8 @@ export async function createSession(data: {
   projectId: string;
   name?: string;
   providerId?: string;
+  type?: 'regular' | 'background';
+  parentSessionId?: string;
 }): Promise<Session> {
   const result = await fetchApi<Session>('/api/sessions', {
     method: 'POST',
@@ -712,6 +714,7 @@ export async function getAgentConfig(): Promise<{
   enabled: boolean;
   projectId: string | null;
   sessionId: string | null;
+  providerId: string | null;
   permissionPolicy: string | null;
 }> {
   const result = await fetchApi<any>('/api/agent/config');
@@ -723,6 +726,7 @@ export async function getAgentConfig(): Promise<{
 
 export async function updateAgentConfig(config: {
   enabled?: boolean;
+  providerId?: string;
   permissionPolicy?: string;
 }): Promise<void> {
   const result = await fetchApi<void>('/api/agent/config', {

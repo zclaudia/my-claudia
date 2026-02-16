@@ -1,5 +1,18 @@
 import { create } from 'zustand';
-import type { AgentPermissionPolicy } from '@my-claudia/shared';
+import type { AgentPermissionPolicy, BackgroundTaskStatus } from '@my-claudia/shared';
+
+export interface BackgroundSessionInfo {
+  sessionId: string;
+  parentSessionId?: string;
+  name?: string;
+  status: BackgroundTaskStatus;
+  pendingPermissions: Array<{
+    requestId: string;
+    toolName: string;
+    detail: string;
+    timeoutSeconds: number;
+  }>;
+}
 
 interface AgentState {
   // Config
@@ -10,7 +23,6 @@ interface AgentState {
   // UI state
   isExpanded: boolean;
   hasUnread: boolean;
-  showSettings: boolean;
 
   // Provider selection
   selectedProviderId: string | null;
@@ -26,10 +38,12 @@ interface AgentState {
   // Permission policy (synced from server)
   permissionPolicy: AgentPermissionPolicy | null;
 
+  // Background sessions
+  backgroundSessions: Record<string, BackgroundSessionInfo>;
+
   // Actions
   toggleExpanded: () => void;
   setExpanded: (v: boolean) => void;
-  setShowSettings: (v: boolean) => void;
   setSelectedProviderId: (id: string | null) => void;
   configure: (projectId: string, sessionId: string) => void;
   setActiveRunId: (runId: string | null) => void;
@@ -37,6 +51,13 @@ interface AgentState {
   setHasUnread: (v: boolean) => void;
   updatePermissionPolicy: (policy: AgentPermissionPolicy) => void;
   recordInterception: (toolName: string, decision: string, sessionId: string) => void;
+
+  // Background session actions
+  updateBackgroundSession: (sessionId: string, update: Partial<BackgroundSessionInfo>) => void;
+  addBackgroundPermission: (sessionId: string, permission: BackgroundSessionInfo['pendingPermissions'][0]) => void;
+  removeBackgroundPermission: (sessionId: string, requestId: string) => void;
+  removeBackgroundSession: (sessionId: string) => void;
+
   reset: () => void;
 }
 
@@ -46,17 +67,16 @@ export const useAgentStore = create<AgentState>((set) => ({
   isConfigured: false,
   isExpanded: false,
   hasUnread: false,
-  showSettings: false,
   selectedProviderId: null,
   activeRunId: null,
   isLoading: false,
   interceptionCount: 0,
   lastInterception: null,
   permissionPolicy: null,
+  backgroundSessions: {},
 
   toggleExpanded: () => set((state) => ({ isExpanded: !state.isExpanded })),
   setExpanded: (v) => set({ isExpanded: v }),
-  setShowSettings: (v) => set({ showSettings: v }),
   setSelectedProviderId: (id) => set({ selectedProviderId: id }),
 
   configure: (projectId, sessionId) => set({
@@ -75,18 +95,62 @@ export const useAgentStore = create<AgentState>((set) => ({
     lastInterception: { toolName, decision, sessionId },
   })),
 
+  updateBackgroundSession: (sessionId, update) => set((state) => ({
+    backgroundSessions: {
+      ...state.backgroundSessions,
+      [sessionId]: {
+        ...state.backgroundSessions[sessionId] || { sessionId, status: 'running', pendingPermissions: [] },
+        ...update,
+        sessionId,
+      },
+    },
+  })),
+
+  addBackgroundPermission: (sessionId, permission) => set((state) => {
+    const existing = state.backgroundSessions[sessionId];
+    if (!existing) return state;
+    return {
+      backgroundSessions: {
+        ...state.backgroundSessions,
+        [sessionId]: {
+          ...existing,
+          pendingPermissions: [...existing.pendingPermissions, permission],
+        },
+      },
+    };
+  }),
+
+  removeBackgroundPermission: (sessionId, requestId) => set((state) => {
+    const existing = state.backgroundSessions[sessionId];
+    if (!existing) return state;
+    return {
+      backgroundSessions: {
+        ...state.backgroundSessions,
+        [sessionId]: {
+          ...existing,
+          pendingPermissions: existing.pendingPermissions.filter(p => p.requestId !== requestId),
+        },
+      },
+    };
+  }),
+
+  removeBackgroundSession: (sessionId) => set((state) => {
+    const { [sessionId]: _, ...rest } = state.backgroundSessions;
+    return { backgroundSessions: rest };
+  }),
+
   reset: () => set({
     agentSessionId: null,
     agentProjectId: null,
     isConfigured: false,
     isExpanded: false,
     hasUnread: false,
-    showSettings: false,
     selectedProviderId: null,
     activeRunId: null,
     isLoading: false,
     interceptionCount: 0,
     lastInterception: null,
     permissionPolicy: null,
+    backgroundSessions: {},
   }),
 }));

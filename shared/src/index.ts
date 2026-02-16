@@ -119,6 +119,7 @@ export interface Project {
   rootPath?: string;
   systemPrompt?: string;
   permissionPolicy?: PermissionPolicy;
+  agentPermissionOverride?: Partial<AgentPermissionPolicy>;  // Project-level override of global agent policy
   createdAt: number;
   updatedAt: number;
 }
@@ -134,12 +135,16 @@ export interface PermissionPolicy {
 // Session Types
 // ============================================
 
+export type SessionType = 'regular' | 'background';
+
 export interface Session {
   id: string;
   projectId: string;
   name?: string;
   providerId?: string;
   sdkSessionId?: string;
+  type: SessionType;                // 'regular' = user-facing, 'background' = autonomous task
+  parentSessionId?: string;          // Which session spawned this one (for background sessions)
   createdAt: number;
   updatedAt: number;
   isActive?: boolean;  // Whether this session has an active AI request running
@@ -303,6 +308,8 @@ export interface PermissionDecisionMessage {
   requestId: string;
   allow: boolean;
   remember?: boolean;
+  /** RSA-OAEP encrypted credential (base64). Used for sudo password etc. */
+  encryptedCredential?: string;
 }
 
 // AskUserQuestion answer (Client → Server)
@@ -423,6 +430,8 @@ export type ServerMessage =
   | PermissionRequestMessage
   | AskUserQuestionMessage
   | AgentPermissionInterceptedMessage
+  | BackgroundTaskUpdateMessage
+  | BackgroundPermissionPendingMessage
   | PongMessage
   | ErrorMessage
   | ProjectsListMessage
@@ -456,6 +465,8 @@ export interface AuthResultMessage {
   isLocalConnection?: boolean;  // Whether the connection is from localhost
   serverVersion?: string;       // Server version string
   features?: ServerFeature[];   // Server-advertised feature flags
+  /** PEM-encoded RSA-OAEP public key for E2E credential encryption */
+  publicKey?: string;
 }
 
 export interface RunStartedMessage {
@@ -530,6 +541,10 @@ export interface PermissionRequestMessage {
   toolName: string;
   detail: string;
   timeoutSeconds: number;
+  /** When true, the UI should show a password input for credential (e.g. sudo). */
+  requiresCredential?: boolean;
+  /** Hint for what kind of credential is needed (e.g. 'sudo_password'). */
+  credentialHint?: string;
 }
 
 // AskUserQuestion: interactive question UI (Server → Client)
@@ -559,6 +574,28 @@ export interface AgentPermissionInterceptedMessage {
   reason: string;
   sessionId: string;     // The session whose permission was intercepted
   runId: string;
+}
+
+// Background task status update (Server → Client)
+export type BackgroundTaskStatus = 'running' | 'paused' | 'completed' | 'failed';
+
+export interface BackgroundTaskUpdateMessage {
+  type: 'background_task_update';
+  sessionId: string;
+  parentSessionId?: string;
+  status: BackgroundTaskStatus;
+  name?: string;
+  reason?: string;       // e.g. 'Permission escalated', 'Completed successfully'
+}
+
+// Background session has a pending permission that needs user attention (Server → Client)
+export interface BackgroundPermissionPendingMessage {
+  type: 'background_permission_pending';
+  sessionId: string;     // The background session
+  requestId: string;     // Permission request ID (use with permission_decision to resolve)
+  toolName: string;
+  detail: string;
+  timeoutSeconds: number;
 }
 
 export interface PongMessage {
@@ -814,6 +851,8 @@ export interface ServerInfo {
   version: string;
   isLocalConnection: boolean;  // Whether the client is connecting from localhost (determined by server)
   features?: ServerFeature[];  // Server-advertised feature flags
+  /** PEM-encoded RSA-OAEP public key for E2E credential encryption */
+  publicKey?: string;
 }
 
 // ============================================
@@ -956,6 +995,8 @@ export interface BackendSessionsListMessage {
     projectId: string;
     name?: string;
     providerId?: string;
+    type?: SessionType;
+    parentSessionId?: string;
     createdAt: number;
     updatedAt: number;
     isActive: boolean;  // Whether there's an active run for this session
@@ -972,6 +1013,8 @@ export interface BackendSessionEventMessage {
     projectId: string;
     name?: string;
     providerId?: string;
+    type?: SessionType;
+    parentSessionId?: string;
     createdAt: number;
     updatedAt: number;
     isActive?: boolean;
@@ -1060,6 +1103,28 @@ export type GatewayToClientMessage =
 export interface AgentPermissionPolicy {
   enabled: boolean;
   trustLevel: 'conservative' | 'moderate' | 'aggressive';
+
+  // Strategy modules (each independently toggleable)
+  strategies?: {
+    workspaceScope?: {
+      enabled: boolean;
+      allowedPaths: string[];  // Extra allowed paths beyond workspace root, e.g. ['/tmp']
+    };
+    sensitiveFiles?: {
+      enabled: boolean;
+      patterns: string[];  // Glob patterns for sensitive files, e.g. ['.env*', '*.pem']
+    };
+    networkAccess?: {
+      enabled: boolean;
+      // Bash commands with curl/wget/ssh/npm publish/git push/docker push → escalate
+    };
+    aiAnalysis?: {
+      enabled: boolean;
+      // Fallback: use AI to analyze uncertain commands
+      // Only invoked when all other strategies return 'continue'
+    };
+  };
+
   customRules: AgentPermissionRule[];
   escalateAlways: string[];     // tool names that always go to user
 }
@@ -1067,8 +1132,26 @@ export interface AgentPermissionPolicy {
 export interface AgentPermissionRule {
   toolName: string;      // exact match or '*'
   pattern?: string;      // optional regex on detail
-  action: 'approve' | 'deny' | 'escalate';
+  action: 'approve' | 'deny' | 'escalate' | 'continue';
 }
+
+/** Context passed to the permission evaluator for path-aware strategies */
+export interface EvaluationContext {
+  rootPath: string;              // Session's workspace root directory
+  sessionType: SessionType;      // 'regular' or 'background'
+}
+
+/** Default sensitive file patterns */
+export const DEFAULT_SENSITIVE_PATTERNS = [
+  '.env*',
+  '*credential*',
+  '*.pem',
+  '*.key',
+  'id_rsa*',
+  '*.p12',
+  '*.pfx',
+  '*secret*',
+];
 
 // ============================================
 // Server Gateway Configuration Types

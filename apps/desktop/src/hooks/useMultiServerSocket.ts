@@ -61,6 +61,7 @@ export function useMultiServerSocket() {
     setServerConnectionStatus,
     setServerLocalConnection,
     setServerFeatures,
+    setServerPublicKey,
     updateLastConnected
   } = useServerStore();
 
@@ -95,6 +96,9 @@ export function useMultiServerSocket() {
           setServerLocalConnection(serverId, message.isLocalConnection || false);
           if (message.features) {
             setServerFeatures(serverId, message.features);
+          }
+          if (message.publicKey) {
+            setServerPublicKey(serverId, message.publicKey);
           }
           if (message.success) {
             console.log(`[Socket:${serverId}] Authentication successful`);
@@ -224,7 +228,9 @@ export function useMultiServerSocket() {
               requestId: message.requestId,
               toolName: message.toolName,
               detail: message.detail,
-              timeoutSec: message.timeoutSeconds
+              timeoutSec: message.timeoutSeconds,
+              requiresCredential: message.requiresCredential,
+              credentialHint: message.credentialHint,
             });
           }
           break;
@@ -257,6 +263,41 @@ export function useMultiServerSocket() {
           }
           break;
 
+        case 'background_task_update': {
+          const agentStore = useAgentStore.getState();
+          agentStore.updateBackgroundSession(message.sessionId, {
+            status: message.status,
+            name: message.name,
+            parentSessionId: message.parentSessionId,
+          });
+          // Remove completed/failed background sessions after a delay
+          if (message.status === 'completed' || message.status === 'failed') {
+            setTimeout(() => {
+              useAgentStore.getState().removeBackgroundSession(message.sessionId);
+            }, 30000); // Keep for 30s then clean up
+          }
+          // Notify user if panel is closed
+          if (!agentStore.isExpanded) {
+            agentStore.setHasUnread(true);
+          }
+          break;
+        }
+
+        case 'background_permission_pending': {
+          const agentStore = useAgentStore.getState();
+          agentStore.addBackgroundPermission(message.sessionId, {
+            requestId: message.requestId,
+            toolName: message.toolName,
+            detail: message.detail,
+            timeoutSeconds: message.timeoutSeconds,
+          });
+          // Always mark as unread — user needs to take action
+          if (!agentStore.isExpanded) {
+            agentStore.setHasUnread(true);
+          }
+          break;
+        }
+
         case 'error':
           console.error(`[Socket:${serverId}] Server error:`, message.message);
           break;
@@ -282,6 +323,7 @@ export function useMultiServerSocket() {
     setServerConnectionStatus,
     setServerLocalConnection,
     setServerFeatures,
+    setServerPublicKey,
     updateLastConnected
   ]);
 

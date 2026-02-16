@@ -15,6 +15,7 @@ import { usePermissionStore } from './stores/permissionStore';
 import { useAskUserQuestionStore } from './stores/askUserQuestionStore';
 import { useIsMobile } from './hooks/useMediaQuery';
 import { migrateServersFromLocalStorage, needsMigration } from './utils/migrateServers';
+import { encryptCredential, isEncryptionAvailable } from './utils/crypto';
 
 function AppContent() {
   const { sendMessage } = useConnection();
@@ -44,12 +45,28 @@ function AppContent() {
   }, [connectionStatus, addServer]);
 
   const handlePermissionDecision = useCallback(
-    (requestId: string, allow: boolean, remember?: boolean) => {
+    async (requestId: string, allow: boolean, remember?: boolean, credential?: string) => {
+      let encryptedCredentialValue: string | undefined;
+
+      // Encrypt credential if provided
+      if (credential && allow) {
+        const { activeServerId, getActiveServerConnection } = useServerStore.getState();
+        const conn = activeServerId ? getActiveServerConnection() : undefined;
+        if (conn?.publicKey && isEncryptionAvailable(conn.publicKey)) {
+          try {
+            encryptedCredentialValue = await encryptCredential(credential, conn.publicKey);
+          } catch (err) {
+            console.error('[App] Failed to encrypt credential:', err);
+          }
+        }
+      }
+
       sendMessage({
         type: 'permission_decision',
         requestId,
         allow,
-        remember
+        remember,
+        ...(encryptedCredentialValue && { encryptedCredential: encryptedCredentialValue }),
       });
       clearRequest();
     },

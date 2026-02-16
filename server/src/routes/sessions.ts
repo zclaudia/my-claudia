@@ -18,7 +18,8 @@ export function createSessionRoutes(db: Database.Database, activeRuns: ActiveRun
 
       let query = `
         SELECT id, project_id as projectId, name, provider_id as providerId,
-               sdk_session_id as sdkSessionId, created_at as createdAt, updated_at as updatedAt
+               sdk_session_id as sdkSessionId, type, parent_session_id as parentSessionId,
+               created_at as createdAt, updated_at as updatedAt
         FROM sessions
       `;
 
@@ -48,7 +49,8 @@ export function createSessionRoutes(db: Database.Database, activeRuns: ActiveRun
     try {
       const session = db.prepare(`
         SELECT id, project_id as projectId, name, provider_id as providerId,
-               sdk_session_id as sdkSessionId, created_at as createdAt, updated_at as updatedAt
+               sdk_session_id as sdkSessionId, type, parent_session_id as parentSessionId,
+               created_at as createdAt, updated_at as updatedAt
         FROM sessions WHERE id = ?
       `).get(req.params.id) as Session | undefined;
 
@@ -73,7 +75,7 @@ export function createSessionRoutes(db: Database.Database, activeRuns: ActiveRun
   // Create session
   router.post('/', (req: Request, res: Response) => {
     try {
-      const { projectId, name, providerId } = req.body;
+      const { projectId, name, providerId, type, parentSessionId } = req.body;
 
       if (!projectId) {
         res.status(400).json({
@@ -93,19 +95,23 @@ export function createSessionRoutes(db: Database.Database, activeRuns: ActiveRun
         return;
       }
 
+      const sessionType = type === 'background' ? 'background' : 'regular';
+
       const id = uuidv4();
       const now = Date.now();
 
       db.prepare(`
-        INSERT INTO sessions (id, project_id, name, provider_id, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?)
-      `).run(id, projectId, name || null, providerId || null, now, now);
+        INSERT INTO sessions (id, project_id, name, provider_id, type, parent_session_id, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(id, projectId, name || null, providerId || null, sessionType, parentSessionId || null, now, now);
 
       const session: Session = {
         id,
         projectId,
         name,
         providerId,
+        type: sessionType,
+        parentSessionId: parentSessionId || undefined,
         createdAt: now,
         updatedAt: now
       };

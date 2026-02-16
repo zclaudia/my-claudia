@@ -8,6 +8,8 @@ export interface ServerConnection {
   error: string | null;
   isLocalConnection: boolean | null;
   features: ServerFeature[];  // Empty = legacy server (no features advertised)
+  /** RSA-OAEP public key PEM for E2E credential encryption */
+  publicKey?: string;
 }
 
 export type ConnectionStatus = ServerConnection['status'];
@@ -33,6 +35,7 @@ interface ServerState {
   setServerConnectionStatus: (serverId: string, status: ConnectionStatus, error?: string) => void;
   setServerLocalConnection: (serverId: string, isLocal: boolean | null) => void;
   setServerFeatures: (serverId: string, features: ServerFeature[]) => void;
+  setServerPublicKey: (serverId: string, publicKey: string | undefined) => void;
   updateLastConnected: (id: string) => void;
 
   // Getters
@@ -205,6 +208,22 @@ export const useServerStore = create<ServerState>()((set, get) => ({
       ...DEFAULT_CONNECTION,
       ...state.connections[serverId],
       features
+    };
+
+    set({
+      connections: {
+        ...state.connections,
+        [serverId]: newConnection
+      }
+    });
+  },
+
+  setServerPublicKey: (serverId, publicKey) => {
+    const state = get();
+    const newConnection: ServerConnection = {
+      ...DEFAULT_CONNECTION,
+      ...state.connections[serverId],
+      publicKey
     };
 
     set({

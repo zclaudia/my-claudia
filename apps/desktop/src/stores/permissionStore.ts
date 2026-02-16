@@ -5,6 +5,10 @@ export interface PermissionRequest {
   toolName: string;
   detail: string;
   timeoutSec: number;
+  /** When true, the UI should show a password input for credential (e.g. sudo). */
+  requiresCredential?: boolean;
+  /** Hint for what kind of credential is needed (e.g. 'sudo_password'). */
+  credentialHint?: string;
 }
 
 interface PermissionState {

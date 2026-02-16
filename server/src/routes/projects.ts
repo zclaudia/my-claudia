@@ -12,14 +12,16 @@ export function createProjectRoutes(db: Database.Database): Router {
       const projects = db.prepare(`
         SELECT id, name, type, provider_id as providerId, root_path as rootPath,
                system_prompt as systemPrompt, permission_policy as permissionPolicy,
+               agent_permission_override as agentPermissionOverride,
                created_at as createdAt, updated_at as updatedAt
         FROM projects
         ORDER BY updated_at DESC
-      `).all() as Array<Project & { permissionPolicy: string }>;
+      `).all() as Array<Project & { permissionPolicy: string; agentPermissionOverride: string }>;
 
       const result = projects.map(p => ({
         ...p,
-        permissionPolicy: p.permissionPolicy ? JSON.parse(p.permissionPolicy) : undefined
+        permissionPolicy: p.permissionPolicy ? JSON.parse(p.permissionPolicy) : undefined,
+        agentPermissionOverride: p.agentPermissionOverride ? JSON.parse(p.agentPermissionOverride) : undefined,
       }));
 
       res.json({ success: true, data: result } as ApiResponse<Project[]>);
@@ -38,9 +40,10 @@ export function createProjectRoutes(db: Database.Database): Router {
       const project = db.prepare(`
         SELECT id, name, type, provider_id as providerId, root_path as rootPath,
                system_prompt as systemPrompt, permission_policy as permissionPolicy,
+               agent_permission_override as agentPermissionOverride,
                created_at as createdAt, updated_at as updatedAt
         FROM projects WHERE id = ?
-      `).get(req.params.id) as (Project & { permissionPolicy: string }) | undefined;
+      `).get(req.params.id) as (Project & { permissionPolicy: string; agentPermissionOverride: string }) | undefined;
 
       if (!project) {
         res.status(404).json({
@@ -54,7 +57,8 @@ export function createProjectRoutes(db: Database.Database): Router {
         success: true,
         data: {
           ...project,
-          permissionPolicy: project.permissionPolicy ? JSON.parse(project.permissionPolicy) : undefined
+          permissionPolicy: project.permissionPolicy ? JSON.parse(project.permissionPolicy) : undefined,
+          agentPermissionOverride: project.agentPermissionOverride ? JSON.parse(project.agentPermissionOverride) : undefined,
         }
       } as ApiResponse<Project>);
     } catch (error) {
@@ -69,7 +73,7 @@ export function createProjectRoutes(db: Database.Database): Router {
   // Create project
   router.post('/', (req: Request, res: Response) => {
     try {
-      const { name, type = 'code', providerId, rootPath, systemPrompt, permissionPolicy } = req.body;
+      const { name, type = 'code', providerId, rootPath, systemPrompt, permissionPolicy, agentPermissionOverride } = req.body;
 
       if (!name) {
         res.status(400).json({
@@ -83,8 +87,8 @@ export function createProjectRoutes(db: Database.Database): Router {
       const now = Date.now();
 
       db.prepare(`
-        INSERT INTO projects (id, name, type, provider_id, root_path, system_prompt, permission_policy, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO projects (id, name, type, provider_id, root_path, system_prompt, permission_policy, agent_permission_override, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         id,
         name,
@@ -93,6 +97,7 @@ export function createProjectRoutes(db: Database.Database): Router {
         rootPath || null,
         systemPrompt || null,
         permissionPolicy ? JSON.stringify(permissionPolicy) : null,
+        agentPermissionOverride ? JSON.stringify(agentPermissionOverride) : null,
         now,
         now
       );
@@ -105,6 +110,7 @@ export function createProjectRoutes(db: Database.Database): Router {
         rootPath,
         systemPrompt,
         permissionPolicy,
+        agentPermissionOverride,
         createdAt: now,
         updatedAt: now
       };
@@ -122,7 +128,7 @@ export function createProjectRoutes(db: Database.Database): Router {
   // Update project
   router.put('/:id', (req: Request, res: Response) => {
     try {
-      const { name, type, providerId, rootPath, systemPrompt, permissionPolicy } = req.body;
+      const { name, type, providerId, rootPath, systemPrompt, permissionPolicy, agentPermissionOverride } = req.body;
       const now = Date.now();
 
       const result = db.prepare(`
@@ -133,6 +139,7 @@ export function createProjectRoutes(db: Database.Database): Router {
             root_path = ?,
             system_prompt = ?,
             permission_policy = ?,
+            agent_permission_override = ?,
             updated_at = ?
         WHERE id = ?
       `).run(
@@ -142,6 +149,9 @@ export function createProjectRoutes(db: Database.Database): Router {
         rootPath !== undefined ? rootPath : null,
         systemPrompt !== undefined ? systemPrompt : null,
         permissionPolicy ? JSON.stringify(permissionPolicy) : null,
+        agentPermissionOverride !== undefined
+          ? (agentPermissionOverride ? JSON.stringify(agentPermissionOverride) : null)
+          : null,
         now,
         req.params.id
       );

@@ -122,6 +122,9 @@ export function useGatewayConnection() {
           console.log(`[GatewayConn:${backendId}] Backend auth successful`);
           setServerConnectionStatus(serverId, 'connected');
           setServerLocalConnection(serverId, false); // Gateway = always remote
+          if (msg.publicKey) {
+            useServerStore.getState().setServerPublicKey(serverId, msg.publicKey);
+          }
           reconnectAttemptRef.current = 0;
           updateLastConnected(serverId);
         } else {
@@ -207,7 +210,9 @@ export function useGatewayConnection() {
             requestId: msg.requestId,
             toolName: msg.toolName,
             detail: msg.detail,
-            timeoutSec: msg.timeoutSeconds
+            timeoutSec: msg.timeoutSeconds,
+            requiresCredential: (msg as any).requiresCredential,
+            credentialHint: (msg as any).credentialHint,
           });
         }
         break;

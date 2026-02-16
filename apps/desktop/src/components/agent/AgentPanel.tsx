@@ -3,8 +3,8 @@ import { MessageList } from '../chat/MessageList';
 import { MessageInput } from '../chat/MessageInput';
 import { ToolCallList } from '../chat/ToolCallItem';
 import { LoadingIndicator } from '../chat/LoadingIndicator';
-import { AgentSettingsPanel } from './AgentSettingsPanel';
 import { useAgentStore } from '../../stores/agentStore';
+import type { BackgroundSessionInfo } from '../../stores/agentStore';
 import { useChatStore } from '../../stores/chatStore';
 import { useConnection } from '../../contexts/ConnectionContext';
 import * as api from '../../services/api';
@@ -39,14 +39,27 @@ interface AgentPanelProps {
 }
 
 export function AgentPanel({ isMobile = false }: AgentPanelProps) {
-  const { agentSessionId, setExpanded, isLoading, showSettings, setShowSettings, interceptionCount, selectedProviderId, setSelectedProviderId } = useAgentStore();
+  const { agentSessionId, setExpanded, isLoading, interceptionCount, selectedProviderId, backgroundSessions, removeBackgroundPermission } = useAgentStore();
   const { messages, setMessages, addMessage, isSessionLoading, getSessionRunId, getSessionToolCalls } = useChatStore();
   const { sendMessage: wsSendMessage, isConnected } = useConnection();
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const [initialLoadDone, setInitialLoadDone] = useState(false);
   const [commands, setCommands] = useState<SlashCommand[]>([]);
-  const [providers, setProviders] = useState<ProviderConfig[]>([]);
+  const [providerName, setProviderName] = useState<string | null>(null);
+  const [bgTasksExpanded, setBgTasksExpanded] = useState(false);
+
+  const bgSessionList = Object.values(backgroundSessions);
+  const hasPending = bgSessionList.some(s => s.pendingPermissions.length > 0);
+
+  const handlePermissionDecision = useCallback((requestId: string, sessionId: string, allow: boolean) => {
+    wsSendMessage({
+      type: 'permission_decision',
+      requestId,
+      allow,
+    });
+    removeBackgroundPermission(sessionId, requestId);
+  }, [wsSendMessage, removeBackgroundPermission]);
 
   const panelClass = isMobile ? PANEL_CLASS_MOBILE : PANEL_CLASS_DESKTOP;
 
@@ -98,31 +111,19 @@ export function AgentPanel({ isMobile = false }: AgentPanelProps) {
     }
   }, [sessionToolCalls, initialLoadDone, scrollToBottom]);
 
-  // Load providers
+  // Load provider name and slash commands based on selected provider
   useEffect(() => {
     if (!isConnected) return;
     api.getProviders()
-      .then(list => {
-        setProviders(list);
-        // Auto-select default provider if none selected
-        if (!selectedProviderId && list.length > 0) {
-          const defaultProvider = list.find(p => p.isDefault) || list[0];
-          setSelectedProviderId(defaultProvider.id);
-        }
+      .then((list: ProviderConfig[]) => {
+        const selected = list.find(p => p.id === selectedProviderId);
+        setProviderName(selected?.name || list.find(p => p.isDefault)?.name || null);
+        const providerType = selected?.type || 'claude';
+        return api.getProviderTypeCommands(providerType);
       })
-      .catch(err => console.error('[AgentPanel] Failed to load providers:', err));
-  }, [isConnected, selectedProviderId, setSelectedProviderId]);
-
-  const selectedProvider = providers.find(p => p.id === selectedProviderId);
-
-  // Load slash commands based on selected provider type
-  useEffect(() => {
-    if (!isConnected) return;
-    const providerType = selectedProvider?.type || 'claude';
-    api.getProviderTypeCommands(providerType)
       .then(setCommands)
-      .catch(err => console.error('[AgentPanel] Failed to load commands:', err));
-  }, [isConnected, selectedProvider?.type]);
+      .catch(err => console.error('[AgentPanel] Failed to load provider info:', err));
+  }, [isConnected, selectedProviderId]);
 
   const sendAgentRun = useCallback((input: string, displayContent?: string) => {
     if (!sessionId || !isConnected) return;
@@ -208,15 +209,6 @@ export function AgentPanel({ isMobile = false }: AgentPanelProps) {
     });
   }, [sessionRunId, wsSendMessage]);
 
-  // Settings view
-  if (showSettings) {
-    return (
-      <div className={panelClass}>
-        <AgentSettingsPanel onClose={() => setShowSettings(false)} />
-      </div>
-    );
-  }
-
   return (
     <div className={panelClass}>
       {/* Header */}
@@ -224,19 +216,8 @@ export function AgentPanel({ isMobile = false }: AgentPanelProps) {
         <div className="flex items-center gap-2">
           <span className="text-base">🤖</span>
           <span className="font-semibold text-sm">Agent</span>
-          {providers.length > 1 && (
-            <select
-              value={selectedProviderId || ''}
-              onChange={(e) => setSelectedProviderId(e.target.value || null)}
-              className="text-xs bg-secondary border border-border rounded px-1.5 py-0.5 text-foreground max-w-[100px] truncate"
-            >
-              {providers.map(p => (
-                <option key={p.id} value={p.id}>{p.name}</option>
-              ))}
-            </select>
-          )}
-          {providers.length <= 1 && selectedProvider && (
-            <span className="text-xs text-muted-foreground">{selectedProvider.name}</span>
+          {providerName && (
+            <span className="text-xs text-muted-foreground">{providerName}</span>
           )}
           {interceptionCount > 0 && (
             <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-green-500/10 text-green-500 font-medium">
@@ -244,29 +225,27 @@ export function AgentPanel({ isMobile = false }: AgentPanelProps) {
             </span>
           )}
         </div>
-        <div className="flex items-center gap-1">
-          <button
-            onClick={() => setShowSettings(true)}
-            className="p-1.5 rounded hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors"
-            title="Permission settings"
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-            </svg>
-          </button>
-          <button
-            onClick={() => setExpanded(false)}
-            className="p-1.5 rounded hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors"
-            title="Close"
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
-        </div>
+        <button
+          onClick={() => setExpanded(false)}
+          className="p-1.5 rounded hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors"
+          title="Close"
+        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
       </div>
+
+      {/* Background Tasks */}
+      {bgSessionList.length > 0 && (
+        <BackgroundTasksBar
+          sessions={bgSessionList}
+          expanded={bgTasksExpanded}
+          hasPending={hasPending}
+          onToggle={() => setBgTasksExpanded(!bgTasksExpanded)}
+          onPermissionDecision={handlePermissionDecision}
+        />
+      )}
 
       {/* Messages */}
       <div
@@ -317,6 +296,116 @@ export function AgentPanel({ isMobile = false }: AgentPanelProps) {
           }
         />
       </div>
+    </div>
+  );
+}
+
+// ============================================
+// Background Tasks Bar
+// ============================================
+
+const STATUS_BADGE: Record<string, { color: string; label: string }> = {
+  running: { color: 'bg-blue-500', label: 'Running' },
+  paused: { color: 'bg-amber-500', label: 'Paused' },
+  completed: { color: 'bg-green-500', label: 'Done' },
+  failed: { color: 'bg-red-500', label: 'Failed' },
+};
+
+function BackgroundTasksBar({
+  sessions,
+  expanded,
+  hasPending,
+  onToggle,
+  onPermissionDecision,
+}: {
+  sessions: BackgroundSessionInfo[];
+  expanded: boolean;
+  hasPending: boolean;
+  onToggle: () => void;
+  onPermissionDecision: (requestId: string, sessionId: string, allow: boolean) => void;
+}) {
+  const totalPending = sessions.reduce((sum, s) => sum + s.pendingPermissions.length, 0);
+
+  return (
+    <div className="border-b border-border flex-shrink-0">
+      {/* Collapsed bar */}
+      <button
+        onClick={onToggle}
+        className="w-full flex items-center justify-between px-3 py-1.5 text-xs hover:bg-secondary/30 transition-colors"
+      >
+        <div className="flex items-center gap-1.5">
+          <svg
+            className={`w-3 h-3 text-muted-foreground transition-transform ${expanded ? 'rotate-90' : ''}`}
+            fill="none" stroke="currentColor" viewBox="0 0 24 24"
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+          </svg>
+          <span className="text-muted-foreground font-medium">
+            Background Tasks ({sessions.length})
+          </span>
+        </div>
+        {totalPending > 0 && (
+          <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-medium ${
+            hasPending ? 'bg-amber-500/15 text-amber-500 animate-pulse' : 'bg-muted text-muted-foreground'
+          }`}>
+            {totalPending} pending
+          </span>
+        )}
+      </button>
+
+      {/* Expanded list */}
+      {expanded && (
+        <div className="px-3 pb-2 space-y-1.5 max-h-[200px] overflow-y-auto">
+          {sessions.map(session => {
+            const badge = STATUS_BADGE[session.status] || STATUS_BADGE.running;
+            return (
+              <div key={session.sessionId} className="rounded-lg border border-border p-2 text-xs">
+                <div className="flex items-center justify-between mb-1">
+                  <span className="font-medium truncate">
+                    {session.name || session.sessionId.slice(0, 8)}
+                  </span>
+                  <span className="flex items-center gap-1 flex-shrink-0">
+                    <span className={`w-1.5 h-1.5 rounded-full ${badge.color}`} />
+                    <span className="text-muted-foreground">{badge.label}</span>
+                  </span>
+                </div>
+
+                {/* Pending permissions */}
+                {session.pendingPermissions.length > 0 && (
+                  <div className="space-y-1 mt-1.5">
+                    {session.pendingPermissions.map(perm => (
+                      <div key={perm.requestId} className="flex items-start gap-2 p-1.5 rounded bg-amber-500/5 border border-amber-500/20">
+                        <div className="flex-1 min-w-0">
+                          <p className="font-medium text-amber-600 dark:text-amber-400">
+                            {perm.toolName}
+                          </p>
+                          <p className="text-muted-foreground truncate" title={perm.detail}>
+                            {perm.detail}
+                          </p>
+                        </div>
+                        <div className="flex gap-1 flex-shrink-0">
+                          <button
+                            onClick={() => onPermissionDecision(perm.requestId, session.sessionId, true)}
+                            className="px-2 py-0.5 rounded bg-green-500/15 text-green-600 dark:text-green-400 hover:bg-green-500/25 font-medium"
+                          >
+                            Allow
+                          </button>
+                          <button
+                            onClick={() => onPermissionDecision(perm.requestId, session.sessionId, false)}
+                            className="px-2 py-0.5 rounded bg-red-500/15 text-red-600 dark:text-red-400 hover:bg-red-500/25 font-medium"
+                          >
+                            Deny
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

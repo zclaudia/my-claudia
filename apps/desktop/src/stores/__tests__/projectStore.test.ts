@@ -26,6 +26,7 @@ describe('projectStore', () => {
     id: 'session-1',
     projectId: 'project-1',
     name: 'Test Session',
+    type: 'regular',
     createdAt: Date.now(),
     updatedAt: Date.now(),
     ...overrides,

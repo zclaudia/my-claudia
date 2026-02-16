@@ -7,7 +7,7 @@ import { useIsMobile } from '../../hooks/useMediaQuery';
 import * as api from '../../services/api';
 
 export function AgentWidget() {
-  const { isExpanded, isConfigured, configure, setExpanded } = useAgentStore();
+  const { isExpanded, isConfigured, configure, setExpanded, setSelectedProviderId } = useAgentStore();
   const { isConnected } = useConnection();
   const isMobile = useIsMobile();
   const panelRef = useRef<HTMLDivElement>(null);
@@ -26,11 +26,24 @@ export function AgentWidget() {
         if (response.projectId && response.sessionId) {
           configure(response.projectId, response.sessionId);
         }
+
+        // Load saved provider selection from agent config
+        const config = await api.getAgentConfig();
+        if (config.providerId) {
+          setSelectedProviderId(config.providerId);
+        } else {
+          // Fallback to default provider
+          const providers = await api.getProviders();
+          const defaultProvider = providers.find(p => p.isDefault) || providers[0];
+          if (defaultProvider) {
+            setSelectedProviderId(defaultProvider.id);
+          }
+        }
       } catch (error) {
         console.error('[AgentWidget] Failed to ensure agent:', error);
       }
     }
-  }, [isConnected, configure]);
+  }, [isConnected, configure, setSelectedProviderId]);
 
   const handleCollapse = useCallback(() => {
     setExpanded(false);

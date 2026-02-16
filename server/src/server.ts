@@ -24,13 +24,14 @@ import { createCommandsRoutes } from './routes/commands.js';
 import { createGatewayRouter, type GatewayConfig, type GatewayStatus } from './routes/gateway.js';
 import { createServerRoutes } from './routes/servers.js';
 import { createImportRoutes } from './routes/import.js';
-import { createAgentRoutes, isAgentSession } from './routes/agent.js';
-import { PermissionEvaluator, getAgentPermissionPolicy } from './agent/permission-evaluator.js';
+import { createAgentRoutes } from './routes/agent.js';
+import { PermissionEvaluator, getAgentPermissionPolicy, getProjectPermissionOverride, mergePolicy } from './agent/permission-evaluator.js';
 import type { PermissionDecision, SystemInfo } from './providers/claude-sdk.js';
 import { openCodeServerManager } from './providers/opencode-sdk.js';
 import { providerRegistry } from './providers/registry.js';
 import { safeCompare } from './auth.js';
 import { extractAndIndexMetadata, removeIndexedMetadata } from './storage/metadata-extractor.js';
+import { generateKeyPair, getPublicKeyPem, decryptCredential } from './utils/crypto.js';
 
 // Phase 2: Router architecture (CRUD routes migrated to HTTP REST)
 import { createRouter } from './router/index.js';
@@ -40,6 +41,43 @@ import { errorHandlingMiddleware as routerErrorMiddleware } from './middleware/e
 // Check if input is a slash command
 function isSlashCommand(input: string): boolean {
   return input.trim().startsWith('/');
+}
+
+/**
+ * Detect if a tool call is a sudo command that needs a password.
+ * Returns true for Bash/shell tool calls containing sudo.
+ */
+function isSudoCommand(toolName: string, toolInput: unknown): boolean {
+  const bashTools = ['bash', 'execute_command', 'run_terminal_cmd', 'terminal'];
+  if (!bashTools.includes(toolName.toLowerCase())) return false;
+
+  const input = toolInput as { command?: string } | undefined;
+  if (!input?.command) return false;
+
+  // Match sudo at the start of the command or after && / || / ; / | / $()
+  return /(?:^|&&|\|\||;|\||\$\()[\s]*sudo\s/m.test(input.command);
+}
+
+/**
+ * Rewrite a sudo command to inject the password via stdin using printf (shell builtin).
+ * printf is used instead of echo because it's a builtin in most shells,
+ * so the password won't appear in the process list (`ps`).
+ *
+ * Original: `sudo apt install vim`
+ * Rewritten: `printf '%s\n' '<password>' | sudo -S apt install vim`
+ *
+ * For chained commands (&&, ;), only rewrites sudo invocations.
+ */
+function rewriteSudoCommand(command: string, password: string): string {
+  // Escape single quotes in the password for safe shell interpolation
+  const escaped = password.replace(/'/g, "'\\''");
+
+  // Replace each `sudo ` occurrence with the stdin-based version
+  // This handles: sudo cmd, && sudo cmd, ; sudo cmd, etc.
+  return command.replace(
+    /((?:^|(?:&&|\|\||;|\|)\s*))sudo\s+(?!-S\s)/gm,
+    (_, prefix) => `${prefix}printf '%s\\n' '${escaped}' | sudo -S `,
+  );
 }
 
 // Process @ mentions in user input, converting them to context hints for Claude
@@ -127,6 +165,7 @@ interface ActiveRun {
   pendingPermissions: Map<string, {
     resolve: (decision: PermissionDecision) => void;
     timeout: NodeJS.Timeout | null;
+    originalToolInput?: unknown;
   }>;
   // Streaming state for message persistence (allows cancelRun to save partial content)
   db: ReturnType<typeof initDatabase>;
@@ -206,6 +245,9 @@ export async function createServer(): Promise<ServerContext> {
   // Initialize database
   const db = initDatabase();
 
+  // Generate ephemeral RSA keypair for E2E credential encryption
+  generateKeyPair();
+
   // Phase 2: Router (CRUD routes migrated to HTTP REST, router kept for future WS routing needs)
   const router = createRouter(db);
   router.use(routerLoggingMiddleware, routerErrorMiddleware);
@@ -227,12 +269,14 @@ export async function createServer(): Promise<ServerContext> {
   // Get server info (public - no auth required)
   app.get('/api/server/info', (req: Request, res: Response) => {
     const isLocal = isLocalhost(req);
+    const publicKey = getPublicKeyPem();
     res.json({
       success: true,
       data: {
         version: '1.1.0',
         isLocalConnection: isLocal,
         features: ALL_SERVER_FEATURES,
+        ...(publicKey && { publicKey }),
       }
     });
   });
@@ -385,12 +429,14 @@ export async function createServer(): Promise<ServerContext> {
             // Remote access is handled via gateway, not direct WebSocket
             client.authenticated = true;
             console.log(`Client ${clientId} authenticated (isLocal: ${client.isLocal})`);
+            const authPublicKey = getPublicKeyPem();
             sendMessage(ws, {
               type: 'auth_result',
               success: true,
               isLocalConnection: client.isLocal,
               serverVersion: '1.1.0',
               features: ALL_SERVER_FEATURES,
+              ...(authPublicKey && { publicKey: authPublicKey }),
             } as AuthResultMessage);
             return;
           }
@@ -726,7 +772,8 @@ async function handleRunStart(
 
   // Get session info
   const session = db.prepare(`
-    SELECT s.id, s.project_id, s.sdk_session_id, p.root_path, p.provider_id, p.system_prompt
+    SELECT s.id, s.project_id, s.sdk_session_id, s.type as session_type,
+           p.root_path, p.provider_id, p.system_prompt
     FROM sessions s
     LEFT JOIN projects p ON s.project_id = p.id
     WHERE s.id = ?
@@ -734,6 +781,7 @@ async function handleRunStart(
     id: string;
     project_id: string;
     sdk_session_id: string | null;
+    session_type: 'regular' | 'background' | null;
     root_path: string | null;
     provider_id: string | null;
     system_prompt: string | null;
@@ -796,6 +844,9 @@ async function handleRunStart(
   };
   activeRuns.set(runId, activeRun);
 
+  // Session type: 'regular' or 'background'
+  const sessionType = session.session_type || 'regular';
+
   // Track tool_use_id to tool_name mapping for this run
   const toolUseIdToName = new Map<string, string>();
 
@@ -805,6 +856,15 @@ async function handleRunStart(
     runId,
     clientRequestId: message.clientRequestId
   });
+
+  // Notify background task started
+  if (sessionType === 'background') {
+    sendMessage(client.ws, {
+      type: 'background_task_update',
+      sessionId: message.sessionId,
+      status: 'running',
+    } as import('@my-claudia/shared').BackgroundTaskUpdateMessage);
+  }
 
   // Save user message to database
   const userMessageId = uuidv4();
@@ -826,47 +886,68 @@ async function handleRunStart(
     }
 
     // Permission request callback (shared by claude and opencode)
+    // Unified: ALL sessions (including agent sessions) go through the strategy chain.
     const permissionCallback = async (request: import('@my-claudia/shared').PermissionRequest) => {
       return new Promise<PermissionDecision>((resolve) => {
-        // --- Agent permission interception ---
-        // Don't intercept agent's own permissions (already handled by bypassPermissions)
-        if (!isAgentSession(db, session.project_id)) {
-          const agentPolicy = getAgentPermissionPolicy(db);
-          if (agentPolicy?.enabled) {
-            const evaluator = new PermissionEvaluator();
-            const decision = evaluator.evaluate(
-              request.toolName, request.toolInput, request.detail, agentPolicy
-            );
-            if (decision === 'approve') {
-              console.log(`[Agent] Auto-approved ${request.toolName} for run ${runId}`);
-              sendMessage(client.ws, {
-                type: 'agent_permission_intercepted',
-                toolName: request.toolName,
-                decision: 'approve',
-                reason: `Auto-approved by agent policy (${agentPolicy.trustLevel})`,
-                sessionId: message.sessionId,
-                runId,
-              } as import('@my-claudia/shared').AgentPermissionInterceptedMessage);
-              resolve({ behavior: 'allow', updatedInput: request.toolInput });
-              return;
-            }
-            if (decision === 'deny') {
-              console.log(`[Agent] Auto-denied ${request.toolName} for run ${runId}`);
-              sendMessage(client.ws, {
-                type: 'agent_permission_intercepted',
-                toolName: request.toolName,
-                decision: 'deny',
-                reason: `Auto-denied by agent policy (${agentPolicy.trustLevel})`,
-                sessionId: message.sessionId,
-                runId,
-              } as import('@my-claudia/shared').AgentPermissionInterceptedMessage);
-              resolve({ behavior: 'deny', message: 'Denied by agent policy' });
-              return;
-            }
-            // 'escalate' → fall through to normal user UI flow
+        // --- Unified permission strategy chain ---
+        const globalPolicy = getAgentPermissionPolicy(db);
+        if (globalPolicy?.enabled) {
+          const projectOverride = getProjectPermissionOverride(db, session.project_id);
+          const effectivePolicy = mergePolicy(globalPolicy, projectOverride);
+          const evaluator = new PermissionEvaluator();
+          const decision = evaluator.evaluate(
+            request.toolName, request.toolInput, request.detail,
+            effectivePolicy,
+            { rootPath: cwd, sessionType }
+          );
+          if (decision === 'approve') {
+            console.log(`[Permission] Auto-approved ${request.toolName} for run ${runId} (${effectivePolicy.trustLevel})`);
+            sendMessage(client.ws, {
+              type: 'agent_permission_intercepted',
+              toolName: request.toolName,
+              decision: 'approve',
+              reason: `Auto-approved by policy (${effectivePolicy.trustLevel})`,
+              sessionId: message.sessionId,
+              runId,
+            } as import('@my-claudia/shared').AgentPermissionInterceptedMessage);
+            resolve({ behavior: 'allow', updatedInput: request.toolInput });
+            return;
           }
+          if (decision === 'deny') {
+            console.log(`[Permission] Auto-denied ${request.toolName} for run ${runId} (${effectivePolicy.trustLevel})`);
+            sendMessage(client.ws, {
+              type: 'agent_permission_intercepted',
+              toolName: request.toolName,
+              decision: 'deny',
+              reason: `Auto-denied by policy (${effectivePolicy.trustLevel})`,
+              sessionId: message.sessionId,
+              runId,
+            } as import('@my-claudia/shared').AgentPermissionInterceptedMessage);
+            resolve({ behavior: 'deny', message: 'Denied by policy' });
+            return;
+          }
+          // 'escalate' → fall through to user UI flow
         }
-        // --- End agent interception ---
+        // --- End strategy chain ---
+
+        // For background sessions, escalate sends a notification instead of blocking UI
+        if (sessionType === 'background') {
+          sendMessage(client.ws, {
+            type: 'background_permission_pending',
+            sessionId: message.sessionId,
+            requestId: request.requestId,
+            toolName: request.toolName,
+            detail: request.detail,
+            timeoutSeconds: request.timeoutSeconds,
+          } as import('@my-claudia/shared').BackgroundPermissionPendingMessage);
+
+          sendMessage(client.ws, {
+            type: 'background_task_update',
+            sessionId: message.sessionId,
+            status: 'paused',
+            reason: `Permission needed: ${request.toolName}`,
+          } as import('@my-claudia/shared').BackgroundTaskUpdateMessage);
+        }
 
         let timeout: ReturnType<typeof setTimeout> | null = null;
         if (request.timeoutSeconds > 0) {
@@ -877,27 +958,35 @@ async function handleRunStart(
           }, timeoutMs);
         }
 
-        activeRun.pendingPermissions.set(request.requestId, { resolve, timeout });
-        console.log(`[Permission] Stored pending permission ${request.requestId} in run ${runId} (timeout: ${request.timeoutSeconds > 0 ? request.timeoutSeconds + 's' : 'none'})`);
+        activeRun.pendingPermissions.set(request.requestId, { resolve, timeout, originalToolInput: request.toolInput });
+        console.log(`[Permission] Stored pending permission ${request.requestId} in run ${runId} (timeout: ${request.timeoutSeconds > 0 ? request.timeoutSeconds + 's' : 'none'}, session: ${sessionType})`);
 
-        // AskUserQuestion: send interactive question UI instead of generic permission dialog
-        if (request.toolName === 'AskUserQuestion') {
-          const toolInput = request.toolInput as { questions?: Array<any> };
-          sendMessage(client.ws, {
-            type: 'ask_user_question',
-            requestId: request.requestId,
-            questions: toolInput.questions || [],
-          } as import('@my-claudia/shared').AskUserQuestionMessage);
-          console.log(`[Permission] Sent ask_user_question ${request.requestId} to client (${(toolInput.questions || []).length} questions)`);
-        } else {
-          sendMessage(client.ws, {
-            type: 'permission_request',
-            requestId: request.requestId,
-            toolName: request.toolName,
-            detail: request.detail,
-            timeoutSeconds: request.timeoutSeconds
-          });
-          console.log(`[Permission] Sent permission request ${request.requestId} to client`);
+        // For regular sessions: send UI prompts as before
+        if (sessionType !== 'background') {
+          if (request.toolName === 'AskUserQuestion') {
+            const toolInput = request.toolInput as { questions?: Array<any> };
+            sendMessage(client.ws, {
+              type: 'ask_user_question',
+              requestId: request.requestId,
+              questions: toolInput.questions || [],
+            } as import('@my-claudia/shared').AskUserQuestionMessage);
+            console.log(`[Permission] Sent ask_user_question ${request.requestId} to client (${(toolInput.questions || []).length} questions)`);
+          } else {
+            // Detect sudo commands and flag for credential input
+            const requiresCredential = isSudoCommand(request.toolName, request.toolInput);
+            sendMessage(client.ws, {
+              type: 'permission_request',
+              requestId: request.requestId,
+              toolName: request.toolName,
+              detail: request.detail,
+              timeoutSeconds: request.timeoutSeconds,
+              ...(requiresCredential && {
+                requiresCredential: true,
+                credentialHint: 'sudo_password',
+              }),
+            });
+            console.log(`[Permission] Sent permission request ${request.requestId} to client${requiresCredential ? ' (requires sudo credential)' : ''}`);
+          }
         }
       });
     };
@@ -907,12 +996,8 @@ async function handleRunStart(
     let modeValue = message.mode || message.permissionMode || 'default';
     const providerType = providerConfig?.type || 'claude';
 
-    // Agent session detection: force bypassPermissions for agent's own operations
-    const agentSession = isAgentSession(db, session.project_id);
-    if (agentSession) {
-      modeValue = 'bypassPermissions';
-      console.log(`[Agent] Detected agent session ${message.sessionId}, forcing bypassPermissions`);
-    }
+    // Note: Agent sessions no longer force bypassPermissions.
+    // All sessions (including agent) go through the unified permission strategy chain.
     const adapter = providerRegistry.getOrDefault(providerType);
 
     const runOptions = {
@@ -1080,6 +1165,14 @@ async function handleRunStart(
             runId,
             usage: msg.usage
           });
+          // Notify background task completion
+          if (sessionType === 'background') {
+            sendMessage(client.ws, {
+              type: 'background_task_update',
+              sessionId: message.sessionId,
+              status: 'completed',
+            } as import('@my-claudia/shared').BackgroundTaskUpdateMessage);
+          }
           break;
       }
     }
@@ -1096,6 +1189,15 @@ async function handleRunStart(
       runId,
       error: error instanceof Error ? error.message : 'Unknown error'
     });
+    // Notify background task failure
+    if (sessionType === 'background') {
+      sendMessage(client.ws, {
+        type: 'background_task_update',
+        sessionId: message.sessionId,
+        status: 'failed',
+        reason: error instanceof Error ? error.message : 'Unknown error',
+      } as import('@my-claudia/shared').BackgroundTaskUpdateMessage);
+    }
   } finally {
     // Stop periodic save
     if (activeRun.saveInterval) {
@@ -1122,6 +1224,7 @@ function handlePermissionDecision(message: {
   requestId: string;
   allow: boolean;
   remember?: boolean;
+  encryptedCredential?: string;
 }): void {
   console.log(`[Permission] Received decision for ${message.requestId}: ${message.allow ? 'allow' : 'deny'}`);
   console.log(`[Permission] Active runs: ${activeRuns.size}`);
@@ -1137,10 +1240,34 @@ function handlePermissionDecision(message: {
       }
       run.pendingPermissions.delete(message.requestId);
 
-      pending.resolve({
+      // If credential was provided (e.g. sudo password), decrypt and rewrite the command
+      let updatedInput: unknown | undefined;
+      if (message.allow && message.encryptedCredential) {
+        try {
+          const password = decryptCredential(message.encryptedCredential);
+          const originalInput = pending.originalToolInput as { command?: string } | undefined;
+          if (originalInput?.command) {
+            updatedInput = {
+              ...originalInput,
+              command: rewriteSudoCommand(originalInput.command, password),
+            };
+            console.log(`[Permission] ${message.requestId}: Rewrote sudo command with credential`);
+          }
+        } catch (err) {
+          console.error(`[Permission] Failed to decrypt credential for ${message.requestId}:`, err);
+          pending.resolve({ behavior: 'deny', message: 'Failed to decrypt credential' });
+          return;
+        }
+      }
+
+      const decision: PermissionDecision = {
         behavior: message.allow ? 'allow' : 'deny',
-        message: message.allow ? undefined : 'User denied permission'
-      });
+        message: message.allow ? undefined : 'User denied permission',
+      };
+      if (updatedInput !== undefined) {
+        decision.updatedInput = updatedInput;
+      }
+      pending.resolve(decision);
 
       console.log(`[Permission] ${message.requestId}: ${message.allow ? 'allowed' : 'denied'} - resolved!`);
       return;

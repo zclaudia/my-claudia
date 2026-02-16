@@ -386,6 +386,25 @@ function runMigrations(db: Database.Database): void {
         INSERT OR IGNORE INTO agent_config (id, enabled, created_at, updated_at)
         VALUES (1, 1, strftime('%s','now')*1000, strftime('%s','now')*1000);
       `
+    },
+    {
+      name: '013_agent_provider_id',
+      sql: `
+        ALTER TABLE agent_config ADD COLUMN provider_id TEXT;
+      `
+    },
+    {
+      name: '014_session_type_and_parent',
+      sql: `
+        ALTER TABLE sessions ADD COLUMN type TEXT CHECK(type IN ('regular', 'background')) DEFAULT 'regular';
+        ALTER TABLE sessions ADD COLUMN parent_session_id TEXT REFERENCES sessions(id) ON DELETE SET NULL;
+      `
+    },
+    {
+      name: '015_project_agent_permission_override',
+      sql: `
+        ALTER TABLE projects ADD COLUMN agent_permission_override TEXT;
+      `
     }
   ];
 

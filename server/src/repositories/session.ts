@@ -30,6 +30,8 @@ export class SessionRepository extends BaseRepository<
       name: row.name,
       providerId: row.provider_id,
       sdkSessionId: row.sdk_session_id,
+      type: row.type || 'regular',
+      parentSessionId: row.parent_session_id || undefined,
       createdAt: row.created_at,
       updatedAt: row.updated_at
     };
@@ -44,8 +46,8 @@ export class SessionRepository extends BaseRepository<
 
     return {
       sql: `
-        INSERT INTO sessions (id, project_id, name, provider_id, sdk_session_id, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO sessions (id, project_id, name, provider_id, sdk_session_id, type, parent_session_id, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
       `,
       params: [
         id,
@@ -53,6 +55,8 @@ export class SessionRepository extends BaseRepository<
         data.name || null,
         data.providerId || null,
         data.sdkSessionId || null,
+        data.type || 'regular',
+        data.parentSessionId || null,
         now,
         now
       ]
@@ -82,6 +86,14 @@ export class SessionRepository extends BaseRepository<
     if (data.sdkSessionId !== undefined) {
       updates.push('sdk_session_id = ?');
       params.push(data.sdkSessionId);
+    }
+    if (data.type !== undefined) {
+      updates.push('type = ?');
+      params.push(data.type);
+    }
+    if (data.parentSessionId !== undefined) {
+      updates.push('parent_session_id = ?');
+      params.push(data.parentSessionId);
     }
 
     // Always update timestamp

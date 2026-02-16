@@ -234,7 +234,10 @@ export class GatewayTransport {
 
   private handleSessionsList(message: BackendSessionsListMessage): void {
     console.log(`[GatewayTransport] Received ${message.sessions.length} sessions from backend ${message.backendId}`);
-    useSessionsStore.getState().setRemoteSessions(message.backendId, message.sessions);
+    useSessionsStore.getState().setRemoteSessions(message.backendId, message.sessions.map(s => ({
+      ...s,
+      type: s.type || 'regular',
+    })));
   }
 
   private handleSessionEvent(message: BackendSessionEventMessage): void {

@@ -1,8 +1,14 @@
-import { useState, useEffect } from 'react';
-import type { Project, ProviderConfig } from '@my-claudia/shared';
+import { useState, useEffect, useCallback } from 'react';
+import type { Project, ProviderConfig, AgentPermissionPolicy } from '@my-claudia/shared';
 import { useServerStore } from '../stores/serverStore';
 import { useProjectStore } from '../stores/projectStore';
 import * as api from '../services/api';
+
+const TRUST_LEVELS = [
+  { id: 'conservative' as const, label: 'Conservative', description: 'Only auto-approve read-only tools' },
+  { id: 'moderate' as const, label: 'Moderate', description: 'Auto-approve reads + file edits' },
+  { id: 'aggressive' as const, label: 'Aggressive', description: 'Auto-approve most operations except dangerous bash' },
+];
 
 interface ProjectSettingsProps {
   project: Project | null;
@@ -25,6 +31,14 @@ export function ProjectSettings({ project, isOpen, onClose }: ProjectSettingsPro
   const [providerId, setProviderId] = useState<string>('');
   const [systemPrompt, setSystemPrompt] = useState('');
 
+  // Permission override state
+  const [hasOverride, setHasOverride] = useState(false);
+  const [permOverride, setPermOverride] = useState<Partial<AgentPermissionPolicy>>({});
+
+  const updateOverride = useCallback((update: Partial<AgentPermissionPolicy>) => {
+    setPermOverride(prev => ({ ...prev, ...update }));
+  }, []);
+
   // Load providers and populate form when project changes
   useEffect(() => {
     if (isOpen && isConnected) {
@@ -35,6 +49,14 @@ export function ProjectSettings({ project, isOpen, onClose }: ProjectSettingsPro
       setRootPath(project.rootPath || '');
       setProviderId(project.providerId || '');
       setSystemPrompt(project.systemPrompt || '');
+      // Permission override
+      if (project.agentPermissionOverride) {
+        setHasOverride(true);
+        setPermOverride(project.agentPermissionOverride);
+      } else {
+        setHasOverride(false);
+        setPermOverride({});
+      }
     }
   }, [isOpen, project, isConnected]);
 
@@ -55,19 +77,16 @@ export function ProjectSettings({ project, isOpen, onClose }: ProjectSettingsPro
 
     setSaving(true);
     try {
-      await api.updateProject(project.id, {
+      const updates: Partial<Project> = {
         name: name.trim(),
         rootPath: rootPath.trim() || undefined,
         providerId: providerId || undefined,
         systemPrompt: systemPrompt.trim() || undefined,
-      });
+        agentPermissionOverride: hasOverride ? permOverride : undefined,
+      };
 
-      updateProject(project.id, {
-        name: name.trim(),
-        rootPath: rootPath.trim() || undefined,
-        providerId: providerId || undefined,
-        systemPrompt: systemPrompt.trim() || undefined,
-      });
+      await api.updateProject(project.id, updates);
+      updateProject(project.id, updates);
 
       onClose();
     } catch (error) {
@@ -171,6 +190,132 @@ export function ProjectSettings({ project, isOpen, onClose }: ProjectSettingsPro
               Custom instructions to prepend to every conversation
             </p>
           </div>
+
+          {/* Permission Override */}
+          <div className="border-t border-border pt-4">
+            <div className="flex items-center justify-between mb-2">
+              <div>
+                <label className="block text-sm font-medium text-muted-foreground">
+                  Agent Permission Override
+                </label>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Override the global agent permission policy for this project
+                </p>
+              </div>
+              <button
+                onClick={() => {
+                  setHasOverride(!hasOverride);
+                  if (!hasOverride) {
+                    setPermOverride({ trustLevel: 'moderate' });
+                  }
+                }}
+                className={`relative w-10 h-5 rounded-full transition-colors flex-shrink-0 ${
+                  hasOverride ? 'bg-primary' : 'bg-muted'
+                }`}
+              >
+                <span
+                  className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${
+                    hasOverride ? 'translate-x-5' : 'translate-x-0'
+                  }`}
+                />
+              </button>
+            </div>
+
+            {!hasOverride && (
+              <p className="text-xs text-muted-foreground/70 italic">
+                Using global default policy
+              </p>
+            )}
+
+            {hasOverride && (
+              <div className="space-y-3 mt-3 pl-3 border-l-2 border-primary/30">
+                {/* Trust level */}
+                <div>
+                  <p className="text-xs font-medium text-muted-foreground mb-1.5">Trust Level</p>
+                  <div className="space-y-1.5">
+                    {TRUST_LEVELS.map(level => (
+                      <button
+                        key={level.id}
+                        onClick={() => updateOverride({ trustLevel: level.id })}
+                        className={`w-full text-left p-2 rounded-lg border transition-colors ${
+                          permOverride.trustLevel === level.id
+                            ? 'border-primary bg-primary/5'
+                            : 'border-border hover:border-muted-foreground/30'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2">
+                          <div className={`w-2.5 h-2.5 rounded-full border-2 flex items-center justify-center ${
+                            permOverride.trustLevel === level.id ? 'border-primary' : 'border-muted-foreground/40'
+                          }`}>
+                            {permOverride.trustLevel === level.id && (
+                              <div className="w-1 h-1 rounded-full bg-primary" />
+                            )}
+                          </div>
+                          <span className="text-xs font-medium">{level.label}</span>
+                        </div>
+                        <p className="text-[10px] text-muted-foreground mt-0.5 ml-[18px]">
+                          {level.description}
+                        </p>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Strategy toggles */}
+                <div>
+                  <p className="text-xs font-medium text-muted-foreground mb-1.5">Strategies</p>
+                  <div className="space-y-1">
+                    <MiniStrategyToggle
+                      label="Workspace Scope"
+                      enabled={permOverride.strategies?.workspaceScope?.enabled ?? false}
+                      onToggle={(v) => updateOverride({
+                        strategies: {
+                          ...permOverride.strategies,
+                          workspaceScope: {
+                            enabled: v,
+                            allowedPaths: permOverride.strategies?.workspaceScope?.allowedPaths ?? ['/tmp'],
+                          },
+                        },
+                      })}
+                    />
+                    <MiniStrategyToggle
+                      label="Sensitive Files"
+                      enabled={permOverride.strategies?.sensitiveFiles?.enabled ?? false}
+                      onToggle={(v) => updateOverride({
+                        strategies: {
+                          ...permOverride.strategies,
+                          sensitiveFiles: {
+                            enabled: v,
+                            patterns: permOverride.strategies?.sensitiveFiles?.patterns ?? [],
+                          },
+                        },
+                      })}
+                    />
+                    <MiniStrategyToggle
+                      label="Network Access"
+                      enabled={permOverride.strategies?.networkAccess?.enabled ?? false}
+                      onToggle={(v) => updateOverride({
+                        strategies: {
+                          ...permOverride.strategies,
+                          networkAccess: { enabled: v },
+                        },
+                      })}
+                    />
+                    <MiniStrategyToggle
+                      label="AI Analysis"
+                      enabled={permOverride.strategies?.aiAnalysis?.enabled ?? false}
+                      onToggle={(v) => updateOverride({
+                        strategies: {
+                          ...permOverride.strategies,
+                          aiAnalysis: { enabled: v },
+                        },
+                      })}
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Footer */}
@@ -191,5 +336,29 @@ export function ProjectSettings({ project, isOpen, onClose }: ProjectSettingsPro
         </div>
       </div>
     </>
+  );
+}
+
+function MiniStrategyToggle({ label, enabled, onToggle }: {
+  label: string;
+  enabled: boolean;
+  onToggle: (v: boolean) => void;
+}) {
+  return (
+    <div className="flex items-center justify-between py-1">
+      <span className="text-xs">{label}</span>
+      <button
+        onClick={() => onToggle(!enabled)}
+        className={`relative w-7 h-3.5 rounded-full transition-colors flex-shrink-0 ${
+          enabled ? 'bg-primary' : 'bg-muted'
+        }`}
+      >
+        <span
+          className={`absolute top-0.5 left-0.5 w-2.5 h-2.5 rounded-full bg-white shadow transition-transform ${
+            enabled ? 'translate-x-3' : 'translate-x-0'
+          }`}
+        />
+      </button>
+    </div>
   );
 }
