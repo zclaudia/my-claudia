@@ -287,7 +287,10 @@ export class GatewayClient {
 
       case 'backends_list': {
         const backendsMsg = message as GatewayBackendsListMessage;
-        this.discoveredBackends = backendsMsg.backends;
+        this.discoveredBackends = backendsMsg.backends.map(b => ({
+          ...b,
+          isLocal: b.backendId === this.backendId
+        }));
         console.log(`[Gateway] Discovered backends: ${backendsMsg.backends.length}`);
         break;
       }

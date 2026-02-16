@@ -202,12 +202,12 @@ export function ServerGatewayConfig() {
       )}
 
       {/* Discovered Backends */}
-      {status?.connected && status.discoveredBackends && status.discoveredBackends.length > 0 && (
+      {status?.connected && status.discoveredBackends && status.discoveredBackends.filter(b => !b.isLocal).length > 0 && (
         <div className="bg-muted rounded-lg p-3 space-y-2">
           <h4 className="text-sm font-semibold text-foreground">
-            Discovered Backends ({status.discoveredBackends.length})
+            Discovered Backends ({status.discoveredBackends.filter(b => !b.isLocal).length})
           </h4>
-          {status.discoveredBackends.map((b) => (
+          {status.discoveredBackends.filter(b => !b.isLocal).map((b) => (
             <div key={b.backendId} className="flex items-center justify-between text-sm">
               <div className="flex items-center gap-2">
                 <span className={`w-1.5 h-1.5 rounded-full ${b.online ? 'bg-success' : 'bg-muted-foreground'}`} />

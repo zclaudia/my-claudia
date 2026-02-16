@@ -233,12 +233,12 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
                     })}
 
                     {/* Gateway backends */}
-                    {isGatewayConnected && discoveredBackends.length > 0 && (
+                    {isGatewayConnected && discoveredBackends.filter(b => !b.isLocal).length > 0 && (
                       <>
                         <div className="px-3 py-1 text-[10px] font-medium text-muted-foreground uppercase tracking-wider bg-secondary/50 border-t border-border">
                           Via Gateway
                         </div>
-                        {discoveredBackends.map((backend) => {
+                        {discoveredBackends.filter(b => !b.isLocal).map((backend) => {
                           const gwId = toGatewayServerId(backend.backendId);
                           const isActive = activeServerId === gwId;
                           const authStatus = backendAuthStatus[backend.backendId];
@@ -859,12 +859,12 @@ function ServerInfoPanel() {
       })}
 
       {/* Gateway backends */}
-      {isGatewayConnected && discoveredBackends.length > 0 && (
+      {isGatewayConnected && discoveredBackends.filter(b => !b.isLocal).length > 0 && (
         <>
           <div className="text-xs font-medium text-muted-foreground uppercase tracking-wider pt-2">
             Via Gateway
           </div>
-          {discoveredBackends.map((backend) => {
+          {discoveredBackends.filter(b => !b.isLocal).map((backend) => {
             const gwServerId = toGatewayServerId(backend.backendId);
             const authStatus = backendAuthStatus[backend.backendId];
             const isActive = activeServerId === gwServerId;

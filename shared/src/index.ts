@@ -864,6 +864,7 @@ export interface GatewayBackendInfo {
   backendId: string;
   name: string;
   online: boolean;
+  isLocal?: boolean;
 }
 
 // --- Gateway Messages (Backend → Gateway) ---

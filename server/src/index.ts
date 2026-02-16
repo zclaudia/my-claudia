@@ -7,6 +7,7 @@ import { initDatabase } from './storage/db.js';
 import type { GatewayConfig } from './routes/gateway.js';
 import { openCodeServerManager } from './providers/opencode-sdk.js';
 import { checkVersionCompatibility } from './providers/claude-sdk.js';
+import { detectCliProvidersSync } from './utils/cli-detect.js';
 
 const PORT = parseInt(process.env.PORT || '3100', 10);
 // Listen on 0.0.0.0 to allow connections from other devices on the network
@@ -148,18 +149,16 @@ async function connectToGateway(config: GatewayConfig): Promise<void> {
   (gatewayClient as any)._syncInterval = syncGatewayStatus;
 }
 
-// Disconnect from Gateway
 async function disconnectFromGateway(): Promise<void> {
   if (gatewayClient) {
     console.log('📡 Disconnecting from Gateway...');
-    // Clear sync interval
     const syncInterval = (gatewayClient as any)._syncInterval;
     if (syncInterval) {
       clearInterval(syncInterval);
     }
     gatewayClient.disconnect();
     gatewayClient = null;
-    setGatewayClient(null);  // Clear global instance
+    setGatewayClient(null);
     virtualClients.clear();
     if (serverContext) {
       serverContext.updateGatewayBackendId(null);
@@ -168,17 +167,64 @@ async function disconnectFromGateway(): Promise<void> {
   }
 }
 
+function autoDetectProviders(): void {
+  if (!serverContext) return;
+  
+  const db = serverContext.db;
+  
+  const existingProviders = db.prepare('SELECT id FROM providers LIMIT 1').get() as { id: string } | undefined;
+  
+  if (existingProviders) {
+    return;
+  }
+  
+  console.log('\n🔍 No providers found, auto-detecting CLI...');
+  
+  const detectedClis = detectCliProvidersSync();
+  
+  if (detectedClis.length === 0) {
+    console.log('   No CLI detected. Install claude or opencode to get started.');
+    return;
+  }
+  
+  const now = Date.now();
+  let claudeId: string | null = null;
+  
+  for (const cli of detectedClis) {
+    const id = crypto.randomUUID();
+    
+    const isDefault = cli.type === 'claude';
+    
+    db.prepare(`
+      INSERT INTO providers (id, name, type, cli_path, env, is_default, created_at, updated_at)
+      VALUES (?, ?, ?, ?, NULL, ?, ?, ?)
+    `).run(id, cli.name, cli.type, cli.cliPath, isDefault ? 1 : 0, now, now);
+    
+    console.log(`   ✅ Added provider: ${cli.name} (${cli.cliPath})`);
+    
+    if (cli.type === 'claude') {
+      claudeId = id;
+    }
+  }
+  
+  if (claudeId) {
+    console.log(`   🌟 Default provider set to: Claude Code`);
+  } else if (detectedClis.length > 0) {
+    console.log(`   🌟 Default provider set to: ${detectedClis[0].name}`);
+  }
+}
+
 async function main() {
   try {
     serverContext = await createServer();
     const { server, handleMessage, connectGateway, disconnectGateway } = serverContext;
 
-    // Set gateway connector/disconnector implementations
     serverContext.setGatewayConnector(connectToGateway);
     serverContext.setGatewayDisconnector(disconnectFromGateway);
 
-    // Check SDK/CLI version compatibility (non-blocking)
     checkVersionCompatibility().catch(() => {});
+    
+    autoDetectProviders();
 
     server.listen(PORT, HOST, async () => {
       console.log(`🚀 My Claudia Server running at http://${HOST}:${PORT}`);

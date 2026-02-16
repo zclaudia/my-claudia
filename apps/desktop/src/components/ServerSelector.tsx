@@ -133,9 +133,9 @@ export function ServerSelector() {
               <div className="px-3 py-2 text-xs text-muted-foreground text-center">
                 Configure in Settings &gt; Gateway
               </div>
-            ) : isGatewayConnected && discoveredBackends.length > 0 ? (
+            ) : isGatewayConnected && discoveredBackends.filter(b => !b.isLocal).length > 0 ? (
               <div className="max-h-40 overflow-y-auto">
-                {discoveredBackends.map((backend) => (
+                {discoveredBackends.filter(b => !b.isLocal).map((backend) => (
                   <GatewayBackendItem
                     key={backend.backendId}
                     backend={backend}
