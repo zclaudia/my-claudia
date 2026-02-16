@@ -3,13 +3,13 @@ import { useServerStore } from '../stores/serverStore';
 import { useProjectStore } from '../stores/projectStore';
 import * as api from '../services/api';
 
-interface ImportDialogProps {
+interface ImportOpenCodeDialogProps {
   isOpen: boolean;
   onClose: () => void;
 }
 
 enum ImportStep {
-  SELECT_DIRECTORY = 1,
+  DETECT_DB = 1,
   PREVIEW_SESSIONS = 2,
   CONFIGURE = 3,
   PROGRESS = 4,
@@ -37,14 +37,23 @@ interface ImportResult {
 
 const CREATE_PROJECT_VALUE = '__create__';
 
+function getDefaultPath(): string {
+  // Best guess for display purposes; server handles actual detection
+  const platform = navigator.platform.toLowerCase();
+  if (platform.includes('mac')) {
+    return '~/Library/Application Support/opencode/opencode.db';
+  }
+  return '~/.local/share/opencode/opencode.db';
+}
+
 function getDirectoryName(wsPath: string): string {
   const parts = wsPath.replace(/\/+$/, '').split('/');
   return parts[parts.length - 1] || wsPath;
 }
 
-export function ImportDialog({ isOpen, onClose }: ImportDialogProps) {
-  const [step, setStep] = useState(ImportStep.SELECT_DIRECTORY);
-  const [claudeCliPath, setClaudeCliPath] = useState('~/.claude');
+export function ImportOpenCodeDialog({ isOpen, onClose }: ImportOpenCodeDialogProps) {
+  const [step, setStep] = useState(ImportStep.DETECT_DB);
+  const [opencodePath, setOpencodePath] = useState(getDefaultPath());
   const [scannedData, setScannedData] = useState<ScanResult | null>(null);
   const [selectedSessions, setSelectedSessions] = useState<Set<string>>(new Set());
   const [projectMapping, setProjectMapping] = useState<Record<string, string>>({});
@@ -120,8 +129,8 @@ export function ImportDialog({ isOpen, onClose }: ImportDialogProps) {
   }, [scannedData, visibleProjectsCount]);
 
   const handleClose = () => {
-    setStep(ImportStep.SELECT_DIRECTORY);
-    setClaudeCliPath('~/.claude');
+    setStep(ImportStep.DETECT_DB);
+    setOpencodePath(getDefaultPath());
     setScannedData(null);
     setSelectedSessions(new Set());
     setProjectMapping({});
@@ -132,37 +141,15 @@ export function ImportDialog({ isOpen, onClose }: ImportDialogProps) {
     onClose();
   };
 
-  const handleSelectDirectory = async () => {
+  const scanDatabase = async (dbPath: string) => {
     try {
       setLoading(true);
       setError(null);
 
-      const result = await (window as any).electron?.openDialog({
-        properties: ['openDirectory'],
-        defaultPath: claudeCliPath
-      });
-
-      if (result && result.filePaths && result.filePaths[0]) {
-        const selectedPath = result.filePaths[0];
-        setClaudeCliPath(selectedPath);
-        await scanDirectory(selectedPath);
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to select directory');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const scanDirectory = async (path: string) => {
-    try {
-      setLoading(true);
-      setError(null);
-
-      const response = await fetch(`${getServerUrl()}/api/import/claude-cli/scan`, {
+      const response = await fetch(`${getServerUrl()}/api/import/opencode/scan`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ claudeCliPath: path })
+        body: JSON.stringify({ opencodePath: dbPath })
       });
 
       const result = await response.json();
@@ -174,21 +161,21 @@ export function ImportDialog({ isOpen, onClose }: ImportDialogProps) {
           setStep(ImportStep.PREVIEW_SESSIONS);
         }, 100);
       } else {
-        setError(result.error?.message || 'Failed to scan directory');
+        setError(result.error?.message || 'Failed to scan OpenCode database');
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to scan directory');
+      setError(err instanceof Error ? err.message : 'Failed to scan OpenCode database');
     } finally {
       setLoading(false);
     }
   };
 
-  const handleManualScan = async () => {
-    if (!claudeCliPath) {
-      setError('Please enter a directory path');
+  const handleScan = async () => {
+    if (!opencodePath) {
+      setError('Please enter the database path');
       return;
     }
-    await scanDirectory(claudeCliPath);
+    await scanDatabase(opencodePath);
   };
 
   const startImport = async () => {
@@ -223,16 +210,15 @@ export function ImportDialog({ isOpen, onClose }: ImportDialogProps) {
         );
         return {
           sessionId,
-          projectPath: srcProject?.path || '',
           targetProjectId: resolvedMapping[srcProject?.path || ''] || ''
         };
       });
 
-      const response = await fetch(`${getServerUrl()}/api/import/claude-cli/import`, {
+      const response = await fetch(`${getServerUrl()}/api/import/opencode/import`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          claudeCliPath,
+          opencodePath,
           imports,
           options: { conflictStrategy: 'skip' }
         })
@@ -252,7 +238,7 @@ export function ImportDialog({ isOpen, onClose }: ImportDialogProps) {
           useProjectStore.getState().setSessions(sessions);
           useProjectStore.getState().setProjects(refreshedProjects);
         } catch (refreshErr) {
-          console.error('[ImportDialog] Failed to refresh data:', refreshErr);
+          console.error('[ImportOpenCodeDialog] Failed to refresh data:', refreshErr);
         }
       } else {
         setError(result.error?.message || 'Import failed');
@@ -277,7 +263,7 @@ export function ImportDialog({ isOpen, onClose }: ImportDialogProps) {
       <div className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] max-h-[80vh] bg-card rounded-lg shadow-2xl z-50 overflow-hidden">
         {/* Header */}
         <div className="px-6 py-4 border-b border-border">
-          <h2 className="text-xl font-semibold">Import from Claude CLI</h2>
+          <h2 className="text-xl font-semibold">Import from OpenCode</h2>
         </div>
 
         {/* Content */}
@@ -289,43 +275,36 @@ export function ImportDialog({ isOpen, onClose }: ImportDialogProps) {
             </div>
           )}
 
-          {/* Step 1: Select Directory */}
-          {step === ImportStep.SELECT_DIRECTORY && (
+          {/* Step 1: Detect Database */}
+          {step === ImportStep.DETECT_DB && (
             <div className="space-y-4">
               <p className="text-sm text-muted-foreground">
-                Select the Claude CLI configuration directory to import sessions from.
+                Enter the path to the OpenCode SQLite database file. The default location is detected automatically.
               </p>
 
               <div>
                 <label className="block text-sm font-medium mb-2">
-                  Claude CLI Directory
+                  OpenCode Database Path
                 </label>
                 <div className="flex gap-2">
                   <input
                     type="text"
-                    value={claudeCliPath}
-                    onChange={(e) => setClaudeCliPath(e.target.value)}
-                    placeholder="~/.claude"
+                    value={opencodePath}
+                    onChange={(e) => setOpencodePath(e.target.value)}
+                    placeholder={getDefaultPath()}
                     className="flex-1 px-3 py-2 bg-input border border-border rounded text-sm"
-                    onKeyDown={(e) => e.key === 'Enter' && handleManualScan()}
+                    onKeyDown={(e) => e.key === 'Enter' && handleScan()}
                   />
                   <button
-                    onClick={handleManualScan}
+                    onClick={handleScan}
                     disabled={loading}
                     className="px-4 py-2 bg-primary text-primary-foreground rounded hover:opacity-90 disabled:opacity-50"
                   >
                     {loading ? 'Scanning...' : 'Scan'}
                   </button>
-                  <button
-                    onClick={handleSelectDirectory}
-                    disabled={loading}
-                    className="px-4 py-2 bg-secondary text-secondary-foreground rounded hover:opacity-90 disabled:opacity-50"
-                  >
-                    Browse...
-                  </button>
                 </div>
                 <p className="text-xs text-muted-foreground mt-1">
-                  Enter the path to your Claude CLI directory (default: ~/.claude)
+                  The database file is typically located at {getDefaultPath()}
                 </p>
               </div>
             </div>
@@ -409,7 +388,7 @@ export function ImportDialog({ isOpen, onClose }: ImportDialogProps) {
 
               <div className="flex justify-between pt-2">
                 <button
-                  onClick={() => setStep(ImportStep.SELECT_DIRECTORY)}
+                  onClick={() => setStep(ImportStep.DETECT_DB)}
                   className="px-4 py-2 bg-secondary text-secondary-foreground rounded hover:opacity-90"
                 >
                   Back

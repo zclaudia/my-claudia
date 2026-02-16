@@ -13,15 +13,17 @@ export function createProjectRoutes(db: Database.Database): Router {
         SELECT id, name, type, provider_id as providerId, root_path as rootPath,
                system_prompt as systemPrompt, permission_policy as permissionPolicy,
                agent_permission_override as agentPermissionOverride,
+               is_internal as isInternal,
                created_at as createdAt, updated_at as updatedAt
         FROM projects
         ORDER BY updated_at DESC
-      `).all() as Array<Project & { permissionPolicy: string; agentPermissionOverride: string }>;
+      `).all() as Array<Omit<Project, 'permissionPolicy' | 'agentPermissionOverride' | 'isInternal'> & { permissionPolicy: string; agentPermissionOverride: string; isInternal: number }>;
 
       const result = projects.map(p => ({
         ...p,
         permissionPolicy: p.permissionPolicy ? JSON.parse(p.permissionPolicy) : undefined,
         agentPermissionOverride: p.agentPermissionOverride ? JSON.parse(p.agentPermissionOverride) : undefined,
+        isInternal: p.isInternal === 1,
       }));
 
       res.json({ success: true, data: result } as ApiResponse<Project[]>);
@@ -41,9 +43,10 @@ export function createProjectRoutes(db: Database.Database): Router {
         SELECT id, name, type, provider_id as providerId, root_path as rootPath,
                system_prompt as systemPrompt, permission_policy as permissionPolicy,
                agent_permission_override as agentPermissionOverride,
+               is_internal as isInternal,
                created_at as createdAt, updated_at as updatedAt
         FROM projects WHERE id = ?
-      `).get(req.params.id) as (Project & { permissionPolicy: string; agentPermissionOverride: string }) | undefined;
+      `).get(req.params.id) as (Omit<Project, 'permissionPolicy' | 'agentPermissionOverride' | 'isInternal'> & { permissionPolicy: string; agentPermissionOverride: string; isInternal: number }) | undefined;
 
       if (!project) {
         res.status(404).json({
@@ -59,6 +62,7 @@ export function createProjectRoutes(db: Database.Database): Router {
           ...project,
           permissionPolicy: project.permissionPolicy ? JSON.parse(project.permissionPolicy) : undefined,
           agentPermissionOverride: project.agentPermissionOverride ? JSON.parse(project.agentPermissionOverride) : undefined,
+          isInternal: project.isInternal === 1,
         }
       } as ApiResponse<Project>);
     } catch (error) {

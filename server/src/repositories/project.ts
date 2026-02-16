@@ -32,6 +32,7 @@ export class ProjectRepository extends BaseRepository<
       rootPath: row.root_path,
       systemPrompt: row.system_prompt,
       permissionPolicy: row.permission_policy ? JSON.parse(row.permission_policy) : undefined,
+      isInternal: row.is_internal === 1,
       createdAt: row.created_at,
       updatedAt: row.updated_at
     };

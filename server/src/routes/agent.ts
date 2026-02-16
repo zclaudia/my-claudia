@@ -135,8 +135,8 @@ export function createAgentRoutes(db: Database.Database): Router {
       const systemPrompt = getAgentSystemPrompt();
 
       db.prepare(`
-        INSERT INTO projects (id, name, type, system_prompt, agent_permission_override, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO projects (id, name, type, system_prompt, agent_permission_override, is_internal, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, 1, ?, ?)
       `).run(projectId, '_Agent Assistant', 'chat_only', systemPrompt, JSON.stringify(AGENT_DEFAULT_POLICY), now, now);
 
       // Create agent session (type = 'regular' for the primary UI session)

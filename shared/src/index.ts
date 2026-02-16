@@ -120,6 +120,7 @@ export interface Project {
   systemPrompt?: string;
   permissionPolicy?: PermissionPolicy;
   agentPermissionOverride?: Partial<AgentPermissionPolicy>;  // Project-level override of global agent policy
+  isInternal?: boolean;  // Internal projects (e.g. Agent Assistant) are hidden from user-facing lists
   createdAt: number;
   updatedAt: number;
 }

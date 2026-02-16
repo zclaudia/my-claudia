@@ -1,21 +1,10 @@
 import { Router, Request, Response } from 'express';
 import * as fs from 'fs';
 import * as path from 'path';
-import * as os from 'os';
 import type Database from 'better-sqlite3';
 import type { ApiResponse, Message } from '@my-claudia/shared';
 import { fileStore } from '../storage/fileStore.js';
-
-// Expand ~ to home directory
-function expandTilde(filepath: string): string {
-  if (filepath.startsWith('~/')) {
-    return path.join(os.homedir(), filepath.slice(2));
-  }
-  if (filepath === '~') {
-    return os.homedir();
-  }
-  return filepath;
-}
+import { expandTilde, checkDuplicateSession, type ImportResult, type ScanResult } from './import-shared.js';
 
 // Types for Claude CLI data structures
 interface ClaudeSessionEntry {
@@ -69,24 +58,6 @@ interface ImportRequest {
   };
 }
 
-interface ImportResult {
-  imported: number;
-  skipped: number;
-  errors: Array<{ sessionId: string; error: string }>;
-}
-
-interface ScanResult {
-  projects: Array<{
-    path: string;
-    sessions: Array<{
-      id: string;
-      summary: string;
-      messageCount: number;
-      firstPrompt?: string;
-      timestamp: number;
-    }>;
-  }>;
-}
 
 export function createImportRoutes(db: Database.Database): Router {
   const router = Router();
@@ -185,6 +156,7 @@ export function createImportRoutes(db: Database.Database): Router {
 function scanProjects(projectsDir: string) {
   const projects: Array<{
     path: string;
+    workspacePath?: string;
     sessions: Array<{
       id: string;
       summary: string;
@@ -202,7 +174,7 @@ function scanProjects(projectsDir: string) {
 
     if (!stat.isDirectory()) continue;
 
-    // Look for sessions-index.json
+    // Try sessions-index.json first (older Claude CLI versions)
     const indexPath = path.join(projectPath, 'sessions-index.json');
 
     if (fs.existsSync(indexPath)) {
@@ -219,18 +191,154 @@ function scanProjects(projectsDir: string) {
             timestamp: entry.fileMtime
           }));
 
+          // Try to extract workspacePath from first session file
+          const workspacePath = extractWorkspacePathFromFirstSession(projectPath, index.entries);
+
           projects.push({
             path: projectDir,
+            workspacePath,
             sessions
           });
+          continue;
         }
       } catch (error) {
         console.error(`Error parsing sessions-index.json in ${projectDir}:`, error);
       }
     }
+
+    // Fallback: discover sessions from .jsonl files directly
+    const result = scanJsonlFiles(projectPath);
+    if (result.sessions.length > 0) {
+      projects.push({
+        path: projectDir,
+        workspacePath: result.workspacePath,
+        sessions: result.sessions
+      });
+    }
   }
 
   return projects;
+}
+
+// Extract workspace path (cwd) from the first session JSONL file
+function extractWorkspacePathFromFirstSession(
+  projectPath: string,
+  entries: ClaudeSessionEntry[]
+): string | undefined {
+  if (!entries || entries.length === 0) return undefined;
+
+  const firstSessionId = entries[0].sessionId;
+  const sessionFile = path.join(projectPath, `${firstSessionId}.jsonl`);
+
+  if (!fs.existsSync(sessionFile)) return undefined;
+
+  try {
+    const content = fs.readFileSync(sessionFile, 'utf-8');
+    const lines = content.split('\n');
+
+    for (const line of lines) {
+      if (!line.trim()) continue;
+      try {
+        const msg = JSON.parse(line);
+        if (msg.type === 'user' && msg.cwd) {
+          return msg.cwd;
+        }
+      } catch {
+        // skip malformed line
+      }
+    }
+  } catch {
+    // ignore read errors
+  }
+
+  return undefined;
+}
+
+// Scan a project directory for .jsonl session files (newer Claude CLI format)
+function scanJsonlFiles(projectPath: string): {
+  sessions: Array<{
+    id: string;
+    summary: string;
+    messageCount: number;
+    firstPrompt?: string;
+    timestamp: number;
+  }>;
+  workspacePath?: string;
+} {
+  const sessions: Array<{
+    id: string;
+    summary: string;
+    messageCount: number;
+    firstPrompt?: string;
+    timestamp: number;
+  }> = [];
+
+  let workspacePath = '';
+  const entries = fs.readdirSync(projectPath);
+
+  for (const entry of entries) {
+    if (!entry.endsWith('.jsonl')) continue;
+
+    const filePath = path.join(projectPath, entry);
+    const fileStat = fs.statSync(filePath);
+    if (!fileStat.isFile()) continue;
+
+    const sessionId = entry.replace('.jsonl', '');
+
+    try {
+      const content = fs.readFileSync(filePath, 'utf-8');
+      const lines = content.split('\n').filter(line => line.trim());
+
+      let summary = '';
+      let firstPrompt = '';
+      let messageCount = 0;
+
+      for (const line of lines) {
+        try {
+          const msg = JSON.parse(line) as ClaudeMessage;
+
+          if (msg.type === 'summary') {
+            summary = msg.summary || '';
+          } else if (msg.type === 'user' || msg.type === 'assistant') {
+            messageCount++;
+            // Extract cwd from first user message for workspace path
+            if (!workspacePath && msg.type === 'user' && (msg as any).cwd) {
+              workspacePath = (msg as any).cwd;
+            }
+            if (!firstPrompt && msg.type === 'user' && msg.message) {
+              const text = typeof msg.message.content === 'string'
+                ? msg.message.content
+                : Array.isArray(msg.message.content)
+                  ? msg.message.content.find(b => b.type === 'text')?.text || ''
+                  : '';
+              if (text && !(msg as any).isMeta) {
+                firstPrompt = text.slice(0, 200);
+              }
+            }
+          }
+        } catch {
+          // skip malformed lines
+        }
+      }
+
+      if (messageCount === 0) continue;
+
+      sessions.push({
+        id: sessionId,
+        summary: summary || firstPrompt || 'Untitled Session',
+        messageCount,
+        firstPrompt: firstPrompt || undefined,
+        timestamp: fileStat.mtimeMs
+      });
+    } catch (error) {
+      console.error(`Error scanning session file ${filePath}:`, error);
+    }
+  }
+
+  // Sort by timestamp descending (newest first)
+  sessions.sort((a, b) => b.timestamp - a.timestamp);
+
+  return { sessions, workspacePath: workspacePath || undefined };
 }
 
 // Parse Claude CLI session file (JSONL format)
@@ -370,21 +478,6 @@ function extractToolCalls(toolBlocks: any[]): any[] {
   }
 
   return toolCalls;
-}
-
-// Check for duplicate sessions
-function checkDuplicateSession(
-  db: Database.Database,
-  sessionId: string,
-  projectId: string
-): 'exists' | 'different_project' | 'not_exists' {
-  const existing = db.prepare(
-    'SELECT project_id FROM sessions WHERE id = ?'
-  ).get(sessionId) as { project_id: string } | undefined;
-
-  if (!existing) return 'not_exists';
-  if (existing.project_id === projectId) return 'exists';
-  return 'different_project';
 }
 
 // Import sessions with transactions

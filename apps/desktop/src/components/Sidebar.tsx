@@ -76,8 +76,8 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
     return grouped;
   }, [sessions]);
 
-  // Show all projects except the internal agent project
-  const filteredProjects = projects.filter(p => p.name !== '_Agent Assistant');
+  // Show all projects except internal ones (e.g. Agent Assistant)
+  const filteredProjects = projects.filter(p => !p.isInternal);
 
   // Get sessions for a specific project
   const getFilteredSessionsForProject = useCallback((projectId: string) => {

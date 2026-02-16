@@ -24,6 +24,7 @@ import { createCommandsRoutes } from './routes/commands.js';
 import { createGatewayRouter, type GatewayConfig, type GatewayStatus } from './routes/gateway.js';
 import { createServerRoutes } from './routes/servers.js';
 import { createImportRoutes } from './routes/import.js';
+import { createOpenCodeImportRoutes } from './routes/import-opencode.js';
 import { createAgentRoutes } from './routes/agent.js';
 import { PermissionEvaluator, getAgentPermissionPolicy, getProjectPermissionOverride, mergePolicy } from './agent/permission-evaluator.js';
 import type { PermissionDecision, SystemInfo } from './providers/claude-sdk.js';
@@ -357,6 +358,7 @@ export async function createServer(): Promise<ServerContext> {
   app.use('/api/commands', authMiddleware, createCommandsRoutes());
   app.use('/api/agent', authMiddleware, createAgentRoutes(db));
   app.use('/api/import', localOnlyMiddleware, createImportRoutes(db));
+  app.use('/api/import', localOnlyMiddleware, createOpenCodeImportRoutes(db));
   app.use('/api/server/gateway', localOnlyMiddleware, createGatewayRouter(
     db,
     getGatewayStatus,
