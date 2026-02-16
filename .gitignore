@@ -48,7 +48,7 @@ coverage/
 .turbo/
 
 # Claude Code local settings
-.claude/
+.claude/settings.local.json
 
 # Test results and reports
 playwright-report/
