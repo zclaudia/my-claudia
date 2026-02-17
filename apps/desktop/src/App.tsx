@@ -18,6 +18,7 @@ import { usePermissionStore } from './stores/permissionStore';
 import { useAskUserQuestionStore } from './stores/askUserQuestionStore';
 import { useAgentStore } from './stores/agentStore';
 import { useIsMobile } from './hooks/useMediaQuery';
+import { useAndroidBack } from './hooks/useAndroidBack';
 import { migrateServersFromLocalStorage, needsMigration } from './utils/migrateServers';
 import { encryptCredential, isEncryptionAvailable } from './utils/crypto';
 
@@ -38,6 +39,12 @@ function AppContent() {
 
   // Load data from server
   useDataLoader();
+
+  // Android back gesture: close agent panel (pri 20)
+  useAndroidBack(() => setAgentExpanded(false), isMobile && isAgentExpanded, 20);
+
+  // Android back gesture: close sidebar (pri 10)
+  useAndroidBack(() => setSidebarOpen(false), isMobile && sidebarOpen, 10);
 
   // Mobile: prevent localhost connection on initial load
   useEffect(() => {

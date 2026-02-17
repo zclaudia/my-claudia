@@ -2,6 +2,7 @@ import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { useProjectStore } from '../stores/projectStore';
 import { useServerStore } from '../stores/serverStore';
 import { useSupervisionStore } from '../stores/supervisionStore';
+import { useSwipeBack } from '../hooks/useSwipeBack';
 import { ProjectSettings } from './ProjectSettings';
 import { SettingsPanel } from './SettingsPanel';
 import { SearchFilters } from './SearchFilters';
@@ -332,6 +333,14 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
     }
   }, [searchQuery, handleSearch]);
 
+  const sidebarSwipeRef = useSwipeBack({
+    onSwipe: () => onClose?.(),
+    enabled: isMobile && !!isOpen,
+    direction: 'left',
+    fullWidth: true,
+    threshold: 60,
+  });
+
   // Mobile: render as overlay drawer
   if (isMobile) {
     if (!isOpen) return null;
@@ -344,7 +353,7 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
           onClick={onClose}
         />
         {/* Drawer */}
-        <div className="fixed inset-y-0 left-0 w-64 bg-card z-50 shadow-xl flex flex-col safe-top-pad safe-bottom-pad">
+        <div ref={sidebarSwipeRef} className="fixed inset-y-0 left-0 w-64 bg-card z-50 shadow-xl flex flex-col safe-top-pad safe-bottom-pad">
           {/* Header with close button */}
           <div className="h-[72px] border-b border-border flex items-center justify-between px-4">
             <h1 className="font-semibold text-lg">MyClaudia</h1>

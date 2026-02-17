@@ -5,6 +5,7 @@ import { useUIStore, type FontSizePreset } from '../stores/uiStore';
 import { useAgentStore } from '../stores/agentStore';
 import { useConnection } from '../contexts/ConnectionContext';
 import { useIsMobile } from '../hooks/useMediaQuery';
+import { useAndroidBack } from '../hooks/useAndroidBack';
 import { ProviderManager } from './ProviderManager';
 import { ThemeToggle } from './ThemeToggle';
 import { ServerGatewayConfig } from './ServerGatewayConfig';
@@ -69,6 +70,17 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
     connectServer(serverId);
     setServerPickerOpen(false);
   };
+
+  const handleSwipeBack = useCallback(() => {
+    if (mobileShowContent) {
+      setMobileShowContent(false);
+    } else {
+      onClose();
+    }
+  }, [mobileShowContent, onClose]);
+
+  // Android back gesture: content → tab list (pri 30), tab list → close (pri 20)
+  useAndroidBack(handleSwipeBack, isMobile && isOpen, mobileShowContent ? 30 : 20);
 
   if (!isOpen) return null;
 
