@@ -15,11 +15,7 @@ interface MessageListProps {
 
 export function MessageList({ messages }: MessageListProps) {
   if (!messages || messages.length === 0) {
-    return (
-      <div className="flex items-center justify-center h-full text-muted-foreground">
-        <p>Start a conversation...</p>
-      </div>
-    );
+    return null;
   }
 
   // Filter out empty user messages (likely permission approvals or empty inputs)

@@ -31,9 +31,9 @@ describe('MessageList', () => {
     ...overrides,
   });
 
-  it('renders empty state when no messages', () => {
-    render(<MessageList messages={[]} />);
-    expect(screen.getByText('Start a conversation...')).toBeInTheDocument();
+  it('renders nothing when no messages', () => {
+    const { container } = render(<MessageList messages={[]} />);
+    expect(container.innerHTML).toBe('');
   });
 
   it('renders user message on the right side', () => {
