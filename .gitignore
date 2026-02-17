@@ -17,6 +17,10 @@ apps/desktop/src-tauri/gen/schemas/
 .env.local
 .env.*.local
 
+# Android signing keys
+*.keystore
+*.jks
+
 # IDE
 .vscode/
 .idea/
