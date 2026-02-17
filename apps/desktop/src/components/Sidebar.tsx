@@ -10,8 +10,6 @@ import { ArchivedSessionsDialog } from './ArchivedSessionsDialog';
 import { SuperviseDialog } from './SuperviseDialog';
 import * as api from '../services/api';
 import type { SearchResult, SearchHistoryEntry, SearchFilters as Filters } from '../services/api';
-import { filterSessions } from '../utils/filterHelpers';
-import type { FilterState } from '../types/filter';
 
 interface SidebarProps {
   collapsed: boolean;

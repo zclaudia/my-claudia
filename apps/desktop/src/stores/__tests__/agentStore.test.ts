@@ -1,21 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { useAgentStore, type BackgroundSessionInfo } from '../agentStore';
+import { useAgentStore } from '../agentStore';
 import type { AgentPermissionPolicy } from '@my-claudia/shared';
-
-const initialState = {
-  agentSessionId: null,
-  agentProjectId: null,
-  isConfigured: false,
-  isExpanded: false,
-  hasUnread: false,
-  selectedProviderId: null,
-  activeRunId: null,
-  isLoading: false,
-  interceptionCount: 0,
-  lastInterception: null,
-  permissionPolicy: null,
-  backgroundSessions: {},
-};
 
 describe('agentStore', () => {
   beforeEach(() => {
@@ -159,14 +144,16 @@ describe('agentStore', () => {
       const policy: AgentPermissionPolicy = {
         enabled: true,
         trustLevel: 'moderate',
+        customRules: [],
+        escalateAlways: [],
       };
       useAgentStore.getState().updatePermissionPolicy(policy);
       expect(useAgentStore.getState().permissionPolicy).toEqual(policy);
     });
 
     it('replaces existing policy', () => {
-      const policy1: AgentPermissionPolicy = { enabled: true, trustLevel: 'conservative' };
-      const policy2: AgentPermissionPolicy = { enabled: false, trustLevel: 'aggressive' };
+      const policy1: AgentPermissionPolicy = { enabled: true, trustLevel: 'conservative', customRules: [], escalateAlways: [] };
+      const policy2: AgentPermissionPolicy = { enabled: false, trustLevel: 'aggressive', customRules: [], escalateAlways: [] };
 
       useAgentStore.getState().updatePermissionPolicy(policy1);
       useAgentStore.getState().updatePermissionPolicy(policy2);

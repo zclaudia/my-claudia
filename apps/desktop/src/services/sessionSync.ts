@@ -13,8 +13,8 @@ import { useGatewayStore } from '../stores/gatewayStore';
 
 interface BackendSyncState {
   lastSyncTime: number;
-  incrementalInterval: NodeJS.Timeout;
-  fullSyncInterval: NodeJS.Timeout;
+  incrementalInterval: ReturnType<typeof setInterval>;
+  fullSyncInterval: ReturnType<typeof setInterval>;
 }
 
 // Track sync state for each backend
@@ -46,9 +46,9 @@ function getBaseUrl(): string | null {
   const server = useServerStore.getState().getActiveServer();
   if (!server) return null;
 
-  const serverAddr = server.url.includes('://')
-    ? server.url.replace(/^ws/, 'http')
-    : `http://${server.url}`;
+  const serverAddr = server.address.includes('://')
+    ? server.address.replace(/^ws/, 'http')
+    : `http://${server.address}`;
   return serverAddr;
 }
 
@@ -61,19 +61,19 @@ function getAuthHeaders(): Record<string, string> {
 
   // Gateway target
   if (isGatewayTarget(activeId)) {
-    const { gatewaySecret, clientId } = useGatewayStore.getState();
+    const { gatewaySecret } = useGatewayStore.getState();
     if (!gatewaySecret) return {};
     return {
-      Authorization: `Bearer ${clientId}:${gatewaySecret}`,
+      Authorization: `Bearer ${gatewaySecret}`,
     };
   }
 
   // Direct server
   const server = useServerStore.getState().getActiveServer();
-  if (!server?.apiKey) return {};
+  if (!server?.clientId) return {};
 
   return {
-    Authorization: `Bearer ${server.apiKey}`,
+    Authorization: `Bearer ${server.clientId}`,
   };
 }
 

@@ -11,6 +11,7 @@ import type {
 } from '@my-claudia/shared';
 import { createVirtualClient, handleRunStart, activeRuns, sendMessage } from '../server.js';
 import type { ConnectedClient } from '../server.js';
+import type { NotificationService } from './notification-service.js';
 
 const GOAL_COMPLETE_MARKER = '[GOAL_COMPLETE]';
 const SUBTASK_COMPLETE_REGEX = /\[SUBTASK_COMPLETE:(\d+)\]/g;
@@ -45,10 +46,15 @@ export class SupervisorService {
   private virtualClients = new Map<string, ConnectedClient>();
   private pendingCooldowns = new Map<string, NodeJS.Timeout>();
   private broadcastFn: ((msg: ServerMessage) => void) | null = null;
+  private notificationService: NotificationService | null = null;
   private db: Database.Database;
 
   constructor(db: Database.Database) {
     this.db = db;
+  }
+
+  setNotificationService(service: NotificationService): void {
+    this.notificationService = service;
   }
 
   setBroadcast(fn: (msg: ServerMessage) => void): void {
@@ -565,6 +571,18 @@ export class SupervisorService {
       if (timer) {
         clearTimeout(timer);
         this.pendingCooldowns.delete(id);
+      }
+
+      // Send push notification for terminal states
+      if (this.notificationService) {
+        const sup = this.getSupervision(id);
+        this.notificationService.notify({
+          type: 'supervision_update',
+          title: `Supervision ${status}`,
+          body: sup?.goal?.slice(0, 200) || `Supervision ${id}`,
+          priority: status === 'failed' ? 'high' : 'default',
+          tags: [status === 'completed' ? 'white_check_mark' : status === 'failed' ? 'x' : 'stop_sign'],
+        });
       }
     }
 

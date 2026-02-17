@@ -450,6 +450,16 @@ function runMigrations(db: Database.Database): void {
         );
         CREATE INDEX IF NOT EXISTS idx_supervision_logs_supervision_id ON supervision_logs(supervision_id);
       `
+    },
+    {
+      name: '019_notification_config',
+      sql: `
+        CREATE TABLE IF NOT EXISTS notification_config (
+          id TEXT PRIMARY KEY DEFAULT 'default',
+          config TEXT NOT NULL,
+          updated_at INTEGER NOT NULL
+        );
+      `
     }
   ];
 

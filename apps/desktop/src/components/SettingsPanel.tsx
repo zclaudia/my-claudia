@@ -10,9 +10,10 @@ import { ServerGatewayConfig } from './ServerGatewayConfig';
 import { ImportDialog } from './ImportDialog';
 import { ImportOpenCodeDialog } from './ImportOpenCodeDialog';
 import * as api from '../services/api';
-import type { GatewayBackendInfo, ProviderConfig, AgentPermissionPolicy } from '@my-claudia/shared';
+import type { GatewayBackendInfo, ProviderConfig, AgentPermissionPolicy, NotificationConfig } from '@my-claudia/shared';
+import { DEFAULT_NOTIFICATION_CONFIG } from '@my-claudia/shared';
 
-type SettingsTab = 'general' | 'connections' | 'providers' | 'agent' | 'gateway' | 'import';
+type SettingsTab = 'general' | 'connections' | 'providers' | 'agent' | 'notifications' | 'gateway' | 'import';
 
 interface SettingsPanelProps {
   isOpen: boolean;
@@ -108,6 +109,15 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
       icon: (
         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+        </svg>
+      )
+    },
+    {
+      id: 'notifications' as SettingsTab,
+      label: 'Notifications',
+      icon: (
+        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
         </svg>
       )
     },
@@ -368,6 +378,10 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
 
             {activeTab === 'agent' && (
               <AgentSettingsInline key={activeServerId || 'none'} />
+            )}
+
+            {activeTab === 'notifications' && (
+              <NotificationSettingsInline key={activeServerId || 'none'} />
             )}
 
             {activeTab === 'gateway' && (
@@ -822,6 +836,213 @@ function StrategyToggle({ label, description, enabled, onToggle }: {
           }`}
         />
       </button>
+    </div>
+  );
+}
+
+// Notification settings inline component
+function NotificationSettingsInline() {
+  const [config, setConfig] = useState<NotificationConfig>(DEFAULT_NOTIFICATION_CONFIG);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [dirty, setDirty] = useState(false);
+  const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null);
+
+  useEffect(() => {
+    api.getNotificationConfig()
+      .then((c) => { setConfig(c); setLoading(false); })
+      .catch(() => setLoading(false));
+  }, []);
+
+  const update = useCallback((patch: Partial<NotificationConfig>) => {
+    setConfig(prev => ({ ...prev, ...patch }));
+    setDirty(true);
+    setTestResult(null);
+  }, []);
+
+  const updateEvent = useCallback((key: keyof NotificationConfig['events'], value: boolean) => {
+    setConfig(prev => ({
+      ...prev,
+      events: { ...prev.events, [key]: value },
+    }));
+    setDirty(true);
+    setTestResult(null);
+  }, []);
+
+  const handleSave = useCallback(async () => {
+    setSaving(true);
+    try {
+      await api.updateNotificationConfig(config);
+      setDirty(false);
+    } catch (err) {
+      console.error('[Notifications] Failed to save:', err);
+    } finally {
+      setSaving(false);
+    }
+  }, [config]);
+
+  const handleTest = useCallback(async () => {
+    setTesting(true);
+    setTestResult(null);
+    try {
+      // Save first so server uses latest config
+      await api.updateNotificationConfig(config);
+      setDirty(false);
+      await api.sendTestNotification();
+      setTestResult({ ok: true, message: 'Test notification sent! Check your ntfy app.' });
+    } catch (err) {
+      setTestResult({ ok: false, message: err instanceof Error ? err.message : 'Failed to send' });
+    } finally {
+      setTesting(false);
+    }
+  }, [config]);
+
+  if (loading) {
+    return <div className="text-sm text-muted-foreground">Loading...</div>;
+  }
+
+  const EVENT_LABELS: { key: keyof NotificationConfig['events']; label: string; description: string }[] = [
+    { key: 'permissionRequest', label: 'Permission requests', description: 'Tool execution needs your approval' },
+    { key: 'askUserQuestion', label: 'Claude questions', description: 'Claude asks you a question' },
+    { key: 'runCompleted', label: 'Run completed', description: 'A run finishes successfully' },
+    { key: 'runFailed', label: 'Run failed', description: 'A run fails with an error' },
+    { key: 'supervisionUpdate', label: 'Supervision updates', description: 'Supervision completes, fails, or is cancelled' },
+    { key: 'backgroundPermission', label: 'Background task alerts', description: 'Background task needs your attention' },
+  ];
+
+  return (
+    <div className="space-y-6">
+      <p className="text-sm text-muted-foreground">
+        Receive push notifications on your phone via <a href="https://ntfy.sh" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">ntfy</a>. Install the ntfy app and subscribe to the same topic configured below.
+      </p>
+
+      {/* Enable toggle */}
+      <div className="flex items-center justify-between p-3 bg-secondary/50 rounded-lg">
+        <div>
+          <p className="text-sm font-medium">Enable notifications</p>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Send push notifications for events
+          </p>
+        </div>
+        <button
+          onClick={() => update({ enabled: !config.enabled })}
+          className={`relative w-10 h-5 rounded-full transition-colors flex-shrink-0 ${
+            config.enabled ? 'bg-primary' : 'bg-muted'
+          }`}
+        >
+          <span
+            className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${
+              config.enabled ? 'translate-x-5' : 'translate-x-0'
+            }`}
+          />
+        </button>
+      </div>
+
+      {config.enabled && (
+        <>
+          {/* ntfy server + topic */}
+          <div className="space-y-3">
+            <h3 className="text-sm font-medium">ntfy Configuration</h3>
+            <div className="space-y-2">
+              <div>
+                <label className="text-xs text-muted-foreground block mb-1">Server URL</label>
+                <input
+                  type="text"
+                  value={config.ntfyUrl}
+                  onChange={(e) => update({ ntfyUrl: e.target.value })}
+                  placeholder="https://ntfy.sh"
+                  className="w-full px-3 py-1.5 bg-secondary border border-border rounded text-sm focus:outline-none focus:border-primary"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-muted-foreground block mb-1">Topic</label>
+                <input
+                  type="text"
+                  value={config.ntfyTopic}
+                  onChange={(e) => update({ ntfyTopic: e.target.value })}
+                  placeholder="my-claudia-alerts"
+                  className="w-full px-3 py-1.5 bg-secondary border border-border rounded text-sm focus:outline-none focus:border-primary"
+                />
+                <p className="text-xs text-muted-foreground mt-1">
+                  Use a unique, hard-to-guess topic name for privacy.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Event toggles */}
+          <div className="space-y-3">
+            <h3 className="text-sm font-medium">Notify me when</h3>
+            <div className="space-y-1">
+              {EVENT_LABELS.map(({ key, label, description }) => (
+                <div key={key} className="flex items-center justify-between p-2 rounded-lg hover:bg-secondary/30">
+                  <div>
+                    <p className="text-sm">{label}</p>
+                    <p className="text-xs text-muted-foreground">{description}</p>
+                  </div>
+                  <button
+                    onClick={() => updateEvent(key, !config.events[key])}
+                    className={`relative w-8 h-4 rounded-full transition-colors flex-shrink-0 ${
+                      config.events[key] ? 'bg-primary' : 'bg-muted'
+                    }`}
+                  >
+                    <span
+                      className={`absolute top-0.5 left-0.5 w-3 h-3 rounded-full bg-white shadow transition-transform ${
+                        config.events[key] ? 'translate-x-4' : 'translate-x-0'
+                      }`}
+                    />
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Test result */}
+          {testResult && (
+            <div className={`p-3 rounded-lg text-sm ${
+              testResult.ok
+                ? 'bg-success/10 border border-success/30 text-success'
+                : 'bg-destructive/10 border border-destructive/30 text-destructive'
+            }`}>
+              {testResult.message}
+            </div>
+          )}
+
+          {/* Action buttons */}
+          <div className="flex gap-2">
+            <button
+              onClick={handleTest}
+              disabled={testing || !config.ntfyTopic}
+              className="px-4 py-2 text-sm rounded border border-border hover:bg-secondary disabled:opacity-50"
+            >
+              {testing ? 'Sending...' : 'Send Test'}
+            </button>
+            {dirty && (
+              <button
+                onClick={handleSave}
+                disabled={saving}
+                className="px-4 py-2 text-sm rounded bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+              >
+                {saving ? 'Saving...' : 'Save Changes'}
+              </button>
+            )}
+          </div>
+        </>
+      )}
+
+      {/* Save when only toggling enabled/disabled */}
+      {dirty && !config.enabled && (
+        <div className="flex justify-end">
+          <button
+            onClick={handleSave}
+            disabled={saving}
+            className="px-4 py-2 text-sm rounded bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+          >
+            {saving ? 'Saving...' : 'Save Changes'}
+          </button>
+        </div>
+      )}
     </div>
   );
 }

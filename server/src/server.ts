@@ -27,7 +27,9 @@ import { createImportRoutes } from './routes/import.js';
 import { createOpenCodeImportRoutes } from './routes/import-opencode.js';
 import { createAgentRoutes } from './routes/agent.js';
 import { createSupervisionRoutes } from './routes/supervisions.js';
+import { createNotificationRoutes } from './routes/notifications.js';
 import { SupervisorService } from './services/supervisor-service.js';
+import { NotificationService } from './services/notification-service.js';
 import { PermissionEvaluator, getAgentPermissionPolicy, getProjectPermissionOverride, mergePolicy } from './agent/permission-evaluator.js';
 import type { PermissionDecision, SystemInfo } from './providers/claude-sdk.js';
 import { openCodeServerManager } from './providers/opencode-sdk.js';
@@ -180,6 +182,9 @@ interface ActiveRun {
 }
 
 const activeRuns = new Map<string, ActiveRun>();
+
+// Module-level notification service (initialized in createServer)
+let notificationService: NotificationService;
 
 // Check if request is from localhost
 function isLocalhost(req: Request | IncomingMessage): boolean {
@@ -366,6 +371,10 @@ export async function createServer(): Promise<ServerContext> {
   const supervisorService = new SupervisorService(db);
   app.use('/api/supervisions', authMiddleware, createSupervisionRoutes(supervisorService));
 
+  // Notification routes + service
+  notificationService = new NotificationService(db);
+  app.use('/api/notifications', authMiddleware, createNotificationRoutes(notificationService));
+
   app.use('/api/server/gateway', localOnlyMiddleware, createGatewayRouter(
     db,
     getGatewayStatus,
@@ -507,6 +516,9 @@ export async function createServer(): Promise<ServerContext> {
   wss.on('close', () => {
     clearInterval(pingInterval);
   });
+
+  // Wire notification service into supervisor
+  supervisorService.setNotificationService(notificationService);
 
   // Start supervisor polling with broadcast to all authenticated clients
   supervisorService.setBroadcast((msg) => {
@@ -966,6 +978,14 @@ async function handleRunStart(
             status: 'paused',
             reason: `Permission needed: ${request.toolName}`,
           } as import('@my-claudia/shared').BackgroundTaskUpdateMessage);
+
+          notificationService.notify({
+            type: 'background_permission',
+            title: 'Background task needs attention',
+            body: `${request.toolName}: ${request.detail.slice(0, 200)}`,
+            priority: 'urgent',
+            tags: ['rotating_light'],
+          });
         }
 
         let timeout: ReturnType<typeof setTimeout> | null = null;
@@ -990,6 +1010,14 @@ async function handleRunStart(
               questions: toolInput.questions || [],
             } as import('@my-claudia/shared').AskUserQuestionMessage);
             console.log(`[Permission] Sent ask_user_question ${request.requestId} to client (${(toolInput.questions || []).length} questions)`);
+            const firstQuestion = (toolInput.questions || [])[0];
+            notificationService.notify({
+              type: 'ask_user_question',
+              title: 'Claude has a question',
+              body: firstQuestion?.question?.slice(0, 200) || 'Interactive question',
+              priority: 'high',
+              tags: ['question'],
+            });
           } else {
             // Detect sudo commands and flag for credential input
             const requiresCredential = isSudoCommand(request.toolName, request.toolInput);
@@ -1005,6 +1033,13 @@ async function handleRunStart(
               }),
             });
             console.log(`[Permission] Sent permission request ${request.requestId} to client${requiresCredential ? ' (requires sudo credential)' : ''}`);
+            notificationService.notify({
+              type: 'permission_request',
+              title: 'Permission Required',
+              body: `${request.toolName}: ${request.detail.slice(0, 200)}`,
+              priority: 'urgent',
+              tags: ['warning'],
+            });
           }
         }
       });
@@ -1184,6 +1219,13 @@ async function handleRunStart(
             runId,
             usage: msg.usage
           });
+          notificationService.notify({
+            type: 'run_completed',
+            title: 'Run completed',
+            body: `Session: ${message.sessionId}`,
+            priority: 'default',
+            tags: ['white_check_mark'],
+          });
           // Notify background task completion
           if (sessionType === 'background') {
             sendMessage(client.ws, {
@@ -1207,6 +1249,13 @@ async function handleRunStart(
       type: 'run_failed',
       runId,
       error: error instanceof Error ? error.message : 'Unknown error'
+    });
+    notificationService.notify({
+      type: 'run_failed',
+      title: 'Run failed',
+      body: error instanceof Error ? error.message.slice(0, 200) : 'Unknown error',
+      priority: 'high',
+      tags: ['x'],
     });
     // Notify background task failure
     if (sessionType === 'background') {

@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { useSessionsStore, type RemoteSession } from '../stores/sessionsStore';
 import { useServerStore } from '../stores/serverStore';
 import { useProjectStore } from '../stores/projectStore';
-import { isGatewayTarget, parseBackendId } from '../stores/gatewayStore';
+import { isGatewayTarget } from '../stores/gatewayStore';
 
 interface ActiveSessionsPanelProps {
   onSessionSelect?: (backendId: string, sessionId: string) => void;
