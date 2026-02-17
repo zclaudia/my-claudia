@@ -1,18 +1,26 @@
 import { useState, useRef, useEffect } from 'react';
-import { useTheme, type Theme } from '../contexts/ThemeContext';
+import { useTheme, isDarkTheme, type Theme } from '../contexts/ThemeContext';
 
 const THEME_OPTIONS: { value: Theme; label: string; icon: string }[] = [
   { value: 'light', label: 'Light', icon: '☀️' },
-  { value: 'dark', label: 'Dark', icon: '🌙' },
+  { value: 'dark-neutral', label: 'Dark', icon: '🌙' },
+  { value: 'dark-warm', label: 'Dark Warm', icon: '🔥' },
+  { value: 'dark-cool', label: 'Dark Cool', icon: '❄️' },
   { value: 'system', label: 'System', icon: '💻' },
 ];
 
+function getButtonIcon(theme: Theme, resolvedTheme: string): string {
+  if (theme === 'system') return '💻';
+  if (isDarkTheme(resolvedTheme as any)) return '🌙';
+  return '☀️';
+}
+
 export function ThemeToggle() {
-  const { theme, setTheme } = useTheme();
+  const { theme, resolvedTheme, setTheme } = useTheme();
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
-  const currentOption = THEME_OPTIONS.find((opt) => opt.value === theme) || THEME_OPTIONS[2];
+  const currentOption = THEME_OPTIONS.find((opt) => opt.value === theme) || THEME_OPTIONS[4];
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -41,7 +49,7 @@ export function ThemeToggle() {
         `}
         title="Change theme"
       >
-        <span>{currentOption.icon}</span>
+        <span>{getButtonIcon(theme, resolvedTheme)}</span>
         <span className="hidden sm:inline">{currentOption.label}</span>
         <svg
           className={`w-3 h-3 transition-transform ${isOpen ? 'rotate-180' : ''}`}
@@ -55,7 +63,7 @@ export function ThemeToggle() {
 
       {/* Dropdown menu */}
       {isOpen && (
-        <div className="absolute top-full right-0 mt-1 w-36 bg-popover border border-border rounded-lg shadow-lg z-50 overflow-hidden">
+        <div className="absolute top-full right-0 mt-1 w-44 bg-popover border border-border rounded-lg shadow-lg z-50 overflow-hidden">
           {THEME_OPTIONS.map((option) => (
             <button
               key={option.value}

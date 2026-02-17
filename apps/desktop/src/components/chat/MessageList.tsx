@@ -5,7 +5,7 @@ import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneDark, oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { ToolCallList } from './ToolCallItem';
 import type { MessageWithToolCalls } from '../../stores/chatStore';
-import { useTheme } from '../../contexts/ThemeContext';
+import { useTheme, isDarkTheme } from '../../contexts/ThemeContext';
 import { downloadFile } from '../../services/fileUpload';
 import type { MessageInput, MessageAttachment } from '@my-claudia/shared';
 
@@ -70,7 +70,7 @@ function CodeBlock({
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const codeStyle = resolvedTheme === 'dark' ? oneDark : oneLight;
+  const codeStyle = isDarkTheme(resolvedTheme) ? oneDark : oneLight;
 
   return (
     <div className="rounded-lg overflow-hidden border border-border">

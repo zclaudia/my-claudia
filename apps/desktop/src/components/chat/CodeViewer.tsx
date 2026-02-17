@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneDark, oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism';
-import { useTheme } from '../../contexts/ThemeContext';
+import { useTheme, isDarkTheme } from '../../contexts/ThemeContext';
 
 interface CodeViewerProps {
   content: string;
@@ -50,7 +50,7 @@ export function CodeViewer({
   const { resolvedTheme } = useTheme();
 
   const lang = language || detectLanguage(filePath);
-  const codeStyle = resolvedTheme === 'dark' ? oneDark : oneLight;
+  const codeStyle = isDarkTheme(resolvedTheme) ? oneDark : oneLight;
 
   const lines = useMemo(() => content.split('\n'), [content]);
   const totalLines = lines.length;

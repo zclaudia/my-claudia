@@ -1,7 +1,11 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 
-export type Theme = 'light' | 'dark' | 'system';
-export type ResolvedTheme = 'light' | 'dark';
+export type Theme = 'light' | 'dark-neutral' | 'dark-warm' | 'dark-cool' | 'system';
+export type ResolvedTheme = 'light' | 'dark-neutral' | 'dark-warm' | 'dark-cool';
+
+export function isDarkTheme(theme: ResolvedTheme): boolean {
+  return theme !== 'light';
+}
 
 interface ThemeContextType {
   theme: Theme;
@@ -12,12 +16,22 @@ interface ThemeContextType {
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 
 const STORAGE_KEY = 'my-claudia-theme';
+const DEFAULT_DARK: ResolvedTheme = 'dark-neutral';
+const DARK_VARIANT_CLASSES = ['dark-neutral', 'dark-warm', 'dark-cool'];
+const VALID_THEMES: Theme[] = ['light', 'dark-neutral', 'dark-warm', 'dark-cool', 'system'];
+
+const THEME_META_COLORS: Record<ResolvedTheme, string> = {
+  'light': '#ffffff',
+  'dark-neutral': '#141517',
+  'dark-warm': '#141311',
+  'dark-cool': '#0f1218',
+};
 
 function getSystemTheme(): ResolvedTheme {
   if (typeof window !== 'undefined' && window.matchMedia) {
-    return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+    return window.matchMedia('(prefers-color-scheme: dark)').matches ? DEFAULT_DARK : 'light';
   }
-  return 'dark'; // Default to dark if matchMedia not supported
+  return DEFAULT_DARK;
 }
 
 function resolveTheme(theme: Theme): ResolvedTheme {
@@ -25,6 +39,23 @@ function resolveTheme(theme: Theme): ResolvedTheme {
     return getSystemTheme();
   }
   return theme;
+}
+
+function applyThemeClasses(resolved: ResolvedTheme) {
+  const root = document.documentElement;
+  if (isDarkTheme(resolved)) {
+    root.classList.add('dark');
+    DARK_VARIANT_CLASSES.forEach(cls => root.classList.remove(cls));
+    root.classList.add(resolved); // e.g. 'dark-neutral'
+  } else {
+    root.classList.remove('dark');
+    DARK_VARIANT_CLASSES.forEach(cls => root.classList.remove(cls));
+  }
+
+  const metaThemeColor = document.querySelector('meta[name="theme-color"]');
+  if (metaThemeColor) {
+    metaThemeColor.setAttribute('content', THEME_META_COLORS[resolved]);
+  }
 }
 
 interface ThemeProviderProps {
@@ -36,7 +67,12 @@ export function ThemeProvider({ children, defaultTheme = 'system' }: ThemeProvid
   const [theme, setThemeState] = useState<Theme>(() => {
     if (typeof window === 'undefined') return defaultTheme;
     const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved && ['light', 'dark', 'system'].includes(saved)) {
+    // Migrate old 'dark' value
+    if (saved === 'dark') {
+      localStorage.setItem(STORAGE_KEY, DEFAULT_DARK);
+      return DEFAULT_DARK;
+    }
+    if (saved && VALID_THEMES.includes(saved as Theme)) {
       return saved as Theme;
     }
     return defaultTheme;
@@ -48,20 +84,7 @@ export function ThemeProvider({ children, defaultTheme = 'system' }: ThemeProvid
   useEffect(() => {
     const resolved = resolveTheme(theme);
     setResolvedTheme(resolved);
-
-    // Apply theme to document
-    const root = document.documentElement;
-    if (resolved === 'dark') {
-      root.classList.add('dark');
-    } else {
-      root.classList.remove('dark');
-    }
-
-    // Update meta theme-color for mobile browsers
-    const metaThemeColor = document.querySelector('meta[name="theme-color"]');
-    if (metaThemeColor) {
-      metaThemeColor.setAttribute('content', resolved === 'dark' ? '#0f172a' : '#ffffff');
-    }
+    applyThemeClasses(resolved);
   }, [theme]);
 
   // Listen for system theme changes when using 'system' mode
@@ -70,15 +93,9 @@ export function ThemeProvider({ children, defaultTheme = 'system' }: ThemeProvid
 
     const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
     const handleChange = (e: MediaQueryListEvent) => {
-      const newResolved = e.matches ? 'dark' : 'light';
+      const newResolved: ResolvedTheme = e.matches ? DEFAULT_DARK : 'light';
       setResolvedTheme(newResolved);
-
-      const root = document.documentElement;
-      if (newResolved === 'dark') {
-        root.classList.add('dark');
-      } else {
-        root.classList.remove('dark');
-      }
+      applyThemeClasses(newResolved);
     };
 
     mediaQuery.addEventListener('change', handleChange);

@@ -58,56 +58,91 @@
     --scrollbar-thumb-hover: 215 25% 55%;
   }
 
-  /* Dark theme */
+  /* Dark theme — Neutral (default fallback) */
   .dark {
-    /* Base colors */
-    --background: 222.2 84% 4.9%;
-    --foreground: 210 40% 98%;
+    --background: 220 8% 8%;
+    --foreground: 210 15% 93%;
+    --card: 220 7% 10%;
+    --card-foreground: 210 15% 93%;
+    --popover: 220 7% 10%;
+    --popover-foreground: 210 15% 93%;
+    --primary: 215 55% 55%;
+    --primary-foreground: 220 15% 95%;
+    --secondary: 220 6% 14%;
+    --secondary-foreground: 210 12% 88%;
+    --muted: 220 6% 14%;
+    --muted-foreground: 215 10% 58%;
+    --accent: 220 7% 17%;
+    --accent-foreground: 210 12% 88%;
+    --destructive: 0 62% 55%;
+    --destructive-foreground: 0 0% 98%;
+    --success: 142 50% 42%;
+    --success-foreground: 142 60% 10%;
+    --warning: 40 80% 52%;
+    --warning-foreground: 30 70% 12%;
+    --border: 220 8% 18%;
+    --input: 220 7% 16%;
+    --ring: 215 50% 48%;
+    --scrollbar-thumb: 220 8% 28%;
+    --scrollbar-thumb-hover: 220 8% 36%;
+  }
 
-    /* Card colors */
-    --card: 222.2 84% 6%;
-    --card-foreground: 210 40% 98%;
+  /* Dark theme — Warm (Notion-like) */
+  .dark.dark-warm {
+    --background: 30 6% 7.5%;
+    --foreground: 40 12% 92%;
+    --card: 30 6% 10%;
+    --card-foreground: 40 12% 92%;
+    --popover: 30 6% 10%;
+    --popover-foreground: 40 12% 92%;
+    --primary: 35 65% 55%;
+    --primary-foreground: 30 15% 95%;
+    --secondary: 28 5% 14%;
+    --secondary-foreground: 35 10% 86%;
+    --muted: 28 5% 14%;
+    --muted-foreground: 30 8% 55%;
+    --accent: 28 6% 17%;
+    --accent-foreground: 35 10% 86%;
+    --destructive: 0 60% 53%;
+    --destructive-foreground: 0 0% 98%;
+    --success: 145 48% 40%;
+    --success-foreground: 145 55% 10%;
+    --warning: 42 78% 52%;
+    --warning-foreground: 32 65% 12%;
+    --border: 30 7% 18%;
+    --input: 30 6% 16%;
+    --ring: 35 55% 45%;
+    --scrollbar-thumb: 30 6% 26%;
+    --scrollbar-thumb-hover: 30 6% 34%;
+  }
 
-    /* Popover colors */
-    --popover: 222.2 84% 6%;
-    --popover-foreground: 210 40% 98%;
-
-    /* Primary colors */
-    --primary: 217.2 91.2% 59.8%;
-    --primary-foreground: 222.2 47.4% 11.2%;
-
-    /* Secondary colors */
-    --secondary: 217.2 32.6% 17.5%;
-    --secondary-foreground: 210 40% 98%;
-
-    /* Muted colors */
-    --muted: 217.2 32.6% 17.5%;
-    --muted-foreground: 215 20.2% 65.1%;
-
-    /* Accent colors */
-    --accent: 217.2 32.6% 17.5%;
-    --accent-foreground: 210 40% 98%;
-
-    /* Destructive colors */
-    --destructive: 0 62.8% 50.6%;
-    --destructive-foreground: 210 40% 98%;
-
-    /* Success colors */
-    --success: 142.1 70.6% 45.3%;
-    --success-foreground: 144.9 80.4% 10%;
-
-    /* Warning colors */
-    --warning: 48 96% 53%;
-    --warning-foreground: 26 83% 14%;
-
-    /* Border and input */
-    --border: 217.2 32.6% 17.5%;
-    --input: 217.2 32.6% 17.5%;
-    --ring: 224.3 76.3% 48%;
-
-    /* Scrollbar colors */
-    --scrollbar-thumb: 217 19% 35%;
-    --scrollbar-thumb-hover: 215 20% 45%;
+  /* Dark theme — Cool Blue (VS Code-like) */
+  .dark.dark-cool {
+    --background: 225 18% 7%;
+    --foreground: 215 20% 93%;
+    --card: 225 16% 9.5%;
+    --card-foreground: 215 20% 93%;
+    --popover: 225 16% 9.5%;
+    --popover-foreground: 215 20% 93%;
+    --primary: 215 65% 58%;
+    --primary-foreground: 225 20% 95%;
+    --secondary: 222 14% 13.5%;
+    --secondary-foreground: 215 15% 87%;
+    --muted: 222 14% 13.5%;
+    --muted-foreground: 218 12% 56%;
+    --accent: 222 15% 17%;
+    --accent-foreground: 215 15% 87%;
+    --destructive: 0 60% 55%;
+    --destructive-foreground: 0 0% 98%;
+    --success: 142 52% 43%;
+    --success-foreground: 142 60% 10%;
+    --warning: 42 82% 52%;
+    --warning-foreground: 30 70% 12%;
+    --border: 222 16% 19%;
+    --input: 222 14% 16%;
+    --ring: 215 60% 50%;
+    --scrollbar-thumb: 222 14% 28%;
+    --scrollbar-thumb-hover: 222 14% 36%;
   }
 }
 

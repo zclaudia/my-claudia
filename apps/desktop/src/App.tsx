@@ -312,7 +312,7 @@ function AppContent() {
 
 function App() {
   return (
-    <ThemeProvider defaultTheme="dark">
+    <ThemeProvider defaultTheme="dark-neutral">
       <ConnectionProvider>
         <AppContent />
       </ConnectionProvider>
