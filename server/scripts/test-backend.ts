@@ -137,6 +137,7 @@ function startChat() {
         break;
 
       case 'assistant':
+      case 'delta':
         process.stdout.write(msg.content || '');
         break;
 
@@ -189,7 +190,6 @@ function startChat() {
       clientRequestId: requestId,
       sessionId,
       input: message,
-      permissionMode: 'bypassPermissions',
     }));
   }
 
