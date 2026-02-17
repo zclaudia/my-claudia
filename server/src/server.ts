@@ -862,7 +862,7 @@ async function handleRunStart(
   // Get session info
   const session = db.prepare(`
     SELECT s.id, s.project_id, s.sdk_session_id, s.type as session_type,
-           p.root_path, p.provider_id, p.system_prompt
+           p.root_path, COALESCE(s.provider_id, p.provider_id) as provider_id, p.system_prompt
     FROM sessions s
     LEFT JOIN projects p ON s.project_id = p.id
     WHERE s.id = ?

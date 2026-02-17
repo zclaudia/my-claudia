@@ -346,6 +346,11 @@ function importOpenCodeSessions(
   const results: ImportResult = { imported: 0, skipped: 0, errors: [] };
   const extDb = new BetterSqlite3(extDbPath, { readonly: true, fileMustExist: true });
 
+  // Find the OpenCode provider so imported sessions use the correct adapter
+  const opencodeProvider = db.prepare(
+    `SELECT id FROM providers WHERE type = 'opencode' LIMIT 1`
+  ).get() as { id: string } | undefined;
+
   try {
     for (const item of imports) {
       try {
@@ -368,14 +373,15 @@ function importOpenCodeSessions(
             throw new Error('No messages found in session');
           }
 
-          // Insert session
+          // Insert session with OpenCode provider_id so it uses the correct adapter
           db.prepare(`
-            INSERT INTO sessions (id, project_id, name, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO sessions (id, project_id, name, provider_id, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?)
           `).run(
             item.sessionId,
             item.targetProjectId,
             sessionData.title,
+            opencodeProvider?.id || null,
             sessionData.timeCreated,
             sessionData.timeUpdated
           );

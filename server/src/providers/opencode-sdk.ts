@@ -153,6 +153,65 @@ class OpenCodeServerManager {
 export const openCodeServerManager = new OpenCodeServerManager();
 
 // ============================================
+// Think-tag streaming filter
+// ============================================
+
+/**
+ * Filters out `<think>...</think>` blocks from streaming text.
+ * Models like GLM use these for chain-of-thought reasoning that
+ * shouldn't be shown to the user.
+ *
+ * Call `push(delta)` for each text chunk; it returns the text to emit
+ * (may be empty if inside a think block or buffering a potential tag).
+ * Call `flush()` at the end to emit any remaining buffered text.
+ */
+class ThinkTagFilter {
+  private inside = false;   // true while inside <think>...</think>
+  private buf = '';          // partial-tag buffer
+  private trimNext = false;  // trim leading whitespace after </think>
+
+  push(delta: string): string {
+    let out = '';
+    for (const ch of delta) {
+      if (this.inside) {
+        this.buf += ch;
+        if (this.buf.endsWith('</think>')) {
+          this.inside = false;
+          this.trimNext = true;
+          this.buf = '';
+        }
+      } else if (this.trimNext && (ch === ' ' || ch === '\n' || ch === '\r' || ch === '\t')) {
+        // Skip leading whitespace after </think>
+        continue;
+      } else if (this.buf.length > 0 || ch === '<') {
+        this.trimNext = false;
+        // Buffering a potential opening tag
+        this.buf += ch;
+        if (this.buf === '<think>') {
+          this.inside = true;
+          this.buf = '';
+        } else if (!'<think>'.startsWith(this.buf)) {
+          // Not a <think> prefix — flush buffer as normal text
+          out += this.buf;
+          this.buf = '';
+        }
+      } else {
+        this.trimNext = false;
+        out += ch;
+      }
+    }
+    return out;
+  }
+
+  flush(): string {
+    const rest = this.buf;
+    this.buf = '';
+    this.inside = false;
+    return rest;
+  }
+}
+
+// ============================================
 // SSE Event Parsing
 // ============================================
 
@@ -395,10 +454,26 @@ export async function* runOpenCode(
 
     // Process SSE events (filter by our sessionId since it's a global stream)
     console.log(`[OpenCode] Processing SSE events for session ${sessionId}...`);
+    const thinkFilter = new ThinkTagFilter();
     try {
       for await (const sseEvent of parseSSEStream(sseResponse)) {
         const messages = mapOpenCodeEvent(sseEvent.data, sessionId, onPermissionRequest);
         for await (const msg of messages) {
+          // Filter <think>...</think> from assistant text
+          if (msg.type === 'assistant' && msg.content) {
+            const filtered = thinkFilter.push(msg.content);
+            if (filtered) {
+              yield { ...msg, content: filtered };
+            }
+            continue;
+          }
+          // Flush any buffered text before result/error
+          if (msg.type === 'result' || msg.type === 'error') {
+            const rest = thinkFilter.flush();
+            if (rest) {
+              yield { type: 'assistant', content: rest };
+            }
+          }
           yield msg;
           if (msg.type === 'result' || msg.type === 'error') {
             return;
@@ -458,17 +533,24 @@ async function* mapOpenCodeEvent(
   }
 
   switch (eventType) {
+    case 'message.part.delta': {
+      // Streaming delta — the primary way OpenCode sends incremental text
+      const delta: string | undefined = props.delta;
+      const field: string | undefined = props.field;
+      if (delta && field === 'text') {
+        yield { type: 'assistant', content: delta };
+      }
+      break;
+    }
+
     case 'message.part.updated': {
       const part = props.part;
-      const delta: string | undefined = props.delta;
       if (!part) break;
 
       switch (part.type) {
         case 'text': {
-          // Streaming text content — use delta for incremental updates
-          if (delta) {
-            yield { type: 'assistant', content: delta };
-          }
+          // Full text update — only use as fallback if we haven't seen deltas
+          // (deltas via message.part.delta are preferred for streaming)
           break;
         }
 
@@ -477,7 +559,7 @@ async function* mapOpenCodeEvent(
           const toolName = part.toolName || part.name || 'unknown';
           const toolUseId = part.id || crypto.randomUUID();
           // When tool call is first seen (has name but no result yet)
-          if (part.state === 'pending' || part.state === 'running' || delta) {
+          if (part.state === 'pending' || part.state === 'running') {
             yield {
               type: 'tool_use',
               toolUseId,
@@ -494,13 +576,13 @@ async function* mapOpenCodeEvent(
           yield {
             type: 'tool_result',
             toolUseId,
-            toolResult: part.result || part.text || delta,
+            toolResult: part.result || part.text || '',
             isToolError: part.isError || false,
           };
           break;
         }
 
-        // Skip reasoning, step-start, and other part types
+        // Skip reasoning, step-start, step-finish, and other part types
         default:
           break;
       }
