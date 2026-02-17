@@ -305,7 +305,12 @@ export async function* runOpenCode(
   const baseUrl = server.baseUrl;
 
   // Create or resume session
+  // OpenCode now requires session IDs to start with "ses" prefix
   let sessionId = options.sessionId;
+  if (sessionId && !sessionId.startsWith('ses')) {
+    console.log(`[OpenCode] Ignoring legacy session ID (no 'ses' prefix): ${sessionId}`);
+    sessionId = undefined;
+  }
   if (!sessionId) {
     try {
       const response = await fetch(`${baseUrl}/session`, {
