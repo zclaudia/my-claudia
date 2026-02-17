@@ -2,7 +2,7 @@
 name = "my-claudia"
 version = "0.1.0"
 description = "A cross-platform UI for Code CLI"
-authors = ["My Claudia Contributors"]
+authors = ["MyClaudia Contributors"]
 edition = "2021"
 
 [lib]

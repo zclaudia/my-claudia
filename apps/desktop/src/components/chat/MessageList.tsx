@@ -227,7 +227,7 @@ function MessageItem({ message }: { message: MessageWithToolCalls }) {
     >
       {/* Tool calls section (shown before the message content for assistant) */}
       {!isUser && hasToolCalls && (
-        <div className="max-w-full md:max-w-3xl mb-2">
+        <div className="w-full max-w-full md:max-w-3xl mb-2">
           <ToolCallList toolCalls={message.toolCalls!} defaultCollapsed={true} />
         </div>
       )}
@@ -238,7 +238,7 @@ function MessageItem({ message }: { message: MessageWithToolCalls }) {
             ? 'max-w-[85%] md:max-w-3xl bg-primary text-primary-foreground'
             : isSystem
             ? 'max-w-[85%] md:max-w-3xl bg-muted text-muted-foreground text-sm'
-            : 'max-w-full md:max-w-3xl bg-card text-card-foreground'
+            : 'w-full max-w-full md:max-w-3xl bg-card text-card-foreground'
         }`}
       >
         {isUser ? (

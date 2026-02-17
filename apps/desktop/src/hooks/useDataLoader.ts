@@ -1,6 +1,7 @@
 import { useEffect, useCallback } from 'react';
 import { useServerStore } from '../stores/serverStore';
 import { useProjectStore } from '../stores/projectStore';
+import { isGatewayTarget } from '../stores/gatewayStore';
 import * as api from '../services/api';
 
 export function useDataLoader() {
@@ -11,16 +12,20 @@ export function useDataLoader() {
 
     console.log(`[DataLoader] Loading data for server: ${activeServerId}`);
 
+    // On gateway connections (mobile), skip getServers — it uses fetchLocalApi
+    // which targets localhost:3100 and will fail since there's no local server
+    const isGateway = isGatewayTarget(activeServerId);
+
     try {
-      // Servers list is always local config (getServers uses fetchLocalApi)
-      // Projects and sessions route to the active server (fetchApi)
       const [servers, projects, sessions, providers] = await Promise.all([
-        api.getServers(),
+        isGateway ? Promise.resolve([]) : api.getServers(),
         api.getProjects(),
         api.getSessions(),
         api.getProviders()
       ]);
-      useServerStore.getState().setServers(servers);
+      if (!isGateway) {
+        useServerStore.getState().setServers(servers);
+      }
       useProjectStore.getState().setProjects(projects);
       useProjectStore.getState().setSessions(sessions);
       useProjectStore.getState().setProviders(providers);

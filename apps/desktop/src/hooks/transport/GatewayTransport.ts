@@ -14,7 +14,8 @@ import type {
   ClientToGatewayMessage,
   GatewayToClientMessage,
   BackendSessionsListMessage,
-  BackendSessionEventMessage
+  BackendSessionEventMessage,
+  GatewayUpdateSubscriptionsMessage
 } from '@my-claudia/shared';
 import { useSessionsStore } from '../../stores/sessionsStore';
 import { startSessionSync, stopSessionSync } from '../../services/sessionSync';
@@ -29,6 +30,7 @@ export interface GatewayTransportConfig {
   onBackendAuthResult: (backendId: string, success: boolean, error?: string, features?: ServerFeature[]) => void;
   onBackendMessage: (backendId: string, message: ServerMessage) => void;
   onBackendDisconnected: (backendId: string) => void;
+  onSubscriptionAck?: (subscribedBackendIds: string[]) => void;
 }
 
 export class GatewayTransport {
@@ -125,6 +127,22 @@ export class GatewayTransport {
     this.ws.send(JSON.stringify(msg));
   }
 
+  /**
+   * Update subscription preferences at the gateway
+   */
+  updateSubscriptions(subscribedBackendIds: string[], subscribeAll?: boolean): void {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN || !this.gatewayAuthenticated) {
+      return;
+    }
+
+    const msg: GatewayUpdateSubscriptionsMessage = {
+      type: 'update_subscriptions',
+      subscribedBackendIds,
+      subscribeAll
+    };
+    this.ws.send(JSON.stringify(msg));
+  }
+
   private setupWebSocket(ws: WebSocket): void {
     ws.onopen = () => {
       console.log('[GatewayTransport] Connected to Gateway, authenticating...');
@@ -207,7 +225,7 @@ export class GatewayTransport {
           } else if (innerMessage.type === 'backend_session_event') {
             this.handleSessionEvent(innerMessage as BackendSessionEventMessage);
           } else {
-            this.config.onBackendMessage(message.backendId, message.message);
+            this.config.onBackendMessage(message.backendId, message.message as ServerMessage);
           }
         }
         break;
@@ -220,6 +238,11 @@ export class GatewayTransport {
         // Clear sessions for this backend
         useSessionsStore.getState().clearBackendSessions(message.backendId);
         this.config.onBackendDisconnected(message.backendId);
+        break;
+
+      case 'subscription_ack':
+        console.log('[GatewayTransport] Subscription ack:', message.subscribedBackendIds);
+        this.config.onSubscriptionAck?.(message.subscribedBackendIds);
         break;
 
       case 'gateway_error':

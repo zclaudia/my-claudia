@@ -2,6 +2,8 @@ import { useState, useEffect, useRef } from 'react';
 
 interface PermissionRequest {
   requestId: string;
+  serverId?: string;
+  backendName?: string;
   toolName: string;
   detail: string;
   timeoutSec: number;
@@ -138,6 +140,12 @@ export function PermissionModal({ request, queueSize = 0, onDecision }: Permissi
                   ? `This command requires your ${credentialLabel}`
                   : 'Claude wants to use a tool that requires your approval'}
               </p>
+              {request.backendName && (
+                <div className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground">
+                  <span className="w-1.5 h-1.5 rounded-full bg-blue-500 flex-shrink-0" />
+                  <span className="truncate">From: {request.backendName}</span>
+                </div>
+              )}
             </div>
           </div>
         </div>

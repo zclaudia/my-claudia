@@ -32,13 +32,14 @@ function restoreToolCalls(messages: Message[]): MessageWithToolCalls[] {
 
 // Desktop: floating card. Mobile: full-screen.
 const PANEL_CLASS_DESKTOP = 'w-[400px] h-[600px] bg-card border border-border rounded-xl shadow-2xl flex flex-col overflow-hidden';
-const PANEL_CLASS_MOBILE = 'w-full h-full bg-card flex flex-col overflow-hidden';
+const PANEL_CLASS_MOBILE = 'w-full h-full bg-card flex flex-col overflow-hidden safe-top-pad safe-bottom-pad';
 
 interface AgentPanelProps {
   isMobile?: boolean;
+  showHeader?: boolean;
 }
 
-export function AgentPanel({ isMobile = false }: AgentPanelProps) {
+export function AgentPanel({ isMobile = false, showHeader = true }: AgentPanelProps) {
   const { agentSessionId, setExpanded, isLoading, interceptionCount, selectedProviderId, backgroundSessions, removeBackgroundPermission } = useAgentStore();
   const { messages, setMessages, addMessage, isSessionLoading, getSessionRunId, getSessionToolCalls } = useChatStore();
   const { sendMessage: wsSendMessage, isConnected } = useConnection();
@@ -61,7 +62,9 @@ export function AgentPanel({ isMobile = false }: AgentPanelProps) {
     removeBackgroundPermission(sessionId, requestId);
   }, [wsSendMessage, removeBackgroundPermission]);
 
-  const panelClass = isMobile ? PANEL_CLASS_MOBILE : PANEL_CLASS_DESKTOP;
+  const panelClass = isMobile
+    ? (showHeader ? PANEL_CLASS_MOBILE : 'flex flex-col h-full')
+    : PANEL_CLASS_DESKTOP;
 
   const sessionId = agentSessionId;
   const sessionMessages = sessionId ? messages[sessionId] || [] : [];
@@ -211,30 +214,32 @@ export function AgentPanel({ isMobile = false }: AgentPanelProps) {
 
   return (
     <div className={panelClass}>
-      {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-card flex-shrink-0">
-        <div className="flex items-center gap-2">
-          <span className="text-base">🤖</span>
-          <span className="font-semibold text-sm">Agent</span>
-          {providerName && (
-            <span className="text-xs text-muted-foreground">{providerName}</span>
-          )}
-          {interceptionCount > 0 && (
-            <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-green-500/10 text-green-500 font-medium">
-              {interceptionCount} auto
-            </span>
-          )}
+      {/* Header (hidden when rendered inline in App layout) */}
+      {showHeader && (
+        <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-card flex-shrink-0">
+          <div className="flex items-center gap-2">
+            <span className="text-base">🤖</span>
+            <span className="font-semibold text-sm">Agent</span>
+            {providerName && (
+              <span className="text-xs text-muted-foreground">{providerName}</span>
+            )}
+            {interceptionCount > 0 && (
+              <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-green-500/10 text-green-500 font-medium">
+                {interceptionCount} auto
+              </span>
+            )}
+          </div>
+          <button
+            onClick={() => setExpanded(false)}
+            className="p-1.5 rounded hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors"
+            title="Close"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
         </div>
-        <button
-          onClick={() => setExpanded(false)}
-          className="p-1.5 rounded hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors"
-          title="Close"
-        >
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-          </svg>
-        </button>
-      </div>
+      )}
 
       {/* Background Tasks */}
       {bgSessionList.length > 0 && (
@@ -250,7 +255,7 @@ export function AgentPanel({ isMobile = false }: AgentPanelProps) {
       {/* Messages */}
       <div
         ref={messagesContainerRef}
-        className="flex-1 overflow-y-auto p-3"
+        className={`flex-1 overflow-y-auto ${showHeader ? 'p-3' : 'p-2 md:p-4'}`}
       >
         {sessionMessages.length === 0 && initialLoadDone && (
           <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
@@ -268,7 +273,7 @@ export function AgentPanel({ isMobile = false }: AgentPanelProps) {
         <LoadingIndicator isLoading={loading || isLoading} />
 
         {sessionToolCalls.length > 0 && (
-          <div className="mt-2 px-2">
+          <div className="mt-2">
             <ToolCallList toolCalls={sessionToolCalls} />
           </div>
         )}
@@ -277,7 +282,7 @@ export function AgentPanel({ isMobile = false }: AgentPanelProps) {
       </div>
 
       {/* Input */}
-      <div className="border-t border-border p-3 flex-shrink-0">
+      <div className={`border-t border-border flex-shrink-0 ${showHeader ? 'p-3' : 'p-2 md:p-4 safe-bottom-pad'}`}>
         <MessageInput
           onSend={handleSend}
           onCommand={handleCommand}

@@ -202,4 +202,76 @@ describe('sessionsStore', () => {
       expect(useSessionsStore.getState().remoteSessions.size).toBe(0);
     });
   });
+
+  describe('reconcileActiveStatus', () => {
+    it('marks sessions as active when their IDs are in the active set', () => {
+      const s1 = createRemoteSession({ id: 's1', isActive: false });
+      const s2 = createRemoteSession({ id: 's2', isActive: false });
+      useSessionsStore.getState().setRemoteSessions('backend-1', [s1, s2]);
+
+      useSessionsStore.getState().reconcileActiveStatus('backend-1', new Set(['s1']));
+
+      const stored = useSessionsStore.getState().remoteSessions.get('backend-1');
+      expect(stored![0].isActive).toBe(true);
+      expect(stored![1].isActive).toBe(false);
+    });
+
+    it('marks sessions as inactive when not in the active set', () => {
+      const s1 = createRemoteSession({ id: 's1', isActive: true });
+      const s2 = createRemoteSession({ id: 's2', isActive: true });
+      useSessionsStore.getState().setRemoteSessions('backend-1', [s1, s2]);
+
+      useSessionsStore.getState().reconcileActiveStatus('backend-1', new Set(['s2']));
+
+      const stored = useSessionsStore.getState().remoteSessions.get('backend-1');
+      expect(stored![0].isActive).toBe(false);
+      expect(stored![1].isActive).toBe(true);
+    });
+
+    it('does not update state when nothing changed', () => {
+      const s1 = createRemoteSession({ id: 's1', isActive: true });
+      const s2 = createRemoteSession({ id: 's2', isActive: false });
+      useSessionsStore.getState().setRemoteSessions('backend-1', [s1, s2]);
+
+      const mapBefore = useSessionsStore.getState().remoteSessions;
+      useSessionsStore.getState().reconcileActiveStatus('backend-1', new Set(['s1']));
+      const mapAfter = useSessionsStore.getState().remoteSessions;
+
+      // Should be the same reference since nothing changed
+      expect(mapBefore).toBe(mapAfter);
+    });
+
+    it('handles empty active set (all sessions become inactive)', () => {
+      const s1 = createRemoteSession({ id: 's1', isActive: true });
+      const s2 = createRemoteSession({ id: 's2', isActive: true });
+      useSessionsStore.getState().setRemoteSessions('backend-1', [s1, s2]);
+
+      useSessionsStore.getState().reconcileActiveStatus('backend-1', new Set());
+
+      const stored = useSessionsStore.getState().remoteSessions.get('backend-1');
+      expect(stored![0].isActive).toBe(false);
+      expect(stored![1].isActive).toBe(false);
+    });
+
+    it('is safe to call for non-existent backend', () => {
+      useSessionsStore.getState().reconcileActiveStatus('non-existent', new Set(['s1']));
+
+      // Should not throw, state unchanged
+      expect(useSessionsStore.getState().remoteSessions.size).toBe(0);
+    });
+
+    it('does not affect other backends', () => {
+      const s1 = createRemoteSession({ id: 's1', isActive: false });
+      const s2 = createRemoteSession({ id: 's2', isActive: true });
+      useSessionsStore.getState().setRemoteSessions('backend-1', [s1]);
+      useSessionsStore.getState().setRemoteSessions('backend-2', [s2]);
+
+      useSessionsStore.getState().reconcileActiveStatus('backend-1', new Set(['s1']));
+
+      const backend1 = useSessionsStore.getState().remoteSessions.get('backend-1');
+      const backend2 = useSessionsStore.getState().remoteSessions.get('backend-2');
+      expect(backend1![0].isActive).toBe(true);
+      expect(backend2![0].isActive).toBe(true); // unchanged
+    });
+  });
 });

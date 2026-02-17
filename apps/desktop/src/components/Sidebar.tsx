@@ -47,6 +47,7 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
   const [newSessionName, setNewSessionName] = useState('');
   const [contextMenuProject, setContextMenuProject] = useState<string | null>(null);
   const [contextMenuSession, setContextMenuSession] = useState<string | null>(null);
+  const [contextMenuPos, setContextMenuPos] = useState<{ top: number; left: number } | null>(null);
   const [renamingSessionId, setRenamingSessionId] = useState<string | null>(null);
   const [renameSessionValue, setRenameSessionValue] = useState('');
   const [settingsProjectId, setSettingsProjectId] = useState<string | null>(null);
@@ -140,6 +141,26 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
       selectSession(session.id);
     } catch (error) {
       console.error('Failed to create session:', error);
+    }
+  };
+
+  // Compute fixed position for context menus to avoid overflow clipping
+  const openContextMenu = (e: React.MouseEvent, type: 'project' | 'session', id: string) => {
+    e.stopPropagation();
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    const menuHeight = type === 'project' ? 160 : 200; // approximate menu heights
+    const top = rect.bottom + 4;
+    const wouldOverflow = top + menuHeight > window.innerHeight;
+    setContextMenuPos({
+      top: wouldOverflow ? rect.top - menuHeight - 4 : top,
+      left: rect.left - (type === 'project' ? 140 : 120), // menu width offset
+    });
+    if (type === 'project') {
+      setContextMenuSession(null);
+      setContextMenuProject(contextMenuProject === id ? null : id);
+    } else {
+      setContextMenuProject(null);
+      setContextMenuSession(contextMenuSession === id ? null : id);
     }
   };
 
@@ -323,10 +344,10 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
           onClick={onClose}
         />
         {/* Drawer */}
-        <div className="fixed inset-y-0 left-0 w-64 bg-card z-50 shadow-xl flex flex-col">
+        <div className="fixed inset-y-0 left-0 w-64 bg-card z-50 shadow-xl flex flex-col safe-top-pad safe-bottom-pad">
           {/* Header with close button */}
           <div className="h-[72px] border-b border-border flex items-center justify-between px-4">
-            <h1 className="font-semibold text-lg">My Claudia</h1>
+            <h1 className="font-semibold text-lg">MyClaudia</h1>
             <button
               onClick={onClose}
               className="p-2 min-w-[44px] min-h-[44px] rounded hover:bg-secondary active:bg-secondary text-muted-foreground hover:text-foreground flex items-center justify-center"
@@ -559,10 +580,7 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
                       {/* Project menu button */}
                       {(
                         <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setContextMenuProject(contextMenuProject === project.id ? null : project.id);
-                          }}
+                          onClick={(e) => openContextMenu(e, 'project', project.id)}
                           className="w-10 h-10 rounded hover:bg-secondary active:bg-secondary flex-shrink-0 flex items-center justify-center"
                         >
                           <svg className="w-4 h-4 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -572,10 +590,10 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
                       )}
 
                       {/* Project context menu */}
-                      {contextMenuProject === project.id && (
+                      {contextMenuProject === project.id && contextMenuPos && (
                         <>
                           <div className="fixed inset-0 z-40" onClick={() => setContextMenuProject(null)} />
-                          <div className="absolute right-0 top-full mt-1 w-44 bg-popover border border-border rounded-lg shadow-lg z-50">
+                          <div className="fixed w-44 bg-popover border border-border rounded-lg shadow-lg z-50" style={{ top: contextMenuPos.top, left: contextMenuPos.left }}>
                             <button
                               onClick={() => {
                                 setSettingsProjectId(project.id);
@@ -653,23 +671,20 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
                                 )}
                                 {/* Session menu button */}
                                 <button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    setContextMenuSession(contextMenuSession === session.id ? null : session.id);
-                                  }}
+                                  onClick={(e) => openContextMenu(e, 'session', session.id)}
                                   className="w-10 h-10 rounded hover:bg-secondary active:bg-secondary flex-shrink-0 flex items-center justify-center"
                                 >
                                   <svg className="w-4 h-4 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z" />
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2z" />
                                   </svg>
                                 </button>
                               </div>
 
                               {/* Session context menu */}
-                              {contextMenuSession === session.id && (
+                              {contextMenuSession === session.id && contextMenuPos && (
                                 <>
                                   <div className="fixed inset-0 z-40" onClick={() => setContextMenuSession(null)} />
-                                  <div className="absolute right-0 top-full mt-1 w-40 bg-popover border border-border rounded-lg shadow-lg z-50">
+                                  <div className="fixed w-40 bg-popover border border-border rounded-lg shadow-lg z-50" style={{ top: contextMenuPos.top, left: contextMenuPos.left }}>
                                     <button
                                       onClick={() => startRenamingSession(session.id, session.name || '')}
                                       className="w-full text-left px-3 py-3 text-sm hover:bg-secondary active:bg-secondary"
@@ -835,7 +850,7 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
               <span className="text-lg">🤖</span>
             </div>
             <div className="flex flex-col" data-tauri-drag-region>
-              <h1 className="font-semibold text-base text-foreground leading-tight" data-tauri-drag-region>My Claudia</h1>
+              <h1 className="font-semibold text-base text-foreground leading-tight" data-tauri-drag-region>MyClaudia</h1>
               <span className="text-xs text-muted-foreground">AI Assistant</span>
             </div>
           </div>
@@ -1093,10 +1108,7 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
                   {/* Project menu button */}
                   {(
                     <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setContextMenuProject(contextMenuProject === project.id ? null : project.id);
-                      }}
+                      onClick={(e) => openContextMenu(e, 'project', project.id)}
                       className="w-7 h-7 rounded opacity-0 group-hover:opacity-100 hover:bg-secondary flex-shrink-0 flex items-center justify-center"
                     >
                       <svg className="w-4 h-4 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1106,10 +1118,10 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
                   )}
 
                   {/* Project context menu */}
-                  {contextMenuProject === project.id && (
+                  {contextMenuProject === project.id && contextMenuPos && (
                   <>
                     <div className="fixed inset-0 z-40" onClick={() => setContextMenuProject(null)} />
-                    <div className="absolute right-0 top-full mt-1 w-36 bg-popover border border-border rounded shadow-lg z-50">
+                    <div className="fixed w-36 bg-popover border border-border rounded shadow-lg z-50" style={{ top: contextMenuPos.top, left: contextMenuPos.left }}>
                       <button
                         onClick={() => {
                           setSettingsProjectId(project.id);
@@ -1199,10 +1211,7 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
                             )}
                             {/* Session menu button */}
                             <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setContextMenuSession(contextMenuSession === session.id ? null : session.id);
-                              }}
+                              onClick={(e) => openContextMenu(e, 'session', session.id)}
                               className="w-7 h-7 rounded opacity-0 group-hover:opacity-100 hover:bg-secondary flex-shrink-0 flex items-center justify-center"
                             >
                               <svg className="w-4 h-4 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1212,10 +1221,10 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
                           </div>
 
                           {/* Session context menu */}
-                          {contextMenuSession === session.id && (
+                          {contextMenuSession === session.id && contextMenuPos && (
                             <>
                               <div className="fixed inset-0 z-40" onClick={() => setContextMenuSession(null)} />
-                              <div className="absolute right-0 top-full mt-1 w-44 bg-popover border border-border rounded shadow-lg z-50">
+                              <div className="fixed w-44 bg-popover border border-border rounded shadow-lg z-50" style={{ top: contextMenuPos.top, left: contextMenuPos.left }}>
                                 <button
                                   onClick={() => startRenamingSession(session.id, session.name || '')}
                                   className="w-full text-left px-3 py-1.5 text-sm hover:bg-secondary"

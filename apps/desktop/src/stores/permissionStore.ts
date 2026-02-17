@@ -2,6 +2,10 @@ import { create } from 'zustand';
 
 export interface PermissionRequest {
   requestId: string;
+  /** Source server ID (e.g. "gw:backend-1") — used to route the response to the correct backend. */
+  serverId?: string;
+  /** Human-readable backend name — shown in the modal when the request is from a non-active backend. */
+  backendName?: string;
   toolName: string;
   detail: string;
   timeoutSec: number;
@@ -20,10 +24,13 @@ interface PermissionState {
   // Actions
   setPendingRequest: (request: PermissionRequest | null) => void;
   clearRequest: () => void;
+  clearRequestById: (requestId: string) => void;
   clearAllRequests: () => void;
+  clearStaleRequests: (serverId: string, validIds: Set<string>) => void;
+  hasRequest: (requestId: string) => boolean;
 }
 
-export const usePermissionStore = create<PermissionState>((set) => ({
+export const usePermissionStore = create<PermissionState>((set, get) => ({
   pendingRequests: [],
   pendingRequest: null,
 
@@ -56,7 +63,34 @@ export const usePermissionStore = create<PermissionState>((set) => ({
       };
     }),
 
+  // Remove a specific request by ID (e.g. resolved by another device)
+  clearRequestById: (requestId) =>
+    set((state) => {
+      const remaining = state.pendingRequests.filter(r => r.requestId !== requestId);
+      return {
+        pendingRequests: remaining,
+        pendingRequest: remaining[0] || null,
+      };
+    }),
+
   // Clear everything (e.g. on run end)
   clearAllRequests: () =>
     set({ pendingRequests: [], pendingRequest: null }),
+
+  // Remove requests for a server that are not in the valid set (state heartbeat reconciliation)
+  clearStaleRequests: (serverId, validIds) =>
+    set((state) => {
+      const remaining = state.pendingRequests.filter(
+        r => r.serverId !== serverId || validIds.has(r.requestId)
+      );
+      return {
+        pendingRequests: remaining,
+        pendingRequest: remaining[0] || null,
+      };
+    }),
+
+  // Check if a request exists
+  hasRequest: (requestId): boolean => {
+    return get().pendingRequests.some((r: PermissionRequest) => r.requestId === requestId);
+  },
 }));

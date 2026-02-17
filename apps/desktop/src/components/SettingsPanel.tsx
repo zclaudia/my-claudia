@@ -4,6 +4,7 @@ import { useGatewayStore, toGatewayServerId } from '../stores/gatewayStore';
 import { useUIStore, type FontSizePreset } from '../stores/uiStore';
 import { useAgentStore } from '../stores/agentStore';
 import { useConnection } from '../contexts/ConnectionContext';
+import { useIsMobile } from '../hooks/useMediaQuery';
 import { ProviderManager } from './ProviderManager';
 import { ThemeToggle } from './ThemeToggle';
 import { ServerGatewayConfig } from './ServerGatewayConfig';
@@ -25,6 +26,8 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
   const [importDialogOpen, setImportDialogOpen] = useState(false);
   const [openCodeImportDialogOpen, setOpenCodeImportDialogOpen] = useState(false);
   const [serverPickerOpen, setServerPickerOpen] = useState(false);
+  const [mobileShowContent, setMobileShowContent] = useState(false);
+  const isMobile = useIsMobile();
 
   const {
     connectionStatus,
@@ -37,7 +40,6 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
   const {
     isConnected: isGatewayConnected,
     discoveredBackends,
-    backendAuthStatus
   } = useGatewayStore();
   const { connectServer } = useConnection();
 
@@ -47,8 +49,9 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
   const directServers = servers.filter(s => s.connectionMode !== 'gateway');
 
   // Reset tab if current tab is not available for the new server type
+  // Note: 'gateway' tab is always available on mobile for editing gateway config
   useEffect(() => {
-    if (!isLocalServer && (activeTab === 'import' || activeTab === 'gateway')) {
+    if (!isLocalServer && activeTab === 'import') {
       setActiveTab('providers');
     }
   }, [activeServerId, activeTab, isLocalServer]);
@@ -82,15 +85,23 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
         </svg>
       )
     },
-    {
-      id: 'connections',
+    ...(isMobile ? [{
+      id: 'gateway' as SettingsTab,
+      label: 'Gateway',
+      icon: (
+        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9" />
+        </svg>
+      )
+    }] : [{
+      id: 'connections' as SettingsTab,
       label: 'Connections',
       icon: (
         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01" />
         </svg>
       )
-    },
+    }]),
   ];
 
   const serverTabs: { id: SettingsTab; label: string; icon: JSX.Element }[] = [
@@ -173,15 +184,41 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-2 md:p-4">
-      <div className="absolute inset-0 bg-black/50" onClick={onClose} />
-      <div className="relative bg-card border border-border rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] md:max-h-[80vh] flex flex-col">
+    <div className={`fixed inset-0 z-50 ${isMobile ? '' : 'flex items-center justify-center p-2 md:p-4'}`}>
+      {!isMobile && <div className="absolute inset-0 bg-black/50" onClick={onClose} />}
+      <div className={`relative bg-card flex flex-col ${
+        isMobile
+          ? 'w-full h-full safe-top-pad safe-bottom-pad'
+          : 'border border-border rounded-lg shadow-xl w-full max-w-2xl max-h-[80vh]'
+      }`}>
         {/* Header */}
-        <div className="flex items-center justify-between px-3 md:px-4 py-3 border-b border-border">
-          <h2 className="text-lg font-semibold">Settings</h2>
+        <div className="flex items-center justify-between px-3 md:px-4 py-3 border-b border-border flex-shrink-0"
+        >
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => {
+                if (isMobile && mobileShowContent) {
+                  setMobileShowContent(false);
+                } else {
+                  onClose();
+                }
+              }}
+              className="p-1.5 rounded hover:bg-secondary text-muted-foreground hover:text-foreground md:hidden"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+              </svg>
+            </button>
+            <h2 className="text-lg font-semibold">
+              {isMobile && mobileShowContent
+                ? [...appTabs, ...serverTabs].find(t => t.id === activeTab)?.label || 'Settings'
+                : 'Settings'
+              }
+            </h2>
+          </div>
           <button
             onClick={onClose}
-            className="p-1 rounded hover:bg-secondary text-muted-foreground hover:text-foreground"
+            className="p-1 rounded hover:bg-secondary text-muted-foreground hover:text-foreground hidden md:block"
           >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -190,113 +227,148 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
         </div>
 
         <div className="flex flex-col md:flex-row flex-1 overflow-hidden">
-          {/* Tabs - horizontal on mobile, vertical sidebar on desktop */}
-          <div className="flex md:flex-col md:w-44 border-b md:border-b-0 md:border-r border-border p-1 md:p-2 gap-0.5 overflow-x-auto md:overflow-x-visible shrink-0">
-            {/* Section: App */}
-            <div className="hidden md:block px-3 py-1.5 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
-              App
-            </div>
-            {appTabs.map(renderTabButton)}
-
-            {/* Section: Server (with server picker dropdown) */}
-            <div className="hidden md:block relative border-t border-border mt-2">
-              <button
-                onClick={() => setServerPickerOpen(!serverPickerOpen)}
-                className="w-full px-3 pt-3 pb-1.5 flex items-center justify-between group"
-              >
-                <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider truncate" title={activeServer?.name || 'Server'}>
-                  {activeServer?.name || 'Server'}
-                </span>
-                <svg
-                  className={`w-3 h-3 text-muted-foreground group-hover:text-foreground transition-transform ${serverPickerOpen ? 'rotate-180' : ''}`}
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
+          {/* Mobile: Tab list (two-level navigation) */}
+          {isMobile && !mobileShowContent && (
+            <div className="flex-1 overflow-y-auto p-2">
+              {/* App section */}
+              <div className="px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
+                App
+              </div>
+              {appTabs.map(tab => (
+                <button
+                  key={tab.id}
+                  onClick={() => { setActiveTab(tab.id); setMobileShowContent(true); }}
+                  className="w-full flex items-center gap-3 px-3 py-3 rounded-lg hover:bg-secondary/50 active:bg-secondary transition-colors"
                 >
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                </svg>
-              </button>
+                  <span className="text-muted-foreground">{tab.icon}</span>
+                  <span className="flex-1 text-sm text-left">{tab.label}</span>
+                  <svg className="w-4 h-4 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                  </svg>
+                </button>
+              ))}
 
-              {/* Server picker dropdown */}
-              {serverPickerOpen && (
-                <>
-                  <div className="fixed inset-0 z-40" onClick={() => setServerPickerOpen(false)} />
-                  <div className="absolute left-1 right-1 top-full bg-card border border-border rounded-lg shadow-lg z-50 max-h-60 overflow-y-auto">
-                    {/* Direct servers */}
-                    {directServers.map((server) => {
-                      const isActive = server.id === activeServerId;
-                      return (
-                        <button
-                          key={server.id}
-                          onClick={() => handleServerSwitch(server.id)}
-                          className={`w-full px-3 py-2 text-left hover:bg-muted flex items-center gap-2 text-sm ${
-                            isActive ? 'bg-muted' : ''
-                          }`}
-                        >
-                          <span className={`w-2 h-2 rounded-full flex-shrink-0 ${getStatusColor(connections[server.id]?.status)}`} />
-                          <span className="truncate flex-1" title={server.name}>{server.name}</span>
-                          {isActive && (
-                            <span className="px-1.5 py-0.5 bg-primary/20 text-primary text-[10px] rounded flex-shrink-0">
-                              Active
-                            </span>
-                          )}
-                        </button>
-                      );
-                    })}
-
-                    {/* Gateway backends */}
-                    {isGatewayConnected && discoveredBackends.filter(b => !b.isLocal).length > 0 && (
-                      <>
-                        <div className="px-3 py-1 text-[10px] font-medium text-muted-foreground uppercase tracking-wider bg-secondary/50 border-t border-border">
-                          Via Gateway
-                        </div>
-                        {discoveredBackends.filter(b => !b.isLocal).map((backend) => {
-                          const gwId = toGatewayServerId(backend.backendId);
-                          const isActive = activeServerId === gwId;
-                          const authStatus = backendAuthStatus[backend.backendId];
-                          let statusColor = 'bg-muted-foreground';
-                          if (backend.online && authStatus === 'authenticated') statusColor = 'bg-success';
-                          else if (backend.online && authStatus === 'pending') statusColor = 'bg-warning animate-pulse';
-                          else if (backend.online) statusColor = 'bg-blue-400';
-
-                          return (
-                            <button
-                              key={backend.backendId}
-                              onClick={() => handleBackendSwitch(backend)}
-                              disabled={!backend.online}
-                              className={`w-full px-3 py-2 text-left hover:bg-muted flex items-center gap-2 text-sm ${
-                                isActive ? 'bg-muted' : ''
-                              } ${!backend.online ? 'opacity-50 cursor-not-allowed' : ''}`}
-                            >
-                              <span className={`w-2 h-2 rounded-full flex-shrink-0 ${statusColor}`} />
-                              <span className="truncate flex-1" title={backend.name}>{backend.name}</span>
-                              {isActive && (
-                                <span className="px-1.5 py-0.5 bg-primary/20 text-primary text-[10px] rounded flex-shrink-0">
-                                  Active
-                                </span>
-                              )}
-                              {!backend.online && (
-                                <span className="text-[10px] text-muted-foreground flex-shrink-0">Offline</span>
-                              )}
-                            </button>
-                          );
-                        })}
-                      </>
-                    )}
-                  </div>
-                </>
-              )}
+              {/* Server section */}
+              <div className="px-3 py-2 mt-2 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider border-t border-border">
+                {activeServer?.name || 'Server'}
+              </div>
+              {serverTabs.map(tab => (
+                <button
+                  key={tab.id}
+                  onClick={() => { setActiveTab(tab.id); setMobileShowContent(true); }}
+                  className="w-full flex items-center gap-3 px-3 py-3 rounded-lg hover:bg-secondary/50 active:bg-secondary transition-colors"
+                >
+                  <span className="text-muted-foreground">{tab.icon}</span>
+                  <span className="flex-1 text-sm text-left">{tab.label}</span>
+                  <svg className="w-4 h-4 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                  </svg>
+                </button>
+              ))}
             </div>
+          )}
 
-            {/* Mobile: show server name as a label before server tabs */}
-            <div className="md:hidden px-2 py-1 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider border-l border-border ml-1">
-              {activeServer?.name || 'Server'}
+          {/* Desktop: Tabs vertical sidebar */}
+          {!isMobile && (
+            <div className="flex flex-col w-44 border-r border-border p-2 gap-0.5 shrink-0">
+              {/* Section: App */}
+              <div className="px-3 py-1.5 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
+                App
+              </div>
+              {appTabs.map(renderTabButton)}
+
+              {/* Section: Server (with server picker dropdown) */}
+              <div className="relative border-t border-border mt-2">
+                <button
+                  onClick={() => setServerPickerOpen(!serverPickerOpen)}
+                  className="w-full px-3 pt-3 pb-1.5 flex items-center justify-between group"
+                >
+                  <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider truncate" title={activeServer?.name || 'Server'}>
+                    {activeServer?.name || 'Server'}
+                  </span>
+                  <svg
+                    className={`w-3 h-3 text-muted-foreground group-hover:text-foreground transition-transform ${serverPickerOpen ? 'rotate-180' : ''}`}
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                  </svg>
+                </button>
+
+                {/* Server picker dropdown */}
+                {serverPickerOpen && (
+                  <>
+                    <div className="fixed inset-0 z-40" onClick={() => setServerPickerOpen(false)} />
+                    <div className="absolute left-1 right-1 top-full bg-card border border-border rounded-lg shadow-lg z-50 max-h-60 overflow-y-auto">
+                      {/* Direct servers */}
+                      {directServers.map((server) => {
+                        const isActive = server.id === activeServerId;
+                        return (
+                          <button
+                            key={server.id}
+                            onClick={() => handleServerSwitch(server.id)}
+                            className={`w-full px-3 py-2 text-left hover:bg-muted flex items-center gap-2 text-sm ${
+                              isActive ? 'bg-muted' : ''
+                            }`}
+                          >
+                            <span className={`w-2 h-2 rounded-full flex-shrink-0 ${getStatusColor(connections[server.id]?.status)}`} />
+                            <span className="truncate flex-1" title={server.name}>{server.name}</span>
+                            {isActive && (
+                              <span className="px-1.5 py-0.5 bg-primary/20 text-primary text-[10px] rounded flex-shrink-0">
+                                Active
+                              </span>
+                            )}
+                          </button>
+                        );
+                      })}
+
+                      {/* Gateway backends */}
+                      {isGatewayConnected && discoveredBackends.filter(b => !b.isLocal).length > 0 && (
+                        <>
+                          <div className="px-3 py-1 text-[10px] font-medium text-muted-foreground uppercase tracking-wider bg-secondary/50 border-t border-border">
+                            Via Gateway
+                          </div>
+                          {discoveredBackends.filter(b => !b.isLocal).map((backend) => {
+                            const gwId = toGatewayServerId(backend.backendId);
+                            const isActive = activeServerId === gwId;
+                            const statusColor = backend.online ? 'bg-success' : 'bg-muted-foreground';
+
+                            return (
+                              <button
+                                key={backend.backendId}
+                                onClick={() => handleBackendSwitch(backend)}
+                                disabled={!backend.online}
+                                className={`w-full px-3 py-2 text-left hover:bg-muted flex items-center gap-2 text-sm ${
+                                  isActive ? 'bg-muted' : ''
+                                } ${!backend.online ? 'opacity-50 cursor-not-allowed' : ''}`}
+                              >
+                                <span className={`w-2 h-2 rounded-full flex-shrink-0 ${statusColor}`} />
+                                <span className="truncate flex-1" title={backend.name}>{backend.name}</span>
+                                {isActive && (
+                                  <span className="px-1.5 py-0.5 bg-primary/20 text-primary text-[10px] rounded flex-shrink-0">
+                                    Active
+                                  </span>
+                                )}
+                                {!backend.online && (
+                                  <span className="text-[10px] text-muted-foreground flex-shrink-0">Offline</span>
+                                )}
+                              </button>
+                            );
+                          })}
+                        </>
+                      )}
+                    </div>
+                  </>
+                )}
+              </div>
+
+              {serverTabs.map(renderTabButton)}
             </div>
+          )}
 
-            {serverTabs.map(renderTabButton)}
-          </div>
-
-          {/* Content area */}
+          {/* Content area (desktop: always shown; mobile: only when tab selected) */}
+          {(!isMobile || mobileShowContent) && (
           <div className="flex-1 p-3 md:p-4 overflow-y-auto">
             {activeTab === 'general' && (
               <div className="space-y-6">
@@ -386,7 +458,11 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
 
             {activeTab === 'gateway' && (
               <div className="space-y-6">
-                <ServerGatewayConfig />
+                {isMobile ? (
+                  <MobileGatewayConfig />
+                ) : (
+                  <ServerGatewayConfig />
+                )}
               </div>
             )}
 
@@ -447,6 +523,7 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
               </div>
             )}
           </div>
+          )}
         </div>
       </div>
 
@@ -1047,10 +1124,101 @@ function NotificationSettingsInline() {
   );
 }
 
+// Mobile gateway config editor
+function MobileGatewayConfig() {
+  const {
+    directGatewayUrl,
+    directGatewaySecret,
+    isConnected: isGatewayConnected,
+    setDirectGatewayConfig,
+    clearDirectGatewayConfig,
+  } = useGatewayStore();
+
+  const [url, setUrl] = useState(directGatewayUrl || '');
+  const [secret, setSecret] = useState(directGatewaySecret || '');
+  const [dirty, setDirty] = useState(false);
+
+  const handleSave = () => {
+    const trimmedUrl = url.trim();
+    const trimmedSecret = secret.trim();
+    if (!trimmedUrl || !trimmedSecret) return;
+    setDirectGatewayConfig(trimmedUrl, trimmedSecret);
+    setDirty(false);
+  };
+
+  const handleDisconnect = () => {
+    clearDirectGatewayConfig();
+    setUrl('');
+    setSecret('');
+    setDirty(false);
+  };
+
+  return (
+    <div className="space-y-6">
+      <p className="text-sm text-muted-foreground">
+        Configure your gateway connection. Changes will reconnect automatically.
+      </p>
+
+      {/* Connection status */}
+      <div className="flex items-center gap-2 p-3 bg-secondary/50 rounded-lg">
+        <span className={`w-2 h-2 rounded-full ${isGatewayConnected ? 'bg-success' : 'bg-destructive'}`} />
+        <span className="text-sm">
+          {isGatewayConnected ? 'Gateway connected' : 'Gateway disconnected'}
+        </span>
+      </div>
+
+      {/* URL */}
+      <div>
+        <label className="text-xs text-muted-foreground block mb-1">Gateway URL</label>
+        <input
+          type="text"
+          value={url}
+          onChange={(e) => { setUrl(e.target.value); setDirty(true); }}
+          placeholder="http://gateway.example.com:3200"
+          className="w-full px-3 py-2.5 bg-secondary border border-border rounded-lg text-sm focus:outline-none focus:border-primary"
+        />
+      </div>
+
+      {/* Secret */}
+      <div>
+        <label className="text-xs text-muted-foreground block mb-1">Gateway Secret</label>
+        <input
+          type="password"
+          value={secret}
+          onChange={(e) => { setSecret(e.target.value); setDirty(true); }}
+          placeholder="Enter gateway secret"
+          className="w-full px-3 py-2.5 bg-secondary border border-border rounded-lg text-sm focus:outline-none focus:border-primary"
+        />
+      </div>
+
+      {/* Actions */}
+      <div className="flex gap-2">
+        {dirty && (
+          <button
+            onClick={handleSave}
+            disabled={!url.trim() || !secret.trim()}
+            className="flex-1 py-2.5 bg-primary text-primary-foreground rounded-lg text-sm font-medium disabled:opacity-50"
+          >
+            Save & Reconnect
+          </button>
+        )}
+        {directGatewayUrl && (
+          <button
+            onClick={handleDisconnect}
+            className="flex-1 py-2.5 border border-destructive text-destructive rounded-lg text-sm font-medium hover:bg-destructive/10"
+          >
+            Disconnect
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // Read-only server info panel
 function ServerInfoPanel() {
   const { servers, activeServerId, connections } = useServerStore();
-  const { isConnected: isGatewayConnected, discoveredBackends, backendAuthStatus } = useGatewayStore();
+  const { isConnected: isGatewayConnected, discoveredBackends } = useGatewayStore();
 
   const getStatusInfo = (status?: string) => {
     switch (status) {
@@ -1115,21 +1283,9 @@ function ServerInfoPanel() {
           </div>
           {discoveredBackends.filter(b => !b.isLocal).map((backend) => {
             const gwServerId = toGatewayServerId(backend.backendId);
-            const authStatus = backendAuthStatus[backend.backendId];
             const isActive = activeServerId === gwServerId;
-
-            let statusText = 'Offline';
-            let statusColor = 'bg-muted-foreground';
-            if (backend.online && authStatus === 'authenticated') {
-              statusText = 'Connected';
-              statusColor = 'bg-success';
-            } else if (backend.online && authStatus === 'pending') {
-              statusText = 'Connecting';
-              statusColor = 'bg-warning';
-            } else if (backend.online) {
-              statusText = 'Online';
-              statusColor = 'bg-blue-400';
-            }
+            const statusText = backend.online ? 'Online' : 'Offline';
+            const statusColor = backend.online ? 'bg-success' : 'bg-muted-foreground';
 
             return (
               <div

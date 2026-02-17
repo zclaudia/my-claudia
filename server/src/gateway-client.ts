@@ -94,6 +94,7 @@ export class GatewayClient {
   private messageHandler: MessageHandler | null = null;
   private clientConnectedHandler: ClientEventHandler | null = null;
   private clientDisconnectedHandler: ClientEventHandler | null = null;
+  private clientSubscribedHandler: ClientEventHandler | null = null;
 
   // Track authenticated clients (client auth is verified by backend)
   private authenticatedClients = new Set<string>();
@@ -132,6 +133,13 @@ export class GatewayClient {
    */
   onClientDisconnected(handler: ClientEventHandler): void {
     this.clientDisconnectedHandler = handler;
+  }
+
+  /**
+   * Set the handler for client subscribed events
+   */
+  onClientSubscribed(handler: ClientEventHandler): void {
+    this.clientSubscribedHandler = handler;
   }
 
   /**
@@ -219,7 +227,7 @@ export class GatewayClient {
   }
 
   /**
-   * Send a message to a specific client via Gateway
+   * Send a response to a specific client via Gateway (for request-response routing)
    */
   sendToClient(clientId: string, message: ServerMessage): void {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
@@ -234,6 +242,23 @@ export class GatewayClient {
     };
 
     this.ws.send(JSON.stringify(response));
+  }
+
+  /**
+   * Broadcast a message to all subscribers via Gateway
+   */
+  broadcast(message: ServerMessage): void {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      console.error('[Gateway] Cannot broadcast: not connected');
+      return;
+    }
+
+    const msg: BackendToGatewayMessage = {
+      type: 'broadcast_to_subscribers',
+      message
+    };
+
+    this.ws.send(JSON.stringify(msg));
   }
 
   /**
@@ -318,7 +343,8 @@ export class GatewayClient {
       case 'client_subscribed': {
         const { clientId } = message as any;
         console.log(`[GatewayClient] Client ${clientId} subscribed to this backend`);
-        this.sendSessionsListToClient(clientId);
+        this.broadcastSessionsList();
+        this.clientSubscribedHandler?.(clientId);
         break;
       }
     }
@@ -445,16 +471,16 @@ export class GatewayClient {
   }
 
   /**
-   * Send current sessions list to a newly subscribed client
+   * Broadcast current sessions list to all subscribers
    */
-  private sendSessionsListToClient(clientId: string): void {
+  private broadcastSessionsList(): void {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
-      console.error('[GatewayClient] Cannot send sessions list: not connected');
+      console.error('[GatewayClient] Cannot broadcast sessions list: not connected');
       return;
     }
 
     if (!this.db || !this.activeRuns) {
-      console.warn('[GatewayClient] Cannot send sessions list: db or activeRuns not available');
+      console.warn('[GatewayClient] Cannot broadcast sessions list: db or activeRuns not available');
       return;
     }
 
@@ -478,21 +504,16 @@ export class GatewayClient {
         isActive: this.activeRuns!.has(session.id)
       }));
 
-      // Send via send_to_client message
-      const message: BackendToGatewayMessage = {
-        type: 'send_to_client',
-        clientId,
-        message: {
-          type: 'backend_sessions_list',
-          backendId: this.backendId || '',
-          sessions: sessionsWithStatus
-        }
-      };
+      // Broadcast via broadcast_to_subscribers
+      this.broadcast({
+        type: 'backend_sessions_list',
+        backendId: this.backendId || '',
+        sessions: sessionsWithStatus
+      } as any);
 
-      this.ws.send(JSON.stringify(message));
-      console.log(`[GatewayClient] Sent ${sessions.length} sessions to client ${clientId}`);
+      console.log(`[GatewayClient] Broadcast ${sessions.length} sessions to all subscribers`);
     } catch (error) {
-      console.error('[GatewayClient] Failed to send sessions list:', error);
+      console.error('[GatewayClient] Failed to broadcast sessions list:', error);
     }
   }
 

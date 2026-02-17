@@ -16,6 +16,7 @@ import { usePermissionStore } from '../stores/permissionStore';
 import { useAskUserQuestionStore } from '../stores/askUserQuestionStore';
 import { GatewayTransport } from './transport/GatewayTransport';
 import { toGatewayServerId, isGatewayTarget, parseBackendId } from '../stores/gatewayStore';
+import { useSessionsStore } from '../stores/sessionsStore';
 import { getServerGatewayStatus } from '../services/api';
 
 const RECONNECT_INTERVAL = 3000;
@@ -31,6 +32,8 @@ export function useGatewayConnection() {
   const {
     gatewayUrl,
     gatewaySecret,
+    isConnected: isGatewayConnected,
+    discoveredBackends,
     setConnected,
     setDiscoveredBackends,
     setBackendAuthStatus
@@ -68,7 +71,15 @@ export function useGatewayConnection() {
   }, [selectedSessionId]);
 
   // Poll server gateway status and sync to store
+  // Skip when direct config is active (mobile mode — no local server to poll)
   useEffect(() => {
+    const { directGatewayUrl, directGatewaySecret } = useGatewayStore.getState();
+    if (directGatewayUrl && directGatewaySecret) {
+      // Mobile: use persisted direct config instead of polling server
+      useGatewayStore.getState().syncFromServer(directGatewayUrl, directGatewaySecret, []);
+      return;
+    }
+
     let mounted = true;
 
     const syncFromServer = async () => {
@@ -162,6 +173,8 @@ export function useGatewayConnection() {
 
       case 'run_completed': {
         const runSession = useChatStore.getState().activeRuns[msg.runId];
+        // Clear ask_user_question requests for this backend regardless of active state
+        useAskUserQuestionStore.getState().clearRequestsForServer(serverId);
         if (serverId === currentActiveId) {
           if (runSession) {
             finalizeToolCallsToMessage(msg.runId);
@@ -172,13 +185,14 @@ export function useGatewayConnection() {
             useProjectStore.getState().setSessionActive(runSession, false);
           }
           endRun(msg.runId);
-          useAskUserQuestionStore.getState().clearRequest();
         }
         break;
       }
 
       case 'run_failed': {
         const runSession = useChatStore.getState().activeRuns[msg.runId];
+        // Clear ask_user_question requests for this backend regardless of active state
+        useAskUserQuestionStore.getState().clearRequestsForServer(serverId);
         if (serverId === currentActiveId) {
           if (runSession) {
             finalizeToolCallsToMessage(msg.runId);
@@ -186,7 +200,6 @@ export function useGatewayConnection() {
             useProjectStore.getState().setSessionActive(runSession, false);
           }
           endRun(msg.runId);
-          useAskUserQuestionStore.getState().clearRequest();
           console.error(`[GatewayConn:${backendId}] Run failed:`, msg.error);
         }
         break;
@@ -204,27 +217,94 @@ export function useGatewayConnection() {
         }
         break;
 
-      case 'permission_request':
-        if (serverId === currentActiveId) {
-          setPendingRequest({
-            requestId: msg.requestId,
-            toolName: msg.toolName,
-            detail: msg.detail,
-            timeoutSec: msg.timeoutSeconds,
-            requiresCredential: (msg as any).requiresCredential,
-            credentialHint: (msg as any).credentialHint,
-          });
-        }
+      case 'permission_request': {
+        // Gateway handles subscription filtering — no local check needed
+        const permBackends = useGatewayStore.getState().discoveredBackends;
+        const permBackendInfo = permBackends.find(b => b.backendId === backendId);
+        setPendingRequest({
+          requestId: msg.requestId,
+          serverId,
+          backendName: permBackendInfo?.name,
+          toolName: msg.toolName,
+          detail: msg.detail,
+          timeoutSec: msg.timeoutSeconds,
+          requiresCredential: (msg as any).requiresCredential,
+          credentialHint: (msg as any).credentialHint,
+        });
         break;
+      }
 
-      case 'ask_user_question':
-        if (serverId === currentActiveId) {
-          useAskUserQuestionStore.getState().setPendingRequest({
-            requestId: (msg as any).requestId,
-            questions: (msg as any).questions
-          });
-        }
+      case 'ask_user_question': {
+        // Gateway handles subscription filtering — no local check needed
+        const aqBackends = useGatewayStore.getState().discoveredBackends;
+        const aqBackendInfo = aqBackends.find(b => b.backendId === backendId);
+        useAskUserQuestionStore.getState().setPendingRequest({
+          requestId: (msg as any).requestId,
+          serverId,
+          backendName: aqBackendInfo?.name,
+          questions: (msg as any).questions
+        });
         break;
+      }
+
+      case 'permission_resolved': {
+        // Another device resolved this permission — clear it locally
+        const resolvedId = (msg as any).requestId;
+        usePermissionStore.getState().clearRequestById(resolvedId);
+        break;
+      }
+
+      case 'ask_user_question_resolved': {
+        // Another device answered this question — clear it locally
+        const resolvedId = (msg as any).requestId;
+        useAskUserQuestionStore.getState().clearRequestById(resolvedId);
+        break;
+      }
+
+      case 'state_heartbeat': {
+        // Reconcile state from backend heartbeat
+        const heartbeat = msg as any;
+        const backends = useGatewayStore.getState().discoveredBackends;
+        const backendInfo = backends.find(b => b.backendId === backendId);
+        const backendName = backendInfo?.name;
+
+        // Reconcile permissions
+        const validPermIds = new Set<string>(heartbeat.pendingPermissions.map((p: any) => p.requestId as string));
+        usePermissionStore.getState().clearStaleRequests(serverId, validPermIds);
+        for (const perm of heartbeat.pendingPermissions) {
+          if (!usePermissionStore.getState().hasRequest(perm.requestId)) {
+            setPendingRequest({
+              requestId: perm.requestId,
+              serverId,
+              backendName,
+              toolName: perm.toolName,
+              detail: perm.detail,
+              timeoutSec: perm.timeoutSeconds,
+              requiresCredential: perm.requiresCredential,
+              credentialHint: perm.credentialHint,
+            });
+          }
+        }
+
+        // Reconcile questions
+        const validQIds = new Set<string>(heartbeat.pendingQuestions.map((q: any) => q.requestId as string));
+        useAskUserQuestionStore.getState().clearStaleRequests(serverId, validQIds);
+        for (const q of heartbeat.pendingQuestions) {
+          if (!useAskUserQuestionStore.getState().hasRequest(q.requestId)) {
+            useAskUserQuestionStore.getState().setPendingRequest({
+              requestId: q.requestId,
+              serverId,
+              backendName,
+              questions: q.questions
+            });
+          }
+        }
+
+        // Reconcile session active status
+        const activeSessionIds = new Set<string>(heartbeat.activeRuns.map((r: any) => r.sessionId as string));
+        useSessionsStore.getState().reconcileActiveStatus(backendId, activeSessionIds);
+        break;
+      }
 
       case 'system_info':
         if (serverId === currentActiveId) {
@@ -275,6 +355,15 @@ export function useGatewayConnection() {
         console.log('[GatewayConn] Gateway connected');
         setConnected(true);
         reconnectAttemptRef.current = 0;
+
+        // Send persisted subscription preferences to gateway
+        const { subscribedBackendIds } = useGatewayStore.getState();
+        if (subscribedBackendIds.length === 0) {
+          // Empty = subscribe to all
+          transport!.updateSubscriptions([], true);
+        } else {
+          transport!.updateSubscriptions(subscribedBackendIds);
+        }
       },
       onDisconnected: () => {
         console.log('[GatewayConn] Gateway disconnected');
@@ -400,6 +489,40 @@ export function useGatewayConnection() {
     setServerConnectionStatus(activeServerId, 'connecting');
     transportRef.current.authenticateBackend(backendId);
   }, [activeServerId, setBackendAuthStatus, setServerConnectionStatus]);
+
+  // Auto-authenticate all online backends (gateway handles subscription filtering)
+  useEffect(() => {
+    if (!isGatewayConnected || !transportRef.current?.isConnected()) return;
+
+    for (const backend of discoveredBackends) {
+      if (!backend.online) continue;
+      if (transportRef.current.isBackendAuthenticated(backend.backendId)) continue;
+
+      console.log(`[GatewayConn] Auto-authenticating backend: ${backend.backendId}`);
+      setBackendAuthStatus(backend.backendId, 'pending');
+      setServerConnectionStatus(toGatewayServerId(backend.backendId), 'connecting');
+      transportRef.current.authenticateBackend(backend.backendId);
+    }
+  }, [isGatewayConnected, discoveredBackends, setBackendAuthStatus, setServerConnectionStatus]);
+
+  // Push subscription changes to gateway when subscribedBackendIds changes
+  useEffect(() => {
+    let prevIds = useGatewayStore.getState().subscribedBackendIds;
+    const unsub = useGatewayStore.subscribe((state) => {
+      if (state.subscribedBackendIds !== prevIds) {
+        prevIds = state.subscribedBackendIds;
+        const transport = transportRef.current;
+        if (!transport?.isConnected()) return;
+
+        if (state.subscribedBackendIds.length === 0) {
+          transport.updateSubscriptions([], true);
+        } else {
+          transport.updateSubscriptions(state.subscribedBackendIds);
+        }
+      }
+    });
+    return unsub;
+  }, []);
 
   // Heartbeat for the gateway connection
   useEffect(() => {

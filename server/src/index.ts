@@ -113,7 +113,7 @@ async function connectToGateway(config: GatewayConfig): Promise<void> {
     if (!virtualClient) {
       virtualClient = createVirtualClient(clientId, {
         send: (msg: ServerMessage) => {
-          gatewayClient?.sendToClient(clientId, msg);
+          gatewayClient?.broadcast(msg);
         }
       });
       virtualClients.set(clientId, virtualClient);
@@ -130,6 +130,12 @@ async function connectToGateway(config: GatewayConfig): Promise<void> {
   gatewayClient.onClientDisconnected((clientId) => {
     virtualClients.delete(clientId);
     console.log(`[Gateway] Cleaned up virtual client: ${clientId}`);
+  });
+
+  // Broadcast state heartbeat when a client subscribes
+  gatewayClient.onClientSubscribed(() => {
+    const heartbeat = serverContext!.getStateHeartbeat();
+    gatewayClient?.broadcast(heartbeat);
   });
 
   gatewayClient.connect();
@@ -227,7 +233,7 @@ async function main() {
     autoDetectProviders();
 
     server.listen(PORT, HOST, async () => {
-      console.log(`🚀 My Claudia Server running at http://${HOST}:${PORT}`);
+      console.log(`🚀 MyClaudia Server running at http://${HOST}:${PORT}`);
       console.log(`📡 WebSocket endpoint: ws://${HOST}:${PORT}/ws`);
 
       // Priority 1: Environment variables (for backward compatibility)

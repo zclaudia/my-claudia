@@ -168,6 +168,8 @@ export function useMultiServerSocket() {
             useAgentStore.getState().setActiveRunId(null);
             useAgentStore.getState().setLoading(false);
           }
+          // Clear ask_user_question requests for this server regardless of active state
+          useAskUserQuestionStore.getState().clearRequestsForServer(serverId);
           if (serverId === activeServerId || runSession) {
             if (runSession) {
               finalizeToolCallsToMessage(message.runId);
@@ -180,7 +182,6 @@ export function useMultiServerSocket() {
               }
             }
             endRun(message.runId);
-            useAskUserQuestionStore.getState().clearRequest();
           }
           break;
         }
@@ -192,6 +193,8 @@ export function useMultiServerSocket() {
             useAgentStore.getState().setActiveRunId(null);
             useAgentStore.getState().setLoading(false);
           }
+          // Clear ask_user_question requests for this server regardless of active state
+          useAskUserQuestionStore.getState().clearRequestsForServer(serverId);
           if (serverId === activeServerId || runSession) {
             if (runSession) {
               // Show error in the assistant message so user can see what went wrong
@@ -205,7 +208,6 @@ export function useMultiServerSocket() {
               }
             }
             endRun(message.runId);
-            useAskUserQuestionStore.getState().clearRequest();
             console.error(`[Socket:${serverId}] Run failed:`, message.error);
           }
           break;
@@ -223,27 +225,33 @@ export function useMultiServerSocket() {
           }
           break;
 
-        case 'permission_request':
-          if (serverId === activeServerId) {
-            setPendingRequest({
-              requestId: message.requestId,
-              toolName: message.toolName,
-              detail: message.detail,
-              timeoutSec: message.timeoutSeconds,
-              requiresCredential: message.requiresCredential,
-              credentialHint: message.credentialHint,
-            });
-          }
+        case 'permission_request': {
+          // Accept from all connected servers, not just active
+          const permServer = servers.find(s => s.id === serverId);
+          setPendingRequest({
+            requestId: message.requestId,
+            serverId,
+            backendName: permServer?.name,
+            toolName: message.toolName,
+            detail: message.detail,
+            timeoutSec: message.timeoutSeconds,
+            requiresCredential: message.requiresCredential,
+            credentialHint: message.credentialHint,
+          });
           break;
+        }
 
-        case 'ask_user_question':
-          if (serverId === activeServerId) {
-            useAskUserQuestionStore.getState().setPendingRequest({
-              requestId: message.requestId,
-              questions: message.questions
-            });
-          }
+        case 'ask_user_question': {
+          // Accept from all connected servers, not just active
+          const aqServer = servers.find(s => s.id === serverId);
+          useAskUserQuestionStore.getState().setPendingRequest({
+            requestId: message.requestId,
+            serverId,
+            backendName: aqServer?.name,
+            questions: message.questions
+          });
           break;
+        }
 
         case 'system_info':
           if (serverId === activeServerId) {

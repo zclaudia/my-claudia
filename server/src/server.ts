@@ -12,7 +12,8 @@ import type {
   ProviderConfig,
   AuthResultMessage,
   ToolCall,
-  Request as CorrelatedRequest
+  Request as CorrelatedRequest,
+  StateHeartbeatMessage
 } from '@my-claudia/shared';
 import { isRequest, ALL_SERVER_FEATURES } from '@my-claudia/shared';
 import { initDatabase } from './storage/db.js';
@@ -171,6 +172,15 @@ interface ActiveRun {
     resolve: (decision: PermissionDecision) => void;
     timeout: NodeJS.Timeout | null;
     originalToolInput?: unknown;
+    // Original request info for state heartbeat reconstruction
+    originalRequest?: {
+      toolName: string;
+      detail: string;
+      timeoutSeconds: number;
+      requiresCredential?: boolean;
+      credentialHint?: string;
+      questions?: any[];
+    };
   }>;
   // Streaming state for message persistence (allows cancelRun to save partial content)
   db: ReturnType<typeof initDatabase>;
@@ -241,6 +251,7 @@ export interface ServerContext {
   db: ReturnType<typeof initDatabase>;
   handleMessage: (client: ConnectedClient, message: ClientMessage) => Promise<void>;
   getGatewayStatus: () => GatewayStatus;
+  getStateHeartbeat: () => StateHeartbeatMessage;
   connectGateway: (config: GatewayConfig) => Promise<void>;
   disconnectGateway: () => Promise<void>;
   updateGatewayBackendId: (backendId: string | null) => void;
@@ -530,9 +541,26 @@ export async function createServer(): Promise<ServerContext> {
   });
   supervisorService.start(3000);
 
+  // Periodic state heartbeat broadcast (every 30s)
+  const heartbeatInterval = setInterval(() => {
+    if (activeRuns.size === 0) return; // No active runs, no heartbeat needed
+    const heartbeat = buildStateHeartbeat();
+    // Broadcast to all connected clients (direct and virtual/gateway)
+    clients.forEach((client) => {
+      if (client.authenticated) {
+        sendMessage(client.ws, heartbeat);
+      }
+    });
+  }, 30000);
+
+  wss.on('close', () => {
+    clearInterval(heartbeatInterval);
+  });
+
   return {
     server,
     db,
+    getStateHeartbeat: buildStateHeartbeat,
     handleMessage: async (client: ConnectedClient, message: ClientMessage) => {
       // Wrap in Request envelope for router (same as parseMessage for old format)
       const request: CorrelatedRequest = {
@@ -613,6 +641,36 @@ function sendMessage(ws: WebSocket, message: ServerMessage): void {
   if ((ws.readyState as number) === 1) {
     ws.send(JSON.stringify(message));
   }
+}
+
+function buildStateHeartbeat(): StateHeartbeatMessage {
+  const runs: StateHeartbeatMessage['activeRuns'] = [];
+  const permissions: StateHeartbeatMessage['pendingPermissions'] = [];
+  const questions: StateHeartbeatMessage['pendingQuestions'] = [];
+
+  for (const [runId, run] of activeRuns) {
+    runs.push({ runId, sessionId: run.sessionId });
+    for (const [requestId, pending] of run.pendingPermissions) {
+      if (!pending.originalRequest) continue;
+      if (pending.originalRequest.toolName === 'AskUserQuestion') {
+        questions.push({
+          requestId,
+          questions: pending.originalRequest.questions || [],
+        });
+      } else {
+        permissions.push({
+          requestId,
+          toolName: pending.originalRequest.toolName,
+          detail: pending.originalRequest.detail,
+          timeoutSeconds: pending.originalRequest.timeoutSeconds,
+          requiresCredential: pending.originalRequest.requiresCredential,
+          credentialHint: pending.originalRequest.credentialHint,
+        });
+      }
+    }
+  }
+
+  return { type: 'state_heartbeat', activeRuns: runs, pendingPermissions: permissions, pendingQuestions: questions };
 }
 
 function cancelRun(runId: string): void {
@@ -997,7 +1055,21 @@ async function handleRunStart(
           }, timeoutMs);
         }
 
-        activeRun.pendingPermissions.set(request.requestId, { resolve, timeout, originalToolInput: request.toolInput });
+        const isAskUserQuestion = request.toolName === 'AskUserQuestion';
+        const toolInput = request.toolInput as any;
+        const requiresCredential = !isAskUserQuestion && isSudoCommand(request.toolName, request.toolInput);
+        activeRun.pendingPermissions.set(request.requestId, {
+          resolve,
+          timeout,
+          originalToolInput: request.toolInput,
+          originalRequest: {
+            toolName: request.toolName,
+            detail: request.detail,
+            timeoutSeconds: request.timeoutSeconds,
+            ...(requiresCredential && { requiresCredential: true, credentialHint: 'sudo_password' }),
+            ...(isAskUserQuestion && { questions: toolInput.questions || [] }),
+          }
+        });
         console.log(`[Permission] Stored pending permission ${request.requestId} in run ${runId} (timeout: ${request.timeoutSeconds > 0 ? request.timeoutSeconds + 's' : 'none'}, session: ${sessionType})`);
 
         // For regular sessions: send UI prompts as before
@@ -1337,12 +1409,29 @@ function handlePermissionDecision(message: {
       }
       pending.resolve(decision);
 
+      // Broadcast resolution to all clients (so other devices close their modals)
+      sendMessage(run.client.ws, {
+        type: 'permission_resolved',
+        requestId: message.requestId,
+        decision: message.allow ? 'allow' : 'deny',
+      } as any);
+
       console.log(`[Permission] ${message.requestId}: ${message.allow ? 'allowed' : 'denied'} - resolved!`);
       return;
     }
   }
 
-  console.warn(`[Permission] Request ${message.requestId} not found in any active run`);
+  // requestId not found — already resolved by another device. Broadcast idempotent resolution.
+  console.warn(`[Permission] Request ${message.requestId} not found in any active run — broadcasting permission_resolved`);
+  // Find any active run's client to broadcast through (they all share the same virtualClient in gateway mode)
+  for (const [, run] of activeRuns.entries()) {
+    sendMessage(run.client.ws, {
+      type: 'permission_resolved',
+      requestId: message.requestId,
+      decision: message.allow ? 'allow' : 'deny',
+    } as any);
+    break;
+  }
 }
 
 function handleAskUserAnswer(message: {
@@ -1361,11 +1450,26 @@ function handleAskUserAnswer(message: {
       // Resolve with deny + user's formatted answer as the message
       // Claude reads this message and treats it as the user's response
       pending.resolve({ behavior: 'deny', message: message.formattedAnswer });
+
+      // Broadcast resolution to all clients
+      sendMessage(run.client.ws, {
+        type: 'ask_user_question_resolved',
+        requestId: message.requestId,
+      } as any);
+
       console.log(`[AskUser] ${message.requestId}: answered - resolved!`);
       return;
     }
   }
 
-  console.warn(`[AskUser] Request ${message.requestId} not found in any active run`);
+  // requestId not found — already resolved by another device. Broadcast idempotent resolution.
+  console.warn(`[AskUser] Request ${message.requestId} not found in any active run — broadcasting ask_user_question_resolved`);
+  for (const [, run] of activeRuns.entries()) {
+    sendMessage(run.client.ws, {
+      type: 'ask_user_question_resolved',
+      requestId: message.requestId,
+    } as any);
+    break;
+  }
 }
 

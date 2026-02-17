@@ -11,6 +11,7 @@ import type {
   GatewayListBackendsMessage,
   GatewayConnectBackendMessage,
   GatewaySendToBackendMessage,
+  GatewayUpdateSubscriptionsMessage,
   GatewayToBackendMessage,
   GatewayToClientMessage,
   BackendToGatewayMessage,
@@ -44,6 +45,7 @@ interface ConnectedClient {
   isAlive: boolean;
   authenticated: boolean;  // Gateway auth status
   backendAuths: Set<string>;  // backendIds this client is authenticated to
+  explicitSubscriptions: Set<string> | null;  // null = subscribe to all, Set = explicit list
 }
 
 /** Timing-safe string comparison to prevent timing attacks */
@@ -557,18 +559,25 @@ export function createGatewayServer(config: GatewayConfig): Server {
           if (message.success) {
             client.backendAuths.add(backendId);
 
-            // Auto-subscribe client to this backend's sessions
-            if (!backendSubscriptions.has(backendId)) {
-              backendSubscriptions.set(backendId, new Set());
-            }
-            backendSubscriptions.get(backendId)!.add(message.clientId);
-            console.log(`[Gateway] Client ${message.clientId} auto-subscribed to backend ${backendId}`);
+            // Auto-subscribe if client has no explicit preferences or explicitly includes this backend
+            const shouldSubscribe = client.explicitSubscriptions === null ||
+              client.explicitSubscriptions.has(backendId);
 
-            // Notify backend about new subscriber
-            sendToWs(backend.ws, {
-              type: 'client_subscribed',
-              clientId: message.clientId
-            });
+            if (shouldSubscribe) {
+              if (!backendSubscriptions.has(backendId)) {
+                backendSubscriptions.set(backendId, new Set());
+              }
+              backendSubscriptions.get(backendId)!.add(message.clientId);
+              console.log(`[Gateway] Client ${message.clientId} subscribed to backend ${backendId}`);
+
+              // Notify backend about new subscriber
+              sendToWs(backend.ws, {
+                type: 'client_subscribed',
+                clientId: message.clientId
+              });
+            } else {
+              console.log(`[Gateway] Client ${message.clientId} authenticated to backend ${backendId} but not subscribed (explicit filter)`);
+            }
           }
           sendToWs(client.ws, {
             type: 'backend_auth_result',
@@ -615,19 +624,20 @@ export function createGatewayServer(config: GatewayConfig): Server {
         }
 
         // Forward event to all subscribed clients
+        const sessionEventMsg = {
+          type: 'backend_session_event' as const,
+          backendId,
+          eventType: message.eventType,
+          session: message.session
+        };
         subscribers.forEach((clientId) => {
           const client = clients.get(clientId);
           if (client && client.ws.readyState === WebSocket.OPEN) {
             sendToWs(client.ws, {
               type: 'backend_message',
               backendId,
-              message: {
-                type: 'backend_session_event',
-                backendId,
-                eventType: message.eventType,
-                session: message.session
-              }
-            });
+              message: sessionEventMsg
+            } as any);
           }
         });
 
@@ -635,18 +645,20 @@ export function createGatewayServer(config: GatewayConfig): Server {
         break;
       }
 
-      case 'send_to_client': {
-        // Send specific message to a single client
-        const client = clients.get(message.clientId);
-        if (client && client.ws.readyState === WebSocket.OPEN) {
-          sendToWs(client.ws, {
-            type: 'backend_message',
-            backendId,
-            message: message.message
-          });
-          console.log(`[Gateway] Sent message to client ${message.clientId} from backend ${backendId}`);
-        } else {
-          console.log(`[Gateway] Failed to send message - client ${message.clientId} not found or disconnected`);
+      case 'broadcast_to_subscribers': {
+        // Broadcast message to all subscribed clients for this backend
+        const subscribers = backendSubscriptions.get(backendId);
+        if (!subscribers || subscribers.size === 0) break;
+
+        for (const clientId of subscribers) {
+          const client = clients.get(clientId);
+          if (client?.ws.readyState === WebSocket.OPEN) {
+            sendToWs(client.ws, {
+              type: 'backend_message',
+              backendId,
+              message: message.message
+            });
+          }
         }
         break;
       }
@@ -719,7 +731,8 @@ export function createGatewayServer(config: GatewayConfig): Server {
       ws,
       isAlive: true,
       authenticated: true,
-      backendAuths: new Set()
+      backendAuths: new Set(),
+      explicitSubscriptions: null  // null = subscribe to all backends
     };
 
     clients.set(clientId, client);
@@ -816,6 +829,62 @@ export function createGatewayServer(config: GatewayConfig): Server {
           type: 'forwarded',
           clientId,
           message: sendMsg.message
+        });
+        break;
+      }
+
+      case 'update_subscriptions': {
+        const subMsg = message as GatewayUpdateSubscriptionsMessage;
+
+        // Update explicit subscriptions
+        if (subMsg.subscribeAll) {
+          client.explicitSubscriptions = null;
+        } else {
+          client.explicitSubscriptions = new Set(subMsg.subscribedBackendIds);
+        }
+
+        // Reconcile backendSubscriptions map
+        const subscribedSet = client.explicitSubscriptions;
+
+        // For each backend the client is authenticated to, add/remove from subscription
+        client.backendAuths.forEach((backendId) => {
+          const shouldSubscribe = subscribedSet === null || subscribedSet.has(backendId);
+          const subscribers = backendSubscriptions.get(backendId);
+          const isCurrentlySubscribed = subscribers?.has(clientId) ?? false;
+
+          if (shouldSubscribe && !isCurrentlySubscribed) {
+            // New subscription
+            if (!backendSubscriptions.has(backendId)) {
+              backendSubscriptions.set(backendId, new Set());
+            }
+            backendSubscriptions.get(backendId)!.add(clientId);
+
+            // Notify backend
+            const backend = backends.get(backendId);
+            if (backend) {
+              sendToWs(backend.ws, {
+                type: 'client_subscribed',
+                clientId
+              });
+            }
+            console.log(`[Gateway] Client ${clientId} subscribed to backend ${backendId}`);
+          } else if (!shouldSubscribe && isCurrentlySubscribed) {
+            // Unsubscribe
+            subscribers?.delete(clientId);
+            if (subscribers && subscribers.size === 0) {
+              backendSubscriptions.delete(backendId);
+            }
+            console.log(`[Gateway] Client ${clientId} unsubscribed from backend ${backendId}`);
+          }
+        });
+
+        // Send ack
+        const ackIds = subscribedSet === null
+          ? Array.from(client.backendAuths)
+          : Array.from(subscribedSet);
+        sendToWs(client.ws, {
+          type: 'subscription_ack',
+          subscribedBackendIds: ackIds
         });
         break;
       }

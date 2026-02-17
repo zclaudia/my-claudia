@@ -1,4 +1,4 @@
-// Shared types for My Claudia
+// Shared types for MyClaudia
 
 // ============================================
 // Request-Response Correlation Protocol
@@ -507,7 +507,10 @@ export type ServerMessage =
   | ProvidersCreatedMessage
   | ProvidersUpdatedMessage
   | ProvidersDeletedMessage
-  | SupervisionUpdateMessage;
+  | SupervisionUpdateMessage
+  | PermissionResolvedMessage
+  | AskUserQuestionResolvedMessage
+  | StateHeartbeatMessage;
 
 // Authentication result message
 export interface AuthResultMessage {
@@ -1027,7 +1030,7 @@ export interface GatewaySendToBackendMessage {
 export interface GatewayBackendMessageMessage {
   type: 'backend_message';
   backendId: string;
-  message: ServerMessage;
+  message: ServerMessage | BackendSessionsListMessage | BackendSessionEventMessage;
 }
 
 export interface GatewayErrorMessage {
@@ -1087,11 +1090,57 @@ export interface GatewayClientSubscribedMessage {
   clientId: string;
 }
 
-// Gateway → Client: send specific message to a single client
-export interface GatewaySendToClientMessage {
-  type: 'send_to_client';
-  clientId: string;
+// Backend → Gateway: broadcast message to all subscribers
+export interface GatewayBroadcastToSubscribersMessage {
+  type: 'broadcast_to_subscribers';
   message: ServerMessage | BackendSessionsListMessage | BackendSessionEventMessage;
+}
+
+// Client → Gateway: update subscription preferences
+export interface GatewayUpdateSubscriptionsMessage {
+  type: 'update_subscriptions';
+  subscribedBackendIds: string[];
+  subscribeAll?: boolean;
+}
+
+// Gateway → Client: confirm subscription state
+export interface GatewaySubscriptionAckMessage {
+  type: 'subscription_ack';
+  subscribedBackendIds: string[];
+}
+
+// Server → Client: a permission request has been resolved by another device
+export interface PermissionResolvedMessage {
+  type: 'permission_resolved';
+  requestId: string;
+  decision: 'allow' | 'deny';
+}
+
+// Server → Client: an ask_user_question has been resolved by another device
+export interface AskUserQuestionResolvedMessage {
+  type: 'ask_user_question_resolved';
+  requestId: string;
+}
+
+// Server → Client: state heartbeat for reconciliation
+export interface StateHeartbeatMessage {
+  type: 'state_heartbeat';
+  activeRuns: Array<{
+    runId: string;
+    sessionId: string;
+  }>;
+  pendingPermissions: Array<{
+    requestId: string;
+    toolName: string;
+    detail: string;
+    timeoutSeconds: number;
+    requiresCredential?: boolean;
+    credentialHint?: string;
+  }>;
+  pendingQuestions: Array<{
+    requestId: string;
+    questions: AskUserQuestionItem[];
+  }>;
 }
 
 // --- Gateway HTTP Proxy Protocol ---
@@ -1132,14 +1181,15 @@ export type BackendToGatewayMessage =
   | GatewayClientAuthResultMessage
   | GatewayBackendResponseMessage
   | GatewayBroadcastSessionEventMessage
-  | GatewaySendToClientMessage
+  | GatewayBroadcastToSubscribersMessage
   | GatewayHttpProxyResponse;
 
 export type ClientToGatewayMessage =
   | GatewayAuthMessage
   | GatewayListBackendsMessage
   | GatewayConnectBackendMessage
-  | GatewaySendToBackendMessage;
+  | GatewaySendToBackendMessage
+  | GatewayUpdateSubscriptionsMessage;
 
 export type GatewayToClientMessage =
   | GatewayAuthResultMessage
@@ -1147,7 +1197,8 @@ export type GatewayToClientMessage =
   | GatewayBackendAuthResultMessage
   | GatewayBackendDisconnectedMessage
   | GatewayBackendMessageMessage
-  | GatewayErrorMessage;
+  | GatewayErrorMessage
+  | GatewaySubscriptionAckMessage;
 
 // ============================================
 // Agent Assistant Types

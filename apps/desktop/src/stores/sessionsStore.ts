@@ -19,6 +19,7 @@ interface SessionsState {
     eventType: 'created' | 'updated' | 'deleted',
     session: RemoteSession
   ) => void;
+  reconcileActiveStatus: (backendId: string, activeSessionIds: Set<string>) => void;
   clearBackendSessions: (backendId: string) => void;
   clearAllSessions: () => void;
 }
@@ -60,6 +61,27 @@ export const useSessionsStore = create<SessionsState>((set) => ({
         );
       }
 
+      return { remoteSessions: newMap };
+    });
+  },
+
+  // Update isActive status based on backend's state heartbeat
+  reconcileActiveStatus: (backendId: string, activeSessionIds: Set<string>) => {
+    set((state) => {
+      const sessions = state.remoteSessions.get(backendId);
+      if (!sessions) return state;
+
+      const updated = sessions.map(s => ({
+        ...s,
+        isActive: activeSessionIds.has(s.id)
+      }));
+
+      // Only update if something changed
+      const changed = sessions.some((s, i) => s.isActive !== updated[i].isActive);
+      if (!changed) return state;
+
+      const newMap = new Map(state.remoteSessions);
+      newMap.set(backendId, updated);
       return { remoteSessions: newMap };
     });
   },

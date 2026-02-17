@@ -105,7 +105,7 @@ export class NotificationService {
     const response = await fetch(url, {
       method: 'POST',
       headers: {
-        'Title': 'My Claudia - Test Notification',
+        'Title': 'MyClaudia - Test Notification',
         'Priority': 'default',
         'Tags': 'white_check_mark',
       },

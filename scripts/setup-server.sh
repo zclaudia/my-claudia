@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# My Claudia Server — One-click setup & systemd service installer
+# MyClaudia Server — One-click setup & systemd service installer
 #
 # Usage:
 #   ./scripts/setup-server.sh [command]
@@ -130,7 +130,7 @@ create_env_file() {
 
   info "Creating environment file: $ENV_FILE"
   cat > "$ENV_FILE" <<'ENVEOF'
-# My Claudia Server Environment Configuration
+# MyClaudia Server Environment Configuration
 # Edit this file, then run: ./scripts/setup-server.sh restart
 
 # Server binding
@@ -174,7 +174,7 @@ create_systemd_service() {
 
   local service_content
   service_content="[Unit]
-Description=My Claudia Server
+Description=MyClaudia Server
 After=network.target
 
 [Service]
@@ -219,7 +219,7 @@ WantedBy=multi-user.target"
 cmd_install() {
   echo ""
   echo "═══════════════════════════════════════════════"
-  echo "  My Claudia Server — Setup"
+  echo "  MyClaudia Server — Setup"
   echo "═══════════════════════════════════════════════"
   echo ""
 

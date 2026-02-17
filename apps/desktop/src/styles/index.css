@@ -239,6 +239,24 @@ body {
   font-size: 0.875rem; /* 14px */
 }
 
+/* Safe area insets for mobile (notch, rounded corners, gesture bar) */
+.safe-top-spacer {
+  height: env(safe-area-inset-top, 0px);
+}
+@media (min-width: 768px) {
+  .safe-top-spacer {
+    height: 28px; /* macOS traffic lights */
+  }
+}
+
+.safe-bottom-pad {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+.safe-top-pad {
+  padding-top: env(safe-area-inset-top, 0px);
+}
+
 /* Hide scrollbar but keep scroll functionality */
 .scrollbar-hidden {
   scrollbar-width: none; /* Firefox */

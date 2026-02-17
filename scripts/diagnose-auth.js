@@ -2,7 +2,7 @@
 
 // 诊断认证和数据加载问题
 
-console.log('=== My Claudia 诊断工具 ===\n');
+console.log('=== MyClaudia 诊断工具 ===\n');
 
 async function diagnose() {
   const baseUrl = 'http://localhost:3100';

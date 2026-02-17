@@ -3,7 +3,7 @@ use tauri::Manager;
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 #[tauri::command]
 fn greet(name: &str) -> String {
-    format!("Hello, {}! Welcome to My Claudia!", name)
+    format!("Hello, {}! Welcome to MyClaudia!", name)
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]

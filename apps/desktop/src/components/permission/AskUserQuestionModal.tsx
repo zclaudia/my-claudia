@@ -3,6 +3,8 @@ import type { AskUserQuestionItem } from '@my-claudia/shared';
 
 interface AskUserQuestionRequest {
   requestId: string;
+  serverId?: string;
+  backendName?: string;
   questions: AskUserQuestionItem[];
 }
 
@@ -139,6 +141,12 @@ export function AskUserQuestionModal({ request, onAnswer }: AskUserQuestionModal
               <p className="text-sm text-muted-foreground">
                 Please select your answer{request.questions.length > 1 ? 's' : ''} below
               </p>
+              {request.backendName && (
+                <div className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground">
+                  <span className="w-1.5 h-1.5 rounded-full bg-blue-500 flex-shrink-0" />
+                  <span className="truncate">From: {request.backendName}</span>
+                </div>
+              )}
             </div>
           </div>
         </div>

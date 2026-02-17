@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# My Claudia Server — one-command deploy for remote backends
+# MyClaudia Server — one-command deploy for remote backends
 #
 # Usage:
 #   git pull && ./scripts/deploy-server.sh
@@ -61,7 +61,7 @@ fi
 info "Writing systemd service..."
 
 UNIT="[Unit]
-Description=My Claudia Server
+Description=MyClaudia Server
 After=network.target
 
 [Service]

@@ -2,35 +2,72 @@ import { useEffect, useState, useCallback, useRef } from 'react';
 import { Sidebar } from './components/Sidebar';
 import { ChatInterface } from './components/chat/ChatInterface';
 import { ServerSelector } from './components/ServerSelector';
+import { MobileSetup } from './components/MobileSetup';
 import { PermissionModal } from './components/permission/PermissionModal';
 import { AskUserQuestionModal } from './components/permission/AskUserQuestionModal';
 import { AgentWidget } from './components/agent/AgentWidget';
+import { AgentPanel } from './components/agent/AgentPanel';
 import { ThemeProvider } from './contexts/ThemeContext';
 import { ConnectionProvider, useConnection } from './contexts/ConnectionContext';
 import { useDataLoader } from './hooks/useDataLoader';
 import { useServerManager } from './hooks/useServerManager';
 import { useServerStore } from './stores/serverStore';
+import { useGatewayStore, isGatewayTarget } from './stores/gatewayStore';
 import { useProjectStore } from './stores/projectStore';
 import { usePermissionStore } from './stores/permissionStore';
 import { useAskUserQuestionStore } from './stores/askUserQuestionStore';
+import { useAgentStore } from './stores/agentStore';
 import { useIsMobile } from './hooks/useMediaQuery';
 import { migrateServersFromLocalStorage, needsMigration } from './utils/migrateServers';
 import { encryptCredential, isEncryptionAvailable } from './utils/crypto';
 
 function AppContent() {
-  const { sendMessage } = useConnection();
+  const { sendMessage, sendToServer, connectServer } = useConnection();
   const { addServer } = useServerManager();
   const { connectionStatus } = useServerStore();
   const { selectedSessionId } = useProjectStore();
   const { pendingRequest, pendingRequests, clearRequest } = usePermissionStore();
   const { pendingRequest: askUserRequest, clearRequest: clearAskUserRequest } = useAskUserQuestionStore();
+  const { directGatewayUrl, lastActiveBackendId, isConnected: isGatewayConnected, discoveredBackends } = useGatewayStore();
+  const { isExpanded: isAgentExpanded, isConfigured: isAgentConfigured, setExpanded: setAgentExpanded } = useAgentStore();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const isMobile = useIsMobile();
   const migrationDone = useRef(false);
+  const mobileInitDone = useRef(false);
 
   // Load data from server
   useDataLoader();
+
+  // Mobile: prevent localhost connection on initial load
+  useEffect(() => {
+    if (!isMobile || mobileInitDone.current) return;
+    mobileInitDone.current = true;
+
+    const { activeServerId } = useServerStore.getState();
+    if (activeServerId === 'local') {
+      useServerStore.getState().setActiveServer(null);
+    }
+  }, [isMobile]);
+
+  // Mobile: auto-reconnect to last used backend when gateway discovers it
+  const mobileAutoConnectDone = useRef(false);
+  useEffect(() => {
+    if (!isMobile || mobileAutoConnectDone.current) return;
+    if (!lastActiveBackendId || !isGatewayTarget(lastActiveBackendId)) return;
+    if (!isGatewayConnected) return;
+
+    // Check if the last backend is online
+    const backendId = lastActiveBackendId.slice(3); // remove "gw:" prefix
+    const backendOnline = discoveredBackends.some(b => b.online && b.backendId === backendId);
+    if (!backendOnline) return;
+
+    // Auto-connect once
+    mobileAutoConnectDone.current = true;
+    console.log('[App] Auto-reconnecting to last used backend:', lastActiveBackendId);
+    useServerStore.getState().setActiveServer(lastActiveBackendId);
+    connectServer(lastActiveBackendId);
+  }, [isMobile, lastActiveBackendId, isGatewayConnected, discoveredBackends, connectServer]);
 
   // One-time migration from localStorage to database
   useEffect(() => {
@@ -48,10 +85,15 @@ function AppContent() {
     async (requestId: string, allow: boolean, remember?: boolean, credential?: string) => {
       let encryptedCredentialValue: string | undefined;
 
+      // Determine which server this request belongs to
+      const targetServerId = pendingRequest?.serverId;
+
       // Encrypt credential if provided
       if (credential && allow) {
-        const { activeServerId, getActiveServerConnection } = useServerStore.getState();
-        const conn = activeServerId ? getActiveServerConnection() : undefined;
+        const { activeServerId, getActiveServerConnection, connections } = useServerStore.getState();
+        // Use the target server's connection for encryption, falling back to active
+        const connServerId = targetServerId || activeServerId;
+        const conn = connServerId ? connections[connServerId] : getActiveServerConnection();
         if (conn?.publicKey && isEncryptionAvailable(conn.publicKey)) {
           try {
             encryptedCredentialValue = await encryptCredential(credential, conn.publicKey);
@@ -61,68 +103,94 @@ function AppContent() {
         }
       }
 
-      sendMessage({
-        type: 'permission_decision',
+      const message = {
+        type: 'permission_decision' as const,
         requestId,
         allow,
         remember,
         ...(encryptedCredentialValue && { encryptedCredential: encryptedCredentialValue }),
-      });
+      };
+
+      // Route to the correct backend
+      if (targetServerId) {
+        sendToServer(targetServerId, message);
+      } else {
+        sendMessage(message);
+      }
       clearRequest();
     },
-    [sendMessage, clearRequest]
+    [sendMessage, sendToServer, clearRequest, pendingRequest]
   );
 
   const handleAskUserAnswer = useCallback(
     (requestId: string, formattedAnswer: string) => {
-      sendMessage({
-        type: 'ask_user_answer',
+      const targetServerId = askUserRequest?.serverId;
+      const message = {
+        type: 'ask_user_answer' as const,
         requestId,
         formattedAnswer
-      });
+      };
+
+      // Route to the correct backend
+      if (targetServerId) {
+        sendToServer(targetServerId, message);
+      } else {
+        sendMessage(message);
+      }
       clearAskUserRequest();
     },
-    [sendMessage, clearAskUserRequest]
+    [sendMessage, sendToServer, clearAskUserRequest, askUserRequest]
   );
+
+  // Mobile: show setup screen when gateway is not configured
+  if (isMobile && !directGatewayUrl) {
+    return <MobileSetup />;
+  }
 
   return (
     <div className="flex flex-col h-screen bg-background text-foreground">
-      {/* macOS Traffic Lights Space - draggable area */}
+      {/* Top safe area spacer: notch/status bar on mobile, traffic lights on desktop */}
       <div
-        className="hidden md:block h-[28px] bg-card flex-shrink-0"
+        className="safe-top-spacer bg-card flex-shrink-0"
         data-tauri-drag-region
       />
 
       {/* Unified Header - spans full width */}
       <header
-        className="h-14 border-b border-border flex items-center px-2 md:px-4 bg-card flex-shrink-0"
-        style={{ paddingTop: 'env(safe-area-inset-top, 0px)' }}
+        className="h-12 md:h-14 border-b border-border flex items-center px-2 md:px-4 bg-card flex-shrink-0"
         data-tauri-drag-region
       >
         {/* Left section: Logo and app name */}
-        <div className="flex items-center gap-2 md:gap-3 md:min-w-[200px]" data-tauri-drag-region>
-          {/* Mobile hamburger menu */}
-          {isMobile && (
+        <div className="flex items-center gap-2 md:gap-3 md:min-w-[200px] flex-shrink-0" data-tauri-drag-region>
+          {/* Mobile: back button when agent is active, hamburger otherwise */}
+          {isMobile && isAgentExpanded ? (
+            <button
+              onClick={() => setAgentExpanded(false)}
+              className="p-2 rounded hover:bg-secondary text-muted-foreground hover:text-foreground flex-shrink-0"
+              aria-label="Close agent"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+              </svg>
+            </button>
+          ) : isMobile ? (
             <button
               onClick={() => setSidebarOpen(true)}
-              className="p-2 rounded hover:bg-secondary text-muted-foreground hover:text-foreground"
+              className="p-2 rounded hover:bg-secondary text-muted-foreground hover:text-foreground flex-shrink-0"
               aria-label="Open menu"
             >
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
               </svg>
             </button>
-          )}
+          ) : null}
 
-          {/* Logo - with left padding for macOS traffic lights (desktop only) */}
-          <div className="flex items-center gap-2 md:pl-16" data-tauri-drag-region>
+          {/* Logo - hidden on mobile, with left padding for macOS traffic lights on desktop */}
+          <div className="hidden md:flex items-center gap-2 md:pl-16" data-tauri-drag-region>
             <div className="w-7 h-7 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0">
               <span className="text-base">🤖</span>
             </div>
-            <div className="flex flex-col" data-tauri-drag-region>
-              <span className="font-semibold text-sm text-foreground leading-tight" data-tauri-drag-region>My Claudia</span>
-              <span className="text-[10px] text-muted-foreground leading-tight">AI Assistant</span>
-            </div>
+            <span className="font-semibold text-sm text-foreground leading-tight" data-tauri-drag-region>MyClaudia</span>
           </div>
 
           {/* Sidebar toggle */}
@@ -143,14 +211,16 @@ function AppContent() {
           )}
         </div>
 
-        {/* Center/Right section: Server selector */}
-        <div className="flex-1 flex items-center justify-start ml-2 md:ml-4">
-          <ServerSelector />
-        </div>
-
-        {/* Right section: placeholder for future items */}
-        <div className="flex items-center gap-2">
-          {/* Future items like settings, user info */}
+        {/* Center/Right section: Server selector or Agent title */}
+        <div className="flex-1 flex items-center justify-start ml-2 md:ml-4 min-w-0">
+          {isMobile && isAgentExpanded ? (
+            <div className="flex items-center gap-2">
+              <span className="text-base">🤖</span>
+              <span className="font-semibold text-sm text-foreground">Agent Assistant</span>
+            </div>
+          ) : (
+            <ServerSelector />
+          )}
         </div>
       </header>
 
@@ -170,12 +240,42 @@ function AppContent() {
         <main className="flex-1 flex flex-col overflow-hidden">
           {/* Chat Area */}
           <div className="flex-1 overflow-hidden">
-            {selectedSessionId ? (
+            {isMobile && isAgentExpanded ? (
+              isAgentConfigured ? (
+                <div className="flex h-full">
+                  {/* Left-side collapse arrow */}
+                  <button
+                    onClick={() => setAgentExpanded(false)}
+                    className="flex-shrink-0 flex items-center px-1 py-2 self-center
+                               bg-zinc-400/60 text-zinc-600 rounded-r-md shadow-sm
+                               border border-l-0 border-zinc-300
+                               active:bg-zinc-400/80
+                               dark:bg-zinc-600/60 dark:text-zinc-400
+                               dark:border-zinc-600 dark:active:bg-zinc-600/80"
+                    title="Close Agent"
+                  >
+                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 5l7 7-7 7" />
+                    </svg>
+                  </button>
+                  <div className="flex-1 min-w-0">
+                    <AgentPanel isMobile={true} showHeader={false} />
+                  </div>
+                </div>
+              ) : (
+                <div className="flex items-center justify-center h-full text-muted-foreground">
+                  <div className="text-center">
+                    <div className="animate-spin w-8 h-8 border-2 border-primary border-t-transparent rounded-full mx-auto mb-3" />
+                    <p className="text-sm">Setting up Agent...</p>
+                  </div>
+                </div>
+              )
+            ) : selectedSessionId ? (
               <ChatInterface sessionId={selectedSessionId} />
             ) : (
               <div className="flex items-center justify-center h-full text-muted-foreground">
                 <div className="text-center">
-                  <h2 className="text-xl font-semibold mb-2">Welcome to My Claudia</h2>
+                  <h2 className="text-xl font-semibold mb-2">Welcome to MyClaudia</h2>
                   <p>Select a project and session to start chatting</p>
                 </div>
               </div>

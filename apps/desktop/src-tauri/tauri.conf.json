@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "My Claudia",
+  "productName": "MyClaudia",
   "version": "0.1.0",
   "identifier": "com.myClaudia.desktop",
   "build": {
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "My Claudia",
+        "title": "MyClaudia",
         "width": 1200,
         "height": 800,
         "minWidth": 800,
