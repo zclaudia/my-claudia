@@ -271,9 +271,10 @@ export function createGatewayServer(config: GatewayConfig): Server {
         return;
       }
 
-      // Extract the path after /api/proxy/:backendId
-      // req.params[0] contains the wildcard match (everything after *)
-      const targetPath = '/' + (req.params as any)[0];
+      // Extract the path after /api/proxy/:backendId (including query string)
+      const basePath = '/' + (req.params as any)[0];
+      const queryString = req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : '';
+      const targetPath = basePath + queryString;
 
       // Construct proxy request
       const requestId = uuidv4();
