@@ -739,9 +739,22 @@ export function createGatewayServer(config: GatewayConfig): Server {
 
     console.log(`Client authenticated: ${clientId}`);
 
+    // Build backends list to include in auth result
+    const backendList: GatewayBackendInfo[] = [];
+    backends.forEach((backend) => {
+      if (backend.visible) {
+        backendList.push({
+          backendId: backend.backendId,
+          name: backend.name,
+          online: true
+        });
+      }
+    });
+
     sendToWs(ws, {
       type: 'gateway_auth_result',
-      success: true
+      success: true,
+      backends: backendList
     });
 
     return clientId;

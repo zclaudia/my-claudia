@@ -92,7 +92,8 @@ export function useGatewayConnection() {
           useGatewayStore.getState().syncFromServer(
             status.gatewayUrl,
             status.gatewaySecret,
-            status.discoveredBackends
+            status.discoveredBackends,
+            status.backendId
           );
         } else {
           useGatewayStore.getState().syncFromServer(null, null, []);

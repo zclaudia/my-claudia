@@ -189,8 +189,13 @@ export class GatewayTransport {
           console.log('[GatewayTransport] Gateway authentication successful');
           this.gatewayAuthenticated = true;
           this.config.onConnected();
-          // Auto-request backends list after auth
-          this.requestBackendsList();
+          // Use backends from auth result if available, otherwise request separately
+          if (message.backends && message.backends.length > 0) {
+            console.log('[GatewayTransport] Backends from auth result:', message.backends.length);
+            this.config.onBackendsUpdated(message.backends);
+          } else {
+            this.requestBackendsList();
+          }
         } else {
           console.error('[GatewayTransport] Gateway auth failed:', message.error);
           this.config.onError(message.error || 'Gateway authentication failed');

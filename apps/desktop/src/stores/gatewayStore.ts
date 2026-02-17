@@ -9,6 +9,7 @@ interface GatewayState {
   gatewayUrl: string | null;
   gatewaySecret: string | null;
   isConnected: boolean;
+  localBackendId: string | null;  // This server's own backendId (for isLocal filtering)
   discoveredBackends: GatewayBackendInfo[];
   backendAuthStatus: Record<string, BackendAuthStatus>;
 
@@ -21,7 +22,7 @@ interface GatewayState {
   subscribedBackendIds: string[];
 
   // Actions
-  syncFromServer: (url: string | null, secret: string | null, backends: GatewayBackendInfo[]) => void;
+  syncFromServer: (url: string | null, secret: string | null, backends: GatewayBackendInfo[], backendId?: string | null) => void;
   setConnected: (connected: boolean) => void;
   setDiscoveredBackends: (backends: GatewayBackendInfo[]) => void;
   setBackendAuthStatus: (backendId: string, status: BackendAuthStatus) => void;
@@ -41,6 +42,15 @@ interface GatewayState {
   hasDirectConfig: () => boolean;
 }
 
+/** Mark isLocal on backends by comparing with the local server's backendId */
+function markIsLocal(backends: GatewayBackendInfo[], localBackendId: string | null): GatewayBackendInfo[] {
+  if (!localBackendId) return backends;
+  return backends.map(b => ({
+    ...b,
+    isLocal: b.backendId === localBackendId,
+  }));
+}
+
 export const useGatewayStore = create<GatewayState>()(
   persist(
     (set, get) => ({
@@ -48,6 +58,7 @@ export const useGatewayStore = create<GatewayState>()(
       gatewayUrl: null,
       gatewaySecret: null,
       isConnected: false,
+      localBackendId: null,
       discoveredBackends: [],
       backendAuthStatus: {},
 
@@ -59,11 +70,13 @@ export const useGatewayStore = create<GatewayState>()(
       // Backend subscription (persisted) — empty = all subscribed
       subscribedBackendIds: [],
 
-      syncFromServer: (url, secret, backends) => {
+      syncFromServer: (url, secret, backends, backendId) => {
+        const localId = backendId !== undefined ? backendId : get().localBackendId;
         set({
           gatewayUrl: url,
           gatewaySecret: secret,
-          discoveredBackends: backends
+          localBackendId: localId,
+          discoveredBackends: markIsLocal(backends, localId),
         });
       },
 
@@ -71,12 +84,12 @@ export const useGatewayStore = create<GatewayState>()(
         set({ isConnected: connected });
         if (!connected) {
           // Clear runtime state on disconnect
-          set({ discoveredBackends: [], backendAuthStatus: {} });
+          set({ discoveredBackends: [], backendAuthStatus: {}, localBackendId: null });
         }
       },
 
       setDiscoveredBackends: (backends) => {
-        set({ discoveredBackends: backends });
+        set({ discoveredBackends: markIsLocal(backends, get().localBackendId) });
       },
 
       setBackendAuthStatus: (backendId, status) => {
@@ -90,6 +103,7 @@ export const useGatewayStore = create<GatewayState>()(
           gatewayUrl: null,
           gatewaySecret: null,
           isConnected: false,
+          localBackendId: null,
           discoveredBackends: [],
           backendAuthStatus: {}
         });

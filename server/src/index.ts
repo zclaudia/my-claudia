@@ -140,7 +140,7 @@ async function connectToGateway(config: GatewayConfig): Promise<void> {
 
   gatewayClient.connect();
 
-  // Sync gateway status periodically (backendId + discoveredBackends)
+  // Sync gateway status periodically as fallback (backendId + discoveredBackends)
   const syncGatewayStatus = setInterval(() => {
     if (gatewayClient && serverContext) {
       const backendId = gatewayClient.getBackendId();

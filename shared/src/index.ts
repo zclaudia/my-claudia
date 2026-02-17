@@ -990,6 +990,7 @@ export interface GatewayAuthResultMessage {
   type: 'gateway_auth_result';
   success: boolean;
   error?: string;
+  backends?: GatewayBackendInfo[];  // Included on success for immediate discovery
 }
 
 export interface GatewayListBackendsMessage {
