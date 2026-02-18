@@ -177,6 +177,7 @@ interface ActiveRun {
       toolName: string;
       detail: string;
       timeoutSeconds: number;
+      sessionId?: string;
       requiresCredential?: boolean;
       credentialHint?: string;
       questions?: any[];
