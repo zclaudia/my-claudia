@@ -20,10 +20,30 @@ DATA_DIR="$HOME/.my-claudia"
 ENV_FILE="$DATA_DIR/.env"
 SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
 
-RED='\033[0;31m'; GREEN='\033[0;32m'; BLUE='\033[0;34m'; NC='\033[0m'
+VERSION_FILE="$DATA_DIR/.version"
+
+RED='\033[0;31m'; GREEN='\033[0;32m'; BLUE='\033[0;34m'; YELLOW='\033[0;33m'; NC='\033[0m'
 info() { echo -e "${BLUE}▸${NC} $*"; }
 ok()   { echo -e "${GREEN}✓${NC} $*"; }
 die()  { echo -e "${RED}✗${NC} $*" >&2; exit 1; }
+
+# ── Version check ────────────────────────────────────────────
+mkdir -p "$DATA_DIR"
+NEW_VERSION="$(git -C "$PROJECT_ROOT" rev-parse --short HEAD 2>/dev/null || echo "unknown")"
+NEW_SUBJECT="$(git -C "$PROJECT_ROOT" log -1 --format='%s' 2>/dev/null || echo "")"
+OLD_VERSION=""
+if [[ -f "$VERSION_FILE" ]]; then
+  OLD_VERSION="$(cat "$VERSION_FILE")"
+fi
+
+if [[ -n "$OLD_VERSION" && "$OLD_VERSION" != "$NEW_VERSION" ]]; then
+  echo -e "${YELLOW}▸ Upgrading: ${OLD_VERSION} → ${NEW_VERSION}${NC} (${NEW_SUBJECT})"
+elif [[ -n "$OLD_VERSION" ]]; then
+  echo -e "${YELLOW}▸ Redeploying: ${NEW_VERSION}${NC} (no version change)"
+else
+  echo -e "${YELLOW}▸ First deploy: ${NEW_VERSION}${NC} (${NEW_SUBJECT})"
+fi
+echo ""
 
 # ── Resolve paths ─────────────────────────────────────────────
 NODE_BIN="$(command -v node 2>/dev/null)" || die "node not found"
@@ -88,8 +108,11 @@ info "Restarting service..."
 sudo systemctl restart "$SERVICE_NAME"
 ok "Service restarted"
 
+# ── 6. Save version ──────────────────────────────────────────
+echo "$NEW_VERSION" > "$VERSION_FILE"
+
 # ── Status ────────────────────────────────────────────────────
 echo ""
 systemctl --no-pager status "$SERVICE_NAME" --lines=5 || true
 echo ""
-ok "Deploy complete. Logs: journalctl -u $SERVICE_NAME -f"
+ok "Deploy complete (${NEW_VERSION}). Logs: journalctl -u $SERVICE_NAME -f"
