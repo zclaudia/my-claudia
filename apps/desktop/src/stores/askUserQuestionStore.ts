@@ -3,6 +3,8 @@ import type { AskUserQuestionItem } from '@my-claudia/shared';
 
 export interface AskUserQuestionRequest {
   requestId: string;
+  /** The session this question belongs to. */
+  sessionId: string;
   /** Source server ID (e.g. "gw:backend-1") — used to route the answer to the correct backend. */
   serverId?: string;
   /** Human-readable backend name — shown in the modal when the request is from a non-active backend. */
@@ -24,6 +26,8 @@ interface AskUserQuestionState {
   clearRequestsForServer: (serverId: string) => void;
   clearStaleRequests: (serverId: string, validIds: Set<string>) => void;
   hasRequest: (requestId: string) => boolean;
+  getRequestsForSession: (sessionId: string) => AskUserQuestionRequest[];
+  getSessionsWithPendingRequests: () => string[];
 }
 
 export const useAskUserQuestionStore = create<AskUserQuestionState>((set, get) => ({
@@ -97,5 +101,15 @@ export const useAskUserQuestionStore = create<AskUserQuestionState>((set, get) =
   // Check if a request exists
   hasRequest: (requestId): boolean => {
     return get().pendingRequests.some((r: AskUserQuestionRequest) => r.requestId === requestId);
+  },
+
+  // Get all requests for a specific session
+  getRequestsForSession: (sessionId): AskUserQuestionRequest[] => {
+    return get().pendingRequests.filter(r => r.sessionId === sessionId);
+  },
+
+  // Get unique session IDs that have pending requests
+  getSessionsWithPendingRequests: (): string[] => {
+    return [...new Set(get().pendingRequests.map(r => r.sessionId))];
   },
 }));

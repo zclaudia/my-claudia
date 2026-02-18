@@ -600,6 +600,7 @@ export interface RunFailedMessage {
 export interface PermissionRequestMessage {
   type: 'permission_request';
   requestId: string;
+  sessionId: string;
   toolName: string;
   detail: string;
   timeoutSeconds: number;
@@ -625,6 +626,7 @@ export interface AskUserQuestionItem {
 export interface AskUserQuestionMessage {
   type: 'ask_user_question';
   requestId: string;
+  sessionId: string;
   questions: AskUserQuestionItem[];
 }
 
@@ -1121,6 +1123,7 @@ export interface GatewaySubscriptionAckMessage {
 export interface PermissionResolvedMessage {
   type: 'permission_resolved';
   requestId: string;
+  sessionId?: string;
   decision: 'allow' | 'deny';
 }
 
@@ -1128,6 +1131,7 @@ export interface PermissionResolvedMessage {
 export interface AskUserQuestionResolvedMessage {
   type: 'ask_user_question_resolved';
   requestId: string;
+  sessionId?: string;
 }
 
 // Server → Client: state heartbeat for reconciliation
@@ -1139,6 +1143,7 @@ export interface StateHeartbeatMessage {
   }>;
   pendingPermissions: Array<{
     requestId: string;
+    sessionId: string;
     toolName: string;
     detail: string;
     timeoutSeconds: number;
@@ -1147,6 +1152,7 @@ export interface StateHeartbeatMessage {
   }>;
   pendingQuestions: Array<{
     requestId: string;
+    sessionId: string;
     questions: AskUserQuestionItem[];
   }>;
 }

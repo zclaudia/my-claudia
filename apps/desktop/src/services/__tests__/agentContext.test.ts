@@ -20,18 +20,39 @@ import { useServerStore } from '../../stores/serverStore';
 const mockGatewayState = useGatewayStore.getState as ReturnType<typeof vi.fn>;
 const mockServerState = useServerStore.getState as ReturnType<typeof vi.fn>;
 
+/** Helper to create a desktop-mode gateway state (no direct config) */
+function desktopGatewayState(overrides: Record<string, unknown> = {}) {
+  return {
+    discoveredBackends: [],
+    gatewayUrl: null,
+    localBackendId: null,
+    gatewaySecret: null,
+    hasDirectConfig: () => false,
+    ...overrides,
+  };
+}
+
+/** Helper to create a mobile-mode gateway state (has direct config) */
+function mobileGatewayState(overrides: Record<string, unknown> = {}) {
+  return {
+    discoveredBackends: [],
+    gatewayUrl: 'wss://gw.example.com',
+    localBackendId: null,
+    gatewaySecret: 'secret',
+    hasDirectConfig: () => true,
+    ...overrides,
+  };
+}
+
 describe('buildAgentContext', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
+  // ---- Desktop mode tests ----
+
   it('returns context with local backend info', () => {
-    mockGatewayState.mockReturnValue({
-      discoveredBackends: [],
-      gatewayUrl: null,
-      localBackendId: null,
-      gatewaySecret: null,
-    });
+    mockGatewayState.mockReturnValue(desktopGatewayState());
     mockServerState.mockReturnValue({
       servers: [{ id: 'local-1', name: 'My Server', address: 'http://localhost:3100' }],
     });
@@ -45,12 +66,7 @@ describe('buildAgentContext', () => {
   });
 
   it('adds http:// prefix when address has no protocol', () => {
-    mockGatewayState.mockReturnValue({
-      discoveredBackends: [],
-      gatewayUrl: null,
-      localBackendId: null,
-      gatewaySecret: null,
-    });
+    mockGatewayState.mockReturnValue(desktopGatewayState());
     mockServerState.mockReturnValue({
       servers: [{ id: 'local-1', name: 'Local', address: 'localhost:3100' }],
     });
@@ -61,12 +77,11 @@ describe('buildAgentContext', () => {
   });
 
   it('marks local backend as "(local, this server)" when matched', () => {
-    mockGatewayState.mockReturnValue({
+    mockGatewayState.mockReturnValue(desktopGatewayState({
       discoveredBackends: [{ backendId: 'backend-abc', isLocal: true, online: true, name: 'Local' }],
       gatewayUrl: 'wss://gw.example.com',
       localBackendId: 'backend-abc',
-      gatewaySecret: null,
-    });
+    }));
     mockServerState.mockReturnValue({
       servers: [{ id: 'local-1', name: 'My Server', address: 'http://localhost:3100' }],
     });
@@ -77,14 +92,12 @@ describe('buildAgentContext', () => {
   });
 
   it('includes remote gateway backends', () => {
-    mockGatewayState.mockReturnValue({
+    mockGatewayState.mockReturnValue(desktopGatewayState({
       discoveredBackends: [
         { backendId: 'remote-1', isLocal: false, online: true, name: 'Remote Server' },
       ],
       gatewayUrl: 'wss://gw.example.com',
-      localBackendId: null,
-      gatewaySecret: null,
-    });
+    }));
     mockServerState.mockReturnValue({ servers: [] });
 
     const result = buildAgentContext();
@@ -95,14 +108,12 @@ describe('buildAgentContext', () => {
   });
 
   it('skips offline remote backends', () => {
-    mockGatewayState.mockReturnValue({
+    mockGatewayState.mockReturnValue(desktopGatewayState({
       discoveredBackends: [
         { backendId: 'offline-1', isLocal: false, online: false, name: 'Offline Server' },
       ],
       gatewayUrl: 'wss://gw.example.com',
-      localBackendId: null,
-      gatewaySecret: null,
-    });
+    }));
     mockServerState.mockReturnValue({ servers: [] });
 
     const result = buildAgentContext();
@@ -111,14 +122,13 @@ describe('buildAgentContext', () => {
   });
 
   it('includes auth header info when gateway secret exists and remote backends are present', () => {
-    mockGatewayState.mockReturnValue({
+    mockGatewayState.mockReturnValue(desktopGatewayState({
       discoveredBackends: [
         { backendId: 'remote-1', isLocal: false, online: true, name: 'Remote' },
       ],
       gatewayUrl: 'wss://gw.example.com',
-      localBackendId: null,
       gatewaySecret: 'my-secret-token',
-    });
+    }));
     mockServerState.mockReturnValue({ servers: [] });
 
     const result = buildAgentContext();
@@ -127,15 +137,15 @@ describe('buildAgentContext', () => {
     expect(result).toContain('Authorization: Bearer my-secret-token');
   });
 
-  it('omits auth section when no remote backends exist', () => {
-    mockGatewayState.mockReturnValue({
+  it('omits auth section when no remote backends exist (desktop)', () => {
+    mockGatewayState.mockReturnValue(desktopGatewayState({
       discoveredBackends: [
         { backendId: 'local-1', isLocal: true, online: true, name: 'Local' },
       ],
       gatewayUrl: 'wss://gw.example.com',
       localBackendId: 'local-1',
       gatewaySecret: 'secret',
-    });
+    }));
     mockServerState.mockReturnValue({
       servers: [{ id: 'local-1', name: 'Local', address: 'http://localhost:3100' }],
     });
@@ -146,14 +156,12 @@ describe('buildAgentContext', () => {
   });
 
   it('converts ws:// gateway URL to http://', () => {
-    mockGatewayState.mockReturnValue({
+    mockGatewayState.mockReturnValue(desktopGatewayState({
       discoveredBackends: [
         { backendId: 'remote-1', isLocal: false, online: true, name: 'Remote' },
       ],
       gatewayUrl: 'ws://gw.local:8080',
-      localBackendId: null,
-      gatewaySecret: null,
-    });
+    }));
     mockServerState.mockReturnValue({ servers: [] });
 
     const result = buildAgentContext();
@@ -162,12 +170,7 @@ describe('buildAgentContext', () => {
   });
 
   it('skips gateway-prefixed servers in local section', () => {
-    mockGatewayState.mockReturnValue({
-      discoveredBackends: [],
-      gatewayUrl: null,
-      localBackendId: null,
-      gatewaySecret: null,
-    });
+    mockGatewayState.mockReturnValue(desktopGatewayState());
     mockServerState.mockReturnValue({
       servers: [
         { id: 'gw:abc', name: 'Gateway Server', address: 'http://remote:3100' },
@@ -179,5 +182,56 @@ describe('buildAgentContext', () => {
 
     expect(result).toContain('Local');
     expect(result).not.toContain('Gateway Server');
+  });
+
+  // ---- Mobile mode tests ----
+
+  it('mobile: excludes localhost server from context', () => {
+    mockGatewayState.mockReturnValue(mobileGatewayState({
+      discoveredBackends: [
+        { backendId: 'coder-server', isLocal: false, online: true, name: 'Coder Server' },
+      ],
+    }));
+    mockServerState.mockReturnValue({
+      servers: [{ id: 'local', name: 'Local Server', address: 'localhost:3100' }],
+    });
+
+    const result = buildAgentContext();
+
+    expect(result).not.toContain('localhost:3100');
+    expect(result).not.toContain('Local Server');
+    expect(result).toContain('Coder Server');
+  });
+
+  it('mobile: includes isLocal gateway backend (not filtered)', () => {
+    mockGatewayState.mockReturnValue(mobileGatewayState({
+      discoveredBackends: [
+        { backendId: 'my-backend', isLocal: true, online: true, name: 'My Backend' },
+      ],
+    }));
+    mockServerState.mockReturnValue({
+      servers: [{ id: 'local', name: 'Local Server', address: 'localhost:3100' }],
+    });
+
+    const result = buildAgentContext();
+
+    expect(result).not.toContain('localhost:3100');
+    expect(result).toContain('My Backend');
+    expect(result).toContain('Backend ID: `my-backend`');
+    expect(result).toContain('https://gw.example.com/api/proxy/my-backend');
+  });
+
+  it('mobile: includes auth section for gateway backends', () => {
+    mockGatewayState.mockReturnValue(mobileGatewayState({
+      discoveredBackends: [
+        { backendId: 'my-backend', isLocal: true, online: true, name: 'My Backend' },
+      ],
+    }));
+    mockServerState.mockReturnValue({ servers: [] });
+
+    const result = buildAgentContext();
+
+    expect(result).toContain('Authentication');
+    expect(result).toContain('Authorization: Bearer secret');
   });
 });

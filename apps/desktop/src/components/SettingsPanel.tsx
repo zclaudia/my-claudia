@@ -12,11 +12,11 @@ import { ServerGatewayConfig } from './ServerGatewayConfig';
 import { ImportDialog } from './ImportDialog';
 import { ImportOpenCodeDialog } from './ImportOpenCodeDialog';
 import * as api from '../services/api';
-import { getClientAIConfig, setClientAIConfig, type ClientAIConfig } from '../services/clientAI';
+import { getClientAIConfig, setClientAIConfig, testClientAIConnection, fetchAvailableModels, type ClientAIConfig } from '../services/clientAI';
 import type { GatewayBackendInfo, ProviderConfig, AgentPermissionPolicy, NotificationConfig } from '@my-claudia/shared';
 import { DEFAULT_NOTIFICATION_CONFIG } from '@my-claudia/shared';
 
-type SettingsTab = 'general' | 'connections' | 'providers' | 'agent' | 'notifications' | 'gateway' | 'import';
+type SettingsTab = 'general' | 'client-ai' | 'connections' | 'providers' | 'agent' | 'notifications' | 'gateway' | 'import';
 
 interface SettingsPanelProps {
   isOpen: boolean;
@@ -95,6 +95,15 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+        </svg>
+      )
+    },
+    {
+      id: 'client-ai' as SettingsTab,
+      label: 'Client AI',
+      icon: (
+        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
         </svg>
       )
     },
@@ -430,7 +439,12 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
                     )}
                   </div>
                 </div>
+
               </div>
+            )}
+
+            {activeTab === 'client-ai' && (
+              <ClientAISettings />
             )}
 
             {activeTab === 'connections' && (
@@ -884,8 +898,6 @@ function AgentSettingsInline() {
         </div>
       )}
 
-      {/* Client-side AI config (for mobile / no local backend) */}
-      <ClientAISettings />
     </div>
   );
 }
@@ -893,6 +905,11 @@ function AgentSettingsInline() {
 function ClientAISettings() {
   const [config, setConfig] = useState<ClientAIConfig>({ apiEndpoint: '', apiKey: '', model: '' });
   const [dirty, setDirty] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null);
+  const [availableModels, setAvailableModels] = useState<string[]>([]);
+  const [loadingModels, setLoadingModels] = useState(false);
+  const [showModelDropdown, setShowModelDropdown] = useState(false);
 
   useEffect(() => {
     const saved = getClientAIConfig();
@@ -907,56 +924,133 @@ function ClientAISettings() {
   const updateField = useCallback((field: keyof ClientAIConfig, value: string) => {
     setConfig(prev => ({ ...prev, [field]: value }));
     setDirty(true);
+    setTestResult(null);
   }, []);
 
+  const handleTest = useCallback(async () => {
+    if (!config.apiEndpoint || !config.apiKey) {
+      setTestResult({ ok: false, message: 'Please fill in API Endpoint and API Key first.' });
+      return;
+    }
+
+    setTesting(true);
+    setTestResult(null);
+    setAvailableModels([]);
+
+    const result = await testClientAIConnection(config, config.model || undefined);
+
+    if (result.ok) {
+      setTestResult({ ok: true, message: 'Connection successful!' });
+
+      // Auto-fetch models
+      setLoadingModels(true);
+      const models = await fetchAvailableModels(config);
+      setAvailableModels(models);
+      setLoadingModels(false);
+    } else {
+      setTestResult({ ok: false, message: result.error || 'Connection failed.' });
+    }
+
+    setTesting(false);
+  }, [config]);
+
+  const filteredModels = config.model
+    ? availableModels.filter(m => m.toLowerCase().includes(config.model.toLowerCase()))
+    : availableModels;
+
   return (
-    <div>
-      <h3 className="text-sm font-medium mb-3">Client-Side AI (Mobile)</h3>
-      <p className="text-xs text-muted-foreground mb-3">
-        When no local backend is available, the agent uses an OpenAI-compatible API directly.
-      </p>
-      <div className="space-y-3">
-        <div className="p-3 bg-secondary/50 rounded-lg space-y-3">
-          <div>
-            <label className="text-xs text-muted-foreground block mb-1">API Endpoint</label>
-            <input
-              type="text"
-              value={config.apiEndpoint}
-              onChange={(e) => updateField('apiEndpoint', e.target.value)}
-              placeholder="https://api.openai.com/v1"
-              className="w-full px-2 py-1.5 bg-secondary border border-border rounded text-sm focus:outline-none focus:border-primary"
-            />
-          </div>
-          <div>
-            <label className="text-xs text-muted-foreground block mb-1">API Key</label>
-            <input
-              type="password"
-              value={config.apiKey}
-              onChange={(e) => updateField('apiKey', e.target.value)}
-              placeholder="sk-..."
-              className="w-full px-2 py-1.5 bg-secondary border border-border rounded text-sm focus:outline-none focus:border-primary"
-            />
-          </div>
-          <div>
-            <label className="text-xs text-muted-foreground block mb-1">Model</label>
-            <input
-              type="text"
-              value={config.model}
-              onChange={(e) => updateField('model', e.target.value)}
-              placeholder="gpt-4o"
-              className="w-full px-2 py-1.5 bg-secondary border border-border rounded text-sm focus:outline-none focus:border-primary"
-            />
-          </div>
+    <div className="space-y-4">
+      <div>
+        <h3 className="text-sm font-medium mb-1">Client-Side AI</h3>
+        <p className="text-xs text-muted-foreground">
+          When no local backend is available, the agent uses an OpenAI-compatible API directly.
+        </p>
+      </div>
+
+      <div className="p-3 bg-secondary/50 rounded-lg space-y-3">
+        <div>
+          <label className="text-xs text-muted-foreground block mb-1">API Endpoint</label>
+          <input
+            type="text"
+            value={config.apiEndpoint}
+            onChange={(e) => updateField('apiEndpoint', e.target.value)}
+            placeholder="https://api.openai.com/v1"
+            className="w-full px-2 py-1.5 bg-secondary border border-border rounded text-sm focus:outline-none focus:border-primary"
+          />
         </div>
+        <div>
+          <label className="text-xs text-muted-foreground block mb-1">API Key</label>
+          <input
+            type="password"
+            value={config.apiKey}
+            onChange={(e) => updateField('apiKey', e.target.value)}
+            placeholder="sk-..."
+            className="w-full px-2 py-1.5 bg-secondary border border-border rounded text-sm focus:outline-none focus:border-primary"
+          />
+        </div>
+        <div className="relative">
+          <label className="text-xs text-muted-foreground block mb-1">
+            Model
+            {loadingModels && <span className="ml-2 text-primary">Loading models...</span>}
+          </label>
+          <input
+            type="text"
+            value={config.model}
+            onChange={(e) => {
+              updateField('model', e.target.value);
+              setShowModelDropdown(true);
+            }}
+            onFocus={() => { if (availableModels.length > 0) setShowModelDropdown(true); }}
+            onBlur={() => { setTimeout(() => setShowModelDropdown(false), 150); }}
+            placeholder={availableModels.length > 0 ? 'Type or select a model...' : 'gpt-4o'}
+            className="w-full px-2 py-1.5 bg-secondary border border-border rounded text-sm focus:outline-none focus:border-primary"
+          />
+          {showModelDropdown && filteredModels.length > 0 && (
+            <div className="absolute z-10 mt-1 w-full max-h-48 overflow-y-auto bg-popover border border-border rounded-lg shadow-lg">
+              {filteredModels.map(model => (
+                <button
+                  key={model}
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => {
+                    updateField('model', model);
+                    setShowModelDropdown(false);
+                  }}
+                  className="w-full px-3 py-1.5 text-left text-sm hover:bg-secondary/80 truncate"
+                >
+                  {model}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Test result */}
+      {testResult && (
+        <div className={`px-3 py-2 rounded-lg text-sm ${testResult.ok ? 'bg-green-500/10 text-green-600 dark:text-green-400' : 'bg-red-500/10 text-red-600 dark:text-red-400'}`}>
+          {testResult.message}
+          {testResult.ok && availableModels.length > 0 && (
+            <span className="ml-2 text-muted-foreground">({availableModels.length} models available)</span>
+          )}
+        </div>
+      )}
+
+      {/* Action buttons */}
+      <div className="flex justify-end gap-2">
+        <button
+          onClick={handleTest}
+          disabled={testing || !config.apiEndpoint || !config.apiKey}
+          className="px-4 py-2 text-sm rounded border border-border hover:bg-secondary disabled:opacity-50"
+        >
+          {testing ? 'Testing...' : 'Test Connection'}
+        </button>
         {dirty && (
-          <div className="flex justify-end">
-            <button
-              onClick={handleSave}
-              className="px-4 py-2 text-sm rounded bg-primary text-primary-foreground hover:bg-primary/90"
-            >
-              Save
-            </button>
-          </div>
+          <button
+            onClick={handleSave}
+            className="px-4 py-2 text-sm rounded bg-primary text-primary-foreground hover:bg-primary/90"
+          >
+            Save
+          </button>
         )}
       </div>
     </div>

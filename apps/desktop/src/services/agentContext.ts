@@ -14,8 +14,12 @@ import { useServerStore } from '../stores/serverStore';
  * Called before each agent run_start to inject current backend info.
  */
 export function buildAgentContext(): string {
-  const { discoveredBackends, gatewayUrl, localBackendId } = useGatewayStore.getState();
+  const gwState = useGatewayStore.getState();
+  const { discoveredBackends, gatewayUrl, localBackendId } = gwState;
   const { servers } = useServerStore.getState();
+
+  // Mobile mode: direct gateway config means no local server is reachable
+  const isMobileMode = gwState.hasDirectConfig();
 
   const sections: string[] = [];
   sections.push('## Connected Backends\n');
@@ -29,30 +33,34 @@ export function buildAgentContext(): string {
   }
 
   // Local backend (direct server, not via gateway)
-  const localServers = servers.filter(s => !s.id.startsWith('gw:'));
-  for (const server of localServers) {
-    const address = server.address.includes('://')
-      ? server.address
-      : `http://${server.address}`;
-    const isLocal = localBackendId && discoveredBackends.some(
-      b => b.backendId === localBackendId && b.isLocal
-    );
-    sections.push(
-      `### ${server.name || 'Local Backend'}${isLocal ? ' (local, this server)' : ''}\n` +
-      `- API Base: \`${address}\`\n` +
-      `- Example: \`curl -s ${address}/api/projects | jq .\`\n`
-    );
+  // Skip on mobile — localhost is not reachable from the phone
+  if (!isMobileMode) {
+    const localServers = servers.filter(s => !s.id.startsWith('gw:'));
+    for (const server of localServers) {
+      const address = server.address.includes('://')
+        ? server.address
+        : `http://${server.address}`;
+      const isLocal = localBackendId && discoveredBackends.some(
+        b => b.backendId === localBackendId && b.isLocal
+      );
+      sections.push(
+        `### ${server.name || 'Local Backend'}${isLocal ? ' (local, this server)' : ''}\n` +
+        `- API Base: \`${address}\`\n` +
+        `- Example: \`curl -s ${address}/api/projects | jq .\`\n`
+      );
+    }
   }
 
-  // Gateway-discovered backends (remote)
+  // Gateway-discovered backends
   for (const backend of discoveredBackends) {
-    // Skip if this is the local backend (already listed above)
-    if (backend.isLocal) continue;
+    // On desktop, skip local backend (already listed above as direct server)
+    // On mobile, include ALL online backends (no local duplicate to worry about)
+    if (!isMobileMode && backend.isLocal) continue;
     if (!backend.online) continue;
 
     const apiBase = `${gatewayHttpBase}/api/proxy/${backend.backendId}`;
     sections.push(
-      `### ${backend.name || backend.backendId}${backend.online ? '' : ' (offline)'}\n` +
+      `### ${backend.name || backend.backendId}\n` +
       `- Backend ID: \`${backend.backendId}\`\n` +
       `- API Base: \`${apiBase}\`\n` +
       `- Example: \`curl -s ${apiBase}/api/projects | jq .\`\n`
@@ -60,7 +68,10 @@ export function buildAgentContext(): string {
   }
 
   // Auth info for gateway proxied requests
-  if (gatewayHttpBase && discoveredBackends.some(b => !b.isLocal && b.online)) {
+  const hasGatewayBackends = discoveredBackends.some(b =>
+    b.online && (isMobileMode || !b.isLocal)
+  );
+  if (gatewayHttpBase && hasGatewayBackends) {
     const { gatewaySecret } = useGatewayStore.getState();
     if (gatewaySecret) {
       sections.push(

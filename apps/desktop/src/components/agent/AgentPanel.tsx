@@ -10,6 +10,7 @@ import { useConnection } from '../../contexts/ConnectionContext';
 import * as api from '../../services/api';
 import { buildAgentContext } from '../../services/agentContext';
 import { isClientAIConfigured, getClientAIConfig } from '../../services/clientAI';
+import { useGatewayStore } from '../../stores/gatewayStore';
 import * as agentLoop from '../../services/agentLoop';
 import type { Message, SlashCommand, ProviderConfig } from '@my-claudia/shared';
 import type { MessageWithToolCalls } from '../../stores/chatStore';
@@ -57,8 +58,12 @@ export function AgentPanel({ isMobile = false, showHeader = true }: AgentPanelPr
   const [clientMessages, setClientMessages] = useState<MessageWithToolCalls[]>([]);
   const [clientLoading, setClientLoading] = useState(false);
 
-  // Detect mode: use client-side AI when no backend agent session is available
-  const useClientMode = !agentSessionId && isClientAIConfigured();
+  // Detect mode: mobile prefers Client-Side AI (multi-backend capable);
+  // desktop falls back to Client-Side AI only when no backend agent session exists
+  const isMobileMode = useGatewayStore.getState().hasDirectConfig();
+  const useClientMode = isMobileMode
+    ? isClientAIConfigured()
+    : (!agentSessionId && isClientAIConfigured());
 
   const bgSessionList = Object.values(backgroundSessions);
   const hasPending = bgSessionList.some(s => s.pendingPermissions.length > 0);

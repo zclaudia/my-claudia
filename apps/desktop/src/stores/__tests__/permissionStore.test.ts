@@ -12,6 +12,7 @@ describe('permissionStore', () => {
 
   const createRequest = (overrides: Partial<PermissionRequest> = {}): PermissionRequest => ({
     requestId: 'req-1',
+    sessionId: 'session-1',
     toolName: 'Bash',
     detail: '{"command": "ls -la"}',
     timeoutSec: 60,

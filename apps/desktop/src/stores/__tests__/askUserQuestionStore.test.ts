@@ -8,6 +8,7 @@ describe('askUserQuestionStore', () => {
 
   const createRequest = (overrides: Partial<AskUserQuestionRequest> = {}): AskUserQuestionRequest => ({
     requestId: 'req-1',
+    sessionId: 'session-1',
     questions: [
       {
         question: 'Choose an option',

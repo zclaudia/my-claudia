@@ -655,11 +655,13 @@ function buildStateHeartbeat(): StateHeartbeatMessage {
       if (pending.originalRequest.toolName === 'AskUserQuestion') {
         questions.push({
           requestId,
+          sessionId: pending.originalRequest.sessionId || run.sessionId,
           questions: pending.originalRequest.questions || [],
         });
       } else {
         permissions.push({
           requestId,
+          sessionId: pending.originalRequest.sessionId || run.sessionId,
           toolName: pending.originalRequest.toolName,
           detail: pending.originalRequest.detail,
           timeoutSeconds: pending.originalRequest.timeoutSeconds,
@@ -1069,6 +1071,7 @@ async function handleRunStart(
             toolName: request.toolName,
             detail: request.detail,
             timeoutSeconds: request.timeoutSeconds,
+            sessionId: message.sessionId,
             ...(requiresCredential && { requiresCredential: true, credentialHint: 'sudo_password' }),
             ...(isAskUserQuestion && { questions: toolInput.questions || [] }),
           }
@@ -1082,6 +1085,7 @@ async function handleRunStart(
             sendMessage(client.ws, {
               type: 'ask_user_question',
               requestId: request.requestId,
+              sessionId: message.sessionId,
               questions: toolInput.questions || [],
             } as import('@my-claudia/shared').AskUserQuestionMessage);
             console.log(`[Permission] Sent ask_user_question ${request.requestId} to client (${(toolInput.questions || []).length} questions)`);
@@ -1099,6 +1103,7 @@ async function handleRunStart(
             sendMessage(client.ws, {
               type: 'permission_request',
               requestId: request.requestId,
+              sessionId: message.sessionId,
               toolName: request.toolName,
               detail: request.detail,
               timeoutSeconds: request.timeoutSeconds,
@@ -1423,6 +1428,7 @@ function handlePermissionDecision(message: {
       sendMessage(run.client.ws, {
         type: 'permission_resolved',
         requestId: message.requestId,
+        sessionId: run.sessionId,
         decision: message.allow ? 'allow' : 'deny',
       } as any);
 
@@ -1465,6 +1471,7 @@ function handleAskUserAnswer(message: {
       sendMessage(run.client.ws, {
         type: 'ask_user_question_resolved',
         requestId: message.requestId,
+        sessionId: run.sessionId,
       } as any);
 
       console.log(`[AskUser] ${message.requestId}: answered - resolved!`);

@@ -280,6 +280,7 @@ export function useGatewayConnection() {
         const permBackendInfo = permBackends.find(b => b.backendId === backendId);
         setPendingRequest({
           requestId: msg.requestId,
+          sessionId: msg.sessionId,
           serverId,
           backendName: permBackendInfo?.name,
           toolName: msg.toolName,
@@ -297,6 +298,7 @@ export function useGatewayConnection() {
         const aqBackendInfo = aqBackends.find(b => b.backendId === backendId);
         useAskUserQuestionStore.getState().setPendingRequest({
           requestId: (msg as any).requestId,
+          sessionId: (msg as any).sessionId,
           serverId,
           backendName: aqBackendInfo?.name,
           questions: (msg as any).questions
@@ -332,6 +334,7 @@ export function useGatewayConnection() {
           if (!usePermissionStore.getState().hasRequest(perm.requestId)) {
             setPendingRequest({
               requestId: perm.requestId,
+              sessionId: perm.sessionId,
               serverId,
               backendName,
               toolName: perm.toolName,
@@ -350,6 +353,7 @@ export function useGatewayConnection() {
           if (!useAskUserQuestionStore.getState().hasRequest(q.requestId)) {
             useAskUserQuestionStore.getState().setPendingRequest({
               requestId: q.requestId,
+              sessionId: q.sessionId,
               serverId,
               backendName,
               questions: q.questions

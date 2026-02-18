@@ -238,6 +238,7 @@ export function useMultiServerSocket() {
           const permServer = servers.find(s => s.id === serverId);
           setPendingRequest({
             requestId: message.requestId,
+            sessionId: message.sessionId,
             serverId,
             backendName: permServer?.name,
             toolName: message.toolName,
@@ -254,6 +255,7 @@ export function useMultiServerSocket() {
           const aqServer = servers.find(s => s.id === serverId);
           useAskUserQuestionStore.getState().setPendingRequest({
             requestId: message.requestId,
+            sessionId: message.sessionId,
             serverId,
             backendName: aqServer?.name,
             questions: message.questions

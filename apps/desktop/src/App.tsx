@@ -1,10 +1,8 @@
-import { useEffect, useState, useCallback, useRef } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { Sidebar } from './components/Sidebar';
 import { ChatInterface } from './components/chat/ChatInterface';
 import { ServerSelector } from './components/ServerSelector';
 import { MobileSetup } from './components/MobileSetup';
-import { PermissionModal } from './components/permission/PermissionModal';
-import { AskUserQuestionModal } from './components/permission/AskUserQuestionModal';
 import { AgentWidget } from './components/agent/AgentWidget';
 import { AgentPanel } from './components/agent/AgentPanel';
 import { ThemeProvider } from './contexts/ThemeContext';
@@ -14,21 +12,16 @@ import { useServerManager } from './hooks/useServerManager';
 import { useServerStore } from './stores/serverStore';
 import { useGatewayStore, isGatewayTarget } from './stores/gatewayStore';
 import { useProjectStore } from './stores/projectStore';
-import { usePermissionStore } from './stores/permissionStore';
-import { useAskUserQuestionStore } from './stores/askUserQuestionStore';
 import { useAgentStore } from './stores/agentStore';
 import { useIsMobile } from './hooks/useMediaQuery';
 import { useAndroidBack } from './hooks/useAndroidBack';
 import { migrateServersFromLocalStorage, needsMigration } from './utils/migrateServers';
-import { encryptCredential, isEncryptionAvailable } from './utils/crypto';
 
 function AppContent() {
-  const { sendMessage, sendToServer, connectServer } = useConnection();
+  const { connectServer } = useConnection();
   const { addServer } = useServerManager();
   const { connectionStatus } = useServerStore();
   const { selectedSessionId } = useProjectStore();
-  const { pendingRequest, pendingRequests, clearRequest } = usePermissionStore();
-  const { pendingRequest: askUserRequest, clearRequest: clearAskUserRequest } = useAskUserQuestionStore();
   const { directGatewayUrl, lastActiveBackendId, isConnected: isGatewayConnected, discoveredBackends } = useGatewayStore();
   const { isExpanded: isAgentExpanded, isConfigured: isAgentConfigured, setExpanded: setAgentExpanded } = useAgentStore();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -87,67 +80,6 @@ function AppContent() {
       });
     }
   }, [connectionStatus, addServer]);
-
-  const handlePermissionDecision = useCallback(
-    async (requestId: string, allow: boolean, remember?: boolean, credential?: string) => {
-      let encryptedCredentialValue: string | undefined;
-
-      // Determine which server this request belongs to
-      const targetServerId = pendingRequest?.serverId;
-
-      // Encrypt credential if provided
-      if (credential && allow) {
-        const { activeServerId, getActiveServerConnection, connections } = useServerStore.getState();
-        // Use the target server's connection for encryption, falling back to active
-        const connServerId = targetServerId || activeServerId;
-        const conn = connServerId ? connections[connServerId] : getActiveServerConnection();
-        if (conn?.publicKey && isEncryptionAvailable(conn.publicKey)) {
-          try {
-            encryptedCredentialValue = await encryptCredential(credential, conn.publicKey);
-          } catch (err) {
-            console.error('[App] Failed to encrypt credential:', err);
-          }
-        }
-      }
-
-      const message = {
-        type: 'permission_decision' as const,
-        requestId,
-        allow,
-        remember,
-        ...(encryptedCredentialValue && { encryptedCredential: encryptedCredentialValue }),
-      };
-
-      // Route to the correct backend
-      if (targetServerId) {
-        sendToServer(targetServerId, message);
-      } else {
-        sendMessage(message);
-      }
-      clearRequest();
-    },
-    [sendMessage, sendToServer, clearRequest, pendingRequest]
-  );
-
-  const handleAskUserAnswer = useCallback(
-    (requestId: string, formattedAnswer: string) => {
-      const targetServerId = askUserRequest?.serverId;
-      const message = {
-        type: 'ask_user_answer' as const,
-        requestId,
-        formattedAnswer
-      };
-
-      // Route to the correct backend
-      if (targetServerId) {
-        sendToServer(targetServerId, message);
-      } else {
-        sendMessage(message);
-      }
-      clearAskUserRequest();
-    },
-    [sendMessage, sendToServer, clearAskUserRequest, askUserRequest]
-  );
 
   // Mobile: show setup screen when gateway is not configured
   if (isMobile && !directGatewayUrl) {
@@ -249,11 +181,12 @@ function AppContent() {
           <div className="flex-1 overflow-hidden">
             {isMobile && isAgentExpanded ? (
               isAgentConfigured ? (
-                <div className="flex h-full">
-                  {/* Left-side collapse arrow */}
+                <div className="relative h-full">
+                  {/* Left-side collapse arrow (absolute so it doesn't shift content) */}
                   <button
                     onClick={() => setAgentExpanded(false)}
-                    className="flex-shrink-0 flex items-center px-1 py-2 self-center
+                    className="absolute left-0 top-1/2 -translate-y-1/2 z-10
+                               flex items-center px-1 py-2
                                bg-zinc-400/60 text-zinc-600 rounded-r-md shadow-sm
                                border border-l-0 border-zinc-300
                                active:bg-zinc-400/80
@@ -265,9 +198,7 @@ function AppContent() {
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 5l7 7-7 7" />
                     </svg>
                   </button>
-                  <div className="flex-1 min-w-0">
-                    <AgentPanel isMobile={true} showHeader={false} />
-                  </div>
+                  <AgentPanel isMobile={true} showHeader={false} />
                 </div>
               ) : (
                 <div className="flex items-center justify-center h-full text-muted-foreground">
@@ -290,19 +221,6 @@ function AppContent() {
           </div>
         </main>
       </div>
-
-      {/* Permission Modal */}
-      <PermissionModal
-        request={pendingRequest}
-        queueSize={pendingRequests.length}
-        onDecision={handlePermissionDecision}
-      />
-
-      {/* AskUserQuestion Modal */}
-      <AskUserQuestionModal
-        request={askUserRequest}
-        onAnswer={handleAskUserAnswer}
-      />
 
       {/* Agent Widget */}
       <AgentWidget />

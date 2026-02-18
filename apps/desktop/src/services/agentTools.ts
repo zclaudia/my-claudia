@@ -86,8 +86,12 @@ export async function executeToolCall(toolCall: ToolCall): Promise<string> {
 }
 
 function executeListBackends(): string {
-  const { discoveredBackends } = useGatewayStore.getState();
+  const gwState = useGatewayStore.getState();
+  const { discoveredBackends } = gwState;
   const { servers } = useServerStore.getState();
+
+  // Mobile mode: direct gateway config means no local server is reachable
+  const isMobileMode = gwState.hasDirectConfig();
 
   const backends: Array<{
     id: string;
@@ -96,20 +100,25 @@ function executeListBackends(): string {
     isLocal: boolean;
   }> = [];
 
-  // Direct servers
-  for (const server of servers) {
-    if (server.id.startsWith('gw:')) continue;
-    backends.push({
-      id: 'local',
-      name: server.name || 'Local Backend',
-      online: true,
-      isLocal: true,
-    });
+  // Direct servers — skip on mobile (localhost not reachable from phone)
+  if (!isMobileMode) {
+    for (const server of servers) {
+      if (server.id.startsWith('gw:')) continue;
+      backends.push({
+        id: 'local',
+        name: server.name || 'Local Backend',
+        online: true,
+        isLocal: true,
+      });
+    }
   }
 
   // Gateway backends
+  // On desktop: skip isLocal (already listed as direct server above)
+  // On mobile: include ALL online backends (no local duplicate)
   for (const backend of discoveredBackends) {
-    if (backend.isLocal) continue;
+    if (!isMobileMode && backend.isLocal) continue;
+    if (!backend.online) continue;
     backends.push({
       id: backend.backendId,
       name: backend.name || backend.backendId,
@@ -142,8 +151,9 @@ async function executeCallApi(args: {
     'Content-Type': 'application/json',
   };
 
-  // Add gateway auth if needed
-  if (backendId !== 'local') {
+  // Add gateway auth if the request is routed through the gateway
+  const needsGatewayAuth = backendId !== 'local' || useGatewayStore.getState().hasDirectConfig();
+  if (needsGatewayAuth) {
     const { gatewaySecret } = useGatewayStore.getState();
     if (gatewaySecret) {
       headers['Authorization'] = `Bearer ${gatewaySecret}`;
@@ -175,7 +185,14 @@ async function executeCallApi(args: {
  * Resolve the API base URL for a given backend ID.
  */
 function resolveApiBaseUrl(backendId: string): string | null {
+  const gwState = useGatewayStore.getState();
+
   if (backendId === 'local') {
+    // Mobile mode: route "local" through gateway to the first discovered backend
+    if (gwState.hasDirectConfig()) {
+      return resolveViaGateway(gwState, findFirstBackendId(gwState));
+    }
+    // Desktop: use direct server address
     const { servers } = useServerStore.getState();
     const localServer = servers.find(s => !s.id.startsWith('gw:'));
     if (!localServer) return null;
@@ -185,12 +202,24 @@ function resolveApiBaseUrl(backendId: string): string | null {
   }
 
   // Gateway backend
-  const { gatewayUrl } = useGatewayStore.getState();
-  if (!gatewayUrl) return null;
+  return resolveViaGateway(gwState, backendId);
+}
 
-  const gwHttp = gatewayUrl.includes('://')
-    ? gatewayUrl.replace(/^ws/, 'http')
-    : `http://${gatewayUrl}`;
+/** Find the first online backend ID from discovered backends */
+function findFirstBackendId(gwState: { discoveredBackends: Array<{ backendId: string; online: boolean; isLocal?: boolean }> }): string | null {
+  // Prefer isLocal backend (it's the one the user connected to)
+  const local = gwState.discoveredBackends.find(b => b.isLocal && b.online);
+  if (local) return local.backendId;
+  // Fall back to first online backend
+  const first = gwState.discoveredBackends.find(b => b.online);
+  return first?.backendId ?? null;
+}
 
+/** Resolve a backend ID to its gateway proxy URL */
+function resolveViaGateway(gwState: { gatewayUrl: string | null }, backendId: string | null): string | null {
+  if (!backendId || !gwState.gatewayUrl) return null;
+  const gwHttp = gwState.gatewayUrl.includes('://')
+    ? gwState.gatewayUrl.replace(/^ws/, 'http')
+    : `http://${gwState.gatewayUrl}`;
   return `${gwHttp}/api/proxy/${backendId}`;
 }

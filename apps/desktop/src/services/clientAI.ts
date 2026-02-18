@@ -78,6 +78,78 @@ export function isClientAIConfigured(): boolean {
 }
 
 // ============================================
+// Connection testing & model discovery
+// ============================================
+
+/**
+ * Test API connection by sending a minimal non-streaming request.
+ */
+export async function testClientAIConnection(
+  config: Pick<ClientAIConfig, 'apiEndpoint' | 'apiKey'>,
+  model?: string,
+): Promise<{ ok: boolean; error?: string }> {
+  const url = `${config.apiEndpoint.replace(/\/$/, '')}/chat/completions`;
+
+  try {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${config.apiKey}`,
+      },
+      body: JSON.stringify({
+        model: model || 'gpt-4o',
+        messages: [{ role: 'user', content: 'hi' }],
+        max_tokens: 1,
+      }),
+    });
+
+    if (!response.ok) {
+      const text = await response.text().catch(() => '');
+      // 400 with model error is still a successful connection (auth works)
+      if (response.status === 400 || response.status === 404) {
+        // Model might not exist, but connection and auth are fine
+        return { ok: true };
+      }
+      return { ok: false, error: `HTTP ${response.status}: ${text.slice(0, 200)}` };
+    }
+
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+/**
+ * Fetch available models from the API endpoint.
+ * Returns sorted model ID list, or empty array on failure.
+ */
+export async function fetchAvailableModels(
+  config: Pick<ClientAIConfig, 'apiEndpoint' | 'apiKey'>,
+): Promise<string[]> {
+  const url = `${config.apiEndpoint.replace(/\/$/, '')}/models`;
+
+  try {
+    const response = await fetch(url, {
+      headers: {
+        'Authorization': `Bearer ${config.apiKey}`,
+      },
+    });
+
+    if (!response.ok) return [];
+
+    const json = await response.json();
+    const models: string[] = (json.data || [])
+      .map((m: { id?: string }) => m.id)
+      .filter(Boolean);
+
+    return models.sort();
+  } catch {
+    return [];
+  }
+}
+
+// ============================================
 // Streaming chat completion
 // ============================================
 

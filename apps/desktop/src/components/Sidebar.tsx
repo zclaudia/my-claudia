@@ -3,6 +3,8 @@ import { useProjectStore } from '../stores/projectStore';
 import { useServerStore } from '../stores/serverStore';
 import { toGatewayServerId } from '../stores/gatewayStore';
 import { useSupervisionStore } from '../stores/supervisionStore';
+import { usePermissionStore } from '../stores/permissionStore';
+import { useAskUserQuestionStore } from '../stores/askUserQuestionStore';
 import { useSwipeBack } from '../hooks/useSwipeBack';
 import { ProjectSettings } from './ProjectSettings';
 import { SettingsPanel } from './SettingsPanel';
@@ -39,6 +41,13 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
 
   const { connectionStatus, setActiveServer } = useServerStore();
   const supervisions = useSupervisionStore((s) => s.supervisions);
+
+  // Sessions with pending permission or question requests
+  const permSessionIds = usePermissionStore(s => new Set(s.pendingRequests.map(r => r.sessionId)));
+  const questionSessionIds = useAskUserQuestionStore(s => new Set(s.pendingRequests.map(r => r.sessionId)));
+  const hasPendingForSession = useCallback((sessionId: string) => {
+    return permSessionIds.has(sessionId) || questionSessionIds.has(sessionId);
+  }, [permSessionIds, questionSessionIds]);
 
   const [expandedProjects, setExpandedProjects] = useState<Set<string>>(new Set());
   const [showNewProjectForm, setShowNewProjectForm] = useState(false);
@@ -670,13 +679,16 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
                                       selectSession(session.id);
                                       if (onClose) onClose();
                                     }}
-                                    className={`flex-1 min-w-0 min-h-[44px] text-left px-2 rounded text-sm truncate flex items-center ${
+                                    className={`flex-1 min-w-0 min-h-[44px] text-left px-2 rounded text-sm truncate flex items-center gap-1 ${
                                       selectedSessionId === session.id
                                         ? 'bg-primary text-primary-foreground'
                                         : 'text-muted-foreground hover:bg-secondary active:bg-secondary hover:text-foreground'
                                     }`}
                                   >
-                                    {session.name || 'Untitled Session'}
+                                    <span className="truncate">{session.name || 'Untitled Session'}</span>
+                                    {hasPendingForSession(session.id) && (
+                                      <span className="ml-auto w-2 h-2 rounded-full bg-amber-500 animate-pulse shrink-0" title="Pending permission" />
+                                    )}
                                   </button>
                                 )}
                                 {/* Session menu button */}
@@ -1205,7 +1217,10 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
                                 }`}
                               >
                                 <span className="truncate">{session.name || 'Untitled Session'}</span>
-                                {supervisions[session.id] && (
+                                {hasPendingForSession(session.id) && (
+                                  <span className="ml-auto w-2 h-2 rounded-full bg-amber-500 animate-pulse shrink-0" title="Pending permission" />
+                                )}
+                                {supervisions[session.id] && !hasPendingForSession(session.id) && (
                                   <span
                                     className={`ml-auto w-2 h-2 rounded-full shrink-0 ${
                                       supervisions[session.id].status === 'active'

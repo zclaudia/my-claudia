@@ -2,6 +2,8 @@ import { create } from 'zustand';
 
 export interface PermissionRequest {
   requestId: string;
+  /** The session this permission request belongs to. */
+  sessionId: string;
   /** Source server ID (e.g. "gw:backend-1") — used to route the response to the correct backend. */
   serverId?: string;
   /** Human-readable backend name — shown in the modal when the request is from a non-active backend. */
@@ -28,6 +30,8 @@ interface PermissionState {
   clearAllRequests: () => void;
   clearStaleRequests: (serverId: string, validIds: Set<string>) => void;
   hasRequest: (requestId: string) => boolean;
+  getRequestsForSession: (sessionId: string) => PermissionRequest[];
+  getSessionsWithPendingRequests: () => string[];
 }
 
 export const usePermissionStore = create<PermissionState>((set, get) => ({
@@ -92,5 +96,15 @@ export const usePermissionStore = create<PermissionState>((set, get) => ({
   // Check if a request exists
   hasRequest: (requestId): boolean => {
     return get().pendingRequests.some((r: PermissionRequest) => r.requestId === requestId);
+  },
+
+  // Get all requests for a specific session
+  getRequestsForSession: (sessionId): PermissionRequest[] => {
+    return get().pendingRequests.filter(r => r.sessionId === sessionId);
+  },
+
+  // Get unique session IDs that have pending requests
+  getSessionsWithPendingRequests: (): string[] => {
+    return [...new Set(get().pendingRequests.map(r => r.sessionId))];
   },
 }));

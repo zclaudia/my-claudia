@@ -3,12 +3,16 @@ import { MessageList } from './MessageList';
 import { MessageInput, type Attachment } from './MessageInput';
 import { ToolCallList } from './ToolCallItem';
 import { LoadingIndicator } from './LoadingIndicator';
+import { InlinePermissionRequest } from './InlinePermissionRequest';
+import { InlineAskUserQuestion } from './InlineAskUserQuestion';
 import { ModeSelector } from './ModeSelector';
 import { SystemInfoButton } from './SystemInfoButton';
 import { ModelSelector } from './ModelSelector';
 import { TokenUsageDisplay } from './TokenUsageDisplay';
 import { useChatStore } from '../../stores/chatStore';
 import { useProjectStore } from '../../stores/projectStore';
+import { usePermissionStore } from '../../stores/permissionStore';
+import { useAskUserQuestionStore } from '../../stores/askUserQuestionStore';
 import { useConnection } from '../../contexts/ConnectionContext';
 import * as api from '../../services/api';
 import { uploadFile } from '../../services/fileUpload';
@@ -65,7 +69,11 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
   const sessionRunId = getSessionRunId(sessionId);
   const sessionToolCalls = getSessionToolCalls(sessionId);
   const { projects, sessions, providerCommands, providerCapabilities, setProviderCapabilities } = useProjectStore();
-  const { sendMessage: wsSendMessage, isConnected } = useConnection();
+  const { sendMessage: wsSendMessage, isConnected, handlePermissionDecision, handleAskUserAnswer } = useConnection();
+
+  // Per-session pending permission/question requests
+  const permissionRequests = usePermissionStore(state => state.pendingRequests.filter(r => r.sessionId === sessionId));
+  const askUserRequests = useAskUserQuestionStore(state => state.pendingRequests.filter(r => r.sessionId === sessionId));
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const [initialLoadDone, setInitialLoadDone] = useState(false);
@@ -618,6 +626,32 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
         {sessionToolCalls.length > 0 && (
           <div className="mt-4 px-4">
             <ToolCallList toolCalls={sessionToolCalls} />
+          </div>
+        )}
+
+        {/* Inline permission requests for this session */}
+        {permissionRequests.length > 0 && (
+          <div className="mt-4 space-y-3 max-w-full md:max-w-3xl">
+            {permissionRequests.map(req => (
+              <InlinePermissionRequest
+                key={req.requestId}
+                request={req}
+                onDecision={handlePermissionDecision}
+              />
+            ))}
+          </div>
+        )}
+
+        {/* Inline ask-user-question requests for this session */}
+        {askUserRequests.length > 0 && (
+          <div className="mt-4 space-y-3 max-w-full md:max-w-3xl">
+            {askUserRequests.map(req => (
+              <InlineAskUserQuestion
+                key={req.requestId}
+                request={req}
+                onAnswer={handleAskUserAnswer}
+              />
+            ))}
           </div>
         )}
 

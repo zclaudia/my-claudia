@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
@@ -8,6 +8,49 @@ import type { MessageWithToolCalls } from '../../stores/chatStore';
 import { useTheme, isDarkTheme } from '../../contexts/ThemeContext';
 import { downloadFile } from '../../services/fileUpload';
 import type { MessageInput, MessageAttachment } from '@my-claudia/shared';
+
+/**
+ * Extract <think>...</think> blocks from message content.
+ * Returns { thinking, content } where thinking is the extracted text
+ * and content is the remaining message without think tags.
+ */
+function extractThinking(text: string): { thinking: string; content: string } {
+  const thinkRegex = /<think>([\s\S]*?)<\/think>/g;
+  const parts: string[] = [];
+  let match;
+  while ((match = thinkRegex.exec(text)) !== null) {
+    parts.push(match[1].trim());
+  }
+  const content = text.replace(thinkRegex, '').trim();
+  return { thinking: parts.join('\n\n'), content };
+}
+
+/** Collapsible thinking block */
+function ThinkingBlock({ content }: { content: string }) {
+  const [expanded, setExpanded] = useState(false);
+
+  return (
+    <div className="mb-2 rounded-lg border border-border/50 bg-secondary/30 text-xs">
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="flex items-center gap-1.5 w-full px-3 py-1.5 text-muted-foreground hover:text-foreground transition-colors"
+      >
+        <svg
+          className={`w-3 h-3 transition-transform ${expanded ? 'rotate-90' : ''}`}
+          fill="none" stroke="currentColor" viewBox="0 0 24 24"
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+        </svg>
+        <span className="font-medium">Thinking</span>
+      </button>
+      {expanded && (
+        <div className="px-3 pb-2 text-muted-foreground whitespace-pre-wrap leading-relaxed">
+          {content}
+        </div>
+      )}
+    </div>
+  );
+}
 
 interface MessageListProps {
   messages: MessageWithToolCalls[];
@@ -255,80 +298,90 @@ function MessageItem({ message }: { message: MessageWithToolCalls }) {
             <p className="whitespace-pre-wrap leading-relaxed">{textContent}</p>
           </div>
         ) : (
-          <div className="prose dark:prose-invert prose-sm max-w-none">
-            <ReactMarkdown
-              remarkPlugins={[remarkGfm]}
-              components={{
-                code({ className, children, ...props }) {
-                  const match = /language-(\w+)/.exec(className || '');
-                  const isInline = !match && !String(children).includes('\n');
-
-                  if (isInline) {
-                    return (
-                      <code
-                        className="bg-secondary px-1.5 py-0.5 rounded text-sm text-primary"
-                        {...props}
-                      >
-                        {children}
-                      </code>
-                    );
-                  }
-
-                  const language = match ? match[1] : 'text';
-                  const codeString = String(children).replace(/\n$/, '');
-
-                  return <CodeBlock language={language}>{codeString}</CodeBlock>;
-                },
-                pre({ children }) {
-                  return <>{children}</>;
-                },
-                // Style links
-                a({ href, children }) {
-                  return (
-                    <a
-                      href={href}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-primary-400 hover:text-primary-300 underline"
-                    >
-                      {children}
-                    </a>
-                  );
-                },
-                // Style tables
-                table({ children }) {
-                  return (
-                    <div className="overflow-x-auto">
-                      <table className="min-w-full border-collapse border border-border">
-                        {children}
-                      </table>
-                    </div>
-                  );
-                },
-                th({ children }) {
-                  return (
-                    <th className="border border-border px-3 py-2 bg-secondary text-left">
-                      {children}
-                    </th>
-                  );
-                },
-                td({ children }) {
-                  return (
-                    <td className="border border-border px-3 py-2">
-                      {children}
-                    </td>
-                  );
-                },
-              }}
-            >
-              {message.content}
-            </ReactMarkdown>
-          </div>
+          <AssistantContent content={message.content} />
         )}
         <div className="mt-1 text-xs opacity-50">
           {new Date(message.createdAt).toLocaleTimeString()}
         </div>
       </div>
     </div>
+  );
+}
+
+/** Renders assistant message with thinking block extraction and markdown */
+function AssistantContent({ content }: { content: string }) {
+  const { thinking, content: mainContent } = useMemo(() => extractThinking(content), [content]);
+
+  return (
+    <>
+      {thinking && <ThinkingBlock content={thinking} />}
+      <div className="prose dark:prose-invert prose-sm max-w-none">
+        <ReactMarkdown
+          remarkPlugins={[remarkGfm]}
+          components={{
+            code({ className, children, ...props }) {
+              const match = /language-(\w+)/.exec(className || '');
+              const isInline = !match && !String(children).includes('\n');
+
+              if (isInline) {
+                return (
+                  <code
+                    className="bg-secondary px-1.5 py-0.5 rounded text-sm text-primary"
+                    {...props}
+                  >
+                    {children}
+                  </code>
+                );
+              }
+
+              const language = match ? match[1] : 'text';
+              const codeString = String(children).replace(/\n$/, '');
+
+              return <CodeBlock language={language}>{codeString}</CodeBlock>;
+            },
+            pre({ children }) {
+              return <>{children}</>;
+            },
+            a({ href, children }) {
+              return (
+                <a
+                  href={href}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-primary-400 hover:text-primary-300 underline"
+                >
+                  {children}
+                </a>
+              );
+            },
+            table({ children }) {
+              return (
+                <div className="overflow-x-auto">
+                  <table className="min-w-full border-collapse border border-border">
+                    {children}
+                  </table>
+                </div>
+              );
+            },
+            th({ children }) {
+              return (
+                <th className="border border-border px-3 py-2 bg-secondary text-left">
+                  {children}
+                </th>
+              );
+            },
+            td({ children }) {
+              return (
+                <td className="border border-border px-3 py-2">
+                  {children}
+                </td>
+              );
+            },
+          }}
+        >
+          {mainContent}
+        </ReactMarkdown>
+      </div>
+    </>
   );
 }

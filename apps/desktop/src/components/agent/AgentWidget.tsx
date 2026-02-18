@@ -5,6 +5,8 @@ import { useAgentStore } from '../../stores/agentStore';
 import { useServerStore } from '../../stores/serverStore';
 import { useConnection } from '../../contexts/ConnectionContext';
 import { useIsMobile } from '../../hooks/useMediaQuery';
+import { useGatewayStore } from '../../stores/gatewayStore';
+import { isClientAIConfigured } from '../../services/clientAI';
 import * as api from '../../services/api';
 
 export function AgentWidget() {
@@ -21,24 +23,33 @@ export function AgentWidget() {
     // Toggle expand
     store.toggleExpanded();
 
-    // If becoming expanded and not yet configured for this backend, ensure agent project/session
-    if (!store.isExpanded && !store.isConfigured && isConnected && activeServerId) {
-      try {
-        const response = await api.ensureAgent();
-        // Load saved provider selection from agent config
-        const config = await api.getAgentConfig();
-        let providerId: string | null = config.providerId || null;
-        if (!providerId) {
-          const providers = await api.getProviders();
-          const defaultProvider = providers.find(p => p.isDefault) || providers[0];
-          providerId = defaultProvider?.id || null;
-        }
+    // If becoming expanded and not yet configured, provision the agent
+    if (!store.isExpanded && !store.isConfigured && isConnected) {
+      // Mobile + Client-Side AI: ready immediately, no backend session needed
+      const isMobileGw = useGatewayStore.getState().hasDirectConfig();
+      if (isMobileGw && isClientAIConfigured()) {
+        useAgentStore.setState({ isConfigured: true });
+        return;
+      }
 
-        if (response.projectId && response.sessionId) {
-          useAgentStore.getState().configureForServer(activeServerId, response.projectId, response.sessionId, providerId);
+      // Backend Agent mode: ensure session on the active backend
+      if (activeServerId) {
+        try {
+          const response = await api.ensureAgent();
+          const config = await api.getAgentConfig();
+          let providerId: string | null = config.providerId || null;
+          if (!providerId) {
+            const providers = await api.getProviders();
+            const defaultProvider = providers.find(p => p.isDefault) || providers[0];
+            providerId = defaultProvider?.id || null;
+          }
+
+          if (response.projectId && response.sessionId) {
+            useAgentStore.getState().configureForServer(activeServerId, response.projectId, response.sessionId, providerId);
+          }
+        } catch (error) {
+          console.error('[AgentWidget] Failed to ensure agent:', error);
         }
-      } catch (error) {
-        console.error('[AgentWidget] Failed to ensure agent:', error);
       }
     }
   }, [isConnected, activeServerId]);
@@ -46,6 +57,10 @@ export function AgentWidget() {
   // Auto-ensure agent session when switching backends (if widget was opened before)
   useEffect(() => {
     if (!isConnected || !activeServerId) return;
+
+    // Mobile + Client-Side AI: no backend session needed
+    const isMobileGw = useGatewayStore.getState().hasDirectConfig();
+    if (isMobileGw && isClientAIConfigured()) return;
 
     const store = useAgentStore.getState();
 
