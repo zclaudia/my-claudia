@@ -72,8 +72,9 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
   const { sendMessage: wsSendMessage, isConnected, handlePermissionDecision, handleAskUserAnswer } = useConnection();
 
   // Per-session pending permission/question requests
-  const permissionRequests = usePermissionStore(state => state.pendingRequests.filter(r => r.sessionId === sessionId));
-  const askUserRequests = useAskUserQuestionStore(state => state.pendingRequests.filter(r => r.sessionId === sessionId));
+  // Also include requests without sessionId (backward compat with servers that haven't been updated)
+  const permissionRequests = usePermissionStore(state => state.pendingRequests.filter(r => r.sessionId === sessionId || !r.sessionId));
+  const askUserRequests = useAskUserQuestionStore(state => state.pendingRequests.filter(r => r.sessionId === sessionId || !r.sessionId));
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const [initialLoadDone, setInitialLoadDone] = useState(false);
@@ -82,6 +83,7 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
   // State for restoring message after cancel
   const [lastSentMessage, setLastSentMessage] = useState<{ content: string; attachments?: Attachment[] } | null>(null);
   const [restoreMessage, setRestoreMessage] = useState<{ content: string; attachments?: Attachment[] } | null>(null);
+  const [uploadError, setUploadError] = useState<string | null>(null);
 
   const sessionMessages = messages[sessionId] || [];
   const sessionPagination = pagination[sessionId];
@@ -92,6 +94,13 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
   const currentProject = currentSession
     ? projects.find(p => p.id === currentSession.projectId)
     : null;
+
+  // Reset per-session ephemeral state when switching sessions
+  useEffect(() => {
+    setLastSentMessage(null);
+    setRestoreMessage(null);
+    setUploadError(null);
+  }, [sessionId]);
 
   const scrollToBottom = useCallback((instant = false) => {
     messagesEndRef.current?.scrollIntoView({ behavior: instant ? 'instant' : 'smooth' });
@@ -275,8 +284,9 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
 
     // Save the message for potential restore after cancel
     setLastSentMessage({ content, attachments });
-    // Clear any previous restore message
+    // Clear any previous restore/error state
     setRestoreMessage(null);
+    setUploadError(null);
 
     // Upload files first and get fileIds
     let uploadedAttachments: MessageAttachment[] = [];
@@ -300,7 +310,7 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
         }
       } catch (error) {
         console.error('Failed to upload attachments:', error);
-        // TODO: Show error notification to user
+        setUploadError(error instanceof Error ? error.message : 'Failed to upload file');
         return;
       }
     }
@@ -670,6 +680,17 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
           </button>
         )}
       </div>
+
+      {/* Upload error banner */}
+      {uploadError && (
+        <div className="mx-2 md:mx-4 mt-2 px-3 py-2 rounded-lg bg-destructive/10 border border-destructive/30 text-destructive text-xs flex items-center gap-2">
+          <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
+          </svg>
+          <span className="flex-1">{uploadError}</span>
+          <button onClick={() => setUploadError(null)} className="text-destructive hover:text-destructive/80 font-medium">Dismiss</button>
+        </div>
+      )}
 
       {/* Input */}
       <div className="border-t border-border p-2 md:p-4 safe-bottom-pad">

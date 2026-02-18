@@ -1,4 +1,5 @@
 import { useServerStore } from '../stores/serverStore';
+import { useGatewayStore, isGatewayTarget } from '../stores/gatewayStore';
 
 export interface UploadedFile {
   fileId: string;
@@ -78,6 +79,15 @@ export async function uploadFile(
 
     xhr.open('POST', uploadUrl);
 
+    // Add gateway auth header if connecting via gateway
+    const activeId = useServerStore.getState().activeServerId;
+    if (isGatewayTarget(activeId)) {
+      const { gatewaySecret } = useGatewayStore.getState();
+      if (gatewaySecret) {
+        xhr.setRequestHeader('Authorization', `Bearer ${gatewaySecret}`);
+      }
+    }
+
     xhr.send(formData);
   });
 }
@@ -130,9 +140,16 @@ export async function downloadFile(fileId: string): Promise<{
     : `http://${server.address}`;
   const downloadUrl = `${baseUrl}/api/files/${fileId}`;
 
-  const headers: HeadersInit = {
-    'Content-Type': 'application/json'
-  };
+  const headers: HeadersInit = {};
+
+  // Add gateway auth header if connecting via gateway
+  const activeId = useServerStore.getState().activeServerId;
+  if (isGatewayTarget(activeId)) {
+    const { gatewaySecret } = useGatewayStore.getState();
+    if (gatewaySecret) {
+      headers['Authorization'] = `Bearer ${gatewaySecret}`;
+    }
+  }
 
   const response = await fetch(downloadUrl, { headers });
 

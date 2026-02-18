@@ -3,8 +3,8 @@ import type { AskUserQuestionItem } from '@my-claudia/shared';
 
 export interface AskUserQuestionRequest {
   requestId: string;
-  /** The session this question belongs to. */
-  sessionId: string;
+  /** The session this question belongs to (may be absent for older servers). */
+  sessionId?: string;
   /** Source server ID (e.g. "gw:backend-1") — used to route the answer to the correct backend. */
   serverId?: string;
   /** Human-readable backend name — shown in the modal when the request is from a non-active backend. */
@@ -110,6 +110,6 @@ export const useAskUserQuestionStore = create<AskUserQuestionState>((set, get) =
 
   // Get unique session IDs that have pending requests
   getSessionsWithPendingRequests: (): string[] => {
-    return [...new Set(get().pendingRequests.map(r => r.sessionId))];
+    return [...new Set(get().pendingRequests.map(r => r.sessionId).filter((id): id is string => !!id))];
   },
 }));
