@@ -18,6 +18,7 @@ import { useAgentStore } from '../stores/agentStore';
 import { GatewayTransport } from './transport/GatewayTransport';
 import { toGatewayServerId, isGatewayTarget, parseBackendId } from '../stores/gatewayStore';
 import { useSessionsStore } from '../stores/sessionsStore';
+import { useSupervisionStore } from '../stores/supervisionStore';
 import { getServerGatewayStatus } from '../services/api';
 
 const RECONNECT_INTERVAL = 3000;
@@ -359,6 +360,62 @@ export function useGatewayConnection() {
         // Reconcile session active status
         const activeSessionIds = new Set<string>(heartbeat.activeRuns.map((r: any) => r.sessionId as string));
         useSessionsStore.getState().reconcileActiveStatus(backendId, activeSessionIds);
+        break;
+      }
+
+      case 'agent_permission_intercepted':
+        useAgentStore.getState().recordInterception(
+          (msg as any).toolName,
+          (msg as any).decision,
+          (msg as any).sessionId
+        );
+        if (!useAgentStore.getState().isExpanded) {
+          useAgentStore.getState().setHasUnread(true);
+        }
+        break;
+
+      case 'background_task_update': {
+        const agentStore = useAgentStore.getState();
+        agentStore.updateBackgroundSession((msg as any).sessionId, {
+          status: (msg as any).status,
+          name: (msg as any).name,
+          parentSessionId: (msg as any).parentSessionId,
+        });
+        if ((msg as any).status === 'completed' || (msg as any).status === 'failed') {
+          const sid = (msg as any).sessionId;
+          setTimeout(() => {
+            useAgentStore.getState().removeBackgroundSession(sid);
+          }, 30000);
+        }
+        if (!agentStore.isExpanded) {
+          agentStore.setHasUnread(true);
+        }
+        break;
+      }
+
+      case 'background_permission_pending': {
+        const agentStore2 = useAgentStore.getState();
+        agentStore2.addBackgroundPermission((msg as any).sessionId, {
+          requestId: (msg as any).requestId,
+          toolName: (msg as any).toolName,
+          detail: (msg as any).detail,
+          timeoutSeconds: (msg as any).timeoutSeconds,
+        });
+        if (!agentStore2.isExpanded) {
+          agentStore2.setHasUnread(true);
+        }
+        break;
+      }
+
+      case 'supervision_update': {
+        const supStore = useSupervisionStore.getState();
+        const sup = (msg as any).supervision;
+        if (['completed', 'failed', 'cancelled'].includes(sup.status)) {
+          supStore.updateSupervision(sup);
+          setTimeout(() => supStore.removeSupervision(sup.sessionId), 10000);
+        } else {
+          supStore.updateSupervision(sup);
+        }
         break;
       }
 

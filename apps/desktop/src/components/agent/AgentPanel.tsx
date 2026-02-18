@@ -8,6 +8,9 @@ import type { BackgroundSessionInfo } from '../../stores/agentStore';
 import { useChatStore } from '../../stores/chatStore';
 import { useConnection } from '../../contexts/ConnectionContext';
 import * as api from '../../services/api';
+import { buildAgentContext } from '../../services/agentContext';
+import { isClientAIConfigured, getClientAIConfig } from '../../services/clientAI';
+import * as agentLoop from '../../services/agentLoop';
 import type { Message, SlashCommand, ProviderConfig } from '@my-claudia/shared';
 import type { MessageWithToolCalls } from '../../stores/chatStore';
 
@@ -50,6 +53,13 @@ export function AgentPanel({ isMobile = false, showHeader = true }: AgentPanelPr
   const [providerName, setProviderName] = useState<string | null>(null);
   const [bgTasksExpanded, setBgTasksExpanded] = useState(false);
 
+  // Client-side AI mode state
+  const [clientMessages, setClientMessages] = useState<MessageWithToolCalls[]>([]);
+  const [clientLoading, setClientLoading] = useState(false);
+
+  // Detect mode: use client-side AI when no backend agent session is available
+  const useClientMode = !agentSessionId && isClientAIConfigured();
+
   const bgSessionList = Object.values(backgroundSessions);
   const hasPending = bgSessionList.some(s => s.pendingPermissions.length > 0);
 
@@ -66,18 +76,43 @@ export function AgentPanel({ isMobile = false, showHeader = true }: AgentPanelPr
     ? (showHeader ? PANEL_CLASS_MOBILE : 'flex flex-col h-full')
     : PANEL_CLASS_DESKTOP;
 
+  // Message source depends on mode
   const sessionId = agentSessionId;
-  const sessionMessages = sessionId ? messages[sessionId] || [] : [];
-  const loading = sessionId ? isSessionLoading(sessionId) : false;
-  const sessionRunId = sessionId ? getSessionRunId(sessionId) : null;
-  const sessionToolCalls = sessionId ? getSessionToolCalls(sessionId) : [];
+  const sessionMessages = useClientMode
+    ? clientMessages
+    : (sessionId ? messages[sessionId] || [] : []);
+  const loading = useClientMode
+    ? clientLoading
+    : (sessionId ? isSessionLoading(sessionId) : false);
+  const sessionRunId = (!useClientMode && sessionId) ? getSessionRunId(sessionId) : null;
+  const sessionToolCalls = (!useClientMode && sessionId) ? getSessionToolCalls(sessionId) : [];
 
   const scrollToBottom = useCallback((instant = false) => {
     messagesEndRef.current?.scrollIntoView({ behavior: instant ? 'instant' : 'smooth' });
   }, []);
 
-  // Load messages when agent session is available
+  // Load messages — backend mode or client mode
   useEffect(() => {
+    if (useClientMode) {
+      // Client mode: load from IndexedDB
+      agentLoop.initAgentLoop().then((msgs) => {
+        // Convert ChatMessage[] to MessageWithToolCalls[]
+        const converted: MessageWithToolCalls[] = msgs
+          .filter(m => m.role === 'user' || (m.role === 'assistant' && m.content))
+          .map((m, i) => ({
+            id: `client-${i}`,
+            sessionId: 'client-agent',
+            role: m.role as 'user' | 'assistant',
+            content: m.content || '',
+            createdAt: Date.now(),
+          }));
+        setClientMessages(converted);
+        setInitialLoadDone(true);
+        setTimeout(() => scrollToBottom(true), 0);
+      });
+      return;
+    }
+
     if (!sessionId || !isConnected) return;
 
     setInitialLoadDone(false);
@@ -92,7 +127,7 @@ export function AgentPanel({ isMobile = false, showHeader = true }: AgentPanelPr
         setMessages(sessionId, [], { total: 0, hasMore: false });
         setInitialLoadDone(true);
       });
-  }, [sessionId, isConnected, setMessages, scrollToBottom]);
+  }, [sessionId, isConnected, useClientMode, setMessages, scrollToBottom]);
 
   // Auto-scroll on new messages
   useEffect(() => {
@@ -114,8 +149,15 @@ export function AgentPanel({ isMobile = false, showHeader = true }: AgentPanelPr
     }
   }, [sessionToolCalls, initialLoadDone, scrollToBottom]);
 
-  // Load provider name and slash commands based on selected provider
+  // Load provider name and slash commands (backend mode only)
   useEffect(() => {
+    if (useClientMode) {
+      const config = getClientAIConfig();
+      setProviderName(config?.model || 'Client AI');
+      setCommands([]);
+      return;
+    }
+
     if (!isConnected) return;
     api.getProviders()
       .then((list: ProviderConfig[]) => {
@@ -126,8 +168,9 @@ export function AgentPanel({ isMobile = false, showHeader = true }: AgentPanelPr
       })
       .then(setCommands)
       .catch(err => console.error('[AgentPanel] Failed to load provider info:', err));
-  }, [isConnected, selectedProviderId]);
+  }, [isConnected, selectedProviderId, useClientMode]);
 
+  // ---- Backend mode: send via WebSocket ----
   const sendAgentRun = useCallback((input: string, displayContent?: string) => {
     if (!sessionId || !isConnected) return;
 
@@ -145,18 +188,83 @@ export function AgentPanel({ isMobile = false, showHeader = true }: AgentPanelPr
       clientRequestId,
       sessionId,
       input,
+      systemContext: buildAgentContext(),
       ...(selectedProviderId && { providerId: selectedProviderId }),
     });
 
     setTimeout(() => scrollToBottom(), 100);
   }, [sessionId, isConnected, selectedProviderId, addMessage, wsSendMessage, scrollToBottom]);
 
+  // ---- Client mode: send via agentLoop ----
+  const sendClientMessage = useCallback(async (input: string) => {
+    // Add user message to display
+    const userMsg: MessageWithToolCalls = {
+      id: `client-${Date.now()}`,
+      sessionId: 'client-agent',
+      role: 'user',
+      content: input,
+      createdAt: Date.now(),
+    };
+    setClientMessages(prev => [...prev, userMsg]);
+    setClientLoading(true);
+
+    // Add placeholder for assistant response
+    const assistantId = `client-${Date.now() + 1}`;
+    const assistantMsg: MessageWithToolCalls = {
+      id: assistantId,
+      sessionId: 'client-agent',
+      role: 'assistant',
+      content: '',
+      createdAt: Date.now(),
+    };
+    setClientMessages(prev => [...prev, assistantMsg]);
+
+    setTimeout(() => scrollToBottom(), 100);
+
+    await agentLoop.sendMessage(input, {
+      onDelta: (content) => {
+        setClientMessages(prev =>
+          prev.map(m => m.id === assistantId
+            ? { ...m, content: m.content + content }
+            : m
+          )
+        );
+      },
+      onAssistantStart: () => {},
+      onToolCallStart: () => {},
+      onToolCallResult: () => {},
+      onComplete: () => {
+        setClientLoading(false);
+      },
+      onError: (error) => {
+        setClientMessages(prev =>
+          prev.map(m => m.id === assistantId
+            ? { ...m, content: m.content + `\n\n**Error:** ${error}` }
+            : m
+          )
+        );
+        setClientLoading(false);
+      },
+    });
+  }, [scrollToBottom]);
+
   const handleSend = useCallback((content: string) => {
     if (!content.trim()) return;
-    sendAgentRun(content);
-  }, [sendAgentRun]);
+    if (useClientMode) {
+      sendClientMessage(content);
+    } else {
+      sendAgentRun(content);
+    }
+  }, [useClientMode, sendClientMessage, sendAgentRun]);
 
   const handleCommand = useCallback(async (command: string, args: string) => {
+    if (useClientMode) {
+      // In client mode, treat all commands as plain text input
+      const commandText = args ? `${command} ${args}` : command;
+      sendClientMessage(commandText);
+      return;
+    }
+
     if (!sessionId) return;
 
     const commandDef = commands.find(c => c.command === command);
@@ -202,15 +310,23 @@ export function AgentPanel({ isMobile = false, showHeader = true }: AgentPanelPr
         createdAt: Date.now(),
       });
     }
-  }, [sessionId, commands, addMessage, sendAgentRun]);
+  }, [useClientMode, sessionId, commands, addMessage, sendAgentRun, sendClientMessage]);
 
   const handleCancel = useCallback(() => {
+    if (useClientMode) {
+      agentLoop.cancelAgentLoop();
+      setClientLoading(false);
+      return;
+    }
     if (!sessionRunId) return;
     wsSendMessage({
       type: 'run_cancel',
       runId: sessionRunId,
     });
-  }, [sessionRunId, wsSendMessage]);
+  }, [useClientMode, sessionRunId, wsSendMessage]);
+
+  // Determine if the panel is ready for input
+  const isReady = useClientMode ? true : (isConnected && !!sessionId);
 
   return (
     <div className={panelClass}>
@@ -222,6 +338,11 @@ export function AgentPanel({ isMobile = false, showHeader = true }: AgentPanelPr
             <span className="font-semibold text-sm">Agent</span>
             {providerName && (
               <span className="text-xs text-muted-foreground">{providerName}</span>
+            )}
+            {useClientMode && (
+              <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-blue-500/10 text-blue-500 font-medium">
+                client
+              </span>
             )}
             {interceptionCount > 0 && (
               <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-green-500/10 text-green-500 font-medium">
@@ -241,8 +362,8 @@ export function AgentPanel({ isMobile = false, showHeader = true }: AgentPanelPr
         </div>
       )}
 
-      {/* Background Tasks */}
-      {bgSessionList.length > 0 && (
+      {/* Background Tasks (backend mode only) */}
+      {!useClientMode && bgSessionList.length > 0 && (
         <BackgroundTasksBar
           sessions={bgSessionList}
           expanded={bgTasksExpanded}
@@ -262,7 +383,9 @@ export function AgentPanel({ isMobile = false, showHeader = true }: AgentPanelPr
             <div className="text-center">
               <p className="mb-1">Hi! I'm your Agent Assistant.</p>
               <p className="text-xs text-muted-foreground/70">
-                I can manage projects, sessions, and providers.
+                {useClientMode
+                  ? 'I can manage your backends via API.'
+                  : 'I can manage projects, sessions, and providers.'}
               </p>
             </div>
           </div>
@@ -287,11 +410,13 @@ export function AgentPanel({ isMobile = false, showHeader = true }: AgentPanelPr
           onSend={handleSend}
           onCommand={handleCommand}
           commands={commands}
-          onCancel={loading ? handleCancel : undefined}
-          disabled={!isConnected || !sessionId}
-          isLoading={loading || isLoading}
+          onCancel={(loading || clientLoading) ? handleCancel : undefined}
+          disabled={!isReady}
+          isLoading={loading || isLoading || clientLoading}
           placeholder={
-            !isConnected
+            useClientMode
+              ? (clientLoading ? 'Working...' : 'Ask me anything...')
+              : !isConnected
               ? 'Connecting...'
               : !sessionId
               ? 'Setting up...'

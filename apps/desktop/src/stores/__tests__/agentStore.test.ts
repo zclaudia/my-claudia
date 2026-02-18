@@ -293,6 +293,113 @@ describe('agentStore', () => {
     });
   });
 
+  describe('configureForServer', () => {
+    it('stores session info keyed by serverId', () => {
+      useAgentStore.getState().configureForServer('server-1', 'proj-1', 'sess-1');
+
+      const state = useAgentStore.getState();
+      expect(state.sessions['server-1']).toEqual({
+        projectId: 'proj-1',
+        sessionId: 'sess-1',
+        providerId: null,
+      });
+      // Also sets derived fields
+      expect(state.agentProjectId).toBe('proj-1');
+      expect(state.agentSessionId).toBe('sess-1');
+      expect(state.isConfigured).toBe(true);
+    });
+
+    it('stores providerId when specified', () => {
+      useAgentStore.getState().configureForServer('server-1', 'proj-1', 'sess-1', 'prov-1');
+
+      expect(useAgentStore.getState().sessions['server-1'].providerId).toBe('prov-1');
+    });
+
+    it('tracks multiple backends independently', () => {
+      useAgentStore.getState().configureForServer('server-1', 'proj-1', 'sess-1');
+      useAgentStore.getState().configureForServer('server-2', 'proj-2', 'sess-2', 'prov-2');
+
+      const state = useAgentStore.getState();
+      expect(state.sessions['server-1']).toEqual({ projectId: 'proj-1', sessionId: 'sess-1', providerId: null });
+      expect(state.sessions['server-2']).toEqual({ projectId: 'proj-2', sessionId: 'sess-2', providerId: 'prov-2' });
+    });
+  });
+
+  describe('setProviderForServer', () => {
+    it('updates provider for an existing backend session', () => {
+      useAgentStore.getState().configureForServer('server-1', 'proj-1', 'sess-1');
+      useAgentStore.getState().setProviderForServer('server-1', 'prov-new');
+
+      const state = useAgentStore.getState();
+      expect(state.sessions['server-1'].providerId).toBe('prov-new');
+      expect(state.selectedProviderId).toBe('prov-new');
+    });
+
+    it('does nothing if backend session does not exist', () => {
+      const before = useAgentStore.getState();
+      useAgentStore.getState().setProviderForServer('nonexistent', 'prov-1');
+      const after = useAgentStore.getState();
+
+      expect(after.sessions).toEqual(before.sessions);
+    });
+
+    it('sets provider to null', () => {
+      useAgentStore.getState().configureForServer('server-1', 'proj-1', 'sess-1', 'prov-1');
+      useAgentStore.getState().setProviderForServer('server-1', null);
+
+      expect(useAgentStore.getState().sessions['server-1'].providerId).toBeNull();
+      expect(useAgentStore.getState().selectedProviderId).toBeNull();
+    });
+  });
+
+  describe('syncToActiveServer', () => {
+    it('syncs derived fields from sessions map', () => {
+      useAgentStore.getState().configureForServer('server-1', 'proj-1', 'sess-1', 'prov-1');
+      useAgentStore.getState().configureForServer('server-2', 'proj-2', 'sess-2', 'prov-2');
+
+      // Switch to server-2
+      useAgentStore.getState().syncToActiveServer('server-2');
+
+      const state = useAgentStore.getState();
+      expect(state.agentProjectId).toBe('proj-2');
+      expect(state.agentSessionId).toBe('sess-2');
+      expect(state.selectedProviderId).toBe('prov-2');
+      expect(state.isConfigured).toBe(true);
+    });
+
+    it('clears derived fields when serverId is null', () => {
+      useAgentStore.getState().configureForServer('server-1', 'proj-1', 'sess-1');
+      useAgentStore.getState().syncToActiveServer(null);
+
+      const state = useAgentStore.getState();
+      expect(state.agentSessionId).toBeNull();
+      expect(state.agentProjectId).toBeNull();
+      expect(state.isConfigured).toBe(false);
+      expect(state.selectedProviderId).toBeNull();
+    });
+
+    it('clears derived fields when serverId has no session', () => {
+      useAgentStore.getState().syncToActiveServer('unknown-server');
+
+      const state = useAgentStore.getState();
+      expect(state.agentSessionId).toBeNull();
+      expect(state.isConfigured).toBe(false);
+    });
+
+    it('resets transient state on switch', () => {
+      useAgentStore.getState().configureForServer('server-1', 'proj-1', 'sess-1');
+      useAgentStore.getState().recordInterception('Bash', 'deny', 'sess-x');
+      useAgentStore.getState().updateBackgroundSession('bg-1', { status: 'running' });
+
+      useAgentStore.getState().syncToActiveServer('server-1');
+
+      const state = useAgentStore.getState();
+      expect(state.interceptionCount).toBe(0);
+      expect(state.lastInterception).toBeNull();
+      expect(state.backgroundSessions).toEqual({});
+    });
+  });
+
   describe('removeBackgroundSession', () => {
     it('removes a background session', () => {
       useAgentStore.getState().updateBackgroundSession('bg-1', { status: 'running' });

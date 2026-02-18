@@ -347,6 +347,7 @@ export interface RunStartMessage {
   permissionMode?: PermissionMode;  // Kept for backwards compat
   mode?: string;  // Generic mode/agent ID (new unified field)
   model?: string;  // Optional: override model (e.g. 'claude-sonnet-4-5-20250929')
+  systemContext?: string;  // Dynamic context prepended to system prompt (e.g. backend list for global agent)
 }
 
 export interface RunCancelMessage {

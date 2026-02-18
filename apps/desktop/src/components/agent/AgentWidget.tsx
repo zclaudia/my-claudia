@@ -8,7 +8,7 @@ import { useIsMobile } from '../../hooks/useMediaQuery';
 import * as api from '../../services/api';
 
 export function AgentWidget() {
-  const { isExpanded, isConfigured, setExpanded, setSelectedProviderId } = useAgentStore();
+  const { isExpanded, isConfigured, setExpanded } = useAgentStore();
   const { activeServerId } = useServerStore();
   const { isConnected } = useConnection();
   const isMobile = useIsMobile();
@@ -25,27 +25,23 @@ export function AgentWidget() {
     if (!store.isExpanded && !store.isConfigured && isConnected && activeServerId) {
       try {
         const response = await api.ensureAgent();
-        if (response.projectId && response.sessionId) {
-          useAgentStore.getState().configureForServer(activeServerId, response.projectId, response.sessionId);
-        }
-
         // Load saved provider selection from agent config
         const config = await api.getAgentConfig();
-        if (config.providerId) {
-          setSelectedProviderId(config.providerId);
-        } else {
-          // Fallback to default provider
+        let providerId: string | null = config.providerId || null;
+        if (!providerId) {
           const providers = await api.getProviders();
           const defaultProvider = providers.find(p => p.isDefault) || providers[0];
-          if (defaultProvider) {
-            setSelectedProviderId(defaultProvider.id);
-          }
+          providerId = defaultProvider?.id || null;
+        }
+
+        if (response.projectId && response.sessionId) {
+          useAgentStore.getState().configureForServer(activeServerId, response.projectId, response.sessionId, providerId);
         }
       } catch (error) {
         console.error('[AgentWidget] Failed to ensure agent:', error);
       }
     }
-  }, [isConnected, activeServerId, setSelectedProviderId]);
+  }, [isConnected, activeServerId]);
 
   // Auto-ensure agent session when switching backends (if widget was opened before)
   useEffect(() => {
@@ -62,10 +58,12 @@ export function AgentWidget() {
     // Only auto-ensure if widget has been opened at least once (has sessions from other backends)
     if (Object.keys(store.sessions).length === 0) return;
 
-    api.ensureAgent()
-      .then(response => {
+    Promise.all([api.ensureAgent(), api.getAgentConfig()])
+      .then(([response, config]) => {
         if (response.projectId && response.sessionId) {
-          useAgentStore.getState().configureForServer(activeServerId, response.projectId, response.sessionId);
+          useAgentStore.getState().configureForServer(
+            activeServerId, response.projectId, response.sessionId, config.providerId || null
+          );
         }
       })
       .catch(err => console.error('[AgentWidget] Auto-ensure on server switch failed:', err));

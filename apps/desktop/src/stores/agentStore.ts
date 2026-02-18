@@ -15,8 +15,8 @@ export interface BackgroundSessionInfo {
 }
 
 interface AgentState {
-  // Per-backend sessions (serverId → { projectId, sessionId })
-  sessions: Record<string, { projectId: string; sessionId: string }>;
+  // Per-backend sessions (serverId → { projectId, sessionId, providerId })
+  sessions: Record<string, { projectId: string; sessionId: string; providerId: string | null }>;
 
   // Derived from active server's session (backward compat)
   agentSessionId: string | null;
@@ -49,7 +49,9 @@ interface AgentState {
   setExpanded: (v: boolean) => void;
   setSelectedProviderId: (id: string | null) => void;
   /** Configure agent session for a specific backend */
-  configureForServer: (serverId: string, projectId: string, sessionId: string) => void;
+  configureForServer: (serverId: string, projectId: string, sessionId: string, providerId?: string | null) => void;
+  /** Update provider for a specific backend */
+  setProviderForServer: (serverId: string, providerId: string | null) => void;
   /** Backward compat: sets derived fields directly (no per-backend tracking) */
   configure: (projectId: string, sessionId: string) => void;
   /** Sync derived fields (agentSessionId etc.) from sessions map for given server */
@@ -88,12 +90,21 @@ export const useAgentStore = create<AgentState>((set) => ({
   setExpanded: (v) => set({ isExpanded: v }),
   setSelectedProviderId: (id) => set({ selectedProviderId: id }),
 
-  configureForServer: (serverId, projectId, sessionId) => set((state) => ({
-    sessions: { ...state.sessions, [serverId]: { projectId, sessionId } },
+  configureForServer: (serverId, projectId, sessionId, providerId) => set((state) => ({
+    sessions: { ...state.sessions, [serverId]: { projectId, sessionId, providerId: providerId ?? null } },
     agentProjectId: projectId,
     agentSessionId: sessionId,
     isConfigured: true,
   })),
+
+  setProviderForServer: (serverId, providerId) => set((state) => {
+    const existing = state.sessions[serverId];
+    if (!existing) return state;
+    return {
+      sessions: { ...state.sessions, [serverId]: { ...existing, providerId } },
+      selectedProviderId: providerId,
+    };
+  }),
 
   configure: (projectId, sessionId) => set({
     agentProjectId: projectId,
@@ -107,6 +118,11 @@ export const useAgentStore = create<AgentState>((set) => ({
       agentSessionId: session?.sessionId ?? null,
       agentProjectId: session?.projectId ?? null,
       isConfigured: !!session,
+      selectedProviderId: session?.providerId ?? null,
+      // Reset per-backend transient state on switch
+      interceptionCount: 0,
+      lastInterception: null,
+      backgroundSessions: {},
     };
   }),
 

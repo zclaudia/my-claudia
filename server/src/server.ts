@@ -855,6 +855,7 @@ async function handleRunStart(
     permissionMode?: 'default' | 'acceptEdits' | 'bypassPermissions' | 'plan';
     mode?: string;   // Generic mode/agent ID (new unified field)
     model?: string;
+    systemContext?: string;
   },
   db: ReturnType<typeof initDatabase>
 ): Promise<void> {
@@ -1135,7 +1136,7 @@ async function handleRunStart(
       env: providerConfig?.env,
       mode: modeValue,
       model: message.model,
-      systemPrompt: session.system_prompt || undefined,
+      systemPrompt: [message.systemContext, session.system_prompt].filter(Boolean).join('\n\n') || undefined,
     };
 
     const providerRunner = adapter.run(processedInput, runOptions, permissionCallback);

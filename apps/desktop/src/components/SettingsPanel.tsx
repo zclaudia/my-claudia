@@ -12,6 +12,7 @@ import { ServerGatewayConfig } from './ServerGatewayConfig';
 import { ImportDialog } from './ImportDialog';
 import { ImportOpenCodeDialog } from './ImportOpenCodeDialog';
 import * as api from '../services/api';
+import { getClientAIConfig, setClientAIConfig, type ClientAIConfig } from '../services/clientAI';
 import type { GatewayBackendInfo, ProviderConfig, AgentPermissionPolicy, NotificationConfig } from '@my-claudia/shared';
 import { DEFAULT_NOTIFICATION_CONFIG } from '@my-claudia/shared';
 
@@ -882,6 +883,82 @@ function AgentSettingsInline() {
           </button>
         </div>
       )}
+
+      {/* Client-side AI config (for mobile / no local backend) */}
+      <ClientAISettings />
+    </div>
+  );
+}
+
+function ClientAISettings() {
+  const [config, setConfig] = useState<ClientAIConfig>({ apiEndpoint: '', apiKey: '', model: '' });
+  const [dirty, setDirty] = useState(false);
+
+  useEffect(() => {
+    const saved = getClientAIConfig();
+    if (saved) setConfig(saved);
+  }, []);
+
+  const handleSave = useCallback(() => {
+    setClientAIConfig(config);
+    setDirty(false);
+  }, [config]);
+
+  const updateField = useCallback((field: keyof ClientAIConfig, value: string) => {
+    setConfig(prev => ({ ...prev, [field]: value }));
+    setDirty(true);
+  }, []);
+
+  return (
+    <div>
+      <h3 className="text-sm font-medium mb-3">Client-Side AI (Mobile)</h3>
+      <p className="text-xs text-muted-foreground mb-3">
+        When no local backend is available, the agent uses an OpenAI-compatible API directly.
+      </p>
+      <div className="space-y-3">
+        <div className="p-3 bg-secondary/50 rounded-lg space-y-3">
+          <div>
+            <label className="text-xs text-muted-foreground block mb-1">API Endpoint</label>
+            <input
+              type="text"
+              value={config.apiEndpoint}
+              onChange={(e) => updateField('apiEndpoint', e.target.value)}
+              placeholder="https://api.openai.com/v1"
+              className="w-full px-2 py-1.5 bg-secondary border border-border rounded text-sm focus:outline-none focus:border-primary"
+            />
+          </div>
+          <div>
+            <label className="text-xs text-muted-foreground block mb-1">API Key</label>
+            <input
+              type="password"
+              value={config.apiKey}
+              onChange={(e) => updateField('apiKey', e.target.value)}
+              placeholder="sk-..."
+              className="w-full px-2 py-1.5 bg-secondary border border-border rounded text-sm focus:outline-none focus:border-primary"
+            />
+          </div>
+          <div>
+            <label className="text-xs text-muted-foreground block mb-1">Model</label>
+            <input
+              type="text"
+              value={config.model}
+              onChange={(e) => updateField('model', e.target.value)}
+              placeholder="gpt-4o"
+              className="w-full px-2 py-1.5 bg-secondary border border-border rounded text-sm focus:outline-none focus:border-primary"
+            />
+          </div>
+        </div>
+        {dirty && (
+          <div className="flex justify-end">
+            <button
+              onClick={handleSave}
+              className="px-4 py-2 text-sm rounded bg-primary text-primary-foreground hover:bg-primary/90"
+            >
+              Save
+            </button>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
