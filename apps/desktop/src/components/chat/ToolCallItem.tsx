@@ -39,6 +39,15 @@ function formatToolInput(toolName: string, input: unknown): string {
       const questions = (obj.questions as Array<{ question: string }>) || [];
       return `${questions.length} question${questions.length !== 1 ? 's' : ''}`;
     }
+    case 'ExitPlanMode': {
+      const plan = (obj.plan as string) || '';
+      const firstLine = plan.split('\n').find(l => l.trim())?.replace(/^#+\s*/, '') || 'Plan ready for review';
+      return firstLine.length > 60 ? firstLine.slice(0, 60) + '…' : firstLine;
+    }
+    case 'EnterPlanMode':
+      return 'Entering plan mode';
+    case 'TodoWrite':
+      return 'Update task list';
     default:
       return JSON.stringify(input, null, 2);
   }
@@ -84,6 +93,70 @@ function TerminalOutput({ content, isError }: { content: string; isError?: boole
           {isFullyExpanded
             ? 'Collapse'
             : `Show all ${lines.length} lines`}
+        </button>
+      )}
+    </div>
+  );
+}
+
+// Plan content with lightweight markdown rendering
+const PLAN_PREVIEW_LINES = 20;
+
+function PlanContent({ content }: { content: string }) {
+  const [isFullyExpanded, setIsFullyExpanded] = useState(false);
+  const lines = content.split('\n');
+  const needsCollapse = lines.length > PLAN_PREVIEW_LINES;
+  const displayLines = needsCollapse && !isFullyExpanded
+    ? lines.slice(0, PLAN_PREVIEW_LINES)
+    : lines;
+
+  return (
+    <div className="rounded-lg border border-border overflow-hidden">
+      <div className="px-3 py-2 bg-primary/5 text-xs space-y-0.5">
+        {displayLines.map((line, i) => {
+          const trimmed = line.trimStart();
+          // Headings
+          if (trimmed.startsWith('### '))
+            return <div key={i} className="font-semibold text-foreground mt-2 mb-0.5">{trimmed.slice(4)}</div>;
+          if (trimmed.startsWith('## '))
+            return <div key={i} className="font-bold text-foreground mt-3 mb-0.5 text-sm">{trimmed.slice(3)}</div>;
+          if (trimmed.startsWith('# '))
+            return <div key={i} className="font-bold text-foreground mt-3 mb-1 text-base">{trimmed.slice(2)}</div>;
+          // List items
+          if (trimmed.startsWith('- ') || trimmed.startsWith('* '))
+            return <div key={i} className="ml-3 text-foreground">• {trimmed.slice(2)}</div>;
+          if (/^\d+\.\s/.test(trimmed)) {
+            const match = trimmed.match(/^(\d+\.)\s(.*)$/);
+            return <div key={i} className="ml-3 text-foreground"><span className="text-muted-foreground">{match?.[1]}</span> {match?.[2]}</div>;
+          }
+          // Code blocks (inline indicator)
+          if (trimmed.startsWith('```'))
+            return <div key={i} className="text-muted-foreground font-mono">{trimmed}</div>;
+          // Bold text
+          if (trimmed.includes('**')) {
+            const parts = trimmed.split(/(\*\*[^*]+\*\*)/g);
+            return (
+              <div key={i} className="text-foreground">
+                {parts.map((part, j) =>
+                  part.startsWith('**') && part.endsWith('**')
+                    ? <strong key={j}>{part.slice(2, -2)}</strong>
+                    : part
+                )}
+              </div>
+            );
+          }
+          // Empty line
+          if (!trimmed) return <div key={i} className="h-1" />;
+          // Regular text
+          return <div key={i} className="text-foreground">{line}</div>;
+        })}
+      </div>
+      {needsCollapse && (
+        <button
+          onClick={() => setIsFullyExpanded(!isFullyExpanded)}
+          className="w-full px-3 py-1.5 text-xs text-muted-foreground bg-muted/50 hover:bg-muted active:bg-muted/80 transition-colors text-center border-t border-border"
+        >
+          {isFullyExpanded ? 'Collapse' : `Show full plan (${lines.length} lines)`}
         </button>
       )}
     </div>
@@ -239,6 +312,51 @@ function ToolExpandedContent({ toolName, toolInput, status, result, isError }: {
     );
   }
 
+  // ExitPlanMode: show plan content formatted
+  if (toolName === 'ExitPlanMode' && input?.plan) {
+    const plan = String(input.plan);
+    return (
+      <div className="px-3 pb-3 border-t border-border/50">
+        <div className="mt-2">
+          <PlanContent content={plan} />
+        </div>
+        {status !== 'running' && result !== undefined && (
+          <div className="mt-2">
+            <pre
+              data-testid="tool-result"
+              className={`text-xs rounded p-2 overflow-x-auto whitespace-pre-wrap break-words ${
+                isError ? 'bg-destructive/20 text-destructive' : 'bg-primary/10 text-foreground'
+              }`}
+            >
+              {formatToolResult(result)}
+            </pre>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // TodoWrite: show task list
+  if (toolName === 'TodoWrite' && input?.todos) {
+    const todos = input.todos as Array<{ content: string; status: string }>;
+    return (
+      <div className="px-3 pb-3 border-t border-border/50">
+        <div className="mt-2 space-y-1">
+          {todos.map((todo, idx) => (
+            <div key={idx} className="flex items-center gap-2 text-xs">
+              <span className="flex-shrink-0">
+                {todo.status === 'completed' ? '✅' : todo.status === 'in_progress' ? '🔄' : '⬜'}
+              </span>
+              <span className={todo.status === 'completed' ? 'text-muted-foreground line-through' : 'text-foreground'}>
+                {todo.content}
+              </span>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
   // Default: generic JSON input + result
   return (
     <div className="px-3 pb-3 border-t border-border/50">
@@ -374,6 +492,13 @@ function getToolCallSummary(tc: ToolCallState): string {
       const questions = (input.questions as Array<{ header: string }>) || [];
       return `❓ ${questions[0]?.header || 'question'}`;
     }
+    case 'ExitPlanMode': {
+      const plan = String(input.plan || '');
+      const title = plan.split('\n').find(l => l.trim())?.replace(/^#+\s*/, '') || 'Plan';
+      return `📋 ${title.substring(0, 25)}`;
+    }
+    case 'EnterPlanMode':
+      return '📋 Enter plan mode';
     default:
       return `🔧 ${tc.toolName}`;
   }

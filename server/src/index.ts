@@ -77,6 +77,10 @@ async function connectToGateway(config: GatewayConfig): Promise<void> {
     console.log(`   Proxy: ${config.proxyUrl}`);
   }
 
+  // Expose gateway config to providers (e.g. claude-sdk getFileData) via env vars
+  process.env.GATEWAY_URL = config.gatewayUrl;
+  process.env.GATEWAY_SECRET = config.gatewaySecret;
+
   const gatewayClientConfig: any = {
     gatewayUrl: config.gatewayUrl,
     gatewaySecret: config.gatewaySecret,

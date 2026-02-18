@@ -19,6 +19,8 @@ export const ICONS = {
     AskUserQuestion: '❓',
     TodoWrite: '✅',
     NotebookEdit: '📓',
+    ExitPlanMode: '📋',
+    EnterPlanMode: '📋',
     default: '🔧',
   },
 
