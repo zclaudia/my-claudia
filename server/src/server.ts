@@ -712,6 +712,7 @@ function cancelRun(runId: string): void {
     sendMessage(run.client.ws, {
       type: 'run_failed',
       runId,
+      sessionId: run.sessionId,
       error: 'Run cancelled by user'
     });
 
@@ -943,6 +944,7 @@ async function handleRunStart(
   sendMessage(client.ws, {
     type: 'run_started',
     runId,
+    sessionId: message.sessionId,
     clientRequestId: message.clientRequestId
   });
 
@@ -1205,6 +1207,7 @@ async function handleRunStart(
             sendMessage(client.ws, {
               type: 'delta',
               runId,
+              sessionId: activeRun.sessionId,
               content: msg.content
             });
           }
@@ -1226,6 +1229,7 @@ async function handleRunStart(
           sendMessage(client.ws, {
             type: 'tool_use',
             runId,
+            sessionId: activeRun.sessionId,
             toolUseId: msg.toolUseId || '',
             toolName: msg.toolName || '',
             toolInput: msg.toolInput
@@ -1246,6 +1250,7 @@ async function handleRunStart(
           sendMessage(client.ws, {
             type: 'tool_result',
             runId,
+            sessionId: activeRun.sessionId,
             toolUseId: msg.toolUseId || '',
             toolName: toolName,
             result: msg.toolResult,
@@ -1261,6 +1266,7 @@ async function handleRunStart(
             sendMessage(client.ws, {
               type: 'delta',
               runId,
+              sessionId: activeRun.sessionId,
               content: msg.content
             });
           }
@@ -1275,6 +1281,7 @@ async function handleRunStart(
               sendMessage(client.ws, {
                 type: 'delta',
                 runId,
+                sessionId: activeRun.sessionId,
                 content: statusOutput
               });
             }
@@ -1289,6 +1296,7 @@ async function handleRunStart(
           sendMessage(client.ws, {
             type: 'run_completed',
             runId,
+            sessionId: activeRun.sessionId,
             usage: msg.usage
           });
           notificationService.notify({
@@ -1320,6 +1328,7 @@ async function handleRunStart(
     sendMessage(client.ws, {
       type: 'run_failed',
       runId,
+      sessionId: activeRun.sessionId,
       error: error instanceof Error ? error.message : 'Unknown error'
     });
     notificationService.notify({

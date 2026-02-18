@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { useSessionsStore, type RemoteSession } from '../stores/sessionsStore';
 import { useServerStore } from '../stores/serverStore';
 import { useProjectStore } from '../stores/projectStore';
-import { isGatewayTarget } from '../stores/gatewayStore';
+import { isGatewayTarget, parseBackendId, toGatewayServerId } from '../stores/gatewayStore';
 
 interface ActiveSessionsPanelProps {
   onSessionSelect?: (backendId: string, sessionId: string) => void;
@@ -19,9 +19,7 @@ export function ActiveSessionsPanel({ onSessionSelect }: ActiveSessionsPanelProp
     if (!activeServerId || !isGatewayTarget(activeServerId)) {
       return null;
     }
-    return activeServerId.startsWith('gateway:')
-      ? activeServerId.slice('gateway:'.length)
-      : null;
+    return parseBackendId(activeServerId);
   }, [activeServerId]);
 
   // Combine all active sessions from all backends (including local and current)
@@ -66,7 +64,7 @@ export function ActiveSessionsPanel({ onSessionSelect }: ActiveSessionsPanelProp
     }
 
     // Find server info from servers list
-    const server = servers.find(s => s.id === `gateway:${backendId}`);
+    const server = servers.find(s => s.id === toGatewayServerId(backendId));
     const baseName = server?.name || `Backend ${backendId.slice(0, 8)}`;
 
     // Mark current backend

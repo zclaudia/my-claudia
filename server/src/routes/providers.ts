@@ -556,9 +556,11 @@ async function getOpenCodeCapabilities(
         default: Record<string, string>;
       };
 
+      const connectedIds = new Set(data.connected || []);
+
       for (const provider of data.all) {
-        // Skip providers not in opencode.json config
-        if (!configuredProviderIds.includes(provider.id)) continue;
+        // Include providers that are either configured in opencode.json OR connected (e.g. via opencode auth login)
+        if (!configuredProviderIds.includes(provider.id) && !connectedIds.has(provider.id)) continue;
         // Skip providers already handled via config models
         if (handledProviders.has(provider.id)) {
           // But update the group name if serve API has a better display name

@@ -2,12 +2,14 @@ import { useCallback, useRef, useEffect } from 'react';
 import { AgentBubble } from './AgentBubble';
 import { AgentPanel } from './AgentPanel';
 import { useAgentStore } from '../../stores/agentStore';
+import { useServerStore } from '../../stores/serverStore';
 import { useConnection } from '../../contexts/ConnectionContext';
 import { useIsMobile } from '../../hooks/useMediaQuery';
 import * as api from '../../services/api';
 
 export function AgentWidget() {
-  const { isExpanded, isConfigured, configure, setExpanded, setSelectedProviderId } = useAgentStore();
+  const { isExpanded, isConfigured, setExpanded, setSelectedProviderId } = useAgentStore();
+  const { activeServerId } = useServerStore();
   const { isConnected } = useConnection();
   const isMobile = useIsMobile();
   const panelRef = useRef<HTMLDivElement>(null);
@@ -19,12 +21,12 @@ export function AgentWidget() {
     // Toggle expand
     store.toggleExpanded();
 
-    // If becoming expanded and not yet configured, ensure agent project/session
-    if (!store.isExpanded && !store.isConfigured && isConnected) {
+    // If becoming expanded and not yet configured for this backend, ensure agent project/session
+    if (!store.isExpanded && !store.isConfigured && isConnected && activeServerId) {
       try {
         const response = await api.ensureAgent();
         if (response.projectId && response.sessionId) {
-          configure(response.projectId, response.sessionId);
+          useAgentStore.getState().configureForServer(activeServerId, response.projectId, response.sessionId);
         }
 
         // Load saved provider selection from agent config
@@ -43,7 +45,31 @@ export function AgentWidget() {
         console.error('[AgentWidget] Failed to ensure agent:', error);
       }
     }
-  }, [isConnected, configure, setSelectedProviderId]);
+  }, [isConnected, activeServerId, setSelectedProviderId]);
+
+  // Auto-ensure agent session when switching backends (if widget was opened before)
+  useEffect(() => {
+    if (!isConnected || !activeServerId) return;
+
+    const store = useAgentStore.getState();
+
+    // Sync derived state to the new active server
+    store.syncToActiveServer(activeServerId);
+
+    // Already configured for this backend
+    if (store.sessions[activeServerId]) return;
+
+    // Only auto-ensure if widget has been opened at least once (has sessions from other backends)
+    if (Object.keys(store.sessions).length === 0) return;
+
+    api.ensureAgent()
+      .then(response => {
+        if (response.projectId && response.sessionId) {
+          useAgentStore.getState().configureForServer(activeServerId, response.projectId, response.sessionId);
+        }
+      })
+      .catch(err => console.error('[AgentWidget] Auto-ensure on server switch failed:', err));
+  }, [activeServerId, isConnected]);
 
   // Desktop: click outside to close
   useEffect(() => {

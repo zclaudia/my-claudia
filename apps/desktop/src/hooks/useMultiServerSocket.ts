@@ -118,9 +118,10 @@ export function useMultiServerSocket() {
           break;
 
         case 'delta': {
-          const runSession = useChatStore.getState().activeRuns[message.runId];
-          if (runSession && (serverId === activeServerId || message.runId === useAgentStore.getState().activeRunId)) {
-            appendToLastMessage(runSession, message.content);
+          // Use sessionId from message (preferred), fall back to activeRuns lookup
+          const deltaSession = message.sessionId || useChatStore.getState().activeRuns[message.runId];
+          if (deltaSession) {
+            appendToLastMessage(deltaSession, message.content);
             // Mark unread for agent if panel is closed
             if (message.runId === useAgentStore.getState().activeRunId && !useAgentStore.getState().isExpanded) {
               useAgentStore.getState().setHasUnread(true);
@@ -130,6 +131,8 @@ export function useMultiServerSocket() {
         }
 
         case 'run_started': {
+          // Use sessionId from server message (preferred), fall back to ref for old servers
+          const targetSessionId = message.sessionId || currentSessionId;
           const isAgentRun = message.clientRequestId?.startsWith('agent_');
           if (isAgentRun) {
             const agentSessionId = useAgentStore.getState().agentSessionId;
@@ -145,24 +148,27 @@ export function useMultiServerSocket() {
                 createdAt: Date.now()
               });
             }
-          } else if (serverId === activeServerId && currentSessionId) {
-            startRun(message.runId, currentSessionId);
-            clearSystemInfo();
-            addMessage(currentSessionId, {
+          } else if (targetSessionId) {
+            startRun(message.runId, targetSessionId);
+            if (serverId === activeServerId) {
+              clearSystemInfo();
+            }
+            addMessage(targetSessionId, {
               id: message.runId,
-              sessionId: currentSessionId,
+              sessionId: targetSessionId,
               role: 'assistant',
               content: '',
               createdAt: Date.now()
             });
             // Update session active status
-            useProjectStore.getState().setSessionActive(currentSessionId, true);
+            useProjectStore.getState().setSessionActive(targetSessionId, true);
           }
           break;
         }
 
         case 'run_completed': {
-          const runSession = useChatStore.getState().activeRuns[message.runId];
+          // Use sessionId from message (preferred), fall back to activeRuns lookup
+          const completedSession = message.sessionId || useChatStore.getState().activeRuns[message.runId];
           // Clean up agent run state
           if (message.runId === useAgentStore.getState().activeRunId) {
             useAgentStore.getState().setActiveRunId(null);
@@ -170,24 +176,23 @@ export function useMultiServerSocket() {
           }
           // Clear ask_user_question requests for this server regardless of active state
           useAskUserQuestionStore.getState().clearRequestsForServer(serverId);
-          if (serverId === activeServerId || runSession) {
-            if (runSession) {
-              finalizeToolCallsToMessage(message.runId);
-              if (message.usage) {
-                addSessionUsage(runSession, message.usage);
-              }
-              // Update session active status (skip for agent sessions)
-              if (runSession !== useAgentStore.getState().agentSessionId) {
-                useProjectStore.getState().setSessionActive(runSession, false);
-              }
+          if (completedSession) {
+            finalizeToolCallsToMessage(message.runId);
+            if (message.usage) {
+              addSessionUsage(completedSession, message.usage);
             }
-            endRun(message.runId);
+            // Update session active status (skip for agent sessions)
+            if (completedSession !== useAgentStore.getState().agentSessionId) {
+              useProjectStore.getState().setSessionActive(completedSession, false);
+            }
           }
+          endRun(message.runId);
           break;
         }
 
         case 'run_failed': {
-          const runSession = useChatStore.getState().activeRuns[message.runId];
+          // Use sessionId from message (preferred), fall back to activeRuns lookup
+          const failedSession = message.sessionId || useChatStore.getState().activeRuns[message.runId];
           // Clean up agent run state
           if (message.runId === useAgentStore.getState().activeRunId) {
             useAgentStore.getState().setActiveRunId(null);
@@ -195,35 +200,38 @@ export function useMultiServerSocket() {
           }
           // Clear ask_user_question requests for this server regardless of active state
           useAskUserQuestionStore.getState().clearRequestsForServer(serverId);
-          if (serverId === activeServerId || runSession) {
-            if (runSession) {
-              // Show error in the assistant message so user can see what went wrong
-              if (message.error) {
-                appendToLastMessage(runSession, `\n\n**Error:** ${message.error}`);
-              }
-              finalizeToolCallsToMessage(message.runId);
-              // Update session active status (skip for agent sessions)
-              if (runSession !== useAgentStore.getState().agentSessionId) {
-                useProjectStore.getState().setSessionActive(runSession, false);
-              }
+          if (failedSession) {
+            if (message.error) {
+              appendToLastMessage(failedSession, `\n\n**Error:** ${message.error}`);
             }
-            endRun(message.runId);
-            console.error(`[Socket:${serverId}] Run failed:`, message.error);
+            finalizeToolCallsToMessage(message.runId);
+            // Update session active status (skip for agent sessions)
+            if (failedSession !== useAgentStore.getState().agentSessionId) {
+              useProjectStore.getState().setSessionActive(failedSession, false);
+            }
+          }
+          endRun(message.runId);
+          console.error(`[Socket:${serverId}] Run failed:`, message.error);
+          break;
+        }
+
+        case 'tool_use': {
+          // Use sessionId from message or fall back to activeRuns lookup
+          const toolSession = message.sessionId || useChatStore.getState().activeRuns[message.runId];
+          if (toolSession) {
+            addToolCall(message.runId, message.toolUseId, message.toolName, message.toolInput);
           }
           break;
         }
 
-        case 'tool_use':
-          if (serverId === activeServerId || message.runId === useAgentStore.getState().activeRunId) {
-            addToolCall(message.runId, message.toolUseId, message.toolName, message.toolInput);
-          }
-          break;
-
-        case 'tool_result':
-          if (serverId === activeServerId || message.runId === useAgentStore.getState().activeRunId) {
+        case 'tool_result': {
+          // Use sessionId from message or fall back to activeRuns lookup
+          const resultSession = message.sessionId || useChatStore.getState().activeRuns[message.runId];
+          if (resultSession) {
             updateToolCallResult(message.runId, message.toolUseId, message.result, message.isError);
           }
           break;
+        }
 
         case 'permission_request': {
           // Accept from all connected servers, not just active

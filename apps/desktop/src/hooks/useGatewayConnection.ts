@@ -14,6 +14,7 @@ import { useChatStore } from '../stores/chatStore';
 import { useProjectStore } from '../stores/projectStore';
 import { usePermissionStore } from '../stores/permissionStore';
 import { useAskUserQuestionStore } from '../stores/askUserQuestionStore';
+import { useAgentStore } from '../stores/agentStore';
 import { GatewayTransport } from './transport/GatewayTransport';
 import { toGatewayServerId, isGatewayTarget, parseBackendId } from '../stores/gatewayStore';
 import { useSessionsStore } from '../stores/sessionsStore';
@@ -149,74 +150,128 @@ export function useGatewayConnection() {
         break;
 
       case 'delta': {
-        const runSession = useChatStore.getState().activeRuns[msg.runId];
-        if (serverId === currentActiveId && runSession) {
-          appendToLastMessage(runSession, msg.content);
+        // Use sessionId from message (preferred), fall back to activeRuns lookup
+        const deltaSession = msg.sessionId || useChatStore.getState().activeRuns[msg.runId];
+        if (deltaSession) {
+          appendToLastMessage(deltaSession, msg.content);
+          // Mark unread for agent if panel is closed
+          if (msg.runId === useAgentStore.getState().activeRunId && !useAgentStore.getState().isExpanded) {
+            useAgentStore.getState().setHasUnread(true);
+          }
+        } else if (msg.runId) {
+          console.warn(`[GatewayConn:${backendId}] Delta for untracked run ${msg.runId} (server=${serverId}, active=${currentActiveId})`);
         }
         break;
       }
 
-      case 'run_started':
-        if (serverId === currentActiveId && currentSessionId) {
-          startRun(msg.runId, currentSessionId);
-          clearSystemInfo();
-          addMessage(currentSessionId, {
+      case 'run_started': {
+        // Use sessionId from server message (preferred), fall back to ref for old servers
+        const targetSessionId = msg.sessionId || currentSessionId;
+        const isAgentRun = (msg as any).clientRequestId?.startsWith('agent_');
+        if (isAgentRun) {
+          const agentSessionId = useAgentStore.getState().agentSessionId;
+          if (agentSessionId) {
+            startRun(msg.runId, agentSessionId);
+            useAgentStore.getState().setActiveRunId(msg.runId);
+            useAgentStore.getState().setLoading(true);
+            addMessage(agentSessionId, {
+              id: msg.runId,
+              sessionId: agentSessionId,
+              role: 'assistant',
+              content: '',
+              createdAt: Date.now()
+            });
+          }
+        } else if (targetSessionId) {
+          startRun(msg.runId, targetSessionId);
+          if (serverId === currentActiveId) {
+            clearSystemInfo();
+          }
+          addMessage(targetSessionId, {
             id: msg.runId,
-            sessionId: currentSessionId,
+            sessionId: targetSessionId,
             role: 'assistant',
             content: '',
             createdAt: Date.now()
           });
           // Update session active status
-          useProjectStore.getState().setSessionActive(currentSessionId, true);
+          useProjectStore.getState().setSessionActive(targetSessionId, true);
+        } else {
+          console.warn(`[GatewayConn:${backendId}] run_started ignored: no sessionId (server=${serverId}, active=${currentActiveId})`);
         }
         break;
+      }
 
       case 'run_completed': {
-        const runSession = useChatStore.getState().activeRuns[msg.runId];
+        // Use sessionId from message (preferred), fall back to activeRuns lookup
+        const completedSession = msg.sessionId || useChatStore.getState().activeRuns[msg.runId];
+        // Clean up agent run state
+        if (msg.runId === useAgentStore.getState().activeRunId) {
+          useAgentStore.getState().setActiveRunId(null);
+          useAgentStore.getState().setLoading(false);
+        }
         // Clear ask_user_question requests for this backend regardless of active state
         useAskUserQuestionStore.getState().clearRequestsForServer(serverId);
-        if (serverId === currentActiveId) {
-          if (runSession) {
-            finalizeToolCallsToMessage(msg.runId);
-            if (msg.usage) {
-              addSessionUsage(runSession, msg.usage);
-            }
-            // Update session active status
-            useProjectStore.getState().setSessionActive(runSession, false);
+        if (completedSession) {
+          finalizeToolCallsToMessage(msg.runId);
+          if (msg.usage) {
+            addSessionUsage(completedSession, msg.usage);
           }
-          endRun(msg.runId);
+          // Update session active status (skip for agent sessions)
+          if (completedSession !== useAgentStore.getState().agentSessionId) {
+            useProjectStore.getState().setSessionActive(completedSession, false);
+          }
         }
+        endRun(msg.runId);
         break;
       }
 
       case 'run_failed': {
-        const runSession = useChatStore.getState().activeRuns[msg.runId];
+        // Use sessionId from message (preferred), fall back to activeRuns lookup
+        const failedSession = msg.sessionId || useChatStore.getState().activeRuns[msg.runId];
+        // Clean up agent run state
+        if (msg.runId === useAgentStore.getState().activeRunId) {
+          useAgentStore.getState().setActiveRunId(null);
+          useAgentStore.getState().setLoading(false);
+        }
         // Clear ask_user_question requests for this backend regardless of active state
         useAskUserQuestionStore.getState().clearRequestsForServer(serverId);
-        if (serverId === currentActiveId) {
-          if (runSession) {
-            finalizeToolCallsToMessage(msg.runId);
-            // Update session active status
-            useProjectStore.getState().setSessionActive(runSession, false);
+        if (failedSession) {
+          if (msg.error) {
+            appendToLastMessage(failedSession, `\n\n**Error:** ${msg.error}`);
           }
-          endRun(msg.runId);
-          console.error(`[GatewayConn:${backendId}] Run failed:`, msg.error);
+          finalizeToolCallsToMessage(msg.runId);
+          // Update session active status (skip for agent sessions)
+          if (failedSession !== useAgentStore.getState().agentSessionId) {
+            useProjectStore.getState().setSessionActive(failedSession, false);
+          }
+        }
+        endRun(msg.runId);
+        console.error(`[GatewayConn:${backendId}] Run failed:`, msg.error);
+        break;
+      }
+
+      case 'tool_use': {
+        // Use sessionId from message or fall back to activeRuns lookup
+        const toolSession = msg.sessionId || useChatStore.getState().activeRuns[msg.runId];
+        if (toolSession) {
+          addToolCall(msg.runId, msg.toolUseId, msg.toolName, msg.toolInput);
+        } else if (msg.runId) {
+          console.warn(`[GatewayConn:${backendId}] tool_use for untracked run ${msg.runId}`);
         }
         break;
       }
 
-      case 'tool_use':
-        if (serverId === currentActiveId) {
-          addToolCall(msg.runId, msg.toolUseId, msg.toolName, msg.toolInput);
-        }
-        break;
-
-      case 'tool_result':
-        if (serverId === currentActiveId) {
+      case 'tool_result': {
+        // Use sessionId from message or fall back to activeRuns lookup
+        const resultSession = msg.sessionId || useChatStore.getState().activeRuns[msg.runId];
+        if (resultSession) {
           updateToolCallResult(msg.runId, msg.toolUseId, msg.result, msg.isError);
+        } else if (msg.runId) {
+          console.warn(`[GatewayConn:${backendId}] tool_result for untracked run ${msg.runId}`);
         }
         break;
+      }
 
       case 'permission_request': {
         // Gateway handles subscription filtering — no local check needed

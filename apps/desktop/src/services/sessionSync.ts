@@ -27,11 +27,22 @@ const FULL_SYNC_INTERVAL = 300000; // 5 minutes
 /**
  * Get the base URL for the active server
  */
-function getBaseUrl(): string | null {
+function getBaseUrl(targetBackendId?: string): string | null {
+  // If a specific gateway backend is targeted, route directly to it
+  // regardless of which backend is currently active
+  if (targetBackendId) {
+    const { gatewayUrl } = useGatewayStore.getState();
+    if (!gatewayUrl) return null;
+    const gwAddr = gatewayUrl.includes('://')
+      ? gatewayUrl.replace(/^ws/, 'http')
+      : `http://${gatewayUrl}`;
+    return `${gwAddr}/api/proxy/${targetBackendId}`;
+  }
+
+  // Fallback: use active server
   const activeId = useServerStore.getState().activeServerId;
   if (!activeId) return null;
 
-  // Gateway target: route through Gateway's HTTP proxy endpoint
   if (isGatewayTarget(activeId)) {
     const backendId = parseBackendId(activeId);
     const { gatewayUrl } = useGatewayStore.getState();
@@ -55,11 +66,20 @@ function getBaseUrl(): string | null {
 /**
  * Get auth headers for API requests
  */
-function getAuthHeaders(): Record<string, string> {
+function getAuthHeaders(isGatewayBackend?: boolean): Record<string, string> {
+  // If we know this is a gateway backend sync, use gateway credentials directly
+  if (isGatewayBackend) {
+    const { gatewaySecret } = useGatewayStore.getState();
+    if (!gatewaySecret) return {};
+    return {
+      Authorization: `Bearer ${gatewaySecret}`,
+    };
+  }
+
+  // Fallback: infer from active server
   const activeId = useServerStore.getState().activeServerId;
   if (!activeId) return {};
 
-  // Gateway target
   if (isGatewayTarget(activeId)) {
     const { gatewaySecret } = useGatewayStore.getState();
     if (!gatewaySecret) return {};
@@ -85,7 +105,7 @@ async function incrementalSync(backendId: string): Promise<void> {
     const state = syncStates.get(backendId);
     if (!state) return;
 
-    const baseUrl = getBaseUrl();
+    const baseUrl = getBaseUrl(backendId);
     if (!baseUrl) {
       console.warn('[SessionSync] No base URL available');
       return;
@@ -95,7 +115,7 @@ async function incrementalSync(backendId: string): Promise<void> {
     const response = await fetch(url, {
       headers: {
         'Content-Type': 'application/json',
-        ...getAuthHeaders(),
+        ...getAuthHeaders(true),
       },
     });
 
@@ -151,7 +171,7 @@ async function fullSync(backendId: string): Promise<void> {
     const state = syncStates.get(backendId);
     if (!state) return;
 
-    const baseUrl = getBaseUrl();
+    const baseUrl = getBaseUrl(backendId);
     if (!baseUrl) {
       console.warn('[SessionSync] No base URL available');
       return;
@@ -162,7 +182,7 @@ async function fullSync(backendId: string): Promise<void> {
     const response = await fetch(url, {
       headers: {
         'Content-Type': 'application/json',
-        ...getAuthHeaders(),
+        ...getAuthHeaders(true),
       },
     });
 

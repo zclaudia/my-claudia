@@ -527,6 +527,7 @@ export interface AuthResultMessage {
 export interface RunStartedMessage {
   type: 'run_started';
   runId: string;
+  sessionId: string;
   clientRequestId: string;
 }
 
@@ -558,12 +559,14 @@ export interface SystemInfoMessage {
 export interface DeltaMessage {
   type: 'delta';
   runId: string;
+  sessionId: string;
   content: string;
 }
 
 export interface ToolUseMessage {
   type: 'tool_use';
   runId: string;
+  sessionId: string;
   toolUseId: string;
   toolName: string;
   toolInput: unknown;
@@ -572,6 +575,7 @@ export interface ToolUseMessage {
 export interface ToolResultMessage {
   type: 'tool_result';
   runId: string;
+  sessionId: string;
   toolUseId: string;
   toolName: string;
   result: unknown;
@@ -581,12 +585,14 @@ export interface ToolResultMessage {
 export interface RunCompletedMessage {
   type: 'run_completed';
   runId: string;
+  sessionId: string;
   usage?: UsageInfo;
 }
 
 export interface RunFailedMessage {
   type: 'run_failed';
   runId: string;
+  sessionId: string;
   error: string;
 }
 

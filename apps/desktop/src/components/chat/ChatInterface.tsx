@@ -69,6 +69,7 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const [initialLoadDone, setInitialLoadDone] = useState(false);
+  const [showScrollToBottom, setShowScrollToBottom] = useState(false);
 
   // State for restoring message after cancel
   const [lastSentMessage, setLastSentMessage] = useState<{ content: string; attachments?: Attachment[] } | null>(null);
@@ -156,7 +157,7 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
     }
   }, [loadMessages, sessionPagination]);
 
-  // Handle scroll to detect when user scrolls near top
+  // Handle scroll to detect when user scrolls near top or away from bottom
   const handleScroll = useCallback(() => {
     const container = messagesContainerRef.current;
     if (!container) return;
@@ -165,6 +166,10 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
     if (container.scrollTop < 100 && sessionPagination?.hasMore && !sessionPagination?.isLoadingMore) {
       loadMoreMessages();
     }
+
+    // Show scroll-to-bottom button when not near the bottom
+    const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
+    setShowScrollToBottom(distanceFromBottom > 300);
   }, [loadMoreMessages, sessionPagination]);
 
   // Fetch commands when provider or project changes (via HTTP)
@@ -585,7 +590,7 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
       {/* Messages */}
       <div
         ref={messagesContainerRef}
-        className="flex-1 overflow-y-auto p-2 md:p-4"
+        className="flex-1 overflow-y-auto p-2 md:p-4 relative"
         onScroll={handleScroll}
       >
         {/* Load more indicator */}
@@ -617,6 +622,19 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
         )}
 
         <div ref={messagesEndRef} />
+
+        {/* Scroll to bottom button — sticky inside scroll container */}
+        {showScrollToBottom && (
+          <button
+            onClick={() => scrollToBottom()}
+            className="sticky bottom-4 float-right mr-2 z-10 w-9 h-9 rounded-full bg-muted/90 border border-border shadow-md flex items-center justify-center hover:bg-muted transition-colors"
+            aria-label="Scroll to bottom"
+          >
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className="text-foreground">
+              <path d="M8 3v10M4 9l4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </button>
+        )}
       </div>
 
       {/* Input */}

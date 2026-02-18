@@ -1,6 +1,7 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { useProjectStore } from '../stores/projectStore';
 import { useServerStore } from '../stores/serverStore';
+import { toGatewayServerId } from '../stores/gatewayStore';
 import { useSupervisionStore } from '../stores/supervisionStore';
 import { useSwipeBack } from '../hooks/useSwipeBack';
 import { ProjectSettings } from './ProjectSettings';
@@ -782,7 +783,7 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
                   selectSession(sessionId);
                 } else {
                   // Remote session - switch to the backend first, then select session
-                  setActiveServer(`gateway:${backendId}`);
+                  setActiveServer(toGatewayServerId(backendId));
                   selectSession(sessionId);
                 }
                 if (onClose) onClose();
@@ -1360,7 +1361,7 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
               selectSession(sessionId);
             } else {
               // Remote session - switch to the backend first, then select session
-              setActiveServer(`gateway:${backendId}`);
+              setActiveServer(toGatewayServerId(backendId));
               selectSession(sessionId);
             }
           }}

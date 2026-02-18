@@ -26,9 +26,20 @@ export function useDataLoader() {
       if (!isGateway) {
         useServerStore.getState().setServers(servers);
       }
-      useProjectStore.getState().setProjects(projects);
-      useProjectStore.getState().setSessions(sessions);
-      useProjectStore.getState().setProviders(providers);
+      const store = useProjectStore.getState();
+      store.setProjects(projects);
+      store.setSessions(sessions);
+      store.setProviders(providers);
+
+      // If current selectedSessionId doesn't exist in the new sessions, auto-select
+      const { selectedSessionId } = store;
+      if (selectedSessionId && !sessions.find(s => s.id === selectedSessionId)) {
+        // Pick the most recently updated session, or null
+        const latest = sessions.length > 0
+          ? sessions.reduce((a, b) => (b.updatedAt > a.updatedAt ? b : a))
+          : null;
+        useProjectStore.getState().selectSession(latest?.id ?? null);
+      }
     } catch (err) {
       console.error('[DataLoader] Error loading data:', err);
     }
