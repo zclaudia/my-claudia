@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import type { PermissionRequest } from '../../stores/permissionStore';
+import { PermissionDetailView } from '../permission/PermissionDetailView';
 
 interface InlinePermissionRequestProps {
   request: PermissionRequest;
@@ -125,11 +126,11 @@ export function InlinePermissionRequest({ request, onDecision }: InlinePermissio
 
       {/* Detail */}
       <div className="px-3 py-2 border-t border-border/50">
-        <div className="bg-muted/50 rounded p-2 max-h-32 overflow-y-auto">
-          <pre className="text-xs text-foreground whitespace-pre-wrap break-words font-mono">
-            {request.detail}
-          </pre>
-        </div>
+        <PermissionDetailView
+          toolName={request.toolName}
+          detail={request.detail}
+          maxHeightClass="max-h-32"
+        />
 
         {/* Credential input */}
         {isCredential && (

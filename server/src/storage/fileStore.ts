@@ -93,7 +93,7 @@ class FileStore {
 
   cleanup(): void {
     const now = Date.now();
-    const maxAge = 24 * 60 * 60 * 1000; // 24 hours
+    const maxAge = 7 * 24 * 60 * 60 * 1000; // 7 days
     const cutoff = now - maxAge;
 
     const rows = this.db.prepare(

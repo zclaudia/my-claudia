@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { PermissionDetailView } from './PermissionDetailView';
 
 interface PermissionRequest {
   requestId: string;
@@ -161,11 +162,11 @@ export function PermissionModal({ request, queueSize = 0, onDecision }: Permissi
           </div>
 
           {/* Detail */}
-          <div className="bg-muted/50 rounded-lg p-3 max-h-48 overflow-y-auto">
-            <pre className="text-sm text-foreground whitespace-pre-wrap break-words font-mono">
-              {request.detail}
-            </pre>
-          </div>
+          <PermissionDetailView
+            toolName={request.toolName}
+            detail={request.detail}
+            maxHeightClass="max-h-48"
+          />
 
           {/* Credential input - only show when required */}
           {request.requiresCredential && (
