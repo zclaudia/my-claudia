@@ -12,7 +12,7 @@ describe('chatStore', () => {
       activeToolCalls: {},
       toolCallsHistory: {},
       sessionUsage: {},
-      modelOverride: '',
+      modelOverrides: {},
     });
   });
 
@@ -279,16 +279,24 @@ describe('chatStore', () => {
     });
   });
 
-  describe('modelOverride', () => {
-    it('setModelOverride sets model string', () => {
-      useChatStore.getState().setModelOverride('claude-opus-4-6');
-      expect(useChatStore.getState().modelOverride).toBe('claude-opus-4-6');
+  describe('modelOverride (per-session)', () => {
+    it('setModelOverride sets model for a specific session', () => {
+      useChatStore.getState().setModelOverride('session-1', 'claude-opus-4-6');
+      expect(useChatStore.getState().getModelOverride('session-1')).toBe('claude-opus-4-6');
+      expect(useChatStore.getState().getModelOverride('session-2')).toBe('');
     });
 
     it('setModelOverride with empty string clears to default', () => {
-      useChatStore.getState().setModelOverride('claude-opus-4-6');
-      useChatStore.getState().setModelOverride('');
-      expect(useChatStore.getState().modelOverride).toBe('');
+      useChatStore.getState().setModelOverride('session-1', 'claude-opus-4-6');
+      useChatStore.getState().setModelOverride('session-1', '');
+      expect(useChatStore.getState().getModelOverride('session-1')).toBe('');
+    });
+
+    it('different sessions have independent model overrides', () => {
+      useChatStore.getState().setModelOverride('session-1', 'claude-opus-4-6');
+      useChatStore.getState().setModelOverride('session-2', 'local/glm-4.6v');
+      expect(useChatStore.getState().getModelOverride('session-1')).toBe('claude-opus-4-6');
+      expect(useChatStore.getState().getModelOverride('session-2')).toBe('local/glm-4.6v');
     });
   });
 

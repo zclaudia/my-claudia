@@ -58,8 +58,8 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
     mode,
     setMode,
     sessionUsage,
-    modelOverride,
     setModelOverride,
+    getModelOverride,
     isSessionLoading,
     getSessionRunId,
     getSessionToolCalls,
@@ -68,6 +68,7 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
   const isLoading = isSessionLoading(sessionId);
   const sessionRunId = getSessionRunId(sessionId);
   const sessionToolCalls = getSessionToolCalls(sessionId);
+  const modelOverride = getModelOverride(sessionId);
   const { projects, sessions, providerCommands, providerCapabilities, setProviderCapabilities } = useProjectStore();
   const { sendMessage: wsSendMessage, isConnected, handlePermissionDecision, handleAskUserAnswer } = useConnection();
 
@@ -745,7 +746,7 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
           <ModelSelector
             capabilities={capabilities}
             value={modelOverride}
-            onChange={setModelOverride}
+            onChange={(model: string) => setModelOverride(sessionId, model)}
             disabled={isLoading}
           />
           <TokenUsageDisplay

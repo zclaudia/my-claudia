@@ -41,8 +41,8 @@ interface ChatState {
   mode: string;
   // Accumulated token usage per session
   sessionUsage: Record<string, { inputTokens: number; outputTokens: number }>;
-  // Model override (user-selected model, empty = use default)
-  modelOverride: string;
+  // Model override per session (user-selected model, empty = use default)
+  modelOverrides: Record<string, string>;
 
   // Actions — Messages
   setMessages: (sessionId: string, messages: MessageWithToolCalls[], pagination?: Omit<PaginationInfo, 'isLoadingMore'>) => void;
@@ -71,8 +71,9 @@ interface ChatState {
   // Usage tracking
   addSessionUsage: (sessionId: string, usage: UsageInfo) => void;
 
-  // Model override
-  setModelOverride: (model: string) => void;
+  // Model override (per session)
+  setModelOverride: (sessionId: string, model: string) => void;
+  getModelOverride: (sessionId: string) => string;
 
   // Getters
   getPagination: (sessionId: string) => PaginationInfo | undefined;
@@ -96,7 +97,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   currentSystemInfo: null,
   mode: 'default',
   sessionUsage: {},
-  modelOverride: '',
+  modelOverrides: {},
 
   setMessages: (sessionId, messages, pagination) =>
     set((state) => ({
@@ -293,8 +294,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
       };
     }),
 
-  // Model override
-  setModelOverride: (model) => set({ modelOverride: model }),
+  // Model override (per session)
+  setModelOverride: (sessionId, model) =>
+    set((state) => ({
+      modelOverrides: { ...state.modelOverrides, [sessionId]: model },
+    })),
+  getModelOverride: (sessionId) => get().modelOverrides[sessionId] || '',
 
   getPagination: (sessionId) => get().pagination[sessionId],
 
