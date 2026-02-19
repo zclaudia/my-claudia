@@ -3,7 +3,6 @@ import { WebSocketServer, WebSocket } from 'ws';
 import { v4 as uuidv4 } from 'uuid';
 import crypto from 'crypto';
 import express, { Request, Response } from 'express';
-import multer from 'multer';
 import type {
   GatewayBackendInfo,
   GatewayRegisterMessage,
@@ -21,7 +20,6 @@ import type {
   ServerMessage
 } from '@my-claudia/shared';
 import { GatewayStorage } from './storage.js';
-import { fileStore } from './storage/fileStore.js';
 
 interface GatewayConfig {
   gatewaySecret: string;
@@ -116,15 +114,8 @@ export function createGatewayServer(config: GatewayConfig): Server {
     next();
   });
 
-  app.use(express.json({ limit: '1mb' }));
+  app.use(express.json({ limit: '15mb' }));
 
-  // Configure multer for file upload
-  const upload = multer({
-    storage: multer.memoryStorage(),
-    limits: {
-      fileSize: 10 * 1024 * 1024 // 10MB limit
-    }
-  });
 
   // Health check endpoint
   app.get('/health', (_req: Request, res: Response) => {
@@ -149,77 +140,6 @@ export function createGatewayServer(config: GatewayConfig): Server {
     }
     next();
   }
-
-  // POST /api/files/upload - Upload a file (requires gateway secret)
-  app.post('/api/files/upload', requireGatewayAuth, upload.single('file'), (req: Request, res: Response) => {
-    try {
-      if (!req.file) {
-        res.status(400).json({
-          success: false,
-          error: { code: 'NO_FILE', message: 'No file provided' }
-        });
-        return;
-      }
-
-      // Convert to base64
-      const base64Data = req.file.buffer.toString('base64');
-
-      // Store file
-      const fileId = fileStore.storeFile(
-        req.file.originalname,
-        req.file.mimetype,
-        base64Data
-      );
-
-      res.json({
-        success: true,
-        data: {
-          fileId,
-          name: req.file.originalname,
-          mimeType: req.file.mimetype,
-          size: req.file.size
-        }
-      });
-    } catch (error) {
-      console.error('[Gateway] Error uploading file:', error);
-      res.status(500).json({
-        success: false,
-        error: { code: 'UPLOAD_ERROR', message: 'Failed to upload file' }
-      });
-    }
-  });
-
-  // GET /api/files/:fileId - Download a file (requires gateway secret)
-  app.get('/api/files/:fileId', requireGatewayAuth, (req: Request, res: Response) => {
-    try {
-      const { fileId } = req.params;
-
-      const file = fileStore.getFile(fileId);
-      if (!file) {
-        res.status(404).json({
-          success: false,
-          error: { code: 'NOT_FOUND', message: 'File not found' }
-        });
-        return;
-      }
-
-      res.json({
-        success: true,
-        data: {
-          fileId: file.id,
-          name: file.name,
-          mimeType: file.mimeType,
-          data: file.data // base64
-        }
-      });
-    } catch (error) {
-      console.error('[Gateway] Error retrieving file:', error);
-      res.status(500).json({
-        success: false,
-        error: { code: 'RETRIEVAL_ERROR', message: 'Failed to retrieve file' }
-      });
-    }
-  });
 
   // HTTP Proxy endpoint: forwards REST API requests to backends via WS
   // Auth format: Bearer gatewaySecret:apiKey
@@ -361,7 +281,7 @@ export function createGatewayServer(config: GatewayConfig): Server {
   const wss = new WebSocketServer({
     server: httpServer,
     path: '/ws',
-    maxPayload: 4 * 1024 * 1024 // 4MB max WebSocket message size
+    maxPayload: 20 * 1024 * 1024 // 20MB max WebSocket message size (supports file uploads via proxy)
   });
 
   // Ping interval for connection health

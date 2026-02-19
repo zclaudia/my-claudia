@@ -364,6 +364,14 @@ export function useGatewayConnection() {
         // Reconcile session active status
         const activeSessionIds = new Set<string>(heartbeat.activeRuns.map((r: any) => r.sessionId as string));
         useSessionsStore.getState().reconcileActiveStatus(backendId, activeSessionIds);
+
+        // Reconcile chatStore active runs (restores loading state on reconnect)
+        const chatState = useChatStore.getState();
+        for (const run of heartbeat.activeRuns as Array<{ runId: string; sessionId: string }>) {
+          if (!chatState.activeRuns[run.runId]) {
+            chatState.startRun(run.runId, run.sessionId);
+          }
+        }
         break;
       }
 

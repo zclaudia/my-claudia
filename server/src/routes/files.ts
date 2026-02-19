@@ -118,6 +118,45 @@ export function createFilesRoutes(): Router {
     });
   });
 
+  // POST /api/files/upload-json
+  // Upload a file via JSON body (used by gateway proxy which serializes as JSON)
+  router.post('/upload-json', (req: Request, res: Response) => {
+    try {
+      const { name, mimeType, data } = req.body;
+
+      if (!name || !mimeType || !data) {
+        res.status(400).json({
+          success: false,
+          error: { code: 'VALIDATION_ERROR', message: 'name, mimeType, and data (base64) are required' }
+        });
+        return;
+      }
+
+      const size = Buffer.from(data, 'base64').length;
+      const MAX_SIZE = 10 * 1024 * 1024; // 10MB
+      if (size > MAX_SIZE) {
+        res.status(413).json({
+          success: false,
+          error: { code: 'FILE_TOO_LARGE', message: 'File exceeds 10MB limit' }
+        });
+        return;
+      }
+
+      const fileId = fileStore.storeFile(name, mimeType, data);
+
+      res.json({
+        success: true,
+        data: { fileId, name, mimeType, size }
+      });
+    } catch (error) {
+      console.error('[Files] Error uploading file (JSON):', error);
+      res.status(500).json({
+        success: false,
+        error: { code: 'UPLOAD_ERROR', message: 'Failed to upload file' }
+      });
+    }
+  });
+
   // GET /api/files/list
   // Query params: projectRoot, relativePath, query, maxResults
   router.get('/list', (req: Request, res: Response) => {

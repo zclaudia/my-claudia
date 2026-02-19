@@ -31,7 +31,7 @@ export class AuthError extends Error {
   }
 }
 
-function getBaseUrl(): string {
+export function getBaseUrl(): string {
   const activeId = useServerStore.getState().activeServerId;
 
   // Gateway target: route through Gateway's HTTP proxy endpoint
@@ -57,7 +57,7 @@ function getBaseUrl(): string {
 }
 
 // Get authentication header for the active server
-function getAuthHeaders(): HeadersInit {
+export function getAuthHeaders(): HeadersInit {
   const activeId = useServerStore.getState().activeServerId;
 
   // Gateway target: use gatewaySecret for HTTP proxy auth
@@ -279,6 +279,7 @@ interface PaginationInfo {
 interface MessagesResponse {
   messages: Message[];
   pagination: PaginationInfo;
+  activeRun?: { runId: string } | null;
 }
 
 export async function getSessionMessages(

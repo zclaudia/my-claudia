@@ -137,6 +137,15 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
         });
 
         setMessages(sessionId, restoreToolCalls(result.messages), result.pagination);
+
+        // Restore active run state (fixes loading state lost after page refresh)
+        if (result.activeRun) {
+          const chatState = useChatStore.getState();
+          if (!chatState.activeRuns[result.activeRun.runId]) {
+            chatState.startRun(result.activeRun.runId, sessionId);
+          }
+        }
+
         setInitialLoadDone(true);
         // Scroll to bottom on initial load - use instant to avoid visible scroll animation
         setTimeout(() => scrollToBottom(true), 0);
@@ -610,7 +619,6 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
       return;
     }
 
-    console.log('[ChatInterface] Cancelling run:', sessionRunId);
     wsSendMessage({
       type: 'run_cancel',
       runId: sessionRunId,

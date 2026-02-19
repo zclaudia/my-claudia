@@ -3,7 +3,6 @@ import * as fs from 'fs';
 import * as path from 'path';
 import type Database from 'better-sqlite3';
 import type { ApiResponse, Message } from '@my-claudia/shared';
-import { fileStore } from '../storage/fileStore.js';
 import { expandTilde, checkDuplicateSession, type ImportResult, type ScanResult } from './import-shared.js';
 
 // Types for Claude CLI data structures

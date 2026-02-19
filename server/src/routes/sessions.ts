@@ -199,7 +199,7 @@ export function createSessionRoutes(db: Database.Database, activeRuns: ActiveRun
         providerId: session.providerId,
         createdAt: session.createdAt,
         updatedAt: session.updatedAt,
-        isActive: activeRuns.has(session.id)
+        isActive: [...activeRuns.values()].some(run => run.sessionId === session.id)
       }));
 
       // Return sessions with current server timestamp
@@ -803,6 +803,15 @@ export function createSessionRoutes(db: Database.Database, activeRuns: ActiveRun
       const oldestTimestamp = result.length > 0 ? result[0].createdAt : undefined;
       const newestTimestamp = result.length > 0 ? result[result.length - 1].createdAt : undefined;
 
+      // Check if this session has an active run (for restoring loading state on reconnect)
+      let activeRun: { runId: string } | null = null;
+      for (const [runId, run] of activeRuns) {
+        if (run.sessionId === req.params.id) {
+          activeRun = { runId };
+          break;
+        }
+      }
+
       res.json({
         success: true,
         data: {
@@ -812,7 +821,8 @@ export function createSessionRoutes(db: Database.Database, activeRuns: ActiveRun
             hasMore,
             oldestTimestamp,
             newestTimestamp
-          }
+          },
+          activeRun,
         }
       });
     } catch (error) {

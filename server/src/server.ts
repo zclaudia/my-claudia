@@ -17,6 +17,7 @@ import type {
 } from '@my-claudia/shared';
 import { isRequest, ALL_SERVER_FEATURES } from '@my-claudia/shared';
 import { initDatabase } from './storage/db.js';
+import { initFileStore } from './storage/fileStore.js';
 import { createProjectRoutes } from './routes/projects.js';
 import { createSessionRoutes } from './routes/sessions.js';
 import { createProviderRoutes } from './routes/providers.js';
@@ -265,6 +266,9 @@ export async function createServer(): Promise<ServerContext> {
   // Initialize database
   const db = initDatabase();
 
+  // Initialize file store (DB + disk persistence)
+  initFileStore(db);
+
   // Generate ephemeral RSA keypair for E2E credential encryption
   generateKeyPair();
 
@@ -276,7 +280,7 @@ export async function createServer(): Promise<ServerContext> {
   const app: Express = express();
 
   app.use(cors());
-  app.use(express.json());
+  app.use(express.json({ limit: '15mb' }));
 
   // WebSocket clients map (declared early so it can be used in auth endpoints)
   const clients = new Map<string, ConnectedClient>();
@@ -468,6 +472,22 @@ export async function createServer(): Promise<ServerContext> {
               features: ALL_SERVER_FEATURES,
               ...(authPublicKey && { publicKey: authPublicKey }),
             } as AuthResultMessage);
+
+            // Re-attach any orphaned runs (from previous client that disconnected/refreshed)
+            // to this newly authenticated client so they receive streaming output again.
+            activeRuns.forEach((run) => {
+              if (!clients.has(run.clientId)) {
+                console.log(`[Reconnect] Re-attaching orphaned run ${run.runId} (session ${run.sessionId}) to new client ${clientId}`);
+                run.clientId = clientId;
+                run.client = client;
+              }
+            });
+
+            // Immediately send state heartbeat so reconnecting clients can
+            // restore active run / permission / question state without waiting 30s
+            if (activeRuns.size > 0) {
+              sendMessage(ws, buildStateHeartbeat());
+            }
             return;
           }
 
@@ -512,12 +532,20 @@ export async function createServer(): Promise<ServerContext> {
       console.log(`Client disconnected: ${clientId}`);
       clients.delete(clientId);
 
-      // Cancel any active runs for this client
+      // Don't cancel active runs on disconnect — let them continue running.
+      // The client may be refreshing or reconnecting. Orphaned runs will be
+      // re-attached when a new client authenticates (see auth handler below).
+      // The run output continues to accumulate in memory and is periodically
+      // saved to the database, so no data is lost during the disconnection.
+      const orphanedRuns: string[] = [];
       activeRuns.forEach((run, runId) => {
         if (run.clientId === clientId) {
-          cancelRun(runId);
+          orphanedRuns.push(runId);
         }
       });
+      if (orphanedRuns.length > 0) {
+        console.log(`Client ${clientId} had ${orphanedRuns.length} active run(s) — keeping alive for reconnect`);
+      }
     });
 
     ws.on('error', (error) => {

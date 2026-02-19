@@ -30,37 +30,13 @@ export type PermissionCallback = (
 ) => Promise<PermissionDecision>;
 
 /**
- * Get file data by ID (from local store or Gateway)
+ * Get file data by ID from local DB+disk store
  */
-async function getFileData(fileId: string): Promise<string | null> {
-  // Try local store first
-  const localFile = fileStore.getFile(fileId);
-  if (localFile) {
-    console.log(`[Claude SDK] Retrieved file ${fileId} from local store`);
-    return localFile.data;
+function getFileData(fileId: string): string | null {
+  const file = fileStore.getFile(fileId);
+  if (file) {
+    return file.data;
   }
-
-  // If in Gateway mode, fetch from Gateway
-  if (process.env.GATEWAY_URL) {
-    try {
-      // Convert ws:// → http://, wss:// → https:// for HTTP fetch
-      const httpUrl = process.env.GATEWAY_URL.replace(/^ws(s?):\/\//, 'http$1://');
-      console.log(`[Claude SDK] Fetching file ${fileId} from Gateway`);
-      const response = await fetch(`${httpUrl}/api/files/${fileId}`, {
-        headers: {
-          'Authorization': `Bearer ${process.env.GATEWAY_SECRET || ''}`
-        }
-      });
-
-      if (response.ok) {
-        const result = await response.json() as any;
-        return result.data?.data || null;
-      }
-    } catch (error) {
-      console.error(`[Claude SDK] Failed to fetch file from Gateway:`, error);
-    }
-  }
-
   console.error(`[Claude SDK] File ${fileId} not found`);
   return null;
 }
@@ -157,7 +133,7 @@ export async function prepareInput(input: string): Promise<PreparedInput> {
 
   for (const attachment of messageInput.attachments) {
     if (attachment.type === 'image') {
-      const fileData = await getFileData(attachment.fileId);
+      const fileData = getFileData(attachment.fileId);
       if (fileData) {
         const ext = mimeToExt(attachment.mimeType);
         const fileName = `${crypto.randomUUID()}.${ext}`;

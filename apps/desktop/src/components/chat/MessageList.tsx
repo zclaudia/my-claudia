@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
@@ -165,57 +165,29 @@ function CodeBlock({
   );
 }
 
-// Attachment display component
+// Attachment display component — lazy load: only download on click
 function AttachmentDisplay({ attachment }: { attachment: MessageAttachment }) {
   const [imageData, setImageData] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (attachment.type === 'image') {
-      setLoading(true);
-      downloadFile(attachment.fileId)
-        .then(result => {
-          setImageData(`data:${result.mimeType};base64,${result.data}`);
-          setLoading(false);
-        })
-        .catch(err => {
-          console.error('Failed to load image:', err);
-          setError('Failed to load image');
-          setLoading(false);
-        });
-    }
-  }, [attachment.fileId, attachment.type]);
+  const loadImage = useCallback(() => {
+    if (loading || imageData) return;
+    setLoading(true);
+    setError(null);
+    downloadFile(attachment.fileId)
+      .then(result => {
+        setImageData(`data:${result.mimeType};base64,${result.data}`);
+        setLoading(false);
+      })
+      .catch(err => {
+        console.error('Failed to load image:', err);
+        setError('Failed to load image');
+        setLoading(false);
+      });
+  }, [attachment.fileId, loading, imageData]);
 
   if (attachment.type === 'image') {
-    if (loading) {
-      return (
-        <div className="border border-border rounded p-4 bg-secondary/50 text-center text-sm text-muted-foreground">
-          Loading image...
-        </div>
-      );
-    }
-
-    if (error) {
-      // Show friendly placeholder for unavailable images (cross-device/cross-mode)
-      return (
-        <div className="border border-border rounded overflow-hidden bg-secondary/30">
-          <div className="flex items-center justify-center h-40 text-muted-foreground">
-            <div className="text-center">
-              <svg className="w-12 h-12 mx-auto mb-2 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-              </svg>
-              <div className="text-xs">Image unavailable</div>
-              <div className="text-xs opacity-60 mt-1">(Cross-device or expired)</div>
-            </div>
-          </div>
-          <div className="px-2 py-1 bg-secondary text-xs text-muted-foreground border-t border-border">
-            📷 {attachment.name}
-          </div>
-        </div>
-      );
-    }
-
     if (imageData) {
       return (
         <div className="border border-border rounded overflow-hidden">
@@ -231,12 +203,40 @@ function AttachmentDisplay({ attachment }: { attachment: MessageAttachment }) {
         </div>
       );
     }
+
+    if (loading) {
+      return (
+        <div className="border border-border rounded p-4 bg-secondary/50 text-center text-sm text-muted-foreground">
+          Loading image...
+        </div>
+      );
+    }
+
+    // Default: show clickable placeholder
+    return (
+      <div
+        className="border border-border rounded overflow-hidden bg-secondary/30 cursor-pointer hover:bg-secondary/50 transition-colors"
+        onClick={loadImage}
+      >
+        <div className="flex items-center justify-center h-24 text-muted-foreground">
+          <div className="text-center">
+            <svg className="w-8 h-8 mx-auto mb-1 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+            </svg>
+            <div className="text-xs">{error ? 'Load failed — click to retry' : 'Click to load image'}</div>
+          </div>
+        </div>
+        <div className="px-2 py-1 bg-secondary text-xs text-muted-foreground border-t border-border">
+          {attachment.name}
+        </div>
+      </div>
+    );
   }
 
   // Fallback for other file types
   return (
     <div className="px-2 py-1 bg-secondary text-xs rounded inline-block">
-      📎 {attachment.name}
+      {attachment.name}
     </div>
   );
 }

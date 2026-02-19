@@ -1,5 +1,6 @@
 import { useServerStore } from '../stores/serverStore';
-import { useGatewayStore, isGatewayTarget } from '../stores/gatewayStore';
+import { isGatewayTarget } from '../stores/gatewayStore';
+import { getBaseUrl, getAuthHeaders } from './api';
 
 export interface UploadedFile {
   fileId: string;
@@ -15,38 +16,80 @@ export interface UploadProgress {
 }
 
 /**
- * Upload a file to the server or gateway
- * Works for both local and Gateway modes
+ * Read file as base64 data URL, return the base64 portion
+ */
+function readFileAsBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = reader.result as string;
+      // Strip "data:...;base64," prefix
+      const base64 = dataUrl.split(',')[1];
+      resolve(base64);
+    };
+    reader.onerror = () => reject(new Error('Failed to read file'));
+    reader.readAsDataURL(file);
+  });
+}
+
+/**
+ * Upload a file to the server.
+ * - Direct mode: multipart FormData to /api/files/upload
+ * - Gateway mode: JSON body to /api/files/upload-json (gateway proxy serializes as JSON)
  */
 export async function uploadFile(
   file: File,
   onProgress?: (progress: UploadProgress) => void
 ): Promise<UploadedFile> {
-  const server = useServerStore.getState().getActiveServer();
-  if (!server) {
-    throw new Error('No active server');
+  const baseUrl = getBaseUrl();
+  const authHeaders = getAuthHeaders();
+  const activeId = useServerStore.getState().activeServerId;
+  const viaGateway = isGatewayTarget(activeId);
+
+  if (viaGateway) {
+    // Gateway mode: send as JSON (gateway proxy can't forward multipart)
+    const base64Data = await readFileAsBase64(file);
+
+    onProgress?.({ loaded: file.size, total: file.size, percentage: 100 });
+
+    const response = await fetch(`${baseUrl}/api/files/upload-json`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...authHeaders,
+      },
+      body: JSON.stringify({
+        name: file.name,
+        mimeType: file.type,
+        data: base64Data,
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Upload failed with status ${response.status}`);
+    }
+
+    const result = await response.json();
+    if (!result.success || !result.data) {
+      throw new Error(result.error?.message || 'Upload failed');
+    }
+    return result.data;
   }
 
-  // Determine upload URL (works for both local and Gateway)
-  const baseUrl = server.address.includes('://')
-    ? server.address
-    : `http://${server.address}`;
-  const uploadUrl = `${baseUrl}/api/files/upload`;
-
+  // Direct mode: multipart FormData with progress tracking
   const formData = new FormData();
   formData.append('file', file);
 
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
 
-    // Track upload progress
     if (onProgress) {
       xhr.upload.addEventListener('progress', (event) => {
         if (event.lengthComputable) {
           onProgress({
             loaded: event.loaded,
             total: event.total,
-            percentage: Math.round((event.loaded / event.total) * 100)
+            percentage: Math.round((event.loaded / event.total) * 100),
           });
         }
       });
@@ -61,7 +104,7 @@ export async function uploadFile(
           } else {
             reject(new Error(result.error?.message || 'Upload failed'));
           }
-        } catch (error) {
+        } catch {
           reject(new Error('Failed to parse response'));
         }
       } else {
@@ -69,25 +112,10 @@ export async function uploadFile(
       }
     });
 
-    xhr.addEventListener('error', () => {
-      reject(new Error('Network error during upload'));
-    });
+    xhr.addEventListener('error', () => reject(new Error('Network error during upload')));
+    xhr.addEventListener('abort', () => reject(new Error('Upload aborted')));
 
-    xhr.addEventListener('abort', () => {
-      reject(new Error('Upload aborted'));
-    });
-
-    xhr.open('POST', uploadUrl);
-
-    // Add gateway auth header if connecting via gateway
-    const activeId = useServerStore.getState().activeServerId;
-    if (isGatewayTarget(activeId)) {
-      const { gatewaySecret } = useGatewayStore.getState();
-      if (gatewaySecret) {
-        xhr.setRequestHeader('Authorization', `Bearer ${gatewaySecret}`);
-      }
-    }
-
+    xhr.open('POST', `${baseUrl}/api/files/upload`);
     xhr.send(formData);
   });
 }
@@ -102,19 +130,17 @@ export function validateFile(file: File, options?: {
   const maxSize = options?.maxSize || 10 * 1024 * 1024; // 10MB default
   const allowedTypes = options?.allowedTypes;
 
-  // Check file size
   if (file.size > maxSize) {
     return {
       valid: false,
-      error: `File size exceeds ${(maxSize / (1024 * 1024)).toFixed(0)}MB limit`
+      error: `File size exceeds ${(maxSize / (1024 * 1024)).toFixed(0)}MB limit`,
     };
   }
 
-  // Check file type
   if (allowedTypes && !allowedTypes.includes(file.type)) {
     return {
       valid: false,
-      error: `File type ${file.type} is not allowed`
+      error: `File type ${file.type} is not allowed`,
     };
   }
 
@@ -130,28 +156,12 @@ export async function downloadFile(fileId: string): Promise<{
   mimeType: string;
   data: string; // base64
 }> {
-  const server = useServerStore.getState().getActiveServer();
-  if (!server) {
-    throw new Error('No active server');
-  }
+  const baseUrl = getBaseUrl();
+  const authHeaders = getAuthHeaders();
 
-  const baseUrl = server.address.includes('://')
-    ? server.address
-    : `http://${server.address}`;
-  const downloadUrl = `${baseUrl}/api/files/${fileId}`;
-
-  const headers: HeadersInit = {};
-
-  // Add gateway auth header if connecting via gateway
-  const activeId = useServerStore.getState().activeServerId;
-  if (isGatewayTarget(activeId)) {
-    const { gatewaySecret } = useGatewayStore.getState();
-    if (gatewaySecret) {
-      headers['Authorization'] = `Bearer ${gatewaySecret}`;
-    }
-  }
-
-  const response = await fetch(downloadUrl, { headers });
+  const response = await fetch(`${baseUrl}/api/files/${fileId}`, {
+    headers: authHeaders,
+  });
 
   if (!response.ok) {
     throw new Error(`Download failed with status ${response.status}`);

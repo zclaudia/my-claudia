@@ -136,10 +136,12 @@ async function connectToGateway(config: GatewayConfig): Promise<void> {
     console.log(`[Gateway] Cleaned up virtual client: ${clientId}`);
   });
 
-  // Broadcast state heartbeat when a client subscribes
-  gatewayClient.onClientSubscribed(() => {
+  // Send state heartbeat to newly subscribed client (targeted, not broadcast)
+  gatewayClient.onClientSubscribed((clientId) => {
     const heartbeat = serverContext!.getStateHeartbeat();
-    gatewayClient?.broadcast(heartbeat);
+    if (heartbeat.activeRuns.length > 0) {
+      gatewayClient?.sendToClient(clientId, heartbeat);
+    }
   });
 
   gatewayClient.connect();

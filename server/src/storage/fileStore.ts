@@ -1,6 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { v4 as uuidv4 } from 'uuid';
+import type Database from 'better-sqlite3';
 
 export interface StoredFile {
   id: string;
@@ -11,136 +12,142 @@ export interface StoredFile {
   createdAt: number;
 }
 
+const STORAGE_DIR = './data/files';
+
 class FileStore {
-  private files = new Map<string, StoredFile>();
+  private db: Database.Database;
   private storageDir: string;
 
-  constructor(storageDir: string) {
+  constructor(db: Database.Database, storageDir: string = STORAGE_DIR) {
+    this.db = db;
     this.storageDir = storageDir;
-    // Ensure storage directory exists
     if (!fs.existsSync(storageDir)) {
       fs.mkdirSync(storageDir, { recursive: true });
     }
   }
 
-  // Store file and return fileId
   storeFile(name: string, mimeType: string, data: string): string {
     const fileId = uuidv4();
-    const file: StoredFile = {
-      id: fileId,
-      name,
-      mimeType,
-      size: Buffer.from(data, 'base64').length,
-      data,
-      createdAt: Date.now()
-    };
+    const size = Buffer.from(data, 'base64').length;
+    const createdAt = Date.now();
 
-    this.files.set(fileId, file);
+    // Write binary to disk
+    const filePath = path.join(this.storageDir, fileId);
+    fs.writeFileSync(filePath, Buffer.from(data, 'base64'));
 
-    // Optionally persist to disk for large files
-    // Uncomment below to enable disk persistence
-    // try {
-    //   fs.writeFileSync(path.join(this.storageDir, fileId), data);
-    // } catch (error) {
-    //   console.error('[FileStore] Failed to persist file to disk:', error);
-    // }
+    // Insert metadata into DB
+    this.db.prepare(
+      'INSERT INTO files (id, name, mime_type, size, created_at) VALUES (?, ?, ?, ?, ?)'
+    ).run(fileId, name, mimeType, size, createdAt);
 
-    console.log(`[FileStore] Stored file ${fileId} (${name}, ${file.size} bytes)`);
-
+    console.log(`[FileStore] Stored file ${fileId} (${name}, ${size} bytes)`);
     return fileId;
   }
 
-  // Retrieve file by ID
   getFile(fileId: string): StoredFile | null {
-    const file = this.files.get(fileId);
+    const row = this.db.prepare(
+      'SELECT id, name, mime_type, size, created_at FROM files WHERE id = ?'
+    ).get(fileId) as { id: string; name: string; mime_type: string; size: number; created_at: number } | undefined;
 
-    if (!file) {
-      // Try to load from disk if not in memory
-      // Uncomment below if disk persistence is enabled
-      // try {
-      //   const filePath = path.join(this.storageDir, fileId);
-      //   if (fs.existsSync(filePath)) {
-      //     const data = fs.readFileSync(filePath, 'utf-8');
-      //     // Reconstruct file object - would need to store metadata separately
-      //     // This is a simplified version
-      //   }
-      // } catch (error) {
-      //   console.error('[FileStore] Failed to load file from disk:', error);
-      // }
-
-      console.log(`[FileStore] File ${fileId} not found`);
+    if (!row) {
       return null;
     }
 
-    console.log(`[FileStore] Retrieved file ${fileId} (${file.name})`);
-    return file;
-  }
-
-  // Delete file by ID
-  deleteFile(fileId: string): boolean {
-    const deleted = this.files.delete(fileId);
-
-    // Remove from disk if disk persistence is enabled
-    // Uncomment below if disk persistence is enabled
-    // try {
-    //   const filePath = path.join(this.storageDir, fileId);
-    //   if (fs.existsSync(filePath)) {
-    //     fs.unlinkSync(filePath);
-    //   }
-    // } catch (error) {
-    //   console.error('[FileStore] Failed to delete file from disk:', error);
-    // }
-
-    if (deleted) {
-      console.log(`[FileStore] Deleted file ${fileId}`);
+    const filePath = path.join(this.storageDir, fileId);
+    if (!fs.existsSync(filePath)) {
+      // Metadata exists but file is missing on disk — clean up
+      this.db.prepare('DELETE FROM files WHERE id = ?').run(fileId);
+      console.log(`[FileStore] File ${fileId} missing on disk, removed metadata`);
+      return null;
     }
 
-    return deleted;
+    const data = fs.readFileSync(filePath).toString('base64');
+
+    return {
+      id: row.id,
+      name: row.name,
+      mimeType: row.mime_type,
+      size: row.size,
+      data,
+      createdAt: row.created_at,
+    };
   }
 
-  // Cleanup old files (> 24 hours)
+  deleteFile(fileId: string): boolean {
+    const changes = this.db.prepare('DELETE FROM files WHERE id = ?').run(fileId).changes;
+
+    const filePath = path.join(this.storageDir, fileId);
+    try {
+      if (fs.existsSync(filePath)) {
+        fs.unlinkSync(filePath);
+      }
+    } catch (error) {
+      console.error(`[FileStore] Failed to delete file from disk:`, error);
+    }
+
+    if (changes > 0) {
+      console.log(`[FileStore] Deleted file ${fileId}`);
+    }
+    return changes > 0;
+  }
+
   cleanup(): void {
     const now = Date.now();
     const maxAge = 24 * 60 * 60 * 1000; // 24 hours
-    let deletedCount = 0;
+    const cutoff = now - maxAge;
 
-    for (const [id, file] of this.files.entries()) {
-      if (now - file.createdAt > maxAge) {
-        this.deleteFile(id);
-        deletedCount++;
-      }
+    const rows = this.db.prepare(
+      'SELECT id FROM files WHERE created_at < ?'
+    ).all(cutoff) as Array<{ id: string }>;
+
+    for (const row of rows) {
+      this.deleteFile(row.id);
     }
 
-    if (deletedCount > 0) {
-      console.log(`[FileStore] Cleanup: deleted ${deletedCount} old files`);
+    if (rows.length > 0) {
+      console.log(`[FileStore] Cleanup: deleted ${rows.length} old files`);
     }
   }
 
-  // Get statistics
   getStats() {
-    const count = this.files.size;
-    let totalSize = 0;
-
-    for (const file of this.files.values()) {
-      totalSize += file.size;
-    }
+    const row = this.db.prepare(
+      'SELECT COUNT(*) as count, COALESCE(SUM(size), 0) as totalSize FROM files'
+    ).get() as { count: number; totalSize: number };
 
     return {
-      count,
-      totalSize,
-      totalSizeMB: (totalSize / (1024 * 1024)).toFixed(2)
+      count: row.count,
+      totalSize: row.totalSize,
+      totalSizeMB: (row.totalSize / (1024 * 1024)).toFixed(2),
     };
   }
 }
 
-// Create singleton instance
-export const fileStore = new FileStore('./data/files');
+// Lazy singleton
+let instance: FileStore | null = null;
 
-// Cleanup every hour
-setInterval(() => {
-  fileStore.cleanup();
-}, 60 * 60 * 1000);
+export function initFileStore(db: Database.Database): void {
+  instance = new FileStore(db);
 
-// Log stats on startup
-const stats = fileStore.getStats();
-console.log(`[FileStore] Initialized: ${stats.count} files, ${stats.totalSizeMB} MB`);
+  // Cleanup every hour
+  setInterval(() => {
+    instance?.cleanup();
+  }, 60 * 60 * 1000);
+
+  const stats = instance.getStats();
+  console.log(`[FileStore] Initialized: ${stats.count} files, ${stats.totalSizeMB} MB`);
+}
+
+export function getFileStore(): FileStore {
+  if (!instance) {
+    throw new Error('FileStore not initialized — call initFileStore(db) first');
+  }
+  return instance;
+}
+
+// Backwards-compatible named export (calls getFileStore lazily)
+// This allows existing `import { fileStore }` to keep working
+export const fileStore = new Proxy({} as FileStore, {
+  get(_target, prop) {
+    return (getFileStore() as any)[prop];
+  },
+});

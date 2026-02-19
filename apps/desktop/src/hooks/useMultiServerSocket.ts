@@ -329,6 +329,47 @@ export function useMultiServerSocket() {
           break;
         }
 
+        case 'state_heartbeat': {
+          // Reconcile active runs (restores loading state on reconnect)
+          const heartbeat = message as any;
+          const chatState = useChatStore.getState();
+          for (const run of heartbeat.activeRuns as Array<{ runId: string; sessionId: string }>) {
+            if (!chatState.activeRuns[run.runId]) {
+              chatState.startRun(run.runId, run.sessionId);
+            }
+          }
+          // Reconcile permissions
+          for (const perm of heartbeat.pendingPermissions || []) {
+            if (!usePermissionStore.getState().hasRequest(perm.requestId)) {
+              const permServer = servers.find(s => s.id === serverId);
+              setPendingRequest({
+                requestId: perm.requestId,
+                sessionId: perm.sessionId,
+                serverId,
+                backendName: permServer?.name,
+                toolName: perm.toolName,
+                detail: perm.detail,
+                timeoutSec: perm.timeoutSeconds,
+                requiresCredential: perm.requiresCredential,
+                credentialHint: perm.credentialHint,
+              });
+            }
+          }
+          // Reconcile questions
+          for (const q of heartbeat.pendingQuestions || []) {
+            if (!useAskUserQuestionStore.getState().hasRequest(q.requestId)) {
+              useAskUserQuestionStore.getState().setPendingRequest({
+                requestId: q.requestId,
+                sessionId: q.sessionId,
+                serverId,
+                backendName: servers.find(s => s.id === serverId)?.name,
+                questions: q.questions,
+              });
+            }
+          }
+          break;
+        }
+
         case 'error':
           console.error(`[Socket:${serverId}] Server error:`, message.message);
           break;
