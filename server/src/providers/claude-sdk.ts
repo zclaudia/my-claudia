@@ -570,6 +570,11 @@ let cachedCommands: SdkSlashCommand[] | null = null;
 let commandCacheTimestamp = 0;
 const COMMAND_CACHE_TTL = 10 * 60 * 1000; // 10 minutes
 
+export function clearCommandCache(): void {
+  cachedCommands = null;
+  commandCacheTimestamp = 0;
+}
+
 /**
  * Fetch available Claude slash commands from the CLI via SDK's supportedCommands() API.
  * Results are cached for 10 minutes to avoid spawning CLI processes repeatedly.

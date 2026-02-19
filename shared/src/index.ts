@@ -98,6 +98,7 @@ export const LOCAL_COMMANDS: SlashCommand[] = [
   { command: '/memory', description: 'Show CLAUDE.md info', source: 'local' },
   { command: '/config', description: 'Open settings', source: 'local' },
   { command: '/new-session', description: 'Create new session', source: 'local' },
+  { command: '/reload', description: 'Reload custom commands', source: 'local' },
 ];
 
 // CLI pass-through commands (sent directly to Claude SDK)

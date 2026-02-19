@@ -4,6 +4,7 @@ import * as path from 'path';
 import * as os from 'os';
 import type { ApiResponse, CommandExecuteRequest, CommandExecuteResponse, SlashCommand } from '@my-claudia/shared';
 import { LOCAL_COMMANDS } from '@my-claudia/shared';
+import { clearCommandCache } from '../providers/claude-sdk.js';
 
 // Read package.json for version info
 function getPackageInfo(): { name: string; version: string } {
@@ -167,7 +168,19 @@ ${LOCAL_COMMANDS.map(cmd => `- \`${cmd.command}\` — ${cmd.description}`).join(
     data: {
       message: 'Creating new session...'
     }
-  })
+  }),
+
+  '/reload': (_args, _context) => {
+    clearCommandCache();
+    return {
+      type: 'builtin',
+      command: '/reload',
+      action: 'reload',
+      data: {
+        message: 'Commands reloaded'
+      }
+    };
+  }
 };
 
 // Scan directory for custom command files (.md)

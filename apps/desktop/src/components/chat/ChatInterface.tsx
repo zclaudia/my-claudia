@@ -483,6 +483,31 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
         });
         break;
 
+      case 'reload':
+        // Re-fetch commands from server (cache already cleared server-side)
+        api.getProviderCommands(providerId || '_default', currentProject?.rootPath || undefined)
+          .then(cmds => {
+            useProjectStore.getState().setProviderCommands(providerId || '_default', cmds);
+            addMessage(sessionId, {
+              id: crypto.randomUUID(),
+              sessionId,
+              role: 'system',
+              content: `Commands reloaded (${cmds.length} commands)`,
+              createdAt: Date.now(),
+            });
+            setTimeout(() => scrollToBottom(), 100);
+          })
+          .catch(err => {
+            addMessage(sessionId, {
+              id: crypto.randomUUID(),
+              sessionId,
+              role: 'system',
+              content: `Failed to reload commands: ${err.message}`,
+              createdAt: Date.now(),
+            });
+          });
+        return; // Skip the scrollToBottom below since we handle it in the .then
+
       default:
         addMessage(sessionId, {
           id: crypto.randomUUID(),
@@ -495,7 +520,7 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
 
     // Scroll to bottom after command output
     setTimeout(() => scrollToBottom(), 100);
-  }, [sessionId, clearMessages, addMessage, scrollToBottom]);
+  }, [sessionId, clearMessages, addMessage, scrollToBottom, providerId, currentProject?.rootPath]);
 
   const handleCommand = useCallback(async (command: string, args: string) => {
     // Find the command definition to check its source
