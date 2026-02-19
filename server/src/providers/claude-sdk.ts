@@ -43,8 +43,10 @@ async function getFileData(fileId: string): Promise<string | null> {
   // If in Gateway mode, fetch from Gateway
   if (process.env.GATEWAY_URL) {
     try {
+      // Convert ws:// → http://, wss:// → https:// for HTTP fetch
+      const httpUrl = process.env.GATEWAY_URL.replace(/^ws(s?):\/\//, 'http$1://');
       console.log(`[Claude SDK] Fetching file ${fileId} from Gateway`);
-      const response = await fetch(`${process.env.GATEWAY_URL}/api/files/${fileId}`, {
+      const response = await fetch(`${httpUrl}/api/files/${fileId}`, {
         headers: {
           'Authorization': `Bearer ${process.env.GATEWAY_SECRET || ''}`
         }
