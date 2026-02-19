@@ -190,14 +190,14 @@ function AttachmentDisplay({ attachment }: { attachment: MessageAttachment }) {
   if (attachment.type === 'image') {
     if (imageData) {
       return (
-        <div className="border border-border rounded overflow-hidden">
+        <div className="rounded overflow-hidden bg-black/20 inline-block max-w-full">
           <img
             src={imageData}
             alt={attachment.name}
-            className="max-w-full h-auto"
-            style={{ maxHeight: '300px', objectFit: 'contain' }}
+            className="block max-w-full h-auto"
+            style={{ maxHeight: '300px' }}
           />
-          <div className="px-2 py-1 bg-secondary text-xs text-muted-foreground">
+          <div className="px-2 py-1 bg-black/20 text-xs text-primary-foreground/70">
             {attachment.name}
           </div>
         </div>

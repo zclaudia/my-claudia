@@ -655,7 +655,7 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
       {/* Messages */}
       <div
         ref={messagesContainerRef}
-        className="flex-1 overflow-y-auto p-2 md:p-4 relative"
+        className="flex-1 overflow-y-auto overflow-x-hidden p-2 md:p-4 relative"
         onScroll={handleScroll}
       >
         {/* Load more indicator */}
@@ -767,7 +767,7 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
       )}
 
       {/* Input */}
-      <div className="border-t border-border p-2 md:p-4 safe-bottom-pad">
+      <div className="border-t border-border p-2 md:p-4 safe-bottom-pad overflow-hidden">
         {/* Toolbar */}
         <div className="mb-2 md:mb-3 flex items-center gap-2 md:gap-3 flex-wrap">
           <ModeSelector

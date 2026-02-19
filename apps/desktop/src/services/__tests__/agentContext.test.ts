@@ -62,7 +62,7 @@ describe('buildAgentContext', () => {
     expect(result).toContain('Connected Backends');
     expect(result).toContain('My Server');
     expect(result).toContain('http://localhost:3100');
-    expect(result).toContain('curl -s http://localhost:3100/api/projects');
+    expect(result).toContain('curl -s http://localhost:3100/api/sessions');
   });
 
   it('adds http:// prefix when address has no protocol', () => {
@@ -103,7 +103,7 @@ describe('buildAgentContext', () => {
     const result = buildAgentContext();
 
     expect(result).toContain('Remote Server');
-    expect(result).toContain('Backend ID: `remote-1`');
+    expect(result).toContain('(remote, via gateway)');
     expect(result).toContain('https://gw.example.com/api/proxy/remote-1');
   });
 
@@ -217,7 +217,7 @@ describe('buildAgentContext', () => {
 
     expect(result).not.toContain('localhost:3100');
     expect(result).toContain('My Backend');
-    expect(result).toContain('Backend ID: `my-backend`');
+    expect(result).toContain('(remote, via gateway)');
     expect(result).toContain('https://gw.example.com/api/proxy/my-backend');
   });
 

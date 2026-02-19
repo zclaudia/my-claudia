@@ -15,14 +15,11 @@ import { useServerStore } from '../stores/serverStore';
  */
 export function buildAgentContext(): string {
   const gwState = useGatewayStore.getState();
-  const { discoveredBackends, gatewayUrl, localBackendId } = gwState;
+  const { discoveredBackends, gatewayUrl } = gwState;
   const { servers } = useServerStore.getState();
 
   // Mobile mode: direct gateway config means no local server is reachable
   const isMobileMode = gwState.hasDirectConfig();
-
-  const sections: string[] = [];
-  sections.push('## Connected Backends\n');
 
   // Determine gateway HTTP base URL (for remote backends)
   let gatewayHttpBase = '';
@@ -32,6 +29,15 @@ export function buildAgentContext(): string {
       : `http://${gatewayUrl}`;
   }
 
+  // Collect all backends with their info
+  interface BackendEntry {
+    name: string;
+    apiBase: string;
+    isLocal: boolean;
+    isRemote: boolean;
+  }
+  const allBackends: BackendEntry[] = [];
+
   // Local backend (direct server, not via gateway)
   // Skip on mobile — localhost is not reachable from the phone
   if (!isMobileMode) {
@@ -40,14 +46,12 @@ export function buildAgentContext(): string {
       const address = server.address.includes('://')
         ? server.address
         : `http://${server.address}`;
-      const isLocal = localBackendId && discoveredBackends.some(
-        b => b.backendId === localBackendId && b.isLocal
-      );
-      sections.push(
-        `### ${server.name || 'Local Backend'}${isLocal ? ' (local, this server)' : ''}\n` +
-        `- API Base: \`${address}\`\n` +
-        `- Example: \`curl -s ${address}/api/projects | jq .\`\n`
-      );
+      allBackends.push({
+        name: server.name || 'Local Backend',
+        apiBase: address,
+        isLocal: true,
+        isRemote: false,
+      });
     }
   }
 
@@ -59,18 +63,29 @@ export function buildAgentContext(): string {
     if (!backend.online) continue;
 
     const apiBase = `${gatewayHttpBase}/api/proxy/${backend.backendId}`;
+    allBackends.push({
+      name: backend.name || backend.backendId,
+      apiBase,
+      isLocal: false,
+      isRemote: true,
+    });
+  }
+
+  // Build output
+  const sections: string[] = [];
+  sections.push(`## Connected Backends (${allBackends.length} total)\n`);
+
+  for (const b of allBackends) {
+    const tag = b.isLocal ? ' (local, this server)' : ' (remote, via gateway)';
     sections.push(
-      `### ${backend.name || backend.backendId}\n` +
-      `- Backend ID: \`${backend.backendId}\`\n` +
-      `- API Base: \`${apiBase}\`\n` +
-      `- Example: \`curl -s ${apiBase}/api/projects | jq .\`\n`
+      `### ${b.name}${tag}\n` +
+      `- API Base: \`${b.apiBase}\`\n` +
+      `- Example: \`curl -s ${b.apiBase}/api/sessions | jq .data[].name\`\n`
     );
   }
 
   // Auth info for gateway proxied requests
-  const hasGatewayBackends = discoveredBackends.some(b =>
-    b.online && (isMobileMode || !b.isLocal)
-  );
+  const hasGatewayBackends = allBackends.some(b => b.isRemote);
   if (gatewayHttpBase && hasGatewayBackends) {
     const { gatewaySecret } = useGatewayStore.getState();
     if (gatewaySecret) {
@@ -80,6 +95,10 @@ export function buildAgentContext(): string {
         `\`curl -s -H "Authorization: Bearer ${gatewaySecret}" <API_BASE>/api/...\`\n`
       );
     }
+  }
+
+  if (allBackends.length === 0) {
+    sections.push('No backends connected.\n');
   }
 
   return sections.join('\n');

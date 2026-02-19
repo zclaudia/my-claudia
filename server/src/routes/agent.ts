@@ -120,6 +120,11 @@ export function createAgentRoutes(db: Database.Database): Router {
         const session = db.prepare('SELECT id FROM sessions WHERE id = ?').get(config.session_id);
 
         if (project && session) {
+          // Keep agent system prompt up to date
+          const latestPrompt = getAgentSystemPrompt();
+          db.prepare('UPDATE projects SET system_prompt = ?, updated_at = ? WHERE id = ?')
+            .run(latestPrompt, Date.now(), config.project_id);
+
           res.json({
             success: true,
             data: { projectId: config.project_id, sessionId: config.session_id }
