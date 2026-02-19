@@ -968,9 +968,10 @@ async function handleRunStart(
     VALUES (?, ?, 'user', ?, ?)
   `).run(userMessageId, message.sessionId, message.input, Date.now());
 
+  let sdkSessionId = session.sdk_session_id || undefined;
+
   try {
     const cwd = session.root_path || process.cwd();
-    let sdkSessionId = session.sdk_session_id || undefined;
     let systemInfo: SystemInfo | undefined;
 
     // Process @ mentions - convert file references to context hints
@@ -1326,6 +1327,17 @@ async function handleRunStart(
     }
   } catch (error) {
     console.error('Run error:', error);
+
+    // If the Claude CLI process crashed (exit code 1), the SDK session may be
+    // corrupted (e.g. bad model stored in transcript). Clear sdk_session_id so
+    // the next attempt creates a fresh session instead of resuming the broken one.
+    const errMsg = error instanceof Error ? error.message : '';
+    if (errMsg.includes('process exited with code') && sdkSessionId) {
+      console.log(`[Recovery] Clearing corrupted sdk_session_id ${sdkSessionId} for session ${message.sessionId}`);
+      db.prepare(`UPDATE sessions SET sdk_session_id = NULL, updated_at = ? WHERE id = ?`)
+        .run(Date.now(), message.sessionId);
+    }
+
     // Save any accumulated content before reporting failure
     try {
       upsertAssistantMessage(activeRun, { indexMetadata: true });
