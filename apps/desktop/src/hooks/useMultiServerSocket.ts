@@ -33,6 +33,8 @@ export function useMultiServerSocket() {
   // Map of serverId -> transport state (direct servers only)
   const transportsRef = useRef<Map<string, ServerTransportState>>(new Map());
   const selectedSessionIdRef = useRef<string | null>(null);
+  // Track which runs belong to which server (for heartbeat reconciliation)
+  const serverRunsRef = useRef<Map<string, Set<string>>>(new Map());
   // Stable ref for connectServer — used by scheduleReconnect and auto-connect effect
   // to avoid circular deps and infinite re-render loops
   const connectServerRef = useRef<(serverId: string) => void>(() => {});
@@ -134,6 +136,11 @@ export function useMultiServerSocket() {
           // Use sessionId from server message (preferred), fall back to ref for old servers
           const targetSessionId = message.sessionId || currentSessionId;
           const isAgentRun = message.clientRequestId?.startsWith('agent_');
+          // Track run-to-server mapping for heartbeat reconciliation
+          if (!serverRunsRef.current.has(serverId)) {
+            serverRunsRef.current.set(serverId, new Set());
+          }
+          serverRunsRef.current.get(serverId)!.add(message.runId);
           if (isAgentRun) {
             const agentSessionId = useAgentStore.getState().agentSessionId;
             if (agentSessionId) {
@@ -187,6 +194,7 @@ export function useMultiServerSocket() {
             }
           }
           endRun(message.runId);
+          serverRunsRef.current.get(serverId)?.delete(message.runId);
           break;
         }
 
@@ -211,6 +219,7 @@ export function useMultiServerSocket() {
             }
           }
           endRun(message.runId);
+          serverRunsRef.current.get(serverId)?.delete(message.runId);
           console.error(`[Socket:${serverId}] Run failed:`, message.error);
           break;
         }
@@ -330,12 +339,27 @@ export function useMultiServerSocket() {
         }
 
         case 'state_heartbeat': {
-          // Reconcile active runs (restores loading state on reconnect)
+          // Reconcile active runs (restores loading state on reconnect, cleans up stale runs)
           const heartbeat = message as any;
           const chatState = useChatStore.getState();
+          const serverActiveRunIds = new Set(
+            (heartbeat.activeRuns as Array<{ runId: string; sessionId: string }>).map(r => r.runId)
+          );
+          // Add missing runs (server has active run, client doesn't know about it)
           for (const run of heartbeat.activeRuns as Array<{ runId: string; sessionId: string }>) {
             if (!chatState.activeRuns[run.runId]) {
               chatState.startRun(run.runId, run.sessionId);
+            }
+          }
+          // Clean up stale runs (client thinks run is active, but server says it's not)
+          const trackedRuns = serverRunsRef.current.get(serverId);
+          if (trackedRuns) {
+            for (const runId of trackedRuns) {
+              if (!serverActiveRunIds.has(runId)) {
+                console.log(`[Socket:${serverId}] Cleaning up stale run ${runId} (not in server heartbeat)`);
+                chatState.endRun(runId);
+                trackedRuns.delete(runId);
+              }
             }
           }
           // Reconcile permissions

@@ -492,11 +492,9 @@ export async function createServer(): Promise<ServerContext> {
               }
             });
 
-            // Immediately send state heartbeat so reconnecting clients can
-            // restore active run / permission / question state without waiting 30s
-            if (activeRuns.size > 0) {
-              sendMessage(ws, buildStateHeartbeat());
-            }
+            // Always send state heartbeat on connect/reconnect so clients can
+            // restore active runs AND clean up stale runs that completed while disconnected
+            sendMessage(ws, buildStateHeartbeat());
             return;
           }
 

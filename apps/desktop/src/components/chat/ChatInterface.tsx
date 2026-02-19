@@ -790,6 +790,7 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
           <SystemInfoButton systemInfo={currentSystemInfo} />
         </div>
         <MessageInput
+          key={sessionId}
           onSend={handleSendMessage}
           onCancel={handleCancelRun}
           onCommand={handleCommand}

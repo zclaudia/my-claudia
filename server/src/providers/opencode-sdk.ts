@@ -537,6 +537,12 @@ async function* mapOpenCodeEvent(
     return;
   }
 
+  // Diagnostic: log all session-related events
+  if (eventSessionId === sessionId) {
+    const preview = JSON.stringify(props).slice(0, 300);
+    console.log(`[OpenCode] SSE event: ${eventType} | ${preview}`);
+  }
+
   switch (eventType) {
     case 'message.part.delta': {
       // Streaming delta — the primary way OpenCode sends incremental text
@@ -633,9 +639,11 @@ async function* mapOpenCodeEvent(
     }
 
     default:
-      // Log unhandled event types for debugging message delivery issues
-      if (eventType && eventType !== 'server.connected' && eventType !== 'session.diff') {
-        console.log(`[OpenCode] Unhandled SSE event: ${eventType} (session=${eventSessionId || 'global'})`);
+      // Log unhandled event types for debugging
+      if (eventType && eventType !== 'server.connected' && eventType !== 'session.diff'
+          && eventType !== 'server.heartbeat' && eventType !== 'lsp.updated'
+          && eventType !== 'lsp.client.diagnostics') {
+        console.log(`[OpenCode] Unhandled SSE event: ${eventType} (session=${eventSessionId || 'global'}) | ${JSON.stringify(props).slice(0, 200)}`);
       }
       break;
   }
