@@ -632,8 +632,11 @@ async function* mapOpenCodeEvent(
       break;
     }
 
-    // Silently ignore: server.connected, message.updated, session.updated, session.diff, etc.
     default:
+      // Log unhandled event types for debugging message delivery issues
+      if (eventType && eventType !== 'server.connected' && eventType !== 'session.diff') {
+        console.log(`[OpenCode] Unhandled SSE event: ${eventType} (session=${eventSessionId || 'global'})`);
+      }
       break;
   }
 }

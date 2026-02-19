@@ -668,7 +668,11 @@ function sendMessage(ws: WebSocket, message: ServerMessage): void {
   // Check readyState as number to support both real WebSocket and virtual clients
   // WebSocket.OPEN === 1, but virtual clients may have readyState typed differently
   if ((ws.readyState as number) === 1) {
-    ws.send(JSON.stringify(message));
+    try {
+      ws.send(JSON.stringify(message));
+    } catch (err) {
+      console.error(`[WS] Failed to send message type=${message.type}:`, err);
+    }
   }
 }
 
