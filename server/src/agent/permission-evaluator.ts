@@ -4,19 +4,10 @@ import * as path from 'path';
 import { minimatch } from 'minimatch';
 
 // ============================================
-// Strategy Result Types
+// Types
 // ============================================
 
-export type StrategyResult = 'approve' | 'deny' | 'escalate' | 'continue';
 export type EvaluationResult = 'approve' | 'deny' | 'escalate';
-
-interface StrategyInput {
-  toolName: string;
-  toolInput: unknown;
-  detail: string;
-  policy: AgentPermissionPolicy;
-  context: EvaluationContext;
-}
 
 // ============================================
 // Shared Utilities
@@ -47,7 +38,6 @@ function extractBashCommand(toolInput: unknown, detail: string): string | null {
  */
 function extractPathsFromCommand(command: string): string[] {
   const paths: string[] = [];
-  // Match absolute paths (starting with /)
   const matches = command.match(/(?:^|\s)(\/[^\s;|&>]+)/g);
   if (matches) {
     for (const m of matches) {
@@ -58,28 +48,14 @@ function extractPathsFromCommand(command: string): string[] {
 }
 
 /** Check if a path is within an allowed directory */
-function isPathAllowed(filePath: string, rootPath: string, allowedPaths: string[]): boolean {
+function isPathWithinRoot(filePath: string, rootPath: string): boolean {
   const resolved = path.resolve(filePath);
   const resolvedRoot = path.resolve(rootPath);
-
-  // Within workspace root
-  if (resolved.startsWith(resolvedRoot + path.sep) || resolved === resolvedRoot) {
-    return true;
-  }
-
-  // Within any allowed extra path
-  for (const allowed of allowedPaths) {
-    const resolvedAllowed = path.resolve(allowed);
-    if (resolved.startsWith(resolvedAllowed + path.sep) || resolved === resolvedAllowed) {
-      return true;
-    }
-  }
-
-  return false;
+  return resolved.startsWith(resolvedRoot + path.sep) || resolved === resolvedRoot;
 }
 
 // ============================================
-// Strategy Implementations
+// Tool Categories
 // ============================================
 
 // Read-only tools that are generally safe
@@ -112,7 +88,7 @@ const NETWORK_BASH_PATTERNS = [
   /\bwget\b/,
   /\bssh\b/,
   /\bscp\b/,
-  /\brsync\b.*:/,                 // rsync with remote
+  /\brsync\b.*:/,
   /\bnpm\s+publish\b/,
   /\byarn\s+publish\b/,
   /\bgit\s+push\b/,
@@ -121,24 +97,81 @@ const NETWORK_BASH_PATTERNS = [
   /\bgit\s+clone\b/,
   /\bdocker\s+push\b/,
   /\bdocker\s+pull\b/,
-  /\bnc\b/,                       // netcat
+  /\bnc\b/,
   /\btelnet\b/,
 ];
 
-/**
- * Strategy 1: Custom Rules (user-defined, first match wins)
- */
-function evaluateCustomRules(input: StrategyInput): StrategyResult {
-  for (const rule of input.policy.customRules || []) {
-    if (rule.toolName === '*' || rule.toolName === input.toolName) {
+// ============================================
+// Internal Guard Checks
+// ============================================
+
+/** Check if a file path targets a sensitive file */
+function isSensitiveFile(filePath: string): boolean {
+  const basename = path.basename(filePath);
+  return DEFAULT_SENSITIVE_PATTERNS.some(p => minimatch(basename, p, { dot: true }));
+}
+
+/** Check if a tool operation targets a sensitive file */
+function targetsSensitiveFile(toolName: string, toolInput: unknown, detail: string): boolean {
+  // Check file_path from tool input
+  const filePath = extractFilePath(toolInput);
+  if (filePath && isSensitiveFile(filePath)) return true;
+
+  // For Bash commands, check paths in the command
+  if (toolName === 'Bash') {
+    const command = extractBashCommand(toolInput, detail);
+    if (command) {
+      return extractPathsFromCommand(command).some(p => isSensitiveFile(p));
+    }
+  }
+  return false;
+}
+
+/** Check if a tool operation targets a path outside workspace */
+function targetsOutsideWorkspace(toolName: string, toolInput: unknown, detail: string, rootPath: string): boolean {
+  if (!rootPath) return false;
+
+  const filePath = extractFilePath(toolInput);
+  if (filePath && !isPathWithinRoot(filePath, rootPath)) return true;
+
+  if (toolName === 'Bash') {
+    const command = extractBashCommand(toolInput, detail);
+    if (command) {
+      return extractPathsFromCommand(command).some(p => !isPathWithinRoot(p, rootPath));
+    }
+  }
+  return false;
+}
+
+/** Check if a Bash command involves network access */
+function isNetworkCommand(toolInput: unknown, detail: string): boolean {
+  const command = extractBashCommand(toolInput, detail);
+  if (!command) return false;
+  return NETWORK_BASH_PATTERNS.some(p => p.test(command));
+}
+
+/** Check if a Bash command matches dangerous patterns */
+function isDangerousCommand(toolInput: unknown, detail: string): boolean {
+  const command = extractBashCommand(toolInput, detail);
+  if (!command) return true; // No command = can't verify safety = escalate
+  return DANGEROUS_BASH_PATTERNS.some(p => p.test(command));
+}
+
+// ============================================
+// Custom Rules Evaluator
+// ============================================
+
+type CustomRuleResult = 'approve' | 'deny' | 'escalate' | 'continue';
+
+function evaluateCustomRules(toolName: string, detail: string, policy: AgentPermissionPolicy): CustomRuleResult {
+  for (const rule of policy.customRules || []) {
+    if (rule.toolName === '*' || rule.toolName === toolName) {
       if (rule.pattern) {
         try {
           const re = new RegExp(rule.pattern, 'i');
-          if (re.test(input.detail)) {
-            return rule.action;
-          }
+          if (re.test(detail)) return rule.action;
         } catch {
-          continue; // Invalid regex — skip
+          continue;
         }
       } else {
         return rule.action;
@@ -148,171 +181,25 @@ function evaluateCustomRules(input: StrategyInput): StrategyResult {
   return 'continue';
 }
 
-/**
- * Strategy 2: Sensitive Files — escalate operations on sensitive files
- */
-function evaluateSensitiveFiles(input: StrategyInput): StrategyResult {
-  const config = input.policy.strategies?.sensitiveFiles;
-  if (!config?.enabled) return 'continue';
-
-  const patterns = config.patterns.length > 0 ? config.patterns : DEFAULT_SENSITIVE_PATTERNS;
-
-  // Check file_path from tool input
-  const filePath = extractFilePath(input.toolInput);
-  if (filePath) {
-    const basename = path.basename(filePath);
-    for (const pattern of patterns) {
-      if (minimatch(basename, pattern, { dot: true })) {
-        return 'escalate';
-      }
-    }
-  }
-
-  // For Bash commands, check paths in the command
-  if (input.toolName === 'Bash') {
-    const command = extractBashCommand(input.toolInput, input.detail);
-    if (command) {
-      const cmdPaths = extractPathsFromCommand(command);
-      for (const p of cmdPaths) {
-        const basename = path.basename(p);
-        for (const pattern of patterns) {
-          if (minimatch(basename, pattern, { dot: true })) {
-            return 'escalate';
-          }
-        }
-      }
-    }
-  }
-
-  return 'continue';
-}
-
-/**
- * Strategy 3: Workspace Scope — escalate operations outside allowed paths
- */
-function evaluateWorkspaceScope(input: StrategyInput): StrategyResult {
-  const config = input.policy.strategies?.workspaceScope;
-  if (!config?.enabled) return 'continue';
-
-  const rootPath = input.context.rootPath;
-  if (!rootPath) return 'continue'; // Can't check without a root path
-
-  const allowedPaths = config.allowedPaths || [];
-
-  // Check file_path from tool input
-  const filePath = extractFilePath(input.toolInput);
-  if (filePath) {
-    if (!isPathAllowed(filePath, rootPath, allowedPaths)) {
-      return 'escalate';
-    }
-  }
-
-  // For Bash commands, check paths in the command
-  if (input.toolName === 'Bash') {
-    const command = extractBashCommand(input.toolInput, input.detail);
-    if (command) {
-      const cmdPaths = extractPathsFromCommand(command);
-      for (const p of cmdPaths) {
-        if (!isPathAllowed(p, rootPath, allowedPaths)) {
-          return 'escalate';
-        }
-      }
-    }
-  }
-
-  return 'continue';
-}
-
-/**
- * Strategy 4: Network Access — escalate Bash commands with network operations
- */
-function evaluateNetworkAccess(input: StrategyInput): StrategyResult {
-  const config = input.policy.strategies?.networkAccess;
-  if (!config?.enabled) return 'continue';
-
-  if (input.toolName !== 'Bash') return 'continue';
-
-  const command = extractBashCommand(input.toolInput, input.detail);
-  if (!command) return 'continue';
-
-  for (const pattern of NETWORK_BASH_PATTERNS) {
-    if (pattern.test(command)) {
-      return 'escalate';
-    }
-  }
-
-  return 'continue';
-}
-
-/**
- * Strategy 5: Trust Level — the existing trust-based evaluation
- */
-function evaluateTrustLevel(input: StrategyInput): StrategyResult {
-  const { toolName, toolInput, detail, policy } = input;
-
-  // AskUserQuestion always escalates
-  if (toolName === 'AskUserQuestion') return 'escalate';
-
-  switch (policy.trustLevel) {
-    case 'conservative':
-      if (READONLY_TOOLS.includes(toolName)) return 'approve';
-      return 'escalate';
-
-    case 'moderate':
-      if (READONLY_TOOLS.includes(toolName)) return 'approve';
-      if (EDIT_TOOLS.includes(toolName)) return 'approve';
-      if (toolName === 'Task') return 'approve';
-      return 'escalate';
-
-    case 'aggressive': {
-      if (READONLY_TOOLS.includes(toolName)) return 'approve';
-      if (EDIT_TOOLS.includes(toolName)) return 'approve';
-      if (toolName === 'Task') return 'approve';
-
-      if (toolName === 'Bash') {
-        const command = extractBashCommand(toolInput, detail);
-        if (!command) return 'escalate';
-
-        for (const pattern of DANGEROUS_BASH_PATTERNS) {
-          if (pattern.test(command)) {
-            return 'escalate';
-          }
-        }
-        return 'approve';
-      }
-
-      return 'escalate';
-    }
-
-    default:
-      return 'escalate';
-  }
-}
-
 // ============================================
-// Strategy Chain Evaluator
+// Trust Level Evaluator (with built-in guards)
 // ============================================
 
 /**
- * Strategy chain permission evaluator.
+ * Permission evaluator with trust levels that have built-in strategy guards.
+ *
+ * Trust levels:
+ *   conservative — Read-only tools + sensitive file protection
+ *   moderate     — + file edits + workspace scope protection
+ *   aggressive   — + safe bash + network command protection
+ *   full_trust   — Everything except dangerous bash (rm -rf, sudo, etc.)
  *
  * Evaluation order:
- *   1. escalateAlways list
- *   2. customRules (user-defined)
- *   3. sensitiveFiles
- *   4. workspaceScope
- *   5. networkAccess
- *   6. trustLevel (existing logic)
- *   7. aiAnalysis (async, future — placeholder)
- *
- * Each strategy returns 'approve' | 'deny' | 'escalate' | 'continue'.
- * 'continue' means the strategy has no opinion; pass to the next.
+ *   1. escalateAlways list (always escalate certain tools)
+ *   2. Custom rules (user-defined, first match wins)
+ *   3. Trust level evaluation (with built-in guards)
  */
 export class PermissionEvaluator {
-  /**
-   * Evaluate a permission request against the policy using the strategy chain.
-   * Returns 'approve', 'deny', or 'escalate'.
-   */
   evaluate(
     toolName: string,
     toolInput: unknown,
@@ -322,44 +209,89 @@ export class PermissionEvaluator {
   ): EvaluationResult {
     if (!policy.enabled) return 'escalate';
 
-    const effectiveContext: EvaluationContext = context || {
-      rootPath: process.cwd(),
-      sessionType: 'regular',
-    };
+    const rootPath = context?.rootPath || process.cwd();
 
-    const input: StrategyInput = { toolName, toolInput, detail, policy, context: effectiveContext };
-
-    // 1. Check escalateAlways list
+    // 1. escalateAlways
     if (policy.escalateAlways?.includes(toolName)) {
       return 'escalate';
     }
 
-    // 2-6. Run strategy chain
-    const strategies: Array<(input: StrategyInput) => StrategyResult> = [
-      evaluateCustomRules,      // 2. User-defined rules
-      evaluateSensitiveFiles,   // 3. Sensitive file protection
-      evaluateWorkspaceScope,   // 4. Workspace path boundaries
-      evaluateNetworkAccess,    // 5. Network access detection
-      evaluateTrustLevel,       // 6. Trust level defaults
-    ];
+    // 2. Custom rules (first match wins)
+    const customResult = evaluateCustomRules(toolName, detail, policy);
+    if (customResult !== 'continue') {
+      console.log(`[Permission] Custom rule returned '${customResult}' for ${toolName}`);
+      return customResult;
+    }
 
-    for (const strategy of strategies) {
-      const result = strategy(input);
-      if (result !== 'continue') {
-        return result;
+    // 3. Trust level with built-in guards
+    const result = this.evaluateTrustLevel(toolName, toolInput, detail, policy.trustLevel, rootPath);
+    console.log(`[Permission] Trust level '${policy.trustLevel}' returned '${result}' for ${toolName}`);
+    return result;
+  }
+
+  private evaluateTrustLevel(
+    toolName: string,
+    toolInput: unknown,
+    detail: string,
+    trustLevel: AgentPermissionPolicy['trustLevel'],
+    rootPath: string
+  ): EvaluationResult {
+    // AskUserQuestion always escalates regardless of trust level
+    if (toolName === 'AskUserQuestion') return 'escalate';
+
+    switch (trustLevel) {
+      // ── Conservative: read-only + sensitive file guard ──
+      case 'conservative': {
+        if (!READONLY_TOOLS.includes(toolName)) return 'escalate';
+        // Guard: protect sensitive files even for reads
+        if (targetsSensitiveFile(toolName, toolInput, detail)) return 'escalate';
+        return 'approve';
       }
-    }
 
-    // 7. AI Analysis (placeholder — async, handled separately)
-    // If aiAnalysis is enabled and we reach here, the caller should
-    // invoke evaluateWithAI() separately as it's async.
-    if (policy.strategies?.aiAnalysis?.enabled) {
-      // Signal that AI analysis should be attempted
-      return 'escalate'; // Fallback: escalate synchronously
-    }
+      // ── Moderate: + file edits + workspace scope guard ──
+      case 'moderate': {
+        if (toolName === 'Task') return 'approve';
+        if (!READONLY_TOOLS.includes(toolName) && !EDIT_TOOLS.includes(toolName)) return 'escalate';
+        // Guards: sensitive files + workspace scope
+        if (targetsSensitiveFile(toolName, toolInput, detail)) return 'escalate';
+        if (targetsOutsideWorkspace(toolName, toolInput, detail, rootPath)) return 'escalate';
+        return 'approve';
+      }
 
-    // All strategies returned 'continue' — default to escalate
-    return 'escalate';
+      // ── Aggressive: + safe bash + network command guard ──
+      case 'aggressive': {
+        if (toolName === 'Task') return 'approve';
+        if (READONLY_TOOLS.includes(toolName) || EDIT_TOOLS.includes(toolName)) {
+          // Guards: sensitive files + workspace scope
+          if (targetsSensitiveFile(toolName, toolInput, detail)) return 'escalate';
+          if (targetsOutsideWorkspace(toolName, toolInput, detail, rootPath)) return 'escalate';
+          return 'approve';
+        }
+        if (toolName === 'Bash') {
+          if (isDangerousCommand(toolInput, detail)) return 'escalate';
+          if (isNetworkCommand(toolInput, detail)) return 'escalate';
+          // Guards for bash: sensitive files + workspace scope
+          if (targetsSensitiveFile(toolName, toolInput, detail)) return 'escalate';
+          if (targetsOutsideWorkspace(toolName, toolInput, detail, rootPath)) return 'escalate';
+          return 'approve';
+        }
+        return 'escalate';
+      }
+
+      // ── Full Trust: everything except dangerous bash ──
+      case 'full_trust': {
+        if (toolName === 'Task') return 'approve';
+        if (READONLY_TOOLS.includes(toolName) || EDIT_TOOLS.includes(toolName)) return 'approve';
+        if (toolName === 'Bash') {
+          if (isDangerousCommand(toolInput, detail)) return 'escalate';
+          return 'approve';
+        }
+        return 'approve';
+      }
+
+      default:
+        return 'escalate';
+    }
   }
 }
 
@@ -369,7 +301,6 @@ export class PermissionEvaluator {
 
 /**
  * Merge a project-level override into the global policy.
- * Project fields that are defined override the corresponding global fields.
  */
 export function mergePolicy(
   globalPolicy: AgentPermissionPolicy,
@@ -384,45 +315,21 @@ export function mergePolicy(
   if (projectOverride.customRules !== undefined) merged.customRules = projectOverride.customRules;
   if (projectOverride.escalateAlways !== undefined) merged.escalateAlways = projectOverride.escalateAlways;
 
-  // Deep merge strategies
-  if (projectOverride.strategies) {
-    merged.strategies = { ...globalPolicy.strategies };
-    const override = projectOverride.strategies;
-
-    if (override.workspaceScope !== undefined) {
-      merged.strategies!.workspaceScope = override.workspaceScope;
-    }
-    if (override.sensitiveFiles !== undefined) {
-      merged.strategies!.sensitiveFiles = override.sensitiveFiles;
-    }
-    if (override.networkAccess !== undefined) {
-      merged.strategies!.networkAccess = override.networkAccess;
-    }
-    if (override.aiAnalysis !== undefined) {
-      merged.strategies!.aiAnalysis = override.aiAnalysis;
-    }
-  }
-
   return merged;
 }
 
 /**
- * Normalize a policy that may be missing the strategies field (backward compat).
- * Old policies without strategies get all strategies disabled by default.
+ * Normalize a policy from the database (backward compat).
+ * Strips deprecated strategies field.
  */
 export function normalizePolicy(policy: AgentPermissionPolicy): AgentPermissionPolicy {
-  if (!policy.strategies) {
-    return {
-      ...policy,
-      strategies: {
-        workspaceScope: { enabled: false, allowedPaths: [] },
-        sensitiveFiles: { enabled: false, patterns: [...DEFAULT_SENSITIVE_PATTERNS] },
-        networkAccess: { enabled: false },
-        aiAnalysis: { enabled: false },
-      },
-    };
-  }
-  return policy;
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { strategies: _deprecated, ...clean } = policy;
+  return {
+    ...clean,
+    customRules: clean.customRules || [],
+    escalateAlways: clean.escalateAlways || ['AskUserQuestion'],
+  };
 }
 
 /**

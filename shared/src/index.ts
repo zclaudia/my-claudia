@@ -1221,31 +1221,13 @@ export type GatewayToClientMessage =
 
 export interface AgentPermissionPolicy {
   enabled: boolean;
-  trustLevel: 'conservative' | 'moderate' | 'aggressive';
-
-  // Strategy modules (each independently toggleable)
-  strategies?: {
-    workspaceScope?: {
-      enabled: boolean;
-      allowedPaths: string[];  // Extra allowed paths beyond workspace root, e.g. ['/tmp']
-    };
-    sensitiveFiles?: {
-      enabled: boolean;
-      patterns: string[];  // Glob patterns for sensitive files, e.g. ['.env*', '*.pem']
-    };
-    networkAccess?: {
-      enabled: boolean;
-      // Bash commands with curl/wget/ssh/npm publish/git push/docker push → escalate
-    };
-    aiAnalysis?: {
-      enabled: boolean;
-      // Fallback: use AI to analyze uncertain commands
-      // Only invoked when all other strategies return 'continue'
-    };
-  };
+  trustLevel: 'conservative' | 'moderate' | 'aggressive' | 'full_trust';
 
   customRules: AgentPermissionRule[];
   escalateAlways: string[];     // tool names that always go to user
+
+  /** @deprecated Strategies are now built into trust levels. Kept for backward compat parsing. */
+  strategies?: unknown;
 }
 
 export interface AgentPermissionRule {

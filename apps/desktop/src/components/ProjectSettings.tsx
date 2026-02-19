@@ -4,10 +4,11 @@ import { useServerStore } from '../stores/serverStore';
 import { useProjectStore } from '../stores/projectStore';
 import * as api from '../services/api';
 
-const TRUST_LEVELS = [
-  { id: 'conservative' as const, label: 'Conservative', description: 'Only auto-approve read-only tools' },
-  { id: 'moderate' as const, label: 'Moderate', description: 'Auto-approve reads + file edits' },
-  { id: 'aggressive' as const, label: 'Aggressive', description: 'Auto-approve most operations except dangerous bash' },
+const TRUST_LEVELS: Array<{ id: AgentPermissionPolicy['trustLevel']; label: string; description: string }> = [
+  { id: 'conservative', label: 'Conservative', description: 'Only auto-approve read-only tools' },
+  { id: 'moderate', label: 'Moderate', description: 'Auto-approve reads + file edits' },
+  { id: 'aggressive', label: 'Aggressive', description: 'Auto-approve most ops, network commands still ask' },
+  { id: 'full_trust', label: 'Full Trust', description: 'Auto-approve everything except dangerous bash' },
 ];
 
 interface ProjectSettingsProps {
@@ -261,58 +262,6 @@ export function ProjectSettings({ project, isOpen, onClose }: ProjectSettingsPro
                   </div>
                 </div>
 
-                {/* Strategy toggles */}
-                <div>
-                  <p className="text-xs font-medium text-muted-foreground mb-1.5">Strategies</p>
-                  <div className="space-y-1">
-                    <MiniStrategyToggle
-                      label="Workspace Scope"
-                      enabled={permOverride.strategies?.workspaceScope?.enabled ?? false}
-                      onToggle={(v) => updateOverride({
-                        strategies: {
-                          ...permOverride.strategies,
-                          workspaceScope: {
-                            enabled: v,
-                            allowedPaths: permOverride.strategies?.workspaceScope?.allowedPaths ?? ['/tmp'],
-                          },
-                        },
-                      })}
-                    />
-                    <MiniStrategyToggle
-                      label="Sensitive Files"
-                      enabled={permOverride.strategies?.sensitiveFiles?.enabled ?? false}
-                      onToggle={(v) => updateOverride({
-                        strategies: {
-                          ...permOverride.strategies,
-                          sensitiveFiles: {
-                            enabled: v,
-                            patterns: permOverride.strategies?.sensitiveFiles?.patterns ?? [],
-                          },
-                        },
-                      })}
-                    />
-                    <MiniStrategyToggle
-                      label="Network Access"
-                      enabled={permOverride.strategies?.networkAccess?.enabled ?? false}
-                      onToggle={(v) => updateOverride({
-                        strategies: {
-                          ...permOverride.strategies,
-                          networkAccess: { enabled: v },
-                        },
-                      })}
-                    />
-                    <MiniStrategyToggle
-                      label="AI Analysis"
-                      enabled={permOverride.strategies?.aiAnalysis?.enabled ?? false}
-                      onToggle={(v) => updateOverride({
-                        strategies: {
-                          ...permOverride.strategies,
-                          aiAnalysis: { enabled: v },
-                        },
-                      })}
-                    />
-                  </div>
-                </div>
               </div>
             )}
           </div>
@@ -339,26 +288,3 @@ export function ProjectSettings({ project, isOpen, onClose }: ProjectSettingsPro
   );
 }
 
-function MiniStrategyToggle({ label, enabled, onToggle }: {
-  label: string;
-  enabled: boolean;
-  onToggle: (v: boolean) => void;
-}) {
-  return (
-    <div className="flex items-center justify-between py-1">
-      <span className="text-xs">{label}</span>
-      <button
-        onClick={() => onToggle(!enabled)}
-        className={`relative w-7 h-3.5 rounded-full transition-colors flex-shrink-0 ${
-          enabled ? 'bg-primary' : 'bg-muted'
-        }`}
-      >
-        <span
-          className={`absolute top-0.5 left-0.5 w-2.5 h-2.5 rounded-full bg-white shadow transition-transform ${
-            enabled ? 'translate-x-3' : 'translate-x-0'
-          }`}
-        />
-      </button>
-    </div>
-  );
-}

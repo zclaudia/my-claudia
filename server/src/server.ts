@@ -16,6 +16,7 @@ import type {
   StateHeartbeatMessage
 } from '@my-claudia/shared';
 import { isRequest, ALL_SERVER_FEATURES } from '@my-claudia/shared';
+import type { AgentPermissionPolicy } from '@my-claudia/shared';
 import { initDatabase } from './storage/db.js';
 import { initFileStore } from './storage/fileStore.js';
 import { createProjectRoutes } from './routes/projects.js';
@@ -32,7 +33,7 @@ import { createSupervisionRoutes } from './routes/supervisions.js';
 import { createNotificationRoutes } from './routes/notifications.js';
 import { SupervisorService } from './services/supervisor-service.js';
 import { NotificationService } from './services/notification-service.js';
-import { PermissionEvaluator, getAgentPermissionPolicy, getProjectPermissionOverride, mergePolicy } from './agent/permission-evaluator.js';
+import { PermissionEvaluator, getAgentPermissionPolicy, getProjectPermissionOverride, mergePolicy, normalizePolicy } from './agent/permission-evaluator.js';
 import type { PermissionDecision, SystemInfo } from './providers/claude-sdk.js';
 import { openCodeServerManager } from './providers/opencode-sdk.js';
 import { providerRegistry } from './providers/registry.js';
@@ -44,6 +45,14 @@ import { generateKeyPair, getPublicKeyPem, decryptCredential } from './utils/cry
 import { createRouter } from './router/index.js';
 import { loggingMiddleware as routerLoggingMiddleware } from './middleware/logging.js';
 import { errorHandlingMiddleware as routerErrorMiddleware } from './middleware/error.js';
+
+// Default permission policy base (used when only project override exists, no global policy)
+const DEFAULT_PERMISSION_POLICY: AgentPermissionPolicy = {
+  enabled: false,
+  trustLevel: 'conservative',
+  customRules: [],
+  escalateAlways: ['AskUserQuestion'],
+};
 
 // Check if input is a slash command
 function isSlashCommand(input: string): boolean {
@@ -1018,16 +1027,25 @@ async function handleRunStart(
     const permissionCallback = async (request: import('@my-claudia/shared').PermissionRequest) => {
       return new Promise<PermissionDecision>((resolve) => {
         // --- Unified permission strategy chain ---
+        // Check both global and project-level policies.
+        // Project override can independently enable auto-approve.
         const globalPolicy = getAgentPermissionPolicy(db);
-        if (globalPolicy?.enabled) {
-          const projectOverride = getProjectPermissionOverride(db, session.project_id);
-          const effectivePolicy = mergePolicy(globalPolicy, projectOverride);
+        const projectOverride = getProjectPermissionOverride(db, session.project_id);
+        const effectivePolicy = globalPolicy
+          ? mergePolicy(globalPolicy, projectOverride)
+          : projectOverride?.enabled
+            ? normalizePolicy({ ...DEFAULT_PERMISSION_POLICY, ...projectOverride } as AgentPermissionPolicy)
+            : null;
+        const _cmdPreview = request.toolName === 'Bash' ? ` | cmd=${JSON.stringify((request.toolInput as any)?.command || request.detail).slice(0, 120)}` : '';
+        console.log(`[Permission] Tool=${request.toolName}${_cmdPreview} | globalPolicy=${globalPolicy?.enabled ? 'enabled/' + globalPolicy.trustLevel : 'null/disabled'} | projectOverride=${projectOverride?.enabled ? 'enabled/' + projectOverride.trustLevel : 'null/disabled'} | effective=${effectivePolicy?.enabled ? 'enabled/' + effectivePolicy.trustLevel : 'null/disabled'} | project_id=${session.project_id}`);
+        if (effectivePolicy?.enabled) {
           const evaluator = new PermissionEvaluator();
           const decision = evaluator.evaluate(
             request.toolName, request.toolInput, request.detail,
             effectivePolicy,
             { rootPath: cwd, sessionType }
           );
+          console.log(`[Permission] Decision=${decision} for ${request.toolName} (trustLevel=${effectivePolicy.trustLevel})`);
           if (decision === 'approve') {
             console.log(`[Permission] Auto-approved ${request.toolName} for run ${runId} (${effectivePolicy.trustLevel})`);
             sendMessage(client.ws, {

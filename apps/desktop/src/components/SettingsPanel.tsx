@@ -611,21 +611,31 @@ const TRUST_LEVELS: Array<{
   id: AgentPermissionPolicy['trustLevel'];
   label: string;
   description: string;
+  guards: string;
 }> = [
   {
     id: 'conservative',
     label: 'Conservative',
     description: 'Auto-approve read-only tools (Read, Glob, Grep). Everything else asks you.',
+    guards: 'Protects sensitive files',
   },
   {
     id: 'moderate',
     label: 'Moderate',
     description: 'Also auto-approve file edits (Write, Edit). Bash still asks you.',
+    guards: 'Protects sensitive files, restricts to workspace',
   },
   {
     id: 'aggressive',
     label: 'Aggressive',
-    description: 'Auto-approve most tools including safe Bash commands. Only dangerous commands ask.',
+    description: 'Auto-approve most tools including safe Bash. Network commands still ask.',
+    guards: 'Protects sensitive files, restricts to workspace, monitors network commands',
+  },
+  {
+    id: 'full_trust',
+    label: 'Full Trust',
+    description: 'Auto-approve everything. Only truly dangerous commands ask (rm -rf, sudo, etc.).',
+    guards: 'Only blocks destructive commands',
   },
 ];
 
@@ -756,7 +766,7 @@ function AgentSettingsInline() {
             <>
               {/* Trust level */}
               <div>
-                <p className="text-sm font-medium mb-2">Trust level</p>
+                <p className="text-sm font-medium mb-2">Trust Level</p>
                 <div className="space-y-2">
                   {TRUST_LEVELS.map(level => (
                     <button
@@ -781,6 +791,9 @@ function AgentSettingsInline() {
                       <p className="text-xs text-muted-foreground mt-1 ml-5">
                         {level.description}
                       </p>
+                      <p className="text-[10px] text-muted-foreground/70 mt-0.5 ml-5">
+                        {level.guards}
+                      </p>
                     </button>
                   ))}
                 </div>
@@ -793,91 +806,10 @@ function AgentSettingsInline() {
                   <PolicyRow label="Read, Glob, Grep, WebFetch" approved={true} />
                   <PolicyRow label="Write, Edit" approved={policy.trustLevel !== 'conservative'} />
                   <PolicyRow label="Task (subagents)" approved={policy.trustLevel !== 'conservative'} />
-                  <PolicyRow label="Safe Bash commands" approved={policy.trustLevel === 'aggressive'} />
+                  <PolicyRow label="Safe Bash commands" approved={policy.trustLevel === 'aggressive' || policy.trustLevel === 'full_trust'} />
+                  <PolicyRow label="Network commands (curl, ssh)" approved={policy.trustLevel === 'full_trust'} />
                   <PolicyRow label="Dangerous Bash (rm -rf, sudo)" approved={false} escalated />
                   <PolicyRow label="AskUserQuestion" approved={false} escalated />
-                </div>
-              </div>
-
-              {/* Strategy modules */}
-              <div>
-                <p className="text-sm font-medium mb-2">Strategy Modules</p>
-                <p className="text-xs text-muted-foreground mb-3">
-                  Additional security checks applied before trust level evaluation.
-                </p>
-                <div className="space-y-2">
-                  <StrategyToggle
-                    label="Workspace Scope"
-                    description="Escalate file operations outside workspace root"
-                    enabled={policy.strategies?.workspaceScope?.enabled ?? false}
-                    onToggle={(v) => updatePolicy({
-                      strategies: {
-                        ...policy.strategies,
-                        workspaceScope: {
-                          enabled: v,
-                          allowedPaths: policy.strategies?.workspaceScope?.allowedPaths ?? ['/tmp'],
-                        },
-                      },
-                    })}
-                  />
-                  {policy.strategies?.workspaceScope?.enabled && (
-                    <div className="ml-4 pl-3 border-l-2 border-border">
-                      <label className="text-xs text-muted-foreground block mb-1">Extra allowed paths (one per line)</label>
-                      <textarea
-                        value={(policy.strategies?.workspaceScope?.allowedPaths ?? []).join('\n')}
-                        onChange={(e) => updatePolicy({
-                          strategies: {
-                            ...policy.strategies,
-                            workspaceScope: {
-                              enabled: true,
-                              allowedPaths: e.target.value.split('\n').map(p => p.trim()).filter(Boolean),
-                            },
-                          },
-                        })}
-                        className="w-full px-2 py-1 bg-secondary border border-border rounded text-xs font-mono h-16 resize-none focus:outline-none focus:border-primary"
-                        placeholder="/tmp&#10;/var/folders"
-                      />
-                    </div>
-                  )}
-
-                  <StrategyToggle
-                    label="Sensitive Files"
-                    description="Escalate operations on .env, keys, credentials"
-                    enabled={policy.strategies?.sensitiveFiles?.enabled ?? false}
-                    onToggle={(v) => updatePolicy({
-                      strategies: {
-                        ...policy.strategies,
-                        sensitiveFiles: {
-                          enabled: v,
-                          patterns: policy.strategies?.sensitiveFiles?.patterns ?? [],
-                        },
-                      },
-                    })}
-                  />
-
-                  <StrategyToggle
-                    label="Network Access"
-                    description="Escalate Bash commands with curl, wget, ssh, git push"
-                    enabled={policy.strategies?.networkAccess?.enabled ?? false}
-                    onToggle={(v) => updatePolicy({
-                      strategies: {
-                        ...policy.strategies,
-                        networkAccess: { enabled: v },
-                      },
-                    })}
-                  />
-
-                  <StrategyToggle
-                    label="AI Analysis"
-                    description="Use AI to analyze uncertain commands (slower)"
-                    enabled={policy.strategies?.aiAnalysis?.enabled ?? false}
-                    onToggle={(v) => updatePolicy({
-                      strategies: {
-                        ...policy.strategies,
-                        aiAnalysis: { enabled: v },
-                      },
-                    })}
-                  />
                 </div>
               </div>
             </>
@@ -1068,34 +1000,6 @@ function PolicyRow({ label, approved, escalated }: { label: string; approved: bo
       ) : (
         <span className="text-muted-foreground/60">Asks you</span>
       )}
-    </div>
-  );
-}
-
-function StrategyToggle({ label, description, enabled, onToggle }: {
-  label: string;
-  description: string;
-  enabled: boolean;
-  onToggle: (v: boolean) => void;
-}) {
-  return (
-    <div className="flex items-center justify-between p-2 rounded-lg hover:bg-secondary/30">
-      <div>
-        <p className="text-sm">{label}</p>
-        <p className="text-xs text-muted-foreground">{description}</p>
-      </div>
-      <button
-        onClick={() => onToggle(!enabled)}
-        className={`relative w-8 h-4 rounded-full transition-colors flex-shrink-0 ${
-          enabled ? 'bg-primary' : 'bg-muted'
-        }`}
-      >
-        <span
-          className={`absolute top-0.5 left-0.5 w-3 h-3 rounded-full bg-white shadow transition-transform ${
-            enabled ? 'translate-x-4' : 'translate-x-0'
-          }`}
-        />
-      </button>
     </div>
   );
 }
