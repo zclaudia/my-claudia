@@ -84,6 +84,7 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
   const [lastSentMessage, setLastSentMessage] = useState<{ content: string; attachments?: Attachment[] } | null>(null);
   const [restoreMessage, setRestoreMessage] = useState<{ content: string; attachments?: Attachment[] } | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const sessionMessages = messages[sessionId] || [];
   const sessionPagination = pagination[sessionId];
@@ -100,6 +101,7 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
     setLastSentMessage(null);
     setRestoreMessage(null);
     setUploadError(null);
+    setLoadError(null);
   }, [sessionId]);
 
   const scrollToBottom = useCallback((instant = false) => {
@@ -128,6 +130,7 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
           return;
         }
 
+        setLoadError(null);
         const result = await api.getSessionMessages(sessionId, {
           limit: MESSAGES_PER_PAGE
         });
@@ -142,6 +145,16 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
       setLoadingMore(sessionId, false);
       // On error, set empty messages to prevent undefined
       if (!before) {
+        const errMsg = error instanceof Error ? error.message : 'Unknown error';
+        // Detect common error patterns for user-friendly messages
+        const isTimeout = errMsg.includes('timed out') || errMsg.includes('timeout') || errMsg.includes('TIMEOUT');
+        const isOffline = errMsg.includes('BACKEND_OFFLINE') || errMsg.includes('502') || errMsg.includes('Failed to fetch');
+        const friendlyMsg = isOffline
+          ? 'Backend is offline. This session may belong to a server that is currently unreachable.'
+          : isTimeout
+          ? 'Request timed out. The backend server may be unresponsive.'
+          : `Failed to load messages: ${errMsg}`;
+        setLoadError(friendlyMsg);
         setMessages(sessionId, [], { total: 0, hasMore: false });
         setInitialLoadDone(true);
       }
@@ -624,6 +637,33 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
                 Load older messages
               </button>
             )}
+          </div>
+        )}
+
+        {/* Initial load spinner */}
+        {!initialLoadDone && !loadError && (
+          <div className="flex items-center justify-center py-12">
+            <svg className="w-5 h-5 animate-spin text-muted-foreground" fill="none" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+            </svg>
+            <span className="ml-2 text-sm text-muted-foreground">Loading messages...</span>
+          </div>
+        )}
+
+        {/* Message load error */}
+        {loadError && (
+          <div className="flex flex-col items-center justify-center py-12 px-4 text-center">
+            <svg className="w-10 h-10 text-muted-foreground/40 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 9v2m0 4h.01M3.515 15.795l7.07-12.243a1.64 1.64 0 012.83 0l7.07 12.243A1.64 1.64 0 0119.07 18H4.93a1.64 1.64 0 01-1.415-2.205z" />
+            </svg>
+            <p className="text-sm text-muted-foreground mb-1">{loadError}</p>
+            <button
+              onClick={() => { setLoadError(null); setInitialLoadDone(false); loadMessages(); }}
+              className="mt-2 px-3 py-1.5 text-xs font-medium text-primary hover:text-primary/80 bg-primary/10 hover:bg-primary/15 rounded transition-colors"
+            >
+              Retry
+            </button>
           </div>
         )}
 

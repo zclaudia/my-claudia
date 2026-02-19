@@ -361,7 +361,7 @@ export function createGatewayServer(config: GatewayConfig): Server {
   const wss = new WebSocketServer({
     server: httpServer,
     path: '/ws',
-    maxPayload: 1 * 1024 * 1024 // 1MB max WebSocket message size
+    maxPayload: 4 * 1024 * 1024 // 4MB max WebSocket message size
   });
 
   // Ping interval for connection health

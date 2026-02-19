@@ -755,12 +755,37 @@ export function createSessionRoutes(db: Database.Database, activeRuns: ActiveRun
 
       const messages = db.prepare(query).all(...params) as Array<Message & { metadata: string }>;
 
-      // For initial load and "before" queries, we fetched DESC, so reverse to get chronological order
-      if (!after) {
-        messages.reverse();
+      // Size-aware trimming: fit response within WebSocket proxy limits.
+      // Do this BEFORE reversing so we trim from the correct end.
+      //
+      // For initial/before: query is DESC (newest first at index 0).
+      //   We keep newest messages, drop oldest (high index) → slice(0, keepCount)
+      // For after: query is ASC (oldest first at index 0).
+      //   We keep oldest messages, drop newest (high index) → slice(0, keepCount)
+      // Both cases: iterate from index 0 and stop when budget exceeded.
+      const MAX_RESPONSE_SIZE = 512 * 1024; // 512KB soft limit per response
+      let cumSize = 0;
+      let keepCount = messages.length;
+
+      for (let i = 0; i < messages.length; i++) {
+        const rawSize = (messages[i].content?.length || 0) + (messages[i].metadata?.length || 0);
+        cumSize += rawSize;
+        // Always keep at least 1 message
+        if (i > 0 && cumSize > MAX_RESPONSE_SIZE) {
+          keepCount = i;
+          break;
+        }
       }
 
-      const result = messages.map(m => ({
+      const trimmed = messages.slice(0, keepCount);
+      const wasTrimmed = keepCount < messages.length;
+
+      // For initial load and "before" queries, we fetched DESC, so reverse to get chronological order
+      if (!after) {
+        trimmed.reverse();
+      }
+
+      const result = trimmed.map(m => ({
         ...m,
         metadata: m.metadata ? JSON.parse(m.metadata) : undefined
       }));
@@ -770,12 +795,11 @@ export function createSessionRoutes(db: Database.Database, activeRuns: ActiveRun
         SELECT COUNT(*) as total FROM messages WHERE session_id = ?
       `).get(req.params.id) as { total: number };
 
-      // Check if there are more messages
-      const hasMore = before || after
-        ? result.length === limit
-        : countResult.total > limit;
+      // hasMore is true if we trimmed OR if there are more messages beyond the limit
+      const hasMore = wasTrimmed
+        || (before || after ? messages.length === limit : countResult.total > limit);
 
-      // Get the oldest message timestamp in this batch for cursor
+      // Cursor timestamps (result is now in chronological order: oldest first)
       const oldestTimestamp = result.length > 0 ? result[0].createdAt : undefined;
       const newestTimestamp = result.length > 0 ? result[result.length - 1].createdAt : undefined;
 
