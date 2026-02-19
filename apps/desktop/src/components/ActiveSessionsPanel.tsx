@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { useSessionsStore, type RemoteSession } from '../stores/sessionsStore';
 import { useServerStore } from '../stores/serverStore';
 import { useProjectStore } from '../stores/projectStore';
-import { isGatewayTarget, parseBackendId, toGatewayServerId } from '../stores/gatewayStore';
+import { isGatewayTarget, parseBackendId, toGatewayServerId, useGatewayStore } from '../stores/gatewayStore';
 
 interface ActiveSessionsPanelProps {
   onSessionSelect?: (backendId: string, sessionId: string) => void;
@@ -12,7 +12,8 @@ export function ActiveSessionsPanel({ onSessionSelect }: ActiveSessionsPanelProp
   const [isCollapsed, setIsCollapsed] = useState(false);
   const { remoteSessions } = useSessionsStore();
   const { activeServerId, servers } = useServerStore();
-  const { sessions: localSessions } = useProjectStore();
+  const { sessions: localSessions, projects } = useProjectStore();
+  const { localBackendId } = useGatewayStore();
 
   // Get current backend ID (the one we're connected to via gateway)
   const currentBackendId = useMemo(() => {
@@ -37,8 +38,12 @@ export function ActiveSessionsPanel({ onSessionSelect }: ActiveSessionsPanelProp
       }
     }
 
-    // 2. All remote backends (including current gateway backend)
+    // 2. All remote backends (skip local backend to avoid duplicates)
     remoteSessions.forEach((sessions, backendId) => {
+      // Skip if this is the same backend already shown as __local__
+      if (result.has('__local__') && localBackendId && backendId === localBackendId) {
+        return;
+      }
       const activeSessions = sessions.filter(s => s.isActive);
       if (activeSessions.length > 0) {
         result.set(backendId, activeSessions);
@@ -46,7 +51,7 @@ export function ActiveSessionsPanel({ onSessionSelect }: ActiveSessionsPanelProp
     });
 
     return result;
-  }, [remoteSessions, activeServerId, localSessions]);
+  }, [remoteSessions, activeServerId, localSessions, localBackendId]);
 
   // Don't show if not connected to any backend
   if (!activeServerId) {
@@ -78,6 +83,12 @@ export function ActiveSessionsPanel({ onSessionSelect }: ActiveSessionsPanelProp
   // Sort sessions by update time (all are active)
   const sortSessions = (sessions: RemoteSession[]): RemoteSession[] => {
     return [...sessions].sort((a, b) => b.updatedAt - a.updatedAt);
+  };
+
+  // Resolve projectId to project name
+  const getProjectName = (projectId: string): string | null => {
+    const project = projects.find(p => p.id === projectId);
+    return project?.name || null;
   };
 
   return (
@@ -184,7 +195,10 @@ export function ActiveSessionsPanel({ onSessionSelect }: ActiveSessionsPanelProp
 
                     {/* Session metadata */}
                     <div className="px-2 ml-6 text-xs text-muted-foreground">
-                      Last updated: {new Date(session.updatedAt).toLocaleString()}
+                      {getProjectName(session.projectId) ? (
+                        <span className="text-muted-foreground/80">{getProjectName(session.projectId)} · </span>
+                      ) : null}
+                      {new Date(session.updatedAt).toLocaleString()}
                     </div>
                   </li>
                 ))}
