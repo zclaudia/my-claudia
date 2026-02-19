@@ -1,7 +1,7 @@
 import { spawn, type ChildProcess } from 'child_process';
 import type { PermissionRequest } from '@my-claudia/shared';
 import type { ClaudeMessage, SystemInfo, PermissionDecision, PermissionCallback } from './claude-sdk.js';
-import { prepareInput, cleanupTempFiles } from './claude-sdk.js';
+import { prepareInput } from './claude-sdk.js';
 
 export { type ClaudeMessage, type PermissionDecision, type PermissionCallback };
 
@@ -495,10 +495,10 @@ export async function* runOpenCode(
       isComplete: true,
     };
   } finally {
-    // Clean up temp files after run completes (or fails)
+    // Temp files are cleaned up lazily (files older than 1h) to ensure
+    // the model's tools can still read them after the run completes.
     if (tempFiles.length > 0) {
-      cleanupTempFiles(tempFiles);
-      console.log(`[OpenCode] Cleaned up ${tempFiles.length} temp file(s)`);
+      console.log(`[OpenCode] ${tempFiles.length} temp file(s) will be cleaned up lazily`);
     }
   }
 }

@@ -87,11 +87,39 @@ function mimeToExt(mimeType: string): string {
   return map[mimeType] || 'png';
 }
 
-export function cleanupTempFiles(files: string[]) {
-  for (const f of files) {
-    try { fs.unlinkSync(f); } catch { /* ignore */ }
-  }
+const TEMP_FILE_MAX_AGE_MS = 60 * 60 * 1000; // 1 hour
+
+/**
+ * Delete temp upload files older than 1 hour.
+ * Called at startup and periodically to avoid accumulating stale files.
+ */
+export function cleanupOldTempFiles() {
+  try {
+    if (!fs.existsSync(UPLOAD_TMP_DIR)) return;
+    const now = Date.now();
+    const files = fs.readdirSync(UPLOAD_TMP_DIR);
+    let cleaned = 0;
+    for (const file of files) {
+      const filePath = path.join(UPLOAD_TMP_DIR, file);
+      try {
+        const stat = fs.statSync(filePath);
+        if (now - stat.mtimeMs > TEMP_FILE_MAX_AGE_MS) {
+          fs.unlinkSync(filePath);
+          cleaned++;
+        }
+      } catch { /* ignore */ }
+    }
+    if (cleaned > 0) {
+      console.log(`[Claude SDK] Cleaned up ${cleaned} old temp file(s) from ${UPLOAD_TMP_DIR}`);
+    }
+  } catch { /* ignore */ }
 }
+
+// Run cleanup at startup
+cleanupOldTempFiles();
+
+// Run cleanup every 30 minutes
+setInterval(cleanupOldTempFiles, 30 * 60 * 1000).unref();
 
 interface PreparedInput {
   text: string;
@@ -308,10 +336,10 @@ export async function* runClaude(
       }
     }
   } finally {
-    // Clean up temp files after run completes (or fails)
+    // Temp files are cleaned up lazily (files older than 1h) to ensure
+    // the model's tools can still read them after the run completes.
     if (tempFiles.length > 0) {
-      cleanupTempFiles(tempFiles);
-      console.log(`[Claude SDK] Cleaned up ${tempFiles.length} temp file(s)`);
+      console.log(`[Claude SDK] ${tempFiles.length} temp file(s) will be cleaned up lazily`);
     }
   }
 }
