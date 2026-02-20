@@ -437,9 +437,10 @@ export async function createServer(): Promise<ServerContext> {
   // Create WebSocket server
   const wss = new WebSocketServer({ server, path: '/ws' });
 
-  // Ping interval for connection health
+  // Ping interval for connection health (skip virtual/gateway clients)
   const pingInterval = setInterval(() => {
     clients.forEach((client, id) => {
+      if (typeof client.ws.ping !== 'function') return; // virtual client
       if (!client.isAlive) {
         console.log(`Client ${id} disconnected (ping timeout)`);
         client.ws.terminate();
