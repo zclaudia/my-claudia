@@ -56,6 +56,12 @@
     /* Scrollbar colors */
     --scrollbar-thumb: 215 20% 65%;
     --scrollbar-thumb-hover: 215 25% 55%;
+
+    /* Terminal colors */
+    --terminal-bg: 210 40% 96%;
+    --terminal-fg: 222.2 84% 4.9%;
+    --terminal-cursor: 221.2 83.2% 53.3%;
+    --terminal-selection: 210 40% 90%;
   }
 
   /* Dark theme — Neutral (default fallback) */
@@ -85,6 +91,10 @@
     --ring: 215 50% 48%;
     --scrollbar-thumb: 220 8% 28%;
     --scrollbar-thumb-hover: 220 8% 36%;
+    --terminal-bg: 220 8% 6%;
+    --terminal-fg: 210 15% 93%;
+    --terminal-cursor: 215 55% 55%;
+    --terminal-selection: 220 7% 20%;
   }
 
   /* Dark theme — Warm (Notion-like) */
@@ -114,6 +124,10 @@
     --ring: 35 55% 45%;
     --scrollbar-thumb: 30 6% 26%;
     --scrollbar-thumb-hover: 30 6% 34%;
+    --terminal-bg: 30 6% 6%;
+    --terminal-fg: 40 12% 92%;
+    --terminal-cursor: 35 65% 55%;
+    --terminal-selection: 28 6% 20%;
   }
 
   /* Dark theme — Cool Blue (VS Code-like) */
@@ -143,6 +157,10 @@
     --ring: 215 60% 50%;
     --scrollbar-thumb: 222 14% 28%;
     --scrollbar-thumb-hover: 222 14% 36%;
+    --terminal-bg: 225 18% 5.5%;
+    --terminal-fg: 215 20% 93%;
+    --terminal-cursor: 215 65% 58%;
+    --terminal-selection: 222 15% 20%;
   }
 }
 

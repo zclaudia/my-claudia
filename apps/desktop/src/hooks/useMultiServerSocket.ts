@@ -18,6 +18,8 @@ import { useSupervisionStore } from '../stores/supervisionStore';
 import { DirectTransport } from './transport/DirectTransport';
 import type { Transport } from './transport/BaseTransport';
 import { useGatewayConnection } from './useGatewayConnection';
+import { xtermRegistry } from '../utils/xtermRegistry';
+import { useTerminalStore } from '../stores/terminalStore';
 import { isGatewayTarget, parseBackendId } from '../stores/gatewayStore';
 
 const RECONNECT_INTERVAL = 3000;
@@ -349,6 +351,11 @@ export function useMultiServerSocket() {
           for (const run of heartbeat.activeRuns as Array<{ runId: string; sessionId: string }>) {
             if (!chatState.activeRuns[run.runId]) {
               chatState.startRun(run.runId, run.sessionId);
+              // Also track in serverRunsRef so stale-run cleanup can find it
+              if (!serverRunsRef.current.has(serverId)) {
+                serverRunsRef.current.set(serverId, new Set());
+              }
+              serverRunsRef.current.get(serverId)!.add(run.runId);
             }
           }
           // Clean up stale runs (client thinks run is active, but server says it's not)
@@ -357,7 +364,11 @@ export function useMultiServerSocket() {
             for (const runId of trackedRuns) {
               if (!serverActiveRunIds.has(runId)) {
                 console.log(`[Socket:${serverId}] Cleaning up stale run ${runId} (not in server heartbeat)`);
+                const sessionId = chatState.activeRuns[runId];
                 chatState.endRun(runId);
+                if (sessionId) {
+                  useProjectStore.getState().setSessionActive(sessionId, false);
+                }
                 trackedRuns.delete(runId);
               }
             }
@@ -391,6 +402,27 @@ export function useMultiServerSocket() {
               });
             }
           }
+          break;
+        }
+
+        case 'terminal_opened': {
+          if (!message.success) {
+            console.error(`[Socket:${serverId}] Terminal open failed:`, message.error);
+          }
+          break;
+        }
+
+        case 'terminal_output': {
+          const term = xtermRegistry.get(message.terminalId);
+          if (term) term.write(message.data);
+          useTerminalStore.getState().markReady(message.terminalId);
+          break;
+        }
+
+        case 'terminal_exited': {
+          const exitTerm = xtermRegistry.get(message.terminalId);
+          if (exitTerm) exitTerm.write(`\r\n[Process exited with code ${message.exitCode}]\r\n`);
+          useTerminalStore.getState().handleTerminalExited(message.terminalId);
           break;
         }
 

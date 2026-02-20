@@ -39,6 +39,7 @@ import { openCodeServerManager } from './providers/opencode-sdk.js';
 import { providerRegistry } from './providers/registry.js';
 import { safeCompare } from './auth.js';
 import { extractAndIndexMetadata, removeIndexedMetadata } from './storage/metadata-extractor.js';
+import { TerminalManager } from './terminal-manager.js';
 import { generateKeyPair, getPublicKeyPem, decryptCredential } from './utils/crypto.js';
 
 // Phase 2: Router architecture (CRUD routes migrated to HTTP REST)
@@ -260,6 +261,7 @@ export function createVirtualClient(
 export interface ServerContext {
   server: Server;
   db: ReturnType<typeof initDatabase>;
+  terminalManager: TerminalManager;
   handleMessage: (client: ConnectedClient, message: ClientMessage) => Promise<void>;
   getGatewayStatus: () => GatewayStatus;
   getStateHeartbeat: () => StateHeartbeatMessage;
@@ -293,6 +295,12 @@ export async function createServer(): Promise<ServerContext> {
 
   // WebSocket clients map (declared early so it can be used in auth endpoints)
   const clients = new Map<string, ConnectedClient>();
+
+  // Terminal manager for remote PTY sessions
+  const terminalManager = new TerminalManager((clientId, msg) => {
+    const client = clients.get(clientId);
+    if (client) sendMessage(client.ws, msg);
+  });
 
   // Health check
   app.get('/health', (_req: Request, res: Response) => {
@@ -524,7 +532,7 @@ export async function createServer(): Promise<ServerContext> {
         }
 
         // No router match - handle with legacy switch statement
-        await handleClientMessage(client, message, db, clients);
+        await handleClientMessage(client, message, db, clients, terminalManager);
       } catch (error) {
         console.error('Error handling message:', error);
         sendMessage(ws, {
@@ -538,6 +546,7 @@ export async function createServer(): Promise<ServerContext> {
     ws.on('close', () => {
       console.log(`Client disconnected: ${clientId}`);
       clients.delete(clientId);
+      terminalManager.destroyForClient(clientId);
 
       // Don't cancel active runs on disconnect — let them continue running.
       // The client may be refreshing or reconnecting. Orphaned runs will be
@@ -578,10 +587,10 @@ export async function createServer(): Promise<ServerContext> {
   supervisorService.start(3000);
 
   // Periodic state heartbeat broadcast (every 30s)
+  // Always broadcast even when no active runs — this is the safety net for
+  // cleaning up stale runs if a run_completed message was lost.
   const heartbeatInterval = setInterval(() => {
-    if (activeRuns.size === 0) return; // No active runs, no heartbeat needed
     const heartbeat = buildStateHeartbeat();
-    // Broadcast to all connected clients (direct and virtual/gateway)
     clients.forEach((client) => {
       if (client.authenticated) {
         sendMessage(client.ws, heartbeat);
@@ -596,6 +605,7 @@ export async function createServer(): Promise<ServerContext> {
   return {
     server,
     db,
+    terminalManager,
     getStateHeartbeat: buildStateHeartbeat,
     handleMessage: async (client: ConnectedClient, message: ClientMessage) => {
       // Wrap in Request envelope for router (same as parseMessage for old format)
@@ -621,7 +631,7 @@ export async function createServer(): Promise<ServerContext> {
       }
 
       // No router match - handle with legacy switch statement
-      await handleClientMessage(client, message, db, clients);
+      await handleClientMessage(client, message, db, clients, terminalManager);
     },
     getGatewayStatus: () => gatewayStatus,
     setGatewayConnector: (connector: (config: GatewayConfig) => Promise<void>) => {
@@ -715,6 +725,16 @@ function buildStateHeartbeat(): StateHeartbeatMessage {
   return { type: 'state_heartbeat', activeRuns: runs, pendingPermissions: permissions, pendingQuestions: questions };
 }
 
+/** Broadcast a state heartbeat to all authenticated clients immediately. */
+function broadcastHeartbeat(): void {
+  const heartbeat = buildStateHeartbeat();
+  clients.forEach((client) => {
+    if (client.authenticated) {
+      sendMessage(client.ws, heartbeat);
+    }
+  });
+}
+
 function cancelRun(runId: string): void {
   const run = activeRuns.get(runId);
   if (run) {
@@ -759,6 +779,7 @@ function cancelRun(runId: string): void {
     });
 
     activeRuns.delete(runId);
+    broadcastHeartbeat();
     console.log(`Run ${runId} cancelled`);
   }
 }
@@ -849,7 +870,8 @@ async function handleClientMessage(
   client: ConnectedClient,
   message: ClientMessage,
   db: ReturnType<typeof initDatabase>,
-  clients: Map<string, ConnectedClient>
+  clients: Map<string, ConnectedClient>,
+  termMgr?: TerminalManager
 ): Promise<void> {
   switch (message.type) {
     case 'auth':
@@ -875,6 +897,36 @@ async function handleClientMessage(
 
     case 'ask_user_answer':
       handleAskUserAnswer(message);
+      break;
+
+    case 'terminal_open': {
+      if (!termMgr) break;
+      const project = db.prepare('SELECT root_path FROM projects WHERE id = ?').get(message.projectId) as { root_path: string } | undefined;
+      const cwd = project?.root_path || process.env.HOME || '/';
+      try {
+        termMgr.create(message.terminalId, client.id, cwd, message.cols, message.rows);
+        sendMessage(client.ws, { type: 'terminal_opened', terminalId: message.terminalId, success: true });
+      } catch (err) {
+        sendMessage(client.ws, {
+          type: 'terminal_opened',
+          terminalId: message.terminalId,
+          success: false,
+          error: err instanceof Error ? err.message : 'Failed to create terminal',
+        });
+      }
+      break;
+    }
+
+    case 'terminal_input':
+      termMgr?.write(message.terminalId, message.data);
+      break;
+
+    case 'terminal_resize':
+      termMgr?.resize(message.terminalId, message.cols, message.rows);
+      break;
+
+    case 'terminal_close':
+      termMgr?.destroy(message.terminalId);
       break;
 
     default:
@@ -1423,6 +1475,7 @@ async function handleRunStart(
 
     // Cleanup
     activeRuns.delete(runId);
+    broadcastHeartbeat();
 
     // Update session updated_at
     db.prepare(`

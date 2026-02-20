@@ -8,6 +8,10 @@ import type { MessageWithToolCalls } from '../../stores/chatStore';
 import { useTheme, isDarkTheme } from '../../contexts/ThemeContext';
 import { downloadFile } from '../../services/fileUpload';
 import type { MessageInput, MessageAttachment } from '@my-claudia/shared';
+import { useTerminalStore } from '../../stores/terminalStore';
+import { useProjectStore } from '../../stores/projectStore';
+import { useConnection } from '../../contexts/ConnectionContext';
+import { useServerStore } from '../../stores/serverStore';
 
 /**
  * Extract <think>...</think> blocks from message content.
@@ -97,6 +101,8 @@ export function MessageList({ messages }: MessageListProps) {
   );
 }
 
+const SHELL_LANGUAGES = new Set(['bash', 'shell', 'sh', 'zsh']);
+
 function CodeBlock({
   language,
   children,
@@ -106,11 +112,32 @@ function CodeBlock({
 }) {
   const [copied, setCopied] = useState(false);
   const { resolvedTheme } = useTheme();
+  const { sendMessage } = useConnection();
+  const isShell = SHELL_LANGUAGES.has(language.toLowerCase());
+  const hasTerminal = isShell && useServerStore.getState().activeServerSupports('remoteTerminal');
 
   const handleCopy = async () => {
     await navigator.clipboard.writeText(children);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+  };
+
+  const handleRunInTerminal = async () => {
+    const { selectedSessionId, sessions } = useProjectStore.getState();
+    const session = sessions.find(s => s.id === selectedSessionId);
+    if (!session?.projectId) return;
+
+    const store = useTerminalStore.getState();
+    if (!store.terminals[session.projectId]) {
+      store.openTerminal(session.projectId);
+    }
+    store.setDrawerOpen(true);
+
+    const terminalId = useTerminalStore.getState().terminals[session.projectId];
+    if (terminalId) {
+      await useTerminalStore.getState().waitForReady(terminalId);
+      sendMessage({ type: 'terminal_input', terminalId, data: children });
+    }
   };
 
   const codeStyle = isDarkTheme(resolvedTheme) ? oneDark : oneLight;
@@ -120,32 +147,45 @@ function CodeBlock({
       {/* Header bar - like GPT style */}
       <div className="flex items-center justify-between px-4 py-2 bg-secondary border-b border-border">
         <span className="text-xs text-muted-foreground font-medium">{language}</span>
-        <button
-          onClick={handleCopy}
-          className={`
-            flex items-center gap-1.5 text-xs transition-colors
-            ${copied
-              ? 'text-success'
-              : 'text-muted-foreground hover:text-foreground'
-            }
-          `}
-        >
-          {copied ? (
-            <>
+        <div className="flex items-center gap-3">
+          {isShell && hasTerminal && (
+            <button
+              onClick={handleRunInTerminal}
+              className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+            >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
               </svg>
-              Copied!
-            </>
-          ) : (
-            <>
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-              </svg>
-              Copy code
-            </>
+              Run in terminal
+            </button>
           )}
-        </button>
+          <button
+            onClick={handleCopy}
+            className={`
+              flex items-center gap-1.5 text-xs transition-colors
+              ${copied
+                ? 'text-success'
+                : 'text-muted-foreground hover:text-foreground'
+              }
+            `}
+          >
+            {copied ? (
+              <>
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                </svg>
+                Copied!
+              </>
+            ) : (
+              <>
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                </svg>
+                Copy code
+              </>
+            )}
+          </button>
+        </div>
       </div>
       {/* Code content */}
       <SyntaxHighlighter

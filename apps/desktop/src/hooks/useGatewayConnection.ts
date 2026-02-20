@@ -18,6 +18,8 @@ import { useAgentStore } from '../stores/agentStore';
 import { GatewayTransport } from './transport/GatewayTransport';
 import { toGatewayServerId, isGatewayTarget, parseBackendId } from '../stores/gatewayStore';
 import { useSessionsStore } from '../stores/sessionsStore';
+import { xtermRegistry } from '../utils/xtermRegistry';
+import { useTerminalStore } from '../stores/terminalStore';
 import { useSupervisionStore } from '../stores/supervisionStore';
 import { getServerGatewayStatus } from '../services/api';
 
@@ -383,6 +385,11 @@ export function useGatewayConnection() {
         for (const run of heartbeat.activeRuns as Array<{ runId: string; sessionId: string }>) {
           if (!chatState.activeRuns[run.runId]) {
             chatState.startRun(run.runId, run.sessionId);
+            // Also track in serverRunsRef so stale-run cleanup can find it
+            if (!serverRunsRef.current.has(serverId)) {
+              serverRunsRef.current.set(serverId, new Set());
+            }
+            serverRunsRef.current.get(serverId)!.add(run.runId);
           }
         }
         // Clean up stale runs (client thinks run is active, but server says it's not)
@@ -391,7 +398,11 @@ export function useGatewayConnection() {
           for (const runId of trackedRuns) {
             if (!serverActiveRunIds.has(runId)) {
               console.log(`[GatewayConn:${backendId}] Cleaning up stale run ${runId} (not in server heartbeat)`);
+              const sessionId = chatState.activeRuns[runId];
               chatState.endRun(runId);
+              if (sessionId) {
+                useProjectStore.getState().setSessionActive(sessionId, false);
+              }
               trackedRuns.delete(runId);
             }
           }
@@ -460,6 +471,27 @@ export function useGatewayConnection() {
           setSystemInfo(msg.systemInfo);
         }
         break;
+
+      case 'terminal_opened': {
+        if (!msg.success) {
+          console.error(`[GatewayConn:${backendId}] Terminal open failed:`, msg.error);
+        }
+        break;
+      }
+
+      case 'terminal_output': {
+        const term = xtermRegistry.get(msg.terminalId);
+        if (term) term.write(msg.data);
+        useTerminalStore.getState().markReady(msg.terminalId);
+        break;
+      }
+
+      case 'terminal_exited': {
+        const exitTerm = xtermRegistry.get(msg.terminalId);
+        if (exitTerm) exitTerm.write(`\r\n[Process exited with code ${msg.exitCode}]\r\n`);
+        useTerminalStore.getState().handleTerminalExited(msg.terminalId);
+        break;
+      }
 
       case 'error':
         console.error(`[GatewayConn:${backendId}] Server error:`, msg.message);

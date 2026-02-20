@@ -117,7 +117,12 @@ async function connectToGateway(config: GatewayConfig): Promise<void> {
     if (!virtualClient) {
       virtualClient = createVirtualClient(clientId, {
         send: (msg: ServerMessage) => {
-          gatewayClient?.broadcast(msg);
+          // Terminal messages target the specific client, not broadcast
+          if (msg.type === 'terminal_output' || msg.type === 'terminal_opened' || msg.type === 'terminal_exited') {
+            gatewayClient?.sendToClient(clientId, msg);
+          } else {
+            gatewayClient?.broadcast(msg);
+          }
         }
       });
       virtualClients.set(clientId, virtualClient);
@@ -133,6 +138,7 @@ async function connectToGateway(config: GatewayConfig): Promise<void> {
   // Clean up virtual client on disconnect
   gatewayClient.onClientDisconnected((clientId) => {
     virtualClients.delete(clientId);
+    serverContext!.terminalManager.destroyForClient(clientId);
     console.log(`[Gateway] Cleaned up virtual client: ${clientId}`);
   });
 
@@ -277,6 +283,9 @@ async function main() {
 
       // Stop all managed OpenCode server processes
       await openCodeServerManager.stopAll();
+
+      // Destroy all terminal sessions
+      serverContext?.terminalManager.destroyAll();
 
       server.close(() => {
         console.log('✅ Server closed');

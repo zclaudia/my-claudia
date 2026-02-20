@@ -1,0 +1,117 @@
+import * as pty from 'node-pty';
+import type { TerminalOutputMessage, TerminalExitedMessage, ServerMessage } from '@my-claudia/shared';
+
+const IDLE_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
+
+interface ManagedTerminal {
+  pty: pty.IPty;
+  clientId: string;
+  projectId: string;
+  lastActivity: number;
+  idleTimer: ReturnType<typeof setTimeout>;
+}
+
+export class TerminalManager {
+  private terminals = new Map<string, ManagedTerminal>();
+  private sendToClient: (clientId: string, msg: ServerMessage) => void;
+
+  constructor(sendToClient: (clientId: string, msg: ServerMessage) => void) {
+    this.sendToClient = sendToClient;
+  }
+
+  create(terminalId: string, clientId: string, cwd: string, cols: number, rows: number): void {
+    // Destroy existing terminal with same ID if any
+    if (this.terminals.has(terminalId)) {
+      this.destroy(terminalId);
+    }
+
+    const shell = process.env.SHELL || 'bash';
+    const ptyProcess = pty.spawn(shell, [], {
+      name: 'xterm-256color',
+      cols,
+      rows,
+      cwd,
+      env: process.env as Record<string, string>,
+    });
+
+    const managed: ManagedTerminal = {
+      pty: ptyProcess,
+      clientId,
+      projectId: '',
+      lastActivity: Date.now(),
+      idleTimer: this.startIdleTimer(terminalId),
+    };
+
+    this.terminals.set(terminalId, managed);
+
+    ptyProcess.onData((data) => {
+      this.sendToClient(clientId, {
+        type: 'terminal_output',
+        terminalId,
+        data,
+      } as TerminalOutputMessage);
+    });
+
+    ptyProcess.onExit(({ exitCode }) => {
+      this.sendToClient(clientId, {
+        type: 'terminal_exited',
+        terminalId,
+        exitCode,
+      } as TerminalExitedMessage);
+      this.terminals.delete(terminalId);
+      clearTimeout(managed.idleTimer);
+    });
+  }
+
+  write(terminalId: string, data: string): void {
+    const managed = this.terminals.get(terminalId);
+    if (!managed) return;
+    managed.lastActivity = Date.now();
+    this.resetIdleTimer(terminalId, managed);
+    managed.pty.write(data);
+  }
+
+  resize(terminalId: string, cols: number, rows: number): void {
+    const managed = this.terminals.get(terminalId);
+    if (!managed) return;
+    managed.pty.resize(cols, rows);
+  }
+
+  destroy(terminalId: string): void {
+    const managed = this.terminals.get(terminalId);
+    if (!managed) return;
+    clearTimeout(managed.idleTimer);
+    managed.pty.kill();
+    this.terminals.delete(terminalId);
+  }
+
+  destroyForClient(clientId: string): void {
+    for (const [terminalId, managed] of this.terminals) {
+      if (managed.clientId === clientId) {
+        clearTimeout(managed.idleTimer);
+        managed.pty.kill();
+        this.terminals.delete(terminalId);
+      }
+    }
+  }
+
+  destroyAll(): void {
+    for (const [, managed] of this.terminals) {
+      clearTimeout(managed.idleTimer);
+      managed.pty.kill();
+    }
+    this.terminals.clear();
+  }
+
+  private startIdleTimer(terminalId: string): ReturnType<typeof setTimeout> {
+    return setTimeout(() => {
+      console.log(`[Terminal] Idle timeout for terminal ${terminalId}`);
+      this.destroy(terminalId);
+    }, IDLE_TIMEOUT_MS);
+  }
+
+  private resetIdleTimer(terminalId: string, managed: ManagedTerminal): void {
+    clearTimeout(managed.idleTimer);
+    managed.idleTimer = this.startIdleTimer(terminalId);
+  }
+}

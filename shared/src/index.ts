@@ -301,7 +301,11 @@ export type ClientMessage =
   | UpdateProviderMessage
   | DeleteProviderMessage
   | GetSessionMessagesMessage
-  | GetProviderCommandsMessage;
+  | GetProviderCommandsMessage
+  | TerminalOpenMessage
+  | TerminalInputMessage
+  | TerminalResizeMessage
+  | TerminalCloseMessage;
 
 // Authentication message (sent after WebSocket connection)
 export interface AuthMessage {
@@ -469,6 +473,53 @@ export interface GetProviderCommandsMessage {
   projectRoot?: string;
 }
 
+// Remote Terminal messages (Client → Server)
+export interface TerminalOpenMessage {
+  type: 'terminal_open';
+  terminalId: string;
+  projectId: string;
+  cols: number;
+  rows: number;
+}
+
+export interface TerminalInputMessage {
+  type: 'terminal_input';
+  terminalId: string;
+  data: string;
+}
+
+export interface TerminalResizeMessage {
+  type: 'terminal_resize';
+  terminalId: string;
+  cols: number;
+  rows: number;
+}
+
+export interface TerminalCloseMessage {
+  type: 'terminal_close';
+  terminalId: string;
+}
+
+// Remote Terminal messages (Server → Client)
+export interface TerminalOpenedMessage {
+  type: 'terminal_opened';
+  terminalId: string;
+  success: boolean;
+  error?: string;
+}
+
+export interface TerminalOutputMessage {
+  type: 'terminal_output';
+  terminalId: string;
+  data: string;
+}
+
+export interface TerminalExitedMessage {
+  type: 'terminal_exited';
+  terminalId: string;
+  exitCode: number;
+}
+
 // Server → Client messages
 export type ServerMessage =
   | AuthResultMessage
@@ -512,7 +563,10 @@ export type ServerMessage =
   | SupervisionUpdateMessage
   | PermissionResolvedMessage
   | AskUserQuestionResolvedMessage
-  | StateHeartbeatMessage;
+  | StateHeartbeatMessage
+  | TerminalOpenedMessage
+  | TerminalOutputMessage
+  | TerminalExitedMessage;
 
 // Authentication result message
 export interface AuthResultMessage {
@@ -897,6 +951,7 @@ export type ServerFeature =
   | 'setDefaultProvider'     // POST /api/providers/:id/set-default
   | 'search'                 // GET /api/sessions/search/*
   | 'fileUpload'             // POST /api/files/upload
+  | 'remoteTerminal'         // WebSocket-based PTY terminal
   ;
 
 /** All features supported by the current server version. */
@@ -906,6 +961,7 @@ export const ALL_SERVER_FEATURES: ServerFeature[] = [
   'setDefaultProvider',
   'search',
   'fileUpload',
+  'remoteTerminal',
 ];
 
 // ============================================

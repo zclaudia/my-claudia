@@ -501,7 +501,7 @@ export class GatewayClient {
         providerId: session.providerId,
         createdAt: session.createdAt,
         updatedAt: session.updatedAt,
-        isActive: this.activeRuns!.has(session.id)
+        isActive: [...this.activeRuns!.values()].some((run: any) => run.sessionId === session.id)
       }));
 
       // Broadcast via broadcast_to_subscribers

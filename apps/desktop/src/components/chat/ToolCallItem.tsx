@@ -3,6 +3,10 @@ import type { ToolCallState } from '../../stores/chatStore';
 import { getToolIcon } from '../../config/icons';
 import { DiffViewer } from './DiffViewer';
 import { CodeViewer } from './CodeViewer';
+import { useTerminalStore } from '../../stores/terminalStore';
+import { useProjectStore } from '../../stores/projectStore';
+import { useConnection } from '../../contexts/ConnectionContext';
+import { useServerStore } from '../../stores/serverStore';
 
 interface ToolCallItemProps {
   toolCall: ToolCallState;
@@ -63,6 +67,43 @@ function formatToolResult(result: unknown): string {
 
 // Max lines to show before collapsing terminal output
 const TERMINAL_PREVIEW_LINES = 10;
+
+// Button to run a command in the remote terminal
+function RunInTerminalButton({ command }: { command: string }) {
+  const { sendMessage } = useConnection();
+  const hasTerminal = useServerStore.getState().activeServerSupports('remoteTerminal');
+
+  if (!hasTerminal) return null;
+
+  return (
+    <button
+      onClick={async (e) => {
+        e.stopPropagation();
+        const { selectedSessionId, sessions } = useProjectStore.getState();
+        const session = sessions.find(s => s.id === selectedSessionId);
+        if (!session?.projectId) return;
+
+        const store = useTerminalStore.getState();
+        if (!store.terminals[session.projectId]) {
+          store.openTerminal(session.projectId);
+        }
+        store.setDrawerOpen(true);
+
+        const terminalId = useTerminalStore.getState().terminals[session.projectId];
+        if (terminalId) {
+          await useTerminalStore.getState().waitForReady(terminalId);
+          sendMessage({ type: 'terminal_input', terminalId, data: command });
+        }
+      }}
+      className="absolute top-1 right-1 p-1 rounded opacity-0 group-hover/cmd:opacity-100 hover:bg-accent text-muted-foreground hover:text-foreground transition-opacity"
+      title="Paste to terminal"
+    >
+      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+      </svg>
+    </button>
+  );
+}
 
 // Terminal-style output for Bash commands
 function TerminalOutput({ content, isError }: { content: string; isError?: boolean }) {
@@ -245,9 +286,10 @@ function ToolExpandedContent({ toolName, toolInput, status, result, isError }: {
         {/* Command */}
         {command && (
           <div className="mt-2">
-            <div className="rounded-lg overflow-hidden border border-zinc-700">
-              <pre className="text-xs font-mono p-2 bg-zinc-900 text-green-400 overflow-x-auto whitespace-pre-wrap break-words">
-                <span className="text-zinc-500 select-none">$ </span>{command}
+            <div className="rounded-lg overflow-hidden border border-border">
+              <pre className="text-xs font-mono p-2 bg-secondary text-success overflow-x-auto whitespace-pre-wrap break-words relative group/cmd">
+                <span className="text-muted-foreground select-none">$ </span>{command}
+                <RunInTerminalButton command={command} />
               </pre>
             </div>
           </div>

@@ -176,7 +176,7 @@ function AppContent() {
         />
 
         {/* Main Content */}
-        <main className="flex-1 flex flex-col overflow-hidden">
+        <main className="flex-1 flex flex-col overflow-hidden relative">
           {/* Chat Area */}
           <div className="flex-1 overflow-hidden">
             {isMobile && isAgentExpanded ? (
@@ -219,6 +219,7 @@ function AppContent() {
               </div>
             )}
           </div>
+
         </main>
       </div>
 

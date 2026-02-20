@@ -1,0 +1,103 @@
+import { create } from 'zustand';
+
+interface TerminalState {
+  // Active terminal per project (projectId → terminalId)
+  terminals: Record<string, string>;
+  // Terminals that have received first output (shell prompt ready)
+  readyTerminals: Set<string>;
+  // Drawer open state
+  isDrawerOpen: boolean;
+
+  openTerminal: (projectId: string) => string;
+  closeTerminal: (terminalId: string) => void;
+  setDrawerOpen: (open: boolean) => void;
+  handleTerminalExited: (terminalId: string) => void;
+  getTerminalId: (projectId: string) => string | undefined;
+  markReady: (terminalId: string) => void;
+  isReady: (terminalId: string) => boolean;
+  /** Returns a promise that resolves when the terminal is ready (shell loaded). */
+  waitForReady: (terminalId: string, timeoutMs?: number) => Promise<boolean>;
+}
+
+export const useTerminalStore = create<TerminalState>((set, get) => ({
+  terminals: {},
+  readyTerminals: new Set<string>(),
+  isDrawerOpen: false,
+
+  openTerminal: (projectId: string) => {
+    const existing = get().terminals[projectId];
+    if (existing) return existing;
+    const terminalId = crypto.randomUUID();
+    set((state) => ({
+      terminals: { ...state.terminals, [projectId]: terminalId },
+    }));
+    return terminalId;
+  },
+
+  closeTerminal: (terminalId: string) => {
+    set((state) => {
+      const terminals = { ...state.terminals };
+      for (const [pid, tid] of Object.entries(terminals)) {
+        if (tid === terminalId) {
+          delete terminals[pid];
+          break;
+        }
+      }
+      const readyTerminals = new Set(state.readyTerminals);
+      readyTerminals.delete(terminalId);
+      return { terminals, readyTerminals };
+    });
+  },
+
+  setDrawerOpen: (open: boolean) => set({ isDrawerOpen: open }),
+
+  handleTerminalExited: (terminalId: string) => {
+    // Remove the terminal mapping so next open creates a fresh one
+    set((state) => {
+      const terminals = { ...state.terminals };
+      for (const [pid, tid] of Object.entries(terminals)) {
+        if (tid === terminalId) {
+          delete terminals[pid];
+          break;
+        }
+      }
+      const readyTerminals = new Set(state.readyTerminals);
+      readyTerminals.delete(terminalId);
+      return { terminals, readyTerminals };
+    });
+  },
+
+  getTerminalId: (projectId: string) => {
+    return get().terminals[projectId];
+  },
+
+  markReady: (terminalId: string) => {
+    const ready = get().readyTerminals;
+    if (!ready.has(terminalId)) {
+      const next = new Set(ready);
+      next.add(terminalId);
+      set({ readyTerminals: next });
+    }
+  },
+
+  isReady: (terminalId: string) => {
+    return get().readyTerminals.has(terminalId);
+  },
+
+  waitForReady: (terminalId: string, timeoutMs = 5000) => {
+    if (get().readyTerminals.has(terminalId)) return Promise.resolve(true);
+    return new Promise<boolean>((resolve) => {
+      const timeout = setTimeout(() => {
+        unsub();
+        resolve(false);
+      }, timeoutMs);
+      const unsub = useTerminalStore.subscribe((state) => {
+        if (state.readyTerminals.has(terminalId)) {
+          clearTimeout(timeout);
+          unsub();
+          resolve(true);
+        }
+      });
+    });
+  },
+}));

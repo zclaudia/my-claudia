@@ -9,8 +9,11 @@ import { ModeSelector } from './ModeSelector';
 import { SystemInfoButton } from './SystemInfoButton';
 import { ModelSelector } from './ModelSelector';
 import { TokenUsageDisplay } from './TokenUsageDisplay';
+import { TerminalPanel } from '../terminal/TerminalPanel';
 import { useChatStore } from '../../stores/chatStore';
 import { useProjectStore } from '../../stores/projectStore';
+import { useServerStore } from '../../stores/serverStore';
+import { useTerminalStore } from '../../stores/terminalStore';
 import { usePermissionStore } from '../../stores/permissionStore';
 import { useAskUserQuestionStore } from '../../stores/askUserQuestionStore';
 import { useConnection } from '../../contexts/ConnectionContext';
@@ -70,6 +73,7 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
   const sessionToolCalls = getSessionToolCalls(sessionId);
   const modelOverride = getModelOverride(sessionId);
   const { projects, sessions, providerCommands, providerCapabilities, setProviderCapabilities } = useProjectStore();
+  const { isDrawerOpen, setDrawerOpen } = useTerminalStore();
   const { sendMessage: wsSendMessage, isConnected, handlePermissionDecision, handleAskUserAnswer } = useConnection();
 
   // Per-session pending permission/question requests
@@ -104,6 +108,26 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
     setUploadError(null);
     setLoadError(null);
   }, [sessionId]);
+
+  // Ctrl+` keyboard shortcut to toggle terminal
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.ctrlKey && e.key === '`' && currentSession?.projectId) {
+        e.preventDefault();
+        const store = useTerminalStore.getState();
+        if (store.isDrawerOpen) {
+          store.setDrawerOpen(false);
+        } else {
+          if (!store.terminals[currentSession.projectId]) {
+            store.openTerminal(currentSession.projectId);
+          }
+          store.setDrawerOpen(true);
+        }
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [currentSession?.projectId]);
 
   const scrollToBottom = useCallback((instant = false) => {
     messagesEndRef.current?.scrollIntoView({ behavior: instant ? 'instant' : 'smooth' });
@@ -655,7 +679,7 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
       {/* Messages */}
       <div
         ref={messagesContainerRef}
-        className="flex-1 overflow-y-auto overflow-x-hidden p-2 md:p-4 relative"
+        className="flex-1 overflow-y-auto overflow-x-hidden p-2 md:p-4 relative min-h-0"
         onScroll={handleScroll}
       >
         {/* Load more indicator */}
@@ -755,6 +779,11 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
         )}
       </div>
 
+      {/* Terminal panel (inline between messages and input) */}
+      {currentSession?.projectId && (
+        <TerminalPanel projectId={currentSession.projectId} />
+      )}
+
       {/* Upload error banner */}
       {uploadError && (
         <div className="mx-2 md:mx-4 mt-2 px-3 py-2 rounded-lg bg-destructive/10 border border-destructive/30 text-destructive text-xs flex items-center gap-2">
@@ -767,7 +796,7 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
       )}
 
       {/* Input */}
-      <div className="border-t border-border p-2 md:p-4 safe-bottom-pad overflow-visible">
+      <div className="border-t border-border p-2 md:p-4 safe-bottom-pad overflow-visible flex-shrink-0">
         {/* Toolbar */}
         <div className="mb-2 md:mb-3 flex items-center gap-2 md:gap-3 flex-wrap">
           <ModeSelector
@@ -787,6 +816,27 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
             outputTokens={currentUsage.outputTokens}
           />
           <div className="flex-1" />
+          {useServerStore.getState().activeServerSupports('remoteTerminal') && currentSession?.projectId && (
+            <button
+              onClick={() => {
+                if (isDrawerOpen) {
+                  setDrawerOpen(false);
+                } else {
+                  const store = useTerminalStore.getState();
+                  if (!store.terminals[currentSession.projectId]) {
+                    store.openTerminal(currentSession.projectId);
+                  }
+                  setDrawerOpen(true);
+                }
+              }}
+              className={`p-1.5 rounded hover:bg-secondary ${isDrawerOpen ? 'text-primary' : 'text-muted-foreground hover:text-foreground'}`}
+              title={isDrawerOpen ? 'Hide terminal (Ctrl+`)' : 'Open terminal (Ctrl+`)'}
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+              </svg>
+            </button>
+          )}
           <SystemInfoButton systemInfo={currentSystemInfo} />
         </div>
         <MessageInput

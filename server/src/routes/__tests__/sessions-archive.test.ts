@@ -436,8 +436,8 @@ describe('sessions archive/restore/sync routes', () => {
         VALUES (?, ?, ?, ?, ?)
       `).run('s-idle', 'project-1', 'Idle Session', base + 5000, base + 5000);
 
-      // Mark one session as actively running
-      activeRuns.set('s-running', { pid: 1234 });
+      // Mark one session as actively running (activeRuns is keyed by runId, not sessionId)
+      activeRuns.set('run-1', { sessionId: 's-running' });
 
       const res = await request(app).get(`/api/sessions/sync?since=${base}`);
 
