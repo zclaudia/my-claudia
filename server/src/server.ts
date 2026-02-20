@@ -234,7 +234,7 @@ function localOnlyMiddleware(req: Request, res: Response, next: NextFunction): v
 
 // Export types for Gateway integration
 export type { ConnectedClient };
-export { sendMessage, handleClientMessage, activeRuns, handleRunStart };
+export { sendMessage, handleClientMessage, activeRuns, handleRunStart, connectedClients };
 
 // Message sender interface for abstraction
 export interface MessageSender {
@@ -612,6 +612,11 @@ export async function createServer(): Promise<ServerContext> {
     terminalManager,
     getStateHeartbeat: buildStateHeartbeat,
     handleMessage: async (client: ConnectedClient, message: ClientMessage) => {
+      // Register virtual/gateway clients so TerminalManager callbacks can find them
+      if (!clients.has(client.id)) {
+        clients.set(client.id, client);
+      }
+
       // Wrap in Request envelope for router (same as parseMessage for old format)
       const request: CorrelatedRequest = {
         id: uuidv4(),

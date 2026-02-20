@@ -1,5 +1,5 @@
 import * as os from 'os';
-import { createServer, createVirtualClient, activeRuns, type ServerContext } from './server.js';
+import { createServer, createVirtualClient, activeRuns, connectedClients, type ServerContext } from './server.js';
 import { GatewayClient } from './gateway-client.js';
 import { setGatewayClient } from './gateway-instance.js';
 import type { ServerMessage } from '@my-claudia/shared';
@@ -138,6 +138,7 @@ async function connectToGateway(config: GatewayConfig): Promise<void> {
   // Clean up virtual client on disconnect
   gatewayClient.onClientDisconnected((clientId) => {
     virtualClients.delete(clientId);
+    connectedClients.delete(clientId);
     serverContext!.terminalManager.destroyForClient(clientId);
     console.log(`[Gateway] Cleaned up virtual client: ${clientId}`);
   });
