@@ -87,7 +87,7 @@ function RunInTerminalButton({ command }: { command: string }) {
         if (!store.terminals[session.projectId]) {
           store.openTerminal(session.projectId);
         }
-        store.setDrawerOpen(true);
+        store.setDrawerOpen(session.projectId, true);
 
         const terminalId = useTerminalStore.getState().terminals[session.projectId];
         if (terminalId) {

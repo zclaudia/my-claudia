@@ -73,7 +73,7 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
   const sessionToolCalls = getSessionToolCalls(sessionId);
   const modelOverride = getModelOverride(sessionId);
   const { projects, sessions, providerCommands, providerCapabilities, setProviderCapabilities } = useProjectStore();
-  const { isDrawerOpen, setDrawerOpen } = useTerminalStore();
+  const { setDrawerOpen, drawerOpen } = useTerminalStore();
   const { sendMessage: wsSendMessage, isConnected, handlePermissionDecision, handleAskUserAnswer } = useConnection();
 
   // Per-session pending permission/question requests
@@ -115,13 +115,14 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
       if (e.ctrlKey && e.key === '`' && currentSession?.projectId) {
         e.preventDefault();
         const store = useTerminalStore.getState();
-        if (store.isDrawerOpen) {
-          store.setDrawerOpen(false);
+        const pid = currentSession.projectId;
+        if (store.isDrawerOpen(pid)) {
+          store.setDrawerOpen(pid, false);
         } else {
-          if (!store.terminals[currentSession.projectId]) {
-            store.openTerminal(currentSession.projectId);
+          if (!store.terminals[pid]) {
+            store.openTerminal(pid);
           }
-          store.setDrawerOpen(true);
+          store.setDrawerOpen(pid, true);
         }
       }
     };
@@ -816,27 +817,31 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
             outputTokens={currentUsage.outputTokens}
           />
           <div className="flex-1" />
-          {useServerStore.getState().activeServerSupports('remoteTerminal') && currentSession?.projectId && (
-            <button
-              onClick={() => {
-                if (isDrawerOpen) {
-                  setDrawerOpen(false);
-                } else {
-                  const store = useTerminalStore.getState();
-                  if (!store.terminals[currentSession.projectId]) {
-                    store.openTerminal(currentSession.projectId);
+          {useServerStore.getState().activeServerSupports('remoteTerminal') && currentSession?.projectId && (() => {
+            const pid = currentSession.projectId;
+            const isOpen = !!drawerOpen[pid];
+            return (
+              <button
+                onClick={() => {
+                  if (isOpen) {
+                    setDrawerOpen(pid, false);
+                  } else {
+                    const store = useTerminalStore.getState();
+                    if (!store.terminals[pid]) {
+                      store.openTerminal(pid);
+                    }
+                    setDrawerOpen(pid, true);
                   }
-                  setDrawerOpen(true);
-                }
-              }}
-              className={`p-1.5 rounded hover:bg-secondary ${isDrawerOpen ? 'text-primary' : 'text-muted-foreground hover:text-foreground'}`}
-              title={isDrawerOpen ? 'Hide terminal (Ctrl+`)' : 'Open terminal (Ctrl+`)'}
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-              </svg>
-            </button>
-          )}
+                }}
+                className={`p-1.5 rounded hover:bg-secondary ${isOpen ? 'text-primary' : 'text-muted-foreground hover:text-foreground'}`}
+                title={isOpen ? 'Hide terminal (Ctrl+`)' : 'Open terminal (Ctrl+`)'}
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                </svg>
+              </button>
+            );
+          })()}
           <SystemInfoButton systemInfo={currentSystemInfo} />
         </div>
         <MessageInput

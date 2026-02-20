@@ -480,14 +480,14 @@ export function useGatewayConnection() {
       }
 
       case 'terminal_output': {
-        const term = xtermRegistry.get(msg.terminalId);
+        const term = xtermRegistry.get(msg.terminalId)?.terminal;
         if (term) term.write(msg.data);
         useTerminalStore.getState().markReady(msg.terminalId);
         break;
       }
 
       case 'terminal_exited': {
-        const exitTerm = xtermRegistry.get(msg.terminalId);
+        const exitTerm = xtermRegistry.get(msg.terminalId)?.terminal;
         if (exitTerm) exitTerm.write(`\r\n[Process exited with code ${msg.exitCode}]\r\n`);
         useTerminalStore.getState().handleTerminalExited(msg.terminalId);
         break;

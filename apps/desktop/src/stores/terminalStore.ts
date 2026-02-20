@@ -5,12 +5,13 @@ interface TerminalState {
   terminals: Record<string, string>;
   // Terminals that have received first output (shell prompt ready)
   readyTerminals: Set<string>;
-  // Drawer open state
-  isDrawerOpen: boolean;
+  // Drawer open state per project (projectId → boolean)
+  drawerOpen: Record<string, boolean>;
 
   openTerminal: (projectId: string) => string;
   closeTerminal: (terminalId: string) => void;
-  setDrawerOpen: (open: boolean) => void;
+  setDrawerOpen: (projectId: string, open: boolean) => void;
+  isDrawerOpen: (projectId: string) => boolean;
   handleTerminalExited: (terminalId: string) => void;
   getTerminalId: (projectId: string) => string | undefined;
   markReady: (terminalId: string) => void;
@@ -22,7 +23,7 @@ interface TerminalState {
 export const useTerminalStore = create<TerminalState>((set, get) => ({
   terminals: {},
   readyTerminals: new Set<string>(),
-  isDrawerOpen: false,
+  drawerOpen: {},
 
   openTerminal: (projectId: string) => {
     const existing = get().terminals[projectId];
@@ -49,7 +50,10 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
     });
   },
 
-  setDrawerOpen: (open: boolean) => set({ isDrawerOpen: open }),
+  setDrawerOpen: (projectId: string, open: boolean) =>
+    set((state) => ({ drawerOpen: { ...state.drawerOpen, [projectId]: open } })),
+
+  isDrawerOpen: (projectId: string) => !!get().drawerOpen[projectId],
 
   handleTerminalExited: (terminalId: string) => {
     // Remove the terminal mapping so next open creates a fresh one

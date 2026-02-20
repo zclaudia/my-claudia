@@ -81,13 +81,13 @@ export function XTerminal({ terminalId, projectId }: XTerminalProps) {
     if (!containerRef.current) return;
 
     // Reuse existing terminal if available (StrictMode re-mount or drawer reopen)
-    let terminal = xtermRegistry.get(terminalId);
+    let entry = xtermRegistry.get(terminalId);
     let isNew = false;
 
-    if (!terminal) {
+    if (!entry) {
       isNew = true;
       const theme = getTerminalTheme();
-      terminal = new Terminal({
+      const terminal = new Terminal({
         cursorBlink: true,
         fontSize: 14,
         fontFamily: 'Menlo, Monaco, "Courier New", monospace',
@@ -98,18 +98,19 @@ export function XTerminal({ terminalId, projectId }: XTerminalProps) {
       const fitAddon = new FitAddon();
       terminal.loadAddon(fitAddon);
       terminal.loadAddon(new WebLinksAddon());
-      fitAddonRef.current = fitAddon;
-      xtermRegistry.set(terminalId, terminal);
+      xtermRegistry.set(terminalId, terminal, fitAddon);
+      entry = xtermRegistry.get(terminalId)!;
     }
 
+    const { terminal, fitAddon } = entry;
     terminalRef.current = terminal;
+    fitAddonRef.current = fitAddon;
 
     // Re-attach to DOM (needed after StrictMode unmount/remount)
     if (containerRef.current.childElementCount === 0) {
       terminal.open(containerRef.current);
     }
 
-    const fitAddon = fitAddonRef.current!;
     fitAddon.fit();
 
     if (isNew) {
@@ -140,8 +141,8 @@ export function XTerminal({ terminalId, projectId }: XTerminalProps) {
       sendMessage({
         type: 'terminal_resize',
         terminalId,
-        cols: terminal!.cols,
-        rows: terminal!.rows,
+        cols: terminal.cols,
+        rows: terminal.rows,
       });
     });
     resizeObserver.observe(containerRef.current);

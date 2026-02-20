@@ -5,7 +5,7 @@ describe('terminalStore', () => {
   beforeEach(() => {
     useTerminalStore.setState({
       terminals: {},
-      isDrawerOpen: false,
+      drawerOpen: {},
     });
   });
 
@@ -13,7 +13,7 @@ describe('terminalStore', () => {
     it('has empty terminals and closed drawer', () => {
       const state = useTerminalStore.getState();
       expect(state.terminals).toEqual({});
-      expect(state.isDrawerOpen).toBe(false);
+      expect(state.isDrawerOpen('any-project')).toBe(false);
     });
   });
 
@@ -68,15 +68,22 @@ describe('terminalStore', () => {
   });
 
   describe('setDrawerOpen', () => {
-    it('opens the drawer', () => {
-      useTerminalStore.getState().setDrawerOpen(true);
-      expect(useTerminalStore.getState().isDrawerOpen).toBe(true);
+    it('opens the drawer for a project', () => {
+      useTerminalStore.getState().setDrawerOpen('project-1', true);
+      expect(useTerminalStore.getState().isDrawerOpen('project-1')).toBe(true);
     });
 
-    it('closes the drawer', () => {
-      useTerminalStore.getState().setDrawerOpen(true);
-      useTerminalStore.getState().setDrawerOpen(false);
-      expect(useTerminalStore.getState().isDrawerOpen).toBe(false);
+    it('closes the drawer for a project', () => {
+      useTerminalStore.getState().setDrawerOpen('project-1', true);
+      useTerminalStore.getState().setDrawerOpen('project-1', false);
+      expect(useTerminalStore.getState().isDrawerOpen('project-1')).toBe(false);
+    });
+
+    it('keeps drawer state independent per project', () => {
+      useTerminalStore.getState().setDrawerOpen('project-1', true);
+      useTerminalStore.getState().setDrawerOpen('project-2', false);
+      expect(useTerminalStore.getState().isDrawerOpen('project-1')).toBe(true);
+      expect(useTerminalStore.getState().isDrawerOpen('project-2')).toBe(false);
     });
   });
 

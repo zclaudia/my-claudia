@@ -1,24 +1,30 @@
 import type { Terminal } from '@xterm/xterm';
+import type { FitAddon } from '@xterm/addon-fit';
+
+interface TerminalEntry {
+  terminal: Terminal;
+  fitAddon: FitAddon;
+}
 
 /**
  * Simple registry for xterm.js Terminal instances.
  * Avoids storing non-serializable objects in Zustand.
  */
-const instances = new Map<string, Terminal>();
+const instances = new Map<string, TerminalEntry>();
 
 export const xtermRegistry = {
-  set(terminalId: string, terminal: Terminal): void {
-    instances.set(terminalId, terminal);
+  set(terminalId: string, terminal: Terminal, fitAddon: FitAddon): void {
+    instances.set(terminalId, { terminal, fitAddon });
   },
 
-  get(terminalId: string): Terminal | undefined {
+  get(terminalId: string): TerminalEntry | undefined {
     return instances.get(terminalId);
   },
 
   delete(terminalId: string): void {
-    const terminal = instances.get(terminalId);
-    if (terminal) {
-      terminal.dispose();
+    const entry = instances.get(terminalId);
+    if (entry) {
+      entry.terminal.dispose();
       instances.delete(terminalId);
     }
   },

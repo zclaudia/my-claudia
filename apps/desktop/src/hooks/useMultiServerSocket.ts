@@ -413,14 +413,14 @@ export function useMultiServerSocket() {
         }
 
         case 'terminal_output': {
-          const term = xtermRegistry.get(message.terminalId);
+          const term = xtermRegistry.get(message.terminalId)?.terminal;
           if (term) term.write(message.data);
           useTerminalStore.getState().markReady(message.terminalId);
           break;
         }
 
         case 'terminal_exited': {
-          const exitTerm = xtermRegistry.get(message.terminalId);
+          const exitTerm = xtermRegistry.get(message.terminalId)?.terminal;
           if (exitTerm) exitTerm.write(`\r\n[Process exited with code ${message.exitCode}]\r\n`);
           useTerminalStore.getState().handleTerminalExited(message.terminalId);
           break;

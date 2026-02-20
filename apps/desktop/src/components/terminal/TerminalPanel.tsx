@@ -14,7 +14,8 @@ interface TerminalPanelProps {
 }
 
 export function TerminalPanel({ projectId }: TerminalPanelProps) {
-  const { isDrawerOpen, setDrawerOpen, terminals } = useTerminalStore();
+  const { setDrawerOpen, terminals, drawerOpen } = useTerminalStore();
+  const isOpen = !!drawerOpen[projectId];
   const isMobile = useIsMobile();
   const terminalId = terminals[projectId];
 
@@ -27,7 +28,7 @@ export function TerminalPanel({ projectId }: TerminalPanelProps) {
   const startHeight = useRef(0);
 
   // Android back gesture to close drawer (priority 15: between sidebar=10 and agent=20)
-  useAndroidBack(() => setDrawerOpen(false), isDrawerOpen, 15);
+  useAndroidBack(() => setDrawerOpen(projectId, false), isOpen, 15);
 
   // Drag handle for resizing
   const onDragStart = useCallback(
@@ -64,13 +65,13 @@ export function TerminalPanel({ projectId }: TerminalPanelProps) {
   );
 
   // Nothing to render at all
-  if (!projectId || (!terminalId && !isDrawerOpen)) return null;
+  if (!projectId || (!terminalId && !isOpen)) return null;
 
   return (
     <div
       ref={containerRef}
-      className={`flex flex-col flex-shrink-0 ${isDrawerOpen ? 'bg-card border-t border-border' : ''}`}
-      style={{ height: isDrawerOpen ? `${heightPx}px` : 0, overflow: 'hidden' }}
+      className={`flex flex-col flex-shrink-0 ${isOpen ? 'bg-card border-t border-border' : ''}`}
+      style={{ height: isOpen ? `${heightPx}px` : 0, overflow: 'hidden' }}
     >
       {/* Drag handle + header */}
       <div
@@ -85,7 +86,7 @@ export function TerminalPanel({ projectId }: TerminalPanelProps) {
 
         {/* Close button */}
         <button
-          onClick={() => setDrawerOpen(false)}
+          onClick={() => setDrawerOpen(projectId, false)}
           className="p-1 rounded hover:bg-secondary text-muted-foreground hover:text-foreground"
           title="Close terminal"
         >
