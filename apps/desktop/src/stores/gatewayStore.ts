@@ -70,21 +70,23 @@ export const useGatewayStore = create<GatewayState>()(
       // Backend subscription (persisted) — empty = all subscribed
       subscribedBackendIds: [],
 
-      syncFromServer: (url, secret, backends, backendId) => {
+      syncFromServer: (url, secret, backends, backendId, connected) => {
         const localId = backendId !== undefined ? backendId : get().localBackendId;
         set({
           gatewayUrl: url,
           gatewaySecret: secret,
           localBackendId: localId,
           discoveredBackends: markIsLocal(backends, localId),
+          // Sync server-side gateway connected status when available
+          ...(connected !== undefined ? { isConnected: connected } : {}),
         });
       },
 
       setConnected: (connected) => {
         set({ isConnected: connected });
         if (!connected) {
-          // Clear runtime state on disconnect
-          set({ discoveredBackends: [], backendAuthStatus: {}, localBackendId: null });
+          // Clear auth status on disconnect (backends are managed by syncFromServer polling)
+          set({ backendAuthStatus: {} });
         }
       },
 

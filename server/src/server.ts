@@ -349,11 +349,31 @@ export async function createServer(): Promise<ServerContext> {
   const getGatewayStatus = () => gatewayStatus;
 
   const connectGateway = async (config: GatewayConfig) => {
+    gatewayStatus = {
+      enabled: true,
+      connected: false,
+      backendId: null,
+      gatewayUrl: config.gatewayUrl,
+      gatewaySecret: config.gatewaySecret,
+      backendName: config.backendName,
+      registerAsBackend: config.registerAsBackend !== false,
+      discoveredBackends: []
+    };
     await gatewayConnector(config);
   };
 
   const disconnectGateway = async () => {
     await gatewayDisconnector();
+    gatewayStatus = {
+      enabled: false,
+      connected: false,
+      backendId: null,
+      gatewayUrl: null,
+      gatewaySecret: null,
+      backendName: null,
+      registerAsBackend: true,
+      discoveredBackends: []
+    };
   };
 
   const updateGatewayBackendId = (backendId: string | null) => {
@@ -650,32 +670,8 @@ export async function createServer(): Promise<ServerContext> {
     setGatewayDisconnector: (disconnector: () => Promise<void>) => {
       gatewayDisconnector = disconnector;
     },
-    connectGateway: async (config: GatewayConfig) => {
-      gatewayStatus = {
-        enabled: true,
-        connected: false,
-        backendId: null,
-        gatewayUrl: config.gatewayUrl,
-        gatewaySecret: config.gatewaySecret,
-        backendName: config.backendName,
-        registerAsBackend: config.registerAsBackend !== false,
-        discoveredBackends: []
-      };
-      await gatewayConnector(config);
-    },
-    disconnectGateway: async () => {
-      await gatewayDisconnector();
-      gatewayStatus = {
-        enabled: false,
-        connected: false,
-        backendId: null,
-        gatewayUrl: null,
-        gatewaySecret: null,
-        backendName: null,
-        registerAsBackend: true,
-        discoveredBackends: []
-      };
-    },
+    connectGateway,
+    disconnectGateway,
     updateGatewayBackendId: (backendId: string | null) => {
       gatewayStatus.backendId = backendId;
       gatewayStatus.connected = backendId !== null;

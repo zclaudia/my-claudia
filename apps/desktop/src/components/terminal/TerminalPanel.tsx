@@ -4,6 +4,7 @@ import { useIsMobile } from '../../hooks/useMediaQuery';
 import { useAndroidBack } from '../../hooks/useAndroidBack';
 import { useConnection } from '../../contexts/ConnectionContext';
 import { XTerminal } from './XTerminal';
+import { xtermRegistry } from '../../utils/xtermRegistry';
 
 const MIN_HEIGHT = 100;
 const MAX_HEIGHT_VH = 70; // max 70% of viewport height
@@ -104,11 +105,19 @@ export function TerminalPanel({ projectId }: TerminalPanelProps) {
           <div className="w-8 h-1 rounded-full bg-muted-foreground/40" />
         </div>
 
-        {/* Close button */}
+        {/* Reload terminal button */}
         <button
-          onClick={() => setDrawerOpen(projectId, false)}
+          onClick={() => {
+            if (!terminalId) return;
+            // Kill old terminal on server + clean up local xterm instance
+            sendMessage({ type: 'terminal_close', terminalId });
+            xtermRegistry.delete(terminalId);
+            useTerminalStore.getState().closeTerminal(terminalId);
+            // Open a fresh terminal (openTerminal generates a new id, XTerminal picks it up)
+            useTerminalStore.getState().openTerminal(projectId);
+          }}
           className="p-1 rounded hover:bg-secondary text-muted-foreground hover:text-foreground"
-          title="Close terminal"
+          title="Reload terminal"
         >
           <svg
             className="w-4 h-4"
@@ -120,7 +129,7 @@ export function TerminalPanel({ projectId }: TerminalPanelProps) {
               strokeLinecap="round"
               strokeLinejoin="round"
               strokeWidth={2}
-              d="M6 18L18 6M6 6l12 12"
+              d="M4 4v5h5M20 20v-5h-5M4 9a9 9 0 0 1 15.36-5.36L20 4M20 15a9 9 0 0 1-15.36 5.36L4 20"
             />
           </svg>
         </button>

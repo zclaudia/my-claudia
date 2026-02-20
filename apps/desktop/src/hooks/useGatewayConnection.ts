@@ -99,10 +99,11 @@ export function useGatewayConnection() {
             status.gatewayUrl,
             status.gatewaySecret,
             status.discoveredBackends,
-            status.backendId
+            status.backendId,
+            status.connected
           );
         } else {
-          useGatewayStore.getState().syncFromServer(null, null, []);
+          useGatewayStore.getState().syncFromServer(null, null, [], null, false);
         }
       } catch {
         // Server not reachable, skip
