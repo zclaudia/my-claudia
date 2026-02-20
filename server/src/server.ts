@@ -205,6 +205,9 @@ interface ActiveRun {
 
 const activeRuns = new Map<string, ActiveRun>();
 
+// Module-level clients map (set in createServer, used by broadcastHeartbeat)
+let connectedClients = new Map<string, ConnectedClient>();
+
 // Module-level notification service (initialized in createServer)
 let notificationService: NotificationService;
 
@@ -295,6 +298,7 @@ export async function createServer(): Promise<ServerContext> {
 
   // WebSocket clients map (declared early so it can be used in auth endpoints)
   const clients = new Map<string, ConnectedClient>();
+  connectedClients = clients;
 
   // Terminal manager for remote PTY sessions
   const terminalManager = new TerminalManager((clientId, msg) => {
@@ -728,7 +732,7 @@ function buildStateHeartbeat(): StateHeartbeatMessage {
 /** Broadcast a state heartbeat to all authenticated clients immediately. */
 function broadcastHeartbeat(): void {
   const heartbeat = buildStateHeartbeat();
-  clients.forEach((client) => {
+  connectedClients.forEach((client) => {
     if (client.authenticated) {
       sendMessage(client.ws, heartbeat);
     }
