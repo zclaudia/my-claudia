@@ -2,6 +2,9 @@
 node_modules/
 .pnpm-store/
 
+# MCP server config (local dev, contains session-specific URLs)
+.mcp.json
+
 # Build outputs
 dist/
 build/
