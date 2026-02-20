@@ -2,6 +2,7 @@ import { useState, useCallback, useRef } from 'react';
 import { useTerminalStore } from '../../stores/terminalStore';
 import { useIsMobile } from '../../hooks/useMediaQuery';
 import { useAndroidBack } from '../../hooks/useAndroidBack';
+import { useConnection } from '../../contexts/ConnectionContext';
 import { XTerminal } from './XTerminal';
 
 const MIN_HEIGHT = 100;
@@ -9,15 +10,25 @@ const MAX_HEIGHT_VH = 70; // max 70% of viewport height
 const DEFAULT_HEIGHT_DESKTOP = 250;
 const DEFAULT_HEIGHT_MOBILE = 300;
 
+/** Quick-send keys for mobile toolbar */
+const QUICK_KEYS: { label: string; data: string }[] = [
+  { label: 'TAB', data: '\t' },
+  { label: 'ESC', data: '\x1b' },
+  { label: '\u2191', data: '\x1b[A' },   // Up arrow
+  { label: '\u2193', data: '\x1b[B' },   // Down arrow
+];
+
 interface TerminalPanelProps {
   projectId: string;
 }
 
 export function TerminalPanel({ projectId }: TerminalPanelProps) {
-  const { setDrawerOpen, terminals, drawerOpen } = useTerminalStore();
+  const { setDrawerOpen, terminals, drawerOpen, ctrlActive, toggleCtrl } = useTerminalStore();
   const isOpen = !!drawerOpen[projectId];
   const isMobile = useIsMobile();
   const terminalId = terminals[projectId];
+  const isCtrl = !!(terminalId && ctrlActive[terminalId]);
+  const { sendMessage } = useConnection();
 
   const containerRef = useRef<HTMLDivElement>(null);
   const [heightPx, setHeightPx] = useState(
@@ -29,6 +40,15 @@ export function TerminalPanel({ projectId }: TerminalPanelProps) {
 
   // Android back gesture to close drawer (priority 15: between sidebar=10 and agent=20)
   useAndroidBack(() => setDrawerOpen(projectId, false), isOpen, 15);
+
+  // Send a key sequence to the terminal
+  const sendKey = useCallback(
+    (data: string) => {
+      if (!terminalId) return;
+      sendMessage({ type: 'terminal_input', terminalId, data });
+    },
+    [terminalId, sendMessage],
+  );
 
   // Drag handle for resizing
   const onDragStart = useCallback(
@@ -105,6 +125,33 @@ export function TerminalPanel({ projectId }: TerminalPanelProps) {
           </svg>
         </button>
       </div>
+
+      {/* Mobile shell helper buttons */}
+      {isMobile && terminalId && (
+        <div className="flex items-center gap-1 px-2 py-1 border-b border-border flex-shrink-0 overflow-x-auto">
+          {/* Sticky CTRL toggle */}
+          <button
+            onClick={() => toggleCtrl(terminalId)}
+            className={`px-2 py-0.5 rounded text-[11px] font-mono whitespace-nowrap flex-shrink-0 ${
+              isCtrl
+                ? 'bg-primary text-primary-foreground'
+                : 'bg-secondary text-secondary-foreground'
+            }`}
+          >
+            CTRL
+          </button>
+          {/* Quick-send keys */}
+          {QUICK_KEYS.map((key) => (
+            <button
+              key={key.label}
+              onClick={() => sendKey(key.data)}
+              className="px-2 py-0.5 rounded text-[11px] font-mono bg-secondary text-secondary-foreground active:bg-primary active:text-primary-foreground whitespace-nowrap flex-shrink-0"
+            >
+              {key.label}
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* Terminal content */}
       <div className="flex-1 overflow-hidden">

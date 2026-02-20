@@ -7,11 +7,14 @@ interface TerminalState {
   readyTerminals: Set<string>;
   // Drawer open state per project (projectId → boolean)
   drawerOpen: Record<string, boolean>;
+  // Sticky Ctrl key per terminal (auto-disables after one keystroke)
+  ctrlActive: Record<string, boolean>;
 
   openTerminal: (projectId: string) => string;
   closeTerminal: (terminalId: string) => void;
   setDrawerOpen: (projectId: string, open: boolean) => void;
   isDrawerOpen: (projectId: string) => boolean;
+  toggleCtrl: (terminalId: string) => void;
   handleTerminalExited: (terminalId: string) => void;
   getTerminalId: (projectId: string) => string | undefined;
   markReady: (terminalId: string) => void;
@@ -24,6 +27,7 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
   terminals: {},
   readyTerminals: new Set<string>(),
   drawerOpen: {},
+  ctrlActive: {},
 
   openTerminal: (projectId: string) => {
     const existing = get().terminals[projectId];
@@ -54,6 +58,9 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
     set((state) => ({ drawerOpen: { ...state.drawerOpen, [projectId]: open } })),
 
   isDrawerOpen: (projectId: string) => !!get().drawerOpen[projectId],
+
+  toggleCtrl: (terminalId: string) =>
+    set((state) => ({ ctrlActive: { ...state.ctrlActive, [terminalId]: !state.ctrlActive[terminalId] } })),
 
   handleTerminalExited: (terminalId: string) => {
     // Remove the terminal mapping so next open creates a fresh one

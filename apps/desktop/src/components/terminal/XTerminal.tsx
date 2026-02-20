@@ -6,6 +6,7 @@ import '@xterm/xterm/css/xterm.css';
 import { useConnection } from '../../contexts/ConnectionContext';
 import { useTheme } from '../../contexts/ThemeContext';
 import { xtermRegistry } from '../../utils/xtermRegistry';
+import { useTerminalStore } from '../../stores/terminalStore';
 
 /** Convert CSS HSL string "H S% L%" to hex "#rrggbb" */
 function hslToHex(hsl: string): string {
@@ -123,12 +124,25 @@ export function XTerminal({ terminalId, projectId }: XTerminalProps) {
         rows: terminal.rows,
       });
 
-      // Forward keystrokes to server
+      // Forward keystrokes to server (with sticky Ctrl support for mobile)
       terminal.onData((data) => {
+        let sendData = data;
+        const store = useTerminalStore.getState();
+        if (store.ctrlActive[terminalId] && data.length === 1) {
+          const code = data.charCodeAt(0);
+          // a-z → Ctrl+letter (0x01–0x1A)
+          if (code >= 97 && code <= 122) {
+            sendData = String.fromCharCode(code - 96);
+          } else if (code >= 65 && code <= 90) {
+            sendData = String.fromCharCode(code - 64);
+          }
+          // Auto-disable sticky Ctrl after one keystroke
+          store.toggleCtrl(terminalId);
+        }
         sendMessage({
           type: 'terminal_input',
           terminalId,
-          data,
+          data: sendData,
         });
       });
     }

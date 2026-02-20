@@ -178,10 +178,11 @@ function AppContent() {
         {/* Main Content */}
         <main className="flex-1 flex flex-col overflow-hidden relative">
           {/* Chat Area */}
-          <div className="flex-1 overflow-hidden">
-            {isMobile && isAgentExpanded ? (
+          <div className="flex-1 overflow-hidden relative">
+            {/* Mobile agent panel (overlay) */}
+            {isMobile && isAgentExpanded && (
               isAgentConfigured ? (
-                <div className="relative h-full">
+                <div className="absolute inset-0 z-20">
                   {/* Left-side collapse arrow (absolute so it doesn't shift content) */}
                   <button
                     onClick={() => setAgentExpanded(false)}
@@ -201,14 +202,17 @@ function AppContent() {
                   <AgentPanel isMobile={true} showHeader={false} />
                 </div>
               ) : (
-                <div className="flex items-center justify-center h-full text-muted-foreground">
+                <div className="absolute inset-0 z-20 flex items-center justify-center bg-background text-muted-foreground">
                   <div className="text-center">
                     <div className="animate-spin w-8 h-8 border-2 border-primary border-t-transparent rounded-full mx-auto mb-3" />
                     <p className="text-sm">Setting up Agent...</p>
                   </div>
                 </div>
               )
-            ) : selectedSessionId ? (
+            )}
+
+            {/* Chat / Welcome (always mounted to preserve terminal state) */}
+            {selectedSessionId ? (
               <ChatInterface sessionId={selectedSessionId} />
             ) : (
               <div className="flex items-center justify-center h-full text-muted-foreground">
