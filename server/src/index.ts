@@ -136,12 +136,11 @@ async function connectToGateway(config: GatewayConfig): Promise<void> {
     console.log(`[Gateway] Cleaned up virtual client: ${clientId}`);
   });
 
-  // Send state heartbeat to newly subscribed client (targeted, not broadcast)
+  // Always send state heartbeat to newly subscribed client so it can
+  // restore active runs AND clean up stale runs that completed while disconnected
   gatewayClient.onClientSubscribed((clientId) => {
     const heartbeat = serverContext!.getStateHeartbeat();
-    if (heartbeat.activeRuns.length > 0) {
-      gatewayClient?.sendToClient(clientId, heartbeat);
-    }
+    gatewayClient?.sendToClient(clientId, heartbeat);
   });
 
   gatewayClient.connect();

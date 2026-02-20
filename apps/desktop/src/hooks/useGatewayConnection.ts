@@ -29,6 +29,8 @@ export function useGatewayConnection() {
   const reconnectAttemptRef = useRef(0);
   const reconnectTimeoutRef = useRef<number | null>(null);
   const selectedSessionIdRef = useRef<string | null>(null);
+  // Track which runs belong to which backend server (for heartbeat reconciliation)
+  const serverRunsRef = useRef<Map<string, Set<string>>>(new Map());
 
   // Gateway store
   const {
@@ -169,6 +171,11 @@ export function useGatewayConnection() {
         // Use sessionId from server message (preferred), fall back to ref for old servers
         const targetSessionId = msg.sessionId || currentSessionId;
         const isAgentRun = (msg as any).clientRequestId?.startsWith('agent_');
+        // Track run-to-server mapping for heartbeat reconciliation
+        if (!serverRunsRef.current.has(serverId)) {
+          serverRunsRef.current.set(serverId, new Set());
+        }
+        serverRunsRef.current.get(serverId)!.add(msg.runId);
         if (isAgentRun) {
           const agentSessionId = useAgentStore.getState().agentSessionId;
           if (agentSessionId) {
@@ -224,6 +231,7 @@ export function useGatewayConnection() {
           }
         }
         endRun(msg.runId);
+        serverRunsRef.current.get(serverId)?.delete(msg.runId);
         break;
       }
 
@@ -248,6 +256,7 @@ export function useGatewayConnection() {
           }
         }
         endRun(msg.runId);
+        serverRunsRef.current.get(serverId)?.delete(msg.runId);
         console.error(`[GatewayConn:${backendId}] Run failed:`, msg.error);
         break;
       }
@@ -365,11 +374,26 @@ export function useGatewayConnection() {
         const activeSessionIds = new Set<string>(heartbeat.activeRuns.map((r: any) => r.sessionId as string));
         useSessionsStore.getState().reconcileActiveStatus(backendId, activeSessionIds);
 
-        // Reconcile chatStore active runs (restores loading state on reconnect)
+        // Reconcile chatStore active runs (restores loading state on reconnect, cleans up stale runs)
         const chatState = useChatStore.getState();
+        const serverActiveRunIds = new Set(
+          (heartbeat.activeRuns as Array<{ runId: string; sessionId: string }>).map(r => r.runId)
+        );
+        // Add missing runs
         for (const run of heartbeat.activeRuns as Array<{ runId: string; sessionId: string }>) {
           if (!chatState.activeRuns[run.runId]) {
             chatState.startRun(run.runId, run.sessionId);
+          }
+        }
+        // Clean up stale runs (client thinks run is active, but server says it's not)
+        const trackedRuns = serverRunsRef.current.get(serverId);
+        if (trackedRuns) {
+          for (const runId of trackedRuns) {
+            if (!serverActiveRunIds.has(runId)) {
+              console.log(`[GatewayConn:${backendId}] Cleaning up stale run ${runId} (not in server heartbeat)`);
+              chatState.endRun(runId);
+              trackedRuns.delete(runId);
+            }
           }
         }
         break;

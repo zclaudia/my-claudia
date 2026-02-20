@@ -767,7 +767,7 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
       )}
 
       {/* Input */}
-      <div className="border-t border-border p-2 md:p-4 safe-bottom-pad overflow-hidden">
+      <div className="border-t border-border p-2 md:p-4 safe-bottom-pad overflow-visible">
         {/* Toolbar */}
         <div className="mb-2 md:mb-3 flex items-center gap-2 md:gap-3 flex-wrap">
           <ModeSelector
