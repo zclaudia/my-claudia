@@ -22,7 +22,7 @@ interface GatewayState {
   subscribedBackendIds: string[];
 
   // Actions
-  syncFromServer: (url: string | null, secret: string | null, backends: GatewayBackendInfo[], backendId?: string | null) => void;
+  syncFromServer: (url: string | null, secret: string | null, backends: GatewayBackendInfo[], backendId?: string | null, connected?: boolean) => void;
   setConnected: (connected: boolean) => void;
   setDiscoveredBackends: (backends: GatewayBackendInfo[]) => void;
   setBackendAuthStatus: (backendId: string, status: BackendAuthStatus) => void;
@@ -70,7 +70,7 @@ export const useGatewayStore = create<GatewayState>()(
       // Backend subscription (persisted) — empty = all subscribed
       subscribedBackendIds: [],
 
-      syncFromServer: (url, secret, backends, backendId, connected) => {
+      syncFromServer: (url: string | null, secret: string | null, backends: GatewayBackendInfo[], backendId?: string | null, connected?: boolean) => {
         const localId = backendId !== undefined ? backendId : get().localBackendId;
         set({
           gatewayUrl: url,
