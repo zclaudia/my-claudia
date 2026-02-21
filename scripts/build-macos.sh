@@ -15,6 +15,11 @@ for cmd in rustup pnpm xcodebuild; do
   command -v "$cmd" >/dev/null || { echo "ERROR: $cmd not found"; exit 1; }
 done
 
+# --- Version bump ---
+echo "=== Version bump ==="
+./scripts/version-bump.sh --platform macos --bump
+echo ""
+
 # --- Build ---
 echo "Building macOS desktop app..."
 pnpm --filter @my-claudia/desktop exec tauri build

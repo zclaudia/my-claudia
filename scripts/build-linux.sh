@@ -19,6 +19,11 @@ if [ ${#MISSING_DEPS[@]} -gt 0 ]; then
   exit 1
 fi
 
+# --- Version bump ---
+echo "=== Version bump ==="
+./scripts/version-bump.sh --platform linux --bump
+echo ""
+
 # --- Build ---
 echo "Building Linux desktop app..."
 # Use --bundles to skip AppImage (often fails in WSL2 without xdg-open)

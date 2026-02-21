@@ -13,6 +13,11 @@ foreach ($cmd in @("rustup", "pnpm", "node")) {
     }
 }
 
+# --- Version bump ---
+Write-Host "=== Version bump ===" -ForegroundColor Cyan
+bash scripts/version-bump.sh --platform windows --bump
+Write-Host ""
+
 # --- Build ---
 Write-Host "Building Windows desktop app..." -ForegroundColor Cyan
 pnpm --filter @my-claudia/desktop exec tauri build

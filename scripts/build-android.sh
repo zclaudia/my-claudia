@@ -12,10 +12,12 @@ cd "$(dirname "$0")/.."
 # --- Parse args ---
 INSTALL=false
 INSTALL_ONLY=false
+NO_BUMP=false
 for arg in "$@"; do
   case "$arg" in
     --install) INSTALL=true ;;
     --install-only) INSTALL_ONLY=true; INSTALL=true ;;
+    --no-bump) NO_BUMP=true ;;
     *) echo "Unknown arg: $arg"; exit 1 ;;
   esac
 done
@@ -66,6 +68,13 @@ for target in "${TARGETS[@]}"; do
 done
 echo "  [OK] Rust Android targets"
 echo ""
+
+# --- Version bump ---
+if [ "$INSTALL_ONLY" = false ] && [ "$NO_BUMP" = false ]; then
+  echo "=== Version bump ==="
+  ./scripts/version-bump.sh --platform android --bump
+  echo ""
+fi
 
 # --- APK paths ---
 APK_DIR="apps/desktop/src-tauri/gen/android/app/build/outputs/apk/universal/release"
