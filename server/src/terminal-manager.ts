@@ -1,7 +1,32 @@
 import * as pty from 'node-pty';
+import { execSync } from 'child_process';
 import type { TerminalOutputMessage, TerminalExitedMessage, ServerMessage } from '@my-claudia/shared';
 
 const IDLE_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
+
+/**
+ * Detect available shell for the current platform.
+ *
+ * - Linux / macOS: use $SHELL or fallback to 'bash'
+ * - Windows: prefer WSL ('wsl.exe') if installed, otherwise 'powershell.exe'
+ */
+function detectShell(): string {
+  if (process.platform !== 'win32') {
+    return process.env.SHELL || 'bash';
+  }
+
+  // Windows: check if WSL is available
+  try {
+    execSync('wsl.exe --status', {
+      timeout: 3000,
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+    return 'wsl.exe';
+  } catch {
+    // WSL not available, fall back to PowerShell
+    return process.env.COMSPEC || 'powershell.exe';
+  }
+}
 
 interface ManagedTerminal {
   pty: pty.IPty;
@@ -25,7 +50,7 @@ export class TerminalManager {
       this.destroy(terminalId);
     }
 
-    const shell = process.env.SHELL || 'bash';
+    const shell = detectShell();
     const ptyProcess = pty.spawn(shell, [], {
       name: 'xterm-256color',
       cols,

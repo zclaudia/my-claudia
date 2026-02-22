@@ -18,6 +18,12 @@ vi.mock('node-pty', () => ({
   })),
 }));
 
+// Mock child_process for detectShell WSL detection
+const mockExecSync = vi.fn();
+vi.mock('child_process', () => ({
+  execSync: (...args: unknown[]) => mockExecSync(...args),
+}));
+
 import { TerminalManager } from '../terminal-manager.js';
 import * as pty from 'node-pty';
 
@@ -218,6 +224,115 @@ describe('TerminalManager', () => {
       vi.advanceTimersByTime(29 * 60 * 1000);
 
       expect(mockPtyKill).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('shell detection (cross-platform)', () => {
+    const originalPlatform = process.platform;
+    const originalShell = process.env.SHELL;
+    const originalComspec = process.env.COMSPEC;
+
+    afterEach(() => {
+      Object.defineProperty(process, 'platform', { value: originalPlatform });
+      if (originalShell !== undefined) {
+        process.env.SHELL = originalShell;
+      } else {
+        delete process.env.SHELL;
+      }
+      if (originalComspec !== undefined) {
+        process.env.COMSPEC = originalComspec;
+      } else {
+        delete process.env.COMSPEC;
+      }
+    });
+
+    it('uses $SHELL on Linux/macOS', () => {
+      Object.defineProperty(process, 'platform', { value: 'linux' });
+      process.env.SHELL = '/bin/zsh';
+
+      manager.create('term-1', 'client-1', '/tmp', 80, 24);
+
+      expect(pty.spawn).toHaveBeenCalledWith(
+        '/bin/zsh',
+        [],
+        expect.any(Object),
+      );
+    });
+
+    it('falls back to bash on Linux/macOS when $SHELL is unset', () => {
+      Object.defineProperty(process, 'platform', { value: 'linux' });
+      delete process.env.SHELL;
+
+      manager.create('term-1', 'client-1', '/tmp', 80, 24);
+
+      expect(pty.spawn).toHaveBeenCalledWith(
+        'bash',
+        [],
+        expect.any(Object),
+      );
+    });
+
+    it('uses wsl.exe on Windows when WSL is available', () => {
+      Object.defineProperty(process, 'platform', { value: 'win32' });
+      delete process.env.SHELL;
+      mockExecSync.mockReturnValue(Buffer.from(''));
+
+      // Need a fresh TerminalManager so detectShell runs for win32
+      const winManager = new TerminalManager((clientId, msg) => {
+        sentMessages.push({ clientId, msg });
+      });
+
+      winManager.create('term-1', 'client-1', 'C:\\Users\\test', 80, 24);
+
+      expect(pty.spawn).toHaveBeenCalledWith(
+        'wsl.exe',
+        [],
+        expect.any(Object),
+      );
+
+      winManager.destroyAll();
+    });
+
+    it('falls back to powershell.exe on Windows when WSL is not available', () => {
+      Object.defineProperty(process, 'platform', { value: 'win32' });
+      delete process.env.SHELL;
+      delete process.env.COMSPEC;
+      mockExecSync.mockImplementation(() => { throw new Error('not found'); });
+
+      const winManager = new TerminalManager((clientId, msg) => {
+        sentMessages.push({ clientId, msg });
+      });
+
+      winManager.create('term-1', 'client-1', 'C:\\Users\\test', 80, 24);
+
+      expect(pty.spawn).toHaveBeenCalledWith(
+        'powershell.exe',
+        [],
+        expect.any(Object),
+      );
+
+      winManager.destroyAll();
+    });
+
+    it('uses COMSPEC on Windows when WSL is not available and COMSPEC is set', () => {
+      Object.defineProperty(process, 'platform', { value: 'win32' });
+      delete process.env.SHELL;
+      process.env.COMSPEC = 'C:\\Windows\\system32\\cmd.exe';
+      mockExecSync.mockImplementation(() => { throw new Error('not found'); });
+
+      const winManager = new TerminalManager((clientId, msg) => {
+        sentMessages.push({ clientId, msg });
+      });
+
+      winManager.create('term-1', 'client-1', 'C:\\Users\\test', 80, 24);
+
+      expect(pty.spawn).toHaveBeenCalledWith(
+        'C:\\Windows\\system32\\cmd.exe',
+        [],
+        expect.any(Object),
+      );
+
+      winManager.destroyAll();
     });
   });
 });
