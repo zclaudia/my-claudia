@@ -676,7 +676,7 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
   };
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full bg-background">
       {/* Messages */}
       <div
         ref={messagesContainerRef}

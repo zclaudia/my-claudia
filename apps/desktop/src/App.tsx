@@ -182,7 +182,7 @@ function AppContent() {
             {/* Mobile agent panel (overlay) */}
             {isMobile && isAgentExpanded && (
               isAgentConfigured ? (
-                <div className="absolute inset-0 z-20">
+                <div className="absolute inset-0 z-20 bg-background">
                   {/* Left-side collapse arrow (absolute so it doesn't shift content) */}
                   <button
                     onClick={() => setAgentExpanded(false)}
