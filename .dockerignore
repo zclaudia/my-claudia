@@ -1,0 +1,27 @@
+# Gateway Docker build only needs shared/ and gateway/, exclude the rest
+apps/
+server/
+e2e/
+scripts/
+node_modules/
+dist/
+.git/
+.github/
+.claude/
+.env
+.env.*
+*.log
+*.db
+*.db-journal
+.vscode/
+.idea/
+.DS_Store
+*.swp
+*.tgz
+*.keystore
+coverage/
+target/
+build/
+.turbo/
+playwright-report/
+test-results/

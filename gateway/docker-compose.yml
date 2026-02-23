@@ -3,6 +3,7 @@ services:
     build:
       context: ..
       dockerfile: gateway/Dockerfile
+      network: host
     container_name: my-claudia-gateway
     restart: unless-stopped
     ports:
@@ -21,3 +22,4 @@ services:
 
 volumes:
   gateway-data:
+    name: claudia-gateway_gateway-data

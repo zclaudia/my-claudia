@@ -1,11 +1,7 @@
 # Stage 1: Build
 FROM node:20-slim AS builder
 
-# Install pnpm via npm with mirror
-RUN npm install -g pnpm@9.15.0 --registry=https://registry.npmmirror.com
-
-# Install build tools for better-sqlite3 native addon
-RUN apt-get update && apt-get install -y python3 make g++ && rm -rf /var/lib/apt/lists/*
+RUN npm install -g pnpm@9.15.0
 
 WORKDIR /app
 
@@ -17,8 +13,7 @@ COPY shared/package.json shared/
 COPY gateway/package.json gateway/
 
 # Install dependencies (workspace-aware, only for gateway + shared)
-RUN pnpm config set registry https://registry.npmmirror.com && \
-    pnpm install --filter @my-claudia/gateway --filter @my-claudia/shared --frozen-lockfile
+RUN pnpm install --filter @my-claudia/gateway --filter @my-claudia/shared --frozen-lockfile
 
 # Copy source code
 COPY shared/src shared/src
@@ -33,7 +28,7 @@ RUN pnpm --filter @my-claudia/shared run build && \
 # Stage 2: Production
 FROM node:20-slim AS runtime
 
-RUN npm install -g pnpm@9.15.0 --registry=https://registry.npmmirror.com
+RUN npm install -g pnpm@9.15.0
 
 WORKDIR /app
 
@@ -43,8 +38,7 @@ COPY shared/package.json shared/
 COPY gateway/package.json gateway/
 
 # Install production dependencies only
-RUN pnpm config set registry https://registry.npmmirror.com && \
-    pnpm install --filter @my-claudia/gateway --filter @my-claudia/shared --frozen-lockfile --prod
+RUN pnpm install --filter @my-claudia/gateway --filter @my-claudia/shared --frozen-lockfile --prod
 
 # Copy built output
 COPY --from=builder /app/shared/dist shared/dist

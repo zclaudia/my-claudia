@@ -73,6 +73,9 @@ E2E_TESTS_SUMMARY.md
 # Server data directory
 server/data/
 
+# Gateway deploy tracking (only exists on router)
+gateway/.deploy-version
+
 # macOS system files
 *.DS_Store
 .AppleDouble
