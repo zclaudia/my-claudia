@@ -1,4 +1,4 @@
-use std::io::{BufRead, BufReader};
+use std::io::{BufRead, BufReader, Write as IoWrite};
 use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
 
@@ -9,11 +9,96 @@ pub struct ServerResult {
     pub port: u16,
 }
 
+/// Write a debug log line to a file in the data directory for troubleshooting.
+fn debug_log(data_dir: &str, msg: &str) {
+    let log_path = std::path::Path::new(data_dir).join("server-debug.log");
+    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&log_path) {
+        let _ = writeln!(f, "[{}] {}", chrono_now(), msg);
+    }
+    eprintln!("[EmbeddedServer/Rust] {}", msg);
+}
+
+fn chrono_now() -> String {
+    let dur = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default();
+    format!("{}", dur.as_secs())
+}
+
+/// Resolve the user's login shell PATH.
+/// GUI apps on macOS don't inherit the full shell environment (nvm, homebrew, etc.),
+/// so we run the user's login shell to extract the real PATH.
+fn resolve_shell_path(data_dir: &str) -> String {
+    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
+    let home = std::env::var("HOME").unwrap_or_else(|_| String::new());
+    let current_path = std::env::var("PATH").unwrap_or_default();
+
+    debug_log(data_dir, &format!("SHELL={}, HOME={}, current PATH={}", shell, home, current_path));
+
+    // Use -l (login) + -i (interactive) to ensure all config files are sourced
+    let output = Command::new(&shell)
+        .args(["-l", "-i", "-c", "echo $PATH"])
+        .env("HOME", &home)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .output();
+
+    match &output {
+        Ok(out) if out.status.success() => {
+            let path = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            debug_log(data_dir, &format!("Resolved shell PATH: {}", path));
+            path
+        }
+        Ok(out) => {
+            debug_log(data_dir, &format!(
+                "Shell exited with status={}, stderr={}",
+                out.status,
+                String::from_utf8_lossy(&out.stderr)
+            ));
+            build_fallback_path(&current_path, &home, data_dir)
+        }
+        Err(e) => {
+            debug_log(data_dir, &format!("Failed to spawn shell: {}", e));
+            build_fallback_path(&current_path, &home, data_dir)
+        }
+    }
+}
+
+fn build_fallback_path(current: &str, home: &str, data_dir: &str) -> String {
+    // Scan common locations where CLI tools might be installed
+    let mut paths: Vec<String> = vec![current.to_string()];
+
+    // Homebrew
+    for p in &["/opt/homebrew/bin", "/usr/local/bin"] {
+        if std::path::Path::new(p).is_dir() {
+            paths.push(p.to_string());
+        }
+    }
+
+    // nvm - scan for installed node versions
+    let nvm_dir = format!("{}/.nvm/versions/node", home);
+    if let Ok(entries) = std::fs::read_dir(&nvm_dir) {
+        for entry in entries.flatten() {
+            let bin = entry.path().join("bin");
+            if bin.is_dir() {
+                paths.push(bin.to_string_lossy().to_string());
+            }
+        }
+    }
+
+    paths.push(format!("{}/.local/bin", home));
+    paths.push(format!("{}/.cargo/bin", home));
+
+    let fallback = paths.join(":");
+    debug_log(data_dir, &format!("Using fallback PATH: {}", fallback));
+    fallback
+}
+
 /// Start the embedded Node.js server as a child process.
 /// Returns the port number once SERVER_READY:<port> is detected on stdout.
 #[tauri::command]
 pub async fn start_server(
-    app: tauri::AppHandle,
+    _app: tauri::AppHandle,
     server_path: String,
     data_dir: String,
 ) -> Result<ServerResult, String> {
@@ -28,6 +113,12 @@ pub async fn start_server(
         return Err(format!("Node binary not found at: {}", node_bin.display()));
     }
 
+    // Ensure data directory exists
+    std::fs::create_dir_all(&data_dir).ok();
+
+    // Resolve the user's full shell PATH so the server can find CLIs (claude, etc.)
+    let shell_path = resolve_shell_path(&data_dir);
+
     eprintln!(
         "[EmbeddedServer/Rust] node={}, server={}, data_dir={}",
         node_bin.display(),
@@ -41,6 +132,7 @@ pub async fn start_server(
         .env("PORT", "0")
         .env("SERVER_HOST", "127.0.0.1")
         .env("MY_CLAUDIA_DATA_DIR", &data_dir)
+        .env("PATH", &shell_path)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()

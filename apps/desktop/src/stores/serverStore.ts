@@ -19,6 +19,8 @@ interface ServerState {
   activeServerId: string | null;
   // Per-server connection states (serverId -> connection)
   connections: Record<string, ServerConnection>;
+  // Runtime port for the embedded local server (random port, not persisted in DB)
+  localServerPort: number | null;
 
   // Legacy global state (for backward compatibility during migration)
   connectionStatus: ConnectionStatus;
@@ -73,6 +75,7 @@ export const useServerStore = create<ServerState>()((set, get) => ({
   servers: [DEFAULT_SERVER],
   activeServerId: INITIAL_ACTIVE_SERVER,
   connections: {},
+  localServerPort: null,
   // Legacy global state (computed from active server's connection)
   connectionStatus: 'disconnected',
   connectionError: null,
@@ -86,6 +89,14 @@ export const useServerStore = create<ServerState>()((set, get) => ({
     }
 
     const state = get();
+
+    // Preserve runtime local server port (embedded server uses random port,
+    // but DB stores the default localhost:3100)
+    if (state.localServerPort) {
+      servers = servers.map(s =>
+        s.id === 'local' ? { ...s, address: `localhost:${state.localServerPort}` } : s
+      );
+    }
 
     set({ servers });
 
@@ -245,6 +256,7 @@ export const useServerStore = create<ServerState>()((set, get) => ({
 
   setLocalServerPort: (port) => {
     set((state) => ({
+      localServerPort: port,
       servers: state.servers.map((s) =>
         s.id === 'local' ? { ...s, address: `localhost:${port}` } : s
       )
@@ -270,12 +282,22 @@ export const useServerStore = create<ServerState>()((set, get) => ({
       } as BackendServer;
     }
 
-    return state.servers.find((s) => s.id === state.activeServerId);
+    const server = state.servers.find((s) => s.id === state.activeServerId);
+    // Apply runtime port for local server (DB may store stale localhost:3100)
+    if (server && server.id === 'local' && state.localServerPort) {
+      return { ...server, address: `localhost:${state.localServerPort}` };
+    }
+    return server;
   },
 
   getDefaultServer: () => {
     const state = get();
-    return state.servers.find((s) => s.isDefault);
+    const server = state.servers.find((s) => s.isDefault);
+    // Apply runtime port for local server (DB may store stale localhost:3100)
+    if (server && server.id === 'local' && state.localServerPort) {
+      return { ...server, address: `localhost:${state.localServerPort}` };
+    }
+    return server;
   },
 
   getServerConnection: (serverId) => {
