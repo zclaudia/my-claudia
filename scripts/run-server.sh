@@ -109,6 +109,11 @@ cmd_run() {
   # Stop old instance
   stop_old
 
+  # Install deps
+  info "Installing dependencies..."
+  pnpm install --frozen-lockfile 2>/dev/null || pnpm install
+  ok "Dependencies installed"
+
   # Build
   info "Building shared..."
   pnpm --filter @my-claudia/shared run build 2>&1
