@@ -1,10 +1,15 @@
 #!/usr/bin/env bash
 # Build, sign, and optionally install Android APK
 # Usage:
-#   ./scripts/build-android.sh              # build + sign only
-#   ./scripts/build-android.sh --install    # build + sign + install to device
-#   ./scripts/build-android.sh --install-only  # skip build, install existing APK
-#   ./scripts/build-android.sh --dev        # build dev variant (different applicationId)
+#   KEYSTORE_PASS=<pw> ./scripts/build-android.sh              # build + sign release
+#   KEYSTORE_PASS=<pw> ./scripts/build-android.sh --dev        # build + sign dev variant
+#   KEYSTORE_PASS=<pw> ./scripts/build-android.sh --install    # build + sign + install
+#   ./scripts/build-android.sh --install-only                  # install existing APK
+#
+# Environment:
+#   KEYSTORE_PASS  - keystore password (required for signing)
+#   KEYSTORE       - override keystore path (default: ~/.android/my-claudia-{release,dev}.keystore)
+#   KEY_ALIAS      - override key alias (default: my-claudia-{release,dev})
 #
 # Requires: JDK 17, Android SDK, NDK, Rust Android targets
 set -euo pipefail
@@ -113,21 +118,31 @@ if [ "$INSTALL_ONLY" = false ]; then
 
   # --- Sign ---
   echo "=== Signing APK ==="
-  KEYSTORE="${KEYSTORE:-$HOME/.android/debug.keystore}"
+  if [ "$DEV" = true ]; then
+    KEYSTORE="${KEYSTORE:-$HOME/.android/my-claudia-dev.keystore}"
+    KEY_ALIAS="${KEY_ALIAS:-my-claudia-dev}"
+  else
+    KEYSTORE="${KEYSTORE:-$HOME/.android/my-claudia-release.keystore}"
+    KEY_ALIAS="${KEY_ALIAS:-my-claudia-release}"
+  fi
 
   if [ ! -f "$KEYSTORE" ]; then
-    echo "  Creating debug keystore..."
-    mkdir -p "$(dirname "$KEYSTORE")"
-    keytool -genkey -v -keystore "$KEYSTORE" -storepass android -alias androiddebugkey \
-      -keypass android -keyalg RSA -keysize 2048 -validity 10000 \
-      -dname "CN=Debug,OU=Debug,O=Debug,L=Debug,ST=Debug,C=US"
+    echo "ERROR: Keystore not found at $KEYSTORE"
+    echo "       Generate one with: keytool -genkeypair -v -keystore $KEYSTORE -alias $KEY_ALIAS -keyalg RSA -keysize 2048 -validity 10000"
+    exit 1
+  fi
+
+  if [ -z "${KEYSTORE_PASS:-}" ]; then
+    echo "ERROR: KEYSTORE_PASS environment variable is required"
+    echo "       Usage: KEYSTORE_PASS=<password> ./scripts/build-android.sh [--dev]"
+    exit 1
   fi
 
   ALIGNED="$APK_DIR/app-aligned.apk"
   "$BUILD_TOOLS/zipalign" -f -p 4 "$UNSIGNED" "$ALIGNED"
   "$BUILD_TOOLS/apksigner" sign \
-    --ks "$KEYSTORE" --ks-pass pass:android --key-pass pass:android \
-    --ks-key-alias androiddebugkey --out "$OUTPUT" "$ALIGNED"
+    --ks "$KEYSTORE" --ks-pass "pass:$KEYSTORE_PASS" --key-pass "pass:$KEYSTORE_PASS" \
+    --ks-key-alias "$KEY_ALIAS" --out "$OUTPUT" "$ALIGNED"
   rm -f "$ALIGNED"
 
   echo ""
