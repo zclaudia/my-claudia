@@ -423,7 +423,7 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
                   <div className="p-3 bg-secondary/50 rounded-lg space-y-2">
                     <div className="flex justify-between text-sm">
                       <span className="text-muted-foreground">Version</span>
-                      <span>0.1.0</span>
+                      <span>{__APP_VERSION__}</span>
                     </div>
                     <div className="flex justify-between text-sm">
                       <span className="text-muted-foreground">Connection</span>

@@ -20,6 +20,8 @@ android {
     namespace = "com.myClaudia.desktop"
     defaultConfig {
         manifestPlaceholders["usesCleartextTraffic"] = "false"
+        manifestPlaceholders["appIcon"] = if (isDev) "ic_launcher_dev" else "ic_launcher"
+        manifestPlaceholders["appRoundIcon"] = if (isDev) "ic_launcher_dev_round" else "ic_launcher_round"
         applicationId = if (isDev) "com.myClaudia.desktop.dev" else "com.myClaudia.desktop"
         minSdk = 24
         targetSdk = 36
