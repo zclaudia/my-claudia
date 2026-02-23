@@ -96,12 +96,19 @@ if [ "$INSTALL_ONLY" = false ]; then
     echo "=== Building Android APK ==="
   fi
   cd apps/desktop
+  pnpm tauri android build --apk
   if [ "$DEV" = true ]; then
-    pnpm tauri android build --apk -- -PisDev=true
+    # Tauri CLI's -- passes args to cargo, not Gradle.
+    # Re-run Gradle with -PisDev=true, skipping Rust build (already done).
+    echo "  Re-packaging as dev variant..."
+    cd src-tauri/gen/android
+    ./gradlew assembleUniversalRelease -PisDev=true \
+      -x rustBuildArm64Release -x rustBuildArmRelease \
+      -x rustBuildX86Release -x rustBuildX86_64Release
+    cd ../../../../..
   else
-    pnpm tauri android build --apk
+    cd ../..
   fi
-  cd ../..
   echo ""
 
   # --- Sign ---
