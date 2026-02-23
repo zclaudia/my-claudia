@@ -101,6 +101,9 @@ if [ "$INSTALL_ONLY" = false ]; then
     echo "=== Building Android APK ==="
   fi
   cd apps/desktop
+  # Android doesn't use embedded server — override tauri config to skip
+  # sidecar binaries, server bundle resources, and server bundle step.
+  export TAURI_CONFIG='{"build":{"beforeBuildCommand":"pnpm build"},"bundle":{"externalBin":[],"resources":null}}'
   pnpm tauri android build --apk
   if [ "$DEV" = true ]; then
     # Tauri CLI's -- passes args to cargo, not Gradle.
