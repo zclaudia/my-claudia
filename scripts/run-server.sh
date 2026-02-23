@@ -121,7 +121,16 @@ cmd_run() {
   pnpm --filter @my-claudia/server run build 2>&1
   ok "Build complete"
 
-  # Start server in background
+  # Load env file if exists (GATEWAY_URL, GATEWAY_SECRET, etc.)
+  ENV_FILE="$DATA_DIR/.env"
+  if [[ -f "$ENV_FILE" ]]; then
+    info "Loading env from $ENV_FILE"
+    set -a
+    source "$ENV_FILE"
+    set +a
+  fi
+
+  # Start server in background (PORT and MY_CLAUDIA_DATA_DIR override .env)
   info "Starting server (PORT=$PORT, data=$DATA_DIR)..."
   PORT="$PORT" \
   MY_CLAUDIA_DATA_DIR="$DATA_DIR" \
