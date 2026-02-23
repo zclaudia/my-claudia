@@ -43,7 +43,7 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
     isConnected: isGatewayConnected,
     discoveredBackends,
   } = useGatewayStore();
-  const { connectServer } = useConnection();
+  const { connectServer, embeddedServerStatus, embeddedServerError, embeddedServerPort } = useConnection();
 
   const isConnected = connectionStatus === 'connected';
   const activeServer = getActiveServer();
@@ -436,6 +436,25 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
                         <span className="text-muted-foreground">Server</span>
                         <span>{activeServer.name}</span>
                       </div>
+                    )}
+                    {embeddedServerStatus !== 'disabled' && (
+                      <>
+                        <div className="flex justify-between text-sm">
+                          <span className="text-muted-foreground">Embedded Server</span>
+                          <span className={
+                            embeddedServerStatus === 'ready' ? 'text-success' :
+                            embeddedServerStatus === 'error' ? 'text-destructive' :
+                            'text-muted-foreground'
+                          }>
+                            {embeddedServerStatus}{embeddedServerPort ? ` :${embeddedServerPort}` : ''}
+                          </span>
+                        </div>
+                        {embeddedServerError && (
+                          <div className="text-xs text-destructive break-all">
+                            {embeddedServerError}
+                          </div>
+                        )}
+                      </>
                     )}
                   </div>
                 </div>

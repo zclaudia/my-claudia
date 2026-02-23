@@ -1,5 +1,8 @@
 use tauri::Manager;
 
+#[cfg(not(target_os = "android"))]
+mod server;
+
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 #[tauri::command]
 fn greet(name: &str) -> String {
@@ -20,8 +23,17 @@ pub fn run() {
         }
     }));
 
+    #[cfg(not(target_os = "android"))]
+    let builder = builder.invoke_handler(tauri::generate_handler![
+        greet,
+        server::start_server,
+        server::stop_server,
+    ]);
+
+    #[cfg(target_os = "android")]
+    let builder = builder.invoke_handler(tauri::generate_handler![greet]);
+
     builder
-        .invoke_handler(tauri::generate_handler![greet])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

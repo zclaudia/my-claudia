@@ -16,6 +16,11 @@
           "cmd": "node",
           "args": true,
           "sidecar": false
+        },
+        {
+          "name": "binaries/node",
+          "sidecar": true,
+          "args": true
         }
       ]
     },
@@ -27,6 +32,11 @@
           "cmd": "node",
           "args": true,
           "sidecar": false
+        },
+        {
+          "name": "binaries/node",
+          "sidecar": true,
+          "args": true
         }
       ]
     }

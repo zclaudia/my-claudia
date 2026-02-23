@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Build macOS desktop app (DMG + app bundle)
-# Requires: Xcode Command Line Tools, Rust, Node.js, pnpm
+# Requires: Rust, Node.js, pnpm
 # Run on macOS only
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -11,13 +11,19 @@ if [[ "$(uname)" != "Darwin" ]]; then
   exit 1
 fi
 
-for cmd in rustup pnpm xcodebuild; do
+for cmd in rustup pnpm; do
   command -v "$cmd" >/dev/null || { echo "ERROR: $cmd not found"; exit 1; }
 done
 
 # --- Version bump ---
 echo "=== Version bump ==="
 ./scripts/version-bump.sh --platform macos --bump
+echo ""
+
+# --- Server bundle ---
+echo "=== Building server bundle ==="
+pnpm -r run build
+pnpm --filter @my-claudia/server run bundle
 echo ""
 
 # --- Build ---

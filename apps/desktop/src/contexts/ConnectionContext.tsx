@@ -1,6 +1,6 @@
 import { createContext, useContext, useCallback, useEffect, type ReactNode } from 'react';
 import { useMultiServerSocket } from '../hooks/useMultiServerSocket';
-import { useEmbeddedServer } from '../hooks/useEmbeddedServer';
+import { useEmbeddedServer, type EmbeddedServerStatus } from '../hooks/useEmbeddedServer';
 import { usePermissionStore } from '../stores/permissionStore';
 import { useAskUserQuestionStore } from '../stores/askUserQuestionStore';
 import { useServerStore } from '../stores/serverStore';
@@ -24,6 +24,11 @@ interface ConnectionContextValue {
   // Permission decision handlers (shared across all components)
   handlePermissionDecision: (requestId: string, allow: boolean, remember?: boolean, credential?: string) => Promise<void>;
   handleAskUserAnswer: (requestId: string, formattedAnswer: string) => void;
+
+  // Embedded server debug info
+  embeddedServerStatus: EmbeddedServerStatus;
+  embeddedServerError: string | null;
+  embeddedServerPort: number | null;
 }
 
 export const ConnectionContext = createContext<ConnectionContextValue | null>(null);
@@ -119,6 +124,11 @@ export function ConnectionProvider({ children }: { children: ReactNode }) {
     // Permission handlers
     handlePermissionDecision,
     handleAskUserAnswer,
+
+    // Embedded server debug info
+    embeddedServerStatus: embeddedServer.status,
+    embeddedServerError: embeddedServer.error,
+    embeddedServerPort: embeddedServer.port,
   };
 
   return (
