@@ -4,17 +4,16 @@ services:
       context: ..
       dockerfile: gateway/Dockerfile
       network: host
-    container_name: my-claudia-gateway
     restart: unless-stopped
     ports:
-      - "3200:3200"
+      - "${GATEWAY_PORT:-3200}:${GATEWAY_PORT:-3200}"
     environment:
       - GATEWAY_SECRET=${GATEWAY_SECRET:?Please set GATEWAY_SECRET in .env}
-      - GATEWAY_PORT=3200
+      - GATEWAY_PORT=${GATEWAY_PORT:-3200}
     volumes:
       - gateway-data:/data
     healthcheck:
-      test: ["CMD", "node", "-e", "fetch('http://localhost:3200/health').then(r=>r.ok?process.exit(0):process.exit(1)).catch(()=>process.exit(1))"]
+      test: ["CMD", "node", "-e", "fetch('http://localhost:${GATEWAY_PORT:-3200}/health').then(r=>r.ok?process.exit(0):process.exit(1)).catch(()=>process.exit(1))"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -22,4 +21,3 @@ services:
 
 volumes:
   gateway-data:
-    name: claudia-gateway_gateway-data

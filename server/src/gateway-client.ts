@@ -89,8 +89,8 @@ export class GatewayClient {
   private deviceId: string;
   private backendId: string | null = null;
   private reconnectAttempts = 0;
-  private maxReconnectAttempts = 10;
-  private reconnectInterval = 5000;
+  private reconnectBaseInterval = 5000;
+  private reconnectMaxInterval = 60000;
   private reconnectTimeout: NodeJS.Timeout | null = null;
   private isConnected = false;
   private messageHandler: MessageHandler | null = null;
@@ -459,17 +459,18 @@ export class GatewayClient {
       console.log('[Gateway] Skipping reconnect (intentional disconnect)');
       return;
     }
-    if (this.reconnectAttempts >= this.maxReconnectAttempts) {
-      console.log('[Gateway] Max reconnect attempts reached');
-      return;
-    }
 
     this.reconnectAttempts++;
-    console.log(`[Gateway] Reconnecting in ${this.reconnectInterval}ms (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})`);
+    // Exponential backoff: 5s, 10s, 20s, 40s, 60s, 60s, ...
+    const delay = Math.min(
+      this.reconnectBaseInterval * Math.pow(2, this.reconnectAttempts - 1),
+      this.reconnectMaxInterval
+    );
+    console.log(`[Gateway] Reconnecting in ${delay / 1000}s (attempt ${this.reconnectAttempts})`);
 
     this.reconnectTimeout = setTimeout(() => {
       this.connect();
-    }, this.reconnectInterval);
+    }, delay);
   }
 
   /**

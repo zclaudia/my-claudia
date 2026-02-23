@@ -74,7 +74,7 @@ E2E_TESTS_SUMMARY.md
 server/data/
 
 # Gateway deploy tracking (only exists on router)
-gateway/.deploy-version
+gateway/.deploy-version*
 
 # macOS system files
 *.DS_Store
