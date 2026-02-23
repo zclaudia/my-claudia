@@ -4,6 +4,7 @@
 #
 # Usage:
 #   git pull && ./scripts/deploy-server.sh
+#   ./scripts/deploy-server.sh --service my-claudia-server-dev --data-dir ~/.my-claudia-dev
 #
 # What it does:
 #   1. pnpm install (if lockfile changed)
@@ -13,10 +14,26 @@
 #
 set -euo pipefail
 
+# Defaults
 SERVICE_NAME="my-claudia-server"
+DATA_DIR="$HOME/.my-claudia"
+
+# Parse args
+while [[ $# -gt 0 ]]; do
+  case $1 in
+    -s|--service)  SERVICE_NAME="$2"; shift 2 ;;
+    -d|--data-dir) DATA_DIR="$2"; shift 2 ;;
+    -h|--help)
+      echo "Usage: $0 [-s|--service NAME] [-d|--data-dir DIR]"
+      echo "  -s, --service   Systemd service name (default: my-claudia-server)"
+      echo "  -d, --data-dir  Data directory (default: ~/.my-claudia)"
+      exit 0 ;;
+    *) echo "Unknown option: $1"; exit 1 ;;
+  esac
+done
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-DATA_DIR="$HOME/.my-claudia"
 ENV_FILE="$DATA_DIR/.env"
 SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
 
@@ -26,6 +43,9 @@ RED='\033[0;31m'; GREEN='\033[0;32m'; BLUE='\033[0;34m'; YELLOW='\033[0;33m'; NC
 info() { echo -e "${BLUE}▸${NC} $*"; }
 ok()   { echo -e "${GREEN}✓${NC} $*"; }
 die()  { echo -e "${RED}✗${NC} $*" >&2; exit 1; }
+
+info "Service: $SERVICE_NAME | Data: $DATA_DIR"
+echo ""
 
 # ── Version check ────────────────────────────────────────────
 mkdir -p "$DATA_DIR"
@@ -81,7 +101,7 @@ fi
 info "Writing systemd service..."
 
 UNIT="[Unit]
-Description=MyClaudia Server
+Description=MyClaudia Server ($SERVICE_NAME)
 After=network.target
 
 [Service]
@@ -91,6 +111,7 @@ WorkingDirectory=$PROJECT_ROOT
 EnvironmentFile=$ENV_FILE
 Environment=PATH=$NODE_DIR:/usr/local/bin:/usr/bin:/bin
 Environment=NODE_ENV=production
+Environment=MY_CLAUDIA_DATA_DIR=$DATA_DIR
 ExecStart=$NODE_BIN $PROJECT_ROOT/server/dist/index.js
 Restart=on-failure
 RestartSec=5

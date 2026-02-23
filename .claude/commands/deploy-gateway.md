@@ -1,17 +1,43 @@
-Deploy the latest gateway code to the router (claudia.zhvala.space).
+Deploy the gateway Docker container on the router.
 
-The gateway repo is cloned at `/root/data/my-claudia/` on the OpenWrt router.
+Usage: /deploy-gateway [dev]
 
-Steps:
-1. Pull latest code and run deploy script:
+If argument is "dev", deploy to the dev instance. Otherwise deploy to the stable instance.
+
+## Instance Configuration
+
+| Instance | Repo Path | Project Name | Env File | Port |
+|----------|-----------|-------------|----------|------|
+| stable | `/root/data/my-claudia/` | `claudia-gateway` | `gateway/.env` | 3200 |
+| dev | `/root/data/my-claudia-dev/` | `claudia-gateway-dev` | `gateway/.env` | 3201 |
+
+## Steps
+
+1. Determine which instance to deploy based on argument: `$ARGUMENTS`
+   - If empty or "stable": use stable config
+   - If "dev": use dev config
+
+2. Pull latest code and run deploy script:
    ```
+   # Stable:
    ssh router "cd /root/data/my-claudia && git pull && ./scripts/deploy-gateway.sh"
-   ```
-2. Verify output shows "Gateway is healthy" and "Deploy complete".
-3. If issues, check logs:
-   ```
-   ssh router "docker compose -f /root/data/my-claudia/gateway/docker-compose.yml logs --tail=30"
+
+   # Dev:
+   ssh router "cd /root/data/my-claudia-dev && git pull && ./scripts/deploy-gateway.sh -p claudia-gateway-dev"
    ```
 
-SSH config: `Host router` → `zhvala.space:29951` (root, key: `~/.ssh/zoom_rsa`)
-Docker compose: port 3200, volume `claudia-gateway_gateway-data:/data`
+3. Verify output shows "Gateway is healthy" and "Deploy complete".
+
+4. If issues, check logs:
+   ```
+   # Stable:
+   ssh router "cd /root/data/my-claudia && docker compose -f gateway/docker-compose.yml -p claudia-gateway logs --tail=30"
+
+   # Dev:
+   ssh router "cd /root/data/my-claudia-dev && docker compose -f gateway/docker-compose.yml -p claudia-gateway-dev logs --tail=30"
+   ```
+
+## SSH
+
+- Host alias: `router` (OpenWrt, 192.168.2.1)
+- Docker build needs `--network host` for DNS resolution

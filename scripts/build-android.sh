@@ -4,6 +4,7 @@
 #   ./scripts/build-android.sh              # build + sign only
 #   ./scripts/build-android.sh --install    # build + sign + install to device
 #   ./scripts/build-android.sh --install-only  # skip build, install existing APK
+#   ./scripts/build-android.sh --dev        # build dev variant (different applicationId)
 #
 # Requires: JDK 17, Android SDK, NDK, Rust Android targets
 set -euo pipefail
@@ -13,11 +14,13 @@ cd "$(dirname "$0")/.."
 INSTALL=false
 INSTALL_ONLY=false
 NO_BUMP=false
+DEV=false
 for arg in "$@"; do
   case "$arg" in
     --install) INSTALL=true ;;
     --install-only) INSTALL_ONLY=true; INSTALL=true ;;
     --no-bump) NO_BUMP=true ;;
+    --dev) DEV=true ;;
     *) echo "Unknown arg: $arg"; exit 1 ;;
   esac
 done
@@ -79,13 +82,25 @@ fi
 # --- APK paths ---
 APK_DIR="apps/desktop/src-tauri/gen/android/app/build/outputs/apk/universal/release"
 UNSIGNED="$APK_DIR/app-universal-release-unsigned.apk"
-OUTPUT="$APK_DIR/my-claudia.apk"
+if [ "$DEV" = true ]; then
+  OUTPUT="$APK_DIR/my-claudia-dev.apk"
+else
+  OUTPUT="$APK_DIR/my-claudia.apk"
+fi
 
 # --- Build ---
 if [ "$INSTALL_ONLY" = false ]; then
-  echo "=== Building Android APK ==="
+  if [ "$DEV" = true ]; then
+    echo "=== Building Android APK (dev) ==="
+  else
+    echo "=== Building Android APK ==="
+  fi
   cd apps/desktop
-  pnpm tauri android build --apk
+  if [ "$DEV" = true ]; then
+    pnpm tauri android build --apk -- -PisDev=true
+  else
+    pnpm tauri android build --apk
+  fi
   cd ../..
   echo ""
 
