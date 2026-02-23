@@ -22,7 +22,9 @@ import type {
 import { ALL_SERVER_FEATURES } from '@my-claudia/shared';
 
 // Config storage path
-const CONFIG_DIR = path.join(os.homedir(), '.my-claudia');
+const CONFIG_DIR = process.env.MY_CLAUDIA_DATA_DIR
+  ? path.resolve(process.env.MY_CLAUDIA_DATA_DIR)
+  : path.join(os.homedir(), '.my-claudia');
 const DEVICE_CONFIG_PATH = path.join(CONFIG_DIR, 'device.json');
 
 interface DeviceConfig {

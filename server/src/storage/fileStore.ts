@@ -1,5 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import * as os from 'os';
 import { v4 as uuidv4 } from 'uuid';
 import type Database from 'better-sqlite3';
 
@@ -126,7 +127,10 @@ class FileStore {
 let instance: FileStore | null = null;
 
 export function initFileStore(db: Database.Database): void {
-  instance = new FileStore(db);
+  const dataDir = process.env.MY_CLAUDIA_DATA_DIR
+    ? path.resolve(process.env.MY_CLAUDIA_DATA_DIR)
+    : path.join(os.homedir(), '.my-claudia');
+  instance = new FileStore(db, path.join(dataDir, 'files'));
 
   // Cleanup every hour
   setInterval(() => {

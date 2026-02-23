@@ -20,6 +20,8 @@ const GATEWAY_NAME = process.env.GATEWAY_NAME || `Backend on ${os.hostname()}`;
 
 let gatewayClient: GatewayClient | null = null;
 let serverContext: ServerContext | null = null;
+// Actual port the server is listening on (resolved after server.listen)
+let actualPort = PORT;
 
 // Track virtual clients for Gateway connections
 const virtualClients = new Map<string, ReturnType<typeof createVirtualClient>>();
@@ -85,7 +87,7 @@ async function connectToGateway(config: GatewayConfig): Promise<void> {
     gatewayUrl: config.gatewayUrl,
     gatewaySecret: config.gatewaySecret,
     name: config.backendName || `Backend on ${os.hostname()}`,
-    serverPort: PORT,
+    serverPort: actualPort,
     visible: config.registerAsBackend !== false
   };
 
@@ -245,8 +247,11 @@ async function main() {
     autoDetectProviders();
 
     server.listen(PORT, HOST, async () => {
-      console.log(`🚀 MyClaudia Server running at http://${HOST}:${PORT}`);
-      console.log(`📡 WebSocket endpoint: ws://${HOST}:${PORT}/ws`);
+      actualPort = (server.address() as import('net').AddressInfo).port;
+      // Machine-readable line for embedded server port discovery
+      console.log(`SERVER_READY:${actualPort}`);
+      console.log(`🚀 MyClaudia Server running at http://${HOST}:${actualPort}`);
+      console.log(`📡 WebSocket endpoint: ws://${HOST}:${actualPort}/ws`);
 
       // Priority 1: Environment variables (for backward compatibility)
       if (GATEWAY_URL && GATEWAY_SECRET) {

@@ -8,6 +8,7 @@
     "dev": "pnpm -r --parallel run dev",
     "build": "pnpm -r run build",
     "server:dev": "pnpm --filter @my-claudia/server run dev",
+    "server:dev:isolated": "PORT=0 MY_CLAUDIA_DATA_DIR=$HOME/.my-claudia-dev pnpm --filter @my-claudia/server run dev",
     "gateway:dev": "pnpm --filter @my-claudia/gateway run dev",
     "desktop:dev": "pnpm --filter @my-claudia/desktop run dev",
     "clean": "pnpm -r run clean && rm -rf node_modules",

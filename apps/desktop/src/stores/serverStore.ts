@@ -37,6 +37,7 @@ interface ServerState {
   setServerFeatures: (serverId: string, features: ServerFeature[]) => void;
   setServerPublicKey: (serverId: string, publicKey: string | undefined) => void;
   updateLastConnected: (id: string) => void;
+  setLocalServerPort: (port: number) => void;
 
   // Getters
   getActiveServer: () => BackendServer | undefined;
@@ -238,6 +239,14 @@ export const useServerStore = create<ServerState>()((set, get) => ({
     set((state) => ({
       servers: state.servers.map((s) =>
         s.id === id ? { ...s, lastConnected: Date.now() } : s
+      )
+    }));
+  },
+
+  setLocalServerPort: (port) => {
+    set((state) => ({
+      servers: state.servers.map((s) =>
+        s.id === 'local' ? { ...s, address: `localhost:${port}` } : s
       )
     }));
   },

@@ -1,5 +1,6 @@
-import { createContext, useContext, useCallback, type ReactNode } from 'react';
+import { createContext, useContext, useCallback, useEffect, type ReactNode } from 'react';
 import { useMultiServerSocket } from '../hooks/useMultiServerSocket';
+import { useEmbeddedServer } from '../hooks/useEmbeddedServer';
 import { usePermissionStore } from '../stores/permissionStore';
 import { useAskUserQuestionStore } from '../stores/askUserQuestionStore';
 import { useServerStore } from '../stores/serverStore';
@@ -28,6 +29,16 @@ interface ConnectionContextValue {
 export const ConnectionContext = createContext<ConnectionContextValue | null>(null);
 
 export function ConnectionProvider({ children }: { children: ReactNode }) {
+  // On desktop, spawn an embedded server with a random port
+  const embeddedServer = useEmbeddedServer();
+
+  // Update the local server address when the embedded server is ready
+  useEffect(() => {
+    if (embeddedServer.port) {
+      useServerStore.getState().setLocalServerPort(embeddedServer.port);
+    }
+  }, [embeddedServer.port]);
+
   // Use the multi-server socket hook that manages multiple connections
   const socket = useMultiServerSocket();
 

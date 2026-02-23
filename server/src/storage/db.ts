@@ -4,7 +4,9 @@ import os from 'os';
 import fs from 'fs';
 import { reindexAllMessages } from './metadata-extractor.js';
 
-const DB_DIR = path.join(os.homedir(), '.my-claudia');
+const DB_DIR = process.env.MY_CLAUDIA_DATA_DIR
+  ? path.resolve(process.env.MY_CLAUDIA_DATA_DIR)
+  : path.join(os.homedir(), '.my-claudia');
 const DB_PATH = path.join(DB_DIR, 'data.db');
 
 export function initDatabase(): Database.Database {
