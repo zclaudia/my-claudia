@@ -41,12 +41,9 @@ echo ""
 # --- Rename outputs with version ---
 echo "=== Renaming outputs with version ==="
 
-# Rename .app → MyClaudia-{version}.app
+# .app stays as MyClaudia.app (it's a folder, no version needed)
 if [ -d "$BUNDLE_DIR/macos/MyClaudia.app" ]; then
-  VERSIONED_APP="$BUNDLE_DIR/macos/MyClaudia-${VERSION}.app"
-  rm -rf "$VERSIONED_APP"
-  mv "$BUNDLE_DIR/macos/MyClaudia.app" "$VERSIONED_APP"
-  echo "  APP: $VERSIONED_APP"
+  echo "  APP: $BUNDLE_DIR/macos/MyClaudia.app"
 fi
 
 # Rename .dmg → MyClaudia-{version}_{arch}.dmg

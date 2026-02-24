@@ -8,6 +8,7 @@
 import type { ToolDefinition, ToolCall } from './clientAI';
 import { useGatewayStore } from '../stores/gatewayStore';
 import { useServerStore } from '../stores/serverStore';
+import { resolveGatewayBackendUrl, getGatewayAuthHeaders } from './gatewayProxy';
 
 // ============================================
 // Tool Definitions
@@ -151,15 +152,10 @@ async function executeCallApi(args: {
     'Content-Type': 'application/json',
   };
 
-  // Add gateway auth if the request goes directly to gateway (mobile).
-  // Desktop: local proxy injects auth, no header needed.
-  const localPort = useServerStore.getState().localServerPort;
+  // Add gateway auth for gateway-routed requests
   const isGatewayRoute = backendId !== 'local' || useGatewayStore.getState().hasDirectConfig();
-  if (isGatewayRoute && !localPort) {
-    const { gatewaySecret } = useGatewayStore.getState();
-    if (gatewaySecret) {
-      headers['Authorization'] = `Bearer ${gatewaySecret}`;
-    }
+  if (isGatewayRoute) {
+    Object.assign(headers, getGatewayAuthHeaders());
   }
 
   try {
@@ -192,7 +188,8 @@ function resolveApiBaseUrl(backendId: string): string | null {
   if (backendId === 'local') {
     // Mobile mode: route "local" through gateway to the first discovered backend
     if (gwState.hasDirectConfig()) {
-      return resolveViaGateway(gwState, findFirstBackendId(gwState));
+      const firstId = findFirstBackendId(gwState);
+      return firstId ? resolveGatewayBackendUrl(firstId) : null;
     }
     // Desktop: use direct server address
     const { servers } = useServerStore.getState();
@@ -204,7 +201,7 @@ function resolveApiBaseUrl(backendId: string): string | null {
   }
 
   // Gateway backend
-  return resolveViaGateway(gwState, backendId);
+  return resolveGatewayBackendUrl(backendId);
 }
 
 /** Find the first online backend ID from discovered backends */
@@ -215,25 +212,4 @@ function findFirstBackendId(gwState: { discoveredBackends: Array<{ backendId: st
   // Fall back to first online backend
   const first = gwState.discoveredBackends.find(b => b.online);
   return first?.backendId ?? null;
-}
-
-/** Resolve a backend ID to its gateway proxy URL.
- * Desktop: route through local backend proxy (supports SOCKS5).
- * Mobile: direct connection to gateway.
- */
-function resolveViaGateway(gwState: { gatewayUrl: string | null }, backendId: string | null): string | null {
-  if (!backendId) return null;
-
-  // Desktop: route through local backend proxy
-  const localPort = useServerStore.getState().localServerPort;
-  if (localPort) {
-    return `http://127.0.0.1:${localPort}/api/gateway-proxy/${backendId}`;
-  }
-
-  // Mobile fallback: direct connection to gateway
-  if (!gwState.gatewayUrl) return null;
-  const gwHttp = gwState.gatewayUrl.includes('://')
-    ? gwState.gatewayUrl.replace(/^ws/, 'http')
-    : `http://${gwState.gatewayUrl}`;
-  return `${gwHttp}/api/proxy/${backendId}`;
 }

@@ -23,6 +23,7 @@ import { useTerminalStore } from '../stores/terminalStore';
 import { useFilePushStore } from '../stores/filePushStore';
 import { downloadPushedFile } from '../services/fileDownload';
 import { isGatewayTarget, parseBackendId } from '../stores/gatewayStore';
+import { resolveGatewayRelayWsUrl } from '../services/gatewayProxy';
 
 const RECONNECT_INTERVAL = 3000;
 const MAX_RECONNECT_ATTEMPTS = 10;
@@ -564,8 +565,8 @@ export function useMultiServerSocket() {
     // On mobile (no local server), fall back to useGatewayConnection.
     if (isGatewayTarget(serverId)) {
       const backendId = parseBackendId(serverId);
-      const localPort = useServerStore.getState().localServerPort;
-      if (localPort) {
+      const relayWsUrl = resolveGatewayRelayWsUrl(backendId);
+      if (relayWsUrl) {
         // Desktop: create DirectTransport to local relay endpoint
         const existingState = transportsRef.current.get(serverId);
         if (existingState?.transport.isConnected()) {
@@ -581,7 +582,7 @@ export function useMultiServerSocket() {
         console.log(`[Socket:${serverId}] Connecting via gateway relay...`);
         setServerConnectionStatus(serverId, 'connecting');
 
-        const wsUrl = `ws://127.0.0.1:${localPort}/gateway-relay/${backendId}`;
+        const wsUrl = relayWsUrl;
         const messageHandler = createMessageHandler(serverId);
         const transport = new DirectTransport({
           url: wsUrl,
@@ -776,10 +777,11 @@ export function useMultiServerSocket() {
   useEffect(() => {
     if (!activeServerId) return;
 
-    // For gateway targets: only auto-connect via relay if we have a local server
+    // For gateway targets: only auto-connect via relay if we have a local server (desktop).
+    // On mobile (no relay available), let useGatewayConnection handle it.
     if (isGatewayTarget(activeServerId)) {
-      const localPort = useServerStore.getState().localServerPort;
-      if (!localPort) return; // Mobile: let useGatewayConnection handle it
+      const backendId = parseBackendId(activeServerId);
+      if (!resolveGatewayRelayWsUrl(backendId)) return;
     }
 
     const state = transportsRef.current.get(activeServerId);

@@ -8,6 +8,7 @@
 
 import { useGatewayStore } from '../stores/gatewayStore';
 import { useServerStore } from '../stores/serverStore';
+import { resolveGatewayBackendUrl, getGatewayAuthHeaders } from './gatewayProxy';
 
 /**
  * Build the dynamic context string describing available backends and their API routes.
@@ -15,25 +16,11 @@ import { useServerStore } from '../stores/serverStore';
  */
 export function buildAgentContext(): string {
   const gwState = useGatewayStore.getState();
-  const { discoveredBackends, gatewayUrl } = gwState;
+  const { discoveredBackends } = gwState;
   const { servers } = useServerStore.getState();
 
   // Mobile mode: direct gateway config means no local server is reachable
   const isMobileMode = gwState.hasDirectConfig();
-
-  // Determine base URL for remote backends.
-  // Desktop: route through local backend proxy (supports SOCKS5).
-  // Mobile: direct connection to gateway.
-  const localPort = useServerStore.getState().localServerPort;
-  let gatewayHttpBase = '';
-  if (localPort) {
-    // Desktop: will use per-backend URL like http://127.0.0.1:{port}/api/gateway-proxy/{backendId}
-    gatewayHttpBase = `http://127.0.0.1:${localPort}`;
-  } else if (gatewayUrl) {
-    gatewayHttpBase = gatewayUrl.includes('://')
-      ? gatewayUrl.replace(/^ws/, 'http')
-      : `http://${gatewayUrl}`;
-  }
 
   // Collect all backends with their info
   interface BackendEntry {
@@ -68,9 +55,8 @@ export function buildAgentContext(): string {
     if (!isMobileMode && backend.isLocal) continue;
     if (!backend.online) continue;
 
-    const apiBase = localPort
-      ? `${gatewayHttpBase}/api/gateway-proxy/${backend.backendId}`
-      : `${gatewayHttpBase}/api/proxy/${backend.backendId}`;
+    const apiBase = resolveGatewayBackendUrl(backend.backendId);
+    if (!apiBase) continue;
     allBackends.push({
       name: backend.name || backend.backendId,
       apiBase,
@@ -95,21 +81,19 @@ export function buildAgentContext(): string {
   // Auth info for gateway proxied requests
   const hasGatewayBackends = allBackends.some(b => b.isRemote);
   if (hasGatewayBackends) {
-    if (localPort) {
+    const gwAuthHeaders = getGatewayAuthHeaders();
+    if (Object.keys(gwAuthHeaders).length === 0) {
       // Desktop: local proxy handles auth automatically
       sections.push(
         `### Authentication\n` +
         `Remote backend requests are proxied through the local server. No auth header needed.\n`
       );
-    } else if (gatewayHttpBase) {
-      const { gatewaySecret } = useGatewayStore.getState();
-      if (gatewaySecret) {
-        sections.push(
-          `### Authentication\n` +
-          `For remote backends (via gateway proxy), include the auth header:\n` +
-          `\`curl -s -H "Authorization: Bearer ${gatewaySecret}" <API_BASE>/api/...\`\n`
-        );
-      }
+    } else {
+      sections.push(
+        `### Authentication\n` +
+        `For remote backends (via gateway proxy), include the auth header:\n` +
+        `\`curl -s -H "Authorization: ${gwAuthHeaders.Authorization}" <API_BASE>/api/...\`\n`
+      );
     }
   }
 

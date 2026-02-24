@@ -16,7 +16,8 @@ import type {
   ServerFeature
 } from '@my-claudia/shared';
 import { useServerStore } from '../stores/serverStore';
-import { useGatewayStore, isGatewayTarget, parseBackendId } from '../stores/gatewayStore';
+import { isGatewayTarget, parseBackendId } from '../stores/gatewayStore';
+import { resolveGatewayBackendUrl, getGatewayAuthHeaders } from './gatewayProxy';
 
 /** Check if the active server advertises a specific feature. */
 function activeServerSupports(feature: ServerFeature): boolean {
@@ -34,24 +35,12 @@ export class AuthError extends Error {
 export function getBaseUrl(): string {
   const activeId = useServerStore.getState().activeServerId;
 
-  // Gateway target: route through local backend proxy when available (desktop),
-  // or directly through Gateway's HTTP proxy endpoint (mobile fallback)
+  // Gateway target: delegate to shared gateway proxy resolver
   if (isGatewayTarget(activeId)) {
     const backendId = parseBackendId(activeId!);
-
-    // Desktop: route through local backend (supports SOCKS5 proxy)
-    const localPort = useServerStore.getState().localServerPort;
-    if (localPort) {
-      return `http://127.0.0.1:${localPort}/api/gateway-proxy/${backendId}`;
-    }
-
-    // Mobile fallback: direct connection to gateway
-    const { gatewayUrl } = useGatewayStore.getState();
-    if (!gatewayUrl) throw new Error('Gateway not configured');
-    const gwAddr = gatewayUrl.includes('://')
-      ? gatewayUrl.replace(/^ws/, 'http')
-      : `http://${gatewayUrl}`;
-    return `${gwAddr}/api/proxy/${backendId}`;
+    const url = resolveGatewayBackendUrl(backendId);
+    if (!url) throw new Error('Gateway not configured');
+    return url;
   }
 
   // Direct server: connect directly to backend
@@ -69,21 +58,9 @@ export function getBaseUrl(): string {
 export function getAuthHeaders(): HeadersInit {
   const activeId = useServerStore.getState().activeServerId;
 
-  // Gateway target: when going through local proxy no auth needed (proxy injects it).
-  // For mobile (direct to gateway) we still need the Bearer token.
+  // Gateway target: delegate to shared gateway auth resolver
   if (isGatewayTarget(activeId)) {
-    const localPort = useServerStore.getState().localServerPort;
-    if (localPort) {
-      // Desktop: local proxy handles gateway auth
-      return {};
-    }
-    // Mobile: direct to gateway, need Bearer token
-    const { gatewaySecret } = useGatewayStore.getState();
-    if (gatewaySecret) {
-      return {
-        'Authorization': `Bearer ${gatewaySecret}`
-      };
-    }
+    return getGatewayAuthHeaders();
   }
 
   // Direct server: no auth needed (server trusts localhost connections)
