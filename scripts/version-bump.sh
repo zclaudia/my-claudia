@@ -52,12 +52,16 @@ MINOR=$(python3 -c "import json; print(json.load(open('$VERSION_FILE'))['minor']
 BUILD=$(python3 -c "import json; print(json.load(open('$VERSION_FILE'))['build'])")
 
 # --- Bump or set build ---
+# Get current HEAD commit hash (short) for tracking
+HEAD_COMMIT=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+
 if [ -n "$SET_BUILD" ]; then
   BUILD="$SET_BUILD"
   python3 -c "
 import json
 d = json.load(open('$VERSION_FILE'))
 d['build'] = $BUILD
+d['commit'] = '$HEAD_COMMIT'
 json.dump(d, open('$VERSION_FILE', 'w'), indent=2)
 print()  # trailing newline
 " && printf '\n' >> "$VERSION_FILE"
@@ -68,6 +72,7 @@ elif [ "$BUMP" = true ]; then
 import json
 d = json.load(open('$VERSION_FILE'))
 d['build'] = $BUILD
+d['commit'] = '$HEAD_COMMIT'
 json.dump(d, open('$VERSION_FILE', 'w'), indent=2)
 " && printf '\n' >> "$VERSION_FILE"
   echo "Build number bumped to $BUILD"

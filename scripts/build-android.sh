@@ -77,10 +77,28 @@ done
 echo "  [OK] Rust Android targets"
 echo ""
 
-# --- Version bump ---
+# --- Smart version bump ---
+# Only bump when there are actual changes since the last version bump
 if [ "$INSTALL_ONLY" = false ] && [ "$NO_BUMP" = false ]; then
-  echo "=== Version bump ==="
-  ./scripts/version-bump.sh --platform android --bump
+  echo "=== Version check ==="
+  VERSION_COMMIT=$(python3 -c "import json; d=json.load(open('version.json')); print(d.get('commit', ''))")
+  HEAD_COMMIT=$(git rev-parse --short HEAD)
+  HAS_DIRTY=$(git status --porcelain | head -1)
+
+  if [ -n "$HAS_DIRTY" ] || [ "$VERSION_COMMIT" != "$HEAD_COMMIT" ]; then
+    echo "Changes detected (dirty=$([[ -n "$HAS_DIRTY" ]] && echo yes || echo no), version_commit=$VERSION_COMMIT, head=$HEAD_COMMIT)"
+    echo "Bumping version..."
+    ./scripts/version-bump.sh --platform android --bump
+
+    # Auto-commit version bump
+    git add version.json package.json apps/desktop/package.json \
+      apps/desktop/src-tauri/Cargo.toml apps/desktop/src-tauri/Cargo.lock \
+      apps/desktop/src-tauri/tauri.conf.json
+    git commit -m "chore: version bump for Android build" --no-verify 2>/dev/null || true
+  else
+    echo "No changes since last bump (commit=$VERSION_COMMIT). Reusing current version."
+    ./scripts/version-bump.sh --platform android
+  fi
   echo ""
 fi
 
