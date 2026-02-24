@@ -20,6 +20,8 @@ import type { Transport } from './transport/BaseTransport';
 import { useGatewayConnection } from './useGatewayConnection';
 import { xtermRegistry } from '../utils/xtermRegistry';
 import { useTerminalStore } from '../stores/terminalStore';
+import { useFilePushStore } from '../stores/filePushStore';
+import { downloadPushedFile } from '../services/fileDownload';
 import { isGatewayTarget, parseBackendId } from '../stores/gatewayStore';
 
 const RECONNECT_INTERVAL = 3000;
@@ -429,6 +431,24 @@ export function useMultiServerSocket() {
           const exitTerm = xtermRegistry.get(message.terminalId)?.terminal;
           if (exitTerm) exitTerm.write(`\r\n[Process exited with code ${message.exitCode}]\r\n`);
           useTerminalStore.getState().handleTerminalExited(message.terminalId);
+          break;
+        }
+
+        case 'file_push': {
+          const fpStore = useFilePushStore.getState();
+          fpStore.addItem({
+            fileId: message.fileId,
+            fileName: message.fileName,
+            mimeType: message.mimeType,
+            fileSize: message.fileSize,
+            sessionId: message.sessionId,
+            description: message.description,
+            autoDownload: message.autoDownload,
+            serverId,
+          });
+          if (message.autoDownload) {
+            downloadPushedFile(message.fileId);
+          }
           break;
         }
 

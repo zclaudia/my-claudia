@@ -5,6 +5,7 @@ import { ToolCallList } from './ToolCallItem';
 import { LoadingIndicator } from './LoadingIndicator';
 import { InlinePermissionRequest } from './InlinePermissionRequest';
 import { InlineAskUserQuestion } from './InlineAskUserQuestion';
+import { FilePushNotificationList } from './FilePushNotification';
 import { ModeSelector } from './ModeSelector';
 import { SystemInfoButton } from './SystemInfoButton';
 import { ModelSelector } from './ModelSelector';
@@ -763,6 +764,9 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
             ))}
           </div>
         )}
+
+        {/* File push notifications for this session */}
+        <FilePushNotificationList sessionId={sessionId} />
 
         <div ref={messagesEndRef} />
 

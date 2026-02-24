@@ -110,6 +110,110 @@ class FileStore {
     }
   }
 
+  /**
+   * Store a file from a raw Buffer (no base64 intermediate).
+   * Used by upload-json endpoint to avoid double base64 decode.
+   */
+  storeFileFromBuffer(name: string, mimeType: string, buffer: Buffer): string {
+    const fileId = uuidv4();
+    const size = buffer.length;
+    const createdAt = Date.now();
+
+    const filePath = path.join(this.storageDir, fileId);
+    fs.writeFileSync(filePath, buffer);
+
+    this.db.prepare(
+      'INSERT INTO files (id, name, mime_type, size, created_at) VALUES (?, ?, ?, ?, ?)'
+    ).run(fileId, name, mimeType, size, createdAt);
+
+    console.log(`[FileStore] Stored file from buffer ${fileId} (${name}, ${size} bytes)`);
+    return fileId;
+  }
+
+  /**
+   * Move a file from a temporary path into the store (zero-copy when same filesystem).
+   * Used by multer disk storage upload — the file is already on disk, just rename it.
+   * Falls back to copy+delete if rename fails (cross-device).
+   */
+  storeFileByMoving(sourcePath: string, name: string, mimeType: string): string {
+    const fileId = uuidv4();
+    const stat = fs.statSync(sourcePath);
+    const size = stat.size;
+    const createdAt = Date.now();
+
+    const destPath = path.join(this.storageDir, fileId);
+    try {
+      fs.renameSync(sourcePath, destPath);
+    } catch {
+      // Cross-device fallback
+      fs.copyFileSync(sourcePath, destPath);
+      fs.unlinkSync(sourcePath);
+    }
+
+    this.db.prepare(
+      'INSERT INTO files (id, name, mime_type, size, created_at) VALUES (?, ?, ?, ?, ?)'
+    ).run(fileId, name, mimeType, size, createdAt);
+
+    console.log(`[FileStore] Stored file by moving ${fileId} (${name}, ${size} bytes)`);
+    return fileId;
+  }
+
+  /**
+   * Copy a file from a local filesystem path into the store.
+   * Unlike storeFile(), this avoids loading the entire file into memory as base64.
+   */
+  storeFileFromPath(sourcePath: string, name: string, mimeType: string): string {
+    const fileId = uuidv4();
+    const stat = fs.statSync(sourcePath);
+    const size = stat.size;
+    const createdAt = Date.now();
+
+    // Copy file into store directory
+    const destPath = path.join(this.storageDir, fileId);
+    fs.copyFileSync(sourcePath, destPath);
+
+    // Insert metadata into DB
+    this.db.prepare(
+      'INSERT INTO files (id, name, mime_type, size, created_at) VALUES (?, ?, ?, ?, ?)'
+    ).run(fileId, name, mimeType, size, createdAt);
+
+    console.log(`[FileStore] Stored file from path ${fileId} (${name}, ${size} bytes)`);
+    return fileId;
+  }
+
+  /**
+   * Get the absolute filesystem path to a stored file.
+   * Returns null if the file doesn't exist in the store.
+   */
+  getFilePath(fileId: string): string | null {
+    const filePath = path.join(this.storageDir, fileId);
+    if (!fs.existsSync(filePath)) {
+      return null;
+    }
+    return filePath;
+  }
+
+  /**
+   * Get file metadata without reading the file data.
+   */
+  getFileMetadata(fileId: string): { id: string; name: string; mimeType: string; size: number; createdAt: number } | null {
+    const row = this.db.prepare(
+      'SELECT id, name, mime_type, size, created_at FROM files WHERE id = ?'
+    ).get(fileId) as { id: string; name: string; mime_type: string; size: number; created_at: number } | undefined;
+
+    if (!row) {
+      return null;
+    }
+
+    return {
+      id: row.id,
+      name: row.name,
+      mimeType: row.mime_type,
+      size: row.size,
+      createdAt: row.created_at,
+    };
+  }
+
   getStats() {
     const row = this.db.prepare(
       'SELECT COUNT(*) as count, COALESCE(SUM(size), 0) as totalSize FROM files'

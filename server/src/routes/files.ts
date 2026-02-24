@@ -1,9 +1,12 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import * as fs from 'fs';
 import * as path from 'path';
+import * as os from 'os';
+import { v4 as uuidv4 } from 'uuid';
 import multer from 'multer';
-import type { ApiResponse, DirectoryListingResponse, FileEntry, FileContentResponse } from '@my-claudia/shared';
+import type { ApiResponse, DirectoryListingResponse, FileEntry, FileContentResponse, FilePushNotificationMessage, ServerMessage } from '@my-claudia/shared';
 import { fileStore } from '../storage/fileStore.js';
+import type WebSocket from 'ws';
 
 // Directories to skip when listing
 const IGNORED_DIRS = new Set([
@@ -49,15 +52,61 @@ function fuzzyMatch(query: string, name: string): boolean {
   return lowerName.includes(lowerQuery);
 }
 
-// Configure multer for file upload
+// Common MIME type lookup by extension
+const MIME_TYPES: Record<string, string> = {
+  '.apk': 'application/vnd.android.package-archive',
+  '.ipa': 'application/octet-stream',
+  '.zip': 'application/zip',
+  '.tar': 'application/x-tar',
+  '.gz': 'application/gzip',
+  '.tgz': 'application/gzip',
+  '.pdf': 'application/pdf',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.webp': 'image/webp',
+  '.svg': 'image/svg+xml',
+  '.json': 'application/json',
+  '.txt': 'text/plain',
+  '.log': 'text/plain',
+  '.csv': 'text/csv',
+  '.html': 'text/html',
+  '.js': 'application/javascript',
+  '.ts': 'text/x-typescript',
+  '.exe': 'application/x-msdownload',
+  '.dmg': 'application/x-apple-diskimage',
+  '.deb': 'application/x-debian-package',
+  '.rpm': 'application/x-rpm',
+  '.bin': 'application/octet-stream',
+  '.iso': 'application/x-iso9660-image',
+};
+
+function detectMimeType(filePath: string): string {
+  const ext = path.extname(filePath).toLowerCase();
+  return MIME_TYPES[ext] || 'application/octet-stream';
+}
+
+/** Context for broadcasting messages to connected clients */
+export interface FilesRouteBroadcastContext {
+  sendMessage: (ws: WebSocket, message: ServerMessage) => void;
+  getAuthenticatedClients: () => Array<{ ws: WebSocket }>;
+}
+
+// Configure multer for streaming file upload (disk storage — no memory buffering)
 const upload = multer({
-  storage: multer.memoryStorage(),
+  storage: multer.diskStorage({
+    destination: os.tmpdir(),
+    filename: (_req, _file, cb) => {
+      cb(null, `claudia-upload-${uuidv4()}`);
+    },
+  }),
   limits: {
     fileSize: 10 * 1024 * 1024 // 10MB limit
   }
 });
 
-export function createFilesRoutes(): Router {
+export function createFilesRoutes(broadcastCtx?: FilesRouteBroadcastContext): Router {
   const router = Router();
 
   // POST /api/files/upload
@@ -89,14 +138,12 @@ export function createFilesRoutes(): Router {
           return;
         }
 
-        // Convert to base64
-        const base64Data = req.file.buffer.toString('base64');
-
-        // Store file
-        const fileId = fileStore.storeFile(
+        // req.file.path is the temp file on disk (streamed by multer disk storage)
+        // Move it directly into the file store — no base64, no memory buffering
+        const fileId = fileStore.storeFileByMoving(
+          req.file.path,
           req.file.originalname,
-          req.file.mimetype,
-          base64Data
+          req.file.mimetype
         );
 
         res.json({
@@ -109,6 +156,10 @@ export function createFilesRoutes(): Router {
           }
         });
       } catch (error) {
+        // Clean up temp file on error
+        if (req.file?.path) {
+          try { fs.unlinkSync(req.file.path); } catch { /* ignore */ }
+        }
         console.error('[Files] Error uploading file:', error);
         res.status(500).json({
           success: false,
@@ -132,9 +183,10 @@ export function createFilesRoutes(): Router {
         return;
       }
 
-      const size = Buffer.from(data, 'base64').length;
+      // Decode base64 once — use buffer for both size check and storage
+      const buffer = Buffer.from(data, 'base64');
       const MAX_SIZE = 10 * 1024 * 1024; // 10MB
-      if (size > MAX_SIZE) {
+      if (buffer.length > MAX_SIZE) {
         res.status(413).json({
           success: false,
           error: { code: 'FILE_TOO_LARGE', message: 'File exceeds 10MB limit' }
@@ -142,11 +194,11 @@ export function createFilesRoutes(): Router {
         return;
       }
 
-      const fileId = fileStore.storeFile(name, mimeType, data);
+      const fileId = fileStore.storeFileFromBuffer(name, mimeType, buffer);
 
       res.json({
         success: true,
-        data: { fileId, name, mimeType, size }
+        data: { fileId, name, mimeType, size: buffer.length }
       });
     } catch (error) {
       console.error('[Files] Error uploading file (JSON):', error);
@@ -355,9 +407,152 @@ export function createFilesRoutes(): Router {
     }
   });
 
+  // GET /api/files/:fileId/download
+  // Stream download a file (supports large files without loading into memory)
+  router.get('/:fileId/download', (req: Request, res: Response) => {
+    try {
+      const { fileId } = req.params;
+
+      const metadata = fileStore.getFileMetadata(fileId);
+      if (!metadata) {
+        res.status(404).json({
+          success: false,
+          error: { code: 'NOT_FOUND', message: 'File not found' }
+        });
+        return;
+      }
+
+      const filePath = fileStore.getFilePath(fileId);
+      if (!filePath) {
+        res.status(404).json({
+          success: false,
+          error: { code: 'FILE_MISSING', message: 'File data missing on disk' }
+        });
+        return;
+      }
+
+      // Set appropriate headers for download
+      res.setHeader('Content-Type', metadata.mimeType);
+      res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(metadata.name)}"`);
+      res.setHeader('Content-Length', metadata.size.toString());
+
+      // Stream the file
+      const readStream = fs.createReadStream(filePath);
+      readStream.pipe(res);
+
+      readStream.on('error', (err) => {
+        console.error(`[Files] Stream error for ${fileId}:`, err);
+        if (!res.headersSent) {
+          res.status(500).json({
+            success: false,
+            error: { code: 'STREAM_ERROR', message: 'Failed to stream file' }
+          });
+        }
+      });
+    } catch (error) {
+      console.error('[Files] Error streaming file:', error);
+      res.status(500).json({
+        success: false,
+        error: { code: 'DOWNLOAD_ERROR', message: 'Failed to download file' }
+      });
+    }
+  });
+
+  // POST /api/files/push
+  // Push a local file to connected clients
+  router.post('/push', (req: Request, res: Response) => {
+    try {
+      const { filePath: sourcePath, sessionId, description } = req.body;
+
+      if (!sourcePath) {
+        res.status(400).json({
+          success: false,
+          error: { code: 'VALIDATION_ERROR', message: 'filePath is required' }
+        });
+        return;
+      }
+
+      if (!sessionId) {
+        res.status(400).json({
+          success: false,
+          error: { code: 'VALIDATION_ERROR', message: 'sessionId is required' }
+        });
+        return;
+      }
+
+      // Validate file exists and is readable
+      if (!fs.existsSync(sourcePath)) {
+        res.status(404).json({
+          success: false,
+          error: { code: 'FILE_NOT_FOUND', message: `File not found: ${sourcePath}` }
+        });
+        return;
+      }
+
+      const stat = fs.statSync(sourcePath);
+      if (!stat.isFile()) {
+        res.status(400).json({
+          success: false,
+          error: { code: 'NOT_A_FILE', message: 'Path is not a regular file' }
+        });
+        return;
+      }
+
+      // Detect MIME type and file name
+      const fileName = path.basename(sourcePath);
+      const mimeType = detectMimeType(sourcePath);
+      const fileSize = stat.size;
+
+      // Copy file into store
+      const fileId = fileStore.storeFileFromPath(sourcePath, fileName, mimeType);
+
+      // Determine auto-download: images or small files (< 500KB)
+      const AUTO_DOWNLOAD_SIZE = 500 * 1024;
+      const autoDownload = mimeType.startsWith('image/') || fileSize < AUTO_DOWNLOAD_SIZE;
+
+      // Broadcast to connected clients via WebSocket
+      if (broadcastCtx) {
+        const notification: FilePushNotificationMessage = {
+          type: 'file_push',
+          fileId,
+          sessionId,
+          fileName,
+          mimeType,
+          fileSize,
+          description,
+          autoDownload,
+        };
+
+        const clients = broadcastCtx.getAuthenticatedClients();
+        for (const client of clients) {
+          broadcastCtx.sendMessage(client.ws, notification);
+        }
+
+        console.log(`[Files] Pushed file ${fileId} (${fileName}, ${fileSize} bytes) to ${clients.length} client(s)`);
+      }
+
+      res.json({
+        success: true,
+        data: {
+          fileId,
+          fileName,
+          mimeType,
+          fileSize,
+          autoDownload,
+        }
+      });
+    } catch (error) {
+      console.error('[Files] Error pushing file:', error);
+      res.status(500).json({
+        success: false,
+        error: { code: 'PUSH_ERROR', message: 'Failed to push file' }
+      });
+    }
+  });
+
   // GET /api/files/:fileId
   // Retrieve a file by ID
-  // NOTE: This must be defined AFTER /list and /content to avoid catching those paths
+  // NOTE: This must be defined AFTER /list, /content, and /:fileId/download to avoid catching those paths
   router.get('/:fileId', (req: Request, res: Response) => {
     try {
       const { fileId } = req.params;

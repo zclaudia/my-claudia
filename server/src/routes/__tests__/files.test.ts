@@ -4,12 +4,17 @@ import request from 'supertest';
 import { createFilesRoutes } from '../files.js';
 import type { StoredFile } from '../../storage/fileStore.js';
 
-// Mock the fs module
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const realFs = require('node:fs');
+
+// Mock the fs module (keep real read/unlink for multer temp files)
 vi.mock('fs', () => ({
   existsSync: vi.fn(),
   statSync: vi.fn(),
   readdirSync: vi.fn(),
   readFileSync: vi.fn(),
+  unlinkSync: vi.fn(),
+  createReadStream: vi.fn(),
 }));
 
 // Mock fileStore
@@ -31,9 +36,50 @@ vi.mock('../../storage/fileStore.js', () => {
         mockFiles.set(fileId, file);
         return fileId;
       }),
+      storeFileByMoving: vi.fn((sourcePath: string, name: string, mimeType: string) => {
+        const fileId = 'mock-file-id-' + Math.random().toString(36).substr(2, 9);
+        // Read the real temp file that multer wrote to disk
+        let data = '';
+        let size = 0;
+        try {
+          const buffer = realFs.readFileSync(sourcePath);
+          data = buffer.toString('base64');
+          size = buffer.length;
+          realFs.unlinkSync(sourcePath); // Clean up temp file
+        } catch { /* ignore in tests */ }
+        const file: StoredFile = {
+          id: fileId,
+          name,
+          mimeType,
+          size,
+          data,
+          createdAt: Date.now()
+        };
+        mockFiles.set(fileId, file);
+        return fileId;
+      }),
+      storeFileFromBuffer: vi.fn((name: string, mimeType: string, buffer: Buffer) => {
+        const fileId = 'mock-file-id-' + Math.random().toString(36).substr(2, 9);
+        const file: StoredFile = {
+          id: fileId,
+          name,
+          mimeType,
+          size: buffer.length,
+          data: buffer.toString('base64'),
+          createdAt: Date.now()
+        };
+        mockFiles.set(fileId, file);
+        return fileId;
+      }),
       getFile: vi.fn((fileId: string) => {
         return mockFiles.get(fileId) || null;
       }),
+      getFileMetadata: vi.fn((fileId: string) => {
+        const file = mockFiles.get(fileId);
+        if (!file) return null;
+        return { id: file.id, name: file.name, mimeType: file.mimeType, size: file.size, createdAt: file.createdAt };
+      }),
+      getFilePath: vi.fn((_fileId: string) => null),
       deleteFile: vi.fn((fileId: string) => {
         return mockFiles.delete(fileId);
       }),
@@ -350,11 +396,11 @@ describe('files routes', () => {
       expect(response.body.data.mimeType).toBe('text/plain');
       expect(response.body.data.size).toBe(12); // 'test content' length
 
-      // Verify storeFile was called
-      expect(fileStore.storeFile).toHaveBeenCalledWith(
+      // Verify storeFileByMoving was called (streaming disk upload)
+      expect(fileStore.storeFileByMoving).toHaveBeenCalledWith(
+        expect.any(String), // temp file path
         'test.txt',
-        'text/plain',
-        expect.any(String) // base64 data
+        'text/plain'
       );
     });
 
@@ -413,19 +459,19 @@ describe('files routes', () => {
       expect(response.body.data.name).toBe('file (1) [copy].txt');
     });
 
-    it('should store file as base64', async () => {
+    it('should store file by moving temp file to store', async () => {
       const content = 'Hello World';
-      const expectedBase64 = Buffer.from(content).toString('base64');
 
       await request(app)
         .post('/api/files/upload')
         .attach('file', Buffer.from(content), 'test.txt')
         .expect(200);
 
-      expect(fileStore.storeFile).toHaveBeenCalledWith(
+      // With disk storage, file is moved from temp path into store
+      expect(fileStore.storeFileByMoving).toHaveBeenCalledWith(
+        expect.stringContaining('claudia-upload-'), // temp file path with prefix
         'test.txt',
-        'text/plain',
-        expectedBase64
+        'text/plain'
       );
     });
 

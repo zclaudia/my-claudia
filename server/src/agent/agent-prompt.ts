@@ -58,6 +58,10 @@ The available backends and their API base URLs are provided in the dynamic conte
 ### Files
 - \`GET /api/files/list?projectRoot=/path&relativePath=src\` — List directory
 - \`GET /api/files/content?projectRoot=/path&relativePath=file.ts\` — Read file
+- \`POST /api/files/push\` — Push a file to connected clients for download/install.
+  Body: \`{ "filePath": "/absolute/path/to/file", "sessionId": "...", "description": "..." }\`
+  Use this after building artifacts (APK, binaries, exports) that the user needs on their device.
+  Small files (<500KB) and images are auto-downloaded; larger files show a download notification.
 
 ### Agent Config
 - \`GET /api/agent/config\` — Get agent configuration

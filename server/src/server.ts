@@ -418,7 +418,18 @@ export async function createServer(): Promise<ServerContext> {
   app.use('/api/sessions', authMiddleware, createSessionRoutes(db, activeRuns));
   app.use('/api/providers', authMiddleware, createProviderRoutes(db));
   app.use('/api/servers', authMiddleware, createServerRoutes(db));
-  app.use('/api/files', authMiddleware, createFilesRoutes());
+  app.use('/api/files', authMiddleware, createFilesRoutes({
+    sendMessage,
+    getAuthenticatedClients: () => {
+      const result: Array<{ ws: import('ws').WebSocket }> = [];
+      clients.forEach((client) => {
+        if (client.authenticated) {
+          result.push({ ws: client.ws });
+        }
+      });
+      return result;
+    },
+  }));
   app.use('/api/commands', authMiddleware, createCommandsRoutes());
   app.use('/api/agent', authMiddleware, createAgentRoutes(db));
   app.use('/api/import', localOnlyMiddleware, createImportRoutes(db));

@@ -30,12 +30,13 @@ export type PermissionCallback = (
 ) => Promise<PermissionDecision>;
 
 /**
- * Get file data by ID from local DB+disk store
+ * Get the on-disk storage path for an uploaded file.
+ * Returns null if the file doesn't exist.
  */
-function getFileData(fileId: string): string | null {
-  const file = fileStore.getFile(fileId);
-  if (file) {
-    return file.data;
+function getFileStorePath(fileId: string): string | null {
+  const filePath = fileStore.getFilePath(fileId);
+  if (filePath) {
+    return filePath;
   }
   console.error(`[Claude SDK] File ${fileId} not found`);
   return null;
@@ -133,18 +134,19 @@ export async function prepareInput(input: string): Promise<PreparedInput> {
 
   for (const attachment of messageInput.attachments) {
     if (attachment.type === 'image') {
-      const fileData = getFileData(attachment.fileId);
-      if (fileData) {
+      const sourceFilePath = getFileStorePath(attachment.fileId);
+      if (sourceFilePath) {
         const ext = mimeToExt(attachment.mimeType);
         const fileName = `${crypto.randomUUID()}.${ext}`;
-        const filePath = path.join(UPLOAD_TMP_DIR, fileName);
+        const tempFilePath = path.join(UPLOAD_TMP_DIR, fileName);
 
-        fs.writeFileSync(filePath, Buffer.from(fileData, 'base64'));
-        tempFiles.push(filePath);
-        imageRefs.push(filePath);
-        console.log(`[Claude SDK] Saved image ${attachment.name} → ${filePath}`);
+        // Direct file copy — no base64 round-trip
+        fs.copyFileSync(sourceFilePath, tempFilePath);
+        tempFiles.push(tempFilePath);
+        imageRefs.push(tempFilePath);
+        console.log(`[Claude SDK] Copied image ${attachment.name} → ${tempFilePath}`);
       } else {
-        console.warn(`[Claude SDK] Could not load image ${attachment.fileId}, skipping`);
+        console.warn(`[Claude SDK] Could not locate image ${attachment.fileId}, skipping`);
       }
     }
   }

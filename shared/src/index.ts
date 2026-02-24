@@ -520,6 +520,18 @@ export interface TerminalExitedMessage {
   exitCode: number;
 }
 
+// File Push notification (Server → Client)
+export interface FilePushNotificationMessage {
+  type: 'file_push';
+  fileId: string;
+  sessionId: string;
+  fileName: string;
+  mimeType: string;
+  fileSize: number;
+  description?: string;
+  autoDownload: boolean;
+}
+
 // Server → Client messages
 export type ServerMessage =
   | AuthResultMessage
@@ -567,7 +579,8 @@ export type ServerMessage =
   | StateHeartbeatMessage
   | TerminalOpenedMessage
   | TerminalOutputMessage
-  | TerminalExitedMessage;
+  | TerminalExitedMessage
+  | FilePushNotificationMessage;
 
 // Authentication result message
 export interface AuthResultMessage {
@@ -960,6 +973,7 @@ export type ServerFeature =
   | 'search'                 // GET /api/sessions/search/*
   | 'fileUpload'             // POST /api/files/upload
   | 'remoteTerminal'         // WebSocket-based PTY terminal
+  | 'filePush'               // POST /api/files/push — server-to-client file delivery
   ;
 
 /** All features supported by the current server version. */
@@ -970,6 +984,7 @@ export const ALL_SERVER_FEATURES: ServerFeature[] = [
   'search',
   'fileUpload',
   'remoteTerminal',
+  'filePush',
 ];
 
 // ============================================

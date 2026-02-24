@@ -20,6 +20,8 @@ import { toGatewayServerId, isGatewayTarget, parseBackendId } from '../stores/ga
 import { useSessionsStore } from '../stores/sessionsStore';
 import { xtermRegistry } from '../utils/xtermRegistry';
 import { useTerminalStore } from '../stores/terminalStore';
+import { useFilePushStore } from '../stores/filePushStore';
+import { downloadPushedFile } from '../services/fileDownload';
 import { useSupervisionStore } from '../stores/supervisionStore';
 import { getServerGatewayStatus } from '../services/api';
 
@@ -491,6 +493,25 @@ export function useGatewayConnection() {
         const exitTerm = xtermRegistry.get(msg.terminalId)?.terminal;
         if (exitTerm) exitTerm.write(`\r\n[Process exited with code ${msg.exitCode}]\r\n`);
         useTerminalStore.getState().handleTerminalExited(msg.terminalId);
+        break;
+      }
+
+      case 'file_push': {
+        const fpStore = useFilePushStore.getState();
+        const gwServerId = toGatewayServerId(backendId);
+        fpStore.addItem({
+          fileId: msg.fileId,
+          fileName: msg.fileName,
+          mimeType: msg.mimeType,
+          fileSize: msg.fileSize,
+          sessionId: msg.sessionId,
+          description: msg.description,
+          autoDownload: msg.autoDownload,
+          serverId: gwServerId,
+        });
+        if (msg.autoDownload) {
+          downloadPushedFile(msg.fileId);
+        }
         break;
       }
 
