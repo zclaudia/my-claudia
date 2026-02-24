@@ -314,12 +314,19 @@ console.log('  [3/4] Clean-room native module install');
     // Run npm install using sidecar Node + its bundled npm.
     // --omit=optional skips optional deps like @img/sharp-* from the SDK.
     // --userconfig=/dev/null bypasses any corporate .npmrc.
+    // npm_config_target + npm_config_arch force node-gyp/prebuild-install to
+    // compile/download for the SIDECAR node version, not the system node.
     execSync(
       `"${cacheBin}" "${npmCli}" install --omit=optional --registry=https://registry.npmjs.org --userconfig=/dev/null`,
       {
         cwd: installCacheDir,
         stdio: 'pipe',
-        env: { ...process.env },
+        env: {
+          ...process.env,
+          npm_config_target: NODE_SIDECAR_VERSION,
+          npm_config_arch: arch,
+          npm_config_target_arch: arch,
+        },
       },
     );
 
@@ -423,7 +430,7 @@ console.log('  [4/4] Verifying native modules');
 if (fs.existsSync(cacheBin)) {
   try {
     execSync(
-      `"${cacheBin}" -e "require('${outDir}/node_modules/better-sqlite3')"`,
+      `"${cacheBin}" -e "new (require('${outDir}/node_modules/better-sqlite3'))(':memory:').close()"`,
       { stdio: 'pipe' },
     );
     console.log('    better-sqlite3: OK');
