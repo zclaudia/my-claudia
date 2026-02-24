@@ -1,7 +1,8 @@
 import * as os from 'os';
 import { createServer, createVirtualClient, activeRuns, connectedClients, type ServerContext } from './server.js';
 import { GatewayClient } from './gateway-client.js';
-import { setGatewayClient } from './gateway-instance.js';
+import { GatewayClientMode } from './gateway-client-mode.js';
+import { setGatewayClient, setGatewayClientMode } from './gateway-instance.js';
 import type { ServerMessage } from '@my-claudia/shared';
 import { initDatabase } from './storage/db.js';
 import type { GatewayConfig } from './routes/gateway.js';
@@ -19,6 +20,7 @@ const GATEWAY_SECRET = process.env.GATEWAY_SECRET;
 const GATEWAY_NAME = process.env.GATEWAY_NAME || `Backend on ${os.hostname()}`;
 
 let gatewayClient: GatewayClient | null = null;
+let gatewayClientMode: GatewayClientMode | null = null;
 let serverContext: ServerContext | null = null;
 // Actual port the server is listening on (resolved after server.listen)
 let actualPort = PORT;
@@ -154,6 +156,30 @@ async function connectToGateway(config: GatewayConfig): Promise<void> {
 
   gatewayClient.connect();
 
+  // Also start a client-role connection for relaying desktop frontend traffic
+  // through the gateway to remote backends (with SOCKS5 support)
+  if (gatewayClientMode) {
+    gatewayClientMode.disconnect();
+  }
+
+  const clientModeConfig: any = {
+    gatewayUrl: config.gatewayUrl,
+    gatewaySecret: config.gatewaySecret,
+  };
+  if (config.proxyUrl) {
+    clientModeConfig.proxyUrl = config.proxyUrl;
+    if (config.proxyUsername || config.proxyPassword) {
+      clientModeConfig.proxyAuth = {
+        username: config.proxyUsername || '',
+        password: config.proxyPassword || '',
+      };
+    }
+  }
+
+  gatewayClientMode = new GatewayClientMode(clientModeConfig);
+  setGatewayClientMode(gatewayClientMode);
+  gatewayClientMode.connect();
+
   // Sync gateway status periodically as fallback (backendId + discoveredBackends)
   const syncGatewayStatus = setInterval(() => {
     if (gatewayClient && serverContext) {
@@ -184,6 +210,11 @@ async function disconnectFromGateway(): Promise<void> {
       serverContext.updateGatewayBackendId(null);
       serverContext.updateDiscoveredBackends([]);
     }
+  }
+  if (gatewayClientMode) {
+    gatewayClientMode.disconnect();
+    gatewayClientMode = null;
+    setGatewayClientMode(null);
   }
 }
 
@@ -285,6 +316,9 @@ async function main() {
       // Disconnect from Gateway
       if (gatewayClient) {
         gatewayClient.disconnect();
+      }
+      if (gatewayClientMode) {
+        gatewayClientMode.disconnect();
       }
 
       // Stop all managed OpenCode server processes

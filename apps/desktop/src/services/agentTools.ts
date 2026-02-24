@@ -151,9 +151,11 @@ async function executeCallApi(args: {
     'Content-Type': 'application/json',
   };
 
-  // Add gateway auth if the request is routed through the gateway
-  const needsGatewayAuth = backendId !== 'local' || useGatewayStore.getState().hasDirectConfig();
-  if (needsGatewayAuth) {
+  // Add gateway auth if the request goes directly to gateway (mobile).
+  // Desktop: local proxy injects auth, no header needed.
+  const localPort = useServerStore.getState().localServerPort;
+  const isGatewayRoute = backendId !== 'local' || useGatewayStore.getState().hasDirectConfig();
+  if (isGatewayRoute && !localPort) {
     const { gatewaySecret } = useGatewayStore.getState();
     if (gatewaySecret) {
       headers['Authorization'] = `Bearer ${gatewaySecret}`;
@@ -215,9 +217,21 @@ function findFirstBackendId(gwState: { discoveredBackends: Array<{ backendId: st
   return first?.backendId ?? null;
 }
 
-/** Resolve a backend ID to its gateway proxy URL */
+/** Resolve a backend ID to its gateway proxy URL.
+ * Desktop: route through local backend proxy (supports SOCKS5).
+ * Mobile: direct connection to gateway.
+ */
 function resolveViaGateway(gwState: { gatewayUrl: string | null }, backendId: string | null): string | null {
-  if (!backendId || !gwState.gatewayUrl) return null;
+  if (!backendId) return null;
+
+  // Desktop: route through local backend proxy
+  const localPort = useServerStore.getState().localServerPort;
+  if (localPort) {
+    return `http://127.0.0.1:${localPort}/api/gateway-proxy/${backendId}`;
+  }
+
+  // Mobile fallback: direct connection to gateway
+  if (!gwState.gatewayUrl) return null;
   const gwHttp = gwState.gatewayUrl.includes('://')
     ? gwState.gatewayUrl.replace(/^ws/, 'http')
     : `http://${gwState.gatewayUrl}`;

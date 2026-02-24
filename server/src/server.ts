@@ -41,6 +41,7 @@ import { safeCompare } from './auth.js';
 import { extractAndIndexMetadata, removeIndexedMetadata } from './storage/metadata-extractor.js';
 import { TerminalManager } from './terminal-manager.js';
 import { generateKeyPair, getPublicKeyPem, decryptCredential } from './utils/crypto.js';
+import { getGatewayClientMode } from './gateway-instance.js';
 
 // Phase 2: Router architecture (CRUD routes migrated to HTTP REST)
 import { createRouter } from './router/index.js';
@@ -450,6 +451,87 @@ export async function createServer(): Promise<ServerContext> {
     disconnectGateway
   ));
 
+  // Gateway relay: list available remote backends (local only)
+  app.get('/api/gateway/backends', localOnlyMiddleware, async (_req: Request, res: Response) => {
+    try {
+      const clientMode = getGatewayClientMode();
+      if (!clientMode || !clientMode.isConnected()) {
+        res.json({ success: true, data: [] });
+        return;
+      }
+      const backends = await clientMode.listBackends();
+      res.json({ success: true, data: backends });
+    } catch (error) {
+      res.status(500).json({
+        success: false,
+        error: { code: 'INTERNAL_ERROR', message: 'Failed to list backends' },
+      });
+    }
+  });
+
+  // Gateway relay: HTTP proxy to remote backend via gateway (local only)
+  app.all('/api/gateway-proxy/:backendId/*', localOnlyMiddleware, async (req: Request, res: Response) => {
+    const { backendId } = req.params;
+    // Extract the rest of the path after backendId
+    const subPath = req.params[0] || '';
+
+    const clientMode = getGatewayClientMode();
+    if (!clientMode || !clientMode.isConnected()) {
+      res.status(502).json({
+        success: false,
+        error: { code: 'GATEWAY_NOT_CONNECTED', message: 'Gateway client mode not connected' },
+      });
+      return;
+    }
+
+    try {
+      // Build target URL: gateway's HTTP proxy endpoint
+      const targetUrl = `${clientMode.gatewayUrl}/api/proxy/${backendId}/${subPath}`;
+
+      // Forward headers, inject gateway auth
+      const headers: Record<string, string> = {
+        'authorization': `Bearer ${clientMode.gatewaySecret}`,
+        'content-type': req.headers['content-type'] || 'application/json',
+      };
+      if (req.headers['accept']) {
+        headers['accept'] = req.headers['accept'] as string;
+      }
+
+      // Use SOCKS5 agent if configured
+      const agent = clientMode.createHttpAgent();
+      const fetchOptions: any = {
+        method: req.method,
+        headers,
+      };
+      if (agent) {
+        fetchOptions.agent = agent;
+      }
+      if (!['GET', 'HEAD'].includes(req.method)) {
+        fetchOptions.body = JSON.stringify(req.body);
+      }
+
+      const resp = await fetch(targetUrl, fetchOptions);
+
+      // Forward status and headers
+      res.status(resp.status);
+      resp.headers.forEach((value, key) => {
+        // Skip transfer-encoding since express handles it
+        if (key.toLowerCase() !== 'transfer-encoding') {
+          res.setHeader(key, value);
+        }
+      });
+
+      const body = await resp.text();
+      res.send(body);
+    } catch (error) {
+      console.error(`[GatewayProxy] Error proxying to backend ${backendId}:`, error);
+      res.status(502).json({
+        success: false,
+        error: { code: 'PROXY_ERROR', message: 'Failed to proxy request to gateway' },
+      });
+    }
+  });
+
   // Error handling middleware
   app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
     console.error('Server error:', err);
@@ -465,8 +547,120 @@ export async function createServer(): Promise<ServerContext> {
   // Create HTTP server
   const server = createHttpServer(app);
 
-  // Create WebSocket server
-  const wss = new WebSocketServer({ server, path: '/ws' });
+  // Create WebSocket servers (both noServer to avoid conflicting upgrade handlers)
+  const wss = new WebSocketServer({ noServer: true });
+  const relayWss = new WebSocketServer({ noServer: true });
+
+  // Single upgrade handler routes paths to the correct WebSocketServer
+  server.on('upgrade', (req: IncomingMessage, socket, head) => {
+    const url = req.url || '';
+
+    if (url === '/ws' || url.startsWith('/ws?')) {
+      wss.handleUpgrade(req, socket, head, (ws) => {
+        wss.emit('connection', ws, req);
+      });
+      return;
+    }
+
+    // Match /gateway-relay/:backendId
+    const relayMatch = url.match(/^\/gateway-relay\/([^/?]+)/);
+    if (relayMatch) {
+      const backendId = relayMatch[1];
+      relayWss.handleUpgrade(req, socket, head, (ws) => {
+        relayWss.emit('connection', ws, req, backendId);
+      });
+      return;
+    }
+
+    // Unknown WS path — reject
+    socket.destroy();
+  });
+
+  // Handle relay WebSocket connections
+  relayWss.on('connection', (ws: WebSocket, _req: IncomingMessage, backendId: string) => {
+    const clientMode = getGatewayClientMode();
+    if (!clientMode || !clientMode.isConnected()) {
+      ws.close(4502, 'Gateway client mode not connected');
+      return;
+    }
+
+    console.log(`[GatewayRelay] New relay connection for backend ${backendId}`);
+
+    let authenticated = false;
+
+    // Authenticate to the remote backend first
+    clientMode.connectBackend(backendId).then((result) => {
+      if (!result.success) {
+        console.error(`[GatewayRelay] Failed to auth to backend ${backendId}: ${result.error}`);
+        ws.close(4403, result.error || 'Backend auth failed');
+        return;
+      }
+
+      authenticated = true;
+      console.log(`[GatewayRelay] Authenticated to backend ${backendId}`);
+
+      // Send auth_result to frontend (DirectTransport expects this)
+      const authResult = {
+        type: 'auth_result',
+        success: true,
+        isLocalConnection: false,
+        serverVersion: '1.1.0',
+        features: result.features || [],
+      };
+      ws.send(JSON.stringify(authResult));
+    });
+
+    // Backend message handler for this specific relay connection
+    const onBackendMessage = (msgBackendId: string, message: import('@my-claudia/shared').ServerMessage) => {
+      if (msgBackendId === backendId && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify(message));
+      }
+    };
+
+    // Backend disconnected handler
+    const onBackendDisconnected = (disconnectedId: string) => {
+      if (disconnectedId === backendId && ws.readyState === WebSocket.OPEN) {
+        ws.close(4410, 'Backend disconnected');
+      }
+    };
+
+    clientMode.addBackendMessageListener(onBackendMessage);
+    clientMode.addBackendDisconnectedListener(onBackendDisconnected);
+
+    // Forward messages from frontend to remote backend
+    ws.on('message', (data: Buffer) => {
+      if (!authenticated) {
+        // Queue or reject messages before auth completes
+        // For now, buffer the auth message — DirectTransport sends 'auth' first
+        try {
+          const message = JSON.parse(data.toString());
+          if (message.type === 'auth') {
+            // Auth is handled above via connectBackend, ignore this
+            return;
+          }
+        } catch { /* ignore parse errors */ }
+        return;
+      }
+
+      try {
+        const message = JSON.parse(data.toString());
+        clientMode!.sendToBackend(backendId, message);
+      } catch (error) {
+        console.error(`[GatewayRelay] Failed to forward message to backend ${backendId}:`, error);
+      }
+    });
+
+    ws.on('close', () => {
+      console.log(`[GatewayRelay] Relay connection closed for backend ${backendId}`);
+      // Clean up listeners
+      clientMode?.removeBackendMessageListener(onBackendMessage);
+      clientMode?.removeBackendDisconnectedListener(onBackendDisconnected);
+    });
+
+    ws.on('error', (error) => {
+      console.error(`[GatewayRelay] Error on relay for backend ${backendId}:`, error);
+    });
+  });
 
   // Ping interval for connection health (skip virtual/gateway clients)
   const pingInterval = setInterval(() => {

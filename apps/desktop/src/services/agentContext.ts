@@ -21,9 +21,15 @@ export function buildAgentContext(): string {
   // Mobile mode: direct gateway config means no local server is reachable
   const isMobileMode = gwState.hasDirectConfig();
 
-  // Determine gateway HTTP base URL (for remote backends)
+  // Determine base URL for remote backends.
+  // Desktop: route through local backend proxy (supports SOCKS5).
+  // Mobile: direct connection to gateway.
+  const localPort = useServerStore.getState().localServerPort;
   let gatewayHttpBase = '';
-  if (gatewayUrl) {
+  if (localPort) {
+    // Desktop: will use per-backend URL like http://127.0.0.1:{port}/api/gateway-proxy/{backendId}
+    gatewayHttpBase = `http://127.0.0.1:${localPort}`;
+  } else if (gatewayUrl) {
     gatewayHttpBase = gatewayUrl.includes('://')
       ? gatewayUrl.replace(/^ws/, 'http')
       : `http://${gatewayUrl}`;
@@ -62,7 +68,9 @@ export function buildAgentContext(): string {
     if (!isMobileMode && backend.isLocal) continue;
     if (!backend.online) continue;
 
-    const apiBase = `${gatewayHttpBase}/api/proxy/${backend.backendId}`;
+    const apiBase = localPort
+      ? `${gatewayHttpBase}/api/gateway-proxy/${backend.backendId}`
+      : `${gatewayHttpBase}/api/proxy/${backend.backendId}`;
     allBackends.push({
       name: backend.name || backend.backendId,
       apiBase,
@@ -86,14 +94,22 @@ export function buildAgentContext(): string {
 
   // Auth info for gateway proxied requests
   const hasGatewayBackends = allBackends.some(b => b.isRemote);
-  if (gatewayHttpBase && hasGatewayBackends) {
-    const { gatewaySecret } = useGatewayStore.getState();
-    if (gatewaySecret) {
+  if (hasGatewayBackends) {
+    if (localPort) {
+      // Desktop: local proxy handles auth automatically
       sections.push(
         `### Authentication\n` +
-        `For remote backends (via gateway proxy), include the auth header:\n` +
-        `\`curl -s -H "Authorization: Bearer ${gatewaySecret}" <API_BASE>/api/...\`\n`
+        `Remote backend requests are proxied through the local server. No auth header needed.\n`
       );
+    } else if (gatewayHttpBase) {
+      const { gatewaySecret } = useGatewayStore.getState();
+      if (gatewaySecret) {
+        sections.push(
+          `### Authentication\n` +
+          `For remote backends (via gateway proxy), include the auth header:\n` +
+          `\`curl -s -H "Authorization: Bearer ${gatewaySecret}" <API_BASE>/api/...\`\n`
+        );
+      }
     }
   }
 

@@ -560,9 +560,59 @@ export function useMultiServerSocket() {
    * For direct servers: creates DirectTransport
    */
   const connectServer = useCallback((serverId: string) => {
-    // Gateway targets are handled by useGatewayConnection
+    // Gateway targets: on desktop, use DirectTransport to local relay endpoint.
+    // On mobile (no local server), fall back to useGatewayConnection.
     if (isGatewayTarget(serverId)) {
       const backendId = parseBackendId(serverId);
+      const localPort = useServerStore.getState().localServerPort;
+      if (localPort) {
+        // Desktop: create DirectTransport to local relay endpoint
+        const existingState = transportsRef.current.get(serverId);
+        if (existingState?.transport.isConnected()) {
+          console.log(`[Socket:${serverId}] Already connected via relay`);
+          return;
+        }
+        if (existingState) {
+          if (existingState.reconnectTimeout) clearTimeout(existingState.reconnectTimeout);
+          existingState.transport.disconnect();
+          transportsRef.current.delete(serverId);
+        }
+
+        console.log(`[Socket:${serverId}] Connecting via gateway relay...`);
+        setServerConnectionStatus(serverId, 'connecting');
+
+        const wsUrl = `ws://127.0.0.1:${localPort}/gateway-relay/${backendId}`;
+        const messageHandler = createMessageHandler(serverId);
+        const transport = new DirectTransport({
+          url: wsUrl,
+          onMessage: messageHandler,
+          onOpen: () => {
+            console.log(`[Socket:${serverId}] Relay transport connected`);
+            // Don't send auth — the relay server handles auth to the remote backend.
+            // Just send auth message to satisfy the relay protocol.
+            const state = transportsRef.current.get(serverId);
+            state?.transport.send({ type: 'auth' });
+          },
+          onClose: () => {
+            console.log(`[Socket:${serverId}] Relay transport disconnected`);
+            setServerConnectionStatus(serverId, 'disconnected');
+            scheduleReconnect(serverId);
+          },
+          onError: (error: Event) => {
+            console.error(`[Socket:${serverId}] Relay transport error:`, error);
+            setServerConnectionStatus(serverId, 'error');
+          },
+        });
+
+        transportsRef.current.set(serverId, {
+          transport,
+          reconnectAttempts: 0,
+          reconnectTimeout: null,
+        });
+        transport.connect();
+        return;
+      }
+      // Mobile fallback: use gateway connection
       gatewayConnection.authenticateBackend(backendId);
       return;
     }
@@ -609,14 +659,23 @@ export function useMultiServerSocket() {
       });
       transport.connect();
     }
-  }, [servers, createMessageHandler, createTransportForServer, setServerConnectionStatus, gatewayConnection]);
+  }, [servers, createMessageHandler, createTransportForServer, setServerConnectionStatus, gatewayConnection, scheduleReconnect]);
 
   /**
    * Disconnect from a specific server
    */
   const disconnectServer = useCallback((serverId: string) => {
-    // Gateway targets: nothing to disconnect per-backend (gateway WS stays up)
+    // Gateway targets on desktop use relay transport (stored in transportsRef)
+    // Gateway targets on mobile: nothing to disconnect per-backend
     if (isGatewayTarget(serverId)) {
+      const state = transportsRef.current.get(serverId);
+      if (state) {
+        // Desktop relay: clean up transport
+        if (state.reconnectTimeout) clearTimeout(state.reconnectTimeout);
+        state.transport.disconnect();
+        transportsRef.current.delete(serverId);
+        setServerConnectionStatus(serverId, 'disconnected');
+      }
       return;
     }
 
@@ -638,8 +697,16 @@ export function useMultiServerSocket() {
    * Send message to a specific server
    */
   const sendToServer = useCallback((serverId: string, message: ClientMessage) => {
-    // Gateway targets: route through gateway connection
+    // Gateway targets on desktop: use relay transport from transportsRef
+    // Gateway targets on mobile: route through gateway connection
     if (isGatewayTarget(serverId)) {
+      const state = transportsRef.current.get(serverId);
+      if (state?.transport.isConnected()) {
+        // Desktop relay: send through DirectTransport
+        state.transport.send(message);
+        return;
+      }
+      // Mobile fallback: route through gateway connection
       const backendId = parseBackendId(serverId);
       gatewayConnection.sendToBackend(backendId, message);
       return;
@@ -668,8 +735,11 @@ export function useMultiServerSocket() {
    * Check if a specific server is connected
    */
   const isServerConnected = useCallback((serverId: string) => {
-    // Gateway targets: check via gateway connection
+    // Gateway targets on desktop: check relay transport
     if (isGatewayTarget(serverId)) {
+      const state = transportsRef.current.get(serverId);
+      if (state) return state.transport.isConnected();
+      // Mobile fallback
       const backendId = parseBackendId(serverId);
       return gatewayConnection.isBackendAuthenticated(backendId);
     }
@@ -700,22 +770,26 @@ export function useMultiServerSocket() {
     connectServerRef.current = connectServer;
   }, [connectServer]);
 
-  // Auto-connect to active server when it changes (direct servers only)
-  // Gateway targets are auto-connected by useGatewayConnection
+  // Auto-connect to active server when it changes.
+  // On desktop, gateway targets also use DirectTransport via relay, so we handle them here too.
+  // On mobile (no localServerPort), gateway targets are auto-connected by useGatewayConnection.
   useEffect(() => {
-    if (activeServerId && !isGatewayTarget(activeServerId)) {
-      const state = transportsRef.current.get(activeServerId);
-      if (!state || !state.transport.isConnected()) {
-        // Add small delay on initial connection to allow backend server to fully start
-        // This prevents connection errors when app starts before server is ready
-        const delay = !state ? 800 : 0; // 800ms for initial connection, immediate for reconnection
-        const timeoutId = setTimeout(() => {
-          connectServerRef.current(activeServerId);
-        }, delay);
+    if (!activeServerId) return;
 
-        // Cleanup timeout if effect re-runs or component unmounts
-        return () => clearTimeout(timeoutId);
-      }
+    // For gateway targets: only auto-connect via relay if we have a local server
+    if (isGatewayTarget(activeServerId)) {
+      const localPort = useServerStore.getState().localServerPort;
+      if (!localPort) return; // Mobile: let useGatewayConnection handle it
+    }
+
+    const state = transportsRef.current.get(activeServerId);
+    if (!state || !state.transport.isConnected()) {
+      // Add small delay on initial connection to allow backend server to fully start
+      const delay = !state ? 800 : 0;
+      const timeoutId = setTimeout(() => {
+        connectServerRef.current(activeServerId);
+      }, delay);
+      return () => clearTimeout(timeoutId);
     }
   }, [activeServerId]);
 

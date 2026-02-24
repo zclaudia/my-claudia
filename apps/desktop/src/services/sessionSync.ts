@@ -25,18 +25,33 @@ const INCREMENTAL_SYNC_INTERVAL = 30000; // 30 seconds
 const FULL_SYNC_INTERVAL = 300000; // 5 minutes
 
 /**
+ * Get the base URL for a gateway backend.
+ * Desktop: route through local backend proxy (supports SOCKS5).
+ * Mobile: direct connection to gateway.
+ */
+function getGatewayBaseUrl(backendId: string): string | null {
+  // Desktop: route through local backend proxy
+  const localPort = useServerStore.getState().localServerPort;
+  if (localPort) {
+    return `http://127.0.0.1:${localPort}/api/gateway-proxy/${backendId}`;
+  }
+
+  // Mobile fallback: direct connection to gateway
+  const { gatewayUrl } = useGatewayStore.getState();
+  if (!gatewayUrl) return null;
+  const gwAddr = gatewayUrl.includes('://')
+    ? gatewayUrl.replace(/^ws/, 'http')
+    : `http://${gatewayUrl}`;
+  return `${gwAddr}/api/proxy/${backendId}`;
+}
+
+/**
  * Get the base URL for the active server
  */
 function getBaseUrl(targetBackendId?: string): string | null {
-  // If a specific gateway backend is targeted, route directly to it
-  // regardless of which backend is currently active
+  // If a specific gateway backend is targeted
   if (targetBackendId) {
-    const { gatewayUrl } = useGatewayStore.getState();
-    if (!gatewayUrl) return null;
-    const gwAddr = gatewayUrl.includes('://')
-      ? gatewayUrl.replace(/^ws/, 'http')
-      : `http://${gatewayUrl}`;
-    return `${gwAddr}/api/proxy/${targetBackendId}`;
+    return getGatewayBaseUrl(targetBackendId);
   }
 
   // Fallback: use active server
@@ -45,12 +60,7 @@ function getBaseUrl(targetBackendId?: string): string | null {
 
   if (isGatewayTarget(activeId)) {
     const backendId = parseBackendId(activeId);
-    const { gatewayUrl } = useGatewayStore.getState();
-    if (!gatewayUrl) return null;
-    const gwAddr = gatewayUrl.includes('://')
-      ? gatewayUrl.replace(/^ws/, 'http')
-      : `http://${gatewayUrl}`;
-    return `${gwAddr}/api/proxy/${backendId}`;
+    return getGatewayBaseUrl(backendId);
   }
 
   // Direct server: connect directly to backend
@@ -64,10 +74,18 @@ function getBaseUrl(targetBackendId?: string): string | null {
 }
 
 /**
- * Get auth headers for API requests
+ * Get auth headers for API requests.
+ * Desktop: local proxy handles gateway auth, no header needed.
+ * Mobile: Bearer token for direct gateway connection.
  */
 function getAuthHeaders(isGatewayBackend?: boolean): Record<string, string> {
-  // If we know this is a gateway backend sync, use gateway credentials directly
+  // Desktop: local proxy injects gateway auth
+  const localPort = useServerStore.getState().localServerPort;
+  if (localPort && isGatewayBackend) {
+    return {};
+  }
+
+  // If we know this is a gateway backend sync (mobile), use gateway credentials
   if (isGatewayBackend) {
     const { gatewaySecret } = useGatewayStore.getState();
     if (!gatewaySecret) return {};
@@ -81,6 +99,7 @@ function getAuthHeaders(isGatewayBackend?: boolean): Record<string, string> {
   if (!activeId) return {};
 
   if (isGatewayTarget(activeId)) {
+    if (localPort) return {};
     const { gatewaySecret } = useGatewayStore.getState();
     if (!gatewaySecret) return {};
     return {
