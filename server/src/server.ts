@@ -1370,6 +1370,14 @@ async function handleRunStart(
             result: msg.toolResult,
             isError: msg.isToolError
           });
+          // Claude-specific: sync plan mode state to client
+          if (activeRun.providerType === 'claude' && !msg.isToolError) {
+            if (toolName === 'EnterPlanMode') {
+              sendMessage(client.ws, { type: 'mode_change', runId, sessionId: activeRun.sessionId, mode: 'plan' });
+            } else if (toolName === 'ExitPlanMode') {
+              sendMessage(client.ws, { type: 'mode_change', runId, sessionId: activeRun.sessionId, mode: 'default' });
+            }
+          }
           break;
         }
 

@@ -244,6 +244,12 @@ export function useMultiServerSocket() {
           break;
         }
 
+        case 'mode_change': {
+          // Server sends mode_change when provider-specific tools (e.g. EnterPlanMode/ExitPlanMode) complete
+          useChatStore.getState().setMode(message.mode);
+          break;
+        }
+
         case 'permission_request': {
           // Accept from all connected servers, not just active
           const permServer = servers.find(s => s.id === serverId);

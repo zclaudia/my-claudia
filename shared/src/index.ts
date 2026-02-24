@@ -529,6 +529,7 @@ export type ServerMessage =
   | DeltaMessage
   | ToolUseMessage
   | ToolResultMessage
+  | ModeChangeMessage
   | RunCompletedMessage
   | RunFailedMessage
   | PermissionRequestMessage
@@ -636,6 +637,13 @@ export interface ToolResultMessage {
   toolName: string;
   result: unknown;
   isError?: boolean;
+}
+
+export interface ModeChangeMessage {
+  type: 'mode_change';
+  runId: string;
+  sessionId: string;
+  mode: string;
 }
 
 export interface RunCompletedMessage {

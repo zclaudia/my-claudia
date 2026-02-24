@@ -3,6 +3,10 @@
  * Bundle the server into a single ESM file + native module prebuilds.
  * Output goes to server/bundle/ for inclusion as Tauri resources.
  *
+ * Uses a clean-room approach: native modules are installed fresh using the
+ * sidecar Node.js binary and its bundled npm, ensuring correct ABI and no
+ * dev environment contamination.
+ *
  * Usage:
  *   node scripts/bundle.mjs                    # bundle for current platform
  *   BUNDLE_ARCH=x64 node scripts/bundle.mjs    # override architecture
@@ -16,6 +20,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
 import { execSync } from 'child_process';
+import { createHash } from 'crypto';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const serverRoot = path.resolve(__dirname, '..');
@@ -55,6 +60,12 @@ function resolvePackage(name, ...searchRoots) {
   throw new Error(`Package not found: ${name}`);
 }
 
+function readPackageVersion(name) {
+  const pkg = resolvePackage(name);
+  const pkgJson = JSON.parse(fs.readFileSync(path.join(pkg, 'package.json'), 'utf8'));
+  return pkgJson.version;
+}
+
 function copyDir(src, dest, filter) {
   fs.mkdirSync(dest, { recursive: true });
   for (const entry of fs.readdirSync(src, { withFileTypes: true })) {
@@ -78,17 +89,27 @@ function copyFile(src, dest) {
   fs.chmodSync(dest, stat.mode);
 }
 
+/** Find a dependency that may be hoisted or nested under a parent package. */
+function findDep(modulesRoot, parentPkg, depName) {
+  const nested = path.join(modulesRoot, parentPkg, 'node_modules', depName);
+  if (fs.existsSync(nested)) return nested;
+  const hoisted = path.join(modulesRoot, depName);
+  if (fs.existsSync(hoisted)) return hoisted;
+  throw new Error(`Dependency ${depName} not found (checked nested under ${parentPkg} and hoisted)`);
+}
+
 // --- Clean output ---
 fs.rmSync(outDir, { recursive: true, force: true });
 fs.mkdirSync(outDir, { recursive: true });
 
 // ============================================================================
-// Step 1: Prepare Node.js sidecar binary
+// Step 1: Prepare Node.js sidecar binary + npm CLI
 // ============================================================================
 // Homebrew/nvm node binaries are dynamically linked (tiny stub + dylibs),
 // which won't work inside an app bundle. We download the official Node.js
 // binary which is statically linked against its own V8/libuv/etc.
-console.log('  [1/6] Node.js sidecar binary');
+// The tarball also contains npm, which we cache for clean-room installs.
+console.log('  [1/4] Node.js sidecar binary + npm');
 
 const PLATFORM_TRIPLES = {
   'darwin-arm64': 'aarch64-apple-darwin',
@@ -111,15 +132,21 @@ const NODE_PLATFORMS = {
 const targetTriple = PLATFORM_TRIPLES[platformArch];
 const nodePlatform = NODE_PLATFORMS[platformArch];
 
-// Path to the cached standalone node binary (used for sidecar AND native module rebuild)
+// Cache paths
 const cacheDir = path.resolve(repoRoot, '.cache', 'node-sidecar');
 const binExt = platform === 'win32' ? '.exe' : '';
 const cacheBin = path.join(cacheDir, `node-v${NODE_SIDECAR_VERSION}-${platformArch}${binExt}`);
 
+// npm CLI path (extracted from Node.js tarball)
+const npmCacheBase = path.join(cacheDir, `npm-v${NODE_SIDECAR_VERSION}`);
+const npmCli = platform === 'win32'
+  ? path.join(npmCacheBase, 'node_modules', 'npm', 'bin', 'npm-cli.js')
+  : path.join(npmCacheBase, 'lib', 'node_modules', 'npm', 'bin', 'npm-cli.js');
+
 if (targetTriple && nodePlatform) {
-  // Check cache
+  // Check cache: need both node binary AND npm CLI
   let needDownload = true;
-  if (fs.existsSync(cacheBin)) {
+  if (fs.existsSync(cacheBin) && fs.existsSync(npmCli)) {
     const cachedSize = fs.statSync(cacheBin).size;
     if (cachedSize > 30 * 1024 * 1024) {
       console.log(`    Using cached node v${NODE_SIDECAR_VERSION} (${(cachedSize / 1024 / 1024).toFixed(1)} MB)`);
@@ -146,13 +173,31 @@ if (targetTriple && nodePlatform) {
       const archivePath = path.join(tmpDir, `${baseName}.${archiveExt}`);
       execSync(`curl -sL -o "${archivePath}" "${url}"`, { stdio: 'inherit' });
       execSync(`tar ${tarFlag} "${archivePath}" -C "${tmpDir}"`, { stdio: 'inherit' });
+      // Cache node binary
       fs.copyFileSync(path.join(tmpDir, baseName, 'bin', 'node'), cacheBin);
       fs.chmodSync(cacheBin, 0o755);
+      // Cache npm CLI
+      const npmSrcDir = path.join(tmpDir, baseName, 'lib', 'node_modules', 'npm');
+      if (fs.existsSync(npmSrcDir)) {
+        fs.rmSync(npmCacheBase, { recursive: true, force: true });
+        const npmDestDir = path.join(npmCacheBase, 'lib', 'node_modules', 'npm');
+        copyDir(npmSrcDir, npmDestDir);
+        console.log(`    Cached npm CLI from tarball`);
+      }
     } else {
       const zipPath = path.join(tmpDir, `${baseName}.zip`);
       execSync(`curl -sL -o "${zipPath}" "${url}"`, { stdio: 'inherit' });
       execSync(`unzip -q "${zipPath}" -d "${tmpDir}"`, { stdio: 'inherit' });
+      // Cache node binary
       fs.copyFileSync(path.join(tmpDir, baseName, 'node.exe'), cacheBin);
+      // Cache npm CLI
+      const npmSrcDir = path.join(tmpDir, baseName, 'node_modules', 'npm');
+      if (fs.existsSync(npmSrcDir)) {
+        fs.rmSync(npmCacheBase, { recursive: true, force: true });
+        const npmDestDir = path.join(npmCacheBase, 'node_modules', 'npm');
+        copyDir(npmSrcDir, npmDestDir);
+        console.log(`    Cached npm CLI from archive`);
+      }
     }
 
     fs.rmSync(tmpDir, { recursive: true, force: true });
@@ -186,7 +231,7 @@ if (targetTriple && nodePlatform) {
 // ============================================================================
 // Step 2: esbuild — bundle JS deps into single file
 // ============================================================================
-console.log('  [2/6] esbuild → bundle/server.mjs');
+console.log('  [2/4] esbuild → bundle/server.mjs');
 
 const entryPoint = path.join(serverRoot, 'dist', 'index.js');
 if (!fs.existsSync(entryPoint)) {
@@ -221,129 +266,160 @@ await esbuild.build({
 });
 
 // ============================================================================
-// Step 3: Copy better-sqlite3 + rebuild for sidecar Node ABI
+// Step 3: Clean-room npm install + selective copy to bundle
 // ============================================================================
-console.log('  [3/6] Copying better-sqlite3');
+// Instead of copying native modules from the dev environment (which may have
+// wrong ABI versions), we do a fresh npm install using the sidecar Node.
+// This ensures prebuild-install downloads the correct prebuilt binaries
+// matching the sidecar Node's ABI version.
+console.log('  [3/4] Clean-room native module install');
 {
-  const pkg = resolvePackage('better-sqlite3');
-  const dest = path.join(outDir, 'node_modules', 'better-sqlite3');
+  // Read exact versions from the repo's installed packages
+  const EXTERNAL_DEPS = {
+    'better-sqlite3': readPackageVersion('better-sqlite3'),
+    'node-pty': readPackageVersion('node-pty'),
+    '@anthropic-ai/claude-agent-sdk': readPackageVersion('@anthropic-ai/claude-agent-sdk'),
+  };
 
-  copyFile(path.join(pkg, 'package.json'), path.join(dest, 'package.json'));
+  console.log(`    Versions: ${Object.entries(EXTERNAL_DEPS).map(([k, v]) => `${k}@${v}`).join(', ')}`);
 
-  copyDir(path.join(pkg, 'lib'), path.join(dest, 'lib'), (p, entry) => {
-    return entry.isDirectory() || entry.name.endsWith('.js');
-  });
+  // Cache key: node version + platform + dependency versions
+  const depsHash = createHash('md5')
+    .update(JSON.stringify({ NODE_SIDECAR_VERSION, platformArch, deps: EXTERNAL_DEPS }))
+    .digest('hex')
+    .slice(0, 12);
 
-  // Check if the .node binary was compiled for the sidecar Node version.
-  // If not, rebuild it using node-gyp targeting the sidecar version.
-  const systemModuleVersion = process.versions.modules; // e.g. "141" for Node 25
-  const sidecarModuleVersion = execSync(`"${cacheBin}" -e "process.stdout.write(process.versions.modules)"`)
-    .toString().trim();
+  const installCacheDir = path.join(cacheDir, `install-${depsHash}`);
+  const installCacheMarker = path.join(installCacheDir, '.install-complete');
 
-  if (systemModuleVersion !== sidecarModuleVersion) {
-    console.log(`    ABI mismatch: system=${systemModuleVersion}, sidecar=${sidecarModuleVersion}`);
-    console.log(`    Rebuilding better-sqlite3 for Node ${NODE_SIDECAR_VERSION}...`);
+  let installDir;
 
-    // Ensure node-gyp is available in a cache directory.
-    // Use --userconfig=/dev/null to bypass any corporate .npmrc.
-    const gypCacheDir = path.join(cacheDir, 'node-gyp-tools');
-    const gypBin = path.join(gypCacheDir, 'node_modules', '.bin', 'node-gyp');
-    if (!fs.existsSync(gypBin)) {
-      console.log(`    Installing node-gyp...`);
-      fs.mkdirSync(gypCacheDir, { recursive: true });
-      execSync(
-        `npm install --prefix "${gypCacheDir}" node-gyp --registry=https://registry.npmjs.org --userconfig=/dev/null`,
-        { stdio: 'pipe' },
-      );
-      console.log(`    node-gyp installed`);
-    }
+  if (fs.existsSync(installCacheMarker)) {
+    console.log(`    Using cached install (${depsHash})`);
+    installDir = installCacheDir;
+  } else {
+    // Clean up any previous failed install
+    fs.rmSync(installCacheDir, { recursive: true, force: true });
+    fs.mkdirSync(installCacheDir, { recursive: true });
 
-    // Rebuild in the source directory using sidecar node + node-gyp.
-    // node-gyp auto-downloads headers matching the running node's version.
+    // Write minimal package.json
+    fs.writeFileSync(path.join(installCacheDir, 'package.json'), JSON.stringify({
+      name: 'my-claudia-server-bundle',
+      private: true,
+      dependencies: EXTERNAL_DEPS,
+    }, null, 2));
+
+    console.log(`    Running npm install (cache key: ${depsHash})...`);
+
+    // Run npm install using sidecar Node + its bundled npm.
+    // --omit=optional skips optional deps like @img/sharp-* from the SDK.
+    // --userconfig=/dev/null bypasses any corporate .npmrc.
     execSync(
-      `"${cacheBin}" "${path.join(gypCacheDir, 'node_modules', 'node-gyp', 'bin', 'node-gyp.js')}" rebuild --release`,
-      { stdio: 'pipe', cwd: pkg },
+      `"${cacheBin}" "${npmCli}" install --omit=optional --registry=https://registry.npmjs.org --userconfig=/dev/null`,
+      {
+        cwd: installCacheDir,
+        stdio: 'pipe',
+        env: { ...process.env },
+      },
     );
-    console.log(`    Rebuilt for NODE_MODULE_VERSION ${sidecarModuleVersion}`);
+
+    // Mark as complete
+    fs.writeFileSync(installCacheMarker, new Date().toISOString());
+    installDir = installCacheDir;
+    console.log(`    npm install complete`);
   }
 
-  // Copy the (possibly rebuilt) .node binary
-  copyFile(
-    path.join(pkg, 'build', 'Release', 'better_sqlite3.node'),
-    path.join(dest, 'build', 'Release', 'better_sqlite3.node'),
-  );
+  // --- Selective copy from install result to bundle ---
+  const srcModules = path.join(installDir, 'node_modules');
 
-  // bindings package (dependency of better-sqlite3 for loading .node files)
-  const bindingsPkg = resolvePackage('bindings');
-  const bindingsDest = path.join(dest, 'node_modules', 'bindings');
-  copyFile(path.join(bindingsPkg, 'package.json'), path.join(bindingsDest, 'package.json'));
-  copyFile(path.join(bindingsPkg, 'bindings.js'), path.join(bindingsDest, 'bindings.js'));
+  // -- better-sqlite3 --
+  {
+    const src = path.join(srcModules, 'better-sqlite3');
+    const dest = path.join(outDir, 'node_modules', 'better-sqlite3');
 
-  // file-uri-to-path (dependency of bindings)
-  const furiPkg = resolvePackage('file-uri-to-path');
-  const furiDest = path.join(dest, 'node_modules', 'file-uri-to-path');
-  copyFile(path.join(furiPkg, 'package.json'), path.join(furiDest, 'package.json'));
-  copyFile(path.join(furiPkg, 'index.js'), path.join(furiDest, 'index.js'));
-}
+    copyFile(path.join(src, 'package.json'), path.join(dest, 'package.json'));
 
-// ============================================================================
-// Step 4: Copy node-pty (uses N-API, ABI-stable across Node versions)
-// ============================================================================
-console.log('  [4/6] Copying node-pty');
-{
-  const pkg = resolvePackage('node-pty');
-  const dest = path.join(outDir, 'node_modules', 'node-pty');
+    copyDir(path.join(src, 'lib'), path.join(dest, 'lib'), (p, entry) => {
+      return entry.isDirectory() || entry.name.endsWith('.js');
+    });
 
-  copyFile(path.join(pkg, 'package.json'), path.join(dest, 'package.json'));
+    // Copy .node binary (prebuild-install puts it in build/Release/ or prebuilds/)
+    const buildRelease = path.join(src, 'build', 'Release', 'better_sqlite3.node');
+    if (fs.existsSync(buildRelease)) {
+      copyFile(buildRelease, path.join(dest, 'build', 'Release', 'better_sqlite3.node'));
+    }
+    const bsPrebuilds = path.join(src, 'prebuilds');
+    if (fs.existsSync(bsPrebuilds)) {
+      copyDir(bsPrebuilds, path.join(dest, 'prebuilds'));
+    }
 
-  copyDir(path.join(pkg, 'lib'), path.join(dest, 'lib'), (p, entry) => {
-    return entry.isDirectory() || entry.name.endsWith('.js') || entry.name.endsWith('.js.map');
-  });
+    // Runtime dependencies: bindings + file-uri-to-path
+    const bindingsSrc = findDep(srcModules, 'better-sqlite3', 'bindings');
+    const bindingsDest = path.join(dest, 'node_modules', 'bindings');
+    copyFile(path.join(bindingsSrc, 'package.json'), path.join(bindingsDest, 'package.json'));
+    copyFile(path.join(bindingsSrc, 'bindings.js'), path.join(bindingsDest, 'bindings.js'));
 
-  const prebuildsDir = path.join(pkg, 'prebuilds', platformArch);
-  if (fs.existsSync(prebuildsDir)) {
-    copyDir(prebuildsDir, path.join(dest, 'prebuilds', platformArch));
-    console.log(`    prebuilds/${platformArch}: OK (N-API, ABI-stable)`);
-  } else {
-    console.warn(`    WARNING: prebuilds/${platformArch} not found, skipping`);
+    const furiSrc = findDep(srcModules, 'better-sqlite3', 'file-uri-to-path');
+    const furiDest = path.join(dest, 'node_modules', 'file-uri-to-path');
+    copyFile(path.join(furiSrc, 'package.json'), path.join(furiDest, 'package.json'));
+    copyFile(path.join(furiSrc, 'index.js'), path.join(furiDest, 'index.js'));
+
+    console.log(`    better-sqlite3@${EXTERNAL_DEPS['better-sqlite3']}: OK`);
   }
-}
 
-// ============================================================================
-// Step 5: Copy @anthropic-ai/claude-agent-sdk
-// ============================================================================
-console.log('  [5/6] Copying @anthropic-ai/claude-agent-sdk');
-{
-  const pkg = resolvePackage('@anthropic-ai/claude-agent-sdk');
-  const dest = path.join(outDir, 'node_modules', '@anthropic-ai', 'claude-agent-sdk');
+  // -- node-pty --
+  {
+    const src = path.join(srcModules, 'node-pty');
+    const dest = path.join(outDir, 'node_modules', 'node-pty');
 
-  for (const file of ['package.json', 'sdk.mjs', 'sdk.d.ts', 'manifest.json']) {
-    const src = path.join(pkg, file);
-    if (fs.existsSync(src)) {
-      copyFile(src, path.join(dest, file));
+    copyFile(path.join(src, 'package.json'), path.join(dest, 'package.json'));
+
+    copyDir(path.join(src, 'lib'), path.join(dest, 'lib'), (p, entry) => {
+      return entry.isDirectory() || entry.name.endsWith('.js') || entry.name.endsWith('.js.map');
+    });
+
+    const prebuildsDir = path.join(src, 'prebuilds', platformArch);
+    if (fs.existsSync(prebuildsDir)) {
+      copyDir(prebuildsDir, path.join(dest, 'prebuilds', platformArch));
+      console.log(`    node-pty@${EXTERNAL_DEPS['node-pty']}: OK (prebuilds/${platformArch})`);
+    } else {
+      console.warn(`    node-pty: WARNING - prebuilds/${platformArch} not found`);
     }
   }
 
-  for (const entry of fs.readdirSync(pkg)) {
-    if (entry.endsWith('.wasm')) {
-      copyFile(path.join(pkg, entry), path.join(dest, entry));
-    }
-  }
+  // -- @anthropic-ai/claude-agent-sdk --
+  {
+    const src = path.join(srcModules, '@anthropic-ai', 'claude-agent-sdk');
+    const dest = path.join(outDir, 'node_modules', '@anthropic-ai', 'claude-agent-sdk');
 
-  const sdkPlatformArch = `${arch}-${platform}`;
-  const ripgrepDir = path.join(pkg, 'vendor', 'ripgrep', sdkPlatformArch);
-  if (fs.existsSync(ripgrepDir)) {
-    copyDir(ripgrepDir, path.join(dest, 'vendor', 'ripgrep', sdkPlatformArch));
-    console.log(`    vendor/ripgrep/${sdkPlatformArch}: OK`);
-  } else {
-    console.warn(`    WARNING: vendor/ripgrep/${sdkPlatformArch} not found, skipping`);
+    for (const file of ['package.json', 'sdk.mjs', 'sdk.d.ts', 'manifest.json', 'cli.js']) {
+      const fileSrc = path.join(src, file);
+      if (fs.existsSync(fileSrc)) {
+        copyFile(fileSrc, path.join(dest, file));
+      }
+    }
+
+    for (const entry of fs.readdirSync(src)) {
+      if (entry.endsWith('.wasm')) {
+        copyFile(path.join(src, entry), path.join(dest, entry));
+      }
+    }
+
+    const sdkPlatformArch = `${arch}-${platform}`;
+    const ripgrepDir = path.join(src, 'vendor', 'ripgrep', sdkPlatformArch);
+    if (fs.existsSync(ripgrepDir)) {
+      copyDir(ripgrepDir, path.join(dest, 'vendor', 'ripgrep', sdkPlatformArch));
+      console.log(`    claude-agent-sdk@${EXTERNAL_DEPS['@anthropic-ai/claude-agent-sdk']}: OK (ripgrep/${sdkPlatformArch})`);
+    } else {
+      console.warn(`    claude-agent-sdk: WARNING - ripgrep/${sdkPlatformArch} not found`);
+    }
   }
 }
 
 // ============================================================================
-// Step 6: Verify native modules load with sidecar Node
+// Step 4: Verify native modules load with sidecar Node
 // ============================================================================
-console.log('  [6/6] Verifying native modules');
+console.log('  [4/4] Verifying native modules');
 if (fs.existsSync(cacheBin)) {
   try {
     execSync(
