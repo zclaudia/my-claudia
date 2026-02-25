@@ -24,7 +24,7 @@ fi
 # --- Smart version bump ---
 # Uses git tags to track builds:
 #   - HEAD has build-* tag + clean tree → reuse version
-#   - HEAD has no build-* tag → new commits exist → bump
+#   - HEAD has no build-* tag → new commits exist → bump + tag
 #   - Dirty working tree → dev build (no bump, -dev suffix)
 echo "=== Version check ==="
 MAJOR=$(python3 -c "import json; print(json.load(open('version.json'))['major'])")
@@ -37,25 +37,14 @@ if [ -n "$HAS_DIRTY" ]; then
   LATEST_TAG=$(git tag -l "build-${MAJOR}.${MINOR}-*" --sort=-version:refname | head -1)
   CURRENT_BUILD=$(echo "$LATEST_TAG" | sed "s/build-${MAJOR}.${MINOR}-//")
   [ -z "$CURRENT_BUILD" ] && CURRENT_BUILD=0
-  ./scripts/version-bump.sh --platform linux --set-build "$CURRENT_BUILD" --dev-suffix
+  eval "$(./scripts/version-bump.sh --platform linux --set-build "$CURRENT_BUILD" --dev-suffix)"
 
 elif [ -z "$HAS_BUILD_TAG" ]; then
   echo "New commits detected → bumping version"
-  ./scripts/version-bump.sh --platform linux --bump
+  eval "$(./scripts/version-bump.sh --platform linux --bump)"
 
-  git add package.json apps/desktop/package.json \
-    apps/desktop/src-tauri/Cargo.toml apps/desktop/src-tauri/Cargo.lock \
-    apps/desktop/src-tauri/tauri.conf.json
-  git commit -m "chore: version bump for Linux build" --no-verify 2>/dev/null || true
-
-  # Tag the version bump commit
-  LATEST_TAG=$(git tag -l "build-${MAJOR}.${MINOR}-*" --sort=-version:refname | head -1)
-  BUILD=$(echo "$LATEST_TAG" | sed "s/build-${MAJOR}.${MINOR}-//")
-  [ -z "$BUILD" ] && BUILD=1
   TAG_NAME="build-${MAJOR}.${MINOR}-${BUILD}"
   git tag "$TAG_NAME"
-
-  # Push tag to remote
   git push origin "$TAG_NAME" 2>/dev/null || true
 
   # Clean old tags for this major.minor, keep latest 5
@@ -71,20 +60,13 @@ elif [ -z "$HAS_BUILD_TAG" ]; then
 else
   echo "No changes since $HAS_BUILD_TAG. Reusing version."
   CURRENT_BUILD=$(echo "$HAS_BUILD_TAG" | sed "s/build-${MAJOR}.${MINOR}-//")
-  ./scripts/version-bump.sh --platform linux --set-build "$CURRENT_BUILD"
-
-  if [ -n "$(git status --porcelain)" ]; then
-    git add package.json apps/desktop/package.json \
-      apps/desktop/src-tauri/Cargo.toml apps/desktop/src-tauri/Cargo.lock \
-      apps/desktop/src-tauri/tauri.conf.json
-    git commit -m "chore: set version for Linux build" --no-verify 2>/dev/null || true
-    git tag -f "build-${MAJOR}.${MINOR}-${CURRENT_BUILD}"
-  fi
+  eval "$(./scripts/version-bump.sh --platform linux --set-build "$CURRENT_BUILD")"
 fi
 echo ""
 
 # --- Build ---
 echo "Building Linux desktop app..."
+export TAURI_CONFIG="{\"version\":\"$VERSION\"}"
 # Use --bundles to skip AppImage (often fails in WSL2 without xdg-open)
 pnpm --filter @my-claudia/desktop exec tauri build --bundles deb,rpm
 

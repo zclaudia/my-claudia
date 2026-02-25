@@ -117,17 +117,12 @@ fn resolve_shell_path(data_dir: &str) -> String {
 }
 
 fn build_fallback_path(current: &str, home: &str, data_dir: &str) -> String {
-    // Scan common locations where CLI tools might be installed
     let mut paths: Vec<String> = vec![current.to_string()];
-
-    // Homebrew
     for p in &["/opt/homebrew/bin", "/usr/local/bin"] {
         if std::path::Path::new(p).is_dir() {
             paths.push(p.to_string());
         }
     }
-
-    // nvm - scan for installed node versions
     let nvm_dir = format!("{}/.nvm/versions/node", home);
     if let Ok(entries) = std::fs::read_dir(&nvm_dir) {
         for entry in entries.flatten() {
@@ -137,10 +132,8 @@ fn build_fallback_path(current: &str, home: &str, data_dir: &str) -> String {
             }
         }
     }
-
     paths.push(format!("{}/.local/bin", home));
     paths.push(format!("{}/.cargo/bin", home));
-
     let fallback = paths.join(":");
     debug_log(data_dir, &format!("Using fallback PATH: {}", fallback));
     fallback
@@ -179,7 +172,10 @@ pub async fn start_server(
     std::fs::create_dir_all(&data_dir).ok();
 
     // Resolve the user's full shell PATH so the server can find CLIs (claude, etc.)
-    let shell_path = resolve_shell_path(&data_dir);
+    // Prepend the sidecar directory so child processes (e.g. claude-agent-sdk)
+    // can also find our bundled node binary via PATH.
+    let sidecar_dir = node_bin.parent().unwrap().to_string_lossy().to_string();
+    let shell_path = format!("{}:{}", sidecar_dir, resolve_shell_path(&data_dir));
 
     eprintln!(
         "[EmbeddedServer/Rust] node={}, server={}, data_dir={}",

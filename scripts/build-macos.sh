@@ -21,7 +21,7 @@ done
 # --- Smart version bump ---
 # Uses git tags to track builds:
 #   - HEAD has build-* tag + clean tree → reuse version
-#   - HEAD has no build-* tag → new commits exist → bump
+#   - HEAD has no build-* tag → new commits exist → bump + tag
 #   - Dirty working tree → dev build (no bump, -dev suffix)
 echo "=== Version check ==="
 MAJOR=$(python3 -c "import json; print(json.load(open('version.json'))['major'])")
@@ -34,25 +34,14 @@ if [ -n "$HAS_DIRTY" ]; then
   LATEST_TAG=$(git tag -l "build-${MAJOR}.${MINOR}-*" --sort=-version:refname | head -1)
   CURRENT_BUILD=$(echo "$LATEST_TAG" | sed "s/build-${MAJOR}.${MINOR}-//")
   [ -z "$CURRENT_BUILD" ] && CURRENT_BUILD=0
-  ./scripts/version-bump.sh --platform macos --set-build "$CURRENT_BUILD" --dev-suffix
+  eval "$(./scripts/version-bump.sh --platform macos --set-build "$CURRENT_BUILD" --dev-suffix)"
 
 elif [ -z "$HAS_BUILD_TAG" ]; then
   echo "New commits detected → bumping version"
-  ./scripts/version-bump.sh --platform macos --bump
+  eval "$(./scripts/version-bump.sh --platform macos --bump)"
 
-  git add package.json apps/desktop/package.json \
-    apps/desktop/src-tauri/Cargo.toml apps/desktop/src-tauri/Cargo.lock \
-    apps/desktop/src-tauri/tauri.conf.json
-  git commit -m "chore: version bump for macOS build" --no-verify 2>/dev/null || true
-
-  # Tag the version bump commit
-  LATEST_TAG=$(git tag -l "build-${MAJOR}.${MINOR}-*" --sort=-version:refname | head -1)
-  BUILD=$(echo "$LATEST_TAG" | sed "s/build-${MAJOR}.${MINOR}-//")
-  [ -z "$BUILD" ] && BUILD=1
   TAG_NAME="build-${MAJOR}.${MINOR}-${BUILD}"
   git tag "$TAG_NAME"
-
-  # Push tag to remote
   git push origin "$TAG_NAME" 2>/dev/null || true
 
   # Clean old tags for this major.minor, keep latest 5
@@ -68,26 +57,12 @@ elif [ -z "$HAS_BUILD_TAG" ]; then
 else
   echo "No changes since $HAS_BUILD_TAG. Reusing version."
   CURRENT_BUILD=$(echo "$HAS_BUILD_TAG" | sed "s/build-${MAJOR}.${MINOR}-//")
-  ./scripts/version-bump.sh --platform macos --set-build "$CURRENT_BUILD"
-
-  # If platform files changed (e.g. switching from Android), commit them
-  if [ -n "$(git status --porcelain)" ]; then
-    git add package.json apps/desktop/package.json \
-      apps/desktop/src-tauri/Cargo.toml apps/desktop/src-tauri/Cargo.lock \
-      apps/desktop/src-tauri/tauri.conf.json
-    git commit -m "chore: set version for macOS build" --no-verify 2>/dev/null || true
-    git tag -f "build-${MAJOR}.${MINOR}-${CURRENT_BUILD}"
-  fi
+  eval "$(./scripts/version-bump.sh --platform macos --set-build "$CURRENT_BUILD")"
 fi
-echo ""
 
-# Read version for output naming
-LATEST_TAG=$(git tag -l "build-${MAJOR}.${MINOR}-*" --sort=-version:refname | head -1)
-BUILD_NUM=$(echo "$LATEST_TAG" | sed "s/build-${MAJOR}.${MINOR}-//")
-[ -z "$BUILD_NUM" ] && BUILD_NUM=0
-VERSION=$(printf "%d.%d.2%02d" "$MAJOR" "$MINOR" "$BUILD_NUM")
-ARCH=$(uname -m)  # aarch64 or x86_64
+ARCH=$(uname -m)
 echo "Version: $VERSION  Arch: $ARCH"
+echo ""
 
 # --- Server bundle ---
 echo "=== Building server bundle ==="
@@ -105,7 +80,8 @@ if [ -d "$BUNDLE_DIR" ]; then
   echo "=== Cleaning stale bundle artifacts ==="
   # Detach any mounted DMG images from previous builds
   # In hdiutil info, /dev/disk lines appear AFTER the image-path line
-  hdiutil info 2>/dev/null | grep -A20 "image-path.*$BUNDLE_DIR" | grep '/dev/disk' | awk '{print $1}' | grep -o '/dev/disk[0-9]*' | sort -u | while read -r disk; do
+  STALE_DISKS=$(hdiutil info 2>/dev/null | grep -A20 "image-path.*$BUNDLE_DIR" | grep '/dev/disk' | awk '{print $1}' | grep -o '/dev/disk[0-9]*' | sort -u || true)
+  for disk in $STALE_DISKS; do
     echo "  Detaching stale mount: $disk"
     hdiutil detach "$disk" -force 2>/dev/null || true
   done
@@ -118,6 +94,7 @@ fi
 
 # --- Build ---
 echo "Building macOS desktop app..."
+export TAURI_CONFIG="{\"version\":\"$VERSION\"}"
 pnpm --filter @my-claudia/desktop exec tauri build
 echo ""
 

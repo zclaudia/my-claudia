@@ -31,7 +31,12 @@ const platform = process.platform; // darwin, linux, win32
 const arch = process.env.BUNDLE_ARCH || process.arch; // arm64, x64
 const platformArch = `${platform}-${arch}`;
 
-const NODE_SIDECAR_VERSION = process.env.NODE_SIDECAR_VERSION || '22.14.0';
+// Read node version from .node-version (single source of truth)
+const nodeVersionFile = path.resolve(repoRoot, '.node-version');
+const defaultNodeVersion = fs.existsSync(nodeVersionFile)
+  ? fs.readFileSync(nodeVersionFile, 'utf-8').trim()
+  : '22.14.0';
+const NODE_SIDECAR_VERSION = process.env.NODE_SIDECAR_VERSION || defaultNodeVersion;
 
 console.log(`=== Server bundle (${platformArch}) ===`);
 
