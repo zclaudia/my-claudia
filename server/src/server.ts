@@ -1,9 +1,11 @@
 import express, { Express, Request, Response, NextFunction } from 'express';
 import cors from 'cors';
-import { createServer as createHttpServer, Server, IncomingMessage } from 'http';
+import { createServer as createHttpServer, Server, IncomingMessage, request as httpRequest } from 'http';
+import { request as httpsRequest } from 'https';
 import { WebSocketServer, WebSocket } from 'ws';
 import { v4 as uuidv4 } from 'uuid';
 import * as path from 'path';
+import * as fs from 'fs';
 import type {
   ClientMessage,
   ServerMessage,
@@ -487,6 +489,9 @@ export async function createServer(): Promise<ServerContext> {
     try {
       // Build target URL: gateway's HTTP proxy endpoint
       const targetUrl = `${clientMode.gatewayUrl}/api/proxy/${backendId}/${subPath}`;
+      // Preserve query string
+      const qs = req.originalUrl.split('?')[1];
+      const fullUrl = qs ? `${targetUrl}?${qs}` : targetUrl;
 
       // Forward headers, inject gateway auth
       const headers: Record<string, string> = {
@@ -498,31 +503,47 @@ export async function createServer(): Promise<ServerContext> {
       }
 
       // Use SOCKS5 agent if configured
+      // NOTE: Node.js native fetch ignores the `agent` option.
+      // We must use http(s).request for SocksProxyAgent to work.
       const agent = clientMode.createHttpAgent();
-      const fetchOptions: any = {
-        method: req.method,
-        headers,
-      };
-      if (agent) {
-        fetchOptions.agent = agent;
-      }
-      if (!['GET', 'HEAD'].includes(req.method)) {
-        fetchOptions.body = JSON.stringify(req.body);
-      }
+      const body = !['GET', 'HEAD'].includes(req.method) ? JSON.stringify(req.body) : undefined;
 
-      const resp = await fetch(targetUrl, fetchOptions);
+      const parsed = new URL(fullUrl);
+      const transport = parsed.protocol === 'https:' ? httpsRequest : httpRequest;
 
-      // Forward status and headers
-      res.status(resp.status);
-      resp.headers.forEach((value, key) => {
-        // Skip transfer-encoding since express handles it
-        if (key.toLowerCase() !== 'transfer-encoding') {
-          res.setHeader(key, value);
-        }
+      const proxyRes = await new Promise<{ status: number; headers: Record<string, string>; body: string }>((resolve, reject) => {
+        const proxyReq = transport(fullUrl, {
+          method: req.method,
+          headers,
+          agent: agent || undefined,
+        }, (upstream) => {
+          const chunks: Buffer[] = [];
+          upstream.on('data', (chunk: Buffer) => chunks.push(chunk));
+          upstream.on('end', () => {
+            const respHeaders: Record<string, string> = {};
+            for (const [key, val] of Object.entries(upstream.headers)) {
+              if (val && key.toLowerCase() !== 'transfer-encoding') {
+                respHeaders[key] = Array.isArray(val) ? val.join(', ') : val;
+              }
+            }
+            resolve({
+              status: upstream.statusCode || 502,
+              headers: respHeaders,
+              body: Buffer.concat(chunks).toString('utf-8'),
+            });
+          });
+          upstream.on('error', reject);
+        });
+        proxyReq.on('error', reject);
+        if (body) proxyReq.write(body);
+        proxyReq.end();
       });
 
-      const body = await resp.text();
-      res.send(body);
+      res.status(proxyRes.status);
+      for (const [key, value] of Object.entries(proxyRes.headers)) {
+        res.setHeader(key, value);
+      }
+      res.send(proxyRes.body);
     } catch (error) {
       console.error(`[GatewayProxy] Error proxying to backend ${backendId}:`, error);
       res.status(502).json({
@@ -1113,7 +1134,12 @@ async function handleClientMessage(
     case 'terminal_open': {
       if (!termMgr) break;
       const project = db.prepare('SELECT root_path FROM projects WHERE id = ?').get(message.projectId) as { root_path: string } | undefined;
-      const cwd = project?.root_path || process.env.HOME || '/';
+      let cwd = project?.root_path || process.env.HOME || '/';
+      // Validate cwd exists — posix_spawnp fails if cwd doesn't exist
+      if (!fs.existsSync(cwd)) {
+        console.warn(`[Terminal] cwd does not exist: ${cwd}, falling back to HOME`);
+        cwd = process.env.HOME || '/';
+      }
       try {
         termMgr.create(message.terminalId, client.id, cwd, message.cols, message.rows);
         sendMessage(client.ws, { type: 'terminal_opened', terminalId: message.terminalId, success: true });
