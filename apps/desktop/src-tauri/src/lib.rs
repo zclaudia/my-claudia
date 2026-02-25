@@ -3,6 +3,9 @@ use tauri::Manager;
 #[cfg(not(target_os = "android"))]
 mod server;
 
+#[cfg(not(target_os = "android"))]
+mod permissions;
+
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 #[tauri::command]
 fn greet(name: &str) -> String {
@@ -28,12 +31,20 @@ pub fn run() {
         greet,
         server::start_server,
         server::stop_server,
+        permissions::check_full_disk_access,
+        permissions::open_full_disk_access_settings,
     ]);
 
     #[cfg(target_os = "android")]
     let builder = builder.invoke_handler(tauri::generate_handler![greet]);
 
     builder
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|_app, event| {
+            #[cfg(not(target_os = "android"))]
+            if let tauri::RunEvent::Exit = event {
+                server::stop_server_sync();
+            }
+        });
 }

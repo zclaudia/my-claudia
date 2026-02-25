@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { invoke } from '@tauri-apps/api/core';
 import { useServerStore } from '../stores/serverStore';
 import { useGatewayStore, toGatewayServerId } from '../stores/gatewayStore';
 import { useUIStore, type FontSizePreset } from '../stores/uiStore';
@@ -15,6 +16,12 @@ import * as api from '../services/api';
 import { getClientAIConfig, setClientAIConfig, testClientAIConnection, fetchAvailableModels, type ClientAIConfig } from '../services/clientAI';
 import type { GatewayBackendInfo, ProviderConfig, AgentPermissionPolicy, NotificationConfig } from '@my-claudia/shared';
 import { DEFAULT_NOTIFICATION_CONFIG } from '@my-claudia/shared';
+
+/** Detect macOS desktop (Tauri + Mac, not Android) */
+const isMacOS = typeof window !== 'undefined'
+  && '__TAURI_INTERNALS__' in window
+  && !navigator.userAgent.includes('Android')
+  && navigator.platform.includes('Mac');
 
 type SettingsTab = 'general' | 'client-ai' | 'connections' | 'providers' | 'agent' | 'notifications' | 'gateway' | 'import';
 
@@ -49,6 +56,13 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
   const activeServer = getActiveServer();
   const isLocalServer = activeServerId === 'local';
   const directServers = servers.filter(s => s.connectionMode !== 'gateway');
+
+  // macOS Full Disk Access check
+  const [fdaGranted, setFdaGranted] = useState<boolean | null>(null);
+  useEffect(() => {
+    if (!isMacOS || !isOpen) return;
+    invoke<boolean>('check_full_disk_access').then(setFdaGranted).catch(() => setFdaGranted(null));
+  }, [isOpen]);
 
   // Reset tab if current tab is not available for the new server type
   // Note: 'gateway' tab is always available on mobile for editing gateway config
@@ -417,6 +431,37 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
                     </div>
                   </div>
                 </div>
+
+                {isMacOS && fdaGranted !== null && (
+                <div>
+                  <h3 className="text-sm font-medium mb-3">Permissions</h3>
+                  <div className="flex items-center justify-between p-3 bg-secondary/50 rounded-lg">
+                    <div className="flex items-center gap-2">
+                      <svg className="w-4 h-4 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+                      </svg>
+                      <div>
+                        <span className="text-sm">Full Disk Access</span>
+                        {!fdaGranted && (
+                          <p className="text-xs text-muted-foreground mt-0.5">
+                            Required for terminal to access all directories
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                    {fdaGranted ? (
+                      <span className="text-sm text-success">Granted</span>
+                    ) : (
+                      <button
+                        onClick={() => invoke('open_full_disk_access_settings')}
+                        className="px-3 py-1 text-xs bg-primary text-primary-foreground rounded-md hover:bg-primary/90"
+                      >
+                        Open Settings
+                      </button>
+                    )}
+                  </div>
+                </div>
+                )}
 
                 <div>
                   <h3 className="text-sm font-medium mb-3">About</h3>
