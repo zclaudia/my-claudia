@@ -31,7 +31,8 @@ function isDesktopTauri(): boolean {
  */
 async function resolveServerPath(): Promise<string> {
   if (import.meta.env.DEV) {
-    return '../../server/dist/index.js';
+    // Tauri dev cwd is apps/desktop/src-tauri/, so we need 3 levels up
+    return '../../../server/dist/index.js';
   }
   return await resolveResource('server/server.mjs');
 }
@@ -71,7 +72,8 @@ export function useEmbeddedServer(): EmbeddedServerState {
       });
 
       command.stdout.on('data', (line: string) => {
-        const match = line.match(/^SERVER_READY:(\d+)$/);
+        const trimmed = line.trim();
+        const match = trimmed.match(/^SERVER_READY:(\d+)$/);
         if (match && mountedRef.current) {
           const port = parseInt(match[1], 10);
           console.log(`[EmbeddedServer] Ready on port ${port}`);

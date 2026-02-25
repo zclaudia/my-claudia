@@ -25,7 +25,8 @@
     "test:e2e:shared": "vitest run --config e2e/vitest.config.e2e.ts e2e/tests/shared/",
     "fixtures:generate": "node e2e/fixtures/performance-data/generate-fixtures.js",
     "test:desktop": "pnpm --filter @my-claudia/desktop run test",
-    "test:server": "pnpm --filter @my-claudia/server run test"
+    "test:server": "pnpm --filter @my-claudia/server run test",
+    "postinstall": "node scripts/check-native-modules.mjs"
   },
   "engines": {
     "node": ">=20.0.0",
