@@ -16,32 +16,73 @@ for cmd in rustup pnpm; do
 done
 
 # --- Smart version bump ---
-# Only bump when there are actual changes since the last version bump:
-#   1. Working tree has uncommitted changes, OR
-#   2. HEAD commit differs from version.json's recorded commit
+# Uses git tags to track builds:
+#   - HEAD has build-* tag + clean tree → reuse version
+#   - HEAD has no build-* tag → new commits exist → bump
+#   - Dirty working tree → dev build (no bump, -dev suffix)
 echo "=== Version check ==="
-VERSION_COMMIT=$(python3 -c "import json; d=json.load(open('version.json')); print(d.get('commit', ''))")
-HEAD_COMMIT=$(git rev-parse --short HEAD)
+MAJOR=$(python3 -c "import json; print(json.load(open('version.json'))['major'])")
+MINOR=$(python3 -c "import json; print(json.load(open('version.json'))['minor'])")
 HAS_DIRTY=$(git status --porcelain | head -1)
+HAS_BUILD_TAG=$(git tag --points-at HEAD 2>/dev/null | grep '^build-' | head -1)
 
-if [ -n "$HAS_DIRTY" ] || [ "$VERSION_COMMIT" != "$HEAD_COMMIT" ]; then
-  echo "Changes detected (dirty=$([[ -n "$HAS_DIRTY" ]] && echo yes || echo no), version_commit=$VERSION_COMMIT, head=$HEAD_COMMIT)"
-  echo "Bumping version..."
+if [ -n "$HAS_DIRTY" ]; then
+  echo "Dirty working tree → dev build"
+  LATEST_TAG=$(git tag -l "build-${MAJOR}.${MINOR}-*" --sort=-version:refname | head -1)
+  CURRENT_BUILD=$(echo "$LATEST_TAG" | sed "s/build-${MAJOR}.${MINOR}-//")
+  [ -z "$CURRENT_BUILD" ] && CURRENT_BUILD=0
+  ./scripts/version-bump.sh --platform macos --set-build "$CURRENT_BUILD" --dev-suffix
+
+elif [ -z "$HAS_BUILD_TAG" ]; then
+  echo "New commits detected → bumping version"
   ./scripts/version-bump.sh --platform macos --bump
 
-  # Auto-commit version bump
-  git add version.json package.json apps/desktop/package.json \
+  git add package.json apps/desktop/package.json \
     apps/desktop/src-tauri/Cargo.toml apps/desktop/src-tauri/Cargo.lock \
     apps/desktop/src-tauri/tauri.conf.json
   git commit -m "chore: version bump for macOS build" --no-verify 2>/dev/null || true
+
+  # Tag the version bump commit
+  LATEST_TAG=$(git tag -l "build-${MAJOR}.${MINOR}-*" --sort=-version:refname | head -1)
+  BUILD=$(echo "$LATEST_TAG" | sed "s/build-${MAJOR}.${MINOR}-//")
+  [ -z "$BUILD" ] && BUILD=1
+  TAG_NAME="build-${MAJOR}.${MINOR}-${BUILD}"
+  git tag "$TAG_NAME"
+
+  # Push tag to remote
+  git push origin "$TAG_NAME" 2>/dev/null || true
+
+  # Clean old tags for this major.minor, keep latest 5
+  OLD_TAGS=$(git tag -l "build-${MAJOR}.${MINOR}-*" --sort=-version:refname | tail -n +6)
+  if [ -n "$OLD_TAGS" ]; then
+    echo "$OLD_TAGS" | xargs git tag -d
+    echo "$OLD_TAGS" | while read -r tag; do
+      git push origin --delete "$tag" 2>/dev/null || true
+    done
+    echo "  Cleaned $(echo "$OLD_TAGS" | wc -l | tr -d ' ') old tag(s)"
+  fi
+
 else
-  echo "No changes since last bump (commit=$VERSION_COMMIT). Reusing current version."
-  ./scripts/version-bump.sh --platform macos
+  echo "No changes since $HAS_BUILD_TAG. Reusing version."
+  CURRENT_BUILD=$(echo "$HAS_BUILD_TAG" | sed "s/build-${MAJOR}.${MINOR}-//")
+  ./scripts/version-bump.sh --platform macos --set-build "$CURRENT_BUILD"
+
+  # If platform files changed (e.g. switching from Android), commit them
+  if [ -n "$(git status --porcelain)" ]; then
+    git add package.json apps/desktop/package.json \
+      apps/desktop/src-tauri/Cargo.toml apps/desktop/src-tauri/Cargo.lock \
+      apps/desktop/src-tauri/tauri.conf.json
+    git commit -m "chore: set version for macOS build" --no-verify 2>/dev/null || true
+    git tag -f "build-${MAJOR}.${MINOR}-${CURRENT_BUILD}"
+  fi
 fi
 echo ""
 
 # Read version for output naming
-VERSION=$(python3 -c "import json; d=json.load(open('version.json')); print(f\"{d['major']}.{d['minor']}.2{d['build']:02d}\")")
+LATEST_TAG=$(git tag -l "build-${MAJOR}.${MINOR}-*" --sort=-version:refname | head -1)
+BUILD_NUM=$(echo "$LATEST_TAG" | sed "s/build-${MAJOR}.${MINOR}-//")
+[ -z "$BUILD_NUM" ] && BUILD_NUM=0
+VERSION=$(printf "%d.%d.2%02d" "$MAJOR" "$MINOR" "$BUILD_NUM")
 ARCH=$(uname -m)  # aarch64 or x86_64
 echo "Version: $VERSION  Arch: $ARCH"
 

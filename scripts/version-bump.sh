@@ -5,9 +5,13 @@
 #   ./scripts/version-bump.sh --platform android              # show version (no changes)
 #   ./scripts/version-bump.sh --platform android --bump        # increment build + update files
 #   ./scripts/version-bump.sh --platform android --set-build 42  # set specific build number
+#   ./scripts/version-bump.sh --platform android --set-build 42 --dev-suffix  # dev build
+#
+# version.json holds only { "major": N, "minor": N }
+# Build number is derived from git tags: build-{major}.{minor}-{N}
 #
 # Platform codes: android=1, macos=2, linux=3, windows=4
-# Version format: {major}.{minor}.{platform_code}{build_number}
+# Version format: {major}.{minor}.{platform_code}{build_number:02d}
 # Example: 0.1.142 = Android, build #42
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -16,12 +20,14 @@ cd "$(dirname "$0")/.."
 PLATFORM=""
 BUMP=false
 SET_BUILD=""
+DEV_SUFFIX=false
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --platform) PLATFORM="$2"; shift 2 ;;
     --bump) BUMP=true; shift ;;
     --set-build) SET_BUILD="$2"; shift 2 ;;
+    --dev-suffix) DEV_SUFFIX=true; shift ;;
     *) echo "Unknown arg: $1"; exit 1 ;;
   esac
 done
@@ -40,7 +46,7 @@ case "$PLATFORM" in
   *) echo "ERROR: Unknown platform '$PLATFORM'. Use: android|macos|linux|windows"; exit 1 ;;
 esac
 
-# --- Read version.json ---
+# --- Read version.json (only major + minor) ---
 VERSION_FILE="version.json"
 if [ ! -f "$VERSION_FILE" ]; then
   echo "ERROR: $VERSION_FILE not found"
@@ -49,38 +55,31 @@ fi
 
 MAJOR=$(python3 -c "import json; print(json.load(open('$VERSION_FILE'))['major'])")
 MINOR=$(python3 -c "import json; print(json.load(open('$VERSION_FILE'))['minor'])")
-BUILD=$(python3 -c "import json; print(json.load(open('$VERSION_FILE'))['build'])")
+
+# --- Get build number from git tags ---
+LATEST_TAG=$(git tag -l "build-${MAJOR}.${MINOR}-*" --sort=-version:refname | head -1)
+if [ -n "$LATEST_TAG" ]; then
+  BUILD=$(echo "$LATEST_TAG" | sed "s/build-${MAJOR}.${MINOR}-//")
+else
+  BUILD=0
+fi
 
 # --- Bump or set build ---
-# Get current HEAD commit hash (short) for tracking
-HEAD_COMMIT=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
-
-if [ -n "$SET_BUILD" ]; then
-  BUILD="$SET_BUILD"
-  python3 -c "
-import json
-d = json.load(open('$VERSION_FILE'))
-d['build'] = $BUILD
-d['commit'] = '$HEAD_COMMIT'
-json.dump(d, open('$VERSION_FILE', 'w'), indent=2)
-print()  # trailing newline
-" && printf '\n' >> "$VERSION_FILE"
-  echo "Build number set to $BUILD"
-elif [ "$BUMP" = true ]; then
+if [ "$BUMP" = true ]; then
   BUILD=$((BUILD + 1))
-  python3 -c "
-import json
-d = json.load(open('$VERSION_FILE'))
-d['build'] = $BUILD
-d['commit'] = '$HEAD_COMMIT'
-json.dump(d, open('$VERSION_FILE', 'w'), indent=2)
-" && printf '\n' >> "$VERSION_FILE"
   echo "Build number bumped to $BUILD"
+elif [ -n "$SET_BUILD" ]; then
+  BUILD="$SET_BUILD"
+  echo "Build number set to $BUILD"
 fi
 
 # --- Compute version strings ---
 PATCH=$(printf "%d%02d" "$PLATFORM_CODE" "$BUILD")
 VERSION="${MAJOR}.${MINOR}.${PATCH}"
+if [ "$DEV_SUFFIX" = true ]; then
+  VERSION="${VERSION}-dev"
+fi
+# versionCode is always a plain integer (Android requires this)
 VERSION_CODE="$PATCH"
 
 echo ""
@@ -94,7 +93,7 @@ if [ "$BUMP" = false ] && [ -z "$SET_BUILD" ]; then
   exit 0
 fi
 
-# --- Update all version files ---
+# --- Update platform version files ---
 echo ""
 echo "Updating version files..."
 
@@ -116,7 +115,6 @@ fi
 # 2. Cargo.toml
 CARGO_TOML="apps/desktop/src-tauri/Cargo.toml"
 if [ -f "$CARGO_TOML" ]; then
-  # Replace version = "x.y.z" on the line after [package]
   python3 -c "
 import re
 with open('$CARGO_TOML', 'r') as f:
