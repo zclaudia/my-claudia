@@ -1,6 +1,6 @@
 {
   "name": "@my-claudia/desktop",
-  "version": "0.1.211",
+  "version": "0.1.219",
   "private": true,
   "type": "module",
   "scripts": {

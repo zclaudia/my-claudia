@@ -1984,8 +1984,9 @@ dependencies = [
 
 [[package]]
 name = "my-claudia"
-version = "0.1.211"
+version = "0.1.218"
 dependencies = [
+ "libc",
  "serde",
  "serde_json",
  "tauri",
