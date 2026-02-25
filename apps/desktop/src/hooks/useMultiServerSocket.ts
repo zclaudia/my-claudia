@@ -786,12 +786,7 @@ export function useMultiServerSocket() {
 
     const state = transportsRef.current.get(activeServerId);
     if (!state || !state.transport.isConnected()) {
-      // Add small delay on initial connection to allow backend server to fully start
-      const delay = !state ? 800 : 0;
-      const timeoutId = setTimeout(() => {
-        connectServerRef.current(activeServerId);
-      }, delay);
-      return () => clearTimeout(timeoutId);
+      connectServerRef.current(activeServerId);
     }
   }, [activeServerId]);
 

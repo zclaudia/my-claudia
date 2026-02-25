@@ -1,6 +1,6 @@
 [package]
 name = "my-claudia"
-version = "0.1.121"
+version = "0.1.1220"
 description = "A cross-platform UI for Code CLI"
 authors = ["MyClaudia Contributors"]
 edition = "2021"
