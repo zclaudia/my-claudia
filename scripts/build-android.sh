@@ -87,7 +87,7 @@ if [ "$INSTALL_ONLY" = false ] && [ "$NO_BUMP" = false ]; then
   MAJOR=$(python3 -c "import json; print(json.load(open('version.json'))['major'])")
   MINOR=$(python3 -c "import json; print(json.load(open('version.json'))['minor'])")
   HAS_DIRTY=$(git status --porcelain | head -1)
-  HAS_BUILD_TAG=$(git tag --points-at HEAD 2>/dev/null | grep '^build-' | head -1)
+  HAS_BUILD_TAG=$(git tag --points-at HEAD 2>/dev/null | grep '^build-' | head -1 || true)
 
   if [ -n "$HAS_DIRTY" ]; then
     echo "Dirty working tree → dev build"

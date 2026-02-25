@@ -11,6 +11,9 @@ if [[ "$(uname)" != "Darwin" ]]; then
   exit 1
 fi
 
+# Prefer rustup-managed toolchain over Homebrew Rust
+export PATH="$HOME/.cargo/bin:$PATH"
+
 for cmd in rustup pnpm; do
   command -v "$cmd" >/dev/null || { echo "ERROR: $cmd not found"; exit 1; }
 done
@@ -24,7 +27,7 @@ echo "=== Version check ==="
 MAJOR=$(python3 -c "import json; print(json.load(open('version.json'))['major'])")
 MINOR=$(python3 -c "import json; print(json.load(open('version.json'))['minor'])")
 HAS_DIRTY=$(git status --porcelain | head -1)
-HAS_BUILD_TAG=$(git tag --points-at HEAD 2>/dev/null | grep '^build-' | head -1)
+HAS_BUILD_TAG=$(git tag --points-at HEAD 2>/dev/null | grep '^build-' | head -1 || true)
 
 if [ -n "$HAS_DIRTY" ]; then
   echo "Dirty working tree → dev build"
