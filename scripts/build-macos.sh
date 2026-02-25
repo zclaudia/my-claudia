@@ -51,11 +51,30 @@ pnpm -r run build
 pnpm --filter @my-claudia/server run bundle
 echo ""
 
+# --- Clean stale bundle artifacts ---
+# Tauri's bundle_dmg.sh (create-dmg) fails when:
+#   1. Old DMG files exist (hdiutil convert -o won't overwrite)
+#   2. Stale DMG images are still mounted from failed previous runs
+#      (causes volume name conflicts and AppleScript "Can't get disk" errors)
+BUNDLE_DIR="apps/desktop/src-tauri/target/release/bundle"
+if [ -d "$BUNDLE_DIR" ]; then
+  echo "=== Cleaning stale bundle artifacts ==="
+  # Detach any mounted DMG images from previous builds
+  # In hdiutil info, /dev/disk lines appear AFTER the image-path line
+  hdiutil info 2>/dev/null | grep -A20 "image-path.*$BUNDLE_DIR" | grep '/dev/disk' | awk '{print $1}' | grep -o '/dev/disk[0-9]*' | sort -u | while read -r disk; do
+    echo "  Detaching stale mount: $disk"
+    hdiutil detach "$disk" -force 2>/dev/null || true
+  done
+  # Remove old DMG files
+  find "$BUNDLE_DIR/dmg" -name '*.dmg' -delete 2>/dev/null || true
+  # Remove temp read-write DMG images from failed runs
+  find "$BUNDLE_DIR/macos" -name 'rw.*.dmg' -delete 2>/dev/null || true
+  echo ""
+fi
+
 # --- Build ---
 echo "Building macOS desktop app..."
 pnpm --filter @my-claudia/desktop exec tauri build
-
-BUNDLE_DIR="apps/desktop/src-tauri/target/release/bundle"
 echo ""
 
 # --- Rename outputs with version ---
