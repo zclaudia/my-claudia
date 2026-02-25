@@ -3,6 +3,8 @@ use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
 
 static SERVER_PROCESS: Mutex<Option<Child>> = Mutex::new(None);
+/// Data directory path, set once at start_server for use by cleanup functions.
+static DATA_DIR: Mutex<Option<String>> = Mutex::new(None);
 
 #[derive(serde::Serialize)]
 pub struct ServerResult {
@@ -25,6 +27,52 @@ fn chrono_now() -> String {
     format!("{}", dur.as_secs())
 }
 
+// --- PID file management ---
+
+fn pid_file_path(data_dir: &str) -> std::path::PathBuf {
+    std::path::Path::new(data_dir).join("server.pid")
+}
+
+fn write_pid_file(data_dir: &str, pid: u32) {
+    let path = pid_file_path(data_dir);
+    if let Ok(mut f) = std::fs::File::create(&path) {
+        let _ = write!(f, "{}", pid);
+    }
+}
+
+fn remove_pid_file(data_dir: &str) {
+    let _ = std::fs::remove_file(pid_file_path(data_dir));
+}
+
+/// Kill the process recorded in the pid file (orphan from a previous run).
+fn cleanup_stale_pid_file(data_dir: &str) {
+    let path = pid_file_path(data_dir);
+    if let Ok(contents) = std::fs::read_to_string(&path) {
+        if let Ok(pid) = contents.trim().parse::<i32>() {
+            // Check if process is still alive
+            #[cfg(unix)]
+            {
+                let alive = unsafe { libc::kill(pid, 0) } == 0;
+                if alive {
+                    eprintln!("[EmbeddedServer/Rust] Killing orphaned server (pid={})", pid);
+                    unsafe { libc::kill(pid, libc::SIGTERM); }
+                    // Brief wait for it to exit
+                    std::thread::sleep(std::time::Duration::from_millis(500));
+                    // Force kill if still alive
+                    let still_alive = unsafe { libc::kill(pid, 0) } == 0;
+                    if still_alive {
+                        unsafe { libc::kill(pid, libc::SIGKILL); }
+                    }
+                }
+            }
+        }
+        // Remove stale pid file
+        let _ = std::fs::remove_file(&path);
+    }
+}
+
+// --- Shell PATH resolution ---
+
 /// Resolve the user's login shell PATH.
 /// GUI apps on macOS don't inherit the full shell environment (nvm, homebrew, etc.),
 /// so we run the user's login shell to extract the real PATH.
@@ -35,9 +83,13 @@ fn resolve_shell_path(data_dir: &str) -> String {
 
     debug_log(data_dir, &format!("SHELL={}, HOME={}, current PATH={}", shell, home, current_path));
 
-    // Use -l (login) + -i (interactive) to ensure all config files are sourced
+    // Use -l (login) only — NOT -i (interactive).
+    // Interactive mode sources .zshrc which can trigger macOS TCC permission
+    // dialogs (e.g. "network volume" access) from user shell plugins.
+    // Login mode sources .zprofile/.zshenv which covers Homebrew, nvm PATH setup.
+    // Anything missed is handled by build_fallback_path().
     let output = Command::new(&shell)
-        .args(["-l", "-i", "-c", "echo $PATH"])
+        .args(["-l", "-c", "echo $PATH"])
         .env("HOME", &home)
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
@@ -94,6 +146,8 @@ fn build_fallback_path(current: &str, home: &str, data_dir: &str) -> String {
     fallback
 }
 
+// --- Server lifecycle ---
+
 /// Start the embedded Node.js server as a child process.
 /// Returns the port number once SERVER_READY:<port> is detected on stdout.
 #[tauri::command]
@@ -102,6 +156,14 @@ pub async fn start_server(
     server_path: String,
     data_dir: String,
 ) -> Result<ServerResult, String> {
+    // Kill any orphaned server from a previous crash via pid file
+    cleanup_stale_pid_file(&data_dir);
+
+    // Store data_dir for use by stop/exit hooks
+    if let Ok(mut guard) = DATA_DIR.lock() {
+        *guard = Some(data_dir.clone());
+    }
+
     // The node binary is in Contents/MacOS/ (same directory as the main executable)
     let node_bin = std::env::current_exe()
         .map_err(|e| format!("Failed to get current exe: {}", e))?
@@ -140,6 +202,9 @@ pub async fn start_server(
 
     let pid = child.id();
     eprintln!("[EmbeddedServer/Rust] Spawned node (pid={})", pid);
+
+    // Write pid file for orphan cleanup
+    write_pid_file(&data_dir, pid);
 
     // Read stdout line by line looking for SERVER_READY:<port>
     let stdout = child.stdout.take().ok_or("Failed to capture stdout")?;
@@ -200,6 +265,7 @@ pub async fn start_server(
         }
         None => {
             // Process exited before outputting SERVER_READY
+            remove_pid_file(&data_dir);
             let status = child.wait().map_err(|e| e.to_string())?;
             Err(format!(
                 "Server process exited without SERVER_READY (status={})",
@@ -209,15 +275,77 @@ pub async fn start_server(
     }
 }
 
-/// Stop the embedded server process.
+/// Send SIGTERM and wait for graceful exit, falling back to SIGKILL.
+fn graceful_kill(child: &mut Child, timeout_secs: u64) {
+    let pid = child.id();
+
+    #[cfg(unix)]
+    {
+        unsafe { libc::kill(pid as i32, libc::SIGTERM); }
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = child.kill();
+        let _ = child.wait();
+        return;
+    }
+
+    let start = std::time::Instant::now();
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                eprintln!("[EmbeddedServer/Rust] Server exited gracefully ({})", status);
+                return;
+            }
+            Ok(None) => {
+                if start.elapsed() > std::time::Duration::from_secs(timeout_secs) {
+                    eprintln!("[EmbeddedServer/Rust] Graceful timeout, sending SIGKILL");
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(100));
+            }
+            Err(_) => return,
+        }
+    }
+}
+
+/// Stop the embedded server process gracefully.
+///
+/// Sends SIGTERM first so the Node.js server can run its shutdown handlers
+/// (disconnect from gateway, close database, etc.). Falls back to SIGKILL
+/// if the process doesn't exit within 3 seconds.
 #[tauri::command]
 pub async fn stop_server() -> Result<(), String> {
     let mut guard = SERVER_PROCESS.lock().map_err(|e| e.to_string())?;
     if let Some(mut child) = guard.take() {
-        eprintln!("[EmbeddedServer/Rust] Killing server process...");
-        let _ = child.kill();
-        let _ = child.wait();
+        eprintln!("[EmbeddedServer/Rust] Stopping server (pid={})...", child.id());
+        graceful_kill(&mut child, 3);
+        // Remove pid file
+        if let Ok(dir_guard) = DATA_DIR.lock() {
+            if let Some(dir) = dir_guard.as_deref() {
+                remove_pid_file(dir);
+            }
+        }
         eprintln!("[EmbeddedServer/Rust] Server stopped");
     }
     Ok(())
+}
+
+/// Kill the server process synchronously (for use in exit hooks).
+pub fn stop_server_sync() {
+    if let Ok(mut guard) = SERVER_PROCESS.lock() {
+        if let Some(mut child) = guard.take() {
+            eprintln!("[EmbeddedServer/Rust] Exit hook: stopping server (pid={})...", child.id());
+            graceful_kill(&mut child, 2);
+            // Remove pid file
+            if let Ok(dir_guard) = DATA_DIR.lock() {
+                if let Some(dir) = dir_guard.as_deref() {
+                    remove_pid_file(dir);
+                }
+            }
+            eprintln!("[EmbeddedServer/Rust] Exit hook: server stopped");
+        }
+    }
 }
