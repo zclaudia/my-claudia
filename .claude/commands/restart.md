@@ -5,35 +5,91 @@ Detect which mode to use:
 - If the user says "standalone" or "server", use **Standalone mode**
 - Default: **Tauri dev mode** (most common workflow)
 
+**IMPORTANT**: Always prefix Node.js commands with `eval "$(fnm env)"` to ensure the correct Node version is used. fnm auto-switches via .node-version.
+
+$PROJECT_ROOT is the git repository root directory (use `git rev-parse --show-toplevel` to find it).
+
+---
+
 ## Tauri Dev Mode (default)
 
 Runs Vite + Tauri binary + embedded Node server as a single process tree.
 
-Steps:
-1. Kill stale processes:
-   - `lsof -ti:1420 | xargs kill -9 2>/dev/null` (stale Vite dev server)
-   - `pkill -f "tauri dev" 2>/dev/null` (stale Tauri dev process)
-   - `pkill -f "cargo run.*tauri" 2>/dev/null` (stale cargo/Tauri binary)
-   - `pkill -f "server/dist/index.js" 2>/dev/null` (stale embedded server)
-2. Wait 2 seconds for ports to free up
-3. Start Tauri dev in the background: `cd $PROJECT_ROOT/apps/desktop && pnpm exec tauri dev`
-4. Wait ~15 seconds for Vite + Cargo build + Tauri to start
-5. Verify Vite is running: `curl -s http://localhost:1420 | head -c 50`
-6. Report the result (note: embedded server uses a random port, check the app UI for status)
+### Step 1: Kill ALL stale processes
+
+Run in a single command:
+```
+pkill -f "my-claudia" 2>/dev/null
+pkill -f "server/dist/index.js" 2>/dev/null
+lsof -ti:1420 | xargs kill -9 2>/dev/null
+```
+
+### Step 2: Verify port 1420 is free
+
+Loop up to 5 times (1 second apart) checking `lsof -ti:1420`. If still occupied after 5 attempts, `kill -9` the PID and report a warning.
+
+### Step 3: Ensure builds are up to date
+
+Run in parallel:
+- Check `$PROJECT_ROOT/shared/dist/index.js` exists; if not, run `cd $PROJECT_ROOT/shared && eval "$(fnm env)" && pnpm build`
+- Check `$PROJECT_ROOT/server/dist/index.js` exists; if not, run `cd $PROJECT_ROOT/server && eval "$(fnm env)" && pnpm build`
+
+### Step 4: Start Tauri dev
+
+```
+cd $PROJECT_ROOT/apps/desktop && eval "$(fnm env)" && pnpm exec tauri dev 2>&1
+```
+
+Run this as a **background command** with a 10-minute timeout.
+
+### Step 5: Wait and verify
+
+1. Wait in a loop (up to 30 seconds, polling every 3 seconds) until `curl -s http://localhost:1420` returns a non-empty response
+2. If Vite never responds, check the background task output for errors and report to user
+3. Once Vite is confirmed running, report success. The embedded server uses a random port — check the app UI for its status.
+
+---
 
 ## Standalone Mode
 
 Runs server and frontend as separate processes (useful for web-only development).
 
-Steps:
-1. Kill stale processes:
-   - `lsof -ti:3100 | xargs kill -9 2>/dev/null` (server on port 3100)
-   - `lsof -ti:1420 | xargs kill -9 2>/dev/null` (Vite dev server)
-2. Start the backend server in the background: `cd $PROJECT_ROOT/server && npx tsx watch src/index.ts`
-3. Start the frontend dev server in the background: `cd $PROJECT_ROOT/apps/desktop && pnpm dev`
-4. Wait a few seconds, then verify both are running:
-   - Backend: `curl -s http://localhost:3100/api/sessions | head -c 50`
-   - Frontend: `curl -s http://localhost:1420 | head -c 50`
-5. Report the result
+### Step 1: Kill stale processes
 
-Note: $PROJECT_ROOT is the git repository root directory (use `git rev-parse --show-toplevel` to find it).
+```
+lsof -ti:3100 | xargs kill -9 2>/dev/null
+lsof -ti:1420 | xargs kill -9 2>/dev/null
+pkill -f "server/dist/index.js" 2>/dev/null
+```
+
+### Step 2: Verify ports are free
+
+Same loop check as Tauri mode, but for both ports 3100 and 1420.
+
+### Step 3: Ensure builds are up to date
+
+Same as Tauri mode Step 3.
+
+### Step 4: Start backend server
+
+```
+cd $PROJECT_ROOT/server && eval "$(fnm env)" && npx tsx watch src/index.ts
+```
+
+Run as a background command.
+
+### Step 5: Start frontend dev server
+
+```
+cd $PROJECT_ROOT/apps/desktop && eval "$(fnm env)" && pnpm dev
+```
+
+Run as a background command.
+
+### Step 6: Wait and verify
+
+Loop (up to 20 seconds, polling every 3 seconds) until both respond:
+- Backend: `curl -s http://localhost:3100/api/sessions | head -c 50`
+- Frontend: `curl -s http://localhost:1420 | head -c 50`
+
+Report the result.
