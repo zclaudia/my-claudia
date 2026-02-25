@@ -57,11 +57,13 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
   const isLocalServer = activeServerId === 'local';
   const directServers = servers.filter(s => s.connectionMode !== 'gateway');
 
-  // macOS Full Disk Access check
+  // macOS permission checks
   const [fdaGranted, setFdaGranted] = useState<boolean | null>(null);
+  const [folderPerms, setFolderPerms] = useState<{ name: string; granted: boolean }[]>([]);
   useEffect(() => {
     if (!isMacOS || !isOpen) return;
     invoke<boolean>('check_full_disk_access').then(setFdaGranted).catch(() => setFdaGranted(null));
+    invoke<{ name: string; granted: boolean }[]>('check_folder_permissions').then(setFolderPerms).catch(() => {});
   }, [isOpen]);
 
   // Reset tab if current tab is not available for the new server type
@@ -435,29 +437,56 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
                 {isMacOS && fdaGranted !== null && (
                 <div>
                   <h3 className="text-sm font-medium mb-3">Permissions</h3>
-                  <div className="flex items-center justify-between p-3 bg-secondary/50 rounded-lg">
-                    <div className="flex items-center gap-2">
-                      <svg className="w-4 h-4 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
-                      </svg>
-                      <div>
-                        <span className="text-sm">Full Disk Access</span>
-                        {!fdaGranted && (
-                          <p className="text-xs text-muted-foreground mt-0.5">
-                            Required for terminal to access all directories
-                          </p>
-                        )}
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between p-3 bg-secondary/50 rounded-lg">
+                      <div className="flex items-center gap-2">
+                        <svg className="w-4 h-4 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+                        </svg>
+                        <div>
+                          <span className="text-sm">Full Disk Access</span>
+                          {!fdaGranted && (
+                            <p className="text-xs text-muted-foreground mt-0.5">
+                              Required for terminal to access all directories
+                            </p>
+                          )}
+                        </div>
                       </div>
+                      {fdaGranted ? (
+                        <span className="text-sm text-success">Granted</span>
+                      ) : (
+                        <button
+                          onClick={() => invoke('open_full_disk_access_settings')}
+                          className="px-3 py-1 text-xs bg-primary text-primary-foreground rounded-md hover:bg-primary/90"
+                        >
+                          Open Settings
+                        </button>
+                      )}
                     </div>
-                    {fdaGranted ? (
-                      <span className="text-sm text-success">Granted</span>
-                    ) : (
-                      <button
-                        onClick={() => invoke('open_full_disk_access_settings')}
-                        className="px-3 py-1 text-xs bg-primary text-primary-foreground rounded-md hover:bg-primary/90"
-                      >
-                        Open Settings
-                      </button>
+                    {folderPerms.length > 0 && folderPerms.some(f => !f.granted) && (
+                      <div className="p-3 bg-secondary/50 rounded-lg">
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-sm">Folder Access</span>
+                          <button
+                            onClick={() => invoke('open_files_and_folders_settings')}
+                            className="px-3 py-1 text-xs bg-primary text-primary-foreground rounded-md hover:bg-primary/90"
+                          >
+                            Open Settings
+                          </button>
+                        </div>
+                        <div className="space-y-1">
+                          {folderPerms.map(f => (
+                            <div key={f.name} className="flex items-center justify-between text-xs">
+                              <span className="text-muted-foreground">~/{f.name}</span>
+                              {f.granted ? (
+                                <span className="text-success">Granted</span>
+                              ) : (
+                                <span className="text-destructive">Denied</span>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
                     )}
                   </div>
                 </div>

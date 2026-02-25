@@ -1,4 +1,6 @@
 import * as os from 'os';
+import * as fs from 'fs';
+import * as path from 'path';
 import { createServer, createVirtualClient, activeRuns, connectedClients, type ServerContext } from './server.js';
 import { GatewayClient } from './gateway-client.js';
 import { GatewayClientMode } from './gateway-client-mode.js';
@@ -265,6 +267,30 @@ function autoDetectProviders(): void {
   }
 }
 
+/**
+ * On macOS, probe TCC-protected folders so the OS attributes the permission
+ * to this node process's signing identity. The Tauri (Rust) side does its
+ * own probe, but macOS checks TCC per code-signing identity — the embedded
+ * node binary has a different ad-hoc signature, so it needs a separate probe.
+ *
+ * This prevents TCC consent dialogs from appearing later during remote
+ * terminal sessions when nobody is at the Mac to approve them.
+ */
+function probeMacOSFolderPermissions(): void {
+  if (process.platform !== 'darwin') return;
+
+  const home = os.homedir();
+  for (const folder of ['Desktop', 'Documents', 'Downloads']) {
+    const dir = path.join(home, folder);
+    try {
+      fs.readdirSync(dir);
+    } catch {
+      // Permission denied or folder doesn't exist — either way, the TCC
+      // dialog has been triggered (or will be on next attempt).
+    }
+  }
+}
+
 async function main() {
   try {
     serverContext = await createServer();
@@ -283,6 +309,10 @@ async function main() {
       console.log(`SERVER_READY:${actualPort}`);
       console.log(`🚀 MyClaudia Server running at http://${HOST}:${actualPort}`);
       console.log(`📡 WebSocket endpoint: ws://${HOST}:${actualPort}/ws`);
+
+      // Probe TCC-protected folders so macOS consent dialogs appear now
+      // (while user is at the keyboard) rather than during remote sessions.
+      probeMacOSFolderPermissions();
 
       // Priority 1: Environment variables (for backward compatibility)
       if (GATEWAY_URL && GATEWAY_SECRET) {

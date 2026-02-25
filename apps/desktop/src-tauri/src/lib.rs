@@ -33,10 +33,24 @@ pub fn run() {
         server::stop_server,
         permissions::check_full_disk_access,
         permissions::open_full_disk_access_settings,
+        permissions::check_folder_permissions,
+        permissions::open_files_and_folders_settings,
     ]);
 
     #[cfg(target_os = "android")]
     let builder = builder.invoke_handler(tauri::generate_handler![greet]);
+
+    // On macOS, probe TCC-protected folders at startup to trigger consent dialogs
+    // while the user is at the keyboard, rather than later during remote sessions.
+    #[cfg(target_os = "macos")]
+    let builder = builder.setup(|_app| {
+        std::thread::spawn(|| {
+            // Small delay so the window appears first, then TCC dialogs overlay it
+            std::thread::sleep(std::time::Duration::from_secs(1));
+            permissions::check_folder_permissions();
+        });
+        Ok(())
+    });
 
     builder
         .build(tauri::generate_context!())
