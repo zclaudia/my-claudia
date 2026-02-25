@@ -51,13 +51,20 @@ export class TerminalManager {
     }
 
     const shell = detectShell();
-    const ptyProcess = pty.spawn(shell, [], {
-      name: 'xterm-256color',
-      cols,
-      rows,
-      cwd,
-      env: process.env as Record<string, string>,
-    });
+    console.log(`[Terminal] Spawning: shell=${shell}, cwd=${cwd}, cols=${cols}, rows=${rows}`);
+    let ptyProcess: pty.IPty;
+    try {
+      ptyProcess = pty.spawn(shell, [], {
+        name: 'xterm-256color',
+        cols,
+        rows,
+        cwd,
+        env: process.env as Record<string, string>,
+      });
+    } catch (err) {
+      console.error(`[Terminal] pty.spawn failed: shell=${shell}, cwd=${cwd}, PATH=${process.env.PATH?.substring(0, 200)}`);
+      throw err;
+    }
 
     const managed: ManagedTerminal = {
       pty: ptyProcess,

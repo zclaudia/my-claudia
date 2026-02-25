@@ -388,6 +388,12 @@ console.log('  [3/4] Clean-room native module install');
     const prebuildsDir = path.join(src, 'prebuilds', platformArch);
     if (fs.existsSync(prebuildsDir)) {
       copyDir(prebuildsDir, path.join(dest, 'prebuilds', platformArch));
+      // npm strips executable permissions from prebuilt binaries during install.
+      // spawn-helper must be executable for posix_spawnp to work.
+      const spawnHelper = path.join(dest, 'prebuilds', platformArch, 'spawn-helper');
+      if (fs.existsSync(spawnHelper)) {
+        fs.chmodSync(spawnHelper, 0o755);
+      }
       console.log(`    node-pty@${EXTERNAL_DEPS['node-pty']}: OK (prebuilds/${platformArch})`);
     } else {
       console.warn(`    node-pty: WARNING - prebuilds/${platformArch} not found`);
