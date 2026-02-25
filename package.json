@@ -1,6 +1,6 @@
 {
   "name": "my-claudia",
-  "version": "0.1.219",
+  "version": "0.1.120",
   "private": true,
   "description": "A cross-platform UI for Code CLI (Claude Code / Cursor / Codex)",
   "type": "module",
