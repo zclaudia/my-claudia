@@ -16,9 +16,9 @@
 # version.json holds only { "major": N, "minor": N }
 # Build number is derived from git tags: build-{major}.{minor}-{N}
 #
-# Platform codes: android=1, macos=2, linux=3, windows=4
+# Platform codes: macos=1, android=2, linux=3, windows=4
 # Version format: {major}.{minor}.{platform_code}{build_number:02d}
-# Example: 0.1.142 = Android, build #42
+# Example: 0.1.242 = Android, build #42
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -45,8 +45,8 @@ fi
 
 # --- Platform code mapping ---
 case "$PLATFORM" in
-  android) PLATFORM_CODE=1 ;;
-  macos)   PLATFORM_CODE=2 ;;
+  android) PLATFORM_CODE=2 ;;
+  macos)   PLATFORM_CODE=1 ;;
   linux)   PLATFORM_CODE=3 ;;
   windows) PLATFORM_CODE=4 ;;
   *) echo "ERROR: Unknown platform '$PLATFORM'. Use: android|macos|linux|windows" >&2; exit 1 ;;

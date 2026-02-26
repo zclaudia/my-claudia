@@ -25,8 +25,10 @@ android {
         applicationId = if (isDev) "com.myClaudia.desktop.dev" else "com.myClaudia.desktop"
         minSdk = 24
         targetSdk = 36
-        versionCode = tauriProperties.getProperty("tauri.android.versionCode", "1").toInt()
-        versionName = tauriProperties.getProperty("tauri.android.versionName", "1.0")
+        versionCode = (System.getenv("ANDROID_VERSION_CODE")?.toIntOrNull())
+            ?: tauriProperties.getProperty("tauri.android.versionCode", "1").toInt()
+        versionName = System.getenv("ANDROID_VERSION_NAME")
+            ?: tauriProperties.getProperty("tauri.android.versionName", "1.0")
         resValue("string", "app_name", if (isDev) "MyClaudia Dev" else "MyClaudia")
     }
     buildTypes {
