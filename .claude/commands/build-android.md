@@ -13,24 +13,9 @@ Arguments (space-separated, order doesn't matter): `$ARGUMENTS`
    - Contains "dev" → add `--dev` flag
    - Contains "install" → add `--install` flag
 
-2. Ask the user for the keystore password if not provided, then run the build script with `KEYSTORE_PASS`:
+2. Run the build script (keystore password defaults to "android"):
    ```bash
-   KEYSTORE_PASS=<password> ./scripts/build-android.sh [--dev] [--install]
-   ```
-
-   Examples:
-   ```bash
-   # Release build only:
-   KEYSTORE_PASS=<password> ./scripts/build-android.sh
-
-   # Dev build only:
-   KEYSTORE_PASS=<password> ./scripts/build-android.sh --dev
-
-   # Release build + install:
-   KEYSTORE_PASS=<password> ./scripts/build-android.sh --install
-
-   # Dev build + install:
-   KEYSTORE_PASS=<password> ./scripts/build-android.sh --dev --install
+   ./scripts/build-android.sh [--dev] [--install]
    ```
 
 3. The script handles everything:
@@ -51,14 +36,14 @@ Arguments (space-separated, order doesn't matter): `$ARGUMENTS`
 |--|---------|-----|
 | applicationId | `com.myClaudia.desktop` | `com.myClaudia.desktop.dev` |
 | App name | MyClaudia | MyClaudia Dev |
-| APK name | my-claudia.apk | my-claudia-dev.apk |
+| APK name | my-claudia-{ver}.apk | my-claudia-{ver}-dev.apk |
 | Coexist | Yes — different applicationId, both can be installed simultaneously |
 
 ## Signing
 
 - Release: `~/.android/my-claudia-release.keystore` (alias: `my-claudia-release`)
 - Dev: `~/.android/my-claudia-dev.keystore` (alias: `my-claudia-dev`)
-- Password passed via `KEYSTORE_PASS` environment variable
+- Password defaults to "android", override with `KEYSTORE_PASS` env var
 - Keystore path and alias can be overridden with `KEYSTORE` and `KEY_ALIAS` env vars
 
 ## Notes

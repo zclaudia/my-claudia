@@ -1,3 +1,4 @@
+#[cfg(all(not(target_os = "android"), not(debug_assertions)))]
 use tauri::Manager;
 
 #[cfg(not(target_os = "android"))]
@@ -17,7 +18,8 @@ pub fn run() {
     let builder = tauri::Builder::default()
         .plugin(tauri_plugin_shell::init());
 
-    #[cfg(not(target_os = "android"))]
+    // Single-instance only in release builds — allows dev and production to coexist
+    #[cfg(all(not(target_os = "android"), not(debug_assertions)))]
     let builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
         // When a second instance is launched, focus the existing window
         if let Some(window) = app.get_webview_window("main") {
@@ -55,9 +57,9 @@ pub fn run() {
     builder
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
-        .run(|_app, event| {
+        .run(|_app, _event| {
             #[cfg(not(target_os = "android"))]
-            if let tauri::RunEvent::Exit = event {
+            if let tauri::RunEvent::Exit = _event {
                 server::stop_server_sync();
             }
         });

@@ -17,11 +17,10 @@ Runs Vite + Tauri binary + embedded Node server as a single process tree.
 
 ### Step 1: Kill ALL stale processes
 
-Run in a single command:
+Run in a single command (only kill THIS project's dev processes, not production app or gateway):
 ```
-pkill -f "my-claudia" 2>/dev/null
-pkill -f "server/dist/index.js" 2>/dev/null
-lsof -ti:1420 | xargs kill -9 2>/dev/null
+pgrep -f "tauri.dev.conf.json" | xargs kill 2>/dev/null
+lsof -ti:1420 | xargs kill 2>/dev/null
 ```
 
 ### Step 2: Verify port 1420 is free
@@ -37,7 +36,7 @@ Run in parallel:
 ### Step 4: Start Tauri dev
 
 ```
-cd $PROJECT_ROOT/apps/desktop && eval "$(fnm env)" && pnpm exec tauri dev 2>&1
+cd $PROJECT_ROOT/apps/desktop && eval "$(fnm env)" && pnpm exec tauri dev --config src-tauri/tauri.dev.conf.json 2>&1
 ```
 
 Run this as a **background command** with a 10-minute timeout.

@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # Build, sign, and optionally install Android APK
 # Usage:
-#   KEYSTORE_PASS=<pw> ./scripts/build-android.sh              # build + sign release
-#   KEYSTORE_PASS=<pw> ./scripts/build-android.sh --dev        # build + sign dev variant
-#   KEYSTORE_PASS=<pw> ./scripts/build-android.sh --install    # build + sign + install
+#   ./scripts/build-android.sh              # build + sign release
+#   ./scripts/build-android.sh --dev        # build + sign dev variant
+#   ./scripts/build-android.sh --install    # build + sign + install
 #   ./scripts/build-android.sh --install-only                  # install existing APK
 #
 # Environment:
-#   KEYSTORE_PASS  - keystore password (required for signing)
+#   KEYSTORE_PASS  - keystore password (default: "android")
 #   KEYSTORE       - override keystore path (default: ~/.android/my-claudia-{release,dev}.keystore)
 #   KEY_ALIAS      - override key alias (default: my-claudia-{release,dev})
 #
@@ -136,10 +136,18 @@ fi
 # --- APK paths ---
 APK_DIR="apps/desktop/src-tauri/gen/android/app/build/outputs/apk/universal/release"
 UNSIGNED="$APK_DIR/app-universal-release-unsigned.apk"
-if [ "$DEV" = true ]; then
-  OUTPUT="$APK_DIR/my-claudia-dev.apk"
+if [ "$INSTALL_ONLY" = true ]; then
+  # Find latest existing APK
+  if [ "$DEV" = true ]; then
+    OUTPUT=$(ls -t "$APK_DIR"/my-claudia-*-dev.apk 2>/dev/null | head -1)
+  else
+    OUTPUT=$(ls -t "$APK_DIR"/my-claudia-*.apk 2>/dev/null | grep -v -- '-dev\.apk$' | head -1)
+  fi
+  [ -z "$OUTPUT" ] && { echo "ERROR: No APK found in $APK_DIR"; exit 1; }
+elif [ "$DEV" = true ]; then
+  OUTPUT="$APK_DIR/my-claudia-${VERSION}-dev.apk"
 else
-  OUTPUT="$APK_DIR/my-claudia.apk"
+  OUTPUT="$APK_DIR/my-claudia-${VERSION}.apk"
 fi
 
 # --- Build ---
@@ -185,6 +193,7 @@ if [ "$INSTALL_ONLY" = false ]; then
     exit 1
   fi
 
+  KEYSTORE_PASS="${KEYSTORE_PASS:-android}"
   if [ -z "${KEYSTORE_PASS:-}" ]; then
     echo "ERROR: KEYSTORE_PASS environment variable is required"
     echo "       Usage: KEYSTORE_PASS=<password> ./scripts/build-android.sh [--dev]"
