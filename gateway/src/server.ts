@@ -395,7 +395,14 @@ export function createGatewayServer(config: GatewayConfig): Server {
       }
 
       if (connectionType === 'backend' && connectionId) {
-        handleBackendDisconnect(connectionId);
+        // Only disconnect if this ws is still the registered one (not replaced by a reconnect)
+        const current = backends.get(connectionId);
+        if (current && current.ws === ws) {
+          handleBackendDisconnect(connectionId);
+        } else {
+          // Old connection closed after being replaced — just clean up the mapping
+          backendConnections.delete(ws);
+        }
       } else if (connectionType === 'client' && connectionId) {
         handleClientDisconnect(connectionId);
       }

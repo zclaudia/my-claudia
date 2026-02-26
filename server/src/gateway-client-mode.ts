@@ -88,6 +88,11 @@ export class GatewayClientMode {
 
   connect(): void {
     this.intentionalDisconnect = false;
+    // Clear pending reconnect to prevent duplicate connections
+    if (this.reconnectTimeout) {
+      clearTimeout(this.reconnectTimeout);
+      this.reconnectTimeout = null;
+    }
     if (this.ws) {
       this.ws.removeAllListeners();
       this.ws.close();
@@ -406,6 +411,9 @@ export class GatewayClientMode {
   private scheduleReconnect(): void {
     if (this.intentionalDisconnect) return;
 
+    // Prevent duplicate reconnect scheduling
+    if (this.reconnectTimeout) return;
+
     this.reconnectAttempts++;
     const delay = Math.min(
       this.reconnectBaseInterval * Math.pow(2, this.reconnectAttempts - 1),
@@ -414,6 +422,7 @@ export class GatewayClientMode {
     console.log(`[GatewayClientMode] Reconnecting in ${delay / 1000}s (attempt ${this.reconnectAttempts})`);
 
     this.reconnectTimeout = setTimeout(() => {
+      this.reconnectTimeout = null;
       this.connect();
     }, delay);
   }

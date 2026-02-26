@@ -37,6 +37,10 @@ interface GatewayState {
   toggleBackendSubscription: (backendId: string) => void;
   isBackendSubscribed: (backendId: string) => boolean;
 
+  // Dev debug
+  showLocalBackend: boolean;
+  setShowLocalBackend: (show: boolean) => void;
+
   // Getters
   isConfigured: () => boolean;
   hasDirectConfig: () => boolean;
@@ -69,6 +73,10 @@ export const useGatewayStore = create<GatewayState>()(
 
       // Backend subscription (persisted) — empty = all subscribed
       subscribedBackendIds: [],
+
+      // Dev debug
+      showLocalBackend: false,
+      setShowLocalBackend: (show) => set({ showLocalBackend: show }),
 
       syncFromServer: (url: string | null, secret: string | null, backends: GatewayBackendInfo[], backendId?: string | null, connected?: boolean) => {
         const localId = backendId !== undefined ? backendId : get().localBackendId;

@@ -73,6 +73,9 @@ async function connectToGateway(config: GatewayConfig): Promise<void> {
   }
 
   if (gatewayClient) {
+    // Clear sync interval before disconnect
+    const syncInterval = (gatewayClient as any)._syncInterval;
+    if (syncInterval) clearInterval(syncInterval);
     gatewayClient.disconnect();
   }
 

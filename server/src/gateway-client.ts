@@ -149,9 +149,15 @@ export class GatewayClient {
    */
   connect(): void {
     this.intentionalDisconnect = false;
+    // Clear pending reconnect to prevent duplicate connections
+    if (this.reconnectTimeout) {
+      clearTimeout(this.reconnectTimeout);
+      this.reconnectTimeout = null;
+    }
     if (this.ws) {
       this.ws.removeAllListeners();
       this.ws.close();
+      this.ws = null;
     }
 
     const wsUrl = this.config.gatewayUrl.replace(/^http/, 'ws');
@@ -196,11 +202,17 @@ export class GatewayClient {
       }
     });
 
-    this.ws.on('close', () => {
-      console.log('[Gateway] Disconnected');
+    this.ws.on('close', (code: number) => {
+      console.log(`[Gateway] Disconnected (code: ${code})`);
       this.isConnected = false;
       this.backendId = null;
-      this.discoveredBackends = [];
+      // Code 4000 = "Replaced by new connection" — our own connect() already
+      // created a new WS, so reconnecting would create a duplicate.
+      if (code === 4000) {
+        console.log('[Gateway] Replaced by new connection, skipping reconnect');
+        return;
+      }
+      // Keep discoveredBackends across reconnects — will be refreshed on re-register
       this.scheduleReconnect();
     });
 
@@ -460,6 +472,12 @@ export class GatewayClient {
       return;
     }
 
+    // Prevent duplicate reconnect scheduling
+    if (this.reconnectTimeout) {
+      console.log('[Gateway] Reconnect already scheduled, skipping');
+      return;
+    }
+
     this.reconnectAttempts++;
     // Exponential backoff: 5s, 10s, 20s, 40s, 60s, 60s, ...
     const delay = Math.min(
@@ -469,6 +487,7 @@ export class GatewayClient {
     console.log(`[Gateway] Reconnecting in ${delay / 1000}s (attempt ${this.reconnectAttempts})`);
 
     this.reconnectTimeout = setTimeout(() => {
+      this.reconnectTimeout = null;
       this.connect();
     }, delay);
   }

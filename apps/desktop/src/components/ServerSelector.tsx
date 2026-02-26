@@ -23,6 +23,7 @@ export function ServerSelector() {
     setLastActiveBackend,
     toggleBackendSubscription,
     isBackendSubscribed,
+    showLocalBackend,
   } = useGatewayStore();
 
   const { connectServer } = useConnection();
@@ -33,7 +34,7 @@ export function ServerSelector() {
   const directServers = servers.filter(s => s.connectionMode !== 'gateway');
   const activeServer = useServerStore.getState().getActiveServer();
   const isGatewayConfigured = !!gatewayUrl && !!gatewaySecret;
-  const remoteBackends = discoveredBackends.filter(b => !b.isLocal);
+  const remoteBackends = discoveredBackends.filter(b => showLocalBackend || !b.isLocal);
 
   const handleServerSelect = (serverId: string) => {
     setActiveServer(serverId);

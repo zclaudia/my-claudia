@@ -7,6 +7,7 @@ import {
   disconnectServerFromGateway
 } from '../services/api';
 import type { ServerGatewayConfig as GatewayConfig, ServerGatewayStatus } from '@my-claudia/shared';
+import { useGatewayStore } from '../stores/gatewayStore';
 
 export function ServerGatewayConfig() {
   const [config, setConfig] = useState<GatewayConfig | null>(null);
@@ -24,6 +25,8 @@ export function ServerGatewayConfig() {
   const [proxyUrl, setProxyUrl] = useState('');
   const [proxyUsername, setProxyUsername] = useState('');
   const [proxyPassword, setProxyPassword] = useState('');
+
+  const { showLocalBackend, setShowLocalBackend } = useGatewayStore();
 
   // Load config on mount
   useEffect(() => {
@@ -202,12 +205,12 @@ export function ServerGatewayConfig() {
       )}
 
       {/* Discovered Backends */}
-      {status?.connected && status.discoveredBackends && status.discoveredBackends.filter(b => !b.isLocal).length > 0 && (
+      {status?.connected && status.discoveredBackends && status.discoveredBackends.filter(b => showLocalBackend || !b.isLocal).length > 0 && (
         <div className="bg-muted rounded-lg p-3 space-y-2">
           <h4 className="text-sm font-semibold text-foreground">
-            Discovered Backends ({status.discoveredBackends.filter(b => !b.isLocal).length})
+            Discovered Backends ({status.discoveredBackends.filter(b => showLocalBackend || !b.isLocal).length})
           </h4>
-          {status.discoveredBackends.filter(b => !b.isLocal).map((b) => (
+          {status.discoveredBackends.filter(b => showLocalBackend || !b.isLocal).map((b) => (
             <div key={b.backendId} className="flex items-center justify-between text-sm">
               <div className="flex items-center gap-2">
                 <span className={`w-1.5 h-1.5 rounded-full ${b.online ? 'bg-success' : 'bg-muted-foreground'}`} />
@@ -264,6 +267,33 @@ export function ServerGatewayConfig() {
           />
         </button>
       </div>
+
+      {/* Dev: Show Local Backend Toggle */}
+      {import.meta.env.DEV && (
+        <div className="flex items-center justify-between">
+          <div>
+            <label className="text-sm font-medium text-foreground">
+              Show Local Backend
+            </label>
+            <p className="text-xs text-muted-foreground">
+              Dev only: show self in backend list for debugging
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setShowLocalBackend(!showLocalBackend)}
+            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+              showLocalBackend ? 'bg-primary' : 'bg-muted'
+            }`}
+          >
+            <span
+              className={`inline-block h-4 w-4 transform rounded-full bg-background transition-transform ${
+                showLocalBackend ? 'translate-x-6' : 'translate-x-1'
+              }`}
+            />
+          </button>
+        </div>
+      )}
 
       {/* Configuration Fields */}
       <div className="space-y-3">

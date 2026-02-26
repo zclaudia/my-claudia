@@ -65,7 +65,8 @@ export function MobileSetup() {
     connectServer(serverId);
   };
 
-  const onlineBackends = discoveredBackends.filter(b => b.online && !b.isLocal);
+  const { showLocalBackend } = useGatewayStore();
+  const onlineBackends = discoveredBackends.filter(b => b.online && (showLocalBackend || !b.isLocal));
 
   // Phase 2: Gateway connected — show backend selection
   if (isGatewayConnected && onlineBackends.length > 0) {
