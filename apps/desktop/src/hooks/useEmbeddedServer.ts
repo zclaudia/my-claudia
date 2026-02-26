@@ -65,7 +65,7 @@ export function useEmbeddedServer(): EmbeddedServerState {
 
       const command = Command.create('run-node', [serverPath], {
         env: {
-          PORT: '0',
+          PORT: '3100',
           SERVER_HOST: '127.0.0.1',
           MY_CLAUDIA_DATA_DIR: dataDir,
         },

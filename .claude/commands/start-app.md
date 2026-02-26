@@ -20,6 +20,7 @@ Runs Vite + Tauri binary + embedded Node server as a single process tree.
 Run in a single command (only kill THIS project's dev processes, not production app or gateway):
 ```
 pgrep -f "tauri.dev.conf.json" | xargs kill 2>/dev/null
+pgrep -f "target/debug/my-claudia" | xargs kill 2>/dev/null
 lsof -ti:1420 | xargs kill 2>/dev/null
 ```
 

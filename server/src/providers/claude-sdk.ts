@@ -223,7 +223,7 @@ export async function* runClaude(
   // ALWAYS remove CLAUDECODE to prevent "nested session" detection
   // when our server itself runs inside a Claude Code session (e.g. during development).
   {
-    const baseEnv = options.env || { ...process.env } as Record<string, string>;
+    const baseEnv = { ...process.env, ...(options.env || {}) } as Record<string, string>;
     const cleanEnv = { ...baseEnv };
     delete (cleanEnv as Record<string, unknown>).CLAUDECODE;
     sdkOptions.env = cleanEnv;

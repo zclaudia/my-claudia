@@ -308,6 +308,7 @@ async function main() {
 
     server.listen(PORT, HOST, async () => {
       actualPort = (server.address() as import('net').AddressInfo).port;
+      serverContext!.setServerPort(actualPort);
       // Machine-readable line for embedded server port discovery
       console.log(`SERVER_READY:${actualPort}`);
       console.log(`🚀 MyClaudia Server running at http://${HOST}:${actualPort}`);

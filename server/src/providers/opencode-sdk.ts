@@ -12,6 +12,7 @@ export interface OpenCodeRunOptions {
   cliPath?: string;     // Custom path to opencode binary
   model?: string;       // Model override (e.g. 'anthropic/claude-sonnet-4-5-20250929')
   agent?: string;       // Agent/mode to use (e.g. 'sisyphus', 'plan')
+  systemPrompt?: string; // Prepended as system context to first message in new sessions
 }
 
 // ============================================
@@ -415,10 +416,16 @@ export async function* runOpenCode(
   // Parse input: extract text and save image attachments to temp files
   const { text: promptText, tempFiles } = await prepareInput(input);
 
+  // Prepend system context to first message in new sessions (OpenCode has no native system prompt API)
+  let effectivePrompt = promptText;
+  if (options.systemPrompt && !options.sessionId) {
+    effectivePrompt = `[System Context]\n${options.systemPrompt}\n\n${promptText}`;
+  }
+
   try {
     // Send message asynchronously
     const messageBody: Record<string, unknown> = {
-      parts: [{ type: 'text', text: promptText }],
+      parts: [{ type: 'text', text: effectivePrompt }],
     };
 
     if (options.model) {

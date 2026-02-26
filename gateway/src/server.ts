@@ -16,6 +16,9 @@ import type {
   BackendToGatewayMessage,
   GatewayHttpProxyRequest,
   GatewayHttpProxyResponse,
+  GatewayHttpProxyResponseStart,
+  GatewayHttpProxyResponseChunk,
+  GatewayHttpProxyResponseEnd,
   ClientMessage,
   ServerMessage
 } from '@my-claudia/shared';
@@ -66,9 +69,18 @@ export function createGatewayServer(config: GatewayConfig): Server {
   const backendConnections = new Map<WebSocket, ConnectedBackend>();  // ws -> backend (for lookup)
   const backendSubscriptions = new Map<string, Set<string>>();  // backendId -> Set<clientId> (subscription tracking)
 
-  // Pending HTTP proxy requests: requestId -> { resolve, timeout }
+  // Pending HTTP proxy requests: requestId -> { resolve, reject, timeout, res }
   const pendingHttpRequests = new Map<string, {
-    resolve: (response: GatewayHttpProxyResponse) => void;
+    resolve: (response: GatewayHttpProxyResponse | null) => void;
+    reject: (error: Error) => void;
+    timeout: NodeJS.Timeout;
+    res: Response;
+  }>();
+
+  // In-progress streaming proxy responses
+  const pendingStreamingRequests = new Map<string, {
+    res: Response;
+    resolve: () => void;
     timeout: NodeJS.Timeout;
   }>();
 
@@ -210,13 +222,14 @@ export function createGatewayServer(config: GatewayConfig): Server {
       };
 
       // Send request to backend via WS and wait for response
-      const responsePromise = new Promise<GatewayHttpProxyResponse>((resolve, reject) => {
+      // resolve(null) means streaming handled the response directly
+      const responsePromise = new Promise<GatewayHttpProxyResponse | null>((resolve, reject) => {
         const timeout = setTimeout(() => {
           pendingHttpRequests.delete(requestId);
           reject(new Error('Backend request timed out'));
-        }, 30000);
+        }, 60000); // 60s initial timeout (backend needs time to fetch + start streaming)
 
-        pendingHttpRequests.set(requestId, { resolve, timeout });
+        pendingHttpRequests.set(requestId, { resolve, reject, timeout, res });
       });
 
       // Forward to backend
@@ -231,20 +244,28 @@ export function createGatewayServer(config: GatewayConfig): Server {
         return;
       }
 
-      // Wait for response
+      // Wait for response (or null if streaming handled it)
       const proxyResponse = await responsePromise;
 
-      // Forward response to client
-      res.status(proxyResponse.statusCode);
-      for (const [key, value] of Object.entries(proxyResponse.headers)) {
-        // Skip hop-by-hop headers
-        if (!['transfer-encoding', 'connection'].includes(key.toLowerCase())) {
-          res.setHeader(key, value);
+      if (proxyResponse) {
+        // Single-message response: forward headers + body
+        res.status(proxyResponse.statusCode);
+        for (const [key, value] of Object.entries(proxyResponse.headers)) {
+          if (!['transfer-encoding', 'connection'].includes(key.toLowerCase())) {
+            res.setHeader(key, value);
+          }
         }
+        res.send(proxyResponse.body);
       }
-      res.send(proxyResponse.body);
+      // If null, streaming already handled the response via res.write()/res.end()
 
     } catch (error) {
+      // Don't send error if headers already sent (streaming in progress)
+      if (res.headersSent) {
+        console.error('[Gateway] HTTP proxy error during streaming:', error);
+        res.end();
+        return;
+      }
       if ((error as Error).message === 'Backend request timed out') {
         res.status(504).json({
           success: false,
@@ -281,7 +302,7 @@ export function createGatewayServer(config: GatewayConfig): Server {
   const wss = new WebSocketServer({
     server: httpServer,
     path: '/ws',
-    maxPayload: 20 * 1024 * 1024 // 20MB max WebSocket message size (supports file uploads via proxy)
+    maxPayload: 50 * 1024 * 1024 // 50MB max WebSocket message size (chunked proxy sends ~5.5MB per chunk)
   });
 
   // Ping interval for connection health
@@ -532,13 +553,79 @@ export function createGatewayServer(config: GatewayConfig): Server {
       }
 
       case 'http_proxy_response': {
-        // Resolve pending HTTP proxy request
+        // Single-message response (small text/JSON payloads)
         const proxyMsg = message as GatewayHttpProxyResponse;
         const pending = pendingHttpRequests.get(proxyMsg.requestId);
         if (pending) {
           clearTimeout(pending.timeout);
           pendingHttpRequests.delete(proxyMsg.requestId);
           pending.resolve(proxyMsg);
+        }
+        break;
+      }
+
+      case 'http_proxy_response_start': {
+        // Streaming response: set headers and transition to streaming state
+        const startMsg = message as GatewayHttpProxyResponseStart;
+        const pending = pendingHttpRequests.get(startMsg.requestId);
+        if (pending) {
+          clearTimeout(pending.timeout);
+          pendingHttpRequests.delete(startMsg.requestId);
+
+          // Set HTTP status + headers immediately
+          pending.res.status(startMsg.statusCode);
+          for (const [key, value] of Object.entries(startMsg.headers)) {
+            if (!['transfer-encoding', 'connection'].includes(key.toLowerCase())) {
+              pending.res.setHeader(key, value);
+            }
+          }
+
+          // Move to streaming state with per-chunk timeout
+          const chunkTimeout = setTimeout(() => {
+            console.warn(`[Gateway] Streaming timeout for request ${startMsg.requestId}`);
+            pendingStreamingRequests.delete(startMsg.requestId);
+            pending.res.end();
+            pending.resolve(null);
+          }, 60000);
+
+          pendingStreamingRequests.set(startMsg.requestId, {
+            res: pending.res,
+            resolve: () => pending.resolve(null),
+            timeout: chunkTimeout,
+          });
+        }
+        break;
+      }
+
+      case 'http_proxy_response_chunk': {
+        // Streaming response: write decoded chunk to HTTP response
+        const chunkMsg = message as GatewayHttpProxyResponseChunk;
+        const streaming = pendingStreamingRequests.get(chunkMsg.requestId);
+        if (streaming) {
+          // Reset per-chunk timeout
+          clearTimeout(streaming.timeout);
+          streaming.timeout = setTimeout(() => {
+            console.warn(`[Gateway] Streaming chunk timeout for request ${chunkMsg.requestId}`);
+            pendingStreamingRequests.delete(chunkMsg.requestId);
+            streaming.res.end();
+            streaming.resolve();
+          }, 60000);
+
+          const buffer = Buffer.from(chunkMsg.data, 'base64');
+          streaming.res.write(buffer);
+        }
+        break;
+      }
+
+      case 'http_proxy_response_end': {
+        // Streaming response: finalize
+        const endMsg = message as GatewayHttpProxyResponseEnd;
+        const streaming = pendingStreamingRequests.get(endMsg.requestId);
+        if (streaming) {
+          clearTimeout(streaming.timeout);
+          pendingStreamingRequests.delete(endMsg.requestId);
+          streaming.res.end();
+          streaming.resolve();
         }
         break;
       }

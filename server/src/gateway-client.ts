@@ -14,6 +14,9 @@ import type {
   GatewayClientDisconnectedMessage,
   GatewayHttpProxyRequest,
   GatewayHttpProxyResponse,
+  GatewayHttpProxyResponseStart,
+  GatewayHttpProxyResponseChunk,
+  GatewayHttpProxyResponseEnd,
   GatewayBackendsListMessage,
   GatewayBackendInfo,
   ClientMessage,
@@ -364,6 +367,24 @@ export class GatewayClient {
     }
   }
 
+  private static readonly STREAM_THRESHOLD = 1024 * 1024; // 1MB — stream responses larger than this
+
+  private static shouldStream(headers: Record<string, string>): boolean {
+    const contentLength = parseInt(headers['content-length'] || '0', 10);
+    if (contentLength > GatewayClient.STREAM_THRESHOLD) return true;
+
+    const ct = (headers['content-type'] || '').toLowerCase();
+    if (ct.startsWith('image/') || ct.startsWith('audio/') || ct.startsWith('video/')) return true;
+    if (ct === 'application/octet-stream' || ct.includes('zip') || ct.includes('tar') || ct.includes('gzip')) return true;
+    if (ct === 'application/vnd.android.package-archive') return true;
+
+    return false;
+  }
+
+  private sendWs(data: BackendToGatewayMessage): void {
+    this.ws?.send(JSON.stringify(data));
+  }
+
   private async handleHttpProxyRequest(msg: GatewayHttpProxyRequest): Promise<void> {
     const port = this.config.serverPort || 3100;
     const url = `http://localhost:${port}${msg.path}`;
@@ -381,15 +402,51 @@ export class GatewayClient {
         responseHeaders[key] = value;
       });
 
-      const response: GatewayHttpProxyResponse = {
-        type: 'http_proxy_response',
-        requestId: msg.requestId,
-        statusCode: resp.status,
-        headers: responseHeaders,
-        body: await resp.text()
-      };
+      if (GatewayClient.shouldStream(responseHeaders) && resp.body) {
+        // Streaming path: send headers, then chunked body, then end
+        console.log(`[Gateway] HTTP proxy streaming: ${msg.method} ${msg.path} (${responseHeaders['content-length'] || '?'} bytes)`);
 
-      this.ws?.send(JSON.stringify(response));
+        const start: GatewayHttpProxyResponseStart = {
+          type: 'http_proxy_response_start',
+          requestId: msg.requestId,
+          statusCode: resp.status,
+          headers: responseHeaders,
+        };
+        this.sendWs(start);
+
+        const reader = resp.body.getReader();
+        try {
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+
+            const chunk: GatewayHttpProxyResponseChunk = {
+              type: 'http_proxy_response_chunk',
+              requestId: msg.requestId,
+              data: Buffer.from(value).toString('base64'),
+            };
+            this.sendWs(chunk);
+          }
+        } finally {
+          reader.releaseLock();
+        }
+
+        const end: GatewayHttpProxyResponseEnd = {
+          type: 'http_proxy_response_end',
+          requestId: msg.requestId,
+        };
+        this.sendWs(end);
+      } else {
+        // Single-message path: small text/JSON responses
+        const response: GatewayHttpProxyResponse = {
+          type: 'http_proxy_response',
+          requestId: msg.requestId,
+          statusCode: resp.status,
+          headers: responseHeaders,
+          body: await resp.text()
+        };
+        this.sendWs(response);
+      }
     } catch (error) {
       console.error('[Gateway] HTTP proxy error:', error);
       const response: GatewayHttpProxyResponse = {
@@ -402,7 +459,7 @@ export class GatewayClient {
           error: { code: 'PROXY_ERROR', message: 'Failed to reach local server' }
         })
       };
-      this.ws?.send(JSON.stringify(response));
+      this.sendWs(response);
     }
   }
 

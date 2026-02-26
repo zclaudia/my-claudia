@@ -16,6 +16,7 @@ export class OpenCodeAdapter implements ProviderAdapter {
       env: options.env,
       model: options.model,
       agent: options.mode,
+      systemPrompt: options.systemPrompt,
     }, onPermission);
   }
 

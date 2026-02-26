@@ -53,6 +53,8 @@ export function useMultiServerSocket() {
     appendToLastMessage,
     startRun,
     endRun,
+    claimRun,
+    isRunOwner,
     addToolCall,
     updateToolCallResult,
     finalizeToolCallsToMessage,
@@ -81,9 +83,12 @@ export function useMultiServerSocket() {
   }, [selectedSessionId]);
 
   /**
-   * Create message handler for a specific direct server
+   * Create message handler for a specific direct server.
+   * Each invocation gets a unique connectionId to prevent duplicate event processing
+   * when multiple connections (local, relay, gateway WS) reach the same backend.
    */
   const createMessageHandler = useCallback((serverId: string) => {
+    const connectionId = `direct:${serverId}:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`;
     return (rawMessage: ServerMessage | any) => {
       const currentSessionId = selectedSessionIdRef.current;
 
@@ -97,6 +102,11 @@ export function useMultiServerSocket() {
       } else {
         message = rawMessage as ServerMessage;
       }
+
+      // --- Diagnostic: trace every message arriving through this hook ---
+      const _content = (message as any).content;
+      const _contentPreview = typeof _content === 'string' ? _content.slice(0, 80) : '-';
+      console.log(`[MSS] ${message.type} | serverId=${serverId} | runId=${(message as any).runId ?? '-'} | content=${_contentPreview}`);
 
       switch (message.type) {
         case 'auth_result':
@@ -125,6 +135,7 @@ export function useMultiServerSocket() {
           break;
 
         case 'delta': {
+          if (!isRunOwner(message.runId, connectionId)) break;
           // Use sessionId from message (preferred), fall back to activeRuns lookup
           const deltaSession = message.sessionId || useChatStore.getState().activeRuns[message.runId];
           if (deltaSession) {
@@ -141,6 +152,8 @@ export function useMultiServerSocket() {
           // Use sessionId from server message (preferred), fall back to ref for old servers
           const targetSessionId = message.sessionId || currentSessionId;
           const isAgentRun = message.clientRequestId?.startsWith('agent_');
+          // Claim run ownership — if another connection already claimed it, skip
+          if (!claimRun(message.runId, connectionId)) break;
           // Track run-to-server mapping for heartbeat reconciliation
           if (!serverRunsRef.current.has(serverId)) {
             serverRunsRef.current.set(serverId, new Set());
@@ -179,6 +192,7 @@ export function useMultiServerSocket() {
         }
 
         case 'run_completed': {
+          if (!isRunOwner(message.runId, connectionId)) break;
           // Use sessionId from message (preferred), fall back to activeRuns lookup
           const completedSession = message.sessionId || useChatStore.getState().activeRuns[message.runId];
           // Clean up agent run state
@@ -204,6 +218,7 @@ export function useMultiServerSocket() {
         }
 
         case 'run_failed': {
+          if (!isRunOwner(message.runId, connectionId)) break;
           // Use sessionId from message (preferred), fall back to activeRuns lookup
           const failedSession = message.sessionId || useChatStore.getState().activeRuns[message.runId];
           // Clean up agent run state
@@ -230,6 +245,7 @@ export function useMultiServerSocket() {
         }
 
         case 'tool_use': {
+          if (!isRunOwner(message.runId, connectionId)) break;
           // Use sessionId from message or fall back to activeRuns lookup
           const toolSession = message.sessionId || useChatStore.getState().activeRuns[message.runId];
           if (toolSession) {
@@ -239,6 +255,7 @@ export function useMultiServerSocket() {
         }
 
         case 'tool_result': {
+          if (!isRunOwner(message.runId, connectionId)) break;
           // Use sessionId from message or fall back to activeRuns lookup
           const resultSession = message.sessionId || useChatStore.getState().activeRuns[message.runId];
           if (resultSession) {
@@ -468,6 +485,8 @@ export function useMultiServerSocket() {
     appendToLastMessage,
     startRun,
     endRun,
+    claimRun,
+    isRunOwner,
     addToolCall,
     updateToolCallResult,
     finalizeToolCallsToMessage,

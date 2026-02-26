@@ -4,7 +4,9 @@ import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneDark, oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { ToolCallList } from './ToolCallItem';
+import { FilePushCard } from './FilePushNotification';
 import type { MessageWithToolCalls } from '../../stores/chatStore';
+import type { FilePushItem } from '../../stores/filePushStore';
 import { useTheme, isDarkTheme } from '../../contexts/ThemeContext';
 import { downloadFile } from '../../services/fileUpload';
 import type { MessageInput, MessageAttachment } from '@my-claudia/shared';
@@ -58,15 +60,20 @@ function ThinkingBlock({ content }: { content: string }) {
 
 interface MessageListProps {
   messages: MessageWithToolCalls[];
+  filePushItems?: FilePushItem[];
 }
 
-export function MessageList({ messages }: MessageListProps) {
-  if (!messages || messages.length === 0) {
+type TimelineEntry =
+  | { kind: 'message'; data: MessageWithToolCalls }
+  | { kind: 'file_push'; data: FilePushItem };
+
+export function MessageList({ messages, filePushItems }: MessageListProps) {
+  if ((!messages || messages.length === 0) && (!filePushItems || filePushItems.length === 0)) {
     return null;
   }
 
   // Filter out empty user messages (likely permission approvals or empty inputs)
-  const filteredMessages = messages.filter((message) => {
+  const filteredMessages = (messages || []).filter((message) => {
     // Keep all non-user messages (assistant, system, etc.)
     if (message.role !== 'user') {
       return true;
@@ -92,11 +99,27 @@ export function MessageList({ messages }: MessageListProps) {
     return textContent.trim().length > 0 || hasAttachments;
   });
 
+  // Build merged timeline sorted by createdAt
+  const timeline: TimelineEntry[] = [
+    ...filteredMessages.map((m): TimelineEntry => ({ kind: 'message', data: m })),
+    ...(filePushItems || []).map((f): TimelineEntry => ({ kind: 'file_push', data: f })),
+  ].sort((a, b) => {
+    const tA = a.kind === 'message' ? a.data.createdAt : a.data.createdAt;
+    const tB = b.kind === 'message' ? b.data.createdAt : b.data.createdAt;
+    return tA - tB;
+  });
+
   return (
     <div className="space-y-4">
-      {filteredMessages.map((message) => (
-        <MessageItem key={message.id} message={message} />
-      ))}
+      {timeline.map((entry) =>
+        entry.kind === 'message' ? (
+          <MessageItem key={entry.data.id} message={entry.data} />
+        ) : (
+          <div key={entry.data.fileId} className="max-w-full md:max-w-3xl">
+            <FilePushCard item={entry.data} />
+          </div>
+        )
+      )}
     </div>
   );
 }

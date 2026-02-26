@@ -35,6 +35,9 @@ interface ChatState {
   activeToolCalls: Record<string, Record<string, ToolCallState>>;
   // Tool calls history per run: runId → ToolCallState[] (preserves order)
   toolCallsHistory: Record<string, ToolCallState[]>;
+  // Run ownership: runId → serverId (first connection to claim a run "owns" it)
+  // Prevents duplicate streaming events when local + gateway connect to same server
+  runOwners: Record<string, string>;
   // Current system info from Claude SDK init message
   currentSystemInfo: SystemInfo | null;
   // Current mode (generic — permission mode for Claude, agent for OpenCode, etc.)
@@ -55,6 +58,9 @@ interface ChatState {
   // Actions — Run lifecycle
   startRun: (runId: string, sessionId: string) => void;
   endRun: (runId: string) => void;
+  // Run ownership — prevents duplicate streaming events from multiple connections
+  claimRun: (runId: string, serverId: string) => boolean;
+  isRunOwner: (runId: string, serverId: string) => boolean;
 
   // Actions — Tool calls (per run)
   addToolCall: (runId: string, toolUseId: string, toolName: string, toolInput: unknown) => void;
@@ -94,6 +100,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   activeRuns: {},
   activeToolCalls: {},
   toolCallsHistory: {},
+  runOwners: {},
   currentSystemInfo: null,
   mode: 'default',
   sessionUsage: {},
@@ -124,6 +131,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
   addMessage: (sessionId, message) =>
     set((state) => {
       const existingMessages = state.messages[sessionId] || [];
+      // Deduplicate by message ID (can happen when local + gateway point to same server)
+      if (existingMessages.some((m) => m.id === message.id)) {
+        return state;
+      }
       const existingPagination = state.pagination[sessionId] || DEFAULT_PAGINATION;
 
       return {
@@ -191,12 +202,33 @@ export const useChatStore = create<ChatState>((set, get) => ({
       const { [runId]: _removedRun, ...remainingRuns } = state.activeRuns;
       const { [runId]: _removedTC, ...remainingTC } = state.activeToolCalls;
       const { [runId]: _removedHist, ...remainingHist } = state.toolCallsHistory;
+      const { [runId]: _removedOwner, ...remainingOwners } = state.runOwners;
       return {
         activeRuns: remainingRuns,
         activeToolCalls: remainingTC,
         toolCallsHistory: remainingHist,
+        runOwners: remainingOwners,
       };
     }),
+
+  claimRun: (runId, serverId) => {
+    const state = get();
+    if (state.runOwners[runId]) {
+      // Already claimed — return whether this serverId is the owner
+      return state.runOwners[runId] === serverId;
+    }
+    // First to claim — register ownership
+    set((s) => ({ runOwners: { ...s.runOwners, [runId]: serverId } }));
+    return true;
+  },
+
+  isRunOwner: (runId, connectionId) => {
+    const owner = get().runOwners[runId];
+    // Strict: only the connection that claimed the run can process its events.
+    // If no owner yet (delta arrived before run_started), reject — the owner's
+    // connection will also receive the same event and process it.
+    return owner === connectionId;
+  },
 
   // ── Tool call actions (per run) ────────────────────────────────
 

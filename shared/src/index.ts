@@ -1259,6 +1259,27 @@ export interface GatewayHttpProxyResponse {
   body: string;          // JSON string
 }
 
+// Streaming HTTP proxy response (for large/binary payloads)
+// Flow: response_start → N × response_chunk → response_end
+
+export interface GatewayHttpProxyResponseStart {
+  type: 'http_proxy_response_start';
+  requestId: string;
+  statusCode: number;
+  headers: Record<string, string>;
+}
+
+export interface GatewayHttpProxyResponseChunk {
+  type: 'http_proxy_response_chunk';
+  requestId: string;
+  data: string;          // base64-encoded binary chunk
+}
+
+export interface GatewayHttpProxyResponseEnd {
+  type: 'http_proxy_response_end';
+  requestId: string;
+}
+
 // Union types for Gateway messages
 export type GatewayToBackendMessage =
   | GatewayRegisterResultMessage
@@ -1276,7 +1297,10 @@ export type BackendToGatewayMessage =
   | GatewayBackendResponseMessage
   | GatewayBroadcastSessionEventMessage
   | GatewayBroadcastToSubscribersMessage
-  | GatewayHttpProxyResponse;
+  | GatewayHttpProxyResponse
+  | GatewayHttpProxyResponseStart
+  | GatewayHttpProxyResponseChunk
+  | GatewayHttpProxyResponseEnd;
 
 export type ClientToGatewayMessage =
   | GatewayAuthMessage

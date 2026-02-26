@@ -214,6 +214,9 @@ let connectedClients = new Map<string, ConnectedClient>();
 // Module-level notification service (initialized in createServer)
 let notificationService: NotificationService;
 
+// Module-level server port (set after listen, used by handleRunStart for file push injection)
+let serverPort: number | null = null;
+
 // Check if request is from localhost
 function isLocalhost(req: Request | IncomingMessage): boolean {
   let ip: string | undefined;
@@ -277,6 +280,7 @@ export interface ServerContext {
   updateDiscoveredBackends: (backends: import('@my-claudia/shared').GatewayBackendInfo[]) => void;
   setGatewayConnector: (connector: (config: GatewayConfig) => Promise<void>) => void;
   setGatewayDisconnector: (disconnector: () => Promise<void>) => void;
+  setServerPort: (port: number) => void;
 }
 
 export async function createServer(): Promise<ServerContext> {
@@ -909,7 +913,10 @@ export async function createServer(): Promise<ServerContext> {
     },
     updateDiscoveredBackends: (backends: import('@my-claudia/shared').GatewayBackendInfo[]) => {
       gatewayStatus.discoveredBackends = backends;
-    }
+    },
+    setServerPort: (port: number) => {
+      serverPort = port;
+    },
   };
 }
 
@@ -1173,6 +1180,18 @@ async function handleClientMessage(
         message: `Unknown message type: ${(message as { type: string }).type}`
       } as ErrorMessage);
   }
+}
+
+/** Build compact system prompt instructions for the file push API. */
+function buildFilePushContext(apiUrl: string, sessionId: string): string {
+  return `## File Push (send files to user's device)
+When you build or generate files (APK, image, binary, export, etc.) that the user needs, push them:
+\`\`\`bash
+curl -s -X POST ${apiUrl}/api/files/push \\
+  -H "Content-Type: application/json" \\
+  -d '{"filePath":"/absolute/path/to/file","sessionId":"${sessionId}","description":"Brief description"}'
+\`\`\`
+Images and files <500KB auto-download; larger files show a download notification.`;
 }
 
 async function handleRunStart(
@@ -1473,14 +1492,24 @@ async function handleRunStart(
     // All sessions (including agent) go through the unified permission strategy chain.
     const adapter = providerRegistry.getOrDefault(providerType);
 
+    // Inject file push context (env vars + system prompt) so AI agents can push files to user's device
+    const filePushEnv: Record<string, string> = {};
+    let filePushContext: string | undefined;
+    if (serverPort) {
+      const apiUrl = `http://127.0.0.1:${serverPort}`;
+      filePushEnv.MY_CLAUDIA_API_URL = apiUrl;
+      filePushEnv.MY_CLAUDIA_SESSION_ID = message.sessionId;
+      filePushContext = buildFilePushContext(apiUrl, message.sessionId);
+    }
+
     const runOptions = {
       cwd,
       sessionId: sdkSessionId,
       cliPath: providerConfig?.cliPath,
-      env: providerConfig?.env,
+      env: { ...(providerConfig?.env || {}), ...filePushEnv },
       mode: modeValue,
       model: message.model,
-      systemPrompt: [message.systemContext, session.system_prompt].filter(Boolean).join('\n\n') || undefined,
+      systemPrompt: [message.systemContext, filePushContext, session.system_prompt].filter(Boolean).join('\n\n') || undefined,
     };
 
     const providerRunner = adapter.run(processedInput, runOptions, permissionCallback);
@@ -1613,9 +1642,10 @@ async function handleRunStart(
         }
 
         case 'result':
-          // If result has content (some commands return content in result), send it
-          if (msg.content) {
-            activeRun.fullContent += msg.content;
+          // If result has content that wasn't already streamed via 'assistant' events, send it.
+          // (Some providers only return content in the result, not through streaming.)
+          if (msg.content && !activeRun.fullContent) {
+            activeRun.fullContent = msg.content;
             sendMessage(client.ws, {
               type: 'delta',
               runId,

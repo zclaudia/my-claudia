@@ -5,7 +5,7 @@
   "identifier": "com.myClaudia.desktop",
   "build": {
     "beforeDevCommand": "pnpm dev",
-    "devUrl": "http://localhost:1420",
+    "devUrl": "http://127.0.0.1:1420",
     "beforeBuildCommand": "pnpm build && cd ../../.. && pnpm --filter @my-claudia/server run bundle",
     "frontendDist": "../dist"
   },
@@ -46,7 +46,7 @@
   },
   "plugins": {
     "shell": {
-      "open": true
+      "open": "((mailto:\\w+)|(tel:\\w+)|(https?://\\w+).+|/.*)"
     }
   }
 }

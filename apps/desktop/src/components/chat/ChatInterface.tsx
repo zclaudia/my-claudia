@@ -5,7 +5,7 @@ import { ToolCallList } from './ToolCallItem';
 import { LoadingIndicator } from './LoadingIndicator';
 import { InlinePermissionRequest } from './InlinePermissionRequest';
 import { InlineAskUserQuestion } from './InlineAskUserQuestion';
-import { FilePushNotificationList } from './FilePushNotification';
+import { useFilePushStore } from '../../stores/filePushStore';
 import { ModeSelector } from './ModeSelector';
 import { SystemInfoButton } from './SystemInfoButton';
 import { ModelSelector } from './ModelSelector';
@@ -93,6 +93,9 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
   const [loadError, setLoadError] = useState<string | null>(null);
 
   const sessionMessages = messages[sessionId] || [];
+  const filePushItems = useFilePushStore((state) =>
+    state.items.filter((i) => i.sessionId === sessionId)
+  );
   const sessionPagination = pagination[sessionId];
   const currentUsage = sessionUsage[sessionId] || { inputTokens: 0, outputTokens: 0 };
 
@@ -727,14 +730,14 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
           </div>
         )}
 
-        <MessageList messages={sessionMessages} />
+        <MessageList messages={sessionMessages} filePushItems={filePushItems} />
 
         {/* Loading indicator (shown while waiting for response) */}
         <LoadingIndicator isLoading={isLoading} />
 
         {/* Active tool calls (shown during streaming) */}
         {sessionToolCalls.length > 0 && (
-          <div className="mt-4 px-4">
+          <div className="mt-4 max-w-full md:max-w-3xl">
             <ToolCallList toolCalls={sessionToolCalls} />
           </div>
         )}
@@ -764,9 +767,6 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
             ))}
           </div>
         )}
-
-        {/* File push notifications for this session */}
-        <FilePushNotificationList sessionId={sessionId} />
 
         <div ref={messagesEndRef} />
 

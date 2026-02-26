@@ -7,6 +7,9 @@
     "core:default",
     "core:window:allow-start-dragging",
     "shell:allow-open",
+    "fs:default",
+    "fs:allow-download-read-recursive",
+    "fs:allow-download-write-recursive",
     "shell:allow-kill",
     {
       "identifier": "shell:allow-execute",
