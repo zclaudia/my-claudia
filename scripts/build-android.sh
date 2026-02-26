@@ -144,10 +144,20 @@ if [ "$INSTALL_ONLY" = true ]; then
     OUTPUT=$(ls -t "$APK_DIR"/my-claudia-*.apk 2>/dev/null | grep -v -- '-dev\.apk$' | head -1)
   fi
   [ -z "$OUTPUT" ] && { echo "ERROR: No APK found in $APK_DIR"; exit 1; }
-elif [ "$DEV" = true ]; then
-  OUTPUT="$APK_DIR/my-claudia-${VERSION}-dev.apk"
 else
-  OUTPUT="$APK_DIR/my-claudia-${VERSION}.apk"
+  # Strip -dev suffix from version for clean naming
+  BASE_VER="${VERSION%-dev}"
+  IS_DIRTY=$([[ "$VERSION" == *-dev ]] && echo true || echo false)
+  if [ "$DEV" = true ] || [ "$IS_DIRTY" = true ]; then
+    APK_NAME="my-claudia-${BASE_VER}-dev"
+  else
+    APK_NAME="my-claudia-${BASE_VER}"
+  fi
+  # Add timestamp to dirty-tree builds for distinction
+  if [ "$IS_DIRTY" = true ]; then
+    APK_NAME="${APK_NAME}-$(date +%Y%m%d-%H%M)"
+  fi
+  OUTPUT="$APK_DIR/${APK_NAME}.apk"
 fi
 
 # --- Build ---
