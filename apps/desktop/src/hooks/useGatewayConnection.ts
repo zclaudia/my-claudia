@@ -62,8 +62,6 @@ export function useGatewayConnection() {
     appendToLastMessage,
     startRun,
     endRun,
-    claimRun,
-    isRunOwner,
     addToolCall,
     updateToolCallResult,
     finalizeToolCallsToMessage,
@@ -121,14 +119,10 @@ export function useGatewayConnection() {
   }, []);
 
   /**
-   * Handle a backend message (same logic as useMultiServerSocket's message handler)
+   * Handle a backend message routed through the gateway transport.
    */
-  // Stable connection ID for the gateway WS handler — unique per hook instance
-  const gatewayConnectionId = useRef(`gwws:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`);
-
   const handleBackendMessage = useCallback((backendId: string, message: ServerMessage) => {
     const serverId = toGatewayServerId(backendId);
-    const connectionId = gatewayConnectionId.current;
     const currentSessionId = selectedSessionIdRef.current;
     const currentActiveId = useServerStore.getState().activeServerId;
 
@@ -142,9 +136,6 @@ export function useGatewayConnection() {
     } else {
       msg = message;
     }
-
-    // --- Diagnostic: trace every message arriving through this hook ---
-    console.log(`[GWC] ${msg.type} | backendId=${backendId} | serverId=${serverId} | runId=${(msg as any).runId ?? '-'}`);
 
     switch (msg.type) {
       case 'auth_result':
@@ -167,7 +158,6 @@ export function useGatewayConnection() {
         break;
 
       case 'delta': {
-        if (!isRunOwner(msg.runId, connectionId)) break;
         // Use sessionId from message (preferred), fall back to activeRuns lookup
         const deltaSession = msg.sessionId || useChatStore.getState().activeRuns[msg.runId];
         if (deltaSession) {
@@ -186,8 +176,6 @@ export function useGatewayConnection() {
         // Use sessionId from server message (preferred), fall back to ref for old servers
         const targetSessionId = msg.sessionId || currentSessionId;
         const isAgentRun = (msg as any).clientRequestId?.startsWith('agent_');
-        // Claim run ownership — if another connection already claimed it, skip
-        if (!claimRun(msg.runId, connectionId)) break;
         // Track run-to-server mapping for heartbeat reconciliation
         if (!serverRunsRef.current.has(serverId)) {
           serverRunsRef.current.set(serverId, new Set());
@@ -228,7 +216,6 @@ export function useGatewayConnection() {
       }
 
       case 'run_completed': {
-        if (!isRunOwner(msg.runId, connectionId)) break;
         // Use sessionId from message (preferred), fall back to activeRuns lookup
         const completedSession = msg.sessionId || useChatStore.getState().activeRuns[msg.runId];
         // Clean up agent run state
@@ -254,7 +241,6 @@ export function useGatewayConnection() {
       }
 
       case 'run_failed': {
-        if (!isRunOwner(msg.runId, connectionId)) break;
         // Use sessionId from message (preferred), fall back to activeRuns lookup
         const failedSession = msg.sessionId || useChatStore.getState().activeRuns[msg.runId];
         // Clean up agent run state
@@ -281,7 +267,6 @@ export function useGatewayConnection() {
       }
 
       case 'tool_use': {
-        if (!isRunOwner(msg.runId, connectionId)) break;
         // Use sessionId from message or fall back to activeRuns lookup
         const toolSession = msg.sessionId || useChatStore.getState().activeRuns[msg.runId];
         if (toolSession) {
@@ -293,7 +278,6 @@ export function useGatewayConnection() {
       }
 
       case 'tool_result': {
-        if (!isRunOwner(msg.runId, connectionId)) break;
         // Use sessionId from message or fall back to activeRuns lookup
         const resultSession = msg.sessionId || useChatStore.getState().activeRuns[msg.runId];
         if (resultSession) {
@@ -543,8 +527,6 @@ export function useGatewayConnection() {
     appendToLastMessage,
     startRun,
     endRun,
-    claimRun,
-    isRunOwner,
     addToolCall,
     updateToolCallResult,
     finalizeToolCallsToMessage,

@@ -51,13 +51,3 @@ export function getGatewayAuthHeaders(): Record<string, string> {
   return { Authorization: `Bearer ${gatewaySecret}` };
 }
 
-/**
- * Resolve a gateway backend ID to its WebSocket relay URL.
- * Only available on desktop (requires local server).
- * Returns null on mobile — caller should fall back to GatewayTransport.
- */
-export function resolveGatewayRelayWsUrl(backendId: string): string | null {
-  const localPort = useServerStore.getState().localServerPort;
-  if (!localPort) return null;
-  return `ws://127.0.0.1:${localPort}/gateway-relay/${backendId}`;
-}

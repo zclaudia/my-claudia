@@ -572,11 +572,10 @@ export async function createServer(): Promise<ServerContext> {
   // Create HTTP server
   const server = createHttpServer(app);
 
-  // Create WebSocket servers (both noServer to avoid conflicting upgrade handlers)
+  // Create WebSocket server
   const wss = new WebSocketServer({ noServer: true });
-  const relayWss = new WebSocketServer({ noServer: true });
 
-  // Single upgrade handler routes paths to the correct WebSocketServer
+  // Upgrade handler routes to WebSocketServer
   server.on('upgrade', (req: IncomingMessage, socket, head) => {
     const url = req.url || '';
 
@@ -587,104 +586,8 @@ export async function createServer(): Promise<ServerContext> {
       return;
     }
 
-    // Match /gateway-relay/:backendId
-    const relayMatch = url.match(/^\/gateway-relay\/([^/?]+)/);
-    if (relayMatch) {
-      const backendId = relayMatch[1];
-      relayWss.handleUpgrade(req, socket, head, (ws) => {
-        relayWss.emit('connection', ws, req, backendId);
-      });
-      return;
-    }
-
     // Unknown WS path — reject
     socket.destroy();
-  });
-
-  // Handle relay WebSocket connections
-  relayWss.on('connection', (ws: WebSocket, _req: IncomingMessage, backendId: string) => {
-    const clientMode = getGatewayClientMode();
-    if (!clientMode || !clientMode.isConnected()) {
-      ws.close(4502, 'Gateway client mode not connected');
-      return;
-    }
-
-    console.log(`[GatewayRelay] New relay connection for backend ${backendId}`);
-
-    let authenticated = false;
-
-    // Authenticate to the remote backend first
-    clientMode.connectBackend(backendId).then((result) => {
-      if (!result.success) {
-        console.error(`[GatewayRelay] Failed to auth to backend ${backendId}: ${result.error}`);
-        ws.close(4403, result.error || 'Backend auth failed');
-        return;
-      }
-
-      authenticated = true;
-      console.log(`[GatewayRelay] Authenticated to backend ${backendId}`);
-
-      // Send auth_result to frontend (DirectTransport expects this)
-      const authResult = {
-        type: 'auth_result',
-        success: true,
-        isLocalConnection: false,
-        serverVersion: '1.1.0',
-        features: result.features || [],
-      };
-      ws.send(JSON.stringify(authResult));
-    });
-
-    // Backend message handler for this specific relay connection
-    const onBackendMessage = (msgBackendId: string, message: import('@my-claudia/shared').ServerMessage) => {
-      if (msgBackendId === backendId && ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify(message));
-      }
-    };
-
-    // Backend disconnected handler
-    const onBackendDisconnected = (disconnectedId: string) => {
-      if (disconnectedId === backendId && ws.readyState === WebSocket.OPEN) {
-        ws.close(4410, 'Backend disconnected');
-      }
-    };
-
-    clientMode.addBackendMessageListener(onBackendMessage);
-    clientMode.addBackendDisconnectedListener(onBackendDisconnected);
-
-    // Forward messages from frontend to remote backend
-    ws.on('message', (data: Buffer) => {
-      if (!authenticated) {
-        // Queue or reject messages before auth completes
-        // For now, buffer the auth message — DirectTransport sends 'auth' first
-        try {
-          const message = JSON.parse(data.toString());
-          if (message.type === 'auth') {
-            // Auth is handled above via connectBackend, ignore this
-            return;
-          }
-        } catch { /* ignore parse errors */ }
-        return;
-      }
-
-      try {
-        const message = JSON.parse(data.toString());
-        clientMode!.sendToBackend(backendId, message);
-      } catch (error) {
-        console.error(`[GatewayRelay] Failed to forward message to backend ${backendId}:`, error);
-      }
-    });
-
-    ws.on('close', () => {
-      console.log(`[GatewayRelay] Relay connection closed for backend ${backendId}`);
-      // Clean up listeners
-      clientMode?.removeBackendMessageListener(onBackendMessage);
-      clientMode?.removeBackendDisconnectedListener(onBackendDisconnected);
-    });
-
-    ws.on('error', (error) => {
-      console.error(`[GatewayRelay] Error on relay for backend ${backendId}:`, error);
-    });
   });
 
   // Ping interval for connection health (skip virtual/gateway clients)
