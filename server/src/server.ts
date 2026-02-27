@@ -150,7 +150,7 @@ function buildStatusOutput(systemInfo: SystemInfo): string {
     lines.push(`  ${systemInfo.tools.join(', ')}`);
   }
   if (systemInfo.mcpServers && systemInfo.mcpServers.length > 0) {
-    lines.push(`**MCP Servers:** ${systemInfo.mcpServers.length}`);
+    lines.push(`**MCP Servers:** ${systemInfo.mcpServers.map(s => `${s.name} (${s.status})`).join(', ')}`);
   }
   if (systemInfo.slashCommands && systemInfo.slashCommands.length > 0) {
     lines.push(`**Slash Commands:** ${systemInfo.slashCommands.join(', ')}`);

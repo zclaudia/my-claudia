@@ -636,7 +636,7 @@ export interface SystemInfo {
   permissionMode?: string;
   apiKeySource?: string;
   tools?: string[];
-  mcpServers?: string[];
+  mcpServers?: { name: string; status: string }[];
   slashCommands?: string[];
   agents?: string[];
 }

@@ -124,7 +124,7 @@ function InfoBadge({ icon, label, value }: InfoBadgeProps) {
 interface CollapsibleListProps {
   icon: string;
   label: string;
-  items: string[];
+  items: (string | { name: string; status?: string })[];
   maxVisible: number;
 }
 
@@ -146,7 +146,7 @@ function CollapsibleList({ icon, label, items, maxVisible }: CollapsibleListProp
             key={index}
             className="bg-muted text-foreground px-1.5 py-0.5 rounded text-[10px] font-mono"
           >
-            {item}
+            {typeof item === 'string' ? item : item.name}
           </span>
         ))}
         {hasMore && (

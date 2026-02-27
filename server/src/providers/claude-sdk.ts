@@ -2,6 +2,7 @@ import { query } from '@anthropic-ai/claude-agent-sdk';
 import type { ModelInfo } from '@anthropic-ai/claude-agent-sdk';
 import type { ProviderConfig, PermissionRequest, PermissionMode, MessageInput, MessageAttachment } from '@my-claudia/shared';
 import { fileStore } from '../storage/fileStore.js';
+import { loadMcpServers, loadPlugins } from '../utils/claude-config.js';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
@@ -232,6 +233,18 @@ export async function* runClaude(
   // Enable extended thinking (adaptive mode — Claude decides when to think)
   sdkOptions.thinking = { type: 'adaptive' };
 
+  // Load user-configured MCP servers from ~/.claude/mcp.json
+  const userMcpServers = loadMcpServers();
+  if (Object.keys(userMcpServers).length > 0) {
+    sdkOptions.mcpServers = userMcpServers;
+  }
+
+  // Load user-configured plugins from ~/.claude/settings.json + installed_plugins.json
+  const userPlugins = loadPlugins();
+  if (userPlugins.length > 0) {
+    sdkOptions.plugins = userPlugins;
+  }
+
   // Permission handling callback
   if (onPermissionRequest) {
     sdkOptions.canUseTool = async (
@@ -330,7 +343,7 @@ export interface SystemInfo {
   claudeCodeVersion?: string;
   cwd?: string;
   tools?: string[];
-  mcpServers?: string[];
+  mcpServers?: { name: string; status: string }[];
   permissionMode?: string;
   apiKeySource?: string;
   slashCommands?: string[];
@@ -372,7 +385,7 @@ function transformMessage(message: unknown): ClaudeMessage | ClaudeMessage[] {
           claudeCodeVersion: msg.claude_code_version as string | undefined,
           cwd: msg.cwd as string | undefined,
           tools: msg.tools as string[] | undefined,
-          mcpServers: msg.mcp_servers as string[] | undefined,
+          mcpServers: msg.mcp_servers as { name: string; status: string }[] | undefined,
           permissionMode: msg.permissionMode as string | undefined,
           apiKeySource: msg.apiKeySource as string | undefined,
           slashCommands: msg.slash_commands as string[] | undefined,
