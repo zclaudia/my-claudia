@@ -66,9 +66,8 @@ echo ""
 
 # --- Build ---
 echo "Building Linux desktop app..."
-export TAURI_CONFIG="{\"version\":\"$VERSION\"}"
 # Use --bundles to skip AppImage (often fails in WSL2 without xdg-open)
-pnpm --filter @my-claudia/desktop exec tauri build --bundles deb,rpm
+pnpm --filter @my-claudia/desktop exec tauri build --bundles deb,rpm --config "{\"version\":\"$VERSION\"}"
 
 BUNDLE_DIR="apps/desktop/src-tauri/target/release/bundle"
 echo ""

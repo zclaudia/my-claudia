@@ -166,8 +166,7 @@ if [ "$INSTALL_ONLY" = false ]; then
   # Android doesn't use embedded server — override tauri config to skip
   # sidecar binaries, server bundle resources, and server bundle step.
   # Also inject version so no files need to be modified.
-  export TAURI_CONFIG="{\"version\":\"${VERSION:-0.0.0}\",\"build\":{\"beforeBuildCommand\":\"pnpm build\"},\"bundle\":{\"externalBin\":[],\"resources\":null}}"
-  pnpm tauri android build --apk
+  pnpm tauri android build --apk --config "{\"version\":\"${VERSION:-0.0.0}\",\"build\":{\"beforeBuildCommand\":\"pnpm build\"},\"bundle\":{\"externalBin\":[],\"resources\":null}}"
   if [ "$DEV" = true ]; then
     # Tauri CLI's -- passes args to cargo, not Gradle.
     # Re-run Gradle with -PisDev=true, skipping Rust build (already done).

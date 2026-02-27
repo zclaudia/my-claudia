@@ -94,8 +94,7 @@ fi
 
 # --- Build ---
 echo "Building macOS desktop app..."
-export TAURI_CONFIG="{\"version\":\"$VERSION\"}"
-pnpm --filter @my-claudia/desktop exec tauri build
+pnpm --filter @my-claudia/desktop exec tauri build --config "{\"version\":\"$VERSION\"}"
 echo ""
 
 # --- Rename outputs with version ---
