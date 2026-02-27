@@ -764,18 +764,60 @@ export async function updateAgentConfig(config: {
 // Supervisions API — routes to active server
 // ============================================
 
-import type { Supervision, SupervisionLog } from '@my-claudia/shared';
+import type { Supervision, SupervisionLog, SupervisionPlan } from '@my-claudia/shared';
 
-export async function planSupervision(data: {
+export async function startSupervisionPlanning(data: {
   sessionId: string;
-  hint?: string;
-}): Promise<{ goal: string; subtasks: string[]; estimatedIterations: number }> {
-  const result = await fetchApi<{ goal: string; subtasks: string[]; estimatedIterations: number }>('/api/supervisions/plan', {
+  hint: string;
+}): Promise<{ supervision: Supervision; planSessionId: string }> {
+  const result = await fetchApi<{ supervision: Supervision; planSessionId: string }>('/api/supervisions/plan/start', {
     method: 'POST',
     body: JSON.stringify(data),
   });
   if (!result.success || !result.data) {
-    throw new Error(result.error?.message || 'Failed to plan supervision');
+    throw new Error(result.error?.message || 'Failed to start planning');
+  }
+  return result.data;
+}
+
+export async function respondToPlanning(supervisionId: string, message: string): Promise<void> {
+  const result = await fetchApi<null>(`/api/supervisions/plan/${supervisionId}/respond`, {
+    method: 'POST',
+    body: JSON.stringify({ message }),
+  });
+  if (!result.success) {
+    throw new Error(result.error?.message || 'Failed to respond to planning');
+  }
+}
+
+export async function approvePlan(
+  supervisionId: string,
+  plan: SupervisionPlan & { maxIterations?: number; cooldownSeconds?: number }
+): Promise<Supervision> {
+  const result = await fetchApi<Supervision>(`/api/supervisions/plan/${supervisionId}/approve`, {
+    method: 'POST',
+    body: JSON.stringify(plan),
+  });
+  if (!result.success || !result.data) {
+    throw new Error(result.error?.message || 'Failed to approve plan');
+  }
+  return result.data;
+}
+
+export async function getPlanConversation(supervisionId: string): Promise<Message[]> {
+  const result = await fetchApi<Message[]>(`/api/supervisions/plan/${supervisionId}/conversation`);
+  if (!result.success || !result.data) {
+    throw new Error(result.error?.message || 'Failed to get planning conversation');
+  }
+  return result.data;
+}
+
+export async function cancelPlanning(supervisionId: string): Promise<Supervision> {
+  const result = await fetchApi<Supervision>(`/api/supervisions/plan/${supervisionId}/cancel`, {
+    method: 'POST',
+  });
+  if (!result.success || !result.data) {
+    throw new Error(result.error?.message || 'Failed to cancel planning');
   }
   return result.data;
 }

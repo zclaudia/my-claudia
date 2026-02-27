@@ -424,41 +424,36 @@ describe('Supervision Routes', () => {
     });
   });
 
-  describe('POST /api/supervisions/plan', () => {
-    it('should return a plan with goal', async () => {
-      const { sessionId } = createTestSession(db);
-
-      const res = await request(app)
-        .post('/api/supervisions/plan')
-        .send({ sessionId, hint: 'Build auth system' })
-        .expect(200);
-
-      expect(res.body.success).toBe(true);
-      expect(res.body.data.goal).toBe('Build auth system');
-      expect(res.body.data.subtasks).toEqual([]);
-      expect(res.body.data.estimatedIterations).toBe(5);
-    });
-
+  describe('POST /api/supervisions/plan/start', () => {
     it('should return 400 when sessionId is missing', async () => {
       const res = await request(app)
-        .post('/api/supervisions/plan')
+        .post('/api/supervisions/plan/start')
         .send({ hint: 'No session' })
         .expect(400);
 
       expect(res.body.success).toBe(false);
     });
 
-    it('should not be caught by /:id route', async () => {
+    it('should return 400 when hint is missing', async () => {
       const { sessionId } = createTestSession(db);
 
-      // /plan should be handled by the plan route, not /:id
       const res = await request(app)
-        .post('/api/supervisions/plan')
+        .post('/api/supervisions/plan/start')
         .send({ sessionId })
-        .expect(200);
+        .expect(400);
 
-      expect(res.body.success).toBe(true);
-      expect(res.body.data).toHaveProperty('goal');
+      expect(res.body.success).toBe(false);
+    });
+
+    it('should not be caught by /:id route', async () => {
+      // /plan/start should be handled by the plan route, not /:id
+      const res = await request(app)
+        .post('/api/supervisions/plan/start')
+        .send({})
+        .expect(400);
+
+      expect(res.body.success).toBe(false);
+      expect(res.body.error.code).toBe('VALIDATION_ERROR');
     });
   });
 });

@@ -157,13 +157,15 @@ export interface Session {
 // Supervision Types
 // ============================================
 
-export type SupervisionStatus = 'active' | 'paused' | 'completed' | 'failed' | 'cancelled';
+export type SupervisionStatus = 'planning' | 'active' | 'paused' | 'completed' | 'failed' | 'cancelled';
 
 export interface SupervisionSubtask {
   id: number;              // 从 1 开始的序号
   description: string;
   status: 'pending' | 'in_progress' | 'completed';
   completedAt?: number;
+  phase?: number;                  // 阶段分组 (1, 2, 3...)
+  acceptanceCriteria?: string[];   // 该子任务的验收标准
 }
 
 export interface Supervision {
@@ -177,12 +179,26 @@ export interface Supervision {
   cooldownSeconds: number;
   lastRunId?: string;
   errorMessage?: string;
+  acceptanceCriteria?: string[];   // 整体目标验收标准
+  planSessionId?: string;          // planning 对话的 session ID
   createdAt: number;
   updatedAt: number;
   completedAt?: number;
 }
 
+export interface SupervisionPlan {
+  goal: string;
+  subtasks: Array<{
+    description: string;
+    phase?: number;
+    acceptanceCriteria?: string[];
+  }>;
+  acceptanceCriteria?: string[];
+  estimatedIterations?: number;
+}
+
 export type SupervisionLogEvent =
+  | 'planning_started' | 'planning_approved' | 'planning_cancelled'
   | 'iteration_started' | 'iteration_completed' | 'iteration_failed'
   | 'subtask_completed' | 'goal_completed'
   | 'paused' | 'resumed' | 'cancelled';

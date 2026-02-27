@@ -1,19 +1,35 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, cleanup } from '@testing-library/react';
 
-const mockPlanSupervision = vi.fn();
+const mockStartSupervisionPlanning = vi.fn();
 const mockCreateSupervision = vi.fn();
+const mockCancelPlanning = vi.fn();
 const mockUpdateSupervision = vi.fn();
 
 vi.mock('../../services/api', () => ({
-  planSupervision: (...args: unknown[]) => mockPlanSupervision(...args),
+  startSupervisionPlanning: (...args: unknown[]) => mockStartSupervisionPlanning(...args),
   createSupervision: (...args: unknown[]) => mockCreateSupervision(...args),
+  cancelPlanning: (...args: unknown[]) => mockCancelPlanning(...args),
 }));
 
 vi.mock('../../stores/supervisionStore', () => ({
   useSupervisionStore: {
     getState: () => ({ updateSupervision: mockUpdateSupervision }),
   },
+}));
+
+vi.mock('../../stores/chatStore', () => ({
+  useChatStore: Object.assign(
+    (selector: (state: any) => any) => selector({ messages: {} }),
+    {
+      getState: () => ({
+        messages: {},
+        isSessionLoading: () => false,
+        activeRuns: {},
+      }),
+      subscribe: () => () => {},
+    }
+  ),
 }));
 
 import { SuperviseDialog } from '../SuperviseDialog';
@@ -59,21 +75,21 @@ describe('SuperviseDialog', () => {
     ).toBeInTheDocument();
   });
 
-  it('shows disabled "Start Supervision" button when goal is empty', () => {
+  it('shows disabled buttons when goal is empty', () => {
     render(<SuperviseDialog {...defaultProps} />);
-    const startButton = screen.getByText('Start Supervision');
-    expect(startButton).toBeDisabled();
+    expect(screen.getByText('Quick Start')).toBeDisabled();
+    expect(screen.getByText('AI Planning')).toBeDisabled();
   });
 
-  it('enables "Start Supervision" when goal has text', () => {
+  it('enables buttons when goal has text', () => {
     render(<SuperviseDialog {...defaultProps} />);
     const textarea = screen.getByPlaceholderText(
       'Describe what this session should achieve...'
     );
     fireEvent.change(textarea, { target: { value: 'My goal' } });
 
-    const startButton = screen.getByText('Start Supervision');
-    expect(startButton).not.toBeDisabled();
+    expect(screen.getByText('Quick Start')).not.toBeDisabled();
+    expect(screen.getByText('AI Planning')).not.toBeDisabled();
   });
 
   it('adds a subtask when typing in input and clicking Add', () => {
@@ -103,7 +119,7 @@ describe('SuperviseDialog', () => {
     fireEvent.click(screen.getByText('Add'));
     expect(screen.getByText('Task to remove')).toBeInTheDocument();
 
-    // The remove button is inside the list item, find the button with the X SVG
+    // The remove button is inside the list item
     const subtaskItem = screen.getByText('Task to remove').closest('li');
     const removeButton = subtaskItem?.querySelector('button');
     expect(removeButton).toBeTruthy();
@@ -112,87 +128,29 @@ describe('SuperviseDialog', () => {
     expect(screen.queryByText('Task to remove')).not.toBeInTheDocument();
   });
 
-  it('toggles Settings section to show Max iterations and Cooldown labels', () => {
+  it('toggles Settings section', () => {
     render(<SuperviseDialog {...defaultProps} />);
 
-    // Settings labels should not be visible initially
     expect(screen.queryByText('Max iterations')).not.toBeInTheDocument();
     expect(screen.queryByText('Cooldown (sec)')).not.toBeInTheDocument();
 
-    // Click the Settings toggle
     fireEvent.click(screen.getByText('Settings'));
 
     expect(screen.getByText('Max iterations')).toBeInTheDocument();
     expect(screen.getByText('Cooldown (sec)')).toBeInTheDocument();
   });
 
-  it('"Let AI Plan" fills goal and subtasks from API response', async () => {
-    mockPlanSupervision.mockResolvedValue({
-      goal: 'AI planned goal',
-      subtasks: ['Step 1', 'Step 2'],
-      estimatedIterations: 10,
-    });
-
-    render(<SuperviseDialog {...defaultProps} />);
-    fireEvent.click(screen.getByText('Let AI Plan'));
-
-    await waitFor(() => {
-      expect(mockPlanSupervision).toHaveBeenCalledWith({
-        sessionId: 'session-123',
-        hint: undefined,
-      });
-    });
-
-    await waitFor(() => {
-      const textarea = screen.getByPlaceholderText(
-        'Describe what this session should achieve...'
-      ) as HTMLTextAreaElement;
-      expect(textarea.value).toBe('AI planned goal');
-    });
-
-    expect(screen.getByText('Step 1')).toBeInTheDocument();
-    expect(screen.getByText('Step 2')).toBeInTheDocument();
-  });
-
-  it('"Let AI Plan" shows "Planning..." text while loading', async () => {
-    let resolvePromise: (value: unknown) => void;
-    mockPlanSupervision.mockReturnValue(
-      new Promise((resolve) => {
-        resolvePromise = resolve;
-      })
-    );
-
-    render(<SuperviseDialog {...defaultProps} />);
-    fireEvent.click(screen.getByText('Let AI Plan'));
-
-    expect(screen.getByText('Planning...')).toBeInTheDocument();
-
-    // Resolve so the test can clean up
-    resolvePromise!({
-      goal: 'Done',
-      subtasks: [],
-      estimatedIterations: 5,
-    });
-
-    await waitFor(() => {
-      expect(screen.getByText('Let AI Plan')).toBeInTheDocument();
-    });
-  });
-
-  it('calls createSupervision with correct params and onClose on Start Supervision', async () => {
+  it('Quick Start creates supervision with correct params', async () => {
     const mockSupervision = { id: 'sup-1', sessionId: 'session-123', goal: 'Test goal' };
     mockCreateSupervision.mockResolvedValue(mockSupervision);
 
     render(<SuperviseDialog {...defaultProps} />);
 
-    // Enter a goal
     const textarea = screen.getByPlaceholderText(
       'Describe what this session should achieve...'
     );
     fireEvent.change(textarea, { target: { value: 'Test goal' } });
-
-    // Click Start Supervision
-    fireEvent.click(screen.getByText('Start Supervision'));
+    fireEvent.click(screen.getByText('Quick Start'));
 
     await waitFor(() => {
       expect(mockCreateSupervision).toHaveBeenCalledWith({
@@ -210,29 +168,29 @@ describe('SuperviseDialog', () => {
     });
   });
 
-  it('shows "Starting..." while creating supervision', async () => {
-    let resolvePromise: (value: unknown) => void;
-    mockCreateSupervision.mockReturnValue(
-      new Promise((resolve) => {
-        resolvePromise = resolve;
-      })
-    );
+  it('AI Planning starts planning session', async () => {
+    mockStartSupervisionPlanning.mockResolvedValue({
+      supervision: { id: 'sup-1', sessionId: 'session-123', status: 'planning' },
+      planSessionId: 'plan-session-1',
+    });
 
     render(<SuperviseDialog {...defaultProps} />);
 
     const textarea = screen.getByPlaceholderText(
       'Describe what this session should achieve...'
     );
-    fireEvent.change(textarea, { target: { value: 'Test goal' } });
-    fireEvent.click(screen.getByText('Start Supervision'));
-
-    expect(screen.getByText('Starting...')).toBeInTheDocument();
-
-    // Resolve so the test can clean up
-    resolvePromise!({ id: 'sup-1' });
+    fireEvent.change(textarea, { target: { value: 'Build a feature' } });
+    fireEvent.click(screen.getByText('AI Planning'));
 
     await waitFor(() => {
-      expect(defaultProps.onClose).toHaveBeenCalled();
+      expect(mockStartSupervisionPlanning).toHaveBeenCalledWith({
+        sessionId: 'session-123',
+        hint: 'Build a feature',
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText('Planning Conversation')).toBeInTheDocument();
     });
   });
 
@@ -242,7 +200,7 @@ describe('SuperviseDialog', () => {
     expect(defaultProps.onClose).toHaveBeenCalled();
   });
 
-  it('displays error message when createSupervision rejects', async () => {
+  it('displays error when Quick Start fails', async () => {
     mockCreateSupervision.mockRejectedValue(new Error('Server error'));
 
     render(<SuperviseDialog {...defaultProps} />);
@@ -251,7 +209,7 @@ describe('SuperviseDialog', () => {
       'Describe what this session should achieve...'
     );
     fireEvent.change(textarea, { target: { value: 'Failing goal' } });
-    fireEvent.click(screen.getByText('Start Supervision'));
+    fireEvent.click(screen.getByText('Quick Start'));
 
     await waitFor(() => {
       expect(screen.getByText('Server error')).toBeInTheDocument();

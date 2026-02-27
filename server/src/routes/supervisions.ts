@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import type { ApiResponse, Supervision, SupervisionLog } from '@my-claudia/shared';
+import type { ApiResponse, Supervision, SupervisionLog, SupervisionPlan, Message } from '@my-claudia/shared';
 import { SupervisorService } from '../services/supervisor-service.js';
 
 export function createSupervisionRoutes(supervisorService: SupervisorService): Router {
@@ -48,31 +48,115 @@ export function createSupervisionRoutes(supervisorService: SupervisorService): R
     }
   });
 
-  // POST /api/supervisions/plan — AI-assisted goal planning (placeholder)
+  // POST /api/supervisions/plan/start — Start AI-assisted goal planning
   // Fixed route: must come before /:id
-  router.post('/plan', (req: Request, res: Response) => {
+  router.post('/plan/start', (req: Request, res: Response) => {
     try {
       const { sessionId, hint } = req.body;
 
-      if (!sessionId) {
+      if (!sessionId || !hint) {
         res.status(400).json({
           success: false,
-          error: { code: 'VALIDATION_ERROR', message: 'sessionId is required' }
+          error: { code: 'VALIDATION_ERROR', message: 'sessionId and hint are required' }
         } as ApiResponse<never>);
         return;
       }
 
-      // Simple placeholder: return hint as goal with no subtasks
-      // Full AI integration (calling provider to analyze session context) is a follow-up
-      const goal = hint || 'Continue the current task';
+      const result = supervisorService.startPlanning(sessionId, hint);
       res.json({
         success: true,
-        data: { goal, subtasks: [], estimatedIterations: 5 }
-      } as ApiResponse<{ goal: string; subtasks: string[]; estimatedIterations: number }>);
+        data: result
+      } as ApiResponse<{ supervision: Supervision; planSessionId: string }>);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to start planning';
+      const status = message.includes('already has an active') ? 409 : 500;
+      res.status(status).json({
+        success: false,
+        error: { code: status === 409 ? 'CONFLICT' : 'INTERNAL_ERROR', message }
+      } as ApiResponse<never>);
+    }
+  });
+
+  // POST /api/supervisions/plan/:id/respond — Send user response in planning conversation
+  router.post('/plan/:id/respond', (req: Request, res: Response) => {
+    try {
+      const { message } = req.body;
+
+      if (!message) {
+        res.status(400).json({
+          success: false,
+          error: { code: 'VALIDATION_ERROR', message: 'message is required' }
+        } as ApiResponse<never>);
+        return;
+      }
+
+      supervisorService.respondToPlanning(req.params.id, message);
+      res.json({ success: true, data: null } as ApiResponse<null>);
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : 'Failed to respond';
+      const status = msg.includes('not in planning') ? 400 : 500;
+      res.status(status).json({
+        success: false,
+        error: { code: status === 400 ? 'INVALID_STATE' : 'INTERNAL_ERROR', message: msg }
+      } as ApiResponse<never>);
+    }
+  });
+
+  // POST /api/supervisions/plan/:id/approve — Approve the plan and start execution
+  router.post('/plan/:id/approve', (req: Request, res: Response) => {
+    try {
+      const { goal, subtasks, acceptanceCriteria, maxIterations, cooldownSeconds } = req.body;
+
+      if (!goal || !subtasks) {
+        res.status(400).json({
+          success: false,
+          error: { code: 'VALIDATION_ERROR', message: 'goal and subtasks are required' }
+        } as ApiResponse<never>);
+        return;
+      }
+
+      const supervision = supervisorService.approvePlan(req.params.id, {
+        goal,
+        subtasks,
+        acceptanceCriteria,
+        maxIterations,
+        cooldownSeconds,
+      });
+      res.json({ success: true, data: supervision } as ApiResponse<Supervision>);
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : 'Failed to approve plan';
+      const status = msg.includes('not in planning') ? 400 : 500;
+      res.status(status).json({
+        success: false,
+        error: { code: status === 400 ? 'INVALID_STATE' : 'INTERNAL_ERROR', message: msg }
+      } as ApiResponse<never>);
+    }
+  });
+
+  // GET /api/supervisions/plan/:id/conversation — Get planning conversation
+  router.get('/plan/:id/conversation', (req: Request, res: Response) => {
+    try {
+      const messages = supervisorService.getPlanConversation(req.params.id);
+      res.json({ success: true, data: messages } as ApiResponse<Message[]>);
     } catch (error) {
       res.status(500).json({
         success: false,
-        error: { code: 'INTERNAL_ERROR', message: 'Failed to plan supervision' }
+        error: { code: 'DB_ERROR', message: 'Failed to get planning conversation' }
+      } as ApiResponse<never>);
+    }
+  });
+
+  // POST /api/supervisions/plan/:id/cancel — Cancel planning
+  router.post('/plan/:id/cancel', (req: Request, res: Response) => {
+    try {
+      const supervision = supervisorService.cancelPlanning(req.params.id);
+      res.json({ success: true, data: supervision } as ApiResponse<Supervision>);
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : 'Failed to cancel planning';
+      const status = msg.includes('not in planning') ? 400 : 500;
+      res.status(status).json({
+        success: false,
+        error: { code: status === 400 ? 'INVALID_STATE' : 'INTERNAL_ERROR', message: msg }
       } as ApiResponse<never>);
     }
   });
