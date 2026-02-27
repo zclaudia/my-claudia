@@ -192,12 +192,12 @@ export function useEmbeddedServer(): EmbeddedServerState {
     return () => {
       mountedRef.current = false;
       if (import.meta.env.DEV) {
-        // Dev mode: kill via JS child ref
-        if (childRef.current) {
-          console.log('[EmbeddedServer] Killing server process...');
-          childRef.current.kill().catch(() => {});
-          childRef.current = null;
-        }
+        // Dev mode: do NOT kill the server process on cleanup.
+        // React StrictMode unmount+remount causes a race condition:
+        // cleanup kills the process, but the next mount's health check
+        // may catch the dying process and "reuse" it, then it dies → stuck in ready state.
+        // Leaving the server running lets the next mount genuinely reuse it.
+        // The process will be cleaned up when the Tauri window closes.
       } else {
         // Production: kill via Rust command
         invoke('stop_server').catch(() => {});

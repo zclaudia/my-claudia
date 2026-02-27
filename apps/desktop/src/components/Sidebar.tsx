@@ -28,6 +28,7 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
   const {
     projects = [],
     sessions = [],
+    providers = [],
     selectedProjectId,
     selectedSessionId,
     selectProject,
@@ -56,6 +57,7 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
   const [creatingProject, setCreatingProject] = useState(false);
   const [creatingSessionForProject, setCreatingSessionForProject] = useState<string | null>(null);
   const [newSessionName, setNewSessionName] = useState('');
+  const [newSessionProviderId, setNewSessionProviderId] = useState<string>('');
   const [contextMenuProject, setContextMenuProject] = useState<string | null>(null);
   const [contextMenuSession, setContextMenuSession] = useState<string | null>(null);
   const [contextMenuPos, setContextMenuPos] = useState<{ top: number; left: number } | null>(null);
@@ -144,10 +146,12 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
     try {
       const session = await api.createSession({
         projectId,
-        name: newSessionName.trim() || undefined
+        name: newSessionName.trim() || undefined,
+        providerId: newSessionProviderId || undefined,
       });
       addSession(session);
       setNewSessionName('');
+      setNewSessionProviderId('');
       setCreatingSessionForProject(null);
       selectSession(session.id);
     } catch (error) {
@@ -743,12 +747,27 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
                                 if (e.key === 'Escape') {
                                   setCreatingSessionForProject(null);
                                   setNewSessionName('');
+                                  setNewSessionProviderId('');
                                 }
                               }}
                               placeholder="Session name (optional)"
                               className="w-full px-3 py-2.5 bg-secondary border border-border rounded text-sm focus:outline-none focus:border-primary"
                               autoFocus
                             />
+                            {providers.length > 0 && (
+                              <select
+                                value={newSessionProviderId}
+                                onChange={(e) => setNewSessionProviderId(e.target.value)}
+                                className="w-full px-3 py-2.5 mt-2 bg-secondary border border-border rounded text-sm focus:outline-none focus:border-primary"
+                              >
+                                <option value="">Default (from project)</option>
+                                {providers.map((p) => (
+                                  <option key={p.id} value={p.id}>
+                                    {p.name} ({p.type}){p.isDefault ? ' *' : ''}
+                                  </option>
+                                ))}
+                              </select>
+                            )}
                             <div className="flex gap-2 mt-2">
                               <button
                                 onClick={() => handleCreateSession(project.id)}
@@ -760,6 +779,7 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
                                 onClick={() => {
                                   setCreatingSessionForProject(null);
                                   setNewSessionName('');
+                                  setNewSessionProviderId('');
                                 }}
                                 className="flex-1 px-3 py-2.5 bg-secondary hover:bg-secondary/80 active:bg-secondary/70 rounded text-sm"
                               >
@@ -1333,12 +1353,27 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
                             if (e.key === 'Escape') {
                               setCreatingSessionForProject(null);
                               setNewSessionName('');
+                              setNewSessionProviderId('');
                             }
                           }}
                           placeholder="Session name (optional)"
                           className="w-full px-2 py-1 bg-secondary border border-border rounded text-sm focus:outline-none focus:border-primary"
                           autoFocus
                         />
+                        {providers.length > 0 && (
+                          <select
+                            value={newSessionProviderId}
+                            onChange={(e) => setNewSessionProviderId(e.target.value)}
+                            className="w-full px-2 py-1 mt-1 bg-secondary border border-border rounded text-sm focus:outline-none focus:border-primary"
+                          >
+                            <option value="">Default (from project)</option>
+                            {providers.map((p) => (
+                              <option key={p.id} value={p.id}>
+                                {p.name} ({p.type}){p.isDefault ? ' *' : ''}
+                              </option>
+                            ))}
+                          </select>
+                        )}
                         <div className="flex gap-1 mt-1">
                           <button
                             onClick={() => handleCreateSession(project.id)}
@@ -1350,6 +1385,7 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
                             onClick={() => {
                               setCreatingSessionForProject(null);
                               setNewSessionName('');
+                              setNewSessionProviderId('');
                             }}
                             className="flex-1 px-2 py-0.5 bg-secondary hover:bg-secondary/80 rounded text-xs"
                           >

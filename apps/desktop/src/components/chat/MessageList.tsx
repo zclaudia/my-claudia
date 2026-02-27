@@ -369,6 +369,12 @@ function MessageItem({ message }: { message: MessageWithToolCalls }) {
     textContent = message.content;
   }
 
+  // Extract thinking blocks for assistant messages (rendered outside bubble for consistent width)
+  const { thinking, content: mainContent } = useMemo(
+    () => (!isUser && !isSystem ? extractThinking(message.content) : { thinking: '', content: message.content }),
+    [message.content, isUser, isSystem]
+  );
+
   return (
     <div
       data-role={message.role}
@@ -380,6 +386,13 @@ function MessageItem({ message }: { message: MessageWithToolCalls }) {
       {!isUser && hasToolCalls && (
         <div className="w-full max-w-full md:max-w-3xl mb-2">
           <ToolCallList toolCalls={message.toolCalls!} defaultCollapsed={true} />
+        </div>
+      )}
+
+      {/* Thinking block (same level as tool calls for consistent width) */}
+      {!isUser && thinking && (
+        <div className="w-full max-w-full md:max-w-3xl mb-2">
+          <ThinkingBlock content={thinking} />
         </div>
       )}
 
@@ -406,7 +419,7 @@ function MessageItem({ message }: { message: MessageWithToolCalls }) {
             <p className="whitespace-pre-wrap leading-relaxed">{textContent}</p>
           </div>
         ) : (
-          <AssistantContent content={message.content} />
+          <AssistantContent content={mainContent} />
         )}
         <div className="mt-1 text-xs opacity-50">
           {new Date(message.createdAt).toLocaleTimeString()}
@@ -416,13 +429,10 @@ function MessageItem({ message }: { message: MessageWithToolCalls }) {
   );
 }
 
-/** Renders assistant message with thinking block extraction and markdown */
+/** Renders assistant message markdown (thinking blocks already extracted at MessageItem level) */
 function AssistantContent({ content }: { content: string }) {
-  const { thinking, content: mainContent } = useMemo(() => extractThinking(content), [content]);
-
   return (
     <>
-      {thinking && <ThinkingBlock content={thinking} />}
       <div className="prose dark:prose-invert prose-sm max-w-none">
         <ReactMarkdown
           remarkPlugins={[remarkGfm]}
@@ -487,7 +497,7 @@ function AssistantContent({ content }: { content: string }) {
             },
           }}
         >
-          {mainContent}
+          {content}
         </ReactMarkdown>
       </div>
     </>

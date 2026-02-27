@@ -229,6 +229,9 @@ export async function* runClaude(
     sdkOptions.env = cleanEnv;
   }
 
+  // Enable extended thinking (adaptive mode — Claude decides when to think)
+  sdkOptions.thinking = { type: 'adaptive' };
+
   // Permission handling callback
   if (onPermissionRequest) {
     sdkOptions.canUseTool = async (

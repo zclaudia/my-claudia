@@ -137,7 +137,7 @@ function InfoBadge({ icon, label, value }: { icon: string; label: string; value:
   );
 }
 
-function InfoList({ icon, label, items }: { icon: string; label: string; items: string[] }) {
+function InfoList({ icon, label, items }: { icon: string; label: string; items: (string | { name: string; status?: string })[] }) {
   const [showAll, setShowAll] = useState(false);
   const maxVisible = 5;
   const displayItems = showAll ? items : items.slice(0, maxVisible);
@@ -156,7 +156,7 @@ function InfoList({ icon, label, items }: { icon: string; label: string; items: 
             key={index}
             className="bg-secondary text-secondary-foreground px-1.5 py-0.5 rounded text-[10px] font-mono"
           >
-            {item}
+            {typeof item === 'string' ? item : item.name}
           </span>
         ))}
         {hasMore && (

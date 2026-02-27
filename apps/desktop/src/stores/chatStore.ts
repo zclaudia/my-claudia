@@ -50,6 +50,7 @@ interface ChatState {
   prependMessages: (sessionId: string, messages: MessageWithToolCalls[], pagination?: Omit<PaginationInfo, 'isLoadingMore'>) => void;
   appendMessages: (sessionId: string, messages: MessageWithToolCalls[], pagination?: Omit<PaginationInfo, 'isLoadingMore'>) => void;
   addMessage: (sessionId: string, message: MessageWithToolCalls) => void;
+  updateLastUserMessageId: (sessionId: string, newId: string) => void;
   appendToLastMessage: (sessionId: string, content: string) => void;
   clearMessages: (sessionId: string) => void;
   setLoadingMore: (sessionId: string, loading: boolean) => void;
@@ -170,6 +171,21 @@ export const useChatStore = create<ChatState>((set, get) => ({
           },
         },
       };
+    }),
+
+  // Update the last user message's ID to match the server's real DB ID (for dedup)
+  updateLastUserMessageId: (sessionId, newId) =>
+    set((state) => {
+      const sessionMessages = state.messages[sessionId] || [];
+      // Find the last user message (search from end)
+      let lastUserIdx = -1;
+      for (let i = sessionMessages.length - 1; i >= 0; i--) {
+        if (sessionMessages[i].role === 'user') { lastUserIdx = i; break; }
+      }
+      if (lastUserIdx === -1) return state;
+      const updated = [...sessionMessages];
+      updated[lastUserIdx] = { ...updated[lastUserIdx], id: newId };
+      return { messages: { ...state.messages, [sessionId]: updated } };
     }),
 
   appendToLastMessage: (sessionId, content) =>

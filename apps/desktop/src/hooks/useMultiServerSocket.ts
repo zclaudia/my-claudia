@@ -49,6 +49,7 @@ export function useMultiServerSocket() {
   // Store hooks
   const {
     addMessage,
+    updateLastUserMessageId,
     appendToLastMessage,
     startRun,
     endRun,
@@ -145,14 +146,18 @@ export function useMultiServerSocket() {
             serverRunsRef.current.set(serverId, new Set());
           }
           serverRunsRef.current.get(serverId)!.add(message.runId);
+          // Use server-provided assistantMessageId for dedup (falls back to runId for old servers)
+          const assistantMsgId = (message as any).assistantMessageId || message.runId;
+          const userMsgId = (message as any).userMessageId;
           if (isAgentRun) {
             const agentSessionId = useAgentStore.getState().agentSessionId;
             if (agentSessionId) {
               startRun(message.runId, agentSessionId);
               useAgentStore.getState().setActiveRunId(message.runId);
               useAgentStore.getState().setLoading(true);
+              if (userMsgId) updateLastUserMessageId(agentSessionId, userMsgId);
               addMessage(agentSessionId, {
-                id: message.runId,
+                id: assistantMsgId,
                 sessionId: agentSessionId,
                 role: 'assistant',
                 content: '',
@@ -164,8 +169,10 @@ export function useMultiServerSocket() {
             if (serverId === activeServerId) {
               clearSystemInfo();
             }
+            // Update user message ID to match server's DB ID (prevents gap-fill duplicates)
+            if (userMsgId) updateLastUserMessageId(targetSessionId, userMsgId);
             addMessage(targetSessionId, {
-              id: message.runId,
+              id: assistantMsgId,
               sessionId: targetSessionId,
               role: 'assistant',
               content: '',
@@ -464,6 +471,7 @@ export function useMultiServerSocket() {
     activeServerId,
     servers,
     addMessage,
+    updateLastUserMessageId,
     appendToLastMessage,
     startRun,
     endRun,
@@ -576,6 +584,13 @@ export function useMultiServerSocket() {
     // Skip gateway-mode servers (legacy entries)
     if (server.connectionMode === 'gateway') {
       console.warn(`[Socket] Skipping legacy gateway server: ${serverId}`);
+      return;
+    }
+
+    // For local server, wait until embedded server port is known
+    // (DEFAULT_SERVER has address 'localhost:3100' which may conflict with dev instances)
+    if (serverId === 'local' && !useServerStore.getState().localServerPort) {
+      console.log(`[Socket:local] Waiting for embedded server port...`);
       return;
     }
 
@@ -700,7 +715,8 @@ export function useMultiServerSocket() {
     connectServerRef.current = connectServer;
   }, [connectServer]);
 
-  // Auto-connect to active server when it changes.
+  // Auto-connect to active server when it changes or when server address updates
+  // (e.g., embedded server port becomes available via setLocalServerPort).
   // Gateway targets are auto-connected by useGatewayConnection.
   useEffect(() => {
     if (!activeServerId) return;
@@ -712,7 +728,7 @@ export function useMultiServerSocket() {
     if (!state || !state.transport.isConnected()) {
       connectServerRef.current(activeServerId);
     }
-  }, [activeServerId]);
+  }, [activeServerId, servers]);
 
   // Cleanup on unmount
   useEffect(() => {

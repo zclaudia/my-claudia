@@ -616,6 +616,10 @@ export interface RunStartedMessage {
   runId: string;
   sessionId: string;
   clientRequestId: string;
+  /** Real DB message ID for the user message (for client-side dedup) */
+  userMessageId?: string;
+  /** Real DB message ID for the assistant message (for client-side dedup) */
+  assistantMessageId?: string;
 }
 
 export interface SessionCreatedMessage {

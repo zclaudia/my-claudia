@@ -527,11 +527,24 @@ export class SupervisorService {
     const planSessionId = uuidv4();
     const now = Date.now();
 
-    // Create a background session for the planning conversation
+    // Resolve the parent session's effective provider
+    const parentInfo = this.db.prepare(`
+      SELECT s.project_id, COALESCE(s.provider_id, p.provider_id) as resolved_provider_id
+      FROM sessions s
+      LEFT JOIN projects p ON s.project_id = p.id
+      WHERE s.id = ?
+    `).get(sessionId) as { project_id: string; resolved_provider_id: string | null } | undefined;
+
+    if (!parentInfo) {
+      throw new Error(`Parent session ${sessionId} not found`);
+    }
+
+    // Create a background session for the planning conversation, inheriting provider from parent
     this.db.prepare(`
-      INSERT INTO sessions (id, project_id, name, type, created_at, updated_at)
-      VALUES (?, (SELECT project_id FROM sessions WHERE id = ?), ?, 'background', ?, ?)
-    `).run(planSessionId, sessionId, `Planning: ${hint.slice(0, 50)}`, now, now);
+      INSERT INTO sessions (id, project_id, name, provider_id, type, parent_session_id, created_at, updated_at)
+      VALUES (?, ?, ?, ?, 'background', ?, ?, ?)
+    `).run(planSessionId, parentInfo.project_id, `Planning: ${hint.slice(0, 50)}`,
+           parentInfo.resolved_provider_id, sessionId, now, now);
 
     // Create supervision in 'planning' status
     this.db.prepare(`

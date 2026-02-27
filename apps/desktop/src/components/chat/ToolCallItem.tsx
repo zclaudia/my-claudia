@@ -448,13 +448,16 @@ export function ToolCallItem({ toolCall }: ToolCallItemProps) {
   const icon = getToolIcon(toolName);
   const summary = formatToolInput(toolName, toolInput);
 
+  // AskUserQuestion: user answers come back as "deny" (isError=true), but that's expected behavior
+  const showAsError = isError && toolName !== 'AskUserQuestion';
+
   return (
     <div
       data-testid="tool-use"
       className={`my-2 rounded-lg border ${
         status === 'running'
           ? 'border-primary/30 bg-primary/5'
-          : isError
+          : showAsError
           ? 'border-destructive/30 bg-destructive/5'
           : 'border-success/30 bg-success/5'
       }`}
@@ -467,7 +470,7 @@ export function ToolCallItem({ toolCall }: ToolCallItemProps) {
         {/* Status indicator */}
         {status === 'running' ? (
           <span className="animate-spin text-primary">⟳</span>
-        ) : isError ? (
+        ) : showAsError ? (
           <span className="text-destructive">✗</span>
         ) : (
           <span className="text-success">✓</span>

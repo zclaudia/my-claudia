@@ -1206,12 +1206,22 @@ async function handleRunStart(
   // Track tool_use_id to tool_name mapping for this run
   const toolUseIdToName = new Map<string, string>();
 
-  // Send run started
+  // Save user message to database (before sending run_started so IDs are available)
+  const userMessageId = uuidv4();
+  const userOffset = getNextOffset(db, message.sessionId);
+  db.prepare(`
+    INSERT INTO messages (id, session_id, role, content, created_at, offset)
+    VALUES (?, ?, 'user', ?, ?, ?)
+  `).run(userMessageId, message.sessionId, message.input, Date.now(), userOffset);
+
+  // Send run started (include real DB message IDs for client-side dedup)
   sendMessage(client.ws, {
     type: 'run_started',
     runId,
     sessionId: message.sessionId,
-    clientRequestId: message.clientRequestId
+    clientRequestId: message.clientRequestId,
+    userMessageId,
+    assistantMessageId: activeRun.assistantMessageId,
   });
 
   // Notify background task started
@@ -1222,14 +1232,6 @@ async function handleRunStart(
       status: 'running',
     } as import('@my-claudia/shared').BackgroundTaskUpdateMessage);
   }
-
-  // Save user message to database
-  const userMessageId = uuidv4();
-  const userOffset = getNextOffset(db, message.sessionId);
-  db.prepare(`
-    INSERT INTO messages (id, session_id, role, content, created_at, offset)
-    VALUES (?, ?, 'user', ?, ?, ?)
-  `).run(userMessageId, message.sessionId, message.input, Date.now(), userOffset);
 
   let sdkSessionId = session.sdk_session_id || undefined;
 
