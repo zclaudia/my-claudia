@@ -57,6 +57,18 @@ export function useEmbeddedServer(): EmbeddedServerState {
 
   const startServerDev = useCallback(async () => {
     try {
+      // If server is already running on port 3100 (e.g. after HMR remount), reuse it
+      try {
+        const resp = await fetch('http://127.0.0.1:3100/health');
+        if (resp.ok) {
+          console.log('[EmbeddedServer] Server already running on port 3100, reusing');
+          setState({ port: 3100, status: 'ready', error: null });
+          return;
+        }
+      } catch {
+        // Not running, proceed to spawn
+      }
+
       const baseDataDir = await appDataDir();
       const dataDir = baseDataDir.replace(/\/?$/, '-dev/');
       const serverPath = await resolveServerPath();
@@ -97,17 +109,29 @@ export function useEmbeddedServer(): EmbeddedServerState {
 
       command.on('close', (data: { code: number | null; signal: number | null }) => {
         console.log(`[EmbeddedServer] Process exited (code=${data.code}, signal=${data.signal})`);
-        if (mountedRef.current) {
-          setState(prev => {
-            if (prev.status === 'ready') {
-              return { ...prev, status: 'error', error: 'Server process exited unexpectedly' };
-            }
-            if (prev.status === 'starting') {
-              return { ...prev, status: 'error', error: `Server process crashed on startup (code=${data.code})` };
-            }
-            return prev;
-          });
-        }
+        if (!mountedRef.current) return;
+        // Before marking as error, check if server is still reachable
+        // (handles React StrictMode double-mount: old process dies but new one is running)
+        fetch('http://127.0.0.1:3100/health').then(resp => {
+          if (resp.ok && mountedRef.current) {
+            console.log('[EmbeddedServer] Process exited but server still reachable, recovering');
+            setState({ port: 3100, status: 'ready', error: null });
+          } else if (mountedRef.current) {
+            setState(prev => {
+              if (prev.status === 'ready') return { ...prev, status: 'error', error: 'Server process exited unexpectedly' };
+              if (prev.status === 'starting') return { ...prev, status: 'error', error: `Server process crashed on startup (code=${data.code})` };
+              return prev;
+            });
+          }
+        }).catch(() => {
+          if (mountedRef.current) {
+            setState(prev => {
+              if (prev.status === 'ready') return { ...prev, status: 'error', error: 'Server process exited unexpectedly' };
+              if (prev.status === 'starting') return { ...prev, status: 'error', error: `Server process crashed on startup (code=${data.code})` };
+              return prev;
+            });
+          }
+        });
       });
 
       const child = await command.spawn();
