@@ -45,6 +45,10 @@
     --warning: 38 92% 50%;
     --warning-foreground: 48 96% 89%;
 
+    /* Thinking colors */
+    --thinking: 265 60% 55%;
+    --thinking-foreground: 265 80% 98%;
+
     /* Border and input */
     --border: 214.3 31.8% 91.4%;
     --input: 214.3 31.8% 91.4%;
@@ -86,6 +90,8 @@
     --success-foreground: 142 60% 10%;
     --warning: 40 80% 52%;
     --warning-foreground: 30 70% 12%;
+    --thinking: 265 45% 58%;
+    --thinking-foreground: 265 60% 95%;
     --border: 220 8% 18%;
     --input: 220 7% 16%;
     --ring: 215 50% 48%;
@@ -119,6 +125,8 @@
     --success-foreground: 145 55% 10%;
     --warning: 42 78% 52%;
     --warning-foreground: 32 65% 12%;
+    --thinking: 270 40% 55%;
+    --thinking-foreground: 270 50% 95%;
     --border: 30 7% 18%;
     --input: 30 6% 16%;
     --ring: 35 55% 45%;
@@ -152,6 +160,8 @@
     --success-foreground: 142 60% 10%;
     --warning: 42 82% 52%;
     --warning-foreground: 30 70% 12%;
+    --thinking: 260 50% 60%;
+    --thinking-foreground: 260 60% 95%;
     --border: 222 16% 19%;
     --input: 222 14% 16%;
     --ring: 215 60% 50%;

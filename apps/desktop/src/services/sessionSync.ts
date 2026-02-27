@@ -10,6 +10,9 @@ import { useSessionsStore, type RemoteSession } from '../stores/sessionsStore';
 import { useServerStore } from '../stores/serverStore';
 import { isGatewayTarget, parseBackendId } from '../stores/gatewayStore';
 import { resolveGatewayBackendUrl, getGatewayAuthHeaders } from './gatewayProxy';
+import { useChatStore } from '../stores/chatStore';
+import { useProjectStore } from '../stores/projectStore';
+import * as api from './api';
 
 interface BackendSyncState {
   lastSyncTime: number;
@@ -23,6 +26,44 @@ const syncStates = new Map<string, BackendSyncState>();
 // Sync configuration
 const INCREMENTAL_SYNC_INTERVAL = 30000; // 30 seconds
 const FULL_SYNC_INTERVAL = 300000; // 5 minutes
+
+/**
+ * Check if the currently viewed session has missing messages and fetch them.
+ * Only runs for the active session that's currently displayed to the user.
+ */
+async function checkAndFillMessageGaps(sessions: RemoteSession[]): Promise<void> {
+  const currentSessionId = useProjectStore.getState().selectedSessionId;
+  if (!currentSessionId) return;
+
+  const session = sessions.find((s) => s.id === currentSessionId);
+  if (!session?.lastMessageOffset) return;
+
+  // Skip if session has an active run (messages still being generated)
+  if (session.isActive) return;
+
+  const pagination = useChatStore.getState().pagination[currentSessionId];
+  if (!pagination?.maxOffset) return;
+
+  // If server's max offset is ahead of what we have, fetch missing messages
+  if (session.lastMessageOffset > pagination.maxOffset) {
+    try {
+      console.log(
+        `[SessionSync] Gap detected for session ${currentSessionId}: ` +
+        `local maxOffset=${pagination.maxOffset}, server lastMessageOffset=${session.lastMessageOffset}`
+      );
+      const result = await api.getSessionMessages(currentSessionId, {
+        afterOffset: pagination.maxOffset,
+        limit: 100,
+      });
+      if (result.messages.length > 0) {
+        useChatStore.getState().appendMessages(currentSessionId, result.messages, result.pagination);
+        console.log(`[SessionSync] Filled ${result.messages.length} missing messages`);
+      }
+    } catch (error) {
+      console.error('[SessionSync] Failed to fill message gap:', error);
+    }
+  }
+}
 
 /**
  * Get the base URL for the active server
@@ -138,6 +179,9 @@ async function incrementalSync(backendId: string): Promise<void> {
         `[SessionSync] Incremental sync: ${sessions.length} changed sessions`
       );
     }
+
+    // Check for message gaps in the currently viewed session
+    await checkAndFillMessageGaps(sessions);
   } catch (error) {
     console.error('[SessionSync] Incremental sync failed:', error);
   }
@@ -199,6 +243,9 @@ async function fullSync(backendId: string): Promise<void> {
     state.lastSyncTime = timestamp;
 
     console.log(`[SessionSync] Full sync: ${sessions.length} total sessions`);
+
+    // Check for message gaps in the currently viewed session
+    await checkAndFillMessageGaps(sessions);
   } catch (error) {
     console.error('[SessionSync] Full sync failed:', error);
   }

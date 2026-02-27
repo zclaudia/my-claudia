@@ -6,6 +6,7 @@ interface PaginationInfo {
   hasMore: boolean;
   oldestTimestamp?: number;
   newestTimestamp?: number;
+  maxOffset?: number;  // Highest message offset loaded (for gap detection)
   isLoadingMore: boolean;
 }
 
@@ -47,6 +48,7 @@ interface ChatState {
   // Actions — Messages
   setMessages: (sessionId: string, messages: MessageWithToolCalls[], pagination?: Omit<PaginationInfo, 'isLoadingMore'>) => void;
   prependMessages: (sessionId: string, messages: MessageWithToolCalls[], pagination?: Omit<PaginationInfo, 'isLoadingMore'>) => void;
+  appendMessages: (sessionId: string, messages: MessageWithToolCalls[], pagination?: Omit<PaginationInfo, 'isLoadingMore'>) => void;
   addMessage: (sessionId: string, message: MessageWithToolCalls) => void;
   appendToLastMessage: (sessionId: string, content: string) => void;
   clearMessages: (sessionId: string) => void;
@@ -118,6 +120,30 @@ export const useChatStore = create<ChatState>((set, get) => ({
         pagination: pagination
           ? { ...state.pagination, [sessionId]: { ...pagination, isLoadingMore: false } }
           : state.pagination,
+      };
+    }),
+
+  appendMessages: (sessionId, newMessages, pagination) =>
+    set((state) => {
+      const existingMessages = state.messages[sessionId] || [];
+      // Deduplicate by message ID
+      const existingIds = new Set(existingMessages.map((m) => m.id));
+      const deduped = newMessages.filter((m) => !existingIds.has(m.id));
+      if (deduped.length === 0) return state;
+
+      const combined = [...existingMessages, ...deduped];
+      const existingPagination = state.pagination[sessionId] || DEFAULT_PAGINATION;
+
+      return {
+        messages: { ...state.messages, [sessionId]: combined },
+        pagination: {
+          ...state.pagination,
+          [sessionId]: {
+            ...existingPagination,
+            ...(pagination || {}),
+            isLoadingMore: false,
+          },
+        },
       };
     }),
 

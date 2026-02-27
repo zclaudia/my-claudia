@@ -45,8 +45,11 @@ describe('Import API Integration Tests', () => {
         content TEXT NOT NULL,
         metadata TEXT,
         created_at INTEGER NOT NULL,
+        offset INTEGER,
         FOREIGN KEY (session_id) REFERENCES sessions(id)
       );
+
+      CREATE INDEX IF NOT EXISTS idx_messages_session_offset ON messages(session_id, offset);
     `);
 
     // Insert test project

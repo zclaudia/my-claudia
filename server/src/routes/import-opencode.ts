@@ -386,21 +386,24 @@ function importOpenCodeSessions(
             sessionData.timeUpdated
           );
 
-          // Insert messages
+          // Insert messages with sequential offsets
           const insertMessage = db.prepare(`
-            INSERT INTO messages (id, session_id, role, content, metadata, created_at)
-            VALUES (?, ?, ?, ?, ?, ?)
+            INSERT INTO messages (id, session_id, role, content, metadata, created_at, offset)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
           `);
 
+          let importOffset = 0;
           for (const msg of sessionData.messages) {
             try {
+              importOffset++;
               insertMessage.run(
                 msg.id,
                 item.sessionId,
                 msg.role,
                 msg.content,
                 msg.metadata ? JSON.stringify(msg.metadata) : null,
-                msg.createdAt
+                msg.createdAt,
+                importOffset
               );
             } catch (error) {
               console.error(`Error inserting message ${msg.id}:`, error);

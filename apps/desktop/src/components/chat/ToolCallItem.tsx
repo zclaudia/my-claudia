@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
+import { AnsiUp } from 'ansi_up';
 import type { ToolCallState } from '../../stores/chatStore';
 import { getToolIcon } from '../../config/icons';
 import { DiffViewer } from './DiffViewer';
@@ -7,6 +8,8 @@ import { useTerminalStore } from '../../stores/terminalStore';
 import { useProjectStore } from '../../stores/projectStore';
 import { useConnection } from '../../contexts/ConnectionContext';
 import { useServerStore } from '../../stores/serverStore';
+
+const ansiUp = new AnsiUp();
 
 interface ToolCallItemProps {
   toolCall: ToolCallState;
@@ -65,6 +68,11 @@ function formatToolResult(result: unknown): string {
   return JSON.stringify(result, null, 2);
 }
 
+// Convert ANSI escape sequences to styled HTML
+function ansiToHtml(text: string): string {
+  return ansiUp.ansi_to_html(text);
+}
+
 // Max lines to show before collapsing terminal output
 const TERMINAL_PREVIEW_LINES = 10;
 
@@ -114,6 +122,8 @@ function TerminalOutput({ content, isError }: { content: string; isError?: boole
     ? lines.slice(0, TERMINAL_PREVIEW_LINES).join('\n')
     : content;
 
+  const html = useMemo(() => ansiToHtml(displayContent), [displayContent]);
+
   return (
     <div className="rounded-lg overflow-hidden border border-zinc-700">
       <pre
@@ -123,9 +133,8 @@ function TerminalOutput({ content, isError }: { content: string; isError?: boole
             ? 'bg-red-950 text-red-300'
             : 'bg-zinc-900 text-zinc-200'
         }`}
-      >
-        {displayContent}
-      </pre>
+        dangerouslySetInnerHTML={{ __html: html }}
+      />
       {needsCollapse && (
         <button
           onClick={() => setIsFullyExpanded(!isFullyExpanded)}

@@ -72,20 +72,25 @@ function createTestDb(): Database.Database {
       role TEXT CHECK(role IN ('user', 'assistant', 'system')) NOT NULL,
       content TEXT NOT NULL,
       metadata TEXT,
-      created_at INTEGER NOT NULL
+      created_at INTEGER NOT NULL,
+      offset INTEGER
     );
+
+    CREATE INDEX IF NOT EXISTS idx_messages_session_offset ON messages(session_id, offset);
 
     CREATE TABLE IF NOT EXISTS supervisions (
       id TEXT PRIMARY KEY,
       session_id TEXT NOT NULL,
       goal TEXT NOT NULL,
       subtasks TEXT,
-      status TEXT CHECK(status IN ('active', 'paused', 'completed', 'failed', 'cancelled')) NOT NULL DEFAULT 'active',
+      status TEXT CHECK(status IN ('planning', 'active', 'paused', 'completed', 'failed', 'cancelled')) NOT NULL DEFAULT 'active',
       max_iterations INTEGER NOT NULL DEFAULT 10,
       current_iteration INTEGER NOT NULL DEFAULT 0,
       cooldown_seconds INTEGER NOT NULL DEFAULT 5,
       last_run_id TEXT,
       error_message TEXT,
+      plan_session_id TEXT,
+      acceptance_criteria TEXT,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL,
       completed_at INTEGER
@@ -454,6 +459,371 @@ describe('Supervision Routes', () => {
 
       expect(res.body.success).toBe(false);
       expect(res.body.error.code).toBe('VALIDATION_ERROR');
+    });
+
+    it('should start planning and return supervision with planSessionId', async () => {
+      const { sessionId } = createTestSession(db);
+
+      const res = await request(app)
+        .post('/api/supervisions/plan/start')
+        .send({ sessionId, hint: 'Build a REST API' })
+        .expect(200);
+
+      expect(res.body.success).toBe(true);
+      expect(res.body.data.supervision.status).toBe('planning');
+      expect(res.body.data.supervision.sessionId).toBe(sessionId);
+      expect(res.body.data.planSessionId).toBeDefined();
+    });
+
+    it('should return 409 when session already has active supervision', async () => {
+      const { sessionId } = createTestSession(db);
+
+      // Create an active supervision first
+      await request(app)
+        .post('/api/supervisions')
+        .send({ sessionId, goal: 'Existing goal' })
+        .expect(200);
+
+      const res = await request(app)
+        .post('/api/supervisions/plan/start')
+        .send({ sessionId, hint: 'Another goal' })
+        .expect(409);
+
+      expect(res.body.error.code).toBe('CONFLICT');
+    });
+
+    it('should return 409 when session already has planning supervision', async () => {
+      const { sessionId } = createTestSession(db);
+
+      // Start planning first
+      await request(app)
+        .post('/api/supervisions/plan/start')
+        .send({ sessionId, hint: 'First plan' })
+        .expect(200);
+
+      const res = await request(app)
+        .post('/api/supervisions/plan/start')
+        .send({ sessionId, hint: 'Second plan' })
+        .expect(409);
+
+      expect(res.body.error.code).toBe('CONFLICT');
+    });
+  });
+
+  describe('POST /api/supervisions/plan/:id/respond', () => {
+    it('should return 400 when message is missing', async () => {
+      const { sessionId } = createTestSession(db);
+
+      const planRes = await request(app)
+        .post('/api/supervisions/plan/start')
+        .send({ sessionId, hint: 'Plan something' })
+        .expect(200);
+
+      const supId = planRes.body.data.supervision.id;
+
+      const res = await request(app)
+        .post(`/api/supervisions/plan/${supId}/respond`)
+        .send({})
+        .expect(400);
+
+      expect(res.body.error.code).toBe('VALIDATION_ERROR');
+    });
+
+    it('should accept a response for planning supervision', async () => {
+      const { sessionId } = createTestSession(db);
+
+      const planRes = await request(app)
+        .post('/api/supervisions/plan/start')
+        .send({ sessionId, hint: 'Plan something' })
+        .expect(200);
+
+      const supId = planRes.body.data.supervision.id;
+
+      const res = await request(app)
+        .post(`/api/supervisions/plan/${supId}/respond`)
+        .send({ message: 'I want to build a REST API with Express' })
+        .expect(200);
+
+      expect(res.body.success).toBe(true);
+    });
+
+    it('should return 400 when supervision is not in planning status', async () => {
+      const { sessionId } = createTestSession(db);
+
+      // Create an active (non-planning) supervision
+      const createRes = await request(app)
+        .post('/api/supervisions')
+        .send({ sessionId, goal: 'Active goal' })
+        .expect(200);
+
+      const supId = createRes.body.data.id;
+
+      const res = await request(app)
+        .post(`/api/supervisions/plan/${supId}/respond`)
+        .send({ message: 'Hello' })
+        .expect(400);
+
+      expect(res.body.error.code).toBe('INVALID_STATE');
+    });
+  });
+
+  describe('POST /api/supervisions/plan/:id/approve', () => {
+    it('should return 400 when goal is missing', async () => {
+      const { sessionId } = createTestSession(db);
+
+      const planRes = await request(app)
+        .post('/api/supervisions/plan/start')
+        .send({ sessionId, hint: 'Plan something' })
+        .expect(200);
+
+      const supId = planRes.body.data.supervision.id;
+
+      const res = await request(app)
+        .post(`/api/supervisions/plan/${supId}/approve`)
+        .send({ subtasks: [{ description: 'Task 1' }] })
+        .expect(400);
+
+      expect(res.body.error.code).toBe('VALIDATION_ERROR');
+    });
+
+    it('should return 400 when subtasks is missing', async () => {
+      const { sessionId } = createTestSession(db);
+
+      const planRes = await request(app)
+        .post('/api/supervisions/plan/start')
+        .send({ sessionId, hint: 'Plan something' })
+        .expect(200);
+
+      const supId = planRes.body.data.supervision.id;
+
+      const res = await request(app)
+        .post(`/api/supervisions/plan/${supId}/approve`)
+        .send({ goal: 'Refined goal' })
+        .expect(400);
+
+      expect(res.body.error.code).toBe('VALIDATION_ERROR');
+    });
+
+    it('should approve plan and transition to active', async () => {
+      const { sessionId } = createTestSession(db);
+
+      const planRes = await request(app)
+        .post('/api/supervisions/plan/start')
+        .send({ sessionId, hint: 'Plan something' })
+        .expect(200);
+
+      const supId = planRes.body.data.supervision.id;
+
+      const res = await request(app)
+        .post(`/api/supervisions/plan/${supId}/approve`)
+        .send({
+          goal: 'Build a REST API with Express',
+          subtasks: [
+            { description: 'Set up project', phase: 1, acceptanceCriteria: ['package.json exists'] },
+            { description: 'Create routes', phase: 2, acceptanceCriteria: ['GET /api works'] },
+          ],
+          acceptanceCriteria: ['Server starts on port 3000', 'All tests pass'],
+          maxIterations: 10,
+          cooldownSeconds: 3,
+        })
+        .expect(200);
+
+      expect(res.body.success).toBe(true);
+      expect(res.body.data.status).toBe('active');
+      expect(res.body.data.goal).toBe('Build a REST API with Express');
+      expect(res.body.data.subtasks).toHaveLength(2);
+      expect(res.body.data.subtasks[0].phase).toBe(1);
+      expect(res.body.data.subtasks[0].acceptanceCriteria).toEqual(['package.json exists']);
+      expect(res.body.data.acceptanceCriteria).toEqual(['Server starts on port 3000', 'All tests pass']);
+      expect(res.body.data.maxIterations).toBe(10);
+    });
+
+    it('should return 400 when approving a non-planning supervision', async () => {
+      const { sessionId } = createTestSession(db);
+
+      const createRes = await request(app)
+        .post('/api/supervisions')
+        .send({ sessionId, goal: 'Active goal' })
+        .expect(200);
+
+      const supId = createRes.body.data.id;
+
+      const res = await request(app)
+        .post(`/api/supervisions/plan/${supId}/approve`)
+        .send({
+          goal: 'New goal',
+          subtasks: [{ description: 'Task 1' }],
+        })
+        .expect(400);
+
+      expect(res.body.error.code).toBe('INVALID_STATE');
+    });
+  });
+
+  describe('GET /api/supervisions/plan/:id/conversation', () => {
+    it('should return empty array for supervision without plan session', async () => {
+      const { sessionId } = createTestSession(db);
+
+      const createRes = await request(app)
+        .post('/api/supervisions')
+        .send({ sessionId, goal: 'No plan session' })
+        .expect(200);
+
+      const supId = createRes.body.data.id;
+
+      const res = await request(app)
+        .get(`/api/supervisions/plan/${supId}/conversation`)
+        .expect(200);
+
+      expect(res.body.success).toBe(true);
+      expect(res.body.data).toEqual([]);
+    });
+
+    it('should return messages for planning supervision', async () => {
+      const { sessionId } = createTestSession(db);
+
+      const planRes = await request(app)
+        .post('/api/supervisions/plan/start')
+        .send({ sessionId, hint: 'Plan something' })
+        .expect(200);
+
+      const supId = planRes.body.data.supervision.id;
+      const planSessionId = planRes.body.data.planSessionId;
+
+      // Insert some messages into the plan session
+      const now = Date.now();
+      db.prepare(`INSERT INTO messages (id, session_id, role, content, created_at) VALUES (?, ?, ?, ?, ?)`)
+        .run('msg-1', planSessionId, 'user', 'I want to build something', now);
+      db.prepare(`INSERT INTO messages (id, session_id, role, content, created_at) VALUES (?, ?, ?, ?, ?)`)
+        .run('msg-2', planSessionId, 'assistant', 'What kind of project?', now + 1);
+
+      const res = await request(app)
+        .get(`/api/supervisions/plan/${supId}/conversation`)
+        .expect(200);
+
+      expect(res.body.success).toBe(true);
+      expect(res.body.data).toHaveLength(2);
+      expect(res.body.data[0].role).toBe('user');
+      expect(res.body.data[0].content).toBe('I want to build something');
+      expect(res.body.data[1].role).toBe('assistant');
+      expect(res.body.data[1].content).toBe('What kind of project?');
+    });
+  });
+
+  describe('POST /api/supervisions/plan/:id/cancel', () => {
+    it('should cancel a planning supervision', async () => {
+      const { sessionId } = createTestSession(db);
+
+      const planRes = await request(app)
+        .post('/api/supervisions/plan/start')
+        .send({ sessionId, hint: 'Plan something' })
+        .expect(200);
+
+      const supId = planRes.body.data.supervision.id;
+
+      const res = await request(app)
+        .post(`/api/supervisions/plan/${supId}/cancel`)
+        .expect(200);
+
+      expect(res.body.success).toBe(true);
+      expect(res.body.data.status).toBe('cancelled');
+    });
+
+    it('should return 400 when cancelling a non-planning supervision', async () => {
+      const { sessionId } = createTestSession(db);
+
+      const createRes = await request(app)
+        .post('/api/supervisions')
+        .send({ sessionId, goal: 'Active goal' })
+        .expect(200);
+
+      const supId = createRes.body.data.id;
+
+      const res = await request(app)
+        .post(`/api/supervisions/plan/${supId}/cancel`)
+        .expect(400);
+
+      expect(res.body.error.code).toBe('INVALID_STATE');
+    });
+
+    it('should allow new supervision after cancelled planning', async () => {
+      const { sessionId } = createTestSession(db);
+
+      // Start planning
+      const planRes = await request(app)
+        .post('/api/supervisions/plan/start')
+        .send({ sessionId, hint: 'Plan something' })
+        .expect(200);
+
+      // Cancel it
+      await request(app)
+        .post(`/api/supervisions/plan/${planRes.body.data.supervision.id}/cancel`)
+        .expect(200);
+
+      // Should be able to create a new supervision
+      const res = await request(app)
+        .post('/api/supervisions')
+        .send({ sessionId, goal: 'New goal after cancel' })
+        .expect(200);
+
+      expect(res.body.success).toBe(true);
+      expect(res.body.data.status).toBe('active');
+    });
+  });
+
+  describe('Planning full flow', () => {
+    it('should complete plan/start → plan/:id/approve lifecycle', async () => {
+      const { sessionId } = createTestSession(db);
+
+      // Step 1: Start planning
+      const planRes = await request(app)
+        .post('/api/supervisions/plan/start')
+        .send({ sessionId, hint: 'Build a web app' })
+        .expect(200);
+
+      const supId = planRes.body.data.supervision.id;
+      expect(planRes.body.data.supervision.status).toBe('planning');
+
+      // Step 2: Verify supervision shows as planning
+      const getRes = await request(app)
+        .get(`/api/supervisions/${supId}`)
+        .expect(200);
+
+      expect(getRes.body.data.status).toBe('planning');
+
+      // Step 3: Verify session-level lookup includes planning
+      const sessionRes = await request(app)
+        .get(`/api/supervisions/session/${sessionId}`)
+        .expect(200);
+
+      expect(sessionRes.body.data).not.toBeNull();
+      expect(sessionRes.body.data.status).toBe('planning');
+
+      // Step 4: Approve the plan
+      const approveRes = await request(app)
+        .post(`/api/supervisions/plan/${supId}/approve`)
+        .send({
+          goal: 'Build a full-stack web application',
+          subtasks: [
+            { description: 'Backend setup', phase: 1 },
+            { description: 'Frontend setup', phase: 1 },
+            { description: 'Integration testing', phase: 2 },
+          ],
+          acceptanceCriteria: ['App runs locally'],
+        })
+        .expect(200);
+
+      expect(approveRes.body.data.status).toBe('active');
+      expect(approveRes.body.data.subtasks).toHaveLength(3);
+
+      // Step 5: Verify logs show planning events
+      const logsRes = await request(app)
+        .get(`/api/supervisions/${supId}/logs`)
+        .expect(200);
+
+      const events = logsRes.body.data.map((l: any) => l.event);
+      expect(events).toContain('planning_started');
+      expect(events).toContain('planning_approved');
     });
   });
 });

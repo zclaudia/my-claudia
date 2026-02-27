@@ -181,15 +181,16 @@ export function createSessionRoutes(db: Database.Database, activeRuns: ActiveRun
         return;
       }
 
-      // Get all non-archived sessions updated after the given timestamp
+      // Get all non-archived sessions updated after the given timestamp, with lastMessageOffset
       const sessions = db.prepare(`
-        SELECT id, project_id as projectId, name, provider_id as providerId,
-               archived_at as archivedAt,
-               created_at as createdAt, updated_at as updatedAt
-        FROM sessions
-        WHERE updated_at > ? AND archived_at IS NULL
-        ORDER BY updated_at DESC
-      `).all(sinceTimestamp) as Session[];
+        SELECT s.id, s.project_id as projectId, s.name, s.provider_id as providerId,
+               s.archived_at as archivedAt,
+               s.created_at as createdAt, s.updated_at as updatedAt,
+               (SELECT MAX(offset) FROM messages WHERE session_id = s.id) as lastMessageOffset
+        FROM sessions s
+        WHERE s.updated_at > ? AND s.archived_at IS NULL
+        ORDER BY s.updated_at DESC
+      `).all(sinceTimestamp) as (Session & { lastMessageOffset: number | null })[];
 
       // Attach isActive status based on activeRuns
       const sessionsWithStatus = sessions.map(session => ({
@@ -199,7 +200,8 @@ export function createSessionRoutes(db: Database.Database, activeRuns: ActiveRun
         providerId: session.providerId,
         createdAt: session.createdAt,
         updatedAt: session.updatedAt,
-        isActive: [...activeRuns.values()].some(run => run.sessionId === session.id)
+        isActive: [...activeRuns.values()].some(run => run.sessionId === session.id),
+        lastMessageOffset: session.lastMessageOffset ?? undefined,
       }));
 
       // Return sessions with current server timestamp
@@ -210,11 +212,7 @@ export function createSessionRoutes(db: Database.Database, activeRuns: ActiveRun
           timestamp: Date.now(),  // Client uses this for next sync
           total: sessionsWithStatus.length
         }
-      } as ApiResponse<{
-        sessions: Array<Session & { isActive: boolean }>;
-        timestamp: number;
-        total: number;
-      }>);
+      });
     } catch (error) {
       console.error('Error syncing sessions:', error);
       res.status(500).json({
@@ -717,14 +715,25 @@ export function createSessionRoutes(db: Database.Database, activeRuns: ActiveRun
       const limit = Math.min(parseInt(req.query.limit as string) || 50, 100);
       const before = req.query.before ? parseInt(req.query.before as string) : undefined;
       const after = req.query.after ? parseInt(req.query.after as string) : undefined;
+      const afterOffset = req.query.afterOffset ? parseInt(req.query.afterOffset as string) : undefined;
 
       let query: string;
       let params: (string | number)[];
 
-      if (before) {
+      if (afterOffset != null) {
+        // Load messages after a specific offset (for gap-fill)
+        query = `
+          SELECT id, session_id as sessionId, role, content, metadata, created_at as createdAt, offset
+          FROM messages
+          WHERE session_id = ? AND offset > ?
+          ORDER BY offset ASC
+          LIMIT ?
+        `;
+        params = [req.params.id, afterOffset, limit];
+      } else if (before) {
         // Load older messages (before cursor) - for scrolling up
         query = `
-          SELECT id, session_id as sessionId, role, content, metadata, created_at as createdAt
+          SELECT id, session_id as sessionId, role, content, metadata, created_at as createdAt, offset
           FROM messages
           WHERE session_id = ? AND created_at < ?
           ORDER BY created_at DESC
@@ -734,7 +743,7 @@ export function createSessionRoutes(db: Database.Database, activeRuns: ActiveRun
       } else if (after) {
         // Load newer messages (after cursor) - for scrolling down or new messages
         query = `
-          SELECT id, session_id as sessionId, role, content, metadata, created_at as createdAt
+          SELECT id, session_id as sessionId, role, content, metadata, created_at as createdAt, offset
           FROM messages
           WHERE session_id = ? AND created_at > ?
           ORDER BY created_at ASC
@@ -744,7 +753,7 @@ export function createSessionRoutes(db: Database.Database, activeRuns: ActiveRun
       } else {
         // Initial load - get the most recent messages
         query = `
-          SELECT id, session_id as sessionId, role, content, metadata, created_at as createdAt
+          SELECT id, session_id as sessionId, role, content, metadata, created_at as createdAt, offset
           FROM messages
           WHERE session_id = ?
           ORDER BY created_at DESC
@@ -781,7 +790,8 @@ export function createSessionRoutes(db: Database.Database, activeRuns: ActiveRun
       const wasTrimmed = keepCount < messages.length;
 
       // For initial load and "before" queries, we fetched DESC, so reverse to get chronological order
-      if (!after) {
+      // afterOffset uses ASC order like "after", so no reversal needed
+      if (!after && afterOffset == null) {
         trimmed.reverse();
       }
 
@@ -797,11 +807,15 @@ export function createSessionRoutes(db: Database.Database, activeRuns: ActiveRun
 
       // hasMore is true if we trimmed OR if there are more messages beyond the limit
       const hasMore = wasTrimmed
-        || (before || after ? messages.length === limit : countResult.total > limit);
+        || (before || after || afterOffset != null ? messages.length === limit : countResult.total > limit);
 
       // Cursor timestamps (result is now in chronological order: oldest first)
       const oldestTimestamp = result.length > 0 ? result[0].createdAt : undefined;
       const newestTimestamp = result.length > 0 ? result[result.length - 1].createdAt : undefined;
+
+      // Max offset across returned messages (for gap detection)
+      const maxOffset = result.reduce((max: number | undefined, m: any) =>
+        m.offset != null ? Math.max(max ?? 0, m.offset) : max, undefined);
 
       // Check if this session has an active run (for restoring loading state on reconnect)
       let activeRun: { runId: string } | null = null;
@@ -820,7 +834,8 @@ export function createSessionRoutes(db: Database.Database, activeRuns: ActiveRun
             total: countResult.total,
             hasMore,
             oldestTimestamp,
-            newestTimestamp
+            newestTimestamp,
+            maxOffset,
           },
           activeRun,
         }

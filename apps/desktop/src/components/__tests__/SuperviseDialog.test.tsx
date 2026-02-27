@@ -34,6 +34,9 @@ vi.mock('../../stores/chatStore', () => ({
 
 import { SuperviseDialog } from '../SuperviseDialog';
 
+// jsdom doesn't implement scrollIntoView
+Element.prototype.scrollIntoView = vi.fn();
+
 describe('SuperviseDialog', () => {
   const defaultProps = {
     sessionId: 'session-123',

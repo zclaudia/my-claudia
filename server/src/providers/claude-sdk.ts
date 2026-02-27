@@ -390,6 +390,7 @@ function transformMessage(message: unknown): ClaudeMessage | ClaudeMessage[] {
       const contentBlocks = msgContent?.content as Array<{
         type: string;
         text?: string;
+        thinking?: string;
         id?: string;
         name?: string;
         input?: unknown;
@@ -408,6 +409,13 @@ function transformMessage(message: unknown): ClaudeMessage | ClaudeMessage[] {
           messages.push({
             type: 'assistant',
             content: block.text,
+          });
+        } else if (block.type === 'thinking' && block.thinking) {
+          // Preserve thinking blocks by wrapping in <think> tags
+          // The frontend's extractThinking() regex will parse these
+          messages.push({
+            type: 'assistant',
+            content: `<think>${block.thinking}</think>`,
           });
         } else if (block.type === 'tool_use') {
           // Tool use block - Claude is calling a tool

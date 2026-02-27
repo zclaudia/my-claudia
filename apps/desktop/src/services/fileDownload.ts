@@ -6,6 +6,11 @@ function isTauri(): boolean {
   return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
 }
 
+/** Check if running on Android (Tauri mobile) */
+export function isAndroid(): boolean {
+  return isTauri() && navigator.userAgent.includes('Android');
+}
+
 /**
  * Save a blob to the Downloads folder using Tauri fs plugin.
  * Returns the absolute path of the saved file.

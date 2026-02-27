@@ -13,8 +13,11 @@ function createTestDb(): Database.Database {
       role TEXT CHECK(role IN ('user', 'assistant', 'system')) NOT NULL,
       content TEXT NOT NULL,
       metadata TEXT,
-      created_at INTEGER NOT NULL
+      created_at INTEGER NOT NULL,
+      offset INTEGER
     );
+
+    CREATE INDEX IF NOT EXISTS idx_messages_session_offset ON messages(session_id, offset);
 
     CREATE TABLE IF NOT EXISTS file_references (
       id INTEGER PRIMARY KEY AUTOINCREMENT,

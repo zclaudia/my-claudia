@@ -927,6 +927,16 @@ function cancelRun(runId: string): void {
 }
 
 /**
+ * Get the next sequential offset for a message in a session.
+ */
+function getNextOffset(db: import('better-sqlite3').Database, sessionId: string): number {
+  const row = db.prepare(
+    'SELECT COALESCE(MAX(offset), 0) + 1 as next FROM messages WHERE session_id = ?'
+  ).get(sessionId) as { next: number };
+  return row.next;
+}
+
+/**
  * Upsert assistant message to database.
  * Uses INSERT ... ON CONFLICT to avoid duplicates — safe to call multiple times
  * with the same assistantMessageId (periodic saves, cancel saves, final save).
@@ -949,9 +959,10 @@ function upsertAssistantMessage(
 
   const metadataJson = Object.keys(metadata).length > 0 ? JSON.stringify(metadata) : null;
 
+  const assistantOffset = getNextOffset(run.db, run.sessionId);
   run.db.prepare(`
-    INSERT INTO messages (id, session_id, role, content, metadata, created_at)
-    VALUES (?, ?, 'assistant', ?, ?, ?)
+    INSERT INTO messages (id, session_id, role, content, metadata, created_at, offset)
+    VALUES (?, ?, 'assistant', ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET
       content = excluded.content,
       metadata = excluded.metadata
@@ -960,7 +971,8 @@ function upsertAssistantMessage(
     run.sessionId,
     run.fullContent,
     metadataJson,
-    Date.now()
+    Date.now(),
+    assistantOffset
   );
 
   // Extended indexing (file_references, tool_call_records) — only on final/cancel save
@@ -1213,10 +1225,11 @@ async function handleRunStart(
 
   // Save user message to database
   const userMessageId = uuidv4();
+  const userOffset = getNextOffset(db, message.sessionId);
   db.prepare(`
-    INSERT INTO messages (id, session_id, role, content, created_at)
-    VALUES (?, ?, 'user', ?, ?)
-  `).run(userMessageId, message.sessionId, message.input, Date.now());
+    INSERT INTO messages (id, session_id, role, content, created_at, offset)
+    VALUES (?, ?, 'user', ?, ?, ?)
+  `).run(userMessageId, message.sessionId, message.input, Date.now(), userOffset);
 
   let sdkSessionId = session.sdk_session_id || undefined;
 

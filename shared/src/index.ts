@@ -245,6 +245,7 @@ export interface Message {
   content: string;
   metadata?: MessageMetadata;
   createdAt: number;
+  offset?: number;  // Per-session sequential message number (for gap detection)
 }
 
 export interface MessageMetadata {
@@ -1162,6 +1163,7 @@ export interface BackendSessionsListMessage {
     createdAt: number;
     updatedAt: number;
     isActive: boolean;  // Whether there's an active run for this session
+    lastMessageOffset?: number;  // Max message offset in this session (for gap detection)
   }>;
 }
 
@@ -1180,6 +1182,7 @@ export interface BackendSessionEventMessage {
     createdAt: number;
     updatedAt: number;
     isActive?: boolean;
+    lastMessageOffset?: number;
   };
 }
 

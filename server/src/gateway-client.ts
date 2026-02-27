@@ -564,12 +564,13 @@ export class GatewayClient {
     }
 
     try {
-      // Get all sessions from database
+      // Get all sessions from database, with lastMessageOffset for gap detection
       const sessions = this.db.prepare(`
-        SELECT id, project_id as projectId, name, provider_id as providerId,
-               created_at as createdAt, updated_at as updatedAt
-        FROM sessions
-        ORDER BY updated_at DESC
+        SELECT s.id, s.project_id as projectId, s.name, s.provider_id as providerId,
+               s.created_at as createdAt, s.updated_at as updatedAt,
+               (SELECT MAX(offset) FROM messages WHERE session_id = s.id) as lastMessageOffset
+        FROM sessions s
+        ORDER BY s.updated_at DESC
       `).all();
 
       // Add isActive status based on activeRuns
@@ -580,7 +581,8 @@ export class GatewayClient {
         providerId: session.providerId,
         createdAt: session.createdAt,
         updatedAt: session.updatedAt,
-        isActive: [...this.activeRuns!.values()].some((run: any) => run.sessionId === session.id)
+        isActive: [...this.activeRuns!.values()].some((run: any) => run.sessionId === session.id),
+        lastMessageOffset: session.lastMessageOffset ?? undefined,
       }));
 
       // Broadcast via broadcast_to_subscribers
@@ -608,10 +610,21 @@ export class GatewayClient {
       return;
     }
 
+    // Attach lastMessageOffset if db is available and session is not being deleted
+    let sessionWithOffset = session;
+    if (this.db && eventType !== 'deleted') {
+      const offsetRow = this.db.prepare(
+        'SELECT MAX(offset) as lastMessageOffset FROM messages WHERE session_id = ?'
+      ).get(session.id) as { lastMessageOffset: number | null } | undefined;
+      if (offsetRow?.lastMessageOffset != null) {
+        sessionWithOffset = { ...session, lastMessageOffset: offsetRow.lastMessageOffset };
+      }
+    }
+
     const message: BackendToGatewayMessage = {
       type: 'broadcast_session_event',
       eventType,
-      session
+      session: sessionWithOffset
     };
 
     this.ws.send(JSON.stringify(message));

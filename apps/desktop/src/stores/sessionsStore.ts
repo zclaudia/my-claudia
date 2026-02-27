@@ -6,6 +6,7 @@ import type { Session } from '@my-claudia/shared';
 
 export interface RemoteSession extends Session {
   isActive: boolean;  // Whether there's an active run
+  lastMessageOffset?: number;  // Max message offset (for gap detection)
 }
 
 interface SessionsState {

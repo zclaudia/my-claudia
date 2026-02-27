@@ -1,5 +1,5 @@
 import { useFilePushStore, type FilePushItem } from '../../stores/filePushStore';
-import { downloadPushedFile, formatFileSize, openFile, openFolder } from '../../services/fileDownload';
+import { downloadPushedFile, formatFileSize, openFile, openFolder, isAndroid } from '../../services/fileDownload';
 
 /** Icon based on MIME type */
 function FileIcon({ mimeType }: { mimeType: string }) {
@@ -82,9 +82,9 @@ export function FilePushCard({ item }: { item: FilePushItem }) {
 
           {item.status === 'completed' && (
             <div className="flex items-center gap-1.5">
-              {item.savedPath ? (
+              {item.savedPath && !isAndroid() ? (
                 <>
-                  {/* Open file with default app */}
+                  {/* Open file with default app (desktop only) */}
                   <button
                     onClick={() => openFile(item.savedPath!)}
                     className="px-2 py-0.5 text-xs font-medium text-primary hover:text-primary/80 transition-colors"
@@ -92,7 +92,7 @@ export function FilePushCard({ item }: { item: FilePushItem }) {
                   >
                     Open
                   </button>
-                  {/* Show in Finder/Explorer */}
+                  {/* Show in Finder/Explorer (desktop only) */}
                   <button
                     onClick={() => openFolder(item.savedPath!)}
                     className="p-0.5 text-muted-foreground hover:text-foreground transition-colors"

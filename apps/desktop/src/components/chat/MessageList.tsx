@@ -31,27 +31,72 @@ function extractThinking(text: string): { thinking: string; content: string } {
   return { thinking: parts.join('\n\n'), content };
 }
 
-/** Collapsible thinking block */
+/** Number of preview lines shown when collapsed */
+const THINKING_PREVIEW_LINES = 2;
+
+/** Collapsible thinking block with purple accent and content preview */
 function ThinkingBlock({ content }: { content: string }) {
   const [expanded, setExpanded] = useState(false);
+  const lines = content.split('\n');
+  const nonEmptyLines = lines.filter(l => l.trim().length > 0);
+  const lineCount = nonEmptyLines.length;
+
+  // Build preview: first N non-empty lines
+  const previewLines = nonEmptyLines.slice(0, THINKING_PREVIEW_LINES);
+  const previewText = previewLines.join('\n');
+  const hasMore = lineCount > THINKING_PREVIEW_LINES;
 
   return (
-    <div className="mb-2 rounded-lg border border-border/50 bg-secondary/30 text-xs">
+    <div className="mb-2 rounded-lg border border-thinking/30 bg-thinking/5 text-xs">
+      {/* Header */}
       <button
         onClick={() => setExpanded(!expanded)}
-        className="flex items-center gap-1.5 w-full px-3 py-1.5 text-muted-foreground hover:text-foreground transition-colors"
+        className="flex items-center gap-1.5 w-full px-3 py-1.5 text-thinking hover:text-foreground transition-colors"
       >
+        {/* Brain icon */}
         <svg
-          className={`w-3 h-3 transition-transform ${expanded ? 'rotate-90' : ''}`}
-          fill="none" stroke="currentColor" viewBox="0 0 24 24"
+          className="w-3.5 h-3.5 flex-shrink-0"
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+          strokeWidth={1.5}
+        >
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            d="M12 18v-3m0-3v.01M8.5 8A3.5 3.5 0 0 1 12 4.5 3.5 3.5 0 0 1 15.5 8c0 1.5-.8 2.5-2 3.2-.5.3-1 .7-1.2 1.3m-6.2-.6A4.5 4.5 0 0 1 4 8a4 4 0 0 1 2.5-3.7M18 11.9A4.5 4.5 0 0 0 20 8a4 4 0 0 0-2.5-3.7"
+          />
+        </svg>
+        {/* Chevron */}
+        <svg
+          className={`w-3 h-3 transition-transform flex-shrink-0 ${expanded ? 'rotate-90' : ''}`}
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
         >
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
         </svg>
         <span className="font-medium">Thinking</span>
+        {/* Line count */}
+        <span className="text-thinking/50 ml-auto text-[10px]">
+          {lineCount} line{lineCount !== 1 ? 's' : ''}
+        </span>
       </button>
+
+      {/* Preview (when collapsed) */}
+      {!expanded && previewText && (
+        <div className="px-3 pb-2 text-muted-foreground italic leading-relaxed line-clamp-2 opacity-70">
+          {previewText}
+          {hasMore && <span className="text-thinking/40"> ...</span>}
+        </div>
+      )}
+
+      {/* Full content (when expanded) */}
       {expanded && (
-        <div className="px-3 pb-2 text-muted-foreground whitespace-pre-wrap leading-relaxed">
-          {content}
+        <div className="px-3 pb-2 border-t border-thinking/10">
+          <div className="pt-2 text-muted-foreground whitespace-pre-wrap leading-relaxed italic">
+            {content}
+          </div>
         </div>
       )}
     </div>

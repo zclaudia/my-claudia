@@ -24,6 +24,7 @@ vi.mock('../server.js', () => ({
 }));
 
 import { SupervisorService } from '../services/supervisor-service.js';
+import { handleRunStart } from '../server.js';
 
 function createTestDb(): Database.Database {
   const db = new Database(':memory:');
@@ -74,20 +75,25 @@ function createTestDb(): Database.Database {
       role TEXT CHECK(role IN ('user', 'assistant', 'system')) NOT NULL,
       content TEXT NOT NULL,
       metadata TEXT,
-      created_at INTEGER NOT NULL
+      created_at INTEGER NOT NULL,
+      offset INTEGER
     );
+
+    CREATE INDEX IF NOT EXISTS idx_messages_session_offset ON messages(session_id, offset);
 
     CREATE TABLE IF NOT EXISTS supervisions (
       id TEXT PRIMARY KEY,
       session_id TEXT NOT NULL,
       goal TEXT NOT NULL,
       subtasks TEXT,
-      status TEXT CHECK(status IN ('active', 'paused', 'completed', 'failed', 'cancelled')) NOT NULL DEFAULT 'active',
+      status TEXT CHECK(status IN ('planning', 'active', 'paused', 'completed', 'failed', 'cancelled')) NOT NULL DEFAULT 'active',
       max_iterations INTEGER NOT NULL DEFAULT 10,
       current_iteration INTEGER NOT NULL DEFAULT 0,
       cooldown_seconds INTEGER NOT NULL DEFAULT 5,
       last_run_id TEXT,
       error_message TEXT,
+      plan_session_id TEXT,
+      acceptance_criteria TEXT,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL,
       completed_at INTEGER
@@ -139,6 +145,7 @@ describe('SupervisorService', () => {
     db.exec('DELETE FROM sessions');
     db.exec('DELETE FROM projects');
     mockActiveRuns.clear();
+    vi.clearAllMocks();
 
     service = new SupervisorService(db);
   });
@@ -361,6 +368,268 @@ describe('SupervisorService', () => {
         (c: any[]) => c[0]?.type === 'supervision_update'
       );
       expect(supUpdateCall).toBeDefined();
+    });
+  });
+
+  describe('planning lifecycle', () => {
+    it('should create a supervision in planning status with plan session', () => {
+      const { sessionId } = createTestSession(db);
+      const result = service.startPlanning(sessionId, 'Build a feature');
+
+      expect(result.supervision).toBeDefined();
+      expect(result.supervision.status).toBe('planning');
+      expect(result.supervision.goal).toBe('Build a feature');
+      expect(result.supervision.planSessionId).toBe(result.planSessionId);
+      expect(result.planSessionId).toBeTruthy();
+
+      // Verify plan session was created in DB
+      const planSession = db.prepare('SELECT * FROM sessions WHERE id = ?')
+        .get(result.planSessionId) as any;
+      expect(planSession).toBeDefined();
+      expect(planSession.type).toBe('background');
+    });
+
+    it('should log planning_started event', () => {
+      const { sessionId } = createTestSession(db);
+      const result = service.startPlanning(sessionId, 'Test');
+
+      const logs = service.getLogsBySupervisionId(result.supervision.id);
+      expect(logs.some(l => l.event === 'planning_started')).toBe(true);
+    });
+
+    it('should throw when session already has a planning supervision', () => {
+      const { sessionId } = createTestSession(db);
+      service.startPlanning(sessionId, 'First');
+
+      expect(() => service.startPlanning(sessionId, 'Second'))
+        .toThrow('Session already has an active supervision');
+    });
+
+    it('should throw when session has an active supervision and trying to plan', () => {
+      const { sessionId } = createTestSession(db);
+      service.create(sessionId, 'Active supervision');
+
+      expect(() => service.startPlanning(sessionId, 'Try to plan'))
+        .toThrow('Session already has an active supervision');
+    });
+
+    it('should include recent session messages as context', () => {
+      const { sessionId } = createTestSession(db);
+      const now = Date.now();
+
+      // Add some messages to the target session
+      db.prepare('INSERT INTO messages (id, session_id, role, content, created_at) VALUES (?, ?, ?, ?, ?)')
+        .run('msg1', sessionId, 'user', 'Hello, build a login page', now);
+      db.prepare('INSERT INTO messages (id, session_id, role, content, created_at) VALUES (?, ?, ?, ?, ?)')
+        .run('msg2', sessionId, 'assistant', 'Sure, I can help with that', now + 1);
+
+      const result = service.startPlanning(sessionId, 'Build auth system');
+
+      // handleRunStart should have been called with the planning prompt
+      expect(handleRunStart).toHaveBeenCalled();
+      const callArgs = (handleRunStart as any).mock.calls;
+      const lastCall = callArgs[callArgs.length - 1];
+      const input = lastCall[1].input;
+
+      // Should contain session context
+      expect(input).toContain('SESSION CONTEXT');
+      expect(input).toContain('Hello, build a login page');
+      expect(input).toContain("USER'S GOAL");
+      expect(input).toContain('Build auth system');
+    });
+
+    it('should pass planning system prompt as systemContext', () => {
+      const { sessionId } = createTestSession(db);
+
+      service.startPlanning(sessionId, 'Test');
+
+      const callArgs = (handleRunStart as any).mock.calls;
+      const lastCall = callArgs[callArgs.length - 1];
+      expect(lastCall[1].systemContext).toContain('goal planning assistant');
+    });
+
+    it('should approve plan and transition to active status', () => {
+      const { sessionId } = createTestSession(db);
+      const result = service.startPlanning(sessionId, 'Build feature');
+
+      const approved = service.approvePlan(result.supervision.id, {
+        goal: 'Build complete auth system',
+        subtasks: [
+          { description: 'Setup JWT', phase: 1, acceptanceCriteria: ['JWT tokens generated'] },
+          { description: 'Create login endpoint', phase: 1, acceptanceCriteria: ['POST /login works'] },
+          { description: 'Add auth middleware', phase: 2, acceptanceCriteria: ['Protected routes require token'] },
+        ],
+        acceptanceCriteria: ['All endpoints secured', 'Tests pass'],
+      });
+
+      expect(approved.status).toBe('active');
+      expect(approved.goal).toBe('Build complete auth system');
+      expect(approved.subtasks).toHaveLength(3);
+      expect(approved.subtasks![0].phase).toBe(1);
+      expect(approved.subtasks![0].acceptanceCriteria).toEqual(['JWT tokens generated']);
+      expect(approved.subtasks![2].phase).toBe(2);
+      expect(approved.acceptanceCriteria).toEqual(['All endpoints secured', 'Tests pass']);
+      expect(approved.maxIterations).toBe(9); // 3 * 3
+    });
+
+    it('should use custom maxIterations when approving plan', () => {
+      const { sessionId } = createTestSession(db);
+      const result = service.startPlanning(sessionId, 'Test');
+
+      const approved = service.approvePlan(result.supervision.id, {
+        goal: 'Custom iterations goal',
+        subtasks: [{ description: 'Task 1' }],
+        maxIterations: 20,
+      });
+
+      expect(approved.maxIterations).toBe(20);
+    });
+
+    it('should log planning_approved event with details', () => {
+      const { sessionId } = createTestSession(db);
+      const result = service.startPlanning(sessionId, 'Test');
+
+      service.approvePlan(result.supervision.id, {
+        goal: 'Final goal',
+        subtasks: [{ description: 'Task 1' }, { description: 'Task 2' }],
+        acceptanceCriteria: ['Criterion 1'],
+      });
+
+      const logs = service.getLogsBySupervisionId(result.supervision.id);
+      const approveLog = logs.find(l => l.event === 'planning_approved');
+      expect(approveLog).toBeDefined();
+      expect(approveLog!.detail).toEqual({
+        goal: 'Final goal',
+        subtaskCount: 2,
+        acceptanceCriteriaCount: 1,
+      });
+    });
+
+    it('should throw when approving non-planning supervision', () => {
+      const { sessionId } = createTestSession(db);
+      const created = service.create(sessionId, 'Active');
+
+      expect(() => service.approvePlan(created.id, {
+        goal: 'Test',
+        subtasks: [],
+      })).toThrow('not in planning status');
+    });
+
+    it('should cancel a planning supervision', () => {
+      const { sessionId } = createTestSession(db);
+      const result = service.startPlanning(sessionId, 'Will cancel');
+
+      const cancelled = service.cancelPlanning(result.supervision.id);
+      expect(cancelled.status).toBe('cancelled');
+    });
+
+    it('should log planning_cancelled event', () => {
+      const { sessionId } = createTestSession(db);
+      const result = service.startPlanning(sessionId, 'Will cancel');
+
+      service.cancelPlanning(result.supervision.id);
+
+      const logs = service.getLogsBySupervisionId(result.supervision.id);
+      expect(logs.some(l => l.event === 'planning_cancelled')).toBe(true);
+    });
+
+    it('should throw when cancelling non-planning supervision', () => {
+      const { sessionId } = createTestSession(db);
+      const created = service.create(sessionId, 'Active');
+
+      expect(() => service.cancelPlanning(created.id))
+        .toThrow('not in planning status');
+    });
+
+    it('should allow creating new supervision after cancelling planning', () => {
+      const { sessionId } = createTestSession(db);
+      const result = service.startPlanning(sessionId, 'Planning');
+      service.cancelPlanning(result.supervision.id);
+
+      const created = service.create(sessionId, 'Now active');
+      expect(created.status).toBe('active');
+    });
+
+    it('should return plan conversation messages', () => {
+      const { sessionId } = createTestSession(db);
+      const result = service.startPlanning(sessionId, 'Test');
+
+      // Add some messages to the plan session
+      const now = Date.now();
+      db.prepare('INSERT INTO messages (id, session_id, role, content, created_at) VALUES (?, ?, ?, ?, ?)')
+        .run('plan-msg-1', result.planSessionId, 'user', 'Build a login system', now);
+      db.prepare('INSERT INTO messages (id, session_id, role, content, created_at) VALUES (?, ?, ?, ?, ?)')
+        .run('plan-msg-2', result.planSessionId, 'assistant', 'What auth method?', now + 1);
+
+      const conversation = service.getPlanConversation(result.supervision.id);
+      expect(conversation).toHaveLength(2);
+      expect(conversation[0].role).toBe('user');
+      expect(conversation[0].content).toBe('Build a login system');
+      expect(conversation[1].role).toBe('assistant');
+      expect(conversation[1].content).toBe('What auth method?');
+    });
+
+    it('should return empty array for supervision without plan session', () => {
+      const { sessionId } = createTestSession(db);
+      const created = service.create(sessionId, 'No plan session');
+
+      const conversation = service.getPlanConversation(created.id);
+      expect(conversation).toEqual([]);
+    });
+
+    it('should include planning status in getActiveBySessionId', () => {
+      const { sessionId } = createTestSession(db);
+      service.startPlanning(sessionId, 'Planning goal');
+
+      const found = service.getActiveBySessionId(sessionId);
+      expect(found).toBeDefined();
+      expect(found!.status).toBe('planning');
+    });
+
+    it('should respond to planning conversation', () => {
+      const { sessionId } = createTestSession(db);
+
+      const result = service.startPlanning(sessionId, 'Test');
+
+      // Clear mock calls from startPlanning
+      (handleRunStart as any).mockClear();
+
+      service.respondToPlanning(result.supervision.id, 'I want OAuth2');
+
+      expect(handleRunStart).toHaveBeenCalled();
+      const callArgs = (handleRunStart as any).mock.calls;
+      const lastCall = callArgs[callArgs.length - 1];
+      expect(lastCall[1].input).toBe('I want OAuth2');
+      expect(lastCall[1].sessionId).toBe(result.planSessionId);
+    });
+
+    it('should throw when responding to non-planning supervision', () => {
+      const { sessionId } = createTestSession(db);
+      const created = service.create(sessionId, 'Active');
+
+      expect(() => service.respondToPlanning(created.id, 'response'))
+        .toThrow('not in planning status');
+    });
+  });
+
+  describe('acceptance criteria in prompts', () => {
+    it('should include acceptance criteria in initial prompt for active supervision', () => {
+      const { sessionId } = createTestSession(db);
+
+      // Create via planning flow to get acceptance criteria
+      const result = service.startPlanning(sessionId, 'Build feature');
+      service.approvePlan(result.supervision.id, {
+        goal: 'Build auth',
+        subtasks: [
+          { description: 'Setup JWT', phase: 1, acceptanceCriteria: ['Tokens work'] },
+        ],
+        acceptanceCriteria: ['All secure', 'Tests pass'],
+      });
+
+      // Verify the supervision has acceptance criteria stored
+      const sup = service.getSupervision(result.supervision.id);
+      expect(sup!.acceptanceCriteria).toEqual(['All secure', 'Tests pass']);
+      expect(sup!.subtasks![0].acceptanceCriteria).toEqual(['Tokens work']);
     });
   });
 });

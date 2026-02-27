@@ -529,6 +529,26 @@ function runMigrations(db: Database.Database): void {
         CREATE INDEX IF NOT EXISTS idx_supervisions_session_id ON supervisions(session_id);
         CREATE INDEX IF NOT EXISTS idx_supervisions_status ON supervisions(status);
       `
+    },
+    {
+      name: '023_message_offset',
+      sql: `
+        -- Add per-session sequential offset to messages for gap detection
+        ALTER TABLE messages ADD COLUMN offset INTEGER;
+
+        -- Backfill existing messages with offset based on created_at order within each session
+        WITH ranked AS (
+          SELECT id, ROW_NUMBER() OVER (PARTITION BY session_id ORDER BY created_at) as rn
+          FROM messages
+        )
+        UPDATE messages SET offset = (
+          SELECT rn FROM ranked WHERE ranked.id = messages.id
+        );
+
+        -- Index for efficient offset-based queries
+        CREATE INDEX IF NOT EXISTS idx_messages_session_offset
+          ON messages(session_id, offset);
+      `
     }
   ];
 

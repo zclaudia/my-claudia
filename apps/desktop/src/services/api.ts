@@ -267,6 +267,7 @@ interface PaginationInfo {
   hasMore: boolean;
   oldestTimestamp?: number;
   newestTimestamp?: number;
+  maxOffset?: number;
 }
 
 interface MessagesResponse {
@@ -281,12 +282,14 @@ export async function getSessionMessages(
     limit?: number;
     before?: number;
     after?: number;
+    afterOffset?: number;
   }
 ): Promise<MessagesResponse> {
   const params = new URLSearchParams();
   if (options?.limit) params.set('limit', String(options.limit));
   if (options?.before) params.set('before', String(options.before));
   if (options?.after) params.set('after', String(options.after));
+  if (options?.afterOffset != null) params.set('afterOffset', String(options.afterOffset));
 
   const query = params.toString() ? `?${params.toString()}` : '';
   const result = await fetchApi<MessagesResponse>(`/api/sessions/${sessionId}/messages${query}`);

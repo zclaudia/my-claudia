@@ -465,27 +465,12 @@ export async function* runOpenCode(
     }
 
     // Process SSE events (filter by our sessionId since it's a global stream)
+    // Note: <think>...</think> tags are passed through to the frontend for rendering
     console.log(`[OpenCode] Processing SSE events for session ${sessionId}...`);
-    const thinkFilter = new ThinkTagFilter();
     try {
       for await (const sseEvent of parseSSEStream(sseResponse)) {
         const messages = mapOpenCodeEvent(sseEvent.data, sessionId, onPermissionRequest);
         for await (const msg of messages) {
-          // Filter <think>...</think> from assistant text
-          if (msg.type === 'assistant' && msg.content) {
-            const filtered = thinkFilter.push(msg.content);
-            if (filtered) {
-              yield { ...msg, content: filtered };
-            }
-            continue;
-          }
-          // Flush any buffered text before result/error
-          if (msg.type === 'result' || msg.type === 'error') {
-            const rest = thinkFilter.flush();
-            if (rest) {
-              yield { type: 'assistant', content: rest };
-            }
-          }
           yield msg;
           if (msg.type === 'result' || msg.type === 'error') {
             return;
