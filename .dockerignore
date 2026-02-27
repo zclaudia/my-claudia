@@ -2,7 +2,7 @@
 apps/
 server/
 e2e/
-scripts/
+scripts/*
 !scripts/check-native-modules.mjs
 node_modules/
 dist/
