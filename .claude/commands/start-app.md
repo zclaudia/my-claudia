@@ -22,11 +22,12 @@ Run in a single command (only kill THIS project's dev processes, not production 
 pgrep -f "tauri.dev.conf.json" | xargs kill 2>/dev/null
 pgrep -f "target/debug/my-claudia" | xargs kill 2>/dev/null
 lsof -ti:1420 | xargs kill 2>/dev/null
+lsof -ti:3100 | xargs kill 2>/dev/null
 ```
 
-### Step 2: Verify port 1420 is free
+### Step 2: Verify ports are free
 
-Loop up to 5 times (1 second apart) checking `lsof -ti:1420`. If still occupied after 5 attempts, `kill -9` the PID and report a warning.
+Loop up to 5 times (1 second apart) checking `lsof -ti:1420` AND `lsof -ti:3100`. Both must be free. If still occupied after 5 attempts, `kill -9` the PID and report a warning.
 
 ### Step 3: Ensure builds are up to date
 
