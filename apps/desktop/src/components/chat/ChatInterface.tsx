@@ -673,10 +673,14 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
 
     // Plugin commands and provider commands should be passed directly to Claude SDK
     // They are handled by Claude CLI's plugin system or built-in CLI commands
-    if (commandDef?.source === 'plugin' || commandDef?.source === 'provider') {
+    // Also treat unrecognized commands with ':' as plugin commands (e.g., /commit-commands:commit)
+    // since they match the plugin naming convention and may not be in the local command list yet
+    if (commandDef?.source === 'plugin' || commandDef?.source === 'provider' || (!commandDef && command.includes(':'))) {
       const commandText = args ? `${command} ${args}` : command;
+      const clientMessageId = crypto.randomUUID();
       addMessage(sessionId, {
-        id: crypto.randomUUID(),
+        id: clientMessageId,
+        clientMessageId,
         sessionId,
         role: 'user',
         content: commandText,
@@ -685,7 +689,7 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
 
       wsSendMessage({
         type: 'run_start',
-        clientRequestId: crypto.randomUUID(),
+        clientRequestId: clientMessageId,
         sessionId,
         input: commandText,
         mode: mode || undefined,
@@ -720,8 +724,10 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
         handleBuiltInCommand(result);
       } else if (result.type === 'custom' && result.content) {
         // Custom command - send processed content to Claude
+        const clientMessageId = crypto.randomUUID();
         addMessage(sessionId, {
-          id: crypto.randomUUID(),
+          id: clientMessageId,
+          clientMessageId,
           sessionId,
           role: 'user',
           content: `${command} ${args}`.trim(),
@@ -730,7 +736,7 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
 
         wsSendMessage({
           type: 'run_start',
-          clientRequestId: crypto.randomUUID(),
+          clientRequestId: clientMessageId,
           sessionId,
           input: result.content,
           mode: mode || undefined,
