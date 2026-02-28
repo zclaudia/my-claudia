@@ -14,6 +14,7 @@ import type {
   ProviderConfig,
   AuthResultMessage,
   ToolCall,
+  ContentBlock,
   Request as CorrelatedRequest,
   StateHeartbeatMessage
 } from '@my-claudia/shared';
@@ -203,6 +204,7 @@ interface ActiveRun {
   assistantMessageId: string;
   fullContent: string;
   collectedToolCalls: (ToolCall & { toolUseId: string })[];
+  contentBlocks: ContentBlock[];
   saveInterval?: NodeJS.Timeout;
 }
 
@@ -957,9 +959,12 @@ function upsertAssistantMessage(
     metadata.usage = options.usage;
   }
   if (run.collectedToolCalls.length > 0) {
-    metadata.toolCalls = run.collectedToolCalls.map(({ name, input, output, isError }) => ({
-      name, input, output, isError
+    metadata.toolCalls = run.collectedToolCalls.map(({ toolUseId, name, input, output, isError }) => ({
+      toolUseId, name, input, output, isError
     }));
+  }
+  if (run.contentBlocks.length > 0) {
+    metadata.contentBlocks = run.contentBlocks;
   }
 
   const metadataJson = Object.keys(metadata).length > 0 ? JSON.stringify(metadata) : null;
@@ -1202,6 +1207,7 @@ async function handleRunStart(
     assistantMessageId: uuidv4(),
     fullContent: '',
     collectedToolCalls: [],
+    contentBlocks: [],
   };
   activeRuns.set(runId, activeRun);
 
@@ -1509,6 +1515,13 @@ async function handleRunStart(
         case 'assistant':
           if (msg.content) {
             activeRun.fullContent += msg.content;
+            // Track content blocks for segmented rendering
+            const lastBlock = activeRun.contentBlocks[activeRun.contentBlocks.length - 1];
+            if (lastBlock && lastBlock.type === 'text') {
+              lastBlock.content += msg.content;
+            } else {
+              activeRun.contentBlocks.push({ type: 'text', content: msg.content });
+            }
             sendMessage(client.ws, {
               type: 'delta',
               runId,
@@ -1531,6 +1544,8 @@ async function handleRunStart(
             name: msg.toolName || '',
             input: msg.toolInput,
           });
+          // Track content blocks for segmented rendering
+          activeRun.contentBlocks.push({ type: 'tool_use', toolUseId: msg.toolUseId || '' });
           sendMessage(client.ws, {
             type: 'tool_use',
             runId,
@@ -1577,6 +1592,8 @@ async function handleRunStart(
           // (Some providers only return content in the result, not through streaming.)
           if (msg.content && !activeRun.fullContent) {
             activeRun.fullContent = msg.content;
+            // Non-streaming fallback: build content block for the full response
+            activeRun.contentBlocks.push({ type: 'text', content: msg.content });
             sendMessage(client.ws, {
               type: 'delta',
               runId,

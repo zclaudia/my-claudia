@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { Message, SystemInfo, UsageInfo } from '@my-claudia/shared';
+import type { Message, SystemInfo, UsageInfo, ContentBlock } from '@my-claudia/shared';
 
 interface PaginationInfo {
   total: number;
@@ -23,6 +23,7 @@ export interface ToolCallState {
 // Extended message with tool calls for display
 export interface MessageWithToolCalls extends Message {
   toolCalls?: ToolCallState[];
+  contentBlocks?: ContentBlock[];
   clientMessageId?: string;  // Client-generated message ID for dual dedup
 }
 
@@ -37,6 +38,8 @@ interface ChatState {
   activeToolCalls: Record<string, Record<string, ToolCallState>>;
   // Tool calls history per run: runId → ToolCallState[] (preserves order)
   toolCallsHistory: Record<string, ToolCallState[]>;
+  // Content blocks per run: runId → ContentBlock[] (text/tool_use interleaved sequence)
+  runContentBlocks: Record<string, ContentBlock[]>;
   // Current system info from Claude SDK init message
   currentSystemInfo: SystemInfo | null;
   // Current mode (generic — permission mode for Claude, agent for OpenCode, etc.)
@@ -64,6 +67,11 @@ interface ChatState {
   addToolCall: (runId: string, toolUseId: string, toolName: string, toolInput: unknown) => void;
   updateToolCallResult: (runId: string, toolUseId: string, result: unknown, isError?: boolean) => void;
   finalizeToolCallsToMessage: (runId: string) => void;
+
+  // Actions — Content blocks (per run)
+  appendTextBlock: (runId: string, content: string) => void;
+  addToolUseBlock: (runId: string, toolUseId: string) => void;
+  finalizeContentBlocksToMessage: (runId: string) => void;
 
   // System info actions
   setSystemInfo: (info: SystemInfo) => void;
@@ -98,6 +106,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   activeRuns: {},
   activeToolCalls: {},
   toolCallsHistory: {},
+  runContentBlocks: {},
   currentSystemInfo: null,
   mode: 'default',
   sessionUsage: {},
@@ -237,6 +246,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       activeRuns: { ...state.activeRuns, [runId]: sessionId },
       activeToolCalls: { ...state.activeToolCalls, [runId]: {} },
       toolCallsHistory: { ...state.toolCallsHistory, [runId]: [] },
+      runContentBlocks: { ...state.runContentBlocks, [runId]: [] },
     })),
 
   endRun: (runId) =>
@@ -244,10 +254,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
       const { [runId]: _removedRun, ...remainingRuns } = state.activeRuns;
       const { [runId]: _removedTC, ...remainingTC } = state.activeToolCalls;
       const { [runId]: _removedHist, ...remainingHist } = state.toolCallsHistory;
+      const { [runId]: _removedCB, ...remainingCB } = state.runContentBlocks;
       return {
         activeRuns: remainingRuns,
         activeToolCalls: remainingTC,
         toolCallsHistory: remainingHist,
+        runContentBlocks: remainingCB,
       };
     }),
 
@@ -318,6 +330,58 @@ export const useChatStore = create<ChatState>((set, get) => ({
       const updatedMessages = [
         ...sessionMessages.slice(0, -1),
         { ...lastMessage, toolCalls: [...runHistory] },
+      ];
+
+      return {
+        messages: { ...state.messages, [sessionId]: updatedMessages },
+      };
+    }),
+
+  // ── Content block actions (per run) ──────────────────────────
+
+  appendTextBlock: (runId, content) =>
+    set((state) => {
+      const blocks = state.runContentBlocks[runId];
+      if (!blocks) return state;
+      const lastBlock = blocks[blocks.length - 1];
+      let updatedBlocks: ContentBlock[];
+      if (lastBlock && lastBlock.type === 'text') {
+        updatedBlocks = [...blocks.slice(0, -1), { type: 'text', content: lastBlock.content + content }];
+      } else {
+        updatedBlocks = [...blocks, { type: 'text', content }];
+      }
+      return {
+        runContentBlocks: { ...state.runContentBlocks, [runId]: updatedBlocks },
+      };
+    }),
+
+  addToolUseBlock: (runId, toolUseId) =>
+    set((state) => {
+      const blocks = state.runContentBlocks[runId];
+      if (!blocks) return state;
+      return {
+        runContentBlocks: {
+          ...state.runContentBlocks,
+          [runId]: [...blocks, { type: 'tool_use', toolUseId }],
+        },
+      };
+    }),
+
+  finalizeContentBlocksToMessage: (runId) =>
+    set((state) => {
+      const sessionId = state.activeRuns[runId];
+      if (!sessionId) return state;
+
+      const sessionMessages = state.messages[sessionId] || [];
+      const blocks = state.runContentBlocks[runId] || [];
+      if (sessionMessages.length === 0 || blocks.length === 0) return state;
+
+      const lastMessage = sessionMessages[sessionMessages.length - 1];
+      if (lastMessage.role !== 'assistant') return state;
+
+      const updatedMessages = [
+        ...sessionMessages.slice(0, -1),
+        { ...lastMessage, contentBlocks: [...blocks] },
       ];
 
       return {

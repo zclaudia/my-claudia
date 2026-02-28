@@ -56,6 +56,9 @@ export function useMultiServerSocket() {
     addToolCall,
     updateToolCallResult,
     finalizeToolCallsToMessage,
+    appendTextBlock,
+    addToolUseBlock,
+    finalizeContentBlocksToMessage,
     setSystemInfo,
     clearSystemInfo,
     addSessionUsage,
@@ -129,6 +132,7 @@ export function useMultiServerSocket() {
           const deltaSession = message.sessionId || useChatStore.getState().activeRuns[message.runId];
           if (deltaSession) {
             appendToLastMessage(deltaSession, message.content);
+            appendTextBlock(message.runId, message.content);
             // Mark unread for agent if panel is closed
             if (message.runId === useAgentStore.getState().activeRunId && !useAgentStore.getState().isExpanded) {
               useAgentStore.getState().setHasUnread(true);
@@ -196,6 +200,7 @@ export function useMultiServerSocket() {
           // Clear ask_user_question requests for this server regardless of active state
           useAskUserQuestionStore.getState().clearRequestsForServer(serverId);
           if (completedSession) {
+            finalizeContentBlocksToMessage(message.runId);
             finalizeToolCallsToMessage(message.runId);
             if (message.usage) {
               addSessionUsage(completedSession, message.usage);
@@ -224,6 +229,7 @@ export function useMultiServerSocket() {
             if (message.error) {
               appendToLastMessage(failedSession, `\n\n**Error:** ${message.error}`);
             }
+            finalizeContentBlocksToMessage(message.runId);
             finalizeToolCallsToMessage(message.runId);
             // Update session active status (skip for agent sessions)
             if (failedSession !== useAgentStore.getState().agentSessionId) {
@@ -241,6 +247,7 @@ export function useMultiServerSocket() {
           const toolSession = message.sessionId || useChatStore.getState().activeRuns[message.runId];
           if (toolSession) {
             addToolCall(message.runId, message.toolUseId, message.toolName, message.toolInput);
+            addToolUseBlock(message.runId, message.toolUseId);
           }
           break;
         }

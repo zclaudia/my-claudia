@@ -248,8 +248,13 @@ export interface Message {
   offset?: number;  // Per-session sequential message number (for gap detection)
 }
 
+export type ContentBlock =
+  | { type: 'text'; content: string }
+  | { type: 'tool_use'; toolUseId: string };
+
 export interface MessageMetadata {
   toolCalls?: ToolCall[];
+  contentBlocks?: ContentBlock[];
   usage?: UsageInfo;
   filePush?: FilePushMetadata;
 }
@@ -264,6 +269,7 @@ export interface FilePushMetadata {
 }
 
 export interface ToolCall {
+  toolUseId?: string;
   name: string;
   input: unknown;
   output?: unknown;

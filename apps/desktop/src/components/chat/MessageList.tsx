@@ -5,7 +5,9 @@ import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneDark, oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { ToolCallList } from './ToolCallItem';
 import { FilePushCard } from './FilePushNotification';
-import type { MessageWithToolCalls } from '../../stores/chatStore';
+import type { MessageWithToolCalls, ToolCallState } from '../../stores/chatStore';
+import { ToolCallItem } from './ToolCallItem';
+import type { ContentBlock } from '@my-claudia/shared';
 import { useFilePushStore, type FilePushItem } from '../../stores/filePushStore';
 import { useTheme, isDarkTheme } from '../../contexts/ThemeContext';
 import { downloadFile } from '../../services/fileUpload';
@@ -356,10 +358,117 @@ function AttachmentDisplay({ attachment }: { attachment: MessageAttachment }) {
   );
 }
 
+/** Collapsed intermediate text block — shows first line preview, expandable */
+function CollapsedTextBlock({ content }: { content: string }) {
+  const [expanded, setExpanded] = useState(false);
+  // Strip thinking tags for preview
+  const { content: cleanContent } = extractThinking(content);
+  const firstLine = cleanContent.split('\n').find(l => l.trim().length > 0) || '';
+  // Truncate to reasonable preview length
+  const preview = firstLine.length > 120 ? firstLine.slice(0, 120) + '...' : firstLine;
+
+  return (
+    <div className="mb-2 rounded-lg border border-border/50 bg-muted/30 text-xs">
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="flex items-center gap-1.5 w-full px-3 py-1.5 text-muted-foreground hover:text-foreground transition-colors"
+      >
+        {/* Chevron */}
+        <svg
+          className={`w-3 h-3 transition-transform flex-shrink-0 ${expanded ? 'rotate-90' : ''}`}
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+        </svg>
+        <span className="truncate text-left">{preview || '...'}</span>
+      </button>
+      {expanded && (
+        <div className="px-3 pb-2 border-t border-border/30">
+          <div className="pt-2">
+            <AssistantContent content={cleanContent} />
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Segmented content renderer — interleaves collapsed text, tool calls, and final text */
+function SegmentedContent({
+  contentBlocks,
+  toolCalls,
+}: {
+  contentBlocks: ContentBlock[];
+  toolCalls: ToolCallState[];
+}) {
+  // Build toolUseId → ToolCallState lookup
+  const toolCallMap = useMemo(() => {
+    const map = new Map<string, ToolCallState>();
+    for (const tc of toolCalls) {
+      map.set(tc.id, tc);
+    }
+    return map;
+  }, [toolCalls]);
+
+  // Find last text block index
+  const lastTextIndex = useMemo(() => {
+    for (let i = contentBlocks.length - 1; i >= 0; i--) {
+      if (contentBlocks[i].type === 'text') return i;
+    }
+    return -1;
+  }, [contentBlocks]);
+
+  return (
+    <>
+      {contentBlocks.map((block, i) => {
+        if (block.type === 'tool_use') {
+          const tc = toolCallMap.get(block.toolUseId);
+          if (!tc) return null;
+          return (
+            <div key={`tool-${block.toolUseId}`} className="w-full max-w-full md:max-w-3xl">
+              <ToolCallItem toolCall={tc} />
+            </div>
+          );
+        }
+
+        // Text block
+        if (i === lastTextIndex) {
+          // Last text block: render fully with thinking extraction
+          const { thinking, content: mainContent } = extractThinking(block.content);
+          return (
+            <div key={`text-${i}`}>
+              {thinking && (
+                <div className="w-full max-w-full md:max-w-3xl mb-2">
+                  <ThinkingBlock content={thinking} />
+                </div>
+              )}
+              <div className="rounded-lg px-3 md:px-4 py-2 w-full max-w-full md:max-w-3xl bg-card text-card-foreground">
+                <AssistantContent content={mainContent} />
+              </div>
+            </div>
+          );
+        }
+
+        // Intermediate text block: collapsed
+        return (
+          <div key={`text-${i}`} className="w-full max-w-full md:max-w-3xl">
+            <CollapsedTextBlock content={block.content} />
+          </div>
+        );
+      })}
+    </>
+  );
+}
+
 function MessageItem({ message }: { message: MessageWithToolCalls }) {
   const isUser = message.role === 'user';
   const isSystem = message.role === 'system';
   const hasToolCalls = message.toolCalls && message.toolCalls.length > 0;
+  const hasContentBlocks = message.contentBlocks && message.contentBlocks.length > 1;
+  // Use segmented rendering when we have content blocks with tool calls (completed messages)
+  const useSegmented = !isUser && !isSystem && hasContentBlocks && hasToolCalls;
 
   // Parse message content (supports both plain text and structured MessageInput)
   let textContent = message.content;
@@ -382,6 +491,24 @@ function MessageItem({ message }: { message: MessageWithToolCalls }) {
     [message.content, isUser, isSystem]
   );
 
+  if (useSegmented) {
+    // Segmented rendering: interleaved text blocks and tool calls
+    return (
+      <div
+        data-role={message.role}
+        className="flex flex-col items-start"
+      >
+        <SegmentedContent
+          contentBlocks={message.contentBlocks!}
+          toolCalls={message.toolCalls!}
+        />
+        <div className="mt-1 text-xs opacity-50 px-3">
+          {new Date(message.createdAt).toLocaleTimeString()}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div
       data-role={message.role}
@@ -389,7 +516,7 @@ function MessageItem({ message }: { message: MessageWithToolCalls }) {
         isSystem ? 'opacity-60' : ''
       }`}
     >
-      {/* Tool calls section (shown before the message content for assistant) */}
+      {/* Tool calls section (shown before the message content for assistant) — legacy rendering */}
       {!isUser && hasToolCalls && (
         <div className="w-full max-w-full md:max-w-3xl mb-2">
           <ToolCallList toolCalls={message.toolCalls!} defaultCollapsed={true} />

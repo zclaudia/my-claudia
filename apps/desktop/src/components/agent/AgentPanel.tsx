@@ -17,20 +17,21 @@ import type { MessageWithToolCalls } from '../../stores/chatStore';
 
 function restoreToolCalls(messages: Message[]): MessageWithToolCalls[] {
   return messages.map(msg => {
+    const result: MessageWithToolCalls = { ...msg };
     if (msg.metadata?.toolCalls && msg.metadata.toolCalls.length > 0) {
-      return {
-        ...msg,
-        toolCalls: msg.metadata.toolCalls.map((tc, i) => ({
-          id: `persisted-${msg.id}-${i}`,
-          toolName: tc.name,
-          toolInput: tc.input,
-          status: tc.isError ? 'error' as const : 'completed' as const,
-          result: tc.output,
-          isError: tc.isError,
-        })),
-      };
+      result.toolCalls = msg.metadata.toolCalls.map((tc, i) => ({
+        id: tc.toolUseId || `persisted-${msg.id}-${i}`,
+        toolName: tc.name,
+        toolInput: tc.input,
+        status: tc.isError ? 'error' as const : 'completed' as const,
+        result: tc.output,
+        isError: tc.isError,
+      }));
     }
-    return msg;
+    if (msg.metadata?.contentBlocks && msg.metadata.contentBlocks.length > 0) {
+      result.contentBlocks = msg.metadata.contentBlocks;
+    }
+    return result;
   });
 }
 
