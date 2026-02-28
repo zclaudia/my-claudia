@@ -36,7 +36,8 @@ describe('PermissionModal', () => {
 
     expect(screen.getByText('Permission Required')).toBeInTheDocument();
     expect(screen.getByText('Bash')).toBeInTheDocument();
-    expect(screen.getByText('{"command": "ls -la"}')).toBeInTheDocument();
+    // PermissionDetailView renders Bash commands in formatted terminal view
+    expect(screen.getByText('ls -la')).toBeInTheDocument();
   });
 
   it('displays tool name correctly', () => {

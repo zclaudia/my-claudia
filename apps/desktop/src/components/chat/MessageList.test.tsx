@@ -5,6 +5,11 @@ import type { Message } from '@my-claudia/shared';
 import { ThemeProvider } from '../../contexts/ThemeContext';
 import type { ReactElement } from 'react';
 
+// Mock ConnectionContext so CodeBlock doesn't throw
+vi.mock('../../contexts/ConnectionContext', () => ({
+  useConnection: () => ({ sendMessage: vi.fn() }),
+}));
+
 // Mock clipboard API
 const mockWriteText = vi.fn().mockResolvedValue(undefined);
 Object.defineProperty(navigator, 'clipboard', {

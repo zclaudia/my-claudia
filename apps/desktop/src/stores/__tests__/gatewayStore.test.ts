@@ -62,7 +62,8 @@ describe('gatewayStore', () => {
 
       const state = useGatewayStore.getState();
       expect(state.isConnected).toBe(false);
-      expect(state.discoveredBackends).toEqual([]);
+      // discoveredBackends are managed by syncFromServer polling, not cleared on disconnect
+      expect(state.discoveredBackends).toHaveLength(1);
       expect(state.backendAuthStatus).toEqual({});
     });
   });

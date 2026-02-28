@@ -155,6 +155,13 @@ else
   OUTPUT="$APK_DIR/${APK_NAME}.apk"
 fi
 
+# --- Install / update dependencies ---
+if [ "$INSTALL_ONLY" = false ]; then
+  echo "=== Installing dependencies ==="
+  pnpm install
+  echo ""
+fi
+
 # --- Build ---
 if [ "$INSTALL_ONLY" = false ]; then
   if [ "$DEV" = true ]; then

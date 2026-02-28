@@ -64,6 +64,11 @@ ARCH=$(uname -m)
 echo "Version: $VERSION  Arch: $ARCH"
 echo ""
 
+# --- Install / update dependencies ---
+echo "=== Installing dependencies ==="
+pnpm install
+echo ""
+
 # --- Server bundle ---
 echo "=== Building server bundle ==="
 pnpm -r run build
