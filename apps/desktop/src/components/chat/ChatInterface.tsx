@@ -1,4 +1,4 @@
-import { useRef, useEffect, useCallback, useState } from 'react';
+import { useRef, useEffect, useCallback, useState, useMemo } from 'react';
 import { MessageList } from './MessageList';
 import { MessageInput, type Attachment } from './MessageInput';
 import { ToolCallList } from './ToolCallItem';
@@ -17,9 +17,12 @@ import { useServerStore } from '../../stores/serverStore';
 import { useTerminalStore } from '../../stores/terminalStore';
 import { usePermissionStore } from '../../stores/permissionStore';
 import { useAskUserQuestionStore } from '../../stores/askUserQuestionStore';
+import { useSupervisionStore } from '../../stores/supervisionStore';
 import { useConnection } from '../../contexts/ConnectionContext';
 import * as api from '../../services/api';
 import { uploadFile } from '../../services/fileUpload';
+import { extractPlanFromMessages } from '../SuperviseDialog';
+import { PlanReviewDialog } from '../PlanReviewDialog';
 import type { CommandExecuteResponse, Message, MessageAttachment, MessageInput as MessageInputData, ProviderCapabilities } from '@my-claudia/shared';
 import type { MessageWithToolCalls } from '../../stores/chatStore';
 
@@ -92,6 +95,12 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
 
+  // Planning mode state
+  const supervision = useSupervisionStore(s => s.supervisions[sessionId]);
+  const pendingHint = useSupervisionStore(s => s.pendingPlanningHints[sessionId]);
+  const [showPlanReview, setShowPlanReview] = useState(false);
+  const isPlanningMode = supervision?.status === 'planning';
+
   const sessionMessages = messages[sessionId] || [];
   const filePushItems = useFilePushStore((state) =>
     state.items.filter((i) => i.sessionId === sessionId)
@@ -112,6 +121,53 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
     setUploadError(null);
     setLoadError(null);
   }, [sessionId]);
+
+  // Fetch supervision state for this session on mount / session change
+  useEffect(() => {
+    if (!isConnected) return;
+    api.getSupervisionBySession(sessionId)
+      .then(sup => {
+        if (sup) {
+          useSupervisionStore.getState().updateSupervision(sup);
+        }
+      })
+      .catch(() => {}); // silently ignore
+  }, [sessionId, isConnected]);
+
+  // Auto-send pending planning hint as a run_start message
+  useEffect(() => {
+    if (pendingHint && isConnected && initialLoadDone) {
+      const clientMessageId = crypto.randomUUID();
+      addMessage(sessionId, {
+        id: clientMessageId,
+        clientMessageId,
+        sessionId,
+        role: 'user',
+        content: pendingHint,
+        createdAt: Date.now(),
+      });
+      wsSendMessage({
+        type: 'run_start',
+        clientRequestId: clientMessageId,
+        sessionId,
+        input: pendingHint,
+        mode: mode || undefined,
+      });
+      useSupervisionStore.getState().clearPendingHint(sessionId);
+      setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
+    }
+  }, [pendingHint, isConnected, initialLoadDone, sessionId, addMessage, wsSendMessage, mode]);
+
+  // Detect plan JSON in messages when in planning mode
+  const detectedPlan = useMemo(() => {
+    if (!isPlanningMode || sessionMessages.length === 0) return null;
+    // Only scan messages created after the supervision started
+    const afterTimestamp = supervision?.createdAt || 0;
+    const recentMessages = sessionMessages.filter(m => m.createdAt >= afterTimestamp);
+    return extractPlanFromMessages(
+      recentMessages.map(m => ({ role: m.role, content: m.content }))
+    );
+  }, [isPlanningMode, sessionMessages, supervision?.createdAt]);
 
   // Ctrl+` keyboard shortcut to toggle terminal
   useEffect(() => {
@@ -741,6 +797,39 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
           </div>
         )}
 
+        {/* Planning mode banner */}
+        {isPlanningMode && (
+          <div className="mb-3 px-3 py-2 bg-primary/10 border border-primary/20 rounded-lg flex items-center gap-2">
+            <svg className="w-4 h-4 text-primary flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+            </svg>
+            <span className="text-sm text-primary font-medium flex-1">Planning Mode</span>
+            {detectedPlan && !isLoading && (
+              <button
+                onClick={() => setShowPlanReview(true)}
+                className="px-2 py-1 text-xs bg-primary text-primary-foreground rounded hover:bg-primary/90"
+              >
+                Review Plan
+              </button>
+            )}
+            <button
+              onClick={async () => {
+                if (supervision) {
+                  try {
+                    const updated = await api.cancelPlanning(supervision.id);
+                    useSupervisionStore.getState().updateSupervision(updated);
+                  } catch (err) {
+                    console.error('Failed to cancel planning:', err);
+                  }
+                }
+              }}
+              className="px-2 py-1 text-xs bg-secondary hover:bg-secondary/80 rounded text-muted-foreground"
+            >
+              Cancel
+            </button>
+          </div>
+        )}
+
         <MessageList messages={sessionMessages} filePushItems={filePushItems} />
 
         {/* Loading indicator (shown while waiting for response) */}
@@ -881,6 +970,15 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
           }
         />
       </div>
+      {/* Plan review dialog */}
+      {showPlanReview && supervision && detectedPlan && (
+        <PlanReviewDialog
+          supervisionId={supervision.id}
+          plan={detectedPlan}
+          isOpen={showPlanReview}
+          onClose={() => setShowPlanReview(false)}
+        />
+      )}
     </div>
   );
 }

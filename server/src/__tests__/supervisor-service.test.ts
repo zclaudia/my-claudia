@@ -372,21 +372,15 @@ describe('SupervisorService', () => {
   });
 
   describe('planning lifecycle', () => {
-    it('should create a supervision in planning status with plan session', () => {
+    it('should create a supervision in planning status without plan session', () => {
       const { sessionId } = createTestSession(db);
       const result = service.startPlanning(sessionId, 'Build a feature');
 
       expect(result.supervision).toBeDefined();
       expect(result.supervision.status).toBe('planning');
       expect(result.supervision.goal).toBe('Build a feature');
-      expect(result.supervision.planSessionId).toBe(result.planSessionId);
-      expect(result.planSessionId).toBeTruthy();
-
-      // Verify plan session was created in DB
-      const planSession = db.prepare('SELECT * FROM sessions WHERE id = ?')
-        .get(result.planSessionId) as any;
-      expect(planSession).toBeDefined();
-      expect(planSession.type).toBe('background');
+      // No plan session created — planning happens in the main session
+      expect(result.supervision.planSessionId).toBeUndefined();
     });
 
     it('should log planning_started event', () => {
@@ -413,39 +407,30 @@ describe('SupervisorService', () => {
         .toThrow('Session already has an active supervision');
     });
 
-    it('should include recent session messages as context', () => {
+    it('should not call handleRunStart when starting planning (no background session)', () => {
       const { sessionId } = createTestSession(db);
-      const now = Date.now();
-
-      // Add some messages to the target session
-      db.prepare('INSERT INTO messages (id, session_id, role, content, created_at) VALUES (?, ?, ?, ?, ?)')
-        .run('msg1', sessionId, 'user', 'Hello, build a login page', now);
-      db.prepare('INSERT INTO messages (id, session_id, role, content, created_at) VALUES (?, ?, ?, ?, ?)')
-        .run('msg2', sessionId, 'assistant', 'Sure, I can help with that', now + 1);
-
-      const result = service.startPlanning(sessionId, 'Build auth system');
-
-      // handleRunStart should have been called with the planning prompt
-      expect(handleRunStart).toHaveBeenCalled();
-      const callArgs = (handleRunStart as any).mock.calls;
-      const lastCall = callArgs[callArgs.length - 1];
-      const input = lastCall[1].input;
-
-      // Should contain session context
-      expect(input).toContain('SESSION CONTEXT');
-      expect(input).toContain('Hello, build a login page');
-      expect(input).toContain("USER'S GOAL");
-      expect(input).toContain('Build auth system');
-    });
-
-    it('should pass planning system prompt as systemContext', () => {
-      const { sessionId } = createTestSession(db);
+      (handleRunStart as any).mockClear();
 
       service.startPlanning(sessionId, 'Test');
 
-      const callArgs = (handleRunStart as any).mock.calls;
-      const lastCall = callArgs[callArgs.length - 1];
-      expect(lastCall[1].systemContext).toContain('goal planning assistant');
+      // startPlanning no longer triggers handleRunStart — client sends the first message
+      expect(handleRunStart).not.toHaveBeenCalled();
+    });
+
+    it('should return planning system prompt for session in planning status', () => {
+      const { sessionId } = createTestSession(db);
+      service.startPlanning(sessionId, 'Test');
+
+      const prompt = service.getPlanningSystemPromptForSession(sessionId);
+      expect(prompt).toBeTruthy();
+      expect(prompt).toContain('goal planning assistant');
+    });
+
+    it('should return null planning prompt for session without planning supervision', () => {
+      const { sessionId } = createTestSession(db);
+
+      const prompt = service.getPlanningSystemPromptForSession(sessionId);
+      expect(prompt).toBeNull();
     });
 
     it('should approve plan and transition to active status', () => {
@@ -550,33 +535,6 @@ describe('SupervisorService', () => {
       expect(created.status).toBe('active');
     });
 
-    it('should return plan conversation messages', () => {
-      const { sessionId } = createTestSession(db);
-      const result = service.startPlanning(sessionId, 'Test');
-
-      // Add some messages to the plan session
-      const now = Date.now();
-      db.prepare('INSERT INTO messages (id, session_id, role, content, created_at) VALUES (?, ?, ?, ?, ?)')
-        .run('plan-msg-1', result.planSessionId, 'user', 'Build a login system', now);
-      db.prepare('INSERT INTO messages (id, session_id, role, content, created_at) VALUES (?, ?, ?, ?, ?)')
-        .run('plan-msg-2', result.planSessionId, 'assistant', 'What auth method?', now + 1);
-
-      const conversation = service.getPlanConversation(result.supervision.id);
-      expect(conversation).toHaveLength(2);
-      expect(conversation[0].role).toBe('user');
-      expect(conversation[0].content).toBe('Build a login system');
-      expect(conversation[1].role).toBe('assistant');
-      expect(conversation[1].content).toBe('What auth method?');
-    });
-
-    it('should return empty array for supervision without plan session', () => {
-      const { sessionId } = createTestSession(db);
-      const created = service.create(sessionId, 'No plan session');
-
-      const conversation = service.getPlanConversation(created.id);
-      expect(conversation).toEqual([]);
-    });
-
     it('should include planning status in getActiveBySessionId', () => {
       const { sessionId } = createTestSession(db);
       service.startPlanning(sessionId, 'Planning goal');
@@ -586,30 +544,6 @@ describe('SupervisorService', () => {
       expect(found!.status).toBe('planning');
     });
 
-    it('should respond to planning conversation', () => {
-      const { sessionId } = createTestSession(db);
-
-      const result = service.startPlanning(sessionId, 'Test');
-
-      // Clear mock calls from startPlanning
-      (handleRunStart as any).mockClear();
-
-      service.respondToPlanning(result.supervision.id, 'I want OAuth2');
-
-      expect(handleRunStart).toHaveBeenCalled();
-      const callArgs = (handleRunStart as any).mock.calls;
-      const lastCall = callArgs[callArgs.length - 1];
-      expect(lastCall[1].input).toBe('I want OAuth2');
-      expect(lastCall[1].sessionId).toBe(result.planSessionId);
-    });
-
-    it('should throw when responding to non-planning supervision', () => {
-      const { sessionId } = createTestSession(db);
-      const created = service.create(sessionId, 'Active');
-
-      expect(() => service.respondToPlanning(created.id, 'response'))
-        .toThrow('not in planning status');
-    });
   });
 
   describe('acceptance criteria in prompts', () => {

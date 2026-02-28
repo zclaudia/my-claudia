@@ -461,7 +461,7 @@ describe('Supervision Routes', () => {
       expect(res.body.error.code).toBe('VALIDATION_ERROR');
     });
 
-    it('should start planning and return supervision with planSessionId', async () => {
+    it('should start planning and return supervision', async () => {
       const { sessionId } = createTestSession(db);
 
       const res = await request(app)
@@ -472,7 +472,6 @@ describe('Supervision Routes', () => {
       expect(res.body.success).toBe(true);
       expect(res.body.data.supervision.status).toBe('planning');
       expect(res.body.data.supervision.sessionId).toBe(sessionId);
-      expect(res.body.data.planSessionId).toBeDefined();
     });
 
     it('should return 409 when session already has active supervision', async () => {
@@ -507,63 +506,6 @@ describe('Supervision Routes', () => {
         .expect(409);
 
       expect(res.body.error.code).toBe('CONFLICT');
-    });
-  });
-
-  describe('POST /api/supervisions/plan/:id/respond', () => {
-    it('should return 400 when message is missing', async () => {
-      const { sessionId } = createTestSession(db);
-
-      const planRes = await request(app)
-        .post('/api/supervisions/plan/start')
-        .send({ sessionId, hint: 'Plan something' })
-        .expect(200);
-
-      const supId = planRes.body.data.supervision.id;
-
-      const res = await request(app)
-        .post(`/api/supervisions/plan/${supId}/respond`)
-        .send({})
-        .expect(400);
-
-      expect(res.body.error.code).toBe('VALIDATION_ERROR');
-    });
-
-    it('should accept a response for planning supervision', async () => {
-      const { sessionId } = createTestSession(db);
-
-      const planRes = await request(app)
-        .post('/api/supervisions/plan/start')
-        .send({ sessionId, hint: 'Plan something' })
-        .expect(200);
-
-      const supId = planRes.body.data.supervision.id;
-
-      const res = await request(app)
-        .post(`/api/supervisions/plan/${supId}/respond`)
-        .send({ message: 'I want to build a REST API with Express' })
-        .expect(200);
-
-      expect(res.body.success).toBe(true);
-    });
-
-    it('should return 400 when supervision is not in planning status', async () => {
-      const { sessionId } = createTestSession(db);
-
-      // Create an active (non-planning) supervision
-      const createRes = await request(app)
-        .post('/api/supervisions')
-        .send({ sessionId, goal: 'Active goal' })
-        .expect(200);
-
-      const supId = createRes.body.data.id;
-
-      const res = await request(app)
-        .post(`/api/supervisions/plan/${supId}/respond`)
-        .send({ message: 'Hello' })
-        .expect(400);
-
-      expect(res.body.error.code).toBe('INVALID_STATE');
     });
   });
 
@@ -657,56 +599,6 @@ describe('Supervision Routes', () => {
         .expect(400);
 
       expect(res.body.error.code).toBe('INVALID_STATE');
-    });
-  });
-
-  describe('GET /api/supervisions/plan/:id/conversation', () => {
-    it('should return empty array for supervision without plan session', async () => {
-      const { sessionId } = createTestSession(db);
-
-      const createRes = await request(app)
-        .post('/api/supervisions')
-        .send({ sessionId, goal: 'No plan session' })
-        .expect(200);
-
-      const supId = createRes.body.data.id;
-
-      const res = await request(app)
-        .get(`/api/supervisions/plan/${supId}/conversation`)
-        .expect(200);
-
-      expect(res.body.success).toBe(true);
-      expect(res.body.data).toEqual([]);
-    });
-
-    it('should return messages for planning supervision', async () => {
-      const { sessionId } = createTestSession(db);
-
-      const planRes = await request(app)
-        .post('/api/supervisions/plan/start')
-        .send({ sessionId, hint: 'Plan something' })
-        .expect(200);
-
-      const supId = planRes.body.data.supervision.id;
-      const planSessionId = planRes.body.data.planSessionId;
-
-      // Insert some messages into the plan session
-      const now = Date.now();
-      db.prepare(`INSERT INTO messages (id, session_id, role, content, created_at) VALUES (?, ?, ?, ?, ?)`)
-        .run('msg-1', planSessionId, 'user', 'I want to build something', now);
-      db.prepare(`INSERT INTO messages (id, session_id, role, content, created_at) VALUES (?, ?, ?, ?, ?)`)
-        .run('msg-2', planSessionId, 'assistant', 'What kind of project?', now + 1);
-
-      const res = await request(app)
-        .get(`/api/supervisions/plan/${supId}/conversation`)
-        .expect(200);
-
-      expect(res.body.success).toBe(true);
-      expect(res.body.data).toHaveLength(2);
-      expect(res.body.data[0].role).toBe('user');
-      expect(res.body.data[0].content).toBe('I want to build something');
-      expect(res.body.data[1].role).toBe('assistant');
-      expect(res.body.data[1].content).toBe('What kind of project?');
     });
   });
 

@@ -238,6 +238,9 @@ function localOnlyMiddleware(req: Request, res: Response, next: NextFunction): v
   next();
 }
 
+// Module-level supervisor service reference (set during createServer)
+let supervisorService: SupervisorService | null = null;
+
 // Export types for Gateway integration
 export type { ConnectedClient };
 export { sendMessage, handleClientMessage, activeRuns, handleRunStart, connectedClients };
@@ -443,7 +446,7 @@ export async function createServer(): Promise<ServerContext> {
   app.use('/api/import', localOnlyMiddleware, createOpenCodeImportRoutes(db));
 
   // Supervision routes + service
-  const supervisorService = new SupervisorService(db);
+  supervisorService = new SupervisorService(db);
   app.use('/api/supervisions', authMiddleware, createSupervisionRoutes(supervisorService));
 
   // Notification routes + service
@@ -1409,6 +1412,14 @@ async function handleRunStart(
     // Note: Agent sessions no longer force bypassPermissions.
     // All sessions (including agent) go through the unified permission strategy chain.
     const adapter = providerRegistry.getOrDefault(providerType);
+
+    // Auto-inject planning system prompt if session has an active planning supervision
+    if (!message.systemContext && supervisorService) {
+      const planningPrompt = supervisorService.getPlanningSystemPromptForSession(message.sessionId);
+      if (planningPrompt) {
+        message.systemContext = planningPrompt;
+      }
+    }
 
     // Inject file push context (env vars + system prompt) so AI agents can push files to user's device
     const filePushEnv: Record<string, string> = {};

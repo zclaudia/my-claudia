@@ -9,9 +9,8 @@ import type {
   SupervisionUpdateMessage,
   SupervisionPlan,
   ServerMessage,
-  Message
 } from '@my-claudia/shared';
-import { createVirtualClient, handleRunStart, activeRuns, sendMessage } from '../server.js';
+import { createVirtualClient, handleRunStart, activeRuns } from '../server.js';
 import type { ConnectedClient } from '../server.js';
 import type { NotificationService } from './notification-service.js';
 
@@ -514,8 +513,8 @@ export class SupervisorService {
     sessionId: string,
     hint: string,
     options?: { maxIterations?: number; cooldownSeconds?: number }
-  ): { supervision: Supervision; planSessionId: string } {
-    // Enforce one active supervision per session (reuses same check as create)
+  ): { supervision: Supervision } {
+    // Enforce one active supervision per session
     const existing = this.db.prepare(
       `SELECT id FROM supervisions WHERE session_id = ? AND status IN ('planning', 'active', 'paused')`
     ).get(sessionId);
@@ -524,34 +523,15 @@ export class SupervisorService {
     }
 
     const supervisionId = uuidv4();
-    const planSessionId = uuidv4();
     const now = Date.now();
 
-    // Resolve the parent session's effective provider
-    const parentInfo = this.db.prepare(`
-      SELECT s.project_id, COALESCE(s.provider_id, p.provider_id) as resolved_provider_id
-      FROM sessions s
-      LEFT JOIN projects p ON s.project_id = p.id
-      WHERE s.id = ?
-    `).get(sessionId) as { project_id: string; resolved_provider_id: string | null } | undefined;
-
-    if (!parentInfo) {
-      throw new Error(`Parent session ${sessionId} not found`);
-    }
-
-    // Create a background session for the planning conversation, inheriting provider from parent
+    // Create supervision in 'planning' status (no background session needed —
+    // planning conversation happens in the main session via system prompt injection)
     this.db.prepare(`
-      INSERT INTO sessions (id, project_id, name, provider_id, type, parent_session_id, created_at, updated_at)
-      VALUES (?, ?, ?, ?, 'background', ?, ?, ?)
-    `).run(planSessionId, parentInfo.project_id, `Planning: ${hint.slice(0, 50)}`,
-           parentInfo.resolved_provider_id, sessionId, now, now);
-
-    // Create supervision in 'planning' status
-    this.db.prepare(`
-      INSERT INTO supervisions (id, session_id, goal, status, plan_session_id, max_iterations, cooldown_seconds, current_iteration, created_at, updated_at)
-      VALUES (?, ?, ?, 'planning', ?, ?, ?, 0, ?, ?)
+      INSERT INTO supervisions (id, session_id, goal, status, max_iterations, cooldown_seconds, current_iteration, created_at, updated_at)
+      VALUES (?, ?, ?, 'planning', ?, ?, 0, ?, ?)
     `).run(
-      supervisionId, sessionId, hint, planSessionId,
+      supervisionId, sessionId, hint,
       options?.maxIterations ?? 5,
       options?.cooldownSeconds ?? 5,
       now, now
@@ -559,77 +539,10 @@ export class SupervisorService {
 
     this.appendLog(supervisionId, 'planning_started');
 
-    // Read recent messages from target session for context
-    const recentMessages = this.db.prepare(`
-      SELECT role, content FROM messages
-      WHERE session_id = ?
-      ORDER BY created_at DESC LIMIT 20
-    `).all(sessionId) as { role: string; content: string }[];
-
-    // Build context summary from recent messages (reverse to chronological order)
-    const contextLines = recentMessages.reverse().map(m =>
-      `[${m.role}]: ${m.content.slice(0, 500)}`
-    ).join('\n');
-
-    // Build the initial planning prompt
-    const planningInput = this.buildPlanningInitialMessage(hint, contextLines);
-
-    // Trigger the first planning run via virtual client
-    const clientId = `planner_${supervisionId}`;
-    const virtualClient = createVirtualClient(clientId, {
-      send: (msg: ServerMessage) => {
-        // Forward streaming messages to real connected clients
-        if (this.broadcastFn) {
-          this.broadcastFn(msg);
-        }
-      }
-    });
-    this.virtualClients.set(clientId, virtualClient);
-
-    handleRunStart(virtualClient, {
-      type: 'run_start',
-      clientRequestId: `planning_${supervisionId}_${Date.now()}`,
-      sessionId: planSessionId,
-      input: planningInput,
-      systemContext: this.buildPlanningSystemPrompt(),
-    }, this.db);
-
     const supervision = this.getSupervision(supervisionId)!;
     this.broadcastUpdate(supervisionId);
 
-    return { supervision, planSessionId };
-  }
-
-  respondToPlanning(supervisionId: string, message: string): void {
-    const row = this.getSupervisionRow(supervisionId);
-    if (!row || row.status !== 'planning') {
-      throw new Error('Supervision is not in planning status');
-    }
-    if (!row.plan_session_id) {
-      throw new Error('No planning session found');
-    }
-
-    // Trigger a new run on the plan session with the user's response
-    const clientId = `planner_${supervisionId}`;
-    let virtualClient = this.virtualClients.get(clientId);
-    if (!virtualClient) {
-      virtualClient = createVirtualClient(clientId, {
-        send: (msg: ServerMessage) => {
-          if (this.broadcastFn) {
-            this.broadcastFn(msg);
-          }
-        }
-      });
-      this.virtualClients.set(clientId, virtualClient);
-    }
-
-    handleRunStart(virtualClient, {
-      type: 'run_start',
-      clientRequestId: `planning_${supervisionId}_${Date.now()}`,
-      sessionId: row.plan_session_id,
-      input: message,
-      systemContext: this.buildPlanningSystemPrompt(),
-    }, this.db);
+    return { supervision };
   }
 
   approvePlan(
@@ -676,9 +589,6 @@ export class SupervisorService {
       acceptanceCriteriaCount: plan.acceptanceCriteria?.length ?? 0,
     });
 
-    // Cleanup planning virtual client
-    this.virtualClients.delete(`planner_${supervisionId}`);
-
     return this.getSupervision(supervisionId)!;
   }
 
@@ -689,35 +599,21 @@ export class SupervisorService {
     }
 
     this.updateStatus(id, 'cancelled', 'Planning cancelled by user');
-    this.virtualClients.delete(`planner_${id}`);
     this.appendLog(id, 'planning_cancelled');
     return this.getSupervision(id)!;
   }
 
-  getPlanConversation(supervisionId: string): Message[] {
-    const row = this.getSupervisionRow(supervisionId);
-    if (!row || !row.plan_session_id) {
-      return [];
-    }
+  /**
+   * Returns the planning system prompt if this session has an active planning supervision.
+   * Used by handleRunStart to auto-inject planning context.
+   */
+  getPlanningSystemPromptForSession(sessionId: string): string | null {
+    const row = this.db.prepare(
+      `SELECT id FROM supervisions WHERE session_id = ? AND status = 'planning' LIMIT 1`
+    ).get(sessionId) as { id: string } | undefined;
 
-    const messages = this.db.prepare(`
-      SELECT id, session_id, role, content, metadata, created_at
-      FROM messages
-      WHERE session_id = ?
-      ORDER BY created_at ASC
-    `).all(row.plan_session_id) as Array<{
-      id: string; session_id: string; role: string;
-      content: string; metadata: string | null; created_at: number;
-    }>;
-
-    return messages.map(m => ({
-      id: m.id,
-      sessionId: m.session_id,
-      role: m.role as 'user' | 'assistant' | 'system',
-      content: m.content,
-      metadata: m.metadata ? JSON.parse(m.metadata) : undefined,
-      createdAt: m.created_at,
-    }));
+    if (!row) return null;
+    return this.buildPlanningSystemPrompt();
   }
 
   private buildPlanningSystemPrompt(): string {
@@ -754,17 +650,6 @@ When you have enough information, output a plan as a JSON block wrapped in \`\`\
 - When proposing a plan, always include the JSON block so the system can parse it
 - Keep the total number of subtasks reasonable (3-10 for most goals)
 - Estimate iterations conservatively (each subtask typically needs 2-3 iterations)`;
-  }
-
-  private buildPlanningInitialMessage(hint: string, sessionContext: string): string {
-    let message = '';
-
-    if (sessionContext.trim()) {
-      message += `[SESSION CONTEXT]\nHere is the recent conversation from the target coding session:\n\n${sessionContext}\n\n`;
-    }
-
-    message += `[USER'S GOAL]\n${hint}\n\nPlease analyze the context and ask clarifying questions to help refine this into a detailed, actionable plan.`;
-    return message;
   }
 
   cancel(id: string): Supervision {

@@ -133,6 +133,65 @@ describe('supervisionStore', () => {
     });
   });
 
+  describe('pendingPlanningHints', () => {
+    beforeEach(() => {
+      useSupervisionStore.setState({ pendingPlanningHints: {} });
+    });
+
+    it('sets a pending hint for a session', () => {
+      useSupervisionStore.getState().setPendingHint('session-1', 'Build auth');
+
+      expect(useSupervisionStore.getState().pendingPlanningHints['session-1']).toBe('Build auth');
+    });
+
+    it('overwrites existing hint for same session', () => {
+      useSupervisionStore.getState().setPendingHint('session-1', 'Old hint');
+      useSupervisionStore.getState().setPendingHint('session-1', 'New hint');
+
+      expect(useSupervisionStore.getState().pendingPlanningHints['session-1']).toBe('New hint');
+    });
+
+    it('does not affect hints for other sessions', () => {
+      useSupervisionStore.getState().setPendingHint('session-1', 'Hint A');
+      useSupervisionStore.getState().setPendingHint('session-2', 'Hint B');
+
+      expect(useSupervisionStore.getState().pendingPlanningHints['session-1']).toBe('Hint A');
+      expect(useSupervisionStore.getState().pendingPlanningHints['session-2']).toBe('Hint B');
+    });
+
+    it('clears a pending hint for a session', () => {
+      useSupervisionStore.getState().setPendingHint('session-1', 'To be cleared');
+      useSupervisionStore.getState().clearPendingHint('session-1');
+
+      expect(useSupervisionStore.getState().pendingPlanningHints['session-1']).toBeUndefined();
+    });
+
+    it('clearing one session does not affect others', () => {
+      useSupervisionStore.getState().setPendingHint('session-1', 'Hint A');
+      useSupervisionStore.getState().setPendingHint('session-2', 'Hint B');
+      useSupervisionStore.getState().clearPendingHint('session-1');
+
+      expect(useSupervisionStore.getState().pendingPlanningHints['session-1']).toBeUndefined();
+      expect(useSupervisionStore.getState().pendingPlanningHints['session-2']).toBe('Hint B');
+    });
+
+    it('clearing non-existent session is a no-op', () => {
+      useSupervisionStore.getState().setPendingHint('session-1', 'Keep me');
+      useSupervisionStore.getState().clearPendingHint('session-nonexistent');
+
+      expect(useSupervisionStore.getState().pendingPlanningHints['session-1']).toBe('Keep me');
+    });
+
+    it('does not affect supervisions state', () => {
+      const supervision = createSupervision();
+      useSupervisionStore.getState().setSupervision('session-1', supervision);
+      useSupervisionStore.getState().setPendingHint('session-1', 'Some hint');
+
+      expect(useSupervisionStore.getState().supervisions['session-1']).toEqual(supervision);
+      expect(useSupervisionStore.getState().pendingPlanningHints['session-1']).toBe('Some hint');
+    });
+  });
+
   describe('multi-session scenarios', () => {
     it('handles multiple sessions simultaneously', () => {
       const sessions = Array.from({ length: 5 }, (_, i) =>

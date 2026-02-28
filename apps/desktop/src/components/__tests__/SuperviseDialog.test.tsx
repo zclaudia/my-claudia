@@ -3,39 +3,24 @@ import { render, screen, fireEvent, waitFor, cleanup } from '@testing-library/re
 
 const mockStartSupervisionPlanning = vi.fn();
 const mockCreateSupervision = vi.fn();
-const mockCancelPlanning = vi.fn();
 const mockUpdateSupervision = vi.fn();
+const mockSetPendingHint = vi.fn();
 
 vi.mock('../../services/api', () => ({
   startSupervisionPlanning: (...args: unknown[]) => mockStartSupervisionPlanning(...args),
   createSupervision: (...args: unknown[]) => mockCreateSupervision(...args),
-  cancelPlanning: (...args: unknown[]) => mockCancelPlanning(...args),
 }));
 
 vi.mock('../../stores/supervisionStore', () => ({
   useSupervisionStore: {
-    getState: () => ({ updateSupervision: mockUpdateSupervision }),
+    getState: () => ({
+      updateSupervision: mockUpdateSupervision,
+      setPendingHint: mockSetPendingHint,
+    }),
   },
 }));
 
-vi.mock('../../stores/chatStore', () => ({
-  useChatStore: Object.assign(
-    (selector: (state: any) => any) => selector({ messages: {} }),
-    {
-      getState: () => ({
-        messages: {},
-        isSessionLoading: () => false,
-        activeRuns: {},
-      }),
-      subscribe: () => () => {},
-    }
-  ),
-}));
-
 import { SuperviseDialog } from '../SuperviseDialog';
-
-// jsdom doesn't implement scrollIntoView
-Element.prototype.scrollIntoView = vi.fn();
 
 describe('SuperviseDialog', () => {
   const defaultProps = {
@@ -171,10 +156,10 @@ describe('SuperviseDialog', () => {
     });
   });
 
-  it('AI Planning starts planning session', async () => {
+  it('AI Planning starts planning session, sets pending hint and closes dialog', async () => {
+    const mockSupervision = { id: 'sup-1', sessionId: 'session-123', status: 'planning' };
     mockStartSupervisionPlanning.mockResolvedValue({
-      supervision: { id: 'sup-1', sessionId: 'session-123', status: 'planning' },
-      planSessionId: 'plan-session-1',
+      supervision: mockSupervision,
     });
 
     render(<SuperviseDialog {...defaultProps} />);
@@ -193,7 +178,9 @@ describe('SuperviseDialog', () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByText('Planning Conversation')).toBeInTheDocument();
+      expect(mockUpdateSupervision).toHaveBeenCalledWith(mockSupervision);
+      expect(mockSetPendingHint).toHaveBeenCalledWith('session-123', 'Build a feature');
+      expect(defaultProps.onClose).toHaveBeenCalled();
     });
   });
 

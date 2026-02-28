@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import type { ApiResponse, Supervision, SupervisionLog, SupervisionPlan, Message } from '@my-claudia/shared';
+import type { ApiResponse, Supervision, SupervisionLog } from '@my-claudia/shared';
 import { SupervisorService } from '../services/supervisor-service.js';
 
 export function createSupervisionRoutes(supervisorService: SupervisorService): Router {
@@ -66,38 +66,13 @@ export function createSupervisionRoutes(supervisorService: SupervisorService): R
       res.json({
         success: true,
         data: result
-      } as ApiResponse<{ supervision: Supervision; planSessionId: string }>);
+      } as ApiResponse<{ supervision: Supervision }>);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to start planning';
       const status = message.includes('already has an active') ? 409 : 500;
       res.status(status).json({
         success: false,
         error: { code: status === 409 ? 'CONFLICT' : 'INTERNAL_ERROR', message }
-      } as ApiResponse<never>);
-    }
-  });
-
-  // POST /api/supervisions/plan/:id/respond — Send user response in planning conversation
-  router.post('/plan/:id/respond', (req: Request, res: Response) => {
-    try {
-      const { message } = req.body;
-
-      if (!message) {
-        res.status(400).json({
-          success: false,
-          error: { code: 'VALIDATION_ERROR', message: 'message is required' }
-        } as ApiResponse<never>);
-        return;
-      }
-
-      supervisorService.respondToPlanning(req.params.id, message);
-      res.json({ success: true, data: null } as ApiResponse<null>);
-    } catch (error) {
-      const msg = error instanceof Error ? error.message : 'Failed to respond';
-      const status = msg.includes('not in planning') ? 400 : 500;
-      res.status(status).json({
-        success: false,
-        error: { code: status === 400 ? 'INVALID_STATE' : 'INTERNAL_ERROR', message: msg }
       } as ApiResponse<never>);
     }
   });
@@ -129,19 +104,6 @@ export function createSupervisionRoutes(supervisorService: SupervisorService): R
       res.status(status).json({
         success: false,
         error: { code: status === 400 ? 'INVALID_STATE' : 'INTERNAL_ERROR', message: msg }
-      } as ApiResponse<never>);
-    }
-  });
-
-  // GET /api/supervisions/plan/:id/conversation — Get planning conversation
-  router.get('/plan/:id/conversation', (req: Request, res: Response) => {
-    try {
-      const messages = supervisorService.getPlanConversation(req.params.id);
-      res.json({ success: true, data: messages } as ApiResponse<Message[]>);
-    } catch (error) {
-      res.status(500).json({
-        success: false,
-        error: { code: 'DB_ERROR', message: 'Failed to get planning conversation' }
       } as ApiResponse<never>);
     }
   });

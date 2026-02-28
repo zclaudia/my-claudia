@@ -772,8 +772,8 @@ import type { Supervision, SupervisionLog, SupervisionPlan } from '@my-claudia/s
 export async function startSupervisionPlanning(data: {
   sessionId: string;
   hint: string;
-}): Promise<{ supervision: Supervision; planSessionId: string }> {
-  const result = await fetchApi<{ supervision: Supervision; planSessionId: string }>('/api/supervisions/plan/start', {
+}): Promise<{ supervision: Supervision }> {
+  const result = await fetchApi<{ supervision: Supervision }>('/api/supervisions/plan/start', {
     method: 'POST',
     body: JSON.stringify(data),
   });
@@ -781,16 +781,6 @@ export async function startSupervisionPlanning(data: {
     throw new Error(result.error?.message || 'Failed to start planning');
   }
   return result.data;
-}
-
-export async function respondToPlanning(supervisionId: string, message: string): Promise<void> {
-  const result = await fetchApi<null>(`/api/supervisions/plan/${supervisionId}/respond`, {
-    method: 'POST',
-    body: JSON.stringify({ message }),
-  });
-  if (!result.success) {
-    throw new Error(result.error?.message || 'Failed to respond to planning');
-  }
 }
 
 export async function approvePlan(
@@ -803,14 +793,6 @@ export async function approvePlan(
   });
   if (!result.success || !result.data) {
     throw new Error(result.error?.message || 'Failed to approve plan');
-  }
-  return result.data;
-}
-
-export async function getPlanConversation(supervisionId: string): Promise<Message[]> {
-  const result = await fetchApi<Message[]>(`/api/supervisions/plan/${supervisionId}/conversation`);
-  if (!result.success || !result.data) {
-    throw new Error(result.error?.message || 'Failed to get planning conversation');
   }
   return result.data;
 }
