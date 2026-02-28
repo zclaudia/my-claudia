@@ -142,7 +142,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
           ...state.pagination,
           [sessionId]: {
             ...existingPagination,
-            ...(pagination || {}),
+            // Only update forward-direction fields; preserve hasMore/oldestTimestamp
+            // (those are for the "load older" direction and must not be overwritten
+            // by gap-fill or sync responses)
+            total: pagination?.total ?? existingPagination.total,
+            newestTimestamp: pagination?.newestTimestamp ?? existingPagination.newestTimestamp,
+            maxOffset: pagination?.maxOffset != null
+              ? Math.max(pagination.maxOffset, existingPagination.maxOffset ?? 0)
+              : existingPagination.maxOffset,
             isLoadingMore: false,
           },
         },

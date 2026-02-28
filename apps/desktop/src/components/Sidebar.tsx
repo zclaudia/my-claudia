@@ -693,6 +693,18 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
                                     {hasPendingForSession(session.id) && (
                                       <span className="ml-auto w-2 h-2 rounded-full bg-amber-500 animate-pulse shrink-0" title="Pending permission" />
                                     )}
+                                    {supervisions[session.id] && !hasPendingForSession(session.id) && (
+                                      <span
+                                        className={`ml-auto w-2 h-2 rounded-full shrink-0 ${
+                                          supervisions[session.id].status === 'active'
+                                            ? 'bg-green-500 animate-pulse'
+                                            : supervisions[session.id].status === 'paused'
+                                              ? 'bg-yellow-500'
+                                              : ''
+                                        }`}
+                                        title={`Supervised: ${supervisions[session.id].goal} (${supervisions[session.id].currentIteration}/${supervisions[session.id].maxIterations})`}
+                                      />
+                                    )}
                                   </button>
                                 )}
                                 {/* Session menu button */}
@@ -723,6 +735,53 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
                                     >
                                       Export Markdown
                                     </button>
+                                    {/* Supervision actions */}
+                                    {!supervisions[session.id] || ['completed', 'failed', 'cancelled'].includes(supervisions[session.id].status) ? (
+                                      <button
+                                        onClick={() => {
+                                          setSuperviseSessionId(session.id);
+                                          setContextMenuSession(null);
+                                        }}
+                                        disabled={!isConnected}
+                                        className="w-full text-left px-3 py-3 text-sm hover:bg-secondary active:bg-secondary disabled:opacity-50"
+                                      >
+                                        Supervise
+                                      </button>
+                                    ) : (
+                                      <>
+                                        {supervisions[session.id].status === 'active' && (
+                                          <button
+                                            onClick={async () => {
+                                              await api.pauseSupervision(supervisions[session.id].id);
+                                              setContextMenuSession(null);
+                                            }}
+                                            className="w-full text-left px-3 py-3 text-sm hover:bg-secondary active:bg-secondary"
+                                          >
+                                            Pause Supervision
+                                          </button>
+                                        )}
+                                        {supervisions[session.id].status === 'paused' && (
+                                          <button
+                                            onClick={async () => {
+                                              await api.resumeSupervision(supervisions[session.id].id);
+                                              setContextMenuSession(null);
+                                            }}
+                                            className="w-full text-left px-3 py-3 text-sm hover:bg-secondary active:bg-secondary"
+                                          >
+                                            Resume Supervision
+                                          </button>
+                                        )}
+                                        <button
+                                          onClick={async () => {
+                                            await api.cancelSupervision(supervisions[session.id].id);
+                                            setContextMenuSession(null);
+                                          }}
+                                          className="w-full text-left px-3 py-3 text-sm text-destructive hover:bg-secondary active:bg-secondary"
+                                        >
+                                          Cancel Supervision
+                                        </button>
+                                      </>
+                                    )}
                                     <button
                                       onClick={() => handleArchiveSession(session.id)}
                                       className="w-full text-left px-3 py-3 text-sm hover:bg-secondary active:bg-secondary"

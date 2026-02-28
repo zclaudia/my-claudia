@@ -13,6 +13,7 @@ import { ServerGatewayConfig } from './ServerGatewayConfig';
 import { ImportDialog } from './ImportDialog';
 import { ImportOpenCodeDialog } from './ImportOpenCodeDialog';
 import * as api from '../services/api';
+import { exportLogs, getLogCount, clearLogs } from '../services/logger';
 import { getClientAIConfig, setClientAIConfig, testClientAIConnection, fetchAvailableModels, type ClientAIConfig } from '../services/clientAI';
 import type { GatewayBackendInfo, ProviderConfig, AgentPermissionPolicy, NotificationConfig } from '@my-claudia/shared';
 import { DEFAULT_NOTIFICATION_CONFIG } from '@my-claudia/shared';
@@ -530,6 +531,63 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
                         )}
                       </>
                     )}
+                  </div>
+                </div>
+
+                {/* Diagnostics */}
+                <div>
+                  <h3 className="text-sm font-medium mb-3">Diagnostics</h3>
+                  <div className="p-3 bg-secondary/50 rounded-lg space-y-2">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <div className="text-sm">Client Logs</div>
+                        <div className="text-xs text-muted-foreground">{getLogCount()} entries in buffer</div>
+                      </div>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => { clearLogs(); }}
+                          className="px-2 py-1 text-xs bg-secondary hover:bg-secondary/80 text-secondary-foreground rounded-md transition-colors"
+                        >
+                          Clear
+                        </button>
+                        <button
+                          onClick={async () => {
+                            try {
+                              const logs = exportLogs();
+                              const ts = new Date().toISOString().replace(/[:.]/g, '-');
+                              const fileName = `my-claudia-logs-${ts}.json`;
+                              const blob = new Blob([logs], { type: 'application/json' });
+
+                              if ('__TAURI_INTERNALS__' in window) {
+                                const { downloadDir } = await import('@tauri-apps/api/path');
+                                const { writeFile } = await import('@tauri-apps/plugin-fs');
+                                const dir = await downloadDir();
+                                const filePath = `${dir}/${fileName}`;
+                                await writeFile(filePath, new Uint8Array(await blob.arrayBuffer()));
+                                // Open folder in file manager (desktop only, skip on Android)
+                                if (!navigator.userAgent.includes('Android')) {
+                                  const { open } = await import('@tauri-apps/plugin-shell');
+                                  await open(dir);
+                                }
+                              } else {
+                                // Web fallback
+                                const url = URL.createObjectURL(blob);
+                                const a = document.createElement('a');
+                                a.href = url;
+                                a.download = fileName;
+                                a.click();
+                                URL.revokeObjectURL(url);
+                              }
+                            } catch (err) {
+                              console.error('[Settings] Failed to export logs:', err);
+                            }
+                          }}
+                          className="px-3 py-1 text-xs bg-primary hover:bg-primary/90 text-primary-foreground rounded-md transition-colors"
+                        >
+                          Export Logs
+                        </button>
+                      </div>
+                    </div>
                   </div>
                 </div>
 

@@ -208,10 +208,17 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
 
   // Load more messages (older)
   const loadMoreMessages = useCallback(async () => {
-    if (!sessionPagination?.hasMore || sessionPagination?.isLoadingMore) return;
+    if (!sessionPagination?.hasMore || sessionPagination?.isLoadingMore) {
+      console.debug(`[ChatInterface] loadMoreMessages skipped: hasMore=${sessionPagination?.hasMore}, isLoadingMore=${sessionPagination?.isLoadingMore}`);
+      return;
+    }
 
     const oldestTimestamp = sessionPagination?.oldestTimestamp;
-    if (!oldestTimestamp) return;
+    if (!oldestTimestamp) {
+      console.debug('[ChatInterface] loadMoreMessages skipped: no oldestTimestamp');
+      return;
+    }
+    console.debug(`[ChatInterface] loadMoreMessages: loading before=${oldestTimestamp}`);
 
     // Save scroll position before loading
     const container = messagesContainerRef.current;
