@@ -49,7 +49,7 @@ export function useMultiServerSocket() {
   // Store hooks
   const {
     addMessage,
-    updateLastUserMessageId,
+    updateMessageIdByClientMessageId,
     appendToLastMessage,
     startRun,
     endRun,
@@ -149,13 +149,14 @@ export function useMultiServerSocket() {
           // Use server-provided assistantMessageId for dedup (falls back to runId for old servers)
           const assistantMsgId = (message as any).assistantMessageId || message.runId;
           const userMsgId = (message as any).userMessageId;
+          const clientReqId = message.clientRequestId;
           if (isAgentRun) {
             const agentSessionId = useAgentStore.getState().agentSessionId;
             if (agentSessionId) {
               startRun(message.runId, agentSessionId);
               useAgentStore.getState().setActiveRunId(message.runId);
               useAgentStore.getState().setLoading(true);
-              if (userMsgId) updateLastUserMessageId(agentSessionId, userMsgId);
+              if (userMsgId && clientReqId) updateMessageIdByClientMessageId(agentSessionId, clientReqId, userMsgId);
               addMessage(agentSessionId, {
                 id: assistantMsgId,
                 sessionId: agentSessionId,
@@ -169,8 +170,8 @@ export function useMultiServerSocket() {
             if (serverId === activeServerId) {
               clearSystemInfo();
             }
-            // Update user message ID to match server's DB ID (prevents gap-fill duplicates)
-            if (userMsgId) updateLastUserMessageId(targetSessionId, userMsgId);
+            // Update user message ID to match server's DB ID (by clientMessageId for precise lookup)
+            if (userMsgId && clientReqId) updateMessageIdByClientMessageId(targetSessionId, clientReqId, userMsgId);
             addMessage(targetSessionId, {
               id: assistantMsgId,
               sessionId: targetSessionId,
@@ -471,7 +472,7 @@ export function useMultiServerSocket() {
     activeServerId,
     servers,
     addMessage,
-    updateLastUserMessageId,
+    updateMessageIdByClientMessageId,
     appendToLastMessage,
     startRun,
     endRun,

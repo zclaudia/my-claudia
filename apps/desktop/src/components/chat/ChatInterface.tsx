@@ -376,19 +376,23 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
     // Serialize for transmission
     const fullContent = JSON.stringify(messageInput);
 
+    // Use a single ID for both local message and server request (dual dedup)
+    const clientMessageId = crypto.randomUUID();
+
     // Add user message to local state
     addMessage(sessionId, {
-      id: crypto.randomUUID(),
+      id: clientMessageId,
+      clientMessageId,
       sessionId,
       role: 'user',
       content: content || '[Attachments]',
       createdAt: Date.now(),
     });
 
-    // Send to server via WebSocket
+    // Send to server via WebSocket (clientRequestId = clientMessageId for correlation)
     wsSendMessage({
       type: 'run_start',
-      clientRequestId: crypto.randomUUID(),
+      clientRequestId: clientMessageId,
       sessionId,
       input: fullContent,
       mode: mode || undefined,

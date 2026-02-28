@@ -59,6 +59,7 @@ export function useGatewayConnection() {
   // Chat store
   const {
     addMessage,
+    updateMessageIdByClientMessageId,
     appendToLastMessage,
     startRun,
     endRun,
@@ -122,6 +123,13 @@ export function useGatewayConnection() {
    * Handle a backend message routed through the gateway transport.
    */
   const handleBackendMessage = useCallback((backendId: string, message: ServerMessage) => {
+    // Skip messages from our own embedded server — the direct local connection handles them.
+    // Processing them here too causes duplicate messages (different IDs → dedup fails).
+    const { localBackendId } = useGatewayStore.getState();
+    if (localBackendId && backendId === localBackendId) {
+      return;
+    }
+
     const serverId = toGatewayServerId(backendId);
     const currentSessionId = selectedSessionIdRef.current;
     const currentActiveId = useServerStore.getState().activeServerId;
@@ -176,6 +184,10 @@ export function useGatewayConnection() {
         // Use sessionId from server message (preferred), fall back to ref for old servers
         const targetSessionId = msg.sessionId || currentSessionId;
         const isAgentRun = (msg as any).clientRequestId?.startsWith('agent_');
+        // Use server-provided assistantMessageId for dedup (falls back to runId for old servers)
+        const assistantMsgId = (msg as any).assistantMessageId || msg.runId;
+        const userMsgId = (msg as any).userMessageId;
+        const clientReqId = (msg as any).clientRequestId;
         // Track run-to-server mapping for heartbeat reconciliation
         if (!serverRunsRef.current.has(serverId)) {
           serverRunsRef.current.set(serverId, new Set());
@@ -187,8 +199,9 @@ export function useGatewayConnection() {
             startRun(msg.runId, agentSessionId);
             useAgentStore.getState().setActiveRunId(msg.runId);
             useAgentStore.getState().setLoading(true);
+            if (userMsgId && clientReqId) updateMessageIdByClientMessageId(agentSessionId, clientReqId, userMsgId);
             addMessage(agentSessionId, {
-              id: msg.runId,
+              id: assistantMsgId,
               sessionId: agentSessionId,
               role: 'assistant',
               content: '',
@@ -200,8 +213,9 @@ export function useGatewayConnection() {
           if (serverId === currentActiveId) {
             clearSystemInfo();
           }
+          if (userMsgId && clientReqId) updateMessageIdByClientMessageId(targetSessionId, clientReqId, userMsgId);
           addMessage(targetSessionId, {
-            id: msg.runId,
+            id: assistantMsgId,
             sessionId: targetSessionId,
             role: 'assistant',
             content: '',
@@ -524,6 +538,7 @@ export function useGatewayConnection() {
     }
   }, [
     addMessage,
+    updateMessageIdByClientMessageId,
     appendToLastMessage,
     startRun,
     endRun,

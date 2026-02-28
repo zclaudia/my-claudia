@@ -23,6 +23,7 @@ export interface ToolCallState {
 // Extended message with tool calls for display
 export interface MessageWithToolCalls extends Message {
   toolCalls?: ToolCallState[];
+  clientMessageId?: string;  // Client-generated message ID for dual dedup
 }
 
 interface ChatState {
@@ -50,7 +51,7 @@ interface ChatState {
   prependMessages: (sessionId: string, messages: MessageWithToolCalls[], pagination?: Omit<PaginationInfo, 'isLoadingMore'>) => void;
   appendMessages: (sessionId: string, messages: MessageWithToolCalls[], pagination?: Omit<PaginationInfo, 'isLoadingMore'>) => void;
   addMessage: (sessionId: string, message: MessageWithToolCalls) => void;
-  updateLastUserMessageId: (sessionId: string, newId: string) => void;
+  updateMessageIdByClientMessageId: (sessionId: string, clientMessageId: string, newId: string) => void;
   appendToLastMessage: (sessionId: string, content: string) => void;
   clearMessages: (sessionId: string) => void;
   setLoadingMore: (sessionId: string, loading: boolean) => void;
@@ -151,8 +152,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
   addMessage: (sessionId, message) =>
     set((state) => {
       const existingMessages = state.messages[sessionId] || [];
-      // Deduplicate by message ID (can happen when local + gateway point to same server)
-      if (existingMessages.some((m) => m.id === message.id)) {
+      // Dual dedup: check both server ID and client-generated message ID
+      if (existingMessages.some((m) =>
+        m.id === message.id ||
+        (message.clientMessageId && m.clientMessageId && m.clientMessageId === message.clientMessageId)
+      )) {
         return state;
       }
       const existingPagination = state.pagination[sessionId] || DEFAULT_PAGINATION;
@@ -173,18 +177,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
       };
     }),
 
-  // Update the last user message's ID to match the server's real DB ID (for dedup)
-  updateLastUserMessageId: (sessionId, newId) =>
+  // Update a message's server ID by matching its clientMessageId
+  updateMessageIdByClientMessageId: (sessionId: string, clientMessageId: string, newId: string) =>
     set((state) => {
       const sessionMessages = state.messages[sessionId] || [];
-      // Find the last user message (search from end)
-      let lastUserIdx = -1;
-      for (let i = sessionMessages.length - 1; i >= 0; i--) {
-        if (sessionMessages[i].role === 'user') { lastUserIdx = i; break; }
-      }
-      if (lastUserIdx === -1) return state;
+      const idx = sessionMessages.findIndex((m) => m.clientMessageId === clientMessageId);
+      if (idx === -1) return state;
       const updated = [...sessionMessages];
-      updated[lastUserIdx] = { ...updated[lastUserIdx], id: newId };
+      updated[idx] = { ...updated[idx], id: newId };
       return { messages: { ...state.messages, [sessionId]: updated } };
     }),
 
