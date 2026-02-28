@@ -251,6 +251,16 @@ export interface Message {
 export interface MessageMetadata {
   toolCalls?: ToolCall[];
   usage?: UsageInfo;
+  filePush?: FilePushMetadata;
+}
+
+export interface FilePushMetadata {
+  fileId: string;
+  fileName: string;
+  mimeType: string;
+  fileSize: number;
+  description?: string;
+  autoDownload: boolean;
 }
 
 export interface ToolCall {
@@ -547,6 +557,7 @@ export interface FilePushNotificationMessage {
   fileSize: number;
   description?: string;
   autoDownload: boolean;
+  messageId?: string;
 }
 
 // Server → Client messages

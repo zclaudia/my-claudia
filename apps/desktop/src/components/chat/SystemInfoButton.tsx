@@ -1,11 +1,18 @@
 import { useState, useRef, useEffect } from 'react';
 import type { SystemInfo } from '@my-claudia/shared';
 
-interface SystemInfoButtonProps {
-  systemInfo: SystemInfo | null;
+interface SessionInfo {
+  id: string;
+  name?: string;
+  projectName?: string;
 }
 
-export function SystemInfoButton({ systemInfo }: SystemInfoButtonProps) {
+interface SystemInfoButtonProps {
+  systemInfo: SystemInfo | null;
+  sessionInfo?: SessionInfo | null;
+}
+
+export function SystemInfoButton({ systemInfo, sessionInfo }: SystemInfoButtonProps) {
   const [isExpanded, setIsExpanded] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
@@ -29,7 +36,7 @@ export function SystemInfoButton({ systemInfo }: SystemInfoButtonProps) {
     }
   }, [isExpanded]);
 
-  const hasInfo = systemInfo && (
+  const hasInfo = sessionInfo || (systemInfo && (
     systemInfo.model ||
     systemInfo.claudeCodeVersion ||
     systemInfo.cwd ||
@@ -38,10 +45,9 @@ export function SystemInfoButton({ systemInfo }: SystemInfoButtonProps) {
     (systemInfo.tools && systemInfo.tools.length > 0) ||
     (systemInfo.mcpServers && systemInfo.mcpServers.length > 0) ||
     (systemInfo.agents && systemInfo.agents.length > 0)
-  );
+  ));
 
-  // Don't show the button if no system info available
-  // System info will be populated after the first message is sent
+  // Don't show the button if no info available
   if (!hasInfo) {
     return null;
   }
@@ -80,6 +86,29 @@ export function SystemInfoButton({ systemInfo }: SystemInfoButtonProps) {
             </button>
           </div>
           <div className="p-3 space-y-2 max-h-64 overflow-y-auto">
+            {/* Session info */}
+            {sessionInfo && (
+              <div className="space-y-1">
+                {sessionInfo.projectName && (
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <span>📂</span>
+                    <span className="text-muted-foreground">Project:</span>
+                    <span className="text-foreground">{sessionInfo.projectName}</span>
+                  </div>
+                )}
+                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <span>💬</span>
+                  <span className="text-muted-foreground">Session:</span>
+                  <span className="text-foreground truncate" title={sessionInfo.id}>
+                    {sessionInfo.name || sessionInfo.id}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2 text-xs">
+                  <span className="ml-5 font-mono text-[10px] text-muted-foreground/70 select-all">{sessionInfo.id}</span>
+                </div>
+              </div>
+            )}
+
             {/* Primary info */}
             <div className="flex flex-wrap gap-2">
               {systemInfo?.model && (

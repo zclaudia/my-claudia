@@ -4,7 +4,7 @@ import * as path from 'path';
 import * as os from 'os';
 import { v4 as uuidv4 } from 'uuid';
 import multer from 'multer';
-import type { ApiResponse, DirectoryListingResponse, FileEntry, FileContentResponse, FilePushNotificationMessage, ServerMessage } from '@my-claudia/shared';
+import type { ApiResponse, DirectoryListingResponse, FileEntry, FileContentResponse, FilePushNotificationMessage, FilePushMetadata, ServerMessage } from '@my-claudia/shared';
 import { fileStore } from '../storage/fileStore.js';
 import type WebSocket from 'ws';
 
@@ -91,6 +91,8 @@ function detectMimeType(filePath: string): string {
 export interface FilesRouteBroadcastContext {
   sendMessage: (ws: WebSocket, message: ServerMessage) => void;
   getAuthenticatedClients: () => Array<{ ws: WebSocket }>;
+  db: import('better-sqlite3').Database;
+  getNextOffset: (sessionId: string) => number;
 }
 
 // Configure multer for streaming file upload (disk storage — no memory buffering)
@@ -510,8 +512,26 @@ export function createFilesRoutes(broadcastCtx?: FilesRouteBroadcastContext): Ro
       const AUTO_DOWNLOAD_SIZE = 500 * 1024;
       const autoDownload = mimeType.startsWith('image/') || fileSize < AUTO_DOWNLOAD_SIZE;
 
-      // Broadcast to connected clients via WebSocket
+      // Persist as a system message so offline clients see it in history
+      let messageId: string | undefined;
       if (broadcastCtx) {
+        const sessionExists = broadcastCtx.db.prepare(
+          'SELECT 1 FROM sessions WHERE id = ?'
+        ).get(sessionId);
+
+        if (sessionExists) {
+          messageId = uuidv4();
+          const metadata: { filePush: FilePushMetadata } = {
+            filePush: { fileId, fileName, mimeType, fileSize, description, autoDownload }
+          };
+          const offset = broadcastCtx.getNextOffset(sessionId);
+          broadcastCtx.db.prepare(`
+            INSERT INTO messages (id, session_id, role, content, metadata, created_at, offset)
+            VALUES (?, ?, 'system', ?, ?, ?, ?)
+          `).run(messageId, sessionId, `File pushed: ${fileName}`, JSON.stringify(metadata), Date.now(), offset);
+        }
+
+        // Broadcast to connected clients via WebSocket
         const notification: FilePushNotificationMessage = {
           type: 'file_push',
           fileId,
@@ -521,6 +541,7 @@ export function createFilesRoutes(broadcastCtx?: FilesRouteBroadcastContext): Ro
           fileSize,
           description,
           autoDownload,
+          messageId,
         };
 
         const clients = broadcastCtx.getAuthenticatedClients();

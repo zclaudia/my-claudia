@@ -6,7 +6,7 @@ import { oneDark, oneLight } from 'react-syntax-highlighter/dist/esm/styles/pris
 import { ToolCallList } from './ToolCallItem';
 import { FilePushCard } from './FilePushNotification';
 import type { MessageWithToolCalls } from '../../stores/chatStore';
-import type { FilePushItem } from '../../stores/filePushStore';
+import { useFilePushStore, type FilePushItem } from '../../stores/filePushStore';
 import { useTheme, isDarkTheme } from '../../contexts/ThemeContext';
 import { downloadFile } from '../../services/fileUpload';
 import type { MessageInput, MessageAttachment } from '@my-claudia/shared';
@@ -105,15 +105,13 @@ function ThinkingBlock({ content }: { content: string }) {
 
 interface MessageListProps {
   messages: MessageWithToolCalls[];
-  filePushItems?: FilePushItem[];
 }
 
-type TimelineEntry =
-  | { kind: 'message'; data: MessageWithToolCalls }
-  | { kind: 'file_push'; data: FilePushItem };
+export function MessageList({ messages }: MessageListProps) {
+  // Subscribe to filePushStore for download status updates
+  const filePushItems = useFilePushStore((state) => state.items);
 
-export function MessageList({ messages, filePushItems }: MessageListProps) {
-  if ((!messages || messages.length === 0) && (!filePushItems || filePushItems.length === 0)) {
+  if (!messages || messages.length === 0) {
     return null;
   }
 
@@ -144,27 +142,36 @@ export function MessageList({ messages, filePushItems }: MessageListProps) {
     return textContent.trim().length > 0 || hasAttachments;
   });
 
-  // Build merged timeline sorted by createdAt
-  const timeline: TimelineEntry[] = [
-    ...filteredMessages.map((m): TimelineEntry => ({ kind: 'message', data: m })),
-    ...(filePushItems || []).map((f): TimelineEntry => ({ kind: 'file_push', data: f })),
-  ].sort((a, b) => {
-    const tA = a.kind === 'message' ? a.data.createdAt : a.data.createdAt;
-    const tB = b.kind === 'message' ? b.data.createdAt : b.data.createdAt;
-    return tA - tB;
-  });
-
   return (
     <div className="space-y-4">
-      {timeline.map((entry) =>
-        entry.kind === 'message' ? (
-          <MessageItem key={entry.data.id} message={entry.data} />
-        ) : (
-          <div key={entry.data.fileId} className="max-w-full md:max-w-3xl">
-            <FilePushCard item={entry.data} />
-          </div>
-        )
-      )}
+      {filteredMessages.map((message) => {
+        // Render file push messages as FilePushCard
+        if (message.metadata?.filePush) {
+          const fp = message.metadata.filePush;
+          const storeItem = filePushItems.find(i => i.fileId === fp.fileId);
+          const item: FilePushItem = {
+            fileId: fp.fileId,
+            fileName: fp.fileName,
+            mimeType: fp.mimeType,
+            fileSize: fp.fileSize,
+            sessionId: message.sessionId,
+            description: fp.description,
+            autoDownload: fp.autoDownload,
+            status: storeItem?.status ?? 'pending',
+            downloadProgress: storeItem?.downloadProgress ?? 0,
+            savedPath: storeItem?.savedPath,
+            error: storeItem?.error,
+            serverId: storeItem?.serverId,
+            createdAt: message.createdAt,
+          };
+          return (
+            <div key={message.id} className="max-w-full md:max-w-3xl">
+              <FilePushCard item={item} />
+            </div>
+          );
+        }
+        return <MessageItem key={message.id} message={message} />;
+      })}
     </div>
   );
 }

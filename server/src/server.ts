@@ -439,6 +439,8 @@ export async function createServer(): Promise<ServerContext> {
       });
       return result;
     },
+    db,
+    getNextOffset: (sid: string) => getNextOffset(db, sid),
   }));
   app.use('/api/commands', authMiddleware, createCommandsRoutes());
   app.use('/api/agent', authMiddleware, createAgentRoutes(db));

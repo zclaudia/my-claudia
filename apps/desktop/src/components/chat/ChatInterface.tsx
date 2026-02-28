@@ -102,9 +102,6 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
   const isPlanningMode = supervision?.status === 'planning';
 
   const sessionMessages = messages[sessionId] || [];
-  const filePushItems = useFilePushStore((state) =>
-    state.items.filter((i) => i.sessionId === sessionId)
-  );
   const sessionPagination = pagination[sessionId];
   const currentUsage = sessionUsage[sessionId] || { inputTokens: 0, outputTokens: 0 };
 
@@ -194,6 +191,25 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
     messagesEndRef.current?.scrollIntoView({ behavior: instant ? 'instant' : 'smooth' });
   }, []);
 
+  // Sync filePush metadata from loaded messages into filePushStore for download tracking
+  const syncFilePushMessages = useCallback((msgs: MessageWithToolCalls[]) => {
+    const fpStore = useFilePushStore.getState();
+    for (const msg of msgs) {
+      if (msg.metadata?.filePush) {
+        const fp = msg.metadata.filePush;
+        fpStore.addItem({
+          fileId: fp.fileId,
+          fileName: fp.fileName,
+          mimeType: fp.mimeType,
+          fileSize: fp.fileSize,
+          sessionId: msg.sessionId,
+          description: fp.description,
+          autoDownload: false, // Don't auto-download for history messages
+        });
+      }
+    }
+  }, []);
+
   // Load messages with pagination (all via HTTP)
   const loadMessages = useCallback(async (before?: number) => {
     try {
@@ -206,7 +222,10 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
           before
         });
 
-        prependMessages(sessionId, restoreToolCalls(result.messages), result.pagination);
+        const restoredOlder = restoreToolCalls(result.messages);
+        prependMessages(sessionId, restoredOlder, result.pagination);
+        // Sync filePush messages to filePushStore for download state tracking
+        syncFilePushMessages(restoredOlder);
       } else {
         // Initial load via HTTP
         if (!isConnected) {
@@ -221,7 +240,10 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
           limit: MESSAGES_PER_PAGE
         });
 
-        setMessages(sessionId, restoreToolCalls(result.messages), result.pagination);
+        const restoredMessages = restoreToolCalls(result.messages);
+        setMessages(sessionId, restoredMessages, result.pagination);
+        // Sync filePush messages to filePushStore for download state tracking
+        syncFilePushMessages(restoredMessages);
 
         // Restore active run state (fixes loading state lost after page refresh)
         if (result.activeRun) {
@@ -254,7 +276,7 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
         setInitialLoadDone(true);
       }
     }
-  }, [sessionId, setLoadingMore, prependMessages, setMessages, scrollToBottom, isConnected]);
+  }, [sessionId, setLoadingMore, prependMessages, setMessages, scrollToBottom, isConnected, syncFilePushMessages]);
 
   // Load initial messages when session changes
   useEffect(() => {
@@ -830,7 +852,7 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
           </div>
         )}
 
-        <MessageList messages={sessionMessages} filePushItems={filePushItems} />
+        <MessageList messages={sessionMessages} />
 
         {/* Loading indicator (shown while waiting for response) */}
         <LoadingIndicator isLoading={isLoading} />
@@ -946,7 +968,14 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
               </button>
             );
           })()}
-          <SystemInfoButton systemInfo={currentSystemInfo} />
+          <SystemInfoButton
+            systemInfo={currentSystemInfo}
+            sessionInfo={currentSession ? {
+              id: currentSession.id,
+              name: currentSession.name || undefined,
+              projectName: currentProject?.name || undefined,
+            } : null}
+          />
         </div>
         <MessageInput
           key={sessionId}

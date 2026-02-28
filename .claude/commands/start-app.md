@@ -29,11 +29,13 @@ lsof -ti:3100 | xargs kill 2>/dev/null
 
 Loop up to 5 times (1 second apart) checking `lsof -ti:1420` AND `lsof -ti:3100`. Both must be free. If still occupied after 5 attempts, `kill -9` the PID and report a warning.
 
-### Step 3: Ensure builds are up to date
+### Step 3: Rebuild shared + server
 
-Run in parallel:
-- Check `$PROJECT_ROOT/shared/dist/index.js` exists; if not, run `cd $PROJECT_ROOT/shared && eval "$(fnm env)" && pnpm build`
-- Check `$PROJECT_ROOT/server/dist/index.js` exists; if not, run `cd $PROJECT_ROOT/server && eval "$(fnm env)" && pnpm build`
+Always rebuild to pick up source changes (Vite auto-reloads frontend, but the embedded server uses pre-built dist files).
+
+Run sequentially (server depends on shared types):
+1. `cd $PROJECT_ROOT/shared && eval "$(fnm env)" && pnpm build`
+2. `cd $PROJECT_ROOT/server && eval "$(fnm env)" && pnpm build`
 
 ### Step 4: Start Tauri dev
 
@@ -67,9 +69,11 @@ pkill -f "server/dist/index.js" 2>/dev/null
 
 Same loop check as Tauri mode, but for both ports 3100 and 1420.
 
-### Step 3: Ensure builds are up to date
+### Step 3: Rebuild shared + server
 
-Same as Tauri mode Step 3.
+Same as Tauri mode Step 3 (always rebuild).
+
+Note: standalone mode uses `tsx watch` which auto-reloads on server source changes, but shared types still need a build if changed.
 
 ### Step 4: Start backend server
 
