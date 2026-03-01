@@ -253,6 +253,70 @@ describe('MessageInput', () => {
     });
   });
 
+  // Advanced mode tests
+  describe('advanced mode', () => {
+    it('renders larger textarea with resize in advanced mode', () => {
+      render(<MessageInput onSend={mockOnSend} advancedMode />);
+      const textarea = screen.getByPlaceholderText(/Type a message/);
+      expect(textarea.className).toContain('resize-y');
+      expect(textarea.className).toContain('min-h-[160px]');
+    });
+
+    it('renders normal textarea without resize when not in advanced mode', () => {
+      render(<MessageInput onSend={mockOnSend} />);
+      const textarea = screen.getByPlaceholderText(/Type a message/);
+      expect(textarea.className).toContain('resize-none');
+      expect(textarea.className).not.toContain('resize-y');
+    });
+
+    it('does not send on plain Enter in advanced mode (desktop)', () => {
+      render(<MessageInput onSend={mockOnSend} advancedMode />);
+      const textarea = screen.getByPlaceholderText(/Type a message/);
+      fireEvent.change(textarea, { target: { value: 'Test' } });
+      fireEvent.keyDown(textarea, { key: 'Enter' });
+      expect(mockOnSend).not.toHaveBeenCalled();
+    });
+
+    it('sends on Cmd+Enter in advanced mode', () => {
+      render(<MessageInput onSend={mockOnSend} advancedMode />);
+      const textarea = screen.getByPlaceholderText(/Type a message/);
+      fireEvent.change(textarea, { target: { value: 'Test' } });
+      fireEvent.keyDown(textarea, { key: 'Enter', metaKey: true });
+      expect(mockOnSend).toHaveBeenCalledWith('Test', undefined);
+    });
+
+    it('sends on Ctrl+Enter in advanced mode', () => {
+      render(<MessageInput onSend={mockOnSend} advancedMode />);
+      const textarea = screen.getByPlaceholderText(/Type a message/);
+      fireEvent.change(textarea, { target: { value: 'Test' } });
+      fireEvent.keyDown(textarea, { key: 'Enter', ctrlKey: true });
+      expect(mockOnSend).toHaveBeenCalledWith('Test', undefined);
+    });
+
+    it('inserts spaces on Tab in advanced mode', () => {
+      render(<MessageInput onSend={mockOnSend} advancedMode />);
+      const textarea = screen.getByPlaceholderText(/Type a message/) as HTMLTextAreaElement;
+      fireEvent.change(textarea, { target: { value: 'hello' } });
+      // Set cursor position
+      textarea.selectionStart = 5;
+      textarea.selectionEnd = 5;
+      fireEvent.keyDown(textarea, { key: 'Tab' });
+      // Tab should be prevented (not leave the textarea)
+      // The value should now contain the spaces
+      expect(textarea.value).toContain('  ');
+    });
+
+    it('shows advanced hint text in advanced mode', () => {
+      render(<MessageInput onSend={mockOnSend} advancedMode />);
+      expect(screen.getByText(/Enter to send, Tab to indent/)).toBeInTheDocument();
+    });
+
+    it('shows send button with Cmd+Enter title in advanced mode', () => {
+      render(<MessageInput onSend={mockOnSend} advancedMode />);
+      expect(screen.getByTitle(/Send message \((Cmd|Ctrl)\+Enter\)/)).toBeInTheDocument();
+    });
+  });
+
   // Attachment tests
   describe('attachments', () => {
     it('renders attachment button', () => {

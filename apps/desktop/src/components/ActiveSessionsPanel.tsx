@@ -41,8 +41,11 @@ export function ActiveSessionsPanel({ onSessionSelect }: ActiveSessionsPanelProp
     // 2. All remote backends (skip local backend to avoid duplicates)
     remoteSessions.forEach((sessions, backendId) => {
       // Skip if this is the same backend already shown as __local__
-      if (result.has('__local__') && localBackendId && backendId === localBackendId) {
-        return;
+      if (result.has('__local__')) {
+        // Match by gateway backendId or by direct-connection serverId
+        if (backendId === activeServerId || (localBackendId && backendId === localBackendId)) {
+          return;
+        }
       }
       const activeSessions = sessions.filter(s => s.isActive);
       if (activeSessions.length > 0) {

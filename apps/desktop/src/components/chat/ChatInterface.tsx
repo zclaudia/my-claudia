@@ -15,6 +15,7 @@ import { useChatStore } from '../../stores/chatStore';
 import { useProjectStore } from '../../stores/projectStore';
 import { useServerStore } from '../../stores/serverStore';
 import { useTerminalStore } from '../../stores/terminalStore';
+import { useUIStore } from '../../stores/uiStore';
 import { usePermissionStore } from '../../stores/permissionStore';
 import { useAskUserQuestionStore } from '../../stores/askUserQuestionStore';
 import { useSupervisionStore } from '../../stores/supervisionStore';
@@ -79,6 +80,7 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
   const modelOverride = getModelOverride(sessionId);
   const { projects, sessions, providerCommands, providerCapabilities, setProviderCapabilities } = useProjectStore();
   const { setDrawerOpen, drawerOpen } = useTerminalStore();
+  const { advancedInput, setAdvancedInput } = useUIStore();
   const { sendMessage: wsSendMessage, isConnected, handlePermissionDecision, handleAskUserAnswer } = useConnection();
 
   // Per-session pending permission/question requests
@@ -950,6 +952,19 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
             outputTokens={currentUsage.outputTokens}
           />
           <div className="flex-1" />
+          <button
+            onClick={() => setAdvancedInput(!advancedInput)}
+            className={`p-1.5 rounded hover:bg-secondary ${advancedInput ? 'text-primary' : 'text-muted-foreground hover:text-foreground'}`}
+            title={advancedInput ? 'Normal input' : 'Advanced input (Enter to newline)'}
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              {advancedInput ? (
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+              ) : (
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
+              )}
+            </svg>
+          </button>
           {useServerStore.getState().activeServerSupports('remoteTerminal') && currentSession?.projectId && (() => {
             const pid = currentSession.projectId;
             const isOpen = !!drawerOpen[pid];
@@ -995,6 +1010,7 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
           isLoading={isLoading}
           initialValue={restoreMessage?.content}
           initialAttachments={restoreMessage?.attachments}
+          advancedMode={advancedInput}
           placeholder={
             !isConnected
               ? 'Connecting...'
@@ -1002,6 +1018,8 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
               ? 'Waiting for response...'
               : mode === 'plan'
               ? 'Plan Mode: Analyze and plan (no code changes)...'
+              : advancedInput
+              ? 'Type a message... (Cmd+Enter to send)'
               : 'Type a message... (Enter to send)'
           }
         />

@@ -39,6 +39,7 @@ const FONT_CONFIGS: Record<FontSizePreset, FontSizeConfig> = {
 };
 
 const STORAGE_KEY = 'my-claudia-font-size';
+const ADV_INPUT_KEY = 'my-claudia-advanced-input';
 
 function loadFontSize(): FontSizePreset {
   try {
@@ -64,6 +65,8 @@ function applyFontVars(preset: FontSizePreset) {
 interface UIState {
   fontSize: FontSizePreset;
   setFontSize: (size: FontSizePreset) => void;
+  advancedInput: boolean;
+  setAdvancedInput: (enabled: boolean) => void;
 }
 
 export const useUIStore = create<UIState>((set) => {
@@ -71,12 +74,20 @@ export const useUIStore = create<UIState>((set) => {
   // Apply on store creation
   applyFontVars(initial);
 
+  let advInitial = false;
+  try { advInitial = localStorage.getItem(ADV_INPUT_KEY) === 'true'; } catch { /* ignore */ }
+
   return {
     fontSize: initial,
     setFontSize: (size) => {
       localStorage.setItem(STORAGE_KEY, size);
       applyFontVars(size);
       set({ fontSize: size });
+    },
+    advancedInput: advInitial,
+    setAdvancedInput: (enabled) => {
+      localStorage.setItem(ADV_INPUT_KEY, String(enabled));
+      set({ advancedInput: enabled });
     },
   };
 });

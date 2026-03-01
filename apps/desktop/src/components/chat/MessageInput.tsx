@@ -22,6 +22,7 @@ interface MessageInputProps {
   placeholder?: string;
   initialValue?: string;      // Initial value to set (e.g., for restoring after cancel)
   initialAttachments?: Attachment[]; // Initial attachments to restore
+  advancedMode?: boolean;     // Advanced input: larger textarea, Enter=newline on desktop
 }
 
 // State for @ mention feature
@@ -111,6 +112,7 @@ export function MessageInput({
   placeholder = 'Type a message... (Enter to send)',
   initialValue,
   initialAttachments,
+  advancedMode = false,
 }: MessageInputProps) {
   const isMobile = useIsMobile();
   const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad|iPod/.test(navigator.platform);
@@ -222,14 +224,14 @@ export function MessageInput({
     [fetchEntries]
   );
 
-  // Auto-resize textarea
+  // Auto-resize textarea (only in normal mode; advanced mode uses CSS min/max-height)
   useEffect(() => {
     const textarea = textareaRef.current;
-    if (textarea) {
+    if (textarea && !advancedMode) {
       textarea.style.height = 'auto';
       textarea.style.height = `${Math.min(textarea.scrollHeight, 200)}px`;
     }
-  }, [value]);
+  }, [value, advancedMode]);
 
   // Show/hide command suggestions
   useEffect(() => {
@@ -454,13 +456,40 @@ export function MessageInput({
       }
     }
 
-    // Enter to send (without Shift)
-    // Shift+Enter to add newline (default behavior, no preventDefault)
-    // Don't send if IME is composing (e.g., selecting Chinese characters)
-    // Check both our state and the event's isComposing property for maximum compatibility
-    if (e.key === 'Enter' && !e.shiftKey && !isComposing && !e.nativeEvent.isComposing) {
+    // Enter key behavior (guarded by IME composition state)
+    if (e.key === 'Enter' && !isComposing && !e.nativeEvent.isComposing) {
+      if (advancedMode && !isMobile) {
+        // Advanced + desktop: Cmd/Ctrl+Enter sends, plain Enter is newline
+        if (e.metaKey || e.ctrlKey) {
+          e.preventDefault();
+          handleSend();
+          return;
+        }
+        // Plain Enter: don't preventDefault — let textarea insert newline
+      } else {
+        // Normal mode: Enter sends, Shift+Enter is newline
+        if (!e.shiftKey) {
+          e.preventDefault();
+          handleSend();
+          return;
+        }
+      }
+    }
+
+    // Tab to insert spaces (advanced mode only, when no dropdown is open)
+    if (e.key === 'Tab' && advancedMode && !showCommands && !mentionState.isActive) {
       e.preventDefault();
-      handleSend();
+      const target = e.currentTarget;
+      const start = target.selectionStart;
+      const end = target.selectionEnd;
+      const newValue = value.substring(0, start) + '  ' + value.substring(end);
+      setValue(newValue);
+      setTimeout(() => {
+        if (textareaRef.current) {
+          textareaRef.current.selectionStart = start + 2;
+          textareaRef.current.selectionEnd = start + 2;
+        }
+      }, 0);
       return;
     }
 
@@ -748,8 +777,13 @@ export function MessageInput({
             autoCapitalize="off"
             autoComplete="off"
             rows={1}
-            className="w-full bg-input border border-border rounded-lg px-4 py-3 text-foreground placeholder-muted-foreground focus:outline-none focus:border-primary resize-none disabled:opacity-50 disabled:cursor-not-allowed"
-            style={{ fontSize: 'var(--chat-font-input, 0.875rem)' }}
+            className={`w-full bg-input border border-border rounded-lg px-4 py-3 text-foreground placeholder-muted-foreground focus:outline-none focus:border-primary disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 ${
+              advancedMode ? 'resize-y min-h-[160px] max-h-[40vh]' : 'resize-none'
+            }`}
+            style={{
+              fontSize: 'var(--chat-font-input, 0.875rem)',
+              ...(advancedMode ? {} : undefined),
+            }}
           />
         </div>
 
@@ -779,7 +813,7 @@ export function MessageInput({
             onClick={handleSend}
             disabled={disabled || (!value.trim() && attachments.length === 0)}
             className="p-2.5 bg-primary text-primary-foreground hover:bg-primary/90 disabled:bg-muted disabled:text-muted-foreground disabled:cursor-not-allowed rounded-lg transition-colors"
-            title="Send message (Enter)"
+            title={advancedMode && !isMobile ? `Send message (${isMac ? 'Cmd' : 'Ctrl'}+Enter)` : 'Send message (Enter)'}
             data-testid="send-button"
           >
             <svg
@@ -802,7 +836,14 @@ export function MessageInput({
       {/* Hint text */}
       <div className="mt-1 flex items-center justify-between text-xs text-muted-foreground">
         <span>Type / for commands{projectRoot ? ', @ to reference files' : ''}</span>
-        {!isMobile && <span>Paste images with {isMac ? 'Cmd' : 'Ctrl'}+V</span>}
+        {!isMobile && (
+          <span>
+            {advancedMode
+              ? `${isMac ? 'Cmd' : 'Ctrl'}+Enter to send, Tab to indent`
+              : `Paste images with ${isMac ? 'Cmd' : 'Ctrl'}+V`
+            }
+          </span>
+        )}
       </div>
     </div>
   );
