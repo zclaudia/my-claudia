@@ -11,11 +11,13 @@ import { SystemInfoButton } from './SystemInfoButton';
 import { ModelSelector } from './ModelSelector';
 import { TokenUsageDisplay } from './TokenUsageDisplay';
 import { TerminalPanel } from '../terminal/TerminalPanel';
+import { FileViewerPanel } from '../fileviewer/FileViewerPanel';
 import { useChatStore } from '../../stores/chatStore';
 import { useProjectStore } from '../../stores/projectStore';
 import { useServerStore } from '../../stores/serverStore';
 import { useTerminalStore } from '../../stores/terminalStore';
 import { useUIStore } from '../../stores/uiStore';
+import { useFileViewerStore } from '../../stores/fileViewerStore';
 import { usePermissionStore } from '../../stores/permissionStore';
 import { useAskUserQuestionStore } from '../../stores/askUserQuestionStore';
 import { useSupervisionStore } from '../../stores/supervisionStore';
@@ -87,6 +89,7 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
   const { projects, sessions, providerCommands, providerCapabilities, setProviderCapabilities } = useProjectStore();
   const { setDrawerOpen, drawerOpen } = useTerminalStore();
   const { advancedInput, setAdvancedInput } = useUIStore();
+  const { isOpen: fileViewerOpen, setSearchOpen: setFileSearchOpen, togglePanel: toggleFileViewer } = useFileViewerStore();
   const { sendMessage: wsSendMessage, isConnected, handlePermissionDecision, handleAskUserAnswer } = useConnection();
 
   // Per-session pending permission/question requests
@@ -195,6 +198,22 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
   }, [currentSession?.projectId]);
+
+  // Cmd+P / Ctrl+P keyboard shortcut to open file search
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'p' && currentProject?.rootPath) {
+        e.preventDefault();
+        const store = useFileViewerStore.getState();
+        if (!store.isOpen) {
+          store.togglePanel();
+        }
+        store.setSearchOpen(true);
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [currentProject?.rootPath]);
 
   const scrollToBottom = useCallback((instant = false) => {
     messagesEndRef.current?.scrollIntoView({ behavior: instant ? 'instant' : 'smooth' });
@@ -925,6 +944,11 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
         )}
       </div>
 
+      {/* File viewer panel */}
+      {currentProject?.rootPath && (
+        <FileViewerPanel projectRoot={currentProject.rootPath} />
+      )}
+
       {/* Terminal panel (inline between messages and input) */}
       {currentSession?.projectId && (
         <TerminalPanel projectId={currentSession.projectId} />
@@ -962,6 +986,25 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
             outputTokens={currentUsage.outputTokens}
           />
           <div className="flex-1" />
+          {currentProject?.rootPath && (
+            <button
+              onClick={() => {
+                if (fileViewerOpen) {
+                  useFileViewerStore.getState().close();
+                } else {
+                  const store = useFileViewerStore.getState();
+                  store.togglePanel();
+                  store.setSearchOpen(true);
+                }
+              }}
+              className={`p-1.5 rounded hover:bg-secondary ${fileViewerOpen ? 'text-primary' : 'text-muted-foreground hover:text-foreground'}`}
+              title={fileViewerOpen ? 'Close file viewer' : 'Open file viewer (Cmd+P)'}
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+              </svg>
+            </button>
+          )}
           <button
             onClick={() => setAdvancedInput(!advancedInput)}
             className={`p-1.5 rounded hover:bg-secondary ${advancedInput ? 'text-primary' : 'text-muted-foreground hover:text-foreground'}`}

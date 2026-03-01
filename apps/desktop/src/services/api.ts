@@ -8,6 +8,7 @@ import type {
   SlashCommand,
   ApiResponse,
   DirectoryListingResponse,
+  FileContentResponse,
   CommandExecuteRequest,
   CommandExecuteResponse,
   ServerInfo,
@@ -551,6 +552,22 @@ export async function listDirectory(params: {
   const result = await fetchApi<DirectoryListingResponse>(`/api/files/list?${queryParams}`);
   if (!result.success || !result.data) {
     throw new Error(result.error?.message || 'Failed to list directory');
+  }
+  return result.data;
+}
+
+export async function getFileContent(params: {
+  projectRoot: string;
+  relativePath: string;
+}): Promise<FileContentResponse> {
+  const queryParams = new URLSearchParams({
+    projectRoot: params.projectRoot,
+    relativePath: params.relativePath,
+  });
+
+  const result = await fetchApi<FileContentResponse>(`/api/files/content?${queryParams}`);
+  if (!result.success || !result.data) {
+    throw new Error(result.error?.message || 'Failed to fetch file content');
   }
   return result.data;
 }

@@ -16,6 +16,7 @@ import { useTerminalStore } from '../../stores/terminalStore';
 import { useProjectStore } from '../../stores/projectStore';
 import { useConnection } from '../../contexts/ConnectionContext';
 import { useServerStore } from '../../stores/serverStore';
+import { TextWithFileRefs, MarkdownChildrenWithFileRefs } from './FileReference';
 
 /**
  * Extract <think>...</think> blocks from message content.
@@ -570,7 +571,7 @@ function MessageItem({ message, streamingContentBlocks, streamingToolCalls }: {
               </div>
             )}
             {/* Display text */}
-            <p className="whitespace-pre-wrap leading-relaxed">{textContent}</p>
+            <p className="whitespace-pre-wrap leading-relaxed"><TextWithFileRefs text={textContent} /></p>
           </div>
         ) : (
           <AssistantContent content={mainContent} />
@@ -648,6 +649,12 @@ function AssistantContent({ content }: { content: string }) {
                   {children}
                 </td>
               );
+            },
+            p({ children }) {
+              return <p><MarkdownChildrenWithFileRefs>{children}</MarkdownChildrenWithFileRefs></p>;
+            },
+            li({ children }) {
+              return <li><MarkdownChildrenWithFileRefs>{children}</MarkdownChildrenWithFileRefs></li>;
             },
           }}
         >
