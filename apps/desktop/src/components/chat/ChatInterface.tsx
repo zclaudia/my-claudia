@@ -72,11 +72,17 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
     isSessionLoading,
     getSessionRunId,
     getSessionToolCalls,
+    getSessionContentBlocks,
+    getSessionToolCallHistory,
   } = useChatStore();
   // Only show loading/toolCalls for THIS session's active run
   const isLoading = isSessionLoading(sessionId);
   const sessionRunId = getSessionRunId(sessionId);
   const sessionToolCalls = getSessionToolCalls(sessionId);
+  const sessionContentBlocks = getSessionContentBlocks(sessionId);
+  const sessionToolCallHistory = getSessionToolCallHistory(sessionId);
+  // Streaming segmented mode: use content blocks for inline rendering during active run
+  const useStreamingSegmented = isLoading && sessionContentBlocks.length > 1 && sessionToolCallHistory.length > 0;
   const modelOverride = getModelOverride(sessionId);
   const { projects, sessions, providerCommands, providerCapabilities, setProviderCapabilities } = useProjectStore();
   const { setDrawerOpen, drawerOpen } = useTerminalStore();
@@ -861,13 +867,17 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
           </div>
         )}
 
-        <MessageList messages={sessionMessages} />
+        <MessageList
+          messages={sessionMessages}
+          streamingContentBlocks={useStreamingSegmented ? sessionContentBlocks : undefined}
+          streamingToolCalls={useStreamingSegmented ? sessionToolCallHistory : undefined}
+        />
 
         {/* Loading indicator (shown while waiting for response) */}
         <LoadingIndicator isLoading={isLoading} />
 
-        {/* Active tool calls (shown during streaming) */}
-        {sessionToolCalls.length > 0 && (
+        {/* Active tool calls (shown during streaming — hidden when inline in segmented view) */}
+        {!useStreamingSegmented && sessionToolCalls.length > 0 && (
           <div className="mt-4 max-w-full md:max-w-3xl">
             <ToolCallList toolCalls={sessionToolCalls} />
           </div>

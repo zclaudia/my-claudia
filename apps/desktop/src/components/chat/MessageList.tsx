@@ -107,9 +107,11 @@ function ThinkingBlock({ content }: { content: string }) {
 
 interface MessageListProps {
   messages: MessageWithToolCalls[];
+  streamingContentBlocks?: ContentBlock[];
+  streamingToolCalls?: ToolCallState[];
 }
 
-export function MessageList({ messages }: MessageListProps) {
+export function MessageList({ messages, streamingContentBlocks, streamingToolCalls }: MessageListProps) {
   // Subscribe to filePushStore for download status updates
   const filePushItems = useFilePushStore((state) => state.items);
 
@@ -172,7 +174,18 @@ export function MessageList({ messages }: MessageListProps) {
             </div>
           );
         }
-        return <MessageItem key={message.id} message={message} />;
+        // Pass streaming blocks to the last assistant message
+        const isLastAssistant = streamingContentBlocks
+          && message.role === 'assistant'
+          && message === filteredMessages[filteredMessages.length - 1];
+        return (
+          <MessageItem
+            key={message.id}
+            message={message}
+            streamingContentBlocks={isLastAssistant ? streamingContentBlocks : undefined}
+            streamingToolCalls={isLastAssistant ? streamingToolCalls : undefined}
+          />
+        );
       })}
     </div>
   );
@@ -462,13 +475,18 @@ function SegmentedContent({
   );
 }
 
-function MessageItem({ message }: { message: MessageWithToolCalls }) {
+function MessageItem({ message, streamingContentBlocks, streamingToolCalls }: {
+  message: MessageWithToolCalls;
+  streamingContentBlocks?: ContentBlock[];
+  streamingToolCalls?: ToolCallState[];
+}) {
   const isUser = message.role === 'user';
   const isSystem = message.role === 'system';
   const hasToolCalls = message.toolCalls && message.toolCalls.length > 0;
   const hasContentBlocks = message.contentBlocks && message.contentBlocks.length > 1;
-  // Use segmented rendering when we have content blocks with tool calls (completed messages)
-  const useSegmented = !isUser && !isSystem && hasContentBlocks && hasToolCalls;
+  // Use segmented rendering: completed messages OR active streaming with blocks
+  const hasStreamingBlocks = streamingContentBlocks && streamingContentBlocks.length > 1 && streamingToolCalls && streamingToolCalls.length > 0;
+  const useSegmented = !isUser && !isSystem && ((hasContentBlocks && hasToolCalls) || hasStreamingBlocks);
 
   // Parse message content (supports both plain text and structured MessageInput)
   let textContent = message.content;
@@ -492,15 +510,17 @@ function MessageItem({ message }: { message: MessageWithToolCalls }) {
   );
 
   if (useSegmented) {
-    // Segmented rendering: interleaved text blocks and tool calls
+    // Segmented rendering: streaming blocks take priority over finalized blocks
+    const blocks = streamingContentBlocks || message.contentBlocks!;
+    const toolCalls = streamingToolCalls || message.toolCalls!;
     return (
       <div
         data-role={message.role}
         className="flex flex-col items-start"
       >
         <SegmentedContent
-          contentBlocks={message.contentBlocks!}
-          toolCalls={message.toolCalls!}
+          contentBlocks={blocks}
+          toolCalls={toolCalls}
         />
         <div className="mt-1 text-xs opacity-50 px-3">
           {new Date(message.createdAt).toLocaleTimeString()}

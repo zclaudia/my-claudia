@@ -92,6 +92,8 @@ interface ChatState {
   isSessionLoading: (sessionId: string) => boolean;
   getSessionRunId: (sessionId: string) => string | null;
   getSessionToolCalls: (sessionId: string) => ToolCallState[];
+  getSessionContentBlocks: (sessionId: string) => ContentBlock[];
+  getSessionToolCallHistory: (sessionId: string) => ToolCallState[];
 }
 
 const DEFAULT_PAGINATION: PaginationInfo = {
@@ -438,5 +440,19 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const runId = state.getSessionRunId(sessionId);
     if (!runId) return [];
     return Object.values(state.activeToolCalls[runId] || {});
+  },
+
+  getSessionContentBlocks: (sessionId) => {
+    const state = get();
+    const runId = state.getSessionRunId(sessionId);
+    if (!runId) return [];
+    return state.runContentBlocks[runId] || [];
+  },
+
+  getSessionToolCallHistory: (sessionId) => {
+    const state = get();
+    const runId = state.getSessionRunId(sessionId);
+    if (!runId) return [];
+    return state.toolCallsHistory[runId] || [];
   },
 }));

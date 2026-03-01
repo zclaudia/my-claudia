@@ -46,7 +46,7 @@ interface AgentPanelProps {
 
 export function AgentPanel({ isMobile = false, showHeader = true }: AgentPanelProps) {
   const { agentSessionId, setExpanded, isLoading, interceptionCount, selectedProviderId, backgroundSessions, removeBackgroundPermission } = useAgentStore();
-  const { messages, setMessages, addMessage, isSessionLoading, getSessionRunId, getSessionToolCalls } = useChatStore();
+  const { messages, setMessages, addMessage, isSessionLoading, getSessionRunId, getSessionToolCalls, getSessionContentBlocks, getSessionToolCallHistory } = useChatStore();
   const { sendMessage: wsSendMessage, isConnected } = useConnection();
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
@@ -92,6 +92,9 @@ export function AgentPanel({ isMobile = false, showHeader = true }: AgentPanelPr
     : (sessionId ? isSessionLoading(sessionId) : false);
   const sessionRunId = (!useClientMode && sessionId) ? getSessionRunId(sessionId) : null;
   const sessionToolCalls = (!useClientMode && sessionId) ? getSessionToolCalls(sessionId) : [];
+  const sessionContentBlocks = (!useClientMode && sessionId) ? getSessionContentBlocks(sessionId) : [];
+  const sessionToolCallHistory = (!useClientMode && sessionId) ? getSessionToolCallHistory(sessionId) : [];
+  const useStreamingSegmented = loading && sessionContentBlocks.length > 1 && sessionToolCallHistory.length > 0;
 
   const scrollToBottom = useCallback((instant = false) => {
     messagesEndRef.current?.scrollIntoView({ behavior: instant ? 'instant' : 'smooth' });
@@ -397,11 +400,15 @@ export function AgentPanel({ isMobile = false, showHeader = true }: AgentPanelPr
           </div>
         )}
 
-        <MessageList messages={sessionMessages} />
+        <MessageList
+          messages={sessionMessages}
+          streamingContentBlocks={useStreamingSegmented ? sessionContentBlocks : undefined}
+          streamingToolCalls={useStreamingSegmented ? sessionToolCallHistory : undefined}
+        />
 
         <LoadingIndicator isLoading={loading || isLoading} />
 
-        {sessionToolCalls.length > 0 && (
+        {!useStreamingSegmented && sessionToolCalls.length > 0 && (
           <div className="mt-2">
             <ToolCallList toolCalls={sessionToolCalls} />
           </div>
