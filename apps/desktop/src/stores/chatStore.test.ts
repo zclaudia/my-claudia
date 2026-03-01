@@ -399,7 +399,7 @@ describe('chatStore', () => {
       expect(useChatStore.getState().getSessionToolCalls('session-other')).toEqual([]);
     });
 
-    it('finalizeToolCallsToMessage attaches tool calls to last assistant message', () => {
+    it('finalizeRunToMessage attaches tool calls and content blocks to last assistant message', () => {
       // Set up an assistant message
       const message = createMessage({ id: 'msg-1', role: 'assistant', content: 'Response' });
       useChatStore.getState().addMessage('session-1', message);
@@ -408,34 +408,46 @@ describe('chatStore', () => {
       useChatStore.getState().addToolCall(RUN_ID, 'tc-1', 'Read', { file_path: '/a.ts' });
       useChatStore.getState().updateToolCallResult(RUN_ID, 'tc-1', 'contents');
 
-      // Finalize (now takes runId, looks up sessionId from activeRuns)
-      useChatStore.getState().finalizeToolCallsToMessage(RUN_ID);
+      // Add content blocks
+      useChatStore.getState().appendTextBlock(RUN_ID, 'some text');
+      useChatStore.getState().addToolUseBlock(RUN_ID, 'tc-1');
+
+      // Finalize (takes runId, looks up sessionId from activeRuns)
+      useChatStore.getState().finalizeRunToMessage(RUN_ID);
 
       const messages = useChatStore.getState().messages['session-1'];
       expect(messages[0].toolCalls).toHaveLength(1);
       expect(messages[0].toolCalls![0].toolName).toBe('Read');
       expect(messages[0].toolCalls![0].status).toBe('completed');
+      expect(messages[0].contentBlocks).toHaveLength(2);
     });
 
-    it('finalizeToolCallsToMessage does nothing if last message is not assistant', () => {
+    it('finalizeRunToMessage does nothing if last message is not assistant', () => {
       const message = createMessage({ id: 'msg-1', role: 'user', content: 'User msg' });
       useChatStore.getState().addMessage('session-1', message);
       useChatStore.getState().addToolCall(RUN_ID, 'tc-1', 'Read', {});
 
-      useChatStore.getState().finalizeToolCallsToMessage(RUN_ID);
+      useChatStore.getState().finalizeRunToMessage(RUN_ID);
 
       // Tool calls should remain
       expect(useChatStore.getState().toolCallsHistory[RUN_ID]).toHaveLength(1);
     });
 
-    it('finalizeToolCallsToMessage does nothing if no tool calls exist', () => {
+    it('finalizeRunToMessage preserves more complete existing data', () => {
+      // Set up an assistant message with pre-existing tool calls (e.g., from API load)
       const message = createMessage({ id: 'msg-1', role: 'assistant', content: 'Response' });
-      useChatStore.getState().addMessage('session-1', message);
+      const existingToolCalls = [
+        { id: 'tc-1', toolName: 'Read', toolInput: {}, status: 'completed' as const, result: 'data' },
+        { id: 'tc-2', toolName: 'Write', toolInput: {}, status: 'completed' as const, result: 'ok' },
+      ];
+      useChatStore.getState().addMessage('session-1', { ...message, toolCalls: existingToolCalls });
 
-      useChatStore.getState().finalizeToolCallsToMessage(RUN_ID);
+      // Run has no tool calls tracked (mid-stream join scenario)
+      useChatStore.getState().finalizeRunToMessage(RUN_ID);
 
       const messages = useChatStore.getState().messages['session-1'];
-      expect(messages[0].toolCalls).toBeUndefined();
+      // Should keep the existing 2 tool calls, not overwrite with empty
+      expect(messages[0].toolCalls).toHaveLength(2);
     });
   });
 });

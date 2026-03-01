@@ -66,12 +66,13 @@ interface ChatState {
   // Actions — Tool calls (per run)
   addToolCall: (runId: string, toolUseId: string, toolName: string, toolInput: unknown) => void;
   updateToolCallResult: (runId: string, toolUseId: string, result: unknown, isError?: boolean) => void;
-  finalizeToolCallsToMessage: (runId: string) => void;
 
   // Actions — Content blocks (per run)
   appendTextBlock: (runId: string, content: string) => void;
   addToolUseBlock: (runId: string, toolUseId: string) => void;
-  finalizeContentBlocksToMessage: (runId: string) => void;
+
+  // Finalize run data onto the assistant message (single atomic update)
+  finalizeRunToMessage: (runId: string) => void;
 
   // System info actions
   setSystemInfo: (info: SystemInfo) => void;
@@ -316,29 +317,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
       };
     }),
 
-  // Finalize tool calls by attaching them to the last assistant message
-  finalizeToolCallsToMessage: (runId) =>
-    set((state) => {
-      const sessionId = state.activeRuns[runId];
-      if (!sessionId) return state;
-
-      const sessionMessages = state.messages[sessionId] || [];
-      const runHistory = state.toolCallsHistory[runId] || [];
-      if (sessionMessages.length === 0 || runHistory.length === 0) return state;
-
-      const lastMessage = sessionMessages[sessionMessages.length - 1];
-      if (lastMessage.role !== 'assistant') return state;
-
-      const updatedMessages = [
-        ...sessionMessages.slice(0, -1),
-        { ...lastMessage, toolCalls: [...runHistory] },
-      ];
-
-      return {
-        messages: { ...state.messages, [sessionId]: updatedMessages },
-      };
-    }),
-
   // ── Content block actions (per run) ──────────────────────────
 
   appendTextBlock: (runId, content) =>
@@ -369,21 +347,32 @@ export const useChatStore = create<ChatState>((set, get) => ({
       };
     }),
 
-  finalizeContentBlocksToMessage: (runId) =>
+  // Finalize run data (tool calls + content blocks) onto the assistant message in one atomic update.
+  // Prefers existing data when it's more complete (e.g., from API/metadata loaded before mid-stream join).
+  finalizeRunToMessage: (runId) =>
     set((state) => {
       const sessionId = state.activeRuns[runId];
       if (!sessionId) return state;
 
       const sessionMessages = state.messages[sessionId] || [];
-      const blocks = state.runContentBlocks[runId] || [];
-      if (sessionMessages.length === 0 || blocks.length === 0) return state;
+      if (sessionMessages.length === 0) return state;
 
       const lastMessage = sessionMessages[sessionMessages.length - 1];
       if (lastMessage.role !== 'assistant') return state;
 
+      const runHistory = state.toolCallsHistory[runId] || [];
+      const blocks = state.runContentBlocks[runId] || [];
+
+      // Pick the more complete version for each field
+      const existingToolCalls = lastMessage.toolCalls || [];
+      const toolCalls = runHistory.length >= existingToolCalls.length ? [...runHistory] : existingToolCalls;
+
+      const existingBlocks = lastMessage.contentBlocks || [];
+      const contentBlocks = blocks.length >= existingBlocks.length ? [...blocks] : existingBlocks;
+
       const updatedMessages = [
         ...sessionMessages.slice(0, -1),
-        { ...lastMessage, contentBlocks: [...blocks] },
+        { ...lastMessage, toolCalls, contentBlocks },
       ];
 
       return {

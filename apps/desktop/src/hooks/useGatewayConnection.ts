@@ -65,7 +65,7 @@ export function useGatewayConnection() {
     endRun,
     addToolCall,
     updateToolCallResult,
-    finalizeToolCallsToMessage,
+    finalizeRunToMessage,
     setSystemInfo,
     clearSystemInfo,
     addSessionUsage,
@@ -240,7 +240,7 @@ export function useGatewayConnection() {
         // Clear ask_user_question requests for this backend regardless of active state
         useAskUserQuestionStore.getState().clearRequestsForServer(serverId);
         if (completedSession) {
-          finalizeToolCallsToMessage(msg.runId);
+          finalizeRunToMessage(msg.runId);
           if (msg.usage) {
             addSessionUsage(completedSession, msg.usage);
           }
@@ -268,7 +268,7 @@ export function useGatewayConnection() {
           if (msg.error) {
             appendToLastMessage(failedSession, `\n\n**Error:** ${msg.error}`);
           }
-          finalizeToolCallsToMessage(msg.runId);
+          finalizeRunToMessage(msg.runId);
           // Update session active status (skip for agent sessions)
           if (failedSession !== useAgentStore.getState().agentSessionId) {
             useProjectStore.getState().setSessionActive(failedSession, false);
@@ -544,7 +544,7 @@ export function useGatewayConnection() {
     endRun,
     addToolCall,
     updateToolCallResult,
-    finalizeToolCallsToMessage,
+    finalizeRunToMessage,
     setPendingRequest,
     setSystemInfo,
     clearSystemInfo,

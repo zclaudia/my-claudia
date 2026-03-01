@@ -56,10 +56,9 @@ export function useMultiServerSocket() {
     endRun,
     addToolCall,
     updateToolCallResult,
-    finalizeToolCallsToMessage,
     appendTextBlock,
     addToolUseBlock,
-    finalizeContentBlocksToMessage,
+    finalizeRunToMessage,
     setSystemInfo,
     clearSystemInfo,
     addSessionUsage,
@@ -203,8 +202,7 @@ export function useMultiServerSocket() {
           // Clear ask_user_question requests for this server regardless of active state
           useAskUserQuestionStore.getState().clearRequestsForServer(serverId);
           if (completedSession) {
-            finalizeContentBlocksToMessage(message.runId);
-            finalizeToolCallsToMessage(message.runId);
+            finalizeRunToMessage(message.runId);
             if (message.usage) {
               addSessionUsage(completedSession, message.usage);
             }
@@ -232,8 +230,7 @@ export function useMultiServerSocket() {
             if (message.error) {
               appendToLastMessage(failedSession, `\n\n**Error:** ${message.error}`);
             }
-            finalizeContentBlocksToMessage(message.runId);
-            finalizeToolCallsToMessage(message.runId);
+            finalizeRunToMessage(message.runId);
             // Update session active status (skip for agent sessions)
             if (failedSession !== useAgentStore.getState().agentSessionId) {
               useProjectStore.getState().setSessionActive(failedSession, false);
@@ -488,7 +485,7 @@ export function useMultiServerSocket() {
     endRun,
     addToolCall,
     updateToolCallResult,
-    finalizeToolCallsToMessage,
+    finalizeRunToMessage,
     setPendingRequest,
     setSystemInfo,
     clearSystemInfo,
