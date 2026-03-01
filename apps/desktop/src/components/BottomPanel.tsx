@@ -160,7 +160,7 @@ export function BottomPanel({ projectId, projectRoot }: BottomPanelProps) {
             <TerminalActions projectId={projectId} />
           )}
           {effectiveTab === 'file' && projectRoot && (
-            <FileViewerActions projectRoot={projectRoot} />
+            <FileViewerActions />
           )}
 
           {/* Close button */}

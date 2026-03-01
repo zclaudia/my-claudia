@@ -34,7 +34,7 @@ interface FileViewerPanelProps {
 }
 
 /** File viewer toolbar actions (search, copy) rendered in the shared BottomPanel header */
-export function FileViewerActions({ projectRoot }: { projectRoot: string }) {
+export function FileViewerActions() {
   const { searchOpen, setSearchOpen, content } = useFileViewerStore();
   const [copied, setCopied] = useState(false);
 
