@@ -483,10 +483,12 @@ async function getOpenCodeCapabilities(
   // Default fallback in case OpenCode server isn't available
   const fallback: ProviderCapabilities = {
     modeLabel: 'Agent',
-    defaultModeId: 'build',
+    defaultModeId: 'sisyphus',
     modes: [
-      { id: 'build', label: 'Build', description: 'Default agent with all tools enabled' },
-      { id: 'plan', label: 'Plan', description: 'Analysis and planning only, no file edits' },
+      { id: 'sisyphus', label: 'Sisyphus', description: 'Default coding agent' },
+      { id: 'prometheus', label: 'Prometheus', description: 'Plan builder agent' },
+      { id: 'hephaestus', label: 'Hephaestus', description: 'Deep agent' },
+      { id: 'atlas', label: 'Atlas', description: 'Plan executor agent' },
     ],
     models: [{ id: '', label: 'Default' }],
   };
@@ -507,12 +509,15 @@ async function getOpenCodeCapabilities(
       fetch(`${baseUrl}/provider`).catch(() => null),
     ]);
 
-    // Parse agents
+    // Parse agents — OpenCode classifies agents as:
+    //   'all'       = top-level user-facing agents (e.g. sisyphus, prometheus)
+    //   'subagent'  = internal sub-agents (build, plan, explore)
+    //   'primary'   = system agents (compaction, title, summary)
     const modes: ModeOption[] = [];
     if (agentsResp?.ok) {
       const agents = await agentsResp.json() as Array<{ name: string; mode: string }>;
       for (const agent of agents) {
-        if (agent.mode === 'primary') {
+        if (agent.mode === 'all') {
           modes.push({
             id: agent.name,
             label: agent.name.charAt(0).toUpperCase() + agent.name.slice(1),
