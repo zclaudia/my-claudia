@@ -45,6 +45,10 @@ export class TerminalManager {
   }
 
   create(terminalId: string, clientId: string, cwd: string, cols: number, rows: number): void {
+    // Clamp cols/rows to sane ranges to prevent PTY crashes
+    cols = Math.max(1, Math.min(500, cols || 80));
+    rows = Math.max(1, Math.min(200, rows || 24));
+
     // Destroy existing terminal with same ID if any
     if (this.terminals.has(terminalId)) {
       this.destroy(terminalId);
@@ -101,8 +105,15 @@ export class TerminalManager {
         terminalId,
         exitCode,
       } as TerminalExitedMessage);
-      this.terminals.delete(terminalId);
-      clearTimeout(managed.idleTimer);
+      // Only clean up if this is still the current terminal for this ID.
+      // Guards against race when create() is called for an existing terminalId:
+      // destroy() + new create() runs, but old PTY's onExit fires async and
+      // would delete the new entry without this check.
+      const current = this.terminals.get(terminalId);
+      if (current && current.pty === ptyProcess) {
+        this.terminals.delete(terminalId);
+        clearTimeout(current.idleTimer);
+      }
     });
   }
 
@@ -117,6 +128,9 @@ export class TerminalManager {
   resize(terminalId: string, cols: number, rows: number): void {
     const managed = this.terminals.get(terminalId);
     if (!managed) return;
+    // Clamp cols/rows to sane ranges to prevent PTY crashes
+    cols = Math.max(1, Math.min(500, cols || 80));
+    rows = Math.max(1, Math.min(200, rows || 24));
     managed.pty.resize(cols, rows);
   }
 

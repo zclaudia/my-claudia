@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTerminalStore } from '../stores/terminalStore';
 import { useFileViewerStore } from '../stores/fileViewerStore';
 import { useServerStore } from '../stores/serverStore';
@@ -12,8 +12,6 @@ const MAX_HEIGHT_VH = 70;
 const DEFAULT_HEIGHT_DESKTOP = 300;
 const DEFAULT_HEIGHT_MOBILE = 350;
 
-type PanelTab = 'terminal' | 'file';
-
 interface BottomPanelProps {
   projectId: string | undefined;
   projectRoot: string | undefined;
@@ -23,6 +21,8 @@ export function BottomPanel({ projectId, projectRoot }: BottomPanelProps) {
   const terminalDrawerOpen = useTerminalStore((s) => projectId ? !!s.drawerOpen[projectId] : false);
   const hasTerminal = useTerminalStore((s) => projectId ? !!s.terminals[projectId] : false);
   const setTerminalDrawerOpen = useTerminalStore((s) => s.setDrawerOpen);
+  const activeTab = useTerminalStore((s) => s.bottomPanelTab);
+  const setActiveTab = useTerminalStore((s) => s.setBottomPanelTab);
   const fileViewerOpen = useFileViewerStore((s) => s.isOpen);
   const closeFileViewer = useFileViewerStore((s) => s.close);
   const supportsTerminal = useServerStore((s) => s.activeServerSupports('remoteTerminal'));
@@ -34,10 +34,7 @@ export function BottomPanel({ projectId, projectRoot }: BottomPanelProps) {
   const hasFileTab = fileViewerOpen;
   const isOpen = !!(hasTerminalTab && terminalDrawerOpen) || !!hasFileTab;
 
-  // Active tab state — auto-switch when a panel opens
-  const [activeTab, setActiveTab] = useState<PanelTab>('terminal');
-
-  // If current tab's panel isn't open, switch to the other
+  // If current tab's panel isn't open, fall back to the other
   const effectiveTab = (() => {
     if (activeTab === 'terminal' && terminalDrawerOpen && hasTerminalTab) return 'terminal';
     if (activeTab === 'file' && hasFileTab) return 'file';
@@ -55,6 +52,12 @@ export function BottomPanel({ projectId, projectRoot }: BottomPanelProps) {
   const dragging = useRef(false);
   const startY = useRef(0);
   const startHeight = useRef(0);
+  const dragCleanupRef = useRef<(() => void) | null>(null);
+
+  // Clean up drag listeners if component unmounts mid-drag
+  useEffect(() => {
+    return () => { dragCleanupRef.current?.(); };
+  }, []);
 
   // Android back to close
   useAndroidBack(() => {
@@ -79,13 +82,17 @@ export function BottomPanel({ projectId, projectRoot }: BottomPanelProps) {
         setHeightPx(newHeight);
       };
 
-      const onUp = () => {
+      const cleanup = () => {
         dragging.current = false;
         document.removeEventListener('mousemove', onMove);
         document.removeEventListener('mouseup', onUp);
         document.removeEventListener('touchmove', onMove);
         document.removeEventListener('touchend', onUp);
+        dragCleanupRef.current = null;
       };
+
+      const onUp = () => cleanup();
+      dragCleanupRef.current = cleanup;
 
       document.addEventListener('mousemove', onMove);
       document.addEventListener('mouseup', onUp);
@@ -96,11 +103,14 @@ export function BottomPanel({ projectId, projectRoot }: BottomPanelProps) {
   );
 
   const handleClose = () => {
-    if (effectiveTab === 'terminal' && projectId) setTerminalDrawerOpen(projectId, false);
-    else if (effectiveTab === 'file') closeFileViewer();
+    // Hide the entire bottom panel in one click
+    if (projectId) setTerminalDrawerOpen(projectId, false);
+    if (fileViewerOpen) closeFileViewer();
   };
 
-  if (!isOpen) return null;
+  // Never return null — keep the terminal mounted to preserve its WebGL canvas.
+  // When closed, render with height 0 so the terminal stays alive in the DOM.
+  if (!isOpen && !hasTerminal) return null;
 
   // Show tabs only when both panels could be open
   const showTabs = hasTerminalTab && hasFileTab;
@@ -108,8 +118,8 @@ export function BottomPanel({ projectId, projectRoot }: BottomPanelProps) {
   return (
     <div
       ref={containerRef}
-      className="flex flex-col flex-shrink-0 bg-card border-t border-border"
-      style={{ height: `${heightPx}px`, overflow: 'hidden' }}
+      className={`flex flex-col flex-shrink-0 bg-card ${isOpen ? 'border-t border-border' : ''}`}
+      style={{ height: isOpen ? `${heightPx}px` : '0px', overflow: 'hidden' }}
     >
       {/* Drag handle + tabs + actions */}
       <div
@@ -167,7 +177,7 @@ export function BottomPanel({ projectId, projectRoot }: BottomPanelProps) {
           <button
             onClick={handleClose}
             className="p-1 rounded text-muted-foreground hover:bg-secondary hover:text-foreground flex-shrink-0"
-            title="Close panel"
+            title="Hide panel"
           >
             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -179,12 +189,12 @@ export function BottomPanel({ projectId, projectRoot }: BottomPanelProps) {
       {/* Panel content — both mounted but only active one visible, to preserve terminal state */}
       <div className="flex-1 overflow-hidden relative">
         {hasTerminalTab && projectId && (
-          <div className={`absolute inset-0 ${effectiveTab === 'terminal' ? '' : 'invisible'}`}>
+          <div className={`absolute inset-0 ${effectiveTab === 'terminal' && isOpen ? '' : 'invisible'}`}>
             <TerminalPanel projectId={projectId} />
           </div>
         )}
         {hasFileTab && projectRoot && (
-          <div className={`absolute inset-0 ${effectiveTab === 'file' ? '' : 'invisible'}`}>
+          <div className={`absolute inset-0 ${effectiveTab === 'file' && isOpen ? '' : 'invisible'}`}>
             <FileViewerPanel projectRoot={projectRoot} />
           </div>
         )}

@@ -71,7 +71,6 @@ export function XTerminal({ terminalId, projectId }: XTerminalProps) {
   useEffect(() => {
     const terminal = terminalRef.current;
     if (!terminal) return;
-    // Small delay to let CSS variables update after class change
     const timer = setTimeout(() => {
       terminal.options.theme = getTerminalTheme();
     }, 50);
@@ -81,12 +80,11 @@ export function XTerminal({ terminalId, projectId }: XTerminalProps) {
   useEffect(() => {
     if (!containerRef.current) return;
 
-    // Reuse existing terminal if available (StrictMode re-mount or drawer reopen)
+    // Reuse existing terminal if available (StrictMode re-mount or drawer reopen).
+    // The registry entry survives across StrictMode double-mount cycles.
     let entry = xtermRegistry.get(terminalId);
-    let isNew = false;
 
     if (!entry) {
-      isNew = true;
       const theme = getTerminalTheme();
       const terminal = new Terminal({
         cursorBlink: true,
@@ -107,23 +105,22 @@ export function XTerminal({ terminalId, projectId }: XTerminalProps) {
     terminalRef.current = terminal;
     fitAddonRef.current = fitAddon;
 
-    // Defer open/fit to the next animation frame so the container has its
-    // final dimensions.  On first open the BottomPanel transitions from
-    // returning null to a sized element; the layout may not be finalised
-    // by the time this useEffect fires.
     const container = containerRef.current;
-    const rafId = requestAnimationFrame(() => {
-      if (!container) return;
 
-      // Re-attach to DOM (needed after StrictMode unmount/remount)
+    // Attach terminal to DOM and send terminal_open when container is ready.
+    // The container may initially have 0 height (BottomPanel renders with
+    // height:0 when closed), so we defer until positive dimensions are available.
+    // We use entry.serverOpened (persisted in the registry) instead of a local
+    // variable so the flag survives React StrictMode's unmount/remount cycle.
+    const attach = () => {
+      if (!container || container.clientHeight === 0 || container.clientWidth === 0) return false;
       if (container.childElementCount === 0) {
         terminal.open(container);
       }
-
       fitAddon.fit();
-
-      if (isNew) {
-        // Only send terminal_open for truly new terminals
+      const reg = xtermRegistry.get(terminalId);
+      if (reg && !reg.serverOpened) {
+        reg.serverOpened = true;
         sendMessage({
           type: 'terminal_open',
           terminalId,
@@ -131,20 +128,17 @@ export function XTerminal({ terminalId, projectId }: XTerminalProps) {
           cols: terminal.cols,
           rows: terminal.rows,
         });
-
         // Forward keystrokes to server (with sticky Ctrl support for mobile)
         terminal.onData((data) => {
           let sendData = data;
           const store = useTerminalStore.getState();
           if (store.ctrlActive[terminalId] && data.length === 1) {
             const code = data.charCodeAt(0);
-            // a-z → Ctrl+letter (0x01–0x1A)
             if (code >= 97 && code <= 122) {
               sendData = String.fromCharCode(code - 96);
             } else if (code >= 65 && code <= 90) {
               sendData = String.fromCharCode(code - 64);
             }
-            // Auto-disable sticky Ctrl after one keystroke
             store.toggleCtrl(terminalId);
           }
           sendMessage({
@@ -154,19 +148,27 @@ export function XTerminal({ terminalId, projectId }: XTerminalProps) {
           });
         });
       }
-    });
+      return true;
+    };
 
-    // Handle resize — skip when container is collapsed (height 0)
+    // Try to attach in the next animation frame
+    const rafId = requestAnimationFrame(() => attach());
+
+    // ResizeObserver handles both deferred init (if RAF fires at 0 height)
+    // and subsequent resize events.
     resizeObserverRef.current?.disconnect();
     const resizeObserver = new ResizeObserver(() => {
       if (!container || container.clientHeight === 0) return;
-      fitAddon.fit();
-      sendMessage({
-        type: 'terminal_resize',
-        terminalId,
-        cols: terminal.cols,
-        rows: terminal.rows,
-      });
+      const wasOpened = xtermRegistry.get(terminalId)?.serverOpened ?? false;
+      if (!attach()) return;
+      if (wasOpened) {
+        sendMessage({
+          type: 'terminal_resize',
+          terminalId,
+          cols: terminal.cols,
+          rows: terminal.rows,
+        });
+      }
     });
     resizeObserver.observe(container);
     resizeObserverRef.current = resizeObserver;
@@ -174,8 +176,6 @@ export function XTerminal({ terminalId, projectId }: XTerminalProps) {
     return () => {
       cancelAnimationFrame(rafId);
       resizeObserver.disconnect();
-      // Terminal instance and server-side pty are kept alive across drawer toggles.
-      // They are cleaned up when the connection drops or the process exits.
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [terminalId, projectId]);

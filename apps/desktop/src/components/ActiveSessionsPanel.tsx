@@ -40,9 +40,10 @@ export function ActiveSessionsPanel({ onSessionSelect }: ActiveSessionsPanelProp
 
     // 2. All remote backends (skip local backend to avoid duplicates)
     remoteSessions.forEach((sessions, backendId) => {
-      // Skip if this is the same backend already shown as __local__
-      if (result.has('__local__')) {
-        // Match by gateway backendId or by direct-connection serverId
+      // Always skip sessions belonging to the locally connected backend.
+      // The local direct connection manages its sessions via projectStore;
+      // any entries here are stale duplicates from the gateway relay.
+      if (activeServerId && !isGatewayTarget(activeServerId)) {
         if (backendId === activeServerId || (localBackendId && backendId === localBackendId)) {
           return;
         }

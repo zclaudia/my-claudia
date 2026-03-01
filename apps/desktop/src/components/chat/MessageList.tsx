@@ -223,6 +223,7 @@ function CodeBlock({
       store.openTerminal(session.projectId);
     }
     store.setDrawerOpen(session.projectId, true);
+    store.setBottomPanelTab('terminal');
 
     const terminalId = useTerminalStore.getState().terminals[session.projectId];
     if (terminalId) {

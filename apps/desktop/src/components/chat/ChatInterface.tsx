@@ -86,7 +86,7 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
   const useStreamingSegmented = isLoading && sessionContentBlocks.length > 1 && sessionToolCallHistory.length > 0;
   const modelOverride = getModelOverride(sessionId);
   const { projects, sessions, providerCommands, providerCapabilities, setProviderCapabilities } = useProjectStore();
-  const { setDrawerOpen, drawerOpen } = useTerminalStore();
+  const { setDrawerOpen, drawerOpen, bottomPanelTab, setBottomPanelTab } = useTerminalStore();
   const { advancedInput, setAdvancedInput } = useUIStore();
   const { isOpen: fileViewerOpen } = useFileViewerStore();
   const { sendMessage: wsSendMessage, isConnected, handlePermissionDecision, handleAskUserAnswer } = useConnection();
@@ -184,13 +184,16 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
         e.preventDefault();
         const store = useTerminalStore.getState();
         const pid = currentSession.projectId;
-        if (store.isDrawerOpen(pid)) {
+        if (store.isDrawerOpen(pid) && store.bottomPanelTab === 'terminal') {
           store.setDrawerOpen(pid, false);
+        } else if (store.isDrawerOpen(pid)) {
+          store.setBottomPanelTab('terminal');
         } else {
           if (!store.terminals[pid]) {
             store.openTerminal(pid);
           }
           store.setDrawerOpen(pid, true);
+          store.setBottomPanelTab('terminal');
         }
       }
     };
@@ -208,6 +211,7 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
           store.togglePanel();
         }
         store.setSearchOpen(true);
+        useTerminalStore.getState().setBottomPanelTab('file');
       }
     };
     window.addEventListener('keydown', handler);
@@ -984,16 +988,22 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
           {currentProject?.rootPath && (
             <button
               onClick={() => {
-                if (fileViewerOpen) {
+                if (fileViewerOpen && bottomPanelTab === 'file') {
+                  // Already showing file tab — close it
                   useFileViewerStore.getState().close();
+                } else if (fileViewerOpen) {
+                  // File viewer open but another tab is active — switch to file
+                  setBottomPanelTab('file');
                 } else {
+                  // File viewer not open — open it and switch tab
                   const store = useFileViewerStore.getState();
                   store.togglePanel();
                   store.setSearchOpen(true);
+                  setBottomPanelTab('file');
                 }
               }}
-              className={`p-1.5 rounded hover:bg-secondary ${fileViewerOpen ? 'text-primary' : 'text-muted-foreground hover:text-foreground'}`}
-              title={fileViewerOpen ? 'Close file viewer' : 'Open file viewer (Cmd+P)'}
+              className={`p-1.5 rounded hover:bg-secondary ${fileViewerOpen && bottomPanelTab === 'file' ? 'text-primary' : 'text-muted-foreground hover:text-foreground'}`}
+              title={fileViewerOpen && bottomPanelTab === 'file' ? 'Close file viewer' : 'Open file viewer (Cmd+P)'}
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
@@ -1006,18 +1016,24 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
             return (
               <button
                 onClick={() => {
-                  if (isOpen) {
+                  if (isOpen && bottomPanelTab === 'terminal') {
+                    // Already showing terminal tab — close it
                     setDrawerOpen(pid, false);
+                  } else if (isOpen) {
+                    // Terminal open but another tab is active — switch to terminal
+                    setBottomPanelTab('terminal');
                   } else {
+                    // Terminal not open — open it and switch tab
                     const store = useTerminalStore.getState();
                     if (!store.terminals[pid]) {
                       store.openTerminal(pid);
                     }
                     setDrawerOpen(pid, true);
+                    setBottomPanelTab('terminal');
                   }
                 }}
-                className={`p-1.5 rounded hover:bg-secondary ${isOpen ? 'text-primary' : 'text-muted-foreground hover:text-foreground'}`}
-                title={isOpen ? 'Hide terminal (Ctrl+`)' : 'Open terminal (Ctrl+`)'}
+                className={`p-1.5 rounded hover:bg-secondary ${isOpen && bottomPanelTab === 'terminal' ? 'text-primary' : 'text-muted-foreground hover:text-foreground'}`}
+                title={isOpen && bottomPanelTab === 'terminal' ? 'Hide terminal (Ctrl+`)' : 'Open terminal (Ctrl+`)'}
               >
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />

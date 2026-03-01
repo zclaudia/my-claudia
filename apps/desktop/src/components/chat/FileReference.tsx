@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import { Children } from 'react';
 import { useFileViewerStore } from '../../stores/fileViewerStore';
 import { useProjectStore } from '../../stores/projectStore';
+import { useTerminalStore } from '../../stores/terminalStore';
 
 /**
  * Regex to match @file references in text.
@@ -23,6 +24,7 @@ export function TextWithFileRefs({ text }: { text: string }) {
     const project = Object.values(projects).find((p) => p.rootPath);
     if (project?.rootPath) {
       openFile(project.rootPath, filePath);
+      useTerminalStore.getState().setBottomPanelTab('file');
     }
   };
 

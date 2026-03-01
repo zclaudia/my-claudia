@@ -4,6 +4,8 @@ import type { FitAddon } from '@xterm/addon-fit';
 interface TerminalEntry {
   terminal: Terminal;
   fitAddon: FitAddon;
+  /** Whether terminal_open has been sent to the server for this terminal. */
+  serverOpened: boolean;
 }
 
 /**
@@ -14,7 +16,7 @@ const instances = new Map<string, TerminalEntry>();
 
 export const xtermRegistry = {
   set(terminalId: string, terminal: Terminal, fitAddon: FitAddon): void {
-    instances.set(terminalId, { terminal, fitAddon });
+    instances.set(terminalId, { terminal, fitAddon, serverOpened: false });
   },
 
   get(terminalId: string): TerminalEntry | undefined {

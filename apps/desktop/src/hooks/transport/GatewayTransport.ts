@@ -18,6 +18,7 @@ import type {
   GatewayUpdateSubscriptionsMessage
 } from '@my-claudia/shared';
 import { useSessionsStore } from '../../stores/sessionsStore';
+import { useGatewayStore } from '../../stores/gatewayStore';
 import { startSessionSync, stopSessionSync } from '../../services/sessionSync';
 
 export interface GatewayTransportConfig {
@@ -212,7 +213,11 @@ export class GatewayTransport {
           console.log('[GatewayTransport] Backend authenticated:', message.backendId);
           this.authenticatedBackends.add(message.backendId);
           // Start periodic sync for this backend as fallback to WebSocket push
-          startSessionSync(message.backendId);
+          // Skip for local backend — direct connection already handles session sync
+          const { localBackendId: authLocalId } = useGatewayStore.getState();
+          if (!authLocalId || message.backendId !== authLocalId) {
+            startSessionSync(message.backendId);
+          }
         } else {
           console.error('[GatewayTransport] Backend auth failed:', message.backendId, message.error);
           this.authenticatedBackends.delete(message.backendId);
@@ -223,6 +228,12 @@ export class GatewayTransport {
       case 'backend_message':
         // Unwrap and forward the backend message
         if (message.message && message.backendId) {
+          // Skip all messages from our own local backend — direct connection handles them
+          const { localBackendId: msgLocalId } = useGatewayStore.getState();
+          if (msgLocalId && message.backendId === msgLocalId) {
+            break;
+          }
+
           // Check if it's a session-related message
           const innerMessage = message.message as any;
           if (innerMessage.type === 'backend_sessions_list') {

@@ -1,5 +1,7 @@
 import { create } from 'zustand';
 
+export type BottomPanelTab = 'terminal' | 'file';
+
 interface TerminalState {
   // Active terminal per project (projectId → terminalId)
   terminals: Record<string, string>;
@@ -9,6 +11,8 @@ interface TerminalState {
   drawerOpen: Record<string, boolean>;
   // Sticky Ctrl key per terminal (auto-disables after one keystroke)
   ctrlActive: Record<string, boolean>;
+  // Shared active tab for the BottomPanel
+  bottomPanelTab: BottomPanelTab;
 
   openTerminal: (projectId: string) => string;
   closeTerminal: (terminalId: string) => void;
@@ -19,6 +23,7 @@ interface TerminalState {
   getTerminalId: (projectId: string) => string | undefined;
   markReady: (terminalId: string) => void;
   isReady: (terminalId: string) => boolean;
+  setBottomPanelTab: (tab: BottomPanelTab) => void;
   /** Returns a promise that resolves when the terminal is ready (shell loaded). */
   waitForReady: (terminalId: string, timeoutMs?: number) => Promise<boolean>;
 }
@@ -28,6 +33,7 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
   readyTerminals: new Set<string>(),
   drawerOpen: {},
   ctrlActive: {},
+  bottomPanelTab: 'terminal',
 
   openTerminal: (projectId: string) => {
     const existing = get().terminals[projectId];
@@ -94,6 +100,8 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
   isReady: (terminalId: string) => {
     return get().readyTerminals.has(terminalId);
   },
+
+  setBottomPanelTab: (tab) => set({ bottomPanelTab: tab }),
 
   waitForReady: (terminalId: string, timeoutMs = 5000) => {
     if (get().readyTerminals.has(terminalId)) return Promise.resolve(true);

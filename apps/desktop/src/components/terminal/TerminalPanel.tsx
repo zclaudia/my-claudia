@@ -59,7 +59,7 @@ export function TerminalPanel({ projectId }: TerminalPanelProps) {
   );
 
   return (
-    <div className="flex flex-col flex-1 overflow-hidden">
+    <div className="flex flex-col h-full overflow-hidden">
       {/* Mobile shell helper buttons */}
       {isMobile && terminalId && (
         <div className="flex items-center gap-1 px-2 py-1 border-b border-border flex-shrink-0 overflow-x-auto">

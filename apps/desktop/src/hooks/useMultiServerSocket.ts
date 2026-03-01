@@ -456,9 +456,11 @@ export function useMultiServerSocket() {
         }
 
         case 'terminal_output': {
-          const term = xtermRegistry.get(message.terminalId)?.terminal;
-          if (term) term.write(message.data);
-          useTerminalStore.getState().markReady(message.terminalId);
+          const entry = xtermRegistry.get(message.terminalId);
+          if (entry) {
+            entry.terminal.write(message.data);
+            useTerminalStore.getState().markReady(message.terminalId);
+          }
           break;
         }
 
@@ -466,6 +468,7 @@ export function useMultiServerSocket() {
           const exitTerm = xtermRegistry.get(message.terminalId)?.terminal;
           if (exitTerm) exitTerm.write(`\r\n[Process exited with code ${message.exitCode}]\r\n`);
           useTerminalStore.getState().handleTerminalExited(message.terminalId);
+          xtermRegistry.delete(message.terminalId);
           break;
         }
 

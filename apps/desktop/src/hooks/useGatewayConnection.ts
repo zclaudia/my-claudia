@@ -41,6 +41,7 @@ export function useGatewayConnection() {
     gatewayUrl,
     gatewaySecret,
     isConnected: isGatewayConnected,
+    localBackendId,
     discoveredBackends,
     setConnected,
     setDiscoveredBackends,
@@ -509,9 +510,11 @@ export function useGatewayConnection() {
       }
 
       case 'terminal_output': {
-        const term = xtermRegistry.get(msg.terminalId)?.terminal;
-        if (term) term.write(msg.data);
-        useTerminalStore.getState().markReady(msg.terminalId);
+        const entry = xtermRegistry.get(msg.terminalId);
+        if (entry) {
+          entry.terminal.write(msg.data);
+          useTerminalStore.getState().markReady(msg.terminalId);
+        }
         break;
       }
 
@@ -519,6 +522,7 @@ export function useGatewayConnection() {
         const exitTerm = xtermRegistry.get(msg.terminalId)?.terminal;
         if (exitTerm) exitTerm.write(`\r\n[Process exited with code ${msg.exitCode}]\r\n`);
         useTerminalStore.getState().handleTerminalExited(msg.terminalId);
+        xtermRegistry.delete(msg.terminalId);
         break;
       }
 
@@ -755,6 +759,14 @@ export function useGatewayConnection() {
     });
     return unsub;
   }, []);
+
+  // When localBackendId becomes available, clean up any stale remote sessions
+  // that leaked through the gateway before the guard was active (startup timing window)
+  useEffect(() => {
+    if (localBackendId) {
+      useSessionsStore.getState().clearBackendSessions(localBackendId);
+    }
+  }, [localBackendId]);
 
   // Heartbeat for the gateway connection
   useEffect(() => {
