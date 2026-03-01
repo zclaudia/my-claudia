@@ -16,6 +16,7 @@ import { useAgentStore } from './stores/agentStore';
 import { useIsMobile } from './hooks/useMediaQuery';
 import { useAndroidBack } from './hooks/useAndroidBack';
 import { migrateServersFromLocalStorage, needsMigration } from './utils/migrateServers';
+import { eagerSyncAllBackends } from './services/sessionSync';
 
 function AppContent() {
   const { connectServer, embeddedServerStatus, embeddedServerError } = useConnection();
@@ -86,6 +87,18 @@ function AppContent() {
       });
     }
   }, [connectionStatus, addServer]);
+
+  // Eager sync when app comes back to foreground (e.g. returning to Mac after using mobile)
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        console.log('[App] App became visible, triggering eager sync');
+        eagerSyncAllBackends();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, []);
 
   // Mobile: show setup screen when gateway is not configured
   if (isMobile && !directGatewayUrl) {

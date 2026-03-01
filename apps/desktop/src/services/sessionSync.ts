@@ -66,12 +66,19 @@ async function checkAndFillMessageGaps(sessions: RemoteSession[]): Promise<void>
 }
 
 /**
- * Get the base URL for the active server
+ * Get the base URL for a backend (gateway or direct)
  */
 function getBaseUrl(targetBackendId?: string): string | null {
-  // If a specific gateway backend is targeted
   if (targetBackendId) {
-    return resolveGatewayBackendUrl(targetBackendId);
+    if (isGatewayTarget(targetBackendId)) {
+      const backendId = parseBackendId(targetBackendId);
+      return resolveGatewayBackendUrl(backendId);
+    }
+    // Direct server: look up by serverId
+    const server = useServerStore.getState().servers.find(s => s.id === targetBackendId);
+    if (!server) return null;
+    const addr = server.address.includes('://') ? server.address.replace(/^ws/, 'http') : `http://${server.address}`;
+    return addr;
   }
 
   // Fallback: use active server
@@ -96,9 +103,15 @@ function getBaseUrl(targetBackendId?: string): string | null {
 /**
  * Get auth headers for API requests.
  */
-function getAuthHeaders(isGatewayBackend?: boolean): Record<string, string> {
-  if (isGatewayBackend) {
-    return getGatewayAuthHeaders();
+function getAuthHeaders(targetBackendId?: string): Record<string, string> {
+  if (targetBackendId) {
+    if (isGatewayTarget(targetBackendId)) {
+      return getGatewayAuthHeaders();
+    }
+    // Direct server: look up by serverId
+    const server = useServerStore.getState().servers.find(s => s.id === targetBackendId);
+    if (!server?.clientId) return {};
+    return { Authorization: `Bearer ${server.clientId}` };
   }
 
   // Fallback: infer from active server
@@ -136,7 +149,7 @@ async function incrementalSync(backendId: string): Promise<void> {
     const response = await fetch(url, {
       headers: {
         'Content-Type': 'application/json',
-        ...getAuthHeaders(true),
+        ...getAuthHeaders(backendId),
       },
     });
 
@@ -206,7 +219,7 @@ async function fullSync(backendId: string): Promise<void> {
     const response = await fetch(url, {
       headers: {
         'Content-Type': 'application/json',
-        ...getAuthHeaders(true),
+        ...getAuthHeaders(backendId),
       },
     });
 
@@ -248,6 +261,45 @@ async function fullSync(backendId: string): Promise<void> {
     await checkAndFillMessageGaps(sessions);
   } catch (error) {
     console.error('[SessionSync] Full sync failed:', error);
+  }
+}
+
+/**
+ * Eagerly sync messages for the currently viewed session.
+ * Directly fetches messages after the local maxOffset without depending on session list.
+ */
+export async function eagerSyncCurrentSession(backendId: string): Promise<void> {
+  const currentSessionId = useProjectStore.getState().selectedSessionId;
+  if (!currentSessionId) return;
+
+  const pagination = useChatStore.getState().pagination[currentSessionId];
+  if (!pagination?.maxOffset) return;
+
+  try {
+    const result = await api.getSessionMessages(currentSessionId, {
+      afterOffset: pagination.maxOffset,
+      limit: 100,
+    });
+    if (result.messages.length > 0) {
+      useChatStore.getState().appendMessages(currentSessionId, result.messages, result.pagination);
+      console.log(`[SessionSync] Eager sync filled ${result.messages.length} messages for session ${currentSessionId}`);
+    }
+  } catch (error) {
+    console.error('[SessionSync] Eager sync failed:', error);
+  }
+}
+
+/**
+ * Trigger immediate sync across all active backends.
+ * Called on visibility change (app comes to foreground) to catch up on missed messages.
+ */
+export function eagerSyncAllBackends(): void {
+  if (syncStates.size === 0) return;
+
+  console.log(`[SessionSync] Eager sync triggered for ${syncStates.size} backend(s)`);
+  for (const backendId of syncStates.keys()) {
+    incrementalSync(backendId);
+    eagerSyncCurrentSession(backendId);
   }
 }
 

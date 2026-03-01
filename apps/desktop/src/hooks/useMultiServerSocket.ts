@@ -18,6 +18,7 @@ import { useSupervisionStore } from '../stores/supervisionStore';
 import { DirectTransport } from './transport/DirectTransport';
 import type { Transport } from './transport/BaseTransport';
 import { useGatewayConnection } from './useGatewayConnection';
+import { startSessionSync, stopSessionSync } from '../services/sessionSync';
 import { xtermRegistry } from '../utils/xtermRegistry';
 import { useTerminalStore } from '../stores/terminalStore';
 import { useFilePushStore } from '../stores/filePushStore';
@@ -118,6 +119,8 @@ export function useMultiServerSocket() {
               state.reconnectAttempts = 0;
             }
             updateLastConnected(serverId);
+            // Start periodic session sync (fills message gaps on reconnect)
+            startSessionSync(serverId);
           } else {
             console.error(`[Socket:${serverId}] Authentication failed:`, message.error);
             setServerConnectionStatus(serverId, 'error', message.error);
@@ -654,6 +657,7 @@ export function useMultiServerSocket() {
 
     state.transport.disconnect();
     transportsRef.current.delete(serverId);
+    stopSessionSync(serverId);
     setServerConnectionStatus(serverId, 'disconnected');
   }, [setServerConnectionStatus]);
 
