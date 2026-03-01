@@ -30,6 +30,31 @@ const IGNORED_DIRS = new Set([
   '.nyc_output',
 ]);
 
+// Binary file extensions to exclude from text-based file search/viewing
+const BINARY_EXTENSIONS = new Set([
+  // Images
+  '.png', '.jpg', '.jpeg', '.gif', '.bmp', '.ico', '.webp', '.svg', '.tiff', '.tif', '.avif',
+  // Audio / Video
+  '.mp3', '.mp4', '.wav', '.ogg', '.flac', '.avi', '.mov', '.mkv', '.webm',
+  // Archives
+  '.zip', '.tar', '.gz', '.bz2', '.xz', '.7z', '.rar', '.zst',
+  // Binaries / Executables
+  '.exe', '.dll', '.so', '.dylib', '.a', '.o', '.obj', '.bin', '.apk', '.aab', '.ipa', '.deb', '.rpm',
+  // Fonts
+  '.woff', '.woff2', '.ttf', '.otf', '.eot',
+  // Documents (binary)
+  '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx',
+  // Database
+  '.db', '.sqlite', '.sqlite3',
+  // Other
+  '.class', '.pyc', '.pyo', '.wasm', '.DS_Store',
+]);
+
+function isBinaryExtension(fileName: string): boolean {
+  const ext = path.extname(fileName).toLowerCase();
+  return BINARY_EXTENSIONS.has(ext);
+}
+
 // Security: Ensure path is within project root (prevent path traversal)
 function isPathSafe(projectRoot: string, targetPath: string): boolean {
   const resolvedPath = path.resolve(projectRoot, targetPath);
@@ -79,6 +104,7 @@ function recursiveFileSearch(
         if (IGNORED_DIRS.has(entry.name)) continue;
         walk(path.join(dir, entry.name));
       } else if (entry.isFile()) {
+        if (isBinaryExtension(entry.name)) continue;
         if (!fuzzyMatch(query, entry.name)) continue;
         if (entries.length >= maxResults) {
           hasMore = true;
@@ -338,6 +364,7 @@ export function createFilesRoutes(broadcastCtx?: FilesRouteBroadcastContext): Ro
         for (const entry of dirEntries) {
           if (entry.name.startsWith('.')) continue;
           if (entry.isDirectory() && IGNORED_DIRS.has(entry.name)) continue;
+          if (query && entry.isFile() && isBinaryExtension(entry.name)) continue;
           if (!fuzzyMatch(query, entry.name)) continue;
 
           if (entries.length >= maxResultsNum) {
@@ -441,6 +468,22 @@ export function createFilesRoutes(broadcastCtx?: FilesRouteBroadcastContext): Ro
           error: { code: 'FILE_TOO_LARGE', message: 'File is too large (max 1MB)' }
         });
         return;
+      }
+
+      // Reject binary files by checking the first 8KB for null bytes
+      const PROBE_SIZE = Math.min(8192, stat.size);
+      if (PROBE_SIZE > 0) {
+        const fd = fs.openSync(fullPath, 'r');
+        const buf = Buffer.alloc(PROBE_SIZE);
+        fs.readSync(fd, buf, 0, PROBE_SIZE, 0);
+        fs.closeSync(fd);
+        if (buf.includes(0)) {
+          res.status(400).json({
+            success: false,
+            error: { code: 'BINARY_FILE', message: 'Binary files cannot be viewed as text' }
+          });
+          return;
+        }
       }
 
       // Read file content

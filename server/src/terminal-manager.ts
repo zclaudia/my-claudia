@@ -51,19 +51,30 @@ export class TerminalManager {
     }
 
     const shell = detectShell();
-    console.log(`[Terminal] Spawning: shell=${shell}, cwd=${cwd}, cols=${cols}, rows=${rows}`);
+    // Always spawn at $HOME to avoid macOS TCC permission dialogs
+    // (accessing Desktop/Documents/Downloads triggers a system prompt that blocks pty.spawn).
+    // Then cd to the target directory — if that fails, the user sees a normal shell error.
+    const safeCwd = process.env.HOME || '/';
+    console.log(`[Terminal] Spawning: shell=${shell}, safeCwd=${safeCwd}, targetCwd=${cwd}, cols=${cols}, rows=${rows}`);
     let ptyProcess: pty.IPty;
     try {
       ptyProcess = pty.spawn(shell, [], {
         name: 'xterm-256color',
         cols,
         rows,
-        cwd,
+        cwd: safeCwd,
         env: process.env as Record<string, string>,
       });
     } catch (err) {
-      console.error(`[Terminal] pty.spawn failed: shell=${shell}, cwd=${cwd}, PATH=${process.env.PATH?.substring(0, 200)}`);
+      console.error(`[Terminal] pty.spawn failed: shell=${shell}, cwd=${safeCwd}, PATH=${process.env.PATH?.substring(0, 200)}`);
       throw err;
+    }
+
+    // cd to the target directory after shell starts (non-blocking, graceful failure)
+    if (cwd && cwd !== safeCwd) {
+      // Use printf to avoid echoing the cd command in the terminal,
+      // and clear the line so the user only sees the prompt at the target dir.
+      ptyProcess.write(`cd ${this.shellEscape(cwd)} && clear\n`);
     }
 
     const managed: ManagedTerminal = {
@@ -145,5 +156,10 @@ export class TerminalManager {
   private resetIdleTimer(terminalId: string, managed: ManagedTerminal): void {
     clearTimeout(managed.idleTimer);
     managed.idleTimer = this.startIdleTimer(terminalId);
+  }
+
+  /** Escape a path for use in a shell command (wrap in single quotes, escape existing quotes). */
+  private shellEscape(s: string): string {
+    return "'" + s.replace(/'/g, "'\\''") + "'";
   }
 }

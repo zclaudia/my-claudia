@@ -446,6 +446,11 @@ export function useMultiServerSocket() {
         case 'terminal_opened': {
           if (!message.success) {
             console.error(`[Socket:${serverId}] Terminal open failed:`, message.error);
+            // Show error in the terminal UI so user doesn't see a blank screen
+            const entry = xtermRegistry.get(message.terminalId);
+            if (entry) {
+              entry.terminal.writeln(`\r\n\x1b[31mTerminal failed to open: ${message.error || 'Unknown error'}\x1b[0m`);
+            }
           }
           break;
         }

@@ -43,14 +43,21 @@ pub fn run() {
     #[cfg(target_os = "android")]
     let builder = builder.invoke_handler(tauri::generate_handler![greet]);
 
-    // On macOS, probe TCC-protected folders at startup to trigger consent dialogs
-    // while the user is at the keyboard, rather than later during remote sessions.
+    // On macOS, probe TCC-protected folders at startup so the consent dialogs
+    // appear while the user is at the keyboard. Without this, remote sessions
+    // (phone via gateway) would fail to access Desktop/Documents/Downloads
+    // because TCC dialogs require local GUI interaction.
+    // The dialogs only appear once per folder — macOS caches the decision.
     #[cfg(target_os = "macos")]
     let builder = builder.setup(|_app| {
         std::thread::spawn(|| {
             // Small delay so the window appears first, then TCC dialogs overlay it
             std::thread::sleep(std::time::Duration::from_secs(1));
-            permissions::check_folder_permissions();
+            let results = permissions::check_folder_permissions();
+            let pending: Vec<_> = results.iter().filter(|r| !r.granted).map(|r| r.name.as_str()).collect();
+            if !pending.is_empty() {
+                eprintln!("[Permissions] Folders not yet authorized: {:?}", pending);
+            }
         });
         Ok(())
     });

@@ -21,6 +21,7 @@ interface SessionsState {
     session: RemoteSession
   ) => void;
   reconcileActiveStatus: (backendId: string, activeSessionIds: Set<string>) => void;
+  setSessionActiveById: (backendId: string, sessionId: string, isActive: boolean) => void;
   clearBackendSessions: (backendId: string) => void;
   clearAllSessions: () => void;
 }
@@ -82,6 +83,23 @@ export const useSessionsStore = create<SessionsState>((set) => ({
       if (!changed) return state;
 
       const newMap = new Map(state.remoteSessions);
+      newMap.set(backendId, updated);
+      return { remoteSessions: newMap };
+    });
+  },
+
+  // Set isActive for a specific session (used by run_started / run_failed / run_completed)
+  setSessionActiveById: (backendId: string, sessionId: string, isActive: boolean) => {
+    set((state) => {
+      const sessions = state.remoteSessions.get(backendId);
+      if (!sessions) return state;
+
+      const idx = sessions.findIndex(s => s.id === sessionId);
+      if (idx === -1 || sessions[idx].isActive === isActive) return state;
+
+      const newMap = new Map(state.remoteSessions);
+      const updated = [...sessions];
+      updated[idx] = { ...updated[idx], isActive };
       newMap.set(backendId, updated);
       return { remoteSessions: newMap };
     });

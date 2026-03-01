@@ -12,6 +12,8 @@ interface FileViewerState {
   error: string | null;
   // Search mode (Cmd+P)
   searchOpen: boolean;
+  // Full-screen overlay (mobile)
+  fullscreen: boolean;
 
   openFile: (projectRoot: string, relativePath: string) => void;
   setContent: (content: string) => void;
@@ -20,6 +22,7 @@ interface FileViewerState {
   close: () => void;
   togglePanel: () => void;
   setSearchOpen: (open: boolean) => void;
+  setFullscreen: (open: boolean) => void;
 }
 
 export const useFileViewerStore = create<FileViewerState>((set) => ({
@@ -30,6 +33,7 @@ export const useFileViewerStore = create<FileViewerState>((set) => ({
   loading: false,
   error: null,
   searchOpen: false,
+  fullscreen: false,
 
   openFile: (projectRoot: string, relativePath: string) =>
     set({
@@ -52,11 +56,14 @@ export const useFileViewerStore = create<FileViewerState>((set) => ({
     set({ error, loading: false }),
 
   close: () =>
-    set({ isOpen: false, searchOpen: false }),
+    set({ isOpen: false, searchOpen: false, fullscreen: false }),
 
   togglePanel: () =>
     set((state) => ({ isOpen: !state.isOpen })),
 
   setSearchOpen: (open: boolean) =>
     set({ searchOpen: open, isOpen: open ? true : undefined }),
+
+  setFullscreen: (open: boolean) =>
+    set({ fullscreen: open }),
 }));

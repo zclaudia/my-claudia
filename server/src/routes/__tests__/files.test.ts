@@ -15,6 +15,9 @@ vi.mock('fs', () => ({
   readFileSync: vi.fn(),
   unlinkSync: vi.fn(),
   createReadStream: vi.fn(),
+  openSync: vi.fn(() => 3),  // return mock fd
+  readSync: vi.fn(),
+  closeSync: vi.fn(),
 }));
 
 // Mock fileStore
@@ -233,7 +236,8 @@ describe('files routes', () => {
         { name: 'utils', isDirectory: () => true, isFile: () => false },
       ] as unknown as ReturnType<typeof fs.readdirSync>);
 
-      const res = await request(app).get('/api/files/list?projectRoot=/project&query=comp');
+      // Use relativePath to go through non-recursive listing path (recursive search with directories-only mocks causes infinite recursion)
+      const res = await request(app).get('/api/files/list?projectRoot=/project&relativePath=.&query=comp');
 
       expect(res.status).toBe(200);
       expect(res.body.data.entries).toHaveLength(1);
@@ -371,6 +375,12 @@ describe('files routes', () => {
         size: fileContent.length,
       } as fs.Stats);
       vi.mocked(fs.readFileSync).mockReturnValue(fileContent);
+      // Binary probe: readSync must fill buffer with text content (not null bytes)
+      vi.mocked(fs.readSync).mockImplementation((_fd, buf: Buffer) => {
+        const bytes = Buffer.from(fileContent);
+        bytes.copy(buf, 0, 0, Math.min(bytes.length, buf.length));
+        return bytes.length;
+      });
 
       const res = await request(app).get('/api/files/content?projectRoot=/project&relativePath=index.ts');
 

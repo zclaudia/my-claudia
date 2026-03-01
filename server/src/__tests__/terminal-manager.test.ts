@@ -48,9 +48,10 @@ describe('TerminalManager', () => {
   });
 
   describe('create', () => {
-    it('spawns a PTY with correct options', () => {
+    it('spawns a PTY at $HOME then cd to target cwd', () => {
       manager.create('term-1', 'client-1', '/home/test', 80, 24);
 
+      // PTY is spawned at $HOME (safe cwd), not the target cwd
       expect(pty.spawn).toHaveBeenCalledWith(
         expect.any(String),
         [],
@@ -58,9 +59,11 @@ describe('TerminalManager', () => {
           name: 'xterm-256color',
           cols: 80,
           rows: 24,
-          cwd: '/home/test',
+          cwd: process.env.HOME || '/',
         }),
       );
+      // Then cd to the target directory
+      expect(mockPtyWrite).toHaveBeenCalledWith(expect.stringContaining('/home/test'));
     });
 
     it('sends terminal_output when PTY emits data', () => {
@@ -113,6 +116,7 @@ describe('TerminalManager', () => {
 
     it('resets idle timer on write', () => {
       manager.create('term-1', 'client-1', '/tmp', 80, 24);
+      vi.clearAllMocks(); // Clear cd write from create
 
       // Advance 29 minutes
       vi.advanceTimersByTime(29 * 60 * 1000);
@@ -148,6 +152,7 @@ describe('TerminalManager', () => {
   describe('destroy', () => {
     it('kills the PTY and removes from map', () => {
       manager.create('term-1', 'client-1', '/tmp', 80, 24);
+      vi.clearAllMocks(); // Clear cd write from create
       manager.destroy('term-1');
 
       expect(mockPtyKill).toHaveBeenCalledTimes(1);
@@ -208,6 +213,7 @@ describe('TerminalManager', () => {
   describe('idle timeout', () => {
     it('destroys terminal after 30 minutes of inactivity', () => {
       manager.create('term-1', 'client-1', '/tmp', 80, 24);
+      vi.clearAllMocks(); // Clear cd write from create
 
       vi.advanceTimersByTime(30 * 60 * 1000);
 

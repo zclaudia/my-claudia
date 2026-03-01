@@ -1068,12 +1068,9 @@ async function handleClientMessage(
     case 'terminal_open': {
       if (!termMgr) break;
       const project = db.prepare('SELECT root_path FROM projects WHERE id = ?').get(message.projectId) as { root_path: string } | undefined;
-      let cwd = project?.root_path || process.env.HOME || '/';
-      // Validate cwd exists — posix_spawnp fails if cwd doesn't exist
-      if (!fs.existsSync(cwd)) {
-        console.warn(`[Terminal] cwd does not exist: ${cwd}, falling back to HOME`);
-        cwd = process.env.HOME || '/';
-      }
+      // Pass the target cwd to TerminalManager — it spawns at $HOME then cd's to this path
+      // (avoids macOS TCC permission dialogs that block pty.spawn)
+      const cwd = project?.root_path || process.env.HOME || '/';
       try {
         termMgr.create(message.terminalId, client.id, cwd, message.cols, message.rows);
         sendMessage(client.ws, { type: 'terminal_opened', terminalId: message.terminalId, success: true });
@@ -1250,6 +1247,20 @@ async function handleRunStart(
 
   try {
     const cwd = session.root_path || process.cwd();
+    // Validate cwd exists — spawn() fails with cryptic ENOENT if cwd is invalid
+    if (!fs.existsSync(cwd)) {
+      console.warn(`[Run] cwd does not exist: ${cwd}`);
+      sendMessage(client.ws, {
+        type: 'run_failed',
+        runId,
+        sessionId: activeRun.sessionId,
+        error: `Project path does not exist: ${cwd}`
+      });
+      activeRun.completed = true;
+      broadcastHeartbeat();
+      activeRuns.delete(runId);
+      return;
+    }
     let systemInfo: SystemInfo | undefined;
 
     // Process @ mentions - convert file references to context hints

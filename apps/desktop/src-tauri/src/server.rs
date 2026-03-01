@@ -184,6 +184,12 @@ pub async fn start_server(
         data_dir
     );
 
+    // Resolve the main app's bundle identifier so child processes (node sidecar,
+    // Claude CLI) share the same macOS TCC permission entry as the main app.
+    // Without this, macOS shows duplicate permission dialogs — once for "MyClaudia"
+    // and once for "my-claudia" (the node binary).
+    let bundle_id = _app.config().identifier.clone();
+
     // Spawn node with the server script
     let mut child = Command::new(&node_bin)
         .arg(&server_path)
@@ -191,6 +197,9 @@ pub async fn start_server(
         .env("SERVER_HOST", "127.0.0.1")
         .env("MY_CLAUDIA_DATA_DIR", &data_dir)
         .env("PATH", &shell_path)
+        // Attribute TCC (Transparency, Consent, Control) decisions to the main app
+        // so macOS doesn't show separate permission dialogs for the node sidecar.
+        .env("__CFBundleIdentifier", &bundle_id)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()

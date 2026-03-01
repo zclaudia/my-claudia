@@ -5,6 +5,7 @@ import { ServerSelector } from './components/ServerSelector';
 import { MobileSetup } from './components/MobileSetup';
 import { AgentWidget } from './components/agent/AgentWidget';
 import { AgentPanel } from './components/agent/AgentPanel';
+import { FileViewerWindow } from './components/fileviewer/FileViewerWindow';
 import { ThemeProvider } from './contexts/ThemeContext';
 import { ConnectionProvider, useConnection } from './contexts/ConnectionContext';
 import { useDataLoader } from './hooks/useDataLoader';
@@ -17,6 +18,7 @@ import { useIsMobile } from './hooks/useMediaQuery';
 import { useAndroidBack } from './hooks/useAndroidBack';
 import { migrateServersFromLocalStorage, needsMigration } from './utils/migrateServers';
 import { eagerSyncAllBackends } from './services/sessionSync';
+import { useFileViewerStore } from './stores/fileViewerStore';
 
 function AppContent() {
   const { connectServer, embeddedServerStatus, embeddedServerError } = useConnection();
@@ -25,6 +27,10 @@ function AppContent() {
   const { selectedSessionId } = useProjectStore();
   const { directGatewayUrl, lastActiveBackendId, isConnected: isGatewayConnected, discoveredBackends } = useGatewayStore();
   const { isExpanded: isAgentExpanded, isConfigured: isAgentConfigured, setExpanded: setAgentExpanded } = useAgentStore();
+  const fileViewerFullscreen = useFileViewerStore((s) => s.fullscreen);
+  const fileViewerFilePath = useFileViewerStore((s) => s.filePath);
+  const fileViewerProjectRoot = useFileViewerStore((s) => s.projectRoot);
+  const setFileViewerFullscreen = useFileViewerStore((s) => s.setFullscreen);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const isMobile = useIsMobile();
@@ -39,6 +45,9 @@ function AppContent() {
 
   // Load data from server
   useDataLoader();
+
+  // Android back gesture: close fullscreen file viewer (pri 25)
+  useAndroidBack(() => setFileViewerFullscreen(false), fileViewerFullscreen, 25);
 
   // Android back gesture: close agent panel (pri 20)
   useAndroidBack(() => setAgentExpanded(false), isMobile && isAgentExpanded, 20);
@@ -279,11 +288,36 @@ function AppContent() {
 
       {/* Agent Widget */}
       <AgentWidget />
+
+      {/* Fullscreen file viewer overlay (mobile) */}
+      {fileViewerFullscreen && fileViewerFilePath && fileViewerProjectRoot && (
+        <div className="fixed inset-0 z-50 bg-background flex flex-col">
+          <div className="safe-top-spacer bg-card flex-shrink-0" />
+          <FileViewerWindow
+            filePath={fileViewerFilePath}
+            projectRoot={fileViewerProjectRoot}
+            onClose={() => setFileViewerFullscreen(false)}
+          />
+        </div>
+      )}
     </div>
   );
 }
 
 function App() {
+  // Check if this window is a standalone file viewer (opened via "Open in new window")
+  const params = new URLSearchParams(window.location.search);
+  const fileViewerPath = params.get('fileViewer');
+  const fileViewerRoot = params.get('projectRoot');
+
+  if (fileViewerPath && fileViewerRoot) {
+    return (
+      <ThemeProvider defaultTheme="dark-neutral">
+        <FileViewerWindow filePath={fileViewerPath} projectRoot={fileViewerRoot} />
+      </ThemeProvider>
+    );
+  }
+
   return (
     <ThemeProvider defaultTheme="dark-neutral">
       <ConnectionProvider>

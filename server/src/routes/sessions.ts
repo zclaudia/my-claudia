@@ -200,7 +200,7 @@ export function createSessionRoutes(db: Database.Database, activeRuns: ActiveRun
         providerId: session.providerId,
         createdAt: session.createdAt,
         updatedAt: session.updatedAt,
-        isActive: [...activeRuns.values()].some(run => run.sessionId === session.id),
+        isActive: [...activeRuns.values()].some(run => run.sessionId === session.id && !run.completed),
         lastMessageOffset: session.lastMessageOffset ?? undefined,
       }));
 

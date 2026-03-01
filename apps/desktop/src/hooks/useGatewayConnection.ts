@@ -224,8 +224,9 @@ export function useGatewayConnection() {
             content: '',
             createdAt: Date.now()
           });
-          // Update session active status
+          // Update session active status (both stores — projectStore for local, sessionsStore for gateway)
           useProjectStore.getState().setSessionActive(targetSessionId, true);
+          useSessionsStore.getState().setSessionActiveById(backendId, targetSessionId, true);
         } else {
           console.warn(`[GatewayConn:${backendId}] run_started ignored: no sessionId (server=${serverId}, active=${currentActiveId})`);
         }
@@ -250,6 +251,7 @@ export function useGatewayConnection() {
           // Update session active status (skip for agent sessions)
           if (completedSession !== useAgentStore.getState().agentSessionId) {
             useProjectStore.getState().setSessionActive(completedSession, false);
+            useSessionsStore.getState().setSessionActiveById(backendId, completedSession, false);
           }
         }
         endRun(msg.runId);
@@ -275,6 +277,7 @@ export function useGatewayConnection() {
           // Update session active status (skip for agent sessions)
           if (failedSession !== useAgentStore.getState().agentSessionId) {
             useProjectStore.getState().setSessionActive(failedSession, false);
+            useSessionsStore.getState().setSessionActiveById(backendId, failedSession, false);
           }
         }
         endRun(msg.runId);
@@ -496,6 +499,11 @@ export function useGatewayConnection() {
       case 'terminal_opened': {
         if (!msg.success) {
           console.error(`[GatewayConn:${backendId}] Terminal open failed:`, msg.error);
+          // Show error in the terminal UI so user doesn't see a blank screen
+          const entry = xtermRegistry.get(msg.terminalId);
+          if (entry) {
+            entry.terminal.writeln(`\r\n\x1b[31mTerminal failed to open: ${msg.error || 'Unknown error'}\x1b[0m`);
+          }
         }
         break;
       }

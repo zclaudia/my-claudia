@@ -33,9 +33,28 @@ interface FileViewerPanelProps {
   projectRoot: string;
 }
 
-/** File viewer toolbar actions (search, copy) rendered in the shared BottomPanel header */
+const isDesktopTauri = typeof window !== 'undefined'
+  && '__TAURI_INTERNALS__' in window
+  && !navigator.userAgent.includes('Android');
+
+async function openFileInNewWindow(filePath: string, projectRoot: string) {
+  const { WebviewWindow } = await import('@tauri-apps/api/webviewWindow');
+  const label = `file-viewer-${Date.now()}`;
+  const fileName = filePath.split('/').pop() || filePath;
+  const params = new URLSearchParams({ fileViewer: filePath, projectRoot });
+  const url = `${window.location.origin}${window.location.pathname}?${params}`;
+  new WebviewWindow(label, {
+    url,
+    title: fileName,
+    width: 800,
+    height: 600,
+    center: true,
+  });
+}
+
+/** File viewer toolbar actions (search, copy, open in new window / fullscreen) rendered in the shared BottomPanel header */
 export function FileViewerActions() {
-  const { searchOpen, setSearchOpen, content } = useFileViewerStore();
+  const { searchOpen, setSearchOpen, content, filePath, projectRoot, setFullscreen } = useFileViewerStore();
   const [copied, setCopied] = useState(false);
 
   const handleCopy = async () => {
@@ -43,6 +62,15 @@ export function FileViewerActions() {
     await navigator.clipboard.writeText(content);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+  };
+
+  const handleExpand = () => {
+    if (!filePath) return;
+    if (isDesktopTauri && projectRoot) {
+      openFileInNewWindow(filePath, projectRoot);
+    } else {
+      setFullscreen(true);
+    }
   };
 
   return (
@@ -71,6 +99,21 @@ export function FileViewerActions() {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
             ) : (
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+            )}
+          </svg>
+        </button>
+      )}
+      {filePath && (
+        <button
+          onClick={handleExpand}
+          className="p-1 rounded text-muted-foreground hover:bg-secondary hover:text-foreground flex-shrink-0"
+          title={isDesktopTauri ? 'Open in new window' : 'Fullscreen'}
+        >
+          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            {isDesktopTauri ? (
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+            ) : (
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
             )}
           </svg>
         </button>
@@ -113,7 +156,7 @@ export function FileViewerPanel({ projectRoot }: FileViewerPanelProps) {
   const codeStyle = isDarkTheme(resolvedTheme) ? oneDark : oneLight;
 
   return (
-    <div className="flex flex-col flex-1 overflow-hidden">
+    <div className="flex flex-col h-full overflow-hidden">
       {/* File path indicator */}
       <div className="flex items-center gap-1.5 px-3 py-1 border-b border-border flex-shrink-0 min-w-0">
         <svg className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -157,7 +200,6 @@ export function FileViewerPanel({ projectRoot }: FileViewerPanelProps) {
               padding: '0.5rem 0',
               fontSize: '0.75rem',
               lineHeight: '1.25rem',
-              minHeight: '100%',
             }}
             lineNumberStyle={{
               minWidth: '3em',
