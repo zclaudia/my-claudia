@@ -117,6 +117,18 @@ async function saveOrDownload(blob: Blob, fileName: string, fileId: string): Pro
       const savedPath = await saveFileTauri(blob, fileName);
       useFilePushStore.getState().updateSavedPath(fileId, savedPath);
       console.log(`[fileDownload] Saved to: ${savedPath}`);
+
+      // Android: also copy to the system's shared Downloads folder
+      if (isAndroid() && (window as any).AndroidFiles) {
+        const item = useFilePushStore.getState().items.find(i => i.fileId === fileId);
+        const mimeType = item?.mimeType || 'application/octet-stream';
+        try {
+          (window as any).AndroidFiles.saveToDownloads(savedPath, fileName, mimeType);
+          console.log(`[fileDownload] Copied to shared Downloads: ${fileName}`);
+        } catch (e) {
+          console.warn('[fileDownload] Failed to copy to shared Downloads:', e);
+        }
+      }
       return;
     } catch (err) {
       console.warn('[fileDownload] Tauri save failed, falling back to browser download:', err);
@@ -145,6 +157,14 @@ function triggerBrowserDownload(blob: Blob, fileName: string): void {
 export async function openFile(filePath: string): Promise<void> {
   const { open } = await import('@tauri-apps/plugin-shell');
   await open(filePath);
+}
+
+/**
+ * Open a file on Android using the native FileHelper JS interface.
+ * Uses FileProvider + ACTION_VIEW intent to launch the appropriate app.
+ */
+export function openFileAndroid(filePath: string, mimeType: string): void {
+  (window as any).AndroidFiles?.openFile(filePath, mimeType);
 }
 
 /**

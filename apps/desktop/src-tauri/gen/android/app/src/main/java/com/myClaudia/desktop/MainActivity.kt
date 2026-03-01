@@ -9,6 +9,11 @@ class MainActivity : TauriActivity() {
     enableEdgeToEdge()
     super.onCreate(savedInstanceState)
 
+    // Register native file helper for WebView (save to Downloads, open files)
+    window.decorView.post {
+      findWebView()?.addJavascriptInterface(FileHelper(this@MainActivity), "AndroidFiles")
+    }
+
     // Intercept Android back gesture / back button and forward to WebView
     onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
       override fun handleOnBackPressed() {
