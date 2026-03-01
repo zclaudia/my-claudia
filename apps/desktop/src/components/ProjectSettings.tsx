@@ -66,6 +66,8 @@ export function ProjectSettings({ project, isOpen, onClose }: ProjectSettingsPro
     try {
       const data = await api.getProviders();
       setProviders(data);
+      // Sync to global store so Sidebar's provider dropdown stays current
+      useProjectStore.getState().setProviders(data);
     } catch (error) {
       console.error('Failed to load providers:', error);
     } finally {

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import type { ProviderConfig } from '@my-claudia/shared';
 import { useServerStore } from '../stores/serverStore';
+import { useProjectStore } from '../stores/projectStore';
 import * as api from '../services/api';
 
 interface ProviderManagerProps {
@@ -33,6 +34,8 @@ export function ProviderManager({ isOpen, onClose, inline = false }: ProviderMan
     try {
       const data = await api.getProviders();
       setProviders(data);
+      // Sync to global store so Sidebar's provider dropdown stays current
+      useProjectStore.getState().setProviders(data);
     } catch (error) {
       console.error('Failed to load providers:', error);
     } finally {
