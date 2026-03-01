@@ -14,6 +14,10 @@ fi
 # Prefer rustup-managed toolchain over Homebrew Rust
 export PATH="$HOME/.cargo/bin:$PATH"
 
+# Ensure Node.js is available (fnm / nvm)
+if command -v fnm >/dev/null 2>&1; then eval "$(fnm env)"; fi
+if command -v nvm >/dev/null 2>&1; then nvm use 2>/dev/null || true; fi
+
 for cmd in rustup pnpm; do
   command -v "$cmd" >/dev/null || { echo "ERROR: $cmd not found"; exit 1; }
 done

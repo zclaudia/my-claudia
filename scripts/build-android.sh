@@ -32,10 +32,19 @@ done
 
 # --- Environment (macOS / Linux) ---
 if [[ "$(uname)" == "Darwin" ]]; then
-  export JAVA_HOME="${JAVA_HOME:-$(/usr/libexec/java_home -v 17 2>/dev/null || echo "")}"
+  # JAVA_HOME: prefer env var > java_home utility > Homebrew openjdk@17
+  if [ -z "${JAVA_HOME:-}" ]; then
+    JAVA_HOME=$(/usr/libexec/java_home -v 17 2>/dev/null || true)
+    [ -z "$JAVA_HOME" ] && [ -d "/opt/homebrew/opt/openjdk@17" ] && JAVA_HOME="/opt/homebrew/opt/openjdk@17"
+    [ -z "$JAVA_HOME" ] && [ -d "/usr/local/opt/openjdk@17" ] && JAVA_HOME="/usr/local/opt/openjdk@17"
+  fi
+  export JAVA_HOME
   export ANDROID_HOME="${ANDROID_HOME:-/opt/homebrew/share/android-commandlinetools}"
   # Prefer rustup-managed toolchain over Homebrew Rust
   export PATH="$HOME/.cargo/bin:$PATH"
+  # Ensure Node.js is available (fnm / nvm)
+  if command -v fnm >/dev/null 2>&1; then eval "$(fnm env)"; fi
+  if command -v nvm >/dev/null 2>&1; then nvm use 2>/dev/null || true; fi
 else
   export JAVA_HOME="${JAVA_HOME:-/usr/lib/jvm/java-17-openjdk-amd64}"
   export ANDROID_HOME="${ANDROID_HOME:-$HOME/Android/Sdk}"

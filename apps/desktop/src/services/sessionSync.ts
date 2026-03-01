@@ -268,7 +268,7 @@ async function fullSync(backendId: string): Promise<void> {
  * Eagerly sync messages for the currently viewed session.
  * Directly fetches messages after the local maxOffset without depending on session list.
  */
-export async function eagerSyncCurrentSession(backendId: string): Promise<void> {
+export async function eagerSyncCurrentSession(_backendId: string): Promise<void> {
   const currentSessionId = useProjectStore.getState().selectedSessionId;
   if (!currentSessionId) return;
 
