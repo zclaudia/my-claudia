@@ -351,7 +351,7 @@ export interface SystemInfo {
 }
 
 export interface ClaudeMessage {
-  type: 'init' | 'assistant' | 'result' | 'tool_use' | 'tool_result' | 'error';
+  type: 'init' | 'assistant' | 'result' | 'tool_use' | 'tool_result' | 'error' | 'task_notification';
   sessionId?: string;
   content?: string;
   systemInfo?: SystemInfo;  // System info from init message
@@ -366,6 +366,9 @@ export interface ClaudeMessage {
     outputTokens: number;
   };
   isComplete?: boolean;
+  taskId?: string;          // Background task ID (for task_notification)
+  taskStatus?: string;      // Background task status (e.g. 'completed', 'failed')
+  taskMessage?: string;     // Background task notification message
 }
 
 // Transform a single message from SDK format to our internal format
@@ -396,6 +399,16 @@ function transformMessage(message: unknown): ClaudeMessage | ClaudeMessage[] {
           type: 'init',
           sessionId: msg.session_id as string,
           systemInfo,
+        };
+      }
+      if ((msg as { subtype?: string }).subtype === 'task_notification') {
+        // Background task status notification (e.g. process exited)
+        console.log('[Claude SDK] Task notification:', JSON.stringify(msg));
+        return {
+          type: 'task_notification',
+          taskId: msg.task_id as string | undefined,
+          taskStatus: msg.status as string | undefined,
+          taskMessage: msg.message as string | undefined,
         };
       }
       return { type: 'init' };

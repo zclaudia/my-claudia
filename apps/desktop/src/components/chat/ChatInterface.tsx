@@ -10,8 +10,7 @@ import { ModeSelector } from './ModeSelector';
 import { SystemInfoButton } from './SystemInfoButton';
 import { ModelSelector } from './ModelSelector';
 import { TokenUsageDisplay } from './TokenUsageDisplay';
-import { TerminalPanel } from '../terminal/TerminalPanel';
-import { FileViewerPanel } from '../fileviewer/FileViewerPanel';
+import { BottomPanel } from '../BottomPanel';
 import { useChatStore } from '../../stores/chatStore';
 import { useProjectStore } from '../../stores/projectStore';
 import { useServerStore } from '../../stores/serverStore';
@@ -89,7 +88,7 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
   const { projects, sessions, providerCommands, providerCapabilities, setProviderCapabilities } = useProjectStore();
   const { setDrawerOpen, drawerOpen } = useTerminalStore();
   const { advancedInput, setAdvancedInput } = useUIStore();
-  const { isOpen: fileViewerOpen, setSearchOpen: setFileSearchOpen, togglePanel: toggleFileViewer } = useFileViewerStore();
+  const { isOpen: fileViewerOpen } = useFileViewerStore();
   const { sendMessage: wsSendMessage, isConnected, handlePermissionDecision, handleAskUserAnswer } = useConnection();
 
   // Per-session pending permission/question requests
@@ -944,15 +943,11 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
         )}
       </div>
 
-      {/* File viewer panel */}
-      {currentProject?.rootPath && (
-        <FileViewerPanel projectRoot={currentProject.rootPath} />
-      )}
-
-      {/* Terminal panel (inline between messages and input) */}
-      {currentSession?.projectId && (
-        <TerminalPanel projectId={currentSession.projectId} />
-      )}
+      {/* Bottom panel (file viewer + terminal with tab switching) */}
+      <BottomPanel
+        projectId={currentSession?.projectId}
+        projectRoot={currentProject?.rootPath}
+      />
 
       {/* Upload error banner */}
       {uploadError && (
@@ -1005,19 +1000,6 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
               </svg>
             </button>
           )}
-          <button
-            onClick={() => setAdvancedInput(!advancedInput)}
-            className={`p-1.5 rounded hover:bg-secondary ${advancedInput ? 'text-primary' : 'text-muted-foreground hover:text-foreground'}`}
-            title={advancedInput ? 'Normal input' : 'Advanced input (Enter to newline)'}
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              {advancedInput ? (
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-              ) : (
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
-              )}
-            </svg>
-          </button>
           {useServerStore.getState().activeServerSupports('remoteTerminal') && currentSession?.projectId && (() => {
             const pid = currentSession.projectId;
             const isOpen = !!drawerOpen[pid];
@@ -1043,6 +1025,19 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
               </button>
             );
           })()}
+          <button
+            onClick={() => setAdvancedInput(!advancedInput)}
+            className={`p-1.5 rounded hover:bg-secondary ${advancedInput ? 'text-primary' : 'text-muted-foreground hover:text-foreground'}`}
+            title={advancedInput ? 'Normal input' : 'Advanced input (Enter to newline)'}
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              {advancedInput ? (
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+              ) : (
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
+              )}
+            </svg>
+          </button>
           <SystemInfoButton
             systemInfo={currentSystemInfo}
             sessionInfo={currentSession ? {

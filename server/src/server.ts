@@ -206,6 +206,7 @@ interface ActiveRun {
   collectedToolCalls: (ToolCall & { toolUseId: string })[];
   contentBlocks: ContentBlock[];
   saveInterval?: NodeJS.Timeout;
+  completed?: boolean;  // True after run_completed/run_failed sent; hides from heartbeat while for-await drains
 }
 
 const activeRuns = new Map<string, ActiveRun>();
@@ -848,6 +849,7 @@ function buildStateHeartbeat(): StateHeartbeatMessage {
   const questions: StateHeartbeatMessage['pendingQuestions'] = [];
 
   for (const [runId, run] of activeRuns) {
+    if (run.completed) continue;  // Run finished but for-await still draining SDK messages
     runs.push({ runId, sessionId: run.sessionId });
     for (const [requestId, pending] of run.pendingPermissions) {
       if (!pending.originalRequest) continue;
@@ -1630,6 +1632,11 @@ async function handleRunStart(
             sessionId: activeRun.sessionId,
             usage: msg.usage
           });
+          // Mark completed immediately so heartbeat no longer reports this run as active.
+          // The for-await loop may still receive trailing SDK messages (e.g. task_notification)
+          // but the client should see the session as idle.
+          activeRun.completed = true;
+          broadcastHeartbeat();
           notificationService.notify({
             type: 'run_completed',
             title: 'Run completed',
@@ -1645,6 +1652,19 @@ async function handleRunStart(
               status: 'completed',
             } as import('@my-claudia/shared').BackgroundTaskUpdateMessage);
           }
+          break;
+
+        case 'task_notification':
+          // Forward background task notifications (e.g. process exited) to client
+          console.log(`[Task Notification] taskId=${msg.taskId} status=${msg.taskStatus} message=${msg.taskMessage}`);
+          sendMessage(client.ws, {
+            type: 'task_notification',
+            runId,
+            sessionId: activeRun.sessionId,
+            taskId: msg.taskId,
+            status: msg.taskStatus,
+            message: msg.taskMessage,
+          } as import('@my-claudia/shared').TaskNotificationMessage);
           break;
       }
     }
@@ -1673,6 +1693,8 @@ async function handleRunStart(
       sessionId: activeRun.sessionId,
       error: error instanceof Error ? error.message : 'Unknown error'
     });
+    activeRun.completed = true;
+    broadcastHeartbeat();
     notificationService.notify({
       type: 'run_failed',
       title: 'Run failed',

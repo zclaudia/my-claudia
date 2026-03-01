@@ -583,6 +583,7 @@ export type ServerMessage =
   | AgentPermissionInterceptedMessage
   | BackgroundTaskUpdateMessage
   | BackgroundPermissionPendingMessage
+  | TaskNotificationMessage
   | PongMessage
   | ErrorMessage
   | ProjectsListMessage
@@ -764,6 +765,16 @@ export interface BackgroundTaskUpdateMessage {
   status: BackgroundTaskStatus;
   name?: string;
   reason?: string;       // e.g. 'Permission escalated', 'Completed successfully'
+}
+
+// SDK task notification (e.g. background Bash process exited) (Server → Client)
+export interface TaskNotificationMessage {
+  type: 'task_notification';
+  runId: string;
+  sessionId: string;
+  taskId?: string;
+  status?: string;
+  message?: string;
 }
 
 // Background session has a pending permission that needs user attention (Server → Client)

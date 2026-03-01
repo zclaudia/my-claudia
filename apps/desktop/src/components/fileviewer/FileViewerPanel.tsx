@@ -1,16 +1,10 @@
-import { useState, useCallback, useRef, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { useFileViewerStore } from '../../stores/fileViewerStore';
-import { useIsMobile } from '../../hooks/useMediaQuery';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneDark, oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { useTheme, isDarkTheme } from '../../contexts/ThemeContext';
 import * as api from '../../services/api';
 import { FileSearchInput } from './FileSearchInput';
-
-const MIN_HEIGHT = 100;
-const MAX_HEIGHT_VH = 70;
-const DEFAULT_HEIGHT_DESKTOP = 350;
-const DEFAULT_HEIGHT_MOBILE = 400;
 
 const EXT_TO_LANG: Record<string, string> = {
   ts: 'typescript', tsx: 'tsx', js: 'javascript', jsx: 'jsx',
@@ -39,23 +33,60 @@ interface FileViewerPanelProps {
   projectRoot: string;
 }
 
-export function FileViewerPanel({ projectRoot }: FileViewerPanelProps) {
-  const {
-    isOpen, filePath, content, loading, error, searchOpen,
-    openFile, setContent, setError, close, setSearchOpen,
-  } = useFileViewerStore();
-
-  const isMobile = useIsMobile();
-  const { resolvedTheme } = useTheme();
+/** File viewer toolbar actions (search, copy) rendered in the shared BottomPanel header */
+export function FileViewerActions({ projectRoot }: { projectRoot: string }) {
+  const { searchOpen, setSearchOpen, content } = useFileViewerStore();
   const [copied, setCopied] = useState(false);
 
-  const containerRef = useRef<HTMLDivElement>(null);
-  const [heightPx, setHeightPx] = useState(
-    isMobile ? DEFAULT_HEIGHT_MOBILE : DEFAULT_HEIGHT_DESKTOP,
+  const handleCopy = async () => {
+    if (!content) return;
+    await navigator.clipboard.writeText(content);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  return (
+    <>
+      <button
+        onClick={() => setSearchOpen(!searchOpen)}
+        className={`p-1 rounded hover:bg-secondary flex-shrink-0 ${
+          searchOpen ? 'text-primary' : 'text-muted-foreground hover:text-foreground'
+        }`}
+        title="Search files (Cmd+P)"
+      >
+        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+        </svg>
+      </button>
+      {content && (
+        <button
+          onClick={handleCopy}
+          className={`p-1 rounded flex-shrink-0 ${
+            copied ? 'text-green-500' : 'text-muted-foreground hover:bg-secondary hover:text-foreground'
+          }`}
+          title={copied ? 'Copied!' : 'Copy file content'}
+        >
+          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            {copied ? (
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+            ) : (
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+            )}
+          </svg>
+        </button>
+      )}
+    </>
   );
-  const dragging = useRef(false);
-  const startY = useRef(0);
-  const startHeight = useRef(0);
+}
+
+/** File viewer content (renders inside the shared BottomPanel) */
+export function FileViewerPanel({ projectRoot }: FileViewerPanelProps) {
+  const {
+    filePath, content, loading, error, searchOpen,
+    openFile, setContent, setError, setSearchOpen,
+  } = useFileViewerStore();
+
+  const { resolvedTheme } = useTheme();
 
   // Fetch file content when filePath changes
   useEffect(() => {
@@ -65,142 +96,32 @@ export function FileViewerPanel({ projectRoot }: FileViewerPanelProps) {
     (async () => {
       try {
         const result = await api.getFileContent({ projectRoot, relativePath: filePath });
-        if (!cancelled) {
-          setContent(result.content);
-        }
+        if (!cancelled) setContent(result.content);
       } catch (err) {
-        if (!cancelled) {
-          setError(err instanceof Error ? err.message : 'Failed to load file');
-        }
+        if (!cancelled) setError(err instanceof Error ? err.message : 'Failed to load file');
       }
     })();
 
     return () => { cancelled = true; };
   }, [filePath, projectRoot, setContent, setError]);
 
-  // Drag handle for resizing
-  const onDragStart = useCallback(
-    (e: React.MouseEvent | React.TouchEvent) => {
-      e.preventDefault();
-      dragging.current = true;
-      startY.current = 'touches' in e ? e.touches[0].clientY : e.clientY;
-      startHeight.current = heightPx;
-
-      const maxPx = (window.innerHeight * MAX_HEIGHT_VH) / 100;
-
-      const onMove = (ev: MouseEvent | TouchEvent) => {
-        if (!dragging.current) return;
-        const clientY = 'touches' in ev ? ev.touches[0].clientY : ev.clientY;
-        const deltaPx = startY.current - clientY;
-        const newHeight = Math.max(MIN_HEIGHT, Math.min(maxPx, startHeight.current + deltaPx));
-        setHeightPx(newHeight);
-      };
-
-      const onUp = () => {
-        dragging.current = false;
-        document.removeEventListener('mousemove', onMove);
-        document.removeEventListener('mouseup', onUp);
-        document.removeEventListener('touchmove', onMove);
-        document.removeEventListener('touchend', onUp);
-      };
-
-      document.addEventListener('mousemove', onMove);
-      document.addEventListener('mouseup', onUp);
-      document.addEventListener('touchmove', onMove);
-      document.addEventListener('touchend', onUp);
-    },
-    [heightPx],
-  );
-
-  const handleCopy = async () => {
-    if (!content) return;
-    await navigator.clipboard.writeText(content);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
-
   const handleSearchSelect = (relativePath: string) => {
     openFile(projectRoot, relativePath);
   };
 
-  if (!isOpen) return null;
-
   const lang = filePath ? detectLanguage(filePath) : 'text';
   const codeStyle = isDarkTheme(resolvedTheme) ? oneDark : oneLight;
-  const fileName = filePath?.split('/').pop() || '';
 
   return (
-    <div
-      ref={containerRef}
-      className="flex flex-col flex-shrink-0 bg-card border-t border-border"
-      style={{ height: `${heightPx}px`, overflow: 'hidden' }}
-    >
-      {/* Drag handle + header */}
-      <div
-        className="flex items-center gap-2 px-3 py-1.5 cursor-ns-resize select-none border-b border-border flex-shrink-0"
-        onMouseDown={onDragStart}
-        onTouchStart={onDragStart}
-      >
-        {/* Drag indicator */}
-        <div className="flex-1 flex justify-center">
-          <div className="w-8 h-1 rounded-full bg-muted-foreground/40" />
-        </div>
-      </div>
-
-      {/* Toolbar */}
-      <div className="flex items-center gap-2 px-3 py-1.5 border-b border-border flex-shrink-0 min-w-0">
-        {/* File path */}
-        <div className="flex items-center gap-1.5 min-w-0 flex-1">
-          <svg className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-          </svg>
-          <span className="text-xs font-mono text-muted-foreground truncate" title={filePath || ''}>
-            {filePath || 'No file selected'}
-          </span>
-        </div>
-
-        {/* Search button */}
-        <button
-          onClick={() => setSearchOpen(!searchOpen)}
-          className={`p-1 rounded hover:bg-secondary flex-shrink-0 ${
-            searchOpen ? 'text-primary' : 'text-muted-foreground hover:text-foreground'
-          }`}
-          title="Search files"
-        >
-          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-          </svg>
-        </button>
-
-        {/* Copy button */}
-        {content && (
-          <button
-            onClick={handleCopy}
-            className={`p-1 rounded flex-shrink-0 ${
-              copied ? 'text-green-500' : 'text-muted-foreground hover:bg-secondary hover:text-foreground'
-            }`}
-            title={copied ? 'Copied!' : 'Copy file content'}
-          >
-            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              {copied ? (
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-              ) : (
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-              )}
-            </svg>
-          </button>
-        )}
-
-        {/* Close button */}
-        <button
-          onClick={close}
-          className="p-1 rounded text-muted-foreground hover:bg-secondary hover:text-foreground flex-shrink-0"
-          title="Close file viewer"
-        >
-          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-          </svg>
-        </button>
+    <div className="flex flex-col flex-1 overflow-hidden">
+      {/* File path indicator */}
+      <div className="flex items-center gap-1.5 px-3 py-1 border-b border-border flex-shrink-0 min-w-0">
+        <svg className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+        </svg>
+        <span className="text-xs font-mono text-muted-foreground truncate" title={filePath || ''}>
+          {filePath || 'No file selected'}
+        </span>
       </div>
 
       {/* Search input */}

@@ -52,6 +52,61 @@ function fuzzyMatch(query: string, name: string): boolean {
   return lowerName.includes(lowerQuery);
 }
 
+// Recursive file search: walk directory tree and collect matching files
+function recursiveFileSearch(
+  rootDir: string,
+  projectRoot: string,
+  query: string,
+  maxResults: number,
+): { entries: FileEntry[]; hasMore: boolean } {
+  const entries: FileEntry[] = [];
+  let hasMore = false;
+
+  function walk(dir: string) {
+    if (hasMore) return;
+    let dirEntries: fs.Dirent[];
+    try {
+      dirEntries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return; // Skip unreadable directories
+    }
+
+    for (const entry of dirEntries) {
+      if (hasMore) return;
+      if (entry.name.startsWith('.')) continue;
+
+      if (entry.isDirectory()) {
+        if (IGNORED_DIRS.has(entry.name)) continue;
+        walk(path.join(dir, entry.name));
+      } else if (entry.isFile()) {
+        if (!fuzzyMatch(query, entry.name)) continue;
+        if (entries.length >= maxResults) {
+          hasMore = true;
+          return;
+        }
+
+        const fullPath = path.join(dir, entry.name);
+        const relPath = path.relative(projectRoot, fullPath);
+        let size: number | undefined;
+        try {
+          size = fs.statSync(fullPath).size;
+        } catch { /* ignore */ }
+
+        entries.push({
+          name: entry.name,
+          path: relPath,
+          type: 'file',
+          extension: getExtension(entry.name, false),
+          size,
+        });
+      }
+    }
+  }
+
+  walk(rootDir);
+  return { entries, hasMore };
+}
+
 // Common MIME type lookup by extension
 const MIME_TYPES: Record<string, string> = {
   '.apk': 'application/vnd.android.package-archive',
@@ -262,63 +317,61 @@ export function createFilesRoutes(broadcastCtx?: FilesRouteBroadcastContext): Ro
         return;
       }
 
-      // Read directory contents
-      const dirEntries = fs.readdirSync(targetPath, { withFileTypes: true });
       const maxResultsNum = parseInt(maxResults, 10) || 50;
 
-      const entries: FileEntry[] = [];
-      let hasMore = false;
+      let entries: FileEntry[];
+      let hasMore: boolean;
 
-      for (const entry of dirEntries) {
-        // Skip hidden files (starting with .)
-        if (entry.name.startsWith('.')) {
-          continue;
-        }
+      // When query is provided and browsing project root, do recursive search
+      if (query && !normalizedRelPath) {
+        const result = recursiveFileSearch(targetPath, projectRoot, query, maxResultsNum);
+        entries = result.entries;
+        hasMore = result.hasMore;
+        // Sort alphabetically by path
+        entries.sort((a, b) => a.path.localeCompare(b.path));
+      } else {
+        // Normal directory listing (non-recursive)
+        const dirEntries = fs.readdirSync(targetPath, { withFileTypes: true });
+        entries = [];
+        hasMore = false;
 
-        // Skip ignored directories
-        if (entry.isDirectory() && IGNORED_DIRS.has(entry.name)) {
-          continue;
-        }
+        for (const entry of dirEntries) {
+          if (entry.name.startsWith('.')) continue;
+          if (entry.isDirectory() && IGNORED_DIRS.has(entry.name)) continue;
+          if (!fuzzyMatch(query, entry.name)) continue;
 
-        // Apply fuzzy filter
-        if (!fuzzyMatch(query, entry.name)) {
-          continue;
-        }
-
-        if (entries.length >= maxResultsNum) {
-          hasMore = true;
-          break;
-        }
-
-        const entryPath = normalizedRelPath ? `${normalizedRelPath}/${entry.name}` : entry.name;
-        const fullPath = path.join(targetPath, entry.name);
-
-        let size: number | undefined;
-        if (entry.isFile()) {
-          try {
-            const fileStat = fs.statSync(fullPath);
-            size = fileStat.size;
-          } catch {
-            // Ignore stat errors
+          if (entries.length >= maxResultsNum) {
+            hasMore = true;
+            break;
           }
+
+          const entryPath = normalizedRelPath ? `${normalizedRelPath}/${entry.name}` : entry.name;
+          const fullPath = path.join(targetPath, entry.name);
+
+          let size: number | undefined;
+          if (entry.isFile()) {
+            try {
+              size = fs.statSync(fullPath).size;
+            } catch { /* ignore */ }
+          }
+
+          entries.push({
+            name: entry.name,
+            path: entryPath,
+            type: entry.isDirectory() ? 'directory' : 'file',
+            extension: getExtension(entry.name, entry.isDirectory()),
+            size,
+          });
         }
 
-        entries.push({
-          name: entry.name,
-          path: entryPath,
-          type: entry.isDirectory() ? 'directory' : 'file',
-          extension: getExtension(entry.name, entry.isDirectory()),
-          size
+        // Sort: directories first, then alphabetically
+        entries.sort((a, b) => {
+          if (a.type !== b.type) {
+            return a.type === 'directory' ? -1 : 1;
+          }
+          return a.name.localeCompare(b.name);
         });
       }
-
-      // Sort: directories first, then alphabetically
-      entries.sort((a, b) => {
-        if (a.type !== b.type) {
-          return a.type === 'directory' ? -1 : 1;
-        }
-        return a.name.localeCompare(b.name);
-      });
 
       const response: DirectoryListingResponse = {
         entries,

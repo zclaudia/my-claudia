@@ -336,6 +336,21 @@ export function useMultiServerSocket() {
           break;
         }
 
+        case 'task_notification': {
+          // SDK background task notification (e.g. background Bash process exited)
+          const notifSessionId = message.sessionId;
+          if (notifSessionId && message.message) {
+            useChatStore.getState().addMessage(notifSessionId, {
+              id: `task-notif-${Date.now()}`,
+              sessionId: notifSessionId,
+              role: 'system',
+              content: message.message,
+              createdAt: Date.now(),
+            });
+          }
+          break;
+        }
+
         case 'background_permission_pending': {
           const agentStore = useAgentStore.getState();
           agentStore.addBackgroundPermission(message.sessionId, {
