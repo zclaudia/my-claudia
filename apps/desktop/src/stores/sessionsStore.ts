@@ -47,7 +47,8 @@ export const useSessionsStore = create<SessionsState>((set) => ({
       const backendSessions = newMap.get(backendId) || [];
 
       if (eventType === 'created') {
-        // Add new session
+        // Dedup: skip if session already exists (e.g. both WebSocket push and sessionSync detected it)
+        if (backendSessions.some((s) => s.id === session.id)) return state;
         newMap.set(backendId, [...backendSessions, session]);
       } else if (eventType === 'updated') {
         // Update existing session

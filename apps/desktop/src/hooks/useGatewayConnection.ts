@@ -10,19 +10,10 @@ import { useEffect, useRef, useCallback } from 'react';
 import type { ClientMessage, ServerMessage } from '@my-claudia/shared';
 import { useGatewayStore } from '../stores/gatewayStore';
 import { useServerStore } from '../stores/serverStore';
-import { useChatStore } from '../stores/chatStore';
-import { useProjectStore } from '../stores/projectStore';
-import { usePermissionStore } from '../stores/permissionStore';
-import { useAskUserQuestionStore } from '../stores/askUserQuestionStore';
-import { useAgentStore } from '../stores/agentStore';
 import { GatewayTransport } from './transport/GatewayTransport';
 import { toGatewayServerId, isGatewayTarget, parseBackendId } from '../stores/gatewayStore';
 import { useSessionsStore } from '../stores/sessionsStore';
-import { xtermRegistry } from '../utils/xtermRegistry';
-import { useTerminalStore } from '../stores/terminalStore';
-import { useFilePushStore } from '../stores/filePushStore';
-import { downloadPushedFile } from '../services/fileDownload';
-import { useSupervisionStore } from '../stores/supervisionStore';
+import { handleServerMessage } from '../services/messageHandler';
 import { getServerGatewayStatus } from '../services/api';
 
 const RECONNECT_INTERVAL = 3000;
@@ -32,7 +23,6 @@ export function useGatewayConnection() {
   const transportRef = useRef<GatewayTransport | null>(null);
   const reconnectAttemptRef = useRef(0);
   const reconnectTimeoutRef = useRef<number | null>(null);
-  const selectedSessionIdRef = useRef<string | null>(null);
   // Track which runs belong to which backend server (for heartbeat reconciliation)
   const serverRunsRef = useRef<Map<string, Set<string>>>(new Map());
 
@@ -56,31 +46,6 @@ export function useGatewayConnection() {
     setServerFeatures,
     updateLastConnected
   } = useServerStore();
-
-  // Chat store
-  const {
-    addMessage,
-    updateMessageIdByClientMessageId,
-    appendToLastMessage,
-    startRun,
-    endRun,
-    addToolCall,
-    updateToolCallResult,
-    appendTextBlock,
-    addToolUseBlock,
-    finalizeRunToMessage,
-    setSystemInfo,
-    clearSystemInfo,
-    addSessionUsage,
-  } = useChatStore();
-
-  const { selectedSessionId } = useProjectStore();
-  const { setPendingRequest } = usePermissionStore();
-
-  // Keep session ref in sync
-  useEffect(() => {
-    selectedSessionIdRef.current = selectedSessionId;
-  }, [selectedSessionId]);
 
   // Poll server gateway status and sync to store
   // Skip when direct config is active (mobile mode — no local server to poll)
@@ -124,20 +89,18 @@ export function useGatewayConnection() {
 
   /**
    * Handle a backend message routed through the gateway transport.
+   * Auth is handled inline; everything else delegates to shared handler.
    */
   const handleBackendMessage = useCallback((backendId: string, message: ServerMessage) => {
     // Skip messages from our own embedded server — the direct local connection handles them.
-    // Processing them here too causes duplicate messages (different IDs → dedup fails).
     const { localBackendId } = useGatewayStore.getState();
     if (localBackendId && backendId === localBackendId) {
       return;
     }
 
     const serverId = toGatewayServerId(backendId);
-    const currentSessionId = selectedSessionIdRef.current;
-    const currentActiveId = useServerStore.getState().activeServerId;
 
-    // Handle correlation envelope format
+    // Handle correlation envelope format for auth check
     let msg: ServerMessage;
     if ('payload' in (message as any) && 'metadata' in (message as any)) {
       msg = {
@@ -148,425 +111,33 @@ export function useGatewayConnection() {
       msg = message;
     }
 
-    switch (msg.type) {
-      case 'auth_result':
-        if (msg.success) {
-          console.log(`[GatewayConn:${backendId}] Backend auth successful`);
-          setServerConnectionStatus(serverId, 'connected');
-          setServerLocalConnection(serverId, false); // Gateway = always remote
-          if (msg.publicKey) {
-            useServerStore.getState().setServerPublicKey(serverId, msg.publicKey);
-          }
-          reconnectAttemptRef.current = 0;
-          updateLastConnected(serverId);
-        } else {
-          console.error(`[GatewayConn:${backendId}] Backend auth failed:`, msg.error);
-          setServerConnectionStatus(serverId, 'error', msg.error);
+    // Auth result is transport-specific — handle inline
+    if (msg.type === 'auth_result') {
+      if (msg.success) {
+        console.log(`[GatewayConn:${backendId}] Backend auth successful`);
+        setServerConnectionStatus(serverId, 'connected');
+        setServerLocalConnection(serverId, false);
+        if (msg.publicKey) {
+          useServerStore.getState().setServerPublicKey(serverId, msg.publicKey);
         }
-        break;
-
-      case 'pong':
-        break;
-
-      case 'delta': {
-        // Use sessionId from message (preferred), fall back to activeRuns lookup
-        const deltaSession = msg.sessionId || useChatStore.getState().activeRuns[msg.runId];
-        if (deltaSession) {
-          appendToLastMessage(deltaSession, msg.content);
-          appendTextBlock(msg.runId, msg.content);
-          // Mark unread for agent if panel is closed
-          if (msg.runId === useAgentStore.getState().activeRunId && !useAgentStore.getState().isExpanded) {
-            useAgentStore.getState().setHasUnread(true);
-          }
-        } else if (msg.runId) {
-          console.warn(`[GatewayConn:${backendId}] Delta for untracked run ${msg.runId} (server=${serverId}, active=${currentActiveId})`);
-        }
-        break;
+        reconnectAttemptRef.current = 0;
+        updateLastConnected(serverId);
+      } else {
+        console.error(`[GatewayConn:${backendId}] Backend auth failed:`, msg.error);
+        setServerConnectionStatus(serverId, 'error', msg.error);
       }
-
-      case 'run_started': {
-        // Use sessionId from server message (preferred), fall back to ref for old servers
-        const targetSessionId = msg.sessionId || currentSessionId;
-        const isAgentRun = (msg as any).clientRequestId?.startsWith('agent_');
-        // Use server-provided assistantMessageId for dedup (falls back to runId for old servers)
-        const assistantMsgId = (msg as any).assistantMessageId || msg.runId;
-        const userMsgId = (msg as any).userMessageId;
-        const clientReqId = (msg as any).clientRequestId;
-        // Track run-to-server mapping for heartbeat reconciliation
-        if (!serverRunsRef.current.has(serverId)) {
-          serverRunsRef.current.set(serverId, new Set());
-        }
-        serverRunsRef.current.get(serverId)!.add(msg.runId);
-        if (isAgentRun) {
-          const agentSessionId = useAgentStore.getState().agentSessionId;
-          if (agentSessionId) {
-            startRun(msg.runId, agentSessionId);
-            useAgentStore.getState().setActiveRunId(msg.runId);
-            useAgentStore.getState().setLoading(true);
-            if (userMsgId && clientReqId) updateMessageIdByClientMessageId(agentSessionId, clientReqId, userMsgId);
-            addMessage(agentSessionId, {
-              id: assistantMsgId,
-              sessionId: agentSessionId,
-              role: 'assistant',
-              content: '',
-              createdAt: Date.now()
-            });
-          }
-        } else if (targetSessionId) {
-          startRun(msg.runId, targetSessionId);
-          if (serverId === currentActiveId) {
-            clearSystemInfo();
-          }
-          if (userMsgId && clientReqId) updateMessageIdByClientMessageId(targetSessionId, clientReqId, userMsgId);
-          addMessage(targetSessionId, {
-            id: assistantMsgId,
-            sessionId: targetSessionId,
-            role: 'assistant',
-            content: '',
-            createdAt: Date.now()
-          });
-          // Update session active status (both stores — projectStore for local, sessionsStore for gateway)
-          useProjectStore.getState().setSessionActive(targetSessionId, true);
-          useSessionsStore.getState().setSessionActiveById(backendId, targetSessionId, true);
-        } else {
-          console.warn(`[GatewayConn:${backendId}] run_started ignored: no sessionId (server=${serverId}, active=${currentActiveId})`);
-        }
-        break;
-      }
-
-      case 'run_completed': {
-        // Use sessionId from message (preferred), fall back to activeRuns lookup
-        const completedSession = msg.sessionId || useChatStore.getState().activeRuns[msg.runId];
-        // Clean up agent run state
-        if (msg.runId === useAgentStore.getState().activeRunId) {
-          useAgentStore.getState().setActiveRunId(null);
-          useAgentStore.getState().setLoading(false);
-        }
-        // Clear ask_user_question requests for this backend regardless of active state
-        useAskUserQuestionStore.getState().clearRequestsForServer(serverId);
-        if (completedSession) {
-          finalizeRunToMessage(msg.runId);
-          if (msg.usage) {
-            addSessionUsage(completedSession, msg.usage);
-          }
-          // Update session active status (skip for agent sessions)
-          if (completedSession !== useAgentStore.getState().agentSessionId) {
-            useProjectStore.getState().setSessionActive(completedSession, false);
-            useSessionsStore.getState().setSessionActiveById(backendId, completedSession, false);
-          }
-        }
-        endRun(msg.runId);
-        serverRunsRef.current.get(serverId)?.delete(msg.runId);
-        break;
-      }
-
-      case 'run_failed': {
-        // Use sessionId from message (preferred), fall back to activeRuns lookup
-        const failedSession = msg.sessionId || useChatStore.getState().activeRuns[msg.runId];
-        // Clean up agent run state
-        if (msg.runId === useAgentStore.getState().activeRunId) {
-          useAgentStore.getState().setActiveRunId(null);
-          useAgentStore.getState().setLoading(false);
-        }
-        // Clear ask_user_question requests for this backend regardless of active state
-        useAskUserQuestionStore.getState().clearRequestsForServer(serverId);
-        if (failedSession) {
-          if (msg.error) {
-            appendToLastMessage(failedSession, `\n\n**Error:** ${msg.error}`);
-          }
-          finalizeRunToMessage(msg.runId);
-          // Update session active status (skip for agent sessions)
-          if (failedSession !== useAgentStore.getState().agentSessionId) {
-            useProjectStore.getState().setSessionActive(failedSession, false);
-            useSessionsStore.getState().setSessionActiveById(backendId, failedSession, false);
-          }
-        }
-        endRun(msg.runId);
-        serverRunsRef.current.get(serverId)?.delete(msg.runId);
-        console.error(`[GatewayConn:${backendId}] Run failed:`, msg.error);
-        break;
-      }
-
-      case 'tool_use': {
-        // Use sessionId from message or fall back to activeRuns lookup
-        const toolSession = msg.sessionId || useChatStore.getState().activeRuns[msg.runId];
-        if (toolSession) {
-          addToolCall(msg.runId, msg.toolUseId, msg.toolName, msg.toolInput);
-          addToolUseBlock(msg.runId, msg.toolUseId);
-        } else if (msg.runId) {
-          console.warn(`[GatewayConn:${backendId}] tool_use for untracked run ${msg.runId}`);
-        }
-        break;
-      }
-
-      case 'tool_result': {
-        // Use sessionId from message or fall back to activeRuns lookup
-        const resultSession = msg.sessionId || useChatStore.getState().activeRuns[msg.runId];
-        if (resultSession) {
-          updateToolCallResult(msg.runId, msg.toolUseId, msg.result, msg.isError);
-        } else if (msg.runId) {
-          console.warn(`[GatewayConn:${backendId}] tool_result for untracked run ${msg.runId}`);
-        }
-        break;
-      }
-
-      case 'permission_request': {
-        // Gateway handles subscription filtering — no local check needed
-        const permBackends = useGatewayStore.getState().discoveredBackends;
-        const permBackendInfo = permBackends.find(b => b.backendId === backendId);
-        setPendingRequest({
-          requestId: msg.requestId,
-          sessionId: msg.sessionId,
-          serverId,
-          backendName: permBackendInfo?.name,
-          toolName: msg.toolName,
-          detail: msg.detail,
-          timeoutSec: msg.timeoutSeconds,
-          requiresCredential: (msg as any).requiresCredential,
-          credentialHint: (msg as any).credentialHint,
-        });
-        break;
-      }
-
-      case 'ask_user_question': {
-        // Gateway handles subscription filtering — no local check needed
-        const aqBackends = useGatewayStore.getState().discoveredBackends;
-        const aqBackendInfo = aqBackends.find(b => b.backendId === backendId);
-        useAskUserQuestionStore.getState().setPendingRequest({
-          requestId: (msg as any).requestId,
-          sessionId: (msg as any).sessionId,
-          serverId,
-          backendName: aqBackendInfo?.name,
-          questions: (msg as any).questions
-        });
-        break;
-      }
-
-      case 'permission_resolved': {
-        // Another device resolved this permission — clear it locally
-        const resolvedId = (msg as any).requestId;
-        usePermissionStore.getState().clearRequestById(resolvedId);
-        break;
-      }
-
-      case 'ask_user_question_resolved': {
-        // Another device answered this question — clear it locally
-        const resolvedId = (msg as any).requestId;
-        useAskUserQuestionStore.getState().clearRequestById(resolvedId);
-        break;
-      }
-
-      case 'state_heartbeat': {
-        // Reconcile state from backend heartbeat
-        const heartbeat = msg as any;
-        const backends = useGatewayStore.getState().discoveredBackends;
-        const backendInfo = backends.find(b => b.backendId === backendId);
-        const backendName = backendInfo?.name;
-
-        // Reconcile permissions
-        const validPermIds = new Set<string>(heartbeat.pendingPermissions.map((p: any) => p.requestId as string));
-        usePermissionStore.getState().clearStaleRequests(serverId, validPermIds);
-        for (const perm of heartbeat.pendingPermissions) {
-          if (!usePermissionStore.getState().hasRequest(perm.requestId)) {
-            setPendingRequest({
-              requestId: perm.requestId,
-              sessionId: perm.sessionId,
-              serverId,
-              backendName,
-              toolName: perm.toolName,
-              detail: perm.detail,
-              timeoutSec: perm.timeoutSeconds,
-              requiresCredential: perm.requiresCredential,
-              credentialHint: perm.credentialHint,
-            });
-          }
-        }
-
-        // Reconcile questions
-        const validQIds = new Set<string>(heartbeat.pendingQuestions.map((q: any) => q.requestId as string));
-        useAskUserQuestionStore.getState().clearStaleRequests(serverId, validQIds);
-        for (const q of heartbeat.pendingQuestions) {
-          if (!useAskUserQuestionStore.getState().hasRequest(q.requestId)) {
-            useAskUserQuestionStore.getState().setPendingRequest({
-              requestId: q.requestId,
-              sessionId: q.sessionId,
-              serverId,
-              backendName,
-              questions: q.questions
-            });
-          }
-        }
-
-        // Reconcile session active status
-        const activeSessionIds = new Set<string>(heartbeat.activeRuns.map((r: any) => r.sessionId as string));
-        useSessionsStore.getState().reconcileActiveStatus(backendId, activeSessionIds);
-
-        // Reconcile chatStore active runs (restores loading state on reconnect, cleans up stale runs)
-        const chatState = useChatStore.getState();
-        const serverActiveRunIds = new Set(
-          (heartbeat.activeRuns as Array<{ runId: string; sessionId: string }>).map(r => r.runId)
-        );
-        // Add missing runs
-        for (const run of heartbeat.activeRuns as Array<{ runId: string; sessionId: string }>) {
-          if (!chatState.activeRuns[run.runId]) {
-            chatState.startRun(run.runId, run.sessionId);
-            // Also track in serverRunsRef so stale-run cleanup can find it
-            if (!serverRunsRef.current.has(serverId)) {
-              serverRunsRef.current.set(serverId, new Set());
-            }
-            serverRunsRef.current.get(serverId)!.add(run.runId);
-          }
-        }
-        // Clean up stale runs (client thinks run is active, but server says it's not)
-        const trackedRuns = serverRunsRef.current.get(serverId);
-        if (trackedRuns) {
-          for (const runId of trackedRuns) {
-            if (!serverActiveRunIds.has(runId)) {
-              console.log(`[GatewayConn:${backendId}] Cleaning up stale run ${runId} (not in server heartbeat)`);
-              const sessionId = chatState.activeRuns[runId];
-              chatState.endRun(runId);
-              if (sessionId) {
-                useProjectStore.getState().setSessionActive(sessionId, false);
-              }
-              trackedRuns.delete(runId);
-            }
-          }
-        }
-        break;
-      }
-
-      case 'agent_permission_intercepted':
-        useAgentStore.getState().recordInterception(
-          (msg as any).toolName,
-          (msg as any).decision,
-          (msg as any).sessionId
-        );
-        if (!useAgentStore.getState().isExpanded) {
-          useAgentStore.getState().setHasUnread(true);
-        }
-        break;
-
-      case 'background_task_update': {
-        const agentStore = useAgentStore.getState();
-        agentStore.updateBackgroundSession((msg as any).sessionId, {
-          status: (msg as any).status,
-          name: (msg as any).name,
-          parentSessionId: (msg as any).parentSessionId,
-        });
-        if ((msg as any).status === 'completed' || (msg as any).status === 'failed') {
-          const sid = (msg as any).sessionId;
-          setTimeout(() => {
-            useAgentStore.getState().removeBackgroundSession(sid);
-          }, 30000);
-        }
-        if (!agentStore.isExpanded) {
-          agentStore.setHasUnread(true);
-        }
-        break;
-      }
-
-      case 'background_permission_pending': {
-        const agentStore2 = useAgentStore.getState();
-        agentStore2.addBackgroundPermission((msg as any).sessionId, {
-          requestId: (msg as any).requestId,
-          toolName: (msg as any).toolName,
-          detail: (msg as any).detail,
-          timeoutSeconds: (msg as any).timeoutSeconds,
-        });
-        if (!agentStore2.isExpanded) {
-          agentStore2.setHasUnread(true);
-        }
-        break;
-      }
-
-      case 'supervision_update': {
-        const supStore = useSupervisionStore.getState();
-        const sup = (msg as any).supervision;
-        if (['completed', 'failed', 'cancelled'].includes(sup.status)) {
-          supStore.updateSupervision(sup);
-          setTimeout(() => supStore.removeSupervision(sup.sessionId), 10000);
-        } else {
-          supStore.updateSupervision(sup);
-        }
-        break;
-      }
-
-      case 'system_info':
-        if (serverId === currentActiveId) {
-          setSystemInfo(msg.systemInfo);
-        }
-        break;
-
-      case 'terminal_opened': {
-        if (!msg.success) {
-          console.error(`[GatewayConn:${backendId}] Terminal open failed:`, msg.error);
-          // Show error in the terminal UI so user doesn't see a blank screen
-          const entry = xtermRegistry.get(msg.terminalId);
-          if (entry) {
-            entry.terminal.writeln(`\r\n\x1b[31mTerminal failed to open: ${msg.error || 'Unknown error'}\x1b[0m`);
-          }
-        }
-        break;
-      }
-
-      case 'terminal_output': {
-        const entry = xtermRegistry.get(msg.terminalId);
-        if (entry) {
-          entry.terminal.write(msg.data);
-          useTerminalStore.getState().markReady(msg.terminalId);
-        }
-        break;
-      }
-
-      case 'terminal_exited': {
-        const exitTerm = xtermRegistry.get(msg.terminalId)?.terminal;
-        if (exitTerm) exitTerm.write(`\r\n[Process exited with code ${msg.exitCode}]\r\n`);
-        useTerminalStore.getState().handleTerminalExited(msg.terminalId);
-        xtermRegistry.delete(msg.terminalId);
-        break;
-      }
-
-      case 'file_push': {
-        const fpStore = useFilePushStore.getState();
-        const gwServerId = toGatewayServerId(backendId);
-        fpStore.addItem({
-          fileId: msg.fileId,
-          fileName: msg.fileName,
-          mimeType: msg.mimeType,
-          fileSize: msg.fileSize,
-          sessionId: msg.sessionId,
-          description: msg.description,
-          autoDownload: msg.autoDownload,
-          serverId: gwServerId,
-        });
-        if (msg.autoDownload) {
-          downloadPushedFile(msg.fileId);
-        }
-        break;
-      }
-
-      case 'error':
-        console.error(`[GatewayConn:${backendId}] Server error:`, msg.message);
-        break;
-
-      default:
-        console.warn(`[GatewayConn:${backendId}] Unknown message type:`, (msg as any).type);
+      return;
     }
+
+    // Delegate all other messages to the shared handler
+    handleServerMessage(message, {
+      serverId,
+      backendId,
+      serverRunsRef: serverRunsRef.current,
+      resolveBackendName: () => useGatewayStore.getState().discoveredBackends.find(b => b.backendId === backendId)?.name,
+      logTag: `GatewayConn:${backendId}`,
+    });
   }, [
-    addMessage,
-    updateMessageIdByClientMessageId,
-    appendToLastMessage,
-    startRun,
-    endRun,
-    addToolCall,
-    updateToolCallResult,
-    appendTextBlock,
-    addToolUseBlock,
-    finalizeRunToMessage,
-    setPendingRequest,
-    setSystemInfo,
-    clearSystemInfo,
-    addSessionUsage,
     setServerConnectionStatus,
     setServerLocalConnection,
     updateLastConnected

@@ -28,7 +28,7 @@ export function useDataLoader() {
       }
       const store = useProjectStore.getState();
       store.setProjects(projects);
-      store.setSessions(sessions);
+      store.mergeSessions(sessions);
       store.setProviders(providers);
 
       // If current selectedSessionId doesn't exist in the new sessions, auto-select

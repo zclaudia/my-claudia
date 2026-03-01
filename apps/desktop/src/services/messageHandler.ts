@@ -1,0 +1,445 @@
+/**
+ * Shared Message Handler
+ *
+ * Unified message processing for both direct and gateway connections.
+ * All message types except `auth_result` (transport-specific) are handled here.
+ *
+ * Accesses stores via getState() to avoid stale closures and eliminate
+ * useCallback dependency tracking in the calling hooks.
+ */
+
+import type { ServerMessage, StateHeartbeatMessage } from '@my-claudia/shared';
+import { useChatStore } from '../stores/chatStore';
+import { useProjectStore } from '../stores/projectStore';
+import { useServerStore } from '../stores/serverStore';
+import { usePermissionStore } from '../stores/permissionStore';
+import { useAskUserQuestionStore } from '../stores/askUserQuestionStore';
+import { useAgentStore } from '../stores/agentStore';
+import { useSupervisionStore } from '../stores/supervisionStore';
+import { useSessionsStore } from '../stores/sessionsStore';
+import { useTerminalStore } from '../stores/terminalStore';
+import { useFilePushStore } from '../stores/filePushStore';
+import { downloadPushedFile } from './fileDownload';
+import { xtermRegistry } from '../utils/xtermRegistry';
+
+export interface MessageHandlerContext {
+  /** Virtual server ID (direct server ID or gateway-prefixed ID) */
+  serverId: string;
+  /** Actual backend ID for gateway connections; null for direct */
+  backendId: string | null;
+  /** Map of serverId -> active runId set (for heartbeat reconciliation) */
+  serverRunsRef: Map<string, Set<string>>;
+  /** Resolve the human-readable backend/server name for UI display */
+  resolveBackendName: () => string | undefined;
+  /** Log prefix, e.g. "Socket:srv1" or "GatewayConn:backend1" */
+  logTag: string;
+}
+
+/**
+ * Unwrap correlation envelope format if present.
+ */
+function unwrapMessage(rawMessage: ServerMessage | any): ServerMessage {
+  if ('payload' in rawMessage && 'metadata' in rawMessage) {
+    return {
+      type: rawMessage.type,
+      ...rawMessage.payload,
+    } as ServerMessage;
+  }
+  return rawMessage as ServerMessage;
+}
+
+/**
+ * Process a server message through the unified handler.
+ * Handles all message types except `auth_result` (transport-specific).
+ */
+export function handleServerMessage(
+  rawMessage: ServerMessage | any,
+  ctx: MessageHandlerContext
+): void {
+  const msg = unwrapMessage(rawMessage);
+  const { serverId, backendId, serverRunsRef, logTag } = ctx;
+  const activeServerId = useServerStore.getState().activeServerId;
+
+  switch (msg.type) {
+    case 'pong':
+      break;
+
+    case 'delta': {
+      const deltaSession = msg.sessionId || useChatStore.getState().activeRuns[msg.runId];
+      if (deltaSession) {
+        useChatStore.getState().appendToLastMessage(deltaSession, msg.content);
+        useChatStore.getState().appendTextBlock(msg.runId, msg.content);
+        if (msg.runId === useAgentStore.getState().activeRunId && !useAgentStore.getState().isExpanded) {
+          useAgentStore.getState().setHasUnread(true);
+        }
+      } else if (msg.runId) {
+        console.warn(`[${logTag}] Delta for untracked run ${msg.runId}`);
+      }
+      break;
+    }
+
+    case 'run_started': {
+      const currentSessionId = useProjectStore.getState().selectedSessionId;
+      const targetSessionId = msg.sessionId || currentSessionId;
+      const isAgentRun = msg.clientRequestId?.startsWith('agent_');
+      const assistantMsgId = msg.assistantMessageId || msg.runId;
+      const userMsgId = msg.userMessageId;
+      const clientReqId = msg.clientRequestId;
+
+      // Track run-to-server mapping
+      if (!serverRunsRef.has(serverId)) {
+        serverRunsRef.set(serverId, new Set());
+      }
+      serverRunsRef.get(serverId)!.add(msg.runId);
+
+      const chat = useChatStore.getState();
+
+      if (isAgentRun) {
+        const agentSessionId = useAgentStore.getState().agentSessionId;
+        if (agentSessionId) {
+          chat.startRun(msg.runId, agentSessionId);
+          useAgentStore.getState().setActiveRunId(msg.runId);
+          useAgentStore.getState().setLoading(true);
+          if (userMsgId && clientReqId) chat.updateMessageIdByClientMessageId(agentSessionId, clientReqId, userMsgId);
+          chat.addMessage(agentSessionId, {
+            id: assistantMsgId,
+            sessionId: agentSessionId,
+            role: 'assistant',
+            content: '',
+            createdAt: Date.now(),
+          });
+        }
+      } else if (targetSessionId) {
+        chat.startRun(msg.runId, targetSessionId);
+        if (serverId === activeServerId) {
+          chat.clearSystemInfo();
+        }
+        if (userMsgId && clientReqId) chat.updateMessageIdByClientMessageId(targetSessionId, clientReqId, userMsgId);
+        chat.addMessage(targetSessionId, {
+          id: assistantMsgId,
+          sessionId: targetSessionId,
+          role: 'assistant',
+          content: '',
+          createdAt: Date.now(),
+        });
+        useProjectStore.getState().setSessionActive(targetSessionId, true);
+        // Gateway: also update sessionsStore
+        if (backendId) {
+          useSessionsStore.getState().setSessionActiveById(backendId, targetSessionId, true);
+        }
+      } else {
+        console.warn(`[${logTag}] run_started ignored: no sessionId`);
+      }
+      break;
+    }
+
+    case 'run_completed': {
+      const completedSession = msg.sessionId || useChatStore.getState().activeRuns[msg.runId];
+      if (msg.runId === useAgentStore.getState().activeRunId) {
+        useAgentStore.getState().setActiveRunId(null);
+        useAgentStore.getState().setLoading(false);
+      }
+      useAskUserQuestionStore.getState().clearRequestsForServer(serverId);
+      if (completedSession) {
+        useChatStore.getState().finalizeRunToMessage(msg.runId);
+        if (msg.usage) {
+          useChatStore.getState().addSessionUsage(completedSession, msg.usage);
+        }
+        if (completedSession !== useAgentStore.getState().agentSessionId) {
+          useProjectStore.getState().setSessionActive(completedSession, false);
+          if (backendId) {
+            useSessionsStore.getState().setSessionActiveById(backendId, completedSession, false);
+          }
+        }
+      }
+      useChatStore.getState().endRun(msg.runId);
+      serverRunsRef.get(serverId)?.delete(msg.runId);
+      break;
+    }
+
+    case 'run_failed': {
+      const failedSession = msg.sessionId || useChatStore.getState().activeRuns[msg.runId];
+      if (msg.runId === useAgentStore.getState().activeRunId) {
+        useAgentStore.getState().setActiveRunId(null);
+        useAgentStore.getState().setLoading(false);
+      }
+      useAskUserQuestionStore.getState().clearRequestsForServer(serverId);
+      if (failedSession) {
+        if (msg.error) {
+          useChatStore.getState().appendToLastMessage(failedSession, `\n\n**Error:** ${msg.error}`);
+        }
+        useChatStore.getState().finalizeRunToMessage(msg.runId);
+        if (failedSession !== useAgentStore.getState().agentSessionId) {
+          useProjectStore.getState().setSessionActive(failedSession, false);
+          if (backendId) {
+            useSessionsStore.getState().setSessionActiveById(backendId, failedSession, false);
+          }
+        }
+      }
+      useChatStore.getState().endRun(msg.runId);
+      serverRunsRef.get(serverId)?.delete(msg.runId);
+      console.error(`[${logTag}] Run failed:`, msg.error);
+      break;
+    }
+
+    case 'tool_use': {
+      const toolSession = msg.sessionId || useChatStore.getState().activeRuns[msg.runId];
+      if (toolSession) {
+        useChatStore.getState().addToolCall(msg.runId, msg.toolUseId, msg.toolName, msg.toolInput);
+        useChatStore.getState().addToolUseBlock(msg.runId, msg.toolUseId);
+      } else if (msg.runId) {
+        console.warn(`[${logTag}] tool_use for untracked run ${msg.runId}`);
+      }
+      break;
+    }
+
+    case 'tool_result': {
+      const resultSession = msg.sessionId || useChatStore.getState().activeRuns[msg.runId];
+      if (resultSession) {
+        useChatStore.getState().updateToolCallResult(msg.runId, msg.toolUseId, msg.result, msg.isError);
+      } else if (msg.runId) {
+        console.warn(`[${logTag}] tool_result for untracked run ${msg.runId}`);
+      }
+      break;
+    }
+
+    case 'mode_change':
+      useChatStore.getState().setMode(msg.mode);
+      break;
+
+    case 'permission_request': {
+      const backendName = ctx.resolveBackendName();
+      usePermissionStore.getState().setPendingRequest({
+        requestId: msg.requestId,
+        sessionId: msg.sessionId,
+        serverId,
+        backendName,
+        toolName: msg.toolName,
+        detail: msg.detail,
+        timeoutSec: msg.timeoutSeconds,
+        requiresCredential: msg.requiresCredential,
+        credentialHint: msg.credentialHint,
+      });
+      break;
+    }
+
+    case 'ask_user_question': {
+      const backendName = ctx.resolveBackendName();
+      useAskUserQuestionStore.getState().setPendingRequest({
+        requestId: msg.requestId,
+        sessionId: msg.sessionId,
+        serverId,
+        backendName,
+        questions: msg.questions,
+      });
+      break;
+    }
+
+    case 'permission_resolved':
+      usePermissionStore.getState().clearRequestById(msg.requestId);
+      break;
+
+    case 'ask_user_question_resolved':
+      useAskUserQuestionStore.getState().clearRequestById(msg.requestId);
+      break;
+
+    case 'system_info':
+      if (serverId === activeServerId) {
+        useChatStore.getState().setSystemInfo(msg.systemInfo);
+      }
+      break;
+
+    case 'agent_permission_intercepted':
+      useAgentStore.getState().recordInterception(msg.toolName, msg.decision, msg.sessionId);
+      if (!useAgentStore.getState().isExpanded) {
+        useAgentStore.getState().setHasUnread(true);
+      }
+      break;
+
+    case 'background_task_update': {
+      const agentStore = useAgentStore.getState();
+      agentStore.updateBackgroundSession(msg.sessionId, {
+        status: msg.status,
+        name: msg.name,
+        parentSessionId: msg.parentSessionId,
+      });
+      if (msg.status === 'completed' || msg.status === 'failed') {
+        const sid = msg.sessionId;
+        setTimeout(() => {
+          useAgentStore.getState().removeBackgroundSession(sid);
+        }, 30000);
+      }
+      if (!agentStore.isExpanded) {
+        agentStore.setHasUnread(true);
+      }
+      break;
+    }
+
+    case 'task_notification': {
+      if (msg.sessionId && msg.message) {
+        useChatStore.getState().addMessage(msg.sessionId, {
+          id: `task-notif-${Date.now()}`,
+          sessionId: msg.sessionId,
+          role: 'system',
+          content: msg.message,
+          createdAt: Date.now(),
+        });
+      }
+      break;
+    }
+
+    case 'background_permission_pending': {
+      const agentStore = useAgentStore.getState();
+      agentStore.addBackgroundPermission(msg.sessionId, {
+        requestId: msg.requestId,
+        toolName: msg.toolName,
+        detail: msg.detail,
+        timeoutSeconds: msg.timeoutSeconds,
+      });
+      if (!agentStore.isExpanded) {
+        agentStore.setHasUnread(true);
+      }
+      break;
+    }
+
+    case 'supervision_update': {
+      const supStore = useSupervisionStore.getState();
+      const sup = (msg as any).supervision;
+      if (['completed', 'failed', 'cancelled'].includes(sup.status)) {
+        supStore.updateSupervision(sup);
+        setTimeout(() => supStore.removeSupervision(sup.sessionId), 10000);
+      } else {
+        supStore.updateSupervision(sup);
+      }
+      break;
+    }
+
+    case 'state_heartbeat': {
+      const heartbeat = msg as StateHeartbeatMessage;
+      const backendName = ctx.resolveBackendName();
+      const chatState = useChatStore.getState();
+
+      const serverActiveRunIds = new Set(heartbeat.activeRuns.map(r => r.runId));
+
+      // Add missing runs (server has active run, client doesn't know about it)
+      for (const run of heartbeat.activeRuns) {
+        if (!chatState.activeRuns[run.runId]) {
+          chatState.startRun(run.runId, run.sessionId);
+          if (!serverRunsRef.has(serverId)) {
+            serverRunsRef.set(serverId, new Set());
+          }
+          serverRunsRef.get(serverId)!.add(run.runId);
+        }
+      }
+
+      // Clean up stale runs (client thinks run is active, but server says it's not)
+      const trackedRuns = serverRunsRef.get(serverId);
+      if (trackedRuns) {
+        for (const runId of trackedRuns) {
+          if (!serverActiveRunIds.has(runId)) {
+            console.log(`[${logTag}] Cleaning up stale run ${runId} (not in server heartbeat)`);
+            const sessionId = chatState.activeRuns[runId];
+            chatState.endRun(runId);
+            if (sessionId) {
+              useProjectStore.getState().setSessionActive(sessionId, false);
+            }
+            trackedRuns.delete(runId);
+          }
+        }
+      }
+
+      // Reconcile permissions — always clear stale (fixes direct connections not cleaning up)
+      const validPermIds = new Set<string>(heartbeat.pendingPermissions.map(p => p.requestId));
+      usePermissionStore.getState().clearStaleRequests(serverId, validPermIds);
+      for (const perm of heartbeat.pendingPermissions) {
+        if (!usePermissionStore.getState().hasRequest(perm.requestId)) {
+          usePermissionStore.getState().setPendingRequest({
+            requestId: perm.requestId,
+            sessionId: perm.sessionId,
+            serverId,
+            backendName,
+            toolName: perm.toolName,
+            detail: perm.detail,
+            timeoutSec: perm.timeoutSeconds,
+            requiresCredential: perm.requiresCredential,
+            credentialHint: perm.credentialHint,
+          });
+        }
+      }
+
+      // Reconcile questions — always clear stale
+      const validQIds = new Set<string>(heartbeat.pendingQuestions.map(q => q.requestId));
+      useAskUserQuestionStore.getState().clearStaleRequests(serverId, validQIds);
+      for (const q of heartbeat.pendingQuestions) {
+        if (!useAskUserQuestionStore.getState().hasRequest(q.requestId)) {
+          useAskUserQuestionStore.getState().setPendingRequest({
+            requestId: q.requestId,
+            sessionId: q.sessionId,
+            serverId,
+            backendName,
+            questions: q.questions,
+          });
+        }
+      }
+
+      // Gateway: also reconcile sessionsStore active status
+      if (backendId) {
+        const activeSessionIds = new Set<string>(heartbeat.activeRuns.map(r => r.sessionId));
+        useSessionsStore.getState().reconcileActiveStatus(backendId, activeSessionIds);
+      }
+      break;
+    }
+
+    case 'terminal_opened': {
+      if (!msg.success) {
+        console.error(`[${logTag}] Terminal open failed:`, msg.error);
+        const entry = xtermRegistry.get(msg.terminalId);
+        if (entry) {
+          entry.terminal.writeln(`\r\n\x1b[31mTerminal failed to open: ${msg.error || 'Unknown error'}\x1b[0m`);
+        }
+      }
+      break;
+    }
+
+    case 'terminal_output': {
+      const entry = xtermRegistry.get(msg.terminalId);
+      if (entry) {
+        entry.terminal.write(msg.data);
+        useTerminalStore.getState().markReady(msg.terminalId);
+      }
+      break;
+    }
+
+    case 'terminal_exited': {
+      const exitTerm = xtermRegistry.get(msg.terminalId)?.terminal;
+      if (exitTerm) exitTerm.write(`\r\n[Process exited with code ${msg.exitCode}]\r\n`);
+      useTerminalStore.getState().handleTerminalExited(msg.terminalId);
+      xtermRegistry.delete(msg.terminalId);
+      break;
+    }
+
+    case 'file_push': {
+      useFilePushStore.getState().addItem({
+        fileId: msg.fileId,
+        fileName: msg.fileName,
+        mimeType: msg.mimeType,
+        fileSize: msg.fileSize,
+        sessionId: msg.sessionId,
+        description: msg.description,
+        autoDownload: msg.autoDownload,
+        serverId,
+      });
+      if (msg.autoDownload) {
+        downloadPushedFile(msg.fileId);
+      }
+      break;
+    }
+
+    case 'error':
+      console.error(`[${logTag}] Server error:`, msg.message);
+      break;
+
+    default:
+      console.warn(`[${logTag}] Unknown message type:`, (msg as any).type);
+  }
+}

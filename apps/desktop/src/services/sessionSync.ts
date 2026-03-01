@@ -23,6 +23,9 @@ interface BackendSyncState {
 // Track sync state for each backend
 const syncStates = new Map<string, BackendSyncState>();
 
+// Prevent concurrent sync operations per backend (skip-if-busy)
+const activeSyncs = new Set<string>();
+
 // Sync configuration
 const INCREMENTAL_SYNC_INTERVAL = 30000; // 30 seconds
 const FULL_SYNC_INTERVAL = 300000; // 5 minutes
@@ -135,6 +138,8 @@ function getAuthHeaders(targetBackendId?: string): Record<string, string> {
  * Perform incremental sync - only fetch sessions updated since last sync
  */
 async function incrementalSync(backendId: string): Promise<void> {
+  if (activeSyncs.has(backendId)) return; // skip if another sync is in progress
+  activeSyncs.add(backendId);
   try {
     const state = syncStates.get(backendId);
     if (!state) return;
@@ -197,6 +202,8 @@ async function incrementalSync(backendId: string): Promise<void> {
     await checkAndFillMessageGaps(sessions);
   } catch (error) {
     console.error('[SessionSync] Incremental sync failed:', error);
+  } finally {
+    activeSyncs.delete(backendId);
   }
 }
 
@@ -204,6 +211,8 @@ async function incrementalSync(backendId: string): Promise<void> {
  * Perform full sync - fetch all sessions and detect deletions
  */
 async function fullSync(backendId: string): Promise<void> {
+  if (activeSyncs.has(backendId)) return; // skip if another sync is in progress
+  activeSyncs.add(backendId);
   try {
     const state = syncStates.get(backendId);
     if (!state) return;
@@ -238,18 +247,19 @@ async function fullSync(backendId: string): Promise<void> {
     const { sessions, timestamp } = data.data;
     const store = useSessionsStore.getState();
 
-    // Detect deleted sessions
+    // Detect deleted sessions and clean up projectStore too (cross-store consistency)
     const serverSessionIds = new Set(sessions.map((s: RemoteSession) => s.id));
     const localSessions = store.remoteSessions.get(backendId) || [];
+    const projectStore = useProjectStore.getState();
 
-    localSessions.forEach((localSession) => {
+    for (const localSession of localSessions) {
       if (!serverSessionIds.has(localSession.id)) {
         console.log(`[SessionSync] Detected deleted session: ${localSession.id}`);
-        store.handleSessionEvent(backendId, 'deleted', localSession);
+        projectStore.deleteSession(localSession.id);
       }
-    });
+    }
 
-    // Replace with server's complete list
+    // Replace sessionsStore with server's complete list (no need for individual delete events)
     store.setRemoteSessions(backendId, sessions);
 
     // Update sync timestamp
@@ -261,6 +271,8 @@ async function fullSync(backendId: string): Promise<void> {
     await checkAndFillMessageGaps(sessions);
   } catch (error) {
     console.error('[SessionSync] Full sync failed:', error);
+  } finally {
+    activeSyncs.delete(backendId);
   }
 }
 

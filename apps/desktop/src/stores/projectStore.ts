@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import type { Project, Session, SlashCommand, ProviderConfig, ProviderCapabilities } from '@my-claudia/shared';
+import { useSessionsStore } from './sessionsStore';
 
 interface ProjectState {
   projects: Project[];
@@ -17,6 +18,7 @@ interface ProjectState {
   deleteProject: (id: string) => void;
 
   setSessions: (sessions: Session[]) => void;
+  mergeSessions: (incoming: Session[]) => void;
   addSession: (session: Session) => void;
   updateSession: (id: string, updates: Partial<Session>) => void;
   deleteSession: (id: string) => void;
@@ -67,6 +69,17 @@ export const useProjectStore = create<ProjectState>((set) => ({
 
   setSessions: (sessions) => set({ sessions }),
 
+  mergeSessions: (incoming) =>
+    set((state) => {
+      const merged = incoming.map((s) => {
+        const existing = state.sessions.find((e) => e.id === s.id);
+        // Preserve isActive from in-flight WebSocket updates
+        if (existing?.isActive && !s.isActive) return { ...s, isActive: true };
+        return s;
+      });
+      return { sessions: merged };
+    }),
+
   addSession: (session) =>
     set((state) => ({ sessions: [...state.sessions, session] })),
 
@@ -97,7 +110,14 @@ export const useProjectStore = create<ProjectState>((set) => ({
 
   selectSession: (id) =>
     set((state) => {
-      const session = state.sessions.find((s) => s.id === id);
+      let session = state.sessions.find((s) => s.id === id);
+      // Fall back to remote sessions (gateway) if not in local store
+      if (!session && id) {
+        for (const [, sessions] of useSessionsStore.getState().remoteSessions) {
+          const remote = sessions.find((s) => s.id === id);
+          if (remote) { session = remote; break; }
+        }
+      }
       return {
         selectedSessionId: id,
         selectedProjectId: session?.projectId || state.selectedProjectId,
