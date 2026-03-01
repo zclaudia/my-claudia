@@ -65,6 +65,8 @@ export function useGatewayConnection() {
     endRun,
     addToolCall,
     updateToolCallResult,
+    appendTextBlock,
+    addToolUseBlock,
     finalizeRunToMessage,
     setSystemInfo,
     clearSystemInfo,
@@ -170,6 +172,7 @@ export function useGatewayConnection() {
         const deltaSession = msg.sessionId || useChatStore.getState().activeRuns[msg.runId];
         if (deltaSession) {
           appendToLastMessage(deltaSession, msg.content);
+          appendTextBlock(msg.runId, msg.content);
           // Mark unread for agent if panel is closed
           if (msg.runId === useAgentStore.getState().activeRunId && !useAgentStore.getState().isExpanded) {
             useAgentStore.getState().setHasUnread(true);
@@ -285,6 +288,7 @@ export function useGatewayConnection() {
         const toolSession = msg.sessionId || useChatStore.getState().activeRuns[msg.runId];
         if (toolSession) {
           addToolCall(msg.runId, msg.toolUseId, msg.toolName, msg.toolInput);
+          addToolUseBlock(msg.runId, msg.toolUseId);
         } else if (msg.runId) {
           console.warn(`[GatewayConn:${backendId}] tool_use for untracked run ${msg.runId}`);
         }
@@ -544,6 +548,8 @@ export function useGatewayConnection() {
     endRun,
     addToolCall,
     updateToolCallResult,
+    appendTextBlock,
+    addToolUseBlock,
     finalizeRunToMessage,
     setPendingRequest,
     setSystemInfo,
