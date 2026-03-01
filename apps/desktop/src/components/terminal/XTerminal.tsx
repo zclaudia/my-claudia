@@ -107,50 +107,59 @@ export function XTerminal({ terminalId, projectId }: XTerminalProps) {
     terminalRef.current = terminal;
     fitAddonRef.current = fitAddon;
 
-    // Re-attach to DOM (needed after StrictMode unmount/remount)
-    if (containerRef.current.childElementCount === 0) {
-      terminal.open(containerRef.current);
-    }
+    // Defer open/fit to the next animation frame so the container has its
+    // final dimensions.  On first open the BottomPanel transitions from
+    // returning null to a sized element; the layout may not be finalised
+    // by the time this useEffect fires.
+    const container = containerRef.current;
+    const rafId = requestAnimationFrame(() => {
+      if (!container) return;
 
-    fitAddon.fit();
+      // Re-attach to DOM (needed after StrictMode unmount/remount)
+      if (container.childElementCount === 0) {
+        terminal.open(container);
+      }
 
-    if (isNew) {
-      // Only send terminal_open for truly new terminals
-      sendMessage({
-        type: 'terminal_open',
-        terminalId,
-        projectId,
-        cols: terminal.cols,
-        rows: terminal.rows,
-      });
+      fitAddon.fit();
 
-      // Forward keystrokes to server (with sticky Ctrl support for mobile)
-      terminal.onData((data) => {
-        let sendData = data;
-        const store = useTerminalStore.getState();
-        if (store.ctrlActive[terminalId] && data.length === 1) {
-          const code = data.charCodeAt(0);
-          // a-z → Ctrl+letter (0x01–0x1A)
-          if (code >= 97 && code <= 122) {
-            sendData = String.fromCharCode(code - 96);
-          } else if (code >= 65 && code <= 90) {
-            sendData = String.fromCharCode(code - 64);
-          }
-          // Auto-disable sticky Ctrl after one keystroke
-          store.toggleCtrl(terminalId);
-        }
+      if (isNew) {
+        // Only send terminal_open for truly new terminals
         sendMessage({
-          type: 'terminal_input',
+          type: 'terminal_open',
           terminalId,
-          data: sendData,
+          projectId,
+          cols: terminal.cols,
+          rows: terminal.rows,
         });
-      });
-    }
+
+        // Forward keystrokes to server (with sticky Ctrl support for mobile)
+        terminal.onData((data) => {
+          let sendData = data;
+          const store = useTerminalStore.getState();
+          if (store.ctrlActive[terminalId] && data.length === 1) {
+            const code = data.charCodeAt(0);
+            // a-z → Ctrl+letter (0x01–0x1A)
+            if (code >= 97 && code <= 122) {
+              sendData = String.fromCharCode(code - 96);
+            } else if (code >= 65 && code <= 90) {
+              sendData = String.fromCharCode(code - 64);
+            }
+            // Auto-disable sticky Ctrl after one keystroke
+            store.toggleCtrl(terminalId);
+          }
+          sendMessage({
+            type: 'terminal_input',
+            terminalId,
+            data: sendData,
+          });
+        });
+      }
+    });
 
     // Handle resize — skip when container is collapsed (height 0)
     resizeObserverRef.current?.disconnect();
     const resizeObserver = new ResizeObserver(() => {
-      if (!containerRef.current || containerRef.current.clientHeight === 0) return;
+      if (!container || container.clientHeight === 0) return;
       fitAddon.fit();
       sendMessage({
         type: 'terminal_resize',
@@ -159,10 +168,11 @@ export function XTerminal({ terminalId, projectId }: XTerminalProps) {
         rows: terminal.rows,
       });
     });
-    resizeObserver.observe(containerRef.current);
+    resizeObserver.observe(container);
     resizeObserverRef.current = resizeObserver;
 
     return () => {
+      cancelAnimationFrame(rafId);
       resizeObserver.disconnect();
       // Terminal instance and server-side pty are kept alive across drawer toggles.
       // They are cleaned up when the connection drops or the process exits.

@@ -31,10 +31,13 @@ interface FileViewerWindowProps {
   filePath: string;
   projectRoot: string;
   onClose?: () => void;  // When provided, shows a back/close button (e.g. mobile fullscreen overlay)
+  /** When rendered in a standalone window, pass the server URL to fetch directly */
+  serverUrl?: string;
+  authToken?: string;
 }
 
 /** Standalone file viewer rendered in a separate Tauri window or fullscreen overlay */
-export function FileViewerWindow({ filePath, projectRoot, onClose }: FileViewerWindowProps) {
+export function FileViewerWindow({ filePath, projectRoot, onClose, serverUrl, authToken }: FileViewerWindowProps) {
   const [content, setContent] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -47,9 +50,23 @@ export function FileViewerWindow({ filePath, projectRoot, onClose }: FileViewerW
 
     (async () => {
       try {
-        const result = await api.getFileContent({ projectRoot, relativePath: filePath });
+        let fileContent: string;
+        if (serverUrl) {
+          // Direct fetch for standalone windows (no ConnectionProvider available)
+          const qp = new URLSearchParams({ projectRoot, relativePath: filePath });
+          const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+          if (authToken) headers['Authorization'] = authToken;
+          const resp = await fetch(`${serverUrl}/api/files/content?${qp}`, { headers });
+          if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+          const json = await resp.json();
+          if (!json.success) throw new Error(json.error?.message || 'Failed to load');
+          fileContent = json.data.content;
+        } else {
+          const result = await api.getFileContent({ projectRoot, relativePath: filePath });
+          fileContent = result.content;
+        }
         if (!cancelled) {
-          setContent(result.content);
+          setContent(fileContent);
           setLoading(false);
         }
       } catch (err) {
@@ -61,7 +78,7 @@ export function FileViewerWindow({ filePath, projectRoot, onClose }: FileViewerW
     })();
 
     return () => { cancelled = true; };
-  }, [filePath, projectRoot]);
+  }, [filePath, projectRoot, serverUrl, authToken]);
 
   const lang = detectLanguage(filePath);
   const codeStyle = isDarkTheme(resolvedTheme) ? oneDark : oneLight;

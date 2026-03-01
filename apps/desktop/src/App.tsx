@@ -311,9 +311,16 @@ function App() {
   const fileViewerRoot = params.get('projectRoot');
 
   if (fileViewerPath && fileViewerRoot) {
+    const serverUrl = params.get('serverUrl') || '';
+    const authToken = params.get('authToken') || '';
     return (
       <ThemeProvider defaultTheme="dark-neutral">
-        <FileViewerWindow filePath={fileViewerPath} projectRoot={fileViewerRoot} />
+        <FileViewerWindow
+          filePath={fileViewerPath}
+          projectRoot={fileViewerRoot}
+          serverUrl={serverUrl}
+          authToken={authToken}
+        />
       </ThemeProvider>
     );
   }

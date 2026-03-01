@@ -39,9 +39,18 @@ const isDesktopTauri = typeof window !== 'undefined'
 
 async function openFileInNewWindow(filePath: string, projectRoot: string) {
   const { WebviewWindow } = await import('@tauri-apps/api/webviewWindow');
+  const { getBaseUrl, getAuthHeaders } = await import('../../services/api');
   const label = `file-viewer-${Date.now()}`;
   const fileName = filePath.split('/').pop() || filePath;
-  const params = new URLSearchParams({ fileViewer: filePath, projectRoot });
+
+  // Pass the server URL so the new window can fetch without ConnectionProvider
+  let serverUrl = '';
+  try { serverUrl = getBaseUrl(); } catch { /* no server */ }
+  const authHeaders = getAuthHeaders();
+  const authToken = (authHeaders as Record<string, string>)['Authorization'] || '';
+
+  const params = new URLSearchParams({ fileViewer: filePath, projectRoot, serverUrl });
+  if (authToken) params.set('authToken', authToken);
   const url = `${window.location.origin}${window.location.pathname}?${params}`;
   new WebviewWindow(label, {
     url,
@@ -131,9 +140,12 @@ export function FileViewerPanel({ projectRoot }: FileViewerPanelProps) {
 
   const { resolvedTheme } = useTheme();
 
-  // Fetch file content when filePath changes
+  // Fetch file content when filePath changes (skip if already cached)
   useEffect(() => {
     if (!filePath || !projectRoot) return;
+    // openFile() already populated content from cache — skip fetch
+    if (useFileViewerStore.getState().content) return;
+
     let cancelled = false;
 
     (async () => {
