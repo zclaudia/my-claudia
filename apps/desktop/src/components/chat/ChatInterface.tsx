@@ -21,6 +21,7 @@ import { usePermissionStore } from '../../stores/permissionStore';
 import { useAskUserQuestionStore } from '../../stores/askUserQuestionStore';
 import { useSupervisionStore } from '../../stores/supervisionStore';
 import { useConnection } from '../../contexts/ConnectionContext';
+import { useIsMobile } from '../../hooks/useMediaQuery';
 import * as api from '../../services/api';
 import { uploadFile } from '../../services/fileUpload';
 import { extractPlanFromMessages } from '../SuperviseDialog';
@@ -90,6 +91,7 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
   const { advancedInput, setAdvancedInput } = useUIStore();
   const { isOpen: fileViewerOpen } = useFileViewerStore();
   const { sendMessage: wsSendMessage, isConnected, handlePermissionDecision, handleAskUserAnswer } = useConnection();
+  const isMobile = useIsMobile();
 
   // Per-session pending permission/question requests
   // Also include requests without sessionId (backward compat with servers that haven't been updated)
@@ -967,7 +969,7 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
       {/* Input */}
       <div className="border-t border-border p-2 md:p-4 safe-bottom-pad overflow-visible flex-shrink-0">
         {/* Toolbar */}
-        <div className="mb-2 md:mb-3 flex items-center gap-2 md:gap-3 flex-wrap">
+        <div className="mb-1.5 md:mb-3 flex items-center gap-1.5 md:gap-3 flex-wrap">
           <ModeSelector
             capabilities={capabilities}
             value={mode}
@@ -1041,19 +1043,21 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
               </button>
             );
           })()}
-          <button
-            onClick={() => setAdvancedInput(!advancedInput)}
-            className={`p-1.5 rounded hover:bg-secondary ${advancedInput ? 'text-primary' : 'text-muted-foreground hover:text-foreground'}`}
-            title={advancedInput ? 'Normal input' : 'Advanced input (Enter to newline)'}
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              {advancedInput ? (
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-              ) : (
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
-              )}
-            </svg>
-          </button>
+          {!isMobile && (
+            <button
+              onClick={() => setAdvancedInput(!advancedInput)}
+              className={`p-1.5 rounded hover:bg-secondary ${advancedInput ? 'text-primary' : 'text-muted-foreground hover:text-foreground'}`}
+              title={advancedInput ? 'Normal input' : 'Advanced input (Enter to newline)'}
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                {advancedInput ? (
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                ) : (
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
+                )}
+              </svg>
+            </button>
+          )}
           <SystemInfoButton
             systemInfo={currentSystemInfo}
             sessionInfo={currentSession ? {

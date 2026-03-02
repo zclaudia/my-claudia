@@ -833,18 +833,18 @@ export function MessageInput({
         )}
       </div>
 
-      {/* Hint text */}
-      <div className="mt-1 flex items-center justify-between text-xs text-muted-foreground">
-        <span>Type / for commands{projectRoot ? ', @ to reference files' : ''}</span>
-        {!isMobile && (
+      {/* Hint text — hidden on mobile to save space */}
+      {!isMobile && (
+        <div className="mt-1 flex items-center justify-between text-xs text-muted-foreground">
+          <span>Type / for commands{projectRoot ? ', @ to reference files' : ''}</span>
           <span>
             {advancedMode
               ? `${isMac ? 'Cmd' : 'Ctrl'}+Enter to send, Tab to indent`
               : `Paste images with ${isMac ? 'Cmd' : 'Ctrl'}+V`
             }
           </span>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 }

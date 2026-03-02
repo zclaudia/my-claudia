@@ -66,7 +66,7 @@ export function ModeSelector({ capabilities, value, onChange, disabled }: ModeSe
         `}
       >
         {current.icon ? <span>{current.icon}</span> : <ModeIcon />}
-        <span>{current.label}</span>
+        <span className="truncate max-w-[80px] md:max-w-none">{current.label}</span>
         <span className="text-[10px] text-muted-foreground">&#9662;</span>
       </button>
 

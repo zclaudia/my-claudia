@@ -134,7 +134,7 @@ export function ModelSelector({ capabilities, value, onChange, disabled }: Model
         `}
       >
         <ModelIcon />
-        <span>{currentLabel}</span>
+        <span className="truncate max-w-[80px] md:max-w-none">{currentLabel}</span>
         <span className="text-[10px] text-muted-foreground">&#9662;</span>
       </button>
 

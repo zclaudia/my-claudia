@@ -267,6 +267,21 @@ async function* parseSSEStream(response: Response): AsyncGenerator<SSEEvent> {
 }
 
 // ============================================
+// Streaming state for part-boundary tracking
+// ============================================
+
+interface StreamState {
+  /** Last field type seen in message.part.delta ('text' | 'reasoning' | null) */
+  lastField: string | null;
+  /** Last partIndex seen for text deltas (for detecting part boundaries) */
+  lastTextPartIndex: number;
+}
+
+function createStreamState(): StreamState {
+  return { lastField: null, lastTextPartIndex: -1 };
+}
+
+// ============================================
 // Run OpenCode
 // ============================================
 
@@ -467,18 +482,29 @@ export async function* runOpenCode(
     // Process SSE events (filter by our sessionId since it's a global stream)
     // Note: <think>...</think> tags are passed through to the frontend for rendering
     console.log(`[OpenCode] Processing SSE events for session ${sessionId}...`);
+    const streamState = createStreamState();
     try {
       for await (const sseEvent of parseSSEStream(sseResponse)) {
-        const messages = mapOpenCodeEvent(sseEvent.data, sessionId, onPermissionRequest);
+        const messages = mapOpenCodeEvent(sseEvent.data, sessionId, streamState, onPermissionRequest);
         for await (const msg of messages) {
           yield msg;
           if (msg.type === 'result' || msg.type === 'error') {
+            // Close any open think block before finishing
+            if (streamState.lastField === 'reasoning') {
+              yield { type: 'assistant', content: '</think>\n\n' };
+              streamState.lastField = null;
+            }
             return;
           }
         }
       }
     } catch (error) {
       console.log('[OpenCode] SSE stream ended:', error);
+    }
+
+    // Close any open think block
+    if (streamState.lastField === 'reasoning') {
+      yield { type: 'assistant', content: '</think>\n\n' };
     }
 
     console.log('[OpenCode] SSE stream finished without explicit result, yielding completion');
@@ -505,6 +531,7 @@ export async function* runOpenCode(
 async function* mapOpenCodeEvent(
   rawData: string,
   sessionId: string,
+  streamState: StreamState,
   onPermissionRequest?: PermissionCallback
 ): AsyncGenerator<ClaudeMessage> {
   let data: any;
@@ -540,7 +567,28 @@ async function* mapOpenCodeEvent(
       // Streaming delta — the primary way OpenCode sends incremental text
       const delta: string | undefined = props.delta;
       const field: string | undefined = props.field;
+      const partIndex: number | undefined = props.partIndex;
+
       if (delta && field === 'text') {
+        // Close any open think block when switching from reasoning to text
+        if (streamState.lastField === 'reasoning') {
+          yield { type: 'assistant', content: '</think>\n\n' };
+        }
+        // Insert separator between different text parts (different partIndex)
+        if (partIndex !== undefined && streamState.lastTextPartIndex >= 0 && partIndex !== streamState.lastTextPartIndex) {
+          yield { type: 'assistant', content: '\n\n' };
+        }
+        if (partIndex !== undefined) {
+          streamState.lastTextPartIndex = partIndex;
+        }
+        streamState.lastField = 'text';
+        yield { type: 'assistant', content: delta };
+      } else if (delta && field === 'reasoning') {
+        // Open think block when switching to reasoning
+        if (streamState.lastField !== 'reasoning') {
+          yield { type: 'assistant', content: '<think>' };
+        }
+        streamState.lastField = 'reasoning';
         yield { type: 'assistant', content: delta };
       }
       break;
@@ -585,7 +633,7 @@ async function* mapOpenCodeEvent(
           break;
         }
 
-        // Skip reasoning, step-start, step-finish, and other part types
+        // Reasoning handled via message.part.delta; skip step-start, step-finish, etc.
         default:
           break;
       }

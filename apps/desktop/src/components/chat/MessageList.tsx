@@ -289,6 +289,7 @@ function CodeBlock({
           borderRadius: 0,
           padding: '0.75rem',
           fontSize: 'var(--chat-font-code, 0.8125rem)',
+          overflowX: 'auto',
         }}
       >
         {children}
@@ -558,7 +559,7 @@ function MessageItem({ message, streamingContentBlocks, streamingToolCalls }: {
             ? 'max-w-[85%] md:max-w-3xl bg-primary text-primary-foreground'
             : isSystem
             ? 'max-w-[85%] md:max-w-3xl bg-muted text-muted-foreground text-sm'
-            : 'w-full max-w-full md:max-w-3xl bg-card text-card-foreground'
+            : 'w-full max-w-full md:max-w-3xl bg-card text-card-foreground min-w-0'
         }`}
       >
         {isUser ? (
@@ -589,7 +590,7 @@ function MessageItem({ message, streamingContentBlocks, streamingToolCalls }: {
 function AssistantContent({ content }: { content: string }) {
   return (
     <>
-      <div className="prose dark:prose-invert prose-sm max-w-none">
+      <div className="prose dark:prose-invert prose-sm max-w-none break-words overflow-hidden">
         <ReactMarkdown
           remarkPlugins={[remarkGfm]}
           components={{
@@ -600,7 +601,7 @@ function AssistantContent({ content }: { content: string }) {
               if (isInline) {
                 return (
                   <code
-                    className="bg-secondary px-1.5 py-0.5 rounded text-sm text-primary"
+                    className="bg-secondary px-1.5 py-0.5 rounded text-sm text-primary break-all"
                     {...props}
                   >
                     {children}
