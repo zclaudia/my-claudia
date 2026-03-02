@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, KeyboardEvent, ClipboardEvent, ChangeEvent
 import type { SlashCommand, FileEntry } from '@my-claudia/shared';
 import * as api from '../../services/api';
 import { useIsMobile } from '../../hooks/useMediaQuery';
+import { useChatStore } from '../../stores/chatStore';
 
 export interface Attachment {
   id: string;
@@ -12,6 +13,7 @@ export interface Attachment {
 }
 
 interface MessageInputProps {
+  sessionId: string;           // Session ID for draft persistence
   onSend: (message: string, attachments?: Attachment[]) => void;
   onCancel?: () => void;
   onCommand?: (command: string, args: string) => void;
@@ -102,6 +104,7 @@ function debounce<T extends (...args: Parameters<T>) => void>(
 }
 
 export function MessageInput({
+  sessionId,
   onSend,
   onCancel,
   onCommand,
@@ -115,6 +118,8 @@ export function MessageInput({
   advancedMode = false,
 }: MessageInputProps) {
   const isMobile = useIsMobile();
+  const setDraft = useChatStore((s) => s.setDraft);
+  const clearDraft = useChatStore((s) => s.clearDraft);
   const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad|iPod/.test(navigator.platform);
   const [value, setValue] = useState('');
   const [attachments, setAttachments] = useState<Attachment[]>([]);
@@ -128,6 +133,12 @@ export function MessageInput({
   const commandListRef = useRef<HTMLDivElement>(null);
   const mentionListRef = useRef<HTMLDivElement>(null);
   const compositionTimeoutRef = useRef<number | null>(null); // Timer for composition end delay
+
+  // Update value and persist draft to store
+  const updateValue = useCallback((newValue: string) => {
+    setValue(newValue);
+    setDraft(sessionId, newValue);
+  }, [sessionId, setDraft]);
 
   // Update value when initialValue changes (e.g., after cancel to restore previous message)
   useEffect(() => {
@@ -268,7 +279,7 @@ export function MessageInput({
     const newValue = e.target.value;
     const cursorPos = e.target.selectionStart || 0;
 
-    setValue(newValue);
+    updateValue(newValue);
 
     // Check for @ mention
     if (projectRoot) {
@@ -301,7 +312,7 @@ export function MessageInput({
       const after = value.substring(mentionState.triggerIndex + mentionState.query.length + 1);
       const newValue = `${before}@${newPath}/${after}`;
 
-      setValue(newValue);
+      updateValue(newValue);
 
       const newCursorPos = before.length + newPath.length + 2; // +2 for @ and /
 
@@ -331,7 +342,7 @@ export function MessageInput({
       const after = value.substring(mentionState.triggerIndex + mentionState.query.length + 1);
       const newValue = `${before}@${entry.path} ${after}`;
 
-      setValue(newValue);
+      updateValue(newValue);
       setMentionState(initialMentionState);
 
       // Move cursor after the inserted path
@@ -353,7 +364,7 @@ export function MessageInput({
     const newQuery = path ? `${path}/` : '';
     const newValue = `${before}@${newQuery}${after}`;
 
-    setValue(newValue);
+    updateValue(newValue);
 
     setMentionState(prev => ({
       ...prev,
@@ -444,7 +455,7 @@ export function MessageInput({
         e.preventDefault();
         const selectedCommand = filteredCommands[selectedCommandIndex];
         if (selectedCommand) {
-          setValue(selectedCommand.command + ' ');
+          updateValue(selectedCommand.command + ' ');
           setShowCommands(false);
         }
         return;
@@ -483,7 +494,7 @@ export function MessageInput({
       const start = target.selectionStart;
       const end = target.selectionEnd;
       const newValue = value.substring(0, start) + '  ' + value.substring(end);
-      setValue(newValue);
+      updateValue(newValue);
       setTimeout(() => {
         if (textareaRef.current) {
           textareaRef.current.selectionStart = start + 2;
@@ -569,6 +580,7 @@ export function MessageInput({
       if (onCommand) {
         onCommand(command, args);
         setValue('');
+        clearDraft(sessionId);
         return;
       }
     }
@@ -577,12 +589,13 @@ export function MessageInput({
     if (trimmedValue || attachments.length > 0) {
       onSend(trimmedValue, attachments.length > 0 ? attachments : undefined);
       setValue('');
+      clearDraft(sessionId);
       setAttachments([]);
     }
   };
 
   const selectCommand = (command: string) => {
-    setValue(command + ' ');
+    updateValue(command + ' ');
     setShowCommands(false);
     textareaRef.current?.focus();
   };

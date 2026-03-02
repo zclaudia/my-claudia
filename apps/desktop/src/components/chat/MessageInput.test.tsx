@@ -23,17 +23,17 @@ describe('MessageInput', () => {
   });
 
   it('renders textarea with default placeholder', () => {
-    render(<MessageInput onSend={mockOnSend} />);
+    render(<MessageInput sessionId="test-session" onSend={mockOnSend} />);
     expect(screen.getByPlaceholderText(/Type a message/)).toBeInTheDocument();
   });
 
   it('renders textarea with custom placeholder', () => {
-    render(<MessageInput onSend={mockOnSend} placeholder="Custom placeholder" />);
+    render(<MessageInput sessionId="test-session" onSend={mockOnSend} placeholder="Custom placeholder" />);
     expect(screen.getByPlaceholderText('Custom placeholder')).toBeInTheDocument();
   });
 
   it('updates value when typing', () => {
-    render(<MessageInput onSend={mockOnSend} />);
+    render(<MessageInput sessionId="test-session" onSend={mockOnSend} />);
 
     const textarea = screen.getByPlaceholderText(/Type a message/);
     fireEvent.change(textarea, { target: { value: 'Hello world' } });
@@ -42,7 +42,7 @@ describe('MessageInput', () => {
   });
 
   it('calls onSend when clicking send button with valid message', () => {
-    render(<MessageInput onSend={mockOnSend} />);
+    render(<MessageInput sessionId="test-session" onSend={mockOnSend} />);
 
     const textarea = screen.getByPlaceholderText(/Type a message/);
     fireEvent.change(textarea, { target: { value: 'Hello' } });
@@ -55,7 +55,7 @@ describe('MessageInput', () => {
   });
 
   it('does not call onSend with empty message', () => {
-    render(<MessageInput onSend={mockOnSend} />);
+    render(<MessageInput sessionId="test-session" onSend={mockOnSend} />);
 
     const sendButton = screen.getByTitle('Send message (Enter)');
     fireEvent.click(sendButton);
@@ -64,7 +64,7 @@ describe('MessageInput', () => {
   });
 
   it('does not call onSend with whitespace only message', () => {
-    render(<MessageInput onSend={mockOnSend} />);
+    render(<MessageInput sessionId="test-session" onSend={mockOnSend} />);
 
     const textarea = screen.getByPlaceholderText(/Type a message/);
     fireEvent.change(textarea, { target: { value: '   ' } });
@@ -74,14 +74,14 @@ describe('MessageInput', () => {
   });
 
   it('disables textarea when disabled prop is true', () => {
-    render(<MessageInput onSend={mockOnSend} disabled />);
+    render(<MessageInput sessionId="test-session" onSend={mockOnSend} disabled />);
 
     const textarea = screen.getByPlaceholderText(/Type a message/);
     expect(textarea).toBeDisabled();
   });
 
   it('sends message on Cmd+Enter', () => {
-    render(<MessageInput onSend={mockOnSend} />);
+    render(<MessageInput sessionId="test-session" onSend={mockOnSend} />);
 
     const textarea = screen.getByPlaceholderText(/Type a message/);
     fireEvent.change(textarea, { target: { value: 'Test message' } });
@@ -91,7 +91,7 @@ describe('MessageInput', () => {
   });
 
   it('sends message on Ctrl+Enter', () => {
-    render(<MessageInput onSend={mockOnSend} />);
+    render(<MessageInput sessionId="test-session" onSend={mockOnSend} />);
 
     const textarea = screen.getByPlaceholderText(/Type a message/);
     fireEvent.change(textarea, { target: { value: 'Test message' } });
@@ -102,7 +102,7 @@ describe('MessageInput', () => {
 
   it('shows cancel button when isLoading is true', () => {
     render(
-      <MessageInput
+      <MessageInput sessionId="test-session"
         onSend={mockOnSend}
         onCancel={mockOnCancel}
         isLoading
@@ -115,7 +115,7 @@ describe('MessageInput', () => {
 
   it('calls onCancel when cancel button is clicked', () => {
     render(
-      <MessageInput
+      <MessageInput sessionId="test-session"
         onSend={mockOnSend}
         onCancel={mockOnCancel}
         isLoading
@@ -129,14 +129,14 @@ describe('MessageInput', () => {
   });
 
   it('shows send button when not loading', () => {
-    render(<MessageInput onSend={mockOnSend} onCancel={mockOnCancel} />);
+    render(<MessageInput sessionId="test-session" onSend={mockOnSend} onCancel={mockOnCancel} />);
 
     expect(screen.getByTitle('Send message (Enter)')).toBeInTheDocument();
     expect(screen.queryByTitle('Cancel (Esc)')).not.toBeInTheDocument();
   });
 
   it('trims whitespace from message before sending', () => {
-    render(<MessageInput onSend={mockOnSend} />);
+    render(<MessageInput sessionId="test-session" onSend={mockOnSend} />);
 
     const textarea = screen.getByPlaceholderText(/Type a message/);
     fireEvent.change(textarea, { target: { value: '  Hello world  ' } });
@@ -148,7 +148,7 @@ describe('MessageInput', () => {
   });
 
   it('sends on Enter without modifier', () => {
-    render(<MessageInput onSend={mockOnSend} />);
+    render(<MessageInput sessionId="test-session" onSend={mockOnSend} />);
 
     const textarea = screen.getByPlaceholderText(/Type a message/);
     fireEvent.change(textarea, { target: { value: 'Test' } });
@@ -158,7 +158,7 @@ describe('MessageInput', () => {
   });
 
   it('does not send on Shift+Enter (allows newline)', () => {
-    render(<MessageInput onSend={mockOnSend} />);
+    render(<MessageInput sessionId="test-session" onSend={mockOnSend} />);
 
     const textarea = screen.getByPlaceholderText(/Type a message/);
     fireEvent.change(textarea, { target: { value: 'Test' } });
@@ -170,7 +170,7 @@ describe('MessageInput', () => {
   // Slash command tests
   describe('slash commands', () => {
     it('shows command suggestions when typing /', () => {
-      render(<MessageInput onSend={mockOnSend} onCommand={mockOnCommand} commands={mockCommands} />);
+      render(<MessageInput sessionId="test-session" onSend={mockOnSend} onCommand={mockOnCommand} commands={mockCommands} />);
 
       const textarea = screen.getByPlaceholderText(/Type a message/);
       fireEvent.change(textarea, { target: { value: '/' } });
@@ -180,7 +180,7 @@ describe('MessageInput', () => {
     });
 
     it('filters commands based on input', () => {
-      render(<MessageInput onSend={mockOnSend} onCommand={mockOnCommand} commands={mockCommands} />);
+      render(<MessageInput sessionId="test-session" onSend={mockOnSend} onCommand={mockOnCommand} commands={mockCommands} />);
 
       const textarea = screen.getByPlaceholderText(/Type a message/);
       fireEvent.change(textarea, { target: { value: '/cl' } });
@@ -190,7 +190,7 @@ describe('MessageInput', () => {
     });
 
     it('calls onCommand when slash command is sent', () => {
-      render(<MessageInput onSend={mockOnSend} onCommand={mockOnCommand} commands={mockCommands} />);
+      render(<MessageInput sessionId="test-session" onSend={mockOnSend} onCommand={mockOnCommand} commands={mockCommands} />);
 
       const textarea = screen.getByPlaceholderText(/Type a message/);
       // Type the command with a space to close the suggestion menu
@@ -202,7 +202,7 @@ describe('MessageInput', () => {
     });
 
     it('passes args to onCommand', () => {
-      render(<MessageInput onSend={mockOnSend} onCommand={mockOnCommand} commands={mockCommands} />);
+      render(<MessageInput sessionId="test-session" onSend={mockOnSend} onCommand={mockOnCommand} commands={mockCommands} />);
 
       const textarea = screen.getByPlaceholderText(/Type a message/);
       fireEvent.change(textarea, { target: { value: '/model claude-3' } });
@@ -212,7 +212,7 @@ describe('MessageInput', () => {
     });
 
     it('hides command suggestions when input has space', () => {
-      render(<MessageInput onSend={mockOnSend} onCommand={mockOnCommand} commands={mockCommands} />);
+      render(<MessageInput sessionId="test-session" onSend={mockOnSend} onCommand={mockOnCommand} commands={mockCommands} />);
 
       const textarea = screen.getByPlaceholderText(/Type a message/);
       fireEvent.change(textarea, { target: { value: '/clear ' } });
@@ -221,7 +221,7 @@ describe('MessageInput', () => {
     });
 
     it('shows provider commands in suggestions', () => {
-      render(<MessageInput onSend={mockOnSend} onCommand={mockOnCommand} commands={mockCommands} />);
+      render(<MessageInput sessionId="test-session" onSend={mockOnSend} onCommand={mockOnCommand} commands={mockCommands} />);
 
       const textarea = screen.getByPlaceholderText(/Type a message/);
       fireEvent.change(textarea, { target: { value: '/co' } });
@@ -233,7 +233,7 @@ describe('MessageInput', () => {
     });
 
     it('calls onCommand for provider commands', () => {
-      render(<MessageInput onSend={mockOnSend} onCommand={mockOnCommand} commands={mockCommands} />);
+      render(<MessageInput sessionId="test-session" onSend={mockOnSend} onCommand={mockOnCommand} commands={mockCommands} />);
 
       const textarea = screen.getByPlaceholderText(/Type a message/);
       fireEvent.change(textarea, { target: { value: '/cost ' } });
@@ -243,7 +243,7 @@ describe('MessageInput', () => {
     });
 
     it('shows no suggestions when commands prop is empty', () => {
-      render(<MessageInput onSend={mockOnSend} onCommand={mockOnCommand} commands={[]} />);
+      render(<MessageInput sessionId="test-session" onSend={mockOnSend} onCommand={mockOnCommand} commands={[]} />);
 
       const textarea = screen.getByPlaceholderText(/Type a message/);
       fireEvent.change(textarea, { target: { value: '/' } });
@@ -256,21 +256,21 @@ describe('MessageInput', () => {
   // Advanced mode tests
   describe('advanced mode', () => {
     it('renders larger textarea with resize in advanced mode', () => {
-      render(<MessageInput onSend={mockOnSend} advancedMode />);
+      render(<MessageInput sessionId="test-session" onSend={mockOnSend} advancedMode />);
       const textarea = screen.getByPlaceholderText(/Type a message/);
       expect(textarea.className).toContain('resize-y');
       expect(textarea.className).toContain('min-h-[160px]');
     });
 
     it('renders normal textarea without resize when not in advanced mode', () => {
-      render(<MessageInput onSend={mockOnSend} />);
+      render(<MessageInput sessionId="test-session" onSend={mockOnSend} />);
       const textarea = screen.getByPlaceholderText(/Type a message/);
       expect(textarea.className).toContain('resize-none');
       expect(textarea.className).not.toContain('resize-y');
     });
 
     it('does not send on plain Enter in advanced mode (desktop)', () => {
-      render(<MessageInput onSend={mockOnSend} advancedMode />);
+      render(<MessageInput sessionId="test-session" onSend={mockOnSend} advancedMode />);
       const textarea = screen.getByPlaceholderText(/Type a message/);
       fireEvent.change(textarea, { target: { value: 'Test' } });
       fireEvent.keyDown(textarea, { key: 'Enter' });
@@ -278,7 +278,7 @@ describe('MessageInput', () => {
     });
 
     it('sends on Cmd+Enter in advanced mode', () => {
-      render(<MessageInput onSend={mockOnSend} advancedMode />);
+      render(<MessageInput sessionId="test-session" onSend={mockOnSend} advancedMode />);
       const textarea = screen.getByPlaceholderText(/Type a message/);
       fireEvent.change(textarea, { target: { value: 'Test' } });
       fireEvent.keyDown(textarea, { key: 'Enter', metaKey: true });
@@ -286,7 +286,7 @@ describe('MessageInput', () => {
     });
 
     it('sends on Ctrl+Enter in advanced mode', () => {
-      render(<MessageInput onSend={mockOnSend} advancedMode />);
+      render(<MessageInput sessionId="test-session" onSend={mockOnSend} advancedMode />);
       const textarea = screen.getByPlaceholderText(/Type a message/);
       fireEvent.change(textarea, { target: { value: 'Test' } });
       fireEvent.keyDown(textarea, { key: 'Enter', ctrlKey: true });
@@ -294,7 +294,7 @@ describe('MessageInput', () => {
     });
 
     it('inserts spaces on Tab in advanced mode', () => {
-      render(<MessageInput onSend={mockOnSend} advancedMode />);
+      render(<MessageInput sessionId="test-session" onSend={mockOnSend} advancedMode />);
       const textarea = screen.getByPlaceholderText(/Type a message/) as HTMLTextAreaElement;
       fireEvent.change(textarea, { target: { value: 'hello' } });
       // Set cursor position
@@ -307,12 +307,12 @@ describe('MessageInput', () => {
     });
 
     it('shows advanced hint text in advanced mode', () => {
-      render(<MessageInput onSend={mockOnSend} advancedMode />);
+      render(<MessageInput sessionId="test-session" onSend={mockOnSend} advancedMode />);
       expect(screen.getByText(/Enter to send, Tab to indent/)).toBeInTheDocument();
     });
 
     it('shows send button with Cmd+Enter title in advanced mode', () => {
-      render(<MessageInput onSend={mockOnSend} advancedMode />);
+      render(<MessageInput sessionId="test-session" onSend={mockOnSend} advancedMode />);
       expect(screen.getByTitle(/Send message \((Cmd|Ctrl)\+Enter\)/)).toBeInTheDocument();
     });
   });
@@ -320,12 +320,12 @@ describe('MessageInput', () => {
   // Attachment tests
   describe('attachments', () => {
     it('renders attachment button', () => {
-      render(<MessageInput onSend={mockOnSend} />);
+      render(<MessageInput sessionId="test-session" onSend={mockOnSend} />);
       expect(screen.getByTitle('Add attachment (images, files)')).toBeInTheDocument();
     });
 
     it('shows hint text', () => {
-      render(<MessageInput onSend={mockOnSend} />);
+      render(<MessageInput sessionId="test-session" onSend={mockOnSend} />);
       expect(screen.getByText('Type / for commands')).toBeInTheDocument();
       expect(screen.getByText(/Paste images with (Cmd|Ctrl)\+V/)).toBeInTheDocument();
     });

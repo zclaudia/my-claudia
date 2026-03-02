@@ -420,6 +420,7 @@ export function AgentPanel({ isMobile = false, showHeader = true }: AgentPanelPr
       {/* Input */}
       <div className={`border-t border-border flex-shrink-0 ${showHeader ? 'p-3' : 'p-2 md:p-4 safe-bottom-pad'}`}>
         <MessageInput
+          sessionId={sessionId || 'agent'}
           onSend={handleSend}
           onCommand={handleCommand}
           commands={commands}

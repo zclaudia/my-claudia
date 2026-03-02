@@ -48,6 +48,8 @@ interface ChatState {
   sessionUsage: Record<string, { inputTokens: number; outputTokens: number }>;
   // Model override per session (user-selected model, empty = use default)
   modelOverrides: Record<string, string>;
+  // Input drafts per session (preserved across session switches)
+  drafts: Record<string, string>;
 
   // Actions — Messages
   setMessages: (sessionId: string, messages: MessageWithToolCalls[], pagination?: Omit<PaginationInfo, 'isLoadingMore'>) => void;
@@ -88,6 +90,10 @@ interface ChatState {
   setModelOverride: (sessionId: string, model: string) => void;
   getModelOverride: (sessionId: string) => string;
 
+  // Draft actions
+  setDraft: (sessionId: string, content: string) => void;
+  clearDraft: (sessionId: string) => void;
+
   // Getters
   getPagination: (sessionId: string) => PaginationInfo | undefined;
   isSessionLoading: (sessionId: string) => boolean;
@@ -114,6 +120,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   mode: 'default',
   sessionUsage: {},
   modelOverrides: {},
+  drafts: {},
 
   setMessages: (sessionId, messages, pagination) =>
     set((state) => ({
@@ -408,6 +415,22 @@ export const useChatStore = create<ChatState>((set, get) => ({
       modelOverrides: { ...state.modelOverrides, [sessionId]: model },
     })),
   getModelOverride: (sessionId) => get().modelOverrides[sessionId] || '',
+
+  // Draft actions
+  setDraft: (sessionId, content) =>
+    set((state) => {
+      if (!content) {
+        const { [sessionId]: _, ...rest } = state.drafts;
+        return { drafts: rest };
+      }
+      return { drafts: { ...state.drafts, [sessionId]: content } };
+    }),
+
+  clearDraft: (sessionId) =>
+    set((state) => {
+      const { [sessionId]: _, ...rest } = state.drafts;
+      return { drafts: rest };
+    }),
 
   getPagination: (sessionId) => get().pagination[sessionId],
 

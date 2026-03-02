@@ -86,6 +86,7 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
   // Streaming segmented mode: use content blocks for inline rendering during active run
   const useStreamingSegmented = isLoading && sessionContentBlocks.length > 1 && sessionToolCallHistory.length > 0;
   const modelOverride = getModelOverride(sessionId);
+  const draft = useChatStore((s) => s.drafts[sessionId]);
   const { projects, sessions, providerCommands, providerCapabilities, setProviderCapabilities } = useProjectStore();
   const { setDrawerOpen, drawerOpen, bottomPanelTab, setBottomPanelTab } = useTerminalStore();
   const { advancedInput, setAdvancedInput } = useUIStore();
@@ -1069,6 +1070,7 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
         </div>
         <MessageInput
           key={sessionId}
+          sessionId={sessionId}
           onSend={handleSendMessage}
           onCancel={handleCancelRun}
           onCommand={handleCommand}
@@ -1076,7 +1078,7 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
           projectRoot={currentProject?.rootPath}
           disabled={!isConnected}
           isLoading={isLoading}
-          initialValue={restoreMessage?.content}
+          initialValue={restoreMessage?.content ?? draft}
           initialAttachments={restoreMessage?.attachments}
           advancedMode={advancedInput}
           placeholder={
