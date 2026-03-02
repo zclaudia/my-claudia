@@ -1040,12 +1040,26 @@ export const ALL_SERVER_FEATURES: ServerFeature[] = [
 // Server Info Types
 // ============================================
 
+export interface SdkVersionInfo {
+  name: string;
+  current: string;
+  latest: string;
+  outdated: boolean;
+}
+
+export interface SdkVersionReport {
+  checkedAt: number;
+  sdks: SdkVersionInfo[];
+}
+
 export interface ServerInfo {
   version: string;
   isLocalConnection: boolean;  // Whether the client is connecting from localhost (determined by server)
   features?: ServerFeature[];  // Server-advertised feature flags
   /** PEM-encoded RSA-OAEP public key for E2E credential encryption */
   publicKey?: string;
+  /** SDK version check results (populated asynchronously after server startup) */
+  sdkVersions?: SdkVersionReport;
 }
 
 // ============================================

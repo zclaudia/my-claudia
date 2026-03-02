@@ -14,7 +14,7 @@ import { ImportOpenCodeDialog } from './ImportOpenCodeDialog';
 import * as api from '../services/api';
 import { exportLogs, getLogCount, clearLogs } from '../services/logger';
 import { getClientAIConfig, setClientAIConfig, testClientAIConnection, fetchAvailableModels, type ClientAIConfig } from '../services/clientAI';
-import type { GatewayBackendInfo, NotificationConfig } from '@my-claudia/shared';
+import type { GatewayBackendInfo, NotificationConfig, SdkVersionReport } from '@my-claudia/shared';
 import { DEFAULT_NOTIFICATION_CONFIG } from '@my-claudia/shared';
 
 /** Detect macOS desktop (Tauri + Mac, not Android) */
@@ -56,6 +56,15 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
   const activeServer = getActiveServer();
   const isLocalServer = activeServerId === 'local';
   const directServers = servers.filter(s => s.connectionMode !== 'gateway');
+
+  // SDK version check
+  const [sdkVersions, setSdkVersions] = useState<SdkVersionReport | null>(null);
+  useEffect(() => {
+    if (!isOpen || !activeServer) return;
+    api.getServerInfo(activeServer.address)
+      .then(info => setSdkVersions(info.sdkVersions ?? null))
+      .catch(() => {});
+  }, [isOpen, activeServer?.address]);
 
   // macOS permission checks
   const [fdaGranted, setFdaGranted] = useState<boolean | null>(null);
@@ -519,6 +528,19 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
                             {embeddedServerError}
                           </div>
                         )}
+                      </>
+                    )}
+                    {sdkVersions && sdkVersions.sdks.length > 0 && (
+                      <>
+                        <div className="border-t border-border/50 my-1.5" />
+                        {sdkVersions.sdks.map(sdk => (
+                          <div key={sdk.name} className="flex justify-between text-sm">
+                            <span className="text-muted-foreground">{sdk.name.split('/').pop()}</span>
+                            <span className={sdk.outdated ? 'text-amber-500' : 'text-muted-foreground'}>
+                              {sdk.current}{sdk.outdated ? ` → ${sdk.latest}` : ''}
+                            </span>
+                          </div>
+                        ))}
                       </>
                     )}
                   </div>

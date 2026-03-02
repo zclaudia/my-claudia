@@ -3,11 +3,19 @@ import { MessageList } from '../chat/MessageList';
 import { MessageInput } from '../chat/MessageInput';
 import { LoadingIndicator } from '../chat/LoadingIndicator';
 import { useAgentStore } from '../../stores/agentStore';
+import { useProjectStore } from '../../stores/projectStore';
 import { useConnection } from '../../contexts/ConnectionContext';
 import { getClientAIConfig } from '../../services/clientAI';
 import type { ToolExecutionContext } from '../../services/agentTools';
 import * as agentLoop from '../../services/agentLoop';
 import type { MessageWithToolCalls } from '../../stores/chatStore';
+
+const QUICK_ACTIONS = [
+  { icon: '\u{1F50D}', label: 'Search messages', prompt: 'Search messages across all sessions' },
+  { icon: '\u{1F4CB}', label: 'List sessions', prompt: 'List all active sessions with their status' },
+  { icon: '\u{1F4CA}', label: 'Summarize session', prompt: 'Summarize the current session\'s conversation' },
+  { icon: '\u{1F5C2}', label: 'Browse files', prompt: 'List files in the current project' },
+];
 
 interface AgentPanelProps {
   isMobile?: boolean;
@@ -15,8 +23,9 @@ interface AgentPanelProps {
 }
 
 export function AgentPanel({ isMobile = false, showHeader = true }: AgentPanelProps) {
-  const { setExpanded, isLoading } = useAgentStore();
+  const { setExpanded, isLoading, clearRequestId } = useAgentStore();
   const { sendMessage: wsSendMessage, isConnected } = useConnection();
+  const { selectedSessionId, sessions, projects } = useProjectStore();
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const [initialLoadDone, setInitialLoadDone] = useState(false);
@@ -27,6 +36,10 @@ export function AgentPanel({ isMobile = false, showHeader = true }: AgentPanelPr
 
   const config = getClientAIConfig();
   const modelName = config?.model || 'Agent AI';
+
+  // Current context for display
+  const currentSession = sessions.find(s => s.id === selectedSessionId);
+  const currentProject = currentSession ? projects.find(p => p.id === currentSession.projectId) : null;
 
   // Tool execution context for meta-agent tools (send_task_to_session, etc.)
   const toolContext: ToolExecutionContext = useMemo(() => ({
@@ -55,6 +68,14 @@ export function AgentPanel({ isMobile = false, showHeader = true }: AgentPanelPr
       setTimeout(() => scrollToBottom(true), 0);
     });
   }, [scrollToBottom]);
+
+  // Listen for clear requests from header
+  useEffect(() => {
+    if (clearRequestId > 0) {
+      agentLoop.clearConversation();
+      setClientMessages([]);
+    }
+  }, [clearRequestId]);
 
   // Auto-scroll on new messages
   useEffect(() => {
@@ -137,7 +158,7 @@ export function AgentPanel({ isMobile = false, showHeader = true }: AgentPanelPr
       {showHeader && (
         <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-card flex-shrink-0">
           <div className="flex items-center gap-2">
-            <span className="text-base">🤖</span>
+            <span className="text-base">{'\u{1F916}'}</span>
             <span className="font-semibold text-sm">Agent</span>
             <span className="text-xs text-muted-foreground">{modelName}</span>
           </div>
@@ -158,13 +179,26 @@ export function AgentPanel({ isMobile = false, showHeader = true }: AgentPanelPr
         ref={messagesContainerRef}
         className={`flex-1 overflow-y-auto ${showHeader ? 'p-3' : 'p-2 md:p-4'}`}
       >
+        {/* Empty state with quick actions */}
         {clientMessages.length === 0 && initialLoadDone && (
-          <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
-            <div className="text-center">
-              <p className="mb-1">Hi! I'm your Meta-Agent.</p>
-              <p className="text-xs text-muted-foreground/70">
-                I can manage your projects, sessions, search conversations, and orchestrate tasks across backends.
+          <div className="flex items-center justify-center h-full">
+            <div className="text-center max-w-xs">
+              <p className="text-sm text-muted-foreground mb-1">Hi! I'm your Meta-Agent.</p>
+              <p className="text-xs text-muted-foreground/60 mb-5">
+                Manage projects, sessions, search conversations, and orchestrate tasks.
               </p>
+              <div className="grid grid-cols-2 gap-2">
+                {QUICK_ACTIONS.map(action => (
+                  <button
+                    key={action.label}
+                    onClick={() => handleSend(action.prompt)}
+                    className="flex items-center gap-2 border border-border rounded-lg px-3 py-2.5 text-xs text-muted-foreground hover:text-foreground hover:bg-secondary/50 transition-all text-left"
+                  >
+                    <span className="text-sm flex-shrink-0">{action.icon}</span>
+                    <span>{action.label}</span>
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
         )}
@@ -175,6 +209,13 @@ export function AgentPanel({ isMobile = false, showHeader = true }: AgentPanelPr
 
         <div ref={messagesEndRef} />
       </div>
+
+      {/* Context line */}
+      {currentProject && currentSession && (
+        <div className="px-3 py-1 text-[10px] text-muted-foreground/50 border-t border-border/30 truncate flex-shrink-0">
+          Context: {currentProject.name} / {currentSession.name || 'Untitled'}
+        </div>
+      )}
 
       {/* Input */}
       <div className={`border-t border-border flex-shrink-0 ${showHeader ? 'p-3' : 'p-2 md:p-4 safe-bottom-pad'}`}>

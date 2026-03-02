@@ -44,6 +44,7 @@ import { safeCompare } from './auth.js';
 import { extractAndIndexMetadata, removeIndexedMetadata } from './storage/metadata-extractor.js';
 import { TerminalManager } from './terminal-manager.js';
 import { generateKeyPair, getPublicKeyPem, decryptCredential } from './utils/crypto.js';
+import { getSdkVersionReport } from './utils/sdk-version-check.js';
 import { getGatewayClientMode } from './gateway-instance.js';
 
 // Phase 2: Router architecture (CRUD routes migrated to HTTP REST)
@@ -328,6 +329,7 @@ export async function createServer(): Promise<ServerContext> {
   app.get('/api/server/info', (req: Request, res: Response) => {
     const isLocal = isLocalhost(req);
     const publicKey = getPublicKeyPem();
+    const sdkVersions = getSdkVersionReport();
     res.json({
       success: true,
       data: {
@@ -335,6 +337,7 @@ export async function createServer(): Promise<ServerContext> {
         isLocalConnection: isLocal,
         features: ALL_SERVER_FEATURES,
         ...(publicKey && { publicKey }),
+        ...(sdkVersions && { sdkVersions }),
       }
     });
   });

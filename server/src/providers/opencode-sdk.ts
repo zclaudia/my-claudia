@@ -2,6 +2,16 @@ import { spawn, type ChildProcess } from 'child_process';
 import type { PermissionRequest } from '@my-claudia/shared';
 import type { ClaudeMessage, SystemInfo, PermissionDecision, PermissionCallback } from './claude-sdk.js';
 import { prepareInput } from './claude-sdk.js';
+import {
+  createOpencodeClient,
+  type OpencodeClient,
+  type Event as OpenCodeEvent,
+  type Part as OpenCodePart,
+  type ToolPart,
+  type Agent as OpenCodeAgent,
+  type Permission as OpenCodePermission,
+  type SessionStatus,
+} from '@opencode-ai/sdk';
 
 export { type ClaudeMessage, type PermissionDecision, type PermissionCallback };
 
@@ -26,6 +36,7 @@ interface OpenCodeServer {
   baseUrl: string;
   cwd: string;
   ready: boolean;
+  client: OpencodeClient;
 }
 
 class OpenCodeServerManager {
@@ -40,7 +51,7 @@ class OpenCodeServerManager {
     // Return existing server if running
     const existing = this.servers.get(cwd);
     if (existing && existing.ready) {
-      // Verify it's still alive
+      // Verify it's still alive (no SDK health endpoint, use manual fetch)
       try {
         const response = await fetch(`${existing.baseUrl}/global/health`);
         if (response.ok) return existing;
@@ -81,18 +92,28 @@ class OpenCodeServerManager {
       stdio: ['pipe', 'pipe', 'pipe'],
     });
 
+    // Log stderr for debugging
+    child.stderr?.on('data', (chunk: Buffer) => {
+      console.log(`[OpenCode:${port}] stderr:`, chunk.toString().trim());
+    });
+
+    // Wait for server to be ready (poll health endpoint)
+    await this.waitForReady(baseUrl, 30000);
+
+    // Create SDK client for this server
+    const client = createOpencodeClient({
+      baseUrl,
+      directory: cwd,
+    });
+
     const server: OpenCodeServer = {
       process: child,
       port,
       baseUrl,
       cwd,
-      ready: false,
+      ready: true,
+      client,
     };
-
-    // Log stderr for debugging
-    child.stderr?.on('data', (chunk: Buffer) => {
-      console.log(`[OpenCode:${port}] stderr:`, chunk.toString().trim());
-    });
 
     child.on('exit', (code) => {
       console.log(`[OpenCode:${port}] Process exited with code ${code}`);
@@ -106,11 +127,7 @@ class OpenCodeServerManager {
       this.servers.delete(cwd);
     });
 
-    // Wait for server to be ready (poll health endpoint)
-    await this.waitForReady(baseUrl, 30000);
-    server.ready = true;
     this.servers.set(cwd, server);
-
     console.log(`[OpenCode] Server ready on ${baseUrl}`);
     return server;
   }
@@ -213,72 +230,18 @@ class ThinkTagFilter {
 }
 
 // ============================================
-// SSE Event Parsing
-// ============================================
-
-interface SSEEvent {
-  event: string;
-  data: string;
-}
-
-/**
- * Parse an SSE stream from a fetch Response into an async iterable of events.
- */
-async function* parseSSEStream(response: Response): AsyncGenerator<SSEEvent> {
-  const reader = response.body!.getReader();
-  const decoder = new TextDecoder();
-  let buffer = '';
-
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-
-      buffer += decoder.decode(value, { stream: true });
-
-      // Process complete events (separated by double newline)
-      const parts = buffer.split('\n\n');
-      buffer = parts.pop() || '';
-
-      for (const part of parts) {
-        if (!part.trim()) continue;
-
-        let event = '';
-        let data = '';
-
-        for (const line of part.split('\n')) {
-          if (line.startsWith('event: ')) {
-            event = line.slice(7);
-          } else if (line.startsWith('data: ')) {
-            data += (data ? '\n' : '') + line.slice(6);
-          } else if (line.startsWith('data:')) {
-            data += (data ? '\n' : '') + line.slice(5);
-          }
-        }
-
-        if (event || data) {
-          yield { event, data };
-        }
-      }
-    }
-  } finally {
-    reader.releaseLock();
-  }
-}
-
-// ============================================
 // Streaming state for part-boundary tracking
 // ============================================
 
 interface StreamState {
-  /** Last field type seen in message.part.delta ('text' | 'reasoning' | null) */
+  /** Last field type seen ('text' | 'reasoning' | null) */
   lastField: string | null;
   /** Last partIndex seen for text deltas (for detecting part boundaries) */
-  lastTextPartIndex: number;
+  lastTextPartId: string;
 }
 
 function createStreamState(): StreamState {
-  return { lastField: null, lastTextPartIndex: -1 };
+  return { lastField: null, lastTextPartId: '' };
 }
 
 // ============================================
@@ -318,28 +281,18 @@ export async function* runOpenCode(
     return;
   }
 
-  const baseUrl = server.baseUrl;
+  const { client } = server;
 
   // Create or resume session
-  // OpenCode now requires session IDs to start with "ses" prefix
   let sessionId = options.sessionId;
-  if (sessionId && !sessionId.startsWith('ses')) {
-    console.log(`[OpenCode] Ignoring legacy session ID (no 'ses' prefix): ${sessionId}`);
-    sessionId = undefined;
-  }
   if (!sessionId) {
     try {
-      const response = await fetch(`${baseUrl}/session`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({}),
-      });
-      if (!response.ok) {
-        yield { type: 'error', error: `Failed to create session: ${response.statusText}` };
+      const result = await client.session.create({});
+      if (result.error || !result.data) {
+        yield { type: 'error', error: `Failed to create session: ${result.error || 'no data'}` };
         return;
       }
-      const session = await response.json() as { id: string };
-      sessionId = session.id;
+      sessionId = result.data.id;
       console.log(`[OpenCode] Created session: ${sessionId}`);
     } catch (error) {
       yield { type: 'error', error: `Failed to create session: ${error}` };
@@ -355,13 +308,13 @@ export async function* runOpenCode(
 
   try {
     // Fetch version, agents, and provider info in parallel
-    const [healthRes, agentRes, providerRes] = await Promise.all([
-      fetch(`${baseUrl}/global/health`).catch(() => null),
-      fetch(`${baseUrl}/agent`).catch(() => null),
-      fetch(`${baseUrl}/provider`).catch(() => null),
+    const [healthRes, agentsResult, providersResult] = await Promise.all([
+      fetch(`${server.baseUrl}/global/health`).catch(() => null),
+      client.app.agents({}).catch(() => null),
+      client.provider.list({}).catch(() => null),
     ]);
 
-    // Version from health endpoint
+    // Version from health endpoint (no SDK method available)
     if (healthRes?.ok) {
       const health = await healthRes.json() as { version?: string };
       if (health.version) {
@@ -369,35 +322,23 @@ export async function* runOpenCode(
       }
     }
 
-    // Parse agents and provider data
-    type AgentInfo = { name?: string; model?: { providerID?: string; modelID?: string } };
-    let agents: AgentInfo[] = [];
-    if (agentRes?.ok) {
-      agents = await agentRes.json() as AgentInfo[];
-      if (Array.isArray(agents) && agents.length > 0) {
-        systemInfo.agents = agents.map(a => a.name || 'unknown');
-      }
+    // Parse agents
+    const agents: OpenCodeAgent[] = (agentsResult?.data as OpenCodeAgent[]) || [];
+    if (agents.length > 0) {
+      systemInfo.agents = agents.map(a => a.name || 'unknown');
     }
 
-    // Parse provider data: { all: [{ id, name, models: { [modelId]: { name, ... } } }] }
-    type ProviderModel = { id?: string; name?: string; providerID?: string };
-    type ProviderInfo = { id: string; name: string; models: Record<string, ProviderModel> };
-    let providerData: ProviderInfo[] = [];
-    if (providerRes?.ok) {
-      const raw = await providerRes.json() as { all?: ProviderInfo[] };
-      providerData = raw.all || [];
-    }
+    // Parse provider data
+    const providerData = (providersResult?.data as any)?.all || [];
 
     // Derive model name when no explicit model is set
     if (!options.model) {
-      // Get model config from the active agent (first agent = default, or match options.agent)
       const activeAgent = options.agent
         ? agents.find(a => a.name === options.agent) || agents[0]
         : agents[0];
       const agentModel = activeAgent?.model;
       if (agentModel?.providerID && agentModel?.modelID) {
-        // Look up display name from provider data
-        const provider = providerData.find(p => p.id === agentModel.providerID);
+        const provider = providerData.find((p: any) => p.id === agentModel.providerID);
         const modelInfo = provider?.models?.[agentModel.modelID];
         systemInfo.model = modelInfo?.name || `${agentModel.providerID}/${agentModel.modelID}`;
       }
@@ -412,16 +353,12 @@ export async function* runOpenCode(
     systemInfo,
   };
 
-  // Connect global SSE event stream (OpenCode uses a single global /event endpoint)
-  console.log(`[OpenCode] Connecting SSE stream: ${baseUrl}/event`);
-  let sseResponse: Response;
+  // Connect global SSE event stream via SDK
+  console.log(`[OpenCode] Connecting SSE stream via SDK`);
+  let sseResult: { stream: AsyncGenerator<OpenCodeEvent> };
   try {
-    sseResponse = await fetch(`${baseUrl}/event`);
-    console.log(`[OpenCode] SSE connected: status=${sseResponse.status}, hasBody=${!!sseResponse.body}`);
-    if (!sseResponse.ok || !sseResponse.body) {
-      yield { type: 'error', error: `Failed to connect event stream: ${sseResponse.statusText}` };
-      return;
-    }
+    sseResult = await client.event.subscribe({}) as { stream: AsyncGenerator<OpenCodeEvent> };
+    console.log(`[OpenCode] SSE stream connected`);
   } catch (error) {
     console.error(`[OpenCode] SSE connection failed:`, error);
     yield { type: 'error', error: `Failed to connect event stream: ${error}` };
@@ -438,8 +375,12 @@ export async function* runOpenCode(
   }
 
   try {
-    // Send message asynchronously
-    const messageBody: Record<string, unknown> = {
+    // Build prompt body
+    const promptBody: {
+      parts: Array<{ type: 'text'; text: string }>;
+      model?: { providerID: string; modelID: string };
+      agent?: string;
+    } = {
       parts: [{ type: 'text', text: effectivePrompt }],
     };
 
@@ -447,45 +388,40 @@ export async function* runOpenCode(
       // OpenCode model format: "providerID/modelID" (e.g. "anthropic/claude-sonnet-4-5-20250929")
       const slashIndex = options.model.indexOf('/');
       if (slashIndex !== -1) {
-        messageBody.model = {
+        promptBody.model = {
           providerID: options.model.slice(0, slashIndex),
           modelID: options.model.slice(slashIndex + 1),
         };
       }
     }
 
-    // Include agent if specified (maps UI mode to OpenCode agent)
     if (options.agent) {
-      messageBody.agentID = options.agent;
+      promptBody.agent = options.agent;
     }
 
-    console.log(`[OpenCode] Sending prompt to session ${sessionId}:`, JSON.stringify(messageBody).slice(0, 200));
+    console.log(`[OpenCode] Sending prompt to session ${sessionId}:`, JSON.stringify(promptBody).slice(0, 200));
     try {
-      const sendResponse = await fetch(`${baseUrl}/session/${sessionId}/prompt_async`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(messageBody),
+      const sendResult = await client.session.promptAsync({
+        path: { id: sessionId },
+        body: promptBody,
       });
-      console.log(`[OpenCode] prompt_async response: status=${sendResponse.status} ${sendResponse.statusText}`);
-      if (!sendResponse.ok) {
-        const errorBody = await sendResponse.text().catch(() => '');
-        console.error(`[OpenCode] prompt_async error body:`, errorBody);
-        yield { type: 'error', error: `Failed to send message: ${sendResponse.statusText} - ${errorBody}` };
+      if (sendResult.error) {
+        console.error(`[OpenCode] promptAsync error:`, sendResult.error);
+        yield { type: 'error', error: `Failed to send message: ${JSON.stringify(sendResult.error)}` };
         return;
       }
     } catch (error) {
-      console.error(`[OpenCode] prompt_async failed:`, error);
+      console.error(`[OpenCode] promptAsync failed:`, error);
       yield { type: 'error', error: `Failed to send message: ${error}` };
       return;
     }
 
     // Process SSE events (filter by our sessionId since it's a global stream)
-    // Note: <think>...</think> tags are passed through to the frontend for rendering
     console.log(`[OpenCode] Processing SSE events for session ${sessionId}...`);
     const streamState = createStreamState();
     try {
-      for await (const sseEvent of parseSSEStream(sseResponse)) {
-        const messages = mapOpenCodeEvent(sseEvent.data, sessionId, streamState, onPermissionRequest);
+      for await (const event of sseResult.stream) {
+        const messages = mapOpenCodeEvent(event, sessionId, streamState, server, onPermissionRequest);
         for await (const msg of messages) {
           yield msg;
           if (msg.type === 'result' || msg.type === 'error') {
@@ -522,27 +458,20 @@ export async function* runOpenCode(
 }
 
 /**
- * Map an OpenCode SSE event to ClaudeMessage objects.
+ * Map an OpenCode SDK Event to ClaudeMessage objects.
  *
- * OpenCode's /event SSE stream uses only `data:` lines (no `event:` field).
- * The event type is at `data.type` and payload at `data.properties`.
+ * The SDK provides typed events from the SSE stream.
  * Events are global (not per-session), so we filter by sessionId.
  */
 async function* mapOpenCodeEvent(
-  rawData: string,
+  event: OpenCodeEvent,
   sessionId: string,
   streamState: StreamState,
+  server: OpenCodeServer,
   onPermissionRequest?: PermissionCallback
 ): AsyncGenerator<ClaudeMessage> {
-  let data: any;
-  try {
-    data = rawData ? JSON.parse(rawData) : {};
-  } catch {
-    return;
-  }
-
-  const eventType: string = data.type || '';
-  const props = data.properties || {};
+  const eventType = event.type;
+  const props = (event as any).properties || {};
 
   // Extract session ID from various event shapes to filter
   const eventSessionId =
@@ -551,89 +480,85 @@ async function* mapOpenCodeEvent(
     props.info?.id ||
     props.info?.sessionID;
 
-  // Skip events not for our session (except global events like server.connected)
+  // Skip events not for our session (except global events)
   if (eventSessionId && eventSessionId !== sessionId) {
     return;
   }
 
-  // Diagnostic: log all session-related events
+  // Diagnostic: log session-related events
   if (eventSessionId === sessionId) {
     const preview = JSON.stringify(props).slice(0, 300);
     console.log(`[OpenCode] SSE event: ${eventType} | ${preview}`);
   }
 
   switch (eventType) {
-    case 'message.part.delta': {
-      // Streaming delta — the primary way OpenCode sends incremental text
-      const delta: string | undefined = props.delta;
-      const field: string | undefined = props.field;
-      const partIndex: number | undefined = props.partIndex;
-
-      if (delta && field === 'text') {
-        // Close any open think block when switching from reasoning to text
-        if (streamState.lastField === 'reasoning') {
-          yield { type: 'assistant', content: '</think>\n\n' };
-        }
-        // Insert separator between different text parts (different partIndex)
-        if (partIndex !== undefined && streamState.lastTextPartIndex >= 0 && partIndex !== streamState.lastTextPartIndex) {
-          yield { type: 'assistant', content: '\n\n' };
-        }
-        if (partIndex !== undefined) {
-          streamState.lastTextPartIndex = partIndex;
-        }
-        streamState.lastField = 'text';
-        yield { type: 'assistant', content: delta };
-      } else if (delta && field === 'reasoning') {
-        // Open think block when switching to reasoning
-        if (streamState.lastField !== 'reasoning') {
-          yield { type: 'assistant', content: '<think>' };
-        }
-        streamState.lastField = 'reasoning';
-        yield { type: 'assistant', content: delta };
-      }
-      break;
-    }
-
     case 'message.part.updated': {
-      const part = props.part;
+      const part: OpenCodePart | undefined = props.part;
+      const delta: string | undefined = props.delta;
       if (!part) break;
 
       switch (part.type) {
         case 'text': {
-          // Full text update — only use as fallback if we haven't seen deltas
-          // (deltas via message.part.delta are preferred for streaming)
+          if (delta) {
+            // Close any open think block when switching from reasoning to text
+            if (streamState.lastField === 'reasoning') {
+              yield { type: 'assistant', content: '</think>\n\n' };
+            }
+            // Insert separator between different text parts
+            if (streamState.lastTextPartId && part.id !== streamState.lastTextPartId) {
+              yield { type: 'assistant', content: '\n\n' };
+            }
+            streamState.lastTextPartId = part.id;
+            streamState.lastField = 'text';
+            yield { type: 'assistant', content: delta };
+          }
           break;
         }
 
-        case 'tool-call': {
-          // Tool invocation part
-          const toolName = part.toolName || part.name || 'unknown';
-          const toolUseId = part.id || crypto.randomUUID();
-          // When tool call is first seen (has name but no result yet)
-          if (part.state === 'pending' || part.state === 'running') {
+        case 'reasoning': {
+          if (delta) {
+            // Open think block when switching to reasoning
+            if (streamState.lastField !== 'reasoning') {
+              yield { type: 'assistant', content: '<think>' };
+            }
+            streamState.lastField = 'reasoning';
+            yield { type: 'assistant', content: delta };
+          }
+          break;
+        }
+
+        case 'tool': {
+          const toolPart = part as ToolPart;
+          const toolName = toolPart.tool || 'unknown';
+          const toolUseId = toolPart.callID || toolPart.id;
+          const state = toolPart.state;
+
+          if (state.status === 'pending' || state.status === 'running') {
             yield {
               type: 'tool_use',
               toolUseId,
               toolName,
-              toolInput: part.input,
+              toolInput: state.input,
+            };
+          } else if (state.status === 'completed') {
+            yield {
+              type: 'tool_result',
+              toolUseId,
+              toolResult: state.output || '',
+              isToolError: false,
+            };
+          } else if (state.status === 'error') {
+            yield {
+              type: 'tool_result',
+              toolUseId,
+              toolResult: state.error || 'Tool execution failed',
+              isToolError: true,
             };
           }
           break;
         }
 
-        case 'tool-result': {
-          // Tool result part
-          const toolUseId = part.toolCallID || part.id || '';
-          yield {
-            type: 'tool_result',
-            toolUseId,
-            toolResult: part.result || part.text || '',
-            isToolError: part.isError || false,
-          };
-          break;
-        }
-
-        // Reasoning handled via message.part.delta; skip step-start, step-finish, etc.
+        // Reasoning handled via delta above; skip step-start, step-finish, etc.
         default:
           break;
       }
@@ -641,51 +566,77 @@ async function* mapOpenCodeEvent(
     }
 
     case 'session.status': {
-      const status = props.status;
-      // Filter by session ID explicitly
       if (props.sessionID !== sessionId) break;
+      const status: SessionStatus | undefined = props.status;
 
       if (status?.type === 'idle') {
         yield {
           type: 'result',
           isComplete: true,
         };
-      } else if (status?.type === 'error') {
-        yield {
-          type: 'error',
-          error: status.error || 'OpenCode session error',
-        };
       }
       break;
     }
 
-    case 'permission.asked': {
+    case 'session.idle': {
+      if (props.sessionID !== sessionId) break;
+      yield {
+        type: 'result',
+        isComplete: true,
+      };
+      break;
+    }
+
+    case 'session.error': {
+      if (props.sessionID && props.sessionID !== sessionId) break;
+      const error = props.error;
+      const errorMessage = error?.data?.message || error?.name || 'OpenCode session error';
+      yield {
+        type: 'error',
+        error: errorMessage,
+      };
+      break;
+    }
+
+    case 'permission.updated': {
       if (onPermissionRequest) {
-        const requestId = props.id || crypto.randomUUID();
-        const toolName = props.toolName || props.tool || 'unknown';
-        const toolInput = props.input || props.args;
+        const permission: OpenCodePermission = props;
+        if (permission.sessionID !== sessionId) break;
 
         const decision = await onPermissionRequest({
-          requestId,
-          toolName,
-          toolInput,
-          detail: typeof toolInput === 'string' ? toolInput : JSON.stringify(toolInput, null, 2),
+          requestId: permission.id,
+          toolName: permission.type || 'unknown',
+          toolInput: permission.metadata,
+          detail: permission.title || permission.type,
           timeoutSeconds: 0,
         });
 
-        console.log(`[OpenCode] Permission ${decision.behavior} for ${toolName}`);
+        console.log(`[OpenCode] Permission ${decision.behavior} for ${permission.type}`);
+
+        // Respond to permission request via SDK
+        try {
+          const response = decision.behavior === 'allow' ? 'once' : 'reject';
+          await server.client.postSessionIdPermissionsPermissionId({
+            path: { id: sessionId, permissionID: permission.id },
+            body: { response: response as 'once' | 'always' | 'reject' },
+          });
+        } catch (err) {
+          console.error(`[OpenCode] Failed to respond to permission:`, err);
+        }
       }
       break;
     }
 
-    default:
-      // Log unhandled event types for debugging
-      if (eventType && eventType !== 'server.connected' && eventType !== 'session.diff'
-          && eventType !== 'server.heartbeat' && eventType !== 'lsp.updated'
-          && eventType !== 'lsp.client.diagnostics') {
-        console.log(`[OpenCode] Unhandled SSE event: ${eventType} (session=${eventSessionId || 'global'}) | ${JSON.stringify(props).slice(0, 200)}`);
+    default: {
+      // Log unhandled event types for debugging (cast to string since TS narrows the union)
+      const t = eventType as string;
+      if (t && t !== 'server.connected' && t !== 'session.diff'
+          && t !== 'server.heartbeat' && t !== 'lsp.updated'
+          && t !== 'lsp.client.diagnostics' && t !== 'message.updated') {
+        console.log(`[OpenCode] Unhandled SSE event: ${t} (session=${eventSessionId || 'global'}) | ${JSON.stringify(props).slice(0, 200)}`);
       }
       break;
+    }
   }
 }
 
@@ -697,8 +648,8 @@ export async function abortOpenCodeSession(cwd: string, sessionId: string): Prom
   if (!server) return;
 
   try {
-    await fetch(`${server.baseUrl}/session/${sessionId}/abort`, {
-      method: 'POST',
+    await server.client.session.abort({
+      path: { id: sessionId },
     });
     console.log(`[OpenCode] Aborted session ${sessionId}`);
   } catch (error) {

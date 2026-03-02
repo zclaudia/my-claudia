@@ -10,6 +10,7 @@ import { initDatabase } from './storage/db.js';
 import type { GatewayConfig } from './routes/gateway.js';
 import { openCodeServerManager } from './providers/opencode-sdk.js';
 import { checkVersionCompatibility } from './providers/claude-sdk.js';
+import { checkSdkVersions } from './utils/sdk-version-check.js';
 import { detectCliProvidersSync } from './utils/cli-detect.js';
 
 const PORT = parseInt(process.env.PORT || '3100', 10);
@@ -303,7 +304,16 @@ async function main() {
     serverContext.setGatewayDisconnector(disconnectFromGateway);
 
     checkVersionCompatibility().catch(() => {});
-    
+    checkSdkVersions().then(report => {
+      for (const sdk of report.sdks) {
+        if (sdk.outdated) {
+          console.warn(`⚠️  [SDK Update] ${sdk.name}: ${sdk.current} → ${sdk.latest}`);
+        } else {
+          console.log(`[SDK Check] ${sdk.name}: ${sdk.current} (up to date)`);
+        }
+      }
+    }).catch(() => {});
+
     autoDetectProviders();
 
     server.listen(PORT, HOST, async () => {
