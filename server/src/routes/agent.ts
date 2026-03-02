@@ -1,23 +1,6 @@
 import { Router, Request, Response } from 'express';
-import { v4 as uuidv4 } from 'uuid';
 import type Database from 'better-sqlite3';
-import type { ApiResponse, AgentPermissionPolicy } from '@my-claudia/shared';
-import { DEFAULT_SENSITIVE_PATTERNS } from '@my-claudia/shared';
-import { getAgentSystemPrompt } from '../agent/agent-prompt.js';
-
-// Default aggressive policy for the agent project
-const AGENT_DEFAULT_POLICY: AgentPermissionPolicy = {
-  enabled: true,
-  trustLevel: 'aggressive',
-  strategies: {
-    workspaceScope: { enabled: true, allowedPaths: ['/tmp'] },
-    sensitiveFiles: { enabled: true, patterns: [...DEFAULT_SENSITIVE_PATTERNS] },
-    networkAccess: { enabled: false },
-    aiAnalysis: { enabled: false },
-  },
-  customRules: [],
-  escalateAlways: ['AskUserQuestion'],
-};
+import type { ApiResponse } from '@my-claudia/shared';
 
 interface AgentConfig {
   id: number;
@@ -109,80 +92,5 @@ export function createAgentRoutes(db: Database.Database): Router {
     }
   });
 
-  // POST /api/agent/ensure — Ensure agent project + session exist
-  router.post('/ensure', (_req: Request, res: Response) => {
-    try {
-      const config = db.prepare('SELECT * FROM agent_config WHERE id = 1').get() as AgentConfigRow | undefined;
-
-      // Check if already configured with valid project and session
-      if (config?.project_id && config?.session_id) {
-        const project = db.prepare('SELECT id FROM projects WHERE id = ?').get(config.project_id);
-        const session = db.prepare('SELECT id FROM sessions WHERE id = ?').get(config.session_id);
-
-        if (project && session) {
-          // Keep agent system prompt up to date
-          const latestPrompt = getAgentSystemPrompt();
-          db.prepare('UPDATE projects SET system_prompt = ?, updated_at = ? WHERE id = ?')
-            .run(latestPrompt, Date.now(), config.project_id);
-
-          res.json({
-            success: true,
-            data: { projectId: config.project_id, sessionId: config.session_id }
-          });
-          return;
-        }
-      }
-
-      const now = Date.now();
-
-      // Create agent project with default aggressive permission policy
-      const projectId = uuidv4();
-      const systemPrompt = getAgentSystemPrompt();
-
-      db.prepare(`
-        INSERT INTO projects (id, name, type, system_prompt, agent_permission_override, is_internal, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, 1, ?, ?)
-      `).run(projectId, '_Agent Assistant', 'chat_only', systemPrompt, JSON.stringify(AGENT_DEFAULT_POLICY), now, now);
-
-      // Create agent session (type = 'regular' for the primary UI session)
-      const sessionId = uuidv4();
-      db.prepare(`
-        INSERT INTO sessions (id, project_id, name, type, created_at, updated_at)
-        VALUES (?, ?, ?, 'regular', ?, ?)
-      `).run(sessionId, projectId, 'Agent Chat', now, now);
-
-      // Update agent_config with project and session IDs
-      db.prepare(`
-        UPDATE agent_config SET
-          project_id = ?,
-          session_id = ?,
-          updated_at = ?
-        WHERE id = 1
-      `).run(projectId, sessionId, now);
-
-      console.log(`[Agent] Created agent project ${projectId} and session ${sessionId}`);
-
-      res.json({
-        success: true,
-        data: { projectId, sessionId }
-      });
-    } catch (error) {
-      console.error('Error ensuring agent setup:', error);
-      res.status(500).json({
-        success: false,
-        error: { code: 'DB_ERROR', message: 'Failed to ensure agent setup' }
-      });
-    }
-  });
-
   return router;
-}
-
-/**
- * Check if a session belongs to the agent project.
- * Used to identify agent-managed sessions (e.g., for UI filtering).
- */
-export function isAgentSession(db: Database.Database, projectId: string): boolean {
-  const row = db.prepare('SELECT project_id FROM agent_config WHERE id = 1').get() as { project_id: string | null } | undefined;
-  return row?.project_id === projectId && projectId !== null;
 }

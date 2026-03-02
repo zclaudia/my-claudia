@@ -17,10 +17,6 @@ vi.mock('../agentStorage', () => ({
   clearMessages: vi.fn(),
 }));
 
-vi.mock('../agentContext', () => ({
-  buildAgentContext: vi.fn(() => '## Connected Backends\n\nTest context'),
-}));
-
 import {
   initAgentLoop,
   getMessages,
@@ -289,6 +285,62 @@ describe('agentLoop', () => {
     it('can be called safely when not running', () => {
       expect(() => cancelAgentLoop()).not.toThrow();
       expect(isAgentRunning()).toBe(false);
+    });
+  });
+
+  describe('toolContext', () => {
+    it('passes toolContext to executeToolCall', async () => {
+      mockGetConfig.mockReturnValue({ apiEndpoint: 'http://test', apiKey: 'key', model: 'model' });
+
+      let callCount = 0;
+      mockStream.mockImplementation(() => {
+        callCount++;
+        if (callCount === 1) {
+          return fakeStream([
+            { type: 'tool_call', toolCall: { id: 'tc-1', type: 'function', function: { name: 'send_task_to_session', arguments: '{"sessionId":"s1","input":"do it"}' } } },
+            { type: 'done' },
+          ]);
+        }
+        return fakeStream([
+          { type: 'delta', content: 'Done.' },
+          { type: 'done' },
+        ]);
+      });
+
+      mockExecuteTool.mockResolvedValue('{"success":true}');
+
+      const toolContext = { sendWsMessage: () => {}, isConnected: true };
+      await sendMessage('send task', makeCallbacks(), toolContext);
+
+      expect(mockExecuteTool).toHaveBeenCalledWith(
+        expect.objectContaining({ function: expect.objectContaining({ name: 'send_task_to_session' }) }),
+        toolContext,
+      );
+    });
+  });
+
+  describe('MAX_TOOL_ITERATIONS', () => {
+    it('stops after 10 tool call iterations with error', async () => {
+      mockGetConfig.mockReturnValue({ apiEndpoint: 'http://test', apiKey: 'key', model: 'model' });
+
+      // Always return a tool call — never a final text response
+      mockStream.mockImplementation(() => {
+        return fakeStream([
+          { type: 'tool_call', toolCall: { id: `tc-${Date.now()}`, type: 'function', function: { name: 'list_backends', arguments: '{}' } } },
+          { type: 'done' },
+        ]);
+      });
+
+      mockExecuteTool.mockResolvedValue('{"backends":[]}');
+
+      const cb = makeCallbacks();
+      await sendMessage('loop forever', cb);
+
+      // Should have called executeToolCall exactly 10 times
+      expect(mockExecuteTool).toHaveBeenCalledTimes(10);
+      // Should report error about max iterations
+      expect(cb.calls.onError).toHaveLength(1);
+      expect(cb.calls.onError[0][0]).toContain('maximum iterations');
     });
   });
 });

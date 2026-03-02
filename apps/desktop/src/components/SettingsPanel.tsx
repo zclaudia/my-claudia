@@ -3,7 +3,6 @@ import { invoke } from '@tauri-apps/api/core';
 import { useServerStore } from '../stores/serverStore';
 import { useGatewayStore, toGatewayServerId } from '../stores/gatewayStore';
 import { useUIStore, type FontSizePreset } from '../stores/uiStore';
-import { useAgentStore } from '../stores/agentStore';
 import { useConnection } from '../contexts/ConnectionContext';
 import { useIsMobile } from '../hooks/useMediaQuery';
 import { useAndroidBack } from '../hooks/useAndroidBack';
@@ -15,7 +14,7 @@ import { ImportOpenCodeDialog } from './ImportOpenCodeDialog';
 import * as api from '../services/api';
 import { exportLogs, getLogCount, clearLogs } from '../services/logger';
 import { getClientAIConfig, setClientAIConfig, testClientAIConnection, fetchAvailableModels, type ClientAIConfig } from '../services/clientAI';
-import type { GatewayBackendInfo, ProviderConfig, AgentPermissionPolicy, NotificationConfig } from '@my-claudia/shared';
+import type { GatewayBackendInfo, NotificationConfig } from '@my-claudia/shared';
 import { DEFAULT_NOTIFICATION_CONFIG } from '@my-claudia/shared';
 
 /** Detect macOS desktop (Tauri + Mac, not Android) */
@@ -24,7 +23,7 @@ const isMacOS = typeof window !== 'undefined'
   && !navigator.userAgent.includes('Android')
   && navigator.platform.includes('Mac');
 
-type SettingsTab = 'general' | 'client-ai' | 'connections' | 'providers' | 'agent' | 'notifications' | 'gateway' | 'import';
+type SettingsTab = 'general' | 'client-ai' | 'connections' | 'providers' | 'notifications' | 'gateway' | 'import';
 
 interface SettingsPanelProps {
   isOpen: boolean;
@@ -117,7 +116,7 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
     },
     {
       id: 'client-ai' as SettingsTab,
-      label: 'Client AI',
+      label: 'Agent AI',
       icon: (
         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
@@ -150,15 +149,6 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
       icon: (
         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
-        </svg>
-      )
-    },
-    {
-      id: 'agent',
-      label: 'Agent',
-      icon: (
-        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
         </svg>
       )
     },
@@ -626,9 +616,6 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
               </div>
             )}
 
-            {activeTab === 'agent' && (
-              <AgentSettingsInline key={activeServerId || 'none'} />
-            )}
 
             {activeTab === 'notifications' && (
               <NotificationSettingsInline key={activeServerId || 'none'} />
@@ -750,240 +737,6 @@ function ProviderManagerInline() {
   );
 }
 
-// Agent settings inline component
-const DEFAULT_POLICY: AgentPermissionPolicy = {
-  enabled: false,
-  trustLevel: 'conservative',
-  customRules: [],
-  escalateAlways: ['AskUserQuestion'],
-};
-
-const TRUST_LEVELS: Array<{
-  id: AgentPermissionPolicy['trustLevel'];
-  label: string;
-  description: string;
-  guards: string;
-}> = [
-  {
-    id: 'conservative',
-    label: 'Conservative',
-    description: 'Auto-approve read-only tools (Read, Glob, Grep). Everything else asks you.',
-    guards: 'Protects sensitive files',
-  },
-  {
-    id: 'moderate',
-    label: 'Moderate',
-    description: 'Also auto-approve file edits (Write, Edit). Bash still asks you.',
-    guards: 'Protects sensitive files, restricts to workspace',
-  },
-  {
-    id: 'aggressive',
-    label: 'Aggressive',
-    description: 'Auto-approve most tools including safe Bash. Network commands still ask.',
-    guards: 'Protects sensitive files, restricts to workspace, monitors network commands',
-  },
-  {
-    id: 'full_trust',
-    label: 'Full Trust',
-    description: 'Auto-approve everything. Only truly dangerous commands ask (rm -rf, sudo, etc.).',
-    guards: 'Only blocks destructive commands',
-  },
-];
-
-function AgentSettingsInline() {
-  const { selectedProviderId, setSelectedProviderId, permissionPolicy, updatePermissionPolicy } = useAgentStore();
-  const [providers, setProviders] = useState<ProviderConfig[]>([]);
-  const [policy, setPolicy] = useState<AgentPermissionPolicy>(permissionPolicy || DEFAULT_POLICY);
-  const [localProviderId, setLocalProviderId] = useState<string | null>(selectedProviderId);
-  const [saving, setSaving] = useState(false);
-  const [dirty, setDirty] = useState(false);
-
-  // Load providers
-  useEffect(() => {
-    api.getProviders()
-      .then(setProviders)
-      .catch(err => console.error('[AgentSettings] Failed to load providers:', err));
-  }, []);
-
-  // Load agent config from server
-  useEffect(() => {
-    api.getAgentConfig()
-      .then(config => {
-        if (config.providerId) {
-          setLocalProviderId(config.providerId);
-        }
-        if (config.permissionPolicy) {
-          try {
-            const parsed = typeof config.permissionPolicy === 'string'
-              ? JSON.parse(config.permissionPolicy)
-              : config.permissionPolicy;
-            setPolicy(parsed);
-          } catch {
-            // Use default
-          }
-        }
-      })
-      .catch(err => console.error('[AgentSettings] Failed to load config:', err));
-  }, []);
-
-  const handleSave = useCallback(async () => {
-    setSaving(true);
-    try {
-      await api.updateAgentConfig({
-        providerId: localProviderId || undefined,
-        permissionPolicy: JSON.stringify(policy),
-      });
-      updatePermissionPolicy(policy);
-      if (localProviderId) {
-        setSelectedProviderId(localProviderId);
-      }
-      setDirty(false);
-    } catch (err) {
-      console.error('[AgentSettings] Failed to save:', err);
-    } finally {
-      setSaving(false);
-    }
-  }, [localProviderId, policy, updatePermissionPolicy, setSelectedProviderId]);
-
-  const updatePolicy = useCallback((update: Partial<AgentPermissionPolicy>) => {
-    setPolicy(prev => ({ ...prev, ...update }));
-    setDirty(true);
-  }, []);
-
-  const handleProviderChange = useCallback((providerId: string) => {
-    setLocalProviderId(providerId);
-    setDirty(true);
-  }, []);
-
-  return (
-    <div className="space-y-6">
-      <p className="text-sm text-muted-foreground">
-        Configure the Agent Assistant's provider and permission settings.
-      </p>
-
-      {/* Provider selection */}
-      <div>
-        <h3 className="text-sm font-medium mb-3">Provider</h3>
-        <div className="p-3 bg-secondary/50 rounded-lg">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm">AI Provider</p>
-              <p className="text-xs text-muted-foreground mt-0.5">
-                Select which provider the agent uses
-              </p>
-            </div>
-            <select
-              value={localProviderId || ''}
-              onChange={(e) => handleProviderChange(e.target.value)}
-              className="px-2 py-1 bg-secondary border border-border rounded text-sm cursor-pointer focus:outline-none focus:border-primary max-w-[180px] truncate"
-            >
-              {providers.map(p => (
-                <option key={p.id} value={p.id}>
-                  {p.name}{p.isDefault ? ' (Default)' : ''}
-                </option>
-              ))}
-            </select>
-          </div>
-        </div>
-      </div>
-
-      {/* Permission settings */}
-      <div>
-        <h3 className="text-sm font-medium mb-3">Permissions</h3>
-        <div className="space-y-4">
-          {/* Master toggle */}
-          <div className="flex items-center justify-between p-3 bg-secondary/50 rounded-lg">
-            <div>
-              <p className="text-sm">Auto-approve permissions</p>
-              <p className="text-xs text-muted-foreground mt-0.5">
-                Let the agent automatically handle permission requests
-              </p>
-            </div>
-            <button
-              onClick={() => updatePolicy({ enabled: !policy.enabled })}
-              className={`relative w-10 h-5 rounded-full transition-colors flex-shrink-0 ${
-                policy.enabled ? 'bg-primary' : 'bg-muted'
-              }`}
-            >
-              <span
-                className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${
-                  policy.enabled ? 'translate-x-5' : 'translate-x-0'
-                }`}
-              />
-            </button>
-          </div>
-
-          {policy.enabled && (
-            <>
-              {/* Trust level */}
-              <div>
-                <p className="text-sm font-medium mb-2">Trust Level</p>
-                <div className="space-y-2">
-                  {TRUST_LEVELS.map(level => (
-                    <button
-                      key={level.id}
-                      onClick={() => updatePolicy({ trustLevel: level.id })}
-                      className={`w-full text-left p-3 rounded-lg border transition-colors ${
-                        policy.trustLevel === level.id
-                          ? 'border-primary bg-primary/5'
-                          : 'border-border hover:border-muted-foreground/30'
-                      }`}
-                    >
-                      <div className="flex items-center gap-2">
-                        <div className={`w-3 h-3 rounded-full border-2 flex items-center justify-center ${
-                          policy.trustLevel === level.id ? 'border-primary' : 'border-muted-foreground/40'
-                        }`}>
-                          {policy.trustLevel === level.id && (
-                            <div className="w-1.5 h-1.5 rounded-full bg-primary" />
-                          )}
-                        </div>
-                        <span className="text-sm font-medium">{level.label}</span>
-                      </div>
-                      <p className="text-xs text-muted-foreground mt-1 ml-5">
-                        {level.description}
-                      </p>
-                      <p className="text-[10px] text-muted-foreground/70 mt-0.5 ml-5">
-                        {level.guards}
-                      </p>
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Quick reference */}
-              <div className="rounded-lg border border-border p-3">
-                <p className="text-xs font-medium text-muted-foreground mb-2">What gets auto-approved:</p>
-                <div className="space-y-1">
-                  <PolicyRow label="Read, Glob, Grep, WebFetch" approved={true} />
-                  <PolicyRow label="Write, Edit" approved={policy.trustLevel !== 'conservative'} />
-                  <PolicyRow label="Task (subagents)" approved={policy.trustLevel !== 'conservative'} />
-                  <PolicyRow label="Safe Bash commands" approved={policy.trustLevel === 'aggressive' || policy.trustLevel === 'full_trust'} />
-                  <PolicyRow label="Network commands (curl, ssh)" approved={policy.trustLevel === 'full_trust'} />
-                  <PolicyRow label="Dangerous Bash (rm -rf, sudo)" approved={false} escalated />
-                  <PolicyRow label="AskUserQuestion" approved={false} escalated />
-                </div>
-              </div>
-            </>
-          )}
-        </div>
-      </div>
-
-      {/* Save button */}
-      {dirty && (
-        <div className="flex justify-end">
-          <button
-            onClick={handleSave}
-            disabled={saving}
-            className="px-4 py-2 text-sm rounded bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
-          >
-            {saving ? 'Saving...' : 'Save Changes'}
-          </button>
-        </div>
-      )}
-
-    </div>
-  );
-}
 
 function ClientAISettings() {
   const [config, setConfig] = useState<ClientAIConfig>({ apiEndpoint: '', apiKey: '', model: '' });
@@ -1044,9 +797,9 @@ function ClientAISettings() {
   return (
     <div className="space-y-4">
       <div>
-        <h3 className="text-sm font-medium mb-1">Client-Side AI</h3>
+        <h3 className="text-sm font-medium mb-1">Agent AI</h3>
         <p className="text-xs text-muted-foreground">
-          When no local backend is available, the agent uses an OpenAI-compatible API directly.
+          Configure the OpenAI-compatible API for the Meta-Agent side panel.
         </p>
       </div>
 
@@ -1140,20 +893,6 @@ function ClientAISettings() {
   );
 }
 
-function PolicyRow({ label, approved, escalated }: { label: string; approved: boolean; escalated?: boolean }) {
-  return (
-    <div className="flex items-center justify-between text-xs">
-      <span className="text-muted-foreground">{label}</span>
-      {escalated ? (
-        <span className="text-amber-500">Asks you</span>
-      ) : approved ? (
-        <span className="text-green-500">Auto-approved</span>
-      ) : (
-        <span className="text-muted-foreground/60">Asks you</span>
-      )}
-    </div>
-  );
-}
 
 // Notification settings inline component
 function NotificationSettingsInline() {

@@ -3,8 +3,8 @@ import { Sidebar } from './components/Sidebar';
 import { ChatInterface } from './components/chat/ChatInterface';
 import { ServerSelector } from './components/ServerSelector';
 import { MobileSetup } from './components/MobileSetup';
-import { AgentWidget } from './components/agent/AgentWidget';
 import { AgentPanel } from './components/agent/AgentPanel';
+import { AgentSidePanel } from './components/agent/AgentSidePanel';
 import { FileViewerWindow } from './components/fileviewer/FileViewerWindow';
 import { ThemeProvider } from './contexts/ThemeContext';
 import { ConnectionProvider, useConnection } from './contexts/ConnectionContext';
@@ -14,6 +14,7 @@ import { useServerStore } from './stores/serverStore';
 import { useGatewayStore, isGatewayTarget } from './stores/gatewayStore';
 import { useProjectStore } from './stores/projectStore';
 import { useAgentStore } from './stores/agentStore';
+import { isClientAIConfigured } from './services/clientAI';
 import { useIsMobile } from './hooks/useMediaQuery';
 import { useAndroidBack } from './hooks/useAndroidBack';
 import { migrateServersFromLocalStorage, needsMigration } from './utils/migrateServers';
@@ -26,7 +27,8 @@ function AppContent() {
   const { connectionStatus } = useServerStore();
   const { selectedSessionId } = useProjectStore();
   const { directGatewayUrl, lastActiveBackendId, isConnected: isGatewayConnected, discoveredBackends } = useGatewayStore();
-  const { isExpanded: isAgentExpanded, isConfigured: isAgentConfigured, setExpanded: setAgentExpanded } = useAgentStore();
+  const { isExpanded: isAgentExpanded, hasUnread: hasAgentUnread, setExpanded: setAgentExpanded } = useAgentStore();
+  const isAgentConfigured = isClientAIConfigured();
   const fileViewerFullscreen = useFileViewerStore((s) => s.fullscreen);
   const fileViewerFilePath = useFileViewerStore((s) => s.filePath);
   const fileViewerProjectRoot = useFileViewerStore((s) => s.projectRoot);
@@ -209,17 +211,35 @@ function AppContent() {
           )}
         </div>
 
-        {/* Center/Right section: Server selector or Agent title */}
+        {/* Center section: Server selector or Agent title */}
         <div className="flex-1 flex items-center justify-start ml-2 md:ml-4 min-w-0">
           {isMobile && isAgentExpanded ? (
             <div className="flex items-center gap-2">
               <span className="text-base">🤖</span>
-              <span className="font-semibold text-sm text-foreground">Agent Assistant</span>
+              <span className="font-semibold text-sm text-foreground">Agent</span>
             </div>
           ) : (
             <ServerSelector />
           )}
         </div>
+
+        {/* Agent toggle button */}
+        {isAgentConfigured && (
+          <button
+            onClick={() => setAgentExpanded(!isAgentExpanded)}
+            className={`relative p-1.5 rounded hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors mr-2 ${
+              isAgentExpanded ? 'bg-secondary text-foreground' : ''
+            }`}
+            title={isAgentExpanded ? 'Close Agent' : 'Open Agent'}
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+            </svg>
+            {hasAgentUnread && !isAgentExpanded && (
+              <span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-primary rounded-full animate-pulse" />
+            )}
+          </button>
+        )}
       </header>
 
       {/* Content area: Sidebar + Main */}
@@ -238,36 +258,26 @@ function AppContent() {
         <main className="flex-1 flex flex-col overflow-hidden relative">
           {/* Chat Area */}
           <div className="flex-1 overflow-hidden relative">
-            {/* Mobile agent panel (overlay) */}
-            {isMobile && isAgentExpanded && (
-              isAgentConfigured ? (
-                <div className="absolute inset-0 z-20 bg-background">
-                  {/* Left-side collapse arrow (absolute so it doesn't shift content) */}
-                  <button
-                    onClick={() => setAgentExpanded(false)}
-                    className="absolute left-0 top-1/2 -translate-y-1/2 z-10
-                               flex items-center px-1 py-2
-                               bg-zinc-400/60 text-zinc-600 rounded-r-md shadow-sm
-                               border border-l-0 border-zinc-300
-                               active:bg-zinc-400/80
-                               dark:bg-zinc-600/60 dark:text-zinc-400
-                               dark:border-zinc-600 dark:active:bg-zinc-600/80"
-                    title="Close Agent"
-                  >
-                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 5l7 7-7 7" />
-                    </svg>
-                  </button>
-                  <AgentPanel isMobile={true} showHeader={false} />
-                </div>
-              ) : (
-                <div className="absolute inset-0 z-20 flex items-center justify-center bg-background text-muted-foreground">
-                  <div className="text-center">
-                    <div className="animate-spin w-8 h-8 border-2 border-primary border-t-transparent rounded-full mx-auto mb-3" />
-                    <p className="text-sm">Setting up Agent...</p>
-                  </div>
-                </div>
-              )
+            {/* Mobile agent panel (full-screen overlay) */}
+            {isMobile && isAgentExpanded && isAgentConfigured && (
+              <div className="absolute inset-0 z-20 bg-background">
+                <button
+                  onClick={() => setAgentExpanded(false)}
+                  className="absolute left-0 top-1/2 -translate-y-1/2 z-10
+                             flex items-center px-1 py-2
+                             bg-zinc-400/60 text-zinc-600 rounded-r-md shadow-sm
+                             border border-l-0 border-zinc-300
+                             active:bg-zinc-400/80
+                             dark:bg-zinc-600/60 dark:text-zinc-400
+                             dark:border-zinc-600 dark:active:bg-zinc-600/80"
+                  title="Close Agent"
+                >
+                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 5l7 7-7 7" />
+                  </svg>
+                </button>
+                <AgentPanel isMobile={true} showHeader={false} />
+              </div>
             )}
 
             {/* Chat / Welcome (always mounted to preserve terminal state) */}
@@ -284,10 +294,12 @@ function AppContent() {
           </div>
 
         </main>
-      </div>
 
-      {/* Agent Widget */}
-      <AgentWidget />
+        {/* Desktop: Agent Side Panel */}
+        {!isMobile && isAgentExpanded && isAgentConfigured && (
+          <AgentSidePanel />
+        )}
+      </div>
 
       {/* Fullscreen file viewer overlay (mobile) */}
       {fileViewerFullscreen && fileViewerFilePath && fileViewerProjectRoot && (

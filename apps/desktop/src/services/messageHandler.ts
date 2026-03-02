@@ -14,7 +14,6 @@ import { useProjectStore } from '../stores/projectStore';
 import { useServerStore } from '../stores/serverStore';
 import { usePermissionStore } from '../stores/permissionStore';
 import { useAskUserQuestionStore } from '../stores/askUserQuestionStore';
-import { useAgentStore } from '../stores/agentStore';
 import { useSupervisionStore } from '../stores/supervisionStore';
 import { useSessionsStore } from '../stores/sessionsStore';
 import { useTerminalStore } from '../stores/terminalStore';
@@ -69,9 +68,6 @@ export function handleServerMessage(
       if (deltaSession) {
         useChatStore.getState().appendToLastMessage(deltaSession, msg.content);
         useChatStore.getState().appendTextBlock(msg.runId, msg.content);
-        if (msg.runId === useAgentStore.getState().activeRunId && !useAgentStore.getState().isExpanded) {
-          useAgentStore.getState().setHasUnread(true);
-        }
       } else if (msg.runId) {
         console.warn(`[${logTag}] Delta for untracked run ${msg.runId}`);
       }
@@ -81,7 +77,6 @@ export function handleServerMessage(
     case 'run_started': {
       const currentSessionId = useProjectStore.getState().selectedSessionId;
       const targetSessionId = msg.sessionId || currentSessionId;
-      const isAgentRun = msg.clientRequestId?.startsWith('agent_');
       const assistantMsgId = msg.assistantMessageId || msg.runId;
       const userMsgId = msg.userMessageId;
       const clientReqId = msg.clientRequestId;
@@ -94,22 +89,7 @@ export function handleServerMessage(
 
       const chat = useChatStore.getState();
 
-      if (isAgentRun) {
-        const agentSessionId = useAgentStore.getState().agentSessionId;
-        if (agentSessionId) {
-          chat.startRun(msg.runId, agentSessionId);
-          useAgentStore.getState().setActiveRunId(msg.runId);
-          useAgentStore.getState().setLoading(true);
-          if (userMsgId && clientReqId) chat.updateMessageIdByClientMessageId(agentSessionId, clientReqId, userMsgId);
-          chat.addMessage(agentSessionId, {
-            id: assistantMsgId,
-            sessionId: agentSessionId,
-            role: 'assistant',
-            content: '',
-            createdAt: Date.now(),
-          });
-        }
-      } else if (targetSessionId) {
+      if (targetSessionId) {
         chat.startRun(msg.runId, targetSessionId);
         if (serverId === activeServerId) {
           chat.clearSystemInfo();
@@ -135,21 +115,15 @@ export function handleServerMessage(
 
     case 'run_completed': {
       const completedSession = msg.sessionId || useChatStore.getState().activeRuns[msg.runId];
-      if (msg.runId === useAgentStore.getState().activeRunId) {
-        useAgentStore.getState().setActiveRunId(null);
-        useAgentStore.getState().setLoading(false);
-      }
       useAskUserQuestionStore.getState().clearRequestsForServer(serverId);
       if (completedSession) {
         useChatStore.getState().finalizeRunToMessage(msg.runId);
         if (msg.usage) {
           useChatStore.getState().addSessionUsage(completedSession, msg.usage);
         }
-        if (completedSession !== useAgentStore.getState().agentSessionId) {
-          useProjectStore.getState().setSessionActive(completedSession, false);
-          if (backendId) {
-            useSessionsStore.getState().setSessionActiveById(backendId, completedSession, false);
-          }
+        useProjectStore.getState().setSessionActive(completedSession, false);
+        if (backendId) {
+          useSessionsStore.getState().setSessionActiveById(backendId, completedSession, false);
         }
       }
       useChatStore.getState().endRun(msg.runId);
@@ -159,21 +133,15 @@ export function handleServerMessage(
 
     case 'run_failed': {
       const failedSession = msg.sessionId || useChatStore.getState().activeRuns[msg.runId];
-      if (msg.runId === useAgentStore.getState().activeRunId) {
-        useAgentStore.getState().setActiveRunId(null);
-        useAgentStore.getState().setLoading(false);
-      }
       useAskUserQuestionStore.getState().clearRequestsForServer(serverId);
       if (failedSession) {
         if (msg.error) {
           useChatStore.getState().appendToLastMessage(failedSession, `\n\n**Error:** ${msg.error}`);
         }
         useChatStore.getState().finalizeRunToMessage(msg.runId);
-        if (failedSession !== useAgentStore.getState().agentSessionId) {
-          useProjectStore.getState().setSessionActive(failedSession, false);
-          if (backendId) {
-            useSessionsStore.getState().setSessionActiveById(backendId, failedSession, false);
-          }
+        useProjectStore.getState().setSessionActive(failedSession, false);
+        if (backendId) {
+          useSessionsStore.getState().setSessionActiveById(backendId, failedSession, false);
         }
       }
       useChatStore.getState().endRun(msg.runId);
@@ -249,32 +217,6 @@ export function handleServerMessage(
       }
       break;
 
-    case 'agent_permission_intercepted':
-      useAgentStore.getState().recordInterception(msg.toolName, msg.decision, msg.sessionId);
-      if (!useAgentStore.getState().isExpanded) {
-        useAgentStore.getState().setHasUnread(true);
-      }
-      break;
-
-    case 'background_task_update': {
-      const agentStore = useAgentStore.getState();
-      agentStore.updateBackgroundSession(msg.sessionId, {
-        status: msg.status,
-        name: msg.name,
-        parentSessionId: msg.parentSessionId,
-      });
-      if (msg.status === 'completed' || msg.status === 'failed') {
-        const sid = msg.sessionId;
-        setTimeout(() => {
-          useAgentStore.getState().removeBackgroundSession(sid);
-        }, 30000);
-      }
-      if (!agentStore.isExpanded) {
-        agentStore.setHasUnread(true);
-      }
-      break;
-    }
-
     case 'task_notification': {
       if (msg.sessionId && msg.message) {
         useChatStore.getState().addMessage(msg.sessionId, {
@@ -284,20 +226,6 @@ export function handleServerMessage(
           content: msg.message,
           createdAt: Date.now(),
         });
-      }
-      break;
-    }
-
-    case 'background_permission_pending': {
-      const agentStore = useAgentStore.getState();
-      agentStore.addBackgroundPermission(msg.sessionId, {
-        requestId: msg.requestId,
-        toolName: msg.toolName,
-        detail: msg.detail,
-        timeoutSeconds: msg.timeoutSeconds,
-      });
-      if (!agentStore.isExpanded) {
-        agentStore.setHasUnread(true);
       }
       break;
     }
