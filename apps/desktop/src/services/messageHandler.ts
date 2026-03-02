@@ -276,6 +276,17 @@ export function handleServerMessage(
         }
       }
 
+      // Update run health info from heartbeat
+      for (const run of heartbeat.activeRuns) {
+        chatState.updateRunHealth(run.runId, {
+          sessionId: run.sessionId,
+          startedAt: run.startedAt,
+          lastActivityAt: run.lastActivityAt,
+          health: run.health,
+          loopPattern: run.loopPattern,
+        });
+      }
+
       // Reconcile permissions — always clear stale (fixes direct connections not cleaning up)
       const validPermIds = new Set<string>(heartbeat.pendingPermissions.map(p => p.requestId));
       usePermissionStore.getState().clearStaleRequests(serverId, validPermIds);

@@ -1279,12 +1279,19 @@ export interface AskUserQuestionResolvedMessage {
   sessionId?: string;
 }
 
+// Run health status for stuck/loop detection
+export type RunHealthStatus = 'healthy' | 'idle' | 'loop';
+
 // Server → Client: state heartbeat for reconciliation
 export interface StateHeartbeatMessage {
   type: 'state_heartbeat';
   activeRuns: Array<{
     runId: string;
     sessionId: string;
+    startedAt: number;
+    lastActivityAt: number;
+    health: RunHealthStatus;
+    loopPattern?: string;
   }>;
   pendingPermissions: Array<{
     requestId: string;

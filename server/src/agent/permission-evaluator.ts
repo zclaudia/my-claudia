@@ -325,10 +325,15 @@ export function mergePolicy(
 export function normalizePolicy(policy: AgentPermissionPolicy): AgentPermissionPolicy {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const { strategies: _deprecated, ...clean } = policy;
+  const escalateAlways = clean.escalateAlways || ['AskUserQuestion'];
+  // ExitPlanMode must always escalate — plan approval requires human review
+  if (!escalateAlways.includes('ExitPlanMode')) {
+    escalateAlways.push('ExitPlanMode');
+  }
   return {
     ...clean,
     customRules: clean.customRules || [],
-    escalateAlways: clean.escalateAlways || ['AskUserQuestion'],
+    escalateAlways,
   };
 }
 

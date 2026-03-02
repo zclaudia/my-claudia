@@ -16,7 +16,8 @@ import type {
   ToolCall,
   ContentBlock,
   Request as CorrelatedRequest,
-  StateHeartbeatMessage
+  StateHeartbeatMessage,
+  RunHealthStatus
 } from '@my-claudia/shared';
 import { isRequest, ALL_SERVER_FEATURES } from '@my-claudia/shared';
 import type { AgentPermissionPolicy } from '@my-claudia/shared';
@@ -57,7 +58,7 @@ const DEFAULT_PERMISSION_POLICY: AgentPermissionPolicy = {
   enabled: false,
   trustLevel: 'conservative',
   customRules: [],
-  escalateAlways: ['AskUserQuestion'],
+  escalateAlways: ['AskUserQuestion', 'ExitPlanMode'],
 };
 
 // Check if input is a slash command
@@ -208,6 +209,10 @@ interface ActiveRun {
   contentBlocks: ContentBlock[];
   saveInterval?: NodeJS.Timeout;
   completed?: boolean;  // True after run_completed/run_failed sent; hides from heartbeat while for-await drains
+  // Stuck/loop detection
+  startedAt: number;
+  lastActivityAt: number;
+  recentToolCalls: string[];  // Last N tool names (sliding window for loop detection)
 }
 
 const activeRuns = new Map<string, ActiveRun>();
@@ -846,6 +851,26 @@ function sendMessage(ws: WebSocket, message: ServerMessage): void {
   }
 }
 
+/** Detect repeating tool call patterns (e.g. Read → Grep → Read → Grep...) */
+function detectLoop(toolCalls: string[]): { detected: boolean; pattern?: string } {
+  if (toolCalls.length < 6) return { detected: false };
+  // Check periods of length 2-4, requiring at least 3 consecutive repetitions
+  for (let period = 2; period <= 4; period++) {
+    if (toolCalls.length < period * 3) continue;
+    const tail = toolCalls.slice(-period);
+    let repeats = 0;
+    for (let i = toolCalls.length - period; i >= period; i -= period) {
+      const segment = toolCalls.slice(i - period, i);
+      if (segment.every((t, j) => t === tail[j])) repeats++;
+      else break;
+    }
+    if (repeats >= 2) {
+      return { detected: true, pattern: tail.join(' → ') };
+    }
+  }
+  return { detected: false };
+}
+
 function buildStateHeartbeat(): StateHeartbeatMessage {
   const runs: StateHeartbeatMessage['activeRuns'] = [];
   const permissions: StateHeartbeatMessage['pendingPermissions'] = [];
@@ -853,7 +878,19 @@ function buildStateHeartbeat(): StateHeartbeatMessage {
 
   for (const [runId, run] of activeRuns) {
     if (run.completed) continue;  // Run finished but for-await still draining SDK messages
-    runs.push({ runId, sessionId: run.sessionId });
+    const idleSec = (Date.now() - run.lastActivityAt) / 1000;
+    const loop = detectLoop(run.recentToolCalls);
+    let health: RunHealthStatus = 'healthy';
+    if (loop.detected) health = 'loop';
+    else if (idleSec > 60) health = 'idle';
+    runs.push({
+      runId,
+      sessionId: run.sessionId,
+      startedAt: run.startedAt,
+      lastActivityAt: run.lastActivityAt,
+      health,
+      loopPattern: loop.detected ? loop.pattern : undefined,
+    });
     for (const [requestId, pending] of run.pendingPermissions) {
       if (!pending.originalRequest) continue;
       if (pending.originalRequest.toolName === 'AskUserQuestion') {
@@ -1210,6 +1247,9 @@ async function handleRunStart(
     fullContent: '',
     collectedToolCalls: [],
     contentBlocks: [],
+    startedAt: Date.now(),
+    lastActivityAt: Date.now(),
+    recentToolCalls: [],
   };
   activeRuns.set(runId, activeRun);
 
@@ -1488,6 +1528,9 @@ async function handleRunStart(
         break;
       }
 
+      // Track activity for stuck detection
+      activeRun.lastActivityAt = Date.now();
+
       switch (msg.type) {
         case 'init':
           // Save system info for potential use in /status command
@@ -1553,6 +1596,13 @@ async function handleRunStart(
           // Track tool_use_id to tool_name mapping
           if (msg.toolUseId && msg.toolName) {
             toolUseIdToName.set(msg.toolUseId, msg.toolName);
+          }
+          // Track for loop detection (sliding window of last 20 tool names)
+          if (msg.toolName) {
+            activeRun.recentToolCalls.push(msg.toolName);
+            if (activeRun.recentToolCalls.length > 20) {
+              activeRun.recentToolCalls.shift();
+            }
           }
           // Collect for persistence
           activeRun.collectedToolCalls.push({

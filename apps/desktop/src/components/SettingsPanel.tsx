@@ -14,7 +14,7 @@ import { ImportOpenCodeDialog } from './ImportOpenCodeDialog';
 import * as api from '../services/api';
 import { exportLogs, getLogCount, clearLogs } from '../services/logger';
 import { getClientAIConfig, setClientAIConfig, testClientAIConnection, fetchAvailableModels, type ClientAIConfig } from '../services/clientAI';
-import type { GatewayBackendInfo, NotificationConfig, SdkVersionReport } from '@my-claudia/shared';
+import type { GatewayBackendInfo, NotificationConfig, SdkVersionReport, AgentPermissionPolicy } from '@my-claudia/shared';
 import { DEFAULT_NOTIFICATION_CONFIG } from '@my-claudia/shared';
 
 /** Detect macOS desktop (Tauri + Mac, not Android) */
@@ -22,6 +22,13 @@ const isMacOS = typeof window !== 'undefined'
   && '__TAURI_INTERNALS__' in window
   && !navigator.userAgent.includes('Android')
   && navigator.platform.includes('Mac');
+
+const TRUST_LEVELS: Array<{ id: AgentPermissionPolicy['trustLevel']; label: string; description: string }> = [
+  { id: 'conservative', label: 'Conservative', description: 'Only auto-approve read-only tools' },
+  { id: 'moderate', label: 'Moderate', description: 'Auto-approve reads + file edits' },
+  { id: 'aggressive', label: 'Aggressive', description: 'Auto-approve most ops, network commands still ask' },
+  { id: 'full_trust', label: 'Full Trust', description: 'Auto-approve everything except dangerous bash' },
+];
 
 type SettingsTab = 'general' | 'client-ai' | 'connections' | 'providers' | 'notifications' | 'gateway' | 'import';
 
@@ -65,6 +72,46 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
       .then(info => setSdkVersions(info.sdkVersions ?? null))
       .catch(() => {});
   }, [isOpen, activeServer?.address]);
+
+  // Global agent permission policy
+  const [agentPermEnabled, setAgentPermEnabled] = useState(false);
+  const [agentPermTrustLevel, setAgentPermTrustLevel] = useState<AgentPermissionPolicy['trustLevel']>('conservative');
+  const [agentPermLoading, setAgentPermLoading] = useState(false);
+
+  useEffect(() => {
+    if (!isOpen || !isConnected) return;
+    api.getAgentConfig().then(config => {
+      if (config.permissionPolicy) {
+        const policy = typeof config.permissionPolicy === 'string'
+          ? JSON.parse(config.permissionPolicy) as AgentPermissionPolicy
+          : config.permissionPolicy as unknown as AgentPermissionPolicy;
+        setAgentPermEnabled(policy.enabled);
+        setAgentPermTrustLevel(policy.trustLevel || 'conservative');
+      } else {
+        setAgentPermEnabled(false);
+        setAgentPermTrustLevel('conservative');
+      }
+    }).catch(() => {});
+  }, [isOpen, isConnected]);
+
+  const updateAgentPermission = useCallback(async (enabled: boolean, trustLevel: AgentPermissionPolicy['trustLevel']) => {
+    setAgentPermLoading(true);
+    try {
+      const policy: AgentPermissionPolicy = {
+        enabled,
+        trustLevel,
+        customRules: [],
+        escalateAlways: ['AskUserQuestion', 'ExitPlanMode'],
+      };
+      await api.updateAgentConfig({ permissionPolicy: JSON.stringify(policy) });
+      setAgentPermEnabled(enabled);
+      setAgentPermTrustLevel(trustLevel);
+    } catch (err) {
+      console.error('Failed to update agent permission:', err);
+    } finally {
+      setAgentPermLoading(false);
+    }
+  }, []);
 
   // macOS permission checks
   const [fdaGranted, setFdaGranted] = useState<boolean | null>(null);
@@ -491,6 +538,70 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
                   </div>
                 </div>
                 )}
+
+                <div>
+                  <h3 className="text-sm font-medium mb-3">Agent Permissions</h3>
+                  <div className="p-3 bg-secondary/50 rounded-lg space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <span className="text-sm">Auto-Approve Tools</span>
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                          Automatically approve tool calls based on trust level
+                        </p>
+                      </div>
+                      <button
+                        onClick={() => updateAgentPermission(!agentPermEnabled, agentPermTrustLevel)}
+                        disabled={agentPermLoading}
+                        className={`relative w-10 h-5 rounded-full transition-colors flex-shrink-0 ${
+                          agentPermEnabled ? 'bg-primary' : 'bg-muted'
+                        }`}
+                      >
+                        <span
+                          className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${
+                            agentPermEnabled ? 'translate-x-5' : 'translate-x-0'
+                          }`}
+                        />
+                      </button>
+                    </div>
+
+                    {agentPermEnabled && (
+                      <div className="space-y-2 pt-2 border-t border-border">
+                        <p className="text-xs font-medium text-muted-foreground">Trust Level</p>
+                        <div className="space-y-1.5">
+                          {TRUST_LEVELS.map(level => (
+                            <button
+                              key={level.id}
+                              onClick={() => updateAgentPermission(true, level.id)}
+                              disabled={agentPermLoading}
+                              className={`w-full text-left p-2 rounded-lg border transition-colors ${
+                                agentPermTrustLevel === level.id
+                                  ? 'border-primary bg-primary/5'
+                                  : 'border-border hover:border-muted-foreground/30'
+                              }`}
+                            >
+                              <div className="flex items-center gap-2">
+                                <div className={`w-2.5 h-2.5 rounded-full border-2 flex items-center justify-center ${
+                                  agentPermTrustLevel === level.id ? 'border-primary' : 'border-muted-foreground/40'
+                                }`}>
+                                  {agentPermTrustLevel === level.id && (
+                                    <div className="w-1 h-1 rounded-full bg-primary" />
+                                  )}
+                                </div>
+                                <span className="text-xs font-medium">{level.label}</span>
+                              </div>
+                              <p className="text-[10px] text-muted-foreground mt-0.5 ml-[18px]">
+                                {level.description}
+                              </p>
+                            </button>
+                          ))}
+                        </div>
+                        <p className="text-[10px] text-muted-foreground/70 italic mt-2">
+                          ExitPlanMode always requires manual approval
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                </div>
 
                 <div>
                   <h3 className="text-sm font-medium mb-3">About</h3>

@@ -258,9 +258,9 @@ function AppContent() {
         <main className="flex-1 flex flex-col overflow-hidden relative">
           {/* Chat Area */}
           <div className="flex-1 overflow-hidden relative">
-            {/* Mobile agent panel (full-screen overlay) */}
-            {isMobile && isAgentExpanded && isAgentConfigured && (
-              <div className="absolute inset-0 z-20 bg-background">
+            {/* Mobile agent panel (full-screen overlay, always mounted to preserve state) */}
+            {isMobile && isAgentConfigured && (
+              <div className={`absolute inset-0 z-20 bg-background ${isAgentExpanded ? '' : 'hidden'}`}>
                 <button
                   onClick={() => setAgentExpanded(false)}
                   className="absolute left-0 top-1/2 -translate-y-1/2 z-10
@@ -295,9 +295,11 @@ function AppContent() {
 
         </main>
 
-        {/* Desktop: Agent Side Panel */}
-        {!isMobile && isAgentExpanded && isAgentConfigured && (
-          <AgentSidePanel />
+        {/* Desktop: Agent Side Panel (always mounted to preserve conversation state) */}
+        {!isMobile && isAgentConfigured && (
+          <div className={isAgentExpanded ? 'contents' : 'hidden'}>
+            <AgentSidePanel />
+          </div>
         )}
       </div>
 

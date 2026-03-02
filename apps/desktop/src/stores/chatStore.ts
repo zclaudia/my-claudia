@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { Message, SystemInfo, UsageInfo, ContentBlock } from '@my-claudia/shared';
+import type { Message, SystemInfo, UsageInfo, ContentBlock, RunHealthStatus } from '@my-claudia/shared';
 
 interface PaginationInfo {
   total: number;
@@ -27,6 +27,15 @@ export interface MessageWithToolCalls extends Message {
   clientMessageId?: string;  // Client-generated message ID for dual dedup
 }
 
+// Run health info from server heartbeat
+export interface RunHealth {
+  sessionId: string;
+  startedAt: number;
+  lastActivityAt: number;
+  health: RunHealthStatus;
+  loopPattern?: string;
+}
+
 interface ChatState {
   // Messages grouped by session ID
   messages: Record<string, MessageWithToolCalls[]>;
@@ -34,6 +43,8 @@ interface ChatState {
   pagination: Record<string, PaginationInfo>;
   // Active runs: runId → sessionId (supports concurrent runs)
   activeRuns: Record<string, string>;
+  // Run health info from server heartbeat: runId → RunHealth
+  runHealth: Record<string, RunHealth>;
   // Active tool calls per run: runId → { toolUseId → ToolCallState }
   activeToolCalls: Record<string, Record<string, ToolCallState>>;
   // Tool calls history per run: runId → ToolCallState[] (preserves order)
@@ -64,6 +75,7 @@ interface ChatState {
   // Actions — Run lifecycle
   startRun: (runId: string, sessionId: string) => void;
   endRun: (runId: string) => void;
+  updateRunHealth: (runId: string, health: RunHealth) => void;
 
   // Actions — Tool calls (per run)
   addToolCall: (runId: string, toolUseId: string, toolName: string, toolInput: unknown) => void;
@@ -98,6 +110,7 @@ interface ChatState {
   getPagination: (sessionId: string) => PaginationInfo | undefined;
   isSessionLoading: (sessionId: string) => boolean;
   getSessionRunId: (sessionId: string) => string | null;
+  getSessionHealth: (sessionId: string) => RunHealth | null;
   getSessionToolCalls: (sessionId: string) => ToolCallState[];
   getSessionContentBlocks: (sessionId: string) => ContentBlock[];
   getSessionToolCallHistory: (sessionId: string) => ToolCallState[];
@@ -113,6 +126,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   messages: {},
   pagination: {},
   activeRuns: {},
+  runHealth: {},
   activeToolCalls: {},
   toolCallsHistory: {},
   runContentBlocks: {},
@@ -265,13 +279,20 @@ export const useChatStore = create<ChatState>((set, get) => ({
       const { [runId]: _removedTC, ...remainingTC } = state.activeToolCalls;
       const { [runId]: _removedHist, ...remainingHist } = state.toolCallsHistory;
       const { [runId]: _removedCB, ...remainingCB } = state.runContentBlocks;
+      const { [runId]: _removedHealth, ...remainingHealth } = state.runHealth;
       return {
         activeRuns: remainingRuns,
         activeToolCalls: remainingTC,
         toolCallsHistory: remainingHist,
         runContentBlocks: remainingCB,
+        runHealth: remainingHealth,
       };
     }),
+
+  updateRunHealth: (runId, health) =>
+    set((state) => ({
+      runHealth: { ...state.runHealth, [runId]: health },
+    })),
 
   // ── Tool call actions (per run) ────────────────────────────────
 
@@ -445,6 +466,13 @@ export const useChatStore = create<ChatState>((set, get) => ({
       if (sid === sessionId) return runId;
     }
     return null;
+  },
+
+  getSessionHealth: (sessionId) => {
+    const state = get();
+    const runId = state.getSessionRunId(sessionId);
+    if (!runId) return null;
+    return state.runHealth[runId] || null;
   },
 
   getSessionToolCalls: (sessionId) => {

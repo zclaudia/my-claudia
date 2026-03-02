@@ -76,10 +76,12 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
     getSessionToolCalls,
     getSessionContentBlocks,
     getSessionToolCallHistory,
+    getSessionHealth,
   } = useChatStore();
   // Only show loading/toolCalls for THIS session's active run
   const isLoading = isSessionLoading(sessionId);
   const sessionRunId = getSessionRunId(sessionId);
+  const sessionHealth = getSessionHealth(sessionId);
   const sessionToolCalls = getSessionToolCalls(sessionId);
   const sessionContentBlocks = getSessionContentBlocks(sessionId);
   const sessionToolCallHistory = getSessionToolCallHistory(sessionId);
@@ -899,7 +901,13 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
         />
 
         {/* Loading indicator (shown while waiting for response) */}
-        <LoadingIndicator isLoading={isLoading} />
+        <LoadingIndicator
+          isLoading={isLoading}
+          health={sessionHealth?.health}
+          loopPattern={sessionHealth?.loopPattern}
+          startedAt={sessionHealth?.startedAt}
+          onCancel={handleCancelRun}
+        />
 
         {/* Active tool calls (shown during streaming — hidden when inline in segmented view) */}
         {!useStreamingSegmented && sessionToolCalls.length > 0 && (

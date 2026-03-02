@@ -503,27 +503,25 @@ async function getOpenCodeCapabilities(
     const server = await openCodeServerManager.ensureServer(cwd, { cliPath, env });
     const baseUrl = server.baseUrl;
 
-    // Fetch agents and providers in parallel
-    const [agentsResp, providerResp] = await Promise.all([
-      fetch(`${baseUrl}/agent`).catch(() => null),
+    // Fetch agents and providers in parallel via SDK
+    const [agentsResult, providerResp] = await Promise.all([
+      server.client.app.agents({}).catch(() => null),
       fetch(`${baseUrl}/provider`).catch(() => null),
     ]);
 
     // Parse agents — OpenCode classifies agents as:
-    //   'all'       = top-level user-facing agents (e.g. sisyphus, prometheus)
-    //   'subagent'  = internal sub-agents (build, plan, explore)
-    //   'primary'   = system agents (compaction, title, summary)
+    //   'all'       = user-facing, can also be used as sub-agent
+    //   'primary'   = user-facing primary agent
+    //   'subagent'  = internal sub-agents only (not user-selectable)
     const modes: ModeOption[] = [];
-    if (agentsResp?.ok) {
-      const agents = await agentsResp.json() as Array<{ name: string; mode: string }>;
-      for (const agent of agents) {
-        if (agent.mode === 'all') {
-          modes.push({
-            id: agent.name,
-            label: agent.name.charAt(0).toUpperCase() + agent.name.slice(1),
-            description: `${agent.name} agent`,
-          });
-        }
+    const agents = (agentsResult?.data || []) as Array<{ name: string; description?: string; mode: string }>;
+    for (const agent of agents) {
+      if (agent.mode !== 'subagent') {
+        modes.push({
+          id: agent.name,
+          label: agent.name.charAt(0).toUpperCase() + agent.name.slice(1),
+          description: agent.description || `${agent.name} agent`,
+        });
       }
     }
 
