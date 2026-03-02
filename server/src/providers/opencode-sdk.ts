@@ -1,7 +1,20 @@
 import { spawn, type ChildProcess } from 'child_process';
+import { appendFileSync } from 'fs';
 import type { PermissionRequest } from '@my-claudia/shared';
 import type { ClaudeMessage, SystemInfo, PermissionDecision, PermissionCallback } from './claude-sdk.js';
 import { prepareInput } from './claude-sdk.js';
+
+// Temporary debug logger to trace SSE issues
+const OC_LOG_PATH = process.env.MY_CLAUDIA_DATA_DIR
+  ? `${process.env.MY_CLAUDIA_DATA_DIR}/opencode-debug.log`
+  : '/tmp/opencode-debug.log';
+function ocLog(msg: string) {
+  const line = `[${new Date().toISOString()}] ${msg}\n`;
+  try { appendFileSync(OC_LOG_PATH, line); } catch (e) { /* silently fail */ }
+  console.log(`[OpenCode] ${msg}`);
+}
+// Write a startup marker so we know the module was loaded
+ocLog('=== opencode-sdk.ts module loaded ===');
 import {
   createOpencodeClient,
   type OpencodeClient,
@@ -230,6 +243,116 @@ class ThinkTagFilter {
 }
 
 // ============================================
+// Raw SSE stream reader (bypasses SDK SSE parser)
+// ============================================
+
+/**
+ * Connect to the OpenCode SSE event stream using Node.js http module.
+ * We bypass both the SDK's SSE client and `fetch` because the Web Streams
+ * API used by `fetch` can buffer/stall SSE chunks in the sidecar Node.js
+ * environment. The raw `http.get` gives us immediate `data` events.
+ */
+async function* rawSseStream(baseUrl: string, directory: string, signal?: AbortSignal): AsyncGenerator<any> {
+  const url = new URL('/event', baseUrl);
+  const httpModule = url.protocol === 'https:' ? await import('https') : await import('http');
+
+  // Use a push-based queue so http 'data' events are never lost
+  const queue: any[] = [];
+  let resolve: (() => void) | null = null;
+  let done = false;
+  let error: Error | null = null;
+
+  const push = (item: any) => {
+    queue.push(item);
+    if (resolve) { resolve(); resolve = null; }
+  };
+
+  const waitForData = () => new Promise<void>(r => {
+    if (queue.length > 0 || done) { r(); return; }
+    resolve = r;
+  });
+
+  // Include x-opencode-directory header (same as SDK sends on all requests)
+  const headers: Record<string, string> = {
+    'Accept': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    'x-opencode-directory': encodeURIComponent(directory),
+  };
+  ocLog(`SSE headers: ${JSON.stringify(headers)}`);
+
+  const req = httpModule.get(url, { headers }, (res) => {
+    if (res.statusCode !== 200) {
+      error = new Error(`SSE connection failed: ${res.statusCode}`);
+      done = true;
+      if (resolve) { resolve(); resolve = null; }
+      return;
+    }
+
+    let buffer = '';
+    res.setEncoding('utf8');
+    res.on('data', (chunk: string) => {
+      buffer += chunk;
+      const parts = buffer.split('\n\n');
+      buffer = parts.pop() ?? '';
+
+      for (const part of parts) {
+        const dataLines: string[] = [];
+        for (const line of part.split('\n')) {
+          if (line.startsWith('data:')) {
+            dataLines.push(line.slice(5).trimStart());
+          }
+        }
+        if (dataLines.length) {
+          try {
+            push(JSON.parse(dataLines.join('\n')));
+          } catch {
+            // skip unparsable
+          }
+        }
+      }
+    });
+
+    res.on('end', () => {
+      done = true;
+      if (resolve) { resolve(); resolve = null; }
+    });
+
+    res.on('error', (e: Error) => {
+      error = e;
+      done = true;
+      if (resolve) { resolve(); resolve = null; }
+    });
+  });
+
+  req.on('error', (e: Error) => {
+    error = e;
+    done = true;
+    if (resolve) { resolve(); resolve = null; }
+  });
+
+  if (signal) {
+    signal.addEventListener('abort', () => {
+      req.destroy();
+      done = true;
+      if (resolve) { resolve(); resolve = null; }
+    });
+  }
+
+  try {
+    while (true) {
+      await waitForData();
+      if (error) throw error;
+      while (queue.length > 0) {
+        yield queue.shift();
+      }
+      if (done) break;
+    }
+  } finally {
+    req.destroy();
+  }
+}
+
+// ============================================
 // Streaming state for part-boundary tracking
 // ============================================
 
@@ -242,6 +365,166 @@ interface StreamState {
 
 function createStreamState(): StreamState {
   return { lastField: null, lastTextPartId: '' };
+}
+
+// ============================================
+// Polling fallback for session messages
+// ============================================
+
+/**
+ * Poll session messages via REST API when SSE fails.
+ * Diffs text/reasoning parts to produce streaming deltas.
+ * Detects tool use/results and session completion.
+ */
+async function* pollSessionMessages(
+  client: OpencodeClient,
+  sessionId: string,
+  streamState: StreamState,
+  server: OpenCodeServer,
+  onPermissionRequest?: PermissionCallback
+): AsyncGenerator<ClaudeMessage> {
+  const POLL_INTERVAL = 300;       // ms between polls
+  const MAX_POLL_TIME = 10 * 60_000; // 10 minutes
+  const startTime = Date.now();
+
+  // Track emitted content to produce deltas
+  const textContent = new Map<string, string>();   // partId -> last known text
+  const emittedToolUse = new Set<string>();         // partIds with emitted tool_use
+  const emittedToolResult = new Set<string>();      // partIds with emitted tool_result
+  let lastKnownMessageCount = 0;
+  let pollCount = 0;
+
+  while (Date.now() - startTime < MAX_POLL_TIME) {
+    await new Promise(r => setTimeout(r, POLL_INTERVAL));
+    pollCount++;
+
+    let messagesData: any[];
+    try {
+      const result = await client.session.messages({
+        path: { id: sessionId },
+      });
+      if (result.error || !result.data) {
+        if (pollCount <= 3) {
+          ocLog(`Poll[${pollCount}] no data yet: ${result.error || 'empty'}`);
+        }
+        continue;
+      }
+      messagesData = result.data as any[];
+    } catch (err) {
+      ocLog(`Poll[${pollCount}] fetch error: ${err}`);
+      continue;
+    }
+
+    if (pollCount <= 3 || pollCount % 10 === 0) {
+      ocLog(`Poll[${pollCount}] ${messagesData.length} messages`);
+    }
+
+    // Find assistant messages (there may be multiple in agentic flows)
+    let sessionCompleted = false;
+
+    for (const msg of messagesData) {
+      if (msg.info?.role !== 'assistant') continue;
+
+      const parts: any[] = msg.parts || [];
+      for (const part of parts) {
+        const partId = part.id;
+        if (!partId) continue;
+
+        switch (part.type) {
+          case 'text': {
+            const content: string = part.content || '';
+            const prev = textContent.get(partId) || '';
+            if (content.length > prev.length) {
+              const delta = content.slice(prev.length);
+              // Handle field transitions
+              if (streamState.lastField === 'reasoning') {
+                yield { type: 'assistant', content: '</think>\n\n' };
+              }
+              if (streamState.lastTextPartId && partId !== streamState.lastTextPartId) {
+                yield { type: 'assistant', content: '\n\n' };
+              }
+              streamState.lastTextPartId = partId;
+              streamState.lastField = 'text';
+              yield { type: 'assistant', content: delta };
+            }
+            textContent.set(partId, content);
+            break;
+          }
+
+          case 'reasoning': {
+            const content: string = part.content || '';
+            const prev = textContent.get(partId) || '';
+            if (content.length > prev.length) {
+              const delta = content.slice(prev.length);
+              if (streamState.lastField !== 'reasoning') {
+                yield { type: 'assistant', content: '<think>' };
+              }
+              streamState.lastField = 'reasoning';
+              yield { type: 'assistant', content: delta };
+            }
+            textContent.set(partId, content);
+            break;
+          }
+
+          case 'tool': {
+            const toolId = part.callID || partId;
+            const state = part.state;
+
+            // Emit tool_use when first seen
+            if (!emittedToolUse.has(partId) && state) {
+              yield {
+                type: 'tool_use',
+                toolUseId: toolId,
+                toolName: part.tool || 'unknown',
+                toolInput: state.input,
+              };
+              emittedToolUse.add(partId);
+            }
+
+            // Emit tool_result when completed/error
+            if (!emittedToolResult.has(partId) && state &&
+                (state.status === 'completed' || state.status === 'error')) {
+              yield {
+                type: 'tool_result',
+                toolUseId: toolId,
+                toolResult: state.output || state.error || '',
+                isToolError: state.status === 'error',
+              };
+              emittedToolResult.add(partId);
+            }
+            break;
+          }
+        }
+      }
+
+      // Check if this assistant message is completed
+      if (msg.info?.time?.completed || msg.info?.finish) {
+        sessionCompleted = true;
+      }
+    }
+
+    // Also check for pending permissions by fetching session status
+    // (permissions show as tool parts in pending state waiting for approval)
+    // TODO: Implement permission detection via polling if needed
+
+    if (sessionCompleted) {
+      // Close any open think block
+      if (streamState.lastField === 'reasoning') {
+        yield { type: 'assistant', content: '</think>\n\n' };
+        streamState.lastField = null;
+      }
+      ocLog(`Poll: session completed after ${pollCount} polls (${Date.now() - startTime}ms)`);
+      yield { type: 'result', isComplete: true };
+      return;
+    }
+  }
+
+  // Timeout
+  ocLog(`Poll: timeout after ${MAX_POLL_TIME}ms`);
+  if (streamState.lastField === 'reasoning') {
+    yield { type: 'assistant', content: '</think>\n\n' };
+  }
+  yield { type: 'error', error: 'Session did not complete within 10 minutes' };
 }
 
 // ============================================
@@ -353,18 +636,6 @@ export async function* runOpenCode(
     systemInfo,
   };
 
-  // Connect global SSE event stream via SDK
-  console.log(`[OpenCode] Connecting SSE stream via SDK`);
-  let sseResult: { stream: AsyncGenerator<OpenCodeEvent> };
-  try {
-    sseResult = await client.event.subscribe({}) as { stream: AsyncGenerator<OpenCodeEvent> };
-    console.log(`[OpenCode] SSE stream connected`);
-  } catch (error) {
-    console.error(`[OpenCode] SSE connection failed:`, error);
-    yield { type: 'error', error: `Failed to connect event stream: ${error}` };
-    return;
-  }
-
   // Parse input: extract text and save image attachments to temp files
   const { text: promptText, tempFiles } = await prepareInput(input);
 
@@ -375,6 +646,32 @@ export async function* runOpenCode(
   }
 
   try {
+    // Connect global SSE event stream via SDK
+    // IMPORTANT: The SDK's SSE client uses an async generator that only starts
+    // the fetch() call on the first .next() invocation. We must prime the stream
+    // (trigger the connection) BEFORE sending the prompt, otherwise we miss events
+    // if the model responds before the SSE connection is established.
+    // Connect SSE event stream directly via raw fetch (bypasses SDK SSE parser
+    // which can stall due to TextDecoderStream buffering in Node.js)
+    ocLog(`Connecting raw SSE stream to ${server.baseUrl}/event`);
+    const sseAbort = new AbortController();
+    let sseStream: AsyncGenerator<any>;
+    try {
+      sseStream = rawSseStream(server.baseUrl, options.cwd, sseAbort.signal);
+      // Prime: trigger the fetch by requesting the first value
+      // (async generator bodies don't execute until the first .next() call)
+      const firstEventPromise = sseStream.next();
+      await new Promise(r => setTimeout(r, 100));
+      ocLog(`SSE stream connected, awaiting first event...`);
+      const firstResult = await firstEventPromise;
+      ocLog(`SSE first event: done=${firstResult.done} type=${firstResult.value?.type || 'n/a'}`);
+    } catch (error) {
+      ocLog(`SSE connection failed: ${error}`);
+      yield { type: 'error', error: `Failed to connect event stream: ${error}` };
+      return;
+    }
+    ocLog(`SSE stream ready, sending prompt`);
+
     // Build prompt body
     const promptBody: {
       parts: Array<{ type: 'text'; text: string }>;
@@ -416,38 +713,99 @@ export async function* runOpenCode(
       return;
     }
 
-    // Process SSE events (filter by our sessionId since it's a global stream)
-    console.log(`[OpenCode] Processing SSE events for session ${sessionId}...`);
+    // Process SSE events with polling fallback.
+    // SSE has proven unreliable in the Tauri sidecar environment — the connection
+    // establishes (server.connected arrives) but subsequent session events often
+    // don't. If no session events arrive within SSE_FALLBACK_TIMEOUT, we switch
+    // to polling session.messages() for content delivery.
+    const SSE_FALLBACK_TIMEOUT = 5000; // 5 seconds
+    ocLog(`Processing SSE events for session ${sessionId} (fallback after ${SSE_FALLBACK_TIMEOUT}ms)...`);
     const streamState = createStreamState();
+    let receivedSessionEvent = false;
+    const sseStartTime = Date.now();
+
     try {
-      for await (const event of sseResult.stream) {
+      let eventIdx = 0;
+      while (true) {
+        // Calculate remaining SSE window before fallback
+        const elapsed = Date.now() - sseStartTime;
+        const remainingMs = receivedSessionEvent
+          ? 120_000 // Once SSE is working, use a long timeout per-event
+          : Math.max(0, SSE_FALLBACK_TIMEOUT - elapsed);
+
+        if (remainingMs <= 0 && !receivedSessionEvent) {
+          ocLog(`SSE fallback triggered: no session events after ${elapsed}ms`);
+          break; // Fall through to polling
+        }
+
+        // Race next SSE event against timeout
+        const nextEvent = sseStream.next();
+        const timeout = new Promise<'timeout'>(r => setTimeout(() => r('timeout'), remainingMs));
+        const raceResult = await Promise.race([nextEvent, timeout]);
+
+        if (raceResult === 'timeout') {
+          if (!receivedSessionEvent) {
+            ocLog(`SSE timeout: no session events in ${Date.now() - sseStartTime}ms, switching to polling`);
+            break;
+          }
+          // This shouldn't happen when receivedSessionEvent is true (120s timeout)
+          ocLog('SSE: per-event timeout (120s), assuming stream dead');
+          break;
+        }
+
+        if (raceResult.done) {
+          ocLog('SSE stream ended');
+          break;
+        }
+
+        const event = raceResult.value;
+        eventIdx++;
+        const _et = (event as any).type as string;
+        const _ep = (event as any).properties || {};
+        const _eSid = _ep.sessionID || _ep.part?.sessionID;
+
+        if (_eSid === sessionId) {
+          receivedSessionEvent = true;
+          ocLog(`SSE[${eventIdx}] type=${_et} field=${_ep.field || '-'} delta=${(_ep.delta || '').slice(0, 30)} partType=${_ep.part?.type || '-'}`);
+        }
+
         const messages = mapOpenCodeEvent(event, sessionId, streamState, server, onPermissionRequest);
         for await (const msg of messages) {
           yield msg;
           if (msg.type === 'result' || msg.type === 'error') {
-            // Close any open think block before finishing
             if (streamState.lastField === 'reasoning') {
               yield { type: 'assistant', content: '</think>\n\n' };
               streamState.lastField = null;
             }
+            sseAbort.abort();
             return;
           }
         }
       }
     } catch (error) {
-      console.log('[OpenCode] SSE stream ended:', error);
+      if ((error as Error)?.name !== 'AbortError') {
+        ocLog(`SSE stream error: ${error}`);
+      }
     }
 
-    // Close any open think block
+    // --- Polling fallback ---
+    if (!receivedSessionEvent) {
+      sseAbort.abort(); // Stop SSE
+
+      ocLog('Switching to polling fallback via session.messages() API');
+      yield* pollSessionMessages(
+        client, sessionId, streamState, server, onPermissionRequest
+      );
+      return;
+    }
+
+    // SSE ended normally (stream closed after receiving events)
     if (streamState.lastField === 'reasoning') {
       yield { type: 'assistant', content: '</think>\n\n' };
     }
-
-    console.log('[OpenCode] SSE stream finished without explicit result, yielding completion');
-    yield {
-      type: 'result',
-      isComplete: true,
-    };
+    ocLog('SSE stream finished without explicit result, yielding completion');
+    sseAbort.abort();
+    yield { type: 'result', isComplete: true };
   } finally {
     // Temp files are cleaned up lazily (files older than 1h) to ensure
     // the model's tools can still read them after the run completes.
@@ -483,12 +841,6 @@ async function* mapOpenCodeEvent(
   // Skip events not for our session (except global events)
   if (eventSessionId && eventSessionId !== sessionId) {
     return;
-  }
-
-  // Diagnostic: log session-related events
-  if (eventSessionId === sessionId) {
-    const preview = JSON.stringify(props).slice(0, 300);
-    console.log(`[OpenCode] SSE event: ${eventType} | ${preview}`);
   }
 
   switch (eventType) {
@@ -628,11 +980,40 @@ async function* mapOpenCodeEvent(
     }
 
     default: {
-      // Log unhandled event types for debugging (cast to string since TS narrows the union)
+      // Handle message.part.delta (not in SDK type union, but emitted by newer OpenCode servers)
       const t = eventType as string;
+      if (t === 'message.part.delta') {
+        const delta: string | undefined = props.delta;
+        const field: string | undefined = props.field;
+        if (delta && props.sessionID === sessionId) {
+          if (field === 'text') {
+            // Close any open think block when switching from reasoning to text
+            if (streamState.lastField === 'reasoning') {
+              yield { type: 'assistant', content: '</think>\n\n' };
+            }
+            // Track part transitions for text separators
+            if (streamState.lastTextPartId && props.partID !== streamState.lastTextPartId) {
+              yield { type: 'assistant', content: '\n\n' };
+            }
+            streamState.lastTextPartId = props.partID;
+            streamState.lastField = 'text';
+            yield { type: 'assistant', content: delta };
+          } else if (field === 'reasoning') {
+            if (streamState.lastField !== 'reasoning') {
+              yield { type: 'assistant', content: '<think>' };
+            }
+            streamState.lastField = 'reasoning';
+            yield { type: 'assistant', content: delta };
+          }
+        }
+        break;
+      }
+
+      // Log unhandled event types for debugging
       if (t && t !== 'server.connected' && t !== 'session.diff'
           && t !== 'server.heartbeat' && t !== 'lsp.updated'
-          && t !== 'lsp.client.diagnostics' && t !== 'message.updated') {
+          && t !== 'lsp.client.diagnostics' && t !== 'message.updated'
+          && t !== 'session.updated' && t !== 'tui.toast.show') {
         console.log(`[OpenCode] Unhandled SSE event: ${t} (session=${eventSessionId || 'global'}) | ${JSON.stringify(props).slice(0, 200)}`);
       }
       break;
