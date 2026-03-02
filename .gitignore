@@ -60,6 +60,9 @@ coverage/
 # Claude Code local settings
 .claude/settings.local.json
 
+# OpenCode local runtime data
+.opencode/
+
 # Test results and reports
 playwright-report/
 test-results/
