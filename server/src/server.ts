@@ -1553,9 +1553,9 @@ async function handleRunStart(
               }
             });
           }
-          if (msg.sessionId && !sdkSessionId) {
+          if (msg.sessionId && msg.sessionId !== sdkSessionId) {
             sdkSessionId = msg.sessionId;
-            // Update session with SDK session ID
+            // Update session with SDK session ID (handles both new and replaced sessions)
             db.prepare(`
               UPDATE sessions SET sdk_session_id = ?, updated_at = ? WHERE id = ?
             `).run(sdkSessionId, Date.now(), message.sessionId);

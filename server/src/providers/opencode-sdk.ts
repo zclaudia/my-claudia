@@ -8,9 +8,14 @@ import { prepareInput } from './claude-sdk.js';
 const OC_LOG_PATH = process.env.MY_CLAUDIA_DATA_DIR
   ? `${process.env.MY_CLAUDIA_DATA_DIR}/opencode-debug.log`
   : '/tmp/opencode-debug.log';
+// Always also write to /tmp for easy access from dev tools
+const OC_LOG_TMP = '/tmp/opencode-debug.log';
 function ocLog(msg: string) {
   const line = `[${new Date().toISOString()}] ${msg}\n`;
   try { appendFileSync(OC_LOG_PATH, line); } catch (e) { /* silently fail */ }
+  if (OC_LOG_TMP !== OC_LOG_PATH) {
+    try { appendFileSync(OC_LOG_TMP, line); } catch (e) { /* silently fail */ }
+  }
   console.log(`[OpenCode] ${msg}`);
 }
 // Write a startup marker so we know the module was loaded
@@ -37,6 +42,14 @@ export interface OpenCodeRunOptions {
   agent?: string;       // Agent/mode to use (e.g. 'sisyphus', 'plan')
   systemPrompt?: string; // Prepended as system context to first message in new sessions
 }
+
+// ============================================
+// Session-to-server tracking
+// Maps sdk_session_id → server baseUrl so we know which server created each session.
+// After app restart this map is empty, which correctly forces new session creation
+// (old sessions persisted in OpenCode's config dir are not functional on new servers).
+// ============================================
+const sessionServerMap = new Map<string, string>();
 
 // ============================================
 // OpenCode Server Manager
@@ -304,7 +317,9 @@ async function* rawSseStream(baseUrl: string, directory: string, signal?: AbortS
         }
         if (dataLines.length) {
           try {
-            push(JSON.parse(dataLines.join('\n')));
+            const parsed = JSON.parse(dataLines.join('\n'));
+            ocLog(`RAW SSE: keys=${Object.keys(parsed).join(',')} type=${parsed.type || 'NONE'} hasPayload=${!!parsed.payload}`);
+            push(parsed);
           } catch {
             // skip unparsable
           }
@@ -398,14 +413,31 @@ async function* pollSessionMessages(
     await new Promise(r => setTimeout(r, POLL_INTERVAL));
     pollCount++;
 
+    // On first poll, also do a raw fetch to compare with SDK client
+    if (pollCount === 1) {
+      try {
+        const rawUrl = `${server.baseUrl}/session/${sessionId}/message`;
+        const rawResp = await fetch(rawUrl, {
+          headers: { 'x-opencode-directory': encodeURIComponent(server.cwd) },
+        });
+        const rawBody = await rawResp.text();
+        ocLog(`Poll[1] RAW FETCH: url=${rawUrl} status=${rawResp.status} bodyLen=${rawBody.length} body=${rawBody.slice(0, 300)}`);
+      } catch (e) {
+        ocLog(`Poll[1] RAW FETCH error: ${e}`);
+      }
+    }
+
     let messagesData: any[];
     try {
       const result = await client.session.messages({
         path: { id: sessionId },
       });
+      if (pollCount <= 3) {
+        ocLog(`Poll[${pollCount}] SDK: error=${JSON.stringify(result.error) || 'none'} dataType=${typeof result.data} isArray=${Array.isArray(result.data)} response.status=${result.response?.status} response.url=${result.response?.url}`);
+      }
       if (result.error || !result.data) {
         if (pollCount <= 3) {
-          ocLog(`Poll[${pollCount}] no data yet: ${result.error || 'empty'}`);
+          ocLog(`Poll[${pollCount}] no data: ${JSON.stringify(result.error) || 'empty'}`);
         }
         continue;
       }
@@ -430,9 +462,13 @@ async function* pollSessionMessages(
         const partId = part.id;
         if (!partId) continue;
 
+        if (pollCount <= 3) {
+          ocLog(`Poll part: type=${part.type} id=${partId} keys=${Object.keys(part).join(',')}`);
+        }
+
         switch (part.type) {
           case 'text': {
-            const content: string = part.content || '';
+            const content: string = part.text || '';
             const prev = textContent.get(partId) || '';
             if (content.length > prev.length) {
               const delta = content.slice(prev.length);
@@ -452,7 +488,7 @@ async function* pollSessionMessages(
           }
 
           case 'reasoning': {
-            const content: string = part.content || '';
+            const content: string = part.text || '';
             const prev = textContent.get(partId) || '';
             if (content.length > prev.length) {
               const delta = content.slice(prev.length);
@@ -565,18 +601,42 @@ export async function* runOpenCode(
   }
 
   const { client } = server;
+  ocLog(`Server baseUrl=${server.baseUrl} cwd=${server.cwd}`);
 
   // Create or resume session
+  // OpenCode persists sessions in its config directory across server restarts.
+  // This means session.get() returns 200 for old sessions, but promptAsync
+  // silently fails (accepts with 204 but never generates messages).
+  // We track which server created each session via sessionServerMap.
+  // After app restart (map is empty) or server change (different port),
+  // we always create a new session.
   let sessionId = options.sessionId;
+  if (sessionId) {
+    const knownServer = sessionServerMap.get(sessionId);
+    if (knownServer && knownServer === server.baseUrl) {
+      // Session was created on this exact server instance — safe to reuse
+      ocLog(`Resuming session ${sessionId} on same server ${server.baseUrl}`);
+    } else if (knownServer) {
+      // Server changed (different port) — old session is stale
+      ocLog(`Session ${sessionId} was on ${knownServer}, server is now ${server.baseUrl}, creating new session`);
+      sessionId = undefined;
+    } else {
+      // Unknown origin (app restarted, map is empty) — can't trust old sessions
+      ocLog(`Session ${sessionId} has unknown server origin (app restarted?), creating new session`);
+      sessionId = undefined;
+    }
+  }
   if (!sessionId) {
     try {
       const result = await client.session.create({});
+      ocLog(`session.create: error=${JSON.stringify(result.error) || 'none'} data.id=${result.data?.id} response.status=${result.response?.status} response.url=${result.response?.url}`);
       if (result.error || !result.data) {
         yield { type: 'error', error: `Failed to create session: ${result.error || 'no data'}` };
         return;
       }
       sessionId = result.data.id;
-      console.log(`[OpenCode] Created session: ${sessionId}`);
+      sessionServerMap.set(sessionId, server.baseUrl);
+      ocLog(`Created new session: ${sessionId} on server ${server.baseUrl}`);
     } catch (error) {
       yield { type: 'error', error: `Failed to create session: ${error}` };
       return;
@@ -656,6 +716,7 @@ export async function* runOpenCode(
     ocLog(`Connecting raw SSE stream to ${server.baseUrl}/event`);
     const sseAbort = new AbortController();
     let sseStream: AsyncGenerator<any>;
+    let firstSseResult: IteratorResult<any> | undefined;
     try {
       sseStream = rawSseStream(server.baseUrl, options.cwd, sseAbort.signal);
       // Prime: trigger the fetch by requesting the first value
@@ -663,8 +724,8 @@ export async function* runOpenCode(
       const firstEventPromise = sseStream.next();
       await new Promise(r => setTimeout(r, 100));
       ocLog(`SSE stream connected, awaiting first event...`);
-      const firstResult = await firstEventPromise;
-      ocLog(`SSE first event: done=${firstResult.done} type=${firstResult.value?.type || 'n/a'}`);
+      firstSseResult = await firstEventPromise;
+      ocLog(`SSE first event: done=${firstSseResult.done} type=${firstSseResult.value?.type || 'n/a'}`);
     } catch (error) {
       ocLog(`SSE connection failed: ${error}`);
       yield { type: 'error', error: `Failed to connect event stream: ${error}` };
@@ -696,19 +757,20 @@ export async function* runOpenCode(
       promptBody.agent = options.agent;
     }
 
-    console.log(`[OpenCode] Sending prompt to session ${sessionId}:`, JSON.stringify(promptBody).slice(0, 200));
+    ocLog(`Sending prompt to session ${sessionId}: ${JSON.stringify(promptBody).slice(0, 200)}`);
     try {
       const sendResult = await client.session.promptAsync({
         path: { id: sessionId },
         body: promptBody,
       });
+      ocLog(`promptAsync result: error=${JSON.stringify(sendResult.error) || 'none'} response.status=${sendResult.response?.status} response.url=${sendResult.response?.url}`);
       if (sendResult.error) {
         console.error(`[OpenCode] promptAsync error:`, sendResult.error);
         yield { type: 'error', error: `Failed to send message: ${JSON.stringify(sendResult.error)}` };
         return;
       }
     } catch (error) {
-      console.error(`[OpenCode] promptAsync failed:`, error);
+      ocLog(`promptAsync exception: ${error}`);
       yield { type: 'error', error: `Failed to send message: ${error}` };
       return;
     }
@@ -723,6 +785,26 @@ export async function* runOpenCode(
     const streamState = createStreamState();
     let receivedSessionEvent = false;
     const sseStartTime = Date.now();
+
+    // Process the first SSE event that was consumed during priming
+    // (usually server.connected, but could be a session event if server responds fast)
+    if (firstSseResult && !firstSseResult.done && firstSseResult.value) {
+      const firstEvent = firstSseResult.value;
+      const firstProps = firstEvent.properties || {};
+      const firstSid = firstProps.sessionID || firstProps.part?.sessionID;
+      if (firstSid === sessionId) {
+        receivedSessionEvent = true;
+        ocLog(`First SSE event matched session: type=${firstEvent.type}`);
+      }
+      const firstMessages = mapOpenCodeEvent(firstEvent, sessionId, streamState, server, onPermissionRequest);
+      for await (const msg of firstMessages) {
+        yield msg;
+        if (msg.type === 'result' || msg.type === 'error') {
+          sseAbort.abort();
+          return;
+        }
+      }
+    }
 
     try {
       let eventIdx = 0;
