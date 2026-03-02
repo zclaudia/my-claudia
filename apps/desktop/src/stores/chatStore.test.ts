@@ -13,6 +13,7 @@ describe('chatStore', () => {
       toolCallsHistory: {},
       sessionUsage: {},
       modelOverrides: {},
+      permissionOverrides: {},
     });
   });
 
@@ -448,6 +449,134 @@ describe('chatStore', () => {
       const messages = useChatStore.getState().messages['session-1'];
       // Should keep the existing 2 tool calls, not overwrite with empty
       expect(messages[0].toolCalls).toHaveLength(2);
+    });
+  });
+
+  describe('Permission Overrides', () => {
+    beforeEach(() => {
+      useChatStore.setState({
+        permissionOverrides: {},
+      });
+    });
+
+    it('should set permission override for a session', () => {
+      const policy = {
+        enabled: true,
+        trustLevel: 'aggressive' as const,
+        customRules: [],
+        escalateAlways: ['AskUserQuestion', 'ExitPlanMode'],
+      };
+
+      useChatStore.getState().setPermissionOverride('session-1', policy);
+
+      expect(useChatStore.getState().permissionOverrides['session-1']).toEqual(policy);
+    });
+
+    it('should clear permission override when set to null', () => {
+      const policy = {
+        enabled: true,
+        trustLevel: 'moderate' as const,
+        customRules: [],
+        escalateAlways: ['AskUserQuestion', 'ExitPlanMode'],
+      };
+
+      useChatStore.getState().setPermissionOverride('session-1', policy);
+      useChatStore.getState().setPermissionOverride('session-1', null);
+
+      expect(useChatStore.getState().permissionOverrides['session-1']).toBeUndefined();
+    });
+
+    it('should return null when no override exists', () => {
+      const result = useChatStore.getState().getPermissionOverride('session-1');
+      expect(result).toBeNull();
+    });
+
+    it('should return override when it exists', () => {
+      const policy = {
+        enabled: true,
+        trustLevel: 'full_trust' as const,
+        customRules: [],
+        escalateAlways: ['AskUserQuestion', 'ExitPlanMode'],
+      };
+
+      useChatStore.getState().setPermissionOverride('session-1', policy);
+      const result = useChatStore.getState().getPermissionOverride('session-1');
+
+      expect(result).toEqual(policy);
+    });
+
+    it('should not affect other sessions', () => {
+      const policy1 = {
+        enabled: true,
+        trustLevel: 'conservative' as const,
+        customRules: [],
+        escalateAlways: ['AskUserQuestion', 'ExitPlanMode'],
+      };
+      const policy2 = {
+        enabled: true,
+        trustLevel: 'aggressive' as const,
+        customRules: [],
+        escalateAlways: ['AskUserQuestion', 'ExitPlanMode'],
+      };
+
+      useChatStore.getState().setPermissionOverride('session-1', policy1);
+      useChatStore.getState().setPermissionOverride('session-2', policy2);
+
+      expect(useChatStore.getState().getPermissionOverride('session-1')).toEqual(policy1);
+      expect(useChatStore.getState().getPermissionOverride('session-2')).toEqual(policy2);
+    });
+
+    it('should support partial policy overrides', () => {
+      const partialPolicy = {
+        enabled: true,
+        trustLevel: 'moderate' as const,
+      };
+
+      useChatStore.getState().setPermissionOverride('session-1', partialPolicy);
+
+      const result = useChatStore.getState().getPermissionOverride('session-1');
+      expect(result).toEqual(partialPolicy);
+    });
+
+    it('should handle multiple sessions with different overrides', () => {
+      const sessions = ['s1', 's2', 's3'];
+      const trustLevels = ['conservative', 'moderate', 'aggressive'] as const;
+
+      sessions.forEach((sessionId, index) => {
+        useChatStore.getState().setPermissionOverride(sessionId, {
+          enabled: true,
+          trustLevel: trustLevels[index],
+          customRules: [],
+          escalateAlways: ['AskUserQuestion', 'ExitPlanMode'],
+        });
+      });
+
+      sessions.forEach((sessionId, index) => {
+        const result = useChatStore.getState().getPermissionOverride(sessionId);
+        expect(result?.trustLevel).toBe(trustLevels[index]);
+      });
+    });
+
+    it('should update existing override', () => {
+      const initialPolicy = {
+        enabled: true,
+        trustLevel: 'conservative' as const,
+        customRules: [],
+        escalateAlways: ['AskUserQuestion', 'ExitPlanMode'],
+      };
+
+      const updatedPolicy = {
+        enabled: true,
+        trustLevel: 'aggressive' as const,
+        customRules: [],
+        escalateAlways: ['AskUserQuestion', 'ExitPlanMode'],
+      };
+
+      useChatStore.getState().setPermissionOverride('session-1', initialPolicy);
+      useChatStore.getState().setPermissionOverride('session-1', updatedPolicy);
+
+      const result = useChatStore.getState().getPermissionOverride('session-1');
+      expect(result).toEqual(updatedPolicy);
     });
   });
 });

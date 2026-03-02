@@ -1169,6 +1169,7 @@ async function handleRunStart(
     permissionMode?: 'default' | 'acceptEdits' | 'bypassPermissions' | 'plan';
     mode?: string;   // Generic mode/agent ID (new unified field)
     model?: string;
+    permissionOverride?: Partial<import('@my-claudia/shared').AgentPermissionPolicy>;
     systemContext?: string;
   },
   db: ReturnType<typeof initDatabase>
@@ -1315,20 +1316,31 @@ async function handleRunStart(
 
     // Permission request callback (shared by claude and opencode)
     // Unified: ALL sessions (including agent sessions) go through the strategy chain.
+    const sessionPermissionOverride = message.permissionOverride;
     const permissionCallback = async (request: import('@my-claudia/shared').PermissionRequest) => {
       return new Promise<PermissionDecision>((resolve) => {
         // --- Unified permission strategy chain ---
-        // Check both global and project-level policies.
-        // Project override can independently enable auto-approve.
+        // Check global, project-level, and session-level policies.
+        // Session override has highest priority.
         const globalPolicy = getAgentPermissionPolicy(db);
         const projectOverride = getProjectPermissionOverride(db, session.project_id);
-        const effectivePolicy = globalPolicy
+
+        // Merge: global → project → session
+        let effectivePolicy = globalPolicy
           ? mergePolicy(globalPolicy, projectOverride)
           : projectOverride?.enabled
             ? normalizePolicy({ ...DEFAULT_PERMISSION_POLICY, ...projectOverride } as AgentPermissionPolicy)
             : null;
+
+        // Apply session-level override if present
+        if (effectivePolicy && sessionPermissionOverride) {
+          effectivePolicy = mergePolicy(effectivePolicy, sessionPermissionOverride);
+        } else if (!effectivePolicy && sessionPermissionOverride?.enabled) {
+          effectivePolicy = normalizePolicy({ ...DEFAULT_PERMISSION_POLICY, ...sessionPermissionOverride } as AgentPermissionPolicy);
+        }
+
         const _cmdPreview = request.toolName === 'Bash' ? ` | cmd=${JSON.stringify((request.toolInput as any)?.command || request.detail).slice(0, 120)}` : '';
-        console.log(`[Permission] Tool=${request.toolName}${_cmdPreview} | globalPolicy=${globalPolicy?.enabled ? 'enabled/' + globalPolicy.trustLevel : 'null/disabled'} | projectOverride=${projectOverride?.enabled ? 'enabled/' + projectOverride.trustLevel : 'null/disabled'} | effective=${effectivePolicy?.enabled ? 'enabled/' + effectivePolicy.trustLevel : 'null/disabled'} | project_id=${session.project_id}`);
+        console.log(`[Permission] Tool=${request.toolName}${_cmdPreview} | globalPolicy=${globalPolicy?.enabled ? 'enabled/' + globalPolicy.trustLevel : 'null/disabled'} | projectOverride=${projectOverride?.enabled ? 'enabled/' + projectOverride.trustLevel : 'null/disabled'} | sessionOverride=${sessionPermissionOverride?.enabled ? 'enabled/' + sessionPermissionOverride.trustLevel : 'null/disabled'} | effective=${effectivePolicy?.enabled ? 'enabled/' + effectivePolicy.trustLevel : 'null/disabled'} | project_id=${session.project_id}`);
         if (effectivePolicy?.enabled) {
           const evaluator = new PermissionEvaluator();
           const decision = evaluator.evaluate(
@@ -1597,9 +1609,34 @@ async function handleRunStart(
           if (msg.toolUseId && msg.toolName) {
             toolUseIdToName.set(msg.toolUseId, msg.toolName);
           }
-          // Track for loop detection (sliding window of last 20 tool names)
+          // Track for loop detection (sliding window of last 20 tool signatures)
           if (msg.toolName) {
-            activeRun.recentToolCalls.push(msg.toolName);
+            // Generate a more specific signature for loop detection
+            let toolSignature = msg.toolName;
+            const input = msg.toolInput as Record<string, unknown> | undefined;
+
+            // For Bash commands, include the command name (first word)
+            if (msg.toolName === 'Bash' && input?.command && typeof input.command === 'string') {
+              const cmd = input.command.split(' ')[0];
+              toolSignature = `Bash:${cmd}`;
+            }
+            // For Read/Write/Edit, include file path with parent directory for better disambiguation
+            else if (['Read', 'Write', 'Edit'].includes(msg.toolName) && input?.file_path && typeof input.file_path === 'string') {
+              const parts = input.file_path.split('/');
+              // Include last 2 parts of path (parent dir + filename) for better disambiguation
+              // e.g., "src/config.json" instead of just "config.json"
+              const pathSignature = parts.length >= 2
+                ? `${parts[parts.length - 2]}/${parts[parts.length - 1]}`
+                : parts[parts.length - 1] || input.file_path;
+              toolSignature = `${msg.toolName}:${pathSignature}`;
+            }
+            // For Grep, include the pattern
+            else if (msg.toolName === 'Grep' && input?.pattern && typeof input.pattern === 'string') {
+              const pattern = input.pattern.substring(0, 20);
+              toolSignature = `Grep:${pattern}`;
+            }
+
+            activeRun.recentToolCalls.push(toolSignature);
             if (activeRun.recentToolCalls.length > 20) {
               activeRun.recentToolCalls.shift();
             }

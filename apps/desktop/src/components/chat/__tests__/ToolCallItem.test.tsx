@@ -111,6 +111,60 @@ describe('ToolCallItem', () => {
     });
   });
 
+  describe('ExitPlanMode', () => {
+    it('should display plan content when plan is a string', () => {
+      const toolCall = createToolCall({
+        toolName: 'ExitPlanMode',
+        toolInput: { plan: '# My Plan\n\nStep 1: Do something' },
+      });
+      render(<ToolCallItem toolCall={toolCall} />);
+
+      // Click to expand
+      fireEvent.click(screen.getByRole('button'));
+
+      expect(screen.getByText(/My Plan/)).toBeInTheDocument();
+    });
+
+    it('should display plan when plan is an object', () => {
+      const toolCall = createToolCall({
+        toolName: 'ExitPlanMode',
+        toolInput: { plan: { steps: ['a', 'b'] } },
+      });
+      render(<ToolCallItem toolCall={toolCall} />);
+
+      // Click to expand
+      fireEvent.click(screen.getByRole('button'));
+
+      expect(screen.getByText(/Plan Details/)).toBeInTheDocument();
+    });
+
+    it('should display plan_file message when plan_file exists', () => {
+      const toolCall = createToolCall({
+        toolName: 'ExitPlanMode',
+        toolInput: { plan_file: '/path/to/plan.md' },
+      });
+      render(<ToolCallItem toolCall={toolCall} />);
+
+      // Click to expand
+      fireEvent.click(screen.getByRole('button'));
+
+      expect(screen.getByText(/Plan file:/)).toBeInTheDocument();
+    });
+
+    it('should display fallback message when no plan data', () => {
+      const toolCall = createToolCall({
+        toolName: 'ExitPlanMode',
+        toolInput: {},
+      });
+      render(<ToolCallItem toolCall={toolCall} />);
+
+      // Click to expand
+      fireEvent.click(screen.getByRole('button'));
+
+      expect(screen.getByText(/Plan ready for review/)).toBeInTheDocument();
+    });
+  });
+
   describe('formatToolInput', () => {
     it('formats Read tool with file path', () => {
       const toolCall = createToolCall({
