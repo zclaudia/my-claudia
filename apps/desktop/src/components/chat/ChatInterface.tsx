@@ -27,7 +27,7 @@ import * as api from '../../services/api';
 import { uploadFile } from '../../services/fileUpload';
 import { extractPlanFromMessages } from '../SuperviseDialog';
 import { PlanReviewDialog } from '../PlanReviewDialog';
-import type { CommandExecuteResponse, Message, MessageAttachment, MessageInput as MessageInputData, ProviderCapabilities } from '@my-claudia/shared';
+import type { AgentPermissionPolicy, CommandExecuteResponse, Message, MessageAttachment, MessageInput as MessageInputData, ProviderCapabilities } from '@my-claudia/shared';
 import type { MessageWithToolCalls } from '../../stores/chatStore';
 
 // Restore tool calls and content blocks from persisted metadata when loading messages from the server
@@ -92,9 +92,6 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
   const permissionOverride = useChatStore((s) => s.getPermissionOverride(sessionId));
   const setPermissionOverride = useChatStore((s) => s.setPermissionOverride);
   const worktreeOverride = getWorktreeOverride(sessionId);
-  const draft = useChatStore((s) => s.drafts[sessionId]);
-  const worktreeOverride = getWorktreeOverride(sessionId);
->>>>>>> Stashed changes
   const draft = useChatStore((s) => s.drafts[sessionId]);
   const { projects, sessions, providerCommands, providerCapabilities, setProviderCapabilities } = useProjectStore();
   const { setDrawerOpen, drawerOpen, bottomPanelTab, setBottomPanelTab } = useTerminalStore();
@@ -529,10 +526,6 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
       permissionOverride: permissionOverride || undefined,
       workingDirectory: worktreeOverride || undefined,
     });
-=======
-      workingDirectory: worktreeOverride || undefined,
->>>>>>> Stashed changes
-    });
 
     // Scroll to bottom after sending
     setTimeout(() => scrollToBottom(), 100);
@@ -722,9 +715,9 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
 
     // Plugin commands and provider commands should be passed directly to Claude SDK
     // They are handled by Claude CLI's plugin system or built-in CLI commands
-    // Also treat unrecognized commands with ':' as plugin commands (e.g., /commit-commands:commit)
-    // since they match the plugin naming convention and may not be in the local command list yet
-    if (commandDef?.source === 'plugin' || commandDef?.source === 'provider' || (!commandDef && command.includes(':'))) {
+    // Also treat all unrecognized commands (no matching commandDef) as pass-through to Claude,
+    // since the input may not be an actual command (e.g. a path like /some/file/path)
+    if (commandDef?.source === 'plugin' || commandDef?.source === 'provider' || !commandDef) {
       const commandText = args ? `${command} ${args}` : command;
       const clientMessageId = crypto.randomUUID();
       addMessage(sessionId, {
@@ -995,7 +988,7 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
       {/* Input */}
       <div className="border-t border-border p-2 md:p-4 safe-bottom-pad overflow-visible flex-shrink-0">
         {/* Toolbar */}
-        <div className="mb-1.5 md:mb-3 flex items-center gap-1.5 md:gap-3 flex-wrap">
+        <div className="mb-1.5 md:mb-2 flex items-center gap-1 md:gap-2">
           <ModeSelector
             capabilities={capabilities}
             value={mode}
@@ -1011,14 +1004,14 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
           <PermissionSelector
             value={permissionOverride}
             onChange={(policy) => setPermissionOverride(sessionId, policy)}
-            projectPolicy={currentProject?.permissionPolicy}
+            projectPolicy={(currentProject?.agentPermissionOverride as AgentPermissionPolicy) ?? null}
             disabled={isLoading}
           />
           <TokenUsageDisplay
             inputTokens={currentUsage.inputTokens}
             outputTokens={currentUsage.outputTokens}
           />
-          <div className="flex-1" />
+          <div className="flex-1 min-w-[8px]" />
           {currentProject?.rootPath && (
             <button
               onClick={() => {

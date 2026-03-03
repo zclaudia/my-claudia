@@ -132,9 +132,10 @@ export function ModelSelector({ capabilities, value, onChange, disabled }: Model
             : 'border-border hover:border-primary/50 active:bg-muted cursor-pointer text-foreground'
           }
         `}
+        title={currentLabel}
       >
         <ModelIcon />
-        <span className="truncate max-w-[80px] md:max-w-none">{currentLabel}</span>
+        <span className="hidden sm:inline truncate max-w-[80px] lg:max-w-[120px] xl:max-w-none">{currentLabel}</span>
         <span className="text-[10px] text-muted-foreground">&#9662;</span>
       </button>
 

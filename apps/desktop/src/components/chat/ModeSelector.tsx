@@ -57,16 +57,18 @@ export function ModeSelector({ capabilities, value, onChange, disabled }: ModeSe
         disabled={disabled}
         title={current.description}
         className={`
-          flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-xs font-medium
-          border transition-colors min-h-[36px]
+          flex items-center gap-1 px-2 py-1 rounded-full text-[11px] font-medium
+          border transition-colors h-7
           ${disabled
             ? 'opacity-50 cursor-not-allowed border-border text-muted-foreground'
             : 'hover:border-primary/50 active:bg-muted cursor-pointer border-border text-foreground'
           }
         `}
+        aria-label={`Mode: ${current.label}`}
+        title={current.label}
       >
-        {current.icon ? <span>{current.icon}</span> : <ModeIcon />}
-        <span className="truncate max-w-[80px] md:max-w-none">{current.label}</span>
+        {current.icon ? <span className="text-sm">{current.icon}</span> : <ModeIcon className="w-3.5 h-3.5" />}
+        <span className="hidden lg:inline truncate max-w-[60px] xl:max-w-[100px]">{current.label}</span>
         <span className="text-[10px] text-muted-foreground">&#9662;</span>
       </button>
 

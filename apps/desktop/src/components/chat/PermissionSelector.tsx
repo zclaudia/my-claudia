@@ -89,9 +89,10 @@ export function PermissionSelector({ value, onChange, projectPolicy, disabled }:
           }
           ${hasOverride ? 'ring-2 ring-primary/30' : ''}
         `}
+        title={currentLabel}
       >
         <ShieldIcon />
-        <span className="truncate max-w-[80px] md:max-w-none">{currentLabel}</span>
+        <span className="hidden md:inline truncate max-w-[80px] lg:max-w-none">{currentLabel}</span>
         <span className="text-[10px] text-muted-foreground">&#9662;</span>
       </button>
 
