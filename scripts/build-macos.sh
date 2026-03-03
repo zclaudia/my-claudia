@@ -75,6 +75,7 @@ echo ""
 
 # --- Server bundle ---
 echo "=== Building server bundle ==="
+export APP_VERSION="$VERSION"
 pnpm -r run build
 pnpm --filter @my-claudia/server run bundle
 echo ""
@@ -103,7 +104,7 @@ fi
 
 # --- Build ---
 echo "Building macOS desktop app..."
-pnpm --filter @my-claudia/desktop exec tauri build --config "{\"version\":\"$VERSION\"}"
+pnpm --filter @my-claudia/desktop exec tauri build --config "{\"version\":\"$VERSION\",\"build\":{\"beforeBuildCommand\":\"\"}}"
 echo ""
 
 # --- Rename outputs with version ---

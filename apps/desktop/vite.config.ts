@@ -11,7 +11,9 @@ export default defineConfig({
   plugins: [react()],
   define: {
     __APP_VERSION__: JSON.stringify(
-      (process.env.TAURI_CONFIG ? JSON.parse(process.env.TAURI_CONFIG).version : null) || pkg.version
+      process.env.APP_VERSION ||
+      (process.env.TAURI_CONFIG ? JSON.parse(process.env.TAURI_CONFIG).version : null) ||
+      pkg.version
     ),
   },
   resolve: {
