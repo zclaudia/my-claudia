@@ -359,6 +359,62 @@ export function createSessionRoutes(db: Database.Database, activeRuns: ActiveRun
     }
   });
 
+  // Update session working directory
+  router.patch('/:id/working-directory', (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      const { workingDirectory } = req.body;
+      const fs = require('fs');
+
+      // Validate path exists if provided
+      if (workingDirectory && !fs.existsSync(workingDirectory)) {
+        res.status(400).json({
+          success: false,
+          error: { code: 'VALIDATION_ERROR', message: 'Working directory does not exist' }
+        });
+        return;
+      }
+
+      const now = Date.now();
+      const result = db.prepare(`
+        UPDATE sessions
+        SET working_directory = ?, updated_at = ?
+        WHERE id = ?
+      `).run(workingDirectory || null, now, id);
+
+      if (result.changes === 0) {
+        res.status(404).json({
+          success: false,
+          error: { code: 'NOT_FOUND', message: 'Session not found' }
+        });
+        return;
+      }
+
+      // Fetch updated session to return
+      const updatedSession = db.prepare(`
+        SELECT id, project_id as projectId, name, provider_id as providerId,
+               sdk_session_id as sdkSessionId, type, parent_session_id as parentSessionId,
+               working_directory as workingDirectory,
+               created_at as createdAt, updated_at as updatedAt
+        FROM sessions WHERE id = ?
+      `).get(id) as Session | undefined;
+
+      // Broadcast session updated event
+      const gatewayClient = getGatewayClient();
+      if (gatewayClient && updatedSession) {
+        gatewayClient.broadcastSessionEvent('updated', updatedSession);
+      }
+
+      res.json({ success: true, data: updatedSession } as ApiResponse<Session>);
+    } catch (error) {
+      console.error('Error updating working directory:', error);
+      res.status(500).json({
+        success: false,
+        error: { code: 'DB_ERROR', message: 'Failed to update working directory' }
+      });
+    }
+  });
+
   // Delete session
   router.delete('/:id', (req: Request, res: Response) => {
     const sessionId = req.params.id;

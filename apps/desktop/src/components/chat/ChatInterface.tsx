@@ -9,6 +9,7 @@ import { useFilePushStore } from '../../stores/filePushStore';
 import { ModeSelector } from './ModeSelector';
 import { SystemInfoButton } from './SystemInfoButton';
 import { ModelSelector } from './ModelSelector';
+import { PermissionSelector } from './PermissionSelector';
 import { TokenUsageDisplay } from './TokenUsageDisplay';
 import { BottomPanel } from '../BottomPanel';
 import { useChatStore } from '../../stores/chatStore';
@@ -71,6 +72,7 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
     sessionUsage,
     setModelOverride,
     getModelOverride,
+    getWorktreeOverride,
     isSessionLoading,
     getSessionRunId,
     getSessionToolCalls,
@@ -85,9 +87,14 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
   const sessionToolCalls = getSessionToolCalls(sessionId);
   const sessionContentBlocks = getSessionContentBlocks(sessionId);
   const sessionToolCallHistory = getSessionToolCallHistory(sessionId);
-  // Streaming segmented mode: use content blocks for inline rendering during active run
   const useStreamingSegmented = isLoading && sessionContentBlocks.length > 1 && sessionToolCallHistory.length > 0;
   const modelOverride = getModelOverride(sessionId);
+  const permissionOverride = useChatStore((s) => s.getPermissionOverride(sessionId));
+  const setPermissionOverride = useChatStore((s) => s.setPermissionOverride);
+  const worktreeOverride = getWorktreeOverride(sessionId);
+  const draft = useChatStore((s) => s.drafts[sessionId]);
+  const worktreeOverride = getWorktreeOverride(sessionId);
+>>>>>>> Stashed changes
   const draft = useChatStore((s) => s.drafts[sessionId]);
   const { projects, sessions, providerCommands, providerCapabilities, setProviderCapabilities } = useProjectStore();
   const { setDrawerOpen, drawerOpen, bottomPanelTab, setBottomPanelTab } = useTerminalStore();
@@ -165,6 +172,7 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
         sessionId,
         input: pendingHint,
         mode: mode || undefined,
+        workingDirectory: worktreeOverride || undefined,
       });
       useSupervisionStore.getState().clearPendingHint(sessionId);
       setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
@@ -518,6 +526,12 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
       input: fullContent,
       mode: mode || undefined,
       model: modelOverride || undefined,
+      permissionOverride: permissionOverride || undefined,
+      workingDirectory: worktreeOverride || undefined,
+    });
+=======
+      workingDirectory: worktreeOverride || undefined,
+>>>>>>> Stashed changes
     });
 
     // Scroll to bottom after sending
@@ -729,6 +743,7 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
         input: commandText,
         mode: mode || undefined,
         model: modelOverride || undefined,
+        workingDirectory: worktreeOverride || undefined,
       });
       return;
     }
@@ -776,6 +791,7 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
           input: result.content,
           mode: mode || undefined,
           model: modelOverride || undefined,
+          workingDirectory: worktreeOverride || undefined,
         });
       }
     } catch (error) {
@@ -906,6 +922,7 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
           health={sessionHealth?.health}
           loopPattern={sessionHealth?.loopPattern}
           startedAt={sessionHealth?.startedAt}
+          lastActivityAt={sessionHealth?.lastActivityAt}
           onCancel={handleCancelRun}
         />
 
@@ -989,6 +1006,12 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
             capabilities={capabilities}
             value={modelOverride}
             onChange={(model: string) => setModelOverride(sessionId, model)}
+            disabled={isLoading}
+          />
+          <PermissionSelector
+            value={permissionOverride}
+            onChange={(policy) => setPermissionOverride(sessionId, policy)}
+            projectPolicy={currentProject?.permissionPolicy}
             disabled={isLoading}
           />
           <TokenUsageDisplay

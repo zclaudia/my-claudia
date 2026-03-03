@@ -549,6 +549,14 @@ function runMigrations(db: Database.Database): void {
         CREATE INDEX IF NOT EXISTS idx_messages_session_offset
           ON messages(session_id, offset);
       `
+    },
+    {
+      name: '024_session_working_directory',
+      sql: `
+        -- Add session-level working directory override for worktree support
+        ALTER TABLE sessions ADD COLUMN working_directory TEXT;
+        CREATE INDEX IF NOT EXISTS idx_sessions_working_directory ON sessions(working_directory);
+      `
     }
   ];
 

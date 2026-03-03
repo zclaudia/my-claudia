@@ -6,6 +6,7 @@ interface LoadingIndicatorProps {
   health?: RunHealthStatus;
   loopPattern?: string;
   startedAt?: number;
+  lastActivityAt?: number;
   onCancel?: () => void;
 }
 
@@ -17,10 +18,11 @@ const THINKING_MESSAGES = [
   'Working on it...',
 ];
 
-export function LoadingIndicator({ isLoading, health, loopPattern, startedAt, onCancel }: LoadingIndicatorProps) {
+export function LoadingIndicator({ isLoading, health, loopPattern, startedAt, lastActivityAt, onCancel }: LoadingIndicatorProps) {
   const [messageIndex, setMessageIndex] = useState(0);
   const [dots, setDots] = useState('');
-  const [elapsed, setElapsed] = useState(0);
+  const [idleTime, setIdleTime] = useState(0);
+  const [totalTime, setTotalTime] = useState(0);
 
   // Rotate through thinking messages
   useEffect(() => {
@@ -50,29 +52,38 @@ export function LoadingIndicator({ isLoading, health, loopPattern, startedAt, on
     return () => clearInterval(interval);
   }, [isLoading]);
 
-  // Track elapsed time
+  // Track both total time and idle time (time since last activity)
   useEffect(() => {
-    if (!isLoading || !startedAt) {
-      setElapsed(0);
+    if (!isLoading) {
+      setIdleTime(0);
+      setTotalTime(0);
       return;
     }
 
-    setElapsed(Math.floor((Date.now() - startedAt) / 1000));
-    const interval = setInterval(() => {
-      setElapsed(Math.floor((Date.now() - startedAt) / 1000));
-    }, 1000);
+    const updateTime = () => {
+      const now = Date.now();
+      if (startedAt) {
+        setTotalTime(Math.floor((now - startedAt) / 1000));
+      }
+      if (lastActivityAt) {
+        setIdleTime(Math.floor((now - lastActivityAt) / 1000));
+      }
+    };
+
+    updateTime();
+    const interval = setInterval(updateTime, 1000);
 
     return () => clearInterval(interval);
-  }, [isLoading, startedAt]);
+  }, [isLoading, startedAt, lastActivityAt]);
 
   if (!isLoading) return null;
 
-  // Determine warning state
-  const showWarning = health === 'idle' || health === 'loop' || (health === 'healthy' && elapsed > 30);
+  // Determine warning state based on idle time
+  const showWarning = health === 'idle' || health === 'loop' || (health === 'healthy' && idleTime > 30);
   const warningLevel: 'none' | 'slow' | 'idle' | 'loop' =
     health === 'loop' ? 'loop' :
     health === 'idle' ? 'idle' :
-    elapsed > 30 ? 'slow' :
+    idleTime > 30 ? 'slow' :
     'none';
 
   const warningColors = {
@@ -121,12 +132,21 @@ export function LoadingIndicator({ isLoading, health, loopPattern, startedAt, on
             {THINKING_MESSAGES[messageIndex].replace('...', '')}{dots}
           </span>
 
-          {/* Elapsed time */}
-          {elapsed > 0 && (
-            <span className="text-xs text-muted-foreground/60">
-              {elapsed < 60 ? `${elapsed}s` : `${Math.floor(elapsed / 60)}m ${elapsed % 60}s`}
-            </span>
-          )}
+          {/* Time display: total time and idle time */}
+          <div className="flex items-center gap-2 text-xs text-muted-foreground/60">
+            {/* Total time */}
+            {totalTime > 0 && (
+              <span>
+                {totalTime < 60 ? `${totalTime}s` : `${Math.floor(totalTime / 60)}m ${totalTime % 60}s`}
+              </span>
+            )}
+            {/* Idle time (only show if > 3 seconds) */}
+            {idleTime > 3 && (
+              <span className="text-muted-foreground/40">
+                (idle: {idleTime < 60 ? `${idleTime}s` : `${Math.floor(idleTime / 60)}m ${idleTime % 60}s`})
+              </span>
+            )}
+          </div>
         </div>
 
         {/* Progress bar */}

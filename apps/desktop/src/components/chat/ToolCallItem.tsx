@@ -47,8 +47,22 @@ function formatToolInput(toolName: string, input: unknown): string {
       return `${questions.length} question${questions.length !== 1 ? 's' : ''}`;
     }
     case 'ExitPlanMode': {
-      const plan = (obj.plan as string) || '';
-      const firstLine = plan.split('\n').find(l => l.trim())?.replace(/^#+\s*/, '') || 'Plan ready for review';
+      // Try to extract a meaningful summary from plan data
+      let planText = '';
+
+      if (obj.plan) {
+        if (typeof obj.plan === 'string') {
+          planText = obj.plan;
+        } else if (typeof obj.plan === 'object') {
+          planText = JSON.stringify(obj.plan);
+        }
+      } else if (obj.plan_file && typeof obj.plan_file === 'string') {
+        planText = obj.plan_file;
+      } else if (Object.keys(obj).length > 0) {
+        planText = JSON.stringify(obj);
+      }
+
+      const firstLine = planText.split('\n').find(l => l.trim())?.replace(/^#+\s*/, '') || 'Plan ready for review';
       return firstLine.length > 60 ? firstLine.slice(0, 60) + '…' : firstLine;
     }
     case 'EnterPlanMode':
@@ -365,12 +379,34 @@ function ToolExpandedContent({ toolName, toolInput, status, result, isError }: {
   }
 
   // ExitPlanMode: show plan content formatted
-  if (toolName === 'ExitPlanMode' && input?.plan) {
-    const plan = String(input.plan);
+  if (toolName === 'ExitPlanMode') {
+    // Try to get plan content from various possible formats
+    let planContent = '';
+
+    if (input?.plan) {
+      // Check if plan is a string (direct content)
+      if (typeof input.plan === 'string') {
+        planContent = input.plan;
+      }
+      // Check if plan is an object (might have file path or other structure)
+      else if (typeof input.plan === 'object') {
+        planContent = JSON.stringify(input.plan, null, 2);
+      }
+    } else if (input?.plan_file && typeof input.plan_file === 'string') {
+      // If there's a plan_file field, show a message about it
+      planContent = `# Plan\n\nPlan file: ${input.plan_file}\n\nThe plan content will be displayed after approval.`;
+    } else if (Object.keys(input || {}).length > 0) {
+      // If no plan field but has other fields, display them nicely
+      planContent = `# Plan Details\n\n${JSON.stringify(input, null, 2)}`;
+    } else {
+      // Fallback message
+      planContent = '# Plan\n\nPlan ready for review.';
+    }
+
     return (
       <div className="px-3 pb-3 border-t border-border/50">
         <div className="mt-2">
-          <PlanContent content={plan} />
+          <PlanContent content={planContent} />
         </div>
         {status !== 'running' && result !== undefined && (
           <div className="mt-2">
@@ -548,8 +584,22 @@ function getToolCallSummary(tc: ToolCallState): string {
       return `❓ ${questions[0]?.header || 'question'}`;
     }
     case 'ExitPlanMode': {
-      const plan = String(input.plan || '');
-      const title = plan.split('\n').find(l => l.trim())?.replace(/^#+\s*/, '') || 'Plan';
+      // Try to extract a meaningful title from plan data
+      let planText = '';
+
+      if (input.plan) {
+        if (typeof input.plan === 'string') {
+          planText = input.plan;
+        } else if (typeof input.plan === 'object') {
+          planText = JSON.stringify(input.plan);
+        }
+      } else if (input.plan_file && typeof input.plan_file === 'string') {
+        planText = input.plan_file;
+      } else if (Object.keys(input).length > 0) {
+        planText = JSON.stringify(input);
+      }
+
+      const title = planText.split('\n').find(l => l.trim())?.replace(/^#+\s*/, '') || 'Plan';
       return `📋 ${title.substring(0, 25)}`;
     }
     case 'EnterPlanMode':

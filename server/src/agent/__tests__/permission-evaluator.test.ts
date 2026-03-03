@@ -626,3 +626,127 @@ describe('integration: mergePolicy + evaluate', () => {
     expect(evaluator.evaluate('Write', { file_path: '/home/user/project/main.ts' }, '', normalized, makeContext())).toBe('approve');
   });
 });
+
+// ============================================
+// Session-level Override Tests
+// ============================================
+
+describe('Session-level Override', () => {
+  const evaluator = new PermissionEvaluator();
+
+  it('should merge session override with effective policy', () => {
+    const globalPolicy = makePolicy({ trustLevel: 'conservative' });
+    const projectOverride = { enabled: true, trustLevel: 'moderate' as const };
+    const sessionOverride = { enabled: true, trustLevel: 'aggressive' as const };
+
+    const merged = mergePolicy(globalPolicy, projectOverride);
+    const final = mergePolicy(merged, sessionOverride);
+
+    expect(final.trustLevel).toBe('aggressive');
+  });
+
+  it('should apply session override even without global policy', () => {
+    const sessionOverride = {
+      enabled: true,
+      trustLevel: 'full_trust' as const,
+      customRules: [],
+      escalateAlways: ['AskUserQuestion', 'ExitPlanMode'],
+    };
+
+    const result = evaluator.evaluate(
+      'Read',
+      { file_path: '/project/file.ts' },
+      '',
+      sessionOverride
+    );
+
+    expect(result).toBe('approve');
+  });
+
+  it('should preserve escalateAlways from all levels', () => {
+    const globalPolicy = makePolicy({
+      escalateAlways: ['AskUserQuestion', 'ExitPlanMode', 'CustomTool']
+    });
+    const sessionOverride = { enabled: true, trustLevel: 'full_trust' as const };
+
+    const merged = mergePolicy(globalPolicy, sessionOverride);
+
+    expect(merged.escalateAlways).toContain('AskUserQuestion');
+    expect(merged.escalateAlways).toContain('ExitPlanMode');
+    expect(merged.escalateAlways).toContain('CustomTool');
+  });
+
+  it('should allow session to upgrade trust level', () => {
+    const globalPolicy = makePolicy({ trustLevel: 'conservative' });
+    const sessionOverride = { enabled: true, trustLevel: 'aggressive' as const };
+
+    const merged = mergePolicy(globalPolicy, sessionOverride);
+
+    // Conservative escalates bash, aggressive approves it
+    expect(evaluator.evaluate('Bash', { command: 'ls' }, 'ls', merged)).toBe('approve');
+  });
+
+  it('should allow session to downgrade trust level', () => {
+    const globalPolicy = makePolicy({ trustLevel: 'aggressive' });
+    const sessionOverride = { enabled: true, trustLevel: 'conservative' as const };
+
+    const merged = mergePolicy(globalPolicy, sessionOverride);
+
+    // Aggressive approves bash, conservative escalates it
+    expect(evaluator.evaluate('Bash', { command: 'ls' }, 'ls', merged)).toBe('escalate');
+  });
+
+  it('should support full chain: global → project → session', () => {
+    const globalPolicy = makePolicy({ trustLevel: 'conservative' });
+    const projectOverride = { enabled: true, trustLevel: 'moderate' as const };
+    const sessionOverride = { enabled: true, trustLevel: 'full_trust' as const };
+
+    let merged = mergePolicy(globalPolicy, projectOverride);
+    merged = mergePolicy(merged, sessionOverride);
+
+    expect(merged.trustLevel).toBe('full_trust');
+    // Full trust should approve even network operations
+    expect(evaluator.evaluate('Bash', { command: 'curl https://example.com' }, 'curl https://example.com', merged)).toBe('approve');
+  });
+
+  it('should handle partial session overrides', () => {
+    const globalPolicy = makePolicy({ trustLevel: 'moderate' });
+    const sessionOverride = {
+      enabled: true,
+      trustLevel: 'aggressive' as const,
+      // Missing customRules and escalateAlways - should use defaults from global
+    };
+
+    const merged = mergePolicy(globalPolicy, sessionOverride);
+
+    expect(merged.trustLevel).toBe('aggressive');
+    expect(merged.enabled).toBe(true);
+  });
+
+  it('should not affect other sessions', () => {
+    const globalPolicy = makePolicy({ trustLevel: 'conservative' });
+
+    const session1Override = { enabled: true, trustLevel: 'moderate' as const };
+    const session2Override = { enabled: true, trustLevel: 'aggressive' as const };
+
+    const merged1 = mergePolicy(globalPolicy, session1Override);
+    const merged2 = mergePolicy(globalPolicy, session2Override);
+
+    expect(merged1.trustLevel).toBe('moderate');
+    expect(merged2.trustLevel).toBe('aggressive');
+  });
+
+  it('should respect escalateAlways even with full trust', () => {
+    const sessionOverride = {
+      enabled: true,
+      trustLevel: 'full_trust' as const,
+      customRules: [],
+      escalateAlways: ['CustomTool', 'AnotherTool'],
+    };
+
+    const result = evaluator.evaluate('CustomTool', {}, '', sessionOverride);
+
+    expect(result).toBe('escalate');
+  });
+});
+

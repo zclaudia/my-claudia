@@ -32,6 +32,7 @@ export class SessionRepository extends BaseRepository<
       sdkSessionId: row.sdk_session_id,
       type: row.type || 'regular',
       parentSessionId: row.parent_session_id || undefined,
+      workingDirectory: row.working_directory || undefined,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
       archivedAt: row.archived_at || undefined
@@ -47,8 +48,8 @@ export class SessionRepository extends BaseRepository<
 
     return {
       sql: `
-        INSERT INTO sessions (id, project_id, name, provider_id, sdk_session_id, type, parent_session_id, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO sessions (id, project_id, name, provider_id, sdk_session_id, type, parent_session_id, working_directory, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `,
       params: [
         id,
@@ -58,6 +59,7 @@ export class SessionRepository extends BaseRepository<
         data.sdkSessionId || null,
         data.type || 'regular',
         data.parentSessionId || null,
+        data.workingDirectory || null,
         now,
         now
       ]
@@ -95,6 +97,10 @@ export class SessionRepository extends BaseRepository<
     if (data.parentSessionId !== undefined) {
       updates.push('parent_session_id = ?');
       params.push(data.parentSessionId);
+    }
+    if (data.workingDirectory !== undefined) {
+      updates.push('working_directory = ?');
+      params.push(data.workingDirectory || null);
     }
     if (data.archivedAt !== undefined) {
       updates.push('archived_at = ?');

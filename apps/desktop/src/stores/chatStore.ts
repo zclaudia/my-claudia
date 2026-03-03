@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { Message, SystemInfo, UsageInfo, ContentBlock, RunHealthStatus } from '@my-claudia/shared';
+import type { Message, SystemInfo, UsageInfo, ContentBlock, RunHealthStatus, AgentPermissionPolicy } from '@my-claudia/shared';
 
 interface PaginationInfo {
   total: number;
@@ -59,6 +59,12 @@ interface ChatState {
   sessionUsage: Record<string, { inputTokens: number; outputTokens: number }>;
   // Model override per session (user-selected model, empty = use default)
   modelOverrides: Record<string, string>;
+  // Permission policy override per session (user-selected policy, null = use project default)
+  permissionOverrides: Record<string, Partial<AgentPermissionPolicy> | null>;
+  // Worktree override per session (user-selected working directory, empty = use project root)
+  worktreeOverrides: Record<string, string>;
+  // Input drafts per session (preserved across session switches)
+  drafts: Record<string, string>;
   // Input drafts per session (preserved across session switches)
   drafts: Record<string, string>;
 
@@ -102,6 +108,20 @@ interface ChatState {
   setModelOverride: (sessionId: string, model: string) => void;
   getModelOverride: (sessionId: string) => string;
 
+  // Permission override (per session)
+  setPermissionOverride: (sessionId: string, policy: Partial<AgentPermissionPolicy> | null) => void;
+  getPermissionOverride: (sessionId: string) => Partial<AgentPermissionPolicy> | null;
+
+  // Worktree override (per session)
+  setWorktreeOverride: (sessionId: string, path: string) => void;
+  getWorktreeOverride: (sessionId: string) => string;
+  clearWorktreeOverride: (sessionId: string) => void;
+
+  // Draft actions
+  setDraft: (sessionId: string, content: string) => void;
+  clearDraft: (sessionId: string) => void;
+>>>>>>> Stashed changes
+
   // Draft actions
   setDraft: (sessionId: string, content: string) => void;
   clearDraft: (sessionId: string) => void;
@@ -134,6 +154,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
   mode: 'default',
   sessionUsage: {},
   modelOverrides: {},
+  sessionUsage: {},
+  modelOverrides: {},
+  permissionOverrides: {},
+  worktreeOverrides: {},
   drafts: {},
 
   setMessages: (sessionId, messages, pagination) =>
@@ -436,6 +460,39 @@ export const useChatStore = create<ChatState>((set, get) => ({
       modelOverrides: { ...state.modelOverrides, [sessionId]: model },
     })),
   getModelOverride: (sessionId) => get().modelOverrides[sessionId] || '',
+
+  // Permission override (per session)
+  setPermissionOverride: (sessionId, policy) =>
+    set((state) => {
+      if (!policy) {
+        // Clear override by removing the key
+        const { [sessionId]: _, ...rest } = state.permissionOverrides;
+        return { permissionOverrides: rest };
+      }
+      return {
+        permissionOverrides: { ...state.permissionOverrides, [sessionId]: policy },
+      };
+    }),
+  getPermissionOverride: (sessionId) => get().permissionOverrides[sessionId] || null,
+
+  // Worktree override (per session)
+  setWorktreeOverride: (sessionId, path) =>
+    set((state) => ({
+      worktreeOverrides: { ...state.worktreeOverrides, [sessionId]: path },
+    })),
+  getWorktreeOverride: (sessionId) => get().worktreeOverrides[sessionId] || '',
+  clearWorktreeOverride: (sessionId) =>
+    set((state) => {
+      const { [sessionId]: _, ...rest } = state.worktreeOverrides;
+      return { worktreeOverrides: rest };
+    }),
+  getWorktreeOverride: (sessionId) => get().worktreeOverrides[sessionId] || '',
+  clearWorktreeOverride: (sessionId) =>
+    set((state) => {
+      const { [sessionId]: _, ...rest } = state.worktreeOverrides;
+      return { worktreeOverrides: rest };
+    }),
+>>>>>>> Stashed changes
 
   // Draft actions
   setDraft: (sessionId, content) =>
