@@ -1757,24 +1757,38 @@ async function handleRunStart(
             indexMetadata: true
           });
 
-          sendMessage(client.ws, {
-            type: 'run_completed',
-            runId,
-            sessionId: activeRun.sessionId,
-            usage: msg.usage
-          });
-          // Mark completed immediately so heartbeat no longer reports this run as active.
-          // The for-await loop may still receive trailing SDK messages (e.g. task_notification)
-          // but the client should see the session as idle.
-          activeRun.completed = true;
-          broadcastHeartbeat();
-          notificationService.notify({
-            type: 'run_completed',
-            title: 'Run completed',
-            body: `Session: ${message.sessionId}`,
-            priority: 'default',
-            tags: ['white_check_mark'],
-          });
+          if (activeRun.completed) {
+            // Early run_completed was already sent (background task triggered it).
+            // Send usage info separately so the client can update token counts.
+            if (msg.usage) {
+              sendMessage(client.ws, {
+                type: 'run_completed',
+                runId,
+                sessionId: activeRun.sessionId,
+                usage: msg.usage
+              });
+            }
+            console.log(`[Result] Run ${runId} already completed (early completion), sending final usage`);
+          } else {
+            sendMessage(client.ws, {
+              type: 'run_completed',
+              runId,
+              sessionId: activeRun.sessionId,
+              usage: msg.usage
+            });
+            // Mark completed immediately so heartbeat no longer reports this run as active.
+            // The for-await loop may still receive trailing SDK messages (e.g. task_notification)
+            // but the client should see the session as idle.
+            activeRun.completed = true;
+            broadcastHeartbeat();
+            notificationService.notify({
+              type: 'run_completed',
+              title: 'Run completed',
+              body: `Session: ${message.sessionId}`,
+              priority: 'default',
+              tags: ['white_check_mark'],
+            });
+          }
           // Notify background task completion
           if (sessionType === 'background') {
             sendMessage(client.ws, {
@@ -1786,6 +1800,20 @@ async function handleRunStart(
           break;
 
         case 'task_notification':
+          // Background task launched — the main conversation turn is functionally complete.
+          // The SDK won't yield 'result' until all background tasks finish, but the user
+          // shouldn't see a loading spinner for the main session during that time.
+          if (!activeRun.completed) {
+            console.log(`[Background Task] Sending early run_completed for run ${runId} (background task started)`);
+            upsertAssistantMessage(activeRun, { indexMetadata: true });
+            sendMessage(client.ws, {
+              type: 'run_completed',
+              runId,
+              sessionId: activeRun.sessionId,
+            });
+            activeRun.completed = true;
+            broadcastHeartbeat();
+          }
           // Forward background task notifications (e.g. process exited) to client
           console.log(`[Task Notification] taskId=${msg.taskId} status=${msg.taskStatus} message=${msg.taskMessage}`);
           sendMessage(client.ws, {

@@ -126,7 +126,7 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
 
   const sessionMessages = messages[sessionId] || [];
   const sessionPagination = pagination[sessionId];
-  const currentUsage = sessionUsage[sessionId] || { inputTokens: 0, outputTokens: 0 };
+  const currentUsage = sessionUsage[sessionId] || { inputTokens: 0, outputTokens: 0, contextWindow: undefined };
 
   // Get current session and project to determine provider
   const currentSession = sessions.find(s => s.id === sessionId);
@@ -1075,6 +1075,7 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
           <TokenUsageDisplay
             inputTokens={currentUsage.inputTokens}
             outputTokens={currentUsage.outputTokens}
+            contextWindow={currentUsage.contextWindow}
           />
           <div className="flex-1 min-w-[8px]" />
           {currentProject?.rootPath && (

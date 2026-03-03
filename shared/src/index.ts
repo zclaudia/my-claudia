@@ -280,6 +280,7 @@ export interface ToolCall {
 export interface UsageInfo {
   inputTokens: number;
   outputTokens: number;
+  contextWindow?: number;
 }
 
 // ============================================

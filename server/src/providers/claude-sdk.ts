@@ -364,6 +364,7 @@ export interface ClaudeMessage {
   usage?: {
     inputTokens: number;
     outputTokens: number;
+    contextWindow?: number;
   };
   isComplete?: boolean;
   taskId?: string;          // Background task ID (for task_notification)
@@ -509,32 +510,40 @@ function transformMessage(message: unknown): ClaudeMessage | ClaudeMessage[] {
       return messages.length === 1 ? messages[0] : messages;
     }
 
-    case 'result':
+    case 'result': {
       // Check if result has content (some commands return content in result)
       const resultContent = (msg as { result?: string }).result;
-      if (resultContent) {
-        return {
-          type: 'result',
-          content: resultContent,
-          isComplete: true,
-          usage: (msg as { usage?: { input_tokens: number; output_tokens: number } }).usage
-            ? {
-                inputTokens: (msg as { usage: { input_tokens: number } }).usage.input_tokens,
-                outputTokens: (msg as { usage: { output_tokens: number } }).usage.output_tokens,
-              }
-            : undefined,
-        };
+      const rawUsage = (msg as { usage?: { input_tokens: number; output_tokens: number } }).usage;
+      // Extract contextWindow from modelUsage / model_usage (SDK may use either casing)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const rawMsg = msg as any;
+      const modelUsage: Record<string, Record<string, unknown>> | undefined =
+        rawMsg.modelUsage || rawMsg.model_usage;
+      let contextWindow: number | undefined;
+      if (modelUsage) {
+        for (const mu of Object.values(modelUsage)) {
+          const cw = (mu.contextWindow ?? mu.context_window) as number | undefined;
+          if (cw) {
+            contextWindow = cw;
+            break;
+          }
+        }
       }
+      console.log(`[Claude SDK] result: modelUsage keys=${modelUsage ? Object.keys(modelUsage).join(',') : 'none'}, contextWindow=${contextWindow}`);
+      const usage = rawUsage
+        ? {
+            inputTokens: rawUsage.input_tokens,
+            outputTokens: rawUsage.output_tokens,
+            contextWindow,
+          }
+        : undefined;
       return {
-        type: 'result',
+        type: 'result' as const,
+        ...(resultContent ? { content: resultContent } : {}),
         isComplete: true,
-        usage: (msg as { usage?: { input_tokens: number; output_tokens: number } }).usage
-          ? {
-              inputTokens: (msg as { usage: { input_tokens: number } }).usage.input_tokens,
-              outputTokens: (msg as { usage: { output_tokens: number } }).usage.output_tokens,
-            }
-          : undefined,
+        usage,
       };
+    }
 
     default:
       // Log unknown message types for debugging

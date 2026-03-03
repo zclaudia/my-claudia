@@ -1,7 +1,10 @@
 interface TokenUsageDisplayProps {
   inputTokens: number;
   outputTokens: number;
+  contextWindow?: number;
 }
+
+const DEFAULT_CONTEXT = 200_000;
 
 function formatTokenCount(count: number): string {
   if (count >= 1_000_000) {
@@ -13,14 +16,13 @@ function formatTokenCount(count: number): string {
   return String(count);
 }
 
-export function TokenUsageDisplay({ inputTokens, outputTokens }: TokenUsageDisplayProps) {
+export function TokenUsageDisplay({ inputTokens, outputTokens, contextWindow }: TokenUsageDisplayProps) {
   const total = inputTokens + outputTokens;
 
   if (total === 0) return null;
 
-  // Context window thresholds (rough estimate based on typical limits)
-  const MAX_CONTEXT = 200_000;
-  const ratio = inputTokens / MAX_CONTEXT;
+  const maxContext = contextWindow || DEFAULT_CONTEXT;
+  const ratio = inputTokens / maxContext;
   const colorClass = ratio > 0.8
     ? 'text-destructive'
     : ratio > 0.6
@@ -28,8 +30,8 @@ export function TokenUsageDisplay({ inputTokens, outputTokens }: TokenUsageDispl
     : 'text-muted-foreground';
 
   return (
-    <div className={`flex items-center gap-1 text-xs ${colorClass}`} title={`Input: ${inputTokens.toLocaleString()} | Output: ${outputTokens.toLocaleString()}`}>
-      <span>{formatTokenCount(inputTokens)}/{formatTokenCount(MAX_CONTEXT)}</span>
+    <div className={`flex items-center gap-1 text-xs ${colorClass}`} title={`Input: ${inputTokens.toLocaleString()} | Output: ${outputTokens.toLocaleString()} | Context: ${maxContext.toLocaleString()}`}>
+      <span>{formatTokenCount(inputTokens)}/{formatTokenCount(maxContext)}</span>
     </div>
   );
 }

@@ -1,8 +1,57 @@
 import { spawn, type ChildProcess } from 'child_process';
-import { appendFileSync } from 'fs';
-import type { PermissionRequest } from '@my-claudia/shared';
+import { appendFileSync, readFileSync } from 'fs';
+import type { PermissionRequest, MessageInput } from '@my-claudia/shared';
 import type { ClaudeMessage, SystemInfo, PermissionDecision, PermissionCallback } from './claude-sdk.js';
-import { prepareInput } from './claude-sdk.js';
+import { fileStore } from '../storage/fileStore.js';
+
+// ── OpenCode prompt part types ─────────────────────────────────
+type OCTextPart = { type: 'text'; text: string };
+type OCFilePart = { type: 'file'; mime: string; url: string; filename?: string };
+type OCPromptPart = OCTextPart | OCFilePart;
+
+/**
+ * Parse MessageInput for OpenCode: text stays as TextPartInput,
+ * images become FilePartInput with data: URIs (sent inline to the model).
+ */
+function prepareOpenCodeInput(input: string): { text: string; fileParts: OCFilePart[] } {
+  let messageInput: MessageInput;
+  try {
+    messageInput = JSON.parse(input);
+    if (typeof messageInput !== 'object' || !('text' in messageInput)) {
+      return { text: input, fileParts: [] };
+    }
+  } catch {
+    return { text: input, fileParts: [] };
+  }
+
+  const text = messageInput.text || input;
+  if (!messageInput.attachments || messageInput.attachments.length === 0) {
+    return { text, fileParts: [] };
+  }
+
+  const fileParts: OCFilePart[] = [];
+  for (const attachment of messageInput.attachments) {
+    if (attachment.type === 'image') {
+      const filePath = fileStore.getFilePath(attachment.fileId);
+      if (filePath) {
+        const data = readFileSync(filePath);
+        const base64 = data.toString('base64');
+        const dataUri = `data:${attachment.mimeType};base64,${base64}`;
+        fileParts.push({
+          type: 'file',
+          mime: attachment.mimeType,
+          url: dataUri,
+          filename: attachment.name,
+        });
+        console.log(`[OpenCode] Prepared inline image ${attachment.name} (${data.length} bytes)`);
+      } else {
+        console.warn(`[OpenCode] Could not locate image ${attachment.fileId}, skipping`);
+      }
+    }
+  }
+
+  return { text, fileParts };
+}
 
 // Temporary debug logger to trace SSE issues
 const OC_LOG_PATH = process.env.MY_CLAUDIA_DATA_DIR
@@ -320,6 +369,10 @@ async function* rawSseStream(baseUrl: string, directory: string, signal?: AbortS
           try {
             const parsed = JSON.parse(dataLines.join('\n'));
             ocLog(`RAW SSE: keys=${Object.keys(parsed).join(',')} type=${parsed.type || 'NONE'} hasPayload=${!!parsed.payload}`);
+            // Log error details for session.error events
+            if (parsed.type === 'session.error') {
+              ocLog(`SESSION ERROR: ${JSON.stringify(parsed.properties || parsed).slice(0, 500)}`);
+            }
             push(parsed);
           } catch {
             // skip unparsable
@@ -702,8 +755,8 @@ export async function* runOpenCode(
     systemInfo,
   };
 
-  // Parse input: extract text and save image attachments to temp files
-  const { text: promptText, tempFiles } = await prepareInput(input);
+  // Parse input: extract text and inline images as FilePartInput data URIs
+  const { text: promptText, fileParts } = prepareOpenCodeInput(input);
 
   // Prepend system context to first message in new sessions (OpenCode has no native system prompt API)
   let effectivePrompt = promptText;
@@ -739,13 +792,18 @@ export async function* runOpenCode(
     }
     ocLog(`SSE stream ready, sending prompt`);
 
-    // Build prompt body
+    // Build prompt body with text + inline image parts
+    const promptParts: OCPromptPart[] = [{ type: 'text', text: effectivePrompt }];
+    if (fileParts.length > 0) {
+      promptParts.push(...fileParts);
+      ocLog(`Including ${fileParts.length} inline image(s) in prompt`);
+    }
     const promptBody: {
-      parts: Array<{ type: 'text'; text: string }>;
+      parts: OCPromptPart[];
       model?: { providerID: string; modelID: string };
       agent?: string;
     } = {
-      parts: [{ type: 'text', text: effectivePrompt }],
+      parts: promptParts,
     };
 
     if (options.model) {
@@ -858,6 +916,8 @@ export async function* runOpenCode(
         if (_eSid === sessionId) {
           receivedSessionEvent = true;
           ocLog(`SSE[${eventIdx}] type=${_et} field=${_ep.field || '-'} delta=${(_ep.delta || '').slice(0, 30)} partType=${_ep.part?.type || '-'}`);
+        } else if (_et === 'session.status' || _et === 'session.idle' || _et === 'session.error' || _et === 'session.completed') {
+          ocLog(`SSE[${eventIdx}] type=${_et} otherSID=${_eSid || 'none'} (ours=${sessionId})`);
         }
 
         const messages = mapOpenCodeEvent(event, sessionId, streamState, server, onPermissionRequest);
@@ -898,11 +958,7 @@ export async function* runOpenCode(
     sseAbort.abort();
     yield { type: 'result', isComplete: true };
   } finally {
-    // Temp files are cleaned up lazily (files older than 1h) to ensure
-    // the model's tools can still read them after the run completes.
-    if (tempFiles.length > 0) {
-      console.log(`[OpenCode] ${tempFiles.length} temp file(s) will be cleaned up lazily`);
-    }
+    // No temp files needed — images are sent inline as data: URIs
   }
 }
 
@@ -1009,6 +1065,8 @@ async function* mapOpenCodeEvent(
     }
 
     case 'session.status': {
+      // Log all session.status events to understand OpenCode status transitions
+      ocLog(`session.status: sessionID=${props.sessionID} ours=${sessionId} status=${JSON.stringify(props.status || props).slice(0, 200)}`);
       if (props.sessionID !== sessionId) break;
       const status: SessionStatus | undefined = props.status;
 
