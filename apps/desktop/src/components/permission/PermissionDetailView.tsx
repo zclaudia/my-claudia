@@ -1,3 +1,5 @@
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { DiffViewer } from '../chat/DiffViewer';
 import { CodeViewer } from '../chat/CodeViewer';
 
@@ -113,6 +115,33 @@ export function PermissionDetailView({ toolName, detail, maxHeightClass = 'max-h
             {String(input.path)}
           </div>
         ) : null}
+      </div>
+    );
+  }
+
+  // ExitPlanMode: render plan as markdown + allowedPrompts as a list
+  if (toolName === 'ExitPlanMode' && input) {
+    const allowedPrompts = input.allowedPrompts as Array<{ tool: string; prompt: string }> | undefined;
+    // Plan content may be inline or in a file — the plan field contains the actual markdown
+    const plan = input.plan as string | undefined;
+    return (
+      <div className={`${maxHeightClass} overflow-y-auto space-y-3`}>
+        {allowedPrompts && allowedPrompts.length > 0 && (
+          <div className="bg-muted/50 rounded-lg p-3">
+            <div className="text-xs font-medium text-muted-foreground mb-1.5">Requested permissions</div>
+            {allowedPrompts.map((p, i) => (
+              <div key={i} className="flex items-start gap-2 text-xs mt-1">
+                <span className="font-mono text-primary shrink-0">{p.tool}</span>
+                <span className="text-foreground">{p.prompt}</span>
+              </div>
+            ))}
+          </div>
+        )}
+        {plan && (
+          <div className="prose prose-sm prose-invert max-w-none text-xs [&_h1]:text-sm [&_h2]:text-xs [&_h3]:text-xs [&_p]:text-xs [&_li]:text-xs [&_code]:text-xs">
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>{plan}</ReactMarkdown>
+          </div>
+        )}
       </div>
     );
   }

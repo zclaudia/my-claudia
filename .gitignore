@@ -101,3 +101,14 @@ gateway/.deploy-version*
 *.sublime-project
 
 .cache
+
+# Additional OS files
+.Spotlight-V100
+.Trashes
+
+# Editor backup files
+*.bak
+
+# Performance profiling
+*.cpuprofile
+*.heapsnapshot
