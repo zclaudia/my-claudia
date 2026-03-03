@@ -753,7 +753,10 @@ export async function* runOpenCode(
       }
     }
 
-    if (options.agent) {
+    // Only send agent if it's a specific named agent (e.g. "sisyphus", "plan").
+    // OpenCode silently fails when agent="default" — it accepts the prompt (204)
+    // but never processes it. Omitting the field uses the default agent correctly.
+    if (options.agent && options.agent !== 'default') {
       promptBody.agent = options.agent;
     }
 
