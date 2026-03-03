@@ -1,14 +1,16 @@
-import { describe, it, expect, beforeEach, afterEach, jest } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { render, screen, act } from '@testing-library/react';
 import { LoadingIndicator } from '../LoadingIndicator';
 
 describe('LoadingIndicator Time Display', () => {
   beforeEach(() => {
-    jest.useFakeTimers();
+    vi.useFakeTimers();
+    // Set a fixed system time for consistent tests
+    vi.setSystemTime(new Date('2024-01-01T00:00:00Z'));
   });
 
   afterEach(() => {
-    jest.useRealTimers();
+    vi.useRealTimers();
   });
 
   it('should not render when isLoading is false', () => {
@@ -36,7 +38,8 @@ describe('LoadingIndicator Time Display', () => {
   });
 
   it('should display total time correctly', () => {
-    const startedAt = Date.now() - 5000; // 5 seconds ago
+    const now = Date.now();
+    const startedAt = now - 5000; // 5 seconds ago
     render(
       <LoadingIndicator
         isLoading={true}
@@ -45,16 +48,14 @@ describe('LoadingIndicator Time Display', () => {
       />
     );
 
-    act(() => {
-      jest.advanceTimersByTime(1000);
-    });
-
+    // Initial render shows 5s (no need to advance timers)
     expect(screen.getByText(/5s/)).toBeInTheDocument();
   });
 
   it('should display idle time when > 3 seconds', () => {
-    const startedAt = Date.now() - 10000;
-    const lastActivityAt = Date.now() - 5000; // 5 seconds idle
+    const now = Date.now();
+    const startedAt = now - 10000;
+    const lastActivityAt = now - 5000; // 5 seconds idle
     render(
       <LoadingIndicator
         isLoading={true}
@@ -63,10 +64,7 @@ describe('LoadingIndicator Time Display', () => {
       />
     );
 
-    act(() => {
-      jest.advanceTimersByTime(1000);
-    });
-
+    // Initial render shows idle: 5s (no need to advance timers)
     expect(screen.getByText(/idle: 5s/)).toBeInTheDocument();
   });
 
@@ -82,14 +80,15 @@ describe('LoadingIndicator Time Display', () => {
     );
 
     act(() => {
-      jest.advanceTimersByTime(1000);
+      vi.advanceTimersByTime(1000);
     });
 
     expect(screen.queryByText(/idle:/)).not.toBeInTheDocument();
   });
 
   it('should format minutes and seconds correctly', () => {
-    const startedAt = Date.now() - 65000; // 1m 5s ago
+    const now = Date.now();
+    const startedAt = now - 65000; // 1m 5s ago
     render(
       <LoadingIndicator
         isLoading={true}
@@ -98,16 +97,14 @@ describe('LoadingIndicator Time Display', () => {
       />
     );
 
-    act(() => {
-      jest.advanceTimersByTime(1000);
-    });
-
+    // Initial render shows 1m 5s (no need to advance timers)
     expect(screen.getByText(/1m 5s/)).toBeInTheDocument();
   });
 
   it('should format idle minutes and seconds correctly', () => {
-    const startedAt = Date.now() - 125000; // 2m 5s ago
-    const lastActivityAt = Date.now() - 65000; // 1m 5s idle
+    const now = Date.now();
+    const startedAt = now - 125000; // 2m 5s ago
+    const lastActivityAt = now - 65000; // 1m 5s idle
     render(
       <LoadingIndicator
         isLoading={true}
@@ -116,10 +113,7 @@ describe('LoadingIndicator Time Display', () => {
       />
     );
 
-    act(() => {
-      jest.advanceTimersByTime(1000);
-    });
-
+    // Initial render shows idle: 1m 5s (no need to advance timers)
     expect(screen.getByText(/idle: 1m 5s/)).toBeInTheDocument();
   });
 
@@ -134,17 +128,17 @@ describe('LoadingIndicator Time Display', () => {
     );
 
     act(() => {
-      jest.advanceTimersByTime(1000);
+      vi.advanceTimersByTime(1000);
     });
     expect(screen.getByText(/1s/)).toBeInTheDocument();
 
     act(() => {
-      jest.advanceTimersByTime(1000);
+      vi.advanceTimersByTime(1000);
     });
     expect(screen.getByText(/2s/)).toBeInTheDocument();
 
     act(() => {
-      jest.advanceTimersByTime(1000);
+      vi.advanceTimersByTime(1000);
     });
     expect(screen.getByText(/3s/)).toBeInTheDocument();
   });
@@ -162,7 +156,7 @@ describe('LoadingIndicator Time Display', () => {
     );
 
     act(() => {
-      jest.advanceTimersByTime(1000);
+      vi.advanceTimersByTime(1000);
     });
 
     expect(screen.getByText(/Still working/)).toBeInTheDocument();
@@ -197,7 +191,7 @@ describe('LoadingIndicator Time Display', () => {
   });
 
   it('should show cancel button when idle or loop', () => {
-    const onCancel = jest.fn();
+    const onCancel = vi.fn();
     render(
       <LoadingIndicator
         isLoading={true}
@@ -246,7 +240,7 @@ describe('LoadingIndicator Time Display', () => {
 
     // Should not throw error when advancing timers after unmount
     act(() => {
-      jest.advanceTimersByTime(5000);
+      vi.advanceTimersByTime(5000);
     });
   });
 });

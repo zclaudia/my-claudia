@@ -45,9 +45,10 @@ export interface OpenCodeRunOptions {
 
 // ============================================
 // Session-to-server tracking
-// Maps sdk_session_id → server baseUrl so we know which server created each session.
-// After app restart this map is empty, which correctly forces new session creation
-// (old sessions persisted in OpenCode's config dir are not functional on new servers).
+// Maps sdk_session_id → server baseUrl as a cache so we can skip session.get()
+// validation when the session was created on the same server instance.
+// After app restart this map is empty; we then validate via session.get()
+// before reusing old sessions (OpenCode persists sessions across server restarts).
 // ============================================
 const sessionServerMap = new Map<string, string>();
 
@@ -605,25 +606,30 @@ export async function* runOpenCode(
 
   // Create or resume session
   // OpenCode persists sessions in its config directory across server restarts.
-  // This means session.get() returns 200 for old sessions, but promptAsync
-  // silently fails (accepts with 204 but never generates messages).
-  // We track which server created each session via sessionServerMap.
-  // After app restart (map is empty) or server change (different port),
-  // we always create a new session.
+  // We try to resume old sessions on new servers (e.g. after app restart).
+  // If the session no longer exists, we fall back to creating a new one.
   let sessionId = options.sessionId;
   if (sessionId) {
     const knownServer = sessionServerMap.get(sessionId);
     if (knownServer && knownServer === server.baseUrl) {
-      // Session was created on this exact server instance — safe to reuse
+      // Session was created on this exact server instance — safe to reuse without validation
       ocLog(`Resuming session ${sessionId} on same server ${server.baseUrl}`);
-    } else if (knownServer) {
-      // Server changed (different port) — old session is stale
-      ocLog(`Session ${sessionId} was on ${knownServer}, server is now ${server.baseUrl}, creating new session`);
-      sessionId = undefined;
     } else {
-      // Unknown origin (app restarted, map is empty) — can't trust old sessions
-      ocLog(`Session ${sessionId} has unknown server origin (app restarted?), creating new session`);
-      sessionId = undefined;
+      // Unknown origin (app restarted, map empty) or different server port.
+      // Validate the session still exists on the (possibly new) server.
+      try {
+        const getResult = await client.session.get({ path: { id: sessionId } });
+        if (getResult.data && !getResult.error) {
+          ocLog(`Session ${sessionId} validated on server ${server.baseUrl} (was: ${knownServer || 'unknown'})`);
+          sessionServerMap.set(sessionId, server.baseUrl);
+        } else {
+          ocLog(`Session ${sessionId} not found (status=${getResult.response?.status}), creating new`);
+          sessionId = undefined;
+        }
+      } catch (err) {
+        ocLog(`Session ${sessionId} validation failed: ${err}, creating new`);
+        sessionId = undefined;
+      }
     }
   }
   if (!sessionId) {

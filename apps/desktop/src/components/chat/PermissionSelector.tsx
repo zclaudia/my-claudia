@@ -45,18 +45,24 @@ export function PermissionSelector({ value, onChange, projectPolicy, disabled }:
     return () => document.removeEventListener('mousedown', handler);
   }, [isOpen]);
 
-  // Determine current label
-  const getCurrentLabel = () => {
+  // Strip emoji prefix from label for the trigger button (dropdown keeps emojis)
+  const stripEmoji = (label: string) => label.replace(/^[^\w\s]*\s*/, '');
+
+  // Determine current label for trigger button (without emoji)
+  const getTriggerLabel = () => {
     if (!value) {
       // Using project default
-      return projectPolicy?.enabled
-        ? TRUST_LEVELS.find(l => l.id === projectPolicy.trustLevel)?.label || 'Project Default'
-        : '🛡️ Project Default';
+      if (projectPolicy?.enabled) {
+        const level = TRUST_LEVELS.find(l => l.id === projectPolicy.trustLevel);
+        return level ? stripEmoji(level.label) : 'Project Default';
+      }
+      return 'Project Default';
     }
-    return TRUST_LEVELS.find(l => l.id === value.trustLevel)?.label || 'Custom';
+    const level = TRUST_LEVELS.find(l => l.id === value.trustLevel);
+    return level ? stripEmoji(level.label) : 'Custom';
   };
 
-  const currentLabel = getCurrentLabel();
+  const triggerLabel = getTriggerLabel();
   const hasOverride = value !== null;
 
   const handleSelect = (trustLevel: string | null) => {
@@ -81,19 +87,22 @@ export function PermissionSelector({ value, onChange, projectPolicy, disabled }:
         onClick={() => !disabled && setIsOpen(!isOpen)}
         disabled={disabled}
         className={`
-          flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-xs font-medium
-          border transition-colors min-h-[36px]
+          flex items-center gap-1 px-1.5 py-1 rounded-md text-[11px] font-medium
+          transition-colors h-7
           ${disabled
-            ? 'opacity-50 cursor-not-allowed border-border text-muted-foreground'
-            : 'border-border hover:border-primary/50 active:bg-muted cursor-pointer text-foreground'
+            ? 'opacity-50 cursor-not-allowed text-muted-foreground'
+            : hasOverride
+            ? 'hover:bg-muted active:bg-muted/80 cursor-pointer text-primary'
+            : 'hover:bg-muted active:bg-muted/80 cursor-pointer text-muted-foreground hover:text-foreground'
           }
-          ${hasOverride ? 'ring-2 ring-primary/30' : ''}
         `}
-        title={currentLabel}
+        title={triggerLabel}
       >
         <ShieldIcon />
-        <span className="hidden md:inline truncate max-w-[80px] lg:max-w-none">{currentLabel}</span>
-        <span className="text-[10px] text-muted-foreground">&#9662;</span>
+        <span className="hidden md:inline truncate max-w-[80px] lg:max-w-none">{triggerLabel}</span>
+        <svg className="w-3 h-3 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+        </svg>
       </button>
 
       {isOpen && (

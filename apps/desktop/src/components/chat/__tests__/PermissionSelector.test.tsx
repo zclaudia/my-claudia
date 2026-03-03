@@ -1,4 +1,4 @@
-import { describe, it, expect, jest } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { PermissionSelector } from '../PermissionSelector';
 import type { AgentPermissionPolicy } from '@my-claudia/shared';
@@ -118,7 +118,7 @@ describe('PermissionSelector', () => {
   });
 
   it('should call onChange with selected trust level', () => {
-    const handleChange = jest.fn();
+    const handleChange = vi.fn();
 
     render(
       <PermissionSelector
@@ -142,7 +142,7 @@ describe('PermissionSelector', () => {
   });
 
   it('should call onChange with null when selecting project default', () => {
-    const handleChange = jest.fn();
+    const handleChange = vi.fn();
 
     render(
       <PermissionSelector
@@ -246,7 +246,7 @@ describe('PermissionSelector', () => {
   });
 
   it('should handle all trust levels', () => {
-    const handleChange = jest.fn();
+    const handleChange = vi.fn();
     const trustLevels = ['conservative', 'moderate', 'aggressive', 'full_trust'] as const;
 
     render(

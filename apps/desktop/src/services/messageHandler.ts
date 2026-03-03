@@ -172,7 +172,7 @@ export function handleServerMessage(
     }
 
     case 'mode_change':
-      useChatStore.getState().setMode(msg.mode);
+      useChatStore.getState().setMode(msg.sessionId, msg.mode);
       break;
 
     case 'permission_request': {

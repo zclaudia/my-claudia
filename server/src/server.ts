@@ -1728,6 +1728,29 @@ async function handleRunStart(
             }
           }
 
+          // Detect truncated completions — the model's last output was a thinking
+          // block (ending with </think>) with no subsequent text or tool_use.
+          // This commonly happens with third-party models via LiteLLM proxies that
+          // have limited compatibility with Claude Code's tool_use protocol, or when
+          // output token limits are hit mid-generation.
+          {
+            const lastBlock = activeRun.contentBlocks[activeRun.contentBlocks.length - 1];
+            const endsWithThinking = lastBlock?.type === 'text' &&
+              lastBlock.content.trimEnd().endsWith('</think>');
+            if (endsWithThinking) {
+              console.warn(`[Truncation] Run ${runId} ended with a thinking block as last output. Possible provider truncation.`);
+              const warning = '\n\n⚠️ *The model appeared to stop mid-thought without producing a response. This may be caused by output token limits or provider compatibility issues. Try sending "continue" or starting a new session.*';
+              activeRun.fullContent += warning;
+              activeRun.contentBlocks.push({ type: 'text', content: warning });
+              sendMessage(client.ws, {
+                type: 'delta',
+                runId,
+                sessionId: activeRun.sessionId,
+                content: warning
+              });
+            }
+          }
+
           // Final save — upsert with usage info and metadata indexing
           upsertAssistantMessage(activeRun, {
             usage: msg.usage,

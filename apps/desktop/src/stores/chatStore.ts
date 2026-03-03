@@ -53,8 +53,8 @@ interface ChatState {
   runContentBlocks: Record<string, ContentBlock[]>;
   // Current system info from Claude SDK init message
   currentSystemInfo: SystemInfo | null;
-  // Current mode (generic — permission mode for Claude, agent for OpenCode, etc.)
-  mode: string;
+  // Mode per session (generic — permission mode for Claude, agent for OpenCode, etc.)
+  modeOverrides: Record<string, string>;
   // Accumulated token usage per session
   sessionUsage: Record<string, { inputTokens: number; outputTokens: number }>;
   // Model override per session (user-selected model, empty = use default)
@@ -63,8 +63,6 @@ interface ChatState {
   permissionOverrides: Record<string, Partial<AgentPermissionPolicy> | null>;
   // Worktree override per session (user-selected working directory, empty = use project root)
   worktreeOverrides: Record<string, string>;
-  // Input drafts per session (preserved across session switches)
-  drafts: Record<string, string>;
   // Input drafts per session (preserved across session switches)
   drafts: Record<string, string>;
 
@@ -98,8 +96,9 @@ interface ChatState {
   setSystemInfo: (info: SystemInfo) => void;
   clearSystemInfo: () => void;
 
-  // Mode actions
-  setMode: (mode: string) => void;
+  // Mode actions (per session)
+  setMode: (sessionId: string, mode: string) => void;
+  getMode: (sessionId: string) => string;
 
   // Usage tracking
   addSessionUsage: (sessionId: string, usage: UsageInfo) => void;
@@ -116,11 +115,6 @@ interface ChatState {
   setWorktreeOverride: (sessionId: string, path: string) => void;
   getWorktreeOverride: (sessionId: string) => string;
   clearWorktreeOverride: (sessionId: string) => void;
-
-  // Draft actions
-  setDraft: (sessionId: string, content: string) => void;
-  clearDraft: (sessionId: string) => void;
->>>>>>> Stashed changes
 
   // Draft actions
   setDraft: (sessionId: string, content: string) => void;
@@ -151,9 +145,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   toolCallsHistory: {},
   runContentBlocks: {},
   currentSystemInfo: null,
-  mode: 'default',
-  sessionUsage: {},
-  modelOverrides: {},
+  modeOverrides: {},
   sessionUsage: {},
   modelOverrides: {},
   permissionOverrides: {},
@@ -436,8 +428,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
   setSystemInfo: (info) => set({ currentSystemInfo: info }),
   clearSystemInfo: () => set({ currentSystemInfo: null }),
 
-  // Mode actions
-  setMode: (mode) => set({ mode }),
+  // Mode actions (per session)
+  setMode: (sessionId, mode) =>
+    set((state) => ({
+      modeOverrides: { ...state.modeOverrides, [sessionId]: mode },
+    })),
+  getMode: (sessionId) => get().modeOverrides[sessionId] || '',
 
   // Usage tracking
   addSessionUsage: (sessionId, usage) =>
@@ -486,13 +482,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
       const { [sessionId]: _, ...rest } = state.worktreeOverrides;
       return { worktreeOverrides: rest };
     }),
-  getWorktreeOverride: (sessionId) => get().worktreeOverrides[sessionId] || '',
-  clearWorktreeOverride: (sessionId) =>
-    set((state) => {
-      const { [sessionId]: _, ...rest } = state.worktreeOverrides;
-      return { worktreeOverrides: rest };
-    }),
->>>>>>> Stashed changes
 
   // Draft actions
   setDraft: (sessionId, content) =>

@@ -15,7 +15,7 @@
     "postinstall": "node scripts/fix-node-pty.js"
   },
   "dependencies": {
-    "@anthropic-ai/claude-agent-sdk": "^0.2.42",
+    "@anthropic-ai/claude-agent-sdk": "^0.2.63",
     "@my-claudia/shared": "workspace:*",
     "@opencode-ai/sdk": "^1.2.15",
     "better-sqlite3": "^11.0.0",

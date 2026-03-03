@@ -240,7 +240,10 @@ export function MessageInput({
     const textarea = textareaRef.current;
     if (textarea && !advancedMode) {
       textarea.style.height = 'auto';
-      textarea.style.height = `${Math.min(textarea.scrollHeight, 200)}px`;
+      const newHeight = Math.min(textarea.scrollHeight, 200);
+      textarea.style.height = `${newHeight}px`;
+      // Only show scrollbar when reaching max height
+      textarea.style.overflowY = newHeight >= 200 ? 'auto' : 'hidden';
     }
   }, [value, advancedMode]);
 
@@ -577,7 +580,11 @@ export function MessageInput({
       const command = spaceIndex > 0 ? trimmedValue.substring(0, spaceIndex) : trimmedValue;
       const args = spaceIndex > 0 ? trimmedValue.substring(spaceIndex + 1).trim() : '';
 
-      if (onCommand) {
+      // Only treat as command if it's a known command or a plugin command (contains ':')
+      const isKnownCommand = commands.some(c => c.command === command);
+      const isPluginCommand = command.includes(':');
+
+      if (onCommand && (isKnownCommand || isPluginCommand)) {
         onCommand(command, args);
         setValue('');
         clearDraft(sessionId);
@@ -791,7 +798,7 @@ export function MessageInput({
             autoComplete="off"
             rows={1}
             className={`w-full bg-input border border-border rounded-lg px-4 py-3 text-foreground placeholder-muted-foreground focus:outline-none focus:border-primary disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 ${
-              advancedMode ? 'resize-y min-h-[160px] max-h-[40vh]' : 'resize-none'
+              advancedMode ? 'resize-y min-h-[160px] max-h-[40vh] overflow-auto' : 'resize-none overflow-hidden'
             }`}
             style={{
               fontSize: 'var(--chat-font-input, 0.875rem)',

@@ -67,8 +67,8 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
     clearMessages,
     setLoadingMore,
     currentSystemInfo,
-    mode,
     setMode,
+    getMode,
     sessionUsage,
     setModelOverride,
     getModelOverride,
@@ -88,6 +88,7 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
   const sessionContentBlocks = getSessionContentBlocks(sessionId);
   const sessionToolCallHistory = getSessionToolCallHistory(sessionId);
   const useStreamingSegmented = isLoading && sessionContentBlocks.length > 1 && sessionToolCallHistory.length > 0;
+  const mode = getMode(sessionId);
   const modelOverride = getModelOverride(sessionId);
   const permissionOverride = useChatStore((s) => s.getPermissionOverride(sessionId));
   const setPermissionOverride = useChatStore((s) => s.setPermissionOverride);
@@ -114,6 +115,8 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
   const [restoreMessage, setRestoreMessage] = useState<{ content: string; attachments?: Attachment[] } | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  // Queued message: when user sends while a run is active, queue it for auto-send
+  const [queuedMessage, setQueuedMessage] = useState<{ content: string; attachments?: Attachment[] } | null>(null);
 
   // Planning mode state
   const supervision = useSupervisionStore(s => s.supervisions[sessionId]);
@@ -137,7 +140,20 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
     setRestoreMessage(null);
     setUploadError(null);
     setLoadError(null);
+    setQueuedMessage(null);
   }, [sessionId]);
+
+  // Auto-send queued message when the current run finishes
+  const queuedMessageRef = useRef(queuedMessage);
+  queuedMessageRef.current = queuedMessage;
+  useEffect(() => {
+    if (!isLoading && queuedMessageRef.current) {
+      const { content, attachments } = queuedMessageRef.current;
+      setQueuedMessage(null);
+      // Use setTimeout to avoid calling handleSendMessage during render
+      setTimeout(() => handleSendMessage(content, attachments), 0);
+    }
+  }, [isLoading]);
 
   // Fetch supervision state for this session on mount / session change
   useEffect(() => {
@@ -414,9 +430,9 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
     fetchCaps
       .then(caps => {
         setProviderCapabilities(capsCacheKey, caps);
-        // Set default mode if not already set
-        if (caps.defaultModeId && !useChatStore.getState().mode) {
-          useChatStore.getState().setMode(caps.defaultModeId);
+        // Set default mode for this session if not already set
+        if (caps.defaultModeId && !useChatStore.getState().getMode(sessionId)) {
+          useChatStore.getState().setMode(sessionId, caps.defaultModeId);
         }
       })
       .catch(err => {
@@ -459,6 +475,12 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
 
   const handleSendMessage = async (content: string, attachments?: Attachment[]) => {
     if ((!content.trim() && !attachments?.length) || !isConnected) return;
+
+    // If a run is active, queue the message for auto-send after the run finishes
+    if (isLoading) {
+      setQueuedMessage({ content, attachments });
+      return;
+    }
 
     // Save the message for potential restore after cancel
     setLastSentMessage({ content, attachments });
@@ -819,6 +841,24 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
     });
   };
 
+  // Cancel current run and send queued message (triggered by "Send Now" button)
+  const handleSendNow = () => {
+    if (!sessionRunId) return;
+    // Don't restore lastSentMessage — queued message takes priority
+    setLastSentMessage(null);
+    wsSendMessage({ type: 'run_cancel', runId: sessionRunId });
+    // queuedMessage stays in state; useEffect will auto-send when isLoading→false
+  };
+
+  // Dismiss queued message and restore text to input
+  const handleDismissQueue = () => {
+    const msg = queuedMessage;
+    setQueuedMessage(null);
+    if (msg) {
+      setRestoreMessage({ content: msg.content, attachments: msg.attachments });
+    }
+  };
+
   return (
     <div className="flex flex-col h-full bg-background">
       {/* Messages */}
@@ -974,6 +1014,31 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
         projectRoot={currentProject?.rootPath}
       />
 
+      {/* Queued message banner */}
+      {queuedMessage && (
+        <div className="mx-2 md:mx-4 mt-2 px-3 py-2 rounded-lg bg-primary/10 border border-primary/30 text-sm flex items-center gap-2">
+          <span className="text-primary font-medium flex-shrink-0">Queued</span>
+          <span className="text-foreground truncate flex-1 text-xs">
+            {queuedMessage.content.slice(0, 80)}{queuedMessage.content.length > 80 ? '...' : ''}
+          </span>
+          <button
+            onClick={handleSendNow}
+            className="text-xs font-medium text-primary hover:text-primary/80 px-2 py-1 bg-primary/10 rounded flex-shrink-0"
+          >
+            Send Now
+          </button>
+          <button
+            onClick={handleDismissQueue}
+            className="text-muted-foreground hover:text-foreground flex-shrink-0 p-0.5"
+            title="Dismiss queued message"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+      )}
+
       {/* Upload error banner */}
       {uploadError && (
         <div className="mx-2 md:mx-4 mt-2 px-3 py-2 rounded-lg bg-destructive/10 border border-destructive/30 text-destructive text-xs flex items-center gap-2">
@@ -992,7 +1057,7 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
           <ModeSelector
             capabilities={capabilities}
             value={mode}
-            onChange={setMode}
+            onChange={(modeId: string) => setMode(sessionId, modeId)}
             disabled={isLoading}
           />
           <ModelSelector
@@ -1108,8 +1173,10 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
           placeholder={
             !isConnected
               ? 'Connecting...'
+              : isLoading && queuedMessage
+              ? 'Message queued — waiting for response...'
               : isLoading
-              ? 'Waiting for response...'
+              ? 'Type next message to queue...'
               : mode === 'plan'
               ? 'Plan Mode: Analyze and plan (no code changes)...'
               : advancedInput
