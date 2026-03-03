@@ -226,6 +226,19 @@ export async function updateSession(
   }
 }
 
+export async function updateSessionWorkingDirectory(
+  sessionId: string,
+  workingDirectory: string
+): Promise<void> {
+  const result = await fetchApi<Session>(`/api/sessions/${sessionId}/working-directory`, {
+    method: 'PATCH',
+    body: JSON.stringify({ workingDirectory })
+  });
+  if (!result.success) {
+    throw new Error(result.error?.message || 'Failed to update working directory');
+  }
+}
+
 export async function deleteSession(id: string): Promise<void> {
   const result = await fetchApi<void>(`/api/sessions/${id}`, {
     method: 'DELETE'

@@ -147,6 +147,7 @@ export interface Session {
   sdkSessionId?: string;
   type: SessionType;                // 'regular' = user-facing, 'background' = autonomous task
   parentSessionId?: string;          // Which session spawned this one (for background sessions)
+  workingDirectory?: string;         // Session-specific working directory (e.g., for git worktree)
   createdAt: number;
   updatedAt: number;
   isActive?: boolean;  // Whether this session has an active AI request running
@@ -387,6 +388,7 @@ export interface RunStartMessage {
   model?: string;  // Optional: override model (e.g. 'claude-sonnet-4-5-20250929')
   permissionOverride?: Partial<AgentPermissionPolicy>;  // Optional: session-level permission override
   systemContext?: string;  // Dynamic context prepended to system prompt (e.g. backend list for global agent)
+  workingDirectory?: string;  // Optional: override working directory (e.g., for git worktree)
 }
 
 export interface RunCancelMessage {

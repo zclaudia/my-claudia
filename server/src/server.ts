@@ -1171,6 +1171,7 @@ async function handleRunStart(
     model?: string;
     permissionOverride?: Partial<import('@my-claudia/shared').AgentPermissionPolicy>;
     systemContext?: string;
+    workingDirectory?: string;  // Optional working directory override
   },
   db: ReturnType<typeof initDatabase>
 ): Promise<void> {
@@ -1179,7 +1180,7 @@ async function handleRunStart(
   // Get session info
   const session = db.prepare(`
     SELECT s.id, s.project_id, s.sdk_session_id, s.type as session_type,
-           p.root_path, COALESCE(s.provider_id, p.provider_id) as provider_id, p.system_prompt
+           s.working_directory, p.root_path, COALESCE(s.provider_id, p.provider_id) as provider_id, p.system_prompt
     FROM sessions s
     LEFT JOIN projects p ON s.project_id = p.id
     WHERE s.id = ?
@@ -1188,6 +1189,7 @@ async function handleRunStart(
     project_id: string;
     sdk_session_id: string | null;
     session_type: 'regular' | 'background' | null;
+    working_directory: string | null;
     root_path: string | null;
     provider_id: string | null;
     system_prompt: string | null;
@@ -1290,7 +1292,12 @@ async function handleRunStart(
   let sdkSessionId = session.sdk_session_id || undefined;
 
   try {
-    const cwd = session.root_path || process.cwd();
+    // Priority: message override > session working_directory > project root_path > fallback
+    const cwd = message.workingDirectory
+      || session.working_directory
+      || session.root_path
+      || process.cwd();
+
     // Validate cwd exists — spawn() fails with cryptic ENOENT if cwd is invalid
     if (!fs.existsSync(cwd)) {
       console.warn(`[Run] cwd does not exist: ${cwd}`);
