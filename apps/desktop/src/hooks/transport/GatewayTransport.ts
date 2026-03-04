@@ -63,6 +63,9 @@ export class GatewayTransport {
     }
     this.gatewayAuthenticated = false;
     this.authenticatedBackends.clear();
+    // Intentional disconnect: stop syncs and clear sessions
+    stopSessionSync();
+    useSessionsStore.getState().clearAllSessions();
   }
 
   isConnected(): boolean {
@@ -157,14 +160,17 @@ export class GatewayTransport {
     };
 
     ws.onclose = () => {
+      // Guard: ignore stale WebSocket close events during reconnection
+      if (this.ws !== null && this.ws !== ws) return;
+
       console.log('[GatewayTransport] Disconnected from Gateway');
       this.ws = null;
       this.gatewayAuthenticated = false;
       this.authenticatedBackends.clear();
-      // Stop all periodic syncs when Gateway disconnects
-      stopSessionSync();
-      // Clear all remote sessions
-      useSessionsStore.getState().clearAllSessions();
+      // Don't stop sync timers or clear sessions here —
+      // session data survives temporary disconnects (mobile background).
+      // Sync HTTP requests will fail silently until reconnected.
+      // Cleanup only happens on intentional disconnect() or max reconnect failure.
       this.config.onDisconnected();
     };
 

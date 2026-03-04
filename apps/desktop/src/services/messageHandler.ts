@@ -80,17 +80,12 @@ export function handleServerMessage(
       const assistantMsgId = msg.assistantMessageId || msg.runId;
       const userMsgId = msg.userMessageId;
       const clientReqId = msg.clientRequestId;
-
-      // Track run-to-server mapping
-      if (!serverRunsRef.has(serverId)) {
-        serverRunsRef.set(serverId, new Set());
-      }
-      serverRunsRef.get(serverId)!.add(msg.runId);
+      const isBackground = msg.sessionType === 'background';
 
       const chat = useChatStore.getState();
 
       if (targetSessionId) {
-        chat.startRun(msg.runId, targetSessionId);
+        chat.startRun(msg.runId, targetSessionId, isBackground);
         if (serverId === activeServerId) {
           chat.clearSystemInfo();
         }
@@ -102,10 +97,20 @@ export function handleServerMessage(
           content: '',
           createdAt: Date.now(),
         });
-        useProjectStore.getState().setSessionActive(targetSessionId, true);
-        // Gateway: also update sessionsStore
-        if (backendId) {
-          useSessionsStore.getState().setSessionActiveById(backendId, targetSessionId, true);
+
+        if (!isBackground) {
+          // Track run-to-server mapping (only for foreground runs; background cleanup
+          // happens via run_completed broadcast, not heartbeat reconciliation)
+          if (!serverRunsRef.has(serverId)) {
+            serverRunsRef.set(serverId, new Set());
+          }
+          serverRunsRef.get(serverId)!.add(msg.runId);
+
+          useProjectStore.getState().setSessionActive(targetSessionId, true);
+          // Gateway: also update sessionsStore
+          if (backendId) {
+            useSessionsStore.getState().setSessionActiveById(backendId, targetSessionId, true);
+          }
         }
       } else {
         console.warn(`[${logTag}] run_started ignored: no sessionId`);
@@ -252,11 +257,15 @@ export function handleServerMessage(
       // Add missing runs (server has active run, client doesn't know about it)
       for (const run of heartbeat.activeRuns) {
         if (!chatState.activeRuns[run.runId]) {
-          chatState.startRun(run.runId, run.sessionId);
-          if (!serverRunsRef.has(serverId)) {
-            serverRunsRef.set(serverId, new Set());
+          const isBackground = run.sessionType === 'background';
+          chatState.startRun(run.runId, run.sessionId, isBackground);
+          if (!isBackground) {
+            // Only track foreground runs in serverRunsRef for heartbeat cleanup
+            if (!serverRunsRef.has(serverId)) {
+              serverRunsRef.set(serverId, new Set());
+            }
+            serverRunsRef.get(serverId)!.add(run.runId);
           }
-          serverRunsRef.get(serverId)!.add(run.runId);
         }
       }
 
@@ -321,9 +330,13 @@ export function handleServerMessage(
         }
       }
 
-      // Gateway: also reconcile sessionsStore active status
+      // Gateway: also reconcile sessionsStore active status (exclude background sessions)
       if (backendId) {
-        const activeSessionIds = new Set<string>(heartbeat.activeRuns.map(r => r.sessionId));
+        const activeSessionIds = new Set<string>(
+          heartbeat.activeRuns
+            .filter(r => r.sessionType !== 'background')
+            .map(r => r.sessionId)
+        );
         useSessionsStore.getState().reconcileActiveStatus(backendId, activeSessionIds);
       }
       break;

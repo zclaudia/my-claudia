@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import type { Response } from '@my-claudia/shared';
 import {
   AppError,
   errorHandlingMiddleware,
@@ -11,6 +12,23 @@ import { errorResponse } from '../base.js';
 vi.mock('../base.js', () => ({
   errorResponse: vi.fn(),
 }));
+
+function createMockErrorResponse(): Response<null> {
+  return {
+    id: 'mock-id',
+    type: 'test.response',
+    payload: null,
+    timestamp: 0,
+    metadata: {
+      requestId: 'mock-request-id',
+      success: false,
+      error: {
+        code: 'INTERNAL_ERROR',
+        message: 'Mocked error response',
+      },
+    },
+  };
+}
 
 describe('AppError', () => {
   it('创建带 code 和 message 的错误', () => {
@@ -70,7 +88,7 @@ describe('errorHandlingMiddleware', () => {
     it('捕获 AppError 并返回格式化错误响应', async () => {
       const appError = new AppError('NOT_FOUND', 'Resource not found', { id: 123 });
       mockNext.mockRejectedValue(appError);
-      vi.mocked(errorResponse).mockReturnValue('error-response');
+      vi.mocked(errorResponse).mockReturnValue(createMockErrorResponse());
 
       const result = await errorHandlingMiddleware(mockCtx, mockNext);
 
@@ -80,7 +98,7 @@ describe('errorHandlingMiddleware', () => {
         'Resource not found',
         { id: 123 }
       );
-      expect(result).toBe('error-response');
+      expect(result).toEqual(createMockErrorResponse());
     });
 
     it('记录错误到控制台', async () => {
@@ -98,7 +116,7 @@ describe('errorHandlingMiddleware', () => {
     it('处理无 details 的 AppError', async () => {
       const appError = new AppError('TEST_CODE', 'Test error');
       mockNext.mockRejectedValue(appError);
-      vi.mocked(errorResponse).mockReturnValue('error-response');
+      vi.mocked(errorResponse).mockReturnValue(createMockErrorResponse());
 
       await errorHandlingMiddleware(mockCtx, mockNext);
 
@@ -115,7 +133,7 @@ describe('errorHandlingMiddleware', () => {
     it('处理标准 Error 对象', async () => {
       const error = new Error('Something went wrong');
       mockNext.mockRejectedValue(error);
-      vi.mocked(errorResponse).mockReturnValue('error-response');
+      vi.mocked(errorResponse).mockReturnValue(createMockErrorResponse());
 
       const result = await errorHandlingMiddleware(mockCtx, mockNext);
 
@@ -124,14 +142,14 @@ describe('errorHandlingMiddleware', () => {
         'INTERNAL_ERROR',
         'Something went wrong'
       );
-      expect(result).toBe('error-response');
+      expect(result).toEqual(createMockErrorResponse());
     });
 
     it('从 error.code 提取错误代码', async () => {
       const error: any = new Error('Custom error');
       error.code = 'CUSTOM_CODE';
       mockNext.mockRejectedValue(error);
-      vi.mocked(errorResponse).mockReturnValue('error-response');
+      vi.mocked(errorResponse).mockReturnValue(createMockErrorResponse());
 
       const result = await errorHandlingMiddleware(mockCtx, mockNext);
 
@@ -140,13 +158,13 @@ describe('errorHandlingMiddleware', () => {
         'CUSTOM_CODE',
         'Custom error'
       );
-      expect(result).toBe('error-response');
+      expect(result).toEqual(createMockErrorResponse());
     });
 
     it('通用错误默认为 INTERNAL_ERROR', async () => {
       const error = new Error('Generic error');
       mockNext.mockRejectedValue(error);
-      vi.mocked(errorResponse).mockReturnValue('error-response');
+      vi.mocked(errorResponse).mockReturnValue(createMockErrorResponse());
 
       await errorHandlingMiddleware(mockCtx, mockNext);
 
@@ -170,7 +188,7 @@ describe('errorHandlingMiddleware', () => {
   describe('未知错误类型', () => {
     it('处理字符串错误', async () => {
       mockNext.mockRejectedValue('Something failed');
-      vi.mocked(errorResponse).mockReturnValue('error-response');
+      vi.mocked(errorResponse).mockReturnValue(createMockErrorResponse());
 
       const result = await errorHandlingMiddleware(mockCtx, mockNext);
 
@@ -180,13 +198,13 @@ describe('errorHandlingMiddleware', () => {
         'An unexpected error occurred',
         { error: 'Something failed' }
       );
-      expect(result).toBe('error-response');
+      expect(result).toEqual(createMockErrorResponse());
     });
 
     it('处理对象错误', async () => {
       const errorObj = { reason: 'unknown', code: 500 };
       mockNext.mockRejectedValue(errorObj);
-      vi.mocked(errorResponse).mockReturnValue('error-response');
+      vi.mocked(errorResponse).mockReturnValue(createMockErrorResponse());
 
       const result = await errorHandlingMiddleware(mockCtx, mockNext);
 
@@ -196,12 +214,12 @@ describe('errorHandlingMiddleware', () => {
         'An unexpected error occurred',
         { error: String(errorObj) }
       );
-      expect(result).toBe('error-response');
+      expect(result).toEqual(createMockErrorResponse());
     });
 
     it('处理 null 错误', async () => {
       mockNext.mockRejectedValue(null);
-      vi.mocked(errorResponse).mockReturnValue('error-response');
+      vi.mocked(errorResponse).mockReturnValue(createMockErrorResponse());
 
       const result = await errorHandlingMiddleware(mockCtx, mockNext);
 
@@ -211,12 +229,12 @@ describe('errorHandlingMiddleware', () => {
         'An unexpected error occurred',
         { error: 'null' }
       );
-      expect(result).toBe('error-response');
+      expect(result).toEqual(createMockErrorResponse());
     });
 
     it('处理 undefined 错误', async () => {
       mockNext.mockRejectedValue(undefined);
-      vi.mocked(errorResponse).mockReturnValue('error-response');
+      vi.mocked(errorResponse).mockReturnValue(createMockErrorResponse());
 
       const result = await errorHandlingMiddleware(mockCtx, mockNext);
 
@@ -226,12 +244,12 @@ describe('errorHandlingMiddleware', () => {
         'An unexpected error occurred',
         { error: 'undefined' }
       );
-      expect(result).toBe('error-response');
+      expect(result).toEqual(createMockErrorResponse());
     });
 
     it('处理数字错误', async () => {
       mockNext.mockRejectedValue(42);
-      vi.mocked(errorResponse).mockReturnValue('error-response');
+      vi.mocked(errorResponse).mockReturnValue(createMockErrorResponse());
 
       const result = await errorHandlingMiddleware(mockCtx, mockNext);
 
@@ -241,7 +259,7 @@ describe('errorHandlingMiddleware', () => {
         'An unexpected error occurred',
         { error: '42' }
       );
-      expect(result).toBe('error-response');
+      expect(result).toEqual(createMockErrorResponse());
     });
   });
 
@@ -300,7 +318,7 @@ describe('validationErrorMiddleware', () => {
       field: 'name',
     });
     mockNext.mockRejectedValue(validationError);
-    vi.mocked(errorResponse).mockReturnValue('validation-response');
+    vi.mocked(errorResponse).mockReturnValue(createMockErrorResponse());
 
     const result = await validationErrorMiddleware(mockCtx, mockNext);
 
@@ -310,7 +328,7 @@ describe('validationErrorMiddleware', () => {
       'Name is required',
       { field: 'name' }
     );
-    expect(result).toBe('validation-response');
+    expect(result).toEqual(createMockErrorResponse());
   });
 
   it('记录验证错误到控制台', async () => {
@@ -369,7 +387,7 @@ describe('dbErrorMiddleware', () => {
     it('处理 UNIQUE 约束违规', async () => {
       const dbError = new Error('UNIQUE constraint failed: users.email');
       mockNext.mockRejectedValue(dbError);
-      vi.mocked(errorResponse).mockReturnValue('duplicate-response');
+      vi.mocked(errorResponse).mockReturnValue(createMockErrorResponse());
 
       const result = await dbErrorMiddleware(mockCtx, mockNext);
 
@@ -379,20 +397,21 @@ describe('dbErrorMiddleware', () => {
         'A record with this information already exists',
         { originalError: 'UNIQUE constraint failed: users.email' }
       );
-      expect(result).toBe('duplicate-response');
+      expect(result).toEqual(createMockErrorResponse());
     });
 
     it('检测 UNIQUE constraint (大小写不敏感)', async () => {
       const dbError = new Error('unique constraint violation');
       mockNext.mockRejectedValue(dbError);
-      vi.mocked(errorResponse).mockReturnValue('error');
+      vi.mocked(errorResponse).mockReturnValue(createMockErrorResponse());
 
       await dbErrorMiddleware(mockCtx, mockNext);
 
       expect(errorResponse).toHaveBeenCalledWith(
         expect.anything(),
         'DUPLICATE_ERROR',
-        expect.anything()
+        expect.anything(),
+        expect.objectContaining({ originalError: 'unique constraint violation' })
       );
     });
   });
@@ -401,7 +420,7 @@ describe('dbErrorMiddleware', () => {
     it('处理 FOREIGN KEY 约束违规', async () => {
       const dbError = new Error('FOREIGN KEY constraint failed');
       mockNext.mockRejectedValue(dbError);
-      vi.mocked(errorResponse).mockReturnValue('reference-response');
+      vi.mocked(errorResponse).mockReturnValue(createMockErrorResponse());
 
       const result = await dbErrorMiddleware(mockCtx, mockNext);
 
@@ -411,20 +430,21 @@ describe('dbErrorMiddleware', () => {
         'Cannot perform this operation due to existing references',
         { originalError: 'FOREIGN KEY constraint failed' }
       );
-      expect(result).toBe('reference-response');
+      expect(result).toEqual(createMockErrorResponse());
     });
 
     it('检测 FOREIGN KEY constraint (大小写不敏感)', async () => {
       const dbError = new Error('foreign key constraint violation');
       mockNext.mockRejectedValue(dbError);
-      vi.mocked(errorResponse).mockReturnValue('error');
+      vi.mocked(errorResponse).mockReturnValue(createMockErrorResponse());
 
       await dbErrorMiddleware(mockCtx, mockNext);
 
       expect(errorResponse).toHaveBeenCalledWith(
         expect.anything(),
         'REFERENCE_ERROR',
-        expect.anything()
+        expect.anything(),
+        expect.objectContaining({ originalError: 'foreign key constraint violation' })
       );
     });
   });
@@ -433,7 +453,7 @@ describe('dbErrorMiddleware', () => {
     it('处理数据库锁定错误', async () => {
       const dbError = new Error('database is locked');
       mockNext.mockRejectedValue(dbError);
-      vi.mocked(errorResponse).mockReturnValue('db-error-response');
+      vi.mocked(errorResponse).mockReturnValue(createMockErrorResponse());
 
       const result = await dbErrorMiddleware(mockCtx, mockNext);
 
@@ -443,13 +463,13 @@ describe('dbErrorMiddleware', () => {
         'Database error occurred',
         { originalError: 'database is locked' }
       );
-      expect(result).toBe('db-error-response');
+      expect(result).toEqual(createMockErrorResponse());
     });
 
     it('处理表不存在错误', async () => {
       const dbError = new Error('no such table: users');
       mockNext.mockRejectedValue(dbError);
-      vi.mocked(errorResponse).mockReturnValue('db-error-response');
+      vi.mocked(errorResponse).mockReturnValue(createMockErrorResponse());
 
       const result = await dbErrorMiddleware(mockCtx, mockNext);
 
@@ -459,7 +479,7 @@ describe('dbErrorMiddleware', () => {
         'Database error occurred',
         { originalError: 'no such table: users' }
       );
-      expect(result).toBe('db-error-response');
+      expect(result).toEqual(createMockErrorResponse());
     });
   });
 

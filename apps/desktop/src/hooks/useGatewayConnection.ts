@@ -15,9 +15,10 @@ import { toGatewayServerId, isGatewayTarget, parseBackendId } from '../stores/ga
 import { useSessionsStore } from '../stores/sessionsStore';
 import { handleServerMessage } from '../services/messageHandler';
 import { getServerGatewayStatus } from '../services/api';
+import { stopSessionSync } from '../services/sessionSync';
 
 const RECONNECT_INTERVAL = 3000;
-const MAX_RECONNECT_ATTEMPTS = 10;
+const MAX_RECONNECT_ATTEMPTS = 30;
 
 export function useGatewayConnection() {
   const transportRef = useRef<GatewayTransport | null>(null);
@@ -226,7 +227,9 @@ export function useGatewayConnection() {
    */
   const scheduleReconnect = useCallback(() => {
     if (reconnectAttemptRef.current >= MAX_RECONNECT_ATTEMPTS) {
-      console.log('[GatewayConn] Max reconnect attempts reached');
+      console.log('[GatewayConn] Max reconnect attempts reached, clearing stale sessions');
+      stopSessionSync();
+      useSessionsStore.getState().clearAllSessions();
       return;
     }
 
@@ -243,6 +246,25 @@ export function useGatewayConnection() {
         transport.connect();
       }
     }, RECONNECT_INTERVAL);
+  }, []);
+
+  // Reconnect immediately when app returns to foreground (mobile background/foreground)
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState !== 'visible') return;
+      const transport = transportRef.current;
+      if (!transport || transport.isConnected()) return;
+
+      console.log('[GatewayConn] App visible, attempting immediate reconnect');
+      reconnectAttemptRef.current = 0;
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+        reconnectTimeoutRef.current = null;
+      }
+      transport.connect();
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
   }, []);
 
   // Create/destroy transport when gateway config changes

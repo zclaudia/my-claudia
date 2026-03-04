@@ -129,8 +129,10 @@ export const dbErrorMiddleware: Middleware = async (ctx, next) => {
     return await next(ctx);
   } catch (error) {
     if (error instanceof Error) {
+      const normalizedMessage = error.message.toLowerCase();
+
       // SQLite constraint violation (e.g., UNIQUE constraint)
-      if (error.message.includes('UNIQUE constraint')) {
+      if (normalizedMessage.includes('unique constraint')) {
         return errorResponse(
           ctx.request,
           'DUPLICATE_ERROR',
@@ -140,7 +142,7 @@ export const dbErrorMiddleware: Middleware = async (ctx, next) => {
       }
 
       // SQLite foreign key constraint
-      if (error.message.includes('FOREIGN KEY constraint')) {
+      if (normalizedMessage.includes('foreign key constraint')) {
         return errorResponse(
           ctx.request,
           'REFERENCE_ERROR',

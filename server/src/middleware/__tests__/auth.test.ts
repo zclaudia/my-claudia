@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import type { Response } from '@my-claudia/shared';
 import { authMiddleware, optionalAuthMiddleware } from '../auth.js';
 import { errorResponse } from '../base.js';
 
@@ -6,6 +7,23 @@ import { errorResponse } from '../base.js';
 vi.mock('../base.js', () => ({
   errorResponse: vi.fn(),
 }));
+
+function createMockErrorResponse(): Response<null> {
+  return {
+    id: 'mock-id',
+    type: 'test.response',
+    payload: null,
+    timestamp: 0,
+    metadata: {
+      requestId: 'mock-request-id',
+      success: false,
+      error: {
+        code: 'UNAUTHORIZED',
+        message: 'Authentication required. Please provide a valid API key.',
+      },
+    },
+  };
+}
 
 describe('authMiddleware', () => {
   let mockCtx: any;
@@ -60,7 +78,7 @@ describe('authMiddleware', () => {
       mockCtx.client.isLocal = false;
       mockCtx.client.authenticated = false;
 
-      vi.mocked(errorResponse).mockReturnValue('error-response');
+      vi.mocked(errorResponse).mockReturnValue(createMockErrorResponse());
 
       const result = await authMiddleware(mockCtx, mockNext);
 
@@ -69,14 +87,14 @@ describe('authMiddleware', () => {
         'UNAUTHORIZED',
         'Authentication required. Please provide a valid API key.'
       );
-      expect(result).toBe('error-response');
+      expect(result).toEqual(createMockErrorResponse());
     });
 
     it('返回正确的错误消息', async () => {
       mockCtx.client.isLocal = false;
       mockCtx.client.authenticated = false;
 
-      vi.mocked(errorResponse).mockReturnValue('error-response');
+      vi.mocked(errorResponse).mockReturnValue(createMockErrorResponse());
 
       await authMiddleware(mockCtx, mockNext);
 
@@ -88,7 +106,7 @@ describe('authMiddleware', () => {
       mockCtx.client.isLocal = false;
       mockCtx.client.authenticated = false;
 
-      vi.mocked(errorResponse).mockReturnValue('error-response');
+      vi.mocked(errorResponse).mockReturnValue(createMockErrorResponse());
 
       await authMiddleware(mockCtx, mockNext);
 
@@ -99,41 +117,43 @@ describe('authMiddleware', () => {
   describe('边界情况', () => {
     it('处理缺失的 client 对象', async () => {
       mockCtx.client = undefined as any;
+      vi.mocked(errorResponse).mockReturnValue(createMockErrorResponse());
 
-      // 这可能会导致运行时错误，但测试应记录此行为
-      // 如果代码未防御性地处理此情况
-      try {
-        await authMiddleware(mockCtx, mockNext);
-      } catch (error) {
-        // 记录：当前实现可能在 client 未定义时抛出错误
-        console.log('处理缺失 client 的行为:', error);
-      }
+      const result = await authMiddleware(mockCtx, mockNext);
+
+      expect(errorResponse).toHaveBeenCalledWith(
+        mockCtx.request,
+        'UNAUTHORIZED',
+        'Authentication required. Please provide a valid API key.'
+      );
+      expect(mockNext).not.toHaveBeenCalled();
+      expect(result).toEqual(createMockErrorResponse());
     });
 
     it('处理 undefined authenticated 标志', async () => {
       mockCtx.client.isLocal = false;
       mockCtx.client.authenticated = undefined as any;
 
-      vi.mocked(errorResponse).mockReturnValue('error-response');
+      vi.mocked(errorResponse).mockReturnValue(createMockErrorResponse());
 
       const result = await authMiddleware(mockCtx, mockNext);
 
       // undefined 应被视为 falsy，因此应拒绝
       expect(errorResponse).toHaveBeenCalled();
-      expect(result).toBe('error-response');
+      expect(result).toEqual(createMockErrorResponse());
     });
 
     it('处理 null authenticated 标志', async () => {
       mockCtx.client.isLocal = false;
       mockCtx.client.authenticated = null as any;
 
-      vi.mocked(errorResponse).mockReturnValue('error-response');
+      vi.mocked(errorResponse).mockReturnValue(createMockErrorResponse());
 
       const result = await authMiddleware(mockCtx, mockNext);
 
       // null 应被视为 falsy，因此应拒绝
       expect(errorResponse).toHaveBeenCalled();
-      expect(result).toBe('error-response');
+      expect(result).toEqual(createMockErrorResponse());
     });
   });
 });

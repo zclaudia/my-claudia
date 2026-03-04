@@ -22,13 +22,15 @@ import { errorResponse } from './base.js';
  * ```
  */
 export const authMiddleware: Middleware = async (ctx, next) => {
+  const client = ctx.client;
+
   // Local clients are always allowed (direct WebSocket connection)
-  if (ctx.client.isLocal) {
+  if (client?.isLocal) {
     return next(ctx);
   }
 
   // Remote clients must be authenticated
-  if (!ctx.client.authenticated) {
+  if (!client?.authenticated) {
     return errorResponse(
       ctx.request,
       'UNAUTHORIZED',

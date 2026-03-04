@@ -642,6 +642,8 @@ export interface RunStartedMessage {
   userMessageId?: string;
   /** Real DB message ID for the assistant message (for client-side dedup) */
   assistantMessageId?: string;
+  /** Session type — background runs should not affect the session's loading state */
+  sessionType?: 'regular' | 'background';
 }
 
 export interface SessionCreatedMessage {
@@ -1296,6 +1298,8 @@ export interface StateHeartbeatMessage {
     lastActivityAt: number;
     health: RunHealthStatus;
     loopPattern?: string;
+    /** Session type — background runs should not affect the session's loading state */
+    sessionType?: 'regular' | 'background';
   }>;
   pendingPermissions: Array<{
     requestId: string;

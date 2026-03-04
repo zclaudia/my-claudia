@@ -43,6 +43,8 @@ interface ChatState {
   pagination: Record<string, PaginationInfo>;
   // Active runs: runId → sessionId (supports concurrent runs)
   activeRuns: Record<string, string>;
+  // Background run IDs: runs that should not affect the session's loading state
+  backgroundRunIds: Set<string>;
   // Run health info from server heartbeat: runId → RunHealth
   runHealth: Record<string, RunHealth>;
   // Active tool calls per run: runId → { toolUseId → ToolCallState }
@@ -77,7 +79,7 @@ interface ChatState {
   setLoadingMore: (sessionId: string, loading: boolean) => void;
 
   // Actions — Run lifecycle
-  startRun: (runId: string, sessionId: string) => void;
+  startRun: (runId: string, sessionId: string, isBackground?: boolean) => void;
   endRun: (runId: string) => void;
   updateRunHealth: (runId: string, health: RunHealth) => void;
 
@@ -140,6 +142,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   messages: {},
   pagination: {},
   activeRuns: {},
+  backgroundRunIds: new Set<string>(),
   runHealth: {},
   activeToolCalls: {},
   toolCallsHistory: {},
@@ -281,13 +284,17 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   // ── Run lifecycle ──────────────────────────────────────────────
 
-  startRun: (runId, sessionId) =>
+  startRun: (runId, sessionId, isBackground) => {
+    const newBackgroundRunIds = new Set(get().backgroundRunIds);
+    if (isBackground) newBackgroundRunIds.add(runId);
     set((state) => ({
       activeRuns: { ...state.activeRuns, [runId]: sessionId },
+      backgroundRunIds: newBackgroundRunIds,
       activeToolCalls: { ...state.activeToolCalls, [runId]: {} },
       toolCallsHistory: { ...state.toolCallsHistory, [runId]: [] },
       runContentBlocks: { ...state.runContentBlocks, [runId]: [] },
-    })),
+    }));
+  },
 
   endRun: (runId) =>
     set((state) => {
@@ -296,8 +303,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
       const { [runId]: _removedHist, ...remainingHist } = state.toolCallsHistory;
       const { [runId]: _removedCB, ...remainingCB } = state.runContentBlocks;
       const { [runId]: _removedHealth, ...remainingHealth } = state.runHealth;
+      const newBackgroundRunIds = new Set(state.backgroundRunIds);
+      newBackgroundRunIds.delete(runId);
       return {
         activeRuns: remainingRuns,
+        backgroundRunIds: newBackgroundRunIds,
         activeToolCalls: remainingTC,
         toolCallsHistory: remainingHist,
         runContentBlocks: remainingCB,
@@ -503,8 +513,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
   getPagination: (sessionId) => get().pagination[sessionId],
 
   isSessionLoading: (sessionId) => {
-    const { activeRuns } = get();
-    return Object.values(activeRuns).includes(sessionId);
+    const { activeRuns, backgroundRunIds } = get();
+    return Object.entries(activeRuns).some(
+      ([runId, sid]) => sid === sessionId && !backgroundRunIds.has(runId)
+    );
   },
 
   getSessionRunId: (sessionId) => {

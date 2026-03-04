@@ -209,6 +209,7 @@ interface ActiveRun {
   contentBlocks: ContentBlock[];
   saveInterval?: NodeJS.Timeout;
   completed?: boolean;  // True after run_completed/run_failed sent; hides from heartbeat while for-await drains
+  sessionType: 'regular' | 'background';  // Whether this is a background task run
   // Stuck/loop detection
   startedAt: number;
   lastActivityAt: number;
@@ -890,6 +891,7 @@ function buildStateHeartbeat(): StateHeartbeatMessage {
       lastActivityAt: run.lastActivityAt,
       health,
       loopPattern: loop.detected ? loop.pattern : undefined,
+      sessionType: run.sessionType,
     });
     for (const [requestId, pending] of run.pendingPermissions) {
       if (!pending.originalRequest) continue;
@@ -1238,6 +1240,9 @@ async function handleRunStart(
     }
   }
 
+  // Session type: 'regular' or 'background'
+  const sessionType = (session.session_type || 'regular') as 'regular' | 'background';
+
   // Create active run tracking (includes streaming state for message persistence)
   const activeRun: ActiveRun = {
     runId,
@@ -1253,11 +1258,9 @@ async function handleRunStart(
     startedAt: Date.now(),
     lastActivityAt: Date.now(),
     recentToolCalls: [],
+    sessionType,
   };
   activeRuns.set(runId, activeRun);
-
-  // Session type: 'regular' or 'background'
-  const sessionType = session.session_type || 'regular';
 
   // Track tool_use_id to tool_name mapping for this run
   const toolUseIdToName = new Map<string, string>();
@@ -1278,6 +1281,7 @@ async function handleRunStart(
     clientRequestId: message.clientRequestId,
     userMessageId,
     assistantMessageId: activeRun.assistantMessageId,
+    sessionType,
   });
 
   // Notify background task started
