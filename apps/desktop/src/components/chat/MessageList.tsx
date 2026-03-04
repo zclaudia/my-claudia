@@ -590,7 +590,7 @@ function MessageItem({ message, streamingContentBlocks, streamingToolCalls }: {
 function AssistantContent({ content }: { content: string }) {
   return (
     <>
-      <div className="prose dark:prose-invert prose-sm max-w-none break-words overflow-hidden">
+      <div className="prose dark:prose-invert prose-sm max-w-none break-words overflow-x-auto overflow-y-hidden">
         <ReactMarkdown
           remarkPlugins={[remarkGfm]}
           components={{
