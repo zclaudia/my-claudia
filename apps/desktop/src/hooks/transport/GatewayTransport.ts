@@ -218,12 +218,9 @@ export class GatewayTransport {
         if (message.success) {
           console.log('[GatewayTransport] Backend authenticated:', message.backendId);
           this.authenticatedBackends.add(message.backendId);
-          // Start periodic sync for this backend as fallback to WebSocket push
-          // Skip for local backend — direct connection already handles session sync
-          const { localBackendId: authLocalId } = useGatewayStore.getState();
-          if (!authLocalId || message.backendId !== authLocalId) {
-            startSessionSync(message.backendId);
-          }
+          // Start periodic sync for every backend (including local backend via gateway),
+          // so ActiveSessionsPanel has a consistent cross-backend session snapshot.
+          startSessionSync(message.backendId);
         } else {
           console.error('[GatewayTransport] Backend auth failed:', message.backendId, message.error);
           this.authenticatedBackends.delete(message.backendId);
@@ -234,12 +231,6 @@ export class GatewayTransport {
       case 'backend_message':
         // Unwrap and forward the backend message
         if (message.message && message.backendId) {
-          // Skip all messages from our own local backend — direct connection handles them
-          const { localBackendId: msgLocalId } = useGatewayStore.getState();
-          if (msgLocalId && message.backendId === msgLocalId) {
-            break;
-          }
-
           // Check if it's a session-related message
           const innerMessage = message.message as any;
           if (innerMessage.type === 'backend_sessions_list') {
@@ -247,6 +238,12 @@ export class GatewayTransport {
           } else if (innerMessage.type === 'backend_session_event') {
             this.handleSessionEvent(innerMessage as BackendSessionEventMessage);
           } else {
+            // For non-session traffic, skip messages from our own local backend
+            // to avoid duplicate chat/message streams with the direct local connection.
+            const { localBackendId: msgLocalId } = useGatewayStore.getState();
+            if (msgLocalId && message.backendId === msgLocalId) {
+              break;
+            }
             this.config.onBackendMessage(message.backendId, message.message as ServerMessage);
           }
         }

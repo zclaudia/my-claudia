@@ -1,10 +1,10 @@
 interface TokenUsageDisplayProps {
+  latestInputTokens?: number;
+  latestOutputTokens?: number;
   inputTokens: number;
   outputTokens: number;
   contextWindow?: number;
 }
-
-const DEFAULT_CONTEXT = 200_000;
 
 function formatTokenCount(count: number): string {
   if (count >= 1_000_000) {
@@ -16,22 +16,40 @@ function formatTokenCount(count: number): string {
   return String(count);
 }
 
-export function TokenUsageDisplay({ inputTokens, outputTokens, contextWindow }: TokenUsageDisplayProps) {
+export function TokenUsageDisplay({
+  latestInputTokens,
+  latestOutputTokens,
+  inputTokens,
+  outputTokens,
+  contextWindow
+}: TokenUsageDisplayProps) {
   const total = inputTokens + outputTokens;
+  const currentInput = latestInputTokens ?? inputTokens;
+  const currentOutput = latestOutputTokens ?? outputTokens;
+  const currentTotal = currentInput + currentOutput;
 
-  if (total === 0) return null;
+  if (total === 0 && currentTotal === 0) return null;
 
-  const maxContext = contextWindow || DEFAULT_CONTEXT;
-  const ratio = inputTokens / maxContext;
-  const colorClass = ratio > 0.8
-    ? 'text-destructive'
-    : ratio > 0.6
-    ? 'text-yellow-500'
-    : 'text-muted-foreground';
+  const hasContextWindow = typeof contextWindow === 'number' && contextWindow > 0;
+  const ratio = hasContextWindow ? (currentInput / contextWindow) : 0;
+  const colorClass = !hasContextWindow
+    ? 'text-muted-foreground'
+    : ratio > 0.8
+      ? 'text-destructive'
+      : ratio > 0.6
+        ? 'text-yellow-500'
+        : 'text-muted-foreground';
+
+  const valueText = hasContextWindow
+    ? `${formatTokenCount(currentInput)}/${formatTokenCount(contextWindow)}`
+    : `${formatTokenCount(currentInput)}/--`;
 
   return (
-    <div className={`flex items-center gap-1 text-xs ${colorClass}`} title={`Input: ${inputTokens.toLocaleString()} | Output: ${outputTokens.toLocaleString()} | Context: ${maxContext.toLocaleString()}`}>
-      <span>{formatTokenCount(inputTokens)}/{formatTokenCount(maxContext)}</span>
+    <div
+      className={`flex items-center gap-1 text-xs ${colorClass}`}
+      title={`Current: ${currentInput.toLocaleString()} in / ${currentOutput.toLocaleString()} out | Total: ${inputTokens.toLocaleString()} in / ${outputTokens.toLocaleString()} out | Context: ${hasContextWindow ? contextWindow.toLocaleString() : 'unknown'}`}
+    >
+      <span>{valueText}</span>
     </div>
   );
 }

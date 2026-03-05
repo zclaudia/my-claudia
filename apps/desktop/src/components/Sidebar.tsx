@@ -1,4 +1,6 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
+import { createPortal } from 'react-dom';
+import { Bot, FileText, Wrench } from 'lucide-react';
 import { useProjectStore } from '../stores/projectStore';
 import { useServerStore } from '../stores/serverStore';
 import { toGatewayServerId } from '../stores/gatewayStore';
@@ -46,7 +48,7 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
     updateSession,
   } = useProjectStore();
 
-  const { connectionStatus, setActiveServer } = useServerStore();
+  const { connectionStatus, setActiveServer, servers, getDefaultServer } = useServerStore();
   const supervisions = useSupervisionStore((s) => s.supervisions);
 
   // Sessions with pending permission or question requests
@@ -121,6 +123,24 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
   };
 
   const isConnected = connectionStatus === 'connected';
+
+  const handleActiveSessionSelect = useCallback((backendId: string, sessionId: string) => {
+    useUIStore.getState().requestForceScrollToBottom(sessionId);
+
+    // Switch to the matching server context first, then select session.
+    if (backendId === 'local' || backendId === '__local__') {
+      const localServerId = servers.find((s) => s.id === 'local')?.id
+        || getDefaultServer()?.id
+        || servers[0]?.id
+        || 'local';
+      setActiveServer(localServerId);
+      selectSession(sessionId);
+      return;
+    }
+
+    setActiveServer(toGatewayServerId(backendId));
+    selectSession(sessionId);
+  }, [servers, getDefaultServer, setActiveServer, selectSession]);
 
   const handleCreateProject = async () => {
     if (!newProjectName.trim() || !isConnected) return;
@@ -373,7 +393,7 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
           onClick={onClose}
         />
         {/* Drawer */}
-        <div ref={sidebarSwipeRef} className="fixed inset-y-0 left-0 w-64 bg-card z-50 shadow-xl flex flex-col safe-top-pad safe-bottom-pad">
+        <div ref={sidebarSwipeRef} className="fixed inset-y-0 left-0 w-64 bg-card/80 glass z-50 shadow-apple-xl flex flex-col safe-top-pad safe-bottom-pad">
           {/* Header with close button */}
           <div className="h-[72px] border-b border-border flex items-center justify-between px-4">
             <h1 className="font-semibold text-lg">MyClaudia</h1>
@@ -470,7 +490,7 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
                       </div>
                       {r.resultType && r.resultType !== 'message' && (
                         <div className="text-xs text-primary mt-1">
-                          {r.resultType === 'file' ? '📄 File' : '🔧 Tool'}
+                          {r.resultType === 'file' ? <span className="inline-flex items-center gap-1"><FileText size={11} strokeWidth={1.75} /> File</span> : <span className="inline-flex items-center gap-1"><Wrench size={11} strokeWidth={1.75} /> Tool</span>}
                         </div>
                       )}
                     </button>
@@ -876,16 +896,7 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
             </button>
             <ActiveSessionsPanel
               onSessionSelect={(backendId, sessionId) => {
-                useUIStore.getState().requestForceScrollToBottom(sessionId);
-                // Handle session selection - switch backend if needed, then select session
-                if (backendId === 'local' || backendId === '__local__') {
-                  // Local session - just select it
-                  selectSession(sessionId);
-                } else {
-                  // Remote session - switch to the backend first, then select session
-                  setActiveServer(toGatewayServerId(backendId));
-                  selectSession(sessionId);
-                }
+                handleActiveSessionSelect(backendId, sessionId);
                 if (onClose) onClose();
               }}
             />
@@ -921,19 +932,24 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
             </button>
           </div>
 
-          {/* Project Settings Modal */}
+        </div>
+
+        {/* Portaled modals: render outside glass container to avoid stacking context issues */}
+        {!!settingsProjectId && createPortal(
           <ProjectSettings
             project={settingsProject}
             isOpen={!!settingsProjectId}
             onClose={() => setSettingsProjectId(null)}
-          />
-
-          {/* Settings Panel */}
+          />,
+          document.body
+        )}
+        {showSettings && createPortal(
           <SettingsPanel
             isOpen={showSettings}
             onClose={() => setShowSettings(false)}
-          />
-        </div>
+          />,
+          document.body
+        )}
       </>
     );
   }
@@ -941,8 +957,9 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
   // Desktop: use CSS to show/hide sidebar instead of unmounting
   // This avoids expensive remounting and improves toggle performance
   return (
+    <>
     <div
-      className={`bg-card border-r border-border flex flex-col transition-[width] duration-150 ease-out ${
+      className={`bg-card/80 glass border-r border-border/50 flex flex-col transition-[width] duration-200 ease-out ${
         collapsed ? 'w-0 overflow-hidden' : 'w-64'
       }`}
     >
@@ -952,12 +969,12 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
       {/* Header - only shown if hideHeader is false */}
       {!hideHeader && (
         <div
-          className="h-16 flex items-center justify-between pl-20 pr-3 mt-6"
+          className="h-16 flex items-center justify-between pl-3 pr-3 mt-6"
           data-tauri-drag-region
         >
           <div className="flex items-center gap-2" data-tauri-drag-region>
             <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0">
-              <span className="text-lg">🤖</span>
+              <Bot size={18} strokeWidth={1.75} className="text-primary" />
             </div>
             <div className="flex flex-col" data-tauri-drag-region>
               <h1 className="font-semibold text-base text-foreground leading-tight" data-tauri-drag-region>MyClaudia</h1>
@@ -1001,7 +1018,7 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
             autoCorrect="off"
             autoCapitalize="off"
             autoComplete="off"
-            className="flex-1 px-2 py-1 bg-secondary border border-border rounded text-sm focus:outline-none focus:border-primary"
+            className="flex-1 px-2.5 py-1.5 bg-muted/60 border-0 rounded-lg text-sm shadow-apple-sm focus:outline-none focus:ring-1 focus:ring-primary/50"
           />
           <button
             onClick={() => setShowFilters(!showFilters)}
@@ -1079,7 +1096,7 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
                   </div>
                   {r.resultType && r.resultType !== 'message' && (
                     <div className="text-xs text-primary mt-0.5">
-                      {r.resultType === 'file' ? '📄 File' : '🔧 Tool'}
+                      {r.resultType === 'file' ? <span className="inline-flex items-center gap-1"><FileText size={11} strokeWidth={1.75} /> File</span> : <span className="inline-flex items-center gap-1"><Wrench size={11} strokeWidth={1.75} /> Tool</span>}
                     </div>
                   )}
                 </button>
@@ -1475,18 +1492,7 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
       {/* Active Sessions - Fixed at bottom */}
       <div className="flex-shrink-0">
         <ActiveSessionsPanel
-          onSessionSelect={(backendId, sessionId) => {
-            useUIStore.getState().requestForceScrollToBottom(sessionId);
-            // Handle session selection - switch backend if needed, then select session
-            if (backendId === 'local' || backendId === '__local__') {
-              // Local session - just select it
-              selectSession(sessionId);
-            } else {
-              // Remote session - switch to the backend first, then select session
-              setActiveServer(toGatewayServerId(backendId));
-              selectSession(sessionId);
-            }
-          }}
+          onSessionSelect={handleActiveSessionSelect}
         />
       </div>
 
@@ -1520,31 +1526,40 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
         </button>
       </div>
 
-      {/* Project Settings Modal */}
+      </>
+    )}
+    </div>
+    {/* Portaled modals: render outside glass container to avoid stacking context issues */}
+    {!!settingsProjectId && createPortal(
       <ProjectSettings
         project={settingsProject}
         isOpen={!!settingsProjectId}
         onClose={() => setSettingsProjectId(null)}
-      />
-
-      {/* Settings Panel */}
+      />,
+      document.body
+    )}
+    {showSettings && createPortal(
       <SettingsPanel
         isOpen={showSettings}
         onClose={() => setShowSettings(false)}
-      />
-      </>
+      />,
+      document.body
     )}
-
-    <ArchivedSessionsDialog
-      isOpen={showArchivedDialog}
-      onClose={() => setShowArchivedDialog(false)}
-    />
-
-    <SuperviseDialog
-      sessionId={superviseSessionId}
-      isOpen={!!superviseSessionId}
-      onClose={() => setSuperviseSessionId(null)}
-    />
-    </div>
+    {showArchivedDialog && createPortal(
+      <ArchivedSessionsDialog
+        isOpen={showArchivedDialog}
+        onClose={() => setShowArchivedDialog(false)}
+      />,
+      document.body
+    )}
+    {!!superviseSessionId && createPortal(
+      <SuperviseDialog
+        sessionId={superviseSessionId}
+        isOpen={!!superviseSessionId}
+        onClose={() => setSuperviseSessionId(null)}
+      />,
+      document.body
+    )}
+    </>
   );
 }

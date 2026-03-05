@@ -142,7 +142,7 @@ export function ModelSelector({ capabilities, value, onChange, disabled }: Model
       </button>
 
       {isOpen && (
-        <div className="absolute bottom-full left-0 mb-1 z-50 bg-popover border border-border rounded-lg shadow-lg py-1 min-w-[140px] max-h-[300px] overflow-y-auto">
+        <div className="absolute bottom-full left-0 mb-1 z-50 bg-popover/95 glass border border-border/50 rounded-xl shadow-apple-xl py-1 min-w-[140px] max-h-[300px] overflow-y-auto animate-apple-fade-in">
           {renderOptions()}
         </div>
       )}

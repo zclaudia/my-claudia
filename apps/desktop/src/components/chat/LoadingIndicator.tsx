@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { Bot } from 'lucide-react';
 import type { RunHealthStatus } from '@my-claudia/shared';
 
 interface LoadingIndicatorProps {
@@ -114,7 +115,7 @@ export function LoadingIndicator({ isLoading, health, loopPattern, startedAt, la
     <div className="flex items-start gap-3 px-4 py-3 animate-fade-in">
       {/* Avatar */}
       <div className="flex-shrink-0 w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center">
-        <span className="text-primary text-sm">🤖</span>
+        <Bot size={16} className="text-primary" />
       </div>
 
       {/* Loading content */}

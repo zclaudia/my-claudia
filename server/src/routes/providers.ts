@@ -3,12 +3,16 @@ import { v4 as uuidv4 } from 'uuid';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
+import { execFile as execFileCb } from 'child_process';
+import { promisify } from 'util';
 import type Database from 'better-sqlite3';
 import type { ProviderConfig, ApiResponse, SlashCommand, ProviderCapabilities, ModeOption, ModelOption } from '@my-claudia/shared';
 import { LOCAL_COMMANDS, CLI_COMMANDS, CLAUDE_FALLBACK_COMMANDS } from '@my-claudia/shared';
 import { scanCustomCommands } from '../utils/command-scanner.js';
 import { openCodeServerManager } from '../providers/opencode-sdk.js';
 import { fetchClaudeModels, fetchClaudeCommands } from '../providers/claude-sdk.js';
+
+const execFile = promisify(execFileCb);
 
 // Database row type (different from ProviderConfig due to SQLite types)
 interface ProviderRow {
@@ -435,10 +439,10 @@ async function getClaudeCapabilities(
     modeLabel: 'Mode',
     defaultModeId: 'default',
     modes: [
-      { id: 'default', label: 'Default', icon: '🛡️', description: 'Standard mode - requires confirmation for tool calls' },
-      { id: 'plan', label: 'Plan', icon: '📋', description: 'Planning mode - creates a plan before executing' },
-      { id: 'acceptEdits', label: 'Auto-Edit', icon: '✏️', description: 'Auto-approve file edits only' },
-      { id: 'bypassPermissions', label: 'Bypass', icon: '⚡', description: 'Skip all permission checks (use with caution)' },
+      { id: 'default', label: 'Default', description: 'Standard mode - requires confirmation for tool calls' },
+      { id: 'plan', label: 'Plan', description: 'Planning mode - creates a plan before executing' },
+      { id: 'acceptEdits', label: 'Auto-Edit', description: 'Auto-approve file edits only' },
+      { id: 'bypassPermissions', label: 'Bypass', description: 'Skip all permission checks (use with caution)' },
     ],
     models,
   };
@@ -616,7 +620,202 @@ async function getOpenCodeCapabilities(
   }
 }
 
-function getCodexCapabilities(): ProviderCapabilities {
+const CODEX_FALLBACK_MODELS: ModelOption[] = [
+  { id: '', label: 'Default' },
+  { id: 'gpt-5.3-codex', label: 'gpt-5.3-codex' },
+  { id: 'gpt-5.2-codex', label: 'gpt-5.2-codex' },
+  { id: 'gpt-5.1-codex-max', label: 'gpt-5.1-codex-max' },
+  { id: 'gpt-5.2', label: 'gpt-5.2' },
+  { id: 'gpt-5.1-codex-mini', label: 'gpt-5.1-codex-mini' },
+];
+
+const CURSOR_FALLBACK_MODELS: ModelOption[] = [
+  { id: '', label: 'Default' },
+  { id: 'claude-opus-4-6', label: 'Claude Opus 4.6' },
+  { id: 'claude-sonnet-4-5', label: 'Claude Sonnet 4.5' },
+  { id: 'gpt-5', label: 'GPT-5' },
+  { id: 'gpt-5-mini', label: 'GPT-5 Mini' },
+  { id: 'o3', label: 'o3' },
+];
+
+async function runCliForModels(
+  binary: string,
+  args: string[],
+  env?: Record<string, string>
+): Promise<string> {
+  try {
+    const { stdout, stderr } = await execFile(binary, args, {
+      env: { ...process.env, ...(env || {}) },
+      timeout: 3500,
+      maxBuffer: 1024 * 1024,
+      cwd: process.cwd(),
+    });
+    return `${stdout || ''}\n${stderr || ''}`;
+  } catch (error) {
+    const err = error as { stdout?: string; stderr?: string };
+    return `${err.stdout || ''}\n${err.stderr || ''}`;
+  }
+}
+
+function isLikelyModelId(value: string): boolean {
+  const v = value.trim();
+  if (!v) return false;
+  if (v.length < 2 || v.length > 80) return false;
+  if (!/^[a-z0-9][a-z0-9._-]*$/i.test(v)) return false;
+
+  const lower = v.toLowerCase();
+  if (/^(default|auto|latest)$/.test(lower)) return false;
+
+  return /^(gpt|o[1-9]|claude|gemini|llama|mistral|qwen|deepseek)/.test(lower)
+    || lower.includes('-codex')
+    || lower.includes('sonnet')
+    || lower.includes('opus')
+    || lower.includes('haiku');
+}
+
+function parseModelIdsFromText(raw: string): string[] {
+  const ids = new Set<string>();
+  const text = raw || '';
+  const tokenRegex = /\b[a-z0-9]+(?:[._-][a-z0-9]+)*\b/ig;
+  const matches = text.match(tokenRegex) || [];
+  for (const token of matches) {
+    const candidate = token.trim();
+    if (isLikelyModelId(candidate)) {
+      ids.add(candidate);
+    }
+  }
+  return [...ids];
+}
+
+function collectModelIdsFromJson(value: unknown, out: Set<string>): void {
+  if (typeof value === 'string') {
+    if (isLikelyModelId(value)) out.add(value);
+    return;
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) collectModelIdsFromJson(item, out);
+    return;
+  }
+  if (!value || typeof value !== 'object') return;
+
+  const obj = value as Record<string, unknown>;
+  const directKeys = ['id', 'slug', 'model', 'name', 'value'];
+  for (const key of directKeys) {
+    const maybe = obj[key];
+    if (typeof maybe === 'string' && isLikelyModelId(maybe)) {
+      out.add(maybe);
+    }
+  }
+
+  for (const nested of Object.values(obj)) {
+    collectModelIdsFromJson(nested, out);
+  }
+}
+
+function parseModelIdsFromJson(raw: string): string[] {
+  try {
+    const parsed = JSON.parse(raw);
+    const out = new Set<string>();
+    collectModelIdsFromJson(parsed, out);
+    return [...out];
+  } catch {
+    return [];
+  }
+}
+
+function toModelOptions(ids: string[]): ModelOption[] {
+  if (ids.length === 0) return [{ id: '', label: 'Default' }];
+  const unique = [...new Set(ids)];
+  unique.sort((a, b) => a.localeCompare(b, 'en'));
+  return [{ id: '', label: 'Default' }, ...unique.map(id => ({ id, label: id }))];
+}
+
+function isCredibleModelSet(ids: string[], provider: 'codex' | 'cursor'): boolean {
+  if (ids.length < 2) return false;
+  const lower = ids.map(i => i.toLowerCase());
+  if (provider === 'codex') {
+    return lower.some(i => i.includes('codex')) || lower.some(i => i.startsWith('gpt-'));
+  }
+  return lower.some(i => i.startsWith('gpt-'))
+    || lower.some(i => i.startsWith('claude-'))
+    || lower.some(i => i === 'o3' || i.startsWith('o4'));
+}
+
+async function fetchCodexModels(cliPath?: string, env?: Record<string, string>): Promise<ModelOption[]> {
+  // Codex CLI caches a server-provided model registry in ~/.codex/models_cache.json.
+  try {
+    const homeDir = env?.HOME || os.homedir();
+    const cachePath = path.join(homeDir, '.codex', 'models_cache.json');
+    if (fs.existsSync(cachePath)) {
+      const raw = fs.readFileSync(cachePath, 'utf8');
+      const parsed = JSON.parse(raw) as {
+        models?: Array<{ slug?: string; display_name?: string; visibility?: string }>;
+      };
+      if (Array.isArray(parsed.models) && parsed.models.length > 0) {
+        const fromCache = parsed.models
+          .filter(m => (m.visibility || 'list') !== 'hidden')
+          .map(m => ({ id: m.slug || '', label: m.display_name || m.slug || '' }))
+          .filter(m => m.id && m.label);
+        if (fromCache.length > 0) {
+          return [{ id: '', label: 'Default' }, ...fromCache];
+        }
+      }
+    }
+  } catch (error) {
+    console.error('[Capabilities] Failed to read codex models cache:', error);
+  }
+
+  // Fallback probe via CLI output parsing.
+  const binary = cliPath || 'codex';
+  const outputs = await Promise.all([
+    runCliForModels(binary, ['--help'], env),
+    runCliForModels(binary, ['exec', '--help'], env),
+  ]);
+  const combined = outputs.join('\n');
+  const jsonIds = parseModelIdsFromJson(combined);
+  if (isCredibleModelSet(jsonIds, 'codex')) return toModelOptions(jsonIds);
+
+  const textIds = parseModelIdsFromText(combined);
+  if (isCredibleModelSet(textIds, 'codex')) return toModelOptions(textIds);
+
+  return CODEX_FALLBACK_MODELS;
+}
+
+async function fetchCursorModels(cliPath?: string, env?: Record<string, string>): Promise<ModelOption[]> {
+  const binary = cliPath || 'cursor-agent';
+  const probes: string[][] = [
+    ['models', '--json'],
+    ['model', 'list', '--json'],
+    ['--list-models', '--json'],
+    ['models'],
+    ['model', 'list'],
+    ['--list-models'],
+    ['--help'],
+  ];
+
+  for (const args of probes) {
+    const output = await runCliForModels(binary, args, env);
+    if (!output.trim()) continue;
+
+    const jsonIds = parseModelIdsFromJson(output);
+    if (isCredibleModelSet(jsonIds, 'cursor')) {
+      return toModelOptions(jsonIds);
+    }
+
+    const textIds = parseModelIdsFromText(output);
+    if (isCredibleModelSet(textIds, 'cursor')) {
+      return toModelOptions(textIds);
+    }
+  }
+
+  return CURSOR_FALLBACK_MODELS;
+}
+
+async function getCodexCapabilities(
+  cliPath?: string,
+  env?: Record<string, string>
+): Promise<ProviderCapabilities> {
+  const models = await fetchCodexModels(cliPath, env);
   return {
     modeLabel: 'Mode',
     defaultModeId: 'default',
@@ -626,17 +825,15 @@ function getCodexCapabilities(): ProviderCapabilities {
       { id: 'acceptEdits', label: 'Auto-Edit', description: 'Auto-approve file edits' },
       { id: 'bypassPermissions', label: 'Bypass', description: 'Full access, no approval checks' },
     ],
-    models: [
-      { id: '', label: 'Default' },
-      { id: 'codex-mini', label: 'Codex Mini' },
-      { id: 'o4-mini', label: 'o4-mini' },
-      { id: 'o3', label: 'o3' },
-      { id: 'gpt-4.1', label: 'GPT-4.1' },
-    ],
+    models,
   };
 }
 
-function getCursorCapabilities(): ProviderCapabilities {
+async function getCursorCapabilities(
+  cliPath?: string,
+  env?: Record<string, string>
+): Promise<ProviderCapabilities> {
+  const models = await fetchCursorModels(cliPath, env);
   return {
     modeLabel: 'Mode',
     defaultModeId: 'default',
@@ -645,14 +842,7 @@ function getCursorCapabilities(): ProviderCapabilities {
       { id: 'plan', label: 'Plan', description: 'Planning mode — reads only, proposes changes' },
       { id: 'ask', label: 'Ask', description: 'Ask mode — answers questions without editing files' },
     ],
-    models: [
-      { id: '', label: 'Default' },
-      { id: 'claude-opus-4-6', label: 'Claude Opus 4.6' },
-      { id: 'claude-sonnet-4-5', label: 'Claude Sonnet 4.5' },
-      { id: 'gpt-5', label: 'GPT-5' },
-      { id: 'gpt-5-mini', label: 'GPT-5 Mini' },
-      { id: 'o3', label: 'o3' },
-    ],
+    models,
   };
 }
 
@@ -665,9 +855,9 @@ async function getProviderCapabilities(
     case 'opencode':
       return getOpenCodeCapabilities(cliPath, env);
     case 'codex':
-      return getCodexCapabilities();
+      return getCodexCapabilities(cliPath, env);
     case 'cursor':
-      return getCursorCapabilities();
+      return getCursorCapabilities(cliPath, env);
     case 'claude':
     default:
       return getClaudeCapabilities(cliPath, env);

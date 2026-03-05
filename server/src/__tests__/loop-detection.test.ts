@@ -5,17 +5,17 @@ describe('generateToolSignature', () => {
   describe('Bash commands', () => {
     it('should generate specific signature for git commands', () => {
       const result = generateToolSignature('Bash', { command: 'git status' });
-      expect(result).toBe('Bash:git');
+      expect(result).toBe('Bash:git status');
     });
 
     it('should generate specific signature for npm commands', () => {
       const result = generateToolSignature('Bash', { command: 'npm test' });
-      expect(result).toBe('Bash:npm');
+      expect(result).toBe('Bash:npm test');
     });
 
     it('should handle complex bash commands', () => {
       const result = generateToolSignature('Bash', { command: 'find . -name "*.ts" -type f' });
-      expect(result).toBe('Bash:find');
+      expect(result).toBe('Bash:find . "*.ts"');
     });
 
     it('should distinguish different bash commands', () => {
@@ -23,8 +23,8 @@ describe('generateToolSignature', () => {
       const npmCall = generateToolSignature('Bash', { command: 'npm test' });
       const lsCall = generateToolSignature('Bash', { command: 'ls -la' });
 
-      expect(gitCall).toBe('Bash:git');
-      expect(npmCall).toBe('Bash:npm');
+      expect(gitCall).toBe('Bash:git status');
+      expect(npmCall).toBe('Bash:npm test');
       expect(lsCall).toBe('Bash:ls');
       expect(gitCall).not.toBe(npmCall);
     });
@@ -78,8 +78,8 @@ describe('generateToolSignature', () => {
       const result = generateToolSignature('Grep', {
         pattern: 'This is a very long search pattern that should be truncated'
       });
-      expect(result).toBe('Grep:This is a very long ');
-      expect(result.length).toBeLessThanOrEqual(25); // "Grep:" + 20 chars
+      expect(result).toBe('Grep:This is a very long search pat');
+      expect(result.length).toBeLessThanOrEqual(35); // "Grep:" + 30 chars
     });
 
     it('should distinguish different grep patterns', () => {

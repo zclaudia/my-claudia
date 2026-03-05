@@ -1,4 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
+import { Shield, Scale, Rocket, LockOpen, Settings, Lightbulb, ChevronDown } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import type { AgentPermissionPolicy } from '@my-claudia/shared';
 
 interface PermissionSelectorProps {
@@ -8,25 +10,11 @@ interface PermissionSelectorProps {
   disabled?: boolean;
 }
 
-/** Shield icon */
-function ShieldIcon({ className = 'w-3.5 h-3.5' }: { className?: string }) {
-  return (
-    <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-      <path
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth={2}
-        d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z"
-      />
-    </svg>
-  );
-}
-
-const TRUST_LEVELS = [
-  { id: 'conservative', label: '🛡️ Conservative', description: 'Read-only + sensitive file guard' },
-  { id: 'moderate', label: '⚖️ Moderate', description: '+ File edits + workspace guard' },
-  { id: 'aggressive', label: '🚀 Aggressive', description: '+ Safe bash + network guard' },
-  { id: 'full_trust', label: '🔓 Full Trust', description: 'Everything except dangerous bash' },
+const TRUST_LEVELS: { id: string; label: string; icon: LucideIcon; description: string }[] = [
+  { id: 'conservative', label: 'Conservative', icon: Shield, description: 'Read-only + sensitive file guard' },
+  { id: 'moderate', label: 'Moderate', icon: Scale, description: '+ File edits + workspace guard' },
+  { id: 'aggressive', label: 'Aggressive', icon: Rocket, description: '+ Safe bash + network guard' },
+  { id: 'full_trust', label: 'Full Trust', icon: LockOpen, description: 'Everything except dangerous bash' },
 ];
 
 export function PermissionSelector({ value, onChange, projectPolicy, disabled }: PermissionSelectorProps) {
@@ -45,21 +33,17 @@ export function PermissionSelector({ value, onChange, projectPolicy, disabled }:
     return () => document.removeEventListener('mousedown', handler);
   }, [isOpen]);
 
-  // Strip emoji prefix from label for the trigger button (dropdown keeps emojis)
-  const stripEmoji = (label: string) => label.replace(/^[^\w\s]*\s*/, '');
-
-  // Determine current label for trigger button (without emoji)
+  // Determine current label for trigger button
   const getTriggerLabel = () => {
     if (!value) {
-      // Using project default
       if (projectPolicy?.enabled) {
         const level = TRUST_LEVELS.find(l => l.id === projectPolicy.trustLevel);
-        return level ? stripEmoji(level.label) : 'Project Default';
+        return level ? level.label : 'Project Default';
       }
       return 'Project Default';
     }
     const level = TRUST_LEVELS.find(l => l.id === value.trustLevel);
-    return level ? stripEmoji(level.label) : 'Custom';
+    return level ? level.label : 'Custom';
   };
 
   const triggerLabel = getTriggerLabel();
@@ -98,15 +82,13 @@ export function PermissionSelector({ value, onChange, projectPolicy, disabled }:
         `}
         title={triggerLabel}
       >
-        <ShieldIcon />
+        <Shield size={14} strokeWidth={1.75} />
         <span className="hidden md:inline truncate max-w-[80px] lg:max-w-none">{triggerLabel}</span>
-        <svg className="w-3 h-3 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-        </svg>
+        <ChevronDown size={12} className="text-muted-foreground" />
       </button>
 
       {isOpen && (
-        <div className="absolute bottom-full left-0 mb-1 z-50 bg-popover border border-border rounded-lg shadow-lg py-1 min-w-[240px] max-h-[300px] overflow-y-auto">
+        <div className="absolute bottom-full left-0 mb-1 z-50 bg-popover/95 glass border border-border/50 rounded-xl shadow-apple-xl py-1 min-w-[240px] max-h-[300px] overflow-y-auto animate-apple-fade-in">
           {/* Header */}
           <div className="px-3 py-1.5 text-[10px] text-muted-foreground font-semibold uppercase tracking-wider border-b border-border">
             Session Permission Override
@@ -123,7 +105,7 @@ export function PermissionSelector({ value, onChange, projectPolicy, disabled }:
               }
             `}
           >
-            <div className="text-[13px]">⚙️ Project Default</div>
+            <div className="flex items-center gap-1.5 text-[13px]"><Settings size={13} strokeWidth={1.75} /> Project Default</div>
             <div className="text-[10px] text-muted-foreground mt-0.5">
               {projectPolicy?.enabled
                 ? `Use project setting (${projectPolicy.trustLevel})`
@@ -146,7 +128,7 @@ export function PermissionSelector({ value, onChange, projectPolicy, disabled }:
                 }
               `}
             >
-              <div className="text-[13px]">{level.label}</div>
+              <div className="flex items-center gap-1.5 text-[13px]"><level.icon size={13} strokeWidth={1.75} /> {level.label}</div>
               <div className="text-[10px] text-muted-foreground mt-0.5">
                 {level.description}
               </div>
@@ -155,7 +137,7 @@ export function PermissionSelector({ value, onChange, projectPolicy, disabled }:
 
           {/* Info footer */}
           <div className="px-3 py-1.5 text-[10px] text-muted-foreground border-t border-border mt-1">
-            💡 Session override is temporary and will be cleared on page refresh
+            <span className="flex items-center gap-1"><Lightbulb size={10} strokeWidth={1.75} /> Session override is temporary and will be cleared on page refresh</span>
           </div>
         </div>
       )}

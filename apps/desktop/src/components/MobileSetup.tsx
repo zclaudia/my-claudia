@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Bot, Monitor, ChevronRight } from 'lucide-react';
 import { useGatewayStore, toGatewayServerId } from '../stores/gatewayStore';
 import { useServerStore } from '../stores/serverStore';
 import { useConnection } from '../contexts/ConnectionContext';
@@ -77,7 +78,7 @@ export function MobileSetup() {
             {/* Logo */}
             <div className="text-center">
               <div className="w-16 h-16 rounded-2xl bg-primary/10 flex items-center justify-center mx-auto mb-4">
-                <span className="text-3xl">🤖</span>
+                <Bot size={32} strokeWidth={1.5} className="text-primary" />
               </div>
               <h1 className="text-xl font-bold text-foreground">Select a Server</h1>
               <p className="text-sm text-muted-foreground mt-1">
@@ -99,7 +100,7 @@ export function MobileSetup() {
                     className="w-full flex items-center gap-3 p-4 rounded-xl border border-border bg-card hover:bg-muted transition-colors text-left disabled:opacity-50"
                   >
                     <div className="w-10 h-10 rounded-lg bg-success/10 flex items-center justify-center flex-shrink-0">
-                      <span className="text-success text-lg">💻</span>
+                      <Monitor size={20} strokeWidth={1.75} className="text-success" />
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="font-medium text-sm text-foreground truncate">
@@ -109,9 +110,7 @@ export function MobileSetup() {
                         {isAuthenticating ? 'Connecting...' : backend.backendId}
                       </div>
                     </div>
-                    <svg className="w-5 h-5 text-muted-foreground flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                    </svg>
+                    <ChevronRight size={20} strokeWidth={1.75} className="text-muted-foreground flex-shrink-0" />
                   </button>
                 );
               })}
@@ -136,7 +135,7 @@ export function MobileSetup() {
           {/* Logo */}
           <div className="text-center">
             <div className="w-16 h-16 rounded-2xl bg-primary/10 flex items-center justify-center mx-auto mb-4">
-              <span className="text-3xl">🤖</span>
+              <Bot size={32} strokeWidth={1.5} className="text-primary" />
             </div>
             <h1 className="text-xl font-bold text-foreground">MyClaudia</h1>
             <p className="text-sm text-muted-foreground mt-1">

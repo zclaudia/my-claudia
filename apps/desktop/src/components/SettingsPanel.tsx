@@ -504,7 +504,7 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
                       ) : (
                         <button
                           onClick={() => invoke('open_full_disk_access_settings')}
-                          className="px-3 py-1 text-xs bg-primary text-primary-foreground rounded-md hover:bg-primary/90"
+                          className="px-3 py-1 text-xs bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 font-medium transition-colors"
                         >
                           Open Settings
                         </button>
@@ -516,7 +516,7 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
                           <span className="text-sm">Folder Access</span>
                           <button
                             onClick={() => invoke('open_files_and_folders_settings')}
-                            className="px-3 py-1 text-xs bg-primary text-primary-foreground rounded-md hover:bg-primary/90"
+                            className="px-3 py-1 text-xs bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 font-medium transition-colors"
                           >
                             Open Settings
                           </button>
@@ -705,7 +705,7 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
                               console.error('[Settings] Failed to export logs:', err);
                             }
                           }}
-                          className="px-3 py-1 text-xs bg-primary hover:bg-primary/90 text-primary-foreground rounded-md transition-colors"
+                          className="px-3 py-1 text-xs bg-primary hover:bg-primary/90 text-primary-foreground rounded-lg font-medium transition-colors"
                         >
                           Export Logs
                         </button>
@@ -785,7 +785,7 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
                       </p>
                       <button
                         onClick={() => setImportDialogOpen(true)}
-                        className="px-4 py-2 bg-primary text-primary-foreground rounded hover:opacity-90 text-sm"
+                        className="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 text-sm font-medium shadow-apple-sm transition-colors"
                       >
                         Import from Claude CLI
                       </button>
@@ -807,7 +807,7 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
                       </p>
                       <button
                         onClick={() => setOpenCodeImportDialogOpen(true)}
-                        className="px-4 py-2 bg-primary text-primary-foreground rounded hover:opacity-90 text-sm"
+                        className="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 text-sm font-medium shadow-apple-sm transition-colors"
                       >
                         Import from OpenCode
                       </button>
@@ -848,15 +848,21 @@ function FontSizeToggle() {
   const { fontSize, setFontSize } = useUIStore();
 
   return (
-    <select
-      value={fontSize}
-      onChange={(e) => setFontSize(e.target.value as FontSizePreset)}
-      className="px-2 py-1 bg-secondary border border-border rounded text-sm cursor-pointer focus:outline-none focus:border-primary"
-    >
+    <div className="flex items-center bg-secondary/80 rounded-lg p-0.5 gap-0.5">
       {FONT_SIZE_OPTIONS.map((opt) => (
-        <option key={opt.key} value={opt.key}>{opt.label}</option>
+        <button
+          key={opt.key}
+          onClick={() => setFontSize(opt.key)}
+          className={`px-3 py-1 rounded-md text-xs font-medium transition-all duration-200 ${
+            fontSize === opt.key
+              ? 'bg-card text-foreground shadow-apple-sm'
+              : 'text-muted-foreground hover:text-foreground'
+          }`}
+        >
+          {opt.label}
+        </button>
       ))}
-    </select>
+    </div>
   );
 }
 
@@ -864,9 +870,7 @@ function FontSizeToggle() {
 function ProviderManagerInline() {
   // We'll reuse the ProviderManager but render it inline
   return (
-    <div className="border border-border rounded-lg overflow-hidden">
-      <ProviderManager isOpen={true} onClose={() => {}} inline={true} />
-    </div>
+    <ProviderManager isOpen={true} onClose={() => {}} inline={true} />
   );
 }
 
@@ -944,7 +948,7 @@ function ClientAISettings() {
             value={config.apiEndpoint}
             onChange={(e) => updateField('apiEndpoint', e.target.value)}
             placeholder="https://api.openai.com/v1"
-            className="w-full px-2 py-1.5 bg-secondary border border-border rounded text-sm focus:outline-none focus:border-primary"
+            className="w-full px-3 py-2 bg-input border border-border rounded-lg text-sm focus:outline-none focus:border-primary/50 focus:shadow-apple-sm transition-colors"
           />
         </div>
         <div>
@@ -954,7 +958,7 @@ function ClientAISettings() {
             value={config.apiKey}
             onChange={(e) => updateField('apiKey', e.target.value)}
             placeholder="sk-..."
-            className="w-full px-2 py-1.5 bg-secondary border border-border rounded text-sm focus:outline-none focus:border-primary"
+            className="w-full px-3 py-2 bg-input border border-border rounded-lg text-sm focus:outline-none focus:border-primary/50 focus:shadow-apple-sm transition-colors"
           />
         </div>
         <div className="relative">
@@ -972,10 +976,10 @@ function ClientAISettings() {
             onFocus={() => { if (availableModels.length > 0) setShowModelDropdown(true); }}
             onBlur={() => { setTimeout(() => setShowModelDropdown(false), 150); }}
             placeholder={availableModels.length > 0 ? 'Type or select a model...' : 'gpt-4o'}
-            className="w-full px-2 py-1.5 bg-secondary border border-border rounded text-sm focus:outline-none focus:border-primary"
+            className="w-full px-3 py-2 bg-input border border-border rounded-lg text-sm focus:outline-none focus:border-primary/50 focus:shadow-apple-sm transition-colors"
           />
           {showModelDropdown && filteredModels.length > 0 && (
-            <div className="absolute z-10 mt-1 w-full max-h-48 overflow-y-auto bg-popover border border-border rounded-lg shadow-lg">
+            <div className="absolute z-10 mt-1 w-full max-h-48 overflow-y-auto bg-popover/95 glass border border-border/50 rounded-xl shadow-apple-xl animate-apple-fade-in">
               {filteredModels.map(model => (
                 <button
                   key={model}
@@ -1009,14 +1013,14 @@ function ClientAISettings() {
         <button
           onClick={handleTest}
           disabled={testing || !config.apiEndpoint || !config.apiKey}
-          className="px-4 py-2 text-sm rounded border border-border hover:bg-secondary disabled:opacity-50"
+          className="px-4 py-2 text-sm rounded-lg border border-border hover:bg-secondary disabled:opacity-50 font-medium transition-colors"
         >
           {testing ? 'Testing...' : 'Test Connection'}
         </button>
         {dirty && (
           <button
             onClick={handleSave}
-            className="px-4 py-2 text-sm rounded bg-primary text-primary-foreground hover:bg-primary/90"
+            className="px-4 py-2 text-sm rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 font-medium shadow-apple-sm transition-colors"
           >
             Save
           </button>
@@ -1201,7 +1205,7 @@ function NotificationSettingsInline() {
             <button
               onClick={handleTest}
               disabled={testing || !config.ntfyTopic}
-              className="px-4 py-2 text-sm rounded border border-border hover:bg-secondary disabled:opacity-50"
+              className="px-4 py-2 text-sm rounded-lg border border-border hover:bg-secondary disabled:opacity-50 font-medium transition-colors"
             >
               {testing ? 'Sending...' : 'Send Test'}
             </button>
@@ -1209,7 +1213,7 @@ function NotificationSettingsInline() {
               <button
                 onClick={handleSave}
                 disabled={saving}
-                className="px-4 py-2 text-sm rounded bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+                className="px-4 py-2 text-sm rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 font-medium shadow-apple-sm transition-colors"
               >
                 {saving ? 'Saving...' : 'Save Changes'}
               </button>
@@ -1224,7 +1228,7 @@ function NotificationSettingsInline() {
           <button
             onClick={handleSave}
             disabled={saving}
-            className="px-4 py-2 text-sm rounded bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+            className="px-4 py-2 text-sm rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 font-medium shadow-apple-sm transition-colors"
           >
             {saving ? 'Saving...' : 'Save Changes'}
           </button>
@@ -1307,7 +1311,7 @@ function MobileGatewayConfig() {
           <button
             onClick={handleSave}
             disabled={!url.trim() || !secret.trim()}
-            className="flex-1 py-2.5 bg-primary text-primary-foreground rounded-lg text-sm font-medium disabled:opacity-50"
+            className="flex-1 py-2.5 bg-primary text-primary-foreground rounded-lg text-sm font-medium disabled:opacity-50 shadow-apple-sm hover:bg-primary/90 transition-colors"
           >
             Save & Reconnect
           </button>

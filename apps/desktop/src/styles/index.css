@@ -3,45 +3,45 @@
 @tailwind utilities;
 
 @layer base {
-  /* Light theme (default) */
+  /* Light theme (default) — Apple HIG aligned */
   :root {
     /* Base colors */
     --background: 0 0% 100%;
-    --foreground: 222.2 84% 4.9%;
+    --foreground: 0 0% 0%;
 
     /* Card colors */
     --card: 0 0% 100%;
-    --card-foreground: 222.2 84% 4.9%;
+    --card-foreground: 0 0% 0%;
 
     /* Popover colors */
     --popover: 0 0% 100%;
-    --popover-foreground: 222.2 84% 4.9%;
+    --popover-foreground: 0 0% 0%;
 
-    /* Primary colors */
-    --primary: 221.2 83.2% 53.3%;
-    --primary-foreground: 210 40% 98%;
+    /* Primary colors — Apple System Blue #007AFF */
+    --primary: 211 100% 50%;
+    --primary-foreground: 0 0% 100%;
 
-    /* Secondary colors */
-    --secondary: 210 40% 96.1%;
-    --secondary-foreground: 222.2 47.4% 11.2%;
+    /* Secondary colors — Apple systemGray6 */
+    --secondary: 240 6% 95%;
+    --secondary-foreground: 0 0% 20%;
 
-    /* Muted colors */
-    --muted: 210 40% 96.1%;
-    --muted-foreground: 215.4 16.3% 46.9%;
+    /* Muted colors — Apple systemFill */
+    --muted: 240 5% 96%;
+    --muted-foreground: 240 3% 46%;
 
     /* Accent colors */
-    --accent: 210 40% 96.1%;
-    --accent-foreground: 222.2 47.4% 11.2%;
+    --accent: 240 6% 93%;
+    --accent-foreground: 0 0% 20%;
 
-    /* Destructive colors */
+    /* Destructive colors — Apple System Red */
     --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 210 40% 98%;
+    --destructive-foreground: 0 0% 100%;
 
-    /* Success colors */
+    /* Success colors — Apple System Green */
     --success: 142.1 76.2% 36.3%;
     --success-foreground: 355.7 100% 97.3%;
 
-    /* Warning colors */
+    /* Warning colors — Apple System Orange */
     --warning: 38 92% 50%;
     --warning-foreground: 48 96% 89%;
 
@@ -49,23 +49,29 @@
     --thinking: 265 60% 55%;
     --thinking-foreground: 265 80% 98%;
 
-    /* Border and input */
-    --border: 214.3 31.8% 91.4%;
-    --input: 214.3 31.8% 91.4%;
-    --ring: 221.2 83.2% 53.3%;
+    /* Border and input — Apple subtle separator */
+    --border: 240 6% 90%;
+    --input: 240 6% 90%;
+    --ring: 211 100% 50%;
 
-    /* Border radius */
-    --radius: 0.5rem;
+    /* Border radius — Apple-like larger corners */
+    --radius: 0.75rem;
+
+    /* Apple-style multi-layer shadows */
+    --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.04);
+    --shadow-md: 0 2px 8px -1px rgb(0 0 0 / 0.06), 0 1px 2px -1px rgb(0 0 0 / 0.04);
+    --shadow-lg: 0 4px 16px -2px rgb(0 0 0 / 0.08), 0 2px 4px -2px rgb(0 0 0 / 0.04);
+    --shadow-xl: 0 8px 32px -4px rgb(0 0 0 / 0.12), 0 4px 8px -2px rgb(0 0 0 / 0.06);
 
     /* Scrollbar colors */
-    --scrollbar-thumb: 215 20% 65%;
-    --scrollbar-thumb-hover: 215 25% 55%;
+    --scrollbar-thumb: 240 4% 75%;
+    --scrollbar-thumb-hover: 240 4% 60%;
 
     /* Terminal colors */
-    --terminal-bg: 210 40% 96%;
-    --terminal-fg: 222.2 84% 4.9%;
-    --terminal-cursor: 221.2 83.2% 53.3%;
-    --terminal-selection: 210 40% 90%;
+    --terminal-bg: 240 5% 96%;
+    --terminal-fg: 0 0% 0%;
+    --terminal-cursor: 211 100% 50%;
+    --terminal-selection: 211 100% 90%;
   }
 
   /* Dark theme — Neutral (default fallback) */
@@ -76,8 +82,9 @@
     --card-foreground: 210 15% 93%;
     --popover: 220 7% 10%;
     --popover-foreground: 210 15% 93%;
-    --primary: 215 55% 55%;
-    --primary-foreground: 220 15% 95%;
+    /* Apple System Blue (dark) #0A84FF */
+    --primary: 211 100% 52%;
+    --primary-foreground: 0 0% 100%;
     --secondary: 220 6% 14%;
     --secondary-foreground: 210 12% 88%;
     --muted: 220 6% 14%;
@@ -94,12 +101,18 @@
     --thinking-foreground: 265 60% 95%;
     --border: 220 8% 18%;
     --input: 220 7% 16%;
-    --ring: 215 50% 48%;
+    --ring: 211 100% 52%;
+
+    --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.2);
+    --shadow-md: 0 2px 8px -1px rgb(0 0 0 / 0.3), 0 1px 2px -1px rgb(0 0 0 / 0.2);
+    --shadow-lg: 0 4px 16px -2px rgb(0 0 0 / 0.4), 0 2px 4px -2px rgb(0 0 0 / 0.2);
+    --shadow-xl: 0 8px 32px -4px rgb(0 0 0 / 0.5), 0 4px 8px -2px rgb(0 0 0 / 0.3);
+
     --scrollbar-thumb: 220 8% 28%;
     --scrollbar-thumb-hover: 220 8% 36%;
     --terminal-bg: 220 8% 6%;
     --terminal-fg: 210 15% 93%;
-    --terminal-cursor: 215 55% 55%;
+    --terminal-cursor: 211 100% 52%;
     --terminal-selection: 220 7% 20%;
   }
 
@@ -111,8 +124,8 @@
     --card-foreground: 40 12% 92%;
     --popover: 30 6% 10%;
     --popover-foreground: 40 12% 92%;
-    --primary: 35 65% 55%;
-    --primary-foreground: 30 15% 95%;
+    --primary: 211 100% 52%;
+    --primary-foreground: 0 0% 100%;
     --secondary: 28 5% 14%;
     --secondary-foreground: 35 10% 86%;
     --muted: 28 5% 14%;
@@ -129,12 +142,18 @@
     --thinking-foreground: 270 50% 95%;
     --border: 30 7% 18%;
     --input: 30 6% 16%;
-    --ring: 35 55% 45%;
+    --ring: 211 100% 52%;
+
+    --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.2);
+    --shadow-md: 0 2px 8px -1px rgb(0 0 0 / 0.3), 0 1px 2px -1px rgb(0 0 0 / 0.2);
+    --shadow-lg: 0 4px 16px -2px rgb(0 0 0 / 0.4), 0 2px 4px -2px rgb(0 0 0 / 0.2);
+    --shadow-xl: 0 8px 32px -4px rgb(0 0 0 / 0.5), 0 4px 8px -2px rgb(0 0 0 / 0.3);
+
     --scrollbar-thumb: 30 6% 26%;
     --scrollbar-thumb-hover: 30 6% 34%;
     --terminal-bg: 30 6% 6%;
     --terminal-fg: 40 12% 92%;
-    --terminal-cursor: 35 65% 55%;
+    --terminal-cursor: 211 100% 52%;
     --terminal-selection: 28 6% 20%;
   }
 
@@ -146,8 +165,8 @@
     --card-foreground: 215 20% 93%;
     --popover: 225 16% 9.5%;
     --popover-foreground: 215 20% 93%;
-    --primary: 215 65% 58%;
-    --primary-foreground: 225 20% 95%;
+    --primary: 211 100% 52%;
+    --primary-foreground: 0 0% 100%;
     --secondary: 222 14% 13.5%;
     --secondary-foreground: 215 15% 87%;
     --muted: 222 14% 13.5%;
@@ -164,26 +183,33 @@
     --thinking-foreground: 260 60% 95%;
     --border: 222 16% 19%;
     --input: 222 14% 16%;
-    --ring: 215 60% 50%;
+    --ring: 211 100% 52%;
+
+    --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.2);
+    --shadow-md: 0 2px 8px -1px rgb(0 0 0 / 0.3), 0 1px 2px -1px rgb(0 0 0 / 0.2);
+    --shadow-lg: 0 4px 16px -2px rgb(0 0 0 / 0.4), 0 2px 4px -2px rgb(0 0 0 / 0.2);
+    --shadow-xl: 0 8px 32px -4px rgb(0 0 0 / 0.5), 0 4px 8px -2px rgb(0 0 0 / 0.3);
+
     --scrollbar-thumb: 222 14% 28%;
     --scrollbar-thumb-hover: 222 14% 36%;
     --terminal-bg: 225 18% 5.5%;
     --terminal-fg: 215 20% 93%;
-    --terminal-cursor: 215 65% 58%;
+    --terminal-cursor: 211 100% 52%;
     --terminal-selection: 222 15% 20%;
   }
 }
 
 :root {
   font-family:
-    Inter,
+    -apple-system,
+    BlinkMacSystemFont,
+    'SF Pro Text',
+    'SF Pro Display',
     system-ui,
-    Avenir,
-    Helvetica,
-    Arial,
     sans-serif;
   line-height: 1.5;
   font-weight: 400;
+  letter-spacing: -0.01em;
 
   font-synthesis: none;
   text-rendering: optimizeLegibility;
@@ -245,6 +271,29 @@ body {
   }
 }
 
+/* Apple-style animations */
+@keyframes apple-fade-in {
+  from {
+    opacity: 0;
+    transform: scale(0.97) translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+@keyframes apple-slide-up {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 .animate-fade-in {
   animation: fade-in 0.3s ease-out;
 }
@@ -253,16 +302,35 @@ body {
   animation: loading-bar 2s ease-in-out infinite;
 }
 
-/* Smooth theme transitions */
+.animate-apple-fade-in {
+  animation: apple-fade-in 0.25s cubic-bezier(0.25, 0.1, 0.25, 1);
+}
+
+.animate-apple-slide-up {
+  animation: apple-slide-up 0.2s cubic-bezier(0.25, 0.1, 0.25, 1);
+}
+
+/* Smooth theme transitions — Apple ease curve */
 * {
-  transition-property: background-color, border-color, color;
-  transition-duration: 150ms;
-  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  transition-property: background-color, border-color, color, opacity, box-shadow;
+  transition-duration: 200ms;
+  transition-timing-function: cubic-bezier(0.25, 0.1, 0.25, 1);
 }
 
 /* Disable transitions on page load */
 .no-transitions * {
   transition: none !important;
+}
+
+/* Frosted glass / vibrancy effects */
+.glass {
+  backdrop-filter: saturate(180%) blur(20px);
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+}
+
+.glass-subtle {
+  backdrop-filter: saturate(150%) blur(12px);
+  -webkit-backdrop-filter: saturate(150%) blur(12px);
 }
 
 /* Tauri drag region styles */

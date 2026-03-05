@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { Check, X, Lock, AlertTriangle } from 'lucide-react';
 import type { PermissionRequest } from '../../stores/permissionStore';
 import { PermissionDetailView } from '../permission/PermissionDetailView';
 
@@ -76,13 +77,9 @@ export function InlinePermissionRequest({ request, onDecision }: InlinePermissio
         resolved === 'allow' ? 'text-success' : 'text-muted-foreground'
       }`}>
         {resolved === 'allow' ? (
-          <svg className="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-          </svg>
+          <Check size={14} strokeWidth={2} className="flex-shrink-0" />
         ) : (
-          <svg className="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-          </svg>
+          <X size={14} strokeWidth={2} className="flex-shrink-0" />
         )}
         <span className="font-mono">{request.toolName}</span>
         <span>— {resolved === 'allow' ? 'Approved' : 'Denied'}</span>
@@ -91,7 +88,7 @@ export function InlinePermissionRequest({ request, onDecision }: InlinePermissio
   }
 
   return (
-    <div className={`rounded-lg border border-border overflow-hidden border-l-4 ${borderColor}`}>
+    <div className={`rounded-xl border border-border overflow-hidden border-l-4 ${borderColor}`}>
       {/* Timeout progress bar */}
       {hasTimeout && (
         <div className="h-0.5 bg-muted">
@@ -105,13 +102,9 @@ export function InlinePermissionRequest({ request, onDecision }: InlinePermissio
       {/* Header */}
       <div className="px-3 py-2 bg-card flex items-center gap-2">
         {isCredential ? (
-          <svg className="w-4 h-4 text-amber-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
-          </svg>
+          <Lock size={16} strokeWidth={2} className="text-amber-500 flex-shrink-0" />
         ) : (
-          <svg className="w-4 h-4 text-warning flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-          </svg>
+          <AlertTriangle size={16} strokeWidth={2} className="text-warning flex-shrink-0" />
         )}
         <span className="text-sm font-medium text-card-foreground">
           {isCredential ? 'Credential Required' : 'Permission Required'}
@@ -188,14 +181,14 @@ export function InlinePermissionRequest({ request, onDecision }: InlinePermissio
           {/* Action buttons */}
           <button
             onClick={handleDeny}
-            className="px-3 py-1.5 bg-secondary hover:bg-secondary/80 active:bg-secondary/70 text-secondary-foreground rounded text-xs font-medium transition-colors"
+            className="px-3 py-1.5 bg-secondary hover:bg-secondary/80 active:bg-secondary/70 text-secondary-foreground rounded-full text-xs font-medium transition-colors"
           >
             Deny
           </button>
           <button
             onClick={handleAllow}
             disabled={isCredential && !credential}
-            className="px-3 py-1.5 bg-success hover:bg-success/80 active:bg-success/70 text-success-foreground rounded text-xs font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            className="px-3 py-1.5 bg-success hover:bg-success/80 active:bg-success/70 text-success-foreground rounded-full text-xs font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
             Allow
           </button>

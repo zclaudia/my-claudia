@@ -1,4 +1,7 @@
 import { useState, useRef, useEffect, KeyboardEvent, ClipboardEvent, ChangeEvent, useCallback, useMemo } from 'react';
+import { Paperclip, X, Send, File as FileIcon, ChevronRight } from 'lucide-react';
+import { Icon } from '../ui/Icon';
+import { getFileIcon } from '../../config/icons';
 import type { SlashCommand, FileEntry } from '@my-claudia/shared';
 import * as api from '../../services/api';
 import { useIsMobile } from '../../hooks/useMediaQuery';
@@ -46,42 +49,6 @@ const initialMentionState: MentionState = {
   entries: [],
   selectedIndex: 0,
   isLoading: false,
-};
-
-// File type icons
-const getFileIcon = (entry: FileEntry): string => {
-  if (entry.type === 'directory') {
-    return '\uD83D\uDCC1'; // 📁
-  }
-
-  const ext = entry.extension?.toLowerCase();
-  const iconMap: Record<string, string> = {
-    '.ts': '\uD83D\uDD37',    // 🔷
-    '.tsx': '\u269B\uFE0F',   // ⚛️
-    '.js': '\uD83D\uDFE8',    // 🟨
-    '.jsx': '\u269B\uFE0F',   // ⚛️
-    '.json': '\uD83D\uDCCB',  // 📋
-    '.md': '\uD83D\uDCDD',    // 📝
-    '.css': '\uD83C\uDFA8',   // 🎨
-    '.scss': '\uD83C\uDFA8',  // 🎨
-    '.html': '\uD83C\uDF10',  // 🌐
-    '.py': '\uD83D\uDC0D',    // 🐍
-    '.rs': '\uD83E\uDD80',    // 🦀
-    '.go': '\uD83D\uDC39',    // 🐹
-    '.java': '\u2615',        // ☕
-    '.yaml': '\uD83D\uDCC4',  // 📄
-    '.yml': '\uD83D\uDCC4',   // 📄
-    '.toml': '\uD83D\uDCC4',  // 📄
-    '.env': '\uD83D\uDD10',   // 🔐
-    '.gitignore': '\uD83D\uDEAB', // 🚫
-    '.png': '\uD83D\uDDBC\uFE0F', // 🖼️
-    '.jpg': '\uD83D\uDDBC\uFE0F', // 🖼️
-    '.jpeg': '\uD83D\uDDBC\uFE0F', // 🖼️
-    '.svg': '\uD83C\uDFA8',   // 🎨
-    '.gif': '\uD83D\uDDBC\uFE0F', // 🖼️
-  };
-
-  return iconMap[ext || ''] || '\uD83D\uDCC4'; // 📄
 };
 
 // Format file size
@@ -241,6 +208,12 @@ export function MessageInput({
     if (!textarea) return;
 
     if (!advancedMode) {
+      // Force clear any inline height (e.g. from browser resize handle) before measuring
+      textarea.style.height = '';
+      textarea.style.minHeight = '';
+      textarea.style.maxHeight = '';
+      // Force layout recalculation after clearing
+      void textarea.offsetHeight;
       textarea.style.height = 'auto';
       const newHeight = Math.min(textarea.scrollHeight, 200);
       textarea.style.height = `${newHeight}px`;
@@ -679,10 +652,10 @@ export function MessageInput({
                   index === mentionState.selectedIndex ? 'bg-muted' : ''
                 }`}
               >
-                <span className="text-lg">{getFileIcon(entry)}</span>
+                <Icon icon={getFileIcon(entry.name, entry.type === 'directory')} size={16} className="text-muted-foreground" />
                 <span className="flex-1 truncate">{entry.name}</span>
                 {entry.type === 'directory' && (
-                  <span className="text-muted-foreground">→</span>
+                  <ChevronRight size={14} className="text-muted-foreground" />
                 )}
                 {entry.size !== undefined && (
                   <span className="text-xs text-muted-foreground">
@@ -712,19 +685,7 @@ export function MessageInput({
               ) : (
                 <div className="h-20 w-32 flex items-center justify-center p-2">
                   <div className="text-center">
-                    <svg
-                      className="w-8 h-8 mx-auto text-muted-foreground"
-                      fill="none"
-                      stroke="currentColor"
-                      viewBox="0 0 24 24"
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"
-                      />
-                    </svg>
+                    <FileIcon size={32} strokeWidth={1.5} className="mx-auto text-muted-foreground" />
                     <span className="text-xs text-muted-foreground truncate block mt-1">
                       {attachment.name}
                     </span>
@@ -735,9 +696,7 @@ export function MessageInput({
                 onClick={() => removeAttachment(attachment.id)}
                 className="absolute top-1 right-1 w-5 h-5 bg-destructive text-destructive-foreground rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
               >
-                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
+                <X size={12} strokeWidth={2} />
               </button>
             </div>
           ))}
@@ -750,17 +709,10 @@ export function MessageInput({
         <button
           onClick={() => fileInputRef.current?.click()}
           disabled={disabled}
-          className="p-2.5 text-muted-foreground hover:text-foreground hover:bg-muted rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          className="h-12 w-12 flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted rounded-full transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           title="Add attachment (images, files)"
         >
-          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"
-            />
-          </svg>
+          <Paperclip size={20} strokeWidth={1.75} />
         </button>
         <input
           ref={fileInputRef}
@@ -803,8 +755,8 @@ export function MessageInput({
             autoCapitalize="off"
             autoComplete="off"
             rows={1}
-            className={`w-full bg-input border border-border rounded-lg px-4 py-3 text-foreground placeholder-muted-foreground focus:outline-none focus:border-primary disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 ${
-              advancedMode ? 'resize-y min-h-[160px] max-h-[40vh] overflow-auto' : 'resize-none overflow-hidden'
+            className={`w-full bg-input border border-border rounded-xl px-4 py-3 text-foreground placeholder-muted-foreground focus:outline-none focus:border-primary/50 focus:shadow-apple-md disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-200 ${
+              advancedMode ? 'resize-y min-h-[160px] max-h-[40vh] overflow-auto' : 'min-h-12 resize-none overflow-hidden'
             }`}
             style={{
               fontSize: 'var(--chat-font-input, 0.875rem)',
@@ -817,44 +769,20 @@ export function MessageInput({
         {isLoading && onCancel ? (
           <button
             onClick={onCancel}
-            className="p-2.5 bg-destructive text-destructive-foreground hover:bg-destructive/90 rounded-lg transition-colors"
+            className="h-12 w-12 flex items-center justify-center bg-destructive text-destructive-foreground hover:bg-destructive/90 rounded-full transition-colors"
             title="Cancel (Esc)"
           >
-            <svg
-              className="w-5 h-5"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M6 18L18 6M6 6l12 12"
-              />
-            </svg>
+            <X size={20} strokeWidth={2} />
           </button>
         ) : (
           <button
             onClick={handleSend}
             disabled={disabled || (!value.trim() && attachments.length === 0)}
-            className="p-2.5 bg-primary text-primary-foreground hover:bg-primary/90 disabled:bg-muted disabled:text-muted-foreground disabled:cursor-not-allowed rounded-lg transition-colors"
+            className="h-12 w-12 flex items-center justify-center bg-primary text-primary-foreground hover:bg-primary/90 disabled:bg-muted disabled:text-muted-foreground disabled:cursor-not-allowed rounded-full transition-colors"
             title={advancedMode && !isMobile ? `Send message (${isMac ? 'Cmd' : 'Ctrl'}+Enter)` : 'Send message (Enter)'}
             data-testid="send-button"
           >
-            <svg
-              className="w-5 h-5"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"
-              />
-            </svg>
+            <Send size={20} strokeWidth={1.75} />
           </button>
         )}
       </div>

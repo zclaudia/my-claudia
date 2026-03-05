@@ -47,6 +47,7 @@ import { TerminalManager } from './terminal-manager.js';
 import { generateKeyPair, getPublicKeyPem, decryptCredential } from './utils/crypto.js';
 import { getSdkVersionReport } from './utils/sdk-version-check.js';
 import { getGatewayClientMode } from './gateway-instance.js';
+import { generateToolSignature, detectLoop } from './loop-detection.js';
 
 // Phase 2: Router architecture (CRUD routes migrated to HTTP REST)
 import { createRouter } from './router/index.js';
@@ -232,6 +233,7 @@ interface ActiveRun {
   startedAt: number;
   lastActivityAt: number;
   recentToolCalls: string[];  // Last N tool names (sliding window for loop detection)
+  loopHeartbeatStreak: number; // Consecutive heartbeats that detect a loop pattern
 }
 
 const activeRuns = new Map<string, ActiveRun>();
@@ -870,26 +872,6 @@ function sendMessage(ws: WebSocket, message: ServerMessage): void {
   }
 }
 
-/** Detect repeating tool call patterns (e.g. Read → Grep → Read → Grep...) */
-function detectLoop(toolCalls: string[]): { detected: boolean; pattern?: string } {
-  if (toolCalls.length < 6) return { detected: false };
-  // Check periods of length 2-4, requiring at least 3 consecutive repetitions
-  for (let period = 2; period <= 4; period++) {
-    if (toolCalls.length < period * 3) continue;
-    const tail = toolCalls.slice(-period);
-    let repeats = 0;
-    for (let i = toolCalls.length - period; i >= period; i -= period) {
-      const segment = toolCalls.slice(i - period, i);
-      if (segment.every((t, j) => t === tail[j])) repeats++;
-      else break;
-    }
-    if (repeats >= 2) {
-      return { detected: true, pattern: tail.join(' → ') };
-    }
-  }
-  return { detected: false };
-}
-
 function buildStateHeartbeat(): StateHeartbeatMessage {
   const runs: StateHeartbeatMessage['activeRuns'] = [];
   const permissions: StateHeartbeatMessage['pendingPermissions'] = [];
@@ -899,8 +881,13 @@ function buildStateHeartbeat(): StateHeartbeatMessage {
     if (run.completed) continue;  // Run finished but for-await still draining SDK messages
     const idleSec = (Date.now() - run.lastActivityAt) / 1000;
     const loop = detectLoop(run.recentToolCalls);
+    if (loop.detected) {
+      run.loopHeartbeatStreak += 1;
+    } else {
+      run.loopHeartbeatStreak = 0;
+    }
     let health: RunHealthStatus = 'healthy';
-    if (loop.detected) health = 'loop';
+    if (loop.detected && run.loopHeartbeatStreak >= 3) health = 'loop';
     else if (idleSec > 60) health = 'idle';
     runs.push({
       runId,
@@ -908,7 +895,7 @@ function buildStateHeartbeat(): StateHeartbeatMessage {
       startedAt: run.startedAt,
       lastActivityAt: run.lastActivityAt,
       health,
-      loopPattern: loop.detected ? loop.pattern : undefined,
+      loopPattern: (loop.detected && run.loopHeartbeatStreak >= 3) ? loop.pattern : undefined,
       sessionType: run.sessionType,
     });
     for (const [requestId, pending] of run.pendingPermissions) {
@@ -1277,6 +1264,7 @@ async function handleRunStart(
     startedAt: Date.now(),
     lastActivityAt: Date.now(),
     recentToolCalls: [],
+    loopHeartbeatStreak: 0,
     sessionType,
     aiInitiatedPlanMode: false,
   };
@@ -1667,31 +1655,8 @@ async function handleRunStart(
           }
           // Track for loop detection (sliding window of last 20 tool signatures)
           if (msg.toolName) {
-            // Generate a more specific signature for loop detection
-            let toolSignature = msg.toolName;
             const input = msg.toolInput as Record<string, unknown> | undefined;
-
-            // For Bash commands, include the command name (first word)
-            if (msg.toolName === 'Bash' && input?.command && typeof input.command === 'string') {
-              const cmd = input.command.split(' ')[0];
-              toolSignature = `Bash:${cmd}`;
-            }
-            // For Read/Write/Edit, include file path with parent directory for better disambiguation
-            else if (['Read', 'Write', 'Edit'].includes(msg.toolName) && input?.file_path && typeof input.file_path === 'string') {
-              const parts = input.file_path.split('/');
-              // Include last 2 parts of path (parent dir + filename) for better disambiguation
-              // e.g., "src/config.json" instead of just "config.json"
-              const pathSignature = parts.length >= 2
-                ? `${parts[parts.length - 2]}/${parts[parts.length - 1]}`
-                : parts[parts.length - 1] || input.file_path;
-              toolSignature = `${msg.toolName}:${pathSignature}`;
-            }
-            // For Grep, include the pattern
-            else if (msg.toolName === 'Grep' && input?.pattern && typeof input.pattern === 'string') {
-              const pattern = input.pattern.substring(0, 20);
-              toolSignature = `Grep:${pattern}`;
-            }
-
+            const toolSignature = generateToolSignature(msg.toolName, input);
             activeRun.recentToolCalls.push(toolSignature);
             if (activeRun.recentToolCalls.length > 20) {
               activeRun.recentToolCalls.shift();

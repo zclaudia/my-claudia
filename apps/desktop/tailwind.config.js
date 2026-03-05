@@ -19,18 +19,6 @@ export default {
         primary: {
           DEFAULT: 'hsl(var(--primary))',
           foreground: 'hsl(var(--primary-foreground))',
-          // Keep numeric scale for backwards compatibility
-          50: '#f0f9ff',
-          100: '#e0f2fe',
-          200: '#bae6fd',
-          300: '#7dd3fc',
-          400: '#38bdf8',
-          500: '#0ea5e9',
-          600: '#0284c7',
-          700: '#0369a1',
-          800: '#075985',
-          900: '#0c4a6e',
-          950: '#082f49',
         },
         secondary: {
           DEFAULT: 'hsl(var(--secondary))',
@@ -65,9 +53,16 @@ export default {
         ring: 'hsl(var(--ring))',
       },
       borderRadius: {
+        xl: 'calc(var(--radius) + 4px)',
         lg: 'var(--radius)',
         md: 'calc(var(--radius) - 2px)',
         sm: 'calc(var(--radius) - 4px)',
+      },
+      boxShadow: {
+        'apple-sm': 'var(--shadow-sm)',
+        'apple-md': 'var(--shadow-md)',
+        'apple-lg': 'var(--shadow-lg)',
+        'apple-xl': 'var(--shadow-xl)',
       },
     },
   },

@@ -260,7 +260,12 @@ describe('chatStore', () => {
       useChatStore.getState().addSessionUsage('session-1', { inputTokens: 100, outputTokens: 50 });
 
       const usage = useChatStore.getState().sessionUsage['session-1'];
-      expect(usage).toEqual({ inputTokens: 100, outputTokens: 50 });
+      expect(usage).toEqual({
+        inputTokens: 100,
+        outputTokens: 50,
+        latestInputTokens: 100,
+        latestOutputTokens: 50,
+      });
     });
 
     it('addSessionUsage accumulates tokens across multiple calls', () => {
@@ -268,15 +273,30 @@ describe('chatStore', () => {
       useChatStore.getState().addSessionUsage('session-1', { inputTokens: 200, outputTokens: 75 });
 
       const usage = useChatStore.getState().sessionUsage['session-1'];
-      expect(usage).toEqual({ inputTokens: 300, outputTokens: 125 });
+      expect(usage).toEqual({
+        inputTokens: 300,
+        outputTokens: 125,
+        latestInputTokens: 200,
+        latestOutputTokens: 75,
+      });
     });
 
     it('addSessionUsage does not affect other sessions', () => {
       useChatStore.getState().addSessionUsage('session-1', { inputTokens: 100, outputTokens: 50 });
       useChatStore.getState().addSessionUsage('session-2', { inputTokens: 200, outputTokens: 75 });
 
-      expect(useChatStore.getState().sessionUsage['session-1']).toEqual({ inputTokens: 100, outputTokens: 50 });
-      expect(useChatStore.getState().sessionUsage['session-2']).toEqual({ inputTokens: 200, outputTokens: 75 });
+      expect(useChatStore.getState().sessionUsage['session-1']).toEqual({
+        inputTokens: 100,
+        outputTokens: 50,
+        latestInputTokens: 100,
+        latestOutputTokens: 50,
+      });
+      expect(useChatStore.getState().sessionUsage['session-2']).toEqual({
+        inputTokens: 200,
+        outputTokens: 75,
+        latestInputTokens: 200,
+        latestOutputTokens: 75,
+      });
     });
   });
 

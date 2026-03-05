@@ -1,4 +1,5 @@
 import { useEffect, useState, useRef } from 'react';
+import { Bot, ChevronsRight, ChevronsLeft } from 'lucide-react';
 import { Sidebar } from './components/Sidebar';
 import { ChatInterface } from './components/chat/ChatInterface';
 import { ServerSelector } from './components/ServerSelector';
@@ -161,7 +162,7 @@ function AppContent() {
         data-tauri-drag-region
       >
         {/* Left section: Logo and app name */}
-        <div className="flex items-center gap-2 md:gap-3 md:min-w-[200px] flex-shrink-0" data-tauri-drag-region>
+        <div className="flex items-center gap-2 md:gap-3 flex-shrink-0" data-tauri-drag-region>
           {/* Mobile: back button when agent is active, hamburger otherwise */}
           {isMobile && isAgentExpanded ? (
             <button
@@ -186,9 +187,9 @@ function AppContent() {
           ) : null}
 
           {/* Logo - hidden on mobile, with left padding for macOS traffic lights on desktop */}
-          <div className="hidden md:flex items-center gap-2 md:pl-16" data-tauri-drag-region>
+          <div className="hidden md:flex items-center gap-2" data-tauri-drag-region>
             <div className="w-7 h-7 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0">
-              <span className="text-base">🤖</span>
+              <Bot size={16} strokeWidth={1.75} className="text-primary" />
             </div>
             <span className="font-semibold text-sm text-foreground leading-tight" data-tauri-drag-region>MyClaudia</span>
           </div>
@@ -200,13 +201,7 @@ function AppContent() {
               className="p-1 rounded hover:bg-secondary text-muted-foreground hover:text-foreground ml-2"
               title={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
             >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                {sidebarCollapsed ? (
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 5l7 7-7 7M5 5l7 7-7 7" />
-                ) : (
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 19l-7-7 7-7m8 14l-7-7 7-7" />
-                )}
-              </svg>
+              {sidebarCollapsed ? <ChevronsRight size={16} strokeWidth={2} /> : <ChevronsLeft size={16} strokeWidth={2} />}
             </button>
           )}
         </div>
@@ -215,7 +210,7 @@ function AppContent() {
         <div className="flex-1 flex items-center justify-start ml-2 md:ml-4 min-w-0">
           {isMobile && isAgentExpanded ? (
             <div className="flex items-center gap-2">
-              <span className="text-base">🤖</span>
+              <Bot size={16} strokeWidth={1.75} className="text-primary" />
               <span className="font-semibold text-sm text-foreground">Agent</span>
             </div>
           ) : (

@@ -1,7 +1,9 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, memo } from 'react';
 import { AnsiUp } from 'ansi_up';
 import type { ToolCallState } from '../../stores/chatStore';
 import { getToolIcon } from '../../config/icons';
+import { Icon } from '../ui/Icon';
+import { CheckCircle2, XCircle, Loader2, ChevronDown, ChevronRight, Wrench, Square } from 'lucide-react';
 import { DiffViewer } from './DiffViewer';
 import { CodeViewer } from './CodeViewer';
 import { useTerminalStore } from '../../stores/terminalStore';
@@ -433,7 +435,7 @@ function ToolExpandedContent({ toolName, toolInput, status, result, isError }: {
           {todos.map((todo, idx) => (
             <div key={idx} className="flex items-center gap-2 text-xs">
               <span className="flex-shrink-0">
-                {todo.status === 'completed' ? '✅' : todo.status === 'in_progress' ? '🔄' : '⬜'}
+                {todo.status === 'completed' ? <CheckCircle2 size={12} className="text-success" /> : todo.status === 'in_progress' ? <Loader2 size={12} className="animate-spin text-primary" /> : <Square size={12} className="text-muted-foreground" />}
               </span>
               <span className={todo.status === 'completed' ? 'text-muted-foreground line-through' : 'text-foreground'}>
                 {todo.content}
@@ -478,7 +480,7 @@ function ToolExpandedContent({ toolName, toolInput, status, result, isError }: {
   );
 }
 
-export function ToolCallItem({ toolCall }: ToolCallItemProps) {
+export const ToolCallItem = memo(function ToolCallItem({ toolCall }: ToolCallItemProps) {
   const [isExpanded, setIsExpanded] = useState(false);
   const { toolName, toolInput, status, result, isError } = toolCall;
 
@@ -491,7 +493,7 @@ export function ToolCallItem({ toolCall }: ToolCallItemProps) {
   return (
     <div
       data-testid="tool-use"
-      className={`my-2 rounded-lg border ${
+      className={`my-2 rounded-xl shadow-apple-sm border ${
         status === 'running'
           ? 'border-primary/30 bg-primary/5'
           : showAsError
@@ -506,15 +508,15 @@ export function ToolCallItem({ toolCall }: ToolCallItemProps) {
       >
         {/* Status indicator */}
         {status === 'running' ? (
-          <span className="animate-spin text-primary">⟳</span>
+          <Loader2 size={14} className="animate-spin text-primary" />
         ) : showAsError ? (
-          <span className="text-destructive">✗</span>
+          <XCircle size={14} className="text-destructive" />
         ) : (
-          <span className="text-success">✓</span>
+          <CheckCircle2 size={14} className="text-success" />
         )}
 
         {/* Tool icon and name */}
-        <span className="text-xs">{icon}</span>
+        <Icon icon={icon} size={14} className="text-muted-foreground" />
         <span className="text-xs font-medium text-foreground" data-testid="tool-name">{toolName}</span>
 
         {/* Summary */}
@@ -523,8 +525,8 @@ export function ToolCallItem({ toolCall }: ToolCallItemProps) {
         </span>
 
         {/* Expand/collapse indicator */}
-        <span className="text-muted-foreground text-xs">
-          {isExpanded ? '▼' : '▶'}
+        <span className="text-muted-foreground">
+          {isExpanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
         </span>
       </button>
 
@@ -540,7 +542,7 @@ export function ToolCallItem({ toolCall }: ToolCallItemProps) {
       )}
     </div>
   );
-}
+});
 
 interface ToolCallListProps {
   toolCalls: ToolCallState[];
@@ -554,37 +556,36 @@ function getToolCallSummary(tc: ToolCallState): string {
 
   switch (tc.toolName) {
     case 'Read':
-      return input.file_path ? `📖 ${String(input.file_path).split('/').pop()}` : '📖 Read';
+      return input.file_path ? String(input.file_path).split('/').pop()! : 'Read';
     case 'Write':
-      return input.file_path ? `✏️ ${String(input.file_path).split('/').pop()}` : '✏️ Write';
+      return input.file_path ? String(input.file_path).split('/').pop()! : 'Write';
     case 'Edit':
-      return input.file_path ? `📝 ${String(input.file_path).split('/').pop()}` : '📝 Edit';
+      return input.file_path ? String(input.file_path).split('/').pop()! : 'Edit';
     case 'Bash':
       const cmd = String(input.command || '').split(' ')[0];
-      return `💻 ${cmd || 'bash'}`;
+      return cmd || 'bash';
     case 'Grep':
-      return `🔍 grep ${String(input.pattern || '').substring(0, 15)}`;
+      return `grep ${String(input.pattern || '').substring(0, 15)}`;
     case 'Glob':
-      return `📁 glob ${String(input.pattern || '').substring(0, 15)}`;
+      return `glob ${String(input.pattern || '').substring(0, 15)}`;
     case 'Task':
-      return `🤖 ${String(input.description || 'task').substring(0, 20)}`;
+      return String(input.description || 'task').substring(0, 20);
     case 'WebFetch':
       try {
         const url = new URL(String(input.url || ''));
-        return `🌐 ${url.hostname}`;
+        return url.hostname;
       } catch {
-        return '🌐 fetch';
+        return 'fetch';
       }
     case 'WebSearch':
-      return `🔎 ${String(input.query || '').substring(0, 15)}`;
+      return String(input.query || '').substring(0, 15);
     case 'TodoWrite':
-      return '📋 Update todos';
+      return 'Update todos';
     case 'AskUserQuestion': {
       const questions = (input.questions as Array<{ header: string }>) || [];
-      return `❓ ${questions[0]?.header || 'question'}`;
+      return questions[0]?.header || 'question';
     }
     case 'ExitPlanMode': {
-      // Try to extract a meaningful title from plan data
       let planText = '';
 
       if (input.plan) {
@@ -600,28 +601,28 @@ function getToolCallSummary(tc: ToolCallState): string {
       }
 
       const title = planText.split('\n').find(l => l.trim())?.replace(/^#+\s*/, '') || 'Plan';
-      return `📋 ${title.substring(0, 25)}`;
+      return title.substring(0, 25);
     }
     case 'EnterPlanMode':
-      return '📋 Enter plan mode';
+      return 'Enter plan mode';
     default:
-      return `🔧 ${tc.toolName}`;
+      return tc.toolName;
   }
 }
 
-// Get status icon
-function getStatusIcon(status: ToolCallState['status']): string {
+// Get status icon as Lucide component
+function getStatusIconComponent(status: ToolCallState['status']) {
   switch (status) {
-    case 'completed': return '✓';
-    case 'error': return '✗';
-    case 'running': return '⟳';
-    default: return '';
+    case 'completed': return <CheckCircle2 size={10} className="text-success" />;
+    case 'error': return <XCircle size={10} className="text-destructive" />;
+    case 'running': return <Loader2 size={10} className="animate-spin text-primary" />;
+    default: return null;
   }
 }
 
 const MAX_VISIBLE_TOOLS = 5;
 
-export function ToolCallList({ toolCalls, defaultCollapsed = false }: ToolCallListProps) {
+export const ToolCallList = memo(function ToolCallList({ toolCalls, defaultCollapsed = false }: ToolCallListProps) {
   const [isCollapsed, setIsCollapsed] = useState(defaultCollapsed);
   const [showAll, setShowAll] = useState(false);
 
@@ -640,15 +641,16 @@ export function ToolCallList({ toolCalls, defaultCollapsed = false }: ToolCallLi
       >
         {/* Header with counts */}
         <div className="flex items-center gap-2 mb-1.5">
-          <span className="text-foreground font-medium">
-            🔧 {toolCalls.length} tool call{toolCalls.length > 1 ? 's' : ''}
+          <span className="flex items-center gap-1 text-foreground font-medium">
+            <Wrench size={12} className="text-muted-foreground" />
+            {toolCalls.length} tool call{toolCalls.length > 1 ? 's' : ''}
           </span>
-          <span className="text-muted-foreground">
-            {completedCount > 0 && <span className="text-success">✓{completedCount}</span>}
-            {errorCount > 0 && <span className="text-destructive ml-1">✗{errorCount}</span>}
-            {runningCount > 0 && <span className="text-primary ml-1">⟳{runningCount}</span>}
+          <span className="flex items-center gap-1 text-muted-foreground">
+            {completedCount > 0 && <span className="flex items-center gap-0.5 text-success"><CheckCircle2 size={10} />{completedCount}</span>}
+            {errorCount > 0 && <span className="flex items-center gap-0.5 text-destructive ml-1"><XCircle size={10} />{errorCount}</span>}
+            {runningCount > 0 && <span className="flex items-center gap-0.5 text-primary ml-1"><Loader2 size={10} className="animate-spin" />{runningCount}</span>}
           </span>
-          <span className="text-muted-foreground ml-auto text-[10px]">Click to expand ▶</span>
+          <span className="flex items-center gap-0.5 text-muted-foreground ml-auto text-[10px]">Click to expand <ChevronRight size={10} /></span>
         </div>
         {/* Brief list of each tool call */}
         <div className="flex flex-wrap gap-1.5">
@@ -664,7 +666,7 @@ export function ToolCallList({ toolCalls, defaultCollapsed = false }: ToolCallLi
               }`}
               title={formatToolInput(tc.toolName, tc.toolInput)}
             >
-              <span>{getStatusIcon(tc.status)}</span>
+              <span>{getStatusIconComponent(tc.status)}</span>
               <span className="truncate max-w-[120px]">{getToolCallSummary(tc)}</span>
             </span>
           ))}
@@ -688,7 +690,7 @@ export function ToolCallList({ toolCalls, defaultCollapsed = false }: ToolCallLi
           onClick={() => setIsCollapsed(true)}
           className="flex items-center gap-2 px-3 py-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
         >
-          <span>▼</span>
+          <ChevronDown size={12} />
           <span>Collapse tool calls</span>
         </button>
       )}
@@ -699,7 +701,7 @@ export function ToolCallList({ toolCalls, defaultCollapsed = false }: ToolCallLi
           onClick={() => setShowAll(true)}
           className="px-3 py-1.5 text-xs bg-muted/50 rounded-lg hover:bg-muted transition-colors cursor-pointer w-full text-left text-muted-foreground"
         >
-          <span>▶ Show {hiddenCount} earlier tool call{hiddenCount > 1 ? 's' : ''}</span>
+          <span className="flex items-center gap-1"><ChevronRight size={12} /> Show {hiddenCount} earlier tool call{hiddenCount > 1 ? 's' : ''}</span>
         </button>
       )}
 
@@ -708,4 +710,4 @@ export function ToolCallList({ toolCalls, defaultCollapsed = false }: ToolCallLi
       ))}
     </div>
   );
-}
+});

@@ -590,7 +590,9 @@ export class GatewayClient {
         providerId: session.providerId,
         createdAt: session.createdAt,
         updatedAt: session.updatedAt,
-        isActive: [...this.activeRuns!.values()].some((run: any) => run.sessionId === session.id),
+        isActive: [...this.activeRuns!.values()].some(
+          (run: any) => run.sessionId === session.id && !run.completed && run.sessionType !== 'background'
+        ),
         lastMessageOffset: session.lastMessageOffset ?? undefined,
       }));
 

@@ -1,4 +1,5 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
+import { ChevronDown, Check } from 'lucide-react';
 import type { ProviderConfig } from '@my-claudia/shared';
 import { useServerStore } from '../stores/serverStore';
 import { useProjectStore } from '../stores/projectStore';
@@ -157,19 +158,7 @@ export function ProviderManager({ isOpen, onClose, inline = false }: ProviderMan
         />
       </div>
 
-      <div>
-        <label className="block text-sm font-medium text-muted-foreground mb-1">Type</label>
-        <select
-          value={formType}
-          onChange={(e) => setFormType(e.target.value as ProviderType)}
-          className="w-full px-3 py-2 bg-secondary border border-border rounded-lg text-sm focus:outline-none focus:border-primary"
-        >
-          <option value="claude">Claude</option>
-          <option value="opencode">OpenCode</option>
-          <option value="codex">Codex</option>
-          <option value="cursor">Cursor Agent</option>
-        </select>
-      </div>
+      <TypeSelector value={formType} onChange={setFormType} />
 
       <div>
         <label className="block text-sm font-medium text-muted-foreground mb-1">CLI Path (optional)</label>
@@ -352,5 +341,61 @@ export function ProviderManager({ isOpen, onClose, inline = false }: ProviderMan
         </div>
       </div>
     </>
+  );
+}
+
+const TYPE_OPTIONS: { value: 'claude' | 'opencode' | 'codex' | 'cursor'; label: string }[] = [
+  { value: 'claude', label: 'Claude' },
+  { value: 'opencode', label: 'OpenCode' },
+  { value: 'codex', label: 'Codex' },
+  { value: 'cursor', label: 'Cursor Agent' },
+];
+
+function TypeSelector({ value, onChange }: { value: string; onChange: (v: 'claude' | 'opencode' | 'codex' | 'cursor') => void }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [open]);
+
+  const selected = TYPE_OPTIONS.find(o => o.value === value);
+
+  return (
+    <div ref={ref} className="relative">
+      <label className="block text-sm font-medium text-muted-foreground mb-1">Type</label>
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        className="w-full flex items-center justify-between px-3 py-2 bg-secondary border border-border rounded-lg text-sm focus:outline-none focus:border-primary text-left"
+      >
+        <span>{selected?.label ?? value}</span>
+        <ChevronDown size={14} className={`text-muted-foreground transition-transform duration-200 ${open ? 'rotate-180' : ''}`} />
+      </button>
+      {open && (
+        <div className="absolute left-0 right-0 top-full mt-1 bg-popover/95 glass border border-border/50 rounded-xl shadow-apple-xl animate-apple-fade-in z-50 py-1 overflow-hidden">
+          {TYPE_OPTIONS.map(opt => (
+            <button
+              key={opt.value}
+              type="button"
+              onClick={() => { onChange(opt.value); setOpen(false); }}
+              className={`w-full flex items-center gap-2 px-3 py-2 text-sm transition-colors ${
+                opt.value === value ? 'text-primary font-medium bg-primary/5' : 'text-foreground hover:bg-secondary/80'
+              }`}
+            >
+              <span className="w-4 flex-shrink-0">
+                {opt.value === value && <Check size={14} strokeWidth={2.5} />}
+              </span>
+              {opt.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }

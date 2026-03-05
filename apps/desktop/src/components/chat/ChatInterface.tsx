@@ -1,4 +1,5 @@
 import { useRef, useEffect, useCallback, useState, useMemo } from 'react';
+import { Loader2, AlertTriangle, ClipboardList, ArrowDown, X, FileText, Terminal as TerminalIcon, ChevronDown, ChevronUp } from 'lucide-react';
 import { MessageList } from './MessageList';
 import { MessageInput, type Attachment } from './MessageInput';
 import { ToolCallList } from './ToolCallItem';
@@ -57,43 +58,55 @@ interface ChatInterfaceProps {
 }
 
 const MESSAGES_PER_PAGE = 50;
+const EMPTY_MESSAGES: MessageWithToolCalls[] = [];
+const EMPTY_TOOL_CALLS: import('../../stores/chatStore').ToolCallState[] = [];
+const EMPTY_CONTENT_BLOCKS: import('@my-claudia/shared').ContentBlock[] = [];
 
 export function ChatInterface({ sessionId }: ChatInterfaceProps) {
-  const {
-    messages,
-    pagination,
-    addMessage,
-    setMessages,
-    prependMessages,
-    clearMessages,
-    setLoadingMore,
-    setMode,
-    getMode,
-    getSystemInfo,
-    sessionUsage,
-    setModelOverride,
-    getModelOverride,
-    isSessionLoading,
-    getSessionRunId,
-    getSessionToolCalls,
-    getSessionContentBlocks,
-    getSessionToolCallHistory,
-    getSessionHealth,
-  } = useChatStore();
+  const messages = useChatStore((s) => s.messages);
+  const pagination = useChatStore((s) => s.pagination);
+  const activeRuns = useChatStore((s) => s.activeRuns);
+  const backgroundRunIds = useChatStore((s) => s.backgroundRunIds);
+  const runHealth = useChatStore((s) => s.runHealth);
+  const activeToolCalls = useChatStore((s) => s.activeToolCalls);
+  const runContentBlocks = useChatStore((s) => s.runContentBlocks);
+  const toolCallsHistory = useChatStore((s) => s.toolCallsHistory);
+  const addMessage = useChatStore((s) => s.addMessage);
+  const setMessages = useChatStore((s) => s.setMessages);
+  const prependMessages = useChatStore((s) => s.prependMessages);
+  const clearMessages = useChatStore((s) => s.clearMessages);
+  const setLoadingMore = useChatStore((s) => s.setLoadingMore);
+  const setMode = useChatStore((s) => s.setMode);
+  const getMode = useChatStore((s) => s.getMode);
+  const getSystemInfo = useChatStore((s) => s.getSystemInfo);
+  const sessionUsage = useChatStore((s) => s.sessionUsage);
+  const setModelOverride = useChatStore((s) => s.setModelOverride);
+  const getModelOverride = useChatStore((s) => s.getModelOverride);
+  const sessionRunId = useMemo(() => {
+    for (const [runId, sid] of Object.entries(activeRuns)) {
+      if (sid === sessionId) return runId;
+    }
+    return null;
+  }, [activeRuns, sessionId]);
   // Only show loading/toolCalls for THIS session's active run
-  const isLoading = isSessionLoading(sessionId);
-  const sessionRunId = getSessionRunId(sessionId);
-  const sessionHealth = getSessionHealth(sessionId);
-  const sessionToolCalls = getSessionToolCalls(sessionId);
-  const sessionContentBlocks = getSessionContentBlocks(sessionId);
-  const sessionToolCallHistory = getSessionToolCallHistory(sessionId);
+  const isLoading = useMemo(
+    () => Object.entries(activeRuns).some(([runId, sid]) => sid === sessionId && !backgroundRunIds.has(runId)),
+    [activeRuns, backgroundRunIds, sessionId]
+  );
+  const sessionHealth = sessionRunId ? (runHealth[sessionRunId] || null) : null;
+  const sessionToolCalls = useMemo(
+    () => (sessionRunId ? Object.values(activeToolCalls[sessionRunId] || {}) : EMPTY_TOOL_CALLS),
+    [sessionRunId, activeToolCalls]
+  );
+  const sessionContentBlocks = sessionRunId ? (runContentBlocks[sessionRunId] || EMPTY_CONTENT_BLOCKS) : EMPTY_CONTENT_BLOCKS;
+  const sessionToolCallHistory = sessionRunId ? (toolCallsHistory[sessionRunId] || EMPTY_TOOL_CALLS) : EMPTY_TOOL_CALLS;
   const useStreamingSegmented = isLoading && sessionContentBlocks.length > 1 && sessionToolCallHistory.length > 0;
   const mode = getMode(sessionId);
   const modelOverride = getModelOverride(sessionId);
   const permissionOverride = useChatStore((s) => s.getPermissionOverride(sessionId));
   const setPermissionOverride = useChatStore((s) => s.setPermissionOverride);
-  const draft = useChatStore((s) => s.drafts[sessionId]);
   const { projects, sessions, providerCommands, providerCapabilities, setProviderCapabilities } = useProjectStore();
+  const activeServerId = useServerStore((s) => s.activeServerId);
   const { setDrawerOpen, drawerOpen, bottomPanelTab, setBottomPanelTab } = useTerminalStore();
   const {
     advancedInput,
@@ -113,6 +126,8 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const [initialLoadDone, setInitialLoadDone] = useState(false);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
+  const [scrollMetrics, setScrollMetrics] = useState({ scrollTop: 0, viewportHeight: 0 });
+  const [initialDraft, setInitialDraft] = useState<string | undefined>(undefined);
 
   // State for restoring message after cancel
   const [lastSentMessage, setLastSentMessage] = useState<{ content: string; attachments?: Attachment[] } | null>(null);
@@ -128,10 +143,16 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
   const [showPlanReview, setShowPlanReview] = useState(false);
   const isPlanningMode = supervision?.status === 'planning';
 
-  const sessionMessages = messages[sessionId] || [];
+  const sessionMessages = messages[sessionId] || EMPTY_MESSAGES;
   const sessionPagination = pagination[sessionId];
   const currentSystemInfo = getSystemInfo(sessionId);
-  const currentUsage = sessionUsage[sessionId] || { inputTokens: 0, outputTokens: 0, contextWindow: undefined };
+  const currentUsage = sessionUsage[sessionId] || {
+    inputTokens: 0,
+    outputTokens: 0,
+    latestInputTokens: 0,
+    latestOutputTokens: 0,
+    contextWindow: undefined
+  };
 
   // Get current session and project to determine provider
   const currentSession = sessions.find(s => s.id === sessionId);
@@ -146,6 +167,7 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
     setUploadError(null);
     setLoadError(null);
     setQueuedMessage(null);
+    setInitialDraft(useChatStore.getState().drafts[sessionId]);
   }, [sessionId]);
 
   // Auto-send queued message when the current run finishes
@@ -386,6 +408,10 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
   const handleScroll = useCallback(() => {
     const container = messagesContainerRef.current;
     if (!container) return;
+    setScrollMetrics({
+      scrollTop: container.scrollTop,
+      viewportHeight: container.clientHeight,
+    });
 
     // If scrolled near top (within 100px), load more messages
     if (container.scrollTop < 100 && sessionPagination?.hasMore && !sessionPagination?.isLoadingMore) {
@@ -397,9 +423,32 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
     setShowScrollToBottom(distanceFromBottom > 300);
   }, [loadMoreMessages, sessionPagination]);
 
+  useEffect(() => {
+    const container = messagesContainerRef.current;
+    if (!container) return;
+
+    const updateMetrics = () => {
+      setScrollMetrics({
+        scrollTop: container.scrollTop,
+        viewportHeight: container.clientHeight,
+      });
+    };
+
+    updateMetrics();
+    window.addEventListener('resize', updateMetrics);
+    return () => window.removeEventListener('resize', updateMetrics);
+  }, [sessionId, initialLoadDone]);
+
+  // Derive provider ID and fetch capabilities when it changes
+  const providerId = currentSession?.providerId || currentProject?.providerId;
+  // Scope provider caches by active server/backend to avoid cross-backend contamination.
+  const providerScopeKey = activeServerId || 'local';
+  // Cache key: use providerId if set, otherwise '_default' for Claude defaults
+  const capsCacheKey = `${providerScopeKey}:${providerId || '_default'}`;
+  const commandsCacheKey = `${providerScopeKey}:${providerId || '_default'}`;
+
   // Fetch commands when provider or project changes (via HTTP)
   useEffect(() => {
-    const providerId = currentSession?.providerId || currentProject?.providerId;
     const projectRoot = currentProject?.rootPath;
 
     if (!isConnected) {
@@ -410,7 +459,7 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
       // Load commands for the specific provider
       api.getProviderCommands(providerId, projectRoot || undefined)
         .then(commands => {
-          useProjectStore.getState().setProviderCommands(providerId, commands);
+          useProjectStore.getState().setProviderCommands(commandsCacheKey, commands);
         })
         .catch(err => {
           console.error('Failed to load provider commands:', err);
@@ -419,18 +468,13 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
       // No provider configured — load default commands by type
       api.getProviderTypeCommands('claude', projectRoot || undefined)
         .then(commands => {
-          useProjectStore.getState().setProviderCommands('_default', commands);
+          useProjectStore.getState().setProviderCommands(commandsCacheKey, commands);
         })
         .catch(err => {
           console.error('Failed to load default commands:', err);
         });
     }
-  }, [currentSession?.providerId, currentProject?.providerId, currentProject?.rootPath, isConnected]);
-
-  // Derive provider ID and fetch capabilities when it changes
-  const providerId = currentSession?.providerId || currentProject?.providerId;
-  // Cache key: use providerId if set, otherwise '_default' for Claude defaults
-  const capsCacheKey = providerId || '_default';
+  }, [currentSession?.providerId, currentProject?.providerId, currentProject?.rootPath, isConnected, commandsCacheKey]);
 
   useEffect(() => {
     if (!isConnected) return;
@@ -456,8 +500,8 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
 
   const capabilities: ProviderCapabilities | null = providerCapabilities[capsCacheKey] || null;
 
-  // Get commands for current provider (fallback to _default)
-  const commands = providerCommands[providerId || '_default'] || [];
+  // Get commands for current provider within current server/backend scope.
+  const commands = providerCommands[commandsCacheKey] || [];
 
   // Scroll to bottom when new messages arrive (but not when loading history)
   useEffect(() => {
@@ -682,9 +726,12 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
 
       case 'reload':
         // Re-fetch commands from server (cache already cleared server-side)
-        api.getProviderCommands(providerId || '_default', currentProject?.rootPath || undefined)
+        (providerId
+          ? api.getProviderCommands(providerId, currentProject?.rootPath || undefined)
+          : api.getProviderTypeCommands('claude', currentProject?.rootPath || undefined)
+        )
           .then(cmds => {
-            useProjectStore.getState().setProviderCommands(providerId || '_default', cmds);
+            useProjectStore.getState().setProviderCommands(commandsCacheKey, cmds);
             addMessage(sessionId, {
               id: crypto.randomUUID(),
               sessionId,
@@ -717,7 +764,7 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
 
     // Scroll to bottom after command output
     setTimeout(() => scrollToBottom(), 100);
-  }, [sessionId, clearMessages, addMessage, scrollToBottom, providerId, currentProject?.rootPath]);
+  }, [sessionId, clearMessages, addMessage, scrollToBottom, providerId, currentProject?.rootPath, commandsCacheKey]);
 
   const handleWorktreeChange = useCallback(async (worktreePath: string) => {
     // 乐观更新 projectStore（立即反映在 UI）
@@ -997,10 +1044,7 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
         {/* Initial load spinner */}
         {!initialLoadDone && !loadError && (
           <div className="flex items-center justify-center py-12">
-            <svg className="w-5 h-5 animate-spin text-muted-foreground" fill="none" viewBox="0 0 24 24">
-              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-            </svg>
+            <Loader2 size={20} className="animate-spin text-muted-foreground" />
             <span className="ml-2 text-sm text-muted-foreground">Loading messages...</span>
           </div>
         )}
@@ -1008,9 +1052,7 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
         {/* Message load error */}
         {loadError && (
           <div className="flex flex-col items-center justify-center py-12 px-4 text-center">
-            <svg className="w-10 h-10 text-muted-foreground/40 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 9v2m0 4h.01M3.515 15.795l7.07-12.243a1.64 1.64 0 012.83 0l7.07 12.243A1.64 1.64 0 0119.07 18H4.93a1.64 1.64 0 01-1.415-2.205z" />
-            </svg>
+            <AlertTriangle size={40} strokeWidth={1.5} className="text-muted-foreground/40 mb-3" />
             <p className="text-sm text-muted-foreground mb-1">{loadError}</p>
             <button
               onClick={() => { setLoadError(null); setInitialLoadDone(false); loadMessages(); }}
@@ -1024,9 +1066,7 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
         {/* Planning mode banner */}
         {isPlanningMode && (
           <div className="mb-3 px-3 py-2 bg-primary/10 border border-primary/20 rounded-lg flex items-center gap-2">
-            <svg className="w-4 h-4 text-primary flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-            </svg>
+            <ClipboardList size={16} strokeWidth={1.75} className="text-primary flex-shrink-0" />
             <span className="text-sm text-primary font-medium flex-1">Planning Mode</span>
             {detectedPlan && !isLoading && (
               <button
@@ -1058,6 +1098,8 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
           messages={sessionMessages}
           streamingContentBlocks={useStreamingSegmented ? sessionContentBlocks : undefined}
           streamingToolCalls={useStreamingSegmented ? sessionToolCallHistory : undefined}
+          scrollTop={scrollMetrics.scrollTop}
+          viewportHeight={scrollMetrics.viewportHeight}
         />
 
         {/* Loading indicator (shown while waiting for response) */}
@@ -1112,9 +1154,7 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
             className="sticky bottom-4 float-right mr-2 z-10 w-9 h-9 rounded-full bg-muted/90 border border-border shadow-md flex items-center justify-center hover:bg-muted transition-colors"
             aria-label="Scroll to bottom"
           >
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className="text-foreground">
-              <path d="M8 3v10M4 9l4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
+            <ArrowDown size={16} strokeWidth={1.5} className="text-foreground" />
           </button>
         )}
       </div>
@@ -1143,9 +1183,7 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
             className="text-muted-foreground hover:text-foreground flex-shrink-0 p-0.5"
             title="Dismiss queued message"
           >
-            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
+            <X size={14} strokeWidth={2} />
           </button>
         </div>
       )}
@@ -1153,9 +1191,7 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
       {/* Upload error banner */}
       {uploadError && (
         <div className="mx-2 md:mx-4 mt-2 px-3 py-2 rounded-lg bg-destructive/10 border border-destructive/30 text-destructive text-xs flex items-center gap-2">
-          <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
-          </svg>
+          <AlertTriangle size={16} strokeWidth={2} className="flex-shrink-0" />
           <span className="flex-1">{uploadError}</span>
           <button onClick={() => setUploadError(null)} className="text-destructive hover:text-destructive/80 font-medium">Dismiss</button>
         </div>
@@ -1193,6 +1229,8 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
             />
           )}
           <TokenUsageDisplay
+            latestInputTokens={currentUsage.latestInputTokens}
+            latestOutputTokens={currentUsage.latestOutputTokens}
             inputTokens={currentUsage.inputTokens}
             outputTokens={currentUsage.outputTokens}
             contextWindow={currentUsage.contextWindow}
@@ -1218,9 +1256,7 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
               className={`p-1.5 rounded hover:bg-secondary ${fileViewerOpen && bottomPanelTab === 'file' ? 'text-primary' : 'text-muted-foreground hover:text-foreground'}`}
               title={fileViewerOpen && bottomPanelTab === 'file' ? 'Close file viewer' : 'Open file viewer (Cmd+P)'}
             >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-              </svg>
+              <FileText size={16} strokeWidth={1.75} />
             </button>
           )}
           {useServerStore.getState().activeServerSupports('remoteTerminal') && currentSession?.projectId && (() => {
@@ -1248,9 +1284,7 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
                 className={`p-1.5 rounded hover:bg-secondary ${isOpen && bottomPanelTab === 'terminal' ? 'text-primary' : 'text-muted-foreground hover:text-foreground'}`}
                 title={isOpen && bottomPanelTab === 'terminal' ? 'Hide terminal (Ctrl+`)' : 'Open terminal (Ctrl+`)'}
               >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                </svg>
+                <TerminalIcon size={16} strokeWidth={1.75} />
               </button>
             );
           })()}
@@ -1260,13 +1294,7 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
               className={`p-1.5 rounded hover:bg-secondary ${advancedInput ? 'text-primary' : 'text-muted-foreground hover:text-foreground'}`}
               title={advancedInput ? 'Normal input' : 'Advanced input (Enter to newline)'}
             >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                {advancedInput ? (
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                ) : (
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
-                )}
-              </svg>
+              {advancedInput ? <ChevronDown size={16} strokeWidth={2} /> : <ChevronUp size={16} strokeWidth={2} />}
             </button>
           )}
           <SystemInfoButton
@@ -1288,7 +1316,7 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
           projectRoot={currentProject?.rootPath}
           disabled={!isConnected}
           isLoading={isLoading}
-          initialValue={restoreMessage?.content ?? draft}
+          initialValue={restoreMessage?.content ?? initialDraft}
           initialAttachments={restoreMessage?.attachments}
           advancedMode={advancedInput}
           placeholder={

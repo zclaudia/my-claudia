@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import type { Project, Session, SlashCommand, ProviderConfig, ProviderCapabilities } from '@my-claudia/shared';
 import { useSessionsStore } from './sessionsStore';
+import { useChatStore } from './chatStore';
 
 interface ProjectState {
   projects: Project[];
@@ -73,9 +74,30 @@ export const useProjectStore = create<ProjectState>((set) => ({
     set((state) => {
       const merged = incoming.map((s) => {
         const existing = state.sessions.find((e) => e.id === s.id);
-        // Preserve isActive from in-flight WebSocket updates
-        if (existing?.isActive && !s.isActive) return { ...s, isActive: true };
-        return s;
+        if (!existing) {
+          return { ...s, isActive: Boolean((s as Session & { isActive?: boolean }).isActive) };
+        }
+
+        const incomingIsActive = (s as Session & { isActive?: boolean }).isActive;
+        const hasIncomingActive = typeof incomingIsActive === 'boolean';
+
+        // If API payload doesn't include isActive, preserve the current UI status.
+        if (!hasIncomingActive) {
+          return { ...s, isActive: Boolean((existing as Session & { isActive?: boolean }).isActive) };
+        }
+
+        // If a foreground run is currently active, keep active=true to avoid racey flicker.
+        if (existing.isActive && incomingIsActive === false) {
+          const chat = useChatStore.getState();
+          const hasForegroundRun = Object.entries(chat.activeRuns).some(
+            ([runId, sid]) => sid === s.id && !chat.backgroundRunIds.has(runId)
+          );
+          if (hasForegroundRun) {
+            return { ...s, isActive: true };
+          }
+        }
+
+        return { ...s, isActive: incomingIsActive };
       });
       return { sessions: merged };
     }),

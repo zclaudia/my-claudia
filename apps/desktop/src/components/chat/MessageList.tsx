@@ -1,8 +1,9 @@
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, memo, useRef, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneDark, oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism';
+import { Brain, ChevronRight, Image, Copy, Check, Terminal } from 'lucide-react';
 import { ToolCallList } from './ToolCallItem';
 import { FilePushCard } from './FilePushNotification';
 import type { MessageWithToolCalls, ToolCallState } from '../../stores/chatStore';
@@ -56,29 +57,8 @@ function ThinkingBlock({ content }: { content: string }) {
         onClick={() => setExpanded(!expanded)}
         className="flex items-center gap-1.5 w-full px-3 py-1.5 text-thinking hover:text-foreground transition-colors"
       >
-        {/* Brain icon */}
-        <svg
-          className="w-3.5 h-3.5 flex-shrink-0"
-          fill="none"
-          stroke="currentColor"
-          viewBox="0 0 24 24"
-          strokeWidth={1.5}
-        >
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            d="M12 18v-3m0-3v.01M8.5 8A3.5 3.5 0 0 1 12 4.5 3.5 3.5 0 0 1 15.5 8c0 1.5-.8 2.5-2 3.2-.5.3-1 .7-1.2 1.3m-6.2-.6A4.5 4.5 0 0 1 4 8a4 4 0 0 1 2.5-3.7M18 11.9A4.5 4.5 0 0 0 20 8a4 4 0 0 0-2.5-3.7"
-          />
-        </svg>
-        {/* Chevron */}
-        <svg
-          className={`w-3 h-3 transition-transform flex-shrink-0 ${expanded ? 'rotate-90' : ''}`}
-          fill="none"
-          stroke="currentColor"
-          viewBox="0 0 24 24"
-        >
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-        </svg>
+        <Brain size={14} strokeWidth={1.5} className="flex-shrink-0" />
+        <ChevronRight size={12} strokeWidth={2} className={`transition-transform flex-shrink-0 ${expanded ? 'rotate-90' : ''}`} />
         <span className="font-medium">Thinking</span>
         {/* Line count */}
         <span className="text-thinking/50 ml-auto text-[10px]">
@@ -110,87 +90,231 @@ interface MessageListProps {
   messages: MessageWithToolCalls[];
   streamingContentBlocks?: ContentBlock[];
   streamingToolCalls?: ToolCallState[];
+  scrollTop?: number;
+  viewportHeight?: number;
 }
 
-export function MessageList({ messages, streamingContentBlocks, streamingToolCalls }: MessageListProps) {
+const VIRTUALIZE_THRESHOLD = 80;
+const VIRTUAL_ESTIMATED_HEIGHT = 120;
+const VIRTUAL_OVERSCAN_PX = 900;
+
+export const MessageList = memo(function MessageList({
+  messages,
+  streamingContentBlocks,
+  streamingToolCalls,
+  scrollTop = 0,
+  viewportHeight = 0,
+}: MessageListProps) {
   // Subscribe to filePushStore for download status updates
   const filePushItems = useFilePushStore((state) => state.items);
+  const [heightVersion, setHeightVersion] = useState(0);
+  const itemHeightsRef = useRef<Map<number, number>>(new Map());
+  const observersRef = useRef<Map<number, ResizeObserver>>(new Map());
 
-  if (!messages || messages.length === 0) {
+  // Filter out empty user messages (likely permission approvals or empty inputs)
+  const filteredMessages = useMemo(() => {
+    return (messages || []).filter((message) => {
+      // Keep all non-user messages (assistant, system, etc.)
+      if (message.role !== 'user') {
+        return true;
+      }
+
+      // For user messages, check if content is empty
+      let textContent = message.content;
+      let hasAttachments = false;
+
+      // Try to parse as MessageInput JSON
+      try {
+        const parsed: MessageInput = JSON.parse(message.content);
+        if (typeof parsed === 'object' && 'text' in parsed) {
+          textContent = parsed.text || '';
+          hasAttachments = (parsed.attachments?.length || 0) > 0;
+        }
+      } catch {
+        // Not JSON, use as plain text
+        textContent = message.content;
+      }
+
+      // Keep message if it has text content or attachments
+      return textContent.trim().length > 0 || hasAttachments;
+    });
+  }, [messages]);
+
+  const firstMessageId = filteredMessages[0]?.id || '';
+  const prevFirstMessageIdRef = useRef(firstMessageId);
+  useEffect(() => {
+    // Reset measurements when the list head changes (session switch or prepending older history).
+    if (prevFirstMessageIdRef.current !== firstMessageId) {
+      for (const ro of observersRef.current.values()) {
+        ro.disconnect();
+      }
+      observersRef.current.clear();
+      itemHeightsRef.current.clear();
+      setHeightVersion(v => v + 1);
+      prevFirstMessageIdRef.current = firstMessageId;
+    }
+  }, [firstMessageId]);
+
+  useEffect(() => {
+    return () => {
+      for (const ro of observersRef.current.values()) {
+        ro.disconnect();
+      }
+      observersRef.current.clear();
+    };
+  }, []);
+
+  const shouldVirtualize = filteredMessages.length >= VIRTUALIZE_THRESHOLD && viewportHeight > 0;
+
+  const getHeight = useCallback((index: number) => {
+    return itemHeightsRef.current.get(index) ?? VIRTUAL_ESTIMATED_HEIGHT;
+  }, [itemHeightsRef]);
+
+  const setMeasuredRef = useCallback((index: number, element: HTMLDivElement | null) => {
+    const existing = observersRef.current.get(index);
+    if (existing) {
+      existing.disconnect();
+      observersRef.current.delete(index);
+    }
+
+    if (!element) return;
+
+    const updateHeight = (nextHeight: number) => {
+      if (!Number.isFinite(nextHeight) || nextHeight <= 0) return;
+      const prev = itemHeightsRef.current.get(index);
+      if (prev !== nextHeight) {
+        itemHeightsRef.current.set(index, nextHeight);
+        setHeightVersion(v => v + 1);
+      }
+    };
+
+    updateHeight(Math.ceil(element.getBoundingClientRect().height));
+
+    const ro = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        updateHeight(Math.ceil(entry.contentRect.height));
+      }
+    });
+    ro.observe(element);
+    observersRef.current.set(index, ro);
+  }, [itemHeightsRef, observersRef]);
+
+  const renderMessage = useCallback((message: MessageWithToolCalls, index: number) => {
+    if (message.metadata?.filePush) {
+      const fp = message.metadata.filePush;
+      const storeItem = filePushItems.find(i => i.fileId === fp.fileId);
+      const item: FilePushItem = {
+        fileId: fp.fileId,
+        fileName: fp.fileName,
+        mimeType: fp.mimeType,
+        fileSize: fp.fileSize,
+        sessionId: message.sessionId,
+        description: fp.description,
+        autoDownload: fp.autoDownload,
+        status: storeItem?.status ?? 'pending',
+        downloadProgress: storeItem?.downloadProgress ?? 0,
+        savedPath: storeItem?.savedPath,
+        error: storeItem?.error,
+        serverId: storeItem?.serverId,
+        createdAt: message.createdAt,
+      };
+      return (
+        <div key={message.id} className="max-w-full md:max-w-3xl">
+          <FilePushCard item={item} />
+        </div>
+      );
+    }
+
+    const isLastAssistant = Boolean(
+      streamingContentBlocks &&
+      message.role === 'assistant' &&
+      index === filteredMessages.length - 1
+    );
+
+    return (
+      <MessageItem
+        key={message.id}
+        message={message}
+        streamingContentBlocks={isLastAssistant ? streamingContentBlocks : undefined}
+        streamingToolCalls={isLastAssistant ? streamingToolCalls : undefined}
+      />
+    );
+  }, [filePushItems, filteredMessages.length, streamingContentBlocks, streamingToolCalls]);
+
+  const virtualWindow = useMemo(() => {
+    if (!shouldVirtualize) {
+      return {
+        start: 0,
+        end: filteredMessages.length,
+        topPadding: 0,
+        bottomPadding: 0,
+      };
+    }
+
+    let start = 0;
+    let y = 0;
+    const startOffset = Math.max(0, scrollTop - VIRTUAL_OVERSCAN_PX);
+    while (start < filteredMessages.length && y + getHeight(start) < startOffset) {
+      y += getHeight(start);
+      start++;
+    }
+
+    let end = start;
+    let renderedBottom = y;
+    const endOffset = scrollTop + viewportHeight + VIRTUAL_OVERSCAN_PX;
+    while (end < filteredMessages.length && renderedBottom < endOffset) {
+      renderedBottom += getHeight(end);
+      end++;
+    }
+
+    let totalHeight = 0;
+    for (let i = 0; i < filteredMessages.length; i++) {
+      totalHeight += getHeight(i);
+    }
+
+    return {
+      start,
+      end,
+      topPadding: y,
+      bottomPadding: Math.max(0, totalHeight - renderedBottom),
+    };
+  }, [filteredMessages.length, getHeight, heightVersion, scrollTop, shouldVirtualize, viewportHeight]);
+
+  if (filteredMessages.length === 0) {
     return null;
   }
 
-  // Filter out empty user messages (likely permission approvals or empty inputs)
-  const filteredMessages = (messages || []).filter((message) => {
-    // Keep all non-user messages (assistant, system, etc.)
-    if (message.role !== 'user') {
-      return true;
-    }
-
-    // For user messages, check if content is empty
-    let textContent = message.content;
-    let hasAttachments = false;
-
-    // Try to parse as MessageInput JSON
-    try {
-      const parsed: MessageInput = JSON.parse(message.content);
-      if (typeof parsed === 'object' && 'text' in parsed) {
-        textContent = parsed.text || '';
-        hasAttachments = (parsed.attachments?.length || 0) > 0;
-      }
-    } catch {
-      // Not JSON, use as plain text
-      textContent = message.content;
-    }
-
-    // Keep message if it has text content or attachments
-    return textContent.trim().length > 0 || hasAttachments;
-  });
+  if (!shouldVirtualize) {
+    return (
+      <div className="space-y-5">
+        {filteredMessages.map((message, index) => renderMessage(message, index))}
+      </div>
+    );
+  }
 
   return (
-    <div className="space-y-4">
-      {filteredMessages.map((message) => {
-        // Render file push messages as FilePushCard
-        if (message.metadata?.filePush) {
-          const fp = message.metadata.filePush;
-          const storeItem = filePushItems.find(i => i.fileId === fp.fileId);
-          const item: FilePushItem = {
-            fileId: fp.fileId,
-            fileName: fp.fileName,
-            mimeType: fp.mimeType,
-            fileSize: fp.fileSize,
-            sessionId: message.sessionId,
-            description: fp.description,
-            autoDownload: fp.autoDownload,
-            status: storeItem?.status ?? 'pending',
-            downloadProgress: storeItem?.downloadProgress ?? 0,
-            savedPath: storeItem?.savedPath,
-            error: storeItem?.error,
-            serverId: storeItem?.serverId,
-            createdAt: message.createdAt,
-          };
-          return (
-            <div key={message.id} className="max-w-full md:max-w-3xl">
-              <FilePushCard item={item} />
-            </div>
-          );
-        }
-        // Pass streaming blocks to the last assistant message
-        const isLastAssistant = streamingContentBlocks
-          && message.role === 'assistant'
-          && message === filteredMessages[filteredMessages.length - 1];
+    <div>
+      {virtualWindow.topPadding > 0 && (
+        <div style={{ height: virtualWindow.topPadding }} />
+      )}
+      {filteredMessages.slice(virtualWindow.start, virtualWindow.end).map((message, idx) => {
+        const absoluteIndex = virtualWindow.start + idx;
         return (
-          <MessageItem
+          <div
             key={message.id}
-            message={message}
-            streamingContentBlocks={isLastAssistant ? streamingContentBlocks : undefined}
-            streamingToolCalls={isLastAssistant ? streamingToolCalls : undefined}
-          />
+            ref={(el) => setMeasuredRef(absoluteIndex, el)}
+            className="mb-4"
+          >
+            {renderMessage(message, absoluteIndex)}
+          </div>
         );
       })}
+      {virtualWindow.bottomPadding > 0 && (
+        <div style={{ height: virtualWindow.bottomPadding }} />
+      )}
     </div>
   );
-}
+});
 
 const SHELL_LANGUAGES = new Set(['bash', 'shell', 'sh', 'zsh']);
 
@@ -245,9 +369,7 @@ function CodeBlock({
               onClick={handleRunInTerminal}
               className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
             >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-              </svg>
+              <Terminal size={16} strokeWidth={1.75} />
               Run in terminal
             </button>
           )}
@@ -263,16 +385,12 @@ function CodeBlock({
           >
             {copied ? (
               <>
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                </svg>
+                <Check size={16} strokeWidth={2} />
                 Copied!
               </>
             ) : (
               <>
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                </svg>
+                <Copy size={16} strokeWidth={1.75} />
                 Copy code
               </>
             )}
@@ -353,9 +471,7 @@ function AttachmentDisplay({ attachment }: { attachment: MessageAttachment }) {
       >
         <div className="flex items-center justify-center h-24 text-muted-foreground">
           <div className="text-center">
-            <svg className="w-8 h-8 mx-auto mb-1 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-            </svg>
+            <Image size={32} strokeWidth={1.5} className="mx-auto mb-1 opacity-50" />
             <div className="text-xs">{error ? 'Load failed — click to retry' : 'Click to load image'}</div>
           </div>
         </div>
@@ -389,15 +505,7 @@ function CollapsedTextBlock({ content }: { content: string }) {
         onClick={() => setExpanded(!expanded)}
         className="flex items-center gap-1.5 w-full px-3 py-1.5 text-muted-foreground hover:text-foreground transition-colors"
       >
-        {/* Chevron */}
-        <svg
-          className={`w-3 h-3 transition-transform flex-shrink-0 ${expanded ? 'rotate-90' : ''}`}
-          fill="none"
-          stroke="currentColor"
-          viewBox="0 0 24 24"
-        >
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-        </svg>
+        <ChevronRight size={12} strokeWidth={2} className={`transition-transform flex-shrink-0 ${expanded ? 'rotate-90' : ''}`} />
         <span className="truncate text-left">{preview || '...'}</span>
       </button>
       {expanded && (
@@ -412,7 +520,7 @@ function CollapsedTextBlock({ content }: { content: string }) {
 }
 
 /** Segmented content renderer — interleaves collapsed text, tool calls, and final text */
-function SegmentedContent({
+const SegmentedContent = memo(function SegmentedContent({
   contentBlocks,
   toolCalls,
 }: {
@@ -460,7 +568,7 @@ function SegmentedContent({
                   <ThinkingBlock content={thinking} />
                 </div>
               )}
-              <div className="rounded-lg px-3 md:px-4 py-2 w-full max-w-full md:max-w-3xl bg-card text-card-foreground">
+              <div className="rounded-2xl px-3 md:px-4 py-2 w-full max-w-full md:max-w-3xl bg-card text-card-foreground">
                 <AssistantContent content={mainContent} />
               </div>
             </div>
@@ -476,9 +584,9 @@ function SegmentedContent({
       })}
     </>
   );
-}
+});
 
-function MessageItem({ message, streamingContentBlocks, streamingToolCalls }: {
+const MessageItem = memo(function MessageItem({ message, streamingContentBlocks, streamingToolCalls }: {
   message: MessageWithToolCalls;
   streamingContentBlocks?: ContentBlock[];
   streamingToolCalls?: ToolCallState[];
@@ -554,9 +662,9 @@ function MessageItem({ message, streamingContentBlocks, streamingToolCalls }: {
       )}
 
       <div
-        className={`rounded-lg px-3 md:px-4 py-2 ${
+        className={`rounded-2xl px-3 md:px-4 py-2 ${
           isUser
-            ? 'max-w-[85%] md:max-w-3xl bg-primary text-primary-foreground'
+            ? 'max-w-[85%] md:max-w-3xl bg-primary text-primary-foreground shadow-apple-sm'
             : isSystem
             ? 'max-w-[85%] md:max-w-3xl bg-muted text-muted-foreground text-sm'
             : 'w-full max-w-full md:max-w-3xl bg-card text-card-foreground min-w-0'
@@ -584,10 +692,10 @@ function MessageItem({ message, streamingContentBlocks, streamingToolCalls }: {
       </div>
     </div>
   );
-}
+});
 
 /** Renders assistant message markdown (thinking blocks already extracted at MessageItem level) */
-function AssistantContent({ content }: { content: string }) {
+const AssistantContent = memo(function AssistantContent({ content }: { content: string }) {
   return (
     <>
       <div className="prose dark:prose-invert prose-sm max-w-none break-words overflow-x-auto overflow-y-hidden">
@@ -623,7 +731,7 @@ function AssistantContent({ content }: { content: string }) {
                   href={href}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="text-primary-400 hover:text-primary-300 underline"
+                  className="text-primary hover:text-primary/80 underline"
                 >
                   {children}
                 </a>
@@ -665,4 +773,4 @@ function AssistantContent({ content }: { content: string }) {
       </div>
     </>
   );
-}
+});

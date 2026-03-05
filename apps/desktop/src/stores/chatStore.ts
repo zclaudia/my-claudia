@@ -57,8 +57,14 @@ interface ChatState {
   systemInfoBySession: Record<string, SystemInfo>;
   // Mode per session (generic — permission mode for Claude, agent for OpenCode, etc.)
   modeOverrides: Record<string, string>;
-  // Accumulated token usage per session
-  sessionUsage: Record<string, { inputTokens: number; outputTokens: number; contextWindow?: number }>;
+  // Token usage per session (accumulated + latest run snapshot)
+  sessionUsage: Record<string, {
+    inputTokens: number;
+    outputTokens: number;
+    contextWindow?: number;
+    latestInputTokens?: number;
+    latestOutputTokens?: number;
+  }>;
   // Model override per session (user-selected model, empty = use default)
   modelOverrides: Record<string, string>;
   // Permission policy override per session (user-selected policy, null = use project default)
@@ -468,6 +474,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
             inputTokens: existing.inputTokens + usage.inputTokens,
             outputTokens: existing.outputTokens + usage.outputTokens,
             contextWindow: usage.contextWindow || existing.contextWindow,
+            latestInputTokens: usage.inputTokens,
+            latestOutputTokens: usage.outputTokens,
           },
         },
       };

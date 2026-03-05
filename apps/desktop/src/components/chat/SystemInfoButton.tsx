@@ -1,4 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
+import { Info, FolderOpen, MessageSquare, Cpu, Package, Shield, Key, Folder, Wrench, Monitor, Users } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import type { SystemInfo } from '@my-claudia/shared';
 
 interface SessionInfo {
@@ -66,7 +68,7 @@ export function SystemInfoButton({ systemInfo, sessionInfo }: SystemInfoButtonPr
         `}
         title="View system info"
       >
-        <span>ℹ️</span>
+        <Info size={14} strokeWidth={1.75} />
         <span className="hidden sm:inline">Info</span>
       </button>
 
@@ -74,7 +76,7 @@ export function SystemInfoButton({ systemInfo, sessionInfo }: SystemInfoButtonPr
       {isExpanded && (
         <div
           ref={panelRef}
-          className="absolute bottom-full right-0 mb-2 w-80 max-w-[90vw] bg-card border border-border rounded-lg shadow-xl z-50 overflow-hidden"
+          className="absolute bottom-full right-0 mb-2 w-80 max-w-[90vw] bg-popover/95 glass border border-border/50 rounded-xl shadow-apple-xl z-50 overflow-hidden animate-apple-fade-in"
         >
           <div className="p-3 border-b border-border flex items-center justify-between">
             <span className="text-sm font-medium text-card-foreground">System Info</span>
@@ -91,13 +93,13 @@ export function SystemInfoButton({ systemInfo, sessionInfo }: SystemInfoButtonPr
               <div className="space-y-1">
                 {sessionInfo.projectName && (
                   <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                    <span>📂</span>
+                    <FolderOpen size={12} strokeWidth={1.75} />
                     <span className="text-muted-foreground">Project:</span>
                     <span className="text-foreground">{sessionInfo.projectName}</span>
                   </div>
                 )}
                 <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                  <span>💬</span>
+                  <MessageSquare size={12} strokeWidth={1.75} />
                   <span className="text-muted-foreground">Session:</span>
                   <span className="text-foreground truncate" title={sessionInfo.id}>
                     {sessionInfo.name || sessionInfo.id}
@@ -112,23 +114,23 @@ export function SystemInfoButton({ systemInfo, sessionInfo }: SystemInfoButtonPr
             {/* Primary info */}
             <div className="flex flex-wrap gap-2">
               {systemInfo?.model && (
-                <InfoBadge icon="🤖" label="Model" value={systemInfo.model} />
+                <InfoBadge icon={Cpu} label="Model" value={systemInfo.model} />
               )}
               {systemInfo?.claudeCodeVersion && (
-                <InfoBadge icon="📦" label="Version" value={systemInfo.claudeCodeVersion} />
+                <InfoBadge icon={Package} label="Version" value={systemInfo.claudeCodeVersion} />
               )}
               {systemInfo?.permissionMode && (
-                <InfoBadge icon="🛡️" label="Permission" value={systemInfo.permissionMode} />
+                <InfoBadge icon={Shield} label="Permission" value={systemInfo.permissionMode} />
               )}
               {systemInfo?.apiKeySource && (
-                <InfoBadge icon="🔑" label="API Key" value={systemInfo.apiKeySource} />
+                <InfoBadge icon={Key} label="API Key" value={systemInfo.apiKeySource} />
               )}
             </div>
 
             {/* Working directory */}
             {systemInfo?.cwd && (
               <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                <span>📁</span>
+                <Folder size={12} strokeWidth={1.75} />
                 <span className="font-mono truncate" title={systemInfo.cwd}>
                   {systemInfo.cwd}
                 </span>
@@ -137,17 +139,17 @@ export function SystemInfoButton({ systemInfo, sessionInfo }: SystemInfoButtonPr
 
             {/* Tools */}
             {systemInfo?.tools && systemInfo.tools.length > 0 && (
-              <InfoList icon="🔧" label="Tools" items={systemInfo.tools} />
+              <InfoList icon={Wrench} label="Tools" items={systemInfo.tools} />
             )}
 
             {/* MCP Servers */}
             {systemInfo?.mcpServers && systemInfo.mcpServers.length > 0 && (
-              <InfoList icon="🖥️" label="MCP Servers" items={systemInfo.mcpServers} />
+              <InfoList icon={Monitor} label="MCP Servers" items={systemInfo.mcpServers} />
             )}
 
             {/* Agents */}
             {systemInfo?.agents && systemInfo.agents.length > 0 && (
-              <InfoList icon="👥" label="Agents" items={systemInfo.agents} />
+              <InfoList icon={Users} label="Agents" items={systemInfo.agents} />
             )}
           </div>
         </div>
@@ -156,17 +158,17 @@ export function SystemInfoButton({ systemInfo, sessionInfo }: SystemInfoButtonPr
   );
 }
 
-function InfoBadge({ icon, label, value }: { icon: string; label: string; value: string }) {
+function InfoBadge({ icon: IconComponent, label, value }: { icon: LucideIcon; label: string; value: string }) {
   return (
     <div className="flex items-center gap-1 bg-muted px-2 py-1 rounded text-xs">
-      <span>{icon}</span>
+      <IconComponent size={12} strokeWidth={1.75} className="text-muted-foreground" />
       <span className="text-muted-foreground">{label}:</span>
       <span className="text-foreground">{value}</span>
     </div>
   );
 }
 
-function InfoList({ icon, label, items }: { icon: string; label: string; items: (string | { name: string; status?: string })[] }) {
+function InfoList({ icon: IconComponent, label, items }: { icon: LucideIcon; label: string; items: (string | { name: string; status?: string })[] }) {
   const [showAll, setShowAll] = useState(false);
   const maxVisible = 5;
   const displayItems = showAll ? items : items.slice(0, maxVisible);
@@ -175,7 +177,7 @@ function InfoList({ icon, label, items }: { icon: string; label: string; items: 
   return (
     <div className="text-xs">
       <div className="flex items-center gap-2 text-muted-foreground mb-1">
-        <span>{icon}</span>
+        <IconComponent size={12} strokeWidth={1.75} />
         <span>{label}</span>
         <span className="text-muted-foreground/70">({items.length})</span>
       </div>

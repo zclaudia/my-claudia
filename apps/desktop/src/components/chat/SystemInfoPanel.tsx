@@ -1,4 +1,6 @@
 import { useState } from 'react';
+import { Cpu, Package, Shield, Key, Folder, Wrench, Monitor, Users, ChevronDown, ChevronRight } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import type { SystemInfo } from '@my-claudia/shared';
 
 interface SystemInfoPanelProps {
@@ -29,7 +31,7 @@ export function SystemInfoPanel({ systemInfo }: SystemInfoPanelProps) {
         className="w-full flex items-center gap-2 px-4 py-2 text-left hover:bg-primary/10 transition-colors"
       >
         <span className="text-primary text-sm">
-          {isExpanded ? '▼' : '▶'}
+          {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
         </span>
         <span className="text-sm font-medium text-primary">
           System Info
@@ -47,23 +49,23 @@ export function SystemInfoPanel({ systemInfo }: SystemInfoPanelProps) {
           {/* Primary info row */}
           <div className="flex flex-wrap gap-3 text-xs">
             {systemInfo.model && (
-              <InfoBadge icon="🤖" label="Model" value={systemInfo.model} />
+              <InfoBadge icon={Cpu} label="Model" value={systemInfo.model} />
             )}
             {systemInfo.claudeCodeVersion && (
-              <InfoBadge icon="📦" label="Version" value={systemInfo.claudeCodeVersion} />
+              <InfoBadge icon={Package} label="Version" value={systemInfo.claudeCodeVersion} />
             )}
             {systemInfo.permissionMode && (
-              <InfoBadge icon="🛡️" label="Permission" value={systemInfo.permissionMode} />
+              <InfoBadge icon={Shield} label="Permission" value={systemInfo.permissionMode} />
             )}
             {systemInfo.apiKeySource && (
-              <InfoBadge icon="🔑" label="API Key" value={systemInfo.apiKeySource} />
+              <InfoBadge icon={Key} label="API Key" value={systemInfo.apiKeySource} />
             )}
           </div>
 
           {/* Working directory */}
           {systemInfo.cwd && (
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <span>📁</span>
+              <Folder size={12} strokeWidth={1.75} />
               <span className="font-mono truncate" title={systemInfo.cwd}>
                 {systemInfo.cwd}
               </span>
@@ -73,7 +75,7 @@ export function SystemInfoPanel({ systemInfo }: SystemInfoPanelProps) {
           {/* Tools */}
           {systemInfo.tools && systemInfo.tools.length > 0 && (
             <CollapsibleList
-              icon="🔧"
+              icon={Wrench}
               label="Tools"
               items={systemInfo.tools}
               maxVisible={5}
@@ -83,7 +85,7 @@ export function SystemInfoPanel({ systemInfo }: SystemInfoPanelProps) {
           {/* MCP Servers */}
           {systemInfo.mcpServers && systemInfo.mcpServers.length > 0 && (
             <CollapsibleList
-              icon="🖥️"
+              icon={Monitor}
               label="MCP Servers"
               items={systemInfo.mcpServers}
               maxVisible={3}
@@ -93,7 +95,7 @@ export function SystemInfoPanel({ systemInfo }: SystemInfoPanelProps) {
           {/* Agents */}
           {systemInfo.agents && systemInfo.agents.length > 0 && (
             <CollapsibleList
-              icon="👥"
+              icon={Users}
               label="Agents"
               items={systemInfo.agents}
               maxVisible={3}
@@ -106,15 +108,15 @@ export function SystemInfoPanel({ systemInfo }: SystemInfoPanelProps) {
 }
 
 interface InfoBadgeProps {
-  icon: string;
+  icon: LucideIcon;
   label: string;
   value: string;
 }
 
-function InfoBadge({ icon, label, value }: InfoBadgeProps) {
+function InfoBadge({ icon: IconComponent, label, value }: InfoBadgeProps) {
   return (
     <div className="flex items-center gap-1.5 bg-card/60 px-2 py-1 rounded-md">
-      <span>{icon}</span>
+      <IconComponent size={12} strokeWidth={1.75} className="text-muted-foreground" />
       <span className="text-muted-foreground">{label}:</span>
       <span className="font-medium text-foreground">{value}</span>
     </div>
@@ -122,13 +124,13 @@ function InfoBadge({ icon, label, value }: InfoBadgeProps) {
 }
 
 interface CollapsibleListProps {
-  icon: string;
+  icon: LucideIcon;
   label: string;
   items: (string | { name: string; status?: string })[];
   maxVisible: number;
 }
 
-function CollapsibleList({ icon, label, items, maxVisible }: CollapsibleListProps) {
+function CollapsibleList({ icon: IconComponent, label, items, maxVisible }: CollapsibleListProps) {
   const [showAll, setShowAll] = useState(false);
   const displayItems = showAll ? items : items.slice(0, maxVisible);
   const hasMore = items.length > maxVisible;
@@ -136,7 +138,7 @@ function CollapsibleList({ icon, label, items, maxVisible }: CollapsibleListProp
   return (
     <div className="text-xs">
       <div className="flex items-center gap-2 text-muted-foreground mb-1">
-        <span>{icon}</span>
+        <IconComponent size={12} strokeWidth={1.75} />
         <span>{label}</span>
         <span className="text-muted-foreground/70">({items.length})</span>
       </div>
