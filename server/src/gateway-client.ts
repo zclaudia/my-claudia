@@ -373,12 +373,21 @@ export class GatewayClient {
     const contentLength = parseInt(headers['content-length'] || '0', 10);
     if (contentLength > GatewayClient.STREAM_THRESHOLD) return true;
 
-    const ct = (headers['content-type'] || '').toLowerCase();
-    if (ct.startsWith('image/') || ct.startsWith('audio/') || ct.startsWith('video/')) return true;
-    if (ct === 'application/octet-stream' || ct.includes('zip') || ct.includes('tar') || ct.includes('gzip')) return true;
-    if (ct === 'application/vnd.android.package-archive') return true;
+    const rawCt = (headers['content-type'] || '').toLowerCase();
+    const ct = rawCt.split(';')[0].trim();
+    if (!ct) return false;
 
-    return false;
+    // Known text-like media types can safely use resp.text()
+    if (ct.startsWith('text/')) return false;
+    if (ct === 'application/json') return false;
+    if (ct.endsWith('+json')) return false;
+    if (ct === 'application/xml' || ct === 'text/xml' || ct.endsWith('+xml')) return false;
+    if (ct === 'application/javascript' || ct === 'text/javascript') return false;
+    if (ct === 'application/x-www-form-urlencoded') return false;
+    if (ct === 'application/graphql-response+json') return false;
+
+    // Default to streaming for non-text types to avoid binary corruption.
+    return true;
   }
 
   private sendWs(data: BackendToGatewayMessage): void {

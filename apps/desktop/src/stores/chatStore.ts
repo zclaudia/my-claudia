@@ -53,8 +53,8 @@ interface ChatState {
   toolCallsHistory: Record<string, ToolCallState[]>;
   // Content blocks per run: runId → ContentBlock[] (text/tool_use interleaved sequence)
   runContentBlocks: Record<string, ContentBlock[]>;
-  // Current system info from Claude SDK init message
-  currentSystemInfo: SystemInfo | null;
+  // System info from Claude SDK init message, keyed by session ID
+  systemInfoBySession: Record<string, SystemInfo>;
   // Mode per session (generic — permission mode for Claude, agent for OpenCode, etc.)
   modeOverrides: Record<string, string>;
   // Accumulated token usage per session
@@ -95,8 +95,9 @@ interface ChatState {
   finalizeRunToMessage: (runId: string) => void;
 
   // System info actions
-  setSystemInfo: (info: SystemInfo) => void;
-  clearSystemInfo: () => void;
+  setSystemInfo: (sessionId: string, info: SystemInfo) => void;
+  clearSystemInfo: (sessionId: string) => void;
+  getSystemInfo: (sessionId: string) => SystemInfo | null;
 
   // Mode actions (per session)
   setMode: (sessionId: string, mode: string) => void;
@@ -147,7 +148,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   activeToolCalls: {},
   toolCallsHistory: {},
   runContentBlocks: {},
-  currentSystemInfo: null,
+  systemInfoBySession: {},
   modeOverrides: {},
   sessionUsage: {},
   modelOverrides: {},
@@ -435,8 +436,19 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }),
 
   // System info actions
-  setSystemInfo: (info) => set({ currentSystemInfo: info }),
-  clearSystemInfo: () => set({ currentSystemInfo: null }),
+  setSystemInfo: (sessionId, info) =>
+    set((state) => ({
+      systemInfoBySession: {
+        ...state.systemInfoBySession,
+        [sessionId]: info,
+      },
+    })),
+  clearSystemInfo: (sessionId) =>
+    set((state) => {
+      const { [sessionId]: _, ...rest } = state.systemInfoBySession;
+      return { systemInfoBySession: rest };
+    }),
+  getSystemInfo: (sessionId) => get().systemInfoBySession[sessionId] || null,
 
   // Mode actions (per session)
   setMode: (sessionId, mode) =>

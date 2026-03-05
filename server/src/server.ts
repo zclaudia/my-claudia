@@ -61,6 +61,21 @@ const DEFAULT_PERMISSION_POLICY: AgentPermissionPolicy = {
   escalateAlways: ['AskUserQuestion', 'ExitPlanMode'],
 };
 
+// Permission timeout policies: keyed by tool name, applied when the request times out.
+// condition() is evaluated at request time against the current ActiveRun state.
+const PERMISSION_TIMEOUT_POLICIES: Map<string, {
+  behavior: 'approve' | 'deny';
+  /** Override timeoutSeconds when the request has no timeout (0). */
+  timeoutSeconds?: number;
+  condition?: (run: { aiInitiatedPlanMode?: boolean }) => boolean;
+}> = new Map([
+  ['ExitPlanMode', {
+    behavior: 'approve',
+    timeoutSeconds: 120, // 2 minutes
+    condition: (run) => !!run.aiInitiatedPlanMode,
+  }],
+]);
+
 // Check if input is a slash command
 function isSlashCommand(input: string): boolean {
   return input.trim().startsWith('/');
@@ -198,6 +213,7 @@ interface ActiveRun {
       requiresCredential?: boolean;
       credentialHint?: string;
       questions?: any[];
+      aiInitiated?: boolean;
     };
   }>;
   // Streaming state for message persistence (allows cancelRun to save partial content)
@@ -210,6 +226,8 @@ interface ActiveRun {
   saveInterval?: NodeJS.Timeout;
   completed?: boolean;  // True after run_completed/run_failed sent; hides from heartbeat while for-await drains
   sessionType: 'regular' | 'background';  // Whether this is a background task run
+  /** True when AI called EnterPlanMode during a non-plan-mode run (not user-initiated). */
+  aiInitiatedPlanMode?: boolean;
   // Stuck/loop detection
   startedAt: number;
   lastActivityAt: number;
@@ -532,7 +550,7 @@ export async function createServer(): Promise<ServerContext> {
       const parsed = new URL(fullUrl);
       const transport = parsed.protocol === 'https:' ? httpsRequest : httpRequest;
 
-      const proxyRes = await new Promise<{ status: number; headers: Record<string, string>; body: string }>((resolve, reject) => {
+      const proxyRes = await new Promise<{ status: number; headers: Record<string, string>; body: Buffer }>((resolve, reject) => {
         const proxyReq = transport(fullUrl, {
           method: req.method,
           headers,
@@ -550,7 +568,7 @@ export async function createServer(): Promise<ServerContext> {
             resolve({
               status: upstream.statusCode || 502,
               headers: respHeaders,
-              body: Buffer.concat(chunks).toString('utf-8'),
+              body: Buffer.concat(chunks),
             });
           });
           upstream.on('error', reject);
@@ -564,7 +582,7 @@ export async function createServer(): Promise<ServerContext> {
       for (const [key, value] of Object.entries(proxyRes.headers)) {
         res.setHeader(key, value);
       }
-      res.send(proxyRes.body);
+      res.end(proxyRes.body);
     } catch (error) {
       console.error(`[GatewayProxy] Error proxying to backend ${backendId}:`, error);
       res.status(502).json({
@@ -910,6 +928,7 @@ function buildStateHeartbeat(): StateHeartbeatMessage {
           timeoutSeconds: pending.originalRequest.timeoutSeconds,
           requiresCredential: pending.originalRequest.requiresCredential,
           credentialHint: pending.originalRequest.credentialHint,
+          aiInitiated: pending.originalRequest.aiInitiated,
         });
       }
     }
@@ -1259,6 +1278,7 @@ async function handleRunStart(
     lastActivityAt: Date.now(),
     recentToolCalls: [],
     sessionType,
+    aiInitiatedPlanMode: false,
   };
   activeRuns.set(runId, activeRun);
 
@@ -1417,12 +1437,35 @@ async function handleRunStart(
           });
         }
 
+        // Determine effective timeout behavior from policy table
+        const timeoutPolicy = PERMISSION_TIMEOUT_POLICIES.get(request.toolName);
+        const policyApplies = timeoutPolicy && (!timeoutPolicy.condition || timeoutPolicy.condition(activeRun));
+        const effectiveTimeoutBehavior: 'approve' | 'deny' =
+          policyApplies ? timeoutPolicy!.behavior : (request.timeoutBehavior || 'deny');
+        let effectiveTimeoutSeconds = request.timeoutSeconds;
+        if (policyApplies && effectiveTimeoutSeconds === 0 && timeoutPolicy!.timeoutSeconds) {
+          effectiveTimeoutSeconds = timeoutPolicy!.timeoutSeconds;
+        }
+        const aiInitiated = policyApplies && timeoutPolicy!.behavior === 'approve';
+
         let timeout: ReturnType<typeof setTimeout> | null = null;
-        if (request.timeoutSeconds > 0) {
-          const timeoutMs = request.timeoutSeconds * 1000;
+        if (effectiveTimeoutSeconds > 0) {
+          const timeoutMs = effectiveTimeoutSeconds * 1000;
           timeout = setTimeout(() => {
             activeRun.pendingPermissions.delete(request.requestId);
-            resolve({ behavior: 'deny', message: 'Permission request timed out' });
+            sendMessage(client.ws, {
+              type: 'permission_auto_resolved',
+              requestId: request.requestId,
+              sessionId: message.sessionId,
+              behavior: effectiveTimeoutBehavior,
+            } as import('@my-claudia/shared').PermissionAutoResolvedMessage);
+            if (effectiveTimeoutBehavior === 'approve') {
+              console.log(`[Permission] Auto-approved ${request.requestId} (${request.toolName}) on timeout`);
+              resolve({ behavior: 'allow', updatedInput: request.toolInput });
+            } else {
+              console.log(`[Permission] Auto-denied ${request.requestId} (${request.toolName}) on timeout`);
+              resolve({ behavior: 'deny', message: 'Permission request timed out' });
+            }
           }, timeoutMs);
         }
 
@@ -1436,13 +1479,14 @@ async function handleRunStart(
           originalRequest: {
             toolName: request.toolName,
             detail: request.detail,
-            timeoutSeconds: request.timeoutSeconds,
+            timeoutSeconds: effectiveTimeoutSeconds,
             sessionId: message.sessionId,
             ...(requiresCredential && { requiresCredential: true, credentialHint: 'sudo_password' }),
             ...(isAskUserQuestion && { questions: toolInput.questions || [] }),
+            ...(aiInitiated && { aiInitiated: true }),
           }
         });
-        console.log(`[Permission] Stored pending permission ${request.requestId} in run ${runId} (timeout: ${request.timeoutSeconds > 0 ? request.timeoutSeconds + 's' : 'none'}, session: ${sessionType})`);
+        console.log(`[Permission] Stored pending permission ${request.requestId} in run ${runId} (timeout: ${effectiveTimeoutSeconds > 0 ? effectiveTimeoutSeconds + 's' : 'none'}, behavior: ${effectiveTimeoutBehavior}, aiInitiated: ${aiInitiated}, session: ${sessionType})`);
 
         // For regular sessions: send UI prompts as before
         if (sessionType !== 'background') {
@@ -1472,13 +1516,14 @@ async function handleRunStart(
               sessionId: message.sessionId,
               toolName: request.toolName,
               detail: request.detail,
-              timeoutSeconds: request.timeoutSeconds,
+              timeoutSeconds: effectiveTimeoutSeconds,
               ...(requiresCredential && {
                 requiresCredential: true,
                 credentialHint: 'sudo_password',
               }),
+              ...(aiInitiated && { aiInitiated: true }),
             });
-            console.log(`[Permission] Sent permission request ${request.requestId} to client${requiresCredential ? ' (requires sudo credential)' : ''}`);
+            console.log(`[Permission] Sent permission request ${request.requestId} to client${requiresCredential ? ' (requires sudo credential)' : ''}${aiInitiated ? ' (ai-initiated, auto-approve on timeout)' : ''}`);
             notificationService.notify({
               type: 'permission_request',
               title: 'Permission Required',
@@ -1694,8 +1739,14 @@ async function handleRunStart(
           if (activeRun.providerType === 'claude' && !msg.isToolError) {
             if (toolName === 'EnterPlanMode') {
               sendMessage(client.ws, { type: 'mode_change', runId, sessionId: activeRun.sessionId, mode: 'plan' });
+              // Track AI-initiated plan mode (only when the run didn't start in plan mode)
+              if (modeValue !== 'plan') {
+                activeRun.aiInitiatedPlanMode = true;
+                console.log(`[Permission] AI entered plan mode during ${modeValue} run — ExitPlanMode will auto-approve`);
+              }
             } else if (toolName === 'ExitPlanMode') {
               sendMessage(client.ws, { type: 'mode_change', runId, sessionId: activeRun.sessionId, mode: 'default' });
+              activeRun.aiInitiatedPlanMode = false;
             }
           }
           break;
@@ -2011,4 +2062,3 @@ function handleAskUserAnswer(message: {
     break;
   }
 }
-

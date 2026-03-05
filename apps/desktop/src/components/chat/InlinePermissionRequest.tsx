@@ -35,8 +35,11 @@ export function InlinePermissionRequest({ request, onDecision }: InlinePermissio
     const interval = setInterval(() => {
       setRemainingTime((prev) => {
         if (prev <= 1) {
-          setResolved('deny');
-          onDecision(request.requestId, false);
+          // Backend handles auto-approve; for auto-deny, also trigger from frontend as fallback
+          if (!request.aiInitiated) {
+            setResolved('deny');
+            onDecision(request.requestId, false);
+          }
           return 0;
         }
         return prev - 1;
@@ -93,7 +96,7 @@ export function InlinePermissionRequest({ request, onDecision }: InlinePermissio
       {hasTimeout && (
         <div className="h-0.5 bg-muted">
           <div
-            className="h-full bg-warning transition-all duration-1000 ease-linear"
+            className={`h-full transition-all duration-1000 ease-linear ${request.aiInitiated ? 'bg-success' : 'bg-warning'}`}
             style={{ width: `${progressPercent}%` }}
           />
         </div>
@@ -157,8 +160,13 @@ export function InlinePermissionRequest({ request, onDecision }: InlinePermissio
         <div className="flex items-center gap-2 mt-2">
           {/* Timer */}
           {hasTimeout ? (
-            <span className="text-xs text-muted-foreground">
-              <span className={remainingTime <= 10 ? 'text-destructive font-semibold' : 'text-warning'}>
+            <span className="text-xs text-muted-foreground flex items-center gap-1">
+              {request.aiInitiated && <span>Auto-approve:</span>}
+              <span className={
+                request.aiInitiated
+                  ? (remainingTime <= 10 ? 'text-success font-semibold' : 'text-success/80')
+                  : (remainingTime <= 10 ? 'text-destructive font-semibold' : 'text-warning')
+              }>
                 {remainingTime}s
               </span>
             </span>

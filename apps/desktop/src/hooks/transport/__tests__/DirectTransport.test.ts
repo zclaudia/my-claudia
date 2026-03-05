@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { DirectTransport } from '../DirectTransport';
 import type { ClientMessage, ServerMessage } from '@my-claudia/shared';
 
@@ -61,7 +61,8 @@ describe('DirectTransport', () => {
       mockWs.readyState = WebSocket.OPEN;
 
       const message: ClientMessage = {
-        type: 'run',
+        type: 'run_start',
+        clientRequestId: 'test-request-id',
         sessionId: 'session-123',
         input: 'Test message'
       };
@@ -75,7 +76,8 @@ describe('DirectTransport', () => {
       const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
       const message: ClientMessage = {
-        type: 'run',
+        type: 'run_start',
+        clientRequestId: 'test-request-id',
         sessionId: 'session-123',
         input: 'Test message'
       };
@@ -149,7 +151,9 @@ describe('DirectTransport', () => {
       transport.connect();
 
       const serverMessage: ServerMessage = {
-        type: 'assistant',
+        type: 'delta',
+        runId: 'test-run-id',
+        sessionId: 'test-session',
         content: 'Response'
       };
 

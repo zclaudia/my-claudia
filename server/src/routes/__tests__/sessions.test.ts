@@ -625,6 +625,33 @@ describe('sessions routes', () => {
       }
     });
 
+    it('sanitizes think blocks and whitespace in search preview', async () => {
+      const now = Date.now();
+      const contentWithThink = `<think>
+
+internal reasoning cursor plan
+
+</think>
+
+
+  cursor-adapter configured successfully   `;
+      db.prepare(`
+        INSERT INTO messages (id, session_id, role, content, created_at)
+        VALUES (?, ?, ?, ?, ?)
+      `).run('m-think', 's1', 'assistant', contentWithThink, now + 6000);
+
+      const res = await request(app).get('/api/sessions/search/messages?q=cursor');
+
+      expect(res.status).toBe(200);
+      const thinkResult = res.body.data.results.find((r: { id: string }) => r.id === 'm-think');
+      expect(thinkResult).toBeDefined();
+      if (thinkResult) {
+        expect(thinkResult.content).not.toContain('<think>');
+        expect(thinkResult.content).not.toContain('</think>');
+        expect(thinkResult.content).toBe('cursor-adapter configured successfully');
+      }
+    });
+
     it('respects limit parameter', async () => {
       const res = await request(app).get('/api/sessions/search/messages?q=authentication&limit=1');
 

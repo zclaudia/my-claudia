@@ -8,6 +8,15 @@ import { getGatewayClient } from '../gateway-instance.js';
 
 type ActiveRunsMap = Map<string, any>;
 
+function buildSearchPreview(content: string): string {
+  // Remove internal reasoning blocks and normalize whitespace for compact previews.
+  const withoutThinkBlocks = content
+    .replace(/<think>[\s\S]*?<\/think>/gi, ' ')
+    .replace(/<\/?think>/gi, ' ');
+  const normalized = withoutThinkBlocks.replace(/\s+/g, ' ').trim();
+  return normalized || 'No preview text';
+}
+
 export function createSessionRoutes(db: Database.Database, activeRuns: ActiveRunsMap): Router {
   const router = Router();
 
@@ -698,7 +707,10 @@ export function createSessionRoutes(db: Database.Database, activeRuns: ActiveRun
 
       const truncated = results.map(r => ({
         ...r,
-        content: r.content.length > 200 ? r.content.substring(0, 200) + '...' : r.content,
+        content: (() => {
+          const preview = buildSearchPreview(r.content);
+          return preview.length > 200 ? preview.substring(0, 200) + '...' : preview;
+        })(),
       }));
 
       // Save search history

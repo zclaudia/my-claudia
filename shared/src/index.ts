@@ -26,7 +26,7 @@ export interface BackendServer {
 // Provider Types
 // ============================================
 
-export type ProviderType = 'claude' | 'opencode' | 'codex';
+export type ProviderType = 'claude' | 'opencode' | 'codex' | 'cursor';
 
 export interface ProviderConfig {
   id: string;
@@ -305,6 +305,8 @@ export interface PermissionRequest {
   toolInput: unknown;
   detail: string;
   timeoutSeconds: number;
+  /** What to do when the timeout expires. Defaults to 'deny'. */
+  timeoutBehavior?: 'approve' | 'deny';
 }
 
 // ============================================
@@ -614,6 +616,7 @@ export type ServerMessage =
   | ProvidersDeletedMessage
   | SupervisionUpdateMessage
   | PermissionResolvedMessage
+  | PermissionAutoResolvedMessage
   | AskUserQuestionResolvedMessage
   | StateHeartbeatMessage
   | TerminalOpenedMessage
@@ -729,6 +732,8 @@ export interface PermissionRequestMessage {
   requiresCredential?: boolean;
   /** Hint for what kind of credential is needed (e.g. 'sudo_password'). */
   credentialHint?: string;
+  /** When true, timeout will auto-approve (not deny); show countdown accordingly. */
+  aiInitiated?: boolean;
 }
 
 // AskUserQuestion: interactive question UI (Server → Client)
@@ -1278,6 +1283,15 @@ export interface PermissionResolvedMessage {
   decision: 'allow' | 'deny';
 }
 
+// Server → Client: a permission request was auto-resolved by backend timer
+export interface PermissionAutoResolvedMessage {
+  type: 'permission_auto_resolved';
+  requestId: string;
+  sessionId: string;
+  /** Whether the backend approved or denied on timeout expiry. */
+  behavior: 'approve' | 'deny';
+}
+
 // Server → Client: an ask_user_question has been resolved by another device
 export interface AskUserQuestionResolvedMessage {
   type: 'ask_user_question_resolved';
@@ -1309,6 +1323,7 @@ export interface StateHeartbeatMessage {
     timeoutSeconds: number;
     requiresCredential?: boolean;
     credentialHint?: string;
+    aiInitiated?: boolean;
   }>;
   pendingQuestions: Array<{
     requestId: string;

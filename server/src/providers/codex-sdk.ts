@@ -170,25 +170,27 @@ function getCodexInstance(options: CodexRunOptions): Codex {
   const key = options.cliPath || '__default__';
   let codex = codexInstances.get(key);
   if (!codex) {
+    // Codex SDK: if env is provided, it does NOT inherit process.env
+    // We must merge them manually to ensure system env vars (PATH, etc.) are available
+    let mergedEnv: Record<string, string> | undefined;
+    if (options.env) {
+      // Convert process.env to Record<string, string>, filtering out undefined values
+      const processEnv: Record<string, string> = {};
+      for (const [key, value] of Object.entries(process.env)) {
+        if (value !== undefined) {
+          processEnv[key] = value;
+        }
+      }
+      mergedEnv = { ...processEnv, ...options.env };
+    }
+
     codex = new Codex({
       codexPathOverride: options.cliPath,
-      env: options.env,
+      env: mergedEnv,
     });
     codexInstances.set(key, codex);
   }
   return codex;
-}
-
-// ── Thread ID tracking (our sessionId → codex thread_id) ─────
-
-const threadIdMap = new Map<string, string>();
-
-export function setCodexThreadId(sessionId: string, threadId: string): void {
-  threadIdMap.set(sessionId, threadId);
-}
-
-export function getCodexThreadId(sessionId: string): string | undefined {
-  return threadIdMap.get(sessionId);
 }
 
 // ── Main run function ────────────────────────────────────────
@@ -208,14 +210,10 @@ export async function* runCodex(
     ...policies,
   };
 
-  // Start or resume thread
-  let existingThreadId: string | undefined;
-  if (options.sessionId) {
-    existingThreadId = threadIdMap.get(options.sessionId);
-  }
-
-  const thread = existingThreadId
-    ? codex.resumeThread(existingThreadId, threadOptions)
+  // Start or resume thread.
+  // options.sessionId is the codex thread_id stored by server as sdk_session_id after the first run.
+  const thread = options.sessionId
+    ? codex.resumeThread(options.sessionId, threadOptions)
     : codex.startThread(threadOptions);
 
   // Prepare input (handle images)
@@ -260,10 +258,6 @@ function mapThreadEvent(event: ThreadEvent, sessionId?: string): ClaudeMessage[]
 
   switch (event.type) {
     case 'thread.started': {
-      // Store the thread ID for session resumption
-      if (sessionId) {
-        threadIdMap.set(sessionId, event.thread_id);
-      }
       // Emit init message
       const systemInfo: SystemInfo = {
         cwd: '',

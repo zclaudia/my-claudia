@@ -20,7 +20,7 @@ export function ProviderManager({ isOpen, onClose, inline = false }: ProviderMan
   const [editingProvider, setEditingProvider] = useState<ProviderConfig | null>(null);
 
   // Form state
-  type ProviderType = 'claude' | 'opencode' | 'codex';
+  type ProviderType = 'claude' | 'opencode' | 'codex' | 'cursor';
   const [formName, setFormName] = useState('');
   const [formType, setFormType] = useState<ProviderType>('claude');
   const [formCliPath, setFormCliPath] = useState('');
@@ -167,6 +167,7 @@ export function ProviderManager({ isOpen, onClose, inline = false }: ProviderMan
           <option value="claude">Claude</option>
           <option value="opencode">OpenCode</option>
           <option value="codex">Codex</option>
+          <option value="cursor">Cursor Agent</option>
         </select>
       </div>
 
@@ -176,10 +177,10 @@ export function ProviderManager({ isOpen, onClose, inline = false }: ProviderMan
           type="text"
           value={formCliPath}
           onChange={(e) => setFormCliPath(e.target.value)}
-          placeholder={formType === 'opencode' ? '/path/to/opencode' : formType === 'codex' ? '/path/to/codex' : '/path/to/claude'}
+          placeholder={formType === 'opencode' ? '/path/to/opencode' : formType === 'codex' ? '/path/to/codex' : formType === 'cursor' ? '/path/to/cursor-agent' : '/path/to/claude'}
           className="w-full px-3 py-2 bg-secondary border border-border rounded-lg text-sm focus:outline-none focus:border-primary font-mono"
         />
-        <p className="text-xs text-muted-foreground mt-1">Custom path to {formType === 'opencode' ? 'OpenCode' : formType === 'codex' ? 'Codex' : 'Claude'} CLI binary</p>
+        <p className="text-xs text-muted-foreground mt-1">Custom path to {formType === 'opencode' ? 'OpenCode' : formType === 'codex' ? 'Codex' : formType === 'cursor' ? 'cursor-agent' : 'Claude'} CLI binary</p>
       </div>
 
       <div>
@@ -194,6 +195,10 @@ export function ProviderManager({ isOpen, onClose, inline = false }: ProviderMan
 : formType === 'codex'
 ? `{
 "OPENAI_API_KEY": "your-key"
+}`
+: formType === 'cursor'
+? `{
+"CURSOR_API_KEY": "optional-api-key"
 }`
 : `{
 "ANTHROPIC_API_KEY": "your-key",

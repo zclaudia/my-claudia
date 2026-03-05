@@ -66,9 +66,9 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
     prependMessages,
     clearMessages,
     setLoadingMore,
-    currentSystemInfo,
     setMode,
     getMode,
+    getSystemInfo,
     sessionUsage,
     setModelOverride,
     getModelOverride,
@@ -126,6 +126,7 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
 
   const sessionMessages = messages[sessionId] || [];
   const sessionPagination = pagination[sessionId];
+  const currentSystemInfo = getSystemInfo(sessionId);
   const currentUsage = sessionUsage[sessionId] || { inputTokens: 0, outputTokens: 0, contextWindow: undefined };
 
   // Get current session and project to determine provider

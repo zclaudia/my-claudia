@@ -110,7 +110,7 @@ export function createProviderRoutes(db: Database.Database): Router {
         return;
       }
 
-      const VALID_PROVIDER_TYPES = ['claude', 'opencode', 'codex'];
+      const VALID_PROVIDER_TYPES = ['claude', 'opencode', 'codex', 'cursor'];
       if (type && !VALID_PROVIDER_TYPES.includes(type)) {
         res.status(400).json({
           success: false,
@@ -168,7 +168,7 @@ export function createProviderRoutes(db: Database.Database): Router {
       const { name, type, cliPath, env, isDefault } = req.body;
       const now = Date.now();
 
-      const VALID_PROVIDER_TYPES = ['claude', 'opencode', 'codex'];
+      const VALID_PROVIDER_TYPES = ['claude', 'opencode', 'codex', 'cursor'];
       if (type && !VALID_PROVIDER_TYPES.includes(type)) {
         res.status(400).json({
           success: false,
@@ -636,6 +636,26 @@ function getCodexCapabilities(): ProviderCapabilities {
   };
 }
 
+function getCursorCapabilities(): ProviderCapabilities {
+  return {
+    modeLabel: 'Mode',
+    defaultModeId: 'default',
+    modes: [
+      { id: 'default', label: 'Agent', description: 'Full agent mode — reads, edits, and runs commands' },
+      { id: 'plan', label: 'Plan', description: 'Planning mode — reads only, proposes changes' },
+      { id: 'ask', label: 'Ask', description: 'Ask mode — answers questions without editing files' },
+    ],
+    models: [
+      { id: '', label: 'Default' },
+      { id: 'claude-opus-4-6', label: 'Claude Opus 4.6' },
+      { id: 'claude-sonnet-4-5', label: 'Claude Sonnet 4.5' },
+      { id: 'gpt-5', label: 'GPT-5' },
+      { id: 'gpt-5-mini', label: 'GPT-5 Mini' },
+      { id: 'o3', label: 'o3' },
+    ],
+  };
+}
+
 async function getProviderCapabilities(
   providerType: string,
   cliPath?: string,
@@ -646,6 +666,8 @@ async function getProviderCapabilities(
       return getOpenCodeCapabilities(cliPath, env);
     case 'codex':
       return getCodexCapabilities();
+    case 'cursor':
+      return getCursorCapabilities();
     case 'claude':
     default:
       return getClaudeCapabilities(cliPath, env);
@@ -720,6 +742,9 @@ async function getProviderCommands(
       return getClaudeCommands(cliPath, env);
     case 'codex':
       // Codex CLI doesn't expose slash commands via SDK
+      return [];
+    case 'cursor':
+      // cursor-agent doesn't expose slash commands
       return [];
     default:
       return [];

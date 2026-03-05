@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { GatewayTransport } from '../GatewayTransport';
 import type { ClientMessage, ServerMessage, GatewayToClientMessage } from '@my-claudia/shared';
 
@@ -68,6 +68,7 @@ describe('GatewayTransport', () => {
       const secondWs = (transport as any).ws;
 
       expect(firstWs.close).toHaveBeenCalled();
+      expect(secondWs).not.toBe(firstWs);
     });
 
     it('clears authenticated state on connect', () => {
@@ -152,7 +153,8 @@ describe('GatewayTransport', () => {
       (transport as any).authenticatedBackends.add('backend-123');
 
       const message: ClientMessage = {
-        type: 'run',
+        type: 'run_start',
+        clientRequestId: 'test-request-id',
         sessionId: 'session-456',
         input: 'Test'
       };
@@ -168,7 +170,7 @@ describe('GatewayTransport', () => {
     it('logs error when not connected', () => {
       const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
-      transport.sendToBackend('backend-123', { type: 'run' } as any);
+      transport.sendToBackend('backend-123', { type: 'run_start', clientRequestId: 'test', sessionId: 'test', input: '' } as any);
 
       expect(consoleSpy).toHaveBeenCalledWith(
         '[GatewayTransport] Cannot send: not connected'
@@ -183,7 +185,7 @@ describe('GatewayTransport', () => {
 
       const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
-      transport.sendToBackend('backend-123', { type: 'run' } as any);
+      transport.sendToBackend('backend-123', { type: 'run_start', clientRequestId: 'test', sessionId: 'test', input: '' } as any);
 
       expect(consoleSpy).toHaveBeenCalledWith(
         '[GatewayTransport] Cannot send: not authenticated to backend',
@@ -299,7 +301,7 @@ describe('GatewayTransport', () => {
       const message: GatewayToClientMessage = {
         type: 'backends_list',
         backends: [
-          { id: 'backend-1', name: 'Backend 1', address: 'http://localhost:3000' }
+          { backendId: 'backend-1', name: 'Backend 1', online: true }
         ]
       };
 
@@ -352,7 +354,9 @@ describe('GatewayTransport', () => {
       const mockWs = (transport as any).ws;
 
       const innerMessage: ServerMessage = {
-        type: 'assistant',
+        type: 'delta',
+        runId: 'test-run-id',
+        sessionId: 'test-session',
         content: 'Hello'
       };
 
@@ -400,6 +404,7 @@ describe('GatewayTransport', () => {
 
       const message: GatewayToClientMessage = {
         type: 'gateway_error',
+        code: 'GENERIC_ERROR',
         message: 'Something went wrong'
       };
 

@@ -123,7 +123,10 @@ async function saveOrDownload(blob: Blob, fileName: string, fileId: string): Pro
         const item = useFilePushStore.getState().items.find(i => i.fileId === fileId);
         const mimeType = item?.mimeType || 'application/octet-stream';
         try {
-          (window as any).AndroidFiles.saveToDownloads(savedPath, fileName, mimeType);
+          const sharedPath = (window as any).AndroidFiles.saveToDownloads(savedPath, fileName, mimeType);
+          if (typeof sharedPath === 'string' && sharedPath.length > 0) {
+            useFilePushStore.getState().updateSavedPath(fileId, sharedPath);
+          }
           console.log(`[fileDownload] Copied to shared Downloads: ${fileName}`);
         } catch (e) {
           console.warn('[fileDownload] Failed to copy to shared Downloads:', e);
@@ -164,7 +167,11 @@ export async function openFile(filePath: string): Promise<void> {
  * Uses FileProvider + ACTION_VIEW intent to launch the appropriate app.
  */
 export function openFileAndroid(filePath: string, mimeType: string): void {
-  (window as any).AndroidFiles?.openFile(filePath, mimeType);
+  try {
+    (window as any).AndroidFiles?.openFile(filePath, mimeType || 'application/octet-stream');
+  } catch (error) {
+    console.error('[fileDownload] Android file open failed:', error);
+  }
 }
 
 /**

@@ -15,6 +15,8 @@ export interface PermissionRequest {
   requiresCredential?: boolean;
   /** Hint for what kind of credential is needed (e.g. 'sudo_password'). */
   credentialHint?: string;
+  /** When true, timeout will auto-approve; countdown label changes accordingly. */
+  aiInitiated?: boolean;
 }
 
 interface PermissionState {

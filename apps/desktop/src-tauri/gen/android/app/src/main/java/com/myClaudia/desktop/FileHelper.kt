@@ -45,21 +45,39 @@ class FileHelper(private val activity: Activity) {
      */
     @JavascriptInterface
     fun openFile(filePath: String, mimeType: String) {
-        val file = File(filePath)
-        if (!file.exists()) return
-
         activity.runOnUiThread {
             try {
-                val uri = FileProvider.getUriForFile(
-                    activity,
-                    "${activity.packageName}.fileprovider",
-                    file
-                )
-                val intent = Intent(Intent.ACTION_VIEW).apply {
-                    setDataAndType(uri, mimeType)
+                val uri = if (filePath.startsWith("content://")) {
+                    Uri.parse(filePath)
+                } else {
+                    val file = File(filePath)
+                    if (!file.exists()) {
+                        android.util.Log.e("FileHelper", "File does not exist: $filePath")
+                        return@runOnUiThread
+                    }
+                    FileProvider.getUriForFile(
+                        activity,
+                        "${activity.packageName}.fileprovider",
+                        file
+                    )
+                }
+
+                val resolvedMimeType = mimeType.takeIf { it.isNotBlank() } ?: "application/octet-stream"
+                val openIntent = Intent(Intent.ACTION_VIEW).apply {
+                    setDataAndType(uri, resolvedMimeType)
                     addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
                 }
-                activity.startActivity(intent)
+
+                try {
+                    activity.startActivity(Intent.createChooser(openIntent, "Open with"))
+                } catch (_: Exception) {
+                    // Fallback for unknown/strict MIME mappings.
+                    val fallbackIntent = Intent(Intent.ACTION_VIEW).apply {
+                        setDataAndType(uri, "*/*")
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
+                    activity.startActivity(Intent.createChooser(fallbackIntent, "Open with"))
+                }
             } catch (e: Exception) {
                 android.util.Log.e("FileHelper", "Failed to open file: ${e.message}", e)
             }

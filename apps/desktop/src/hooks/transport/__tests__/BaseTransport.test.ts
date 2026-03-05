@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { BaseTransport } from '../BaseTransport';
 import type { ClientMessage, ServerMessage } from '@my-claudia/shared';
 
@@ -65,7 +65,8 @@ describe('BaseTransport', () => {
       mockWs.readyState = WebSocket.OPEN;
 
       const message: ClientMessage = {
-        type: 'run',
+        type: 'run_start',
+        clientRequestId: 'test-request-id',
         sessionId: 'test-session',
         input: 'Hello'
       };
@@ -80,7 +81,8 @@ describe('BaseTransport', () => {
       const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
       const message: ClientMessage = {
-        type: 'run',
+        type: 'run_start',
+        clientRequestId: 'test-request-id',
         sessionId: 'test-session',
         input: 'Hello'
       };
@@ -165,7 +167,9 @@ describe('BaseTransport', () => {
       transport.connect();
 
       const serverMessage: ServerMessage = {
-        type: 'assistant',
+        type: 'delta',
+        runId: 'test-run-id',
+        sessionId: 'test-session',
         content: 'Hello back'
       };
 

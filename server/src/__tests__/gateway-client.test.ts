@@ -361,4 +361,35 @@ describe('GatewayClient', () => {
       expect((client as any).clientSubscribedHandler).toBe(handler);
     });
   });
+
+  describe('HTTP proxy content handling', () => {
+    it('does not stream known text-like content types', () => {
+      const shouldStream = (GatewayClient as any).shouldStream as (headers: Record<string, string>) => boolean;
+
+      expect(shouldStream({ 'content-type': 'application/json' })).toBe(false);
+      expect(shouldStream({ 'content-type': 'text/plain; charset=utf-8' })).toBe(false);
+      expect(shouldStream({ 'content-type': 'application/problem+json' })).toBe(false);
+      expect(shouldStream({ 'content-type': 'application/xml' })).toBe(false);
+    });
+
+    it('streams binary content types to avoid UTF-8 corruption', () => {
+      const shouldStream = (GatewayClient as any).shouldStream as (headers: Record<string, string>) => boolean;
+
+      expect(shouldStream({ 'content-type': 'image/png' })).toBe(true);
+      expect(shouldStream({ 'content-type': 'application/pdf' })).toBe(true);
+      expect(shouldStream({ 'content-type': 'application/octet-stream' })).toBe(true);
+      expect(shouldStream({ 'content-type': 'application/vnd.android.package-archive' })).toBe(true);
+    });
+
+    it('streams large payloads regardless of content type', () => {
+      const shouldStream = (GatewayClient as any).shouldStream as (headers: Record<string, string>) => boolean;
+
+      expect(
+        shouldStream({
+          'content-type': 'application/json',
+          'content-length': String(2 * 1024 * 1024),
+        })
+      ).toBe(true);
+    });
+  });
 });

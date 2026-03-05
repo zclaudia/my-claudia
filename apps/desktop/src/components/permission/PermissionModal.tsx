@@ -10,6 +10,7 @@ interface PermissionRequest {
   timeoutSec: number;
   requiresCredential?: boolean;
   credentialHint?: string;
+  aiInitiated?: boolean;
 }
 
 interface PermissionModalProps {
@@ -49,8 +50,10 @@ export function PermissionModal({ request, queueSize = 0, onDecision }: Permissi
     const interval = setInterval(() => {
       setRemainingTime((prev) => {
         if (prev <= 1) {
-          // Auto-deny on timeout
-          onDecision(request.requestId, false);
+          // Backend handles auto-approve; for auto-deny, also trigger from frontend as fallback
+          if (!request.aiInitiated) {
+            onDecision(request.requestId, false);
+          }
           return 0;
         }
         return prev - 1;
@@ -93,7 +96,7 @@ export function PermissionModal({ request, queueSize = 0, onDecision }: Permissi
         {hasTimeout && (
           <div className="h-1 bg-muted">
             <div
-              className="h-full bg-warning transition-all duration-1000 ease-linear"
+              className={`h-full transition-all duration-1000 ease-linear ${request.aiInitiated ? 'bg-success' : 'bg-warning'}`}
               style={{ width: `${progressPercent}%` }}
             />
           </div>
@@ -204,8 +207,12 @@ export function PermissionModal({ request, queueSize = 0, onDecision }: Permissi
             </svg>
             {hasTimeout ? (
               <span className="text-muted-foreground">
-                Auto-deny in{' '}
-                <span className={remainingTime <= 10 ? 'text-destructive font-semibold' : 'text-warning'}>
+                {request.aiInitiated ? 'Auto-approve in' : 'Auto-deny in'}{' '}
+                <span className={
+                  request.aiInitiated
+                    ? (remainingTime <= 10 ? 'text-success font-semibold' : 'text-success/80')
+                    : (remainingTime <= 10 ? 'text-destructive font-semibold' : 'text-warning')
+                }>
                   {remainingTime}s
                 </span>
               </span>

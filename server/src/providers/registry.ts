@@ -2,6 +2,7 @@ import type { ProviderAdapter } from './types.js';
 import { ClaudeAdapter } from './claude-adapter.js';
 import { OpenCodeAdapter } from './opencode-adapter.js';
 import { CodexAdapter } from './codex-adapter.js';
+import { CursorAdapter } from './cursor-adapter.js';
 
 class ProviderRegistry {
   private adapters = new Map<string, ProviderAdapter>();
@@ -11,6 +12,7 @@ class ProviderRegistry {
     this.register(new ClaudeAdapter());
     this.register(new OpenCodeAdapter());
     this.register(new CodexAdapter());
+    this.register(new CursorAdapter());
   }
 
   register(adapter: ProviderAdapter): void {

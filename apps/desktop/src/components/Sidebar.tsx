@@ -24,6 +24,11 @@ interface SidebarProps {
   hideHeader?: boolean;
 }
 
+function normalizeSearchPreview(content: string): string {
+  const normalized = content.replace(/\s+/g, ' ').trim();
+  return normalized || 'No preview text';
+}
+
 export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHeader }: SidebarProps) {
   const {
     projects = [],
@@ -459,7 +464,9 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
                       className="w-full text-left px-3 py-2.5 text-xs hover:bg-secondary active:bg-secondary border-b border-border/50 last:border-0"
                     >
                       <div className="font-medium text-foreground truncate">{r.sessionName || 'Untitled'}</div>
-                      <div className="text-muted-foreground mt-0.5 line-clamp-2">{r.content}</div>
+                      <div className="text-muted-foreground mt-0.5 line-clamp-2 whitespace-normal break-words">
+                        {normalizeSearchPreview(r.content)}
+                      </div>
                       {r.resultType && r.resultType !== 'message' && (
                         <div className="text-xs text-primary mt-1">
                           {r.resultType === 'file' ? '📄 File' : '🔧 Tool'}
@@ -1065,7 +1072,9 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
                   className="w-full text-left px-2 py-1.5 text-xs hover:bg-secondary border-b border-border/50 last:border-0"
                 >
                   <div className="font-medium text-foreground truncate">{r.sessionName || 'Untitled'}</div>
-                  <div className="text-muted-foreground mt-0.5 line-clamp-2">{r.content}</div>
+                  <div className="text-muted-foreground mt-0.5 line-clamp-2 whitespace-normal break-words">
+                    {normalizeSearchPreview(r.content)}
+                  </div>
                   {r.resultType && r.resultType !== 'message' && (
                     <div className="text-xs text-primary mt-0.5">
                       {r.resultType === 'file' ? '📄 File' : '🔧 Tool'}

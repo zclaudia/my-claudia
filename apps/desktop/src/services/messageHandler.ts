@@ -87,7 +87,7 @@ export function handleServerMessage(
       if (targetSessionId) {
         chat.startRun(msg.runId, targetSessionId, isBackground);
         if (serverId === activeServerId) {
-          chat.clearSystemInfo();
+          chat.clearSystemInfo(targetSessionId);
         }
         if (userMsgId && clientReqId) chat.updateMessageIdByClientMessageId(targetSessionId, clientReqId, userMsgId);
         chat.addMessage(targetSessionId, {
@@ -192,6 +192,7 @@ export function handleServerMessage(
         timeoutSec: msg.timeoutSeconds,
         requiresCredential: msg.requiresCredential,
         credentialHint: msg.credentialHint,
+        aiInitiated: msg.aiInitiated,
       });
       break;
     }
@@ -212,13 +213,22 @@ export function handleServerMessage(
       usePermissionStore.getState().clearRequestById(msg.requestId);
       break;
 
+    case 'permission_auto_resolved':
+      usePermissionStore.getState().clearRequestById(msg.requestId);
+      break;
+
     case 'ask_user_question_resolved':
       useAskUserQuestionStore.getState().clearRequestById(msg.requestId);
       break;
 
     case 'system_info':
       if (serverId === activeServerId) {
-        useChatStore.getState().setSystemInfo(msg.systemInfo);
+        const sessionId = useChatStore.getState().activeRuns[msg.runId];
+        if (sessionId) {
+          useChatStore.getState().setSystemInfo(sessionId, msg.systemInfo);
+        } else {
+          console.warn(`[${logTag}] system_info for untracked run ${msg.runId}`);
+        }
       }
       break;
 
@@ -311,6 +321,7 @@ export function handleServerMessage(
             timeoutSec: perm.timeoutSeconds,
             requiresCredential: perm.requiresCredential,
             credentialHint: perm.credentialHint,
+            aiInitiated: perm.aiInitiated,
           });
         }
       }
@@ -371,6 +382,24 @@ export function handleServerMessage(
     }
 
     case 'file_push': {
+      useChatStore.getState().addMessage(msg.sessionId, {
+        id: msg.messageId || `file-push-${msg.fileId}`,
+        sessionId: msg.sessionId,
+        role: 'system',
+        content: `File pushed: ${msg.fileName}`,
+        metadata: {
+          filePush: {
+            fileId: msg.fileId,
+            fileName: msg.fileName,
+            mimeType: msg.mimeType,
+            fileSize: msg.fileSize,
+            description: msg.description,
+            autoDownload: msg.autoDownload,
+          },
+        },
+        createdAt: Date.now(),
+      });
+
       useFilePushStore.getState().addItem({
         fileId: msg.fileId,
         fileName: msg.fileName,

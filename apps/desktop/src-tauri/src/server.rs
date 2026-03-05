@@ -339,18 +339,60 @@ pub async fn stop_server() -> Result<(), String> {
 }
 
 /// Kill the server process synchronously (for use in exit hooks).
+/// Spawns a background thread to wait for graceful exit without blocking app shutdown.
 pub fn stop_server_sync() {
     if let Ok(mut guard) = SERVER_PROCESS.lock() {
         if let Some(mut child) = guard.take() {
-            eprintln!("[EmbeddedServer/Rust] Exit hook: stopping server (pid={})...", child.id());
-            graceful_kill(&mut child, 2);
-            // Remove pid file
-            if let Ok(dir_guard) = DATA_DIR.lock() {
-                if let Some(dir) = dir_guard.as_deref() {
-                    remove_pid_file(dir);
-                }
+            let pid = child.id();
+            let data_dir = DATA_DIR.lock().ok().and_then(|g| g.clone());
+
+            // Send SIGTERM immediately
+            #[cfg(unix)]
+            unsafe {
+                libc::kill(pid as i32, libc::SIGTERM);
             }
-            eprintln!("[EmbeddedServer/Rust] Exit hook: server stopped");
+            #[cfg(not(unix))]
+            {
+                let _ = child.kill();
+            }
+
+            eprintln!("[EmbeddedServer/Rust] Exit hook: server signaled (pid={}), spawning cleanup thread", pid);
+
+            // Spawn background thread to wait for process exit without blocking main thread
+            std::thread::spawn(move || {
+                let start = std::time::Instant::now();
+                let timeout = std::time::Duration::from_secs(3);
+
+                loop {
+                    match child.try_wait() {
+                        Ok(Some(status)) => {
+                            eprintln!("[EmbeddedServer/Rust] Cleanup thread: server exited gracefully (status={})", status);
+                            break;
+                        }
+                        Ok(None) => {
+                            if start.elapsed() > timeout {
+                                eprintln!("[EmbeddedServer/Rust] Cleanup thread: timeout, sending SIGKILL");
+                                let _ = child.kill();
+                                let _ = child.wait();
+                                break;
+                            }
+                            std::thread::sleep(std::time::Duration::from_millis(100));
+                        }
+                        Err(e) => {
+                            eprintln!("[EmbeddedServer/Rust] Cleanup thread: error waiting for process: {}", e);
+                            break;
+                        }
+                    }
+                }
+
+                // Clean up pid file after process exits
+                if let Some(dir) = data_dir {
+                    remove_pid_file(&dir);
+                }
+                eprintln!("[EmbeddedServer/Rust] Cleanup thread: done");
+            });
+
+            eprintln!("[EmbeddedServer/Rust] Exit hook: returning immediately (cleanup in background)");
         }
     }
 }
