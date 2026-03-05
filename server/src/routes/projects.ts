@@ -1,7 +1,28 @@
 import { Router, Request, Response } from 'express';
 import { v4 as uuidv4 } from 'uuid';
+import * as fs from 'fs';
+import * as path from 'path';
 import type Database from 'better-sqlite3';
 import type { Project, ApiResponse, PermissionPolicy } from '@my-claudia/shared';
+import { listGitWorktrees, createGitWorktree } from '../utils/git-worktrees.js';
+
+/** 确保 .worktrees 已加入 .gitignore，不存在则追加 */
+function ensureWorktreesGitignore(repoPath: string): void {
+  const gitignorePath = path.join(repoPath, '.gitignore');
+  const entry = '.worktrees/';
+  try {
+    if (fs.existsSync(gitignorePath)) {
+      const content = fs.readFileSync(gitignorePath, 'utf-8');
+      if (!content.split('\n').some(line => line.trim() === entry)) {
+        fs.appendFileSync(gitignorePath, `\n${entry}\n`);
+      }
+    } else {
+      fs.writeFileSync(gitignorePath, `${entry}\n`);
+    }
+  } catch {
+    // 写入失败不阻断创建流程
+  }
+}
 
 export function createProjectRoutes(db: Database.Database): Router {
   const router = Router();
@@ -217,6 +238,63 @@ export function createProjectRoutes(db: Database.Database): Router {
         success: false,
         error: { code: 'DB_ERROR', message: 'Failed to delete project' }
       });
+    }
+  });
+
+  // List git worktrees for a project
+  router.get('/:id/worktrees', (req: Request, res: Response) => {
+    const projectId = req.params.id;
+    try {
+      const project = db.prepare('SELECT root_path FROM projects WHERE id = ?').get(projectId) as { root_path: string | null } | undefined;
+      if (!project) {
+        res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Project not found' } });
+        return;
+      }
+      if (!project.root_path) {
+        res.json({ success: true, data: [] });
+        return;
+      }
+      const worktrees = listGitWorktrees(project.root_path);
+      res.json({ success: true, data: worktrees });
+    } catch (error) {
+      console.error('Error listing worktrees:', error);
+      res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: 'Failed to list worktrees' } });
+    }
+  });
+
+  // Create a new git worktree for a project
+  router.post('/:id/worktrees', (req: Request, res: Response) => {
+    const projectId = req.params.id;
+    const { branch: rawBranch, path: worktreePath } = req.body as { branch?: string; path?: string };
+
+    try {
+      const project = db.prepare('SELECT root_path FROM projects WHERE id = ?').get(projectId) as { root_path: string | null } | undefined;
+      if (!project) {
+        res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Project not found' } });
+        return;
+      }
+      if (!project.root_path) {
+        res.status(400).json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'Project has no root path' } });
+        return;
+      }
+
+      // 自动生成分支名：wt-YYYYMMDD-HHMM
+      const branch = rawBranch?.trim() || `wt-${new Date().toISOString().slice(0, 16).replace(/[-T:]/g, '').replace(/(\d{8})(\d{4})/, '$1-$2')}`;
+
+      // 默认路径：.worktrees/<branch>（/ 替换为 -），自动加入 .gitignore
+      const resolvedPath = worktreePath?.trim()
+        || path.join(project.root_path, '.worktrees', branch.replace(/\//g, '-'));
+
+      if (!worktreePath?.trim()) {
+        ensureWorktreesGitignore(project.root_path);
+      }
+
+      const worktree = createGitWorktree(project.root_path, resolvedPath, branch.trim());
+      res.json({ success: true, data: worktree });
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : 'Failed to create worktree';
+      console.error('Error creating worktree:', error);
+      res.status(500).json({ success: false, error: { code: 'GIT_ERROR', message: msg } });
     }
   });
 

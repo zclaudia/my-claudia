@@ -44,6 +44,13 @@ export interface ProviderConfig {
 // ============================================
 
 export type SlashCommandSource = 'local' | 'provider' | 'custom' | 'plugin';
+
+export interface GitWorktree {
+  path: string;      // 绝对路径
+  branch: string;    // 分支名
+  isMain: boolean;   // 是否是主 worktree
+  commit?: string;   // HEAD commit hash（短）
+}
 export type SlashCommandScope = 'global' | 'project';
 
 export interface SlashCommand {
@@ -99,6 +106,8 @@ export const LOCAL_COMMANDS: SlashCommand[] = [
   { command: '/config', description: 'Open settings', source: 'local' },
   { command: '/new-session', description: 'Create new session', source: 'local' },
   { command: '/reload', description: 'Reload custom commands', source: 'local' },
+  { command: '/worktree', description: 'Switch to or view current worktree', source: 'local' },
+  { command: '/create-worktree', description: 'Create a new git worktree and switch to it', source: 'local' },
 ];
 
 // CLI pass-through commands (sent directly to Claude SDK)

@@ -6,6 +6,7 @@ import { useSupervisionStore } from '../stores/supervisionStore';
 import { usePermissionStore } from '../stores/permissionStore';
 import { useAskUserQuestionStore } from '../stores/askUserQuestionStore';
 import { useSwipeBack } from '../hooks/useSwipeBack';
+import { useUIStore } from '../stores/uiStore';
 import { ProjectSettings } from './ProjectSettings';
 import { SettingsPanel } from './SettingsPanel';
 import { SearchFilters } from './SearchFilters';
@@ -875,6 +876,7 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
             </button>
             <ActiveSessionsPanel
               onSessionSelect={(backendId, sessionId) => {
+                useUIStore.getState().requestForceScrollToBottom(sessionId);
                 // Handle session selection - switch backend if needed, then select session
                 if (backendId === 'local' || backendId === '__local__') {
                   // Local session - just select it
@@ -1474,6 +1476,7 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
       <div className="flex-shrink-0">
         <ActiveSessionsPanel
           onSessionSelect={(backendId, sessionId) => {
+            useUIStore.getState().requestForceScrollToBottom(sessionId);
             // Handle session selection - switch backend if needed, then select session
             if (backendId === 'local' || backendId === '__local__') {
               // Local session - just select it

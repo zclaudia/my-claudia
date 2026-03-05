@@ -10,6 +10,7 @@ import { ModeSelector } from './ModeSelector';
 import { SystemInfoButton } from './SystemInfoButton';
 import { ModelSelector } from './ModelSelector';
 import { PermissionSelector } from './PermissionSelector';
+import { WorktreeSelector } from './WorktreeSelector';
 import { TokenUsageDisplay } from './TokenUsageDisplay';
 import { BottomPanel } from '../BottomPanel';
 import { useChatStore } from '../../stores/chatStore';
@@ -72,7 +73,6 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
     sessionUsage,
     setModelOverride,
     getModelOverride,
-    getWorktreeOverride,
     isSessionLoading,
     getSessionRunId,
     getSessionToolCalls,
@@ -92,11 +92,15 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
   const modelOverride = getModelOverride(sessionId);
   const permissionOverride = useChatStore((s) => s.getPermissionOverride(sessionId));
   const setPermissionOverride = useChatStore((s) => s.setPermissionOverride);
-  const worktreeOverride = getWorktreeOverride(sessionId);
   const draft = useChatStore((s) => s.drafts[sessionId]);
   const { projects, sessions, providerCommands, providerCapabilities, setProviderCapabilities } = useProjectStore();
   const { setDrawerOpen, drawerOpen, bottomPanelTab, setBottomPanelTab } = useTerminalStore();
-  const { advancedInput, setAdvancedInput } = useUIStore();
+  const {
+    advancedInput,
+    setAdvancedInput,
+    forceScrollToBottomSessionId,
+    consumeForceScrollToBottom,
+  } = useUIStore();
   const { isOpen: fileViewerOpen } = useFileViewerStore();
   const { sendMessage: wsSendMessage, isConnected, handlePermissionDecision, handleAskUserAnswer } = useConnection();
   const isMobile = useIsMobile();
@@ -186,7 +190,7 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
         sessionId,
         input: pendingHint,
         mode: mode || undefined,
-        workingDirectory: worktreeOverride || undefined,
+        workingDirectory: currentSession?.workingDirectory || undefined,
       });
       useSupervisionStore.getState().clearPendingHint(sessionId);
       setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
@@ -341,6 +345,15 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
     setInitialLoadDone(false);
     loadMessages();
   }, [sessionId, loadMessages]);
+
+  // One-shot jump: when entering from Active Sessions, force scroll to latest content.
+  useEffect(() => {
+    if (forceScrollToBottomSessionId !== sessionId || !initialLoadDone) return;
+    scrollToBottom(true);
+    const timer = setTimeout(() => scrollToBottom(true), 120);
+    consumeForceScrollToBottom(sessionId);
+    return () => clearTimeout(timer);
+  }, [forceScrollToBottomSessionId, sessionId, initialLoadDone, scrollToBottom, consumeForceScrollToBottom]);
 
   // Load more messages (older)
   const loadMoreMessages = useCallback(async () => {
@@ -547,7 +560,7 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
       mode: mode || undefined,
       model: modelOverride || undefined,
       permissionOverride: permissionOverride || undefined,
-      workingDirectory: worktreeOverride || undefined,
+      workingDirectory: currentSession?.workingDirectory || undefined,
     });
 
     // Scroll to bottom after sending
@@ -706,6 +719,19 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
     setTimeout(() => scrollToBottom(), 100);
   }, [sessionId, clearMessages, addMessage, scrollToBottom, providerId, currentProject?.rootPath]);
 
+  const handleWorktreeChange = useCallback(async (worktreePath: string) => {
+    // 乐观更新 projectStore（立即反映在 UI）
+    useProjectStore.getState().updateSession(sessionId, {
+      workingDirectory: worktreePath || undefined,
+    });
+    // 持久化到 DB
+    try {
+      await api.updateSessionWorkingDirectory(sessionId, worktreePath);
+    } catch (err) {
+      console.error('[Worktree] Failed to persist working directory:', err);
+    }
+  }, [sessionId]);
+
   const handleCommand = useCallback(async (command: string, args: string) => {
     // Find the command definition to check its source
     const commandDef = commands.find(c => c.command === command);
@@ -736,6 +762,90 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
       return;
     }
 
+    // Handle /worktree locally — view or switch
+    if (command === '/worktree') {
+      const trimmedArgs = args.trim();
+      if (!trimmedArgs) {
+        const current = currentSession?.workingDirectory || currentProject?.rootPath || '(unknown)';
+        addMessage(sessionId, {
+          id: crypto.randomUUID(),
+          sessionId,
+          role: 'system',
+          content: `Current worktree: \`${current}\`\n\n**Usage:**\n- \`/worktree <path>\` — switch to an existing worktree path\n- \`/worktree reset\` — reset to project root\n- \`/create-worktree [branch] [path]\` — create a new worktree`,
+          createdAt: Date.now(),
+        });
+      } else if (trimmedArgs === 'reset') {
+        await handleWorktreeChange('');
+        addMessage(sessionId, {
+          id: crypto.randomUUID(),
+          sessionId,
+          role: 'system',
+          content: 'Worktree reset to project root.',
+          createdAt: Date.now(),
+        });
+      } else {
+        try {
+          await handleWorktreeChange(trimmedArgs);
+          addMessage(sessionId, {
+            id: crypto.randomUUID(),
+            sessionId,
+            role: 'system',
+            content: `Worktree set to: \`${trimmedArgs}\``,
+            createdAt: Date.now(),
+          });
+        } catch (err) {
+          addMessage(sessionId, {
+            id: crypto.randomUUID(),
+            sessionId,
+            role: 'system',
+            content: `Failed to set worktree: ${(err as Error).message}`,
+            createdAt: Date.now(),
+          });
+        }
+      }
+      setTimeout(() => scrollToBottom(), 100);
+      return;
+    }
+
+    // Handle /create-worktree locally — create a new worktree and switch to it
+    if (command === '/create-worktree') {
+      if (!currentProject?.id) {
+        addMessage(sessionId, {
+          id: crypto.randomUUID(),
+          sessionId,
+          role: 'system',
+          content: 'No project associated with this session.',
+          createdAt: Date.now(),
+        });
+        setTimeout(() => scrollToBottom(), 100);
+        return;
+      }
+      const parts = args.trim().split(/\s+/).filter(Boolean);
+      const branch = parts[0]; // optional — auto-generated if omitted
+      const wtPath = parts[1]; // optional
+      try {
+        const wt = await api.createProjectWorktree(currentProject.id, branch || '', wtPath);
+        await handleWorktreeChange(wt.path);
+        addMessage(sessionId, {
+          id: crypto.randomUUID(),
+          sessionId,
+          role: 'system',
+          content: `Worktree created and activated:\n- **Branch:** \`${wt.branch}\`\n- **Path:** \`${wt.path}\``,
+          createdAt: Date.now(),
+        });
+      } catch (err) {
+        addMessage(sessionId, {
+          id: crypto.randomUUID(),
+          sessionId,
+          role: 'system',
+          content: `Failed to create worktree: ${(err as Error).message}`,
+          createdAt: Date.now(),
+        });
+      }
+      setTimeout(() => scrollToBottom(), 100);
+      return;
+    }
+
     // Plugin commands and provider commands should be passed directly to Claude SDK
     // They are handled by Claude CLI's plugin system or built-in CLI commands
     // Also treat all unrecognized commands (no matching commandDef) as pass-through to Claude,
@@ -759,7 +869,7 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
         input: commandText,
         mode: mode || undefined,
         model: modelOverride || undefined,
-        workingDirectory: worktreeOverride || undefined,
+        workingDirectory: currentSession?.workingDirectory || undefined,
       });
       return;
     }
@@ -807,7 +917,7 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
           input: result.content,
           mode: mode || undefined,
           model: modelOverride || undefined,
-          workingDirectory: worktreeOverride || undefined,
+          workingDirectory: currentSession?.workingDirectory || undefined,
         });
       }
     } catch (error) {
@@ -822,7 +932,7 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
         createdAt: Date.now(),
       });
     }
-  }, [sessionId, addMessage, wsSendMessage, commands, currentSession, currentProject, handleBuiltInCommand, mode, modelOverride]);
+  }, [sessionId, addMessage, wsSendMessage, commands, currentSession, currentProject, handleBuiltInCommand, handleWorktreeChange, scrollToBottom, mode, modelOverride]);
 
   const handleCancelRun = () => {
     // Restore last sent message to input
@@ -1073,6 +1183,15 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
             projectPolicy={(currentProject?.agentPermissionOverride as AgentPermissionPolicy) ?? null}
             disabled={isLoading}
           />
+          {currentProject?.id && currentProject?.rootPath && (
+            <WorktreeSelector
+              projectId={currentProject.id}
+              projectRootPath={currentProject.rootPath}
+              currentWorktree={currentSession?.workingDirectory || ''}
+              onChange={handleWorktreeChange}
+              disabled={isLoading}
+            />
+          )}
           <TokenUsageDisplay
             inputTokens={currentUsage.inputTokens}
             outputTokens={currentUsage.outputTokens}

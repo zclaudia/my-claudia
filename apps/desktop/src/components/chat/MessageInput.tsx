@@ -238,12 +238,18 @@ export function MessageInput({
   // Auto-resize textarea (only in normal mode; advanced mode uses CSS min/max-height)
   useEffect(() => {
     const textarea = textareaRef.current;
-    if (textarea && !advancedMode) {
+    if (!textarea) return;
+
+    if (!advancedMode) {
       textarea.style.height = 'auto';
       const newHeight = Math.min(textarea.scrollHeight, 200);
       textarea.style.height = `${newHeight}px`;
       // Only show scrollbar when reaching max height
       textarea.style.overflowY = newHeight >= 200 ? 'auto' : 'hidden';
+    } else {
+      // Clear normal-mode inline styles so advanced mode CSS (min/max + overflow) can take effect.
+      textarea.style.height = '';
+      textarea.style.overflowY = 'auto';
     }
   }, [value, advancedMode]);
 

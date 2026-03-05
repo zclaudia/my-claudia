@@ -14,7 +14,8 @@ import type {
   ServerInfo,
   ServerGatewayConfig,
   ServerGatewayStatus,
-  ServerFeature
+  ServerFeature,
+  GitWorktree
 } from '@my-claudia/shared';
 import { useServerStore } from '../stores/serverStore';
 import { isGatewayTarget, parseBackendId } from '../stores/gatewayStore';
@@ -237,6 +238,27 @@ export async function updateSessionWorkingDirectory(
   if (!result.success) {
     throw new Error(result.error?.message || 'Failed to update working directory');
   }
+}
+
+export async function getProjectWorktrees(projectId: string): Promise<GitWorktree[]> {
+  const result = await fetchLocalApi<GitWorktree[]>(`/api/projects/${projectId}/worktrees`);
+  if (!result.success || !result.data) return [];
+  return result.data;
+}
+
+export async function createProjectWorktree(
+  projectId: string,
+  branch: string,
+  path?: string,
+): Promise<GitWorktree> {
+  const result = await fetchLocalApi<GitWorktree>(`/api/projects/${projectId}/worktrees`, {
+    method: 'POST',
+    body: JSON.stringify({ branch, path }),
+  });
+  if (!result.success || !result.data) {
+    throw new Error(result.error?.message || 'Failed to create worktree');
+  }
+  return result.data;
 }
 
 export async function deleteSession(id: string): Promise<void> {

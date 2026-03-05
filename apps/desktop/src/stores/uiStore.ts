@@ -67,6 +67,9 @@ interface UIState {
   setFontSize: (size: FontSizePreset) => void;
   advancedInput: boolean;
   setAdvancedInput: (enabled: boolean) => void;
+  forceScrollToBottomSessionId: string | null;
+  requestForceScrollToBottom: (sessionId: string) => void;
+  consumeForceScrollToBottom: (sessionId: string) => void;
 }
 
 export const useUIStore = create<UIState>((set) => {
@@ -89,6 +92,16 @@ export const useUIStore = create<UIState>((set) => {
       localStorage.setItem(ADV_INPUT_KEY, String(enabled));
       set({ advancedInput: enabled });
     },
+    forceScrollToBottomSessionId: null,
+    requestForceScrollToBottom: (sessionId) => {
+      set({ forceScrollToBottomSessionId: sessionId });
+    },
+    consumeForceScrollToBottom: (sessionId) =>
+      set((state) => (
+        state.forceScrollToBottomSessionId === sessionId
+          ? { forceScrollToBottomSessionId: null }
+          : state
+      )),
   };
 });
 

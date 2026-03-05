@@ -315,6 +315,17 @@ describe('MessageInput', () => {
       render(<MessageInput sessionId="test-session" onSend={mockOnSend} advancedMode />);
       expect(screen.getByTitle(/Send message \((Cmd|Ctrl)\+Enter\)/)).toBeInTheDocument();
     });
+
+    it('restores vertical scrolling when switching from normal to advanced mode', () => {
+      const { rerender } = render(<MessageInput sessionId="test-session" onSend={mockOnSend} />);
+      const textarea = screen.getByPlaceholderText(/Type a message/) as HTMLTextAreaElement;
+
+      fireEvent.change(textarea, { target: { value: 'short message' } });
+      expect(textarea.style.overflowY).toBe('hidden');
+
+      rerender(<MessageInput sessionId="test-session" onSend={mockOnSend} advancedMode />);
+      expect(textarea.style.overflowY).toBe('auto');
+    });
   });
 
   // Attachment tests
