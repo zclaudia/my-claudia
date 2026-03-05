@@ -26,7 +26,7 @@ export interface BackendServer {
 // Provider Types
 // ============================================
 
-export type ProviderType = 'claude' | 'opencode';
+export type ProviderType = 'claude' | 'opencode' | 'codex';
 
 export interface ProviderConfig {
   id: string;

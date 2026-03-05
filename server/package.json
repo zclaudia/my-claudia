@@ -17,6 +17,7 @@
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.63",
     "@my-claudia/shared": "workspace:*",
+    "@openai/codex-sdk": "^0.107.0",
     "@opencode-ai/sdk": "^1.2.15",
     "better-sqlite3": "^11.0.0",
     "cors": "^2.8.5",

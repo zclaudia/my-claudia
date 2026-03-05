@@ -1,6 +1,7 @@
 import type { ProviderAdapter } from './types.js';
 import { ClaudeAdapter } from './claude-adapter.js';
 import { OpenCodeAdapter } from './opencode-adapter.js';
+import { CodexAdapter } from './codex-adapter.js';
 
 class ProviderRegistry {
   private adapters = new Map<string, ProviderAdapter>();
@@ -9,6 +10,7 @@ class ProviderRegistry {
   constructor() {
     this.register(new ClaudeAdapter());
     this.register(new OpenCodeAdapter());
+    this.register(new CodexAdapter());
   }
 
   register(adapter: ProviderAdapter): void {

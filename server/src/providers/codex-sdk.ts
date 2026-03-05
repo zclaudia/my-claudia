@@ -1,0 +1,352 @@
+import { readFileSync } from 'fs';
+import {
+  Codex,
+  type ThreadOptions,
+  type ThreadEvent,
+  type ThreadItem,
+  type Input,
+  type UserInput,
+  type Usage as CodexUsage,
+} from '@openai/codex-sdk';
+import type { MessageInput, PermissionRequest } from '@my-claudia/shared';
+import type { ClaudeMessage, SystemInfo, PermissionDecision, PermissionCallback } from './claude-sdk.js';
+import { fileStore } from '../storage/fileStore.js';
+
+// ── Types ─────────────────────────────────────────────────────
+
+export interface CodexRunOptions {
+  cwd: string;
+  sessionId?: string;       // Our session ID (maps to sdk_session_id = thread_id)
+  cliPath?: string;         // codexPathOverride
+  env?: Record<string, string>;
+  model?: string;
+  mode?: string;            // Our permission mode → approval + sandbox
+  systemPrompt?: string;
+}
+
+// ── Mode → Codex policy mapping ──────────────────────────────
+
+function mapModeToPolicies(mode?: string): Pick<ThreadOptions, 'approvalPolicy' | 'sandboxMode'> {
+  switch (mode) {
+    case 'plan':
+      return { approvalPolicy: 'on-request', sandboxMode: 'read-only' };
+    case 'bypassPermissions':
+      return { approvalPolicy: 'never', sandboxMode: 'danger-full-access' };
+    case 'acceptEdits':
+      return { approvalPolicy: 'on-failure', sandboxMode: 'workspace-write' };
+    case 'default':
+    default:
+      return { approvalPolicy: 'on-failure', sandboxMode: 'workspace-write' };
+  }
+}
+
+// ── Input preparation (handle images) ────────────────────────
+
+function prepareCodexInput(input: string): Input {
+  let messageInput: MessageInput;
+  try {
+    messageInput = JSON.parse(input);
+    if (typeof messageInput !== 'object' || !('text' in messageInput)) {
+      return input;
+    }
+  } catch {
+    return input;
+  }
+
+  const text = messageInput.text || input;
+  if (!messageInput.attachments || messageInput.attachments.length === 0) {
+    return text;
+  }
+
+  // Build UserInput array with text + images
+  const parts: UserInput[] = [{ type: 'text', text }];
+
+  for (const attachment of messageInput.attachments) {
+    if (attachment.type === 'image') {
+      const filePath = fileStore.getFilePath(attachment.fileId);
+      if (filePath) {
+        parts.push({ type: 'local_image', path: filePath });
+        console.log(`[Codex] Attached image: ${attachment.name} → ${filePath}`);
+      } else {
+        console.warn(`[Codex] Could not locate image ${attachment.fileId}, skipping`);
+      }
+    }
+  }
+
+  return parts;
+}
+
+// ── ThreadItem → ClaudeMessage mapping ───────────────────────
+
+function mapItemStarted(item: ThreadItem): ClaudeMessage | null {
+  switch (item.type) {
+    case 'agent_message':
+      return { type: 'assistant', content: item.text };
+    case 'reasoning':
+      return { type: 'assistant', content: `<think>${item.text}</think>` };
+    case 'command_execution':
+      return {
+        type: 'tool_use',
+        toolName: 'Bash',
+        toolInput: JSON.stringify({ command: item.command }),
+      };
+    case 'file_change':
+      return {
+        type: 'tool_use',
+        toolName: 'Edit',
+        toolInput: JSON.stringify({ changes: item.changes }),
+      };
+    case 'mcp_tool_call':
+      return {
+        type: 'tool_use',
+        toolName: `mcp:${item.server}:${item.tool}`,
+        toolInput: JSON.stringify(item.arguments),
+      };
+    case 'web_search':
+      return {
+        type: 'tool_use',
+        toolName: 'WebSearch',
+        toolInput: JSON.stringify({ query: item.query }),
+      };
+    case 'todo_list':
+      return {
+        type: 'tool_use',
+        toolName: 'TodoWrite',
+        toolInput: JSON.stringify({ items: item.items }),
+      };
+    case 'error':
+      return { type: 'error', error: item.message };
+    default:
+      return null;
+  }
+}
+
+function mapItemCompleted(item: ThreadItem): ClaudeMessage | null {
+  switch (item.type) {
+    case 'agent_message':
+      // Final text — emit as assistant
+      return { type: 'assistant', content: item.text };
+    case 'command_execution':
+      return {
+        type: 'tool_result',
+        toolName: 'Bash',
+        toolResult: item.aggregated_output,
+        isToolError: item.status === 'failed',
+      };
+    case 'file_change':
+      return {
+        type: 'tool_result',
+        toolName: 'Edit',
+        toolResult: item.status === 'completed' ? 'Applied' : 'Failed',
+        isToolError: item.status === 'failed',
+      };
+    case 'mcp_tool_call': {
+      const resultText = item.result
+        ? JSON.stringify(item.result.content)
+        : item.error?.message || 'No result';
+      return {
+        type: 'tool_result',
+        toolName: `mcp:${item.server}:${item.tool}`,
+        toolResult: resultText,
+        isToolError: item.status === 'failed',
+      };
+    }
+    case 'web_search':
+      return {
+        type: 'tool_result',
+        toolName: 'WebSearch',
+        toolResult: 'Search completed',
+      };
+    default:
+      return null;
+  }
+}
+
+// ── Codex instance cache (keyed by cliPath) ──────────────────
+
+const codexInstances = new Map<string, Codex>();
+
+function getCodexInstance(options: CodexRunOptions): Codex {
+  const key = options.cliPath || '__default__';
+  let codex = codexInstances.get(key);
+  if (!codex) {
+    codex = new Codex({
+      codexPathOverride: options.cliPath,
+      env: options.env,
+    });
+    codexInstances.set(key, codex);
+  }
+  return codex;
+}
+
+// ── Thread ID tracking (our sessionId → codex thread_id) ─────
+
+const threadIdMap = new Map<string, string>();
+
+export function setCodexThreadId(sessionId: string, threadId: string): void {
+  threadIdMap.set(sessionId, threadId);
+}
+
+export function getCodexThreadId(sessionId: string): string | undefined {
+  return threadIdMap.get(sessionId);
+}
+
+// ── Main run function ────────────────────────────────────────
+
+export async function* runCodex(
+  input: string,
+  options: CodexRunOptions,
+  _onPermission: PermissionCallback,
+): AsyncGenerator<ClaudeMessage, void, void> {
+  const codex = getCodexInstance(options);
+  const policies = mapModeToPolicies(options.mode);
+
+  const threadOptions: ThreadOptions = {
+    model: options.model,
+    workingDirectory: options.cwd,
+    skipGitRepoCheck: true,
+    ...policies,
+  };
+
+  // Start or resume thread
+  let existingThreadId: string | undefined;
+  if (options.sessionId) {
+    existingThreadId = threadIdMap.get(options.sessionId);
+  }
+
+  const thread = existingThreadId
+    ? codex.resumeThread(existingThreadId, threadOptions)
+    : codex.startThread(threadOptions);
+
+  // Prepare input (handle images)
+  const codexInput = prepareCodexInput(input);
+
+  // Set up abort controller
+  const abortController = new AbortController();
+  if (options.sessionId) {
+    activeAbortControllers.set(options.sessionId, abortController);
+  }
+
+  try {
+    // Run streamed
+    const { events } = await thread.runStreamed(codexInput, {
+      signal: abortController.signal,
+    });
+
+    for await (const event of events) {
+      const messages = mapThreadEvent(event, options.sessionId);
+      for (const msg of messages) {
+        yield msg;
+      }
+    }
+  } catch (err: unknown) {
+    if (abortController.signal.aborted) {
+      // User-initiated abort — not an error
+      return;
+    }
+    const errorMsg = err instanceof Error ? err.message : String(err);
+    yield { type: 'error', error: `Codex error: ${errorMsg}` };
+  } finally {
+    if (options.sessionId) {
+      activeAbortControllers.delete(options.sessionId);
+    }
+  }
+}
+
+// ── Event mapping ────────────────────────────────────────────
+
+function mapThreadEvent(event: ThreadEvent, sessionId?: string): ClaudeMessage[] {
+  const messages: ClaudeMessage[] = [];
+
+  switch (event.type) {
+    case 'thread.started': {
+      // Store the thread ID for session resumption
+      if (sessionId) {
+        threadIdMap.set(sessionId, event.thread_id);
+      }
+      // Emit init message
+      const systemInfo: SystemInfo = {
+        cwd: '',
+        apiKeySource: 'codex-sdk',
+        model: '',
+        mcpServers: [],
+        tools: [],
+      };
+      messages.push({
+        type: 'init',
+        sessionId: event.thread_id,
+        systemInfo,
+      });
+      break;
+    }
+
+    case 'turn.started':
+      // No-op, turn has begun
+      break;
+
+    case 'item.started': {
+      const msg = mapItemStarted(event.item);
+      if (msg) messages.push(msg);
+      break;
+    }
+
+    case 'item.updated': {
+      // For streaming updates (agent_message text deltas)
+      if (event.item.type === 'agent_message') {
+        messages.push({ type: 'assistant', content: event.item.text });
+      } else if (event.item.type === 'reasoning') {
+        messages.push({ type: 'assistant', content: `<think>${event.item.text}</think>` });
+      }
+      // Command output updates
+      if (event.item.type === 'command_execution' && event.item.aggregated_output) {
+        messages.push({
+          type: 'tool_result',
+          toolName: 'Bash',
+          toolResult: event.item.aggregated_output,
+        });
+      }
+      break;
+    }
+
+    case 'item.completed': {
+      const msg = mapItemCompleted(event.item);
+      if (msg) messages.push(msg);
+      break;
+    }
+
+    case 'turn.completed': {
+      const usage = event.usage;
+      messages.push({
+        type: 'result',
+        isComplete: true,
+        usage: {
+          inputTokens: usage.input_tokens,
+          outputTokens: usage.output_tokens,
+        },
+      });
+      break;
+    }
+
+    case 'turn.failed':
+      messages.push({ type: 'error', error: `Turn failed: ${event.error.message}` });
+      break;
+
+    case 'error':
+      messages.push({ type: 'error', error: event.message });
+      break;
+  }
+
+  return messages;
+}
+
+// ── Abort ────────────────────────────────────────────────────
+
+const activeAbortControllers = new Map<string, AbortController>();
+
+export async function abortCodexSession(sessionId: string): Promise<void> {
+  const controller = activeAbortControllers.get(sessionId);
+  if (controller) {
+    controller.abort();
+    activeAbortControllers.delete(sessionId);
+  }
+}

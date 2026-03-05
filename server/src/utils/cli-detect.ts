@@ -1,7 +1,7 @@
 import { spawn, execSync } from 'child_process';
 
 export interface DetectedCli {
-  type: 'claude' | 'opencode';
+  type: 'claude' | 'opencode' | 'codex';
   name: string;
   cliPath: string;
   version?: string;
@@ -9,7 +9,8 @@ export interface DetectedCli {
 
 const CLI_COMMANDS = {
   claude: ['claude', 'claude-code'],
-  opencode: ['opencode', 'opencode-cli']
+  opencode: ['opencode', 'opencode-cli'],
+  codex: ['codex'],
 } as const;
 
 function findInPath(command: string): string | null {
@@ -65,9 +66,10 @@ export async function detectCliProviders(): Promise<DetectedCli[]> {
       
       if (cliPath) {
         const version = await getCliVersion(cliPath);
+        const nameMap: Record<string, string> = { claude: 'Claude Code', opencode: 'OpenCode', codex: 'Codex' };
         detected.push({
-          type: type as 'claude' | 'opencode',
-          name: type === 'claude' ? 'Claude Code' : 'OpenCode',
+          type: type as DetectedCli['type'],
+          name: nameMap[type] || type,
           cliPath,
           version
         });
@@ -87,9 +89,10 @@ export function detectCliProvidersSync(): DetectedCli[] {
       const cliPath = findInPath(cmd);
       
       if (cliPath) {
+        const nameMap: Record<string, string> = { claude: 'Claude Code', opencode: 'OpenCode', codex: 'Codex' };
         detected.push({
-          type: type as 'claude' | 'opencode',
-          name: type === 'claude' ? 'Claude Code' : 'OpenCode',
+          type: type as DetectedCli['type'],
+          name: nameMap[type] || type,
           cliPath,
           version: undefined
         });

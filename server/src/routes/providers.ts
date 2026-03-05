@@ -110,7 +110,7 @@ export function createProviderRoutes(db: Database.Database): Router {
         return;
       }
 
-      const VALID_PROVIDER_TYPES = ['claude', 'opencode'];
+      const VALID_PROVIDER_TYPES = ['claude', 'opencode', 'codex'];
       if (type && !VALID_PROVIDER_TYPES.includes(type)) {
         res.status(400).json({
           success: false,
@@ -168,7 +168,7 @@ export function createProviderRoutes(db: Database.Database): Router {
       const { name, type, cliPath, env, isDefault } = req.body;
       const now = Date.now();
 
-      const VALID_PROVIDER_TYPES = ['claude', 'opencode'];
+      const VALID_PROVIDER_TYPES = ['claude', 'opencode', 'codex'];
       if (type && !VALID_PROVIDER_TYPES.includes(type)) {
         res.status(400).json({
           success: false,
@@ -616,6 +616,26 @@ async function getOpenCodeCapabilities(
   }
 }
 
+function getCodexCapabilities(): ProviderCapabilities {
+  return {
+    modeLabel: 'Mode',
+    defaultModeId: 'default',
+    modes: [
+      { id: 'default', label: 'Default', description: 'Standard mode — auto-approves on failure' },
+      { id: 'plan', label: 'Plan', description: 'Read-only planning mode' },
+      { id: 'acceptEdits', label: 'Auto-Edit', description: 'Auto-approve file edits' },
+      { id: 'bypassPermissions', label: 'Bypass', description: 'Full access, no approval checks' },
+    ],
+    models: [
+      { id: '', label: 'Default' },
+      { id: 'codex-mini', label: 'Codex Mini' },
+      { id: 'o4-mini', label: 'o4-mini' },
+      { id: 'o3', label: 'o3' },
+      { id: 'gpt-4.1', label: 'GPT-4.1' },
+    ],
+  };
+}
+
 async function getProviderCapabilities(
   providerType: string,
   cliPath?: string,
@@ -624,6 +644,8 @@ async function getProviderCapabilities(
   switch (providerType) {
     case 'opencode':
       return getOpenCodeCapabilities(cliPath, env);
+    case 'codex':
+      return getCodexCapabilities();
     case 'claude':
     default:
       return getClaudeCapabilities(cliPath, env);
@@ -696,6 +718,9 @@ async function getProviderCommands(
       return getOpenCodeCommands(cliPath, env);
     case 'claude':
       return getClaudeCommands(cliPath, env);
+    case 'codex':
+      // Codex CLI doesn't expose slash commands via SDK
+      return [];
     default:
       return [];
   }
