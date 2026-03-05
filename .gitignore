@@ -112,3 +112,4 @@ gateway/.deploy-version*
 # Performance profiling
 *.cpuprofile
 *.heapsnapshot
+.worktrees/
