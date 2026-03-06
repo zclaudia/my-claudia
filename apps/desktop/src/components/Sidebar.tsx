@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
-import { Bot, FileText, Wrench } from 'lucide-react';
+import { Bot, FileText, Wrench, ListTodo } from 'lucide-react';
 import { useProjectStore } from '../stores/projectStore';
 import { useServerStore } from '../stores/serverStore';
 import { toGatewayServerId } from '../stores/gatewayStore';
@@ -25,6 +25,8 @@ interface SidebarProps {
   isOpen?: boolean;
   onClose?: () => void;
   hideHeader?: boolean;
+  supervisionView?: boolean;
+  onToggleSupervision?: () => void;
 }
 
 function normalizeSearchPreview(content: string): string {
@@ -32,7 +34,7 @@ function normalizeSearchPreview(content: string): string {
   return normalized || 'No preview text';
 }
 
-export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHeader }: SidebarProps) {
+export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHeader, supervisionView, onToggleSupervision }: SidebarProps) {
   const {
     projects = [],
     sessions = [],
@@ -50,6 +52,7 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
 
   const { connectionStatus, setActiveServer, servers, getDefaultServer } = useServerStore();
   const supervisions = useSupervisionStore((s) => s.supervisions);
+  const v2Agents = useSupervisionStore((s) => s.agents);
 
   // Sessions with pending permission or question requests
   const permSessionIds = usePermissionStore(s => new Set(s.pendingRequests.map(r => r.sessionId)));
@@ -636,7 +639,30 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
                           />
                         </svg>
                         <span className="truncate font-semibold">{project.name}</span>
+                        {v2Agents[project.id] && (
+                          <span className={`ml-1 w-1.5 h-1.5 rounded-full shrink-0 ${
+                            v2Agents[project.id].phase === 'active' ? 'bg-green-500 animate-pulse' :
+                            v2Agents[project.id].phase === 'paused' ? 'bg-yellow-500' :
+                            'bg-gray-400'
+                          }`} />
+                        )}
                       </button>
+                      {/* Supervision toggle */}
+                      {v2Agents[project.id] && onToggleSupervision && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            selectProject(project.id);
+                            onToggleSupervision();
+                          }}
+                          className={`w-8 h-8 rounded hover:bg-secondary active:bg-secondary flex-shrink-0 flex items-center justify-center ${
+                            supervisionView && selectedProjectId === project.id ? 'text-primary' : 'text-muted-foreground'
+                          }`}
+                          title="Supervision Dashboard"
+                        >
+                          <ListTodo size={14} />
+                        </button>
+                      )}
                       {/* Project menu button */}
                       {(
                         <button

@@ -7,6 +7,7 @@ import { MobileSetup } from './components/MobileSetup';
 import { AgentPanel } from './components/agent/AgentPanel';
 import { AgentSidePanel } from './components/agent/AgentSidePanel';
 import { FileViewerWindow } from './components/fileviewer/FileViewerWindow';
+import { SupervisionDashboard } from './components/supervision/SupervisionDashboard';
 import { ThemeProvider } from './contexts/ThemeContext';
 import { ConnectionProvider, useConnection } from './contexts/ConnectionContext';
 import { useDataLoader } from './hooks/useDataLoader';
@@ -26,7 +27,7 @@ function AppContent() {
   const { connectServer, embeddedServerStatus, embeddedServerError } = useConnection();
   const { addServer } = useServerManager();
   const { connectionStatus } = useServerStore();
-  const { selectedSessionId } = useProjectStore();
+  const { selectedSessionId, selectedProjectId } = useProjectStore();
   const { directGatewayUrl, lastActiveBackendId, isConnected: isGatewayConnected, discoveredBackends } = useGatewayStore();
   const { isExpanded: isAgentExpanded, hasUnread: hasAgentUnread, setExpanded: setAgentExpanded } = useAgentStore();
   const isAgentConfigured = isClientAIConfigured();
@@ -36,6 +37,7 @@ function AppContent() {
   const setFileViewerFullscreen = useFileViewerStore((s) => s.setFullscreen);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [supervisionView, setSupervisionView] = useState(false);
   const isMobile = useIsMobile();
   const migrationDone = useRef(false);
   const mobileInitDone = useRef(false);
@@ -247,6 +249,8 @@ function AppContent() {
           isOpen={sidebarOpen}
           onClose={() => setSidebarOpen(false)}
           hideHeader={true}
+          supervisionView={supervisionView}
+          onToggleSupervision={() => setSupervisionView(!supervisionView)}
         />
 
         {/* Main Content */}
@@ -275,8 +279,10 @@ function AppContent() {
               </div>
             )}
 
-            {/* Chat / Welcome (always mounted to preserve terminal state) */}
-            {selectedSessionId ? (
+            {/* Supervision Dashboard / Chat / Welcome */}
+            {supervisionView && selectedProjectId ? (
+              <SupervisionDashboard projectId={selectedProjectId} />
+            ) : selectedSessionId ? (
               <ChatInterface sessionId={selectedSessionId} />
             ) : (
               <div className="flex items-center justify-center h-full text-muted-foreground">

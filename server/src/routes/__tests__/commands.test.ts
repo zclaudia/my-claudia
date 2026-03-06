@@ -11,9 +11,13 @@ vi.mock('fs', () => ({
 }));
 
 // Mock os module for homedir
-vi.mock('os', () => ({
-  homedir: vi.fn(() => '/home/testuser'),
-}));
+vi.mock('os', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('os')>();
+  return {
+    ...actual,
+    homedir: vi.fn(() => '/home/testuser'),
+  };
+});
 
 import * as fs from 'fs';
 

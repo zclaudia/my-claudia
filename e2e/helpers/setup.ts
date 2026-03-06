@@ -42,7 +42,14 @@ export async function setupCleanDB(): Promise<void> {
       db.exec(`DELETE FROM sessions WHERE id LIKE 'test-%'`);
     }
     if (tableNames.includes('projects')) {
+      db.exec(`UPDATE projects SET agent = NULL WHERE id LIKE 'test-%'`);
       db.exec(`DELETE FROM projects WHERE id LIKE 'test-%'`);
+    }
+    if (tableNames.includes('supervision_tasks')) {
+      db.exec(`DELETE FROM supervision_tasks WHERE project_id LIKE 'test-%'`);
+    }
+    if (tableNames.includes('supervision_v2_logs')) {
+      db.exec(`DELETE FROM supervision_v2_logs WHERE project_id LIKE 'test-%'`);
     }
 
     db.close();

@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { useSupervisionStore } from '../supervisionStore';
-import type { Supervision } from '@my-claudia/shared';
+import type { Supervision, SupervisionTask, ProjectAgent } from '@my-claudia/shared';
 
 describe('supervisionStore', () => {
   beforeEach(() => {
@@ -232,6 +232,263 @@ describe('supervisionStore', () => {
 
       useSupervisionStore.getState().removeSupervision('session-new');
       expect(useSupervisionStore.getState().supervisions['session-new']).toBeUndefined();
+    });
+  });
+});
+
+// ====== V2 Store Actions ======
+
+describe('supervisionStore V2', () => {
+  const createAgent = (overrides: Partial<ProjectAgent> = {}): ProjectAgent => ({
+    type: 'supervisor',
+    phase: 'active',
+    config: {
+      maxConcurrentTasks: 2,
+      trustLevel: 'medium',
+      autoDiscoverTasks: false,
+    },
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+    ...overrides,
+  });
+
+  const createTask = (overrides: Partial<SupervisionTask> = {}): SupervisionTask => ({
+    id: 'task-1',
+    projectId: 'proj-1',
+    title: 'Test Task',
+    description: 'A test task',
+    source: 'user',
+    status: 'pending',
+    priority: 0,
+    dependencies: [],
+    dependencyMode: 'all',
+    acceptanceCriteria: [],
+    maxRetries: 2,
+    attempt: 1,
+    createdAt: Date.now(),
+    ...overrides,
+  });
+
+  beforeEach(() => {
+    useSupervisionStore.setState({
+      tasks: {},
+      agents: {},
+      lastCheckpoint: {},
+    });
+  });
+
+  describe('setTasks', () => {
+    it('sets tasks for a project', () => {
+      const tasks = [createTask({ id: 't1' }), createTask({ id: 't2' })];
+      useSupervisionStore.getState().setTasks('proj-1', tasks);
+
+      expect(useSupervisionStore.getState().tasks['proj-1']).toHaveLength(2);
+      expect(useSupervisionStore.getState().tasks['proj-1'][0].id).toBe('t1');
+    });
+
+    it('replaces existing tasks for the same project', () => {
+      useSupervisionStore.getState().setTasks('proj-1', [createTask({ id: 'old' })]);
+      useSupervisionStore.getState().setTasks('proj-1', [createTask({ id: 'new' })]);
+
+      expect(useSupervisionStore.getState().tasks['proj-1']).toHaveLength(1);
+      expect(useSupervisionStore.getState().tasks['proj-1'][0].id).toBe('new');
+    });
+
+    it('does not affect other projects', () => {
+      const tasks1 = [createTask({ id: 't1', projectId: 'proj-1' })];
+      const tasks2 = [createTask({ id: 't2', projectId: 'proj-2' })];
+      useSupervisionStore.getState().setTasks('proj-1', tasks1);
+      useSupervisionStore.getState().setTasks('proj-2', tasks2);
+
+      expect(useSupervisionStore.getState().tasks['proj-1']).toHaveLength(1);
+      expect(useSupervisionStore.getState().tasks['proj-2']).toHaveLength(1);
+    });
+
+    it('sets empty array', () => {
+      useSupervisionStore.getState().setTasks('proj-1', []);
+      expect(useSupervisionStore.getState().tasks['proj-1']).toEqual([]);
+    });
+  });
+
+  describe('upsertTask', () => {
+    it('inserts a new task when none exist', () => {
+      const task = createTask({ id: 't1' });
+      useSupervisionStore.getState().upsertTask('proj-1', task);
+
+      expect(useSupervisionStore.getState().tasks['proj-1']).toHaveLength(1);
+      expect(useSupervisionStore.getState().tasks['proj-1'][0].id).toBe('t1');
+    });
+
+    it('appends a new task to existing list', () => {
+      useSupervisionStore.getState().setTasks('proj-1', [createTask({ id: 't1' })]);
+      useSupervisionStore.getState().upsertTask('proj-1', createTask({ id: 't2' }));
+
+      expect(useSupervisionStore.getState().tasks['proj-1']).toHaveLength(2);
+    });
+
+    it('updates an existing task by id', () => {
+      useSupervisionStore.getState().setTasks('proj-1', [
+        createTask({ id: 't1', title: 'Old Title' }),
+      ]);
+      useSupervisionStore.getState().upsertTask('proj-1', createTask({ id: 't1', title: 'New Title' }));
+
+      const tasks = useSupervisionStore.getState().tasks['proj-1'];
+      expect(tasks).toHaveLength(1);
+      expect(tasks[0].title).toBe('New Title');
+    });
+
+    it('does not affect other projects', () => {
+      useSupervisionStore.getState().setTasks('proj-1', [createTask({ id: 't1' })]);
+      useSupervisionStore.getState().upsertTask('proj-2', createTask({ id: 't2' }));
+
+      expect(useSupervisionStore.getState().tasks['proj-1']).toHaveLength(1);
+      expect(useSupervisionStore.getState().tasks['proj-2']).toHaveLength(1);
+    });
+  });
+
+  describe('removeTask', () => {
+    it('removes a task by id', () => {
+      useSupervisionStore.getState().setTasks('proj-1', [
+        createTask({ id: 't1' }),
+        createTask({ id: 't2' }),
+      ]);
+      useSupervisionStore.getState().removeTask('proj-1', 't1');
+
+      const tasks = useSupervisionStore.getState().tasks['proj-1'];
+      expect(tasks).toHaveLength(1);
+      expect(tasks[0].id).toBe('t2');
+    });
+
+    it('is a no-op for non-existent task id', () => {
+      useSupervisionStore.getState().setTasks('proj-1', [createTask({ id: 't1' })]);
+      useSupervisionStore.getState().removeTask('proj-1', 'nonexistent');
+
+      expect(useSupervisionStore.getState().tasks['proj-1']).toHaveLength(1);
+    });
+
+    it('handles empty project task list', () => {
+      useSupervisionStore.getState().removeTask('proj-1', 't1');
+      expect(useSupervisionStore.getState().tasks['proj-1']).toEqual([]);
+    });
+
+    it('does not affect other projects', () => {
+      useSupervisionStore.getState().setTasks('proj-1', [createTask({ id: 't1' })]);
+      useSupervisionStore.getState().setTasks('proj-2', [createTask({ id: 't2' })]);
+      useSupervisionStore.getState().removeTask('proj-1', 't1');
+
+      expect(useSupervisionStore.getState().tasks['proj-1']).toHaveLength(0);
+      expect(useSupervisionStore.getState().tasks['proj-2']).toHaveLength(1);
+    });
+  });
+
+  describe('setAgent', () => {
+    it('sets an agent for a project', () => {
+      const agent = createAgent();
+      useSupervisionStore.getState().setAgent('proj-1', agent);
+
+      expect(useSupervisionStore.getState().agents['proj-1']).toEqual(agent);
+    });
+
+    it('replaces existing agent', () => {
+      useSupervisionStore.getState().setAgent('proj-1', createAgent({ phase: 'initializing' }));
+      useSupervisionStore.getState().setAgent('proj-1', createAgent({ phase: 'active' }));
+
+      expect(useSupervisionStore.getState().agents['proj-1'].phase).toBe('active');
+    });
+
+    it('does not affect other projects', () => {
+      useSupervisionStore.getState().setAgent('proj-1', createAgent({ phase: 'active' }));
+      useSupervisionStore.getState().setAgent('proj-2', createAgent({ phase: 'paused' }));
+
+      expect(useSupervisionStore.getState().agents['proj-1'].phase).toBe('active');
+      expect(useSupervisionStore.getState().agents['proj-2'].phase).toBe('paused');
+    });
+  });
+
+  describe('removeAgent', () => {
+    it('removes an agent for a project', () => {
+      useSupervisionStore.getState().setAgent('proj-1', createAgent());
+      useSupervisionStore.getState().removeAgent('proj-1');
+
+      expect(useSupervisionStore.getState().agents['proj-1']).toBeUndefined();
+    });
+
+    it('is a no-op for non-existent project', () => {
+      useSupervisionStore.getState().setAgent('proj-1', createAgent());
+      useSupervisionStore.getState().removeAgent('proj-nonexistent');
+
+      expect(useSupervisionStore.getState().agents['proj-1']).toBeDefined();
+    });
+
+    it('does not affect other projects', () => {
+      useSupervisionStore.getState().setAgent('proj-1', createAgent());
+      useSupervisionStore.getState().setAgent('proj-2', createAgent());
+      useSupervisionStore.getState().removeAgent('proj-1');
+
+      expect(useSupervisionStore.getState().agents['proj-1']).toBeUndefined();
+      expect(useSupervisionStore.getState().agents['proj-2']).toBeDefined();
+    });
+  });
+
+  describe('setCheckpointSummary', () => {
+    it('sets a checkpoint summary for a project', () => {
+      useSupervisionStore.getState().setCheckpointSummary('proj-1', 'Completed 3 tasks');
+
+      expect(useSupervisionStore.getState().lastCheckpoint['proj-1']).toBe('Completed 3 tasks');
+    });
+
+    it('replaces existing summary', () => {
+      useSupervisionStore.getState().setCheckpointSummary('proj-1', 'Old summary');
+      useSupervisionStore.getState().setCheckpointSummary('proj-1', 'New summary');
+
+      expect(useSupervisionStore.getState().lastCheckpoint['proj-1']).toBe('New summary');
+    });
+
+    it('does not affect other projects', () => {
+      useSupervisionStore.getState().setCheckpointSummary('proj-1', 'Summary A');
+      useSupervisionStore.getState().setCheckpointSummary('proj-2', 'Summary B');
+
+      expect(useSupervisionStore.getState().lastCheckpoint['proj-1']).toBe('Summary A');
+      expect(useSupervisionStore.getState().lastCheckpoint['proj-2']).toBe('Summary B');
+    });
+  });
+
+  describe('V2 cross-action scenarios', () => {
+    it('agent and tasks are independent', () => {
+      const agent = createAgent();
+      const tasks = [createTask({ id: 't1' })];
+
+      useSupervisionStore.getState().setAgent('proj-1', agent);
+      useSupervisionStore.getState().setTasks('proj-1', tasks);
+
+      useSupervisionStore.getState().removeAgent('proj-1');
+
+      expect(useSupervisionStore.getState().agents['proj-1']).toBeUndefined();
+      expect(useSupervisionStore.getState().tasks['proj-1']).toHaveLength(1);
+    });
+
+    it('checkpoint is independent of agent and tasks', () => {
+      useSupervisionStore.getState().setAgent('proj-1', createAgent());
+      useSupervisionStore.getState().setTasks('proj-1', [createTask()]);
+      useSupervisionStore.getState().setCheckpointSummary('proj-1', 'All good');
+
+      useSupervisionStore.getState().removeAgent('proj-1');
+      useSupervisionStore.getState().setTasks('proj-1', []);
+
+      expect(useSupervisionStore.getState().lastCheckpoint['proj-1']).toBe('All good');
+    });
+
+    it('upsert then remove then upsert works correctly', () => {
+      const task = createTask({ id: 't1', title: 'Original' });
+      useSupervisionStore.getState().upsertTask('proj-1', task);
+      expect(useSupervisionStore.getState().tasks['proj-1']).toHaveLength(1);
+
+      useSupervisionStore.getState().removeTask('proj-1', 't1');
+      expect(useSupervisionStore.getState().tasks['proj-1']).toHaveLength(0);
+
+      useSupervisionStore.getState().upsertTask('proj-1', createTask({ id: 't1', title: 'Reinserted' }));
+      expect(useSupervisionStore.getState().tasks['proj-1']).toHaveLength(1);
+      expect(useSupervisionStore.getState().tasks['proj-1'][0].title).toBe('Reinserted');
     });
   });
 });

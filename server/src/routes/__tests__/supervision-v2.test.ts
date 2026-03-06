@@ -607,5 +607,224 @@ describe('Supervision V2 Routes', () => {
 
       expect(mockService.getLogs).toHaveBeenCalledWith('proj-1', 50);
     });
+
+    it('returns 500 when getLogs throws', async () => {
+      mockService.getLogs.mockImplementation(() => {
+        throw new Error('DB error');
+      });
+
+      const res = await request(app)
+        .get('/api/v2/projects/proj-1/logs')
+        .expect(500);
+
+      expect(res.body.success).toBe(false);
+      expect(res.body.error.code).toBe('INTERNAL_ERROR');
+    });
+  });
+
+  // ========================================
+  // POST /tasks/:taskId/resolve-conflict
+  // ========================================
+
+  describe('POST /tasks/:taskId/resolve-conflict', () => {
+    it('calls resolveConflict and returns 200', async () => {
+      const task = makeMockTask({ status: 'running', attempt: 2 });
+      mockService.resolveConflict.mockReturnValue(task);
+
+      const res = await request(app)
+        .post('/api/v2/tasks/task-1/resolve-conflict')
+        .expect(200);
+
+      expect(res.body.success).toBe(true);
+      expect(mockService.resolveConflict).toHaveBeenCalledWith('task-1');
+    });
+
+    it('returns 400 when task is not in merge_conflict state', async () => {
+      mockService.resolveConflict.mockImplementation(() => {
+        throw new Error('Task task-1 is not in merge_conflict state');
+      });
+
+      const res = await request(app)
+        .post('/api/v2/tasks/task-1/resolve-conflict')
+        .expect(400);
+
+      expect(res.body.success).toBe(false);
+      expect(res.body.error.code).toBe('INVALID_STATE');
+    });
+
+    it('returns 500 for unexpected merge error', async () => {
+      mockService.resolveConflict.mockImplementation(() => {
+        throw new Error('Git merge failed unexpectedly');
+      });
+
+      const res = await request(app)
+        .post('/api/v2/tasks/task-1/resolve-conflict')
+        .expect(500);
+
+      expect(res.body.success).toBe(false);
+      expect(res.body.error.code).toBe('MERGE_ERROR');
+    });
+  });
+
+  // ========================================
+  // Error handling: agent action service throw
+  // ========================================
+
+  describe('POST /projects/:projectId/agent/action — error handling', () => {
+    it('returns 400 when updateAgentPhase throws with "not in" message', async () => {
+      mockService.updateAgentPhase.mockImplementation(() => {
+        throw new Error('Agent is not in a valid state to pause');
+      });
+
+      const res = await request(app)
+        .post('/api/v2/projects/proj-1/agent/action')
+        .send({ action: 'pause' })
+        .expect(400);
+
+      expect(res.body.success).toBe(false);
+      expect(res.body.error.code).toBe('INVALID_STATE');
+    });
+
+    it('returns 500 for unexpected errors', async () => {
+      mockService.updateAgentPhase.mockImplementation(() => {
+        throw new Error('Database connection lost');
+      });
+
+      const res = await request(app)
+        .post('/api/v2/projects/proj-1/agent/action')
+        .send({ action: 'resume' })
+        .expect(500);
+
+      expect(res.body.success).toBe(false);
+      expect(res.body.error.code).toBe('INTERNAL_ERROR');
+    });
+  });
+
+  // ========================================
+  // Error handling: GET endpoints
+  // ========================================
+
+  describe('Error handling for GET endpoints', () => {
+    it('GET /projects/:projectId/agent returns 500 on unexpected error', async () => {
+      mockService.getAgent.mockImplementation(() => {
+        throw new Error('Unexpected');
+      });
+
+      const res = await request(app)
+        .get('/api/v2/projects/proj-1/agent')
+        .expect(500);
+
+      expect(res.body.success).toBe(false);
+      expect(res.body.error.code).toBe('INTERNAL_ERROR');
+    });
+
+    it('GET /projects/:projectId/tasks returns 500 on error', async () => {
+      mockService.getTasks.mockImplementation(() => {
+        throw new Error('DB read error');
+      });
+
+      const res = await request(app)
+        .get('/api/v2/projects/proj-1/tasks')
+        .expect(500);
+
+      expect(res.body.success).toBe(false);
+      expect(res.body.error.code).toBe('INTERNAL_ERROR');
+    });
+
+    it('GET /projects/:projectId/budget returns 500 on error', async () => {
+      mockService.getTokenUsage.mockImplementation(() => {
+        throw new Error('Budget calc failed');
+      });
+
+      const res = await request(app)
+        .get('/api/v2/projects/proj-1/budget')
+        .expect(500);
+
+      expect(res.body.success).toBe(false);
+      expect(res.body.error.code).toBe('INTERNAL_ERROR');
+    });
+
+    it('GET /projects/:projectId/context returns 500 on error', async () => {
+      mockService.getContextDocuments.mockImplementation(() => {
+        throw new Error('FS read failed');
+      });
+
+      const res = await request(app)
+        .get('/api/v2/projects/proj-1/context')
+        .expect(500);
+
+      expect(res.body.success).toBe(false);
+      expect(res.body.error.code).toBe('INTERNAL_ERROR');
+    });
+  });
+
+  // ========================================
+  // POST /projects/:projectId/tasks — optional fields
+  // ========================================
+
+  describe('POST /projects/:projectId/tasks — optional fields', () => {
+    it('passes optional fields to service', async () => {
+      const task = makeMockTask();
+      mockService.createTask.mockReturnValue(task);
+
+      await request(app)
+        .post('/api/v2/projects/proj-1/tasks')
+        .send({
+          title: 'Full task',
+          description: 'With all options',
+          priority: 5,
+          dependencies: ['dep-1'],
+          dependencyMode: 'any',
+          acceptanceCriteria: ['Works', 'Tests pass'],
+          relevantDocIds: ['doc.md'],
+          scope: ['src/'],
+        })
+        .expect(200);
+
+      expect(mockService.createTask).toHaveBeenCalledWith('proj-1', {
+        title: 'Full task',
+        description: 'With all options',
+        priority: 5,
+        dependencies: ['dep-1'],
+        dependencyMode: 'any',
+        acceptanceCriteria: ['Works', 'Tests pass'],
+        relevantDocIds: ['doc.md'],
+        scope: ['src/'],
+      });
+    });
+
+    it('returns 500 for unexpected createTask error', async () => {
+      mockService.createTask.mockImplementation(() => {
+        throw new Error('Database write failed');
+      });
+
+      const res = await request(app)
+        .post('/api/v2/projects/proj-1/tasks')
+        .send({ title: 'Fail', description: 'd' })
+        .expect(500);
+
+      expect(res.body.success).toBe(false);
+      expect(res.body.error.code).toBe('INTERNAL_ERROR');
+    });
+  });
+
+  // ========================================
+  // PUT /tasks/:taskId — error handling
+  // ========================================
+
+  describe('PUT /tasks/:taskId — error handling', () => {
+    it('returns 500 when updateTask throws', async () => {
+      mockService.updateTask.mockImplementation(() => {
+        throw new Error('Unexpected DB error');
+      });
+
+      const res = await request(app)
+        .put('/api/v2/tasks/task-1')
+        .send({ title: 'Crash' })
+        .expect(500);
+
+      expect(res.body.success).toBe(false);
+      expect(res.body.error.code).toBe('INTERNAL_ERROR');
+    });
   });
 });

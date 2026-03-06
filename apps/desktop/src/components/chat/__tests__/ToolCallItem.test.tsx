@@ -24,23 +24,26 @@ describe('ToolCallItem', () => {
 
     it('shows running spinner when status is running', () => {
       const toolCall = createToolCall({ status: 'running' });
-      render(<ToolCallItem toolCall={toolCall} />);
+      const { container } = render(<ToolCallItem toolCall={toolCall} />);
 
-      expect(screen.getByText('⟳')).toBeInTheDocument();
+      // Lucide Loader2 icon with animate-spin class
+      expect(container.querySelector('.animate-spin')).toBeInTheDocument();
     });
 
     it('shows success checkmark when completed without error', () => {
       const toolCall = createToolCall({ status: 'completed', isError: false });
-      render(<ToolCallItem toolCall={toolCall} />);
+      const { container } = render(<ToolCallItem toolCall={toolCall} />);
 
-      expect(screen.getByText('✓')).toBeInTheDocument();
+      // Lucide CheckCircle2 icon with text-success class
+      expect(container.querySelector('.text-success')).toBeInTheDocument();
     });
 
     it('shows error X when completed with error', () => {
       const toolCall = createToolCall({ status: 'completed', isError: true });
-      render(<ToolCallItem toolCall={toolCall} />);
+      const { container } = render(<ToolCallItem toolCall={toolCall} />);
 
-      expect(screen.getByText('✗')).toBeInTheDocument();
+      // Lucide XCircle icon with text-destructive class
+      expect(container.querySelector('.text-destructive')).toBeInTheDocument();
     });
 
     it('displays formatted input summary', () => {
@@ -122,7 +125,9 @@ describe('ToolCallItem', () => {
       // Click to expand
       fireEvent.click(screen.getByRole('button'));
 
-      expect(screen.getByText(/My Plan/)).toBeInTheDocument();
+      // "My Plan" appears in both summary and expanded PlanContent heading
+      expect(screen.getAllByText(/My Plan/).length).toBeGreaterThanOrEqual(1);
+      expect(screen.getByText(/Step 1/)).toBeInTheDocument();
     });
 
     it('should display plan when plan is an object', () => {
@@ -135,7 +140,8 @@ describe('ToolCallItem', () => {
       // Click to expand
       fireEvent.click(screen.getByRole('button'));
 
-      expect(screen.getByText(/Plan Details/)).toBeInTheDocument();
+      // Plan object is rendered as formatted JSON in both summary and expanded content
+      expect(screen.getAllByText(/"steps"/).length).toBeGreaterThanOrEqual(1);
     });
 
     it('should display plan_file message when plan_file exists', () => {
@@ -148,7 +154,7 @@ describe('ToolCallItem', () => {
       // Click to expand
       fireEvent.click(screen.getByRole('button'));
 
-      expect(screen.getByText(/Plan file:/)).toBeInTheDocument();
+      expect(screen.getAllByText(/Plan file:/).length).toBeGreaterThanOrEqual(1);
     });
 
     it('should display fallback message when no plan data', () => {
@@ -161,7 +167,8 @@ describe('ToolCallItem', () => {
       // Click to expand
       fireEvent.click(screen.getByRole('button'));
 
-      expect(screen.getByText(/Plan ready for review/)).toBeInTheDocument();
+      // "Plan ready for review" appears in both summary and expanded content
+      expect(screen.getAllByText(/Plan ready for review/).length).toBeGreaterThanOrEqual(1);
     });
   });
 
