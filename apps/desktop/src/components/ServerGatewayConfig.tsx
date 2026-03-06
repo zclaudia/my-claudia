@@ -7,7 +7,7 @@ import {
   disconnectServerFromGateway
 } from '../services/api';
 import type { ServerGatewayConfig as GatewayConfig, ServerGatewayStatus } from '@my-claudia/shared';
-import { useGatewayStore } from '../stores/gatewayStore';
+import { useGatewayStore, shouldShowBackend } from '../stores/gatewayStore';
 
 export function ServerGatewayConfig() {
   const [config, setConfig] = useState<GatewayConfig | null>(null);
@@ -27,6 +27,9 @@ export function ServerGatewayConfig() {
   const [proxyPassword, setProxyPassword] = useState('');
 
   const { showLocalBackend, setShowLocalBackend } = useGatewayStore();
+  const visibleDiscoveredBackends = (status?.discoveredBackends || []).filter((b) =>
+    shouldShowBackend(b, status?.backendId || null, showLocalBackend)
+  );
 
   // Load config on mount
   useEffect(() => {
@@ -205,12 +208,12 @@ export function ServerGatewayConfig() {
       )}
 
       {/* Discovered Backends */}
-      {status?.connected && status.discoveredBackends && status.discoveredBackends.filter(b => showLocalBackend || !b.isLocal).length > 0 && (
+      {status?.connected && visibleDiscoveredBackends.length > 0 && (
         <div className="bg-muted rounded-lg p-3 space-y-2">
           <h4 className="text-sm font-semibold text-foreground">
-            Discovered Backends ({status.discoveredBackends.filter(b => showLocalBackend || !b.isLocal).length})
+            Discovered Backends ({visibleDiscoveredBackends.length})
           </h4>
-          {status.discoveredBackends.filter(b => showLocalBackend || !b.isLocal).map((b) => (
+          {visibleDiscoveredBackends.map((b) => (
             <div key={b.backendId} className="flex items-center justify-between text-sm">
               <div className="flex items-center gap-2">
                 <span className={`w-1.5 h-1.5 rounded-full ${b.online ? 'bg-success' : 'bg-muted-foreground'}`} />

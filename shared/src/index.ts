@@ -1323,6 +1323,8 @@ export interface StateHeartbeatMessage {
     loopPattern?: string;
     /** Session type — background runs should not affect the session's loading state */
     sessionType?: 'regular' | 'background';
+    /** Latest init/system metadata for this run (if available). */
+    systemInfo?: SystemInfo;
   }>;
   pendingPermissions: Array<{
     requestId: string;

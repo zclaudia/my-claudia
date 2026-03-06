@@ -297,6 +297,9 @@ export function handleServerMessage(
 
       // Update run health info from heartbeat
       for (const run of heartbeat.activeRuns) {
+        if (run.systemInfo) {
+          chatState.setSystemInfo(run.sessionId, run.systemInfo);
+        }
         chatState.updateRunHealth(run.runId, {
           sessionId: run.sessionId,
           startedAt: run.startedAt,

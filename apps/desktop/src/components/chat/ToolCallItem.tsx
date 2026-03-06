@@ -17,8 +17,17 @@ interface ToolCallItemProps {
   toolCall: ToolCallState;
 }
 
+// Normalize tool input: some providers send stringified JSON instead of objects
+function normalizeToolInput(input: unknown): unknown {
+  if (typeof input === 'string') {
+    try { return JSON.parse(input); } catch { return input; }
+  }
+  return input;
+}
+
 // Format tool input for display
 function formatToolInput(toolName: string, input: unknown): string {
+  input = normalizeToolInput(input);
   if (!input || typeof input !== 'object') {
     return JSON.stringify(input, null, 2);
   }
@@ -238,7 +247,7 @@ function ToolExpandedContent({ toolName, toolInput, status, result, isError }: {
   result?: unknown;
   isError?: boolean;
 }) {
-  const input = toolInput as Record<string, unknown> | undefined;
+  const input = normalizeToolInput(toolInput) as Record<string, unknown> | undefined;
 
   // Edit tool: show inline diff
   if (toolName === 'Edit' && input?.old_string && input?.new_string) {
@@ -551,7 +560,7 @@ interface ToolCallListProps {
 
 // Get a short summary of what a tool call did
 function getToolCallSummary(tc: ToolCallState): string {
-  const input = tc.toolInput as Record<string, unknown> | undefined;
+  const input = normalizeToolInput(tc.toolInput) as Record<string, unknown> | undefined;
   if (!input) return tc.toolName;
 
   switch (tc.toolName) {

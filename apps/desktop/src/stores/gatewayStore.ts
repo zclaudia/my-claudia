@@ -55,6 +55,20 @@ function markIsLocal(backends: GatewayBackendInfo[], localBackendId: string | nu
   }));
 }
 
+/**
+ * Whether a backend should be shown in UI lists.
+ * Hide local backend only when we know the current runtime local backend id.
+ */
+export function shouldShowBackend(
+  backend: GatewayBackendInfo,
+  localBackendId: string | null,
+  showLocalBackend: boolean
+): boolean {
+  if (showLocalBackend) return true;
+  if (!localBackendId) return true;
+  return !backend.isLocal;
+}
+
 export const useGatewayStore = create<GatewayState>()(
   persist(
     (set, get) => ({

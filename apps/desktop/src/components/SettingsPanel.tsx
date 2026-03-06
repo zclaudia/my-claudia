@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { useServerStore } from '../stores/serverStore';
-import { useGatewayStore, toGatewayServerId } from '../stores/gatewayStore';
+import { useGatewayStore, toGatewayServerId, shouldShowBackend } from '../stores/gatewayStore';
 import { useUIStore, type FontSizePreset } from '../stores/uiStore';
 import { useConnection } from '../contexts/ConnectionContext';
 import { useIsMobile } from '../hooks/useMediaQuery';
@@ -56,6 +56,8 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
   const {
     isConnected: isGatewayConnected,
     discoveredBackends,
+    localBackendId,
+    showLocalBackend,
   } = useGatewayStore();
   const { connectServer, embeddedServerStatus, embeddedServerError, embeddedServerPort } = useConnection();
 
@@ -63,6 +65,7 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
   const activeServer = getActiveServer();
   const isLocalServer = activeServerId === 'local';
   const directServers = servers.filter(s => s.connectionMode !== 'gateway');
+  const visibleGatewayBackends = discoveredBackends.filter(b => shouldShowBackend(b, localBackendId, showLocalBackend));
 
   // SDK version check
   const [sdkVersions, setSdkVersions] = useState<SdkVersionReport | null>(null);
@@ -409,12 +412,12 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
                       })}
 
                       {/* Gateway backends */}
-                      {isGatewayConnected && discoveredBackends.filter(b => !b.isLocal).length > 0 && (
+                      {isGatewayConnected && visibleGatewayBackends.length > 0 && (
                         <>
                           <div className="px-3 py-1 text-[10px] font-medium text-muted-foreground uppercase tracking-wider bg-secondary/50 border-t border-border">
                             Via Gateway
                           </div>
-                          {discoveredBackends.filter(b => !b.isLocal).map((backend) => {
+                          {visibleGatewayBackends.map((backend) => {
                             const gwId = toGatewayServerId(backend.backendId);
                             const isActive = activeServerId === gwId;
                             const statusColor = backend.online ? 'bg-success' : 'bg-muted-foreground';
@@ -1332,7 +1335,12 @@ function MobileGatewayConfig() {
 // Read-only server info panel
 function ServerInfoPanel() {
   const { servers, activeServerId, connections } = useServerStore();
-  const { isConnected: isGatewayConnected, discoveredBackends } = useGatewayStore();
+  const {
+    isConnected: isGatewayConnected,
+    discoveredBackends,
+    localBackendId,
+    showLocalBackend,
+  } = useGatewayStore();
 
   const getStatusInfo = (status?: string) => {
     switch (status) {
@@ -1349,6 +1357,7 @@ function ServerInfoPanel() {
 
   // Filter out legacy gateway-mode servers (these are now handled via gateway discovery)
   const directServers = servers.filter(s => s.connectionMode !== 'gateway');
+  const visibleGatewayBackends = discoveredBackends.filter(b => shouldShowBackend(b, localBackendId, showLocalBackend));
 
   return (
     <div className="space-y-3">
@@ -1390,12 +1399,12 @@ function ServerInfoPanel() {
       })}
 
       {/* Gateway backends */}
-      {isGatewayConnected && discoveredBackends.filter(b => !b.isLocal).length > 0 && (
+      {isGatewayConnected && visibleGatewayBackends.length > 0 && (
         <>
           <div className="text-xs font-medium text-muted-foreground uppercase tracking-wider pt-2">
             Via Gateway
           </div>
-          {discoveredBackends.filter(b => !b.isLocal).map((backend) => {
+          {visibleGatewayBackends.map((backend) => {
             const gwServerId = toGatewayServerId(backend.backendId);
             const isActive = activeServerId === gwServerId;
             const statusText = backend.online ? 'Online' : 'Offline';

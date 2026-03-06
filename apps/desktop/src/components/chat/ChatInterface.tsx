@@ -159,6 +159,7 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
   const currentProject = currentSession
     ? projects.find(p => p.id === currentSession.projectId)
     : null;
+  const fileReferenceRoot = currentSession?.workingDirectory || currentProject?.rootPath;
 
   // Reset per-session ephemeral state when switching sessions
   useEffect(() => {
@@ -1313,7 +1314,7 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
           onCancel={handleCancelRun}
           onCommand={handleCommand}
           commands={commands}
-          projectRoot={currentProject?.rootPath}
+          projectRoot={fileReferenceRoot}
           disabled={!isConnected}
           isLoading={isLoading}
           initialValue={restoreMessage?.content ?? initialDraft}

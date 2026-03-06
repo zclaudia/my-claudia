@@ -88,31 +88,31 @@ function mapItemStarted(item: ThreadItem): ClaudeMessage | null {
       return {
         type: 'tool_use',
         toolName: 'Bash',
-        toolInput: JSON.stringify({ command: item.command }),
+        toolInput: { command: item.command },
       };
     case 'file_change':
       return {
         type: 'tool_use',
         toolName: 'Edit',
-        toolInput: JSON.stringify({ changes: item.changes }),
+        toolInput: { changes: item.changes },
       };
     case 'mcp_tool_call':
       return {
         type: 'tool_use',
         toolName: `mcp:${item.server}:${item.tool}`,
-        toolInput: JSON.stringify(item.arguments),
+        toolInput: item.arguments,
       };
     case 'web_search':
       return {
         type: 'tool_use',
         toolName: 'WebSearch',
-        toolInput: JSON.stringify({ query: item.query }),
+        toolInput: { query: item.query },
       };
     case 'todo_list':
       return {
         type: 'tool_use',
         toolName: 'TodoWrite',
-        toolInput: JSON.stringify({ items: item.items }),
+        toolInput: { items: item.items },
       };
     case 'error':
       return { type: 'error', error: item.message };

@@ -576,6 +576,7 @@ export class GatewayClient {
       // Get all sessions from database, with lastMessageOffset for gap detection
       const sessions = this.db.prepare(`
         SELECT s.id, s.project_id as projectId, s.name, s.provider_id as providerId,
+               s.working_directory as workingDirectory,
                s.created_at as createdAt, s.updated_at as updatedAt,
                (SELECT MAX(offset) FROM messages WHERE session_id = s.id) as lastMessageOffset
         FROM sessions s
@@ -588,6 +589,7 @@ export class GatewayClient {
         projectId: session.projectId,
         name: session.name,
         providerId: session.providerId,
+        workingDirectory: session.workingDirectory,
         createdAt: session.createdAt,
         updatedAt: session.updatedAt,
         isActive: [...this.activeRuns!.values()].some(

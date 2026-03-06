@@ -234,6 +234,7 @@ interface ActiveRun {
   lastActivityAt: number;
   recentToolCalls: string[];  // Last N tool names (sliding window for loop detection)
   loopHeartbeatStreak: number; // Consecutive heartbeats that detect a loop pattern
+  latestSystemInfo?: SystemInfo; // Used for heartbeat reconciliation on late-joining clients
 }
 
 const activeRuns = new Map<string, ActiveRun>();
@@ -897,6 +898,7 @@ function buildStateHeartbeat(): StateHeartbeatMessage {
       health,
       loopPattern: (loop.detected && run.loopHeartbeatStreak >= 3) ? loop.pattern : undefined,
       sessionType: run.sessionType,
+      systemInfo: run.latestSystemInfo,
     });
     for (const [requestId, pending] of run.pendingPermissions) {
       if (!pending.originalRequest) continue;
@@ -1592,6 +1594,7 @@ async function handleRunStart(
           // Save system info for potential use in /status command
           if (msg.systemInfo) {
             systemInfo = msg.systemInfo;
+            activeRun.latestSystemInfo = msg.systemInfo;
             // Send system info to client for display
             sendMessage(client.ws, {
               type: 'system_info',

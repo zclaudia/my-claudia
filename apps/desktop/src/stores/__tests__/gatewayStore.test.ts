@@ -4,6 +4,7 @@ import {
   toGatewayServerId,
   isGatewayTarget,
   parseBackendId,
+  shouldShowBackend,
 } from '../gatewayStore';
 import type { GatewayBackendInfo } from '@my-claudia/shared';
 
@@ -153,6 +154,23 @@ describe('gatewayStore', () => {
   });
 
   describe('utility functions', () => {
+    describe('shouldShowBackend', () => {
+      it('shows local-marked backend when localBackendId is unknown', () => {
+        const backend = createBackend({ isLocal: true });
+        expect(shouldShowBackend(backend, null, false)).toBe(true);
+      });
+
+      it('hides local-marked backend when localBackendId exists', () => {
+        const backend = createBackend({ isLocal: true });
+        expect(shouldShowBackend(backend, 'backend-1', false)).toBe(false);
+      });
+
+      it('shows local backend when debug toggle is enabled', () => {
+        const backend = createBackend({ isLocal: true });
+        expect(shouldShowBackend(backend, 'backend-1', true)).toBe(true);
+      });
+    });
+
     describe('toGatewayServerId', () => {
       it('prefixes backendId with gw:', () => {
         expect(toGatewayServerId('backend-1')).toBe('gw:backend-1');

@@ -42,6 +42,7 @@ export function createSessionRoutes(db: Database.Database, activeRuns: ActiveRun
       const sessions = db.prepare(`
         SELECT id, project_id as projectId, name, provider_id as providerId,
                sdk_session_id as sdkSessionId, type, parent_session_id as parentSessionId,
+               working_directory as workingDirectory,
                archived_at as archivedAt,
                created_at as createdAt, updated_at as updatedAt
         FROM sessions
@@ -65,6 +66,7 @@ export function createSessionRoutes(db: Database.Database, activeRuns: ActiveRun
       const sessions = db.prepare(`
         SELECT id, project_id as projectId, name, provider_id as providerId,
                sdk_session_id as sdkSessionId, type, parent_session_id as parentSessionId,
+               working_directory as workingDirectory,
                archived_at as archivedAt,
                created_at as createdAt, updated_at as updatedAt
         FROM sessions
@@ -110,6 +112,7 @@ export function createSessionRoutes(db: Database.Database, activeRuns: ActiveRun
         for (const id of sessionIds) {
           const session = db.prepare(`
             SELECT id, project_id as projectId, name, provider_id as providerId,
+                   working_directory as workingDirectory,
                    archived_at as archivedAt, created_at as createdAt, updated_at as updatedAt
             FROM sessions WHERE id = ?
           `).get(id) as Session | undefined;
@@ -157,6 +160,7 @@ export function createSessionRoutes(db: Database.Database, activeRuns: ActiveRun
         for (const id of sessionIds) {
           const session = db.prepare(`
             SELECT id, project_id as projectId, name, provider_id as providerId,
+                   working_directory as workingDirectory,
                    archived_at as archivedAt, created_at as createdAt, updated_at as updatedAt
             FROM sessions WHERE id = ?
           `).get(id) as Session | undefined;
@@ -193,6 +197,7 @@ export function createSessionRoutes(db: Database.Database, activeRuns: ActiveRun
       // Get all non-archived sessions updated after the given timestamp, with lastMessageOffset
       const sessions = db.prepare(`
         SELECT s.id, s.project_id as projectId, s.name, s.provider_id as providerId,
+               s.working_directory as workingDirectory,
                s.archived_at as archivedAt,
                s.created_at as createdAt, s.updated_at as updatedAt,
                (SELECT MAX(offset) FROM messages WHERE session_id = s.id) as lastMessageOffset
@@ -207,6 +212,7 @@ export function createSessionRoutes(db: Database.Database, activeRuns: ActiveRun
         projectId: session.projectId,
         name: session.name,
         providerId: session.providerId,
+        workingDirectory: session.workingDirectory,
         createdAt: session.createdAt,
         updatedAt: session.updatedAt,
         isActive: [...activeRuns.values()].some(
@@ -239,6 +245,7 @@ export function createSessionRoutes(db: Database.Database, activeRuns: ActiveRun
       const session = db.prepare(`
         SELECT id, project_id as projectId, name, provider_id as providerId,
                sdk_session_id as sdkSessionId, type, parent_session_id as parentSessionId,
+               working_directory as workingDirectory,
                archived_at as archivedAt,
                created_at as createdAt, updated_at as updatedAt
         FROM sessions WHERE id = ?
@@ -351,6 +358,7 @@ export function createSessionRoutes(db: Database.Database, activeRuns: ActiveRun
         // Fetch updated session to broadcast
         const updatedSession = db.prepare(`
           SELECT id, project_id as projectId, name, provider_id as providerId,
+                 working_directory as workingDirectory,
                  created_at as createdAt, updated_at as updatedAt
           FROM sessions WHERE id = ?
         `).get(req.params.id) as Session | undefined;
@@ -434,6 +442,7 @@ export function createSessionRoutes(db: Database.Database, activeRuns: ActiveRun
       // Fetch full session before deleting (for broadcasting)
       const session = db.prepare(`
         SELECT id, project_id as projectId, name, provider_id as providerId,
+               working_directory as workingDirectory,
                created_at as createdAt, updated_at as updatedAt
         FROM sessions WHERE id = ?
       `).get(sessionId) as Session | undefined;

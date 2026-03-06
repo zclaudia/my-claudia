@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useServerStore, type ServerConnection } from '../stores/serverStore';
-import { useGatewayStore, toGatewayServerId } from '../stores/gatewayStore';
+import { useGatewayStore, toGatewayServerId, shouldShowBackend } from '../stores/gatewayStore';
 import { useConnection } from '../contexts/ConnectionContext';
 import { useIsMobile } from '../hooks/useMediaQuery';
 import type { BackendServer, GatewayBackendInfo } from '@my-claudia/shared';
@@ -20,6 +20,7 @@ export function ServerSelector() {
     gatewaySecret,
     isConnected: isGatewayConnected,
     discoveredBackends,
+    localBackendId,
     setLastActiveBackend,
     toggleBackendSubscription,
     isBackendSubscribed,
@@ -34,7 +35,7 @@ export function ServerSelector() {
   const directServers = servers.filter(s => s.connectionMode !== 'gateway');
   const activeServer = useServerStore.getState().getActiveServer();
   const isGatewayConfigured = !!gatewayUrl && !!gatewaySecret;
-  const remoteBackends = discoveredBackends.filter(b => showLocalBackend || !b.isLocal);
+  const remoteBackends = discoveredBackends.filter(b => shouldShowBackend(b, localBackendId, showLocalBackend));
 
   const handleServerSelect = (serverId: string) => {
     setActiveServer(serverId);
