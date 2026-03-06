@@ -133,6 +133,10 @@ export interface Project {
   isInternal?: boolean;  // Internal projects (e.g. Agent Assistant) are hidden from user-facing lists
   createdAt: number;
   updatedAt: number;
+
+  // Supervision v2
+  agent?: ProjectAgent;
+  contextSyncStatus?: 'synced' | 'error';
 }
 
 export interface PermissionPolicy {
@@ -161,23 +165,30 @@ export interface Session {
   updatedAt: number;
   isActive?: boolean;  // Whether this session has an active AI request running
   archivedAt?: number; // Timestamp when session was archived, undefined = not archived
+
+  // Supervision v2
+  projectRole?: 'main' | 'task' | 'review' | 'checkpoint';
+  taskId?: string;
 }
 
 // ============================================
-// Supervision Types
+// Supervision v1 Types (deprecated — frontend still references these)
 // ============================================
 
+/** @deprecated Use Supervision v2 types instead */
 export type SupervisionStatus = 'planning' | 'active' | 'paused' | 'completed' | 'failed' | 'cancelled';
 
+/** @deprecated Use Supervision v2 types instead */
 export interface SupervisionSubtask {
-  id: number;              // 从 1 开始的序号
+  id: number;
   description: string;
   status: 'pending' | 'in_progress' | 'completed';
   completedAt?: number;
-  phase?: number;                  // 阶段分组 (1, 2, 3...)
-  acceptanceCriteria?: string[];   // 该子任务的验收标准
+  phase?: number;
+  acceptanceCriteria?: string[];
 }
 
+/** @deprecated Use Supervision v2 types instead */
 export interface Supervision {
   id: string;
   sessionId: string;
@@ -189,13 +200,14 @@ export interface Supervision {
   cooldownSeconds: number;
   lastRunId?: string;
   errorMessage?: string;
-  acceptanceCriteria?: string[];   // 整体目标验收标准
-  planSessionId?: string;          // planning 对话的 session ID
+  acceptanceCriteria?: string[];
+  planSessionId?: string;
   createdAt: number;
   updatedAt: number;
   completedAt?: number;
 }
 
+/** @deprecated Use Supervision v2 types instead */
 export interface SupervisionPlan {
   goal: string;
   subtasks: Array<{
@@ -207,12 +219,14 @@ export interface SupervisionPlan {
   estimatedIterations?: number;
 }
 
+/** @deprecated Use Supervision v2 types instead */
 export type SupervisionLogEvent =
   | 'planning_started' | 'planning_approved' | 'planning_cancelled'
   | 'iteration_started' | 'iteration_completed' | 'iteration_failed'
   | 'subtask_completed' | 'goal_completed'
   | 'paused' | 'resumed' | 'cancelled';
 
+/** @deprecated Use Supervision v2 types instead */
 export interface SupervisionLog {
   id: string;
   supervisionId: string;
@@ -222,10 +236,206 @@ export interface SupervisionLog {
   createdAt: number;
 }
 
+/** @deprecated Use Supervision v2 types instead */
 export interface SupervisionUpdateMessage {
   type: 'supervision_update';
   supervision: Supervision;
   log?: SupervisionLog;
+}
+
+// ============================================
+// Supervision v2 Types
+// ============================================
+
+export type AgentType = 'supervisor';
+
+export type SupervisionPhase =
+  | 'initializing'
+  | 'setup'
+  | 'active'
+  | 'paused'
+  | 'idle'
+  | 'archived';
+
+export type TrustLevel = 'low' | 'medium' | 'high';
+
+export interface SupervisorConfig {
+  maxConcurrentTasks: number;
+  trustLevel: TrustLevel;
+  autoDiscoverTasks: boolean;
+  maxTotalTasks?: number;
+  maxTokenBudget?: number;
+}
+
+export interface ProjectAgent {
+  type: AgentType;
+  phase: SupervisionPhase;
+  config: SupervisorConfig;
+  mainSessionId?: string;
+  pausedReason?: 'user' | 'budget' | 'sync_error';
+  pausedAt?: number;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export type TaskStatus =
+  | 'proposed'
+  | 'pending'
+  | 'queued'
+  | 'running'
+  | 'reviewing'
+  | 'approved'
+  | 'integrated'
+  | 'rejected'
+  | 'merge_conflict'
+  | 'blocked'
+  | 'failed'
+  | 'cancelled';
+
+export interface ReviewVerdict {
+  approved: boolean;
+  notes: string;
+  suggestedChanges?: string[];
+}
+
+export interface MergeResult {
+  success: boolean;
+  conflicts?: string[];
+}
+
+export interface TaskResult {
+  summary: string;
+  filesChanged: string[];
+  workflowOutputs?: Array<{
+    action: string;
+    output: string;
+    success: boolean;
+  }>;
+  reviewNotes?: string;
+  reviewVerdict?: ReviewVerdict;
+  reviewSessionId?: string;
+}
+
+export interface SupervisionTask {
+  id: string;
+  projectId: string;
+  title: string;
+  description: string;
+  source: 'user' | 'agent_discovered';
+  sessionId?: string;
+  status: TaskStatus;
+  priority: number;
+  dependencies: string[];
+  dependencyMode: 'all' | 'any';
+  relevantDocIds?: string[];
+  taskSpecificContext?: string;
+  scope?: string[];
+  acceptanceCriteria: string[];
+  maxRetries: number;
+  attempt: number;
+  result?: TaskResult;
+  baseCommit?: string;
+  createdAt: number;
+  startedAt?: number;
+  completedAt?: number;
+}
+
+export type SupervisionV2LogEvent =
+  | 'agent_initialized'
+  | 'phase_changed'
+  | 'task_created'
+  | 'task_status_changed'
+  | 'checkpoint_started'
+  | 'checkpoint_completed'
+  | 'context_updated'
+  | 'context_sync_error'
+  | 'review_started'
+  | 'review_completed'
+  | 'review_failed'
+  | 'workflow_action_executed'
+  | 'worktree_acquired'
+  | 'worktree_released'
+  | 'merge_started'
+  | 'merge_completed'
+  | 'merge_conflict'
+  | 'budget_paused'
+  | 'main_session_rotated'
+  | 'state_recovery_completed';
+
+export interface SupervisionV2Log {
+  id: string;
+  projectId: string;
+  taskId?: string;
+  event: SupervisionV2LogEvent;
+  detail?: Record<string, unknown>;
+  createdAt: number;
+}
+
+// Supervision v2: Server → Client messages
+
+export interface SupervisionTaskUpdateMessage {
+  type: 'supervision_task_update';
+  task: SupervisionTask;
+  projectId: string;
+}
+
+export interface SupervisionAgentUpdateMessage {
+  type: 'supervision_agent_update';
+  projectId: string;
+  agent: ProjectAgent;
+}
+
+export interface SupervisionCheckpointMessage {
+  type: 'supervision_checkpoint';
+  projectId: string;
+  summary: string;
+}
+
+// Supervision v2: Client → Server messages
+
+export interface GetSupervisionTasksMessage {
+  type: 'get_supervision_tasks';
+  projectId: string;
+}
+
+export interface AddSupervisionTaskMessage {
+  type: 'add_supervision_task';
+  projectId: string;
+  task: {
+    title: string;
+    description: string;
+    dependencies?: string[];
+    dependencyMode?: 'all' | 'any';
+    priority?: number;
+    acceptanceCriteria?: string[];
+    relevantDocIds?: string[];
+    scope?: string[];
+  };
+}
+
+export interface UpdateSupervisionTaskMessage {
+  type: 'update_supervision_task';
+  taskId: string;
+  updates: Partial<Pick<SupervisionTask,
+    'title' | 'description' | 'priority' | 'status'
+    | 'acceptanceCriteria' | 'dependencies' | 'dependencyMode'>>;
+}
+
+export interface InitSupervisionAgentMessage {
+  type: 'init_supervision_agent';
+  projectId: string;
+  config?: Partial<SupervisorConfig>;
+}
+
+export interface UpdateSupervisionAgentMessage {
+  type: 'update_supervision_agent';
+  projectId: string;
+  action: 'pause' | 'resume' | 'archive' | 'approve_setup';
+}
+
+export interface ReloadSupervisionContextMessage {
+  type: 'reload_supervision_context';
+  projectId: string;
 }
 
 // ============================================
@@ -351,7 +561,14 @@ export type ClientMessage =
   | TerminalOpenMessage
   | TerminalInputMessage
   | TerminalResizeMessage
-  | TerminalCloseMessage;
+  | TerminalCloseMessage
+  // Supervision v2
+  | GetSupervisionTasksMessage
+  | AddSupervisionTaskMessage
+  | UpdateSupervisionTaskMessage
+  | InitSupervisionAgentMessage
+  | UpdateSupervisionAgentMessage
+  | ReloadSupervisionContextMessage;
 
 // Authentication message (sent after WebSocket connection)
 export interface AuthMessage {
@@ -623,7 +840,11 @@ export type ServerMessage =
   | ProvidersCreatedMessage
   | ProvidersUpdatedMessage
   | ProvidersDeletedMessage
-  | SupervisionUpdateMessage
+  | SupervisionUpdateMessage // deprecated v1
+  // Supervision v2
+  | SupervisionTaskUpdateMessage
+  | SupervisionAgentUpdateMessage
+  | SupervisionCheckpointMessage
   | PermissionResolvedMessage
   | PermissionAutoResolvedMessage
   | AskUserQuestionResolvedMessage

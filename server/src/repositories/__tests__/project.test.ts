@@ -47,7 +47,9 @@ describe('ProjectRepository', () => {
         permissionPolicy: { mode: 'autoApprove' },
         isInternal: true,
         createdAt: 1000,
-        updatedAt: 2000
+        updatedAt: 2000,
+        agent: undefined,
+        contextSyncStatus: undefined,
       });
     });
 
@@ -123,9 +125,10 @@ describe('ProjectRepository', () => {
       const { params } = repository.createQuery(data);
       const after = Date.now();
 
-      expect(params[7]).toBeGreaterThanOrEqual(before);
-      expect(params[7]).toBeLessThanOrEqual(after);
-      expect(params[8]).toBe(params[7]); // createdAt === updatedAt
+      // params: [id, name, type, providerId, rootPath, systemPrompt, permissionPolicy, agent, contextSyncStatus, createdAt, updatedAt]
+      expect(params[9]).toBeGreaterThanOrEqual(before);
+      expect(params[9]).toBeLessThanOrEqual(after);
+      expect(params[10]).toBe(params[9]); // createdAt === updatedAt
     });
   });
 

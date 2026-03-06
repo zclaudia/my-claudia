@@ -257,6 +257,7 @@ export function handleServerMessage(
     }
 
     case 'supervision_update': {
+      // V1 deprecated handler — kept for backward compatibility
       const supStore = useSupervisionStore.getState();
       const sup = (msg as any).supervision;
       if (['completed', 'failed', 'cancelled'].includes(sup.status)) {
@@ -265,6 +266,27 @@ export function handleServerMessage(
       } else {
         supStore.updateSupervision(sup);
       }
+      break;
+    }
+
+    case 'supervision_task_update': {
+      const v2Store = useSupervisionStore.getState();
+      const { task, projectId } = msg as any;
+      v2Store.upsertTask(projectId, task);
+      break;
+    }
+
+    case 'supervision_agent_update': {
+      const v2Store = useSupervisionStore.getState();
+      const { projectId, agent } = msg as any;
+      v2Store.setAgent(projectId, agent);
+      break;
+    }
+
+    case 'supervision_checkpoint': {
+      const v2Store = useSupervisionStore.getState();
+      const { projectId, summary } = msg as any;
+      v2Store.setCheckpointSummary(projectId, summary);
       break;
     }
 

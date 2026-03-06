@@ -816,11 +816,20 @@ export async function updateAgentConfig(config: {
 }
 
 // ============================================
-// Supervisions API — routes to active server
+// Supervisions V1 API (deprecated — kept for backward compat)
 // ============================================
 
-import type { Supervision, SupervisionLog, SupervisionPlan } from '@my-claudia/shared';
+import type {
+  Supervision,
+  SupervisionLog,
+  SupervisionPlan,
+  ProjectAgent,
+  SupervisorConfig,
+  SupervisionTask,
+  SupervisionV2Log,
+} from '@my-claudia/shared';
 
+/** @deprecated Use V2 supervision API */
 export async function startSupervisionPlanning(data: {
   sessionId: string;
   hint: string;
@@ -835,6 +844,7 @@ export async function startSupervisionPlanning(data: {
   return result.data;
 }
 
+/** @deprecated Use V2 supervision API */
 export async function approvePlan(
   supervisionId: string,
   plan: SupervisionPlan & { maxIterations?: number; cooldownSeconds?: number }
@@ -849,6 +859,7 @@ export async function approvePlan(
   return result.data;
 }
 
+/** @deprecated Use V2 supervision API */
 export async function cancelPlanning(supervisionId: string): Promise<Supervision> {
   const result = await fetchApi<Supervision>(`/api/supervisions/plan/${supervisionId}/cancel`, {
     method: 'POST',
@@ -859,6 +870,7 @@ export async function cancelPlanning(supervisionId: string): Promise<Supervision
   return result.data;
 }
 
+/** @deprecated Use V2 supervision API */
 export async function createSupervision(data: {
   sessionId: string;
   goal: string;
@@ -876,6 +888,7 @@ export async function createSupervision(data: {
   return result.data;
 }
 
+/** @deprecated Use V2 supervision API */
 export async function getSupervisions(): Promise<Supervision[]> {
   const result = await fetchApi<Supervision[]>('/api/supervisions');
   if (!result.success || !result.data) {
@@ -884,6 +897,7 @@ export async function getSupervisions(): Promise<Supervision[]> {
   return result.data;
 }
 
+/** @deprecated Use V2 supervision API */
 export async function getSupervisionBySession(sessionId: string): Promise<Supervision | null> {
   const result = await fetchApi<Supervision | null>(`/api/supervisions/session/${sessionId}`);
   if (!result.success) {
@@ -892,6 +906,7 @@ export async function getSupervisionBySession(sessionId: string): Promise<Superv
   return result.data ?? null;
 }
 
+/** @deprecated Use V2 supervision API */
 export async function getSupervisionLogs(id: string): Promise<SupervisionLog[]> {
   const result = await fetchApi<SupervisionLog[]>(`/api/supervisions/${id}/logs`);
   if (!result.success || !result.data) {
@@ -900,6 +915,7 @@ export async function getSupervisionLogs(id: string): Promise<SupervisionLog[]> 
   return result.data;
 }
 
+/** @deprecated Use V2 supervision API */
 export async function pauseSupervision(id: string): Promise<Supervision> {
   const result = await fetchApi<Supervision>(`/api/supervisions/${id}/pause`, {
     method: 'POST',
@@ -910,6 +926,7 @@ export async function pauseSupervision(id: string): Promise<Supervision> {
   return result.data;
 }
 
+/** @deprecated Use V2 supervision API */
 export async function resumeSupervision(id: string, options?: { maxIterations?: number }): Promise<Supervision> {
   const result = await fetchApi<Supervision>(`/api/supervisions/${id}/resume`, {
     method: 'POST',
@@ -921,12 +938,199 @@ export async function resumeSupervision(id: string, options?: { maxIterations?: 
   return result.data;
 }
 
+/** @deprecated Use V2 supervision API */
 export async function cancelSupervision(id: string): Promise<Supervision> {
   const result = await fetchApi<Supervision>(`/api/supervisions/${id}/cancel`, {
     method: 'POST',
   });
   if (!result.success || !result.data) {
     throw new Error(result.error?.message || 'Failed to cancel supervision');
+  }
+  return result.data;
+}
+
+// ============================================
+// Supervision V2 API — routes to active server
+// ============================================
+
+export async function initSupervisionAgent(
+  projectId: string,
+  config?: Partial<SupervisorConfig>,
+): Promise<ProjectAgent> {
+  const result = await fetchApi<ProjectAgent>(`/api/v2/projects/${projectId}/agent/init`, {
+    method: 'POST',
+    body: JSON.stringify({ config }),
+  });
+  if (!result.success || !result.data) {
+    throw new Error(result.error?.message || 'Failed to initialize agent');
+  }
+  return result.data;
+}
+
+export async function getSupervisionAgent(projectId: string): Promise<ProjectAgent | null> {
+  const result = await fetchApi<ProjectAgent>(`/api/v2/projects/${projectId}/agent`);
+  if (!result.success) {
+    if (result.error?.code === 'NOT_FOUND') return null;
+    throw new Error(result.error?.message || 'Failed to get agent');
+  }
+  return result.data ?? null;
+}
+
+export async function updateSupervisionAgentAction(
+  projectId: string,
+  action: 'pause' | 'resume' | 'archive' | 'approve_setup',
+): Promise<ProjectAgent> {
+  const result = await fetchApi<ProjectAgent>(`/api/v2/projects/${projectId}/agent/action`, {
+    method: 'POST',
+    body: JSON.stringify({ action }),
+  });
+  if (!result.success || !result.data) {
+    throw new Error(result.error?.message || 'Failed to update agent');
+  }
+  return result.data;
+}
+
+export async function getSupervisionTasks(projectId: string): Promise<SupervisionTask[]> {
+  const result = await fetchApi<SupervisionTask[]>(`/api/v2/projects/${projectId}/tasks`);
+  if (!result.success || !result.data) {
+    throw new Error(result.error?.message || 'Failed to fetch tasks');
+  }
+  return result.data;
+}
+
+export async function createSupervisionTask(
+  projectId: string,
+  data: {
+    title: string;
+    description: string;
+    dependencies?: string[];
+    dependencyMode?: 'all' | 'any';
+    priority?: number;
+    acceptanceCriteria?: string[];
+    relevantDocIds?: string[];
+    scope?: string[];
+  },
+): Promise<SupervisionTask> {
+  const result = await fetchApi<SupervisionTask>(`/api/v2/projects/${projectId}/tasks`, {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+  if (!result.success || !result.data) {
+    throw new Error(result.error?.message || 'Failed to create task');
+  }
+  return result.data;
+}
+
+export async function updateSupervisionTask(
+  taskId: string,
+  data: Partial<Pick<SupervisionTask,
+    'title' | 'description' | 'priority' | 'dependencies' | 'dependencyMode'
+    | 'acceptanceCriteria' | 'relevantDocIds' | 'scope' | 'taskSpecificContext'
+  >>,
+): Promise<SupervisionTask> {
+  const result = await fetchApi<SupervisionTask>(`/api/v2/tasks/${taskId}`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  });
+  if (!result.success || !result.data) {
+    throw new Error(result.error?.message || 'Failed to update task');
+  }
+  return result.data;
+}
+
+export async function approveSupervisionTask(taskId: string): Promise<SupervisionTask> {
+  const result = await fetchApi<SupervisionTask>(`/api/v2/tasks/${taskId}/approve`, {
+    method: 'POST',
+  });
+  if (!result.success || !result.data) {
+    throw new Error(result.error?.message || 'Failed to approve task');
+  }
+  return result.data;
+}
+
+export async function rejectSupervisionTask(taskId: string): Promise<SupervisionTask> {
+  const result = await fetchApi<SupervisionTask>(`/api/v2/tasks/${taskId}/reject`, {
+    method: 'POST',
+  });
+  if (!result.success || !result.data) {
+    throw new Error(result.error?.message || 'Failed to reject task');
+  }
+  return result.data;
+}
+
+export async function approveSupervisionTaskResult(taskId: string): Promise<SupervisionTask> {
+  const result = await fetchApi<SupervisionTask>(`/api/v2/tasks/${taskId}/review/approve`, {
+    method: 'POST',
+  });
+  if (!result.success || !result.data) {
+    throw new Error(result.error?.message || 'Failed to approve task result');
+  }
+  return result.data;
+}
+
+export async function rejectSupervisionTaskResult(
+  taskId: string,
+  notes: string,
+): Promise<SupervisionTask> {
+  const result = await fetchApi<SupervisionTask>(`/api/v2/tasks/${taskId}/review/reject`, {
+    method: 'POST',
+    body: JSON.stringify({ notes }),
+  });
+  if (!result.success || !result.data) {
+    throw new Error(result.error?.message || 'Failed to reject task result');
+  }
+  return result.data;
+}
+
+export async function resolveSupervisionConflict(taskId: string): Promise<SupervisionTask> {
+  const result = await fetchApi<SupervisionTask>(`/api/v2/tasks/${taskId}/resolve-conflict`, {
+    method: 'POST',
+  });
+  if (!result.success || !result.data) {
+    throw new Error(result.error?.message || 'Failed to resolve conflict');
+  }
+  return result.data;
+}
+
+export async function reloadSupervisionContext(projectId: string): Promise<void> {
+  const result = await fetchApi<null>(`/api/v2/projects/${projectId}/context/reload`, {
+    method: 'POST',
+  });
+  if (!result.success) {
+    throw new Error(result.error?.message || 'Failed to reload context');
+  }
+}
+
+export async function getSupervisionContext(projectId: string): Promise<any[]> {
+  const result = await fetchApi<any[]>(`/api/v2/projects/${projectId}/context`);
+  if (!result.success || !result.data) {
+    throw new Error(result.error?.message || 'Failed to get context');
+  }
+  return result.data;
+}
+
+export async function getSupervisionBudget(projectId: string): Promise<{
+  usage: number;
+  limit?: number;
+  remaining?: number;
+}> {
+  const result = await fetchApi<{ usage: number; limit?: number; remaining?: number }>(
+    `/api/v2/projects/${projectId}/budget`,
+  );
+  if (!result.success || !result.data) {
+    throw new Error(result.error?.message || 'Failed to get budget');
+  }
+  return result.data;
+}
+
+export async function getSupervisionV2Logs(
+  projectId: string,
+  limit?: number,
+): Promise<SupervisionV2Log[]> {
+  const params = limit ? `?limit=${limit}` : '';
+  const result = await fetchApi<SupervisionV2Log[]>(`/api/v2/projects/${projectId}/logs${params}`);
+  if (!result.success || !result.data) {
+    throw new Error(result.error?.message || 'Failed to get logs');
   }
   return result.data;
 }

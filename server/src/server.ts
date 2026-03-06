@@ -33,9 +33,15 @@ import { createServerRoutes } from './routes/servers.js';
 import { createImportRoutes } from './routes/import.js';
 import { createOpenCodeImportRoutes } from './routes/import-opencode.js';
 import { createAgentRoutes } from './routes/agent.js';
-import { createSupervisionRoutes } from './routes/supervisions.js';
+import { createSupervisionV2Routes } from './routes/supervision-v2.js';
 import { createNotificationRoutes } from './routes/notifications.js';
-import { SupervisorService } from './services/supervisor-service.js';
+import { SupervisorV2Service } from './services/supervisor-v2-service.js';
+import { StateRecovery } from './services/state-recovery.js';
+import { CheckpointEngine } from './services/checkpoint-engine.js';
+import { ContextManager } from './services/context-manager.js';
+import { SupervisionTaskRepository } from './repositories/supervision-task.js';
+import { ProjectRepository } from './repositories/project.js';
+import { SessionRepository } from './repositories/session.js';
 import { NotificationService } from './services/notification-service.js';
 import { PermissionEvaluator, getAgentPermissionPolicy, getProjectPermissionOverride, mergePolicy, normalizePolicy } from './agent/permission-evaluator.js';
 import type { PermissionDecision, SystemInfo } from './providers/claude-sdk.js';
@@ -287,8 +293,7 @@ function localOnlyMiddleware(req: Request, res: Response, next: NextFunction): v
   next();
 }
 
-// Module-level supervisor service reference (set during createServer)
-let supervisorService: SupervisorService | null = null;
+
 
 // Export types for Gateway integration
 export type { ConnectedClient };
@@ -498,9 +503,21 @@ export async function createServer(): Promise<ServerContext> {
   app.use('/api/import', localOnlyMiddleware, createImportRoutes(db));
   app.use('/api/import', localOnlyMiddleware, createOpenCodeImportRoutes(db));
 
-  // Supervision routes + service
-  supervisorService = new SupervisorService(db);
-  app.use('/api/supervisions', authMiddleware, createSupervisionRoutes(supervisorService));
+  // Supervision v2 routes + service
+  const taskRepo = new SupervisionTaskRepository(db);
+  const projectRepo = new ProjectRepository(db);
+  const sessionRepo = new SessionRepository(db);
+  const supervisorV2Service = new SupervisorV2Service(
+    db, taskRepo, projectRepo, sessionRepo,
+    (msg) => {
+      clients.forEach((client) => {
+        if (client.authenticated) {
+          sendMessage(client.ws, msg);
+        }
+      });
+    }
+  );
+  app.use('/api/v2/supervision', authMiddleware, createSupervisionV2Routes(supervisorV2Service));
 
   // Notification routes + service
   notificationService = new NotificationService(db);
@@ -787,18 +804,47 @@ export async function createServer(): Promise<ServerContext> {
     clearInterval(pingInterval);
   });
 
-  // Wire notification service into supervisor
-  supervisorService.setNotificationService(notificationService);
+  // State recovery — re-hydrate stuck tasks before starting polling
+  const stateRecovery = new StateRecovery(
+    db, taskRepo, sessionRepo, projectRepo, supervisorV2Service, activeRuns,
+  );
+  const recoveryReport = stateRecovery.recover();
+  if (recoveryReport.actions.length > 0) {
+    console.log(`[StateRecovery] Recovered ${recoveryReport.actions.length} items on startup`);
+  }
 
-  // Start supervisor polling with broadcast to all authenticated clients
-  supervisorService.setBroadcast((msg) => {
-    clients.forEach((client) => {
-      if (client.authenticated) {
-        sendMessage(client.ws, msg);
-      }
-    });
-  });
-  supervisorService.start(3000);
+  // CheckpointEngine
+  const checkpointEngine = new CheckpointEngine(
+    db, taskRepo, projectRepo, sessionRepo,
+    (projectId: string) => {
+      const project = projectRepo.findById(projectId);
+      if (!project?.rootPath) throw new Error(`Project ${projectId} has no rootPath`);
+      return new ContextManager(project.rootPath);
+    },
+    (msg) => {
+      clients.forEach((client) => {
+        if (client.authenticated) {
+          sendMessage(client.ws, msg);
+        }
+      });
+    },
+    (projectId, event, detail, taskIdArg) => {
+      // Log via db directly (same pattern as supervisor-v2-service)
+      const id = crypto.randomUUID();
+      try {
+        db.prepare(
+          `INSERT INTO supervision_v2_logs (id, project_id, task_id, event, detail, created_at) VALUES (?, ?, ?, ?, ?, ?)`
+        ).run(id, projectId, taskIdArg ?? null, event, detail ? JSON.stringify(detail) : null, Date.now());
+      } catch { /* best effort */ }
+    },
+    (projectId, data) => supervisorV2Service.createTask(projectId, data),
+    createVirtualClient,
+    handleRunStart as any,
+  );
+  supervisorV2Service.setCheckpointEngine(checkpointEngine);
+
+  // Start supervision v2 polling
+  supervisorV2Service.start(5000);
 
   // Periodic state heartbeat broadcast (every 30s)
   // Always broadcast even when no active runs — this is the safety net for
@@ -814,6 +860,7 @@ export async function createServer(): Promise<ServerContext> {
 
   wss.on('close', () => {
     clearInterval(heartbeatInterval);
+    supervisorV2Service.stop();
   });
 
   return {
@@ -1553,13 +1600,7 @@ async function handleRunStart(
     // All sessions (including agent) go through the unified permission strategy chain.
     const adapter = providerRegistry.getOrDefault(providerType);
 
-    // Auto-inject planning system prompt if session has an active planning supervision
-    if (!message.systemContext && supervisorService) {
-      const planningPrompt = supervisorService.getPlanningSystemPromptForSession(message.sessionId);
-      if (planningPrompt) {
-        message.systemContext = planningPrompt;
-      }
-    }
+
 
     // Inject file push context (env vars + system prompt) so AI agents can push files to user's device
     const filePushEnv: Record<string, string> = {};

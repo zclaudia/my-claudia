@@ -35,7 +35,10 @@ export class SessionRepository extends BaseRepository<
       workingDirectory: row.working_directory || undefined,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
-      archivedAt: row.archived_at || undefined
+      archivedAt: row.archived_at || undefined,
+      // Supervision v2
+      projectRole: row.project_role || undefined,
+      taskId: row.task_id || undefined,
     };
   }
 
@@ -48,8 +51,8 @@ export class SessionRepository extends BaseRepository<
 
     return {
       sql: `
-        INSERT INTO sessions (id, project_id, name, provider_id, sdk_session_id, type, parent_session_id, working_directory, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO sessions (id, project_id, name, provider_id, sdk_session_id, type, parent_session_id, working_directory, project_role, task_id, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `,
       params: [
         id,
@@ -60,6 +63,8 @@ export class SessionRepository extends BaseRepository<
         data.type || 'regular',
         data.parentSessionId || null,
         data.workingDirectory || null,
+        data.projectRole || null,
+        data.taskId || null,
         now,
         now
       ]
@@ -106,6 +111,15 @@ export class SessionRepository extends BaseRepository<
       updates.push('archived_at = ?');
       params.push(data.archivedAt || null);
     }
+    // Supervision v2
+    if (data.projectRole !== undefined) {
+      updates.push('project_role = ?');
+      params.push(data.projectRole || null);
+    }
+    if (data.taskId !== undefined) {
+      updates.push('task_id = ?');
+      params.push(data.taskId || null);
+    }
 
     // Always update timestamp
     updates.push('updated_at = ?');
@@ -129,6 +143,18 @@ export class SessionRepository extends BaseRepository<
       WHERE project_id = ?
       ORDER BY updated_at DESC
     `).all(projectId);
+    return rows.map(row => this.mapRow(row));
+  }
+
+  /**
+   * Find sessions by project role (e.g. 'checkpoint', 'review', 'task', 'main')
+   */
+  findByProjectRole(projectId: string, role: string): Session[] {
+    const rows = this.db.prepare(`
+      SELECT * FROM sessions
+      WHERE project_id = ? AND project_role = ?
+      ORDER BY created_at DESC
+    `).all(projectId, role);
     return rows.map(row => this.mapRow(row));
   }
 
