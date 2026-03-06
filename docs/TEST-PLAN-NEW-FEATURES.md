@@ -393,6 +393,8 @@ test.describe('功能名称', () => {
 
 ## 📊 进度跟踪
 
+### Server 端测试
+
 | 阶段 | 状态 | 完成度 | 备注 |
 |------|------|--------|------|
 | Git Worktree 单元测试 | ✅ 完成 | 100% | 20个测试，100%通过 |
@@ -400,7 +402,30 @@ test.describe('功能名称', () => {
 | Codex Provider 单元测试 | ✅ 完成 | 100% | 17个测试，100%通过 |
 | Loop Detection 补充测试 | ✅ 完成 | 100% | 44个测试，100%通过 |
 | Gateway Client 补充测试 | ✅ 完成 | 100% | 56个测试，100%通过 |
-| 桌面应用单元测试 | ⏭️ 跳过 | - | 需要 Zustand mock 配置 |
+| **Provider Adapter 测试** | ✅ 完成 | 100% | claude-adapter, codex-adapter, cursor-adapter |
+| **OpenCode SDK 测试** | ✅ 完成 | 100% | 输入解析、错误处理 |
+| **Middleware 测试** | ✅ 完成 | 100% | base.ts, logging.ts |
+| **Notification Service 测试** | ✅ 完成 | 100% | 配置管理、通知发送 |
+| **Routes 测试** | ✅ 完成 | 100% | import-shared.ts, notifications.ts |
+| **Utils 测试** | ✅ 完成 | 100% | claude-config.ts, sdk-version-check.ts |
+| **Handlers Factory 测试** | ✅ 完成 | 100% | CRUD handler factory |
+| **Gateway Instance 测试** | ✅ 完成 | 100% | gateway-instance.ts |
+| **Gateway Client Mode 测试** | ✅ 完成 | 100% | gateway-client-mode.ts |
+
+### Desktop 端测试
+
+| 阶段 | 状态 | 完成度 | 备注 |
+|------|------|--------|------|
+| **测试配置更新** | ✅ 完成 | 100% | 添加 IndexedDB/fetch mock |
+| **Utils 测试** | ✅ 完成 | 100% | crypto, filterHelpers, xtermRegistry |
+| **Services 测试** | ✅ 完成 | 100% | agentStorage, messageHandler, gatewayProxy, logger, sessionSync |
+| **Hooks 测试 - Phase 3** | ✅ 完成 | 100% | useMediaQuery, useAndroidBack, useSwipeBack |
+| **Hooks 测试 - Phase 4** | ✅ 完成 | 100% | useProviderManager, useServerManager, useProjectManager, useSessionManager |
+
+### E2E 测试
+
+| 阶段 | 状态 | 完成度 | 备注 |
+|------|------|--------|------|
 | Git Worktree E2E | ✅ 完成 | 100% | 7个测试用例 |
 | Provider 管理 E2E | ✅ 完成 | 100% | 7个测试用例 |
 | Session 管理 E2E | ✅ 完成 | 100% | 9个测试用例 |
@@ -411,7 +436,7 @@ test.describe('功能名称', () => {
 
 ## 📝 测试统计
 
-### 单元测试
+### Server 端单元测试
 | 文件 | 测试数量 | 通过率 |
 |------|---------|--------|
 | `server/src/utils/__tests__/git-worktrees.test.ts` | 20 | 100% |
@@ -419,7 +444,39 @@ test.describe('功能名称', () => {
 | `server/src/providers/__tests__/codex-sdk.test.ts` | 17 | 100% |
 | `server/src/__tests__/loop-detection.test.ts` | 44 | 100% |
 | `server/src/__tests__/gateway-client.test.ts` | 56 | 100% |
-| **总计** | **165** | **100%** |
+| `server/src/providers/__tests__/claude-adapter.test.ts` | ~15 | 新增 |
+| `server/src/providers/__tests__/codex-adapter.test.ts` | ~10 | 新增 |
+| `server/src/providers/__tests__/cursor-adapter.test.ts` | ~10 | 新增 |
+| `server/src/providers/__tests__/opencode-sdk.test.ts` | ~15 | 新增 |
+| `server/src/middleware/__tests__/base.test.ts` | ~15 | 新增 |
+| `server/src/middleware/__tests__/logging.test.ts` | ~15 | 新增 |
+| `server/src/services/__tests__/notification-service.test.ts` | ~20 | 新增 |
+| `server/src/routes/__tests__/import-shared.test.ts` | ~10 | 新增 |
+| `server/src/routes/__tests__/notifications.test.ts` | ~10 | 新增 |
+| `server/src/utils/__tests__/claude-config.test.ts` | ~15 | 新增 |
+| `server/src/utils/__tests__/sdk-version-check.test.ts` | ~15 | 新增 |
+| `server/src/handlers/__tests__/factory.test.ts` | ~20 | 新增 |
+| `server/src/__tests__/gateway-instance.test.ts` | ~10 | 新增 |
+| `server/src/__tests__/gateway-client-mode.test.ts` | ~25 | 新增 |
+
+### Desktop 端单元测试
+| 文件 | 测试数量 | 通过率 |
+|------|---------|--------|
+| `apps/desktop/src/utils/__tests__/crypto.test.ts` | ~10 | 新增 |
+| `apps/desktop/src/utils/__tests__/filterHelpers.test.ts` | ~10 | 新增 |
+| `apps/desktop/src/utils/__tests__/xtermRegistry.test.ts` | ~10 | 新增 |
+| `apps/desktop/src/services/__tests__/agentStorage.test.ts` | ~8 | 新增 |
+| `apps/desktop/src/services/__tests__/messageHandler.test.ts` | ~10 | 新增 |
+| `apps/desktop/src/services/__tests__/gatewayProxy.test.ts` | ~10 | 新增 |
+| `apps/desktop/src/services/__tests__/logger.test.ts` | ~10 | 新增 |
+| `apps/desktop/src/services/__tests__/sessionSync.test.ts` | ~10 | 新增 |
+| `apps/desktop/src/hooks/__tests__/useMediaQuery.test.ts` | ~15 | 新增 |
+| `apps/desktop/src/hooks/__tests__/useAndroidBack.test.ts` | ~15 | 新增 |
+| `apps/desktop/src/hooks/__tests__/useSwipeBack.test.ts` | ~20 | 新增 |
+| `apps/desktop/src/hooks/__tests__/useProviderManager.test.ts` | ~15 | 新增 |
+| `apps/desktop/src/hooks/__tests__/useServerManager.test.ts` | ~20 | 新增 |
+| `apps/desktop/src/hooks/__tests__/useProjectManager.test.ts` | ~15 | 新增 |
+| `apps/desktop/src/hooks/__tests__/useSessionManager.test.ts` | ~15 | 新增 |
 
 ### E2E 测试
 | 文件 | 测试数量 |
@@ -429,9 +486,52 @@ test.describe('功能名称', () => {
 | `e2e/tests/session-management.playwright.spec.ts` | 9 |
 | `e2e/tests/messaging.playwright.spec.ts` | 10 |
 | `e2e/tests/ui-redesign.playwright.spec.ts` | 10 |
-| **总计** | **43** |
+| **Playwright 总计** | **43** |
+| Vitest E2E 测试 | ~100+ |
 
 ---
 
-*最后更新: 2026-03-06*
+## 📈 覆盖率改进
+
+### 本次新增测试覆盖
+- **Server Providers**: claude-adapter, codex-adapter, cursor-adapter, opencode-sdk
+- **Server Middleware**: base.ts, logging.ts
+- **Server Services**: notification-service.ts
+- **Server Routes**: import-shared.ts, notifications.ts
+- **Server Utils**: claude-config.ts, sdk-version-check.ts
+- **Server Handlers**: factory.ts (CRUD handler factory)
+- **Server Gateway**: gateway-instance.ts, gateway-client-mode.ts
+- **Desktop Utils**: crypto.ts, filterHelpers.ts, xtermRegistry.ts
+- **Desktop Services**: agentStorage.ts, messageHandler.ts, gatewayProxy.ts, logger.ts, sessionSync.ts
+- **Desktop Hooks**: useMediaQuery, useAndroidBack, useSwipeBack, useProviderManager, useServerManager, useProjectManager, useSessionManager
+
+### 覆盖率预测
+| 模块 | 改进前 | 改进后 |
+|------|--------|--------|
+| Server Providers | 56% | ~85% |
+| Server Middleware | 50% | ~85% |
+| Server Services | 50% | ~85% |
+| Server Routes | 85% | ~95% |
+| Server Utils | 75% | ~90% |
+| Server Handlers | 0% | ~80% |
+| Server Gateway | 60% | ~90% |
+| Desktop Utils | 0% | ~80% |
+| Desktop Services | 36% | ~75% |
+| Desktop Hooks | 0% | ~85% |
+| **整体** | **~60%** | **~88%** |
+
+---
+
+*最后更新: 2026-03-07*
 *负责人: Claude Code*
+
+---
+
+## 🔧 测试配置更新
+
+### Desktop 测试 Setup
+在 `apps/desktop/src/test/setup.ts` 中添加了：
+- IndexedDB mock (用于 agentStorage 测试)
+- fetch mock (用于 API 测试)
+- WebSocket mock (已存在)
+- localStorage mock (已存在)
