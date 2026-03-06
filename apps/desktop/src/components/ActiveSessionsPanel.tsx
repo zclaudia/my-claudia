@@ -11,9 +11,10 @@ interface ActiveSessionsPanelProps {
 export function ActiveSessionsPanel({ onSessionSelect }: ActiveSessionsPanelProps) {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const { remoteSessions, activeSessionIdsByBackend } = useSessionsStore();
-  const { activeServerId, servers } = useServerStore();
+  const { activeServerId, servers, connections } = useServerStore();
   const { sessions: localSessions, projects } = useProjectStore();
-  const { localBackendId } = useGatewayStore();
+  const { localBackendId, discoveredBackends } = useGatewayStore();
+  const hasDirectLocalConnection = (connections.local?.status === 'connected' || connections.local?.status === 'connecting');
 
   // Get current backend ID (the one we're connected to via gateway)
   const currentBackendId = useMemo(() => {
@@ -27,25 +28,40 @@ export function ActiveSessionsPanel({ onSessionSelect }: ActiveSessionsPanelProp
   // sessionsStore.activeSessionIdsByBackend
   const allActiveSessionsByBackend = useMemo(() => {
     const result = new Map<string, RemoteSession[]>();
+    const hasLocalBucket = activeSessionIdsByBackend.has(LOCAL_BACKEND_KEY);
+    const localAliasBackendIds = new Set<string>();
+    if (localBackendId) localAliasBackendIds.add(localBackendId);
+    if (hasDirectLocalConnection) localAliasBackendIds.add('local');
 
     activeSessionIdsByBackend.forEach((activeIds, backendId) => {
       if (activeIds.size === 0) return;
       if (
         backendId !== LOCAL_BACKEND_KEY
-        && localBackendId
-        && backendId === localBackendId
-        && activeSessionIdsByBackend.has(LOCAL_BACKEND_KEY)
+        && hasLocalBucket
+        && localAliasBackendIds.has(backendId)
       ) {
         return;
       }
 
       if (backendId === LOCAL_BACKEND_KEY) {
+        const mergedActiveIds = new Set(activeIds);
+        if (hasLocalBucket) {
+          for (const aliasBackendId of localAliasBackendIds) {
+            const aliasActive = activeSessionIdsByBackend.get(aliasBackendId);
+            if (!aliasActive) continue;
+            for (const sessionId of aliasActive) mergedActiveIds.add(sessionId);
+          }
+        }
+
         const localById = new Map(localSessions.map(s => [s.id, s]));
-        const localFromGateway = localBackendId ? (remoteSessions.get(localBackendId) || []) : [];
-        const gatewayById = new Map(localFromGateway.map(s => [s.id, s]));
+        const gatewayById = new Map<string, RemoteSession>();
+        for (const aliasBackendId of localAliasBackendIds) {
+          const localFromGateway = remoteSessions.get(aliasBackendId) || [];
+          for (const s of localFromGateway) gatewayById.set(s.id, s);
+        }
 
         const sessions: RemoteSession[] = [];
-        for (const sessionId of activeIds) {
+        for (const sessionId of mergedActiveIds) {
           const local = localById.get(sessionId);
           const gw = gatewayById.get(sessionId);
           const source = local || gw;
@@ -93,7 +109,7 @@ export function ActiveSessionsPanel({ onSessionSelect }: ActiveSessionsPanelProp
     });
 
     return result;
-  }, [activeSessionIdsByBackend, remoteSessions, localSessions, localBackendId]);
+  }, [activeSessionIdsByBackend, remoteSessions, localSessions, localBackendId, hasDirectLocalConnection]);
 
   // Don't show if not connected to any backend
   if (!activeServerId) {
@@ -103,16 +119,17 @@ export function ActiveSessionsPanel({ onSessionSelect }: ActiveSessionsPanelProp
   // Show empty state if no active sessions
   const hasActiveSessions = allActiveSessionsByBackend.size > 0;
 
-  // Get backend name from servers list
+  // Get backend name from gateway metadata / servers list
   const getBackendName = (backendId: string): string => {
     // Special case: local backend
     if (backendId === LOCAL_BACKEND_KEY) {
       return 'Local Backend';
     }
 
-    // Find server info from servers list
+    // Prefer gateway-discovered display name, then server list fallback
+    const discovered = discoveredBackends.find(b => b.backendId === backendId);
     const server = servers.find(s => s.id === toGatewayServerId(backendId));
-    const baseName = server?.name || `Backend ${backendId.slice(0, 8)}`;
+    const baseName = discovered?.name || server?.name || `Backend ${backendId.slice(0, 8)}`;
 
     // Mark current backend
     if (backendId === currentBackendId) {

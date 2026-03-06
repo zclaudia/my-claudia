@@ -114,6 +114,42 @@ describe('ActiveSessionsPanel', () => {
       expect(screen.getByText('Recovered Local Session')).toBeDefined();
     });
 
+    it('merges gateway "local" backend into local bucket when localBackendId is unavailable', () => {
+      const localSessionId = 'local-session-direct';
+      const gwSessionId = 'local-session-gw';
+
+      useServerStore.setState({
+        activeServerId: 'local',
+        connections: {
+          local: { status: 'connected', error: null, isLocalConnection: true, features: [] },
+        },
+        connectionStatus: 'connected',
+      });
+      useGatewayStore.setState({
+        localBackendId: null,
+      });
+      useProjectStore.setState({
+        sessions: [
+          { id: localSessionId, name: 'Direct Local Session', projectId: 'proj-1', isActive: true, createdAt: Date.now(), updatedAt: Date.now() } as any,
+        ],
+      });
+
+      const remoteSessions = new Map();
+      remoteSessions.set('local', [
+        { id: gwSessionId, name: 'Gateway Local Session', projectId: 'proj-2', isActive: true, createdAt: Date.now(), updatedAt: Date.now() },
+      ]);
+      useSessionsStore.setState({ remoteSessions });
+      useSessionsStore.getState().setActiveSessionsForBackend(LOCAL_BACKEND_KEY, new Set([localSessionId]));
+      useSessionsStore.getState().setActiveSessionsForBackend('local', new Set([gwSessionId]));
+
+      render(<ActiveSessionsPanel />);
+
+      expect(screen.getByText('Local Backend')).toBeDefined();
+      expect(screen.getByText('Direct Local Session')).toBeDefined();
+      expect(screen.getByText('Gateway Local Session')).toBeDefined();
+      expect(screen.queryByText('Backend local')).toBeNull();
+    });
+
     it('shows placeholder active session when metadata is not loaded yet', () => {
       const missingSessionId = 'session-missing-meta-1234';
       useServerStore.setState({
@@ -159,6 +195,34 @@ describe('ActiveSessionsPanel', () => {
 
       // The "(Current)" suffix should appear since this is the active backend
       expect(screen.getByText(/\(Current\)/)).toBeDefined();
+    });
+
+    it('prefers discovered backend name over backend id fallback label', () => {
+      const backendId = '0e3a5d2b-1234';
+      const serverId = toGatewayServerId(backendId);
+
+      useServerStore.setState({
+        activeServerId: 'local',
+        servers: [{ id: 'local', name: 'Local', address: 'localhost:3100', isDefault: true, createdAt: 0 }],
+      });
+      useGatewayStore.setState({
+        discoveredBackends: [
+          { backendId, name: 'Mac Mini Agent', online: true, isLocal: false } as any,
+        ],
+      });
+
+      const remoteSessions = new Map();
+      remoteSessions.set(backendId, [
+        { id: 'sess-1', name: 'Test Session', projectId: 'proj-1', isActive: true, createdAt: Date.now(), updatedAt: Date.now() },
+      ]);
+      useSessionsStore.setState({ remoteSessions });
+      useSessionsStore.getState().setActiveSessionsForBackend(backendId, new Set(['sess-1']));
+
+      render(<ActiveSessionsPanel />);
+
+      expect(screen.getByText('Mac Mini Agent')).toBeDefined();
+      expect(screen.queryByText(/Backend 0e3a5d2b/i)).toBeNull();
+      expect(serverId).toBe(`gw:${backendId}`);
     });
   });
 

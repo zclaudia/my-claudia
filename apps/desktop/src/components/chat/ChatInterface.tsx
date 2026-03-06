@@ -145,6 +145,8 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
 
   const sessionMessages = messages[sessionId] || EMPTY_MESSAGES;
   const sessionPagination = pagination[sessionId];
+  const hasSessionSnapshot = !!sessionPagination;
+  const isInitialMessageLoading = !loadError && (!initialLoadDone || !hasSessionSnapshot);
   const currentSystemInfo = getSystemInfo(sessionId);
   const currentUsage = sessionUsage[sessionId] || {
     inputTokens: 0,
@@ -1042,11 +1044,18 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
           </div>
         )}
 
-        {/* Initial load spinner */}
-        {!initialLoadDone && !loadError && (
-          <div className="flex items-center justify-center py-12">
-            <Loader2 size={20} className="animate-spin text-muted-foreground" />
-            <span className="ml-2 text-sm text-muted-foreground">Loading messages...</span>
+        {/* Initial load placeholder (also covers first switch with no local snapshot yet) */}
+        {isInitialMessageLoading && (
+          <div className="py-8 px-2 md:px-4">
+            <div className="flex items-center gap-2 text-sm text-muted-foreground mb-4">
+              <Loader2 size={16} className="animate-spin" />
+              <span>Loading messages...</span>
+            </div>
+            <div className="space-y-3 animate-pulse">
+              <div className="h-8 w-2/3 rounded-md bg-secondary/70" />
+              <div className="h-20 w-4/5 rounded-lg bg-secondary/60" />
+              <div className="h-6 w-1/2 rounded-md bg-secondary/70" />
+            </div>
           </div>
         )}
 
