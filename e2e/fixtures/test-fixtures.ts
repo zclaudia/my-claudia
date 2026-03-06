@@ -28,3 +28,6 @@ export const test = base.extend<MyClaudiaFixtures>({
 });
 
 export { expect } from '@playwright/test';
+
+// Default export for convenience
+export default test;

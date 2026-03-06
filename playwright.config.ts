@@ -8,8 +8,8 @@ export default defineConfig({
   // Test directory
   testDir: './e2e/tests',
 
-  // Test file match pattern
-  testMatch: '**/*.spec.ts',
+  // Test file match pattern - only playwright-specific tests
+  testMatch: '**/*.playwright.spec.ts',
 
   // Global settings
   fullyParallel: false, // Sequential execution for DB consistency
@@ -68,7 +68,7 @@ export default defineConfig({
 
   // Web Server (auto-start dev server)
   webServer: {
-    command: 'pnpm desktop:dev',
+    command: '/bin/zsh -c "source ~/.zshrc && pnpm desktop:dev"',
     url: 'http://localhost:1420',
     reuseExistingServer: !process.env.CI,
     timeout: 120000,

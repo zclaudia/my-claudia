@@ -359,7 +359,7 @@ function CodeBlock({
   const codeStyle = isDarkTheme(resolvedTheme) ? oneDark : oneLight;
 
   return (
-    <div className="rounded-lg overflow-hidden border border-border">
+    <div className="rounded-lg overflow-hidden border border-border max-w-full">
       {/* Header bar - like GPT style */}
       <div className="flex items-center justify-between px-4 py-2 bg-secondary border-b border-border">
         <span className="text-xs text-muted-foreground font-medium">{language}</span>
@@ -398,20 +398,22 @@ function CodeBlock({
         </div>
       </div>
       {/* Code content */}
-      <SyntaxHighlighter
-        style={codeStyle}
-        language={language}
-        PreTag="div"
-        customStyle={{
-          margin: 0,
-          borderRadius: 0,
-          padding: '0.75rem',
-          fontSize: 'var(--chat-font-code, 0.8125rem)',
-          overflowX: 'auto',
-        }}
-      >
-        {children}
-      </SyntaxHighlighter>
+      <div className="overflow-x-auto">
+        <SyntaxHighlighter
+          style={codeStyle}
+          language={language}
+          PreTag="div"
+          customStyle={{
+            margin: 0,
+            borderRadius: 0,
+            padding: '0.75rem',
+            fontSize: 'var(--chat-font-code, 0.8125rem)',
+            overflowX: 'auto',
+          }}
+        >
+          {children}
+        </SyntaxHighlighter>
+      </div>
     </div>
   );
 }
@@ -698,7 +700,7 @@ const MessageItem = memo(function MessageItem({ message, streamingContentBlocks,
 const AssistantContent = memo(function AssistantContent({ content }: { content: string }) {
   return (
     <>
-      <div className="prose dark:prose-invert prose-sm max-w-none break-words overflow-x-auto overflow-y-hidden">
+      <div className="prose dark:prose-invert prose-sm max-w-none min-w-0">
         <ReactMarkdown
           remarkPlugins={[remarkGfm]}
           components={{
@@ -739,8 +741,8 @@ const AssistantContent = memo(function AssistantContent({ content }: { content: 
             },
             table({ children }) {
               return (
-                <div className="overflow-x-auto">
-                  <table className="min-w-full border-collapse border border-border">
+                <div className="w-full overflow-x-auto">
+                  <table className="w-max min-w-full border-collapse border border-border">
                     {children}
                   </table>
                 </div>
@@ -748,14 +750,14 @@ const AssistantContent = memo(function AssistantContent({ content }: { content: 
             },
             th({ children }) {
               return (
-                <th className="border border-border px-3 py-2 bg-secondary text-left">
+                <th className="border border-border px-3 py-2 bg-secondary text-left align-top whitespace-nowrap">
                   {children}
                 </th>
               );
             },
             td({ children }) {
               return (
-                <td className="border border-border px-3 py-2">
+                <td className="border border-border px-3 py-2 align-top whitespace-nowrap">
                   {children}
                 </td>
               );

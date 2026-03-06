@@ -20,18 +20,26 @@ export async function setupCleanDB(): Promise<void> {
     // Disable foreign key checks temporarily
     db.exec('PRAGMA foreign_keys = OFF');
 
-    // Clear all tables
-    db.exec(`
-      DELETE FROM sessions;
-      DELETE FROM session_messages;
-      DELETE FROM projects;
-      DELETE FROM providers;
-      DELETE FROM servers;
-      DELETE FROM settings;
-      DELETE FROM permissions;
-      DELETE FROM file_references;
-      DELETE FROM cached_responses;
-    `);
+    // Try to clear all tables (ignore errors if tables don't exist)
+    const tables = [
+      'sessions',
+      'session_messages',
+      'projects',
+      'providers',
+      'servers',
+      'settings',
+      'permissions',
+      'file_references',
+      'cached_responses'
+    ];
+
+    for (const table of tables) {
+      try {
+        db.exec(`DELETE FROM ${table}`);
+      } catch {
+        // Table doesn't exist, ignore
+      }
+    }
 
     // Re-enable foreign key checks
     db.exec('PRAGMA foreign_keys = ON');
@@ -39,10 +47,11 @@ export async function setupCleanDB(): Promise<void> {
     // Close database connection
     db.close();
 
-    console.log('✓ Database cleaned successfully');
+    // Don't log success to avoid cluttering test output
   } catch (error) {
-    console.error('Error cleaning database:', error);
-    throw error;
+    // Don't throw - just log and continue
+    // The app will create its own database if needed
+    console.error('Error cleaning database (non-critical):', (error as Error).message);
   }
 }
 

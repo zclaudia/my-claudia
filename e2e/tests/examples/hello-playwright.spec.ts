@@ -5,7 +5,7 @@
  * Use this as a template for creating new tests.
  */
 
-import { test, expect } from '../fixtures/test-fixtures';
+import { test, expect } from '../../fixtures/test-fixtures';
 
 test.describe('Basic Example Tests', () => {
   test('homepage loads successfully', async ({ page }) => {

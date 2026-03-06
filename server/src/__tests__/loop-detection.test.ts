@@ -108,6 +108,75 @@ describe('generateToolSignature', () => {
       expect(result).toBe('TodoWrite');
     });
   });
+
+  describe('Additional coverage', () => {
+    it('should skip dash-prefixed arguments in bash commands', () => {
+      // Note: /path doesn't start with '-', so it's included in the signature
+      const result = generateToolSignature('Bash', { command: 'git -C /path status' });
+      expect(result).toBe('Bash:git /path status');
+    });
+
+    it('should handle bash commands with only one token', () => {
+      const result = generateToolSignature('Bash', { command: 'ls' });
+      expect(result).toBe('Bash:ls');
+    });
+
+    it('should handle empty bash command', () => {
+      const result = generateToolSignature('Bash', { command: '' });
+      expect(result).toBe('Bash');
+    });
+
+    it('should handle bash command with only whitespace', () => {
+      const result = generateToolSignature('Bash', { command: '   ' });
+      expect(result).toBe('Bash');
+    });
+
+    it('should include path hint for Grep with path', () => {
+      const result = generateToolSignature('Grep', {
+        pattern: 'TODO',
+        path: '/project/src/components'
+      });
+      expect(result).toBe('Grep:TODO@src/components');
+    });
+
+    it('should truncate long Grep patterns', () => {
+      const longPattern = 'This is a very very very very very very very very very very long pattern';
+      const result = generateToolSignature('Grep', { pattern: longPattern });
+      expect(result.length).toBeLessThanOrEqual(35);
+      expect(result.startsWith('Grep:')).toBe(true);
+    });
+
+    it('should handle file path with exactly 4 parts', () => {
+      // /a/b/c splits into ['', 'a', 'b', 'c'] = 4 parts, so returns last 2
+      const result = generateToolSignature('Read', { file_path: '/a/b/c' });
+      expect(result).toBe('Read:b/c');
+    });
+
+    it('should handle file path with 4 parts', () => {
+      const result = generateToolSignature('Read', { file_path: '/a/b/c/d' });
+      expect(result).toBe('Read:c/d');
+    });
+
+    it('should handle bash command with multiple valid tokens', () => {
+      const result = generateToolSignature('Bash', { command: 'npm run test --coverage' });
+      expect(result).toBe('Bash:npm run test');
+    });
+
+    it('should handle non-string command', () => {
+      const result = generateToolSignature('Bash', { command: 123 as any });
+      expect(result).toBe('Bash');
+    });
+
+    it('should handle non-string file_path', () => {
+      const result = generateToolSignature('Read', { file_path: 123 as any });
+      expect(result).toBe('Read');
+    });
+
+    it('should handle non-string pattern', () => {
+      const result = generateToolSignature('Grep', { pattern: 123 as any });
+      expect(result).toBe('Grep');
+    });
+  });
 });
 
 describe('detectLoop', () => {
