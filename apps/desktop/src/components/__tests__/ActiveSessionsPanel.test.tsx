@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { ActiveSessionsPanel } from '../ActiveSessionsPanel';
-import { useSessionsStore } from '../../stores/sessionsStore';
+import { useSessionsStore, LOCAL_BACKEND_KEY } from '../../stores/sessionsStore';
 import { useServerStore } from '../../stores/serverStore';
 import { useProjectStore } from '../../stores/projectStore';
 import { useGatewayStore, toGatewayServerId, parseBackendId } from '../../stores/gatewayStore';
@@ -9,7 +9,7 @@ import { useGatewayStore, toGatewayServerId, parseBackendId } from '../../stores
 describe('ActiveSessionsPanel', () => {
   beforeEach(() => {
     // Reset stores
-    useSessionsStore.setState({ remoteSessions: new Map() });
+    useSessionsStore.setState({ remoteSessions: new Map(), activeSessionIdsByBackend: new Map() });
     useServerStore.setState({
       servers: [{ id: 'local', name: 'Local', address: 'localhost:3100', isDefault: true, createdAt: 0 }],
       activeServerId: 'local',
@@ -52,6 +52,7 @@ describe('ActiveSessionsPanel', () => {
         { id: sessionId, name: 'Active Session', projectId: 'proj-1', isActive: true, createdAt: Date.now(), updatedAt: Date.now() },
       ]);
       useSessionsStore.setState({ remoteSessions });
+      useSessionsStore.getState().setActiveSessionsForBackend(backendId, new Set([sessionId]));
 
       const onSessionSelect = vi.fn();
       render(<ActiveSessionsPanel onSessionSelect={onSessionSelect} />);
@@ -72,6 +73,7 @@ describe('ActiveSessionsPanel', () => {
           { id: sessionId, name: 'Local Session', projectId: 'proj-1', isActive: true, createdAt: Date.now(), updatedAt: Date.now() } as any,
         ],
       });
+      useSessionsStore.getState().setActiveSessionsForBackend(LOCAL_BACKEND_KEY, new Set([sessionId]));
 
       const onSessionSelect = vi.fn();
       render(<ActiveSessionsPanel onSessionSelect={onSessionSelect} />);
@@ -80,6 +82,51 @@ describe('ActiveSessionsPanel', () => {
       fireEvent.click(sessionButton);
 
       expect(onSessionSelect).toHaveBeenCalledWith('local', sessionId);
+    });
+
+    it('falls back to localBackend remote snapshot when local project state is stale', () => {
+      const localBackendId = 'backend-local-123';
+      const sessionId = 's-local-running';
+
+      useServerStore.setState({
+        activeServerId: 'local',
+        connectionStatus: 'connected',
+      });
+      useGatewayStore.setState({
+        localBackendId,
+        discoveredBackends: [
+          { backendId: localBackendId, name: 'My Local Backend', online: true, isLocal: true } as any,
+        ],
+      });
+      useProjectStore.setState({ sessions: [] }); // stale: no local active session
+
+      const remoteSessions = new Map();
+      remoteSessions.set(localBackendId, [
+        { id: sessionId, name: 'Recovered Local Session', projectId: 'proj-1', isActive: true, createdAt: Date.now(), updatedAt: Date.now() },
+      ]);
+      useSessionsStore.setState({ remoteSessions });
+      useSessionsStore.getState().setActiveSessionsForBackend(localBackendId, new Set([sessionId]));
+      useSessionsStore.getState().setActiveSessionsForBackend(LOCAL_BACKEND_KEY, new Set([sessionId]));
+
+      render(<ActiveSessionsPanel />);
+
+      expect(screen.getByText('Local Backend')).toBeDefined();
+      expect(screen.getByText('Recovered Local Session')).toBeDefined();
+    });
+
+    it('shows placeholder active session when metadata is not loaded yet', () => {
+      const missingSessionId = 'session-missing-meta-1234';
+      useServerStore.setState({
+        activeServerId: 'local',
+        connectionStatus: 'connected',
+      });
+      useProjectStore.setState({ sessions: [] });
+      useSessionsStore.getState().setActiveSessionsForBackend(LOCAL_BACKEND_KEY, new Set([missingSessionId]));
+
+      render(<ActiveSessionsPanel />);
+
+      expect(screen.getByText('Local Backend')).toBeDefined();
+      expect(screen.getByText(`Session ${missingSessionId.slice(0, 8)}`)).toBeDefined();
     });
 
     it('correctly parses currentBackendId from gateway activeServerId', () => {
@@ -106,6 +153,7 @@ describe('ActiveSessionsPanel', () => {
         { id: 'sess-1', name: 'Test Session', projectId: 'proj-1', isActive: true, createdAt: Date.now(), updatedAt: Date.now() },
       ]);
       useSessionsStore.setState({ remoteSessions });
+      useSessionsStore.getState().setActiveSessionsForBackend(backendId, new Set(['sess-1']));
 
       render(<ActiveSessionsPanel />);
 

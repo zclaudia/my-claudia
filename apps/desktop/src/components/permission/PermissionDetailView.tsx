@@ -1,5 +1,8 @@
+import { useState } from 'react';
+import { createPortal } from 'react-dom';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { Maximize2, X } from 'lucide-react';
 import { DiffViewer } from '../chat/DiffViewer';
 import { CodeViewer } from '../chat/CodeViewer';
 
@@ -121,29 +124,7 @@ export function PermissionDetailView({ toolName, detail, maxHeightClass = 'max-h
 
   // ExitPlanMode: render plan as markdown + allowedPrompts as a list
   if (toolName === 'ExitPlanMode' && input) {
-    const allowedPrompts = input.allowedPrompts as Array<{ tool: string; prompt: string }> | undefined;
-    // Plan content may be inline or in a file — the plan field contains the actual markdown
-    const plan = input.plan as string | undefined;
-    return (
-      <div className={`${maxHeightClass} overflow-y-auto space-y-3`}>
-        {allowedPrompts && allowedPrompts.length > 0 && (
-          <div className="bg-muted/50 rounded-lg p-3">
-            <div className="text-xs font-medium text-muted-foreground mb-1.5">Requested permissions</div>
-            {allowedPrompts.map((p, i) => (
-              <div key={i} className="flex items-start gap-2 text-xs mt-1">
-                <span className="font-mono text-primary shrink-0">{p.tool}</span>
-                <span className="text-foreground">{p.prompt}</span>
-              </div>
-            ))}
-          </div>
-        )}
-        {plan && (
-          <div className="prose prose-sm prose-invert max-w-none text-xs [&_h1]:text-sm [&_h2]:text-xs [&_h3]:text-xs [&_p]:text-xs [&_li]:text-xs [&_code]:text-xs">
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>{plan}</ReactMarkdown>
-          </div>
-        )}
-      </div>
-    );
+    return <ExitPlanModeDetail input={input} maxHeightClass={maxHeightClass} />;
   }
 
   // Default: raw JSON in pre tag
@@ -153,5 +134,83 @@ export function PermissionDetailView({ toolName, detail, maxHeightClass = 'max-h
         {detail}
       </pre>
     </div>
+  );
+}
+
+/** ExitPlanMode detail with fullscreen expand support */
+function ExitPlanModeDetail({ input, maxHeightClass }: { input: Record<string, unknown>; maxHeightClass: string }) {
+  const [expanded, setExpanded] = useState(false);
+  const allowedPrompts = input.allowedPrompts as Array<{ tool: string; prompt: string }> | undefined;
+  const plan = input.plan as string | undefined;
+
+  const permissionsBlock = allowedPrompts && allowedPrompts.length > 0 ? (
+    <div className="bg-muted/50 rounded-lg p-3">
+      <div className="text-xs font-medium text-muted-foreground mb-1.5">Requested permissions</div>
+      {allowedPrompts.map((p, i) => (
+        <div key={i} className="flex items-start gap-2 text-xs mt-1">
+          <span className="font-mono text-primary shrink-0">{p.tool}</span>
+          <span className="text-foreground">{p.prompt}</span>
+        </div>
+      ))}
+    </div>
+  ) : null;
+
+  const planBlock = plan ? (
+    <div className="prose prose-sm prose-invert max-w-none text-xs [&_h1]:text-sm [&_h2]:text-xs [&_h3]:text-xs [&_p]:text-xs [&_li]:text-xs [&_code]:text-xs">
+      <ReactMarkdown remarkPlugins={[remarkGfm]}>{plan}</ReactMarkdown>
+    </div>
+  ) : null;
+
+  return (
+    <>
+      <div className={`${maxHeightClass} overflow-y-auto space-y-3 relative`}>
+        {permissionsBlock}
+        {planBlock}
+        {/* Expand button */}
+        {plan && (
+          <button
+            onClick={() => setExpanded(true)}
+            className="sticky bottom-0 w-full flex items-center justify-center gap-1.5 py-1.5 text-xs text-muted-foreground bg-gradient-to-t from-card via-card/95 to-transparent hover:text-foreground transition-colors"
+          >
+            <Maximize2 size={12} />
+            View full plan
+          </button>
+        )}
+      </div>
+
+      {/* Fullscreen overlay via portal */}
+      {expanded && createPortal(
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+          onClick={() => setExpanded(false)}
+        >
+          <div
+            className="relative w-full h-full sm:w-[90vw] sm:max-w-3xl sm:h-auto sm:max-h-[80vh] bg-card sm:border sm:border-border sm:rounded-2xl shadow-2xl flex flex-col overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="flex items-center justify-between px-4 py-3 border-b border-border safe-top-pad">
+              <span className="text-sm font-medium text-card-foreground">Plan Details</span>
+              <button
+                onClick={() => setExpanded(false)}
+                className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+              >
+                <X size={18} />
+              </button>
+            </div>
+            {/* Content */}
+            <div className="flex-1 overflow-y-auto p-4 space-y-4 safe-bottom-pad">
+              {permissionsBlock}
+              {plan && (
+                <div className="prose prose-sm prose-invert max-w-none text-sm [&_h1]:text-lg [&_h2]:text-base [&_h3]:text-sm [&_p]:text-sm [&_li]:text-sm [&_code]:text-xs">
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{plan}</ReactMarkdown>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+    </>
   );
 }

@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { useSessionsStore, type RemoteSession } from '../stores/sessionsStore';
+import { useSessionsStore, type RemoteSession, LOCAL_BACKEND_KEY } from '../stores/sessionsStore';
 import { useServerStore } from '../stores/serverStore';
 import { useProjectStore } from '../stores/projectStore';
 import { isGatewayTarget, parseBackendId, toGatewayServerId, useGatewayStore } from '../stores/gatewayStore';
@@ -10,7 +10,7 @@ interface ActiveSessionsPanelProps {
 
 export function ActiveSessionsPanel({ onSessionSelect }: ActiveSessionsPanelProps) {
   const [isCollapsed, setIsCollapsed] = useState(false);
-  const { remoteSessions } = useSessionsStore();
+  const { remoteSessions, activeSessionIdsByBackend } = useSessionsStore();
   const { activeServerId, servers } = useServerStore();
   const { sessions: localSessions, projects } = useProjectStore();
   const { localBackendId } = useGatewayStore();
@@ -23,39 +23,77 @@ export function ActiveSessionsPanel({ onSessionSelect }: ActiveSessionsPanelProp
     return parseBackendId(activeServerId);
   }, [activeServerId]);
 
-  // Combine all active sessions from all backends (including local and current)
+  // Build active session groups from a single source of truth:
+  // sessionsStore.activeSessionIdsByBackend
   const allActiveSessionsByBackend = useMemo(() => {
     const result = new Map<string, RemoteSession[]>();
 
-    // 1. Local backend (direct connection, not via gateway)
-    if (activeServerId && !isGatewayTarget(activeServerId)) {
-      const localActiveSessions = localSessions
-        .filter(s => s.isActive)
-        .map(s => ({ ...s, isActive: true } as RemoteSession));
-
-      if (localActiveSessions.length > 0) {
-        result.set('__local__', localActiveSessions);
+    activeSessionIdsByBackend.forEach((activeIds, backendId) => {
+      if (activeIds.size === 0) return;
+      if (
+        backendId !== LOCAL_BACKEND_KEY
+        && localBackendId
+        && backendId === localBackendId
+        && activeSessionIdsByBackend.has(LOCAL_BACKEND_KEY)
+      ) {
+        return;
       }
-    }
 
-    // 2. All remote backends (skip local backend to avoid duplicates)
-    remoteSessions.forEach((sessions, backendId) => {
-      // Always skip sessions belonging to the locally connected backend.
-      // The local direct connection manages its sessions via projectStore;
-      // any entries here are stale duplicates from the gateway relay.
-      if (activeServerId && !isGatewayTarget(activeServerId)) {
-        if (backendId === activeServerId || (localBackendId && backendId === localBackendId)) {
-          return;
+      if (backendId === LOCAL_BACKEND_KEY) {
+        const localById = new Map(localSessions.map(s => [s.id, s]));
+        const localFromGateway = localBackendId ? (remoteSessions.get(localBackendId) || []) : [];
+        const gatewayById = new Map(localFromGateway.map(s => [s.id, s]));
+
+        const sessions: RemoteSession[] = [];
+        for (const sessionId of activeIds) {
+          const local = localById.get(sessionId);
+          const gw = gatewayById.get(sessionId);
+          const source = local || gw;
+          if (!source) {
+            sessions.push({
+              id: sessionId,
+              projectId: '',
+              name: `Session ${sessionId.slice(0, 8)}`,
+              createdAt: Date.now(),
+              updatedAt: Date.now(),
+              isActive: true,
+            } as RemoteSession);
+          } else {
+            sessions.push({ ...source, isActive: true } as RemoteSession);
+          }
+        }
+        if (sessions.length > 0) {
+          result.set(LOCAL_BACKEND_KEY, sessions);
+        }
+        return;
+      }
+
+      const backendSessions = remoteSessions.get(backendId) || [];
+      if (backendSessions.length === 0) return;
+      const byId = new Map(backendSessions.map(s => [s.id, s]));
+      const sessions: RemoteSession[] = [];
+      for (const sessionId of activeIds) {
+        const session = byId.get(sessionId);
+        if (session) {
+          sessions.push({ ...session, isActive: true });
+        } else {
+          sessions.push({
+            id: sessionId,
+            projectId: '',
+            name: `Session ${sessionId.slice(0, 8)}`,
+            createdAt: Date.now(),
+            updatedAt: Date.now(),
+            isActive: true,
+          } as RemoteSession);
         }
       }
-      const activeSessions = sessions.filter(s => s.isActive);
-      if (activeSessions.length > 0) {
-        result.set(backendId, activeSessions);
+      if (sessions.length > 0) {
+        result.set(backendId, sessions);
       }
     });
 
     return result;
-  }, [remoteSessions, activeServerId, localSessions, localBackendId]);
+  }, [activeSessionIdsByBackend, remoteSessions, localSessions, localBackendId]);
 
   // Don't show if not connected to any backend
   if (!activeServerId) {
@@ -68,7 +106,7 @@ export function ActiveSessionsPanel({ onSessionSelect }: ActiveSessionsPanelProp
   // Get backend name from servers list
   const getBackendName = (backendId: string): string => {
     // Special case: local backend
-    if (backendId === '__local__') {
+    if (backendId === LOCAL_BACKEND_KEY) {
       return 'Local Backend';
     }
 
@@ -162,7 +200,7 @@ export function ActiveSessionsPanel({ onSessionSelect }: ActiveSessionsPanelProp
                     <button
                       onClick={() => {
                         // Special handling for local sessions
-                        if (backendId === '__local__') {
+                        if (backendId === LOCAL_BACKEND_KEY) {
                           onSessionSelect?.('local', session.id);
                         } else {
                           onSessionSelect?.(backendId, session.id);

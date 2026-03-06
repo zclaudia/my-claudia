@@ -126,6 +126,17 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
 
   const handleActiveSessionSelect = useCallback((backendId: string, sessionId: string) => {
     useUIStore.getState().requestForceScrollToBottom(sessionId);
+    const selectWithServerContext = (targetServerId: string) => {
+      const current = useServerStore.getState().activeServerId;
+      if (current === targetServerId) {
+        selectSession(sessionId);
+        return;
+      }
+      // Switch server first, then select session on next tick to reduce
+      // cross-server stale reads during context transitions.
+      setActiveServer(targetServerId);
+      setTimeout(() => selectSession(sessionId), 0);
+    };
 
     // Switch to the matching server context first, then select session.
     if (backendId === 'local' || backendId === '__local__') {
@@ -133,13 +144,11 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
         || getDefaultServer()?.id
         || servers[0]?.id
         || 'local';
-      setActiveServer(localServerId);
-      selectSession(sessionId);
+      selectWithServerContext(localServerId);
       return;
     }
 
-    setActiveServer(toGatewayServerId(backendId));
-    selectSession(sessionId);
+    selectWithServerContext(toGatewayServerId(backendId));
   }, [servers, getDefaultServer, setActiveServer, selectSession]);
 
   const handleCreateProject = async () => {

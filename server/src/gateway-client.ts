@@ -23,6 +23,7 @@ import type {
   ServerMessage,
 } from '@my-claudia/shared';
 import { ALL_SERVER_FEATURES } from '@my-claudia/shared';
+import { hasForegroundActiveRunForSession } from './utils/run-state.js';
 
 // Config storage path
 const CONFIG_DIR = process.env.MY_CLAUDIA_DATA_DIR
@@ -592,9 +593,7 @@ export class GatewayClient {
         workingDirectory: session.workingDirectory,
         createdAt: session.createdAt,
         updatedAt: session.updatedAt,
-        isActive: [...this.activeRuns!.values()].some(
-          (run: any) => run.sessionId === session.id && !run.completed && run.sessionType !== 'background'
-        ),
+        isActive: hasForegroundActiveRunForSession(this.activeRuns!, session.id),
         lastMessageOffset: session.lastMessageOffset ?? undefined,
       }));
 

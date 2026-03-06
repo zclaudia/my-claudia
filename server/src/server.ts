@@ -181,6 +181,24 @@ function buildStatusOutput(systemInfo: SystemInfo): string {
   return lines.join('\n');
 }
 
+function formatProviderErrorMessage(raw: string, providerType?: string): string {
+  const msg = raw.trim();
+  const lower = msg.toLowerCase();
+  const isLimitLike =
+    lower.includes('rate limit') ||
+    lower.includes('ratelimit') ||
+    lower.includes('too many requests') ||
+    lower.includes('insufficient_quota') ||
+    lower.includes('quota') ||
+    lower.includes('billing') ||
+    lower.includes('usage limit') ||
+    lower.includes('429');
+
+  if (!isLimitLike) return msg || 'Unknown error';
+  const provider = providerType ? providerType.toUpperCase() : 'Provider';
+  return `${provider} request limit reached. Please wait and retry, or switch account/model. (${msg})`;
+}
+
 // Commands that can be handled using system info from init message
 const SYSTEM_INFO_COMMANDS = ['/status'];
 
@@ -1822,6 +1840,38 @@ async function handleRunStart(
           }
           break;
 
+        case 'error': {
+          const rawProviderError = (msg.error || 'Provider error') as string;
+          const errorMessage = formatProviderErrorMessage(rawProviderError, activeRun.providerType);
+          console.error(`[Provider Error] runId=${runId} provider=${activeRun.providerType}: ${rawProviderError}`);
+
+          if (!activeRun.completed) {
+            try {
+              upsertAssistantMessage(activeRun, { indexMetadata: true });
+            } catch (saveErr) {
+              console.error(`[Error Save] Failed for run ${runId}:`, saveErr);
+            }
+            sendMessage(client.ws, {
+              type: 'run_failed',
+              runId,
+              sessionId: activeRun.sessionId,
+              error: errorMessage,
+            });
+            activeRun.completed = true;
+            broadcastHeartbeat();
+            notificationService.notify({
+              type: 'run_failed',
+              title: 'Run failed',
+              body: errorMessage.slice(0, 200),
+              priority: 'high',
+              tags: ['x'],
+            });
+          }
+          // Mark run as ended now; for-await loop exits on next iteration by guard.
+          activeRuns.delete(runId);
+          break;
+        }
+
         case 'task_notification':
           // Background task launched — the main conversation turn is functionally complete.
           // The SDK won't yield 'result' until all background tasks finish, but the user
@@ -1857,6 +1907,7 @@ async function handleRunStart(
     // corrupted (e.g. bad model stored in transcript). Clear sdk_session_id so
     // the next attempt creates a fresh session instead of resuming the broken one.
     const errMsg = error instanceof Error ? error.message : '';
+    const formattedErrMsg = formatProviderErrorMessage(errMsg, activeRun.providerType);
     if (errMsg.includes('process exited with code') && sdkSessionId) {
       console.log(`[Recovery] Clearing corrupted sdk_session_id ${sdkSessionId} for session ${message.sessionId}`);
       db.prepare(`UPDATE sessions SET sdk_session_id = NULL, updated_at = ? WHERE id = ?`)
@@ -1873,14 +1924,14 @@ async function handleRunStart(
       type: 'run_failed',
       runId,
       sessionId: activeRun.sessionId,
-      error: error instanceof Error ? error.message : 'Unknown error'
+      error: formattedErrMsg
     });
     activeRun.completed = true;
     broadcastHeartbeat();
     notificationService.notify({
       type: 'run_failed',
       title: 'Run failed',
-      body: error instanceof Error ? error.message.slice(0, 200) : 'Unknown error',
+      body: formattedErrMsg.slice(0, 200),
       priority: 'high',
       tags: ['x'],
     });
@@ -1890,7 +1941,7 @@ async function handleRunStart(
         type: 'background_task_update',
         sessionId: message.sessionId,
         status: 'failed',
-        reason: error instanceof Error ? error.message : 'Unknown error',
+        reason: formattedErrMsg,
       } as import('@my-claudia/shared').BackgroundTaskUpdateMessage);
     }
   } finally {

@@ -5,6 +5,7 @@ import type { Session, Message, ApiResponse } from '@my-claudia/shared';
 import { saveSearchHistory, getSearchHistory, clearSearchHistory, getSearchSuggestions } from '../storage/search-history.js';
 import { extractAndIndexMetadata } from '../storage/metadata-extractor.js';
 import { getGatewayClient } from '../gateway-instance.js';
+import { hasForegroundActiveRunForSession, findForegroundActiveRunIdForSession } from '../utils/run-state.js';
 
 type ActiveRunsMap = Map<string, any>;
 
@@ -215,9 +216,7 @@ export function createSessionRoutes(db: Database.Database, activeRuns: ActiveRun
         workingDirectory: session.workingDirectory,
         createdAt: session.createdAt,
         updatedAt: session.updatedAt,
-        isActive: [...activeRuns.values()].some(
-          run => run.sessionId === session.id && !run.completed && run.sessionType !== 'background'
-        ),
+        isActive: hasForegroundActiveRunForSession(activeRuns, session.id),
         lastMessageOffset: session.lastMessageOffset ?? undefined,
       }));
 
@@ -897,13 +896,8 @@ export function createSessionRoutes(db: Database.Database, activeRuns: ActiveRun
         m.offset != null ? Math.max(max ?? 0, m.offset) : max, undefined);
 
       // Check if this session has an active run (for restoring loading state on reconnect)
-      let activeRun: { runId: string } | null = null;
-      for (const [runId, run] of activeRuns) {
-        if (run.sessionId === req.params.id) {
-          activeRun = { runId };
-          break;
-        }
-      }
+      const activeRunId = findForegroundActiveRunIdForSession(activeRuns, req.params.id);
+      const activeRun = activeRunId ? { runId: activeRunId } : null;
 
       res.json({
         success: true,

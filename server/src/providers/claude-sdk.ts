@@ -7,6 +7,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import * as crypto from 'crypto';
+import { extractRetryDelayMsFromError } from '../utils/retry-window.js';
 
 export interface ClaudeRunOptions {
   cwd: string;
@@ -102,6 +103,30 @@ setInterval(cleanupOldTempFiles, 30 * 60 * 1000).unref();
 interface PreparedInput {
   text: string;
   tempFiles: string[];
+}
+
+const MAX_AUTO_RETRIES = 2;
+
+function isRetryableLimitError(errorMessage: string): boolean {
+  const msg = errorMessage.toLowerCase();
+  return (
+    msg.includes('rate limit') ||
+    msg.includes('ratelimit') ||
+    msg.includes('too many requests') ||
+    msg.includes('429') ||
+    msg.includes('insufficient_quota') ||
+    msg.includes('quota') ||
+    msg.includes('usage limit') ||
+    msg.includes('billing')
+  );
+}
+
+function getBackoffDelayMs(attempt: number): number {
+  return 2000 * Math.pow(2, Math.max(0, attempt - 1)); // 2s, 4s
+}
+
+async function sleep(ms: number): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 /**
@@ -311,22 +336,43 @@ export async function* runClaude(
   }
 
   try {
-    // Start the query
-    const queryInstance = query({
-      prompt: promptText,
-      options: sdkOptions,
-    });
+    for (let attempt = 1; attempt <= MAX_AUTO_RETRIES + 1; attempt++) {
+      let producedOutput = false;
+      try {
+        // Start the query
+        const queryInstance = query({
+          prompt: promptText,
+          options: sdkOptions,
+        });
 
-    // Stream messages
-    for await (const message of queryInstance) {
-      const transformed = transformMessage(message);
-      // transformMessage can return a single message or array of messages
-      if (Array.isArray(transformed)) {
-        for (const msg of transformed) {
-          yield msg;
+        // Stream messages
+        for await (const message of queryInstance) {
+          const transformed = transformMessage(message);
+          // transformMessage can return a single message or array of messages
+          if (Array.isArray(transformed)) {
+            for (const msg of transformed) {
+              if (msg.type !== 'init') producedOutput = true;
+              yield msg;
+            }
+          } else {
+            if (transformed.type !== 'init') producedOutput = true;
+            yield transformed;
+          }
         }
-      } else {
-        yield transformed;
+        return;
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        const canRetry =
+          attempt <= MAX_AUTO_RETRIES &&
+          !producedOutput &&
+          isRetryableLimitError(errorMessage);
+        if (!canRetry) throw error;
+
+        const parsedDelayMs = extractRetryDelayMsFromError(errorMessage);
+        const delayMs = parsedDelayMs ?? getBackoffDelayMs(attempt);
+        console.warn(`[Claude SDK] Retryable limit error (attempt ${attempt}/${MAX_AUTO_RETRIES + 1}): ${errorMessage}`);
+        console.log(`[Claude SDK] Retrying in ${delayMs}ms${parsedDelayMs != null ? ' (from reset hint)' : ' (backoff fallback)'}...`);
+        await sleep(delayMs);
       }
     }
   } finally {

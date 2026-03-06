@@ -4,6 +4,8 @@ import request from 'supertest';
 import Database from 'better-sqlite3';
 import { createSessionRoutes } from '../sessions.js';
 
+let activeRuns: Map<string, any>;
+
 // Create in-memory database for testing
 function createTestDb(): Database.Database {
   const db = new Database(':memory:');
@@ -52,7 +54,7 @@ function createTestDb(): Database.Database {
 function createTestApp(db: Database.Database) {
   const app = express();
   app.use(express.json());
-  const activeRuns = new Map<string, any>();
+  activeRuns = new Map<string, any>();
   app.use('/api/sessions', createSessionRoutes(db, activeRuns));
   return app;
 }
@@ -77,6 +79,7 @@ describe('sessions routes', () => {
     db.exec('DELETE FROM messages');
     db.exec('DELETE FROM sessions');
     db.exec('DELETE FROM projects');
+    activeRuns.clear();
     // Recreate FTS table and trigger
     db.exec(`
       CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(
@@ -376,6 +379,25 @@ describe('sessions routes', () => {
 
       expect(res.status).toBe(200);
       expect(res.body.data.pagination.hasMore).toBe(false);
+    });
+
+    it('returns activeRun when foreground run is still running', async () => {
+      activeRuns.set('run-1', { sessionId: 's1', completed: false, sessionType: 'regular' });
+
+      const res = await request(app).get('/api/sessions/s1/messages');
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.activeRun).toEqual({ runId: 'run-1' });
+    });
+
+    it('does not return activeRun for completed or background runs', async () => {
+      activeRuns.set('run-completed', { sessionId: 's1', completed: true, sessionType: 'regular' });
+      activeRuns.set('run-bg', { sessionId: 's1', completed: false, sessionType: 'background' });
+
+      const res = await request(app).get('/api/sessions/s1/messages');
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.activeRun).toBeNull();
     });
   });
 

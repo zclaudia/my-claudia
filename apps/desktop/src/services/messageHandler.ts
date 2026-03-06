@@ -16,6 +16,7 @@ import { usePermissionStore } from '../stores/permissionStore';
 import { useAskUserQuestionStore } from '../stores/askUserQuestionStore';
 import { useSupervisionStore } from '../stores/supervisionStore';
 import { useSessionsStore } from '../stores/sessionsStore';
+import { LOCAL_BACKEND_KEY } from '../stores/sessionsStore';
 import { useTerminalStore } from '../stores/terminalStore';
 import { useFilePushStore } from '../stores/filePushStore';
 import { downloadPushedFile } from './fileDownload';
@@ -107,10 +108,14 @@ export function handleServerMessage(
           serverRunsRef.get(serverId)!.add(msg.runId);
 
           useProjectStore.getState().setSessionActive(targetSessionId, true);
-          // Gateway: also update sessionsStore
-          if (backendId) {
-            useSessionsStore.getState().setSessionActiveById(backendId, targetSessionId, true);
-          }
+          // Update unified active-session index for both local and gateway contexts
+          useSessionsStore.getState().setSessionActiveFlag(
+            backendId || LOCAL_BACKEND_KEY,
+            targetSessionId,
+            true
+          );
+          // Gateway: also update session snapshot flag
+          if (backendId) useSessionsStore.getState().setSessionActiveById(backendId, targetSessionId, true);
         }
       } else {
         console.warn(`[${logTag}] run_started ignored: no sessionId`);
@@ -127,9 +132,12 @@ export function handleServerMessage(
           useChatStore.getState().addSessionUsage(completedSession, msg.usage);
         }
         useProjectStore.getState().setSessionActive(completedSession, false);
-        if (backendId) {
-          useSessionsStore.getState().setSessionActiveById(backendId, completedSession, false);
-        }
+        useSessionsStore.getState().setSessionActiveFlag(
+          backendId || LOCAL_BACKEND_KEY,
+          completedSession,
+          false
+        );
+        if (backendId) useSessionsStore.getState().setSessionActiveById(backendId, completedSession, false);
       }
       useChatStore.getState().endRun(msg.runId);
       serverRunsRef.get(serverId)?.delete(msg.runId);
@@ -145,9 +153,12 @@ export function handleServerMessage(
         }
         useChatStore.getState().finalizeRunToMessage(msg.runId);
         useProjectStore.getState().setSessionActive(failedSession, false);
-        if (backendId) {
-          useSessionsStore.getState().setSessionActiveById(backendId, failedSession, false);
-        }
+        useSessionsStore.getState().setSessionActiveFlag(
+          backendId || LOCAL_BACKEND_KEY,
+          failedSession,
+          false
+        );
+        if (backendId) useSessionsStore.getState().setSessionActiveById(backendId, failedSession, false);
       }
       useChatStore.getState().endRun(msg.runId);
       serverRunsRef.get(serverId)?.delete(msg.runId);
@@ -289,6 +300,11 @@ export function handleServerMessage(
             chatState.endRun(runId);
             if (sessionId) {
               useProjectStore.getState().setSessionActive(sessionId, false);
+              useSessionsStore.getState().setSessionActiveFlag(
+                backendId || LOCAL_BACKEND_KEY,
+                sessionId,
+                false
+              );
             }
             trackedRuns.delete(runId);
           }
@@ -352,6 +368,13 @@ export function handleServerMessage(
             .map(r => r.sessionId)
         );
         useSessionsStore.getState().reconcileActiveStatus(backendId, activeSessionIds);
+      } else {
+        const activeSessionIds = new Set<string>(
+          heartbeat.activeRuns
+            .filter(r => r.sessionType !== 'background')
+            .map(r => r.sessionId)
+        );
+        useSessionsStore.getState().setActiveSessionsForBackend(LOCAL_BACKEND_KEY, activeSessionIds);
       }
       break;
     }

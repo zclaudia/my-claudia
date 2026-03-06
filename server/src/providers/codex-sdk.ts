@@ -11,6 +11,7 @@ import {
 import type { MessageInput, PermissionRequest } from '@my-claudia/shared';
 import type { ClaudeMessage, SystemInfo, PermissionDecision, PermissionCallback } from './claude-sdk.js';
 import { fileStore } from '../storage/fileStore.js';
+import { extractRetryDelayMsFromError } from '../utils/retry-window.js';
 
 // ── Types ─────────────────────────────────────────────────────
 
@@ -22,6 +23,30 @@ export interface CodexRunOptions {
   model?: string;
   mode?: string;            // Our permission mode → approval + sandbox
   systemPrompt?: string;
+}
+
+const MAX_AUTO_RETRIES = 2;
+
+function isRetryableLimitError(errorMessage: string): boolean {
+  const msg = errorMessage.toLowerCase();
+  return (
+    msg.includes('rate limit') ||
+    msg.includes('ratelimit') ||
+    msg.includes('too many requests') ||
+    msg.includes('429') ||
+    msg.includes('insufficient_quota') ||
+    msg.includes('quota') ||
+    msg.includes('usage limit') ||
+    msg.includes('billing')
+  );
+}
+
+function getBackoffDelayMs(attempt: number): number {
+  return 2000 * Math.pow(2, Math.max(0, attempt - 1)); // 2s, 4s
+}
+
+async function sleep(ms: number): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 // ── Mode → Codex policy mapping ──────────────────────────────
@@ -210,12 +235,6 @@ export async function* runCodex(
     ...policies,
   };
 
-  // Start or resume thread.
-  // options.sessionId is the codex thread_id stored by server as sdk_session_id after the first run.
-  const thread = options.sessionId
-    ? codex.resumeThread(options.sessionId, threadOptions)
-    : codex.startThread(threadOptions);
-
   // Prepare input (handle images)
   const codexInput = prepareCodexInput(input);
 
@@ -226,15 +245,59 @@ export async function* runCodex(
   }
 
   try {
-    // Run streamed
-    const { events } = await thread.runStreamed(codexInput, {
-      signal: abortController.signal,
-    });
+    for (let attempt = 1; attempt <= MAX_AUTO_RETRIES + 1; attempt++) {
+      let producedOutput = false;
+      try {
+        // Start or resume thread.
+        // options.sessionId is the codex thread_id stored by server as sdk_session_id after the first run.
+        const thread = options.sessionId
+          ? codex.resumeThread(options.sessionId, threadOptions)
+          : codex.startThread(threadOptions);
 
-    for await (const event of events) {
-      const messages = mapThreadEvent(event, options.sessionId);
-      for (const msg of messages) {
-        yield msg;
+        // Run streamed
+        const { events } = await thread.runStreamed(codexInput, {
+          signal: abortController.signal,
+        });
+
+        for await (const event of events) {
+          const messages = mapThreadEvent(event, options.sessionId);
+          for (const msg of messages) {
+            if (msg.type === 'error') {
+              const errText = msg.error || 'Codex error';
+              const canRetry =
+                attempt <= MAX_AUTO_RETRIES &&
+                !producedOutput &&
+                isRetryableLimitError(errText);
+              if (canRetry) {
+                throw new Error(errText);
+              }
+            } else if (msg.type !== 'init') {
+              producedOutput = true;
+            }
+            yield msg;
+          }
+        }
+        return;
+      } catch (err: unknown) {
+        if (abortController.signal.aborted) {
+          // User-initiated abort — not an error
+          return;
+        }
+        const errorMsg = err instanceof Error ? err.message : String(err);
+        const canRetry =
+          attempt <= MAX_AUTO_RETRIES &&
+          !producedOutput &&
+          isRetryableLimitError(errorMsg);
+        if (!canRetry) {
+          yield { type: 'error', error: `Codex error: ${errorMsg}` };
+          return;
+        }
+
+        const parsedDelayMs = extractRetryDelayMsFromError(errorMsg);
+        const delayMs = parsedDelayMs ?? getBackoffDelayMs(attempt);
+        console.warn(`[Codex] Retryable limit error (attempt ${attempt}/${MAX_AUTO_RETRIES + 1}): ${errorMsg}`);
+        console.log(`[Codex] Retrying in ${delayMs}ms${parsedDelayMs != null ? ' (from reset hint)' : ' (backoff fallback)'}...`);
+        await sleep(delayMs);
       }
     }
   } catch (err: unknown) {
