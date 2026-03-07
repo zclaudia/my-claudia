@@ -15,6 +15,7 @@ import { SearchFilters } from './SearchFilters';
 import { ActiveSessionsPanel } from './ActiveSessionsPanel';
 import { ArchivedSessionsDialog } from './ArchivedSessionsDialog';
 import { SuperviseDialog } from './SuperviseDialog';
+import { PluginPermissionDialog } from './PluginPermissionDialog';
 import * as api from '../services/api';
 import type { SearchResult, SearchHistoryEntry, SearchFilters as Filters } from '../services/api';
 
@@ -1569,6 +1570,7 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
       />,
       document.body
     )}
+    {createPortal(<PluginPermissionDialog />, document.body)}
     </>
   );
 }

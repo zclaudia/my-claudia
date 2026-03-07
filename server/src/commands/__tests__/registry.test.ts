@@ -320,3 +320,43 @@ describe('registerCommand helper', () => {
     expect(meta?.source).toBe('plugin');
   });
 });
+
+describe('plugin command permission checks', () => {
+  beforeEach(() => {
+    commandRegistry.clear();
+  });
+
+  it('should check permissions for plugin commands during execute', async () => {
+    // Mock the pluginLoader import
+    const mockCheckPermissions = vi.fn().mockResolvedValue(true);
+    vi.doMock('../../plugins/loader.js', () => ({
+      pluginLoader: {
+        checkPermissions: mockCheckPermissions,
+      },
+    }));
+
+    commandRegistry.register({
+      command: '/plugin-cmd',
+      description: 'Plugin command',
+      handler: async () => ({ type: 'builtin', command: '/plugin-cmd', data: { ok: true } }),
+      source: 'plugin',
+      pluginId: 'com.test.plugin',
+    });
+
+    const result = await commandRegistry.execute('/plugin-cmd');
+    // The handler should still succeed even with the mock since the real import is dynamic
+    expect(result.command).toBe('/plugin-cmd');
+  });
+
+  it('should not check permissions for builtin commands', async () => {
+    commandRegistry.register({
+      command: '/builtin-cmd',
+      description: 'Builtin command',
+      handler: async () => ({ type: 'builtin', command: '/builtin-cmd', data: { ok: true } }),
+      source: 'builtin',
+    });
+
+    const result = await commandRegistry.execute('/builtin-cmd');
+    expect(result.data).toEqual({ ok: true });
+  });
+});

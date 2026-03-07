@@ -5,9 +5,10 @@
  * Shows installed plugins, allows enable/disable, and shows plugin settings tabs.
  */
 
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import { usePluginStore } from '../stores/pluginStore';
 import type { InstalledPlugin, PluginStatus } from '../stores/pluginStore';
+import { getBaseUrl } from '../services/api';
 
 // Status badge colors
 const statusColors: Record<PluginStatus, string> = {
@@ -35,12 +36,32 @@ export function PluginSettings({ onOpenPluginSettings }: PluginSettingsProps) {
     plugins,
     isLoading,
     error,
-    togglePlugin,
     removePlugin,
     setError,
   } = usePluginStore();
 
   const [searchQuery, setSearchQuery] = useState('');
+
+  const togglePlugin = useCallback(async (pluginId: string) => {
+    const plugin = plugins.find(p => p.manifest.id === pluginId);
+    if (!plugin) return;
+
+    try {
+      const action = plugin.status === 'active' ? 'deactivate' : 'activate';
+      const baseUrl = getBaseUrl();
+      const res = await fetch(`${baseUrl}/api/plugins/${encodeURIComponent(pluginId)}/${action}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setError(data.error?.message || `Failed to ${action} plugin`);
+      }
+      // Server will broadcast updated plugin_state via WebSocket
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to toggle plugin');
+    }
+  }, [plugins, setError]);
 
   // Filter plugins by search query
   const filteredPlugins = plugins.filter((plugin) =>
@@ -285,6 +306,20 @@ function PluginCard({ plugin, onToggle, onRemove, onOpenSettings }: PluginCardPr
           </button>
         </div>
       </div>
+
+      {/* Permissions */}
+      {plugin.manifest.permissions && plugin.manifest.permissions.length > 0 && (
+        <div className="mt-2 flex flex-wrap gap-1">
+          {plugin.manifest.permissions.map((perm) => (
+            <span
+              key={perm}
+              className="px-1.5 py-0.5 rounded text-[10px] bg-yellow-500/10 text-yellow-500/80 font-mono"
+            >
+              {perm}
+            </span>
+          ))}
+        </div>
+      )}
 
       {/* Error Message */}
       {plugin.error && (

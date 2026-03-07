@@ -7,6 +7,7 @@
  */
 
 import type { ToolDefinition } from '@my-claudia/shared';
+import { pluginLoader } from './loader.js';
 
 // ============================================
 // Types
@@ -147,6 +148,14 @@ class ToolRegistry {
     }
 
     try {
+      // Lazy permission check: request permissions on first use if not yet granted
+      if (tool.pluginId) {
+        const permitted = await pluginLoader.checkPermissions(tool.pluginId);
+        if (!permitted) {
+          return JSON.stringify({ error: `Plugin "${tool.pluginId}" permissions denied` });
+        }
+      }
+
       const result = await tool.handler(args, context);
       return result;
     } catch (error) {

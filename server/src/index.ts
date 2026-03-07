@@ -318,7 +318,7 @@ async function main() {
 
     autoDetectProviders();
 
-    // Initialize plugin system
+    // Initialize plugin system (discover only — activation deferred until server is listening)
     console.log('\n🔌 Initializing plugin system...');
     registerBuiltinCommands();
     // Pass database to plugin loader for Provider API support
@@ -326,24 +326,6 @@ async function main() {
     const discoveredPlugins = await pluginLoader.discover();
     if (discoveredPlugins.length > 0) {
       console.log(`   Found ${discoveredPlugins.length} plugin(s)`);
-      // Auto-activate plugins that have onStartup activation event
-      // Use a timeout to prevent blocking server startup (e.g. permission prompts
-      // that require UI interaction which isn't available yet during startup)
-      for (const manifest of discoveredPlugins) {
-        const activationEvents = manifest.activationEvents || [];
-        if (activationEvents.includes('onStartup')) {
-          try {
-            await Promise.race([
-              pluginLoader.activate(manifest.id),
-              new Promise<boolean>((_, reject) =>
-                setTimeout(() => reject(new Error('Activation timed out (5s)')), 5000)
-              ),
-            ]);
-          } catch (error) {
-            console.error(`   Failed to activate ${manifest.id}:`, error);
-          }
-        }
-      }
     } else {
       console.log('   No plugins found');
     }
@@ -381,6 +363,17 @@ async function main() {
         if (dbConfig && dbConfig.enabled && dbConfig.gatewayUrl && dbConfig.gatewaySecret) {
           console.log(`\n🌐 Gateway connection from database configuration`);
           await connectGateway(dbConfig);
+        }
+      }
+
+      // Activate onStartup plugins after server is listening
+      // (UI can now handle permission prompts via WebSocket)
+      for (const manifest of discoveredPlugins) {
+        const activationEvents = manifest.activationEvents || [];
+        if (activationEvents.includes('onStartup')) {
+          pluginLoader.activate(manifest.id).catch(error => {
+            console.error(`   Failed to activate ${manifest.id}:`, error);
+          });
         }
       }
     });

@@ -10,6 +10,7 @@ import { useTerminalStore } from '../../stores/terminalStore';
 import { useProjectStore } from '../../stores/projectStore';
 import { useConnection } from '../../contexts/ConnectionContext';
 import { useServerStore } from '../../stores/serverStore';
+import { toolRendererRegistry } from '../../services/toolRendererRegistry';
 
 const ansiUp = new AnsiUp();
 
@@ -247,6 +248,22 @@ function ToolExpandedContent({ toolName, toolInput, status, result, isError }: {
   result?: unknown;
   isError?: boolean;
 }) {
+  // Check for custom plugin tool renderer
+  const CustomRenderer = toolRendererRegistry.get(toolName);
+  if (CustomRenderer) {
+    return (
+      <div className="px-3 pb-3 border-t border-border/50">
+        <CustomRenderer
+          toolName={toolName}
+          toolInput={toolInput}
+          toolResult={result}
+          isError={isError}
+          isLoading={status === 'running'}
+        />
+      </div>
+    );
+  }
+
   const input = normalizeToolInput(toolInput) as Record<string, unknown> | undefined;
 
   // Edit tool: show inline diff

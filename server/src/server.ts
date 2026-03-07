@@ -35,6 +35,8 @@ import { createOpenCodeImportRoutes } from './routes/import-opencode.js';
 import { createAgentRoutes } from './routes/agent.js';
 import { createSupervisionRoutes } from './routes/supervisions.js';
 import { createNotificationRoutes } from './routes/notifications.js';
+import { createPluginToolsRoutes } from './routes/plugin-tools.js';
+import { createPluginRoutes } from './routes/plugins.js';
 import { SupervisorService } from './services/supervisor-service.js';
 import { NotificationService } from './services/notification-service.js';
 import { PermissionEvaluator, getAgentPermissionPolicy, getProjectPermissionOverride, mergePolicy, normalizePolicy } from './agent/permission-evaluator.js';
@@ -48,6 +50,11 @@ import { generateKeyPair, getPublicKeyPem, decryptCredential } from './utils/cry
 import { getSdkVersionReport } from './utils/sdk-version-check.js';
 import { getGatewayClientMode } from './gateway-instance.js';
 import { generateToolSignature, detectLoop } from './loop-detection.js';
+import { pluginEvents } from './events/index.js';
+import { pluginLoader } from './plugins/loader.js';
+import { permissionManager as pluginPermissionManager } from './plugins/permissions.js';
+import { toolRegistry as pluginToolRegistry } from './plugins/tool-registry.js';
+import { commandRegistry as pluginCommandRegistry } from './commands/registry.js';
 
 // Phase 2: Router architecture (CRUD routes migrated to HTTP REST)
 import { createRouter } from './router/index.js';
@@ -506,6 +513,10 @@ export async function createServer(): Promise<ServerContext> {
   notificationService = new NotificationService(db);
   app.use('/api/notifications', authMiddleware, createNotificationRoutes(notificationService));
 
+  // Plugin routes
+  app.use('/api/plugins', authMiddleware, createPluginRoutes());
+  app.use('/api/plugins', localOnlyMiddleware, createPluginToolsRoutes());
+
   app.use('/api/server/gateway', localOnlyMiddleware, createGatewayRouter(
     db,
     getGatewayStatus,
@@ -717,6 +728,12 @@ export async function createServer(): Promise<ServerContext> {
             // Always send state heartbeat on connect/reconnect so clients can
             // restore active runs AND clean up stale runs that completed while disconnected
             sendMessage(ws, buildStateHeartbeat());
+
+            // Send plugin state to newly authenticated client
+            if (pluginLoader.getPlugins().length > 0) {
+              const pluginState = buildPluginStateMessage();
+              sendMessage(ws, pluginState);
+            }
             return;
           }
 
@@ -799,6 +816,35 @@ export async function createServer(): Promise<ServerContext> {
     });
   });
   supervisorService.start(3000);
+
+  // Wire plugin loader broadcast for UI notifications
+  pluginLoader.setBroadcast((msg: ServerMessage) => {
+    clients.forEach((client) => {
+      if (client.authenticated) {
+        sendMessage(client.ws, msg);
+      }
+    });
+  });
+
+  // Broadcast plugin state when plugins are activated/deactivated/errored
+  pluginEvents.on('plugin.activated', () => broadcastPluginState());
+  pluginEvents.on('plugin.deactivated', () => broadcastPluginState());
+  pluginEvents.on('plugin.error', () => broadcastPluginState());
+
+  // Forward permission requests to connected frontends
+  pluginPermissionManager.onRequest((request) => {
+    const msg: import('@my-claudia/shared').PluginPermissionRequestMessage = {
+      type: 'plugin_permission_request',
+      pluginId: request.pluginId,
+      pluginName: request.pluginName,
+      permissions: request.permissions as string[],
+    };
+    clients.forEach((client) => {
+      if (client.authenticated) {
+        sendMessage(client.ws, msg);
+      }
+    });
+  });
 
   // Periodic state heartbeat broadcast (every 30s)
   // Always broadcast even when no active runs — this is the safety net for
@@ -950,6 +996,35 @@ function broadcastHeartbeat(): void {
   connectedClients.forEach((client) => {
     if (client.authenticated) {
       sendMessage(client.ws, heartbeat);
+    }
+  });
+}
+
+/** Build a PluginStateMessage with current plugin states. */
+function buildPluginStateMessage(): import('@my-claudia/shared').PluginStateMessage {
+  const plugins = pluginLoader.getPlugins().map(p => ({
+    id: p.manifest.id,
+    name: p.manifest.name,
+    version: p.manifest.version,
+    description: p.manifest.description,
+    status: (p.isActive ? 'active' : p.error ? 'error' : 'inactive') as 'active' | 'inactive' | 'error',
+    enabled: p.isActive,
+    error: p.error,
+    permissions: p.manifest.permissions || [],
+    grantedPermissions: pluginPermissionManager.getGrantedPermissions(p.manifest.id),
+    tools: pluginToolRegistry.getByPlugin(p.manifest.id).map(t => t.definition.function.name),
+    commands: pluginCommandRegistry.getByPlugin(p.manifest.id).map(c => c.command),
+    path: p.path,
+  }));
+  return { type: 'plugin_state', plugins };
+}
+
+/** Broadcast plugin state to all authenticated clients. */
+function broadcastPluginState(): void {
+  const msg = buildPluginStateMessage();
+  connectedClients.forEach((client) => {
+    if (client.authenticated) {
+      sendMessage(client.ws, msg);
     }
   });
 }
@@ -1165,6 +1240,13 @@ async function handleClientMessage(
       termMgr?.destroy(message.terminalId);
       break;
 
+    case 'plugin_permission_response': {
+      const { pluginId, granted, permanently } = message as import('@my-claudia/shared').PluginPermissionResponseMessage;
+      pluginPermissionManager.respondToRequest(pluginId, granted, permanently);
+      broadcastPluginState();
+      break;
+    }
+
     default:
       sendMessage(client.ws, {
         type: 'error',
@@ -1311,6 +1393,15 @@ async function handleRunStart(
     assistantMessageId: activeRun.assistantMessageId,
     sessionType,
   });
+
+  // Emit plugin event
+  pluginEvents.emit('run.started', {
+    runId,
+    sessionId: message.sessionId,
+    input: message.input,
+    providerId,
+    providerType: providerConfig?.type,
+  }).catch(() => {});
 
   // Notify background task started
   if (sessionType === 'background') {
@@ -1579,6 +1670,7 @@ async function handleRunStart(
       mode: modeValue,
       model: message.model,
       systemPrompt: [message.systemContext, filePushContext, session.system_prompt].filter(Boolean).join('\n\n') || undefined,
+      serverPort: serverPort || undefined,
     };
 
     const providerRunner = adapter.run(processedInput, runOptions, permissionCallback);
@@ -1699,6 +1791,13 @@ async function handleRunStart(
             toolName: msg.toolName || '',
             toolInput: msg.toolInput
           });
+          pluginEvents.emit('run.toolCall', {
+            runId,
+            sessionId: activeRun.sessionId,
+            toolName: msg.toolName,
+            toolUseId: msg.toolUseId,
+            toolInput: msg.toolInput,
+          }).catch(() => {});
           break;
 
         case 'tool_result': {
@@ -1721,6 +1820,14 @@ async function handleRunStart(
             result: msg.toolResult,
             isError: msg.isToolError
           });
+          pluginEvents.emit('run.toolResult', {
+            runId,
+            sessionId: activeRun.sessionId,
+            toolName,
+            toolUseId: msg.toolUseId,
+            result: msg.toolResult,
+            isError: msg.isToolError,
+          }).catch(() => {});
           // Claude-specific: sync plan mode state to client
           if (activeRun.providerType === 'claude' && !msg.isToolError) {
             if (toolName === 'EnterPlanMode') {
@@ -1821,6 +1928,11 @@ async function handleRunStart(
             // The for-await loop may still receive trailing SDK messages (e.g. task_notification)
             // but the client should see the session as idle.
             activeRun.completed = true;
+            pluginEvents.emit('run.completed', {
+              runId,
+              sessionId: activeRun.sessionId,
+              usage: msg.usage,
+            }).catch(() => {});
             broadcastHeartbeat();
             notificationService.notify({
               type: 'run_completed',
@@ -1858,6 +1970,11 @@ async function handleRunStart(
               error: errorMessage,
             });
             activeRun.completed = true;
+            pluginEvents.emit('run.error', {
+              runId,
+              sessionId: activeRun.sessionId,
+              error: errorMessage,
+            }).catch(() => {});
             broadcastHeartbeat();
             notificationService.notify({
               type: 'run_failed',

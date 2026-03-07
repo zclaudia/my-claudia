@@ -18,6 +18,7 @@ import { useSupervisionStore } from '../stores/supervisionStore';
 import { useSessionsStore } from '../stores/sessionsStore';
 import { LOCAL_BACKEND_KEY } from '../stores/sessionsStore';
 import { useTerminalStore } from '../stores/terminalStore';
+import { usePluginStore } from '../stores/pluginStore';
 import { useFilePushStore } from '../stores/filePushStore';
 import { downloadPushedFile } from './fileDownload';
 import { xtermRegistry } from '../utils/xtermRegistry';
@@ -444,6 +445,41 @@ export function handleServerMessage(
 
     case 'error':
       console.error(`[${logTag}] Server error:`, msg.message);
+      break;
+
+    case 'plugin_state': {
+      const pluginStore = usePluginStore.getState();
+      const now = new Date().toISOString();
+      pluginStore.setPlugins(msg.plugins.map((p: any) => ({
+        manifest: {
+          id: p.id,
+          name: p.name,
+          version: p.version,
+          description: p.description,
+          permissions: p.permissions,
+        },
+        path: p.path,
+        status: p.status === 'active' ? 'active' : p.status === 'error' ? 'error' : 'idle',
+        enabled: p.enabled,
+        error: p.error,
+        installedAt: now,
+        updatedAt: now,
+      })));
+      break;
+    }
+
+    case 'plugin_permission_request': {
+      const pluginStoreForPerms = usePluginStore.getState();
+      pluginStoreForPerms.setPendingPermissionRequest({
+        pluginId: (msg as any).pluginId,
+        pluginName: (msg as any).pluginName,
+        permissions: (msg as any).permissions,
+      });
+      break;
+    }
+
+    case 'plugin_notification':
+      console.log(`[${logTag}] Plugin notification:`, msg.title, msg.body);
       break;
 
     default:

@@ -19,6 +19,7 @@ export interface ClaudeRunOptions {
   permissionMode?: PermissionMode;  // 'default' | 'acceptEdits' | 'bypassPermissions' | 'plan'
   model?: string;  // Override model (e.g. 'claude-sonnet-4-5-20250929')
   systemPrompt?: string;  // Appended to system prompt
+  serverPort?: number;  // Main server port for MCP bridge
 }
 
 export interface PermissionDecision {
@@ -268,6 +269,23 @@ export async function* runClaude(
   const userPlugins = loadPlugins();
   if (userPlugins.length > 0) {
     sdkOptions.plugins = userPlugins;
+  }
+
+  // Inject MCP bridge for plugin tools (if any plugin tools are registered)
+  if (options.serverPort) {
+    const { toolRegistry } = await import('../plugins/tool-registry.js');
+    const pluginTools = toolRegistry.getAll().filter(t => t.source === 'plugin');
+    if (pluginTools.length > 0) {
+      const bridgePath = path.join(path.dirname(import.meta.url.replace('file://', '')), '..', 'plugins', 'mcp-bridge.js');
+      const mcpServers = (sdkOptions.mcpServers || {}) as Record<string, unknown>;
+      mcpServers['claudia-plugins'] = {
+        command: 'node',
+        args: [bridgePath],
+        env: { CLAUDIA_BRIDGE_URL: `http://127.0.0.1:${options.serverPort}` },
+      };
+      sdkOptions.mcpServers = mcpServers;
+      console.log(`[Claude SDK] Injected MCP bridge with ${pluginTools.length} plugin tool(s)`);
+    }
   }
 
   // Permission handling callback

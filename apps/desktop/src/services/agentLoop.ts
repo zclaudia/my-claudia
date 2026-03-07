@@ -10,7 +10,7 @@
 
 import type { ChatMessage, ClientAIConfig, ToolCall } from './clientAI';
 import { streamChatCompletion, getClientAIConfig } from './clientAI';
-import { AGENT_TOOLS, executeToolCall, type ToolExecutionContext } from './agentTools';
+import { getAgentTools, executeToolCall, type ToolExecutionContext } from './agentTools';
 import { loadMessages, saveMessages, clearMessages } from './agentStorage';
 
 const MAX_TOOL_ITERATIONS = 10;
@@ -156,7 +156,7 @@ async function runAgentLoop(
     for await (const event of streamChatCompletion(
       config,
       fullMessages,
-      AGENT_TOOLS,
+      getAgentTools(),
       abortController?.signal,
     )) {
       switch (event.type) {

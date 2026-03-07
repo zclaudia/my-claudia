@@ -1,291 +1,26 @@
 /**
  * Agent tool definitions and execution for the client-side Meta-Agent.
  *
- * Tools are defined in OpenAI function calling format.
- * Each tool maps to high-level api.ts functions for reliable execution.
+ * Tools are registered with the centralized ToolRegistry, enabling both
+ * built-in and plugin-provided tools to be available to the agent.
  * Multi-backend support: optional backendId routes to the correct backend.
  */
 
 import type { ToolDefinition, ToolCall } from './clientAI';
-import type { ClientMessage } from '@my-claudia/shared';
 import * as api from './api';
 import { useChatStore } from '../stores/chatStore';
 import { useGatewayStore } from '../stores/gatewayStore';
 import { useServerStore } from '../stores/serverStore';
 import { resolveGatewayBackendUrl, getGatewayAuthHeaders } from './gatewayProxy';
+import { toolRegistry, type ToolExecutionContext } from './toolRegistry';
 
-// ============================================
-// Tool Execution Context
-// ============================================
-
-/** Optional context for tools that need WebSocket access (meta-agent tools). */
-export interface ToolExecutionContext {
-  /** Send a WebSocket message (e.g., run_start) */
-  sendWsMessage?: (message: ClientMessage) => void;
-  /** Whether a WebSocket connection is active */
-  isConnected?: boolean;
-}
-
-// ============================================
-// Tool Definitions (OpenAI function calling format)
-// ============================================
-
-export const AGENT_TOOLS: ToolDefinition[] = [
-  {
-    type: 'function',
-    function: {
-      name: 'list_backends',
-      description: 'List all connected backends with their names, IDs, and online status.',
-      parameters: { type: 'object', properties: {} },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'list_projects',
-      description: 'List all projects on a backend.',
-      parameters: {
-        type: 'object',
-        properties: {
-          backendId: { type: 'string', description: 'Backend ID. Omit for active backend.' },
-        },
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'list_sessions',
-      description: 'List sessions, optionally filtered by project.',
-      parameters: {
-        type: 'object',
-        properties: {
-          projectId: { type: 'string', description: 'Filter by project ID.' },
-          backendId: { type: 'string', description: 'Backend ID. Omit for active backend.' },
-        },
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'get_session_messages',
-      description: 'Get recent messages from a session.',
-      parameters: {
-        type: 'object',
-        properties: {
-          sessionId: { type: 'string', description: 'Session ID to get messages from.' },
-          limit: { type: 'number', description: 'Max messages to return (default 20).' },
-          backendId: { type: 'string', description: 'Backend ID. Omit for active backend.' },
-        },
-        required: ['sessionId'],
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'search_messages',
-      description: 'Search across all session messages by keyword.',
-      parameters: {
-        type: 'object',
-        properties: {
-          query: { type: 'string', description: 'Search keyword.' },
-          projectId: { type: 'string', description: 'Optionally limit search to a project.' },
-          backendId: { type: 'string', description: 'Backend ID. Omit for active backend.' },
-        },
-        required: ['query'],
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'summarize_session',
-      description: 'Export a session as markdown for analysis and summarization.',
-      parameters: {
-        type: 'object',
-        properties: {
-          sessionId: { type: 'string', description: 'Session ID to export.' },
-          backendId: { type: 'string', description: 'Backend ID. Omit for active backend.' },
-        },
-        required: ['sessionId'],
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'create_session',
-      description: 'Create a new session in a project.',
-      parameters: {
-        type: 'object',
-        properties: {
-          projectId: { type: 'string', description: 'Project ID to create session in.' },
-          name: { type: 'string', description: 'Session name.' },
-          backendId: { type: 'string', description: 'Backend ID. Omit for active backend.' },
-        },
-        required: ['projectId', 'name'],
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'delete_session',
-      description: 'Delete a session. Ask the user for confirmation before calling this.',
-      parameters: {
-        type: 'object',
-        properties: {
-          sessionId: { type: 'string', description: 'Session ID to delete.' },
-          backendId: { type: 'string', description: 'Backend ID. Omit for active backend.' },
-        },
-        required: ['sessionId'],
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'list_providers',
-      description: 'List available AI providers (Claude, OpenCode, etc.).',
-      parameters: {
-        type: 'object',
-        properties: {
-          backendId: { type: 'string', description: 'Backend ID. Omit for active backend.' },
-        },
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'list_files',
-      description: 'List files in a project directory.',
-      parameters: {
-        type: 'object',
-        properties: {
-          projectRoot: { type: 'string', description: 'Absolute path to project root.' },
-          relativePath: { type: 'string', description: 'Relative path within project (default: root).' },
-          backendId: { type: 'string', description: 'Backend ID. Omit for active backend.' },
-        },
-        required: ['projectRoot'],
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'read_file',
-      description: 'Read the contents of a file in a project.',
-      parameters: {
-        type: 'object',
-        properties: {
-          projectRoot: { type: 'string', description: 'Absolute path to project root.' },
-          relativePath: { type: 'string', description: 'Relative path to file.' },
-          backendId: { type: 'string', description: 'Backend ID. Omit for active backend.' },
-        },
-        required: ['projectRoot', 'relativePath'],
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'archive_sessions',
-      description: 'Archive multiple sessions to clean up. Ask the user for confirmation first.',
-      parameters: {
-        type: 'object',
-        properties: {
-          sessionIds: {
-            type: 'array',
-            items: { type: 'string' },
-            description: 'Session IDs to archive.',
-          },
-          backendId: { type: 'string', description: 'Backend ID. Omit for active backend.' },
-        },
-        required: ['sessionIds'],
-      },
-    },
-  },
-  // ── Meta-Agent Tools ──────────────────────────────────────
-  {
-    type: 'function',
-    function: {
-      name: 'send_task_to_session',
-      description: 'Send a task/message to a coding session to start a new AI run. Requires an active WebSocket connection to the backend.',
-      parameters: {
-        type: 'object',
-        properties: {
-          sessionId: { type: 'string', description: 'The session ID to send the task to.' },
-          input: { type: 'string', description: 'The message/task to send to the session.' },
-        },
-        required: ['sessionId', 'input'],
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'get_session_status',
-      description: 'Check if a session has an active AI run and get its recent activity summary.',
-      parameters: {
-        type: 'object',
-        properties: {
-          sessionId: { type: 'string', description: 'The session ID to check.' },
-        },
-        required: ['sessionId'],
-      },
-    },
-  },
-];
-
-// ============================================
-// Tool Execution
-// ============================================
-
-/**
- * Execute a tool call and return the result as a string.
- */
-export async function executeToolCall(toolCall: ToolCall, context?: ToolExecutionContext): Promise<string> {
-  try {
-    const args = JSON.parse(toolCall.function.arguments);
-    const name = toolCall.function.name;
-
-    switch (name) {
-      case 'list_backends': return executeListBackends();
-      case 'list_projects': return await executeWithBackend(args, toolListProjects);
-      case 'list_sessions': return await executeWithBackend(args, toolListSessions);
-      case 'get_session_messages': return await executeWithBackend(args, toolGetSessionMessages);
-      case 'search_messages': return await executeWithBackend(args, toolSearchMessages);
-      case 'summarize_session': return await executeWithBackend(args, toolSummarizeSession);
-      case 'create_session': return await executeWithBackend(args, toolCreateSession);
-      case 'delete_session': return await executeWithBackend(args, toolDeleteSession);
-      case 'list_providers': return await executeWithBackend(args, toolListProviders);
-      case 'list_files': return await executeWithBackend(args, toolListFiles);
-      case 'read_file': return await executeWithBackend(args, toolReadFile);
-      case 'archive_sessions': return await executeWithBackend(args, toolArchiveSessions);
-      // Meta-agent tools
-      case 'send_task_to_session': return toolSendTaskToSession(args, context);
-      case 'get_session_status': return toolGetSessionStatus(args);
-      default:
-        return JSON.stringify({ error: `Unknown tool: ${name}` });
-    }
-  } catch (error) {
-    return JSON.stringify({
-      error: `Tool execution failed: ${error instanceof Error ? error.message : String(error)}`,
-    });
-  }
-}
+// Re-export types for backward compatibility
+export type { ToolExecutionContext } from './toolRegistry';
 
 // ============================================
 // Multi-backend routing
 // ============================================
 
-/**
- * Check if the given backendId is the active backend (or unspecified).
- * If so, use api.ts functions directly. Otherwise, route via raw fetch.
- */
 function isActiveBackend(backendId?: string): boolean {
   if (!backendId) return true;
   const activeId = useServerStore.getState().activeServerId;
@@ -294,15 +29,11 @@ function isActiveBackend(backendId?: string): boolean {
   return false;
 }
 
-/**
- * Resolve the base URL and headers for a specific backend.
- */
 function resolveBackend(backendId: string): { baseUrl: string; headers: Record<string, string> } {
   const gwState = useGatewayStore.getState();
 
   if (backendId === 'local') {
     if (gwState.hasDirectConfig()) {
-      // Mobile: route "local" through gateway to first discovered backend
       const firstId = findFirstBackendId(gwState);
       if (!firstId) throw new Error('No online backend found');
       const url = resolveGatewayBackendUrl(firstId);
@@ -328,11 +59,6 @@ function findFirstBackendId(gwState: { discoveredBackends: Array<{ backendId: st
   return first?.backendId ?? null;
 }
 
-/**
- * Execute a tool function, routing to the correct backend.
- * If backendId is active/omitted, calls api.ts directly.
- * Otherwise, uses raw fetch to the resolved backend URL.
- */
 async function executeWithBackend<T extends { backendId?: string }>(
   args: T,
   handler: (args: T, remote?: { baseUrl: string; headers: Record<string, string> }) => Promise<string>,
@@ -344,9 +70,6 @@ async function executeWithBackend<T extends { backendId?: string }>(
   return handler(args, remote);
 }
 
-/**
- * Helper: fetch JSON from a remote backend's API.
- */
 async function remoteFetch<T>(remote: { baseUrl: string; headers: Record<string, string> }, path: string, options?: RequestInit): Promise<T> {
   const url = `${remote.baseUrl}${path.startsWith('/') ? path : `/${path}`}`;
   const response = await fetch(url, {
@@ -452,7 +175,6 @@ async function toolSummarizeSession(
   if (remote) {
     const data = await remoteFetch<any>(remote, `/api/sessions/${args.sessionId}/export`);
     const md = data.markdown || data;
-    // Truncate very long exports to fit context
     return typeof md === 'string' ? md.slice(0, 8000) : JSON.stringify(md).slice(0, 8000);
   }
   const result = await api.exportSession(args.sessionId);
@@ -544,10 +266,6 @@ async function toolArchiveSessions(
   return JSON.stringify({ success: true, archived: args.sessionIds.length });
 }
 
-// ============================================
-// Meta-Agent Tool Implementations
-// ============================================
-
 function toolSendTaskToSession(
   args: { sessionId: string; input: string },
   context?: ToolExecutionContext,
@@ -580,7 +298,6 @@ function toolGetSessionStatus(
   const chatState = useChatStore.getState();
   const { activeRuns } = chatState;
 
-  // Check if there's an active run for this session
   let activeRunId: string | null = null;
   for (const [runId, sid] of Object.entries(activeRuns)) {
     if (sid === args.sessionId) {
@@ -589,7 +306,6 @@ function toolGetSessionStatus(
     }
   }
 
-  // Get recent messages
   const sessionMessages = chatState.messages[args.sessionId] || [];
   const recentMessages = sessionMessages.slice(-5).map(m => ({
     role: m.role,
@@ -604,4 +320,144 @@ function toolGetSessionStatus(
     totalMessages: sessionMessages.length,
     recentMessages,
   }, null, 2);
+}
+
+// ============================================
+// Register built-in tools with ToolRegistry
+// ============================================
+
+interface BuiltinToolDef {
+  name: string;
+  description: string;
+  parameters: Record<string, unknown>;
+  handler: (args: any, context?: ToolExecutionContext) => Promise<string> | string;
+}
+
+const BUILTIN_TOOLS: BuiltinToolDef[] = [
+  {
+    name: 'list_backends',
+    description: 'List all connected backends with their names, IDs, and online status.',
+    parameters: { type: 'object', properties: {} },
+    handler: () => executeListBackends(),
+  },
+  {
+    name: 'list_projects',
+    description: 'List all projects on a backend.',
+    parameters: { type: 'object', properties: { backendId: { type: 'string', description: 'Backend ID. Omit for active backend.' } } },
+    handler: (args) => executeWithBackend(args, toolListProjects),
+  },
+  {
+    name: 'list_sessions',
+    description: 'List sessions, optionally filtered by project.',
+    parameters: { type: 'object', properties: { projectId: { type: 'string', description: 'Filter by project ID.' }, backendId: { type: 'string', description: 'Backend ID. Omit for active backend.' } } },
+    handler: (args) => executeWithBackend(args, toolListSessions),
+  },
+  {
+    name: 'get_session_messages',
+    description: 'Get recent messages from a session.',
+    parameters: { type: 'object', properties: { sessionId: { type: 'string', description: 'Session ID to get messages from.' }, limit: { type: 'number', description: 'Max messages to return (default 20).' }, backendId: { type: 'string', description: 'Backend ID. Omit for active backend.' } }, required: ['sessionId'] },
+    handler: (args) => executeWithBackend(args, toolGetSessionMessages),
+  },
+  {
+    name: 'search_messages',
+    description: 'Search across all session messages by keyword.',
+    parameters: { type: 'object', properties: { query: { type: 'string', description: 'Search keyword.' }, projectId: { type: 'string', description: 'Optionally limit search to a project.' }, backendId: { type: 'string', description: 'Backend ID. Omit for active backend.' } }, required: ['query'] },
+    handler: (args) => executeWithBackend(args, toolSearchMessages),
+  },
+  {
+    name: 'summarize_session',
+    description: 'Export a session as markdown for analysis and summarization.',
+    parameters: { type: 'object', properties: { sessionId: { type: 'string', description: 'Session ID to export.' }, backendId: { type: 'string', description: 'Backend ID. Omit for active backend.' } }, required: ['sessionId'] },
+    handler: (args) => executeWithBackend(args, toolSummarizeSession),
+  },
+  {
+    name: 'create_session',
+    description: 'Create a new session in a project.',
+    parameters: { type: 'object', properties: { projectId: { type: 'string', description: 'Project ID to create session in.' }, name: { type: 'string', description: 'Session name.' }, backendId: { type: 'string', description: 'Backend ID. Omit for active backend.' } }, required: ['projectId', 'name'] },
+    handler: (args) => executeWithBackend(args, toolCreateSession),
+  },
+  {
+    name: 'delete_session',
+    description: 'Delete a session. Ask the user for confirmation before calling this.',
+    parameters: { type: 'object', properties: { sessionId: { type: 'string', description: 'Session ID to delete.' }, backendId: { type: 'string', description: 'Backend ID. Omit for active backend.' } }, required: ['sessionId'] },
+    handler: (args) => executeWithBackend(args, toolDeleteSession),
+  },
+  {
+    name: 'list_providers',
+    description: 'List available AI providers (Claude, OpenCode, etc.).',
+    parameters: { type: 'object', properties: { backendId: { type: 'string', description: 'Backend ID. Omit for active backend.' } } },
+    handler: (args) => executeWithBackend(args, toolListProviders),
+  },
+  {
+    name: 'list_files',
+    description: 'List files in a project directory.',
+    parameters: { type: 'object', properties: { projectRoot: { type: 'string', description: 'Absolute path to project root.' }, relativePath: { type: 'string', description: 'Relative path within project (default: root).' }, backendId: { type: 'string', description: 'Backend ID. Omit for active backend.' } }, required: ['projectRoot'] },
+    handler: (args) => executeWithBackend(args, toolListFiles),
+  },
+  {
+    name: 'read_file',
+    description: 'Read the contents of a file in a project.',
+    parameters: { type: 'object', properties: { projectRoot: { type: 'string', description: 'Absolute path to project root.' }, relativePath: { type: 'string', description: 'Relative path to file.' }, backendId: { type: 'string', description: 'Backend ID. Omit for active backend.' } }, required: ['projectRoot', 'relativePath'] },
+    handler: (args) => executeWithBackend(args, toolReadFile),
+  },
+  {
+    name: 'archive_sessions',
+    description: 'Archive multiple sessions to clean up. Ask the user for confirmation first.',
+    parameters: { type: 'object', properties: { sessionIds: { type: 'array', items: { type: 'string' }, description: 'Session IDs to archive.' }, backendId: { type: 'string', description: 'Backend ID. Omit for active backend.' } }, required: ['sessionIds'] },
+    handler: (args) => executeWithBackend(args, toolArchiveSessions),
+  },
+  {
+    name: 'send_task_to_session',
+    description: 'Send a task/message to a coding session to start a new AI run. Requires an active WebSocket connection to the backend.',
+    parameters: { type: 'object', properties: { sessionId: { type: 'string', description: 'The session ID to send the task to.' }, input: { type: 'string', description: 'The message/task to send to the session.' } }, required: ['sessionId', 'input'] },
+    handler: (args, context) => toolSendTaskToSession(args, context),
+  },
+  {
+    name: 'get_session_status',
+    description: 'Check if a session has an active AI run and get its recent activity summary.',
+    parameters: { type: 'object', properties: { sessionId: { type: 'string', description: 'The session ID to check.' } }, required: ['sessionId'] },
+    handler: (args) => toolGetSessionStatus(args),
+  },
+];
+
+// Register all built-in tools at module load
+for (const tool of BUILTIN_TOOLS) {
+  toolRegistry.register({
+    id: tool.name,
+    definition: {
+      type: 'function',
+      function: {
+        name: tool.name,
+        description: tool.description,
+        parameters: tool.parameters,
+      },
+    },
+    handler: tool.handler,
+    source: 'builtin',
+  });
+}
+
+// ============================================
+// Public API
+// ============================================
+
+/**
+ * Get all agent tool definitions (built-in + plugin-provided).
+ * Replaces the static AGENT_TOOLS array.
+ */
+export function getAgentTools(): ToolDefinition[] {
+  return toolRegistry.getAllDefinitions();
+}
+
+/**
+ * @deprecated Use getAgentTools() instead. This static array does not include plugin tools.
+ */
+export const AGENT_TOOLS: ToolDefinition[] = toolRegistry.getDefinitionsBySource('builtin');
+
+/**
+ * Execute a tool call and return the result as a string.
+ * Delegates to the centralized ToolRegistry.
+ */
+export async function executeToolCall(toolCall: ToolCall, context?: ToolExecutionContext): Promise<string> {
+  return toolRegistry.execute(toolCall, context);
 }

@@ -12,6 +12,7 @@ import { ServerGatewayConfig } from './ServerGatewayConfig';
 import { ImportDialog } from './ImportDialog';
 import { ImportOpenCodeDialog } from './ImportOpenCodeDialog';
 import { PluginSettings } from './PluginSettings';
+import { usePluginStore, selectPluginSettingsTabs } from '../stores/pluginStore';
 import * as api from '../services/api';
 import { exportLogs, getLogCount, clearLogs } from '../services/logger';
 import { getClientAIConfig, setClientAIConfig, testClientAIConnection, fetchAvailableModels, type ClientAIConfig } from '../services/clientAI';
@@ -31,7 +32,7 @@ const TRUST_LEVELS: Array<{ id: AgentPermissionPolicy['trustLevel']; label: stri
   { id: 'full_trust', label: 'Full Trust', description: 'Auto-approve everything except dangerous bash' },
 ];
 
-type SettingsTab = 'general' | 'client-ai' | 'connections' | 'providers' | 'notifications' | 'gateway' | 'import' | 'plugins';
+type SettingsTab = 'general' | 'client-ai' | 'connections' | 'providers' | 'notifications' | 'gateway' | 'import' | 'plugins' | `plugin:${string}`;
 
 interface SettingsPanelProps {
   isOpen: boolean;
@@ -45,6 +46,7 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
   const [serverPickerOpen, setServerPickerOpen] = useState(false);
   const [mobileShowContent, setMobileShowContent] = useState(false);
   const isMobile = useIsMobile();
+  const pluginSettingsTabs = usePluginStore(selectPluginSettingsTabs);
 
   const {
     connectionStatus,
@@ -192,6 +194,15 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
         </svg>
       )
     },
+    ...pluginSettingsTabs.map(tab => ({
+      id: `plugin:${tab.id}` as SettingsTab,
+      label: tab.label,
+      icon: (
+        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 4a2 2 0 114 0v1a1 1 0 001 1h3a1 1 0 011 1v3a1 1 0 01-1 1h-1a2 2 0 100 4h1a1 1 0 011 1v3a1 1 0 01-1 1h-3a1 1 0 01-1-1v-1a2 2 0 10-4 0v1a1 1 0 01-1 1H7a1 1 0 01-1-1v-3a1 1 0 00-1-1H4a2 2 0 110-4h1a1 1 0 001-1V7a1 1 0 011-1h3a1 1 0 001-1V4z" />
+        </svg>
+      )
+    })),
     ...(isMobile ? [{
       id: 'gateway' as SettingsTab,
       label: 'Gateway',
@@ -843,6 +854,22 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
                 <PluginSettings />
               </div>
             )}
+
+            {/* Dynamic plugin settings tabs */}
+            {typeof activeTab === 'string' && activeTab.startsWith('plugin:') && (() => {
+              const tabId = activeTab.slice(7);
+              const tab = pluginSettingsTabs.find(t => t.id === tabId);
+              if (!tab) return null;
+              const Component = tab.component as React.ComponentType | undefined;
+              return (
+                <div className="space-y-4">
+                  <h3 className="text-lg font-semibold">{tab.label}</h3>
+                  {Component ? <Component /> : (
+                    <p className="text-sm text-muted-foreground">No settings UI available for this plugin.</p>
+                  )}
+                </div>
+              );
+            })()}
           </div>
           )}
         </div>

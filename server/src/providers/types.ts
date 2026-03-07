@@ -12,6 +12,7 @@ export interface RunOptions {
   mode?: string;          // permission mode (claude) or agent (opencode)
   model?: string;
   systemPrompt?: string;  // Appended to system prompt (e.g. for agent sessions)
+  serverPort?: number;    // Main server port for MCP bridge
 }
 
 /** Provider adapter interface */

@@ -56,6 +56,9 @@ interface PluginStoreState {
   // Plugin settings
   settings: PluginSettings;
 
+  // Permission request
+  pendingPermissionRequest: { pluginId: string; pluginName: string; permissions: string[] } | null;
+
   // Actions - Plugins
   setPlugins: (plugins: InstalledPlugin[]) => void;
   addPlugin: (plugin: InstalledPlugin) => void;
@@ -78,6 +81,9 @@ interface PluginStoreState {
   getPluginSetting: <T>(pluginId: string, key: string, defaultValue: T) => T;
   clearPluginSettings: (pluginId: string) => void;
 
+  // Actions - Permission
+  setPendingPermissionRequest: (req: { pluginId: string; pluginName: string; permissions: string[] } | null) => void;
+
   // Actions - Loading
   setLoading: (loading: boolean) => void;
   setError: (error: string | null) => void;
@@ -98,6 +104,7 @@ export const usePluginStore = create<PluginStoreState>()(
       settingsTabs: [],
       toolbarItems: [],
       settings: {},
+      pendingPermissionRequest: null,
 
       // Plugin Actions
       setPlugins: (plugins) => set({ plugins }),
@@ -197,6 +204,9 @@ export const usePluginStore = create<PluginStoreState>()(
           const { [pluginId]: _, ...rest } = state.settings;
           return { settings: rest };
         }),
+
+      // Permission Actions
+      setPendingPermissionRequest: (pendingPermissionRequest) => set({ pendingPermissionRequest }),
 
       // Loading Actions
       setLoading: (isLoading) => set({ isLoading }),

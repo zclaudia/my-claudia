@@ -177,6 +177,8 @@ export interface PluginInstance {
   isActive: boolean;
   module?: unknown;
   error?: string;
+  /** Permissions not yet granted — will be requested on first tool/command use */
+  pendingPermissions?: string[];
 }
 
 // ============================================

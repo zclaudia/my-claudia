@@ -6,6 +6,7 @@ import { saveSearchHistory, getSearchHistory, clearSearchHistory, getSearchSugge
 import { extractAndIndexMetadata } from '../storage/metadata-extractor.js';
 import { getGatewayClient } from '../gateway-instance.js';
 import { hasForegroundActiveRunForSession, findForegroundActiveRunIdForSession } from '../utils/run-state.js';
+import { pluginEvents } from '../events/index.js';
 
 type ActiveRunsMap = Map<string, any>;
 
@@ -123,6 +124,10 @@ export function createSessionRoutes(db: Database.Database, activeRuns: ActiveRun
         }
       }
 
+      for (const id of sessionIds) {
+        pluginEvents.emit('session.archived', { sessionId: id }).catch(() => {});
+      }
+
       res.json({ success: true, data: { archived: sessionIds.length } } as ApiResponse<{ archived: number }>);
     } catch (error) {
       console.error('Error archiving sessions:', error);
@@ -169,6 +174,10 @@ export function createSessionRoutes(db: Database.Database, activeRuns: ActiveRun
             gatewayClient.broadcastSessionEvent('updated', session);
           }
         }
+      }
+
+      for (const id of sessionIds) {
+        pluginEvents.emit('session.restored', { sessionId: id }).catch(() => {});
       }
 
       res.json({ success: true, data: { restored: sessionIds.length } } as ApiResponse<{ restored: number }>);
@@ -317,6 +326,8 @@ export function createSessionRoutes(db: Database.Database, activeRuns: ActiveRun
       if (gatewayClient) {
         gatewayClient.broadcastSessionEvent('created', session);
       }
+
+      pluginEvents.emit('session.created', { sessionId: id, session }).catch(() => {});
 
       res.status(201).json({ success: true, data: session } as ApiResponse<Session>);
     } catch (error) {
@@ -469,6 +480,8 @@ export function createSessionRoutes(db: Database.Database, activeRuns: ActiveRun
       if (gatewayClient) {
         gatewayClient.broadcastSessionEvent('deleted', session);
       }
+
+      pluginEvents.emit('session.deleted', { sessionId, session }).catch(() => {});
 
       console.log(`[Delete Session] Successfully deleted session ${sessionId}`);
       res.json({ success: true } as ApiResponse<void>);

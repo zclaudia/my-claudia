@@ -158,6 +158,19 @@ class CommandRegistry {
     }
 
     try {
+      // Lazy permission check for plugin commands
+      if (command.pluginId) {
+        const { pluginLoader } = await import('../plugins/loader.js');
+        const permitted = await pluginLoader.checkPermissions(command.pluginId);
+        if (!permitted) {
+          return {
+            type: 'builtin',
+            command: commandName,
+            error: `Plugin "${command.pluginId}" permissions denied`,
+          };
+        }
+      }
+
       const result = await command.handler(args, context);
       return result;
     } catch (error) {

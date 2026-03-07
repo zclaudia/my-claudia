@@ -373,7 +373,8 @@ export type ClientMessage =
   | TerminalOpenMessage
   | TerminalInputMessage
   | TerminalResizeMessage
-  | TerminalCloseMessage;
+  | TerminalCloseMessage
+  | PluginPermissionResponseMessage;
 
 // Authentication message (sent after WebSocket connection)
 export interface AuthMessage {
@@ -570,6 +571,14 @@ export interface TerminalCloseMessage {
   terminalId: string;
 }
 
+// Plugin permission response (Client → Server)
+export interface PluginPermissionResponseMessage {
+  type: 'plugin_permission_response';
+  pluginId: string;
+  granted: boolean;
+  permanently?: boolean;
+}
+
 // Remote Terminal messages (Server → Client)
 export interface TerminalOpenedMessage {
   type: 'terminal_opened';
@@ -601,6 +610,41 @@ export interface FilePushNotificationMessage {
   description?: string;
   autoDownload: boolean;
   messageId?: string;
+}
+
+// Plugin state (Server → Client)
+export interface PluginStateMessage {
+  type: 'plugin_state';
+  plugins: Array<{
+    id: string;
+    name: string;
+    version: string;
+    description: string;
+    status: 'active' | 'inactive' | 'error';
+    enabled: boolean;
+    error?: string;
+    permissions?: string[];
+    grantedPermissions?: string[];
+    tools?: string[];
+    commands?: string[];
+    path: string;
+  }>;
+}
+
+// Plugin permission request (Server → Client)
+export interface PluginPermissionRequestMessage {
+  type: 'plugin_permission_request';
+  pluginId: string;
+  pluginName: string;
+  permissions: string[];
+}
+
+// Plugin notification (Server → Client)
+export interface PluginNotificationMessage {
+  type: 'plugin_notification';
+  pluginId: string;
+  title: string;
+  body: string;
 }
 
 // Server → Client messages
@@ -653,7 +697,10 @@ export type ServerMessage =
   | TerminalOpenedMessage
   | TerminalOutputMessage
   | TerminalExitedMessage
-  | FilePushNotificationMessage;
+  | FilePushNotificationMessage
+  | PluginStateMessage
+  | PluginPermissionRequestMessage
+  | PluginNotificationMessage;
 
 // Authentication result message
 export interface AuthResultMessage {

@@ -36,6 +36,7 @@ import { permissionManager } from './permissions.js';
 import type { Permission } from '@my-claudia/shared';
 import { pluginStorageManager } from './storage.js';
 import { createProviderAPI } from './provider-api.js';
+import { workerHost } from './worker-host.js';
 
 // ============================================
 // Types
@@ -56,6 +57,8 @@ export class PluginLoader {
   private plugins = new Map<string, PluginInstance>();
   private pluginDirs: string[];
   private db: import('better-sqlite3').Database | null = null;
+  private pluginAPIs = new Map<string, unknown>();
+  private broadcastFn: ((msg: any) => void) | null = null;
 
   constructor(options: PluginLoaderOptions = {}) {
     // Default plugin directories
@@ -80,6 +83,13 @@ export class PluginLoader {
    */
   setDatabase(db: import('better-sqlite3').Database): void {
     this.db = db;
+  }
+
+  /**
+   * Set the broadcast function for sending messages to connected frontends.
+   */
+  setBroadcast(fn: (msg: any) => void): void {
+    this.broadcastFn = fn;
   }
 
   /**
@@ -291,6 +301,7 @@ export class PluginLoader {
       if (!compatibility.compatible) {
         console.error(`[PluginLoader] Plugin ${pluginId} compatibility check failed: ${compatibility.error}`);
         instance.error = compatibility.error;
+        await pluginEvents.emit('plugin.error', { pluginId, error: instance.error }, pluginId);
         return false;
       }
 
@@ -299,24 +310,21 @@ export class PluginLoader {
       if (missingDeps.length > 0) {
         console.error(`[PluginLoader] Plugin ${pluginId} has missing dependencies: ${missingDeps.join(', ')}`);
         instance.error = `Missing dependencies: ${missingDeps.join(', ')}`;
+        await pluginEvents.emit('plugin.error', { pluginId, error: instance.error }, pluginId);
         return false;
       }
 
-      // Check/request permissions if plugin requires them
+      // Note: Permission checks are deferred to tool/command invocation time.
+      // Requesting permissions here would block activation if no UI is connected
+      // (e.g. during server startup before any WebSocket client connects).
+      // Permissions are enforced lazily via checkPermissions() when plugin
+      // tools or commands are actually invoked.
       const requiredPermissions = instance.manifest.permissions || [];
       if (requiredPermissions.length > 0) {
         const hasAll = permissionManager.hasAllPermissions(pluginId, requiredPermissions as Permission[]);
         if (!hasAll) {
-          // Request permissions
-          const granted = await permissionManager.request(
-            pluginId,
-            requiredPermissions as Permission[],
-            instance.manifest
-          );
-          if (!granted) {
-            console.warn(`[PluginLoader] Plugin ${pluginId} activation cancelled: permissions denied`);
-            return false;
-          }
+          console.log(`[PluginLoader] Plugin ${pluginId} needs permissions: ${requiredPermissions.join(', ')} (will request on use)`);
+          instance.pendingPermissions = requiredPermissions as Permission[];
         }
       }
 
@@ -343,6 +351,39 @@ export class PluginLoader {
   }
 
   /**
+   * Check and request pending permissions for a plugin.
+   * Called lazily when a plugin's tool or command is first invoked.
+   * Returns true if all permissions are granted, false if denied.
+   */
+  async checkPermissions(pluginId: string): Promise<boolean> {
+    const instance = this.plugins.get(pluginId);
+    if (!instance || !instance.pendingPermissions || instance.pendingPermissions.length === 0) {
+      return true;
+    }
+
+    // Check if permissions were granted since activation
+    const hasAll = permissionManager.hasAllPermissions(pluginId, instance.pendingPermissions as Permission[]);
+    if (hasAll) {
+      instance.pendingPermissions = undefined;
+      return true;
+    }
+
+    // Request permissions now (UI should be available at this point)
+    const granted = await permissionManager.request(
+      pluginId,
+      instance.pendingPermissions as Permission[],
+      instance.manifest
+    );
+    if (granted) {
+      instance.pendingPermissions = undefined;
+      return true;
+    }
+
+    console.warn(`[PluginLoader] Plugin ${pluginId} permissions denied at use time`);
+    return false;
+  }
+
+  /**
    * Deactivate a plugin by ID.
    */
   async deactivate(pluginId: string): Promise<boolean> {
@@ -357,8 +398,11 @@ export class PluginLoader {
     }
 
     try {
-      // Call deactivate if module exports it
-      if (instance.module && typeof (instance.module as any).deactivate === 'function') {
+      // Stop Worker if running in worker mode
+      if (workerHost.hasWorker(pluginId)) {
+        await workerHost.stopPlugin(pluginId);
+      } else if (instance.module && typeof (instance.module as any).deactivate === 'function') {
+        // Call deactivate if module exports it (main thread mode)
         await (instance.module as any).deactivate();
       }
 
@@ -485,8 +529,16 @@ export class PluginLoader {
       throw new Error(`Module not found: ${modulePath}`);
     }
 
+    // Worker isolation mode
+    if (manifest.executionMode === 'worker') {
+      workerHost.setDatabase(this.db!);
+      if (this.broadcastFn) workerHost.setBroadcast(this.broadcastFn);
+      await workerHost.startPlugin(manifest.id, modulePath);
+      return;
+    }
+
     try {
-      // Dynamic import
+      // Dynamic import (main thread)
       const module = await import(modulePath);
       instance.module = module;
 
@@ -603,15 +655,159 @@ export class PluginLoader {
         },
       },
 
-      // Provider API (only if plugin has 'provider.call' permission)
+      // File System API (requires fs.read / fs.write permissions)
+      fs: (() => {
+        const hasRead = permissionManager.hasPermission(pluginId, 'fs.read' as Permission);
+        const hasWrite = permissionManager.hasPermission(pluginId, 'fs.write' as Permission);
+        if (!hasRead && !hasWrite) return undefined;
+        return {
+          readFile: async (filePath: string): Promise<string> => {
+            if (!permissionManager.hasPermission(pluginId, 'fs.read' as Permission))
+              throw new Error('Permission denied: fs.read');
+            return fs.promises.readFile(filePath, 'utf-8');
+          },
+          writeFile: async (filePath: string, content: string): Promise<void> => {
+            if (!permissionManager.hasPermission(pluginId, 'fs.write' as Permission))
+              throw new Error('Permission denied: fs.write');
+            await fs.promises.writeFile(filePath, content, 'utf-8');
+          },
+          exists: async (filePath: string): Promise<boolean> => {
+            return fs.existsSync(filePath);
+          },
+          readdir: async (dirPath: string): Promise<string[]> => {
+            if (!permissionManager.hasPermission(pluginId, 'fs.read' as Permission))
+              throw new Error('Permission denied: fs.read');
+            return fs.promises.readdir(dirPath);
+          },
+          mkdir: async (dirPath: string): Promise<void> => {
+            if (!permissionManager.hasPermission(pluginId, 'fs.write' as Permission))
+              throw new Error('Permission denied: fs.write');
+            await fs.promises.mkdir(dirPath, { recursive: true });
+          },
+          unlink: async (filePath: string): Promise<void> => {
+            if (!permissionManager.hasPermission(pluginId, 'fs.write' as Permission))
+              throw new Error('Permission denied: fs.write');
+            await fs.promises.unlink(filePath);
+          },
+        };
+      })(),
+
+      // Network API (requires network.fetch permission)
+      network: permissionManager.hasPermission(pluginId, 'network.fetch' as Permission)
+        ? {
+            fetch: async (url: string, options?: Record<string, unknown>): Promise<{ ok: boolean; status: number; body: string }> => {
+              if (!permissionManager.hasPermission(pluginId, 'network.fetch' as Permission))
+                throw new Error('Permission denied: network.fetch');
+              const response = await globalThis.fetch(url, options as RequestInit);
+              const body = await response.text();
+              return { ok: response.ok, status: response.status, body };
+            },
+          }
+        : undefined,
+
+      // Shell API (requires shell.execute permission)
+      shell: permissionManager.hasPermission(pluginId, 'shell.execute' as Permission)
+        ? {
+            execute: async (command: string, args?: string[], options?: { cwd?: string }): Promise<{ stdout: string; stderr: string; code: number }> => {
+              if (!permissionManager.hasPermission(pluginId, 'shell.execute' as Permission))
+                throw new Error('Permission denied: shell.execute');
+              const { execFile } = await import('child_process');
+              return new Promise((resolve) => {
+                execFile(command, args || [], { cwd: options?.cwd }, (error, stdout, stderr) => {
+                  resolve({
+                    stdout: stdout || '',
+                    stderr: stderr || '',
+                    code: error ? (typeof error.code === 'number' ? error.code : 1) : 0,
+                  });
+                });
+              });
+            },
+          }
+        : undefined,
+
+      // Notification API (requires notification permission)
+      notification: permissionManager.hasPermission(pluginId, 'notification' as Permission)
+        ? {
+            show: async (title: string, body: string): Promise<void> => {
+              if (!permissionManager.hasPermission(pluginId, 'notification' as Permission))
+                throw new Error('Permission denied: notification');
+              pluginEvents.emit('plugin.notification', { pluginId, title, body }).catch(() => {});
+              this.broadcastFn?.({ type: 'plugin_notification', pluginId, title, body });
+            },
+          }
+        : undefined,
+
+      // Clipboard API (requires clipboard.read / clipboard.write permissions)
+      clipboard: (() => {
+        const hasRead = permissionManager.hasPermission(pluginId, 'clipboard.read' as Permission);
+        const hasWrite = permissionManager.hasPermission(pluginId, 'clipboard.write' as Permission);
+        if (!hasRead && !hasWrite) return undefined;
+        return {
+          read: async (): Promise<string> => {
+            throw new Error('Clipboard read requires desktop environment');
+          },
+          write: async (_text: string): Promise<void> => {
+            throw new Error('Clipboard write requires desktop environment');
+          },
+        };
+      })(),
+
+      // Session API (requires session.read permission)
+      session: permissionManager.hasPermission(pluginId, 'session.read' as Permission) && this.db
+        ? {
+            getActive: async () => null,
+            getById: async (id: string) => {
+              return this.db!.prepare(
+                'SELECT id, project_id as projectId, name, created_at as createdAt, updated_at as updatedAt FROM sessions WHERE id = ?'
+              ).get(id) || null;
+            },
+            list: async () => {
+              return this.db!.prepare(
+                'SELECT id, project_id as projectId, name, created_at as createdAt, updated_at as updatedAt FROM sessions WHERE archived_at IS NULL ORDER BY updated_at DESC LIMIT 50'
+              ).all();
+            },
+          }
+        : undefined,
+
+      // Project API (requires project.read permission)
+      project: permissionManager.hasPermission(pluginId, 'project.read' as Permission) && this.db
+        ? {
+            getActive: async () => null,
+            getById: async (id: string) => {
+              return this.db!.prepare(
+                'SELECT id, name, root_path as path FROM projects WHERE id = ?'
+              ).get(id) || null;
+            },
+            list: async () => {
+              return this.db!.prepare(
+                'SELECT id, name, root_path as path FROM projects ORDER BY updated_at DESC LIMIT 50'
+              ).all();
+            },
+          }
+        : undefined,
+
+      // Provider API (requires provider.call permission)
       providers: this.db && permissionManager.hasPermission(pluginId, 'provider.call' as Permission)
         ? createProviderAPI(this.db, pluginId)
         : undefined,
 
-      context: {
-        getActiveProject: async () => null,
-        getActiveSession: async () => null,
-        getProjects: async () => [],
+      // UI API
+      ui: {
+        components: { Button: null, Input: null, Card: null, Badge: null },
+        showPanel: (panelId: string) => {
+          this.broadcastFn?.({ type: 'plugin_show_panel', pluginId, panelId });
+        },
+        showNotification: (message: string) => {
+          this.broadcastFn?.({ type: 'plugin_notification', pluginId, title: pluginId, body: message });
+        },
+      },
+
+      // Plugin inter-communication
+      exports: <T>(api: T): void => {
+        this.pluginAPIs.set(pluginId, api);
+      },
+      getPluginAPI: <T>(targetPluginId: string): T | undefined => {
+        return this.pluginAPIs.get(targetPluginId) as T | undefined;
       },
 
       env: {

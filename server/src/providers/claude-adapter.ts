@@ -18,6 +18,7 @@ export class ClaudeAdapter implements ProviderAdapter {
       permissionMode: (options.mode || 'default') as PermissionMode,
       model: options.model,
       systemPrompt: options.systemPrompt,
+      serverPort: options.serverPort,
     }, onPermission);
   }
 }
