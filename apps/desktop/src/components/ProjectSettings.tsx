@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import type { Project, ProviderConfig, AgentPermissionPolicy } from '@my-claudia/shared';
 import { useServerStore } from '../stores/serverStore';
 import { useProjectStore } from '../stores/projectStore';
+import { useSupervisionStore } from '../stores/supervisionStore';
 import * as api from '../services/api';
 
 const TRUST_LEVELS: Array<{ id: AgentPermissionPolicy['trustLevel']; label: string; description: string }> = [
@@ -21,6 +22,12 @@ export function ProjectSettings({ project, isOpen, onClose }: ProjectSettingsPro
   const { connectionStatus } = useServerStore();
   const { updateProject } = useProjectStore();
   const isConnected = connectionStatus === 'connected';
+
+  // Supervisor state
+  const v2Agent = useSupervisionStore((s) => project ? s.agents[project.id] : undefined);
+  const setAgent = useSupervisionStore((s) => s.setAgent);
+  const removeAgent = useSupervisionStore((s) => s.removeAgent);
+  const [supervisorLoading, setSupervisorLoading] = useState(false);
 
   const [providers, setProviders] = useState<ProviderConfig[]>([]);
   const [loading, setLoading] = useState(false);
@@ -96,6 +103,29 @@ export function ProjectSettings({ project, isOpen, onClose }: ProjectSettingsPro
       console.error('Failed to update project:', error);
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleToggleSupervisor = async () => {
+    if (!project || !isConnected) return;
+    setSupervisorLoading(true);
+    try {
+      if (!v2Agent) {
+        const result = await api.initSupervisionAgent(
+          project.id,
+          { maxConcurrentTasks: 2, trustLevel: 'medium' },
+          undefined,
+          'lite'
+        );
+        setAgent(project.id, result);
+      } else {
+        await api.updateSupervisionAgentAction(project.id, 'archive');
+        removeAgent(project.id);
+      }
+    } catch (err) {
+      console.error('Failed to toggle supervisor:', err);
+    } finally {
+      setSupervisorLoading(false);
     }
   };
 
@@ -264,6 +294,60 @@ export function ProjectSettings({ project, isOpen, onClose }: ProjectSettingsPro
                   </div>
                 </div>
 
+              </div>
+            )}
+          </div>
+
+          {/* Supervisor Agent */}
+          <div className="border-t border-border pt-4">
+            <div className="flex items-center justify-between mb-2">
+              <div>
+                <label className="block text-sm font-medium text-muted-foreground">
+                  Supervisor Agent
+                </label>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Enable a supervisor to manage tasks and sub-sessions
+                </p>
+              </div>
+              <button
+                onClick={handleToggleSupervisor}
+                disabled={supervisorLoading || !isConnected}
+                className={`relative w-10 h-5 rounded-full transition-colors flex-shrink-0 disabled:opacity-50 ${
+                  v2Agent ? 'bg-primary' : 'bg-muted'
+                }`}
+              >
+                <span
+                  className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${
+                    v2Agent ? 'translate-x-5' : 'translate-x-0'
+                  }`}
+                />
+              </button>
+            </div>
+
+            {!v2Agent && (
+              <p className="text-xs text-muted-foreground/70 italic">
+                Supervisor is not enabled for this project
+              </p>
+            )}
+
+            {v2Agent && (
+              <div className="space-y-2 mt-3 pl-3 border-l-2 border-primary/30">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-medium text-muted-foreground">Status:</span>
+                  <span className={`text-xs font-medium ${
+                    v2Agent.phase === 'active' ? 'text-green-500' :
+                    v2Agent.phase === 'paused' ? 'text-yellow-500' :
+                    'text-muted-foreground'
+                  }`}>
+                    {v2Agent.phase.charAt(0).toUpperCase() + v2Agent.phase.slice(1)}
+                  </span>
+                  {v2Agent.phase === 'active' && (
+                    <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
+                  )}
+                </div>
+                <div className="text-xs text-muted-foreground">
+                  Mode: {(v2Agent.mode ?? 'full') === 'lite' ? 'Workflow Runner' : 'Full Supervisor'}
+                </div>
               </div>
             )}
           </div>

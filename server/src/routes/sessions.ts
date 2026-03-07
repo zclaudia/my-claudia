@@ -19,6 +19,16 @@ function buildSearchPreview(content: string): string {
   return normalized || 'No preview text';
 }
 
+// Standard SELECT fields for session queries (keeps supervision v2 fields in sync)
+const SESSION_SELECT = `id, project_id as projectId, name, provider_id as providerId,
+               sdk_session_id as sdkSessionId, type, parent_session_id as parentSessionId,
+               working_directory as workingDirectory,
+               archived_at as archivedAt,
+               project_role as projectRole, task_id as taskId,
+               plan_status as planStatus,
+               CASE WHEN is_read_only = 1 THEN 1 ELSE NULL END as isReadOnly,
+               created_at as createdAt, updated_at as updatedAt`;
+
 export function createSessionRoutes(db: Database.Database, activeRuns: ActiveRunsMap): Router {
   const router = Router();
 
@@ -42,11 +52,7 @@ export function createSessionRoutes(db: Database.Database, activeRuns: ActiveRun
       const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
       const sessions = db.prepare(`
-        SELECT id, project_id as projectId, name, provider_id as providerId,
-               sdk_session_id as sdkSessionId, type, parent_session_id as parentSessionId,
-               working_directory as workingDirectory,
-               archived_at as archivedAt,
-               created_at as createdAt, updated_at as updatedAt
+        SELECT ${SESSION_SELECT}
         FROM sessions
         ${where}
         ORDER BY updated_at DESC
@@ -66,11 +72,7 @@ export function createSessionRoutes(db: Database.Database, activeRuns: ActiveRun
   router.get('/archived', (req: Request, res: Response) => {
     try {
       const sessions = db.prepare(`
-        SELECT id, project_id as projectId, name, provider_id as providerId,
-               sdk_session_id as sdkSessionId, type, parent_session_id as parentSessionId,
-               working_directory as workingDirectory,
-               archived_at as archivedAt,
-               created_at as createdAt, updated_at as updatedAt
+        SELECT ${SESSION_SELECT}
         FROM sessions
         WHERE archived_at IS NOT NULL
         ORDER BY archived_at DESC
@@ -113,9 +115,7 @@ export function createSessionRoutes(db: Database.Database, activeRuns: ActiveRun
       if (gatewayClient) {
         for (const id of sessionIds) {
           const session = db.prepare(`
-            SELECT id, project_id as projectId, name, provider_id as providerId,
-                   working_directory as workingDirectory,
-                   archived_at as archivedAt, created_at as createdAt, updated_at as updatedAt
+            SELECT ${SESSION_SELECT}
             FROM sessions WHERE id = ?
           `).get(id) as Session | undefined;
           if (session) {
@@ -165,9 +165,7 @@ export function createSessionRoutes(db: Database.Database, activeRuns: ActiveRun
       if (gatewayClient) {
         for (const id of sessionIds) {
           const session = db.prepare(`
-            SELECT id, project_id as projectId, name, provider_id as providerId,
-                   working_directory as workingDirectory,
-                   archived_at as archivedAt, created_at as createdAt, updated_at as updatedAt
+            SELECT ${SESSION_SELECT}
             FROM sessions WHERE id = ?
           `).get(id) as Session | undefined;
           if (session) {
@@ -207,8 +205,12 @@ export function createSessionRoutes(db: Database.Database, activeRuns: ActiveRun
       // Get all non-archived sessions updated after the given timestamp, with lastMessageOffset
       const sessions = db.prepare(`
         SELECT s.id, s.project_id as projectId, s.name, s.provider_id as providerId,
+               s.sdk_session_id as sdkSessionId, s.type, s.parent_session_id as parentSessionId,
                s.working_directory as workingDirectory,
                s.archived_at as archivedAt,
+               s.project_role as projectRole, s.task_id as taskId,
+               s.plan_status as planStatus,
+               CASE WHEN s.is_read_only = 1 THEN 1 ELSE NULL END as isReadOnly,
                s.created_at as createdAt, s.updated_at as updatedAt,
                (SELECT MAX(offset) FROM messages WHERE session_id = s.id) as lastMessageOffset
         FROM sessions s
@@ -251,11 +253,7 @@ export function createSessionRoutes(db: Database.Database, activeRuns: ActiveRun
   router.get('/:id', (req: Request, res: Response) => {
     try {
       const session = db.prepare(`
-        SELECT id, project_id as projectId, name, provider_id as providerId,
-               sdk_session_id as sdkSessionId, type, parent_session_id as parentSessionId,
-               working_directory as workingDirectory,
-               archived_at as archivedAt,
-               created_at as createdAt, updated_at as updatedAt
+        SELECT ${SESSION_SELECT}
         FROM sessions WHERE id = ?
       `).get(req.params.id) as Session | undefined;
 
@@ -367,9 +365,7 @@ export function createSessionRoutes(db: Database.Database, activeRuns: ActiveRun
       if (gatewayClient) {
         // Fetch updated session to broadcast
         const updatedSession = db.prepare(`
-          SELECT id, project_id as projectId, name, provider_id as providerId,
-                 working_directory as workingDirectory,
-                 created_at as createdAt, updated_at as updatedAt
+          SELECT ${SESSION_SELECT}
           FROM sessions WHERE id = ?
         `).get(req.params.id) as Session | undefined;
 
@@ -394,6 +390,29 @@ export function createSessionRoutes(db: Database.Database, activeRuns: ActiveRun
       const { id } = req.params;
       const { workingDirectory } = req.body;
       const fs = require('fs');
+
+      const lockRow = db.prepare(`
+        SELECT project_role, plan_status
+        FROM sessions
+        WHERE id = ?
+      `).get(id) as { project_role: string | null; plan_status: string | null } | undefined;
+
+      if (!lockRow) {
+        res.status(404).json({
+          success: false,
+          error: { code: 'NOT_FOUND', message: 'Session not found' }
+        });
+        return;
+      }
+
+      const isPlanningTaskSession = lockRow.project_role === 'task' && lockRow.plan_status === 'planning';
+      if (isPlanningTaskSession) {
+        res.status(409).json({
+          success: false,
+          error: { code: 'LOCKED', message: 'Worktree is locked during Supervisor planning mode' }
+        });
+        return;
+      }
 
       // Validate path exists if provided
       if (workingDirectory && !fs.existsSync(workingDirectory)) {
@@ -421,10 +440,7 @@ export function createSessionRoutes(db: Database.Database, activeRuns: ActiveRun
 
       // Fetch updated session to return
       const updatedSession = db.prepare(`
-        SELECT id, project_id as projectId, name, provider_id as providerId,
-               sdk_session_id as sdkSessionId, type, parent_session_id as parentSessionId,
-               working_directory as workingDirectory,
-               created_at as createdAt, updated_at as updatedAt
+        SELECT ${SESSION_SELECT}
         FROM sessions WHERE id = ?
       `).get(id) as Session | undefined;
 
@@ -444,6 +460,88 @@ export function createSessionRoutes(db: Database.Database, activeRuns: ActiveRun
     }
   });
 
+  // Unlock a read-only session (clear isReadOnly, optionally reset planStatus)
+  router.patch('/:id/unlock', (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      const now = Date.now();
+
+      const result = db.prepare(`
+        UPDATE sessions
+        SET is_read_only = 0, plan_status = 'planning', updated_at = ?
+        WHERE id = ?
+      `).run(now, id);
+
+      if (result.changes === 0) {
+        res.status(404).json({
+          success: false,
+          error: { code: 'NOT_FOUND', message: 'Session not found' }
+        });
+        return;
+      }
+
+      const updatedSession = db.prepare(`
+        SELECT ${SESSION_SELECT}
+        FROM sessions WHERE id = ?
+      `).get(id) as Session | undefined;
+
+      const gatewayClient = getGatewayClient();
+      if (gatewayClient && updatedSession) {
+        gatewayClient.broadcastSessionEvent('updated', updatedSession);
+      }
+
+      res.json({ success: true, data: updatedSession } as ApiResponse<Session>);
+    } catch (error) {
+      console.error('Error unlocking session:', error);
+      res.status(500).json({
+        success: false,
+        error: { code: 'DB_ERROR', message: 'Failed to unlock session' }
+      });
+    }
+  });
+
+  // Reset underlying provider SDK session (clear sdk_session_id)
+  // Next run will start a fresh provider-side session while keeping the same app session.
+  router.post('/:id/reset-sdk-session', (req: Request, res: Response) => {
+    try {
+      const now = Date.now();
+      const result = db.prepare(`
+        UPDATE sessions
+        SET sdk_session_id = NULL,
+            updated_at = ?
+        WHERE id = ?
+      `).run(now, req.params.id);
+
+      if (result.changes === 0) {
+        res.status(404).json({
+          success: false,
+          error: { code: 'NOT_FOUND', message: 'Session not found' }
+        });
+        return;
+      }
+
+      const updatedSession = db.prepare(`
+        SELECT ${SESSION_SELECT}
+        FROM sessions WHERE id = ?
+      `).get(req.params.id) as Session | undefined;
+
+      const gatewayClient = getGatewayClient();
+      if (gatewayClient && updatedSession) {
+        gatewayClient.broadcastSessionEvent('updated', updatedSession);
+      }
+
+      pluginEvents.emit('session.updated', { sessionId: req.params.id, session: updatedSession }).catch(() => {});
+
+      res.json({ success: true, data: { sessionId: req.params.id, reset: true } } as ApiResponse<{ sessionId: string; reset: boolean }>);
+    } catch (error) {
+      console.error('Error resetting sdk session:', error);
+      res.status(500).json({
+        success: false,
+        error: { code: 'DB_ERROR', message: 'Failed to reset sdk session' }
+      });
+    }
+  });
+
   // Delete session
   router.delete('/:id', (req: Request, res: Response) => {
     const sessionId = req.params.id;
@@ -451,9 +549,7 @@ export function createSessionRoutes(db: Database.Database, activeRuns: ActiveRun
     try {
       // Fetch full session before deleting (for broadcasting)
       const session = db.prepare(`
-        SELECT id, project_id as projectId, name, provider_id as providerId,
-               working_directory as workingDirectory,
-               created_at as createdAt, updated_at as updatedAt
+        SELECT ${SESSION_SELECT}
         FROM sessions WHERE id = ?
       `).get(sessionId) as Session | undefined;
 

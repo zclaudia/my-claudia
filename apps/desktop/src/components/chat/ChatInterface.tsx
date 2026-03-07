@@ -1,5 +1,5 @@
 import { useRef, useEffect, useCallback, useState, useMemo } from 'react';
-import { Loader2, AlertTriangle, ClipboardList, ArrowDown, X, FileText, Terminal as TerminalIcon, ChevronDown, ChevronUp } from 'lucide-react';
+import { Loader2, AlertTriangle, ClipboardList, ArrowDown, X, FileText, Terminal as TerminalIcon, ChevronDown, ChevronUp, Lock, Unlock, Archive } from 'lucide-react';
 import { MessageList } from './MessageList';
 import { MessageInput, type Attachment } from './MessageInput';
 import { ToolCallList } from './ToolCallItem';
@@ -27,8 +27,7 @@ import { useConnection } from '../../contexts/ConnectionContext';
 import { useIsMobile } from '../../hooks/useMediaQuery';
 import * as api from '../../services/api';
 import { uploadFile } from '../../services/fileUpload';
-import { extractPlanFromMessages } from '../SuperviseDialog';
-import { PlanReviewDialog } from '../PlanReviewDialog';
+import { TaskCardStrip } from '../supervision/TaskCardStrip';
 import type { AgentPermissionPolicy, CommandExecuteResponse, Message, MessageAttachment, MessageInput as MessageInputData, ProviderCapabilities } from '@my-claudia/shared';
 import type { MessageWithToolCalls } from '../../stores/chatStore';
 
@@ -58,6 +57,8 @@ interface ChatInterfaceProps {
 }
 
 const MESSAGES_PER_PAGE = 50;
+const BOTTOM_REFRESH_LIMIT = 12;
+const BOTTOM_REFRESH_COOLDOWN_MS = 2500;
 const EMPTY_MESSAGES: MessageWithToolCalls[] = [];
 const EMPTY_TOOL_CALLS: import('../../stores/chatStore').ToolCallState[] = [];
 const EMPTY_CONTENT_BLOCKS: import('@my-claudia/shared').ContentBlock[] = [];
@@ -74,6 +75,7 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
   const addMessage = useChatStore((s) => s.addMessage);
   const setMessages = useChatStore((s) => s.setMessages);
   const prependMessages = useChatStore((s) => s.prependMessages);
+  const appendMessages = useChatStore((s) => s.appendMessages);
   const clearMessages = useChatStore((s) => s.clearMessages);
   const setLoadingMore = useChatStore((s) => s.setLoadingMore);
   const setMode = useChatStore((s) => s.setMode);
@@ -105,7 +107,7 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
   const modelOverride = getModelOverride(sessionId);
   const permissionOverride = useChatStore((s) => s.getPermissionOverride(sessionId));
   const setPermissionOverride = useChatStore((s) => s.setPermissionOverride);
-  const { projects, sessions, providerCommands, providerCapabilities, setProviderCapabilities } = useProjectStore();
+  const { projects, sessions, providers, providerCommands, providerCapabilities, setProviderCapabilities } = useProjectStore();
   const activeServerId = useServerStore((s) => s.activeServerId);
   const { setDrawerOpen, drawerOpen, bottomPanelTab, setBottomPanelTab } = useTerminalStore();
   const {
@@ -124,6 +126,7 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
   const askUserRequests = useAskUserQuestionStore(state => state.pendingRequests.filter(r => r.sessionId === sessionId || !r.sessionId));
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
+  const bottomRefreshRef = useRef<{ lastAt: number; inFlight: boolean }>({ lastAt: 0, inFlight: false });
   const [initialLoadDone, setInitialLoadDone] = useState(false);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
   const [scrollMetrics, setScrollMetrics] = useState({ scrollTop: 0, viewportHeight: 0 });
@@ -136,14 +139,22 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
   const [loadError, setLoadError] = useState<string | null>(null);
   // Queued message: when user sends while a run is active, queue it for auto-send
   const [queuedMessage, setQueuedMessage] = useState<{ content: string; attachments?: Attachment[] } | null>(null);
+  const [taskPlanStatus, setTaskPlanStatus] = useState<api.TaskPlanStatus | null>(null);
+  const [planStatusLoading, setPlanStatusLoading] = useState(false);
+  const [submitPlanLoading, setSubmitPlanLoading] = useState(false);
+  const [discardPlanLoading, setDiscardPlanLoading] = useState(false);
 
-  // Planning mode state
-  const supervision = useSupervisionStore(s => s.supervisions[sessionId]);
-  const pendingHint = useSupervisionStore(s => s.pendingPlanningHints[sessionId]);
-  const [showPlanReview, setShowPlanReview] = useState(false);
-  const isPlanningMode = supervision?.status === 'planning';
+  // Session action bar state
+  const [isRenamingSession, setIsRenamingSession] = useState(false);
+  const [renameValue, setRenameValue] = useState('');
 
   const sessionMessages = messages[sessionId] || EMPTY_MESSAGES;
+  // Get current session and project to determine provider
+  const currentSession = sessions.find(s => s.id === sessionId);
+  const currentProject = currentSession
+    ? projects.find(p => p.id === currentSession.projectId)
+    : null;
+  const isForcedPlanSession = currentSession?.projectRole === 'task' && currentSession?.planStatus === 'planning';
   const sessionPagination = pagination[sessionId];
   const hasSessionSnapshot = !!sessionPagination;
   const isInitialMessageLoading = !loadError && (!initialLoadDone || !hasSessionSnapshot);
@@ -155,12 +166,6 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
     latestOutputTokens: 0,
     contextWindow: undefined
   };
-
-  // Get current session and project to determine provider
-  const currentSession = sessions.find(s => s.id === sessionId);
-  const currentProject = currentSession
-    ? projects.find(p => p.id === currentSession.projectId)
-    : null;
   const fileReferenceRoot = currentSession?.workingDirectory || currentProject?.rootPath;
 
   // Reset per-session ephemeral state when switching sessions
@@ -172,7 +177,41 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
     setQueuedMessage(null);
     setScrollMetrics({ scrollTop: 0, viewportHeight: 0 });
     setInitialDraft(useChatStore.getState().drafts[sessionId]);
+    bottomRefreshRef.current = { lastAt: 0, inFlight: false };
+    setIsRenamingSession(false);
+    setRenameValue('');
   }, [sessionId]);
+
+  // Task planning sessions are hard-locked to Plan mode.
+  useEffect(() => {
+    if (isForcedPlanSession && mode !== 'plan') {
+      setMode(sessionId, 'plan');
+    }
+  }, [isForcedPlanSession, mode, sessionId, setMode]);
+
+  // Auto-check plan document completeness during task planning.
+  useEffect(() => {
+    const taskId = currentSession?.taskId;
+    if (!isConnected || !isForcedPlanSession || !taskId) {
+      setTaskPlanStatus(null);
+      return;
+    }
+
+    let cancelled = false;
+    setPlanStatusLoading(true);
+    api.getTaskPlanStatus(taskId)
+      .then((status) => {
+        if (!cancelled) setTaskPlanStatus(status);
+      })
+      .catch(() => {
+        if (!cancelled) setTaskPlanStatus(null);
+      })
+      .finally(() => {
+        if (!cancelled) setPlanStatusLoading(false);
+      });
+
+    return () => { cancelled = true; };
+  }, [isConnected, isForcedPlanSession, currentSession?.taskId, sessionMessages.length]);
 
   // Auto-send queued message when the current run finishes
   const queuedMessageRef = useRef(queuedMessage);
@@ -186,53 +225,6 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
     }
   }, [isLoading, isConnected]);
 
-  // Fetch supervision state for this session on mount / session change
-  useEffect(() => {
-    if (!isConnected) return;
-    api.getSupervisionBySession(sessionId)
-      .then(sup => {
-        if (sup) {
-          useSupervisionStore.getState().updateSupervision(sup);
-        }
-      })
-      .catch(() => {}); // silently ignore
-  }, [sessionId, isConnected]);
-
-  // Auto-send pending planning hint as a run_start message
-  useEffect(() => {
-    if (pendingHint && isConnected && initialLoadDone) {
-      const clientMessageId = crypto.randomUUID();
-      addMessage(sessionId, {
-        id: clientMessageId,
-        clientMessageId,
-        sessionId,
-        role: 'user',
-        content: pendingHint,
-        createdAt: Date.now(),
-      });
-      wsSendMessage({
-        type: 'run_start',
-        clientRequestId: clientMessageId,
-        sessionId,
-        input: pendingHint,
-        mode: mode || undefined,
-        workingDirectory: currentSession?.workingDirectory || undefined,
-      });
-      useSupervisionStore.getState().clearPendingHint(sessionId);
-      setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
-    }
-  }, [pendingHint, isConnected, initialLoadDone, sessionId, addMessage, wsSendMessage, mode]);
-
-  // Detect plan JSON in messages when in planning mode
-  const detectedPlan = useMemo(() => {
-    if (!isPlanningMode || sessionMessages.length === 0) return null;
-    // Only scan messages created after the supervision started
-    const afterTimestamp = supervision?.createdAt || 0;
-    const recentMessages = sessionMessages.filter(m => m.createdAt >= afterTimestamp);
-    return extractPlanFromMessages(
-      recentMessages.map(m => ({ role: m.role, content: m.content }))
-    );
-  }, [isPlanningMode, sessionMessages, supervision?.createdAt]);
 
   // Ctrl+` keyboard shortcut to toggle terminal
   useEffect(() => {
@@ -407,6 +399,39 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
       container.scrollTop = scrollHeightAfter - scrollHeightBefore;
     }
   }, [loadMessages, sessionPagination]);
+
+  // Fallback sync: when user is already at bottom and keeps scrolling down,
+  // fetch a small latest window to recover from delayed/missed push updates.
+  const refreshLatestMessagesFromBottom = useCallback(async () => {
+    if (!isConnected || !initialLoadDone) return;
+    const state = bottomRefreshRef.current;
+    const now = Date.now();
+    if (state.inFlight || now - state.lastAt < BOTTOM_REFRESH_COOLDOWN_MS) return;
+
+    state.inFlight = true;
+    state.lastAt = now;
+    try {
+      const result = await api.getSessionMessages(sessionId, { limit: BOTTOM_REFRESH_LIMIT });
+      const restored = restoreToolCalls(result.messages);
+      appendMessages(sessionId, restored, result.pagination);
+      syncFilePushMessages(restored);
+    } catch (error) {
+      console.debug('[ChatInterface] bottom refresh failed:', error);
+    } finally {
+      state.inFlight = false;
+    }
+  }, [appendMessages, initialLoadDone, isConnected, sessionId, syncFilePushMessages]);
+
+  const handleMessageWheel = useCallback((deltaY: number) => {
+    if (deltaY <= 0) return;
+    const container = messagesContainerRef.current;
+    if (!container) return;
+
+    const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
+    if (distanceFromBottom <= 24) {
+      void refreshLatestMessagesFromBottom();
+    }
+  }, [refreshLatestMessagesFromBottom]);
 
   // Handle scroll to detect when user scrolls near top or away from bottom
   const handleScroll = useCallback(() => {
@@ -777,6 +802,9 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
   }, [sessionId, clearMessages, addMessage, scrollToBottom, providerId, currentProject?.rootPath, commandsCacheKey]);
 
   const handleWorktreeChange = useCallback(async (worktreePath: string) => {
+    if (isForcedPlanSession) {
+      throw new Error('Worktree switching is locked during Supervisor planning mode.');
+    }
     // 乐观更新 projectStore（立即反映在 UI）
     useProjectStore.getState().updateSession(sessionId, {
       workingDirectory: worktreePath || undefined,
@@ -787,7 +815,7 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
     } catch (err) {
       console.error('[Worktree] Failed to persist working directory:', err);
     }
-  }, [sessionId]);
+  }, [isForcedPlanSession, sessionId]);
 
   const handleCommand = useCallback(async (command: string, args: string) => {
     // Find the command definition to check its source
@@ -821,6 +849,17 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
 
     // Handle /worktree locally — view or switch
     if (command === '/worktree') {
+      if (isForcedPlanSession) {
+        addMessage(sessionId, {
+          id: crypto.randomUUID(),
+          sessionId,
+          role: 'system',
+          content: 'Worktree is locked during Supervisor planning mode.',
+          createdAt: Date.now(),
+        });
+        setTimeout(() => scrollToBottom(), 100);
+        return;
+      }
       const trimmedArgs = args.trim();
       if (!trimmedArgs) {
         const current = currentSession?.workingDirectory || currentProject?.rootPath || '(unknown)';
@@ -864,8 +903,155 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
       return;
     }
 
+    // Handle /new-cli-session (alias /reset-cli-session) locally.
+    // Keeps app session/messages, but forces next run to start a fresh provider-side SDK/CLI session.
+    if (command === '/new-cli-session' || command === '/reset-cli-session') {
+      try {
+        await api.resetSessionSdkSession(sessionId);
+        addMessage(sessionId, {
+          id: crypto.randomUUID(),
+          sessionId,
+          role: 'system',
+          content: 'Underlying CLI session reset. The next message will start a new provider-side session.',
+          createdAt: Date.now(),
+        });
+      } catch (err) {
+        addMessage(sessionId, {
+          id: crypto.randomUUID(),
+          sessionId,
+          role: 'system',
+          content: `Failed to reset CLI session: ${(err as Error).message}`,
+          createdAt: Date.now(),
+        });
+      }
+      setTimeout(() => scrollToBottom(), 100);
+      return;
+    }
+
+    // ── Supervisor commands (only in main supervisor session) ──
+    if (currentSession?.projectRole === 'main' && currentProject?.id) {
+      if (command === '/create-task') {
+        const title = args.trim();
+        if (!title) {
+          addMessage(sessionId, {
+            id: crypto.randomUUID(), sessionId, role: 'system',
+            content: 'Usage: `/create-task <title>` — create a new supervision task',
+            createdAt: Date.now(),
+          });
+          setTimeout(() => scrollToBottom(), 100);
+          return;
+        }
+        try {
+          const task = await api.createSupervisionTask(currentProject.id, {
+            title,
+            description: '',
+          });
+          addMessage(sessionId, {
+            id: crypto.randomUUID(), sessionId, role: 'system',
+            content: `Task created: **${task.title}** (${task.status})`,
+            createdAt: Date.now(),
+          });
+          // Refresh task list in the card strip (no session created yet)
+          useSupervisionStore.getState().upsertTask(currentProject.id, task);
+        } catch (err) {
+          addMessage(sessionId, {
+            id: crypto.randomUUID(), sessionId, role: 'system',
+            content: `Failed to create task: ${(err as Error).message}`,
+            createdAt: Date.now(),
+          });
+        }
+        setTimeout(() => scrollToBottom(), 100);
+        return;
+      }
+
+      if (command === '/status') {
+        try {
+          const tasks = await api.getSupervisionTasks(currentProject.id);
+          const agentData = await api.getSupervisionAgent(currentProject.id);
+          const lines: string[] = [];
+          lines.push(`**Agent**: ${agentData?.phase ?? 'unknown'} | Trust: ${agentData?.config.trustLevel ?? '?'} | Concurrent: ${agentData?.config.maxConcurrentTasks ?? '?'}`);
+          if (tasks.length === 0) {
+            lines.push('\nNo tasks yet. Use `/create-task <title>` to add one.');
+          } else {
+            const grouped: Record<string, typeof tasks> = {};
+            for (const t of tasks) {
+              (grouped[t.status] ??= []).push(t);
+            }
+            for (const [status, items] of Object.entries(grouped)) {
+              lines.push(`\n**${status}** (${items.length})`);
+              for (const t of items) {
+                lines.push(`- ${t.title}${t.priority > 0 ? ` [P${t.priority}]` : ''}`);
+              }
+            }
+          }
+          addMessage(sessionId, {
+            id: crypto.randomUUID(), sessionId, role: 'system',
+            content: lines.join('\n'),
+            createdAt: Date.now(),
+          });
+        } catch (err) {
+          addMessage(sessionId, {
+            id: crypto.randomUUID(), sessionId, role: 'system',
+            content: `Failed to get status: ${(err as Error).message}`,
+            createdAt: Date.now(),
+          });
+        }
+        setTimeout(() => scrollToBottom(), 100);
+        return;
+      }
+
+      if (command === '/pause') {
+        try {
+          await api.updateSupervisionAgentAction(currentProject.id, 'pause');
+          addMessage(sessionId, {
+            id: crypto.randomUUID(), sessionId, role: 'system',
+            content: 'Supervision agent paused.',
+            createdAt: Date.now(),
+          });
+        } catch (err) {
+          addMessage(sessionId, {
+            id: crypto.randomUUID(), sessionId, role: 'system',
+            content: `Failed to pause: ${(err as Error).message}`,
+            createdAt: Date.now(),
+          });
+        }
+        setTimeout(() => scrollToBottom(), 100);
+        return;
+      }
+
+      if (command === '/resume') {
+        try {
+          await api.updateSupervisionAgentAction(currentProject.id, 'resume');
+          addMessage(sessionId, {
+            id: crypto.randomUUID(), sessionId, role: 'system',
+            content: 'Supervision agent resumed.',
+            createdAt: Date.now(),
+          });
+        } catch (err) {
+          addMessage(sessionId, {
+            id: crypto.randomUUID(), sessionId, role: 'system',
+            content: `Failed to resume: ${(err as Error).message}`,
+            createdAt: Date.now(),
+          });
+        }
+        setTimeout(() => scrollToBottom(), 100);
+        return;
+      }
+    }
+
     // Handle /create-worktree locally — create a new worktree and switch to it
     if (command === '/create-worktree') {
+      if (isForcedPlanSession) {
+        addMessage(sessionId, {
+          id: crypto.randomUUID(),
+          sessionId,
+          role: 'system',
+          content: 'Worktree is locked during Supervisor planning mode.',
+          createdAt: Date.now(),
+        });
+        setTimeout(() => scrollToBottom(), 100);
+        return;
+      }
       if (!currentProject?.id) {
         addMessage(sessionId, {
           id: crypto.randomUUID(),
@@ -989,7 +1175,7 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
         createdAt: Date.now(),
       });
     }
-  }, [sessionId, addMessage, wsSendMessage, commands, currentSession, currentProject, handleBuiltInCommand, handleWorktreeChange, scrollToBottom, mode, modelOverride]);
+  }, [sessionId, addMessage, wsSendMessage, commands, currentSession, currentProject, handleBuiltInCommand, handleWorktreeChange, scrollToBottom, mode, modelOverride, isForcedPlanSession]);
 
   const handleCancelRun = () => {
     // Restore last sent message to input
@@ -1027,13 +1213,224 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
     }
   };
 
+  // Session action bar handlers
+  const handleSessionRename = async () => {
+    const newName = renameValue.trim();
+    setIsRenamingSession(false);
+    if (!newName || !isConnected) return;
+    try {
+      await api.updateSession(sessionId, { name: newName });
+      useProjectStore.getState().updateSession(sessionId, { name: newName });
+    } catch (error) {
+      console.error('Failed to rename session:', error);
+    }
+  };
+
+  const handleExportSession = async () => {
+    try {
+      const { markdown, sessionName } = await api.exportSession(sessionId);
+      const blob = new Blob([markdown], { type: 'text/markdown' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${sessionName.replace(/[^a-zA-Z0-9\u4e00-\u9fa5]/g, '_')}.md`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error('Failed to export session:', error);
+    }
+  };
+
+  const handleArchiveSession = async () => {
+    if (!isConnected) return;
+    try {
+      await api.archiveSessions([sessionId]);
+      useProjectStore.getState().deleteSession(sessionId);
+    } catch (error) {
+      console.error('Failed to archive session:', error);
+    }
+  };
+
   return (
     <div className="flex flex-col h-full bg-background">
+      {/* Task card strip for supervisor main session */}
+      {currentSession?.projectRole === 'main' && currentProject?.id && (
+        <TaskCardStrip projectId={currentProject.id} />
+      )}
+
+      {/* Session action bar */}
+      {currentSession && (
+        <div className="flex items-center gap-2 px-3 py-1.5 border-b border-border bg-card/50">
+          {/* Session name — click to rename */}
+          {isRenamingSession ? (
+            <input
+              autoFocus
+              type="text"
+              value={renameValue}
+              onChange={(e) => setRenameValue(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') handleSessionRename();
+                if (e.key === 'Escape') setIsRenamingSession(false);
+              }}
+              onBlur={handleSessionRename}
+              className="flex-1 min-w-0 px-2 py-0.5 text-sm bg-muted/60 border-0 rounded-lg shadow-apple-sm focus:ring-1 focus:ring-primary/50 focus:outline-none text-foreground"
+            />
+          ) : (
+            <button
+              onClick={() => {
+                setRenameValue(currentSession.name || '');
+                setIsRenamingSession(true);
+              }}
+              className="flex-1 min-w-0 text-left text-sm text-foreground truncate hover:text-primary transition-colors"
+              title="Click to rename"
+            >
+              {currentSession.name || 'Untitled Session'}
+            </button>
+          )}
+          {/* Provider badge */}
+          {(() => {
+            const pid = currentSession.providerId || currentProject?.providerId;
+            const prov = pid ? providers.find(p => p.id === pid) : undefined;
+            const name = prov?.name || prov?.type;
+            return name ? (
+              <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted-foreground/10 text-muted-foreground/60 shrink-0">
+                {name}
+              </span>
+            ) : null;
+          })()}
+          {/* Actions */}
+          <div className="flex items-center gap-0.5 shrink-0">
+            <button
+              onClick={handleExportSession}
+              className="p-1 rounded hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors"
+              title="Export as Markdown"
+            >
+              <FileText size={14} />
+            </button>
+            <button
+              onClick={handleArchiveSession}
+              className="p-1 rounded hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors"
+              title="Archive session"
+            >
+              <Archive size={14} />
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Plan status indicator for task sessions (session-level, shown above messages) */}
+      {currentSession?.projectRole === 'task' && currentSession.planStatus === 'planning' && (
+        <div className="px-2 md:px-4 pt-2 md:pt-3">
+          <div className="px-3 py-2 bg-blue-500/10 border border-blue-500/20 rounded-lg flex items-center gap-3 text-sm text-blue-500">
+            <ClipboardList size={14} className="flex-shrink-0" />
+            <div className="flex-1 min-w-0">
+              <div className="font-medium">Planning mode — iterate with Start/Continue Plan.</div>
+              <div className="text-xs text-blue-500/90 mt-0.5">
+                {planStatusLoading
+                  ? 'Checking plan document status...'
+                  : taskPlanStatus?.ready
+                    ? `Plan ready to submit (score ${taskPlanStatus.score}).`
+                    : taskPlanStatus?.exists
+                      ? `Plan not ready: missing ${taskPlanStatus.missing.join(', ')}`
+                      : 'No plan document found yet. Create .supervision/plans/task-<taskId>.plan.md'}
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={async () => {
+                  const taskId = currentSession?.taskId;
+                  if (!taskId || discardPlanLoading) return;
+                  const ok = window.confirm('Discard current plan and cancel this task?');
+                  if (!ok) return;
+                  try {
+                    setDiscardPlanLoading(true);
+                    const task = await api.cancelTask(taskId);
+                    if (currentProject?.id) {
+                      useSupervisionStore.getState().upsertTask(currentProject.id, task);
+                    }
+                    useProjectStore.getState().updateSession(sessionId, {
+                      isReadOnly: false,
+                      planStatus: undefined,
+                    });
+                    addMessage(sessionId, {
+                      id: crypto.randomUUID(),
+                      sessionId,
+                      role: 'system',
+                      content: 'Plan discarded. Task has been cancelled.',
+                      createdAt: Date.now(),
+                    });
+                    setTimeout(() => scrollToBottom(), 100);
+                  } catch (err) {
+                    addMessage(sessionId, {
+                      id: crypto.randomUUID(),
+                      sessionId,
+                      role: 'system',
+                      content: `Failed to discard plan: ${(err as Error).message}`,
+                      createdAt: Date.now(),
+                    });
+                    setTimeout(() => scrollToBottom(), 100);
+                  } finally {
+                    setDiscardPlanLoading(false);
+                  }
+                }}
+                disabled={discardPlanLoading || submitPlanLoading || isLoading}
+                className="px-3 py-1.5 rounded-md text-xs border border-destructive/40 text-destructive hover:bg-destructive/10 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {discardPlanLoading ? 'Discarding...' : 'Discard Plan'}
+              </button>
+              <button
+                onClick={async () => {
+                  const taskId = currentSession?.taskId;
+                  if (!taskId || submitPlanLoading) return;
+                  try {
+                    setSubmitPlanLoading(true);
+                    const result = await api.submitTaskPlan(taskId);
+                    useProjectStore.getState().updateSession(sessionId, {
+                      isReadOnly: true,
+                      planStatus: 'planned',
+                    });
+                    if (currentProject?.id) {
+                      useSupervisionStore.getState().upsertTask(currentProject.id, result.task);
+                    }
+                    addMessage(sessionId, {
+                      id: crypto.randomUUID(),
+                      sessionId,
+                      role: 'system',
+                      content: 'Plan submitted to Supervisor. Waiting for execution.',
+                      createdAt: Date.now(),
+                    });
+                    setTimeout(() => scrollToBottom(), 100);
+                  } catch (err) {
+                    addMessage(sessionId, {
+                      id: crypto.randomUUID(),
+                      sessionId,
+                      role: 'system',
+                      content: `Failed to submit plan: ${(err as Error).message}`,
+                      createdAt: Date.now(),
+                    });
+                    setTimeout(() => scrollToBottom(), 100);
+                  } finally {
+                    setSubmitPlanLoading(false);
+                  }
+                }}
+                disabled={!taskPlanStatus?.ready || submitPlanLoading || discardPlanLoading || isLoading}
+                className="px-3 py-1.5 rounded-md text-xs bg-primary text-primary-foreground disabled:bg-muted disabled:text-muted-foreground disabled:cursor-not-allowed"
+              >
+                {submitPlanLoading ? 'Submitting...' : 'Submit Plan'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Messages */}
       <div
         ref={messagesContainerRef}
         className="flex-1 overflow-y-auto overflow-x-hidden pl-2 pr-3 py-2 md:p-4 relative min-h-0"
         onScroll={handleScroll}
+        onWheel={(e) => handleMessageWheel(e.deltaY)}
       >
         {/* Load more indicator */}
         {sessionPagination?.hasMore && (
@@ -1080,36 +1477,6 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
           </div>
         )}
 
-        {/* Planning mode banner */}
-        {isPlanningMode && (
-          <div className="mb-3 px-3 py-2 bg-primary/10 border border-primary/20 rounded-lg flex items-center gap-2">
-            <ClipboardList size={16} strokeWidth={1.75} className="text-primary flex-shrink-0" />
-            <span className="text-sm text-primary font-medium flex-1">Planning Mode</span>
-            {detectedPlan && !isLoading && (
-              <button
-                onClick={() => setShowPlanReview(true)}
-                className="px-2 py-1 text-xs bg-primary text-primary-foreground rounded hover:bg-primary/90"
-              >
-                Review Plan
-              </button>
-            )}
-            <button
-              onClick={async () => {
-                if (supervision) {
-                  try {
-                    const updated = await api.cancelPlanning(supervision.id);
-                    useSupervisionStore.getState().updateSupervision(updated);
-                  } catch (err) {
-                    console.error('Failed to cancel planning:', err);
-                  }
-                }
-              }}
-              className="px-2 py-1 text-xs bg-secondary hover:bg-secondary/80 rounded text-muted-foreground"
-            >
-              Cancel
-            </button>
-          </div>
-        )}
 
         <MessageList
           messages={sessionMessages}
@@ -1214,151 +1581,178 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
         </div>
       )}
 
-      {/* Input */}
-      <div className="border-t border-border p-2 md:p-4 safe-bottom-pad overflow-visible flex-shrink-0">
-        {/* Toolbar */}
-        <div className="mb-1.5 md:mb-2 flex items-center gap-1 md:gap-2">
-          <ModeSelector
-            capabilities={capabilities}
-            value={mode}
-            onChange={(modeId: string) => setMode(sessionId, modeId)}
-            disabled={isLoading}
-          />
-          <ModelSelector
-            capabilities={capabilities}
-            value={modelOverride}
-            onChange={(model: string) => setModelOverride(sessionId, model)}
-            disabled={isLoading}
-          />
-          <PermissionSelector
-            value={permissionOverride}
-            onChange={(policy) => setPermissionOverride(sessionId, policy)}
-            projectPolicy={(currentProject?.agentPermissionOverride as AgentPermissionPolicy) ?? null}
-            disabled={isLoading}
-          />
-          {currentProject?.id && currentProject?.rootPath && (
-            <WorktreeSelector
-              projectId={currentProject.id}
-              projectRootPath={currentProject.rootPath}
-              currentWorktree={currentSession?.workingDirectory || ''}
-              onChange={handleWorktreeChange}
-              disabled={isLoading}
-            />
-          )}
-          <TokenUsageDisplay
-            latestInputTokens={currentUsage.latestInputTokens}
-            latestOutputTokens={currentUsage.latestOutputTokens}
-            inputTokens={currentUsage.inputTokens}
-            outputTokens={currentUsage.outputTokens}
-            contextWindow={currentUsage.contextWindow}
-          />
-          <div className="flex-1 min-w-[8px]" />
-          {currentProject?.rootPath && (
+      {/* Input — read-only mode for task sessions or normal input */}
+      {currentSession?.isReadOnly ? (
+        <div className="border-t border-border p-3 md:p-4 safe-bottom-pad flex-shrink-0">
+          <div className="flex items-center justify-between gap-3 px-3 py-2.5 bg-secondary/50 border border-border rounded-lg">
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Lock size={14} />
+              <span>
+                {currentSession.planStatus === 'planned'
+                  ? 'Plan submitted — waiting for Supervisor to execute'
+                  : currentSession.planStatus === 'executing'
+                  ? 'Task executing — controlled by Supervisor'
+                  : 'This session is read-only'}
+              </span>
+            </div>
             <button
-              onClick={() => {
-                if (fileViewerOpen && bottomPanelTab === 'file') {
-                  // Already showing file tab — close it
-                  useFileViewerStore.getState().close();
-                } else if (fileViewerOpen) {
-                  // File viewer open but another tab is active — switch to file
-                  setBottomPanelTab('file');
-                } else {
-                  // File viewer not open — open it and switch tab
-                  const store = useFileViewerStore.getState();
-                  store.togglePanel();
-                  store.setSearchOpen(true);
-                  setBottomPanelTab('file');
+              onClick={async () => {
+                try {
+                  const updated = await api.unlockSession(sessionId);
+                  // Update session in project store
+                  useProjectStore.getState().updateSession(sessionId, {
+                    isReadOnly: updated.isReadOnly,
+                    planStatus: updated.planStatus,
+                  });
+                } catch (err) {
+                  console.error('Failed to unlock session:', err);
                 }
               }}
-              className={`p-1.5 rounded hover:bg-secondary ${fileViewerOpen && bottomPanelTab === 'file' ? 'text-primary' : 'text-muted-foreground hover:text-foreground'}`}
-              title={fileViewerOpen && bottomPanelTab === 'file' ? 'Close file viewer' : 'Open file viewer (Cmd+P)'}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-primary/10 text-primary hover:bg-primary/20 rounded-md transition-colors"
             >
-              <FileText size={16} strokeWidth={1.75} />
+              <Unlock size={14} />
+              Unlock
             </button>
-          )}
-          {useServerStore.getState().activeServerSupports('remoteTerminal') && currentSession?.projectId && (() => {
-            const pid = currentSession.projectId;
-            const isOpen = !!drawerOpen[pid];
-            return (
+          </div>
+        </div>
+      ) : (
+        <div className="border-t border-border p-2 md:p-4 safe-bottom-pad overflow-visible flex-shrink-0">
+          {/* Toolbar */}
+          <div className="mb-1.5 md:mb-2 flex items-center gap-1 md:gap-2">
+            <ModeSelector
+              capabilities={capabilities}
+              value={isForcedPlanSession ? 'plan' : mode}
+              onChange={(modeId: string) => {
+                if (isForcedPlanSession) return;
+                setMode(sessionId, modeId);
+              }}
+              disabled={isLoading}
+              locked={isForcedPlanSession}
+              lockReason={isForcedPlanSession ? 'Locked by Supervisor planning mode' : undefined}
+            />
+            <ModelSelector
+              capabilities={capabilities}
+              value={modelOverride}
+              onChange={(model: string) => setModelOverride(sessionId, model)}
+              disabled={isLoading}
+            />
+            <PermissionSelector
+              value={permissionOverride}
+              onChange={(policy) => setPermissionOverride(sessionId, policy)}
+              projectPolicy={(currentProject?.agentPermissionOverride as AgentPermissionPolicy) ?? null}
+              disabled={isLoading}
+            />
+            {currentProject?.id && currentProject?.rootPath && (
+              <WorktreeSelector
+                projectId={currentProject.id}
+                projectRootPath={currentProject.rootPath}
+                currentWorktree={currentSession?.workingDirectory || ''}
+                onChange={handleWorktreeChange}
+                disabled={isLoading}
+                locked={isForcedPlanSession}
+                lockReason={isForcedPlanSession ? 'Locked by Supervisor planning mode' : undefined}
+              />
+            )}
+            <TokenUsageDisplay
+              latestInputTokens={currentUsage.latestInputTokens}
+              latestOutputTokens={currentUsage.latestOutputTokens}
+              inputTokens={currentUsage.inputTokens}
+              outputTokens={currentUsage.outputTokens}
+              contextWindow={currentUsage.contextWindow}
+            />
+            <div className="flex-1 min-w-[8px]" />
+            {currentProject?.rootPath && (
               <button
                 onClick={() => {
-                  if (isOpen && bottomPanelTab === 'terminal') {
-                    // Already showing terminal tab — close it
-                    setDrawerOpen(pid, false);
-                  } else if (isOpen) {
-                    // Terminal open but another tab is active — switch to terminal
-                    setBottomPanelTab('terminal');
+                  if (fileViewerOpen && bottomPanelTab === 'file') {
+                    useFileViewerStore.getState().close();
+                  } else if (fileViewerOpen) {
+                    setBottomPanelTab('file');
                   } else {
-                    // Terminal not open — open it and switch tab
-                    const store = useTerminalStore.getState();
-                    if (!store.terminals[pid]) {
-                      store.openTerminal(pid);
-                    }
-                    setDrawerOpen(pid, true);
-                    setBottomPanelTab('terminal');
+                    const store = useFileViewerStore.getState();
+                    store.togglePanel();
+                    store.setSearchOpen(true);
+                    setBottomPanelTab('file');
                   }
                 }}
-                className={`p-1.5 rounded hover:bg-secondary ${isOpen && bottomPanelTab === 'terminal' ? 'text-primary' : 'text-muted-foreground hover:text-foreground'}`}
-                title={isOpen && bottomPanelTab === 'terminal' ? 'Hide terminal (Ctrl+`)' : 'Open terminal (Ctrl+`)'}
+                className={`p-1.5 rounded hover:bg-secondary ${fileViewerOpen && bottomPanelTab === 'file' ? 'text-primary' : 'text-muted-foreground hover:text-foreground'}`}
+                title={fileViewerOpen && bottomPanelTab === 'file' ? 'Close file viewer' : 'Open file viewer (Cmd+P)'}
               >
-                <TerminalIcon size={16} strokeWidth={1.75} />
+                <FileText size={16} strokeWidth={1.75} />
               </button>
-            );
-          })()}
-          {!isMobile && (
-            <button
-              onClick={() => setAdvancedInput(!advancedInput)}
-              className={`p-1.5 rounded hover:bg-secondary ${advancedInput ? 'text-primary' : 'text-muted-foreground hover:text-foreground'}`}
-              title={advancedInput ? 'Normal input' : 'Advanced input (Enter to newline)'}
-            >
-              {advancedInput ? <ChevronDown size={16} strokeWidth={2} /> : <ChevronUp size={16} strokeWidth={2} />}
-            </button>
-          )}
-          <SystemInfoButton
-            systemInfo={currentSystemInfo}
-            sessionInfo={currentSession ? {
-              id: currentSession.id,
-              name: currentSession.name || undefined,
-              projectName: currentProject?.name || undefined,
-            } : null}
+            )}
+            {useServerStore.getState().activeServerSupports('remoteTerminal') && currentSession?.projectId && (() => {
+              const pid = currentSession.projectId;
+              const isOpen = !!drawerOpen[pid];
+              return (
+                <button
+                  onClick={() => {
+                    if (isOpen && bottomPanelTab === 'terminal') {
+                      setDrawerOpen(pid, false);
+                    } else if (isOpen) {
+                      setBottomPanelTab('terminal');
+                    } else {
+                      const store = useTerminalStore.getState();
+                      if (!store.terminals[pid]) {
+                        store.openTerminal(pid);
+                      }
+                      setDrawerOpen(pid, true);
+                      setBottomPanelTab('terminal');
+                    }
+                  }}
+                  className={`p-1.5 rounded hover:bg-secondary ${isOpen && bottomPanelTab === 'terminal' ? 'text-primary' : 'text-muted-foreground hover:text-foreground'}`}
+                  title={isOpen && bottomPanelTab === 'terminal' ? 'Hide terminal (Ctrl+`)' : 'Open terminal (Ctrl+`)'}
+                >
+                  <TerminalIcon size={16} strokeWidth={1.75} />
+                </button>
+              );
+            })()}
+            {!isMobile && (
+              <button
+                onClick={() => setAdvancedInput(!advancedInput)}
+                className={`p-1.5 rounded hover:bg-secondary ${advancedInput ? 'text-primary' : 'text-muted-foreground hover:text-foreground'}`}
+                title={advancedInput ? 'Normal input' : 'Advanced input (Enter to newline)'}
+              >
+                {advancedInput ? <ChevronDown size={16} strokeWidth={2} /> : <ChevronUp size={16} strokeWidth={2} />}
+              </button>
+            )}
+            <SystemInfoButton
+              systemInfo={currentSystemInfo}
+              sessionInfo={currentSession ? {
+                id: currentSession.id,
+                name: currentSession.name || undefined,
+                projectName: currentProject?.name || undefined,
+              } : null}
+            />
+          </div>
+          <MessageInput
+            key={sessionId}
+            sessionId={sessionId}
+            onSend={handleSendMessage}
+            onCancel={handleCancelRun}
+            onCommand={handleCommand}
+            commands={commands}
+            projectRoot={fileReferenceRoot}
+            disabled={!isConnected}
+            isLoading={isLoading}
+            initialValue={restoreMessage?.content ?? initialDraft}
+            initialAttachments={restoreMessage?.attachments}
+            advancedMode={advancedInput}
+            placeholder={
+              !isConnected
+                ? 'Connecting...'
+                : isLoading && queuedMessage
+                ? 'Message queued — waiting for response...'
+                : isLoading
+                ? 'Type next message to queue...'
+                : mode === 'plan'
+                ? 'Plan Mode: Analyze and plan (no code changes)...'
+                : advancedInput
+                ? 'Type a message... (Cmd+Enter to send)'
+                : 'Type a message... (Enter to send)'
+            }
           />
         </div>
-        <MessageInput
-          key={sessionId}
-          sessionId={sessionId}
-          onSend={handleSendMessage}
-          onCancel={handleCancelRun}
-          onCommand={handleCommand}
-          commands={commands}
-          projectRoot={fileReferenceRoot}
-          disabled={!isConnected}
-          isLoading={isLoading}
-          initialValue={restoreMessage?.content ?? initialDraft}
-          initialAttachments={restoreMessage?.attachments}
-          advancedMode={advancedInput}
-          placeholder={
-            !isConnected
-              ? 'Connecting...'
-              : isLoading && queuedMessage
-              ? 'Message queued — waiting for response...'
-              : isLoading
-              ? 'Type next message to queue...'
-              : mode === 'plan'
-              ? 'Plan Mode: Analyze and plan (no code changes)...'
-              : advancedInput
-              ? 'Type a message... (Cmd+Enter to send)'
-              : 'Type a message... (Enter to send)'
-          }
-        />
-      </div>
-      {/* Plan review dialog */}
-      {showPlanReview && supervision && detectedPlan && (
-        <PlanReviewDialog
-          supervisionId={supervision.id}
-          plan={detectedPlan}
-          isOpen={showPlanReview}
-          onClose={() => setShowPlanReview(false)}
-        />
       )}
     </div>
   );

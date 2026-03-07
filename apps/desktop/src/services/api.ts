@@ -240,6 +240,25 @@ export async function updateSessionWorkingDirectory(
   }
 }
 
+export async function resetSessionSdkSession(sessionId: string): Promise<void> {
+  const result = await fetchApi<{ sessionId: string; reset: boolean }>(`/api/sessions/${sessionId}/reset-sdk-session`, {
+    method: 'POST',
+  });
+  if (!result.success) {
+    throw new Error(result.error?.message || 'Failed to reset SDK session');
+  }
+}
+
+export async function unlockSession(sessionId: string): Promise<Session> {
+  const result = await fetchApi<Session>(`/api/sessions/${sessionId}/unlock`, {
+    method: 'PATCH',
+  });
+  if (!result.success || !result.data) {
+    throw new Error(result.error?.message || 'Failed to unlock session');
+  }
+  return result.data;
+}
+
 export async function getProjectWorktrees(projectId: string): Promise<GitWorktree[]> {
   const result = await fetchApi<GitWorktree[]>(`/api/projects/${projectId}/worktrees`);
   if (!result.success || !result.data) return [];
@@ -816,150 +835,26 @@ export async function updateAgentConfig(config: {
 }
 
 // ============================================
-// Supervisions V1 API (deprecated — kept for backward compat)
+// Supervision V2 API
 // ============================================
 
 import type {
-  Supervision,
-  SupervisionLog,
-  SupervisionPlan,
   ProjectAgent,
+  AgentMode,
   SupervisorConfig,
   SupervisionTask,
   SupervisionV2Log,
 } from '@my-claudia/shared';
 
-/** @deprecated Use V2 supervision API */
-export async function startSupervisionPlanning(data: {
-  sessionId: string;
-  hint: string;
-}): Promise<{ supervision: Supervision }> {
-  const result = await fetchApi<{ supervision: Supervision }>('/api/supervisions/plan/start', {
-    method: 'POST',
-    body: JSON.stringify(data),
-  });
-  if (!result.success || !result.data) {
-    throw new Error(result.error?.message || 'Failed to start planning');
-  }
-  return result.data;
-}
-
-/** @deprecated Use V2 supervision API */
-export async function approvePlan(
-  supervisionId: string,
-  plan: SupervisionPlan & { maxIterations?: number; cooldownSeconds?: number }
-): Promise<Supervision> {
-  const result = await fetchApi<Supervision>(`/api/supervisions/plan/${supervisionId}/approve`, {
-    method: 'POST',
-    body: JSON.stringify(plan),
-  });
-  if (!result.success || !result.data) {
-    throw new Error(result.error?.message || 'Failed to approve plan');
-  }
-  return result.data;
-}
-
-/** @deprecated Use V2 supervision API */
-export async function cancelPlanning(supervisionId: string): Promise<Supervision> {
-  const result = await fetchApi<Supervision>(`/api/supervisions/plan/${supervisionId}/cancel`, {
-    method: 'POST',
-  });
-  if (!result.success || !result.data) {
-    throw new Error(result.error?.message || 'Failed to cancel planning');
-  }
-  return result.data;
-}
-
-/** @deprecated Use V2 supervision API */
-export async function createSupervision(data: {
-  sessionId: string;
-  goal: string;
-  subtasks?: string[];
-  maxIterations?: number;
-  cooldownSeconds?: number;
-}): Promise<Supervision> {
-  const result = await fetchApi<Supervision>('/api/supervisions', {
-    method: 'POST',
-    body: JSON.stringify(data),
-  });
-  if (!result.success || !result.data) {
-    throw new Error(result.error?.message || 'Failed to create supervision');
-  }
-  return result.data;
-}
-
-/** @deprecated Use V2 supervision API */
-export async function getSupervisions(): Promise<Supervision[]> {
-  const result = await fetchApi<Supervision[]>('/api/supervisions');
-  if (!result.success || !result.data) {
-    throw new Error(result.error?.message || 'Failed to fetch supervisions');
-  }
-  return result.data;
-}
-
-/** @deprecated Use V2 supervision API */
-export async function getSupervisionBySession(sessionId: string): Promise<Supervision | null> {
-  const result = await fetchApi<Supervision | null>(`/api/supervisions/session/${sessionId}`);
-  if (!result.success) {
-    throw new Error(result.error?.message || 'Failed to get supervision');
-  }
-  return result.data ?? null;
-}
-
-/** @deprecated Use V2 supervision API */
-export async function getSupervisionLogs(id: string): Promise<SupervisionLog[]> {
-  const result = await fetchApi<SupervisionLog[]>(`/api/supervisions/${id}/logs`);
-  if (!result.success || !result.data) {
-    throw new Error(result.error?.message || 'Failed to get supervision logs');
-  }
-  return result.data;
-}
-
-/** @deprecated Use V2 supervision API */
-export async function pauseSupervision(id: string): Promise<Supervision> {
-  const result = await fetchApi<Supervision>(`/api/supervisions/${id}/pause`, {
-    method: 'POST',
-  });
-  if (!result.success || !result.data) {
-    throw new Error(result.error?.message || 'Failed to pause supervision');
-  }
-  return result.data;
-}
-
-/** @deprecated Use V2 supervision API */
-export async function resumeSupervision(id: string, options?: { maxIterations?: number }): Promise<Supervision> {
-  const result = await fetchApi<Supervision>(`/api/supervisions/${id}/resume`, {
-    method: 'POST',
-    body: JSON.stringify(options || {}),
-  });
-  if (!result.success || !result.data) {
-    throw new Error(result.error?.message || 'Failed to resume supervision');
-  }
-  return result.data;
-}
-
-/** @deprecated Use V2 supervision API */
-export async function cancelSupervision(id: string): Promise<Supervision> {
-  const result = await fetchApi<Supervision>(`/api/supervisions/${id}/cancel`, {
-    method: 'POST',
-  });
-  if (!result.success || !result.data) {
-    throw new Error(result.error?.message || 'Failed to cancel supervision');
-  }
-  return result.data;
-}
-
-// ============================================
-// Supervision V2 API — routes to active server
-// ============================================
-
 export async function initSupervisionAgent(
   projectId: string,
   config?: Partial<SupervisorConfig>,
+  providerId?: string,
+  mode?: AgentMode,
 ): Promise<ProjectAgent> {
   const result = await fetchApi<ProjectAgent>(`/api/v2/projects/${projectId}/agent/init`, {
     method: 'POST',
-    body: JSON.stringify({ config }),
+    body: JSON.stringify({ config, providerId, mode }),
   });
   if (!result.success || !result.data) {
     throw new Error(result.error?.message || 'Failed to initialize agent');
@@ -1009,6 +904,9 @@ export async function createSupervisionTask(
     acceptanceCriteria?: string[];
     relevantDocIds?: string[];
     scope?: string[];
+    scheduleCron?: string;
+    scheduleEnabled?: boolean;
+    retryDelayMs?: number;
   },
 ): Promise<SupervisionTask> {
   const result = await fetchApi<SupervisionTask>(`/api/v2/projects/${projectId}/tasks`, {
@@ -1017,6 +915,42 @@ export async function createSupervisionTask(
   });
   if (!result.success || !result.data) {
     throw new Error(result.error?.message || 'Failed to create task');
+  }
+  return result.data;
+}
+
+export async function openTaskSession(taskId: string): Promise<{ sessionId: string }> {
+  const result = await fetchApi<{ sessionId: string }>(`/api/v2/tasks/${taskId}/open-session`, {
+    method: 'POST',
+  });
+  if (!result.success || !result.data) {
+    throw new Error(result.error?.message || 'Failed to open task session');
+  }
+  return result.data;
+}
+
+export interface TaskPlanStatus {
+  exists: boolean;
+  ready: boolean;
+  score: number;
+  missing: string[];
+  path: string;
+}
+
+export async function getTaskPlanStatus(taskId: string): Promise<TaskPlanStatus> {
+  const result = await fetchApi<TaskPlanStatus>(`/api/v2/tasks/${taskId}/plan-status`);
+  if (!result.success || !result.data) {
+    throw new Error(result.error?.message || 'Failed to get task plan status');
+  }
+  return result.data;
+}
+
+export async function submitTaskPlan(taskId: string): Promise<{ task: SupervisionTask; sessionId: string }> {
+  const result = await fetchApi<{ task: SupervisionTask; sessionId: string }>(`/api/v2/tasks/${taskId}/plan/submit`, {
+    method: 'POST',
+  });
+  if (!result.success || !result.data) {
+    throw new Error(result.error?.message || 'Failed to submit task plan');
   }
   return result.data;
 }
@@ -1078,6 +1012,36 @@ export async function rejectSupervisionTaskResult(
   });
   if (!result.success || !result.data) {
     throw new Error(result.error?.message || 'Failed to reject task result');
+  }
+  return result.data;
+}
+
+export async function retryTask(taskId: string): Promise<SupervisionTask> {
+  const result = await fetchApi<SupervisionTask>(`/api/v2/tasks/${taskId}/retry`, {
+    method: 'POST',
+  });
+  if (!result.success || !result.data) {
+    throw new Error(result.error?.message || 'Failed to retry task');
+  }
+  return result.data;
+}
+
+export async function cancelTask(taskId: string): Promise<SupervisionTask> {
+  const result = await fetchApi<SupervisionTask>(`/api/v2/tasks/${taskId}/cancel`, {
+    method: 'POST',
+  });
+  if (!result.success || !result.data) {
+    throw new Error(result.error?.message || 'Failed to cancel task');
+  }
+  return result.data;
+}
+
+export async function runTaskNow(taskId: string): Promise<SupervisionTask> {
+  const result = await fetchApi<SupervisionTask>(`/api/v2/tasks/${taskId}/run-now`, {
+    method: 'POST',
+  });
+  if (!result.success || !result.data) {
+    throw new Error(result.error?.message || 'Failed to run task');
   }
   return result.data;
 }

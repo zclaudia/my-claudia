@@ -28,6 +28,10 @@ export class SupervisionTaskRepository {
       createdAt: row.created_at,
       startedAt: row.started_at || undefined,
       completedAt: row.completed_at || undefined,
+      scheduleCron: row.schedule_cron || undefined,
+      scheduleNextRun: row.schedule_next_run || undefined,
+      scheduleEnabled: row.schedule_enabled === 1,
+      retryDelayMs: row.retry_delay_ms || undefined,
     };
   }
 
@@ -45,6 +49,10 @@ export class SupervisionTaskRepository {
     scope?: string[];
     acceptanceCriteria?: string[];
     maxRetries?: number;
+    scheduleCron?: string;
+    scheduleNextRun?: number;
+    scheduleEnabled?: boolean;
+    retryDelayMs?: number;
   }): SupervisionTask {
     const id = uuidv4();
     const now = Date.now();
@@ -53,8 +61,10 @@ export class SupervisionTaskRepository {
       INSERT INTO supervision_tasks
         (id, project_id, title, description, source, status, priority,
          dependencies, dependency_mode, relevant_doc_ids, task_specific_context,
-         scope, acceptance_criteria, max_retries, attempt, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
+         scope, acceptance_criteria, max_retries, attempt,
+         schedule_cron, schedule_next_run, schedule_enabled, retry_delay_ms,
+         created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?)
     `).run(
       id,
       data.projectId,
@@ -70,6 +80,10 @@ export class SupervisionTaskRepository {
       data.scope?.length ? JSON.stringify(data.scope) : null,
       data.acceptanceCriteria?.length ? JSON.stringify(data.acceptanceCriteria) : null,
       data.maxRetries ?? 2,
+      data.scheduleCron ?? null,
+      data.scheduleNextRun ?? null,
+      data.scheduleEnabled ? 1 : 0,
+      data.retryDelayMs ?? 5000,
       now,
       now,
     );
@@ -110,7 +124,7 @@ export class SupervisionTaskRepository {
       updates.push('started_at = COALESCE(started_at, ?)');
       params.push(Date.now());
     }
-    if (['integrated', 'failed', 'cancelled'].includes(status)) {
+    if (['completed', 'integrated', 'failed', 'cancelled'].includes(status)) {
       updates.push('completed_at = ?');
       params.push(Date.now());
     }
@@ -139,7 +153,8 @@ export class SupervisionTaskRepository {
 
   update(id: string, data: Partial<Pick<SupervisionTask,
     'title' | 'description' | 'priority' | 'dependencies' | 'dependencyMode' |
-    'acceptanceCriteria' | 'relevantDocIds' | 'scope' | 'taskSpecificContext'
+    'acceptanceCriteria' | 'relevantDocIds' | 'scope' | 'taskSpecificContext' |
+    'scheduleCron' | 'scheduleEnabled' | 'scheduleNextRun' | 'retryDelayMs'
   >>): SupervisionTask | undefined {
     const updates: string[] = [];
     const params: any[] = [];
@@ -153,6 +168,10 @@ export class SupervisionTaskRepository {
     if (data.relevantDocIds !== undefined) { updates.push('relevant_doc_ids = ?'); params.push(JSON.stringify(data.relevantDocIds)); }
     if (data.scope !== undefined) { updates.push('scope = ?'); params.push(JSON.stringify(data.scope)); }
     if (data.taskSpecificContext !== undefined) { updates.push('task_specific_context = ?'); params.push(data.taskSpecificContext); }
+    if (data.scheduleCron !== undefined) { updates.push('schedule_cron = ?'); params.push(data.scheduleCron); }
+    if (data.scheduleEnabled !== undefined) { updates.push('schedule_enabled = ?'); params.push(data.scheduleEnabled ? 1 : 0); }
+    if (data.scheduleNextRun !== undefined) { updates.push('schedule_next_run = ?'); params.push(data.scheduleNextRun); }
+    if (data.retryDelayMs !== undefined) { updates.push('retry_delay_ms = ?'); params.push(data.retryDelayMs); }
 
     if (updates.length === 0) return this.findById(id);
 

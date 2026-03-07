@@ -430,10 +430,51 @@ interface StreamState {
   lastField: string | null;
   /** Last partIndex seen for text deltas (for detecting part boundaries) */
   lastTextPartId: string;
+  /** Whether this run has emitted any visible assistant output */
+  hasAnyAssistantOutput: boolean;
 }
 
 function createStreamState(): StreamState {
-  return { lastField: null, lastTextPartId: '' };
+  return { lastField: null, lastTextPartId: '', hasAnyAssistantOutput: false };
+}
+
+/**
+ * Some OpenCode agent flows only expose final assistant text via session.messages(),
+ * not via message.part.* delta events. If nothing has been streamed yet, fetch once
+ * at end-of-turn and emit the latest assistant text as a fallback.
+ */
+async function* emitAssistantFallbackFromSession(
+  server: OpenCodeServer,
+  sessionId: string,
+  streamState: StreamState,
+): AsyncGenerator<ClaudeMessage> {
+  if (streamState.hasAnyAssistantOutput) return;
+
+  try {
+    const res = await server.client.session.messages({ path: { id: sessionId } });
+    const messages = Array.isArray(res.data) ? (res.data as any[]) : [];
+    const latestAssistant = [...messages].reverse().find((m) => m?.info?.role === 'assistant');
+    if (!latestAssistant) return;
+
+    const parts: any[] = Array.isArray(latestAssistant.parts) ? latestAssistant.parts : [];
+    let textOut = '';
+    for (const part of parts) {
+      if (part?.type === 'reasoning' && typeof part?.text === 'string' && part.text.trim()) {
+        textOut += `<think>${part.text}</think>\n\n`;
+      } else if (part?.type === 'text' && typeof part?.text === 'string') {
+        textOut += part.text;
+      }
+    }
+
+    const normalized = textOut.trim();
+    if (normalized) {
+      ocLog(`Fallback emitted assistant text from session.messages() for session ${sessionId} (${normalized.length} chars)`);
+      streamState.hasAnyAssistantOutput = true;
+      yield { type: 'assistant', content: normalized };
+    }
+  } catch (err) {
+    ocLog(`Fallback session.messages() read failed for ${sessionId}: ${err}`);
+  }
 }
 
 // ============================================
@@ -535,6 +576,7 @@ async function* pollSessionMessages(
               }
               streamState.lastTextPartId = partId;
               streamState.lastField = 'text';
+              streamState.hasAnyAssistantOutput = true;
               yield { type: 'assistant', content: delta };
             }
             textContent.set(partId, content);
@@ -550,6 +592,7 @@ async function* pollSessionMessages(
                 yield { type: 'assistant', content: '<think>' };
               }
               streamState.lastField = 'reasoning';
+              streamState.hasAnyAssistantOutput = true;
               yield { type: 'assistant', content: delta };
             }
             textContent.set(partId, content);
@@ -598,6 +641,9 @@ async function* pollSessionMessages(
     // TODO: Implement permission detection via polling if needed
 
     if (sessionCompleted) {
+      if (!streamState.hasAnyAssistantOutput) {
+        yield* emitAssistantFallbackFromSession(server, sessionId, streamState);
+      }
       // Close any open think block
       if (streamState.lastField === 'reasoning') {
         yield { type: 'assistant', content: '</think>\n\n' };
@@ -951,6 +997,9 @@ export async function* runOpenCode(
     }
 
     // SSE ended normally (stream closed after receiving events)
+    if (!streamState.hasAnyAssistantOutput) {
+      yield* emitAssistantFallbackFromSession(server, sessionId, streamState);
+    }
     if (streamState.lastField === 'reasoning') {
       yield { type: 'assistant', content: '</think>\n\n' };
     }
@@ -1009,6 +1058,7 @@ async function* mapOpenCodeEvent(
             }
             streamState.lastTextPartId = part.id;
             streamState.lastField = 'text';
+            streamState.hasAnyAssistantOutput = true;
             yield { type: 'assistant', content: delta };
           }
           break;
@@ -1021,6 +1071,7 @@ async function* mapOpenCodeEvent(
               yield { type: 'assistant', content: '<think>' };
             }
             streamState.lastField = 'reasoning';
+            streamState.hasAnyAssistantOutput = true;
             yield { type: 'assistant', content: delta };
           }
           break;
@@ -1071,6 +1122,9 @@ async function* mapOpenCodeEvent(
       const status: SessionStatus | undefined = props.status;
 
       if (status?.type === 'idle') {
+        if (!streamState.hasAnyAssistantOutput) {
+          yield* emitAssistantFallbackFromSession(server, sessionId, streamState);
+        }
         yield {
           type: 'result',
           isComplete: true,
@@ -1081,6 +1135,9 @@ async function* mapOpenCodeEvent(
 
     case 'session.idle': {
       if (props.sessionID !== sessionId) break;
+      if (!streamState.hasAnyAssistantOutput) {
+        yield* emitAssistantFallbackFromSession(server, sessionId, streamState);
+      }
       yield {
         type: 'result',
         isComplete: true,
@@ -1146,12 +1203,14 @@ async function* mapOpenCodeEvent(
             }
             streamState.lastTextPartId = props.partID;
             streamState.lastField = 'text';
+            streamState.hasAnyAssistantOutput = true;
             yield { type: 'assistant', content: delta };
           } else if (field === 'reasoning') {
             if (streamState.lastField !== 'reasoning') {
               yield { type: 'assistant', content: '<think>' };
             }
             streamState.lastField = 'reasoning';
+            streamState.hasAnyAssistantOutput = true;
             yield { type: 'assistant', content: delta };
           }
         }

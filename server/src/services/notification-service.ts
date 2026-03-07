@@ -5,7 +5,7 @@ import { DEFAULT_NOTIFICATION_CONFIG } from '@my-claudia/shared';
 type NtfyPriority = 'urgent' | 'high' | 'default' | 'low' | 'min';
 
 interface NotifyEvent {
-  type: 'permission_request' | 'ask_user_question' | 'run_completed' | 'run_failed' | 'supervision_update' | 'background_permission';
+  type: 'permission_request' | 'ask_user_question' | 'run_completed' | 'run_failed' | 'background_permission';
   title: string;
   body: string;
   priority?: NtfyPriority;
@@ -60,7 +60,6 @@ export class NotificationService {
       ask_user_question: 'askUserQuestion',
       run_completed: 'runCompleted',
       run_failed: 'runFailed',
-      supervision_update: 'supervisionUpdate',
       background_permission: 'backgroundPermission',
     };
 

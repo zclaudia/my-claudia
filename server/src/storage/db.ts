@@ -622,6 +622,25 @@ function runMigrations(db: Database.Database): void {
         ALTER TABLE supervisions RENAME TO supervisions_v1_archived;
         ALTER TABLE supervision_logs RENAME TO supervision_logs_v1_archived;
       `
+    },
+    {
+      name: '027_session_plan_status',
+      sql: `
+        ALTER TABLE sessions ADD COLUMN plan_status TEXT;
+        ALTER TABLE sessions ADD COLUMN is_read_only INTEGER DEFAULT 0;
+      `
+    },
+    {
+      name: '028_lite_supervisor_scheduling',
+      sql: `
+        ALTER TABLE supervision_tasks ADD COLUMN schedule_cron TEXT;
+        ALTER TABLE supervision_tasks ADD COLUMN schedule_next_run INTEGER;
+        ALTER TABLE supervision_tasks ADD COLUMN schedule_enabled INTEGER DEFAULT 0;
+        ALTER TABLE supervision_tasks ADD COLUMN retry_delay_ms INTEGER DEFAULT 5000;
+
+        CREATE INDEX IF NOT EXISTS idx_supervision_tasks_schedule
+          ON supervision_tasks(schedule_enabled, schedule_next_run);
+      `
     }
   ];
 

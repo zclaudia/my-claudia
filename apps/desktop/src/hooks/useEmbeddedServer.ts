@@ -69,7 +69,6 @@ export function useEmbeddedServer(): EmbeddedServerState {
         // Not running, proceed to spawn
       }
 
-      const baseDataDir = await appDataDir();
       // Use /tmp to avoid space issues in env vars with sidecar
       const dataDir = '/tmp/my-claudia-dev/';
       const serverPath = await resolveServerPath();

@@ -3,15 +3,27 @@
  */
 
 /**
- * Generate a specific signature for a tool call to improve loop detection granularity
+ * Generate a specific signature for a tool call to improve loop detection granularity.
+ * Provider adapters may emit different shapes for the same semantic operation,
+ * so we normalize tool name + key fields before generating signatures.
  */
 export function generateToolSignature(
   toolName: string,
-  toolInput?: Record<string, unknown>
+  toolInput?: Record<string, unknown>,
+  _providerType?: string,
 ): string {
+  const normalizedTool = normalizeToolName(toolName);
+
+  if (normalizedTool === 'Task') {
+    const subtype = pickString(toolInput, ['subagent_type', 'subagentType', 'agent', 'task_type', 'type']) || 'generic';
+    const inBackground = pickBoolean(toolInput, ['run_in_background', 'runInBackground']);
+    return `Task:${subtype}${inBackground === true ? ':bg' : inBackground === false ? ':fg' : ''}`;
+  }
+
   // For Bash commands, include a richer command signature (command + key subcommand).
-  if (toolName === 'Bash' && toolInput?.command && typeof toolInput.command === 'string') {
-    const raw = toolInput.command.trim().replace(/\s+/g, ' ');
+  const bashCommand = extractCommand(toolInput);
+  if (normalizedTool === 'Bash' && bashCommand) {
+    const raw = bashCommand.trim().replace(/\s+/g, ' ');
     const tokens = raw.split(' ').filter(Boolean);
     if (tokens.length === 0) return 'Bash';
 
@@ -26,26 +38,81 @@ export function generateToolSignature(
     return `Bash:${sig.join(' ')}`;
   }
 
-  // For Read/Write/Edit, include file path with parent directory for better disambiguation
-  if (['Read', 'Write', 'Edit'].includes(toolName) && toolInput?.file_path && typeof toolInput.file_path === 'string') {
-    const parts = toolInput.file_path.split('/');
-    // Include last 2 parts of path (parent dir + filename) for better disambiguation
-    // e.g., "src/config.json" instead of just "config.json"
+  // For Read/Write/Edit, include file path with parent directory for better disambiguation.
+  const filePath = extractFilePath(toolInput);
+  if (['Read', 'Write', 'Edit'].includes(normalizedTool) && filePath) {
+    const parts = filePath.split('/');
     const pathSignature = parts.length > 3
       ? `${parts[parts.length - 2]}/${parts[parts.length - 1]}`
-      : parts[parts.length - 1] || toolInput.file_path;
-    return `${toolName}:${pathSignature}`;
+      : parts[parts.length - 1] || filePath;
+    return `${normalizedTool}:${pathSignature}`;
   }
 
   // For Grep, include pattern + path hint when available.
-  if (toolName === 'Grep' && toolInput?.pattern && typeof toolInput.pattern === 'string') {
-    const pattern = toolInput.pattern.substring(0, 30);
-    const path = typeof toolInput.path === 'string' ? toolInput.path.split('/').slice(-2).join('/') : '';
-    return path ? `Grep:${pattern}@${path}` : `Grep:${pattern}`;
+  if (normalizedTool === 'Grep') {
+    const patternRaw = pickString(toolInput, ['pattern', 'query']);
+    if (patternRaw) {
+      const pattern = patternRaw.substring(0, 30);
+      const pathRaw = pickString(toolInput, ['path', 'file_path', 'filePath']);
+      const path = pathRaw ? pathRaw.split('/').slice(-2).join('/') : '';
+      return path ? `Grep:${pattern}@${path}` : `Grep:${pattern}`;
+    }
   }
 
-  // Default: just use tool name
+  if (normalizedTool === 'WebSearch') {
+    const query = pickString(toolInput, ['query', 'q']) || '';
+    return query ? `WebSearch:${query.substring(0, 30)}` : 'WebSearch';
+  }
+
+  // Default: normalized tool name
+  return normalizedTool;
+}
+
+function normalizeToolName(toolName: string): string {
+  const lower = toolName.toLowerCase();
+  if (['bash', 'execute_command', 'run_terminal_cmd', 'terminal', 'shell'].includes(lower)) return 'Bash';
+  if (lower === 'read') return 'Read';
+  if (['write', 'create'].includes(lower)) return 'Write';
+  if (['edit', 'patch'].includes(lower)) return 'Edit';
+  if (['grep', 'search', 'find'].includes(lower)) return 'Grep';
+  if (['websearch', 'web_search'].includes(lower)) return 'WebSearch';
+  if (['task', 'subagent', 'delegate'].includes(lower)) return 'Task';
   return toolName;
+}
+
+function pickString(input: Record<string, unknown> | undefined, keys: string[]): string | undefined {
+  if (!input) return undefined;
+  for (const k of keys) {
+    const value = input[k];
+    if (typeof value === 'string' && value.trim()) return value.trim();
+  }
+  return undefined;
+}
+
+function pickBoolean(input: Record<string, unknown> | undefined, keys: string[]): boolean | undefined {
+  if (!input) return undefined;
+  for (const k of keys) {
+    const value = input[k];
+    if (typeof value === 'boolean') return value;
+  }
+  return undefined;
+}
+
+function extractCommand(input: Record<string, unknown> | undefined): string | undefined {
+  if (!input) return undefined;
+  const direct = pickString(input, ['command', 'cmd', 'commandLine']);
+  if (direct) return direct;
+
+  const args = input.args;
+  if (args && typeof args === 'object' && !Array.isArray(args)) {
+    const nested = pickString(args as Record<string, unknown>, ['command', 'cmd']);
+    if (nested) return nested;
+  }
+  return undefined;
+}
+
+function extractFilePath(input: Record<string, unknown> | undefined): string | undefined {
+  return pickString(input, ['file_path', 'filePath', 'path', 'target']);
 }
 
 /**
@@ -68,11 +135,12 @@ export function detectLoop(toolCalls: string[]): { detected: boolean; pattern?: 
     }
 
     if (repeats >= 2) {
-      // Guard: repeated sequences of *different* Bash subcommands are often legitimate
-      // command workflows, not stuck loops (high false-positive source).
+      // Guard: repeated sequences of *different* Bash/Task sub-signatures are often
+      // legitimate workflows, not stuck loops (major false-positive source).
       const allBash = tail.every((t) => t.startsWith('Bash:'));
+      const allTask = tail.every((t) => t.startsWith('Task:'));
       const unique = new Set(tail).size;
-      if (allBash && unique > 1) {
+      if ((allBash || allTask) && unique > 1) {
         continue;
       }
       return { detected: true, pattern: tail.join(' → ') };

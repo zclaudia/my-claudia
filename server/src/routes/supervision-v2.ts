@@ -10,8 +10,8 @@ export function createSupervisionV2Routes(service: SupervisorV2Service): Router 
   router.post('/projects/:projectId/agent/init', (req: Request, res: Response) => {
     try {
       const { projectId } = req.params;
-      const { config } = req.body;
-      const agent = service.initAgent(projectId, config);
+      const { config, providerId, mode } = req.body;
+      const agent = service.initAgent(projectId, config, providerId, mode);
       res.json({ success: true, data: agent } as ApiResponse<ProjectAgent>);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to initialize agent';
@@ -83,7 +83,11 @@ export function createSupervisionV2Routes(service: SupervisorV2Service): Router 
   router.post('/projects/:projectId/tasks', (req: Request, res: Response) => {
     try {
       const { projectId } = req.params;
-      const { title, description, dependencies, dependencyMode, priority, acceptanceCriteria, relevantDocIds, scope } = req.body;
+      const {
+        title, description, dependencies, dependencyMode, priority,
+        acceptanceCriteria, relevantDocIds, scope,
+        scheduleCron, scheduleEnabled, retryDelayMs,
+      } = req.body;
       if (!title || !description) {
         res.status(400).json({
           success: false,
@@ -94,6 +98,7 @@ export function createSupervisionV2Routes(service: SupervisorV2Service): Router 
       const task = service.createTask(projectId, {
         title, description, dependencies, dependencyMode, priority,
         acceptanceCriteria, relevantDocIds, scope,
+        scheduleCron, scheduleEnabled, retryDelayMs,
       });
       res.json({ success: true, data: task } as ApiResponse<SupervisionTask>);
     } catch (error) {
@@ -206,6 +211,58 @@ export function createSupervisionV2Routes(service: SupervisorV2Service): Router 
     }
   });
 
+  // POST /tasks/:taskId/open-session — Lazily create/return session for a task
+  router.post('/tasks/:taskId/open-session', (req: Request, res: Response) => {
+    try {
+      const result = service.openTaskSession(req.params.taskId);
+      res.json({ success: true, data: result } as ApiResponse<{ sessionId: string }>);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to open task session';
+      const status = message.includes('not found') ? 404 : 500;
+      res.status(status).json({
+        success: false,
+        error: { code: status === 404 ? 'NOT_FOUND' : 'INTERNAL_ERROR', message },
+      } as ApiResponse<never>);
+    }
+  });
+
+  // GET /tasks/:taskId/plan-status — Validate planning document completeness
+  router.get('/tasks/:taskId/plan-status', (req: Request, res: Response) => {
+    try {
+      const status = service.getTaskPlanStatus(req.params.taskId);
+      res.json({ success: true, data: status });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to get plan status';
+      const status = message.includes('not found') ? 404 : 500;
+      res.status(status).json({
+        success: false,
+        error: { code: status === 404 ? 'NOT_FOUND' : 'INTERNAL_ERROR', message },
+      } as ApiResponse<never>);
+    }
+  });
+
+  // POST /tasks/:taskId/plan/submit — Submit plan when validator passes
+  router.post('/tasks/:taskId/plan/submit', (req: Request, res: Response) => {
+    try {
+      const result = service.submitTaskPlan(req.params.taskId);
+      res.json({ success: true, data: result });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to submit plan';
+      const code = message.includes('incomplete') ? 'VALIDATION_ERROR'
+        : message.includes('not found') ? 'NOT_FOUND'
+        : message.includes('not in planning status') ? 'INVALID_STATE'
+        : 'INTERNAL_ERROR';
+      const status = code === 'VALIDATION_ERROR' ? 400
+        : code === 'NOT_FOUND' ? 404
+        : code === 'INVALID_STATE' ? 409
+        : 500;
+      res.status(status).json({
+        success: false,
+        error: { code, message },
+      } as ApiResponse<never>);
+    }
+  });
+
   // POST /projects/:projectId/context/reload — Reload .supervision/
   router.post('/projects/:projectId/context/reload', (req: Request, res: Response) => {
     try {
@@ -263,6 +320,51 @@ export function createSupervisionV2Routes(service: SupervisorV2Service): Router 
       res.status(500).json({
         success: false,
         error: { code: 'INTERNAL_ERROR', message: 'Failed to get context documents' },
+      } as ApiResponse<never>);
+    }
+  });
+
+  // POST /tasks/:taskId/retry — Manually retry a failed/cancelled task
+  router.post('/tasks/:taskId/retry', (req: Request, res: Response) => {
+    try {
+      const task = service.retryTask(req.params.taskId);
+      res.json({ success: true, data: task } as ApiResponse<SupervisionTask>);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to retry task';
+      const status = message.includes('not found') ? 404 : 400;
+      res.status(status).json({
+        success: false,
+        error: { code: status === 404 ? 'NOT_FOUND' : 'INVALID_STATE', message },
+      } as ApiResponse<never>);
+    }
+  });
+
+  // POST /tasks/:taskId/cancel — Cancel a running/queued task
+  router.post('/tasks/:taskId/cancel', (req: Request, res: Response) => {
+    try {
+      const task = service.cancelTask(req.params.taskId);
+      res.json({ success: true, data: task } as ApiResponse<SupervisionTask>);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to cancel task';
+      const status = message.includes('not found') ? 404 : 400;
+      res.status(status).json({
+        success: false,
+        error: { code: status === 404 ? 'NOT_FOUND' : 'INVALID_STATE', message },
+      } as ApiResponse<never>);
+    }
+  });
+
+  // POST /tasks/:taskId/run-now — Immediately queue a scheduled/terminal task
+  router.post('/tasks/:taskId/run-now', (req: Request, res: Response) => {
+    try {
+      const task = service.runTaskNow(req.params.taskId);
+      res.json({ success: true, data: task } as ApiResponse<SupervisionTask>);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to run task';
+      const status = message.includes('not found') ? 404 : 400;
+      res.status(status).json({
+        success: false,
+        error: { code: status === 404 ? 'NOT_FOUND' : 'INVALID_STATE', message },
       } as ApiResponse<never>);
     }
   });

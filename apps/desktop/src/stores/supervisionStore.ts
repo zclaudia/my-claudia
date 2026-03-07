@@ -1,22 +1,11 @@
 import { create } from 'zustand';
 import type {
-  Supervision,
   SupervisionTask,
   ProjectAgent,
 } from '@my-claudia/shared';
 
 interface SupervisionState {
-  // ====== V1 (deprecated, kept for backward compat) ======
-  supervisions: Record<string, Supervision>;
-  pendingPlanningHints: Record<string, string>;
-
-  setSupervision: (sessionId: string, supervision: Supervision | null) => void;
-  updateSupervision: (supervision: Supervision) => void;
-  removeSupervision: (sessionId: string) => void;
-  setPendingHint: (sessionId: string, hint: string) => void;
-  clearPendingHint: (sessionId: string) => void;
-
-  // ====== V2: project-level supervision ======
+  // Project-level supervision (V2)
   tasks: Record<string, SupervisionTask[]>;       // projectId -> tasks
   agents: Record<string, ProjectAgent>;            // projectId -> agent
   lastCheckpoint: Record<string, string>;          // projectId -> summary
@@ -30,52 +19,9 @@ interface SupervisionState {
 }
 
 export const useSupervisionStore = create<SupervisionState>((set) => ({
-  // V1 state
-  supervisions: {},
-  pendingPlanningHints: {},
-
-  // V2 state
   tasks: {},
   agents: {},
   lastCheckpoint: {},
-
-  // ====== V1 actions ======
-
-  setSupervision: (sessionId, supervision) =>
-    set((state) => {
-      if (!supervision) {
-        const { [sessionId]: _, ...rest } = state.supervisions;
-        return { supervisions: rest };
-      }
-      return { supervisions: { ...state.supervisions, [sessionId]: supervision } };
-    }),
-
-  updateSupervision: (supervision) =>
-    set((state) => ({
-      supervisions: {
-        ...state.supervisions,
-        [supervision.sessionId]: supervision,
-      },
-    })),
-
-  removeSupervision: (sessionId) =>
-    set((state) => {
-      const { [sessionId]: _, ...rest } = state.supervisions;
-      return { supervisions: rest };
-    }),
-
-  setPendingHint: (sessionId, hint) =>
-    set((state) => ({
-      pendingPlanningHints: { ...state.pendingPlanningHints, [sessionId]: hint },
-    })),
-
-  clearPendingHint: (sessionId) =>
-    set((state) => {
-      const { [sessionId]: _, ...rest } = state.pendingPlanningHints;
-      return { pendingPlanningHints: rest };
-    }),
-
-  // ====== V2 actions ======
 
   setTasks: (projectId, tasks) =>
     set((state) => ({

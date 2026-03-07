@@ -30,7 +30,7 @@ export function WorktreeGroupItem({
       <button
         onClick={onToggle}
         className={`w-full flex items-center gap-1.5 px-1 rounded text-[11px] text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors ${
-          isMobile ? 'min-h-[36px] py-1' : 'h-6'
+          isMobile ? 'min-h-[36px] py-1' : 'h-7'
         }`}
       >
         {/* Chevron */}
@@ -54,7 +54,7 @@ export function WorktreeGroupItem({
 
       {/* Expanded children */}
       {isExpanded && (
-        <ul className="ml-3 mt-0.5 space-y-0.5">
+        <ul className="ml-2 mt-0.5 space-y-0.5">
           {children}
         </ul>
       )}

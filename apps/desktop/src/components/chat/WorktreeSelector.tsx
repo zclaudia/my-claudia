@@ -1,15 +1,10 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import type { GitWorktree } from '@my-claudia/shared';
 import * as api from '../../services/api';
+import { SelectorTrigger } from './SelectorTrigger';
 
 function pathBasename(p: string): string {
   return p.replace(/\\/g, '/').split('/').filter(Boolean).pop() || p;
-}
-
-function pathDirname(p: string): string {
-  const parts = p.replace(/\\/g, '/').split('/');
-  parts.pop();
-  return parts.join('/') || '/';
 }
 
 function pathRelative(from: string, to: string): string {
@@ -22,12 +17,18 @@ function pathRelative(from: string, to: string): string {
   return rel || '.';
 }
 
+function normalizePath(p: string): string {
+  return p.replace(/\\/g, '/').replace(/\/+$/, '');
+}
+
 interface WorktreeSelectorProps {
   projectId: string;
   projectRootPath: string;
   currentWorktree: string;   // currentSession?.workingDirectory || ''
   onChange: (path: string) => void;
   disabled?: boolean;
+  locked?: boolean;
+  lockReason?: string;
 }
 
 function BranchIcon({ className = 'w-3.5 h-3.5' }: { className?: string }) {
@@ -39,10 +40,17 @@ function BranchIcon({ className = 'w-3.5 h-3.5' }: { className?: string }) {
   );
 }
 
-/** 返回相对于 projectRootPath 的简短路径或分支名 */
-function getDisplayLabel(worktreePath: string, projectRootPath: string, worktrees: GitWorktree[]): string {
-  const wt = worktrees.find(w => w.path === worktreePath);
-  if (wt) return wt.branch;
+function LockIcon({ className = 'w-3.5 h-3.5' }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+        d="M12 11c-1.657 0-3 1.343-3 3v2h6v-2c0-1.657-1.343-3-3-3zm6 3v2a2 2 0 01-2 2H7a2 2 0 01-2-2v-2a7 7 0 1114 0z" />
+    </svg>
+  );
+}
+
+/** Return a short, stable worktree label (prefer relative path over branch name). */
+function getWorktreeLabel(worktreePath: string, projectRootPath: string): string {
   try {
     const rel = pathRelative(projectRootPath, worktreePath);
     return rel || pathBasename(worktreePath);
@@ -57,6 +65,8 @@ export function WorktreeSelector({
   currentWorktree,
   onChange,
   disabled,
+  locked,
+  lockReason,
 }: WorktreeSelectorProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [worktrees, setWorktrees] = useState<GitWorktree[]>([]);
@@ -92,13 +102,21 @@ export function WorktreeSelector({
     try {
       const list = await api.getProjectWorktrees(projectId);
       setWorktrees(list);
+    } catch {
+      // Avoid showing stale branch/worktree labels when fetch fails.
+      setWorktrees([]);
     } finally {
       setLoading(false);
     }
   }, [projectId]);
 
+  // Keep branch/worktree label accurate even before opening the dropdown.
+  useEffect(() => {
+    fetchWorktrees();
+  }, [fetchWorktrees]);
+
   const handleOpen = () => {
-    if (disabled) return;
+    if (disabled || locked) return;
     if (!isOpen) fetchWorktrees();
     setIsOpen(!isOpen);
     setCreating(false);
@@ -130,32 +148,42 @@ export function WorktreeSelector({
     }
   };
 
-  const hasOverride = Boolean(currentWorktree);
-  const triggerLabel = hasOverride
-    ? getDisplayLabel(currentWorktree, projectRootPath, worktrees)
+  const hasOverride = Boolean(
+    currentWorktree &&
+    normalizePath(currentWorktree) !== normalizePath(projectRootPath)
+  );
+  const normalizedRootPath = normalizePath(projectRootPath);
+  const currentWt = hasOverride
+    ? worktrees.find(w => w.path === currentWorktree)
+    : worktrees.find(w => normalizePath(w.path) === normalizedRootPath) || worktrees.find(w => w.isMain);
+  const worktreeLabel = hasOverride
+    ? getWorktreeLabel(currentWorktree, projectRootPath)
     : 'Root';
+  const branchLabel = currentWt?.branch;
+  const triggerLabel = branchLabel ? `${worktreeLabel} · ${branchLabel}` : worktreeLabel;
+  const effectiveTitle = locked
+    ? (lockReason || 'Worktree is locked for this session')
+    : (currentWorktree || projectRootPath);
 
   return (
     <div ref={ref} className="relative">
-      <button
+      <SelectorTrigger
         onClick={handleOpen}
         disabled={disabled}
-        className={[
-          'flex items-center gap-1 px-1.5 py-1 rounded-md text-[11px] font-medium transition-colors h-7',
-          disabled
-            ? 'opacity-50 cursor-not-allowed text-muted-foreground'
-            : hasOverride
-              ? 'hover:bg-muted active:bg-muted/80 cursor-pointer text-primary'
-              : 'hover:bg-muted active:bg-muted/80 cursor-pointer text-muted-foreground hover:text-foreground',
-        ].join(' ')}
-        title={currentWorktree || projectRootPath}
+        locked={locked}
+        lockReason={lockReason}
+        title={effectiveTitle}
+        className={(!disabled && !locked && hasOverride) ? 'text-primary' : undefined}
       >
-        <BranchIcon />
-        <span className="truncate max-w-[84px] sm:max-w-[120px]">{triggerLabel}</span>
-        <svg className="w-3 h-3 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        {locked ? <LockIcon /> : <BranchIcon />}
+        <span className="truncate max-w-[140px] sm:max-w-[220px]">{triggerLabel}</span>
+        {locked && (
+          <span className="text-[10px] uppercase tracking-wide font-semibold">Locked</span>
+        )}
+        <svg className={`w-3 h-3 ${locked ? 'text-amber-500/80' : 'text-muted-foreground'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
         </svg>
-      </button>
+      </SelectorTrigger>
 
       {isOpen && (
         <div className="absolute bottom-full left-0 mb-1 z-50 bg-popover border border-border rounded-lg shadow-lg py-1 w-[min(92vw,320px)] max-h-[320px] overflow-y-auto">

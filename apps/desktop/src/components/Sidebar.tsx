@@ -1,12 +1,13 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
-import { Bot, FileText, Wrench, ListTodo } from 'lucide-react';
+import { Bot, FileText, Wrench } from 'lucide-react';
 import { useProjectStore } from '../stores/projectStore';
 import { useServerStore } from '../stores/serverStore';
 import { toGatewayServerId } from '../stores/gatewayStore';
 import { useSupervisionStore } from '../stores/supervisionStore';
 import { usePermissionStore } from '../stores/permissionStore';
 import { useAskUserQuestionStore } from '../stores/askUserQuestionStore';
+import { useChatStore } from '../stores/chatStore';
 import { useSwipeBack } from '../hooks/useSwipeBack';
 import { useUIStore } from '../stores/uiStore';
 import { ProjectSettings } from './ProjectSettings';
@@ -14,10 +15,10 @@ import { SettingsPanel } from './SettingsPanel';
 import { SearchFilters } from './SearchFilters';
 import { ActiveSessionsPanel } from './ActiveSessionsPanel';
 import { ArchivedSessionsDialog } from './ArchivedSessionsDialog';
-import { SuperviseDialog } from './SuperviseDialog';
 import { PluginPermissionDialog } from './PluginPermissionDialog';
 import { SessionItem } from './sidebar/SessionItem';
 import { WorktreeGroupItem } from './sidebar/WorktreeGroupItem';
+import { SupervisorGroupItem } from './sidebar/SupervisorGroupItem';
 import { groupSessionsByWorktree } from './sidebar/worktreeGrouping';
 import * as api from '../services/api';
 import type { SearchResult, SearchHistoryEntry, SearchFilters as Filters } from '../services/api';
@@ -39,24 +40,20 @@ function normalizeSearchPreview(content: string): string {
   return normalized || 'No preview text';
 }
 
-export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHeader, supervisionView, onToggleSupervision }: SidebarProps) {
+export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHeader }: SidebarProps) {
   const {
     projects = [],
     sessions = [],
     providers = [],
-    selectedProjectId,
     selectedSessionId,
     selectProject,
     selectSession,
     addProject,
     addSession,
     deleteProject,
-    deleteSession,
-    updateSession,
   } = useProjectStore();
 
   const { connectionStatus, setActiveServer, servers, getDefaultServer } = useServerStore();
-  const supervisions = useSupervisionStore((s) => s.supervisions);
   const v2Agents = useSupervisionStore((s) => s.agents);
 
   // Sessions with pending permission or question requests
@@ -65,6 +62,37 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
   const hasPendingForSession = useCallback((sessionId: string) => {
     return permSessionIds.has(sessionId) || questionSessionIds.has(sessionId);
   }, [permSessionIds, questionSessionIds]);
+
+  // Active run session IDs for status indicator
+  const activeRunSessionIds = useChatStore((s) => {
+    const ids = new Set<string>();
+    for (const sid of Object.values(s.activeRuns)) ids.add(sid);
+    return ids;
+  });
+
+  // Helper: resolve provider display name for a session
+  // Fallback chain: session → project → system default provider
+  const getProviderName = useCallback((session: typeof sessions[0]) => {
+    const pid = session.providerId
+      || projects.find(p => p.id === session.projectId)?.providerId;
+    if (pid) {
+      const provider = providers.find(p => p.id === pid);
+      return provider?.name || provider?.type || pid;
+    }
+    // No explicit provider — use system default
+    const defaultProvider = providers.find(p => p.isDefault);
+    return defaultProvider?.name || defaultProvider?.type || undefined;
+  }, [providers, projects]);
+
+  // Helper: extract worktree branch from workingDirectory
+  const getWorktreeBranch = useCallback((session: typeof sessions[0], project: typeof projects[0] | undefined) => {
+    const wd = session.workingDirectory;
+    if (!wd || !project?.rootPath) return undefined;
+    if (wd === project.rootPath) return undefined;
+    // Show last path segment as branch hint
+    const parts = wd.split('/');
+    return parts[parts.length - 1] || undefined;
+  }, []);
 
   const [expandedProjects, setExpandedProjects] = useState<Set<string>>(new Set());
   const [showNewProjectForm, setShowNewProjectForm] = useState(false);
@@ -75,10 +103,7 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
   const [newSessionName, setNewSessionName] = useState('');
   const [newSessionProviderId, setNewSessionProviderId] = useState<string>('');
   const [contextMenuProject, setContextMenuProject] = useState<string | null>(null);
-  const [contextMenuSession, setContextMenuSession] = useState<string | null>(null);
   const [contextMenuPos, setContextMenuPos] = useState<{ top: number; left: number } | null>(null);
-  const [renamingSessionId, setRenamingSessionId] = useState<string | null>(null);
-  const [renameSessionValue, setRenameSessionValue] = useState('');
   const [settingsProjectId, setSettingsProjectId] = useState<string | null>(null);
   const [showSettings, setShowSettings] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -89,11 +114,11 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
   const [showFilters, setShowFilters] = useState(false);
   const [searchFilters, setSearchFilters] = useState<Filters>({});
   const [showArchivedDialog, setShowArchivedDialog] = useState(false);
-  const [superviseSessionId, setSuperviseSessionId] = useState<string | null>(null);
   const [searchOffset, setSearchOffset] = useState(0);
   const [hasMoreResults, setHasMoreResults] = useState(false);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [expandedWorktrees, setExpandedWorktrees] = useState<Set<string>>(new Set());
+  const [regularSessionsCollapsed, setRegularSessionsCollapsed] = useState<Set<string>>(new Set());
   const [worktreesByProject, setWorktreesByProject] = useState<Map<string, GitWorktree[]>>(new Map());
   const searchTimerRef = useRef<number | null>(null);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
@@ -169,6 +194,15 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
       }
     }
   }, [selectedSessionId, sessions, getWorktreeGroupsForProject]);
+
+  const toggleRegularSessions = useCallback((projectId: string) => {
+    setRegularSessionsCollapsed(prev => {
+      const next = new Set(prev);
+      if (next.has(projectId)) next.delete(projectId);
+      else next.add(projectId);
+      return next;
+    });
+  }, []);
 
   const toggleProject = (projectId: string) => {
     const newExpanded = new Set(expandedProjects);
@@ -254,24 +288,28 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
     }
   };
 
-  // Compute fixed position for context menus to avoid overflow clipping
-  const openContextMenu = (e: React.MouseEvent, type: 'project' | 'session', id: string) => {
+  // Compute fixed position for project context menu and keep it inside viewport.
+  const openContextMenu = (e: React.MouseEvent, _type: 'project', id: string) => {
     e.stopPropagation();
-    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-    const menuHeight = type === 'project' ? 160 : 200; // approximate menu heights
-    const top = rect.bottom + 4;
-    const wouldOverflow = top + menuHeight > window.innerHeight;
-    setContextMenuPos({
-      top: wouldOverflow ? rect.top - menuHeight - 4 : top,
-      left: rect.left - (type === 'project' ? 140 : 120), // menu width offset
-    });
-    if (type === 'project') {
-      setContextMenuSession(null);
-      setContextMenuProject(contextMenuProject === id ? null : id);
-    } else {
-      setContextMenuProject(null);
-      setContextMenuSession(contextMenuSession === id ? null : id);
+    const clickX = e.clientX;
+    const clickY = e.clientY;
+    const menuWidth = isMobile ? 176 : 144; // w-44 / w-36
+    const menuHeight = isMobile ? 190 : 140;
+    const viewportW = window.innerWidth;
+    const viewportH = window.innerHeight;
+    const margin = 8;
+
+    let top = clickY + 6;
+    if (top + menuHeight > viewportH - margin) {
+      top = clickY - menuHeight - 6;
     }
+    top = Math.max(margin, Math.min(top, viewportH - menuHeight - margin));
+
+    let left = clickX - menuWidth + 12;
+    left = Math.max(margin, Math.min(left, viewportW - menuWidth - margin));
+
+    setContextMenuPos({ top, left });
+    setContextMenuProject(contextMenuProject === id ? null : id);
   };
 
   const handleDeleteProject = async (projectId: string) => {
@@ -286,57 +324,6 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
     }
   };
 
-  const handleArchiveSession = async (sessionId: string) => {
-    if (!isConnected) return;
-
-    try {
-      await api.archiveSessions([sessionId]);
-      deleteSession(sessionId);  // Remove from store (reuse existing action)
-      setContextMenuSession(null);
-    } catch (error) {
-      console.error('Failed to archive session:', error);
-    }
-  };
-
-  const handleRenameSession = async (sessionId: string) => {
-    const newName = renameSessionValue.trim();
-    if (!newName || !isConnected) {
-      setRenamingSessionId(null);
-      return;
-    }
-    try {
-      await api.updateSession(sessionId, { name: newName });
-      updateSession(sessionId, { name: newName });
-    } catch (error) {
-      console.error('Failed to rename session:', error);
-    }
-    setRenamingSessionId(null);
-  };
-
-  const startRenamingSession = (sessionId: string, currentName: string) => {
-    setRenamingSessionId(sessionId);
-    setRenameSessionValue(currentName || '');
-    setContextMenuSession(null);
-  };
-
-  const handleExportSession = useCallback(async (sessionId: string) => {
-    try {
-      const { markdown, sessionName } = await api.exportSession(sessionId);
-      // Download as file
-      const blob = new Blob([markdown], { type: 'text/markdown' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `${sessionName.replace(/[^a-zA-Z0-9\u4e00-\u9fa5]/g, '_')}.md`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-      setContextMenuSession(null);
-    } catch (error) {
-      console.error('Failed to export session:', error);
-    }
-  }, []);
 
   // Load search history on mount
   useEffect(() => {
@@ -580,108 +567,22 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
 
           {/* Project List */}
           <div className="flex-1 overflow-y-auto scrollbar-hidden p-2">
-            <div className="flex items-center gap-1.5 mb-2 px-2">
-              <span className="text-xs font-semibold text-muted-foreground uppercase leading-none">
-                Projects
-              </span>
-              {(
-                <button
-                  onClick={() => setShowNewProjectForm(true)}
-                  disabled={!isConnected}
-                  className="min-w-[44px] min-h-[44px] flex items-center justify-center rounded hover:bg-secondary active:bg-secondary text-muted-foreground hover:text-foreground disabled:opacity-50 disabled:cursor-not-allowed"
-                  title={!isConnected ? "Connect to server first" : "Add Project"}
-                >
-                  <svg
-                    className="w-4 h-4"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2.5}
-                      d="M12 4v16m8-8H4"
-                    />
-                  </svg>
-                </button>
-              )}
-            </div>
-
-            {/* New Project Form */}
-            {showNewProjectForm && (
-              <div className="mb-2 px-2">
-                <input
-                  type="text"
-                  value={newProjectName}
-                  onChange={(e) => setNewProjectName(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Escape') {
-                      setShowNewProjectForm(false);
-                      setNewProjectName('');
-                      setNewProjectRootPath('');
-                    }
-                  }}
-                  placeholder="Project name"
-                  className="w-full px-3 py-2.5 bg-secondary border border-border rounded text-sm focus:outline-none focus:border-primary"
-                  autoFocus
-                />
-                <input
-                  type="text"
-                  value={newProjectRootPath}
-                  onChange={(e) => setNewProjectRootPath(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') handleCreateProject();
-                    if (e.key === 'Escape') {
-                      setShowNewProjectForm(false);
-                      setNewProjectName('');
-                      setNewProjectRootPath('');
-                    }
-                  }}
-                  placeholder="Working directory (e.g. /path/to/project)"
-                  className="w-full px-3 py-2.5 mt-1 bg-secondary border border-border rounded text-sm focus:outline-none focus:border-primary"
-                />
-                <div className="flex gap-2 mt-2">
-                  <button
-                    onClick={handleCreateProject}
-                    disabled={!newProjectName.trim() || creatingProject}
-                    className="flex-1 px-3 py-2.5 bg-primary text-primary-foreground hover:bg-primary/90 active:bg-primary/80 rounded text-sm disabled:opacity-50"
-                  >
-                    {creatingProject ? 'Creating...' : 'Create'}
-                  </button>
-                  <button
-                    onClick={() => {
-                      setShowNewProjectForm(false);
-                      setNewProjectName('');
-                      setNewProjectRootPath('');
-                    }}
-                    className="flex-1 px-3 py-2.5 bg-secondary hover:bg-secondary/80 active:bg-secondary/70 rounded text-sm"
-                  >
-                    Cancel
-                  </button>
-                </div>
-              </div>
-            )}
 
             {projects.length === 0 ? (
               <p className="text-sm text-muted-foreground px-2">No projects yet</p>
             ) : filteredProjects.length === 0 ? (
               <p className="text-sm text-muted-foreground px-2">No active sessions</p>
             ) : (
-              <ul className="space-y-0.5">
+              <ul className="space-y-2">
                 {filteredProjects.map((project) => (
                   <li key={project.id}>
                     <div className="flex items-center group relative">
                       <button
                         onClick={() => toggleProject(project.id)}
-                        className={`flex-1 min-w-0 min-h-[44px] text-left px-2 rounded text-sm flex items-center gap-2 ${
-                          selectedProjectId === project.id
-                            ? 'bg-secondary text-foreground'
-                            : 'text-muted-foreground hover:bg-secondary active:bg-secondary'
-                        }`}
+                        className="flex-1 min-w-0 min-h-[36px] text-left px-1 text-sm flex items-center gap-1.5 text-foreground"
                       >
                         <svg
-                          className={`w-4 h-4 flex-shrink-0 transition-transform ${
+                          className={`w-3 h-3 flex-shrink-0 transition-transform text-muted-foreground/60 ${
                             expandedProjects.has(project.id) ? 'rotate-90' : ''
                           }`}
                           fill="none"
@@ -691,11 +592,11 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
                           <path
                             strokeLinecap="round"
                             strokeLinejoin="round"
-                            strokeWidth={2}
+                            strokeWidth={2.5}
                             d="M9 5l7 7-7 7"
                           />
                         </svg>
-                        <span className="truncate font-semibold">{project.name}</span>
+                        <span className="truncate text-sm font-bold uppercase tracking-wider text-foreground/80">{project.name}</span>
                         {v2Agents[project.id] && (
                           <span className={`ml-1 w-1.5 h-1.5 rounded-full shrink-0 ${
                             v2Agents[project.id].phase === 'active' ? 'bg-green-500 animate-pulse' :
@@ -704,29 +605,13 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
                           }`} />
                         )}
                       </button>
-                      {/* Supervision toggle */}
-                      {v2Agents[project.id] && onToggleSupervision && (
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            selectProject(project.id);
-                            onToggleSupervision();
-                          }}
-                          className={`w-8 h-8 rounded hover:bg-secondary active:bg-secondary flex-shrink-0 flex items-center justify-center ${
-                            supervisionView && selectedProjectId === project.id ? 'text-primary' : 'text-muted-foreground'
-                          }`}
-                          title="Supervision Dashboard"
-                        >
-                          <ListTodo size={14} />
-                        </button>
-                      )}
                       {/* Project menu button */}
                       {(
                         <button
                           onClick={(e) => openContextMenu(e, 'project', project.id)}
-                          className="w-10 h-10 rounded hover:bg-secondary active:bg-secondary flex-shrink-0 flex items-center justify-center"
+                          className="w-8 h-8 rounded hover:bg-secondary active:bg-secondary flex-shrink-0 flex items-center justify-center opacity-0 group-hover:opacity-100"
                         >
-                          <svg className="w-4 h-4 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <svg className="w-3.5 h-3.5 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z" />
                           </svg>
                         </button>
@@ -734,46 +619,49 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
 
                       {/* Project context menu */}
                       {contextMenuProject === project.id && contextMenuPos && (
-                        <>
-                          <div className="fixed inset-0 z-40" onClick={() => setContextMenuProject(null)} />
-                          <div className="fixed w-44 bg-popover border border-border rounded-lg shadow-lg z-50" style={{ top: contextMenuPos.top, left: contextMenuPos.left }}>
-                            <button
-                              onClick={() => {
-                                setSettingsProjectId(project.id);
-                                setContextMenuProject(null);
-                              }}
-                              className="w-full text-left px-3 py-3 text-sm hover:bg-secondary active:bg-secondary flex items-center gap-2"
-                            >
-                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                              </svg>
-                              Settings
-                            </button>
-                            <button
-                              onClick={() => {
-                                setCreatingSessionForProject(project.id);
-                                setContextMenuProject(null);
-                              }}
-                              disabled={!isConnected}
-                              className="w-full text-left px-3 py-3 text-sm hover:bg-secondary active:bg-secondary flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-                            >
-                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                              </svg>
-                              New Session
-                            </button>
-                            <button
-                              onClick={() => handleDeleteProject(project.id)}
-                              className="w-full text-left px-3 py-3 text-sm text-destructive hover:bg-secondary active:bg-secondary flex items-center gap-2"
-                            >
-                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                              </svg>
-                              Delete
-                            </button>
-                          </div>
-                        </>
+                        createPortal(
+                          <>
+                            <div className="fixed inset-0 z-40" onClick={() => setContextMenuProject(null)} />
+                            <div className="fixed w-44 bg-popover border border-border rounded-lg shadow-lg z-50" style={{ top: contextMenuPos.top, left: contextMenuPos.left }}>
+                              <button
+                                onClick={() => {
+                                  setSettingsProjectId(project.id);
+                                  setContextMenuProject(null);
+                                }}
+                                className="w-full text-left px-3 py-3 text-sm hover:bg-secondary active:bg-secondary flex items-center gap-2"
+                              >
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                </svg>
+                                Settings
+                              </button>
+                              <button
+                                onClick={() => {
+                                  setCreatingSessionForProject(project.id);
+                                  setContextMenuProject(null);
+                                }}
+                                disabled={!isConnected}
+                                className="w-full text-left px-3 py-3 text-sm hover:bg-secondary active:bg-secondary flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                              >
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                                </svg>
+                                New Session
+                              </button>
+                              <button
+                                onClick={() => handleDeleteProject(project.id)}
+                                className="w-full text-left px-3 py-3 text-sm text-destructive hover:bg-secondary active:bg-secondary flex items-center gap-2"
+                              >
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                </svg>
+                                Delete
+                              </button>
+                            </div>
+                          </>,
+                          document.body
+                        )
                       )}
                     </div>
 
@@ -785,25 +673,82 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
                           key={session.id}
                           session={session}
                           isSelected={selectedSessionId === session.id}
-                          isRenaming={renamingSessionId === session.id}
-                          renameValue={renameSessionValue}
                           onSelect={(id) => { selectSession(id); if (onClose) onClose(); }}
-                          onRenameChange={setRenameSessionValue}
-                          onRenameSubmit={handleRenameSession}
-                          onRenameCancel={() => setRenamingSessionId(null)}
-                          onContextMenu={(e, id) => openContextMenu(e, 'session', id)}
                           hasPending={hasPendingForSession(session.id)}
-                          supervisionInfo={supervisions[session.id]}
+                          isActive={activeRunSessionIds.has(session.id)}
+                          providerName={getProviderName(session)}
+                          worktreeBranch={getWorktreeBranch(session, projects.find(p => p.id === session.projectId))}
                           isMobile
                         />
                       );
 
+                      const renderWithSupervisorGroups = (sessionList: typeof sessions) => {
+                        const tasksByParent = new Map<string, typeof sessions>();
+                        let mainSession: (typeof sessions)[number] | null = null;
+                        const regularSessions: typeof sessions = [];
+                        for (const s of sessionList) {
+                          if (s.projectRole === 'task' && s.parentSessionId) {
+                            const list = tasksByParent.get(s.parentSessionId) || [];
+                            list.push(s);
+                            tasksByParent.set(s.parentSessionId, list);
+                          } else if (s.projectRole === 'main') {
+                            mainSession = s;
+                          } else {
+                            regularSessions.push(s);
+                          }
+                        }
+                        if (mainSession) {
+                          const tasks = tasksByParent.get(mainSession.id) || [];
+                          const isCollapsed = regularSessionsCollapsed.has(project.id);
+                          return (
+                            <>
+                              <SupervisorGroupItem
+                                key={mainSession.id}
+                                onSelect={() => { selectSession(mainSession!.id); if (onClose) onClose(); }}
+                                isSelected={selectedSessionId === mainSession!.id}
+                                isActive={activeRunSessionIds.has(mainSession!.id)}
+                                taskCount={tasks.length}
+                                taskChildren={tasks.map(renderSession)}
+                              />
+                              {regularSessions.length > 0 && (
+                                <li className="mt-1">
+                                  <button
+                                    onClick={() => toggleRegularSessions(project.id)}
+                                    className="w-full flex items-center gap-1.5 px-2 py-1 rounded-lg text-muted-foreground hover:text-foreground transition-colors"
+                                  >
+                                    <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground/60">
+                                      Sessions
+                                    </span>
+                                    <span className="text-[10px] text-muted-foreground/50">
+                                      {regularSessions.length}
+                                    </span>
+                                    <svg
+                                      className={`ml-auto w-2.5 h-2.5 opacity-40 transition-transform duration-200 ${!isCollapsed ? 'rotate-90' : ''}`}
+                                      fill="none" stroke="currentColor" viewBox="0 0 24 24"
+                                    >
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                                    </svg>
+                                  </button>
+                                  {!isCollapsed && (
+                                    <ul className="mt-0.5 space-y-0.5">
+                                      {regularSessions.map(renderSession)}
+                                    </ul>
+                                  )}
+                                </li>
+                              )}
+                            </>
+                          );
+                        }
+                        // No supervisor — render flat
+                        return sessionList.map(renderSession);
+                      };
+
                       return (
-                        <div className="ml-6 mt-1" data-testid="session-list">
+                        <div className="ml-1 mt-0.5" data-testid="session-list">
                           {groups.length === 0 ? (
                             // Flat list (no worktree grouping)
-                            <ul className="space-y-1">
-                              {getFilteredSessionsForProject(project.id).map(renderSession)}
+                            <ul className="space-y-0.5">
+                              {renderWithSupervisorGroups(getFilteredSessionsForProject(project.id))}
                             </ul>
                           ) : (
                             // Tree view grouped by worktree
@@ -815,7 +760,7 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
                                 onToggle={() => toggleWorktree(`${project.id}:${group.key}`)}
                                 isMobile
                               >
-                                {group.sessions.map(renderSession)}
+                                {renderWithSupervisorGroups(group.sessions)}
                               </WorktreeGroupItem>
                             ))
                           )}
@@ -836,14 +781,14 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
                                 }
                               }}
                               placeholder="Session name (optional)"
-                              className="w-full px-3 py-2.5 bg-secondary border border-border rounded text-sm focus:outline-none focus:border-primary"
+                              className="w-full px-3 py-2.5 bg-muted/60 border-0 rounded-lg text-sm shadow-apple-sm focus:outline-none focus:ring-1 focus:ring-primary/50"
                               autoFocus
                             />
                             {providers.length > 0 && (
                               <select
                                 value={newSessionProviderId}
                                 onChange={(e) => setNewSessionProviderId(e.target.value)}
-                                className="w-full px-3 py-2.5 mt-2 bg-secondary border border-border rounded text-sm focus:outline-none focus:border-primary"
+                                className="w-full px-3 py-2.5 mt-2 bg-muted/60 border-0 rounded-lg text-sm shadow-apple-sm focus:outline-none focus:ring-1 focus:ring-primary/50"
                               >
                                 <option value="">Default (from project)</option>
                                 {providers.map((p) => (
@@ -856,7 +801,7 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
                             <div className="flex gap-2 mt-2">
                               <button
                                 onClick={() => handleCreateSession(project.id)}
-                                className="flex-1 px-3 py-2.5 bg-primary text-primary-foreground hover:bg-primary/90 active:bg-primary/80 rounded text-sm"
+                                className="flex-1 px-3 py-2.5 bg-primary text-primary-foreground hover:bg-primary/90 active:bg-primary/80 rounded-lg text-sm"
                               >
                                 Create
                               </button>
@@ -866,7 +811,7 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
                                   setNewSessionName('');
                                   setNewSessionProviderId('');
                                 }}
-                                className="flex-1 px-3 py-2.5 bg-secondary hover:bg-secondary/80 active:bg-secondary/70 rounded text-sm"
+                                className="flex-1 px-3 py-2.5 bg-muted/60 hover:bg-muted active:bg-muted/80 rounded-lg text-sm"
                               >
                                 Cancel
                               </button>
@@ -880,36 +825,73 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
                 ))}
               </ul>
             )}
-          </div>
 
-          {/* Session context menu (mobile) */}
-          {contextMenuSession && contextMenuPos && (() => {
-            const session = sessions.find(s => s.id === contextMenuSession);
-            if (!session) return null;
-            return (
-              <>
-                <div className="fixed inset-0 z-40" onClick={() => setContextMenuSession(null)} />
-                <div className="fixed w-40 bg-popover border border-border rounded-lg shadow-lg z-50" style={{ top: contextMenuPos.top, left: contextMenuPos.left }}>
-                  <button onClick={() => startRenamingSession(session.id, session.name || '')} className="w-full text-left px-3 py-3 text-sm hover:bg-secondary active:bg-secondary">Rename</button>
-                  <button onClick={() => handleExportSession(session.id)} className="w-full text-left px-3 py-3 text-sm hover:bg-secondary active:bg-secondary">Export Markdown</button>
-                  {!supervisions[session.id] || ['completed', 'failed', 'cancelled'].includes(supervisions[session.id].status) ? (
-                    <button onClick={() => { setSuperviseSessionId(session.id); setContextMenuSession(null); }} disabled={!isConnected} className="w-full text-left px-3 py-3 text-sm hover:bg-secondary active:bg-secondary disabled:opacity-50">Supervise</button>
-                  ) : (
-                    <>
-                      {supervisions[session.id].status === 'active' && (
-                        <button onClick={async () => { await api.pauseSupervision(supervisions[session.id].id); setContextMenuSession(null); }} className="w-full text-left px-3 py-3 text-sm hover:bg-secondary active:bg-secondary">Pause Supervision</button>
-                      )}
-                      {supervisions[session.id].status === 'paused' && (
-                        <button onClick={async () => { await api.resumeSupervision(supervisions[session.id].id); setContextMenuSession(null); }} className="w-full text-left px-3 py-3 text-sm hover:bg-secondary active:bg-secondary">Resume Supervision</button>
-                      )}
-                      <button onClick={async () => { await api.cancelSupervision(supervisions[session.id].id); setContextMenuSession(null); }} className="w-full text-left px-3 py-3 text-sm text-destructive hover:bg-secondary active:bg-secondary">Cancel Supervision</button>
-                    </>
-                  )}
-                  <button onClick={() => handleArchiveSession(session.id)} className="w-full text-left px-3 py-3 text-sm hover:bg-secondary active:bg-secondary">Archive</button>
+            {/* New Project */}
+            {showNewProjectForm ? (
+              <div className="mt-1 px-1">
+                <input
+                  type="text"
+                  value={newProjectName}
+                  onChange={(e) => setNewProjectName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Escape') {
+                      setShowNewProjectForm(false);
+                      setNewProjectName('');
+                      setNewProjectRootPath('');
+                    }
+                  }}
+                  placeholder="Project name"
+                  className="w-full px-3 py-2.5 bg-muted/60 border-0 rounded-lg text-sm shadow-apple-sm focus:outline-none focus:ring-1 focus:ring-primary/50"
+                  autoFocus
+                />
+                <input
+                  type="text"
+                  value={newProjectRootPath}
+                  onChange={(e) => setNewProjectRootPath(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') handleCreateProject();
+                    if (e.key === 'Escape') {
+                      setShowNewProjectForm(false);
+                      setNewProjectName('');
+                      setNewProjectRootPath('');
+                    }
+                  }}
+                  placeholder="Working directory (e.g. /path/to/project)"
+                  className="w-full px-3 py-2.5 mt-1 bg-muted/60 border-0 rounded-lg text-sm shadow-apple-sm focus:outline-none focus:ring-1 focus:ring-primary/50"
+                />
+                <div className="flex gap-2 mt-2">
+                  <button
+                    onClick={handleCreateProject}
+                    disabled={!newProjectName.trim() || creatingProject}
+                    className="flex-1 px-3 py-2.5 bg-primary text-primary-foreground hover:bg-primary/90 active:bg-primary/80 rounded-lg text-sm disabled:opacity-50"
+                  >
+                    {creatingProject ? 'Creating...' : 'Create'}
+                  </button>
+                  <button
+                    onClick={() => {
+                      setShowNewProjectForm(false);
+                      setNewProjectName('');
+                      setNewProjectRootPath('');
+                    }}
+                    className="flex-1 px-3 py-2.5 bg-muted/60 hover:bg-muted active:bg-muted/80 rounded-lg text-sm"
+                  >
+                    Cancel
+                  </button>
                 </div>
-              </>
-            );
-          })()}
+              </div>
+            ) : (
+              <button
+                onClick={() => setShowNewProjectForm(true)}
+                disabled={!isConnected}
+                className="w-full mt-1 min-h-[36px] text-left px-1 text-sm flex items-center gap-1.5 text-muted-foreground/50 hover:text-muted-foreground active:text-muted-foreground transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+              >
+                <svg className="w-3 h-3 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                </svg>
+                <span className="text-[11px] tracking-wide">New Project</span>
+              </button>
+            )}
+          </div>
 
           {/* Archived Sessions entry + Active Sessions - Fixed at bottom */}
           <div className="flex-shrink-0">
@@ -1145,108 +1127,22 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
 
       {/* Project List */}
       <div className="flex-1 overflow-y-auto scrollbar-hidden p-2">
-        <div className="flex items-center gap-1.5 mb-2 px-2">
-          <span className="text-xs font-semibold text-muted-foreground uppercase leading-none">
-            Projects
-          </span>
-          {(
-            <button
-              onClick={() => setShowNewProjectForm(true)}
-              disabled={!isConnected}
-              className="flex items-center justify-center rounded hover:bg-secondary text-muted-foreground hover:text-foreground disabled:opacity-50 disabled:cursor-not-allowed"
-              title={!isConnected ? "Connect to server first" : "Add Project"}
-            >
-              <svg
-                className="w-3.5 h-3.5"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2.5}
-                  d="M12 4v16m8-8H4"
-                />
-              </svg>
-            </button>
-          )}
-        </div>
-
-        {/* New Project Form */}
-        {showNewProjectForm && (
-          <div className="mb-2 px-2">
-            <input
-              type="text"
-              value={newProjectName}
-              onChange={(e) => setNewProjectName(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Escape') {
-                  setShowNewProjectForm(false);
-                  setNewProjectName('');
-                  setNewProjectRootPath('');
-                }
-              }}
-              placeholder="Project name"
-              className="w-full px-2 py-1 bg-secondary border border-border rounded text-sm focus:outline-none focus:border-primary"
-              autoFocus
-            />
-            <input
-              type="text"
-              value={newProjectRootPath}
-              onChange={(e) => setNewProjectRootPath(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') handleCreateProject();
-                if (e.key === 'Escape') {
-                  setShowNewProjectForm(false);
-                  setNewProjectName('');
-                  setNewProjectRootPath('');
-                }
-              }}
-              placeholder="Working directory (e.g. /path/to/project)"
-              className="w-full px-2 py-1 mt-1 bg-secondary border border-border rounded text-sm focus:outline-none focus:border-primary"
-            />
-            <div className="flex gap-1 mt-1">
-              <button
-                onClick={handleCreateProject}
-                disabled={!newProjectName.trim() || creatingProject}
-                className="flex-1 px-2 py-1 bg-primary text-primary-foreground hover:bg-primary/90 rounded text-xs disabled:opacity-50"
-              >
-                {creatingProject ? 'Creating...' : 'Create'}
-              </button>
-              <button
-                onClick={() => {
-                  setShowNewProjectForm(false);
-                  setNewProjectName('');
-                  setNewProjectRootPath('');
-                }}
-                className="flex-1 px-2 py-1 bg-secondary hover:bg-secondary/80 rounded text-xs"
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-        )}
 
         {projects.length === 0 ? (
           <p className="text-sm text-muted-foreground px-2">No projects yet</p>
         ) : filteredProjects.length === 0 ? (
           <p className="text-sm text-muted-foreground px-2">No active sessions</p>
         ) : (
-          <ul className="space-y-1">
+          <ul className="space-y-2">
             {filteredProjects.map((project) => (
               <li key={project.id}>
                 <div className="flex items-center group relative">
                   <button
                     onClick={() => toggleProject(project.id)}
-                    className={`flex-1 min-w-0 h-7 text-left px-2 rounded text-sm flex items-center gap-2 ${
-                      selectedProjectId === project.id
-                        ? 'bg-secondary text-foreground'
-                        : 'text-muted-foreground hover:bg-secondary'
-                    }`}
+                    className="flex-1 min-w-0 h-7 text-left px-1 text-sm flex items-center gap-1.5"
                   >
                     <svg
-                      className={`w-4 h-4 flex-shrink-0 transition-transform ${
+                      className={`w-3 h-3 flex-shrink-0 transition-transform text-muted-foreground/60 ${
                         expandedProjects.has(project.id) ? 'rotate-90' : ''
                       }`}
                       fill="none"
@@ -1256,19 +1152,19 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
                       <path
                         strokeLinecap="round"
                         strokeLinejoin="round"
-                        strokeWidth={2}
+                        strokeWidth={2.5}
                         d="M9 5l7 7-7 7"
                       />
                     </svg>
-                    <span className="truncate font-semibold">{project.name}</span>
+                    <span className="truncate text-sm font-bold uppercase tracking-wider text-foreground/80">{project.name}</span>
                   </button>
                   {/* Project menu button */}
                   {(
                     <button
                       onClick={(e) => openContextMenu(e, 'project', project.id)}
-                      className="w-7 h-7 rounded opacity-0 group-hover:opacity-100 hover:bg-secondary flex-shrink-0 flex items-center justify-center"
+                      className="w-6 h-6 rounded opacity-0 group-hover:opacity-100 hover:bg-secondary flex-shrink-0 flex items-center justify-center"
                     >
-                      <svg className="w-4 h-4 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <svg className="w-3.5 h-3.5 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z" />
                       </svg>
                     </button>
@@ -1276,46 +1172,49 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
 
                   {/* Project context menu */}
                   {contextMenuProject === project.id && contextMenuPos && (
-                  <>
-                    <div className="fixed inset-0 z-40" onClick={() => setContextMenuProject(null)} />
-                    <div className="fixed w-36 bg-popover border border-border rounded shadow-lg z-50" style={{ top: contextMenuPos.top, left: contextMenuPos.left }}>
-                      <button
-                        onClick={() => {
-                          setSettingsProjectId(project.id);
-                          setContextMenuProject(null);
-                        }}
-                        className="w-full text-left px-3 py-1.5 text-sm hover:bg-secondary flex items-center gap-2"
-                      >
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                        </svg>
-                        Settings
-                      </button>
-                      <button
-                        onClick={() => {
-                          setCreatingSessionForProject(project.id);
-                          setContextMenuProject(null);
-                        }}
-                        disabled={!isConnected}
-                        className="w-full text-left px-3 py-1.5 text-sm hover:bg-secondary flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-                      >
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                        </svg>
-                        New Session
-                      </button>
-                      <button
-                        onClick={() => handleDeleteProject(project.id)}
-                        className="w-full text-left px-3 py-1.5 text-sm text-destructive hover:bg-secondary flex items-center gap-2"
-                      >
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                        </svg>
-                        Delete
-                      </button>
-                    </div>
-                  </>
+                  createPortal(
+                    <>
+                      <div className="fixed inset-0 z-40" onClick={() => setContextMenuProject(null)} />
+                      <div className="fixed w-36 bg-popover border border-border rounded shadow-lg z-50" style={{ top: contextMenuPos.top, left: contextMenuPos.left }}>
+                        <button
+                          onClick={() => {
+                            setSettingsProjectId(project.id);
+                            setContextMenuProject(null);
+                          }}
+                          className="w-full text-left px-3 py-1.5 text-sm hover:bg-secondary flex items-center gap-2"
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                          </svg>
+                          Settings
+                        </button>
+                        <button
+                          onClick={() => {
+                            setCreatingSessionForProject(project.id);
+                            setContextMenuProject(null);
+                          }}
+                          disabled={!isConnected}
+                          className="w-full text-left px-3 py-1.5 text-sm hover:bg-secondary flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                          </svg>
+                          New Session
+                        </button>
+                        <button
+                          onClick={() => handleDeleteProject(project.id)}
+                          className="w-full text-left px-3 py-1.5 text-sm text-destructive hover:bg-secondary flex items-center gap-2"
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                          </svg>
+                          Delete
+                        </button>
+                      </div>
+                    </>,
+                    document.body
+                  )
                   )}
                 </div>
 
@@ -1327,24 +1226,87 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
                       key={session.id}
                       session={session}
                       isSelected={selectedSessionId === session.id}
-                      isRenaming={renamingSessionId === session.id}
-                      renameValue={renameSessionValue}
                       onSelect={(id) => { selectSession(id); if (isMobile && onClose) onClose(); }}
-                      onRenameChange={setRenameSessionValue}
-                      onRenameSubmit={handleRenameSession}
-                      onRenameCancel={() => setRenamingSessionId(null)}
-                      onContextMenu={(e, id) => openContextMenu(e, 'session', id)}
                       hasPending={hasPendingForSession(session.id)}
-                      supervisionInfo={supervisions[session.id]}
+                      isActive={activeRunSessionIds.has(session.id)}
+                      providerName={getProviderName(session)}
+                      worktreeBranch={getWorktreeBranch(session, projects.find(p => p.id === session.projectId))}
                     />
                   );
 
+                  // Render a list of sessions with supervisor grouping applied
+                  const renderWithSupervisorGroups = (sessionList: typeof sessions) => {
+                    // Collect task sessions keyed by parent, and find main session
+                    const tasksByParent = new Map<string, typeof sessions>();
+                    let mainSession: (typeof sessions)[number] | null = null;
+                    const regularSessions: typeof sessions = [];
+
+                    for (const s of sessionList) {
+                      if (s.projectRole === 'task' && s.parentSessionId) {
+                        const list = tasksByParent.get(s.parentSessionId) || [];
+                        list.push(s);
+                        tasksByParent.set(s.parentSessionId, list);
+                      } else if (s.projectRole === 'main') {
+                        mainSession = s;
+                      } else {
+                        regularSessions.push(s);
+                      }
+                    }
+
+                    // When a supervisor main session exists, show it + collapsible Sessions group
+                    if (mainSession) {
+                      const tasks = tasksByParent.get(mainSession.id) || [];
+                      const isCollapsed = regularSessionsCollapsed.has(project.id);
+                      return (
+                        <>
+                          <SupervisorGroupItem
+                            key={mainSession.id}
+                            onSelect={() => selectSession(mainSession!.id)}
+                            isSelected={selectedSessionId === mainSession!.id}
+                            isActive={activeRunSessionIds.has(mainSession!.id)}
+                            taskCount={tasks.length}
+                            taskChildren={tasks.map(renderSession)}
+                          />
+                          {regularSessions.length > 0 && (
+                            <li className="mt-1">
+                              <button
+                                onClick={() => toggleRegularSessions(project.id)}
+                                className="w-full flex items-center gap-1.5 px-2 py-1 rounded-lg text-muted-foreground hover:text-foreground transition-colors"
+                              >
+                                <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground/60">
+                                  Sessions
+                                </span>
+                                <span className="text-[10px] text-muted-foreground/50">
+                                  {regularSessions.length}
+                                </span>
+                                <svg
+                                  className={`ml-auto w-2.5 h-2.5 opacity-40 transition-transform duration-200 ${!isCollapsed ? 'rotate-90' : ''}`}
+                                  fill="none" stroke="currentColor" viewBox="0 0 24 24"
+                                >
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                                </svg>
+                              </button>
+                              {!isCollapsed && (
+                                <ul className="mt-0.5 space-y-0.5">
+                                  {regularSessions.map(renderSession)}
+                                </ul>
+                              )}
+                            </li>
+                          )}
+                        </>
+                      );
+                    }
+
+                    // No supervisor — render flat
+                    return sessionList.map(renderSession);
+                  };
+
                   return (
-                    <div className="ml-6 mt-1" data-testid="session-list">
+                    <div className="ml-1 mt-0.5" data-testid="session-list">
                       {groups.length === 0 ? (
                         // Flat list (no worktree grouping)
-                        <ul className="space-y-1">
-                          {getFilteredSessionsForProject(project.id).map(renderSession)}
+                        <ul className="space-y-0.5">
+                          {renderWithSupervisorGroups(getFilteredSessionsForProject(project.id))}
                         </ul>
                       ) : (
                         // Tree view grouped by worktree
@@ -1355,7 +1317,7 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
                             isExpanded={expandedWorktrees.has(`${project.id}:${group.key}`)}
                             onToggle={() => toggleWorktree(`${project.id}:${group.key}`)}
                           >
-                            {group.sessions.map(renderSession)}
+                            {renderWithSupervisorGroups(group.sessions)}
                           </WorktreeGroupItem>
                         ))
                       )}
@@ -1376,14 +1338,14 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
                             }
                           }}
                           placeholder="Session name (optional)"
-                          className="w-full px-2 py-1 bg-secondary border border-border rounded text-sm focus:outline-none focus:border-primary"
+                          className="w-full px-2 py-1.5 bg-muted/60 border-0 rounded-lg text-sm shadow-apple-sm focus:outline-none focus:ring-1 focus:ring-primary/50"
                           autoFocus
                         />
                         {providers.length > 0 && (
                           <select
                             value={newSessionProviderId}
                             onChange={(e) => setNewSessionProviderId(e.target.value)}
-                            className="w-full px-2 py-1 mt-1 bg-secondary border border-border rounded text-sm focus:outline-none focus:border-primary"
+                            className="w-full px-2 py-1.5 mt-1 bg-muted/60 border-0 rounded-lg text-sm shadow-apple-sm focus:outline-none focus:ring-1 focus:ring-primary/50"
                           >
                             <option value="">Default (from project)</option>
                             {providers.map((p) => (
@@ -1393,10 +1355,10 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
                             ))}
                           </select>
                         )}
-                        <div className="flex gap-1 mt-1">
+                        <div className="flex gap-1 mt-1.5">
                           <button
                             onClick={() => handleCreateSession(project.id)}
-                            className="flex-1 px-2 py-0.5 bg-primary text-primary-foreground hover:bg-primary/90 rounded text-xs"
+                            className="flex-1 px-2 py-1 bg-primary text-primary-foreground hover:bg-primary/90 rounded-lg text-xs"
                           >
                             Create
                           </button>
@@ -1406,7 +1368,7 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
                               setNewSessionName('');
                               setNewSessionProviderId('');
                             }}
-                            className="flex-1 px-2 py-0.5 bg-secondary hover:bg-secondary/80 rounded text-xs"
+                            className="flex-1 px-2 py-1 bg-muted/60 hover:bg-muted rounded-lg text-xs"
                           >
                             Cancel
                           </button>
@@ -1420,36 +1382,73 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
             ))}
           </ul>
         )}
-      </div>
 
-      {/* Session context menu (desktop) */}
-      {contextMenuSession && contextMenuPos && (() => {
-        const session = sessions.find(s => s.id === contextMenuSession);
-        if (!session) return null;
-        return (
-          <>
-            <div className="fixed inset-0 z-40" onClick={() => setContextMenuSession(null)} />
-            <div className="fixed w-44 bg-popover border border-border rounded shadow-lg z-50" style={{ top: contextMenuPos.top, left: contextMenuPos.left }}>
-              <button onClick={() => startRenamingSession(session.id, session.name || '')} className="w-full text-left px-3 py-1.5 text-sm hover:bg-secondary">Rename</button>
-              <button onClick={() => handleExportSession(session.id)} className="w-full text-left px-3 py-1.5 text-sm hover:bg-secondary">Export Markdown</button>
-              {!supervisions[session.id] || ['completed', 'failed', 'cancelled'].includes(supervisions[session.id].status) ? (
-                <button onClick={() => { setSuperviseSessionId(session.id); setContextMenuSession(null); }} disabled={!isConnected} className="w-full text-left px-3 py-1.5 text-sm hover:bg-secondary disabled:opacity-50">Supervise</button>
-              ) : (
-                <>
-                  {supervisions[session.id].status === 'active' && (
-                    <button onClick={async () => { await api.pauseSupervision(supervisions[session.id].id); setContextMenuSession(null); }} className="w-full text-left px-3 py-1.5 text-sm hover:bg-secondary">Pause Supervision</button>
-                  )}
-                  {supervisions[session.id].status === 'paused' && (
-                    <button onClick={async () => { await api.resumeSupervision(supervisions[session.id].id); setContextMenuSession(null); }} className="w-full text-left px-3 py-1.5 text-sm hover:bg-secondary">Resume Supervision</button>
-                  )}
-                  <button onClick={async () => { await api.cancelSupervision(supervisions[session.id].id); setContextMenuSession(null); }} className="w-full text-left px-3 py-1.5 text-sm text-destructive hover:bg-secondary">Cancel Supervision</button>
-                </>
-              )}
-              <button onClick={() => handleArchiveSession(session.id)} className="w-full text-left px-3 py-1.5 text-sm hover:bg-secondary">Archive</button>
+        {/* New Project */}
+        {showNewProjectForm ? (
+          <div className="mt-1 px-1">
+            <input
+              type="text"
+              value={newProjectName}
+              onChange={(e) => setNewProjectName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Escape') {
+                  setShowNewProjectForm(false);
+                  setNewProjectName('');
+                  setNewProjectRootPath('');
+                }
+              }}
+              placeholder="Project name"
+              className="w-full px-2 py-1.5 bg-muted/60 border-0 rounded-lg text-sm shadow-apple-sm focus:outline-none focus:ring-1 focus:ring-primary/50"
+              autoFocus
+            />
+            <input
+              type="text"
+              value={newProjectRootPath}
+              onChange={(e) => setNewProjectRootPath(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') handleCreateProject();
+                if (e.key === 'Escape') {
+                  setShowNewProjectForm(false);
+                  setNewProjectName('');
+                  setNewProjectRootPath('');
+                }
+              }}
+              placeholder="Working directory (e.g. /path/to/project)"
+              className="w-full px-2 py-1.5 mt-1 bg-muted/60 border-0 rounded-lg text-sm shadow-apple-sm focus:outline-none focus:ring-1 focus:ring-primary/50"
+            />
+            <div className="flex gap-1 mt-1.5">
+              <button
+                onClick={handleCreateProject}
+                disabled={!newProjectName.trim() || creatingProject}
+                className="flex-1 px-2 py-1 bg-primary text-primary-foreground hover:bg-primary/90 rounded-lg text-xs disabled:opacity-50"
+              >
+                {creatingProject ? 'Creating...' : 'Create'}
+              </button>
+              <button
+                onClick={() => {
+                  setShowNewProjectForm(false);
+                  setNewProjectName('');
+                  setNewProjectRootPath('');
+                }}
+                className="flex-1 px-2 py-1 bg-muted/60 hover:bg-muted rounded-lg text-xs"
+              >
+                Cancel
+              </button>
             </div>
-          </>
-        );
-      })()}
+          </div>
+        ) : (
+          <button
+            onClick={() => setShowNewProjectForm(true)}
+            disabled={!isConnected}
+            className="w-full mt-1 h-7 text-left px-1 text-sm flex items-center gap-1.5 text-muted-foreground/50 hover:text-muted-foreground transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+          >
+            <svg className="w-3 h-3 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+            </svg>
+            <span className="text-[11px] tracking-wide">New Project</span>
+          </button>
+        )}
+      </div>
 
       {/* Active Sessions - Fixed at bottom */}
       <div className="flex-shrink-0">
@@ -1511,14 +1510,6 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
       <ArchivedSessionsDialog
         isOpen={showArchivedDialog}
         onClose={() => setShowArchivedDialog(false)}
-      />,
-      document.body
-    )}
-    {!!superviseSessionId && createPortal(
-      <SuperviseDialog
-        sessionId={superviseSessionId}
-        isOpen={!!superviseSessionId}
-        onClose={() => setSuperviseSessionId(null)}
       />,
       document.body
     )}

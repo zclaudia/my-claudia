@@ -1,12 +1,15 @@
 import { useState, useRef, useEffect } from 'react';
-import { Shield, ClipboardList, Pencil, Zap, Settings, type LucideIcon } from 'lucide-react';
+import { Shield, ClipboardList, Pencil, Zap, Settings, Lock, type LucideIcon } from 'lucide-react';
 import type { ProviderCapabilities } from '@my-claudia/shared';
+import { SelectorTrigger } from './SelectorTrigger';
 
 interface ModeSelectorProps {
   capabilities: ProviderCapabilities | null;
   value: string;
   onChange: (modeId: string) => void;
   disabled?: boolean;
+  locked?: boolean;
+  lockReason?: string;
 }
 
 const MODE_ICONS: Record<string, LucideIcon> = {
@@ -21,7 +24,7 @@ function getModeIcon(modeId: string): LucideIcon {
   return MODE_ICONS[modeId] || Settings;
 }
 
-export function ModeSelector({ capabilities, value, onChange, disabled }: ModeSelectorProps) {
+export function ModeSelector({ capabilities, value, onChange, disabled, locked, lockReason }: ModeSelectorProps) {
   const [isOpen, setIsOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -45,26 +48,23 @@ export function ModeSelector({ capabilities, value, onChange, disabled }: ModeSe
 
   return (
     <div ref={ref} className="relative">
-      <button
-        onClick={() => !disabled && setIsOpen(!isOpen)}
+      <SelectorTrigger
+        onClick={() => !disabled && !locked && setIsOpen(!isOpen)}
         disabled={disabled}
+        locked={locked}
+        lockReason={lockReason}
         title={current.description}
-        className={`
-          flex items-center gap-1 px-1.5 py-1 rounded-md text-[11px] font-medium
-          transition-colors h-7
-          ${disabled
-            ? 'opacity-50 cursor-not-allowed text-muted-foreground'
-            : 'hover:bg-muted active:bg-muted/80 cursor-pointer text-muted-foreground hover:text-foreground'
-          }
-        `}
-        aria-label={`Mode: ${current.label}`}
+        ariaLabel={`Mode: ${current.label}`}
       >
-        {(() => { const Icon = getModeIcon(current.id); return <Icon size={14} strokeWidth={1.75} />; })()}
+        {locked
+          ? <Lock size={14} strokeWidth={1.75} />
+          : (() => { const Icon = getModeIcon(current.id); return <Icon size={14} strokeWidth={1.75} />; })()}
         <span className="hidden lg:inline truncate max-w-[60px] xl:max-w-[100px]">{current.label}</span>
-        <svg className="w-3 h-3 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        {locked && <span className="text-[10px] uppercase tracking-wide font-semibold">Locked</span>}
+        <svg className={`w-3 h-3 ${locked ? 'text-amber-500/80' : 'text-muted-foreground'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
         </svg>
-      </button>
+      </SelectorTrigger>
 
       {isOpen && (
         <div className="absolute bottom-full left-0 mb-1 z-50 bg-popover/95 glass border border-border/50 rounded-xl shadow-apple-xl py-1 min-w-[160px] animate-apple-fade-in">

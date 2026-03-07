@@ -110,6 +110,43 @@ function isSudoCommand(toolName: string, toolInput: unknown): boolean {
   return /(?:^|&&|\|\||;|\||\$\()[\s]*sudo\s/m.test(input.command);
 }
 
+function isBashLikeTool(toolName: string): boolean {
+  const lower = toolName.toLowerCase();
+  return lower === 'bash' || lower === 'execute_command' || lower === 'run_terminal_cmd' || lower === 'terminal';
+}
+
+function providerSupportsNativePlanMode(providerType: string): boolean {
+  return providerType === 'claude' || providerType === 'cursor' || providerType === 'codex';
+}
+
+function buildNonNativePlanPrompt(providerType: string): string {
+  return [
+    'You are in STRICT PLAN MODE (enforced by platform policy).',
+    `Provider: ${providerType}.`,
+    '',
+    'Rules:',
+    '- Do analysis and planning only.',
+    '- Do NOT modify files, create files, delete files, or run mutating shell commands.',
+    '- If implementation is needed, describe it as a future execution plan.',
+    '',
+    'Output format:',
+    '1) Goal',
+    '2) Assumptions',
+    '3) Step-by-step plan',
+    '4) Risks/unknowns',
+    '5) Verification checklist',
+  ].join('\n');
+}
+
+function buildPlanDocumentPrompt(taskId: string): string {
+  return [
+    'Plan document requirement:',
+    `- Keep the plan synchronized in: .supervision/plans/task-${taskId}.plan.md`,
+    '- Use markdown headings: # Goal, # Scope, # Steps, # Verification',
+    '- Optional headings: # Risks, # Assumptions',
+  ].join('\n');
+}
+
 /**
  * Rewrite a sudo command to inject the password via stdin using printf (shell builtin).
  * printf is used instead of echo because it's a builtin in most shells,
@@ -524,6 +561,9 @@ export async function createServer(): Promise<ServerContext> {
       });
     }
   );
+  // Supervision V2 canonical routes (frontend uses /api/v2/*)
+  app.use('/api/v2', authMiddleware, createSupervisionV2Routes(supervisorV2Service));
+  // Backward-compat alias for older clients that still use /api/v2/supervision/*
   app.use('/api/v2/supervision', authMiddleware, createSupervisionV2Routes(supervisorV2Service));
 
   // Notification routes + service
@@ -1337,7 +1377,8 @@ async function handleRunStart(
   // Get session info
   const session = db.prepare(`
     SELECT s.id, s.project_id, s.sdk_session_id, s.type as session_type,
-           s.working_directory, p.root_path, COALESCE(s.provider_id, p.provider_id) as provider_id, p.system_prompt
+           s.working_directory, s.project_role, s.plan_status, s.task_id,
+           p.root_path, COALESCE(s.provider_id, p.provider_id) as provider_id, p.system_prompt
     FROM sessions s
     LEFT JOIN projects p ON s.project_id = p.id
     WHERE s.id = ?
@@ -1347,6 +1388,9 @@ async function handleRunStart(
     sdk_session_id: string | null;
     session_type: 'regular' | 'background' | null;
     working_directory: string | null;
+    project_role: string | null;
+    plan_status: string | null;
+    task_id: string | null;
     root_path: string | null;
     provider_id: string | null;
     system_prompt: string | null;
@@ -1361,8 +1405,12 @@ async function handleRunStart(
     return;
   }
 
-  // Get provider config if specified
-  const providerId = message.providerId || session.provider_id;
+  // Get provider config: message override → session → project → system default
+  const explicitProviderId = message.providerId || session.provider_id;
+  const providerId = explicitProviderId || (() => {
+    const defaultRow = db.prepare(`SELECT id FROM providers WHERE is_default = 1 LIMIT 1`).get() as { id: string } | undefined;
+    return defaultRow?.id || null;
+  })();
   let providerConfig: ProviderConfig | undefined;
 
   if (providerId) {
@@ -1491,11 +1539,43 @@ async function handleRunStart(
       console.log('[@ Mention] Processed input:', processedInput);
     }
 
+    const providerType = providerConfig?.type || 'claude';
+    const forcedPlanBySession = session.project_role === 'task' && session.plan_status === 'planning';
+    let modeValue = forcedPlanBySession
+      ? 'plan'
+      : (message.mode || message.permissionMode || 'default');
+    if (forcedPlanBySession && modeValue !== (message.mode || message.permissionMode || 'default')) {
+      console.log(`[Mode] Forced plan mode for task planning session ${message.sessionId}`);
+    }
+
     // Permission request callback (shared by claude and opencode)
     // Unified: ALL sessions (including agent sessions) go through the strategy chain.
     const sessionPermissionOverride = message.permissionOverride;
     const permissionCallback = async (request: import('@my-claudia/shared').PermissionRequest) => {
       return new Promise<PermissionDecision>((resolve) => {
+        // Plan mode hard guard: allow read-only tools only, deny all mutating operations.
+        if (modeValue === 'plan') {
+          const planReadOnlyTools = new Set([
+            'read', 'glob', 'grep', 'webfetch', 'websearch', 'todowrite', 'ls', 'askuserquestion',
+          ]);
+          const normalizedTool = request.toolName.toLowerCase();
+          const isAllowedReadTool = planReadOnlyTools.has(normalizedTool);
+          const shouldDeny = isBashLikeTool(request.toolName) || !isAllowedReadTool;
+          if (shouldDeny) {
+            const reason = `Denied by strict Plan Mode: ${request.toolName} is not allowed.`;
+            sendMessage(client.ws, {
+              type: 'agent_permission_intercepted',
+              toolName: request.toolName,
+              decision: 'deny',
+              reason,
+              sessionId: message.sessionId,
+              runId,
+            } as import('@my-claudia/shared').AgentPermissionInterceptedMessage);
+            resolve({ behavior: 'deny', message: reason });
+            return;
+          }
+        }
+
         // --- Unified permission strategy chain ---
         // Check global, project-level, and session-level policies.
         // Session override has highest priority.
@@ -1683,9 +1763,6 @@ async function handleRunStart(
     };
 
     // Select provider runner via registry
-    // Resolve mode: prefer new unified `mode` field, fall back to legacy `permissionMode`
-    let modeValue = message.mode || message.permissionMode || 'default';
-    const providerType = providerConfig?.type || 'claude';
 
     // Note: Agent sessions no longer force bypassPermissions.
     // All sessions (including agent) go through the unified permission strategy chain.
@@ -1703,6 +1780,14 @@ async function handleRunStart(
       filePushContext = buildFilePushContext(apiUrl, message.sessionId);
     }
 
+    const injectNonNativePlanPrompt = modeValue === 'plan' && !providerSupportsNativePlanMode(providerType);
+    const nonNativePlanPrompt = injectNonNativePlanPrompt
+      ? buildNonNativePlanPrompt(providerType)
+      : undefined;
+    const planDocumentPrompt = forcedPlanBySession && session.task_id
+      ? buildPlanDocumentPrompt(session.task_id)
+      : undefined;
+
     const runOptions = {
       cwd,
       sessionId: sdkSessionId,
@@ -1710,7 +1795,7 @@ async function handleRunStart(
       env: { ...(providerConfig?.env || {}), ...filePushEnv },
       mode: modeValue,
       model: message.model,
-      systemPrompt: [message.systemContext, filePushContext, session.system_prompt].filter(Boolean).join('\n\n') || undefined,
+      systemPrompt: [message.systemContext, nonNativePlanPrompt, planDocumentPrompt, filePushContext, session.system_prompt].filter(Boolean).join('\n\n') || undefined,
       serverPort: serverPort || undefined,
     };
 
@@ -1810,7 +1895,7 @@ async function handleRunStart(
           // Track for loop detection (sliding window of last 20 tool signatures)
           if (msg.toolName) {
             const input = msg.toolInput as Record<string, unknown> | undefined;
-            const toolSignature = generateToolSignature(msg.toolName, input);
+            const toolSignature = generateToolSignature(msg.toolName, input, activeRun.providerType);
             activeRun.recentToolCalls.push(toolSignature);
             if (activeRun.recentToolCalls.length > 20) {
               activeRun.recentToolCalls.shift();
@@ -1915,6 +2000,24 @@ async function handleRunStart(
                 content: statusOutput
               });
             }
+          }
+
+          // OpenCode fallback: some task/subagent flows may only emit tool events and no
+          // assistant text. Ensure users still get a visible completion message.
+          if (
+            !activeRun.fullContent &&
+            activeRun.providerType === 'opencode' &&
+            activeRun.collectedToolCalls.length > 0
+          ) {
+            const fallback = 'Task execution completed, but the provider did not return a final visible text response. Send "summarize the result" to get a structured conclusion.';
+            activeRun.fullContent = fallback;
+            activeRun.contentBlocks.push({ type: 'text', content: fallback });
+            sendMessage(client.ws, {
+              type: 'delta',
+              runId,
+              sessionId: activeRun.sessionId,
+              content: fallback
+            });
           }
 
           // Detect truncated completions — the model's last output was a thinking

@@ -191,78 +191,8 @@ export interface Session {
   // Supervision v2
   projectRole?: 'main' | 'task' | 'review' | 'checkpoint';
   taskId?: string;
-}
-
-// ============================================
-// Supervision v1 Types (deprecated — frontend still references these)
-// ============================================
-
-/** @deprecated Use Supervision v2 types instead */
-export type SupervisionStatus = 'planning' | 'active' | 'paused' | 'completed' | 'failed' | 'cancelled';
-
-/** @deprecated Use Supervision v2 types instead */
-export interface SupervisionSubtask {
-  id: number;
-  description: string;
-  status: 'pending' | 'in_progress' | 'completed';
-  completedAt?: number;
-  phase?: number;
-  acceptanceCriteria?: string[];
-}
-
-/** @deprecated Use Supervision v2 types instead */
-export interface Supervision {
-  id: string;
-  sessionId: string;
-  goal: string;
-  subtasks?: SupervisionSubtask[];
-  status: SupervisionStatus;
-  maxIterations: number;
-  currentIteration: number;
-  cooldownSeconds: number;
-  lastRunId?: string;
-  errorMessage?: string;
-  acceptanceCriteria?: string[];
-  planSessionId?: string;
-  createdAt: number;
-  updatedAt: number;
-  completedAt?: number;
-}
-
-/** @deprecated Use Supervision v2 types instead */
-export interface SupervisionPlan {
-  goal: string;
-  subtasks: Array<{
-    description: string;
-    phase?: number;
-    acceptanceCriteria?: string[];
-  }>;
-  acceptanceCriteria?: string[];
-  estimatedIterations?: number;
-}
-
-/** @deprecated Use Supervision v2 types instead */
-export type SupervisionLogEvent =
-  | 'planning_started' | 'planning_approved' | 'planning_cancelled'
-  | 'iteration_started' | 'iteration_completed' | 'iteration_failed'
-  | 'subtask_completed' | 'goal_completed'
-  | 'paused' | 'resumed' | 'cancelled';
-
-/** @deprecated Use Supervision v2 types instead */
-export interface SupervisionLog {
-  id: string;
-  supervisionId: string;
-  iteration?: number;
-  event: SupervisionLogEvent;
-  detail?: Record<string, unknown>;
-  createdAt: number;
-}
-
-/** @deprecated Use Supervision v2 types instead */
-export interface SupervisionUpdateMessage {
-  type: 'supervision_update';
-  supervision: Supervision;
-  log?: SupervisionLog;
+  planStatus?: 'planning' | 'planned' | 'executing' | null;
+  isReadOnly?: boolean;
 }
 
 // ============================================
@@ -270,6 +200,7 @@ export interface SupervisionUpdateMessage {
 // ============================================
 
 export type AgentType = 'supervisor';
+export type AgentMode = 'full' | 'lite';
 
 export type SupervisionPhase =
   | 'initializing'
@@ -291,6 +222,7 @@ export interface SupervisorConfig {
 
 export interface ProjectAgent {
   type: AgentType;
+  mode: AgentMode;
   phase: SupervisionPhase;
   config: SupervisorConfig;
   mainSessionId?: string;
@@ -304,7 +236,9 @@ export type TaskStatus =
   | 'proposed'
   | 'pending'
   | 'queued'
+  | 'planning'
   | 'running'
+  | 'completed'
   | 'reviewing'
   | 'approved'
   | 'integrated'
@@ -360,6 +294,11 @@ export interface SupervisionTask {
   createdAt: number;
   startedAt?: number;
   completedAt?: number;
+  // Scheduling (lite mode)
+  scheduleCron?: string;
+  scheduleNextRun?: number;
+  scheduleEnabled?: boolean;
+  retryDelayMs?: number;
 }
 
 export type SupervisionV2LogEvent =
@@ -382,7 +321,9 @@ export type SupervisionV2LogEvent =
   | 'merge_conflict'
   | 'budget_paused'
   | 'main_session_rotated'
-  | 'state_recovery_completed';
+  | 'state_recovery_completed'
+  | 'task_session_opened'
+  | 'task_plan_submitted';
 
 export interface SupervisionV2Log {
   id: string;
@@ -906,7 +847,6 @@ export type ServerMessage =
   | ProvidersCreatedMessage
   | ProvidersUpdatedMessage
   | ProvidersDeletedMessage
-  | SupervisionUpdateMessage // deprecated v1
   // Supervision v2
   | SupervisionTaskUpdateMessage
   | SupervisionAgentUpdateMessage

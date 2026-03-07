@@ -94,6 +94,7 @@ export function MessageInput({
   const [selectedCommandIndex, setSelectedCommandIndex] = useState(0);
   const [mentionState, setMentionState] = useState<MentionState>(initialMentionState);
   const [isComposing, setIsComposing] = useState(false); // Track IME composition state
+  const compactRowHeightClass = isMobile ? 'h-[72px]' : 'h-12';
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -202,24 +203,17 @@ export function MessageInput({
     [fetchEntries]
   );
 
-  // Auto-resize textarea (only in normal mode; advanced mode uses CSS min/max-height)
+  // Keep normal mode at a fixed height for strict visual alignment.
+  // Advanced mode keeps a resizable textarea.
   useEffect(() => {
     const textarea = textareaRef.current;
     if (!textarea) return;
 
     if (!advancedMode) {
-      const minHeight = isMobile ? 72 : 48;
-      // Force clear any inline height (e.g. from browser resize handle) before measuring
       textarea.style.height = '';
-      textarea.style.minHeight = `${minHeight}px`;
+      textarea.style.minHeight = '';
       textarea.style.maxHeight = '';
-      // Force layout recalculation after clearing
-      void textarea.offsetHeight;
-      textarea.style.height = 'auto';
-      const newHeight = Math.min(Math.max(textarea.scrollHeight, minHeight), 200);
-      textarea.style.height = `${newHeight}px`;
-      // Only show scrollbar when reaching max height
-      textarea.style.overflowY = newHeight >= 200 ? 'auto' : 'hidden';
+      textarea.style.overflowY = 'hidden';
     } else {
       // Clear normal-mode inline styles so advanced mode CSS (min/max + overflow) can take effect.
       textarea.style.height = '';
@@ -705,12 +699,12 @@ export function MessageInput({
       )}
 
       {/* Input area */}
-      <div className="flex items-center gap-2">
+      <div className={`flex gap-2 ${advancedMode ? 'items-end' : `items-center ${compactRowHeightClass}`}`}>
         {/* Attachment button */}
         <button
           onClick={() => fileInputRef.current?.click()}
           disabled={disabled}
-          className="h-12 w-12 flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted rounded-full transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          className={`${advancedMode ? 'h-12 w-12' : 'h-full aspect-square'} flex-shrink-0 flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted rounded-full transition-colors disabled:opacity-50 disabled:cursor-not-allowed`}
           title="Add attachment (images, files)"
         >
           <Paperclip size={20} strokeWidth={1.75} />
@@ -725,7 +719,7 @@ export function MessageInput({
         />
 
         {/* Text input */}
-        <div className="flex-1 relative">
+        <div className={`flex-1 relative ${advancedMode ? '' : 'h-full'}`}>
           <textarea
             data-testid="message-input"
             ref={textareaRef}
@@ -761,8 +755,8 @@ export function MessageInput({
               advancedMode
                 ? 'resize-y min-h-[160px] max-h-[40vh] overflow-auto'
                 : isMobile
-                  ? 'min-h-[72px] resize-none overflow-hidden'
-                  : 'min-h-12 resize-none overflow-hidden'
+                  ? 'h-[72px] resize-none overflow-hidden'
+                  : 'h-12 resize-none overflow-hidden'
             }`}
             style={{
               fontSize: 'var(--chat-font-input, 0.875rem)',
@@ -775,7 +769,7 @@ export function MessageInput({
         {isLoading && onCancel ? (
           <button
             onClick={onCancel}
-            className="h-12 w-12 flex items-center justify-center bg-destructive text-destructive-foreground hover:bg-destructive/90 rounded-full transition-colors"
+            className={`${advancedMode ? 'h-12 w-12' : 'h-full aspect-square'} flex-shrink-0 flex items-center justify-center bg-destructive text-destructive-foreground hover:bg-destructive/90 rounded-full transition-colors`}
             title="Cancel (Esc)"
           >
             <X size={20} strokeWidth={2} />
@@ -784,8 +778,10 @@ export function MessageInput({
           <button
             onClick={handleSend}
             disabled={disabled || (!value.trim() && attachments.length === 0)}
-            className="h-12 w-12 flex items-center justify-center bg-primary text-primary-foreground hover:bg-primary/90 disabled:bg-muted disabled:text-muted-foreground disabled:cursor-not-allowed rounded-full transition-colors"
-            title={advancedMode && !isMobile ? `Send message (${isMac ? 'Cmd' : 'Ctrl'}+Enter)` : 'Send message (Enter)'}
+            className={`${advancedMode ? 'h-12 w-12' : 'h-full aspect-square'} flex-shrink-0 flex items-center justify-center bg-primary text-primary-foreground hover:bg-primary/90 disabled:bg-muted disabled:text-muted-foreground disabled:cursor-not-allowed rounded-full transition-colors`}
+            title={advancedMode && !isMobile
+              ? `Send message (${isMac ? 'Cmd' : 'Ctrl'}+Enter)`
+              : 'Send message (Enter)'}
             data-testid="send-button"
           >
             <Send size={20} strokeWidth={1.75} />

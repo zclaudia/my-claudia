@@ -1,120 +1,109 @@
 import type { Session } from '@my-claudia/shared';
 
-interface SupervisionInfo {
-  id: string;
-  status: string;
-  goal: string;
-  currentIteration: number;
-  maxIterations: number;
-}
-
 interface SessionItemProps {
   session: Session;
   isSelected: boolean;
-  isRenaming: boolean;
-  renameValue: string;
   onSelect: (id: string) => void;
-  onRenameChange: (v: string) => void;
-  onRenameSubmit: (id: string) => void;
-  onRenameCancel: () => void;
-  onContextMenu: (e: React.MouseEvent, id: string) => void;
   hasPending: boolean;
-  supervisionInfo?: SupervisionInfo;
+  isActive?: boolean;
+  providerName?: string;
+  worktreeBranch?: string;
   isMobile?: boolean;
 }
 
 const ROLE_BADGES: Record<string, { label: string; className: string }> = {
   main: { label: 'main', className: 'bg-blue-500/20 text-blue-400' },
-  task: { label: 'task', className: 'bg-green-500/20 text-green-400' },
   review: { label: 'review', className: 'bg-purple-500/20 text-purple-400' },
   checkpoint: { label: 'check', className: 'bg-orange-500/20 text-orange-400' },
 };
 
+/** Resolve status label based on session state. Returns null for idle sessions. */
+function getStatusLabel(session: Session, isActive?: boolean, hasPending?: boolean): { text: string; className: string; pulse?: boolean } | null {
+  if (hasPending) return { text: 'waiting', className: 'text-amber-500', pulse: true };
+  if (session.planStatus === 'planning') return { text: 'planning', className: 'text-blue-400' };
+  if (session.planStatus === 'planned') return { text: 'planned', className: 'text-yellow-500' };
+  if (session.planStatus === 'executing') return { text: 'running', className: 'text-green-500', pulse: true };
+  if (isActive) return { text: 'running', className: 'text-green-500', pulse: true };
+  return null;
+}
+
 export function SessionItem({
   session,
   isSelected,
-  isRenaming,
-  renameValue,
   onSelect,
-  onRenameChange,
-  onRenameSubmit,
-  onRenameCancel,
-  onContextMenu,
   hasPending,
-  supervisionInfo,
+  isActive,
+  providerName,
+  worktreeBranch,
   isMobile,
 }: SessionItemProps) {
+  const isTask = session.projectRole === 'task';
   const roleBadge = session.projectRole ? ROLE_BADGES[session.projectRole] : undefined;
+  const statusLabel = getStatusLabel(session, isActive, hasPending);
+
+  // Task items under Supervisor use lighter styling
+  const selectedClass = isTask
+    ? 'bg-muted/60 text-foreground'
+    : 'bg-primary/15 text-foreground';
+  const unselectedClass = isTask
+    ? `text-muted-foreground/70 hover:bg-muted/40 ${isMobile ? 'active:bg-muted/40' : ''} hover:text-foreground`
+    : `text-muted-foreground hover:bg-secondary ${isMobile ? 'active:bg-secondary' : ''} hover:text-foreground`;
+
+  // Strip "Task: " prefix for task items (redundant under Tasks section)
+  const displayName = isTask
+    ? (session.name || 'Untitled Task').replace(/^Task:\s*/i, '')
+    : (session.name || 'Untitled Session');
 
   return (
-    <li className="relative group" data-testid="session-item">
-      <div className="flex items-center">
-        {isRenaming ? (
-          <input
-            autoFocus
-            type="text"
-            value={renameValue}
-            onChange={(e) => onRenameChange(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') onRenameSubmit(session.id);
-              if (e.key === 'Escape') onRenameCancel();
-            }}
-            onBlur={() => onRenameSubmit(session.id)}
-            className={`flex-1 min-w-0 px-2 rounded text-sm bg-secondary border border-border text-foreground outline-none ${
-              isMobile ? 'min-h-[44px]' : 'h-7'
-            }`}
-          />
-        ) : (
-          <button
-            onClick={() => onSelect(session.id)}
-            className={`flex-1 min-w-0 text-left px-2 rounded text-sm truncate flex items-center gap-1 border border-transparent ${
-              isMobile ? 'min-h-[44px]' : 'h-7'
-            } ${
-              isSelected
-                ? 'bg-primary text-primary-foreground'
-                : `text-muted-foreground hover:bg-secondary ${isMobile ? 'active:bg-secondary' : ''} hover:text-foreground`
-            }`}
-          >
-            <span className="truncate">{session.name || 'Untitled Session'}</span>
-            {/* Project role badge */}
-            {roleBadge && (
-              <span className={`text-[9px] px-1 rounded font-medium shrink-0 ${roleBadge.className}`}>
-                {roleBadge.label}
-              </span>
-            )}
-            {/* Pending permission indicator */}
-            {hasPending && (
-              <span className="ml-auto w-2 h-2 rounded-full bg-amber-500 animate-pulse shrink-0" title="Pending permission" />
-            )}
-            {/* Supervision v1 status dot */}
-            {supervisionInfo && !hasPending && (
-              <span
-                className={`ml-auto w-2 h-2 rounded-full shrink-0 ${
-                  supervisionInfo.status === 'active'
-                    ? 'bg-green-500 animate-pulse'
-                    : supervisionInfo.status === 'paused'
-                      ? 'bg-yellow-500'
-                      : ''
-                }`}
-                title={`Supervised: ${supervisionInfo.goal} (${supervisionInfo.currentIteration}/${supervisionInfo.maxIterations})`}
-              />
-            )}
-          </button>
+    <li className="relative" data-testid="session-item">
+      <button
+        onClick={() => onSelect(session.id)}
+        className={`w-full text-left px-2 rounded-lg truncate flex items-center gap-1 ${
+          isTask ? 'text-xs' : 'text-sm'
+        } ${
+          isMobile ? 'min-h-[44px]' : 'h-7'
+        } ${isSelected ? selectedClass : unselectedClass}`}
+      >
+        <span className="truncate">{displayName}</span>
+        {/* Project role badge */}
+        {roleBadge && (
+          <span className={`text-[9px] px-1 rounded font-medium shrink-0 ${roleBadge.className}`}>
+            {roleBadge.label}
+          </span>
         )}
-        {/* Session menu button */}
-        <button
-          onClick={(e) => onContextMenu(e, session.id)}
-          className={`flex-shrink-0 flex items-center justify-center rounded ${
-            isMobile
-              ? 'w-10 h-10 hover:bg-secondary active:bg-secondary'
-              : 'w-7 h-7 opacity-0 group-hover:opacity-100 hover:bg-secondary'
-          }`}
-        >
-          <svg className="w-4 h-4 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z" />
+        {/* Provider name tag (for regular sessions, only when idle) */}
+        {!session.projectRole && providerName && !statusLabel && (
+          <span className={`text-[9px] px-1 rounded shrink-0 ${
+            isSelected ? 'bg-primary/15 text-primary' : 'bg-muted-foreground/10 text-muted-foreground/60'
+          }`}>
+            {providerName}
+          </span>
+        )}
+        {/* Read-only lock icon */}
+        {session.isReadOnly && (
+          <svg className="w-3 h-3 shrink-0 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+            <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+            <path d="M7 11V7a5 5 0 0 1 10 0v4" />
           </svg>
-        </button>
-      </div>
+        )}
+        {/* Worktree branch indicator */}
+        {!session.projectRole && worktreeBranch && (
+          <span className={`text-[9px] truncate max-w-[60px] shrink-0 ${
+            isSelected ? 'text-foreground/50' : 'text-muted-foreground/50'
+          }`} title={worktreeBranch}>
+            {worktreeBranch}
+          </span>
+        )}
+        {/* Status label (right side) */}
+        {statusLabel && (
+          <span className={`ml-auto flex items-center gap-1 shrink-0 text-[9px] font-medium ${statusLabel.className}`}>
+            {statusLabel.pulse && (
+              <span className="w-1.5 h-1.5 rounded-full bg-current animate-pulse" />
+            )}
+            {statusLabel.text}
+          </span>
+        )}
+      </button>
     </li>
   );
 }

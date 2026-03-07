@@ -1,13 +1,20 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Play, Pause, Archive } from 'lucide-react';
-import type { ProjectAgent, SupervisorConfig, TrustLevel } from '@my-claudia/shared';
+import type { ProjectAgent, AgentMode, SupervisorConfig, TrustLevel, ProviderConfig } from '@my-claudia/shared';
 import * as api from '../../services/api';
 import { useSupervisionStore } from '../../stores/supervisionStore';
+import { useProjectStore } from '../../stores/projectStore';
 
 interface AgentStatusBarProps {
   projectId: string;
   agent: ProjectAgent | null;
 }
+
+const trustLevelLabels: Record<TrustLevel, { label: string; desc: string }> = {
+  low: { label: 'Cautious', desc: 'Pause for approval on every result' },
+  medium: { label: 'Balanced', desc: 'Auto-apply approved results' },
+  high: { label: 'Autonomous', desc: 'Run independently' },
+};
 
 const phaseConfig: Record<string, { label: string; color: string }> = {
   initializing: { label: 'Initializing', color: 'bg-blue-500/10 text-blue-500' },
@@ -21,20 +28,49 @@ const phaseConfig: Record<string, { label: string; color: string }> = {
 export function AgentStatusBar({ projectId, agent }: AgentStatusBarProps) {
   const [loading, setLoading] = useState(false);
   const [showInitForm, setShowInitForm] = useState(false);
+  const [initMode, setInitMode] = useState<AgentMode>('lite');
   const [initConfig, setInitConfig] = useState<Partial<SupervisorConfig>>({
     maxConcurrentTasks: 2,
     trustLevel: 'medium',
-    autoDiscoverTasks: false,
   });
+  const [selectedProviderId, setSelectedProviderId] = useState<string>('');
+  const [providers, setProviders] = useState<ProviderConfig[]>([]);
 
   const setAgent = useSupervisionStore((s) => s.setAgent);
+  const selectSession = useProjectStore((s) => s.selectSession);
+
+  // Load providers when init form opens
+  useEffect(() => {
+    if (!showInitForm) return;
+    const storeProviders = useProjectStore.getState().providers;
+    if (storeProviders.length > 0) {
+      setProviders(storeProviders);
+      const defaultProvider = storeProviders.find((p) => p.isDefault) ?? storeProviders[0];
+      if (defaultProvider && !selectedProviderId) setSelectedProviderId(defaultProvider.id);
+    } else {
+      api.getProviders().then((data) => {
+        setProviders(data);
+        const defaultProvider = data.find((p) => p.isDefault) ?? data[0];
+        if (defaultProvider && !selectedProviderId) setSelectedProviderId(defaultProvider.id);
+      }).catch(() => {});
+    }
+  }, [showInitForm, selectedProviderId]);
 
   const handleInit = async () => {
     setLoading(true);
     try {
-      const result = await api.initSupervisionAgent(projectId, initConfig as SupervisorConfig);
+      const result = await api.initSupervisionAgent(
+        projectId,
+        initConfig as SupervisorConfig,
+        selectedProviderId || undefined,
+        initMode,
+      );
       setAgent(projectId, result);
       setShowInitForm(false);
+      // Navigate to the supervisor main session
+      if (result.mainSessionId) {
+        selectSession(result.mainSessionId);
+      }
     } catch (err) {
       console.error('Failed to init agent:', err);
     } finally {
@@ -83,7 +119,80 @@ export function AgentStatusBar({ projectId, agent }: AgentStatusBarProps) {
             </svg>
           </button>
         </div>
-        <div className="grid grid-cols-3 gap-3">
+
+        {/* Mode */}
+        <div>
+          <label className="block text-xs text-muted-foreground mb-1">Mode</label>
+          <div className="flex gap-1 bg-secondary/50 rounded-lg p-0.5">
+            <button
+              onClick={() => setInitMode('lite')}
+              className={`flex-1 px-2 py-1.5 text-xs rounded-md transition-colors ${
+                initMode === 'lite'
+                  ? 'bg-primary text-primary-foreground shadow-sm'
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              Workflow Runner
+            </button>
+            <button
+              onClick={() => setInitMode('full')}
+              className={`flex-1 px-2 py-1.5 text-xs rounded-md transition-colors ${
+                initMode === 'full'
+                  ? 'bg-primary text-primary-foreground shadow-sm'
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              Full Supervisor
+            </button>
+          </div>
+          <p className="text-xs text-muted-foreground mt-1">
+            {initMode === 'lite'
+              ? 'Lightweight: retry, scheduling, serial dependencies'
+              : 'Full: autonomous task orchestration with review & git integration'}
+          </p>
+        </div>
+
+        {/* Provider */}
+        <div>
+          <label className="block text-xs text-muted-foreground mb-1">Provider</label>
+          <select
+            value={selectedProviderId}
+            onChange={(e) => setSelectedProviderId(e.target.value)}
+            className="w-full px-2 py-1.5 bg-secondary border border-border rounded text-sm focus:outline-none focus:border-primary"
+          >
+            {providers.map((p) => (
+              <option key={p.id} value={p.id}>{p.name}{p.isDefault ? ' (default)' : ''}</option>
+            ))}
+          </select>
+        </div>
+
+        {/* Trust Level — full mode only */}
+        {initMode === 'full' && (
+          <div>
+            <label className="block text-xs text-muted-foreground mb-1">Trust Level</label>
+            <div className="flex gap-1 bg-secondary/50 rounded-lg p-0.5">
+              {(['low', 'medium', 'high'] as TrustLevel[]).map((level) => (
+                <button
+                  key={level}
+                  onClick={() => setInitConfig((c) => ({ ...c, trustLevel: level }))}
+                  className={`flex-1 px-2 py-1.5 text-xs rounded-md transition-colors ${
+                    initConfig.trustLevel === level
+                      ? 'bg-primary text-primary-foreground shadow-sm'
+                      : 'text-muted-foreground hover:text-foreground'
+                  }`}
+                >
+                  {trustLevelLabels[level].label}
+                </button>
+              ))}
+            </div>
+            <p className="text-xs text-muted-foreground mt-1">
+              {trustLevelLabels[initConfig.trustLevel ?? 'medium'].desc}
+            </p>
+          </div>
+        )}
+
+        {/* Max Concurrent Tasks — full mode only */}
+        {initMode === 'full' && (
           <div>
             <label className="block text-xs text-muted-foreground mb-1">Max Concurrent Tasks</label>
             <input
@@ -92,33 +201,12 @@ export function AgentStatusBar({ projectId, agent }: AgentStatusBarProps) {
               onChange={(e) => setInitConfig((c) => ({ ...c, maxConcurrentTasks: parseInt(e.target.value) || 1 }))}
               min={1}
               max={5}
-              className="w-full px-2 py-1 bg-secondary border border-border rounded text-sm focus:outline-none focus:border-primary"
+              className="w-20 px-2 py-1.5 bg-secondary border border-border rounded text-sm focus:outline-none focus:border-primary"
             />
           </div>
-          <div>
-            <label className="block text-xs text-muted-foreground mb-1">Trust Level</label>
-            <select
-              value={initConfig.trustLevel ?? 'medium'}
-              onChange={(e) => setInitConfig((c) => ({ ...c, trustLevel: e.target.value as TrustLevel }))}
-              className="w-full px-2 py-1 bg-secondary border border-border rounded text-sm focus:outline-none focus:border-primary"
-            >
-              <option value="low">Low</option>
-              <option value="medium">Medium</option>
-              <option value="high">High</option>
-            </select>
-          </div>
-          <div className="flex items-end">
-            <label className="flex items-center gap-2 text-sm cursor-pointer">
-              <input
-                type="checkbox"
-                checked={initConfig.autoDiscoverTasks ?? false}
-                onChange={(e) => setInitConfig((c) => ({ ...c, autoDiscoverTasks: e.target.checked }))}
-                className="rounded"
-              />
-              Auto-discover
-            </label>
-          </div>
-        </div>
+        )}
+
+        {/* Actions */}
         <div className="flex justify-end gap-2">
           <button
             onClick={() => setShowInitForm(false)}
@@ -128,10 +216,10 @@ export function AgentStatusBar({ projectId, agent }: AgentStatusBarProps) {
           </button>
           <button
             onClick={handleInit}
-            disabled={loading}
+            disabled={loading || !selectedProviderId}
             className="px-3 py-1.5 text-sm bg-primary text-primary-foreground hover:bg-primary/90 rounded disabled:opacity-50"
           >
-            {loading ? 'Initializing...' : 'Initialize'}
+            {loading ? 'Starting...' : 'Start Agent'}
           </button>
         </div>
       </div>
@@ -150,7 +238,8 @@ export function AgentStatusBar({ projectId, agent }: AgentStatusBarProps) {
 
         {/* Config summary */}
         <span className="text-xs text-muted-foreground">
-          {agent.config.maxConcurrentTasks} concurrent | Trust: {agent.config.trustLevel}
+          {(agent.mode ?? 'full') === 'lite' ? 'Workflow' : 'Supervisor'}
+          {(agent.mode ?? 'full') === 'full' && ` | ${agent.config.maxConcurrentTasks} concurrent | Trust: ${trustLevelLabels[agent.config.trustLevel]?.label ?? agent.config.trustLevel}`}
         </span>
 
         {/* Paused reason */}
@@ -158,6 +247,16 @@ export function AgentStatusBar({ projectId, agent }: AgentStatusBarProps) {
           <span className="text-xs text-orange-500">
             ({agent.pausedReason === 'budget' ? 'Budget limit' : agent.pausedReason === 'sync_error' ? 'Sync error' : 'User paused'})
           </span>
+        )}
+
+        {/* Link to main session */}
+        {agent.mainSessionId && (
+          <button
+            onClick={() => selectSession(agent.mainSessionId!)}
+            className="text-xs text-primary hover:underline"
+          >
+            Open Session
+          </button>
         )}
       </div>
 

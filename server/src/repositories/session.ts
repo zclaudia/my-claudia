@@ -39,6 +39,8 @@ export class SessionRepository extends BaseRepository<
       // Supervision v2
       projectRole: row.project_role || undefined,
       taskId: row.task_id || undefined,
+      planStatus: row.plan_status || undefined,
+      isReadOnly: row.is_read_only === 1 ? true : undefined,
     };
   }
 
@@ -51,8 +53,8 @@ export class SessionRepository extends BaseRepository<
 
     return {
       sql: `
-        INSERT INTO sessions (id, project_id, name, provider_id, sdk_session_id, type, parent_session_id, working_directory, project_role, task_id, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO sessions (id, project_id, name, provider_id, sdk_session_id, type, parent_session_id, working_directory, project_role, task_id, plan_status, is_read_only, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `,
       params: [
         id,
@@ -65,6 +67,8 @@ export class SessionRepository extends BaseRepository<
         data.workingDirectory || null,
         data.projectRole || null,
         data.taskId || null,
+        data.planStatus || null,
+        data.isReadOnly ? 1 : 0,
         now,
         now
       ]
@@ -119,6 +123,14 @@ export class SessionRepository extends BaseRepository<
     if (data.taskId !== undefined) {
       updates.push('task_id = ?');
       params.push(data.taskId || null);
+    }
+    if (data.planStatus !== undefined) {
+      updates.push('plan_status = ?');
+      params.push(data.planStatus || null);
+    }
+    if (data.isReadOnly !== undefined) {
+      updates.push('is_read_only = ?');
+      params.push(data.isReadOnly ? 1 : 0);
     }
 
     // Always update timestamp

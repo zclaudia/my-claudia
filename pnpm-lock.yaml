@@ -180,7 +180,7 @@ importers:
         version: 8.18.1
       '@vitest/coverage-v8':
         specifier: ^4.0.18
-        version: 4.0.18(vitest@1.6.1(@types/node@20.19.32)(@vitest/ui@4.0.18)(jsdom@27.4.0(@noble/hashes@1.8.0)(bufferutil@4.1.0)))
+        version: 4.0.18(vitest@1.6.1(@types/node@20.19.32)(@vitest/ui@4.0.18(vitest@4.0.18))(jsdom@27.4.0(@noble/hashes@1.8.0)(bufferutil@4.1.0)))
       tsx:
         specifier: ^4.7.0
         version: 4.21.0
@@ -189,7 +189,7 @@ importers:
         version: 5.9.3
       vitest:
         specifier: ^1.0.0
-        version: 1.6.1(@types/node@20.19.32)(@vitest/ui@4.0.18)(jsdom@27.4.0(@noble/hashes@1.8.0)(bufferutil@4.1.0))
+        version: 1.6.1(@types/node@20.19.32)(@vitest/ui@4.0.18(vitest@4.0.18))(jsdom@27.4.0(@noble/hashes@1.8.0)(bufferutil@4.1.0))
 
   server:
     dependencies:
@@ -214,6 +214,9 @@ importers:
       cors:
         specifier: ^2.8.5
         version: 2.8.6
+      cron-parser:
+        specifier: ^5.5.0
+        version: 5.5.0
       express:
         specifier: ^4.18.2
         version: 4.22.1
@@ -2199,6 +2202,10 @@ packages:
     resolution: {integrity: sha512-tJtZBBHA6vjIAaF6EnIaq6laBBP9aq/Y3ouVJjEfoHbRBcHBAHYcMh/w8LDrk2PvIMMq8gmopa5D4V8RmbrxGw==}
     engines: {node: '>= 0.10'}
 
+  cron-parser@5.5.0:
+    resolution: {integrity: sha512-oML4lKUXxizYswqmxuOCpgFS8BNUJpIu6k/2HVHyaL8Ynnf3wdf9tkns0yRdJLSIjkJ+b0DXHMZEHGpMwjnPww==}
+    engines: {node: '>=18'}
+
   cross-spawn@7.0.6:
     resolution: {integrity: sha512-uV2QOWP2nWzsy2aMp8aRibhi9dlzF5Hgh5SHaB9OiTGEyDTiJJyx0uy51QXdyWbtAHNua4XJzUKca3OzKUd3vA==}
     engines: {node: '>= 8'}
@@ -3036,6 +3043,10 @@ packages:
     resolution: {integrity: sha512-4LjoFv2eEPwYDPg/CUdBJQSDfPyzXCRrVW1X7jrx/trgxnxkHFjnVZINbzvzxjN70dxychOfg+FTYwBiS3pQ5A==}
     peerDependencies:
       react: ^16.5.1 || ^17.0.0 || ^18.0.0 || ^19.0.0
+
+  luxon@3.7.2:
+    resolution: {integrity: sha512-vtEhXh/gNjI9Yg1u4jX/0YVPMvxzHuGgCm6tC5kZyb08yjGWGnqAjGJvcXbqQR2P3MyMEFnRbpcdFS6PBcLqew==}
+    engines: {node: '>=12'}
 
   lz-string@1.5.0:
     resolution: {integrity: sha512-h5bgJWpxJNswbU7qCrV0tIKQCaS3blPDrqKWx+QxzuzL1zGUzij9XCWLrSLsJPu5t+eWA/ycetzYAO5IOMcWAQ==}
@@ -5848,7 +5859,7 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  '@vitest/coverage-v8@4.0.18(vitest@1.6.1(@types/node@20.19.32)(@vitest/ui@4.0.18)(jsdom@27.4.0(@noble/hashes@1.8.0)(bufferutil@4.1.0)))':
+  '@vitest/coverage-v8@4.0.18(vitest@1.6.1(@types/node@20.19.32)(@vitest/ui@4.0.18(vitest@4.0.18))(jsdom@27.4.0(@noble/hashes@1.8.0)(bufferutil@4.1.0)))':
     dependencies:
       '@bcoe/v8-coverage': 1.0.2
       '@vitest/utils': 4.0.18
@@ -5860,7 +5871,7 @@ snapshots:
       obug: 2.1.1
       std-env: 3.10.0
       tinyrainbow: 3.0.3
-      vitest: 1.6.1(@types/node@20.19.32)(@vitest/ui@4.0.18)(jsdom@27.4.0(@noble/hashes@1.8.0)(bufferutil@4.1.0))
+      vitest: 1.6.1(@types/node@20.19.32)(@vitest/ui@4.0.18(vitest@4.0.18))(jsdom@27.4.0(@noble/hashes@1.8.0)(bufferutil@4.1.0))
 
   '@vitest/coverage-v8@4.0.18(vitest@4.0.18)':
     dependencies:
@@ -5874,7 +5885,7 @@ snapshots:
       obug: 2.1.1
       std-env: 3.10.0
       tinyrainbow: 3.0.3
-      vitest: 4.0.18(@opentelemetry/api@1.9.0)(@types/node@22.19.9)(@vitest/ui@4.0.18)(jiti@1.21.7)(jsdom@27.4.0(@noble/hashes@1.8.0)(bufferutil@4.1.0))(tsx@4.21.0)
+      vitest: 4.0.18(@opentelemetry/api@1.9.0)(@types/node@20.19.32)(@vitest/ui@4.0.18)(jiti@1.21.7)(jsdom@27.4.0(@noble/hashes@1.8.0)(bufferutil@4.1.0))(tsx@4.21.0)
 
   '@vitest/expect@1.6.1':
     dependencies:
@@ -5949,7 +5960,7 @@ snapshots:
       sirv: 3.0.2
       tinyglobby: 0.2.15
       tinyrainbow: 3.0.3
-      vitest: 4.0.18(@opentelemetry/api@1.9.0)(@types/node@22.19.9)(@vitest/ui@4.0.18)(jiti@1.21.7)(jsdom@27.4.0(@noble/hashes@1.8.0)(bufferutil@4.1.0))(tsx@4.21.0)
+      vitest: 4.0.18(@opentelemetry/api@1.9.0)(@types/node@20.19.32)(@vitest/ui@4.0.18)(jiti@1.21.7)(jsdom@27.4.0(@noble/hashes@1.8.0)(bufferutil@4.1.0))(tsx@4.21.0)
 
   '@vitest/utils@1.6.1':
     dependencies:
@@ -6381,6 +6392,10 @@ snapshots:
     dependencies:
       object-assign: 4.1.1
       vary: 1.1.2
+
+  cron-parser@5.5.0:
+    dependencies:
+      luxon: 3.7.2
 
   cross-spawn@7.0.6:
     dependencies:
@@ -7323,6 +7338,8 @@ snapshots:
   lucide-react@0.577.0(react@18.3.1):
     dependencies:
       react: 18.3.1
+
+  luxon@3.7.2: {}
 
   lz-string@1.5.0: {}
 
@@ -9013,7 +9030,7 @@ snapshots:
       jiti: 1.21.7
       tsx: 4.21.0
 
-  vitest@1.6.1(@types/node@20.19.32)(@vitest/ui@4.0.18)(jsdom@27.4.0(@noble/hashes@1.8.0)(bufferutil@4.1.0)):
+  vitest@1.6.1(@types/node@20.19.32)(@vitest/ui@4.0.18(vitest@4.0.18))(jsdom@27.4.0(@noble/hashes@1.8.0)(bufferutil@4.1.0)):
     dependencies:
       '@vitest/expect': 1.6.1
       '@vitest/runner': 1.6.1

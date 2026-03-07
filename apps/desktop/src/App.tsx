@@ -7,7 +7,7 @@ import { MobileSetup } from './components/MobileSetup';
 import { AgentPanel } from './components/agent/AgentPanel';
 import { AgentSidePanel } from './components/agent/AgentSidePanel';
 import { FileViewerWindow } from './components/fileviewer/FileViewerWindow';
-import { SupervisionDashboard } from './components/supervision/SupervisionDashboard';
+// import { SupervisionDashboard } from './components/supervision/SupervisionDashboard';
 import { ThemeProvider } from './contexts/ThemeContext';
 import { ConnectionProvider, useConnection } from './contexts/ConnectionContext';
 import { useDataLoader } from './hooks/useDataLoader';
@@ -28,7 +28,7 @@ function AppContent() {
   const { connectServer, embeddedServerStatus, embeddedServerError } = useConnection();
   const { addServer } = useServerManager();
   const { connectionStatus } = useServerStore();
-  const { selectedSessionId, selectedProjectId } = useProjectStore();
+  const { selectedSessionId } = useProjectStore();
   const { directGatewayUrl, lastActiveBackendId, isConnected: isGatewayConnected, discoveredBackends } = useGatewayStore();
   const { isExpanded: isAgentExpanded, hasUnread: hasAgentUnread, setExpanded: setAgentExpanded } = useAgentStore();
   const isAgentConfigured = isClientAIConfigured();
@@ -291,9 +291,7 @@ function AppContent() {
             )}
 
             {/* Supervision Dashboard / Chat / Welcome */}
-            {supervisionView && selectedProjectId ? (
-              <SupervisionDashboard projectId={selectedProjectId} />
-            ) : selectedSessionId ? (
+            {selectedSessionId ? (
               <ChatInterface sessionId={selectedSessionId} />
             ) : (
               <div className="flex items-center justify-center h-full text-muted-foreground">
