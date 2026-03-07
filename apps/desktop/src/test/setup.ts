@@ -81,3 +81,73 @@ Object.defineProperty(window, 'matchMedia', {
     dispatchEvent: vi.fn(),
   })),
 });
+
+// Mock IndexedDB for agentStorage tests
+class MockIDBDatabase {
+  name: string;
+  version: number;
+  objectStoreNames = { contains: vi.fn().mockReturnValue(false), length: 0 } as unknown as DOMStringList;
+
+  constructor(name: string) {
+    this.name = name;
+    this.version = 1;
+  }
+
+  createObjectStore = vi.fn(() => ({
+    createIndex: vi.fn(),
+  }));
+  transaction = vi.fn(() => ({
+    objectStore: vi.fn(() => ({
+      get: vi.fn(),
+      put: vi.fn(),
+      delete: vi.fn(),
+      getAll: vi.fn(),
+      clear: vi.fn(),
+    })),
+    oncomplete: null,
+    onerror: null,
+    commit: vi.fn(),
+    abort: vi.fn(),
+  }));
+  close = vi.fn();
+}
+
+class MockIDBRequest<T = unknown> {
+  result: T | null = null;
+  error: DOMException | null = null;
+  source: unknown = null;
+  transaction: IDBTransaction | null = null;
+  readyState: IDBRequestReadyState = 'pending';
+  onsuccess: ((this: IDBRequest, ev: Event) => void) | null = null;
+  onerror: ((this: IDBRequest, ev: Event) => void) | null = null;
+}
+
+class MockIDBOpenDBRequest extends MockIDBRequest<IDBDatabase> {
+  onupgradeneeded: ((this: IDBOpenDBRequest, ev: IDBVersionChangeEvent) => void) | null = null;
+  onblocked: ((this: IDBOpenDBRequest, ev: Event) => void) | null = null;
+}
+
+const mockIndexedDB = {
+  open: vi.fn((name: string, version?: number) => {
+    const request = new MockIDBOpenDBRequest();
+    setTimeout(() => {
+      request.result = new MockIDBDatabase(name) as unknown as IDBDatabase;
+      request.onsuccess?.call(request as unknown as IDBOpenDBRequest, new Event('success'));
+    }, 0);
+    return request as unknown as IDBOpenDBRequest;
+  }),
+  deleteDatabase: vi.fn(),
+  cmp: vi.fn((a: unknown, b: unknown) => (a === b ? 0 : a < b ? -1 : 1)),
+};
+
+vi.stubGlobal('indexedDB', mockIndexedDB);
+
+// Mock fetch for API tests
+const mockFetch = vi.fn();
+vi.stubGlobal('fetch', mockFetch);
+
+// Helper to reset mocks between tests
+vi.stubGlobal('__resetDesktopMocks__', () => {
+  mockFetch.mockReset();
+  mockIndexedDB.open.mockClear();
+});
