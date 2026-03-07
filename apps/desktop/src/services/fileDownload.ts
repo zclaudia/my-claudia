@@ -11,6 +11,11 @@ export function isAndroid(): boolean {
   return isTauri() && navigator.userAgent.includes('Android');
 }
 
+function isLikelyOpenablePath(path: string): boolean {
+  if (!path || typeof path !== 'string') return false;
+  return path.startsWith('content://') || path.startsWith('/') || path.startsWith('file://');
+}
+
 /**
  * Save a blob to the Downloads folder using Tauri fs plugin.
  * Returns the absolute path of the saved file.
@@ -124,8 +129,10 @@ async function saveOrDownload(blob: Blob, fileName: string, fileId: string): Pro
         const mimeType = item?.mimeType || 'application/octet-stream';
         try {
           const sharedPath = (window as any).AndroidFiles.saveToDownloads(savedPath, fileName, mimeType);
-          if (typeof sharedPath === 'string' && sharedPath.length > 0) {
+          if (typeof sharedPath === 'string' && isLikelyOpenablePath(sharedPath)) {
             useFilePushStore.getState().updateSavedPath(fileId, sharedPath);
+          } else if (typeof sharedPath === 'string' && sharedPath.length > 0) {
+            console.warn(`[fileDownload] Ignoring non-openable shared path: ${sharedPath}`);
           }
           console.log(`[fileDownload] Copied to shared Downloads: ${fileName}`);
         } catch (e) {
@@ -168,9 +175,20 @@ export async function openFile(filePath: string): Promise<void> {
  */
 export function openFileAndroid(filePath: string, mimeType: string): void {
   try {
-    (window as any).AndroidFiles?.openFile(filePath, mimeType || 'application/octet-stream');
+    const bridge = (window as any).AndroidFiles;
+    if (!bridge?.openFile) {
+      console.warn('[fileDownload] Android bridge not available, fallback to shell.open');
+      void openFile(filePath);
+      return;
+    }
+
+    const safeMime = mimeType?.trim() || 'application/octet-stream';
+    bridge.openFile(filePath, safeMime);
   } catch (error) {
     console.error('[fileDownload] Android file open failed:', error);
+    void openFile(filePath).catch((fallbackError) => {
+      console.error('[fileDownload] Shell open fallback failed:', fallbackError);
+    });
   }
 }
 

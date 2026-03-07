@@ -16,6 +16,11 @@ export class ChatPage {
   readonly userMessages: Locator;
   readonly assistantMessages: Locator;
 
+  // Tool call elements
+  readonly toolCallItem: Locator;
+  readonly toolResult: Locator;
+  readonly toolName: Locator;
+
   // File operations
   readonly fileUploadInput: Locator;
   readonly fileReferenceTrigger: Locator;
@@ -23,14 +28,19 @@ export class ChatPage {
   constructor(page: Page) {
     this.page = page;
 
-    // Input elements
-    this.messageInput = page.locator('textarea[placeholder*="Message"]').first();
-    this.sendButton = page.locator('button[type="submit"]').first();
+    // Input elements - using actual data-testid from UI
+    this.messageInput = page.locator('[data-testid="message-input"]').first();
+    this.sendButton = page.locator('[data-testid="send-button"]').first();
 
-    // Display elements
+    // Display elements - using actual data-role from MessageList.tsx
     this.messageList = page.locator('[data-testid="message-list"]').first();
-    this.userMessages = page.locator('.user-message');
-    this.assistantMessages = page.locator('.assistant-message');
+    this.userMessages = page.locator('[data-role="user"]');
+    this.assistantMessages = page.locator('[data-role="assistant"]');
+
+    // Tool call elements - from ToolCallItem.tsx
+    this.toolCallItem = page.locator('[data-testid="tool-use"]');
+    this.toolResult = page.locator('[data-testid="tool-result"]');
+    this.toolName = page.locator('[data-testid="tool-name"]');
 
     // File operations
     this.fileUploadInput = page.locator('input[type="file"]').first();
@@ -59,7 +69,7 @@ export class ChatPage {
    * Get the last message content
    */
   async getLastMessage(): Promise<string> {
-    const lastMessage = this.messageList.locator('.message').last();
+    const lastMessage = this.messageList.locator('[data-role="assistant"], [data-role="user"]').last();
     return await lastMessage.textContent() || '';
   }
 
@@ -128,7 +138,7 @@ export class ChatPage {
    * Get message count
    */
   async getMessageCount(): Promise<number> {
-    const messages = await this.page.locator('.message').count();
+    const messages = await this.page.locator('[data-role="user"], [data-role="assistant"]').count();
     return messages;
   }
 
@@ -144,5 +154,27 @@ export class ChatPage {
    */
   async isSendButtonEnabled(): Promise<boolean> {
     return await this.sendButton.isEnabled();
+  }
+
+  /**
+   * Check if tool calls are visible
+   */
+  async hasToolCalls(): Promise<boolean> {
+    return await this.toolCallItem.first().isVisible();
+  }
+
+  /**
+   * Get tool call count
+   */
+  async getToolCallCount(): Promise<number> {
+    return await this.toolCallItem.count();
+  }
+
+  /**
+   * Get last tool name
+   */
+  async getLastToolName(): Promise<string> {
+    const lastToolName = this.toolName.last();
+    return await lastToolName.textContent() || '';
   }
 }

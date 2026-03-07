@@ -28,6 +28,7 @@ function createTestDb(): Database.Database {
       type TEXT DEFAULT 'regular',
       parent_session_id TEXT,
       archived_at INTEGER,
+      working_directory TEXT,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL,
       FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE

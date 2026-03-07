@@ -153,10 +153,21 @@ describe('OpenCode Import API Integration Tests', () => {
     // Create in-memory app database
     db = new Database(':memory:');
     db.exec(`
+      CREATE TABLE IF NOT EXISTS providers (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        type TEXT NOT NULL DEFAULT 'claude',
+        cli_path TEXT,
+        env TEXT,
+        is_default INTEGER DEFAULT 0,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+
       CREATE TABLE IF NOT EXISTS projects (
         id TEXT PRIMARY KEY,
         name TEXT NOT NULL,
-        path TEXT,
+        root_path TEXT,
         created_at INTEGER NOT NULL,
         updated_at INTEGER NOT NULL
       );
@@ -164,7 +175,8 @@ describe('OpenCode Import API Integration Tests', () => {
       CREATE TABLE IF NOT EXISTS sessions (
         id TEXT PRIMARY KEY,
         project_id TEXT NOT NULL,
-        name TEXT NOT NULL,
+        name TEXT,
+        provider_id TEXT,
         created_at INTEGER NOT NULL,
         updated_at INTEGER NOT NULL,
         FOREIGN KEY (project_id) REFERENCES projects(id)
@@ -186,7 +198,7 @@ describe('OpenCode Import API Integration Tests', () => {
 
     // Insert test project
     db.prepare(`
-      INSERT INTO projects (id, name, path, created_at, updated_at)
+      INSERT INTO projects (id, name, root_path, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?)
     `).run('test-project', 'Test Project', '/test/path', Date.now(), Date.now());
 

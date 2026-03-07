@@ -12,6 +12,8 @@ import { openCodeServerManager } from './providers/opencode-sdk.js';
 import { checkVersionCompatibility } from './providers/claude-sdk.js';
 import { checkSdkVersions } from './utils/sdk-version-check.js';
 import { detectCliProvidersSync } from './utils/cli-detect.js';
+import { pluginLoader } from './plugins/loader.js';
+import { registerBuiltinCommands } from './commands/init.js';
 
 const PORT = parseInt(process.env.PORT || '3100', 10);
 // Listen on 0.0.0.0 to allow connections from other devices on the network
@@ -315,6 +317,29 @@ async function main() {
     }).catch(() => {});
 
     autoDetectProviders();
+
+    // Initialize plugin system
+    console.log('\n🔌 Initializing plugin system...');
+    registerBuiltinCommands();
+    // Pass database to plugin loader for Provider API support
+    pluginLoader.setDatabase(serverContext.db);
+    const discoveredPlugins = await pluginLoader.discover();
+    if (discoveredPlugins.length > 0) {
+      console.log(`   Found ${discoveredPlugins.length} plugin(s)`);
+      // Auto-activate plugins that have onStartup activation event
+      for (const manifest of discoveredPlugins) {
+        const activationEvents = manifest.activationEvents || [];
+        if (activationEvents.includes('onStartup')) {
+          try {
+            await pluginLoader.activate(manifest.id);
+          } catch (error) {
+            console.error(`   Failed to activate ${manifest.id}:`, error);
+          }
+        }
+      }
+    } else {
+      console.log('   No plugins found');
+    }
 
     server.listen(PORT, HOST, async () => {
       actualPort = (server.address() as import('net').AddressInfo).port;

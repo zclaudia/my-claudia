@@ -251,9 +251,16 @@ export const MessageList = memo(function MessageList({
       };
     }
 
+    let totalHeight = 0;
+    for (let i = 0; i < filteredMessages.length; i++) {
+      totalHeight += getHeight(i);
+    }
+    const maxScrollTop = Math.max(0, totalHeight - viewportHeight);
+    const safeScrollTop = Math.min(Math.max(0, scrollTop), maxScrollTop);
+
     let start = 0;
     let y = 0;
-    const startOffset = Math.max(0, scrollTop - VIRTUAL_OVERSCAN_PX);
+    const startOffset = Math.max(0, safeScrollTop - VIRTUAL_OVERSCAN_PX);
     while (start < filteredMessages.length && y + getHeight(start) < startOffset) {
       y += getHeight(start);
       start++;
@@ -261,15 +268,10 @@ export const MessageList = memo(function MessageList({
 
     let end = start;
     let renderedBottom = y;
-    const endOffset = scrollTop + viewportHeight + VIRTUAL_OVERSCAN_PX;
+    const endOffset = safeScrollTop + viewportHeight + VIRTUAL_OVERSCAN_PX;
     while (end < filteredMessages.length && renderedBottom < endOffset) {
       renderedBottom += getHeight(end);
       end++;
-    }
-
-    let totalHeight = 0;
-    for (let i = 0; i < filteredMessages.length; i++) {
-      totalHeight += getHeight(i);
     }
 
     return {
@@ -286,14 +288,14 @@ export const MessageList = memo(function MessageList({
 
   if (!shouldVirtualize) {
     return (
-      <div className="space-y-5">
+      <div data-testid="message-list" className="space-y-5">
         {filteredMessages.map((message, index) => renderMessage(message, index))}
       </div>
     );
   }
 
   return (
-    <div>
+    <div data-testid="message-list">
       {virtualWindow.topPadding > 0 && (
         <div style={{ height: virtualWindow.topPadding }} />
       )}
@@ -683,7 +685,7 @@ const MessageItem = memo(function MessageItem({ message, streamingContentBlocks,
               </div>
             )}
             {/* Display text */}
-            <p className="whitespace-pre-wrap leading-relaxed"><TextWithFileRefs text={textContent} /></p>
+            <p className="whitespace-pre-wrap leading-relaxed"><TextWithFileRefs text={textContent} variant="user" /></p>
           </div>
         ) : (
           <AssistantContent content={mainContent} />

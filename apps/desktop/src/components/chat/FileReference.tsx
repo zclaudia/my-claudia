@@ -15,7 +15,13 @@ const FILE_REF_REGEX = /(^|[\s(])(@[a-zA-Z0-9_\-./]+\.[a-zA-Z0-9]+)/g;
  * Parse text content and render @file references as clickable links.
  * Non-matching text is rendered as-is.
  */
-export function TextWithFileRefs({ text }: { text: string }) {
+export function TextWithFileRefs({
+  text,
+  variant = 'default'
+}: {
+  text: string;
+  variant?: 'default' | 'user';
+}) {
   const openFile = useFileViewerStore((s) => s.openFile);
   const projects = useProjectStore((s) => s.projects);
 
@@ -27,6 +33,10 @@ export function TextWithFileRefs({ text }: { text: string }) {
       useTerminalStore.getState().setBottomPanelTab('file');
     }
   };
+
+  const refClassName = variant === 'user'
+    ? 'font-mono inline rounded px-1 py-0.5 border border-primary-foreground/40 bg-primary-foreground/20 text-primary-foreground hover:bg-primary-foreground/30 hover:underline cursor-pointer'
+    : 'text-primary hover:underline cursor-pointer font-mono inline';
 
   const parts: (string | JSX.Element)[] = [];
   let lastIndex = 0;
@@ -56,7 +66,7 @@ export function TextWithFileRefs({ text }: { text: string }) {
       <button
         key={`${fullMatchStart}-${filePath}`}
         onClick={() => handleClick(filePath)}
-        className="text-primary hover:underline cursor-pointer font-mono inline"
+        className={refClassName}
         title={`View ${filePath}`}
       >
         {ref}

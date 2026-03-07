@@ -44,7 +44,7 @@ function getDisplayLabel(worktreePath: string, projectRootPath: string, worktree
   const wt = worktrees.find(w => w.path === worktreePath);
   if (wt) return wt.branch;
   try {
-    const rel = pathRelative(pathDirname(projectRootPath), worktreePath);
+    const rel = pathRelative(projectRootPath, worktreePath);
     return rel || pathBasename(worktreePath);
   } catch {
     return pathBasename(worktreePath);
@@ -151,14 +151,14 @@ export function WorktreeSelector({
         title={currentWorktree || projectRootPath}
       >
         <BranchIcon />
-        <span className="hidden md:inline truncate max-w-[80px] lg:max-w-none">{triggerLabel}</span>
+        <span className="truncate max-w-[84px] sm:max-w-[120px]">{triggerLabel}</span>
         <svg className="w-3 h-3 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
         </svg>
       </button>
 
       {isOpen && (
-        <div className="absolute bottom-full left-0 mb-1 z-50 bg-popover border border-border rounded-lg shadow-lg py-1 min-w-[220px] max-h-[320px] overflow-y-auto">
+        <div className="absolute bottom-full left-0 mb-1 z-50 bg-popover border border-border rounded-lg shadow-lg py-1 w-[min(92vw,320px)] max-h-[320px] overflow-y-auto">
           <div className="px-3 py-1.5 text-[10px] text-muted-foreground font-semibold uppercase tracking-wider border-b border-border">
             Worktree
           </div>
@@ -174,7 +174,7 @@ export function WorktreeSelector({
             ].join(' ')}
           >
             <div className="text-[13px]">Root (default)</div>
-            <div className="text-[10px] text-muted-foreground mt-0.5 truncate">{projectRootPath}</div>
+            <div className="text-[10px] text-muted-foreground mt-0.5 break-all whitespace-normal">{projectRootPath}</div>
           </button>
 
           <div className="my-1 border-t border-border" />
@@ -190,7 +190,7 @@ export function WorktreeSelector({
           {!loading && worktrees.filter(wt => !wt.isMain).map(wt => {
             const isSelected = currentWorktree === wt.path;
             let relPath = wt.path;
-            try { relPath = pathRelative(pathDirname(projectRootPath), wt.path); } catch { /* ignore */ }
+            try { relPath = pathRelative(projectRootPath, wt.path); } catch { /* ignore */ }
             return (
               <button
                 key={wt.path}
@@ -203,7 +203,7 @@ export function WorktreeSelector({
                 ].join(' ')}
               >
                 <div className="text-[13px]">{wt.branch}</div>
-                <div className="text-[10px] text-muted-foreground mt-0.5 truncate">{relPath}</div>
+                <div className="text-[10px] text-muted-foreground mt-0.5 break-all whitespace-normal">{relPath}</div>
               </button>
             );
           })}

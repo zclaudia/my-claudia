@@ -53,6 +53,28 @@ export interface GitWorktree {
 }
 export type SlashCommandScope = 'global' | 'project';
 
+// ============================================
+// Tool Definition Types
+// ============================================
+
+export interface ToolDefinition {
+  type: 'function';
+  function: {
+    name: string;
+    description: string;
+    parameters: Record<string, unknown>;
+  };
+}
+
+export interface AIToolCall {
+  id: string;
+  type: 'function';
+  function: {
+    name: string;
+    arguments: string;
+  };
+}
+
 export interface SlashCommand {
   command: string;        // e.g., '/cost', '/clear', '/project:my-command', '/commit-commands:commit'
   description: string;    // Displayed in autocomplete
@@ -1526,3 +1548,9 @@ export const DEFAULT_NOTIFICATION_CONFIG: NotificationConfig = {
     backgroundPermission: true,
   },
 };
+
+// ============================================
+// Plugin Platform Types
+// ============================================
+
+export * from './plugin-types.js';

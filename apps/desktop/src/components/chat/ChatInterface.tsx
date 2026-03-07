@@ -170,6 +170,7 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
     setUploadError(null);
     setLoadError(null);
     setQueuedMessage(null);
+    setScrollMetrics({ scrollTop: 0, viewportHeight: 0 });
     setInitialDraft(useChatStore.getState().drafts[sessionId]);
   }, [sessionId]);
 
@@ -177,13 +178,13 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
   const queuedMessageRef = useRef(queuedMessage);
   queuedMessageRef.current = queuedMessage;
   useEffect(() => {
-    if (!isLoading && queuedMessageRef.current) {
+    if (!isLoading && isConnected && queuedMessageRef.current) {
       const { content, attachments } = queuedMessageRef.current;
       setQueuedMessage(null);
       // Use setTimeout to avoid calling handleSendMessage during render
       setTimeout(() => handleSendMessage(content, attachments), 0);
     }
-  }, [isLoading]);
+  }, [isLoading, isConnected]);
 
   // Fetch supervision state for this session on mount / session change
   useEffect(() => {
@@ -535,7 +536,13 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
   }, [sessionToolCalls, initialLoadDone, scrollToBottom]);
 
   const handleSendMessage = async (content: string, attachments?: Attachment[]) => {
-    if ((!content.trim() && !attachments?.length) || !isConnected) return;
+    if (!content.trim() && !attachments?.length) return;
+
+    // Cold-start / reconnect: queue first message and auto-send once connected.
+    if (!isConnected) {
+      setQueuedMessage({ content, attachments });
+      return;
+    }
 
     // If a run is active, queue the message for auto-send after the run finishes
     if (isLoading) {
@@ -1025,7 +1032,7 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
       {/* Messages */}
       <div
         ref={messagesContainerRef}
-        className="flex-1 overflow-y-auto overflow-x-hidden p-2 md:p-4 relative min-h-0"
+        className="flex-1 overflow-y-auto overflow-x-hidden pl-2 pr-3 py-2 md:p-4 relative min-h-0"
         onScroll={handleScroll}
       >
         {/* Load more indicator */}

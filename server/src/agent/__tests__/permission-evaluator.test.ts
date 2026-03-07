@@ -502,7 +502,7 @@ describe('normalizePolicy', () => {
 
     const result = normalizePolicy(policy);
     expect(result.customRules).toEqual([]);
-    expect(result.escalateAlways).toEqual(['AskUserQuestion']);
+    expect(result.escalateAlways).toEqual(['AskUserQuestion', 'ExitPlanMode']);
   });
 
   it('should not mutate original', () => {

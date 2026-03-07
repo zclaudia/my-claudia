@@ -178,6 +178,9 @@ importers:
       '@types/ws':
         specifier: ^8.5.0
         version: 8.18.1
+      '@vitest/coverage-v8':
+        specifier: ^4.0.18
+        version: 4.0.18(vitest@1.6.1(@types/node@20.19.32)(@vitest/ui@4.0.18)(jsdom@27.4.0(@noble/hashes@1.8.0)(bufferutil@4.1.0)))
       tsx:
         specifier: ^4.7.0
         version: 4.21.0
@@ -186,7 +189,7 @@ importers:
         version: 5.9.3
       vitest:
         specifier: ^1.0.0
-        version: 1.6.1(@types/node@20.19.32)(@vitest/ui@4.0.18(vitest@4.0.18))(jsdom@27.4.0(@noble/hashes@1.8.0)(bufferutil@4.1.0))
+        version: 1.6.1(@types/node@20.19.32)(@vitest/ui@4.0.18)(jsdom@27.4.0(@noble/hashes@1.8.0)(bufferutil@4.1.0))
 
   server:
     dependencies:
@@ -260,6 +263,9 @@ importers:
       '@types/ws':
         specifier: ^8.5.0
         version: 8.18.1
+      '@vitest/coverage-v8':
+        specifier: ^4.0.18
+        version: 4.0.18(vitest@4.0.18)
       '@vitest/ui':
         specifier: ^4.0.18
         version: 4.0.18(vitest@4.0.18)
@@ -5778,6 +5784,20 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
+  '@vitest/coverage-v8@4.0.18(vitest@1.6.1(@types/node@20.19.32)(@vitest/ui@4.0.18)(jsdom@27.4.0(@noble/hashes@1.8.0)(bufferutil@4.1.0)))':
+    dependencies:
+      '@bcoe/v8-coverage': 1.0.2
+      '@vitest/utils': 4.0.18
+      ast-v8-to-istanbul: 0.3.11
+      istanbul-lib-coverage: 3.2.2
+      istanbul-lib-report: 3.0.1
+      istanbul-reports: 3.2.0
+      magicast: 0.5.2
+      obug: 2.1.1
+      std-env: 3.10.0
+      tinyrainbow: 3.0.3
+      vitest: 1.6.1(@types/node@20.19.32)(@vitest/ui@4.0.18)(jsdom@27.4.0(@noble/hashes@1.8.0)(bufferutil@4.1.0))
+
   '@vitest/coverage-v8@4.0.18(vitest@4.0.18)':
     dependencies:
       '@bcoe/v8-coverage': 1.0.2
@@ -5806,14 +5826,6 @@ snapshots:
       '@vitest/utils': 4.0.18
       chai: 6.2.2
       tinyrainbow: 3.0.3
-
-  '@vitest/mocker@4.0.18(vite@7.3.1(@types/node@20.19.32)(jiti@1.21.7)(tsx@4.21.0))':
-    dependencies:
-      '@vitest/spy': 4.0.18
-      estree-walker: 3.0.3
-      magic-string: 0.30.21
-    optionalDependencies:
-      vite: 7.3.1(@types/node@20.19.32)(jiti@1.21.7)(tsx@4.21.0)
 
   '@vitest/mocker@4.0.18(vite@7.3.1(@types/node@22.19.9)(jiti@1.21.7)(tsx@4.21.0))':
     dependencies:
@@ -8887,7 +8899,7 @@ snapshots:
       jiti: 1.21.7
       tsx: 4.21.0
 
-  vitest@1.6.1(@types/node@20.19.32)(@vitest/ui@4.0.18(vitest@4.0.18))(jsdom@27.4.0(@noble/hashes@1.8.0)(bufferutil@4.1.0)):
+  vitest@1.6.1(@types/node@20.19.32)(@vitest/ui@4.0.18)(jsdom@27.4.0(@noble/hashes@1.8.0)(bufferutil@4.1.0)):
     dependencies:
       '@vitest/expect': 1.6.1
       '@vitest/runner': 1.6.1
@@ -8926,7 +8938,7 @@ snapshots:
   vitest@4.0.18(@opentelemetry/api@1.9.0)(@types/node@20.19.32)(@vitest/ui@4.0.18)(jiti@1.21.7)(jsdom@27.4.0(@noble/hashes@1.8.0)(bufferutil@4.1.0))(tsx@4.21.0):
     dependencies:
       '@vitest/expect': 4.0.18
-      '@vitest/mocker': 4.0.18(vite@7.3.1(@types/node@20.19.32)(jiti@1.21.7)(tsx@4.21.0))
+      '@vitest/mocker': 4.0.18(vite@7.3.1(@types/node@22.19.9)(jiti@1.21.7)(tsx@4.21.0))
       '@vitest/pretty-format': 4.0.18
       '@vitest/runner': 4.0.18
       '@vitest/snapshot': 4.0.18

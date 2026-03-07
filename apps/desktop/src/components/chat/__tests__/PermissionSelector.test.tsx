@@ -39,7 +39,9 @@ describe('PermissionSelector', () => {
       />
     );
 
-    expect(screen.getByText(/Project Default/)).toBeInTheDocument();
+    // When no override, trigger button shows the project policy's trust level label
+    const button = screen.getByRole('button');
+    expect(button).toHaveAttribute('title', 'Moderate');
   });
 
   it('should display current override when set', () => {
@@ -64,8 +66,8 @@ describe('PermissionSelector', () => {
     );
 
     const button = container.querySelector('button');
-    expect(button).toHaveClass('ring-2');
-    expect(button).toHaveClass('ring-primary/30');
+    // When override is active, button shows text-primary styling (not ring)
+    expect(button).toHaveClass('text-primary');
   });
 
   it('should NOT show ring when using project default', () => {
@@ -93,10 +95,11 @@ describe('PermissionSelector', () => {
     fireEvent.click(screen.getByRole('button'));
 
     expect(screen.getByText('Session Permission Override')).toBeInTheDocument();
-    expect(screen.getByText(/Conservative/)).toBeInTheDocument();
-    expect(screen.getByText(/Moderate/)).toBeInTheDocument();
-    expect(screen.getByText(/Aggressive/)).toBeInTheDocument();
-    expect(screen.getByText(/Full Trust/)).toBeInTheDocument();
+    expect(screen.getAllByText(/Conservative/).length).toBeGreaterThanOrEqual(1);
+    // "Moderate" appears both in trigger button and dropdown option
+    expect(screen.getAllByText(/Moderate/).length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText(/Aggressive/).length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText(/Full Trust/).length).toBeGreaterThanOrEqual(1);
   });
 
   it('should close dropdown when clicking outside', () => {
@@ -198,8 +201,13 @@ describe('PermissionSelector', () => {
 
     fireEvent.click(screen.getByRole('button'));
 
-    const aggressiveOption = screen.getByText(/Aggressive/).closest('button');
-    expect(aggressiveOption).toHaveClass('bg-primary/10');
+    // "Aggressive" appears in both the trigger and the dropdown; find the dropdown option
+    const aggressiveElements = screen.getAllByText(/Aggressive/);
+    // The dropdown option button should have bg-primary/10 class
+    const aggressiveOption = aggressiveElements
+      .map(el => el.closest('button'))
+      .find(btn => btn?.classList.contains('bg-primary/10'));
+    expect(aggressiveOption).toBeTruthy();
   });
 
   it('should highlight project default when no override', () => {
@@ -260,8 +268,9 @@ describe('PermissionSelector', () => {
     fireEvent.click(screen.getByRole('button'));
 
     for (const level of trustLevels) {
-      const option = screen.getByText(new RegExp(level.replace('_', ' '), 'i'));
-      fireEvent.click(option);
+      // Multiple elements may match (trigger + dropdown option), get all and click the last one (dropdown option)
+      const options = screen.getAllByText(new RegExp(level.replace('_', ' '), 'i'));
+      fireEvent.click(options[options.length - 1]);
 
       expect(handleChange).toHaveBeenCalledWith(
         expect.objectContaining({

@@ -9,6 +9,8 @@ interface UseSwipeBackOptions {
   direction?: 'right' | 'left';
   /** Width of the edge zone that accepts touch start (px). Default: 30 */
   edgeWidth?: number;
+  /** Width of the edge zone as a ratio of container width (0-1). Overrides edgeWidth when set. */
+  edgeWidthRatio?: number;
   /** Minimum horizontal distance to trigger (px). Default: 80 */
   threshold?: number;
   /** Minimum velocity to trigger (px/ms). Default: 0.3 */
@@ -30,6 +32,7 @@ export function useSwipeBack(options: UseSwipeBackOptions) {
     enabled = true,
     direction = 'right',
     edgeWidth = 30,
+    edgeWidthRatio,
     threshold = 80,
     velocityThreshold = 0.3,
     fullWidth = false,
@@ -46,14 +49,18 @@ export function useSwipeBack(options: UseSwipeBackOptions) {
     const touch = e.touches[0];
     const x = touch.clientX;
     const containerWidth = containerRef.current?.clientWidth ?? window.innerWidth;
+    const clampedRatio = Math.min(Math.max(edgeWidthRatio ?? 0, 0), 1);
+    const computedEdgeWidth = edgeWidthRatio != null
+      ? Math.max(1, Math.floor(containerWidth * clampedRatio))
+      : edgeWidth;
 
     let inEdge = false;
     if (fullWidth) {
       inEdge = true;
     } else if (direction === 'right') {
-      inEdge = x <= edgeWidth;
+      inEdge = x <= computedEdgeWidth;
     } else {
-      inEdge = x >= containerWidth - edgeWidth;
+      inEdge = x >= containerWidth - computedEdgeWidth;
     }
 
     if (!inEdge) return;
@@ -64,7 +71,7 @@ export function useSwipeBack(options: UseSwipeBackOptions) {
       startTime: Date.now(),
       tracking: true,
     };
-  }, [enabled, direction, edgeWidth, fullWidth]);
+  }, [enabled, direction, edgeWidth, edgeWidthRatio, fullWidth]);
 
   const handleTouchMove = useCallback((e: TouchEvent) => {
     if (!stateRef.current.tracking) return;

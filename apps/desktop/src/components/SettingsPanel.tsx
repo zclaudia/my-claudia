@@ -11,6 +11,7 @@ import { ThemeToggle } from './ThemeToggle';
 import { ServerGatewayConfig } from './ServerGatewayConfig';
 import { ImportDialog } from './ImportDialog';
 import { ImportOpenCodeDialog } from './ImportOpenCodeDialog';
+import { PluginSettings } from './PluginSettings';
 import * as api from '../services/api';
 import { exportLogs, getLogCount, clearLogs } from '../services/logger';
 import { getClientAIConfig, setClientAIConfig, testClientAIConnection, fetchAvailableModels, type ClientAIConfig } from '../services/clientAI';
@@ -30,7 +31,7 @@ const TRUST_LEVELS: Array<{ id: AgentPermissionPolicy['trustLevel']; label: stri
   { id: 'full_trust', label: 'Full Trust', description: 'Auto-approve everything except dangerous bash' },
 ];
 
-type SettingsTab = 'general' | 'client-ai' | 'connections' | 'providers' | 'notifications' | 'gateway' | 'import';
+type SettingsTab = 'general' | 'client-ai' | 'connections' | 'providers' | 'notifications' | 'gateway' | 'import' | 'plugins';
 
 interface SettingsPanelProps {
   isOpen: boolean;
@@ -179,6 +180,15 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
       icon: (
         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+        </svg>
+      )
+    },
+    {
+      id: 'plugins' as SettingsTab,
+      label: 'Plugins',
+      icon: (
+        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
         </svg>
       )
     },
@@ -821,6 +831,16 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
                 <div className="text-xs text-muted-foreground p-3 bg-secondary/50 rounded-lg">
                   <strong>Note:</strong> Import functionality is only available when connected to a local server.
                 </div>
+              </div>
+            )}
+
+            {activeTab === 'plugins' && (
+              <div className="space-y-4">
+                <h3 className="text-lg font-semibold">Plugins</h3>
+                <p className="text-sm text-muted-foreground">
+                  Manage installed plugins and their settings. Plugins extend the functionality of Claudia.
+                </p>
+                <PluginSettings />
               </div>
             )}
           </div>

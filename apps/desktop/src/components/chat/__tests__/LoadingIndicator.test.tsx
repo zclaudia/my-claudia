@@ -48,8 +48,8 @@ describe('LoadingIndicator Time Display', () => {
       />
     );
 
-    // Initial render shows 5s (no need to advance timers)
-    expect(screen.getByText(/5s/)).toBeInTheDocument();
+    // Initial render shows 5s — both total and idle may match, use getAllByText
+    expect(screen.getAllByText(/5s/).length).toBeGreaterThanOrEqual(1);
   });
 
   it('should display idle time when > 3 seconds', () => {
@@ -97,8 +97,8 @@ describe('LoadingIndicator Time Display', () => {
       />
     );
 
-    // Initial render shows 1m 5s (no need to advance timers)
-    expect(screen.getByText(/1m 5s/)).toBeInTheDocument();
+    // Initial render shows 1m 5s — both total and idle may match, use getAllByText
+    expect(screen.getAllByText(/1m 5s/).length).toBeGreaterThanOrEqual(1);
   });
 
   it('should format idle minutes and seconds correctly', () => {

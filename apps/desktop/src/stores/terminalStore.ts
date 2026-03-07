@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 
-export type BottomPanelTab = 'terminal' | 'file';
+export type BottomPanelTab = 'terminal' | 'file' | string; // string for plugin panel IDs like 'plugin:panel-id'
 
 interface TerminalState {
   // Active terminal per project (projectId → terminalId)

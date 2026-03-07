@@ -10,10 +10,14 @@ vi.mock('fs', () => ({
   readFileSync: vi.fn(),
 }));
 
-// Mock os module for homedir
-vi.mock('os', () => ({
-  homedir: vi.fn(() => '/home/testuser'),
-}));
+// Mock os module for homedir (preserve all other exports)
+vi.mock('os', async (importOriginal) => {
+  const actual = await importOriginal() as typeof import('os');
+  return {
+    ...actual,
+    homedir: vi.fn(() => '/home/testuser'),
+  };
+});
 
 import * as fs from 'fs';
 

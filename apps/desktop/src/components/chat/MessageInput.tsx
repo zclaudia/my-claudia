@@ -208,14 +208,15 @@ export function MessageInput({
     if (!textarea) return;
 
     if (!advancedMode) {
+      const minHeight = isMobile ? 72 : 48;
       // Force clear any inline height (e.g. from browser resize handle) before measuring
       textarea.style.height = '';
-      textarea.style.minHeight = '';
+      textarea.style.minHeight = `${minHeight}px`;
       textarea.style.maxHeight = '';
       // Force layout recalculation after clearing
       void textarea.offsetHeight;
       textarea.style.height = 'auto';
-      const newHeight = Math.min(textarea.scrollHeight, 200);
+      const newHeight = Math.min(Math.max(textarea.scrollHeight, minHeight), 200);
       textarea.style.height = `${newHeight}px`;
       // Only show scrollbar when reaching max height
       textarea.style.overflowY = newHeight >= 200 ? 'auto' : 'hidden';
@@ -224,7 +225,7 @@ export function MessageInput({
       textarea.style.height = '';
       textarea.style.overflowY = 'auto';
     }
-  }, [value, advancedMode]);
+  }, [value, advancedMode, isMobile]);
 
   // Show/hide command suggestions
   useEffect(() => {
@@ -726,6 +727,7 @@ export function MessageInput({
         {/* Text input */}
         <div className="flex-1 relative">
           <textarea
+            data-testid="message-input"
             ref={textareaRef}
             value={value}
             onChange={handleChange}
@@ -756,7 +758,11 @@ export function MessageInput({
             autoComplete="off"
             rows={1}
             className={`w-full bg-input border border-border rounded-xl px-4 py-3 text-foreground placeholder-muted-foreground focus:outline-none focus:border-primary/50 focus:shadow-apple-md disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-200 ${
-              advancedMode ? 'resize-y min-h-[160px] max-h-[40vh] overflow-auto' : 'min-h-12 resize-none overflow-hidden'
+              advancedMode
+                ? 'resize-y min-h-[160px] max-h-[40vh] overflow-auto'
+                : isMobile
+                  ? 'min-h-[72px] resize-none overflow-hidden'
+                  : 'min-h-12 resize-none overflow-hidden'
             }`}
             style={{
               fontSize: 'var(--chat-font-input, 0.875rem)',

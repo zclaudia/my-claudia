@@ -241,7 +241,7 @@ export async function updateSessionWorkingDirectory(
 }
 
 export async function getProjectWorktrees(projectId: string): Promise<GitWorktree[]> {
-  const result = await fetchLocalApi<GitWorktree[]>(`/api/projects/${projectId}/worktrees`);
+  const result = await fetchApi<GitWorktree[]>(`/api/projects/${projectId}/worktrees`);
   if (!result.success || !result.data) return [];
   return result.data;
 }
@@ -251,7 +251,7 @@ export async function createProjectWorktree(
   branch: string,
   path?: string,
 ): Promise<GitWorktree> {
-  const result = await fetchLocalApi<GitWorktree>(`/api/projects/${projectId}/worktrees`, {
+  const result = await fetchApi<GitWorktree>(`/api/projects/${projectId}/worktrees`, {
     method: 'POST',
     body: JSON.stringify({ branch, path }),
   });
