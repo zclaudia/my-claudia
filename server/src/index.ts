@@ -327,11 +327,18 @@ async function main() {
     if (discoveredPlugins.length > 0) {
       console.log(`   Found ${discoveredPlugins.length} plugin(s)`);
       // Auto-activate plugins that have onStartup activation event
+      // Use a timeout to prevent blocking server startup (e.g. permission prompts
+      // that require UI interaction which isn't available yet during startup)
       for (const manifest of discoveredPlugins) {
         const activationEvents = manifest.activationEvents || [];
         if (activationEvents.includes('onStartup')) {
           try {
-            await pluginLoader.activate(manifest.id);
+            await Promise.race([
+              pluginLoader.activate(manifest.id),
+              new Promise<boolean>((_, reject) =>
+                setTimeout(() => reject(new Error('Activation timed out (5s)')), 5000)
+              ),
+            ]);
           } catch (error) {
             console.error(`   Failed to activate ${manifest.id}:`, error);
           }

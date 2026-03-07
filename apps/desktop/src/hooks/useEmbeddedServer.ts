@@ -70,12 +70,14 @@ export function useEmbeddedServer(): EmbeddedServerState {
       }
 
       const baseDataDir = await appDataDir();
-      const dataDir = baseDataDir.replace(/\/?$/, '-dev/');
+      // Use /tmp to avoid space issues in env vars with sidecar
+      const dataDir = '/tmp/my-claudia-dev/';
       const serverPath = await resolveServerPath();
 
       console.log(`[EmbeddedServer] DEV mode: serverPath=${serverPath}, dataDir=${dataDir}`);
 
-      const command = Command.create('run-node', [serverPath], {
+      // Use sidecar to avoid env var space issues with shell execute
+      const command = Command.sidecar('binaries/node', [serverPath], {
         env: {
           PORT: '3100',
           SERVER_HOST: '127.0.0.1',
