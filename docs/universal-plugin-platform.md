@@ -10,6 +10,79 @@
 
 ---
 
+## 当前代码库分析
+
+### 已有的良好模式（可复用）
+
+| 模式 | 文件位置 | 说明 |
+|------|----------|------|
+| **Provider Registry** | `server/src/providers/registry.ts` | 注册表模式，已支持多 provider 动态注册 |
+| **Message Router** | `server/src/router/index.ts` | Map 路由 + 中间件支持，可扩展 |
+| **Command Scanner** | `server/src/utils/command-scanner.ts` | 已支持扫描自定义命令，有插件命令扫描基础 |
+
+### 需要改造的部分
+
+| 改造点 | 文件位置 | 当前模式 | 改造方案 |
+|--------|----------|----------|----------|
+| **工具执行** | `apps/desktop/src/services/agentTools.ts` | 硬编码 switch 语句 | 改为 ToolRegistry 注册表模式 |
+| **内置命令** | `server/src/routes/commands.ts` | 硬编码 builtInHandlers | 改为 CommandRegistry 注册表模式 |
+| **事件系统** | 无 | 缺少钩子和事件分发机制 | 新建 PluginEventEmitter |
+| **插件加载** | 无 | 无插件发现和生命周期管理 | 新建 PluginLoader |
+
+### agentTools.ts 现状
+
+当前 `agentTools.ts` 包含：
+- `AGENT_TOOLS` 数组：15 个内置工具定义
+- `executeToolCall()` 函数：switch 语句分发执行
+- `executeWithBackend()` 辅助函数：多后端路由（local/remote/cloud）
+
+改造目标：
+1. 将 `AGENT_TOOLS` 迁移到 `toolRegistry.register()` 调用
+2. 将 switch 语句改为 `toolRegistry.execute()`
+3. 支持插件动态注册工具
+
+---
+
+## 架构概览
+
+### 前后端分层
+
+插件运行分为两个明确的层：
+
+- **Server 插件**（后端）：工具执行、命令处理、事件钩子 — 可访问文件系统、shell、网络
+- **UI 插件**（前端）：面板、渲染器、设置页 — 纯 UI 扩展，通过 API 调用后端
+
+> **关键决策**: ToolRegistry 和 CommandRegistry 位于 **server 端**，因为工具执行需要 fs/shell 等系统能力。前端仅持有 UI 扩展注册表（面板、渲染器）。
+
+```
+┌──────────────────────────────────────────────────────────────────┐
+│                         MyClaudia App                            │
+├─────────────────────────────┬────────────────────────────────────┤
+│       Frontend (Tauri)      │         Server (Node.js)           │
+│                             │                                    │
+│  ┌───────────────────────┐  │  ┌──────────────────────────────┐  │
+│  │    UI Registry        │  │  │      Plugin Runtime          │  │
+│  │  ┌────────┐ ┌───────┐ │  │  │  ┌────────┐ ┌───────────┐   │  │
+│  │  │ Panel  │ │ Tool  │ │  │  │  │ Loader │ │ Permission│   │  │
+│  │  │ Reg.   │ │Render │ │  │  │  │        │ │  Manager  │   │  │
+│  │  └────────┘ └───────┘ │  │  │  └────────┘ └───────────┘   │  │
+│  └───────────────────────┘  │  │  ┌────────┐ ┌───────────┐   │  │
+│                             │  │  │ Event  │ │  Sandbox   │   │  │
+│  ┌───────────────────────┐  │  │  │ System │ │  Manager   │   │  │
+│  │   Extension Consumers │  │  │  └────────┘ └───────────┘   │  │
+│  │  Settings  BottomPanel│  │  └──────────────────────────────┘  │
+│  │  Sidebar   ToolCall   │  │              │                     │
+│  └───────────────────────┘  │  ┌───────────┼─────────────────┐  │
+│                             │  │           ▼                 │  │
+│        HTTP/WS API ◄────────┼──┤  ┌──────────┐ ┌──────────┐ │  │
+│                             │  │  │ Tool Reg │ │ Cmd Reg  │ │  │
+│                             │  │  └──────────┘ └──────────┘ │  │
+│                             │  └─────────────────────────────┘  │
+└─────────────────────────────┴────────────────────────────────────┘
+```
+
+---
+
 ## 插件可扩展的区域
 
 | 区域 | 描述 | 扩展点 |
@@ -21,118 +94,59 @@
 
 ---
 
-## 插件扩展方式
+## 统一类型定义
 
-### 1. 工具/命令 (Tools/Commands)
+> **注意**: 所有插件相关的类型定义统一放在 `shared/src/plugin-types.ts`，不在多个文件中重复定义。
 
-插件可以注册工具，供 AI 调用或用户手动触发。
+### Plugin Manifest
 
-```typescript
-// 工具定义
-interface PluginTool {
-  id: string;
-  name: string;
-  description: string;
-  parameters: JSONSchema;
-  handler: ToolHandler;
-  // 工具可见区域
-  scope: ('agent-assistant' | 'main-session' | 'command-palette')[];
-}
-```
-
-### 2. UI 组件 (UI Components)
-
-插件可以注册 UI 组件，插入到指定位置。
+**文件**: `shared/src/plugin-types.ts`
 
 ```typescript
-// UI 扩展点
-interface UIExtensionPoint {
-  id: string;
-  location: 'sidebar' | 'panel' | 'toolbar' | 'context-menu' | 'status-bar';
-  component: React.ComponentType;
-  // 显示条件
-  when?: (context: ExtensionContext) => boolean;
-}
-
-// 示例：在文件浏览器中添加自定义预览
-const markdownPreviewExtension: UIExtensionPoint = {
-  id: 'markdown-preview',
-  location: 'panel',
-  component: MarkdownPreviewPanel,
-  when: (ctx) => ctx.fileExtension === '.md',
-};
-```
-
-### 3. 事件钩子 (Event Hooks)
-
-插件可以监听和响应应用事件。
-
-```typescript
-// 事件钩子
-interface EventHook {
-  event: string;
-  handler: EventHandler;
-  // 是否可以取消事件
-  canCancel?: boolean;
-}
-
-// 示例：监听会话创建事件
-const sessionCreatedHook: EventHook = {
-  event: 'session.created',
-  handler: (event) => {
-    console.log('New session created:', event.sessionId);
-  },
-};
-
-// 示例：拦截文件保存事件
-const fileSaveHook: EventHook = {
-  event: 'file.beforeSave',
-  canCancel: true,
-  handler: (event) => {
-    if (shouldBlockSave(event.path)) {
-      event.cancel('Cannot save this file');
-    }
-  },
-};
-```
-
----
-
-## 插件接口定义
-
-```typescript
-// shared/src/plugin-types.ts
-
-interface PluginManifest {
-  id: string;
+export interface PluginManifest {
+  id: string;                    // e.g., 'com.example.my-plugin'
   name: string;
   version: string;
   description: string;
-  author?: string;
+  author?: { name: string; email?: string };
   icon?: string;
 
-  // 需要的权限
-  permissions: Permission[];
+  main?: string;                 // Backend entry (server-side)
+  frontend?: string;             // Frontend entry (UI extensions)
 
-  // 扩展定义
-  contributes: {
-    tools?: PluginTool[];
-    commands?: PluginCommand[];
+  permissions?: Permission[];
+
+  contributes?: {
+    commands?: CommandContribution[];
+    tools?: ToolContribution[];
+    settings?: SettingsContribution;
+    panels?: PanelContribution[];
+    hooks?: HookContribution[];
     uiExtensions?: UIExtensionPoint[];
-    eventHooks?: EventHook[];
     menus?: MenuContribution[];
     keybindings?: KeybindingContribution[];
   };
 
-  // 执行模式
-  executionMode: 'main' | 'sandbox' | 'worker';
+  // 执行模式（见"沙箱与隔离"章节）
+  executionMode?: 'main' | 'worker' | 'sandbox';
 
   // 激活事件（何时激活插件）
   activationEvents?: string[];
-}
 
-// 权限定义
-type Permission =
+  // 兼容性声明
+  engines?: {
+    claudia: string;             // semver range, e.g., ">=0.1.0"
+  };
+
+  // 插件依赖
+  dependencies?: Record<string, string>;  // pluginId → semver range
+}
+```
+
+### Permission
+
+```typescript
+export type Permission =
   | 'fs.read'
   | 'fs.write'
   | 'network.fetch'
@@ -145,15 +159,36 @@ type Permission =
   | 'clipboard.read'
   | 'clipboard.write'
   ;
+```
 
-// 插件上下文（提供给插件的 API）
-interface PluginContext {
-  // 基础 API
+### Plugin Context
+
+```typescript
+export interface PluginContext {
+  pluginId: string;
+
+  // 事件系统
+  events: {
+    on(event: string, handler: EventHandler): () => void;
+    emit(event: string, data: unknown): Promise<void>;
+  };
+
+  // 注册扩展
+  registerCommand(command: string, handler: CommandHandler): void;
+  registerTool(meta: ToolRegistration): void;
+  registerUIExtension(extension: UIExtensionPoint): void;
+
+  // 持久化存储（每个插件独立命名空间）
+  storage: {
+    get<T>(key: string): Promise<T | undefined>;
+    set<T>(key: string, value: T): Promise<void>;
+    delete(key: string): Promise<void>;
+  };
+
+  // 基础 API（按权限提供）
   fs: FileSystemAPI;
   network: NetworkAPI;
-  storage: StorageAPI;
   notification: NotificationAPI;
-  timer: TimerAPI;
   clipboard: ClipboardAPI;
   shell: ShellAPI;
 
@@ -162,249 +197,555 @@ interface PluginContext {
   project: ProjectAPI;
   ui: UIAPI;
 
-  // 插件 API
-  registerTool(tool: PluginTool): void;
-  registerCommand(command: PluginCommand): void;
-  registerUIExtension(extension: UIExtensionPoint): void;
-  onEvent(event: string, handler: EventHandler): void;
+  // 插件间通信
+  exports<T>(api: T): void;
+  getPluginAPI<T>(pluginId: string): T | undefined;
 
   // 日志
-  log: Logger;
+  log: { info(...args: unknown[]): void; warn(...args: unknown[]): void; error(...args: unknown[]): void };
+}
+```
+
+### Tool & Command
+
+```typescript
+export interface PluginTool {
+  id: string;
+  name: string;
+  description: string;
+  parameters: JSONSchema;
+  handler: ToolHandler;
+  scope: ('agent-assistant' | 'main-session' | 'command-palette')[];
+}
+
+export interface PluginCommand {
+  id: string;
+  title: string;
+  category?: string;
+  handler: CommandHandler;
+}
+```
+
+### UI Extension Point
+
+```typescript
+export interface UIExtensionPoint {
+  id: string;
+  location: 'sidebar' | 'panel' | 'toolbar' | 'context-menu' | 'status-bar';
+  component: React.ComponentType;
+  when?: (context: ExtensionContext) => boolean;
+}
+```
+
+### Event Hook
+
+```typescript
+export interface EventHook {
+  event: string;
+  handler: EventHandler;
+  canCancel?: boolean;
 }
 ```
 
 ---
 
-## 插件示例
+## Phase 1: 核心基础设施
 
-### 1. Jira 集成插件
+### 1.1 Tool Registry（工具注册表）
+
+**新建文件**: `server/src/plugins/tool-registry.ts`（服务端，工具执行需要系统权限）
 
 ```typescript
-// plugins/jira/index.ts
+export type ToolHandler = (
+  args: Record<string, unknown>,
+  context?: ToolExecutionContext
+) => Promise<string> | string;
 
-export const manifest: PluginManifest = {
-  id: 'com.example.jira',
-  name: 'Jira Integration',
-  version: '1.0.0',
-  description: '查看和管理 Jira 任务',
-  permissions: ['network.fetch', 'storage', 'notification'],
-  executionMode: 'main',
-  activationEvents: ['onCommand:jira.showTasks'],
+export type ToolSource = 'builtin' | 'plugin';
 
-  contributes: {
-    // 工具：供 AI 调用
-    tools: [
-      {
-        id: 'jira.getTasks',
-        name: 'get_jira_tasks',
-        description: '获取当前用户的 Jira 任务列表',
-        parameters: { type: 'object', properties: { status: { type: 'string' } } },
-        handler: 'getTasks',
-        scope: ['agent-assistant', 'main-session'],
-      },
-      {
-        id: 'jira.createTask',
-        name: 'create_jira_task',
-        description: '创建一个新的 Jira 任务',
-        parameters: {
-          type: 'object',
-          properties: {
-            summary: { type: 'string' },
-            description: { type: 'string' },
-          },
-          required: ['summary'],
-        },
-        handler: 'createTask',
-        scope: ['agent-assistant', 'main-session'],
-      },
-    ],
+export interface ToolMeta {
+  id: string;
+  definition: ToolDefinition;
+  handler: ToolHandler;
+  permissions?: Permission[];
+  source: ToolSource;
+  pluginId?: string;
+  scope?: ('agent-assistant' | 'main-session' | 'command-palette')[];
+}
 
-    // 命令：用户手动触发
-    commands: [
-      {
-        id: 'jira.showTasks',
-        title: 'Show Jira Tasks',
-        category: 'Jira',
-      },
-      {
-        id: 'jira.createTask',
-        title: 'Create Jira Task',
-        category: 'Jira',
-      },
-    ],
+class ToolRegistry {
+  private tools = new Map<string, ToolMeta>();
 
-    // UI 扩展：侧边栏面板
-    uiExtensions: [
-      {
-        id: 'jira.panel',
-        location: 'sidebar',
-        component: 'JiraPanel',
-      },
-    ],
+  register(meta: ToolMeta): void;
+  unregister(toolId: string): boolean;
+  get(toolId: string): ToolMeta | undefined;
+  has(toolId: string): boolean;
+  getAllDefinitions(): ToolDefinition[];
+  getDefinitionsBySource(source: ToolSource): ToolDefinition[];
+  getDefinitionsByScope(scope: string): ToolDefinition[];
+  getAll(): ToolMeta[];
+  async execute(toolCall: ToolCall, context?: ToolExecutionContext): Promise<string>;
+  getByPlugin(pluginId: string): ToolMeta[];
+  clearByPlugin(pluginId: string): number;
+  get size(): number;
+  clear(): void;
+}
 
-    // 菜单项
-    menus: [
-      {
-        location: 'command-palette',
-        commandId: 'jira.showTasks',
-      },
-    ],
+export const toolRegistry = new ToolRegistry();
+```
 
-    // 快捷键
-    keybindings: [
-      {
-        command: 'jira.showTasks',
-        key: 'cmd+shift+j',
+**迁移 `agentTools.ts`**:
+1. 将 `AGENT_TOOLS` 数组中的每个工具改为 `toolRegistry.register()` 调用
+2. 将 `executeToolCall` 的 switch 语句改为 `toolRegistry.execute()`
+
+### 1.2 Command Registry（命令注册表）
+
+**新建文件**: `server/src/commands/registry.ts`
+
+```typescript
+export interface CommandMeta {
+  command: string;              // e.g., '/my-command'
+  description: string;
+  handler: CommandHandler;
+  source: 'builtin' | 'plugin';
+  pluginId?: string;
+}
+
+class CommandRegistry {
+  private commands = new Map<string, CommandMeta>();
+
+  register(meta: CommandMeta): void;
+  unregister(command: string): boolean;
+  get(command: string): CommandMeta | undefined;
+  getAll(): SlashCommand[];
+  clearByPlugin(pluginId: string): void;
+}
+
+export const commandRegistry = new CommandRegistry();
+```
+
+**迁移 `routes/commands.ts`**:
+- 将 `builtInHandlers` 对象改为注册表调用
+
+### 1.3 Event System（事件系统）
+
+**新建文件**: `server/src/events/index.ts`
+
+> **命名约定**: 所有事件统一使用**点号分隔**（`session.created`），与 manifest 中的 `activationEvents` 风格一致。
+
+```typescript
+export type PluginEvent =
+  // Lifecycle
+  | 'plugin.loaded' | 'plugin.activated' | 'plugin.deactivated'
+  // App
+  | 'app.ready' | 'app.quit'
+  // Run
+  | 'run.started' | 'run.message' | 'run.toolCall' | 'run.completed' | 'run.error'
+  // Session
+  | 'session.created' | 'session.deleted' | 'session.message'
+  // Project
+  | 'project.opened' | 'project.closed'
+  // File
+  | 'file.beforeSave' | 'file.saved' | 'file.opened'
+  // Permission
+  | 'permission.request' | 'permission.approved'
+  // Provider
+  | 'provider.changed'
+  | string;  // Custom events (namespace: 'pluginId.eventName')
+
+class PluginEventEmitter {
+  on(event: PluginEvent, listener: EventListener): () => void;
+  once(event: PluginEvent, listener: EventListener): void;
+  off(event: PluginEvent, listener: EventListener): void;
+  emit(event: PluginEvent, data: unknown, pluginId?: string): Promise<void>;
+}
+
+export const pluginEvents = new PluginEventEmitter();
+```
+
+### 1.4 Plugin Manifest Schema
+
+**新建文件**: `shared/src/plugin-types.ts`（见上方"统一类型定义"章节）
+
+---
+
+## Phase 2: Plugin Loader
+
+### 2.1 Plugin Loader
+
+**新建文件**: `server/src/plugins/loader.ts`
+
+```typescript
+class PluginLoader {
+  private plugins = new Map<string, PluginInstance>();
+  private pluginDirs = [
+    '~/.claude/plugins',
+    '~/.claudia/plugins',
+  ];
+
+  async discover(): Promise<PluginManifest[]>;
+  async activate(pluginId: string): Promise<void>;
+  async deactivate(pluginId: string): Promise<void>;
+  async deactivateAll(): Promise<void>;
+  getPlugin(pluginId: string): PluginInstance | undefined;
+  getActivePlugins(): PluginInstance[];
+  private createPluginContext(pluginId: string): PluginContext;
+  private checkCompatibility(manifest: PluginManifest): boolean;
+  private resolveDependencies(manifest: PluginManifest): string[];
+}
+
+export const pluginLoader = new PluginLoader();
+```
+
+**激活流程**:
+1. 加载 manifest.json
+2. 检查 `engines.claudia` 版本兼容性
+3. 解析依赖，确保依赖插件已激活
+4. 检查权限
+5. 根据 `executionMode` 选择运行环境（main / worker / sandbox）
+6. 加载 main 模块
+7. 调用 `activate(context)`
+8. 注册 contributes 中的命令/工具/钩子
+
+### 2.2 Permission Manager
+
+**新建文件**: `server/src/plugins/permissions.ts`
+
+```typescript
+class PermissionManager {
+  hasPermission(pluginId: string, permission: Permission): boolean;
+  grant(pluginId: string, permission: Permission): void;
+  revoke(pluginId: string, permission: Permission): void;
+  request(pluginId: string, permission: Permission): Promise<boolean>;
+  getGranted(pluginId: string): Permission[];
+  revokeAll(pluginId: string): void;
+}
+
+export const permissionManager = new PermissionManager();
+```
+
+### 2.3 沙箱与隔离
+
+插件执行模式的安全分级：
+
+| 模式 | 隔离级别 | 适用场景 | 实现方式 |
+|------|----------|----------|----------|
+| `main` | 无隔离 | 内置插件、受信任插件 | 直接 `require()` 到宿主进程 |
+| `worker` | 线程隔离 | 第三方插件（默认） | `worker_threads` + `resourceLimits` + 执行超时 |
+| `sandbox` | 进程隔离 | 不受信任插件 | 独立子进程 + IPC + 限制系统调用 |
+
+**实施计划**:
+
+```
+MVP:    仅支持 main 模式（内置插件，受信任）
+V1:     引入 worker 模式（worker_threads，有超时和内存限制）
+V2:     引入 sandbox 模式（独立进程 + IPC，完全隔离）
+```
+
+**Worker 模式设计**:
+
+```typescript
+// server/src/plugins/worker-host.ts
+import { Worker } from 'worker_threads';
+
+class PluginWorkerHost {
+  private worker: Worker;
+
+  constructor(pluginPath: string) {
+    this.worker = new Worker(pluginPath, {
+      resourceLimits: {
+        maxOldGenerationSizeMb: 128,  // 内存上限
+        maxYoungGenerationSizeMb: 32,
+        codeRangeSizeMb: 16,
       },
-    ],
+    });
+  }
+
+  // 所有 API 调用通过 MessagePort 转发
+  async callTool(toolId: string, args: unknown): Promise<string>;
+
+  // 超时保护
+  async executeWithTimeout(fn: () => Promise<unknown>, timeoutMs: number): Promise<unknown>;
+
+  terminate(): void;
+}
+```
+
+---
+
+## Phase 3: 集成点
+
+### 3.1 工具注册到 AI
+
+**修改文件**: `server/src/providers/claude-adapter.ts` 等
+
+```typescript
+import { toolRegistry } from '../plugins/tool-registry.js';
+
+// 在 run() 方法中
+const builtinTools = [...];
+const pluginTools = toolRegistry.getDefinitionsBySource('plugin');
+const allTools = [...builtinTools, ...pluginTools];
+```
+
+### 3.2 命令显示在 UI
+
+**修改文件**: `server/src/routes/providers.ts`
+
+```typescript
+import { commandRegistry } from '../commands/registry.js';
+
+// GET /:id/commands handler
+const allCommands = [
+  ...LOCAL_COMMANDS,
+  ...CLI_COMMANDS,
+  ...commandRegistry.getAll(),  // 添加注册表命令
+  ...dedupedCustom
+];
+```
+
+### 3.3 事件集成
+
+**修改文件**: `server/src/server.ts`
+
+在 `handleRunStart` 中添加事件发射：
+```typescript
+await pluginEvents.emit('run.started', { sessionId, input });
+// ... run execution
+await pluginEvents.emit('run.completed', { sessionId, result });
+```
+
+---
+
+## Phase 4: UI 扩展
+
+### 4.1 Plugin Store
+
+**新建文件**: `apps/desktop/src/stores/pluginStore.ts`
+
+```typescript
+interface PluginUIState {
+  settingsTabs: PluginUITab[];
+  bottomPanelTabs: PluginUITab[];
+
+  registerSettingsTab(tab: PluginUITab): void;
+  registerBottomPanelTab(tab: PluginUITab): void;
+}
+
+export const usePluginStore = create<PluginUIState>((set) => ({...}));
+```
+
+### 4.2 Settings Panel 扩展
+
+**修改文件**: `apps/desktop/src/components/SettingsPanel.tsx`
+
+```typescript
+const pluginTabs = usePluginStore((s) => s.settingsTabs);
+
+const allTabs = [
+  ...existingTabs,
+  ...pluginTabs.map(t => ({ id: t.id, label: t.label, component: t.component })),
+];
+```
+
+### 4.3 Bottom Panel 扩展
+
+**修改文件**: `apps/desktop/src/components/BottomPanel.tsx`
+
+```typescript
+const pluginPanelTabs = usePluginStore((s) => s.bottomPanelTabs);
+
+// Render plugin panels
+{pluginPanelTabs.map((tab) => (
+  <tab.component key={tab.id} />
+))}
+```
+
+### 4.4 Tool Renderer Registry
+
+**新建文件**: `apps/desktop/src/components/chat/ToolRendererRegistry.tsx`
+
+```typescript
+class ToolRendererRegistry {
+  register(toolName: string, renderer: React.ComponentType): void;
+  get(toolName: string): React.ComponentType | undefined;
+}
+
+// In ToolCallItem.tsx
+const CustomRenderer = toolRendererRegistry.get(toolName);
+if (CustomRenderer) return <CustomRenderer {...props} />;
+```
+
+---
+
+## 文件清单
+
+### 新建文件 (10 个)
+
+| 文件路径 | 用途 |
+|----------|------|
+| `shared/src/plugin-types.ts` | 统一的类型定义（Manifest、Context、Permission 等） |
+| `server/src/plugins/tool-registry.ts` | 工具注册表（服务端） |
+| `server/src/commands/registry.ts` | 命令注册表 |
+| `server/src/events/index.ts` | 事件系统 |
+| `server/src/plugins/loader.ts` | 插件加载器 |
+| `server/src/plugins/permissions.ts` | 权限管理 |
+| `server/src/plugins/worker-host.ts` | Worker 隔离宿主 |
+| `apps/desktop/src/stores/pluginStore.ts` | UI 状态管理 |
+| `apps/desktop/src/components/chat/ToolRendererRegistry.tsx` | 工具渲染器注册 |
+
+### 修改文件 (6 个)
+
+| 文件路径 | 修改内容 |
+|----------|----------|
+| `apps/desktop/src/services/agentTools.ts` | 迁移到 ToolRegistry（通过 API 调用服务端） |
+| `server/src/routes/commands.ts` | 迁移到 CommandRegistry |
+| `server/src/routes/providers.ts` | 集成命令注册表 |
+| `server/src/providers/claude-adapter.ts` | 集成工具注册表 |
+| `server/src/server.ts` | 初始化插件加载器，添加事件发射 |
+| `apps/desktop/src/components/SettingsPanel.tsx` | 支持插件设置标签 |
+
+---
+
+## 实施顺序
+
+### MVP: 核心注册表 + 内置迁移（2-3 周）
+
+1. 创建 `shared/src/plugin-types.ts` — 统一类型定义
+2. 创建 `ToolRegistry` + 单元测试
+3. 创建 `CommandRegistry` + 单元测试
+4. 创建 `PluginEventEmitter` + 单元测试
+5. 迁移 `agentTools.ts` 到 ToolRegistry
+6. 迁移 `commands.ts` 到 CommandRegistry
+
+### V1: 插件加载器 + 本地插件（2 周）
+
+1. 实现 `PluginLoader.discover()`
+2. 实现 `PluginLoader.activate()` / `deactivate()`
+3. 实现 `PluginContext`（main 模式）
+4. 实现 `PermissionManager`
+5. 集成到服务器启动
+6. 创建示例插件（Timer）验证端到端流程
+
+### V2: Worker 隔离 + 权限强化（2 周）
+
+1. 实现 `WorkerHost`（worker_threads 隔离）
+2. 添加执行超时和内存限制
+3. 权限运行时检查（API 调用前验证 permission）
+4. 添加事件发射到 run 生命周期
+
+### V3: UI 扩展 + 插件管理（2 周）
+
+1. 创建 `pluginStore.ts`
+2. 更新 `SettingsPanel.tsx`
+3. 创建 `ToolRendererRegistry`
+4. 插件管理 UI（查看/启用/禁用/卸载）
+5. 创建 Jira 示例插件
+
+---
+
+## 验证步骤
+
+### 1. 单元测试
+```bash
+pnpm test:unit -- --grep "Registry|PluginLoader|EventEmitter"
+```
+
+### 2. 集成测试
+```bash
+# 创建测试插件
+mkdir -p ~/.claudia/plugins/test-plugin
+echo '{"id":"test","name":"Test","version":"1.0.0"}' > ~/.claudia/plugins/test-plugin/plugin.json
+
+# 启动应用，检查插件是否被发现
+pnpm dev
+```
+
+### 3. 端到端验证
+1. 插件命令出现在斜杠命令列表
+2. 插件工具被 AI 正确调用
+3. 插件设置标签显示在设置面板
+4. 插件面板显示在底部面板
+
+---
+
+## 插件扩展方式
+
+### 1. 工具/命令 (Tools/Commands)
+
+插件可以注册工具，供 AI 调用或用户手动触发。
+
+```typescript
+ctx.registerTool({
+  id: 'my-plugin.search',
+  name: 'search_docs',
+  description: 'Search documentation',
+  parameters: { type: 'object', properties: { query: { type: 'string' } } },
+  handler: async (args) => {
+    const results = await searchDocs(args.query);
+    return JSON.stringify(results);
   },
-};
+  scope: ['agent-assistant', 'main-session'],
+});
+```
 
-// 插件实现
+### 2. UI 组件 (UI Components)
+
+插件可以注册 UI 组件，插入到指定位置。通过运行时注入方式获取共享组件：
+
+```typescript
 export async function activate(ctx: PluginContext) {
-  // 初始化 Jira 客户端
-  const config = await ctx.storage.get('config');
-  const jiraClient = new JiraClient(config);
+  // 运行时注入共享 UI 组件
+  const { Button, Input } = ctx.ui.components;
 
-  // 注册工具处理器
-  ctx.registerTool({
-    id: 'jira.getTasks',
-    handler: async (args) => {
-      const tasks = await jiraClient.getTasks(args.status);
-      return { type: 'json', data: tasks };
-    },
-  });
-
-  ctx.registerTool({
-    id: 'jira.createTask',
-    handler: async (args) => {
-      const task = await jiraClient.createTask(args);
-      ctx.notification.show('Jira', `Task created: ${task.key}`);
-      return { type: 'json', data: task };
-    },
-  });
-
-  // 注册命令
-  ctx.registerCommand({
-    id: 'jira.showTasks',
-    handler: () => {
-      ctx.ui.showPanel('jira.panel');
-    },
+  ctx.registerUIExtension({
+    id: 'markdown-preview',
+    location: 'panel',
+    component: MarkdownPreviewPanel,
+    when: (context) => context.fileExtension === '.md',
   });
 }
 ```
 
-### 2. 文件预览插件
+### 3. 事件钩子 (Event Hooks)
+
+插件可以监听和响应应用事件。
 
 ```typescript
-// plugins/pdf-preview/index.ts
+// 监听会话创建事件
+ctx.events.on('session.created', (event) => {
+  ctx.log.info('New session created:', event.sessionId);
+});
 
-export const manifest: PluginManifest = {
-  id: 'com.example.pdf-preview',
-  name: 'PDF Preview',
-  version: '1.0.0',
-  description: '在文件浏览器中预览 PDF 文件',
-  permissions: ['fs.read'],
-  executionMode: 'main',
-
-  contributes: {
-    uiExtensions: [
-      {
-        id: 'pdf.preview',
-        location: 'panel',
-        component: 'PDFPreview',
-        when: (ctx) => ctx.fileExtension === '.pdf',
-      },
-    ],
-  },
-};
+// 拦截文件保存（canCancel 需在 manifest 中声明）
+ctx.events.on('file.beforeSave', (event) => {
+  if (shouldBlockSave(event.path)) {
+    event.cancel('Cannot save this file');
+  }
+});
 ```
 
-### 3. 代码格式化插件
+### 4. 插件间通信
+
+插件可以导出 API 供其他插件使用：
 
 ```typescript
-// plugins/prettier/index.ts
+// Git 插件导出 API
+export async function activate(ctx: PluginContext) {
+  ctx.exports({
+    getCurrentBranch: () => execSync('git branch --show-current').toString().trim(),
+    getStatus: () => execSync('git status --porcelain').toString(),
+  });
+}
 
-export const manifest: PluginManifest = {
-  id: 'com.example.prettier',
-  name: 'Prettier Formatter',
-  version: '1.0.0',
-  description: '使用 Prettier 格式化代码',
-  permissions: ['fs.read', 'fs.write'],
-  executionMode: 'worker',
-
-  contributes: {
-    commands: [
-      {
-        id: 'prettier.formatFile',
-        title: 'Format with Prettier',
-        category: 'Format',
-      },
-      {
-        id: 'prettier.formatProject',
-        title: 'Format Entire Project',
-        category: 'Format',
-      },
-    ],
-
-    eventHooks: [
-      {
-        event: 'file.beforeSave',
-        handler: async (event, ctx) => {
-          if (shouldFormat(event.path)) {
-            const content = await ctx.fs.readFile(event.path);
-            const formatted = await formatWithPrettier(content, event.path);
-            event.setContent(formatted);
-          }
-        },
-      },
-    ],
-
-    menus: [
-      {
-        location: 'editor.contextMenu',
-        commandId: 'prettier.formatFile',
-        when: (ctx) => isFormattableFile(ctx.filePath),
-      },
-    ],
-  },
-};
-```
-
----
-
-## 架构设计
-
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│                           MyClaudia App                              │
-├─────────────────────────────────────────────────────────────────────┤
-│                                                                      │
-│  ┌─────────────────────────────────────────────────────────────┐   │
-│  │                    Plugin Runtime                            │   │
-│  │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐         │   │
-│  │  │   Loader    │  │   Host      │  │   Sandbox   │         │   │
-│  │  │   加载器    │  │   主机      │  │   沙箱      │         │   │
-│  │  └─────────────┘  └─────────────┘  └─────────────┘         │   │
-│  └─────────────────────────────────────────────────────────────┘   │
-│                               │                                      │
-│                               ▼                                      │
-│  ┌─────────────────────────────────────────────────────────────┐   │
-│  │                    Extension Points                          │   │
-│  │  ┌─────────┐  ┌─────────┐  ┌─────────┐  ┌─────────┐        │   │
-│  │  │ Tools   │  │ Commands│  │   UI    │  │  Hooks  │        │   │
-│  │  │ 工具    │  │ 命令    │  │  组件   │  │  钩子   │        │   │
-│  │  └─────────┘  └─────────┘  └─────────┘  └─────────┘        │   │
-│  └─────────────────────────────────────────────────────────────┘   │
-│                               │                                      │
-│  ┌────────────────────────────┼────────────────────────────┐       │
-│  ▼                            ▼                            ▼       │
-│  ┌──────────────┐    ┌──────────────┐    ┌──────────────┐         │
-│  │ Agent        │    │ Main Session │    │ File Browser │         │
-│  │ Assistant    │    │ 主会话       │    │ 文件浏览器   │         │
-│  └──────────────┘    └──────────────┘    └──────────────┘         │
-│                                                                      │
-└─────────────────────────────────────────────────────────────────────┘
+// Jira 插件使用 Git 插件的 API
+export async function activate(ctx: PluginContext) {
+  const gitAPI = ctx.getPluginAPI<GitAPI>('com.example.git');
+  if (gitAPI) {
+    const branch = gitAPI.getCurrentBranch();
+    // ... use branch to link Jira tasks
+  }
+}
 ```
 
 ---
@@ -412,6 +753,8 @@ export const manifest: PluginManifest = {
 ## 事件系统
 
 ### 内置事件
+
+> 所有事件统一使用**点号分隔**命名。
 
 | 事件名 | 描述 | 数据 |
 |--------|------|------|
@@ -422,7 +765,7 @@ export const manifest: PluginManifest = {
 | `session.message` | 会话收到消息 | sessionId, message |
 | `project.opened` | 项目打开 | projectId, path |
 | `project.closed` | 项目关闭 | projectId |
-| `file.beforeSave` | 文件保存前 | path, content |
+| `file.beforeSave` | 文件保存前（可取消） | path, content |
 | `file.saved` | 文件保存后 | path |
 | `file.opened` | 文件打开 | path |
 | `provider.changed` | Provider 切换 | providerId |
@@ -444,32 +787,41 @@ export const manifest: PluginManifest = {
 
 | 级别 | 权限 | 说明 |
 |------|------|------|
-| **安全** | `session.read`, `project.read` | 只读操作 |
-| **中等** | `fs.read`, `network.fetch` | 读取外部资源 |
-| **敏感** | `fs.write`, `session.write` | 写入操作 |
-| **危险** | `shell.execute` | 执行命令 |
+| **安全** | `session.read`, `project.read`, `storage` | 只读操作、本地存储 |
+| **中等** | `fs.read`, `network.fetch`, `timer` | 读取外部资源 |
+| **敏感** | `fs.write`, `session.write`, `notification`, `clipboard.*` | 写入操作 |
+| **危险** | `shell.execute` | 执行命令（仅 worker/sandbox 模式允许） |
 
 ### 权限请求流程
 
-1. 插件声明需要的权限
-2. 用户安装时看到权限列表
-3. 敏感操作时再次确认
-4. 用户可以随时撤销权限
+1. 插件在 manifest 中声明需要的权限
+2. 用户安装时看到权限列表，确认授予
+3. 运行时 PermissionManager 在每次 API 调用前检查权限
+4. 敏感操作时再次确认（首次使用弹窗）
+5. 用户可以在设置面板随时查看和撤销权限
+
+### 权限与隔离的关系
+
+| 隔离模式 | 可申请的最高权限 |
+|----------|------------------|
+| `main` | 全部（仅限内置/受信任插件） |
+| `worker` | `fs.*`, `network.*`, `session.*`, `storage` |
+| `sandbox` | `network.fetch`, `storage`, `notification` |
 
 ---
 
 ## 插件生命周期
 
 ```
-┌─────────┐     ┌─────────┐     ┌─────────┐     ┌─────────┐
-│ Discovered│───▶│ Installed│───▶│ Activated│───▶│ Running │
-│ 发现     │     │ 安装     │     │ 激活     │     │ 运行中  │
-└─────────┘     └─────────┘     └─────────┘     └─────────┘
-     │               │               │               │
+┌──────────┐     ┌──────────┐     ┌──────────┐     ┌──────────┐
+│ Discovered│───▶│ Installed │───▶│ Activated │───▶│  Running  │
+│ 发现      │     │ 安装      │     │ 激活      │     │  运行中   │
+└──────────┘     └──────────┘     └──────────┘     └──────────┘
      │               │               │               │
      ▼               ▼               ▼               ▼
-   扫描目录      用户确认权限    activationEvents   响应调用
-   读取 manifest                  触发激活         处理事件
+  扫描目录        用户确认权限    activationEvents   响应调用
+  读取 manifest   检查兼容性     触发激活           处理事件
+                  解析依赖
 ```
 
 ### 激活事件
@@ -493,323 +845,107 @@ activationEvents: ['onFileSystem:git']
 
 ---
 
-## 实现计划
-
-### Phase 1: 核心框架
-- [ ] 定义插件协议 (`shared/src/plugin-types.ts`)
-- [ ] 实现插件加载器 (`server/src/services/plugin-loader.ts`)
-- [ ] 实现权限系统
-- [ ] 实现事件系统
-
-### Phase 2: 工具和命令
-- [ ] 实现工具注册和调用
-- [ ] 实现命令注册和执行
-- [ ] 集成到 Agent Assistant
-- [ ] 集成到主会话
-
-### Phase 3: UI 扩展
-- [ ] 实现 UI 扩展点
-- [ ] 实现侧边栏面板扩展
-- [ ] 实现工具栏扩展
-- [ ] 实现上下文菜单扩展
-
-### Phase 4: 插件管理
-- [ ] 插件发现和安装 UI
-- [ ] 插件配置 UI
-- [ ] 插件权限管理 UI
-- [ ] 本地插件目录扫描
-
----
-
-## 与其他设计的关系
-
-| 设计 | 关系 |
-|------|------|
-| **Agent Assistant Plugin Platform** | Agent Assistant 是插件平台的一个主要使用场景 |
-| **Multi-Model Collaborative Refinement** | 可以作为一个插件实现 |
-
-通用插件平台为整个应用提供扩展能力，Agent Assistant 和其他功能都可以基于此构建。
-
----
-
 ## 插件 UI 一致性
 
 ### 设计决策
 
 | 维度 | 决策 | 说明 |
 |------|------|------|
-| 样式系统 | CSS 变量 + Tailwind | 插件使用 App 的 CSS 变量和 Tailwind class |
-| 主题支持 | 自动跟随 | 通过 CSS 变量自动响应主题切换 |
-| 组件共享 | 可导入组件 | 插件可导入 App 提供的 UI 组件 |
+| 样式系统 | 复用现有 HSL 变量 + Tailwind | 插件使用 App 已有的 CSS 变量 |
+| 主题支持 | 自动跟随 | 通过 HSL CSS 变量自动响应主题切换 |
+| 组件共享 | 运行时注入 | 通过 `ctx.ui.components` 提供共享组件 |
 
-### CSS 变量系统
+### 复用现有 CSS 变量系统
 
-App 定义设计令牌（Design Tokens），插件通过 CSS 变量使用：
+插件应使用项目已有的 HSL 变量体系（定义在 `apps/desktop/src/styles/index.css`），**不需要额外定义新变量**：
 
 ```css
-/* apps/desktop/src/styles/tokens.css */
+/* 插件可用的核心 CSS 变量（已有，无需新建） */
 
-:root {
-  /* 颜色 */
-  --color-primary: #3b82f6;
-  --color-secondary: #6b7280;
-  --color-success: #22c55e;
-  --color-warning: #f59e0b;
-  --color-error: #ef4444;
+/* 语义颜色 (HSL 格式，配合 Tailwind 使用) */
+--background        /* 页面背景 */
+--foreground        /* 前景文字 */
+--card              /* 卡片背景 */
+--primary           /* 主色调 (System Blue) */
+--secondary         /* 次要色 */
+--muted             /* 柔和色 */
+--border            /* 边框 */
+--input             /* 输入框背景 */
+--destructive       /* 危险色 */
+--success           /* 成功色 */
+--warning           /* 警告色 */
 
-  /* 背景 */
-  --bg-primary: #ffffff;
-  --bg-secondary: #f3f4f6;
-  --bg-tertiary: #e5e7eb;
+/* Apple 风格扩展 */
+--shadow-apple-sm   /* 多层阴影 */
+--shadow-apple-md
+--shadow-apple-lg
+--shadow-apple-xl
+```
 
-  /* 文本 */
-  --text-primary: #111827;
-  --text-secondary: #6b7280;
-  --text-muted: #9ca3af;
-
-  /* 边框 */
-  --border-color: #e5e7eb;
-  --border-radius: 0.5rem;
-
-  /* 间距 */
-  --spacing-xs: 0.25rem;
-  --spacing-sm: 0.5rem;
-  --spacing-md: 1rem;
-  --spacing-lg: 1.5rem;
-  --spacing-xl: 2rem;
-
-  /* 字体 */
-  --font-sans: ui-sans-serif, system-ui, sans-serif;
-  --font-mono: ui-monospace, monospace;
-  --font-size-sm: 0.875rem;
-  --font-size-base: 1rem;
-  --font-size-lg: 1.125rem;
+插件 CSS 示例：
+```css
+/* 正确：使用已有变量 */
+.my-plugin-panel {
+  background: hsl(var(--card));
+  color: hsl(var(--foreground));
+  border: 1px solid hsl(var(--border));
+  border-radius: 0.75rem;
+  box-shadow: var(--shadow-apple-md);
 }
 
-/* 暗色主题 */
-[data-theme="dark"] {
-  --color-primary: #60a5fa;
-  --bg-primary: #111827;
-  --bg-secondary: #1f2937;
-  --bg-tertiary: #374151;
-  --text-primary: #f9fafb;
-  --text-secondary: #d1d5db;
-  --text-muted: #9ca3af;
-  --border-color: #374151;
+/* 正确：使用 Tailwind class */
+.my-plugin-button {
+  @apply bg-primary text-primary-foreground rounded-lg shadow-apple-sm;
 }
 ```
 
-### Tailwind 配置共享
+### 组件共享方案：运行时注入
+
+插件通过 `PluginContext` 在运行时获取共享 UI 组件，适用于外部加载的插件：
 
 ```typescript
-// apps/desktop/tailwind.config.ts
+export async function activate(ctx: PluginContext) {
+  // 运行时获取 App 提供的组件
+  const { Button, Input, Card, Badge } = ctx.ui.components;
 
-export default {
-  content: [
-    './src/**/*.{js,ts,jsx,tsx}',
-    // 插件目录也包含在内
-    '../../plugins/**/*.tsx',
-    '~/.my-claudia/plugins/**/*.tsx',
-  ],
-  theme: {
-    extend: {
-      colors: {
-        // 使用 CSS 变量
-        primary: 'var(--color-primary)',
-        secondary: 'var(--color-secondary)',
-        bg: {
-          primary: 'var(--bg-primary)',
-          secondary: 'var(--bg-secondary)',
-        },
-        text: {
-          primary: 'var(--text-primary)',
-          secondary: 'var(--text-secondary)',
-        },
-      },
-    },
-  },
-};
-```
-
-### 共享组件库
-
-```typescript
-// apps/desktop/src/components/plugin/index.ts
-
-// 导出给插件使用的组件
-export { Button } from './Button';
-export { Input } from './Input';
-export { Select } from './Select';
-export { Card } from './Card';
-export { Modal } from './Modal';
-export { Spinner } from './Spinner';
-export { Progress } from './Progress';
-export { Toast } from './Toast';
-export { Badge } from './Badge';
-export { Tooltip } from './Tooltip';
-export { Divider } from './Divider';
-export { Tabs, Tab } from './Tabs';
-
-// 导出类型
-export type { ButtonProps } from './Button';
-export type { InputProps } from './Input';
-export type { SelectProps } from './Select';
-```
-
-### 插件 UI 开发规范
-
-#### 1. 使用 CSS 变量
-
-✅ 正确：
-```css
-.my-component {
-  background: var(--bg-primary);
-  color: var(--text-primary);
-  padding: var(--spacing-md);
-}
-```
-
-❌ 错误：
-```css
-.my-component {
-  background: #ffffff;  /* 硬编码，主题切换时不会更新 */
-}
-```
-
-#### 2. 使用 Tailwind
-
-✅ 正确：
-```tsx
-<div className="bg-bg-primary text-text-primary p-4 rounded-lg border border-border">
-```
-
-#### 3. 使用共享组件
-
-```tsx
-import { Button, Card, Input, Select } from '@my-claudia/plugin-ui';
-
-function MyPluginPanel() {
-  return (
+  // 使用 App 组件构建插件 UI
+  const MyPanel = () => (
     <Card>
-      <Input placeholder="输入任务..." />
-      <Select options={modelOptions} />
-      <Button variant="primary">开始</Button>
+      <Input placeholder="Search..." />
+      <Button variant="primary" onClick={handleSearch}>Search</Button>
     </Card>
   );
+
+  ctx.registerUIExtension({
+    id: 'my-plugin.panel',
+    location: 'panel',
+    component: MyPanel,
+  });
 }
 ```
 
-#### 4. 禁止事项
+#### 类型声明包（开发时）
 
-- ❌ 不要引入外部 CSS 框架（Bootstrap、Material UI 等）
-- ❌ 不要硬编码颜色值
-- ❌ 不要使用内联样式定义颜色
-
-### 组件共享方案：虚拟模块 + 类型声明包
-
-采用混合方案，无需发布完整的 UI 组件 npm 包：
-
-#### 1. 虚拟模块（运行时）
-
-通过 Vite 的 alias 配置，将 `@my-claudia/plugin-ui` 重定向到 App 的组件目录：
+发布一个轻量的 `@my-claudia/plugin-types` npm 包，只包含类型定义，供插件开发者获得 IDE 支持：
 
 ```typescript
-// apps/desktop/vite.config.ts
-
-export default defineConfig({
-  resolve: {
-    alias: {
-      // 插件导入时，重定向到 App 的组件
-      '@my-claudia/plugin-ui': path.resolve(__dirname, 'src/components/ui/index.ts'),
-      '@my-claudia/plugin-api': path.resolve(__dirname, 'src/services/plugin-api.ts'),
-    },
-  },
-});
-```
-
-#### 2. 类型声明包（开发时）
-
-发布一个轻量的 `@my-claudia/plugin-types` npm 包，只包含类型定义：
-
-```typescript
-// @my-claudia/plugin-types/package.json
-{
-  "name": "@my-claudia/plugin-types",
-  "version": "0.1.0",
-  "types": "index.d.ts",
-  "peerDependencies": {
-    "react": "^18.0.0"
-  }
-}
-
 // @my-claudia/plugin-types/index.d.ts
-declare module '@my-claudia/plugin-ui' {
-  import { ComponentType } from 'react';
-
-  export interface ButtonProps {
-    variant?: 'primary' | 'secondary' | 'ghost' | 'danger';
-    size?: 'sm' | 'md' | 'lg';
-    disabled?: boolean;
-    loading?: boolean;
-    children: React.ReactNode;
-    onClick?: () => void;
-  }
-  export const Button: ComponentType<ButtonProps>;
-
-  export interface InputProps {
-    placeholder?: string;
-    value?: string;
-    onChange?: (value: string) => void;
-    disabled?: boolean;
-  }
-  export const Input: ComponentType<InputProps>;
-
-  // ... 其他组件
-}
-
 declare module '@my-claudia/plugin-api' {
   export interface PluginContext {
-    ui: UIAPI;
-    provider: ProviderAPI;
-    storage: StorageAPI;
-    registerCommand(command: Command): void;
-    registerTool(tool: Tool): void;
-  }
-  // ...
-}
-```
-
-#### 3. 插件开发流程
-
-```bash
-# 1. 创建插件
-mkdir my-plugin && cd my-plugin
-
-# 2. 安装类型声明（开发依赖）
-npm install -D @my-claudia/plugin-types @types/react
-
-# 3. 配置 tsconfig.json
-{
-  "compilerOptions": {
-    "paths": {
-      "@my-claudia/plugin-ui": ["../apps/desktop/src/components/ui/index.ts"]
-    }
+    ui: {
+      components: {
+        Button: ComponentType<ButtonProps>;
+        Input: ComponentType<InputProps>;
+        Card: ComponentType<CardProps>;
+        Badge: ComponentType<BadgeProps>;
+      };
+      showPanel(panelId: string): void;
+      showNotification(message: string): void;
+    };
+    // ... 其他 API
   }
 }
-
-# 4. 开发插件（有完整类型支持）
-import { Button, Card } from '@my-claudia/plugin-ui';
 ```
-
-#### 4. 优点
-
-| 方面 | 说明 |
-|------|------|
-| **无需发布 UI 包** | 组件直接从 App 加载，无需维护 npm 包 |
-| **版本自动同步** | App 更新后，插件自动获得最新组件 |
-| **完整类型支持** | 通过 `@my-claudia/plugin-types` 提供 |
-| **热更新支持** | 开发时修改 App 组件，插件自动更新 |
-| **体积小** | 类型包只有类型定义，几 KB |
 
 ---
 
@@ -817,52 +953,14 @@ import { Button, Card } from '@my-claudia/plugin-ui';
 
 | 维度 | 决策 | 说明 |
 |------|------|------|
-| **工具注册** | 服务端统一注册 | 所有工具在服务端注册，前端通过 API 调用 |
+| **工具注册** | 服务端注册 | 工具执行需要 fs/shell 等系统能力，ToolRegistry 位于 server |
 | **事件系统** | 服务端集中式 | 服务端作为事件中心，所有事件通过服务端分发 |
+| **UI 扩展** | 前端注册 | 面板/渲染器在前端注册，通过 API 调用后端 |
+| **组件共享** | 运行时注入 | 通过 `ctx.ui.components` 提供，不依赖构建时 alias |
 | **插件源** | Git 仓库（插件索引） | 用户添加 Git 仓库作为插件源 |
 | **更新检查** | 自动检查 | 启动时自动检查插件更新 |
 | **安装方式** | Zip 下载 | 下载插件 zip 包到本地 |
-
----
-
-## 当前代码库改造分析
-
-### 已有的良好模式
-
-| 模式 | 文件位置 | 说明 |
-|------|----------|------|
-| **Provider Adapter** | `server/src/providers/registry.ts` | 注册表模式，已支持多 provider |
-| **Command Scanner** | `server/src/utils/command-scanner.ts` | 已支持扫描自定义命令 |
-| **Agent Tools** | `apps/desktop/src/services/agentTools.ts` | 工具定义模式 |
-
-### 需要改造的部分
-
-| 改造点 | 文件位置 | 当前模式 | 改造方案 |
-|--------|----------|----------|----------|
-| **工具执行** | `agentTools.ts` | Switch 语句 | 改为注册表模式 |
-| **消息处理** | `messageHandler.ts` | Switch 语句 | 添加插件钩子 |
-| **服务端消息** | `server.ts` | 直接处理 | 添加事件分发 |
-
-### 改造优先级
-
-1. **P0 - 工具注册表**
-   - 将 `agentTools.ts` 的 switch 改为 Map 注册表
-   - 提供 `registerTool()` API
-   - 支持动态注册/注销
-
-2. **P0 - 事件钩子系统**
-   - 在服务端实现 `EventEmitter`
-   - 定义标准事件类型
-   - 提供 `on()` / `emit()` API
-
-3. **P1 - 服务端插件钩子**
-   - 在 `server.ts` 添加消息拦截点
-   - 支持插件处理自定义消息类型
-
-4. **P1 - 插件加载器**
-   - 扫描插件目录
-   - 解析 manifest
-   - 加载并执行插件代码
+| **隔离默认** | worker 模式 | 第三方插件默认使用 worker_threads 隔离 |
 
 ---
 
@@ -889,7 +987,6 @@ my-claudia-plugins/           # Git 仓库
 ### 索引文件格式
 
 ```json
-// index.json
 {
   "version": 1,
   "updated": "2026-03-06T00:00:00Z",
@@ -902,414 +999,187 @@ my-claudia-plugins/           # Git 仓库
       "author": "Example Inc",
       "downloadUrl": "https://github.com/example/my-claudia-plugins/releases/download/jira-1.0.0/jira.zip",
       "manifestUrl": "plugins/jira/manifest.json",
-      "checksum": "sha256:abc123..."
-    },
-    {
-      "id": "com.example.timer",
-      "name": "Timer & Reminder",
-      "version": "1.0.0",
-      "description": "定时提醒和任务调度",
-      "downloadUrl": "https://github.com/example/my-claudia-plugins/releases/download/timer-1.0.0/timer.zip",
-      "manifestUrl": "plugins/timer/manifest.json",
-      "checksum": "sha256:def456..."
+      "checksum": "sha256:abc123...",
+      "engines": { "claudia": ">=0.1.0" }
     }
   ]
 }
 ```
 
-### 插件源配置
+---
+
+## 插件示例
+
+### Timer 插件 (验证完整流程)
 
 ```typescript
-// 用户配置
-interface PluginSourceConfig {
-  // 插件源列表
-  sources: PluginSource[];
-
-  // 已安装的插件
-  installed: InstalledPlugin[];
-
-  // 更新检查配置
-  updateCheck: {
-    enabled: boolean;
-    interval: 'startup' | 'daily' | 'weekly' | 'manual';
-  };
+// ~/.claudia/plugins/timer/plugin.json
+{
+  "id": "com.example.timer",
+  "name": "Timer & Reminder",
+  "version": "1.0.0",
+  "description": "定时提醒和任务调度",
+  "main": "dist/index.js",
+  "permissions": ["storage", "notification"],
+  "executionMode": "worker",
+  "engines": { "claudia": ">=0.1.0" },
+  "contributes": {
+    "commands": [
+      { "command": "/timer:set", "title": "Set Timer" },
+      { "command": "/timer:list", "title": "List Timers" }
+    ],
+    "tools": [
+      {
+        "id": "set_timer",
+        "name": "set_timer",
+        "description": "Set a timer for N seconds",
+        "parameters": { "seconds": { "type": "number" } }
+      }
+    ]
+  }
 }
 
-interface PluginSource {
-  id: string;
-  name: string;
-  type: 'git' | 'local' | 'npm';
-  url: string;  // Git 仓库 URL
-  enabled: boolean;
-  lastUpdated?: string;
-}
+// dist/index.js
+export async function activate(ctx) {
+  ctx.registerCommand('/timer:set', async (args) => {
+    const seconds = parseInt(args[0]);
+    setTimeout(() => {
+      ctx.notification.show('Timer', 'Timer completed!');
+    }, seconds * 1000);
+    return { type: 'custom', content: `Timer set for ${seconds}s` };
+  });
 
-// 示例配置
-const config: PluginSourceConfig = {
-  sources: [
-    {
-      id: 'official',
-      name: 'Official Plugins',
-      type: 'git',
-      url: 'https://github.com/my-claudia/official-plugins',
-      enabled: true,
+  ctx.registerTool({
+    id: 'set_timer',
+    name: 'set_timer',
+    description: 'Set a timer',
+    parameters: { type: 'object', properties: { seconds: { type: 'number' } } },
+    handler: async (args) => {
+      return JSON.stringify({ message: `Timer set for ${args.seconds}s` });
     },
-    {
-      id: 'community',
-      name: 'Community Plugins',
-      type: 'git',
-      url: 'https://github.com/my-claudia/community-plugins',
-      enabled: true,
+    scope: ['agent-assistant', 'main-session'],
+  });
+}
+```
+
+### Jira 集成插件
+
+```typescript
+// plugins/jira/plugin.json
+{
+  "id": "com.example.jira",
+  "name": "Jira Integration",
+  "version": "1.0.0",
+  "description": "查看和管理 Jira 任务",
+  "main": "dist/index.js",
+  "permissions": ["network.fetch", "storage", "notification"],
+  "executionMode": "worker",
+  "engines": { "claudia": ">=0.1.0" },
+  "dependencies": { "com.example.git": ">=1.0.0" },
+  "activationEvents": ["onCommand:jira.showTasks"],
+  "contributes": {
+    "tools": [
+      {
+        "id": "jira.getTasks",
+        "name": "get_jira_tasks",
+        "description": "获取当前用户的 Jira 任务列表",
+        "parameters": { "type": "object", "properties": { "status": { "type": "string" } } },
+        "scope": ["agent-assistant", "main-session"]
+      }
+    ],
+    "commands": [
+      { "id": "jira.showTasks", "title": "Show Jira Tasks", "category": "Jira" }
+    ],
+    "uiExtensions": [
+      { "id": "jira.panel", "location": "sidebar" }
+    ],
+    "keybindings": [
+      { "command": "jira.showTasks", "key": "cmd+shift+j" }
+    ]
+  }
+}
+
+// dist/index.js
+export async function activate(ctx) {
+  const config = await ctx.storage.get('config');
+  const jiraClient = new JiraClient(config);
+
+  // 使用其他插件的 API
+  const gitAPI = ctx.getPluginAPI('com.example.git');
+
+  ctx.registerTool({
+    id: 'jira.getTasks',
+    handler: async (args) => {
+      const tasks = await jiraClient.getTasks(args.status);
+      return JSON.stringify(tasks);
     },
-  ],
-  installed: [],
-  updateCheck: {
-    enabled: true,
-    interval: 'startup',
-  },
-};
-```
+  });
 
-### 插件安装流程
-
-```
-1. 用户添加插件源（Git URL）
-   ↓
-2. 系统拉取 index.json
-   ↓
-3. 用户浏览可用插件列表
-   ↓
-4. 用户选择安装插件
-   ↓
-5. 下载 zip 包到 ~/.my-claudia/plugins/{plugin-id}/
-   ↓
-6. 验证 checksum
-   ↓
-7. 解析 manifest.json
-   ↓
-8. 显示权限请求，用户确认
-   ↓
-9. 激活插件
-```
-
-### 自动更新流程
-
-```
-1. 应用启动时
-   ↓
-2. 检查所有插件源的 index.json 更新
-   ↓
-3. 对比已安装插件的版本
-   ↓
-4. 如有更新，显示通知
-   ↓
-5. 用户确认后下载更新
-```
-
----
-
-## 服务端事件系统设计
-
-### 架构
-
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│                        Server Event System                           │
-├─────────────────────────────────────────────────────────────────────┤
-│                                                                      │
-│  ┌──────────────────────────────────────────────────────────────┐  │
-│  │                     EventEmitter (server)                     │  │
-│  │  ┌────────────┐  ┌────────────┐  ┌────────────┐            │  │
-│  │  │ listeners  │  │ emit()     │  │ hooks      │            │  │
-│  │  │ 监听器     │  │ 发送事件   │  │ 钩子       │            │  │
-│  │  └────────────┘  └────────────┘  └────────────┘            │  │
-│  └──────────────────────────────────────────────────────────────┘  │
-│         │                    │                    │                 │
-│         ▼                    ▼                    ▼                 │
-│  ┌─────────────┐    ┌─────────────┐    ┌─────────────┐            │
-│  │ Plugin A    │    │ Plugin B    │    │ WebSocket   │            │
-│  │ (监听事件)  │    │ (监听事件)  │    │ (广播事件)  │            │
-│  └─────────────┘    └─────────────┘    └─────────────┘            │
-│                                                                      │
-└─────────────────────────────────────────────────────────────────────┘
-```
-
-### 实现
-
-```typescript
-// server/src/services/event-system.ts
-
-type EventHandler = (event: PluginEvent) => void | Promise<void>;
-type HookHandler = (event: PluginEvent) => boolean | void | Promise<boolean | void>;
-
-interface PluginEvent {
-  type: string;
-  data: any;
-  timestamp: number;
-  cancelable?: boolean;
-  cancelled?: boolean;
-}
-
-class EventSystem {
-  private listeners = new Map<string, Set<EventHandler>>();
-  private hooks = new Map<string, Set<HookHandler>>();
-
-  // 监听事件
-  on(event: string, handler: EventHandler): () => void {
-    if (!this.listeners.has(event)) {
-      this.listeners.set(event, new Set());
-    }
-    this.listeners.get(event)!.add(handler);
-    return () => this.off(event, handler);
-  }
-
-  // 注册钩子（可取消事件）
-  registerHook(event: string, handler: HookHandler): () => void {
-    if (!this.hooks.has(event)) {
-      this.hooks.set(event, new Set());
-    }
-    this.hooks.get(event)!.add(handler);
-    return () => this.unregisterHook(event, handler);
-  }
-
-  // 发送事件
-  async emit(type: string, data: any): Promise<PluginEvent> {
-    const event: PluginEvent = {
-      type,
-      data,
-      timestamp: Date.now(),
-      cancelable: false,
-    };
-
-    // 先执行钩子
-    const hooks = this.hooks.get(type);
-    if (hooks) {
-      for (const hook of hooks) {
-        const result = await hook(event);
-        if (result === false) {
-          event.cancelled = true;
-          return event;
-        }
-      }
-    }
-
-    // 再通知监听器
-    const listeners = this.listeners.get(type);
-    if (listeners) {
-      for (const listener of listeners) {
-        await listener(event);
-      }
-    }
-
-    // 广播到前端
-    this.broadcastToClients(event);
-
-    return event;
-  }
-
-  // 发送可取消事件
-  async emitCancelable(type: string, data: any): Promise<PluginEvent> {
-    const event: PluginEvent = {
-      type,
-      data,
-      timestamp: Date.now(),
-      cancelable: true,
-    };
-
-    const hooks = this.hooks.get(type);
-    if (hooks) {
-      for (const hook of hooks) {
-        const result = await hook(event);
-        if (result === false) {
-          event.cancelled = true;
-          return event;
-        }
-      }
-    }
-
-    if (!event.cancelled) {
-      const listeners = this.listeners.get(type);
-      if (listeners) {
-        for (const listener of listeners) {
-          await listener(event);
-        }
-      }
-      this.broadcastToClients(event);
-    }
-
-    return event;
-  }
-
-  private off(event: string, handler: EventHandler): void {
-    this.listeners.get(event)?.delete(handler);
-  }
-
-  private unregisterHook(event: string, handler: HookHandler): void {
-    this.hooks.get(event)?.delete(handler);
-  }
-
-  private broadcastToClients(event: PluginEvent): void {
-    // 广播到所有连接的 WebSocket 客户端
-    // 实现在 server.ts 中
-  }
-}
-
-export const eventSystem = new EventSystem();
-```
-
----
-
-## 服务端工具注册表设计
-
-### 实现
-
-```typescript
-// server/src/services/tool-registry.ts
-
-interface RegisteredTool {
-  id: string;
-  pluginId: string;
-  definition: ToolDefinition;
-  handler: ToolHandler;
-}
-
-type ToolHandler = (args: any, context: ToolContext) => Promise<ToolResult>;
-
-interface ToolContext {
-  sessionId?: string;
-  projectId?: string;
-  userId?: string;
-  // 插件 API
-  plugin: PluginContext;
-}
-
-class ToolRegistry {
-  private tools = new Map<string, RegisteredTool>();
-
-  // 注册工具
-  register(pluginId: string, tool: PluginTool, handler: ToolHandler): void {
-    const id = `${pluginId}:${tool.id}`;
-    if (this.tools.has(id)) {
-      throw new Error(`Tool already registered: ${id}`);
-    }
-    this.tools.set(id, {
-      id,
-      pluginId,
-      definition: tool,
-      handler,
-    });
-  }
-
-  // 注销工具
-  unregister(toolId: string): void {
-    this.tools.delete(toolId);
-  }
-
-  // 注销插件的所有工具
-  unregisterPlugin(pluginId: string): void {
-    for (const [id, tool] of this.tools) {
-      if (tool.pluginId === pluginId) {
-        this.tools.delete(id);
-      }
-    }
-  }
-
-  // 获取所有工具定义（供 AI 调用）
-  getToolDefinitions(): ToolDefinition[] {
-    return Array.from(this.tools.values()).map(t => t.definition);
-  }
-
-  // 执行工具
-  async execute(toolName: string, args: any, context: ToolContext): Promise<ToolResult> {
-    // 查找工具（支持短名称和完整 ID）
-    let tool: RegisteredTool | undefined;
-    for (const t of this.tools.values()) {
-      if (t.definition.name === toolName || t.id === toolName) {
-        tool = t;
-        break;
-      }
-    }
-
-    if (!tool) {
-      throw new Error(`Tool not found: ${toolName}`);
-    }
-
-    return tool.handler(args, context);
-  }
-}
-
-export const toolRegistry = new ToolRegistry();
-```
-
----
-
-## 改造后的 agentTools.ts
-
-```typescript
-// apps/desktop/src/services/agentTools.ts
-
-// 改造前：switch 语句
-// 改造后：调用服务端 API
-
-import { api } from './api';
-
-export async function executeToolCall(toolCall: ToolCall): Promise<string> {
-  try {
-    const result = await api.executePluginTool({
-      toolName: toolCall.function.name,
-      arguments: JSON.parse(toolCall.function.arguments),
-    });
-    return JSON.stringify(result);
-  } catch (error) {
-    return JSON.stringify({
-      error: error instanceof Error ? error.message : String(error),
-    });
-  }
-}
-
-// 获取所有可用工具（包括插件提供的）
-export async function getAvailableTools(): Promise<ToolDefinition[]> {
-  return api.getPluginTools();
+  ctx.registerCommand({
+    id: 'jira.showTasks',
+    handler: () => ctx.ui.showPanel('jira.panel'),
+  });
 }
 ```
 
 ---
 
-## 实现计划（更新）
+## 插件开发者体验 (DX)
 
-### Phase 1: 核心框架 (Week 1)
+### 脚手架
 
-**服务端：**
-- [ ] 创建 `shared/src/plugin-types.ts` - 插件协议定义
-- [ ] 创建 `server/src/services/event-system.ts` - 事件系统
-- [ ] 创建 `server/src/services/tool-registry.ts` - 工具注册表
-- [ ] 创建 `server/src/services/plugin-loader.ts` - 插件加载器
+```bash
+# 创建插件项目
+npx create-claudia-plugin my-plugin
+# 生成:
+# my-plugin/
+# ├── plugin.json          # manifest
+# ├── src/index.ts          # entry
+# ├── tsconfig.json
+# └── package.json          # 含 @my-claudia/plugin-types 依赖
+```
 
-**前端：**
-- [ ] 更新 `agentTools.ts` - 改用服务端 API
+### 开发模式
 
-### Phase 2: 插件源系统 (Week 2)
+- 插件放入 `~/.claudia/plugins/` 后，应用检测文件变化自动重载（dev 模式）
+- 服务端日志自动标记插件来源：`[plugin:com.example.jira] Fetched 12 tasks`
 
-**服务端：**
-- [ ] 实现 Git 仓库索引拉取
-- [ ] 实现 Zip 下载和安装
-- [ ] 实现版本检查和更新
+### 调试工具
 
-**前端：**
-- [ ] 插件市场 UI
-- [ ] 插件源管理 UI
-- [ ] 安装/更新/卸载 UI
+Settings → Plugins 面板提供：
+- 已加载插件列表（状态、版本、权限）
+- 插件事件日志（实时查看事件流）
+- 手动启用/禁用/重载插件
+- 权限管理（查看/撤销）
 
-### Phase 3: 集成 (Week 3)
+### 类型支持
 
-- [ ] 将事件系统集成到 server.ts
-- [ ] 将工具注册表集成到 AI 运行流程
-- [ ] 实现 Agent Assistant 使用插件工具
-- [ ] 实现主会话使用插件工具
+```bash
+npm install --save-dev @my-claudia/plugin-types
+```
 
-### Phase 4: 内置插件 (Week 4)
+提供完整的 TypeScript 类型定义，包括 PluginContext、所有 API 接口、事件类型。
 
-- [ ] Timer & Reminder 插件
-- [ ] Session Monitor 插件
-- [ ] Message Search 插件
-- [ ] Multi-Model Collaborative Refinement 插件
+---
+
+## 风险与缓解
+
+| 风险 | 缓解措施 |
+|------|----------|
+| 插件代码安全 | 权限系统 + 用户确认 + worker/sandbox 隔离 |
+| 插件崩溃影响主应用 | worker 模式隔离 + 超时保护 + 自动禁用崩溃插件 |
+| 插件版本兼容性 | Manifest 中 `engines.claudia` 声明 + 加载时检查 |
+| UI 扩展性能 | 懒加载插件组件 + activationEvents 延迟激活 |
+| 插件间冲突 | 命名空间隔离（pluginId 前缀） + 依赖声明 |
+| 恶意插件 | checksum 校验 + 插件源审核 + 权限最小化原则 |
+
+---
+
+## 与其他设计的关系
+
+| 设计 | 关系 |
+|------|------|
+| **Agent Assistant Plugin Platform** | Agent Assistant 是插件平台的一个主要使用场景 |
+| **Multi-Model Collaborative Refinement** | 可以作为一个插件实现 |
+
+通用插件平台为整个应用提供扩展能力，Agent Assistant 和其他功能都可以基于此构建。

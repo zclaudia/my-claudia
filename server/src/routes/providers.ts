@@ -11,6 +11,8 @@ import { LOCAL_COMMANDS, CLI_COMMANDS, CLAUDE_FALLBACK_COMMANDS } from '@my-clau
 import { scanCustomCommands } from '../utils/command-scanner.js';
 import { openCodeServerManager } from '../providers/opencode-sdk.js';
 import { fetchClaudeModels, fetchClaudeCommands } from '../providers/claude-sdk.js';
+import { commandRegistry } from '../commands/registry.js';
+import { toolRegistry } from '../plugins/tool-registry.js';
 
 const execFile = promisify(execFileCb);
 
@@ -273,10 +275,13 @@ export function createProviderRoutes(db: Database.Database): Router {
       const providerCommandNames = new Set(providerCommands.map(c => c.command));
       const dedupedCustom = customCommands.filter(c => !providerCommandNames.has(c.command));
 
+      const pluginCommands = commandRegistry.getCommandsBySource('plugin');
+
       const allCommands: SlashCommand[] = [
         ...LOCAL_COMMANDS,
         ...CLI_COMMANDS,
         ...providerCommands,
+        ...pluginCommands,
         ...dedupedCustom
       ];
 
@@ -302,10 +307,13 @@ export function createProviderRoutes(db: Database.Database): Router {
       const providerCommandNames = new Set(providerCommands.map(c => c.command));
       const dedupedCustom = customCommands.filter(c => !providerCommandNames.has(c.command));
 
+      const pluginCommands = commandRegistry.getCommandsBySource('plugin');
+
       const allCommands: SlashCommand[] = [
         ...LOCAL_COMMANDS,
         ...CLI_COMMANDS,
         ...providerCommands,
+        ...pluginCommands,
         ...dedupedCustom
       ];
 
@@ -396,6 +404,20 @@ export function createProviderRoutes(db: Database.Database): Router {
       res.status(500).json({
         success: false,
         error: { code: 'SERVER_ERROR', message: 'Failed to fetch provider capabilities' }
+      });
+    }
+  });
+
+  // Get plugin tools
+  router.get('/plugin-tools', (_req: Request, res: Response) => {
+    try {
+      const pluginTools = toolRegistry.getDefinitionsBySource('plugin');
+      res.json({ success: true, data: pluginTools });
+    } catch (error) {
+      console.error('Error fetching plugin tools:', error);
+      res.status(500).json({
+        success: false,
+        error: { code: 'SERVER_ERROR', message: 'Failed to fetch plugin tools' }
       });
     }
   });
