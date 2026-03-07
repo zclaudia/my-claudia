@@ -15,8 +15,12 @@ import { SearchFilters } from './SearchFilters';
 import { ActiveSessionsPanel } from './ActiveSessionsPanel';
 import { ArchivedSessionsDialog } from './ArchivedSessionsDialog';
 import { SuperviseDialog } from './SuperviseDialog';
+import { SessionItem } from './sidebar/SessionItem';
+import { WorktreeGroupItem } from './sidebar/WorktreeGroupItem';
+import { groupSessionsByWorktree } from './sidebar/worktreeGrouping';
 import * as api from '../services/api';
 import type { SearchResult, SearchHistoryEntry, SearchFilters as Filters } from '../services/api';
+import type { GitWorktree } from '@my-claudia/shared';
 
 interface SidebarProps {
   collapsed: boolean;
@@ -88,6 +92,8 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
   const [searchOffset, setSearchOffset] = useState(0);
   const [hasMoreResults, setHasMoreResults] = useState(false);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [expandedWorktrees, setExpandedWorktrees] = useState<Set<string>>(new Set());
+  const [worktreesByProject, setWorktreesByProject] = useState<Map<string, GitWorktree[]>>(new Map());
   const searchTimerRef = useRef<number | null>(null);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -112,6 +118,56 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
   const getFilteredSessionsForProject = useCallback((projectId: string) => {
     return sessionsByProject.get(projectId) || [];
   }, [sessionsByProject]);
+
+  // Fetch worktree data lazily when a project is expanded
+  useEffect(() => {
+    for (const projectId of expandedProjects) {
+      if (!worktreesByProject.has(projectId)) {
+        api.getProjectWorktrees(projectId).then(wts => {
+          setWorktreesByProject(prev => new Map(prev).set(projectId, wts));
+        }).catch(() => {
+          // Non-git project or error — store empty array
+          setWorktreesByProject(prev => new Map(prev).set(projectId, []));
+        });
+      }
+    }
+  }, [expandedProjects, worktreesByProject]);
+
+  // Group sessions by worktree for a project (returns [] if flat list should be used)
+  const getWorktreeGroupsForProject = useCallback((projectId: string) => {
+    const projectSessions = sessionsByProject.get(projectId) || [];
+    const project = projects.find(p => p.id === projectId);
+    const worktrees = worktreesByProject.get(projectId) || [];
+    return groupSessionsByWorktree(projectSessions, project?.rootPath, worktrees);
+  }, [sessionsByProject, projects, worktreesByProject]);
+
+  const toggleWorktree = useCallback((key: string) => {
+    setExpandedWorktrees(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }, []);
+
+  // Auto-expand worktree group when a session is selected
+  useEffect(() => {
+    if (!selectedSessionId) return;
+    const session = sessions.find(s => s.id === selectedSessionId);
+    if (!session) return;
+    const groups = getWorktreeGroupsForProject(session.projectId);
+    if (groups.length === 0) return; // flat list mode
+    for (const group of groups) {
+      if (group.sessions.some(s => s.id === selectedSessionId)) {
+        const wtKey = `${session.projectId}:${group.key}`;
+        setExpandedWorktrees(prev => {
+          if (prev.has(wtKey)) return prev;
+          return new Set(prev).add(wtKey);
+        });
+        break;
+      }
+    }
+  }, [selectedSessionId, sessions, getWorktreeGroupsForProject]);
 
   const toggleProject = (projectId: string) => {
     const newExpanded = new Set(expandedProjects);
@@ -721,145 +777,51 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
                     </div>
 
                     {/* Sessions */}
-                    {expandedProjects.has(project.id) && (
-                      <ul className="ml-6 mt-1 space-y-1" data-testid="session-list">
-                        {getFilteredSessionsForProject(project.id)
-                          .map((session) => (
-                            <li key={session.id} className="relative group" data-testid="session-item">
-                              <div className="flex items-center">
-                                {renamingSessionId === session.id ? (
-                                  <input
-                                    autoFocus
-                                    type="text"
-                                    value={renameSessionValue}
-                                    onChange={(e) => setRenameSessionValue(e.target.value)}
-                                    onKeyDown={(e) => {
-                                      if (e.key === 'Enter') handleRenameSession(session.id);
-                                      if (e.key === 'Escape') setRenamingSessionId(null);
-                                    }}
-                                    onBlur={() => handleRenameSession(session.id)}
-                                    className="flex-1 min-w-0 min-h-[44px] px-2 rounded text-sm bg-secondary border border-border text-foreground outline-none"
-                                  />
-                                ) : (
-                                  <button
-                                    onClick={() => {
-                                      selectSession(session.id);
-                                      if (onClose) onClose();
-                                    }}
-                                    className={`flex-1 min-w-0 min-h-[44px] text-left px-2 rounded text-sm truncate flex items-center gap-1 ${
-                                      selectedSessionId === session.id
-                                        ? 'bg-primary text-primary-foreground'
-                                        : 'text-muted-foreground hover:bg-secondary active:bg-secondary hover:text-foreground'
-                                    }`}
-                                  >
-                                    <span className="truncate">{session.name || 'Untitled Session'}</span>
-                                    {hasPendingForSession(session.id) && (
-                                      <span className="ml-auto w-2 h-2 rounded-full bg-amber-500 animate-pulse shrink-0" title="Pending permission" />
-                                    )}
-                                    {supervisions[session.id] && !hasPendingForSession(session.id) && (
-                                      <span
-                                        className={`ml-auto w-2 h-2 rounded-full shrink-0 ${
-                                          supervisions[session.id].status === 'active'
-                                            ? 'bg-green-500 animate-pulse'
-                                            : supervisions[session.id].status === 'paused'
-                                              ? 'bg-yellow-500'
-                                              : ''
-                                        }`}
-                                        title={`Supervised: ${supervisions[session.id].goal} (${supervisions[session.id].currentIteration}/${supervisions[session.id].maxIterations})`}
-                                      />
-                                    )}
-                                  </button>
-                                )}
-                                {/* Session menu button */}
-                                <button
-                                  onClick={(e) => openContextMenu(e, 'session', session.id)}
-                                  className="w-10 h-10 rounded hover:bg-secondary active:bg-secondary flex-shrink-0 flex items-center justify-center"
-                                >
-                                  <svg className="w-4 h-4 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2z" />
-                                  </svg>
-                                </button>
-                              </div>
+                    {expandedProjects.has(project.id) && (() => {
+                      const groups = getWorktreeGroupsForProject(project.id);
+                      const renderSession = (session: typeof sessions[0]) => (
+                        <SessionItem
+                          key={session.id}
+                          session={session}
+                          isSelected={selectedSessionId === session.id}
+                          isRenaming={renamingSessionId === session.id}
+                          renameValue={renameSessionValue}
+                          onSelect={(id) => { selectSession(id); if (onClose) onClose(); }}
+                          onRenameChange={setRenameSessionValue}
+                          onRenameSubmit={handleRenameSession}
+                          onRenameCancel={() => setRenamingSessionId(null)}
+                          onContextMenu={(e, id) => openContextMenu(e, 'session', id)}
+                          hasPending={hasPendingForSession(session.id)}
+                          supervisionInfo={supervisions[session.id]}
+                          isMobile
+                        />
+                      );
 
-                              {/* Session context menu */}
-                              {contextMenuSession === session.id && contextMenuPos && (
-                                <>
-                                  <div className="fixed inset-0 z-40" onClick={() => setContextMenuSession(null)} />
-                                  <div className="fixed w-40 bg-popover border border-border rounded-lg shadow-lg z-50" style={{ top: contextMenuPos.top, left: contextMenuPos.left }}>
-                                    <button
-                                      onClick={() => startRenamingSession(session.id, session.name || '')}
-                                      className="w-full text-left px-3 py-3 text-sm hover:bg-secondary active:bg-secondary"
-                                    >
-                                      Rename
-                                    </button>
-                                    <button
-                                      onClick={() => handleExportSession(session.id)}
-                                      className="w-full text-left px-3 py-3 text-sm hover:bg-secondary active:bg-secondary"
-                                    >
-                                      Export Markdown
-                                    </button>
-                                    {/* Supervision actions */}
-                                    {!supervisions[session.id] || ['completed', 'failed', 'cancelled'].includes(supervisions[session.id].status) ? (
-                                      <button
-                                        onClick={() => {
-                                          setSuperviseSessionId(session.id);
-                                          setContextMenuSession(null);
-                                        }}
-                                        disabled={!isConnected}
-                                        className="w-full text-left px-3 py-3 text-sm hover:bg-secondary active:bg-secondary disabled:opacity-50"
-                                      >
-                                        Supervise
-                                      </button>
-                                    ) : (
-                                      <>
-                                        {supervisions[session.id].status === 'active' && (
-                                          <button
-                                            onClick={async () => {
-                                              await api.pauseSupervision(supervisions[session.id].id);
-                                              setContextMenuSession(null);
-                                            }}
-                                            className="w-full text-left px-3 py-3 text-sm hover:bg-secondary active:bg-secondary"
-                                          >
-                                            Pause Supervision
-                                          </button>
-                                        )}
-                                        {supervisions[session.id].status === 'paused' && (
-                                          <button
-                                            onClick={async () => {
-                                              await api.resumeSupervision(supervisions[session.id].id);
-                                              setContextMenuSession(null);
-                                            }}
-                                            className="w-full text-left px-3 py-3 text-sm hover:bg-secondary active:bg-secondary"
-                                          >
-                                            Resume Supervision
-                                          </button>
-                                        )}
-                                        <button
-                                          onClick={async () => {
-                                            await api.cancelSupervision(supervisions[session.id].id);
-                                            setContextMenuSession(null);
-                                          }}
-                                          className="w-full text-left px-3 py-3 text-sm text-destructive hover:bg-secondary active:bg-secondary"
-                                        >
-                                          Cancel Supervision
-                                        </button>
-                                      </>
-                                    )}
-                                    <button
-                                      onClick={() => handleArchiveSession(session.id)}
-                                      className="w-full text-left px-3 py-3 text-sm hover:bg-secondary active:bg-secondary"
-                                    >
-                                      Archive
-                                    </button>
-                                  </div>
-                                </>
-                              )}
-                            </li>
-                          ))}
+                      return (
+                        <div className="ml-6 mt-1" data-testid="session-list">
+                          {groups.length === 0 ? (
+                            // Flat list (no worktree grouping)
+                            <ul className="space-y-1">
+                              {getFilteredSessionsForProject(project.id).map(renderSession)}
+                            </ul>
+                          ) : (
+                            // Tree view grouped by worktree
+                            groups.map(group => (
+                              <WorktreeGroupItem
+                                key={group.key}
+                                group={group}
+                                isExpanded={expandedWorktrees.has(`${project.id}:${group.key}`)}
+                                onToggle={() => toggleWorktree(`${project.id}:${group.key}`)}
+                                isMobile
+                              >
+                                {group.sessions.map(renderSession)}
+                              </WorktreeGroupItem>
+                            ))
+                          )}
 
-                        {/* New session form */}
-                        {creatingSessionForProject === project.id && (
-                          <li>
+                          {/* New session form */}
+                          {creatingSessionForProject === project.id && (
+                            <div>
                             <input
                               type="text"
                               value={newSessionName}
@@ -908,15 +870,45 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
                                 Cancel
                               </button>
                             </div>
-                          </li>
+                          </div>
                         )}
-                      </ul>
-                    )}
+                      </div>
+                    );
+                    })()}
                   </li>
                 ))}
               </ul>
             )}
           </div>
+
+          {/* Session context menu (mobile) */}
+          {contextMenuSession && contextMenuPos && (() => {
+            const session = sessions.find(s => s.id === contextMenuSession);
+            if (!session) return null;
+            return (
+              <>
+                <div className="fixed inset-0 z-40" onClick={() => setContextMenuSession(null)} />
+                <div className="fixed w-40 bg-popover border border-border rounded-lg shadow-lg z-50" style={{ top: contextMenuPos.top, left: contextMenuPos.left }}>
+                  <button onClick={() => startRenamingSession(session.id, session.name || '')} className="w-full text-left px-3 py-3 text-sm hover:bg-secondary active:bg-secondary">Rename</button>
+                  <button onClick={() => handleExportSession(session.id)} className="w-full text-left px-3 py-3 text-sm hover:bg-secondary active:bg-secondary">Export Markdown</button>
+                  {!supervisions[session.id] || ['completed', 'failed', 'cancelled'].includes(supervisions[session.id].status) ? (
+                    <button onClick={() => { setSuperviseSessionId(session.id); setContextMenuSession(null); }} disabled={!isConnected} className="w-full text-left px-3 py-3 text-sm hover:bg-secondary active:bg-secondary disabled:opacity-50">Supervise</button>
+                  ) : (
+                    <>
+                      {supervisions[session.id].status === 'active' && (
+                        <button onClick={async () => { await api.pauseSupervision(supervisions[session.id].id); setContextMenuSession(null); }} className="w-full text-left px-3 py-3 text-sm hover:bg-secondary active:bg-secondary">Pause Supervision</button>
+                      )}
+                      {supervisions[session.id].status === 'paused' && (
+                        <button onClick={async () => { await api.resumeSupervision(supervisions[session.id].id); setContextMenuSession(null); }} className="w-full text-left px-3 py-3 text-sm hover:bg-secondary active:bg-secondary">Resume Supervision</button>
+                      )}
+                      <button onClick={async () => { await api.cancelSupervision(supervisions[session.id].id); setContextMenuSession(null); }} className="w-full text-left px-3 py-3 text-sm text-destructive hover:bg-secondary active:bg-secondary">Cancel Supervision</button>
+                    </>
+                  )}
+                  <button onClick={() => handleArchiveSession(session.id)} className="w-full text-left px-3 py-3 text-sm hover:bg-secondary active:bg-secondary">Archive</button>
+                </div>
+              </>
+            );
+          })()}
 
           {/* Archived Sessions entry + Active Sessions - Fixed at bottom */}
           <div className="flex-shrink-0">
@@ -1327,146 +1319,50 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
                 </div>
 
                 {/* Sessions */}
-                {expandedProjects.has(project.id) && (
-                  <ul className="ml-6 mt-1 space-y-1" data-testid="session-list">
-                    {getFilteredSessionsForProject(project.id)
-                      .map((session) => (
-                        <li key={session.id} className="relative group" data-testid="session-item">
-                          <div className="flex items-center">
-                            {renamingSessionId === session.id ? (
-                              <input
-                                autoFocus
-                                type="text"
-                                value={renameSessionValue}
-                                onChange={(e) => setRenameSessionValue(e.target.value)}
-                                onKeyDown={(e) => {
-                                  if (e.key === 'Enter') handleRenameSession(session.id);
-                                  if (e.key === 'Escape') setRenamingSessionId(null);
-                                }}
-                                onBlur={() => handleRenameSession(session.id)}
-                                className="flex-1 min-w-0 h-7 px-2 rounded text-sm bg-secondary border border-border text-foreground outline-none"
-                              />
-                            ) : (
-                              <button
-                                onClick={() => {
-                                  selectSession(session.id);
-                                  if (isMobile && onClose) onClose();
-                                }}
-                                className={`flex-1 min-w-0 h-7 text-left px-2 rounded text-sm truncate flex items-center gap-1 border border-transparent ${
-                                  selectedSessionId === session.id
-                                    ? 'bg-primary text-primary-foreground'
-                                    : 'text-muted-foreground hover:bg-secondary hover:text-foreground'
-                                }`}
-                              >
-                                <span className="truncate">{session.name || 'Untitled Session'}</span>
-                                {hasPendingForSession(session.id) && (
-                                  <span className="ml-auto w-2 h-2 rounded-full bg-amber-500 animate-pulse shrink-0" title="Pending permission" />
-                                )}
-                                {supervisions[session.id] && !hasPendingForSession(session.id) && (
-                                  <span
-                                    className={`ml-auto w-2 h-2 rounded-full shrink-0 ${
-                                      supervisions[session.id].status === 'active'
-                                        ? 'bg-green-500 animate-pulse'
-                                        : supervisions[session.id].status === 'paused'
-                                          ? 'bg-yellow-500'
-                                          : ''
-                                    }`}
-                                    title={`Supervised: ${supervisions[session.id].goal} (${supervisions[session.id].currentIteration}/${supervisions[session.id].maxIterations})`}
-                                  />
-                                )}
-                              </button>
-                            )}
-                            {/* Session menu button */}
-                            <button
-                              onClick={(e) => openContextMenu(e, 'session', session.id)}
-                              className="w-7 h-7 rounded opacity-0 group-hover:opacity-100 hover:bg-secondary flex-shrink-0 flex items-center justify-center"
-                            >
-                              <svg className="w-4 h-4 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z" />
-                              </svg>
-                            </button>
-                          </div>
+                {expandedProjects.has(project.id) && (() => {
+                  const groups = getWorktreeGroupsForProject(project.id);
+                  const renderSession = (session: typeof sessions[0]) => (
+                    <SessionItem
+                      key={session.id}
+                      session={session}
+                      isSelected={selectedSessionId === session.id}
+                      isRenaming={renamingSessionId === session.id}
+                      renameValue={renameSessionValue}
+                      onSelect={(id) => { selectSession(id); if (isMobile && onClose) onClose(); }}
+                      onRenameChange={setRenameSessionValue}
+                      onRenameSubmit={handleRenameSession}
+                      onRenameCancel={() => setRenamingSessionId(null)}
+                      onContextMenu={(e, id) => openContextMenu(e, 'session', id)}
+                      hasPending={hasPendingForSession(session.id)}
+                      supervisionInfo={supervisions[session.id]}
+                    />
+                  );
 
-                          {/* Session context menu */}
-                          {contextMenuSession === session.id && contextMenuPos && (
-                            <>
-                              <div className="fixed inset-0 z-40" onClick={() => setContextMenuSession(null)} />
-                              <div className="fixed w-44 bg-popover border border-border rounded shadow-lg z-50" style={{ top: contextMenuPos.top, left: contextMenuPos.left }}>
-                                <button
-                                  onClick={() => startRenamingSession(session.id, session.name || '')}
-                                  className="w-full text-left px-3 py-1.5 text-sm hover:bg-secondary"
-                                >
-                                  Rename
-                                </button>
-                                <button
-                                  onClick={() => handleExportSession(session.id)}
-                                  className="w-full text-left px-3 py-1.5 text-sm hover:bg-secondary"
-                                >
-                                  Export Markdown
-                                </button>
-                                {/* Supervision actions */}
-                                {!supervisions[session.id] || ['completed', 'failed', 'cancelled'].includes(supervisions[session.id].status) ? (
-                                  <button
-                                    onClick={() => {
-                                      setSuperviseSessionId(session.id);
-                                      setContextMenuSession(null);
-                                    }}
-                                    disabled={!isConnected}
-                                    className="w-full text-left px-3 py-1.5 text-sm hover:bg-secondary disabled:opacity-50"
-                                  >
-                                    Supervise
-                                  </button>
-                                ) : (
-                                  <>
-                                    {supervisions[session.id].status === 'active' && (
-                                      <button
-                                        onClick={async () => {
-                                          await api.pauseSupervision(supervisions[session.id].id);
-                                          setContextMenuSession(null);
-                                        }}
-                                        className="w-full text-left px-3 py-1.5 text-sm hover:bg-secondary"
-                                      >
-                                        Pause Supervision
-                                      </button>
-                                    )}
-                                    {supervisions[session.id].status === 'paused' && (
-                                      <button
-                                        onClick={async () => {
-                                          await api.resumeSupervision(supervisions[session.id].id);
-                                          setContextMenuSession(null);
-                                        }}
-                                        className="w-full text-left px-3 py-1.5 text-sm hover:bg-secondary"
-                                      >
-                                        Resume Supervision
-                                      </button>
-                                    )}
-                                    <button
-                                      onClick={async () => {
-                                        await api.cancelSupervision(supervisions[session.id].id);
-                                        setContextMenuSession(null);
-                                      }}
-                                      className="w-full text-left px-3 py-1.5 text-sm text-destructive hover:bg-secondary"
-                                    >
-                                      Cancel Supervision
-                                    </button>
-                                  </>
-                                )}
-                                <button
-                                  onClick={() => handleArchiveSession(session.id)}
-                                  className="w-full text-left px-3 py-1.5 text-sm hover:bg-secondary"
-                                >
-                                  Archive
-                                </button>
-                              </div>
-                            </>
-                          )}
-                        </li>
-                      ))}
+                  return (
+                    <div className="ml-6 mt-1" data-testid="session-list">
+                      {groups.length === 0 ? (
+                        // Flat list (no worktree grouping)
+                        <ul className="space-y-1">
+                          {getFilteredSessionsForProject(project.id).map(renderSession)}
+                        </ul>
+                      ) : (
+                        // Tree view grouped by worktree
+                        groups.map(group => (
+                          <WorktreeGroupItem
+                            key={group.key}
+                            group={group}
+                            isExpanded={expandedWorktrees.has(`${project.id}:${group.key}`)}
+                            onToggle={() => toggleWorktree(`${project.id}:${group.key}`)}
+                          >
+                            {group.sessions.map(renderSession)}
+                          </WorktreeGroupItem>
+                        ))
+                      )}
 
-                    {/* New session form */}
-                    {creatingSessionForProject === project.id && (
-                      <li>
-                        <input
+                      {/* New session form */}
+                      {creatingSessionForProject === project.id && (
+                        <div className="mt-1">
+                          <input
                           type="text"
                           value={newSessionName}
                           onChange={(e) => setNewSessionName(e.target.value)}
@@ -1514,15 +1410,45 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
                             Cancel
                           </button>
                         </div>
-                      </li>
+                      </div>
                     )}
-                  </ul>
-                )}
+                  </div>
+                );
+                })()}
               </li>
             ))}
           </ul>
         )}
       </div>
+
+      {/* Session context menu (desktop) */}
+      {contextMenuSession && contextMenuPos && (() => {
+        const session = sessions.find(s => s.id === contextMenuSession);
+        if (!session) return null;
+        return (
+          <>
+            <div className="fixed inset-0 z-40" onClick={() => setContextMenuSession(null)} />
+            <div className="fixed w-44 bg-popover border border-border rounded shadow-lg z-50" style={{ top: contextMenuPos.top, left: contextMenuPos.left }}>
+              <button onClick={() => startRenamingSession(session.id, session.name || '')} className="w-full text-left px-3 py-1.5 text-sm hover:bg-secondary">Rename</button>
+              <button onClick={() => handleExportSession(session.id)} className="w-full text-left px-3 py-1.5 text-sm hover:bg-secondary">Export Markdown</button>
+              {!supervisions[session.id] || ['completed', 'failed', 'cancelled'].includes(supervisions[session.id].status) ? (
+                <button onClick={() => { setSuperviseSessionId(session.id); setContextMenuSession(null); }} disabled={!isConnected} className="w-full text-left px-3 py-1.5 text-sm hover:bg-secondary disabled:opacity-50">Supervise</button>
+              ) : (
+                <>
+                  {supervisions[session.id].status === 'active' && (
+                    <button onClick={async () => { await api.pauseSupervision(supervisions[session.id].id); setContextMenuSession(null); }} className="w-full text-left px-3 py-1.5 text-sm hover:bg-secondary">Pause Supervision</button>
+                  )}
+                  {supervisions[session.id].status === 'paused' && (
+                    <button onClick={async () => { await api.resumeSupervision(supervisions[session.id].id); setContextMenuSession(null); }} className="w-full text-left px-3 py-1.5 text-sm hover:bg-secondary">Resume Supervision</button>
+                  )}
+                  <button onClick={async () => { await api.cancelSupervision(supervisions[session.id].id); setContextMenuSession(null); }} className="w-full text-left px-3 py-1.5 text-sm text-destructive hover:bg-secondary">Cancel Supervision</button>
+                </>
+              )}
+              <button onClick={() => handleArchiveSession(session.id)} className="w-full text-left px-3 py-1.5 text-sm hover:bg-secondary">Archive</button>
+            </div>
+          </>
+        );
+      })()}
 
       {/* Active Sessions - Fixed at bottom */}
       <div className="flex-shrink-0">
