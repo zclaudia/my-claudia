@@ -42,6 +42,8 @@ describe('PermissionSelector', () => {
     // When no override, trigger button shows the project policy's trust level label
     const button = screen.getByRole('button');
     expect(button).toHaveAttribute('title', 'Moderate');
+    // Trigger button shows the effective trust level name when project policy is enabled
+    expect(screen.getByText(/Moderate/)).toBeInTheDocument();
   });
 
   it('should display current override when set', () => {
@@ -56,7 +58,7 @@ describe('PermissionSelector', () => {
     expect(screen.getByText(/Aggressive/)).toBeInTheDocument();
   });
 
-  it('should show ring when override is active', () => {
+  it('should show override styling when override is active', () => {
     const { container } = render(
       <PermissionSelector
         value={defaultOverride}
@@ -199,7 +201,7 @@ describe('PermissionSelector', () => {
       />
     );
 
-    fireEvent.click(screen.getByRole('button'));
+    fireEvent.click(screen.getAllByRole('button')[0]);
 
     // "Aggressive" appears in both the trigger and the dropdown; find the dropdown option
     const aggressiveElements = screen.getAllByText(/Aggressive/);
@@ -265,7 +267,7 @@ describe('PermissionSelector', () => {
       />
     );
 
-    fireEvent.click(screen.getByRole('button'));
+    fireEvent.click(screen.getAllByRole('button')[0]);
 
     for (const level of trustLevels) {
       // Multiple elements may match (trigger + dropdown option), get all and click the last one (dropdown option)
@@ -283,7 +285,7 @@ describe('PermissionSelector', () => {
 
       // Reopen dropdown for next iteration
       if (level !== trustLevels[trustLevels.length - 1]) {
-        fireEvent.click(screen.getByRole('button'));
+        fireEvent.click(screen.getAllByRole('button')[0]);
       }
     }
   });

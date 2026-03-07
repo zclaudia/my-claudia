@@ -49,7 +49,9 @@ describe('SessionRepository', () => {
         workingDirectory: '/path/to/work',
         createdAt: 1000,
         updatedAt: 2000,
-        archivedAt: 3000
+        archivedAt: 3000,
+        projectRole: undefined,
+        taskId: undefined,
       });
     });
 
@@ -143,9 +145,10 @@ describe('SessionRepository', () => {
       const { params } = repository.createQuery(data);
       const after = Date.now();
 
-      expect(params[8]).toBeGreaterThanOrEqual(before);
-      expect(params[8]).toBeLessThanOrEqual(after);
-      expect(params[9]).toBe(params[8]); // createdAt === updatedAt
+      // params: [id, projectId, name, providerId, sdkSessionId, type, parentSessionId, workingDirectory, projectRole, taskId, createdAt, updatedAt]
+      expect(params[10]).toBeGreaterThanOrEqual(before);
+      expect(params[10]).toBeLessThanOrEqual(after);
+      expect(params[11]).toBe(params[10]); // createdAt === updatedAt
     });
   });
 
@@ -216,6 +219,37 @@ describe('SessionRepository', () => {
 
       expect(result).toHaveLength(2);
       expect(mockDb.prepare).toHaveBeenCalledWith(expect.stringContaining('WHERE project_id = ?'));
+    });
+  });
+
+  describe('findByProjectRole', () => {
+    it('returns sessions matching project and role', () => {
+      const mockRows = [
+        { id: 'sess-1', project_id: 'proj-123', project_role: 'checkpoint', created_at: 2000, updated_at: 2000 },
+        { id: 'sess-2', project_id: 'proj-123', project_role: 'checkpoint', created_at: 1000, updated_at: 1000 }
+      ];
+      mockDb.prepare().all.mockReturnValue(mockRows);
+
+      const result = repository.findByProjectRole('proj-123', 'checkpoint');
+
+      expect(result).toHaveLength(2);
+      expect(mockDb.prepare).toHaveBeenCalledWith(expect.stringContaining('WHERE project_id = ? AND project_role = ?'));
+    });
+
+    it('returns empty array when no sessions match', () => {
+      mockDb.prepare().all.mockReturnValue([]);
+
+      const result = repository.findByProjectRole('proj-123', 'review');
+
+      expect(result).toHaveLength(0);
+    });
+
+    it('orders results by created_at DESC', () => {
+      mockDb.prepare().all.mockReturnValue([]);
+
+      repository.findByProjectRole('proj-123', 'task');
+
+      expect(mockDb.prepare).toHaveBeenCalledWith(expect.stringContaining('ORDER BY created_at DESC'));
     });
   });
 

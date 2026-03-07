@@ -130,6 +130,7 @@ describe('ToolCallItem', () => {
 
       // Text may appear in both summary and expanded PlanContent
       expect(screen.getAllByText(/My Plan/).length).toBeGreaterThanOrEqual(1);
+      expect(screen.getByText(/Step 1/)).toBeInTheDocument();
     });
 
     it('should display plan when plan is an object', () => {
@@ -156,7 +157,7 @@ describe('ToolCallItem', () => {
       // Click to expand
       fireEvent.click(screen.getByRole('button'));
 
-      expect(screen.getByText(/Plan file:/)).toBeInTheDocument();
+      expect(screen.getAllByText(/Plan file:/).length).toBeGreaterThanOrEqual(1);
     });
 
     it('should display fallback message when no plan data', () => {

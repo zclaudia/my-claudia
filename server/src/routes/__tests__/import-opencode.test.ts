@@ -167,7 +167,21 @@ describe('OpenCode Import API Integration Tests', () => {
       CREATE TABLE IF NOT EXISTS projects (
         id TEXT PRIMARY KEY,
         name TEXT NOT NULL,
+        type TEXT DEFAULT 'code',
+        provider_id TEXT,
         root_path TEXT,
+        path TEXT,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS providers (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        type TEXT NOT NULL DEFAULT 'claude',
+        cli_path TEXT,
+        env TEXT,
+        is_default INTEGER DEFAULT 0,
         created_at INTEGER NOT NULL,
         updated_at INTEGER NOT NULL
       );
@@ -177,6 +191,13 @@ describe('OpenCode Import API Integration Tests', () => {
         project_id TEXT NOT NULL,
         name TEXT,
         provider_id TEXT,
+        sdk_session_id TEXT,
+        type TEXT DEFAULT 'regular',
+        parent_session_id TEXT,
+        archived_at INTEGER,
+        working_directory TEXT,
+        project_role TEXT,
+        task_id TEXT,
         created_at INTEGER NOT NULL,
         updated_at INTEGER NOT NULL,
         FOREIGN KEY (project_id) REFERENCES projects(id)

@@ -34,7 +34,10 @@ export class ProjectRepository extends BaseRepository<
       permissionPolicy: row.permission_policy ? JSON.parse(row.permission_policy) : undefined,
       isInternal: row.is_internal === 1,
       createdAt: row.created_at,
-      updatedAt: row.updated_at
+      updatedAt: row.updated_at,
+      // Supervision v2
+      agent: row.agent ? JSON.parse(row.agent) : undefined,
+      contextSyncStatus: row.context_sync_status === 'error' ? 'error' : undefined,
     };
   }
 
@@ -47,8 +50,8 @@ export class ProjectRepository extends BaseRepository<
 
     return {
       sql: `
-        INSERT INTO projects (id, name, type, provider_id, root_path, system_prompt, permission_policy, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO projects (id, name, type, provider_id, root_path, system_prompt, permission_policy, agent, context_sync_status, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `,
       params: [
         id,
@@ -58,6 +61,8 @@ export class ProjectRepository extends BaseRepository<
         data.rootPath || null,
         data.systemPrompt || null,
         data.permissionPolicy ? JSON.stringify(data.permissionPolicy) : null,
+        data.agent ? JSON.stringify(data.agent) : null,
+        data.contextSyncStatus || 'synced',
         now,
         now
       ]
@@ -95,6 +100,15 @@ export class ProjectRepository extends BaseRepository<
     if (data.permissionPolicy !== undefined) {
       updates.push('permission_policy = ?');
       params.push(data.permissionPolicy ? JSON.stringify(data.permissionPolicy) : null);
+    }
+    // Supervision v2
+    if (data.agent !== undefined) {
+      updates.push('agent = ?');
+      params.push(data.agent ? JSON.stringify(data.agent) : null);
+    }
+    if (data.contextSyncStatus !== undefined) {
+      updates.push('context_sync_status = ?');
+      params.push(data.contextSyncStatus || 'synced');
     }
 
     // Always update timestamp

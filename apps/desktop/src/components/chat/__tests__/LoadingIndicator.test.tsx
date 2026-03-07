@@ -44,7 +44,7 @@ describe('LoadingIndicator Time Display', () => {
       <LoadingIndicator
         isLoading={true}
         startedAt={startedAt}
-        lastActivityAt={startedAt}
+        lastActivityAt={now}
       />
     );
 
@@ -93,7 +93,7 @@ describe('LoadingIndicator Time Display', () => {
       <LoadingIndicator
         isLoading={true}
         startedAt={startedAt}
-        lastActivityAt={startedAt}
+        lastActivityAt={now}
       />
     );
 
