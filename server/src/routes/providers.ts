@@ -842,7 +842,7 @@ async function getCodexCapabilities(
     modeLabel: 'Mode',
     defaultModeId: 'default',
     modes: [
-      { id: 'default', label: 'Default', description: 'Standard mode — auto-approves on failure' },
+      { id: 'default', label: 'Default', description: 'Standard mode — requests approval for tool calls' },
       { id: 'plan', label: 'Plan', description: 'Read-only planning mode' },
       { id: 'acceptEdits', label: 'Auto-Edit', description: 'Auto-approve file edits' },
       { id: 'bypassPermissions', label: 'Bypass', description: 'Full access, no approval checks' },

@@ -24,12 +24,25 @@ function extractFilePath(toolInput: unknown): string | null {
 
 /** Extract Bash command from toolInput or detail */
 function extractBashCommand(toolInput: unknown, detail: string): string | null {
+  const normalizeCommandText = (value: string): string => {
+    // Normalize Unicode dash variants to ASCII '-', then normalize whitespace.
+    return value
+      .replace(/[\u2010\u2011\u2012\u2013\u2014\u2015\u2212]/g, '-')
+      .replace(/\s+/g, ' ')
+      .trim();
+  };
+
   if (toolInput && typeof toolInput === 'object' && 'command' in toolInput) {
     const cmd = (toolInput as { command: unknown }).command;
-    if (typeof cmd === 'string') return cmd;
+    if (typeof cmd === 'string') return normalizeCommandText(cmd);
   }
-  if (detail) return detail;
+  if (detail) return normalizeCommandText(detail);
   return null;
+}
+
+function isBashLikeTool(toolName: string): boolean {
+  const lower = toolName.toLowerCase();
+  return lower === 'bash' || lower === 'execute_command' || lower === 'run_terminal_cmd' || lower === 'terminal';
 }
 
 /**
@@ -118,7 +131,7 @@ function targetsSensitiveFile(toolName: string, toolInput: unknown, detail: stri
   if (filePath && isSensitiveFile(filePath)) return true;
 
   // For Bash commands, check paths in the command
-  if (toolName === 'Bash') {
+  if (isBashLikeTool(toolName)) {
     const command = extractBashCommand(toolInput, detail);
     if (command) {
       return extractPathsFromCommand(command).some(p => isSensitiveFile(p));
@@ -134,7 +147,7 @@ function targetsOutsideWorkspace(toolName: string, toolInput: unknown, detail: s
   const filePath = extractFilePath(toolInput);
   if (filePath && !isPathWithinRoot(filePath, rootPath)) return true;
 
-  if (toolName === 'Bash') {
+  if (isBashLikeTool(toolName)) {
     const command = extractBashCommand(toolInput, detail);
     if (command) {
       return extractPathsFromCommand(command).some(p => !isPathWithinRoot(p, rootPath));
@@ -267,7 +280,7 @@ export class PermissionEvaluator {
           if (targetsOutsideWorkspace(toolName, toolInput, detail, rootPath)) return 'escalate';
           return 'approve';
         }
-        if (toolName === 'Bash') {
+        if (isBashLikeTool(toolName)) {
           if (isDangerousCommand(toolInput, detail)) return 'escalate';
           if (isNetworkCommand(toolInput, detail)) return 'escalate';
           // Guards for bash: sensitive files + workspace scope
@@ -282,7 +295,7 @@ export class PermissionEvaluator {
       case 'full_trust': {
         if (toolName === 'Task') return 'approve';
         if (READONLY_TOOLS.includes(toolName) || EDIT_TOOLS.includes(toolName)) return 'approve';
-        if (toolName === 'Bash') {
+        if (isBashLikeTool(toolName)) {
           if (isDangerousCommand(toolInput, detail)) return 'escalate';
           return 'approve';
         }

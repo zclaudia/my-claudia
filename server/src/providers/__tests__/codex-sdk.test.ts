@@ -84,7 +84,7 @@ describe('codex-sdk', () => {
       );
     });
 
-    it('应该为默认模式设置工作区写策略', async () => {
+    it('应该为默认模式设置 on-request 工作区写策略', async () => {
       const { runCodex } = await import('../codex-sdk');
 
       const mockEvents = {
@@ -100,7 +100,7 @@ describe('codex-sdk', () => {
 
       expect(mockStartThread).toHaveBeenCalledWith(
         expect.objectContaining({
-          approvalPolicy: 'on-failure',
+          approvalPolicy: 'on-request',
           sandboxMode: 'workspace-write',
         })
       );

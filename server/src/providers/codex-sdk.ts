@@ -61,7 +61,7 @@ function mapModeToPolicies(mode?: string): Pick<ThreadOptions, 'approvalPolicy' 
       return { approvalPolicy: 'on-failure', sandboxMode: 'workspace-write' };
     case 'default':
     default:
-      return { approvalPolicy: 'on-failure', sandboxMode: 'workspace-write' };
+      return { approvalPolicy: 'on-request', sandboxMode: 'workspace-write' };
   }
 }
 
