@@ -3,6 +3,7 @@ import { ClaudeAdapter } from './claude-adapter.js';
 import { OpenCodeAdapter } from './opencode-adapter.js';
 import { CodexAdapter } from './codex-adapter.js';
 import { CursorAdapter } from './cursor-adapter.js';
+import { KimiAdapter } from './kimi-adapter.js';
 
 class ProviderRegistry {
   private adapters = new Map<string, ProviderAdapter>();
@@ -13,6 +14,7 @@ class ProviderRegistry {
     this.register(new OpenCodeAdapter());
     this.register(new CodexAdapter());
     this.register(new CursorAdapter());
+    this.register(new KimiAdapter());
   }
 
   register(adapter: ProviderAdapter): void {
