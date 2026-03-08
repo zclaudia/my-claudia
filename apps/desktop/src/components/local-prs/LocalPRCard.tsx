@@ -3,6 +3,7 @@ import { GitMerge, XCircle, ChevronDown, ChevronUp, Eye, MessageSquare, FileCode
 import { useState } from 'react';
 import { useLocalPRStore } from '../../stores/localPRStore';
 import { useProjectStore } from '../../stores/projectStore';
+import * as api from '../../services/api';
 import { DiffViewerModal } from './DiffViewerModal';
 
 const STATUS_CONFIG: Record<LocalPRStatus, { label: string; color: string }> = {
@@ -29,8 +30,8 @@ export function LocalPRCard({ pr, projectId }: LocalPRCardProps) {
   const { closePR, reviewPR, mergePR } = useLocalPRStore();
   const providers = useProjectStore((s) => s.providers);
   const projects = useProjectStore((s) => s.projects);
+  const sessions = useProjectStore((s) => s.sessions);
   const selectSession = useProjectStore((s) => s.selectSession);
-  const updateSession = useProjectStore((s) => s.updateSession);
   const status = STATUS_CONFIG[pr.status] ?? { label: pr.status, color: 'bg-gray-500/10 text-gray-400' };
 
   const project = projects.find((p) => p.id === projectId);
@@ -166,9 +167,16 @@ export function LocalPRCard({ pr, projectId }: LocalPRCardProps) {
         )}
         {pr.reviewSessionId && (
           <button
-            onClick={() => {
-              updateSession(pr.reviewSessionId!, { isReadOnly: true, type: 'background' });
-              selectSession(pr.reviewSessionId!);
+            onClick={async () => {
+              const sid = pr.reviewSessionId!;
+              // If session isn't in store yet (broadcast missed), refresh from server
+              if (!sessions.find((s) => s.id === sid)) {
+                const fresh = await api.getSessions(projectId);
+                useProjectStore.getState().mergeSessions(fresh);
+              }
+              // Session may have been permanently deleted
+              if (!useProjectStore.getState().sessions.find((s) => s.id === sid)) return;
+              selectSession(sid);
             }}
             className="flex items-center gap-1 text-xs text-primary hover:text-primary/80"
           >

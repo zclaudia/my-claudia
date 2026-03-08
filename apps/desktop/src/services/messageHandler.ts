@@ -280,9 +280,30 @@ export function handleServerMessage(
       break;
     }
 
+    case 'sessions_created': {
+      const { session } = msg as any;
+      const store = useProjectStore.getState();
+      if (!store.sessions.find((s: any) => s.id === session.id)) {
+        store.addSession(session);
+      }
+      break;
+    }
+
+    case 'sessions_updated': {
+      const { session } = msg as any;
+      useProjectStore.getState().updateSession(session.id, session);
+      break;
+    }
+
     case 'local_pr_update': {
       const { projectId, pr } = msg as any;
       useLocalPRStore.getState().upsertPR(projectId, pr);
+      break;
+    }
+
+    case 'local_pr_deleted': {
+      const { projectId, prId } = msg as any;
+      useLocalPRStore.getState().removePR(projectId, prId);
       break;
     }
 

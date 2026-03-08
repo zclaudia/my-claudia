@@ -213,3 +213,24 @@ export async function mergeBranch(
 export async function abortMerge(repoPath: string): Promise<void> {
   await git(['merge', '--abort'], repoPath).catch(() => {});
 }
+
+/**
+ * Remove a git worktree and optionally delete its branch.
+ * @param mainRepoPath - The main repository path (not the worktree itself)
+ * @param worktreePath - Absolute path of the worktree to remove
+ * @param branchName - If provided, delete this branch after removing the worktree
+ */
+export async function removeWorktree(
+  mainRepoPath: string,
+  worktreePath: string,
+  branchName?: string,
+): Promise<void> {
+  await git(['worktree', 'remove', '--force', worktreePath], mainRepoPath).catch((err) => {
+    console.warn(`[git] Failed to remove worktree ${worktreePath}:`, err.message);
+  });
+  if (branchName) {
+    await git(['branch', '-D', branchName], mainRepoPath).catch((err) => {
+      console.warn(`[git] Failed to delete branch ${branchName}:`, err.message);
+    });
+  }
+}

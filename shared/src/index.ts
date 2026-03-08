@@ -707,6 +707,7 @@ export interface RunStartMessage {
   permissionOverride?: Partial<AgentPermissionPolicy>;  // Optional: session-level permission override
   systemContext?: string;  // Dynamic context prepended to system prompt (e.g. backend list for global agent)
   workingDirectory?: string;  // Optional: override working directory (e.g., for git worktree)
+  resend?: boolean;  // True when resending the last user message — server skips inserting a duplicate user message
 }
 
 export interface RunCancelMessage {
@@ -956,6 +957,13 @@ export interface LocalPRUpdateMessage {
   pr: LocalPR;
 }
 
+// Local PR deleted (Server → Client) — sent when a finished PR is cleaned up
+export interface LocalPRDeletedMessage {
+  type: 'local_pr_deleted';
+  projectId: string;
+  prId: string;
+}
+
 // Scheduled task updates (Server → Client)
 export interface ScheduledTaskUpdateMessage {
   type: 'scheduled_task_update';
@@ -1038,6 +1046,7 @@ export type ServerMessage =
   | PluginPanelRegisteredMessage
   | PluginPanelUnregisteredMessage
   | LocalPRUpdateMessage
+  | LocalPRDeletedMessage
   | ScheduledTaskUpdateMessage
   | ScheduledTaskDeletedMessage;
 

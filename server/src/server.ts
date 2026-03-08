@@ -1422,6 +1422,7 @@ async function handleRunStart(
     permissionOverride?: Partial<import('@my-claudia/shared').AgentPermissionPolicy>;
     systemContext?: string;
     workingDirectory?: string;  // Optional working directory override
+    resend?: boolean;  // True when resending — skip inserting duplicate user message
   },
   db: ReturnType<typeof initDatabase>
 ): Promise<void> {
@@ -1544,12 +1545,16 @@ async function handleRunStart(
   const toolUseIdToName = new Map<string, string>();
 
   // Save user message to database (before sending run_started so IDs are available)
-  const userMessageId = uuidv4();
-  const userOffset = getNextOffset(db, message.sessionId);
-  db.prepare(`
-    INSERT INTO messages (id, session_id, role, content, created_at, offset)
-    VALUES (?, ?, 'user', ?, ?, ?)
-  `).run(userMessageId, message.sessionId, message.input, Date.now(), userOffset);
+  // Skip when resending — the user message already exists in the DB
+  let userMessageId: string | undefined;
+  if (!message.resend) {
+    userMessageId = uuidv4();
+    const userOffset = getNextOffset(db, message.sessionId);
+    db.prepare(`
+      INSERT INTO messages (id, session_id, role, content, created_at, offset)
+      VALUES (?, ?, 'user', ?, ?, ?)
+    `).run(userMessageId, message.sessionId, message.input, Date.now(), userOffset);
+  }
 
   // Send run started (include real DB message IDs for client-side dedup)
   sendMessage(client.ws, {
@@ -1877,6 +1882,9 @@ async function handleRunStart(
       serverPort: serverPort || undefined,
       db,
     };
+
+    // Debug: log all run parameters for 403 diagnosis
+    console.log(`[Run Debug] session=${message.sessionId} sdk_session=${sdkSessionId || 'NEW'} provider=${providerType} mode=${modeValue} model=${message.model || 'default'} cwd=${cwd} cliPath=${providerConfig?.cliPath || 'default'}`);
 
     const providerRunner = adapter.run(processedInput, runOptions, permissionCallback);
 

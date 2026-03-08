@@ -28,6 +28,8 @@ interface LocalPRState {
 
   /** Called from WebSocket handler when a local_pr_update message arrives */
   upsertPR: (projectId: string, pr: LocalPR) => void;
+  /** Called from WebSocket handler when a local_pr_deleted message arrives */
+  removePR: (projectId: string, prId: string) => void;
 }
 
 export const useLocalPRStore = create<LocalPRState>((set, get) => ({
@@ -40,10 +42,7 @@ export const useLocalPRStore = create<LocalPRState>((set, get) => ({
 
   createPR: async (projectId, worktreePath, options) => {
     const pr = await createLocalPR(projectId, worktreePath, options);
-    set((state) => {
-      const existing = state.prs[projectId] ?? [];
-      return { prs: { ...state.prs, [projectId]: [pr, ...existing] } };
-    });
+    get().upsertPR(projectId, pr);
     return pr;
   },
 
@@ -78,5 +77,11 @@ export const useLocalPRStore = create<LocalPRState>((set, get) => ({
       const updated =
         idx >= 0 ? existing.map((p, i) => (i === idx ? pr : p)) : [pr, ...existing];
       return { prs: { ...state.prs, [projectId]: updated } };
+    }),
+
+  removePR: (projectId, prId) =>
+    set((state) => {
+      const existing = state.prs[projectId] ?? [];
+      return { prs: { ...state.prs, [projectId]: existing.filter((p) => p.id !== prId) } };
     }),
 }));

@@ -15,6 +15,7 @@ import {
   isWorkingTreeClean,
   mergeBranch,
   abortMerge,
+  removeWorktree,
 } from '../utils/git-operations.js';
 import { createVirtualClient, handleRunStart } from '../server.js';
 
@@ -24,6 +25,9 @@ const REVIEW_FAILED_RE = /\[REVIEW_FAILED\]/i;
 
 // How long (ms) before a reviewing/merging PR is considered stale and reset
 const STALE_TIMEOUT_MS = 30 * 60 * 1000;
+
+// Maximum number of merged/closed PRs to keep per project
+const MAX_FINISHED_PRS_PER_PROJECT = 10;
 
 export class LocalPRService {
   private prRepo: LocalPRRepository;
@@ -116,19 +120,25 @@ export class LocalPRService {
         ? commits[0].message
         : `${branchName} (${commits.length} commits)`);
 
-    const pr = this.prRepo.create({
-      projectId,
-      worktreePath,
-      branchName,
-      baseBranch,
-      title,
-      description: options.description,
-      status: 'open',
-      commits: commits.map((c) => c.sha),
-      diffSummary,
-      autoTriggered: options.autoTriggered ?? false,
-      autoReview: options.autoReview ?? false,
-    });
+    // Atomic re-check + insert to prevent race conditions (async git ops above create a window)
+    const pr = this.db.transaction(() => {
+      const duplicate = this.prRepo.findActiveByWorktree(worktreePath);
+      if (duplicate) return duplicate;
+
+      return this.prRepo.create({
+        projectId,
+        worktreePath,
+        branchName,
+        baseBranch,
+        title,
+        description: options.description,
+        status: 'open',
+        commits: commits.map((c) => c.sha),
+        diffSummary,
+        autoTriggered: options.autoTriggered ?? false,
+        autoReview: options.autoReview ?? false,
+      });
+    })();
 
     this.broadcastPRUpdate(pr);
     console.log(`[LocalPRService] Created PR ${pr.id} for branch '${branchName}'`);
@@ -279,6 +289,8 @@ export class LocalPRService {
     } as Omit<Session, 'id' | 'createdAt' | 'updatedAt'>);
 
     this.prRepo.update(prId, { status: 'reviewing', reviewSessionId: session.id });
+    // Broadcast new session so the frontend store includes it immediately
+    this.broadcastToProject(pr.projectId, { type: 'sessions_created', session });
     this.broadcastPRUpdate(this.prRepo.findById(prId)!);
 
     const reviewPrompt = this.buildReviewPrompt(pr);
@@ -472,6 +484,7 @@ Be thorough but pragmatic. Minor style issues do not warrant REVIEW_FAILED.`;
     } as Omit<Session, 'id' | 'createdAt' | 'updatedAt'>);
 
     this.prRepo.update(prId, { conflictSessionId: session.id });
+    this.broadcastToProject(pr.projectId, { type: 'sessions_created', session });
 
     const conflictPrompt = `You are a git expert. The branch '${pr.branchName}' has a merge conflict when merging into '${pr.baseBranch}'.
 
@@ -552,6 +565,7 @@ If you cannot resolve it, output: [CONFLICT_UNRESOLVED]`;
       await this.processStale();
       await this.processPendingReviews();
       await this.processPendingMerges();
+      await this.cleanupFinishedPRs();
     } catch (err) {
       console.error('[LocalPRService] tick error:', err);
     }
@@ -594,6 +608,56 @@ If you cannot resolve it, output: [CONFLICT_UNRESOLVED]`;
       await this.mergePR(pr.id).catch((err) =>
         console.error(`[LocalPRService] Failed to merge PR ${pr.id}:`, err),
       );
+    }
+  }
+
+  /**
+   * Remove old merged/closed PRs beyond the retention limit per project.
+   * Cleans up: git worktree, git branch, related sessions, and DB record.
+   */
+  private async cleanupFinishedPRs(): Promise<void> {
+    const projects = this.projectRepo.findAll();
+
+    for (const project of projects) {
+      const allPRs = this.prRepo.findByProjectId(project.id);
+      // Keep only merged/closed, sorted newest first (findByProjectId already orders by created_at DESC)
+      const finished = allPRs.filter((pr) => pr.status === 'merged' || pr.status === 'closed');
+      if (finished.length <= MAX_FINISHED_PRS_PER_PROJECT) continue;
+
+      const toRemove = finished.slice(MAX_FINISHED_PRS_PER_PROJECT);
+      for (const pr of toRemove) {
+        try {
+          // Clean up git worktree + branch
+          if (project.rootPath && pr.worktreePath) {
+            await removeWorktree(project.rootPath, pr.worktreePath, pr.branchName);
+          }
+          // Delete related sessions from DB
+          this.deleteRelatedSessions(pr);
+          // Delete PR record
+          this.prRepo.delete(pr.id);
+          // Notify frontend to remove this PR
+          this.broadcastToProject(pr.projectId, {
+            type: 'local_pr_deleted',
+            projectId: pr.projectId,
+            prId: pr.id,
+          });
+          console.log(`[LocalPRService] Cleaned up old PR ${pr.id} (${pr.status}: ${pr.title})`);
+        } catch (err) {
+          console.warn(`[LocalPRService] Failed to cleanup PR ${pr.id}:`, err);
+        }
+      }
+    }
+  }
+
+  /** Permanently delete sessions associated with a PR. */
+  private deleteRelatedSessions(pr: LocalPR): void {
+    const sessionIds = [pr.reviewSessionId, pr.conflictSessionId].filter(Boolean) as string[];
+    for (const sid of sessionIds) {
+      try {
+        this.sessionRepo.delete(sid);
+      } catch {
+        // Session may already be deleted
+      }
     }
   }
 

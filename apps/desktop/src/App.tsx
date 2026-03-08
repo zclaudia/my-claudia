@@ -29,7 +29,7 @@ function AppContent() {
   const { connectServer, embeddedServerStatus, embeddedServerError } = useConnection();
   const { addServer } = useServerManager();
   const { connectionStatus } = useServerStore();
-  const { selectedSessionId, projects, selectProject } = useProjectStore();
+  const { selectedSessionId, projects, selectProject, selectSession } = useProjectStore();
   const [dashboardProjectId, setDashboardProjectId] = useState<string | null>(null);
   const { directGatewayUrl, lastActiveBackendId, isConnected: isGatewayConnected, discoveredBackends } = useGatewayStore();
   const { isExpanded: isAgentExpanded, hasUnread: hasAgentUnread, setExpanded: setAgentExpanded } = useAgentStore();
@@ -274,6 +274,7 @@ function AppContent() {
           hideHeader={true}
           onOpenDashboard={(projectId) => {
             selectProject(projectId);
+            selectSession(null);
             setDashboardProjectId(projectId);
           }}
         />
@@ -312,9 +313,11 @@ function AppContent() {
               />
             ) : selectedSessionId ? (
               <ChatInterface
+                key={selectedSessionId}
                 sessionId={selectedSessionId}
                 onReturnToDashboard={(projectId) => {
                   selectProject(projectId);
+                  selectSession(null);
                   setDashboardProjectId(projectId);
                 }}
               />

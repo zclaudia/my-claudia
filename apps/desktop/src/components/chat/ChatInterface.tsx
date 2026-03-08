@@ -692,8 +692,8 @@ export function ChatInterface({ sessionId, onReturnToDashboard }: ChatInterfaceP
     });
 
     // Send to server via WebSocket (clientRequestId = clientMessageId for correlation)
-    wsSendMessage({
-      type: 'run_start',
+    const runStartMsg = {
+      type: 'run_start' as const,
       clientRequestId: clientMessageId,
       sessionId,
       input: fullContent,
@@ -701,7 +701,9 @@ export function ChatInterface({ sessionId, onReturnToDashboard }: ChatInterfaceP
       model: modelOverride || undefined,
       permissionOverride: permissionOverride || undefined,
       workingDirectory: currentSession?.workingDirectory || undefined,
-    });
+    };
+    console.log('[ChatInterface] run_start:', { sessionId, mode: runStartMsg.mode, model: runStartMsg.model, workingDirectory: runStartMsg.workingDirectory });
+    wsSendMessage(runStartMsg);
 
     // Scroll to bottom after sending
     setTimeout(() => scrollToBottom(), 100);
@@ -722,12 +724,21 @@ export function ChatInterface({ sessionId, onReturnToDashboard }: ChatInterfaceP
         });
         return;
       }
-      // Remove the original user message before resending to avoid duplicates
-      const currentMessages = useChatStore.getState().messages[sessionId] || [];
-      if (currentMessages.length > 0 && currentMessages[currentMessages.length - 1].role === 'user') {
-        setMessages(sessionId, currentMessages.slice(0, -1));
-      }
-      await handleSendMessage(resendText);
+      // Resend: reuse the existing user message — just start a new run with resend flag
+      // so the server skips inserting a duplicate user message
+      const messageInput: MessageInputData = { text: resendText };
+      wsSendMessage({
+        type: 'run_start',
+        clientRequestId: crypto.randomUUID(),
+        sessionId,
+        input: JSON.stringify(messageInput),
+        resend: true,
+        mode: mode || undefined,
+        model: modelOverride || undefined,
+        permissionOverride: permissionOverride || undefined,
+        workingDirectory: currentSession?.workingDirectory || undefined,
+      });
+      setTimeout(() => scrollToBottom(), 100);
     } catch (error) {
       console.error('Resend preflight failed:', error);
       addMessage(sessionId, {
@@ -740,7 +751,7 @@ export function ChatInterface({ sessionId, onReturnToDashboard }: ChatInterfaceP
     } finally {
       setResendChecking(false);
     }
-  }, [resendText, sessionId, handleSendMessage, addMessage, setMessages]);
+  }, [resendText, sessionId, addMessage, wsSendMessage, mode, modelOverride, permissionOverride, currentSession, scrollToBottom]);
 
   // Handle built-in command response
   const handleBuiltInCommand = useCallback((result: CommandExecuteResponse) => {
