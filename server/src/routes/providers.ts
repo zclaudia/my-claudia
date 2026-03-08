@@ -228,15 +228,54 @@ export function createProviderRoutes(db: Database.Database): Router {
   // Delete provider
   router.delete('/:id', (req: Request, res: Response) => {
     try {
-      const result = db.prepare('DELETE FROM providers WHERE id = ?').run(req.params.id);
+      const providerId = req.params.id;
+      const existing = db.prepare('SELECT id, is_default as isDefault FROM providers WHERE id = ?')
+        .get(providerId) as { id: string; isDefault: number } | undefined;
 
-      if (result.changes === 0) {
+      if (!existing) {
         res.status(404).json({
           success: false,
           error: { code: 'NOT_FOUND', message: 'Provider not found' }
         });
         return;
       }
+
+      const hasColumn = (table: string, column: string): boolean => {
+        const columns = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
+        return columns.some((col) => col.name === column);
+      };
+
+      const deleteProviderTx = db.transaction(() => {
+        // Clear explicit references first to support older DB states.
+        db.prepare('UPDATE projects SET provider_id = NULL WHERE provider_id = ?').run(providerId);
+        db.prepare('UPDATE sessions SET provider_id = NULL WHERE provider_id = ?').run(providerId);
+
+        if (hasColumn('projects', 'review_provider_id')) {
+          db.prepare('UPDATE projects SET review_provider_id = NULL WHERE review_provider_id = ?').run(providerId);
+        }
+        if (hasColumn('agent_config', 'provider_id')) {
+          db.prepare('UPDATE agent_config SET provider_id = NULL WHERE provider_id = ?').run(providerId);
+        }
+
+        const result = db.prepare('DELETE FROM providers WHERE id = ?').run(providerId);
+        if (result.changes === 0) {
+          throw new Error('Provider not found');
+        }
+
+        // Keep one default provider if any provider remains.
+        if (existing.isDefault === 1) {
+          const replacement = db.prepare(`
+            SELECT id FROM providers
+            ORDER BY created_at ASC
+            LIMIT 1
+          `).get() as { id: string } | undefined;
+          if (replacement) {
+            db.prepare('UPDATE providers SET is_default = 1 WHERE id = ?').run(replacement.id);
+          }
+        }
+      });
+
+      deleteProviderTx();
 
       res.json({ success: true } as ApiResponse<void>);
     } catch (error) {

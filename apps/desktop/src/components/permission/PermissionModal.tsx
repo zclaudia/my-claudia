@@ -16,7 +16,7 @@ interface PermissionRequest {
 interface PermissionModalProps {
   request: PermissionRequest | null;
   queueSize?: number;
-  onDecision: (requestId: string, allow: boolean, remember?: boolean, credential?: string) => void;
+  onDecision: (requestId: string, allow: boolean, remember?: boolean, credential?: string, feedback?: string) => void;
 }
 
 export function PermissionModal({ request, queueSize = 0, onDecision }: PermissionModalProps) {

@@ -5,7 +5,7 @@ import type { Session, Message, ApiResponse } from '@my-claudia/shared';
 import { saveSearchHistory, getSearchHistory, clearSearchHistory, getSearchSuggestions } from '../storage/search-history.js';
 import { extractAndIndexMetadata } from '../storage/metadata-extractor.js';
 import { getGatewayClient } from '../gateway-instance.js';
-import { hasForegroundActiveRunForSession, findForegroundActiveRunIdForSession } from '../utils/run-state.js';
+import { hasForegroundActiveRunForSession, findForegroundActiveRunIdForSession, hasAnyActiveRunForSession } from '../utils/run-state.js';
 import { pluginEvents } from '../events/index.js';
 
 type ActiveRunsMap = Map<string, any>;
@@ -26,6 +26,7 @@ const SESSION_SELECT = `id, project_id as projectId, name, provider_id as provid
                archived_at as archivedAt,
                project_role as projectRole, task_id as taskId,
                plan_status as planStatus,
+               last_run_status as lastRunStatus,
                CASE WHEN is_read_only = 1 THEN 1 ELSE NULL END as isReadOnly,
                created_at as createdAt, updated_at as updatedAt`;
 
@@ -245,6 +246,29 @@ export function createSessionRoutes(db: Database.Database, activeRuns: ActiveRun
       res.status(500).json({
         success: false,
         error: { code: 'SYNC_ERROR', message: 'Failed to sync sessions' }
+      });
+    }
+  });
+
+  // Get lightweight run state for a single session (used by resend preflight guard).
+  router.get('/:id/run-state', (req: Request, res: Response) => {
+    try {
+      const sessionId = req.params.id;
+      const activeRunId = findForegroundActiveRunIdForSession(activeRuns, sessionId);
+      const isRunning = hasAnyActiveRunForSession(activeRuns, sessionId);
+      res.json({
+        success: true,
+        data: {
+          sessionId,
+          isRunning,
+          activeRunId: activeRunId || undefined,
+        },
+      } as ApiResponse<{ sessionId: string; isRunning: boolean; activeRunId?: string }>);
+    } catch (error) {
+      console.error('Error fetching run state:', error);
+      res.status(500).json({
+        success: false,
+        error: { code: 'DB_ERROR', message: 'Failed to fetch run state' }
       });
     }
   });
@@ -539,6 +563,25 @@ export function createSessionRoutes(db: Database.Database, activeRuns: ActiveRun
         success: false,
         error: { code: 'DB_ERROR', message: 'Failed to reset sdk session' }
       });
+    }
+  });
+
+  // Dismiss interrupted status (clear last_run_status after app restart)
+  router.patch('/:id/dismiss-interrupted', (req: Request, res: Response) => {
+    try {
+      const result = db.prepare(
+        'UPDATE sessions SET last_run_status = NULL, updated_at = ? WHERE id = ?'
+      ).run(Date.now(), req.params.id);
+
+      if (result.changes === 0) {
+        res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Session not found' } });
+        return;
+      }
+
+      res.json({ success: true });
+    } catch (error) {
+      console.error('Error dismissing interrupted status:', error);
+      res.status(500).json({ success: false, error: { code: 'DB_ERROR', message: 'Failed to dismiss interrupted status' } });
     }
   });
 

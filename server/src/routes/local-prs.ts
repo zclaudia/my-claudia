@@ -1,12 +1,14 @@
 import { Router, Request, Response } from 'express';
-import type { ApiResponse, LocalPR } from '@my-claudia/shared';
+import type { ApiResponse, LocalPR, WorktreeConfig } from '@my-claudia/shared';
 import type { LocalPRService } from '../services/local-pr-service.js';
 import { ProjectRepository } from '../repositories/project.js';
+import { WorktreeConfigRepository } from '../repositories/worktree-config.js';
 import type { Database } from 'better-sqlite3';
 
 export function createLocalPRRoutes(localPRService: LocalPRService, db: Database): Router {
   const router = Router();
   const projectRepo = new ProjectRepository(db);
+  const wtConfigRepo = new WorktreeConfigRepository(db);
 
   // GET /api/projects/:projectId/local-prs
   router.get('/projects/:projectId/local-prs', (req: Request, res: Response) => {
@@ -23,7 +25,7 @@ export function createLocalPRRoutes(localPRService: LocalPRService, db: Database
   router.post('/projects/:projectId/local-prs', async (req: Request, res: Response) => {
     try {
       const { projectId } = req.params;
-      const { worktreePath, title, description } = req.body;
+      const { worktreePath, title, description, baseBranch, autoReview } = req.body;
 
       if (!worktreePath) {
         res.status(400).json({
@@ -33,7 +35,7 @@ export function createLocalPRRoutes(localPRService: LocalPRService, db: Database
         return;
       }
 
-      const pr = await localPRService.createPR(projectId, worktreePath, { title, description });
+      const pr = await localPRService.createPR(projectId, worktreePath, { title, description, baseBranch, autoReview });
       res.status(201).json({ success: true, data: pr } as ApiResponse<LocalPR>);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to create local PR';
@@ -69,6 +71,7 @@ export function createLocalPRRoutes(localPRService: LocalPRService, db: Database
         return;
       }
       const updated = localPRService.getRepo().update(pr.id, { status: 'closed' });
+      localPRService.archiveRelatedSessions(pr);
       res.json({ success: true, data: updated } as ApiResponse<LocalPR>);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to close local PR';
@@ -89,6 +92,34 @@ export function createLocalPRRoutes(localPRService: LocalPRService, db: Database
       res.json({ success: true, data: localPRService.getRepo().findById(pr.id) } as ApiResponse<LocalPR>);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to retry review';
+      res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message } });
+    }
+  });
+
+  // POST /api/local-prs/:prId/review — manually trigger AI review
+  router.post('/local-prs/:prId/review', async (req: Request, res: Response) => {
+    try {
+      const pr = localPRService.getRepo().findById(req.params.prId);
+      if (!pr) {
+        res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Local PR not found' } });
+        return;
+      }
+      if (pr.status !== 'open' && pr.status !== 'review_failed') {
+        res.status(400).json({
+          success: false,
+          error: { code: 'INVALID_STATE', message: `Cannot review PR in status '${pr.status}'` },
+        });
+        return;
+      }
+      // Reset to open if review_failed, then start
+      if (pr.status === 'review_failed') {
+        localPRService.getRepo().update(pr.id, { status: 'open' });
+      }
+      const { providerId } = req.body;
+      await localPRService.startReview(pr.id, providerId || undefined);
+      res.json({ success: true, data: localPRService.getRepo().findById(pr.id) } as ApiResponse<LocalPR>);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to start review';
       res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message } });
     }
   });
@@ -131,6 +162,41 @@ export function createLocalPRRoutes(localPRService: LocalPRService, db: Database
       res.json({ success: true, data: updated });
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to set review provider';
+      res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message } });
+    }
+  });
+
+  // GET /api/projects/:projectId/worktree-configs
+  router.get('/projects/:projectId/worktree-configs', (req: Request, res: Response) => {
+    try {
+      const configs = wtConfigRepo.findByProjectId(req.params.projectId);
+      res.json({ success: true, data: configs } as ApiResponse<WorktreeConfig[]>);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to list worktree configs';
+      res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message } });
+    }
+  });
+
+  // PUT /api/projects/:projectId/worktree-configs — upsert a worktree config
+  router.put('/projects/:projectId/worktree-configs', (req: Request, res: Response) => {
+    try {
+      const { worktreePath, autoCreatePR, autoReview } = req.body;
+      if (!worktreePath) {
+        res.status(400).json({
+          success: false,
+          error: { code: 'VALIDATION_ERROR', message: 'worktreePath is required' },
+        });
+        return;
+      }
+      const config = wtConfigRepo.upsert({
+        projectId: req.params.projectId,
+        worktreePath,
+        autoCreatePR: autoCreatePR ?? false,
+        autoReview: autoReview ?? false,
+      });
+      res.json({ success: true, data: config } as ApiResponse<WorktreeConfig>);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to update worktree config';
       res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message } });
     }
   });

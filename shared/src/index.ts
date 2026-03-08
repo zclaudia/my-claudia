@@ -145,6 +145,16 @@ export const CLI_COMMANDS: SlashCommand[] = [];
 export type ProjectType = 'chat_only' | 'code';
 
 // ============================================
+// Worktree Config Types
+// ============================================
+
+export interface WorktreeConfig {
+  projectId: string;
+  worktreePath: string;
+  autoCreatePR: boolean;
+  autoReview: boolean;
+}
+
 // Local PR Types
 // ============================================
 
@@ -173,9 +183,87 @@ export interface LocalPR {
   conflictSessionId?: string;
   reviewNotes?: string;
   autoTriggered: boolean;
+  autoReview: boolean;
   createdAt: number;
   updatedAt: number;
   mergedAt?: number;
+}
+
+// ============================================
+// Scheduled Task Types
+// ============================================
+
+export type ScheduleType = 'cron' | 'interval' | 'once';
+export type ScheduledActionType = 'prompt' | 'command' | 'shell' | 'webhook' | 'plugin_event';
+export type ScheduledTaskStatus = 'idle' | 'running' | 'error';
+
+export interface PromptActionConfig {
+  prompt: string;
+  providerId?: string;
+  sessionName?: string;
+}
+
+export interface CommandActionConfig {
+  command: string;
+}
+
+export interface ShellActionConfig {
+  command: string;
+  cwd?: string;
+  timeoutMs?: number;
+}
+
+export interface WebhookActionConfig {
+  url: string;
+  method?: 'GET' | 'POST' | 'PUT';
+  headers?: Record<string, string>;
+  body?: string;
+}
+
+export interface PluginEventActionConfig {
+  event: string;
+  data?: Record<string, unknown>;
+}
+
+export type ActionConfig =
+  | PromptActionConfig
+  | CommandActionConfig
+  | ShellActionConfig
+  | WebhookActionConfig
+  | PluginEventActionConfig;
+
+export interface ScheduledTask {
+  id: string;
+  projectId?: string;
+  name: string;
+  description?: string;
+  enabled: boolean;
+  scheduleType: ScheduleType;
+  scheduleCron?: string;
+  scheduleIntervalMinutes?: number;
+  scheduleOnceAt?: number;
+  nextRun?: number;
+  actionType: ScheduledActionType;
+  actionConfig: ActionConfig;
+  status: ScheduledTaskStatus;
+  lastRunAt?: number;
+  lastRunResult?: string;
+  lastError?: string;
+  runCount: number;
+  templateId?: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface ScheduledTaskTemplate {
+  id: string;
+  name: string;
+  description: string;
+  category: 'ai' | 'git' | 'maintenance' | 'quality';
+  scheduleType: ScheduleType;
+  defaultSchedule: { cron?: string; intervalMinutes?: number };
+  actionType: ScheduledActionType;
+  defaultActionConfig: ActionConfig;
 }
 
 export interface Project {
@@ -225,10 +313,11 @@ export interface Session {
   archivedAt?: number; // Timestamp when session was archived, undefined = not archived
 
   // Supervision v2
-  projectRole?: 'main' | 'task' | 'review' | 'checkpoint';
+  projectRole?: 'main' | 'task' | 'review' | 'checkpoint' | 'scheduled';
   taskId?: string;
   planStatus?: 'planning' | 'planned' | 'executing' | null;
   isReadOnly?: boolean;
+  lastRunStatus?: 'running' | 'waiting' | 'interrupted' | null;
 }
 
 // ============================================
@@ -630,6 +719,8 @@ export interface PermissionDecisionMessage {
   requestId: string;
   allow: boolean;
   remember?: boolean;
+  /** Optional user feedback attached to a deny decision (e.g., deny ExitPlanMode with guidance). */
+  feedback?: string;
   /** RSA-OAEP encrypted credential (base64). Used for sudo password etc. */
   encryptedCredential?: string;
 }
@@ -865,6 +956,19 @@ export interface LocalPRUpdateMessage {
   pr: LocalPR;
 }
 
+// Scheduled task updates (Server → Client)
+export interface ScheduledTaskUpdateMessage {
+  type: 'scheduled_task_update';
+  projectId?: string;
+  task: ScheduledTask;
+}
+
+export interface ScheduledTaskDeletedMessage {
+  type: 'scheduled_task_deleted';
+  projectId?: string;
+  taskId: string;
+}
+
 // Plugin notification (Server → Client)
 export interface PluginNotificationMessage {
   type: 'plugin_notification';
@@ -933,7 +1037,9 @@ export type ServerMessage =
   | PluginShowPanelMessage
   | PluginPanelRegisteredMessage
   | PluginPanelUnregisteredMessage
-  | LocalPRUpdateMessage;
+  | LocalPRUpdateMessage
+  | ScheduledTaskUpdateMessage
+  | ScheduledTaskDeletedMessage;
 
 // Authentication result message
 export interface AuthResultMessage {

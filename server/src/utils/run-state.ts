@@ -37,3 +37,15 @@ export function findForegroundActiveRunIdForSession(
   }
   return null;
 }
+
+export function hasAnyActiveRunForSession(
+  activeRuns: Map<string, RunLike>,
+  sessionId: string
+): boolean {
+  for (const run of activeRuns.values()) {
+    if (run.sessionId === sessionId && !run.completed) {
+      return true;
+    }
+  }
+  return false;
+}

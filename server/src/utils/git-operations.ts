@@ -63,11 +63,12 @@ export async function getGitStatus(repoPath: string): Promise<GitStatusResult> {
 }
 
 /**
- * Returns true if the working tree has no uncommitted changes (including untracked files).
+ * Returns true if the working tree has no uncommitted changes.
+ * Untracked files are ignored — they don't block git merge/checkout.
  */
 export async function isWorkingTreeClean(repoPath: string): Promise<boolean> {
   const status = await getGitStatus(repoPath);
-  return !status.hasChanges;
+  return status.staged.length === 0 && status.unstaged.length === 0;
 }
 
 /**

@@ -20,6 +20,7 @@ const ROLE_BADGES: Record<string, { label: string; className: string }> = {
 /** Resolve status label based on session state. Returns null for idle sessions. */
 function getStatusLabel(session: Session, isActive?: boolean, hasPending?: boolean): { text: string; className: string; pulse?: boolean } | null {
   if (hasPending) return { text: 'waiting', className: 'text-amber-500', pulse: true };
+  if (session.lastRunStatus === 'interrupted') return { text: 'interrupted', className: 'text-red-400' };
   if (session.planStatus === 'planning') return { text: 'planning', className: 'text-blue-400' };
   if (session.planStatus === 'planned') return { text: 'planned', className: 'text-yellow-500' };
   if (session.planStatus === 'executing') return { text: 'running', className: 'text-green-500', pulse: true };

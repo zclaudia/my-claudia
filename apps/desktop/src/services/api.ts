@@ -16,7 +16,10 @@ import type {
   ServerGatewayStatus,
   ServerFeature,
   GitWorktree,
-  LocalPR
+  LocalPR,
+  WorktreeConfig,
+  ScheduledTask,
+  ScheduledTaskTemplate,
 } from '@my-claudia/shared';
 import { useServerStore } from '../stores/serverStore';
 import { isGatewayTarget, parseBackendId } from '../stores/gatewayStore';
@@ -198,6 +201,14 @@ export async function getSessions(projectId?: string): Promise<Session[]> {
   return result.data;
 }
 
+export async function getSessionRunState(sessionId: string): Promise<{ sessionId: string; isRunning: boolean; activeRunId?: string }> {
+  const result = await fetchApi<{ sessionId: string; isRunning: boolean; activeRunId?: string }>(`/api/sessions/${sessionId}/run-state`);
+  if (!result.success || !result.data) {
+    throw new Error(result.error?.message || 'Failed to fetch session run state');
+  }
+  return result.data;
+}
+
 export async function createSession(data: {
   projectId: string;
   name?: string;
@@ -248,6 +259,10 @@ export async function resetSessionSdkSession(sessionId: string): Promise<void> {
   if (!result.success) {
     throw new Error(result.error?.message || 'Failed to reset SDK session');
   }
+}
+
+export async function dismissInterrupted(sessionId: string): Promise<void> {
+  await fetchApi(`/api/sessions/${sessionId}/dismiss-interrupted`, { method: 'PATCH' });
 }
 
 export async function unlockSession(sessionId: string): Promise<Session> {
@@ -1229,7 +1244,7 @@ export async function listLocalPRs(projectId: string): Promise<LocalPR[]> {
 export async function createLocalPR(
   projectId: string,
   worktreePath: string,
-  options?: { title?: string; description?: string },
+  options?: { title?: string; description?: string; baseBranch?: string; autoReview?: boolean },
 ): Promise<LocalPR> {
   const result = await fetchApi<LocalPR>(`/api/projects/${projectId}/local-prs`, {
     method: 'POST',
@@ -1257,6 +1272,17 @@ export async function retryLocalPRReview(prId: string): Promise<LocalPR> {
   return result.data;
 }
 
+export async function reviewLocalPR(prId: string, providerId?: string): Promise<LocalPR> {
+  const result = await fetchApi<LocalPR>(`/api/local-prs/${prId}/review`, {
+    method: 'POST',
+    body: JSON.stringify({ providerId }),
+  });
+  if (!result.success || !result.data) {
+    throw new Error(result.error?.message || 'Failed to start review');
+  }
+  return result.data;
+}
+
 export async function mergeLocalPR(prId: string): Promise<LocalPR> {
   const result = await fetchApi<LocalPR>(`/api/local-prs/${prId}/merge`, { method: 'POST' });
   if (!result.success || !result.data) {
@@ -1276,4 +1302,93 @@ export async function setProjectReviewProvider(
   if (!result.success) {
     throw new Error(result.error?.message || 'Failed to set review provider');
   }
+}
+
+// ============================================
+// Worktree Config API
+// ============================================
+
+export async function getWorktreeConfigs(projectId: string): Promise<WorktreeConfig[]> {
+  const result = await fetchApi<WorktreeConfig[]>(`/api/projects/${projectId}/worktree-configs`);
+  if (!result.success || !result.data) {
+    throw new Error(result.error?.message || 'Failed to list worktree configs');
+  }
+  return result.data;
+}
+
+export async function upsertWorktreeConfig(
+  projectId: string,
+  config: { worktreePath: string; autoCreatePR: boolean; autoReview: boolean },
+): Promise<WorktreeConfig> {
+  const result = await fetchApi<WorktreeConfig>(`/api/projects/${projectId}/worktree-configs`, {
+    method: 'PUT',
+    body: JSON.stringify(config),
+  });
+  if (!result.success || !result.data) {
+    throw new Error(result.error?.message || 'Failed to update worktree config');
+  }
+  return result.data;
+}
+
+// ============================================
+// Scheduled Tasks API
+// ============================================
+
+export async function listScheduledTasks(projectId: string): Promise<ScheduledTask[]> {
+  const result = await fetchApi<ScheduledTask[]>(`/api/projects/${projectId}/scheduled-tasks`);
+  if (!result.success || !result.data) throw new Error(result.error?.message || 'Failed to list scheduled tasks');
+  return result.data;
+}
+
+export async function listGlobalScheduledTasks(): Promise<ScheduledTask[]> {
+  const result = await fetchApi<ScheduledTask[]>('/api/scheduled-tasks/global');
+  if (!result.success || !result.data) throw new Error(result.error?.message || 'Failed to list global tasks');
+  return result.data;
+}
+
+export async function createScheduledTask(projectId: string | undefined, data: Partial<ScheduledTask>): Promise<ScheduledTask> {
+  const path = projectId
+    ? `/api/projects/${projectId}/scheduled-tasks`
+    : '/api/scheduled-tasks/global';
+  const result = await fetchApi<ScheduledTask>(path, {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+  if (!result.success || !result.data) throw new Error(result.error?.message || 'Failed to create scheduled task');
+  return result.data;
+}
+
+export async function updateScheduledTask(taskId: string, data: Partial<ScheduledTask>): Promise<ScheduledTask> {
+  const result = await fetchApi<ScheduledTask>(`/api/scheduled-tasks/${taskId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(data),
+  });
+  if (!result.success || !result.data) throw new Error(result.error?.message || 'Failed to update scheduled task');
+  return result.data;
+}
+
+export async function deleteScheduledTask(taskId: string): Promise<void> {
+  const result = await fetchApi<void>(`/api/scheduled-tasks/${taskId}`, { method: 'DELETE' });
+  if (!result.success) throw new Error(result.error?.message || 'Failed to delete scheduled task');
+}
+
+export async function triggerScheduledTask(taskId: string): Promise<ScheduledTask> {
+  const result = await fetchApi<ScheduledTask>(`/api/scheduled-tasks/${taskId}/trigger`, { method: 'POST' });
+  if (!result.success || !result.data) throw new Error(result.error?.message || 'Failed to trigger task');
+  return result.data;
+}
+
+export async function listScheduledTaskTemplates(): Promise<ScheduledTaskTemplate[]> {
+  const result = await fetchApi<ScheduledTaskTemplate[]>('/api/scheduled-task-templates');
+  if (!result.success || !result.data) throw new Error(result.error?.message || 'Failed to list templates');
+  return result.data;
+}
+
+export async function enableTemplateTask(projectId: string, templateId: string): Promise<ScheduledTask> {
+  const result = await fetchApi<ScheduledTask>(
+    `/api/projects/${projectId}/scheduled-tasks/from-template/${templateId}`,
+    { method: 'POST' },
+  );
+  if (!result.success || !result.data) throw new Error(result.error?.message || 'Failed to enable template');
+  return result.data;
 }

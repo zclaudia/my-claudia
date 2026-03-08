@@ -8,6 +8,8 @@ import { useProjectStore } from '../../stores/projectStore';
 interface AgentStatusBarProps {
   projectId: string;
   agent: ProjectAgent | null;
+  /** When provided, overrides the default "Open Session" behavior (selectSession) */
+  onOpenSession?: () => void;
 }
 
 const trustLevelLabels: Record<TrustLevel, { label: string; desc: string }> = {
@@ -25,7 +27,7 @@ const phaseConfig: Record<string, { label: string; color: string }> = {
   archived: { label: 'Archived', color: 'bg-gray-600/10 text-gray-500' },
 };
 
-export function AgentStatusBar({ projectId, agent }: AgentStatusBarProps) {
+export function AgentStatusBar({ projectId, agent, onOpenSession }: AgentStatusBarProps) {
   const [loading, setLoading] = useState(false);
   const [showInitForm, setShowInitForm] = useState(false);
   const [initMode, setInitMode] = useState<AgentMode>('lite');
@@ -252,7 +254,7 @@ export function AgentStatusBar({ projectId, agent }: AgentStatusBarProps) {
         {/* Link to main session */}
         {agent.mainSessionId && (
           <button
-            onClick={() => selectSession(agent.mainSessionId!)}
+            onClick={() => onOpenSession ? onOpenSession() : selectSession(agent.mainSessionId!)}
             className="text-xs text-primary hover:underline"
           >
             Open Session

@@ -92,6 +92,9 @@ interface MessageListProps {
   streamingToolCalls?: ToolCallState[];
   scrollTop?: number;
   viewportHeight?: number;
+  resendTargetMessageId?: string;
+  onResendTarget?: () => void;
+  resendDisabled?: boolean;
 }
 
 const VIRTUALIZE_THRESHOLD = 80;
@@ -104,6 +107,9 @@ export const MessageList = memo(function MessageList({
   streamingToolCalls,
   scrollTop = 0,
   viewportHeight = 0,
+  resendTargetMessageId,
+  onResendTarget,
+  resendDisabled = false,
 }: MessageListProps) {
   // Subscribe to filePushStore for download status updates
   const filePushItems = useFilePushStore((state) => state.items);
@@ -237,9 +243,12 @@ export const MessageList = memo(function MessageList({
         message={message}
         streamingContentBlocks={isLastAssistant ? streamingContentBlocks : undefined}
         streamingToolCalls={isLastAssistant ? streamingToolCalls : undefined}
+        showResend={message.id === resendTargetMessageId}
+        onResend={message.id === resendTargetMessageId ? onResendTarget : undefined}
+        resendDisabled={resendDisabled}
       />
     );
-  }, [filePushItems, filteredMessages.length, streamingContentBlocks, streamingToolCalls]);
+  }, [filePushItems, filteredMessages.length, streamingContentBlocks, streamingToolCalls, resendTargetMessageId, onResendTarget, resendDisabled]);
 
   const virtualWindow = useMemo(() => {
     if (!shouldVirtualize) {
@@ -590,10 +599,13 @@ const SegmentedContent = memo(function SegmentedContent({
   );
 });
 
-const MessageItem = memo(function MessageItem({ message, streamingContentBlocks, streamingToolCalls }: {
+const MessageItem = memo(function MessageItem({ message, streamingContentBlocks, streamingToolCalls, showResend, onResend, resendDisabled }: {
   message: MessageWithToolCalls;
   streamingContentBlocks?: ContentBlock[];
   streamingToolCalls?: ToolCallState[];
+  showResend?: boolean;
+  onResend?: () => void;
+  resendDisabled?: boolean;
 }) {
   const isUser = message.role === 'user';
   const isSystem = message.role === 'system';
@@ -694,6 +706,18 @@ const MessageItem = memo(function MessageItem({ message, streamingContentBlocks,
           {new Date(message.createdAt).toLocaleTimeString()}
         </div>
       </div>
+      {isUser && showResend && onResend && (
+        <div className="mt-1">
+          <button
+            onClick={onResend}
+            disabled={resendDisabled}
+            className="text-xs px-2 py-1 rounded-full border border-border text-muted-foreground hover:text-foreground hover:bg-secondary/60 disabled:opacity-50 disabled:cursor-not-allowed"
+            title={resendDisabled ? 'This message cannot be resent as plain text' : 'Resend this message'}
+          >
+            Resend
+          </button>
+        </div>
+      )}
     </div>
   );
 });

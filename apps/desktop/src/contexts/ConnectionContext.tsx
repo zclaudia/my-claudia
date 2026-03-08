@@ -22,7 +22,7 @@ interface ConnectionContextValue {
   getConnectedServers: () => string[];
 
   // Permission decision handlers (shared across all components)
-  handlePermissionDecision: (requestId: string, allow: boolean, remember?: boolean, credential?: string) => Promise<void>;
+  handlePermissionDecision: (requestId: string, allow: boolean, remember?: boolean, credential?: string, feedback?: string) => Promise<void>;
   handleAskUserAnswer: (requestId: string, formattedAnswer: string) => void;
 
   // Embedded server debug info
@@ -52,6 +52,7 @@ export function ConnectionProvider({ children }: { children: ReactNode }) {
     allow: boolean,
     remember?: boolean,
     credential?: string,
+    feedback?: string,
   ) => {
     // Find the request to get serverId for routing
     const request = usePermissionStore.getState().pendingRequests.find(r => r.requestId === requestId);
@@ -78,6 +79,7 @@ export function ConnectionProvider({ children }: { children: ReactNode }) {
       requestId,
       allow,
       remember,
+      ...(feedback && { feedback }),
       ...(encryptedCredentialValue && { encryptedCredential: encryptedCredentialValue }),
     };
 

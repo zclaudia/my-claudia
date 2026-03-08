@@ -16,6 +16,7 @@ import { usePermissionStore } from '../stores/permissionStore';
 import { useAskUserQuestionStore } from '../stores/askUserQuestionStore';
 import { useSupervisionStore } from '../stores/supervisionStore';
 import { useLocalPRStore } from '../stores/localPRStore';
+import { useScheduledTaskStore } from '../stores/scheduledTaskStore';
 import { useSessionsStore } from '../stores/sessionsStore';
 import { LOCAL_BACKEND_KEY } from '../stores/sessionsStore';
 import { useTerminalStore } from '../stores/terminalStore';
@@ -282,6 +283,18 @@ export function handleServerMessage(
     case 'local_pr_update': {
       const { projectId, pr } = msg as any;
       useLocalPRStore.getState().upsertPR(projectId, pr);
+      break;
+    }
+
+    case 'scheduled_task_update': {
+      const { projectId, task } = msg as any;
+      useScheduledTaskStore.getState().upsertTask(projectId, task);
+      break;
+    }
+
+    case 'scheduled_task_deleted': {
+      const { projectId, taskId } = msg as any;
+      useScheduledTaskStore.getState().removeTask(projectId, taskId);
       break;
     }
 

@@ -35,16 +35,18 @@ export function createProjectRoutes(db: Database.Database): Router {
                system_prompt as systemPrompt, permission_policy as permissionPolicy,
                agent_permission_override as agentPermissionOverride,
                is_internal as isInternal,
+               review_provider_id as reviewProviderId,
                created_at as createdAt, updated_at as updatedAt
         FROM projects
         ORDER BY updated_at DESC
-      `).all() as Array<Omit<Project, 'permissionPolicy' | 'agentPermissionOverride' | 'isInternal'> & { permissionPolicy: string; agentPermissionOverride: string; isInternal: number }>;
+      `).all() as any[];
 
       const result = projects.map(p => ({
         ...p,
         permissionPolicy: p.permissionPolicy ? JSON.parse(p.permissionPolicy) : undefined,
         agentPermissionOverride: p.agentPermissionOverride ? JSON.parse(p.agentPermissionOverride) : undefined,
         isInternal: p.isInternal === 1,
+        reviewProviderId: p.reviewProviderId || undefined,
       }));
 
       res.json({ success: true, data: result } as ApiResponse<Project[]>);
@@ -65,9 +67,10 @@ export function createProjectRoutes(db: Database.Database): Router {
                system_prompt as systemPrompt, permission_policy as permissionPolicy,
                agent_permission_override as agentPermissionOverride,
                is_internal as isInternal,
+               review_provider_id as reviewProviderId,
                created_at as createdAt, updated_at as updatedAt
         FROM projects WHERE id = ?
-      `).get(req.params.id) as (Omit<Project, 'permissionPolicy' | 'agentPermissionOverride' | 'isInternal'> & { permissionPolicy: string; agentPermissionOverride: string; isInternal: number }) | undefined;
+      `).get(req.params.id) as any | undefined;
 
       if (!project) {
         res.status(404).json({
@@ -84,6 +87,7 @@ export function createProjectRoutes(db: Database.Database): Router {
           permissionPolicy: project.permissionPolicy ? JSON.parse(project.permissionPolicy) : undefined,
           agentPermissionOverride: project.agentPermissionOverride ? JSON.parse(project.agentPermissionOverride) : undefined,
           isInternal: project.isInternal === 1,
+          reviewProviderId: project.reviewProviderId || undefined,
         }
       } as ApiResponse<Project>);
     } catch (error) {
@@ -153,7 +157,7 @@ export function createProjectRoutes(db: Database.Database): Router {
   // Update project
   router.put('/:id', (req: Request, res: Response) => {
     try {
-      const { name, type, providerId, rootPath, systemPrompt, permissionPolicy, agentPermissionOverride } = req.body;
+      const { name, type, providerId, rootPath, systemPrompt, permissionPolicy, agentPermissionOverride, reviewProviderId } = req.body;
       const now = Date.now();
 
       const result = db.prepare(`
@@ -165,6 +169,7 @@ export function createProjectRoutes(db: Database.Database): Router {
             system_prompt = ?,
             permission_policy = ?,
             agent_permission_override = ?,
+            review_provider_id = ?,
             updated_at = ?
         WHERE id = ?
       `).run(
@@ -177,6 +182,7 @@ export function createProjectRoutes(db: Database.Database): Router {
         agentPermissionOverride !== undefined
           ? (agentPermissionOverride ? JSON.stringify(agentPermissionOverride) : null)
           : null,
+        reviewProviderId !== undefined ? (reviewProviderId || null) : null,
         now,
         req.params.id
       );

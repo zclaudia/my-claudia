@@ -30,8 +30,7 @@ interface SidebarProps {
   isOpen?: boolean;
   onClose?: () => void;
   hideHeader?: boolean;
-  supervisionView?: boolean;
-  onToggleSupervision?: () => void;
+  onOpenDashboard?: (projectId: string) => void;
 }
 
 function normalizeSearchPreview(content: string): string {
@@ -39,7 +38,7 @@ function normalizeSearchPreview(content: string): string {
   return normalized || 'No preview text';
 }
 
-export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHeader }: SidebarProps) {
+export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHeader, onOpenDashboard }: SidebarProps) {
   const {
     projects = [],
     sessions = [],
@@ -127,7 +126,9 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
   // This significantly improves performance when toggling project expansion
   const sessionsByProject = useMemo(() => {
     const grouped = new Map<string, typeof sessions>();
-    sessions.forEach(session => {
+    // Filter out background sessions (e.g. review, conflict resolution) from sidebar
+    const visibleSessions = sessions.filter(s => s.type !== 'background');
+    visibleSessions.forEach(session => {
       const projectSessions = grouped.get(session.projectId) || [];
       projectSessions.push(session);
       grouped.set(session.projectId, projectSessions);
@@ -702,9 +703,10 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
                             <>
                               <SupervisorGroupItem
                                 key={mainSession.id}
-                                onSelect={() => { selectSession(mainSession!.id); if (onClose) onClose(); }}
+                                onSelect={() => { if (onOpenDashboard) onOpenDashboard(project.id); if (onClose) onClose(); }}
                                 isSelected={selectedSessionId === mainSession!.id}
                                 isActive={activeRunSessionIds.has(mainSession!.id)}
+                                phase={v2Agents[project.id]?.phase}
                                 taskCount={tasks.length}
                                 taskChildren={tasks.map(renderSession)}
                               />
@@ -901,7 +903,7 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
             />
           </div>
 
-          {/* Settings Button */}
+          {/* Settings */}
           <div className="border-t border-border p-2">
             <button
               onClick={() => setShowSettings(true)}
@@ -1250,9 +1252,10 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
                         <>
                           <SupervisorGroupItem
                             key={mainSession.id}
-                            onSelect={() => selectSession(mainSession!.id)}
+                            onSelect={() => { if (onOpenDashboard) onOpenDashboard(project.id); }}
                             isSelected={selectedSessionId === mainSession!.id}
                             isActive={activeRunSessionIds.has(mainSession!.id)}
+                            phase={v2Agents[project.id]?.phase}
                             taskCount={tasks.length}
                             taskChildren={tasks.map(renderSession)}
                           />
@@ -1446,7 +1449,7 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
         />
       </div>
 
-      {/* Settings Button */}
+      {/* Settings */}
       <div className="border-t border-border p-2">
         <button
           onClick={() => setShowSettings(true)}

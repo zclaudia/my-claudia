@@ -1,6 +1,8 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import type { GitWorktree } from '@my-claudia/shared';
 import { X } from 'lucide-react';
 import { useLocalPRStore } from '../../stores/localPRStore';
+import { getProjectWorktrees, listLocalPRs } from '../../services/api';
 
 interface CreateLocalPRDialogProps {
   projectId: string;
@@ -17,10 +19,46 @@ export function CreateLocalPRDialog({
 }: CreateLocalPRDialogProps) {
   const { createPR } = useLocalPRStore();
   const [worktreePath, setWorktreePath] = useState(defaultWorktreePath);
+  const [baseBranch, setBaseBranch] = useState('');
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
+  const [autoReview, setAutoReview] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [availableWorktrees, setAvailableWorktrees] = useState<GitWorktree[]>([]);
+  const [allWorktrees, setAllWorktrees] = useState<GitWorktree[]>([]);
+  const [loadingWorktrees, setLoadingWorktrees] = useState(true);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const [worktrees, prs] = await Promise.all([
+          getProjectWorktrees(projectId),
+          listLocalPRs(projectId),
+        ]);
+        setAllWorktrees(worktrees);
+        const activePRPaths = new Set(
+          prs
+            .filter((pr) => !['merged', 'closed'].includes(pr.status))
+            .map((pr) => pr.worktreePath),
+        );
+        const available = worktrees.filter(
+          (wt) => !wt.isMain && !activePRPaths.has(wt.path),
+        );
+        setAvailableWorktrees(available);
+        // Auto-select if only one available or default matches
+        if (defaultWorktreePath) {
+          setWorktreePath(defaultWorktreePath);
+        } else if (available.length === 1) {
+          setWorktreePath(available[0].path);
+        }
+      } catch {
+        // If worktree API fails, user can still type manually
+      } finally {
+        setLoadingWorktrees(false);
+      }
+    })();
+  }, [projectId]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -34,6 +72,8 @@ export function CreateLocalPRDialog({
       await createPR(projectId, worktreePath.trim(), {
         title: title.trim() || undefined,
         description: description.trim() || undefined,
+        baseBranch: baseBranch || undefined,
+        autoReview: autoReview || undefined,
       });
       onClose();
     } catch (err) {
@@ -56,15 +96,54 @@ export function CreateLocalPRDialog({
         <form onSubmit={handleSubmit} className="space-y-3">
           <div>
             <label className="text-xs font-medium text-muted-foreground block mb-1">
-              Worktree Path <span className="text-red-500">*</span>
+              Worktree <span className="text-red-500">*</span>
             </label>
-            <input
-              type="text"
-              value={worktreePath}
-              onChange={(e) => setWorktreePath(e.target.value)}
-              placeholder="/path/to/worktree"
+            {loadingWorktrees ? (
+              <div className="w-full text-sm bg-muted border border-border rounded-md px-3 py-2 text-muted-foreground">
+                Loading worktrees…
+              </div>
+            ) : availableWorktrees.length > 0 ? (
+              <select
+                value={worktreePath}
+                onChange={(e) => setWorktreePath(e.target.value)}
+                className="w-full text-sm bg-muted border border-border rounded-md px-3 py-2 focus:outline-none focus:ring-1 focus:ring-primary"
+              >
+                <option value="">Select a worktree…</option>
+                {availableWorktrees.map((wt) => (
+                  <option key={wt.path} value={wt.path}>
+                    {wt.branch} ({wt.path})
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <input
+                type="text"
+                value={worktreePath}
+                onChange={(e) => setWorktreePath(e.target.value)}
+                placeholder="/path/to/worktree"
+                className="w-full text-sm bg-muted border border-border rounded-md px-3 py-2 focus:outline-none focus:ring-1 focus:ring-primary"
+              />
+            )}
+          </div>
+
+          <div>
+            <label className="text-xs font-medium text-muted-foreground block mb-1">
+              Target Branch <span className="text-muted-foreground">(defaults to main branch)</span>
+            </label>
+            <select
+              value={baseBranch}
+              onChange={(e) => setBaseBranch(e.target.value)}
               className="w-full text-sm bg-muted border border-border rounded-md px-3 py-2 focus:outline-none focus:ring-1 focus:ring-primary"
-            />
+            >
+              <option value="">Auto-detect (main/master)</option>
+              {allWorktrees
+                .filter((wt) => wt.path !== worktreePath)
+                .map((wt) => (
+                  <option key={wt.path} value={wt.branch}>
+                    {wt.branch}{wt.isMain ? ' (main worktree)' : ''}
+                  </option>
+                ))}
+            </select>
           </div>
 
           <div>
@@ -92,6 +171,18 @@ export function CreateLocalPRDialog({
               className="w-full text-sm bg-muted border border-border rounded-md px-3 py-2 focus:outline-none focus:ring-1 focus:ring-primary resize-none"
             />
           </div>
+
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={autoReview}
+              onChange={(e) => setAutoReview(e.target.checked)}
+              className="rounded border-border"
+            />
+            <span className="text-xs text-muted-foreground">
+              Enable auto AI review
+            </span>
+          </label>
 
           {error && (
             <p className="text-xs text-red-500 bg-red-500/10 border border-red-500/20 rounded-md px-3 py-2">

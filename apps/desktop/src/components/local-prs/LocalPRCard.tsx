@@ -1,7 +1,9 @@
-import type { LocalPR, LocalPRStatus } from '@my-claudia/shared';
-import { GitMerge, RefreshCw, XCircle, ChevronDown, ChevronUp } from 'lucide-react';
+import type { LocalPR, LocalPRStatus, ProviderConfig } from '@my-claudia/shared';
+import { GitMerge, XCircle, ChevronDown, ChevronUp, Eye, MessageSquare, FileCode } from 'lucide-react';
 import { useState } from 'react';
 import { useLocalPRStore } from '../../stores/localPRStore';
+import { useProjectStore } from '../../stores/projectStore';
+import { DiffViewerModal } from './DiffViewerModal';
 
 const STATUS_CONFIG: Record<LocalPRStatus, { label: string; color: string }> = {
   open: { label: 'Open', color: 'bg-blue-500/10 text-blue-500' },
@@ -20,31 +22,41 @@ interface LocalPRCardProps {
 }
 
 export function LocalPRCard({ pr, projectId }: LocalPRCardProps) {
+  const [diffOpen, setDiffOpen] = useState(false);
   const [notesOpen, setNotesOpen] = useState(false);
   const [loading, setLoading] = useState(false);
-  const { closePR, retryReview, mergePR } = useLocalPRStore();
+  const [reviewPickerOpen, setReviewPickerOpen] = useState(false);
+  const { closePR, reviewPR, mergePR } = useLocalPRStore();
+  const providers = useProjectStore((s) => s.providers);
+  const projects = useProjectStore((s) => s.projects);
+  const selectSession = useProjectStore((s) => s.selectSession);
+  const updateSession = useProjectStore((s) => s.updateSession);
   const status = STATUS_CONFIG[pr.status] ?? { label: pr.status, color: 'bg-gray-500/10 text-gray-400' };
+
+  const project = projects.find((p) => p.id === projectId);
+  const defaultProviderId = project?.reviewProviderId || project?.providerId || '';
 
   const branchShort = pr.branchName.replace(/^(feat|fix|chore|refactor)\//, '');
   const commitCount = pr.commits?.length ?? 0;
   const date = new Date(pr.createdAt).toLocaleDateString();
 
   const handleClose = async () => {
-    if (!confirm('Close this local PR?')) return;
     setLoading(true);
     try { await closePR(pr.id, projectId); } finally { setLoading(false); }
   };
 
-  const handleRetry = async () => {
-    setLoading(true);
-    try { await retryReview(pr.id, projectId); } finally { setLoading(false); }
-  };
-
   const handleMerge = async () => {
-    if (!confirm(`Merge "${pr.branchName}" into "${pr.baseBranch}"?`)) return;
     setLoading(true);
     try { await mergePR(pr.id, projectId); } finally { setLoading(false); }
   };
+
+  const handleReview = async (providerId?: string) => {
+    setReviewPickerOpen(false);
+    setLoading(true);
+    try { await reviewPR(pr.id, projectId, providerId || undefined); } finally { setLoading(false); }
+  };
+
+  const canReview = pr.status === 'open' || pr.status === 'review_failed';
 
   return (
     <div className="rounded-lg border border-border bg-card p-3 space-y-2">
@@ -56,6 +68,9 @@ export function LocalPRCard({ pr, projectId }: LocalPRCardProps) {
             </span>
             {pr.autoTriggered && (
               <span className="text-xs text-muted-foreground bg-muted px-1.5 py-0.5 rounded">auto</span>
+            )}
+            {pr.autoReview && (
+              <span className="text-xs text-muted-foreground bg-muted px-1.5 py-0.5 rounded">auto-review</span>
             )}
           </div>
           <p className="text-sm font-medium mt-1 truncate" title={pr.title}>{pr.title}</p>
@@ -71,14 +86,49 @@ export function LocalPRCard({ pr, projectId }: LocalPRCardProps) {
         </div>
 
         <div className="flex items-center gap-1 shrink-0">
-          {pr.status === 'review_failed' && (
+          {canReview && (
+            <div className="relative">
+              <button
+                onClick={() => setReviewPickerOpen((v) => !v)}
+                disabled={loading}
+                title="AI Review"
+                className="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground disabled:opacity-50"
+              >
+                <Eye className="w-3.5 h-3.5" />
+              </button>
+              {reviewPickerOpen && (
+                <>
+                  <div className="fixed inset-0 z-40" onClick={() => setReviewPickerOpen(false)} />
+                  <div className="absolute right-0 top-full mt-1 z-50 bg-popover border border-border rounded-lg shadow-lg p-2 min-w-[200px]">
+                    <p className="text-xs font-medium text-muted-foreground mb-1.5 px-1">Review with:</p>
+                    <button
+                      onClick={() => handleReview(defaultProviderId)}
+                      className="w-full text-left text-xs px-2 py-1.5 rounded hover:bg-muted"
+                    >
+                      Default{defaultProviderId ? ` (${getProviderLabel(providers, defaultProviderId)})` : ''}
+                    </button>
+                    {providers.filter((p) => p.id !== defaultProviderId).map((p) => (
+                      <button
+                        key={p.id}
+                        onClick={() => handleReview(p.id)}
+                        className="w-full text-left text-xs px-2 py-1.5 rounded hover:bg-muted"
+                      >
+                        {p.name} ({p.type})
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+          {pr.status === 'open' && (
             <button
-              onClick={handleRetry}
+              onClick={handleMerge}
               disabled={loading}
-              title="Retry review"
+              title="Merge directly (skip review)"
               className="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground disabled:opacity-50"
             >
-              <RefreshCw className="w-3.5 h-3.5" />
+              <GitMerge className="w-3.5 h-3.5" />
             </button>
           )}
           {(pr.status === 'approved' || pr.status === 'conflict') && (
@@ -104,8 +154,29 @@ export function LocalPRCard({ pr, projectId }: LocalPRCardProps) {
         </div>
       </div>
 
-      {pr.reviewNotes && (
-        <div>
+      <div className="flex items-center gap-3 flex-wrap">
+        {pr.diffSummary && (
+          <button
+            onClick={() => setDiffOpen(true)}
+            className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+          >
+            <FileCode className="w-3 h-3" />
+            View diff
+          </button>
+        )}
+        {pr.reviewSessionId && (
+          <button
+            onClick={() => {
+              updateSession(pr.reviewSessionId!, { isReadOnly: true, type: 'background' });
+              selectSession(pr.reviewSessionId!);
+            }}
+            className="flex items-center gap-1 text-xs text-primary hover:text-primary/80"
+          >
+            <MessageSquare className="w-3 h-3" />
+            View review session
+          </button>
+        )}
+        {pr.reviewNotes && (
           <button
             onClick={() => setNotesOpen((v) => !v)}
             className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
@@ -113,13 +184,27 @@ export function LocalPRCard({ pr, projectId }: LocalPRCardProps) {
             {notesOpen ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
             Review notes
           </button>
-          {notesOpen && (
-            <pre className="mt-1 text-xs bg-muted p-2 rounded overflow-auto max-h-40 whitespace-pre-wrap">
-              {pr.reviewNotes}
-            </pre>
-          )}
-        </div>
+        )}
+      </div>
+
+      {diffOpen && pr.diffSummary && (
+        <DiffViewerModal
+          title={pr.title}
+          diff={pr.diffSummary}
+          onClose={() => setDiffOpen(false)}
+        />
+      )}
+
+      {notesOpen && pr.reviewNotes && (
+        <pre className="text-xs bg-muted p-2 rounded overflow-auto max-h-40 whitespace-pre-wrap">
+          {pr.reviewNotes}
+        </pre>
       )}
     </div>
   );
+}
+
+function getProviderLabel(providers: ProviderConfig[], id: string): string {
+  const p = providers.find((p) => p.id === id);
+  return p ? `${p.name}` : id.slice(0, 8);
 }

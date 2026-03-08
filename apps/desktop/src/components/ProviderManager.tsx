@@ -125,6 +125,7 @@ export function ProviderManager({ isOpen, onClose, inline = false }: ProviderMan
       await loadProviders();
     } catch (error) {
       console.error('Failed to delete provider:', error);
+      alert(error instanceof Error ? error.message : 'Failed to delete provider');
     }
   };
 

@@ -6,7 +6,7 @@ import { ProjectRepository } from '../repositories/project.js';
 import type { SupervisorV2Service } from './supervisor-v2-service.js';
 
 export interface RecoveryAction {
-  type: 'task_requeued' | 'task_failed' | 'worktree_released' | 'session_archived' | 'agent_idle';
+  type: 'task_requeued' | 'task_failed' | 'worktree_released' | 'session_archived' | 'agent_idle' | 'run_interrupted';
   id: string;
   detail?: string;
 }
@@ -28,6 +28,9 @@ export class StateRecovery {
 
   recover(): RecoveryReport {
     const actions: RecoveryAction[] = [];
+
+    // 0. Detect sessions interrupted by server restart
+    actions.push(...this.recoverInterruptedRuns());
 
     // 1. Recover stuck running tasks
     actions.push(...this.recoverStuckTasks());
@@ -52,6 +55,28 @@ export class StateRecovery {
     }
 
     return report;
+  }
+
+  private recoverInterruptedRuns(): RecoveryAction[] {
+    const actions: RecoveryAction[] = [];
+
+    const stuck = this.db.prepare(`
+      SELECT id, last_run_status FROM sessions
+      WHERE last_run_status IN ('running', 'waiting') AND archived_at IS NULL
+    `).all() as Array<{ id: string; last_run_status: string }>;
+
+    const now = Date.now();
+    for (const s of stuck) {
+      this.db.prepare('UPDATE sessions SET last_run_status = ?, updated_at = ? WHERE id = ?')
+        .run('interrupted', now, s.id);
+      actions.push({
+        type: 'run_interrupted',
+        id: s.id,
+        detail: `Was ${s.last_run_status} when server stopped`,
+      });
+    }
+
+    return actions;
   }
 
   private recoverStuckTasks(): RecoveryAction[] {

@@ -1,5 +1,5 @@
 import { useRef, useEffect, useCallback, useState, useMemo } from 'react';
-import { Loader2, AlertTriangle, ClipboardList, ArrowDown, X, FileText, Terminal as TerminalIcon, ChevronDown, ChevronUp, Lock, Unlock, Archive, RotateCcw, Download } from 'lucide-react';
+import { Loader2, AlertTriangle, ClipboardList, ArrowDown, ArrowLeft, X, FileText, Terminal as TerminalIcon, ChevronDown, ChevronUp, Lock, Unlock, Archive, RotateCcw, Download } from 'lucide-react';
 import { MessageList } from './MessageList';
 import { MessageInput, type Attachment } from './MessageInput';
 import { ToolCallList } from './ToolCallItem';
@@ -54,6 +54,7 @@ function restoreToolCalls(messages: Message[]): MessageWithToolCalls[] {
 
 interface ChatInterfaceProps {
   sessionId: string;
+  onReturnToDashboard?: (projectId: string) => void;
 }
 
 const MESSAGES_PER_PAGE = 50;
@@ -63,8 +64,9 @@ const SUPPRESS_LOAD_MORE_MS = 1200;
 const EMPTY_MESSAGES: MessageWithToolCalls[] = [];
 const EMPTY_TOOL_CALLS: import('../../stores/chatStore').ToolCallState[] = [];
 const EMPTY_CONTENT_BLOCKS: import('@my-claudia/shared').ContentBlock[] = [];
+const ATTACHMENT_PLACEHOLDER = '[Attachments]';
 
-export function ChatInterface({ sessionId }: ChatInterfaceProps) {
+export function ChatInterface({ sessionId, onReturnToDashboard }: ChatInterfaceProps) {
   const messages = useChatStore((s) => s.messages);
   const pagination = useChatStore((s) => s.pagination);
   const activeRuns = useChatStore((s) => s.activeRuns);
@@ -91,6 +93,10 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
     }
     return null;
   }, [activeRuns, sessionId]);
+  const isSessionRunning = useMemo(
+    () => Object.values(activeRuns).some((sid) => sid === sessionId),
+    [activeRuns, sessionId]
+  );
   // Only show loading/toolCalls for THIS session's active run
   const isLoading = useMemo(
     () => Object.entries(activeRuns).some(([runId, sid]) => sid === sessionId && !backgroundRunIds.has(runId)),
@@ -139,6 +145,7 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
   const [restoreMessage, setRestoreMessage] = useState<{ content: string; attachments?: Attachment[] } | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [resendChecking, setResendChecking] = useState(false);
   // Queued message: when user sends while a run is active, queue it for auto-send
   const [queuedMessage, setQueuedMessage] = useState<{ content: string; attachments?: Attachment[] } | null>(null);
   const [taskPlanStatus, setTaskPlanStatus] = useState<api.TaskPlanStatus | null>(null);
@@ -151,6 +158,28 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
   const [renameValue, setRenameValue] = useState('');
 
   const sessionMessages = messages[sessionId] || EMPTY_MESSAGES;
+  const lastSessionMessage = sessionMessages.length > 0 ? sessionMessages[sessionMessages.length - 1] : null;
+  const resendTargetMessage = useMemo(() => {
+    if (!lastSessionMessage || lastSessionMessage.role !== 'user' || isSessionRunning) {
+      return null;
+    }
+    return lastSessionMessage;
+  }, [lastSessionMessage, isSessionRunning]);
+  const resendText = useMemo(() => {
+    if (!resendTargetMessage) return null;
+    const raw = (resendTargetMessage.content || '').trim();
+    if (!raw || raw === ATTACHMENT_PLACEHOLDER) return null;
+    try {
+      const parsed = JSON.parse(raw) as { text?: string };
+      if (parsed && typeof parsed === 'object' && typeof parsed.text === 'string') {
+        const text = parsed.text.trim();
+        return text || null;
+      }
+    } catch {
+      // Plain text fallback
+    }
+    return raw;
+  }, [resendTargetMessage]);
   // Get current session and project to determine provider
   const currentSession = sessions.find(s => s.id === sessionId);
   const currentProject = currentSession
@@ -176,6 +205,7 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
     setRestoreMessage(null);
     setUploadError(null);
     setLoadError(null);
+    setResendChecking(false);
     setQueuedMessage(null);
     setScrollMetrics({ scrollTop: 0, viewportHeight: 0 });
     setInitialDraft(useChatStore.getState().drafts[sessionId]);
@@ -676,6 +706,41 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
     // Scroll to bottom after sending
     setTimeout(() => scrollToBottom(), 100);
   };
+
+  const handleResendLastMessage = useCallback(async () => {
+    if (!resendText) return;
+    setResendChecking(true);
+    try {
+      const runState = await api.getSessionRunState(sessionId);
+      if (runState.isRunning) {
+        addMessage(sessionId, {
+          id: crypto.randomUUID(),
+          sessionId,
+          role: 'system',
+          content: `Cannot resend yet: session is still running${runState.activeRunId ? ` (${runState.activeRunId})` : ''}.`,
+          createdAt: Date.now(),
+        });
+        return;
+      }
+      // Remove the original user message before resending to avoid duplicates
+      const currentMessages = useChatStore.getState().messages[sessionId] || [];
+      if (currentMessages.length > 0 && currentMessages[currentMessages.length - 1].role === 'user') {
+        setMessages(sessionId, currentMessages.slice(0, -1));
+      }
+      await handleSendMessage(resendText);
+    } catch (error) {
+      console.error('Resend preflight failed:', error);
+      addMessage(sessionId, {
+        id: crypto.randomUUID(),
+        sessionId,
+        role: 'system',
+        content: 'Resend preflight failed. Please try again.',
+        createdAt: Date.now(),
+      });
+    } finally {
+      setResendChecking(false);
+    }
+  }, [resendText, sessionId, handleSendMessage, addMessage, setMessages]);
 
   // Handle built-in command response
   const handleBuiltInCommand = useCallback((result: CommandExecuteResponse) => {
@@ -1324,11 +1389,61 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
         <TaskCardStrip projectId={currentProject.id} />
       )}
 
+      {/* Interrupted session banner */}
+      {currentSession?.lastRunStatus === 'interrupted' && (
+        <div className="flex items-center gap-3 px-4 py-2 bg-red-500/10 border-b border-red-500/20">
+          <AlertTriangle className="w-4 h-4 text-red-400 shrink-0" />
+          <span className="text-sm text-red-400">Session was interrupted by app restart.</span>
+          <div className="ml-auto flex gap-2">
+            <button
+              onClick={() => {
+                wsSendMessage({
+                  type: 'run_start',
+                  clientRequestId: crypto.randomUUID(),
+                  sessionId,
+                  input: 'continue',
+                  mode: mode || undefined,
+                  workingDirectory: currentSession?.workingDirectory || undefined,
+                });
+              }}
+              className="text-xs px-3 py-1 rounded-md bg-primary/20 text-primary hover:bg-primary/30 transition-colors"
+            >
+              Resume
+            </button>
+            <button
+              onClick={async () => {
+                try {
+                  await api.dismissInterrupted(sessionId);
+                  useProjectStore.getState().updateSession(sessionId, { lastRunStatus: null });
+                } catch {}
+              }}
+              className="text-xs px-3 py-1 rounded-md text-muted-foreground hover:bg-muted transition-colors"
+            >
+              Dismiss
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Session action bar */}
       {currentSession && (
         <div className="flex items-center gap-2 px-3 py-1.5 border-b border-border bg-card/50">
-          {/* Session name — click to rename */}
-          {isRenamingSession ? (
+          {/* Back button for background sessions */}
+          {currentSession.type === 'background' && onReturnToDashboard && currentSession.projectId && (
+            <button
+              onClick={() => onReturnToDashboard(currentSession.projectId)}
+              className="p-1 rounded hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors shrink-0"
+              title="Back to dashboard"
+            >
+              <ArrowLeft size={14} />
+            </button>
+          )}
+          {/* Session name — click to rename (disabled for background sessions) */}
+          {currentSession.type === 'background' ? (
+            <span className="flex-1 min-w-0 text-sm text-foreground truncate">
+              {currentSession.name || 'Untitled Session'}
+            </span>
+          ) : isRenamingSession ? (
             <input
               autoFocus
               type="text"
@@ -1364,31 +1479,33 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
               </span>
             ) : null;
           })()}
-          {/* Actions */}
-          <div className="flex items-center gap-0.5 shrink-0">
-            <button
-              onClick={handleResetProviderSession}
-              disabled={isLoading}
-              className={`p-1 rounded transition-colors ${isLoading ? 'opacity-50 cursor-not-allowed text-muted-foreground' : 'hover:bg-secondary text-muted-foreground hover:text-foreground'}`}
-              title="Reset underlying provider session"
-            >
-              <RotateCcw size={14} />
-            </button>
-            <button
-              onClick={handleExportSession}
-              className="p-1 rounded hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors"
-              title="Export as Markdown"
-            >
-              <Download size={14} />
-            </button>
-            <button
-              onClick={handleArchiveSession}
-              className="p-1 rounded hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors"
-              title="Archive session"
-            >
-              <Archive size={14} />
-            </button>
-          </div>
+          {/* Actions (hidden for background sessions) */}
+          {currentSession.type !== 'background' && (
+            <div className="flex items-center gap-0.5 shrink-0">
+              <button
+                onClick={handleResetProviderSession}
+                disabled={isLoading}
+                className={`p-1 rounded transition-colors ${isLoading ? 'opacity-50 cursor-not-allowed text-muted-foreground' : 'hover:bg-secondary text-muted-foreground hover:text-foreground'}`}
+                title="Reset underlying provider session"
+              >
+                <RotateCcw size={14} />
+              </button>
+              <button
+                onClick={handleExportSession}
+                className="p-1 rounded hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors"
+                title="Export as Markdown"
+              >
+                <Download size={14} />
+              </button>
+              <button
+                onClick={handleArchiveSession}
+                className="p-1 rounded hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors"
+                title="Archive session"
+              >
+                <Archive size={14} />
+              </button>
+            </div>
+          )}
         </div>
       )}
 
@@ -1556,6 +1673,9 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
           streamingToolCalls={useStreamingSegmented ? sessionToolCallHistory : undefined}
           scrollTop={scrollMetrics.scrollTop}
           viewportHeight={scrollMetrics.viewportHeight}
+          resendTargetMessageId={resendTargetMessage?.id}
+          resendDisabled={!resendText || resendChecking}
+          onResendTarget={handleResendLastMessage}
         />
 
         {/* Loading indicator (shown while waiting for response) */}
@@ -1661,31 +1781,44 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <Lock size={14} />
               <span>
-                {currentSession.planStatus === 'planned'
+                {currentSession.type === 'background'
+                  ? 'Background session — read-only'
+                  : currentSession.planStatus === 'planned'
                   ? 'Plan submitted — waiting for Supervisor to execute'
                   : currentSession.planStatus === 'executing'
                   ? 'Task executing — controlled by Supervisor'
                   : 'This session is read-only'}
               </span>
             </div>
-            <button
-              onClick={async () => {
-                try {
-                  const updated = await api.unlockSession(sessionId);
-                  // Update session in project store
-                  useProjectStore.getState().updateSession(sessionId, {
-                    isReadOnly: updated.isReadOnly,
-                    planStatus: updated.planStatus,
-                  });
-                } catch (err) {
-                  console.error('Failed to unlock session:', err);
-                }
-              }}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-primary/10 text-primary hover:bg-primary/20 rounded-md transition-colors"
-            >
-              <Unlock size={14} />
-              Unlock
-            </button>
+            {currentSession.type === 'background' ? (
+              isLoading && sessionRunId ? (
+                <button
+                  onClick={handleCancelRun}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-destructive/10 text-destructive hover:bg-destructive/20 rounded-md transition-colors"
+                >
+                  <X size={14} />
+                  Cancel
+                </button>
+              ) : null
+            ) : (
+              <button
+                onClick={async () => {
+                  try {
+                    const updated = await api.unlockSession(sessionId);
+                    useProjectStore.getState().updateSession(sessionId, {
+                      isReadOnly: updated.isReadOnly,
+                      planStatus: updated.planStatus,
+                    });
+                  } catch (err) {
+                    console.error('Failed to unlock session:', err);
+                  }
+                }}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-primary/10 text-primary hover:bg-primary/20 rounded-md transition-colors"
+              >
+                <Unlock size={14} />
+                Unlock
+              </button>
+            )}
           </div>
         </div>
       ) : (

@@ -41,6 +41,8 @@ import { createMcpServerRoutes } from './routes/mcp-servers.js';
 import { createSystemStatsRoutes } from './routes/system-stats.js';
 import { createLocalPRRoutes } from './routes/local-prs.js';
 import { LocalPRService } from './services/local-pr-service.js';
+import { ScheduledTaskService } from './services/scheduled-task-service.js';
+import { createScheduledTaskRoutes } from './routes/scheduled-tasks.js';
 import { SupervisorV2Service } from './services/supervisor-v2-service.js';
 import { StateRecovery } from './services/state-recovery.js';
 import { CheckpointEngine } from './services/checkpoint-engine.js';
@@ -578,6 +580,14 @@ export async function createServer(): Promise<ServerContext> {
   });
   app.use('/api', authMiddleware, createLocalPRRoutes(localPRService, db));
 
+  // Scheduled task service + routes
+  const scheduledTaskService = new ScheduledTaskService(db, (message) => {
+    clients.forEach((client) => {
+      if (client.authenticated) sendMessage(client.ws, message);
+    });
+  });
+  app.use('/api', authMiddleware, createScheduledTaskRoutes(scheduledTaskService));
+
   // Notification routes + service
   notificationService = new NotificationService(db);
   app.use('/api/notifications', authMiddleware, createNotificationRoutes(notificationService));
@@ -953,6 +963,11 @@ export async function createServer(): Promise<ServerContext> {
   // Local PR scheduler (runs on same cadence as supervision: every 10s)
   setInterval(() => {
     localPRService.tick().catch((err) => console.error('[LocalPR] Tick error:', err));
+  }, 10000);
+
+  // Scheduled task scheduler (every 10s)
+  setInterval(() => {
+    scheduledTaskService.tick().catch((err) => console.error('[ScheduledTasks] Tick error:', err));
   }, 10000);
 
   // Forward permission requests to connected frontends
@@ -1443,6 +1458,22 @@ async function handleRunStart(
     return;
   }
 
+  // Hard guard: never allow overlapping runs in the same session.
+  const existingRunId = (() => {
+    for (const [id, run] of activeRuns.entries()) {
+      if (run.sessionId === message.sessionId && !run.completed) return id;
+    }
+    return null;
+  })();
+  if (existingRunId) {
+    sendMessage(client.ws, {
+      type: 'error',
+      code: 'SESSION_BUSY',
+      message: `Session is already running (runId: ${existingRunId})`,
+    } as ErrorMessage);
+    return;
+  }
+
   // Get provider config: message override → session → project → system default
   const explicitProviderId = message.providerId || session.provider_id;
   const providerId = explicitProviderId || (() => {
@@ -1504,6 +1535,10 @@ async function handleRunStart(
     aiInitiatedPlanMode: false,
   };
   activeRuns.set(runId, activeRun);
+
+  // Persist run status for crash recovery
+  db.prepare('UPDATE sessions SET last_run_status = ?, updated_at = ? WHERE id = ?')
+    .run('running', Date.now(), message.sessionId);
 
   // Track tool_use_id to tool_name mapping for this run
   const toolUseIdToName = new Map<string, string>();
@@ -1752,6 +1787,10 @@ async function handleRunStart(
           }
         });
         console.log(`[Permission] Stored pending permission ${request.requestId} in run ${runId} (timeout: ${effectiveTimeoutSeconds > 0 ? effectiveTimeoutSeconds + 's' : 'none'}, behavior: ${effectiveTimeoutBehavior}, aiInitiated: ${aiInitiated}, session: ${sessionType})`);
+
+        // Persist waiting status for crash recovery
+        db.prepare('UPDATE sessions SET last_run_status = ?, updated_at = ? WHERE id = ?')
+          .run('waiting', Date.now(), activeRun.sessionId);
 
         // For regular sessions: send UI prompts as before
         if (sessionType !== 'background') {
@@ -2256,9 +2295,9 @@ async function handleRunStart(
     activeRuns.delete(runId);
     broadcastHeartbeat();
 
-    // Update session updated_at
+    // Clear run status and update session updated_at
     db.prepare(`
-      UPDATE sessions SET updated_at = ? WHERE id = ?
+      UPDATE sessions SET last_run_status = NULL, updated_at = ? WHERE id = ?
     `).run(Date.now(), message.sessionId);
   }
 }
@@ -2272,6 +2311,7 @@ function handlePermissionDecision(message: {
   requestId: string;
   allow: boolean;
   remember?: boolean;
+  feedback?: string;
   encryptedCredential?: string;
 }): void {
   console.log(`[Permission] Received decision for ${message.requestId}: ${message.allow ? 'allow' : 'deny'}`);
@@ -2287,6 +2327,10 @@ function handlePermissionDecision(message: {
         clearTimeout(pending.timeout);
       }
       run.pendingPermissions.delete(message.requestId);
+
+      // Revert to running status after permission resolved
+      run.db.prepare('UPDATE sessions SET last_run_status = ?, updated_at = ? WHERE id = ?')
+        .run('running', Date.now(), run.sessionId);
 
       // If credential was provided (e.g. sudo password), decrypt and rewrite the command
       let updatedInput: unknown | undefined;
@@ -2310,7 +2354,9 @@ function handlePermissionDecision(message: {
 
       const decision: PermissionDecision = {
         behavior: message.allow ? 'allow' : 'deny',
-        message: message.allow ? undefined : 'User denied permission',
+        message: message.allow
+          ? undefined
+          : (message.feedback?.trim() || 'User denied permission'),
       };
       if (updatedInput !== undefined) {
         decision.updatedInput = updatedInput;
@@ -2356,6 +2402,11 @@ function handleAskUserAnswer(message: {
     if (pending) {
       if (pending.timeout) clearTimeout(pending.timeout);
       run.pendingPermissions.delete(message.requestId);
+
+      // Revert to running status after question answered
+      run.db.prepare('UPDATE sessions SET last_run_status = ?, updated_at = ? WHERE id = ?')
+        .run('running', Date.now(), run.sessionId);
+
       // Resolve with deny + user's formatted answer as the message
       // Claude reads this message and treats it as the user's response
       pending.resolve({ behavior: 'deny', message: message.formattedAnswer });

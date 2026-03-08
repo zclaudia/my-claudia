@@ -27,6 +27,7 @@ export class LocalPRRepository extends BaseRepository<LocalPR, LocalPRCreate, Lo
       conflictSessionId: row.conflict_session_id || undefined,
       reviewNotes: row.review_notes || undefined,
       autoTriggered: row.auto_triggered === 1,
+      autoReview: row.auto_review === 1,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
       mergedAt: row.merged_at || undefined,
@@ -41,8 +42,8 @@ export class LocalPRRepository extends BaseRepository<LocalPR, LocalPRCreate, Lo
         id, project_id, worktree_path, branch_name, base_branch,
         title, description, status, commits, diff_summary,
         review_session_id, conflict_session_id, review_notes,
-        auto_triggered, created_at, updated_at, merged_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        auto_triggered, auto_review, created_at, updated_at, merged_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       params: [
         id,
         data.projectId,
@@ -58,6 +59,7 @@ export class LocalPRRepository extends BaseRepository<LocalPR, LocalPRCreate, Lo
         data.conflictSessionId ?? null,
         data.reviewNotes ?? null,
         data.autoTriggered ? 1 : 0,
+        data.autoReview ? 1 : 0,
         now,
         now,
         data.mergedAt ?? null,
@@ -78,6 +80,7 @@ export class LocalPRRepository extends BaseRepository<LocalPR, LocalPRCreate, Lo
     if (data.reviewSessionId !== undefined) { sets.push('review_session_id = ?'); params.push(data.reviewSessionId); }
     if (data.conflictSessionId !== undefined) { sets.push('conflict_session_id = ?'); params.push(data.conflictSessionId); }
     if (data.reviewNotes !== undefined) { sets.push('review_notes = ?'); params.push(data.reviewNotes); }
+    if (data.autoReview !== undefined) { sets.push('auto_review = ?'); params.push(data.autoReview ? 1 : 0); }
     if (data.mergedAt !== undefined) { sets.push('merged_at = ?'); params.push(data.mergedAt); }
 
     params.push(id);
@@ -105,6 +108,14 @@ export class LocalPRRepository extends BaseRepository<LocalPR, LocalPRCreate, Lo
   findPendingReview(): LocalPR[] {
     const rows = this.db
       .prepare(`SELECT * FROM local_prs WHERE status = 'open' ORDER BY created_at ASC`)
+      .all();
+    return rows.map((r) => this.mapRow(r));
+  }
+
+  /** PRs with auto_review enabled, ready for automatic review pickup. */
+  findPendingAutoReview(): LocalPR[] {
+    const rows = this.db
+      .prepare(`SELECT * FROM local_prs WHERE status = 'open' AND auto_review = 1 ORDER BY created_at ASC`)
       .all();
     return rows.map((r) => this.mapRow(r));
   }

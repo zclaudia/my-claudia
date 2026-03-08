@@ -121,7 +121,7 @@ async function testRouterCrud() {
   // Need a project first
   const projectForSession = await projectRepo.create({
     name: 'Session Test Project',
-    type: 'code'
+    type: 'code',
   });
 
   // List sessions

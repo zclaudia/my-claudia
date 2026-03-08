@@ -29,14 +29,15 @@ export function ProjectSettings({ project, isOpen, onClose }: ProjectSettingsPro
   const removeAgent = useSupervisionStore((s) => s.removeAgent);
   const [supervisorLoading, setSupervisorLoading] = useState(false);
 
-  const [providers, setProviders] = useState<ProviderConfig[]>([]);
-  const [loading, setLoading] = useState(false);
+  const storeProviders = useProjectStore((s) => s.providers);
+  const [providers, setProviders] = useState<ProviderConfig[]>(storeProviders);
   const [saving, setSaving] = useState(false);
 
   // Form state
   const [name, setName] = useState('');
   const [rootPath, setRootPath] = useState('');
   const [providerId, setProviderId] = useState<string>('');
+  const [reviewProviderId, setReviewProviderId] = useState<string>('');
   const [systemPrompt, setSystemPrompt] = useState('');
 
   // Permission override state
@@ -47,6 +48,16 @@ export function ProjectSettings({ project, isOpen, onClose }: ProjectSettingsPro
     setPermOverride(prev => ({ ...prev, ...update }));
   }, []);
 
+  const effectiveAgent = v2Agent ?? project?.agent;
+  const isSupervisorEnabled = Boolean(effectiveAgent && effectiveAgent.phase !== 'archived');
+
+  // Keep local providers in sync with global store
+  useEffect(() => {
+    if (storeProviders.length > 0) {
+      setProviders(storeProviders);
+    }
+  }, [storeProviders]);
+
   // Load providers and populate form when project changes
   useEffect(() => {
     if (isOpen && isConnected) {
@@ -56,6 +67,7 @@ export function ProjectSettings({ project, isOpen, onClose }: ProjectSettingsPro
       setName(project.name);
       setRootPath(project.rootPath || '');
       setProviderId(project.providerId || '');
+      setReviewProviderId(project.reviewProviderId || '');
       setSystemPrompt(project.systemPrompt || '');
       // Permission override
       if (project.agentPermissionOverride) {
@@ -68,17 +80,45 @@ export function ProjectSettings({ project, isOpen, onClose }: ProjectSettingsPro
     }
   }, [isOpen, project, isConnected]);
 
+  // Keep supervisor toggle state consistent with backend source of truth.
+  useEffect(() => {
+    if (!isOpen || !project || !isConnected) return;
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const fetchedAgent = await api.getSupervisionAgent(project.id);
+        if (cancelled) return;
+
+        if (fetchedAgent) {
+          setAgent(project.id, fetchedAgent);
+          updateProject(project.id, { agent: fetchedAgent });
+        } else {
+          removeAgent(project.id);
+          updateProject(project.id, { agent: undefined });
+        }
+      } catch (error) {
+        console.error('Failed to sync supervisor agent state:', error);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, project, isConnected, setAgent, removeAgent, updateProject]);
+
   const loadProviders = async () => {
-    setLoading(true);
+    // Use store providers immediately if available
+    const current = useProjectStore.getState().providers;
+    if (current.length > 0) {
+      setProviders(current);
+    }
     try {
       const data = await api.getProviders();
       setProviders(data);
-      // Sync to global store so Sidebar's provider dropdown stays current
       useProjectStore.getState().setProviders(data);
     } catch (error) {
       console.error('Failed to load providers:', error);
-    } finally {
-      setLoading(false);
     }
   };
 
@@ -91,6 +131,7 @@ export function ProjectSettings({ project, isOpen, onClose }: ProjectSettingsPro
         name: name.trim(),
         rootPath: rootPath.trim() || undefined,
         providerId: providerId || undefined,
+        reviewProviderId: reviewProviderId || undefined,
         systemPrompt: systemPrompt.trim() || undefined,
         agentPermissionOverride: hasOverride ? permOverride : undefined,
       };
@@ -110,7 +151,7 @@ export function ProjectSettings({ project, isOpen, onClose }: ProjectSettingsPro
     if (!project || !isConnected) return;
     setSupervisorLoading(true);
     try {
-      if (!v2Agent) {
+      if (!isSupervisorEnabled) {
         const result = await api.initSupervisionAgent(
           project.id,
           { maxConcurrentTasks: 2, trustLevel: 'medium' },
@@ -118,9 +159,11 @@ export function ProjectSettings({ project, isOpen, onClose }: ProjectSettingsPro
           'lite'
         );
         setAgent(project.id, result);
+        updateProject(project.id, { agent: result });
       } else {
-        await api.updateSupervisionAgentAction(project.id, 'archive');
-        removeAgent(project.id);
+        const archivedAgent = await api.updateSupervisionAgentAction(project.id, 'archive');
+        setAgent(project.id, archivedAgent);
+        updateProject(project.id, { agent: archivedAgent });
       }
     } catch (err) {
       console.error('Failed to toggle supervisor:', err);
@@ -191,7 +234,6 @@ export function ProjectSettings({ project, isOpen, onClose }: ProjectSettingsPro
             <select
               value={providerId}
               onChange={(e) => setProviderId(e.target.value)}
-              disabled={loading}
               className="w-full h-[38px] px-3 bg-input border border-border rounded-lg text-sm text-foreground focus:outline-none focus:border-primary"
             >
               <option value="">Default Provider</option>
@@ -204,6 +246,29 @@ export function ProjectSettings({ project, isOpen, onClose }: ProjectSettingsPro
             </select>
             <p className="text-xs text-muted-foreground mt-1">
               Select which Claude configuration to use for this project
+            </p>
+          </div>
+
+          {/* Review Provider (for Local PR workflow) */}
+          <div>
+            <label className="block text-sm font-medium text-muted-foreground mb-1">
+              Review Provider
+            </label>
+            <select
+              value={reviewProviderId}
+              onChange={(e) => setReviewProviderId(e.target.value)}
+              className="w-full h-[38px] px-3 bg-input border border-border rounded-lg text-sm text-foreground focus:outline-none focus:border-primary"
+            >
+              <option value="">Same as Project Provider</option>
+              {providers.map((provider) => (
+                <option key={provider.id} value={provider.id}>
+                  {provider.name} ({provider.type})
+                  {provider.isDefault ? ' - Default' : ''}
+                </option>
+              ))}
+            </select>
+            <p className="text-xs text-muted-foreground mt-1">
+              Provider used for AI review of Local Pull Requests. Defaults to the project provider above.
             </p>
           </div>
 
@@ -313,40 +378,40 @@ export function ProjectSettings({ project, isOpen, onClose }: ProjectSettingsPro
                 onClick={handleToggleSupervisor}
                 disabled={supervisorLoading || !isConnected}
                 className={`relative w-10 h-5 rounded-full transition-colors flex-shrink-0 disabled:opacity-50 ${
-                  v2Agent ? 'bg-primary' : 'bg-muted'
+                  isSupervisorEnabled ? 'bg-primary' : 'bg-muted'
                 }`}
               >
                 <span
                   className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${
-                    v2Agent ? 'translate-x-5' : 'translate-x-0'
+                    isSupervisorEnabled ? 'translate-x-5' : 'translate-x-0'
                   }`}
                 />
               </button>
             </div>
 
-            {!v2Agent && (
+            {!isSupervisorEnabled && (
               <p className="text-xs text-muted-foreground/70 italic">
                 Supervisor is not enabled for this project
               </p>
             )}
 
-            {v2Agent && (
+            {effectiveAgent && isSupervisorEnabled && (
               <div className="space-y-2 mt-3 pl-3 border-l-2 border-primary/30">
                 <div className="flex items-center gap-2">
                   <span className="text-xs font-medium text-muted-foreground">Status:</span>
                   <span className={`text-xs font-medium ${
-                    v2Agent.phase === 'active' ? 'text-green-500' :
-                    v2Agent.phase === 'paused' ? 'text-yellow-500' :
+                    effectiveAgent.phase === 'active' ? 'text-green-500' :
+                    effectiveAgent.phase === 'paused' ? 'text-yellow-500' :
                     'text-muted-foreground'
                   }`}>
-                    {v2Agent.phase.charAt(0).toUpperCase() + v2Agent.phase.slice(1)}
+                    {effectiveAgent.phase.charAt(0).toUpperCase() + effectiveAgent.phase.slice(1)}
                   </span>
-                  {v2Agent.phase === 'active' && (
+                  {effectiveAgent.phase === 'active' && (
                     <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
                   )}
                 </div>
                 <div className="text-xs text-muted-foreground">
-                  Mode: {(v2Agent.mode ?? 'full') === 'lite' ? 'Workflow Runner' : 'Full Supervisor'}
+                  Mode: {(effectiveAgent.mode ?? 'full') === 'lite' ? 'Workflow Runner' : 'Full Supervisor'}
                 </div>
               </div>
             )}
@@ -373,4 +438,3 @@ export function ProjectSettings({ project, isOpen, onClose }: ProjectSettingsPro
     </>
   );
 }
-

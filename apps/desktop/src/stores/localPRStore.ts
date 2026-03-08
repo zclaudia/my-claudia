@@ -5,6 +5,7 @@ import {
   createLocalPR,
   closeLocalPR,
   retryLocalPRReview,
+  reviewLocalPR,
   mergeLocalPR,
   setProjectReviewProvider,
 } from '../services/api';
@@ -17,10 +18,11 @@ interface LocalPRState {
   createPR: (
     projectId: string,
     worktreePath: string,
-    options?: { title?: string; description?: string },
+    options?: { title?: string; description?: string; baseBranch?: string; autoReview?: boolean },
   ) => Promise<LocalPR>;
   closePR: (prId: string, projectId: string) => Promise<void>;
   retryReview: (prId: string, projectId: string) => Promise<void>;
+  reviewPR: (prId: string, projectId: string, providerId?: string) => Promise<void>;
   mergePR: (prId: string, projectId: string) => Promise<void>;
   setReviewProvider: (projectId: string, providerId: string) => Promise<void>;
 
@@ -52,6 +54,11 @@ export const useLocalPRStore = create<LocalPRState>((set, get) => ({
 
   retryReview: async (prId, projectId) => {
     const pr = await retryLocalPRReview(prId);
+    get().upsertPR(projectId, pr);
+  },
+
+  reviewPR: async (prId, projectId, providerId) => {
+    const pr = await reviewLocalPR(prId, providerId);
     get().upsertPR(projectId, pr);
   },
 

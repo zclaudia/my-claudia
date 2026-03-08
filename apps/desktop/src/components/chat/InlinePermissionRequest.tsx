@@ -5,7 +5,7 @@ import { PermissionDetailView } from '../permission/PermissionDetailView';
 
 interface InlinePermissionRequestProps {
   request: PermissionRequest;
-  onDecision: (requestId: string, allow: boolean, remember?: boolean, credential?: string) => void;
+  onDecision: (requestId: string, allow: boolean, remember?: boolean, credential?: string, feedback?: string) => void;
 }
 
 export function InlinePermissionRequest({ request, onDecision }: InlinePermissionRequestProps) {
@@ -13,11 +13,14 @@ export function InlinePermissionRequest({ request, onDecision }: InlinePermissio
   const [remember, setRemember] = useState(false);
   const [credential, setCredential] = useState('');
   const [resolved, setResolved] = useState<'allow' | 'deny' | null>(null);
+  const [countdownStopped, setCountdownStopped] = useState(false);
   const credentialInputRef = useRef<HTMLInputElement>(null);
+  const isExitPlanModeRequest = request.toolName.toLowerCase().includes('exitplanmode');
 
   useEffect(() => {
     setRemember(false);
     setCredential('');
+    setCountdownStopped(false);
 
     if (request.timeoutSec === 0) {
       setRemainingTime(0);
@@ -35,6 +38,7 @@ export function InlinePermissionRequest({ request, onDecision }: InlinePermissio
 
     const interval = setInterval(() => {
       setRemainingTime((prev) => {
+        if (countdownStopped) return prev;
         if (prev <= 1) {
           // Backend handles auto-approve; for auto-deny, also trigger from frontend as fallback
           if (!request.aiInitiated) {
@@ -48,7 +52,7 @@ export function InlinePermissionRequest({ request, onDecision }: InlinePermissio
     }, 1000);
 
     return () => clearInterval(interval);
-  }, [request.requestId, request.timeoutSec, request.requiresCredential, onDecision]);
+  }, [request.requestId, request.timeoutSec, request.requiresCredential, request.aiInitiated, onDecision, countdownStopped]);
 
   const handleAllow = () => {
     setResolved('allow');
@@ -62,6 +66,13 @@ export function InlinePermissionRequest({ request, onDecision }: InlinePermissio
   const handleDeny = () => {
     setResolved('deny');
     onDecision(request.requestId, false, remember);
+  };
+
+  const handleDenyWithFeedback = async () => {
+    const feedback = window.prompt('补充你的意见（将随本次拒绝一起发送给模型）', '')?.trim();
+    setCountdownStopped(true);
+    setResolved('deny');
+    onDecision(request.requestId, false, remember, undefined, feedback || undefined);
   };
 
   const hasTimeout = request.timeoutSec > 0;
@@ -185,6 +196,14 @@ export function InlinePermissionRequest({ request, onDecision }: InlinePermissio
           >
             Deny
           </button>
+          {isExitPlanModeRequest && (
+            <button
+              onClick={handleDenyWithFeedback}
+              className="px-3 py-1.5 bg-secondary hover:bg-secondary/80 active:bg-secondary/70 text-secondary-foreground rounded-full text-xs font-medium transition-colors"
+            >
+              Deny + Comment
+            </button>
+          )}
           <button
             onClick={handleAllow}
             disabled={isCredential && !credential}
