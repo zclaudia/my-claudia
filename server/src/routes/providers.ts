@@ -6,6 +6,7 @@ import os from 'os';
 import { execFile as execFileCb } from 'child_process';
 import { promisify } from 'util';
 import type Database from 'better-sqlite3';
+import { PROVIDER_TYPES } from '@my-claudia/shared';
 import type { ProviderConfig, ApiResponse, SlashCommand, ProviderCapabilities, ModeOption, ModelOption } from '@my-claudia/shared';
 import { LOCAL_COMMANDS, CLI_COMMANDS, CLAUDE_FALLBACK_COMMANDS } from '@my-claudia/shared';
 import { scanCustomCommands } from '../utils/command-scanner.js';
@@ -15,6 +16,7 @@ import { commandRegistry } from '../commands/registry.js';
 import { toolRegistry } from '../plugins/tool-registry.js';
 
 const execFile = promisify(execFileCb);
+const VALID_PROVIDER_TYPES = [...PROVIDER_TYPES] as ProviderConfig['type'][];
 
 // Database row type (different from ProviderConfig due to SQLite types)
 interface ProviderRow {
@@ -116,8 +118,7 @@ export function createProviderRoutes(db: Database.Database): Router {
         return;
       }
 
-      const VALID_PROVIDER_TYPES = ['claude', 'opencode', 'codex', 'cursor'];
-      if (type && !VALID_PROVIDER_TYPES.includes(type)) {
+      if (type && !VALID_PROVIDER_TYPES.includes(type as ProviderConfig['type'])) {
         res.status(400).json({
           success: false,
           error: { code: 'VALIDATION_ERROR', message: `Invalid provider type. Must be one of: ${VALID_PROVIDER_TYPES.join(', ')}` }
@@ -174,8 +175,7 @@ export function createProviderRoutes(db: Database.Database): Router {
       const { name, type, cliPath, env, isDefault } = req.body;
       const now = Date.now();
 
-      const VALID_PROVIDER_TYPES = ['claude', 'opencode', 'codex', 'cursor'];
-      if (type && !VALID_PROVIDER_TYPES.includes(type)) {
+      if (type && !VALID_PROVIDER_TYPES.includes(type as ProviderConfig['type'])) {
         res.status(400).json({
           success: false,
           error: { code: 'VALIDATION_ERROR', message: `Invalid provider type. Must be one of: ${VALID_PROVIDER_TYPES.join(', ')}` }

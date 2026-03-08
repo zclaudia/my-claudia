@@ -1,5 +1,5 @@
 import { useRef, useEffect, useCallback, useState, useMemo } from 'react';
-import { Loader2, AlertTriangle, ClipboardList, ArrowDown, X, FileText, Terminal as TerminalIcon, ChevronDown, ChevronUp, Lock, Unlock, Archive, RotateCcw } from 'lucide-react';
+import { Loader2, AlertTriangle, ClipboardList, ArrowDown, X, FileText, Terminal as TerminalIcon, ChevronDown, ChevronUp, Lock, Unlock, Archive, RotateCcw, Download } from 'lucide-react';
 import { MessageList } from './MessageList';
 import { MessageInput, type Attachment } from './MessageInput';
 import { ToolCallList } from './ToolCallItem';
@@ -1367,11 +1367,19 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
           {/* Actions */}
           <div className="flex items-center gap-0.5 shrink-0">
             <button
+              onClick={handleResetProviderSession}
+              disabled={isLoading}
+              className={`p-1 rounded transition-colors ${isLoading ? 'opacity-50 cursor-not-allowed text-muted-foreground' : 'hover:bg-secondary text-muted-foreground hover:text-foreground'}`}
+              title="Reset underlying provider session"
+            >
+              <RotateCcw size={14} />
+            </button>
+            <button
               onClick={handleExportSession}
               className="p-1 rounded hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors"
               title="Export as Markdown"
             >
-              <FileText size={14} />
+              <Download size={14} />
             </button>
             <button
               onClick={handleArchiveSession}
@@ -1781,14 +1789,6 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
                 {advancedInput ? <ChevronDown size={16} strokeWidth={2} /> : <ChevronUp size={16} strokeWidth={2} />}
               </button>
             )}
-            <button
-              onClick={handleResetProviderSession}
-              disabled={isLoading}
-              className={`p-1.5 rounded hover:bg-secondary ${isLoading ? 'opacity-50 cursor-not-allowed text-muted-foreground' : 'text-muted-foreground hover:text-foreground'}`}
-              title="Reset underlying provider session"
-            >
-              <RotateCcw size={16} strokeWidth={1.75} />
-            </button>
             <SystemInfoButton
               systemInfo={currentSystemInfo}
               sessionInfo={currentSession ? {
