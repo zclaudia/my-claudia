@@ -13,6 +13,7 @@ import type { ClaudeMessage, SystemInfo, PermissionDecision, PermissionCallback 
 import { fileStore } from '../storage/fileStore.js';
 import { extractRetryDelayMsFromError } from '../utils/retry-window.js';
 import { buildNonImageAttachmentNotes } from './attachment-utils.js';
+import { fetchCodexSubscriptionInfo } from './subscription-usage.js';
 
 // ── Types ─────────────────────────────────────────────────────
 
@@ -241,6 +242,12 @@ export async function* runCodex(
   options: CodexRunOptions,
   _onPermission: PermissionCallback,
 ): AsyncGenerator<ClaudeMessage, void, void> {
+  const subscriptionInfo = await fetchCodexSubscriptionInfo(options.env).catch((error) => ({
+    provider: 'codex',
+    status: 'error' as const,
+    summary: `Failed to fetch subscription usage: ${error instanceof Error ? error.message : String(error)}`,
+    updatedAt: Date.now(),
+  }));
   const codex = getCodexInstance(options);
   const policies = mapModeToPolicies(options.mode);
 
@@ -276,7 +283,14 @@ export async function* runCodex(
         });
 
         for await (const event of events) {
-          const messages = mapThreadEvent(event, options.sessionId);
+          const messages = mapThreadEvent(event, options.sessionId, {
+            cwd: options.cwd,
+            apiKeySource: 'codex-sdk',
+            model: options.model || '',
+            mcpServers: [],
+            tools: [],
+            subscription: subscriptionInfo,
+          });
           for (const msg of messages) {
             if (msg.type === 'error') {
               const errText = msg.error || 'Codex error';
@@ -332,13 +346,13 @@ export async function* runCodex(
 
 // ── Event mapping ────────────────────────────────────────────
 
-function mapThreadEvent(event: ThreadEvent, sessionId?: string): ClaudeMessage[] {
+function mapThreadEvent(event: ThreadEvent, sessionId?: string, initSystemInfo?: SystemInfo): ClaudeMessage[] {
   const messages: ClaudeMessage[] = [];
 
   switch (event.type) {
     case 'thread.started': {
       // Emit init message
-      const systemInfo: SystemInfo = {
+      const systemInfo: SystemInfo = initSystemInfo || {
         cwd: '',
         apiKeySource: 'codex-sdk',
         model: '',

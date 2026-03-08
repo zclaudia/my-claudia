@@ -304,6 +304,7 @@ export class PluginProviderAPI implements ProviderAPI {
       codex: ['o3', 'o4-mini', 'codex-1'],
       opencode: ['default'],
       cursor: ['default'],
+      kimi: ['default'],
     };
     return modelMap[type] || [];
   }

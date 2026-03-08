@@ -112,20 +112,26 @@ export function ProviderManager({ isOpen, onClose, inline = false }: ProviderMan
       resetForm();
     } catch (error) {
       console.error('Failed to save provider:', error);
+      const message = error instanceof Error ? error.message : String(error);
+      alert(`Failed to ${editingProvider ? 'update' : 'create'} provider: ${message}`);
     } finally {
       setSaving(false);
     }
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm('Are you sure you want to delete this provider?')) return;
+    const shouldDelete = typeof window !== 'undefined' && typeof window.confirm === 'function'
+      ? window.confirm('Are you sure you want to delete this provider?')
+      : true;
+    if (!shouldDelete) return;
 
     try {
       await api.deleteProvider(id);
       await loadProviders();
     } catch (error) {
       console.error('Failed to delete provider:', error);
-      alert(error instanceof Error ? error.message : 'Failed to delete provider');
+      const message = error instanceof Error ? error.message : String(error);
+      alert(`Failed to delete provider: ${message}`);
     }
   };
 
@@ -167,10 +173,10 @@ export function ProviderManager({ isOpen, onClose, inline = false }: ProviderMan
           type="text"
           value={formCliPath}
           onChange={(e) => setFormCliPath(e.target.value)}
-          placeholder={formType === 'opencode' ? '/path/to/opencode' : formType === 'codex' ? '/path/to/codex' : formType === 'cursor' ? '/path/to/cursor-agent' : '/path/to/claude'}
+          placeholder={formType === 'opencode' ? '/path/to/opencode' : formType === 'codex' ? '/path/to/codex' : formType === 'cursor' ? '/path/to/cursor-agent' : formType === 'kimi' ? '/path/to/kimi' : '/path/to/claude'}
           className="w-full px-3 py-2 bg-secondary border border-border rounded-lg text-sm focus:outline-none focus:border-primary font-mono"
         />
-        <p className="text-xs text-muted-foreground mt-1">Custom path to {formType === 'opencode' ? 'OpenCode' : formType === 'codex' ? 'Codex' : formType === 'cursor' ? 'cursor-agent' : 'Claude'} CLI binary</p>
+        <p className="text-xs text-muted-foreground mt-1">Custom path to {formType === 'opencode' ? 'OpenCode' : formType === 'codex' ? 'Codex' : formType === 'cursor' ? 'cursor-agent' : formType === 'kimi' ? 'Kimi' : 'Claude'} CLI binary</p>
       </div>
 
       <div>
@@ -189,6 +195,10 @@ export function ProviderManager({ isOpen, onClose, inline = false }: ProviderMan
 : formType === 'cursor'
 ? `{
 "CURSOR_API_KEY": "optional-api-key"
+}`
+: formType === 'kimi'
+? `{
+"KIMI_API_KEY": "your-key"
 }`
 : `{
 "ANTHROPIC_API_KEY": "your-key",
@@ -350,7 +360,7 @@ const TYPE_OPTIONS: { value: 'claude' | 'opencode' | 'codex' | 'cursor' | 'kimi'
   { value: 'opencode', label: 'OpenCode' },
   { value: 'codex', label: 'Codex' },
   { value: 'cursor', label: 'Cursor Agent' },
-  { value: 'kimi', label: 'Kimi' },
+  { value: 'kimi', label: 'Kimi Code' },
 ];
 
 function TypeSelector({ value, onChange }: { value: string; onChange: (v: 'claude' | 'opencode' | 'codex' | 'cursor' | 'kimi') => void }) {

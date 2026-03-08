@@ -235,6 +235,9 @@ function buildStatusOutput(systemInfo: SystemInfo): string {
   if (systemInfo.agents && systemInfo.agents.length > 0) {
     lines.push(`**Agents:** ${systemInfo.agents.join(', ')}`);
   }
+  if (systemInfo.subscription) {
+    lines.push(`**Subscription (${systemInfo.subscription.provider}):** ${systemInfo.subscription.summary}`);
+  }
 
   return lines.join('\n');
 }
@@ -1948,7 +1951,8 @@ async function handleRunStart(
                 tools: msg.systemInfo.tools,
                 mcpServers: msg.systemInfo.mcpServers,
                 slashCommands: msg.systemInfo.slashCommands,
-                agents: msg.systemInfo.agents
+                agents: msg.systemInfo.agents,
+                subscription: msg.systemInfo.subscription,
               }
             });
           }

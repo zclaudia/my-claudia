@@ -10,6 +10,7 @@ import * as path from 'path';
 import * as os from 'os';
 import * as crypto from 'crypto';
 import { extractRetryDelayMsFromError } from '../utils/retry-window.js';
+import { fetchClaudeSubscriptionInfo } from './subscription-usage.js';
 
 export interface ClaudeRunOptions {
   cwd: string;
@@ -206,6 +207,13 @@ export async function* runClaude(
   options: ClaudeRunOptions,
   onPermissionRequest?: PermissionCallback
 ): AsyncGenerator<ClaudeMessage, void, void> {
+  const subscriptionInfo = await fetchClaudeSubscriptionInfo(options.env).catch((error) => ({
+    provider: 'claude',
+    status: 'error' as const,
+    summary: `Failed to fetch subscription usage: ${error instanceof Error ? error.message : String(error)}`,
+    updatedAt: Date.now(),
+  }));
+
   const sdkOptions: Record<string, unknown> = {
     cwd: options.cwd,
     allowedTools: options.allowedTools || [],
@@ -378,10 +386,22 @@ export async function* runClaude(
           // transformMessage can return a single message or array of messages
           if (Array.isArray(transformed)) {
             for (const msg of transformed) {
+              if (msg.type === 'init') {
+                msg.systemInfo = {
+                  ...(msg.systemInfo || {}),
+                  subscription: subscriptionInfo,
+                };
+              }
               if (msg.type !== 'init') producedOutput = true;
               yield msg;
             }
           } else {
+            if (transformed.type === 'init') {
+              transformed.systemInfo = {
+                ...(transformed.systemInfo || {}),
+                subscription: subscriptionInfo,
+              };
+            }
             if (transformed.type !== 'init') producedOutput = true;
             yield transformed;
           }
@@ -421,6 +441,12 @@ export interface SystemInfo {
   apiKeySource?: string;
   slashCommands?: string[];
   agents?: string[];
+  subscription?: {
+    provider: string;
+    status: 'available' | 'unavailable' | 'requires_admin_key' | 'error';
+    summary: string;
+    updatedAt: number;
+  };
 }
 
 export interface ClaudeMessage {
