@@ -23,12 +23,10 @@ const mockCapabilities: ProviderCapabilities = {
     { id: 'default', label: 'Default', description: 'Standard mode' },
     { id: 'plan', label: 'Plan', description: 'Plan mode' },
     { id: 'acceptEdits', label: 'Accept Edits', description: 'Accept edits mode' },
-  { id: 'bypassPermissions', label: 'Bypass', description: 'Bypass permissions' },
-  { id: 'ask', label: 'Ask', description: 'Ask mode' },
-  { id: 'custom', label: 'Custom', description: 'Custom mode' },
-  { id: 'settings', label: 'Settings', description: 'Settings mode' },
-  { id: 'acceptEdits', label: 'Accept Edits', description: 'Accept edits mode' },
+    { id: 'bypassPermissions', label: 'Bypass', description: 'Bypass permissions' },
+    { id: 'ask', label: 'Ask', description: 'Ask mode' },
     { id: 'custom', label: 'Custom', description: 'Custom mode' },
+    { id: 'settings', label: 'Settings', description: 'Settings mode' },
   ],
 };
 
