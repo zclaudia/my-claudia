@@ -68,6 +68,16 @@ export function createCrudHandlers<T, TCreate, TUpdate>(
   const create: MessageHandler = async (ctx: MessageContext) => {
     try {
       const payload = ctx.request.payload as any;
+
+      // Validate payload exists first
+      if (!payload || typeof payload !== 'object') {
+        throw new AppError(
+          'VALIDATION_ERROR',
+          `Invalid ${entityName} data`,
+          { payload: ctx.request.payload }
+        );
+      }
+
       // Old-format messages nest entity data under the singular key
       // e.g. { type: 'add_server', server: { name, address, ... } }
       const data = (payload[singularName] || payload) as TCreate;

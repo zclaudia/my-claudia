@@ -4,31 +4,40 @@ import { GatewayClientMode } from '../gateway-client-mode.js';
 
 // Mock WebSocket
 vi.mock('ws', () => {
-  const MockWebSocket = vi.fn().mockImplementation(() => {
+  const MockWebSocket = vi.fn().mockImplementation(function(this: any) {
     const listeners = new Map<string, Set<Function>>();
-    return {
-      on: vi.fn((event: string, handler: Function) => {
-        if (!listeners.has(event)) listeners.set(event, new Set());
-        listeners.get(event)!.add(handler);
-      }),
-      removeAllListeners: vi.fn(() => listeners.clear()),
-      close: vi.fn(),
-      send: vi.fn(),
-      readyState: 1, // WebSocket.OPEN
-      _listeners: listeners,
-      _trigger: (event: string, data?: any) => {
-        const handlers = listeners.get(event);
-        if (handlers) handlers.forEach(h => h(data));
-      },
+    this.on = vi.fn((event: string, handler: Function) => {
+      if (!listeners.has(event)) listeners.set(event, new Set());
+      listeners.get(event)!.add(handler);
+    });
+    this.removeListener = vi.fn((event: string, handler: Function) => {
+      listeners.get(event)?.delete(handler);
+    });
+    this.removeAllListeners = vi.fn(() => listeners.clear());
+    this.close = vi.fn();
+    this.send = vi.fn();
+    this.readyState = 1; // WebSocket.OPEN
+    this._listeners = listeners;
+    this._trigger = (event: string, data?: any) => {
+      const handlers = listeners.get(event);
+      if (handlers) handlers.forEach(h => h(data));
     };
   });
+  MockWebSocket.OPEN = 1;
+  MockWebSocket.CLOSED = 0;
   return { default: MockWebSocket };
 });
 
 // Mock SocksProxyAgent
 vi.mock('socks-proxy-agent', () => ({
-  SocksProxyAgent: vi.fn().mockImplementation(() => ({ agent: true })),
+  SocksProxyAgent: vi.fn().mockImplementation(function(this: any) {
+    this.agent = true;
+    return this;
+  }),
 }));
+
+// Re-import after mocking
+import { SocksProxyAgent } from 'socks-proxy-agent';
 
 describe('gateway-client-mode', () => {
   let consoleLogSpy: ReturnType<typeof vi.spyOn>;

@@ -3,6 +3,29 @@
  */
 import { describe, test, expect, beforeEach, afterEach, vi } from 'vitest';
 import WebSocket from 'ws';
+
+// Mock WebSocket
+vi.mock('ws', () => {
+  const MockWebSocket = vi.fn().mockImplementation(function(this: any) {
+    this.on = vi.fn();
+    this.removeListener = vi.fn();
+    this.removeAllListeners = vi.fn();
+    this.close = vi.fn();
+    this.send = vi.fn();
+    this.readyState = 1;
+  });
+  MockWebSocket.OPEN = 1;
+  MockWebSocket.CLOSED = 0;
+  MockWebSocket.Server = vi.fn().mockImplementation(function(this: any) {
+    this.on = vi.fn();
+    this.close = vi.fn();
+  });
+  return {
+    default: MockWebSocket
+  };
+});
+
+import WebSocket from 'ws';
 import type {
   GatewayClientAuthMessage,
   GatewayToBackendMessage,

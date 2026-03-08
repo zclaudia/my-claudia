@@ -1,6 +1,35 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, beforeAll } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import { useSwipeBack } from '../useSwipeBack.js';
+
+// Mock Touch class for jsdom environment
+class MockTouch {
+  identifier: number;
+  target: EventTarget;
+  clientX: number;
+  clientY: number;
+  pageX: number;
+  pageY: number;
+  screenX: number;
+  screenY: number;
+
+  constructor(init: TouchInit) {
+    this.identifier = init.identifier;
+    this.target = init.target;
+    this.clientX = init.clientX ?? 0;
+    this.clientY = init.clientY ?? 0;
+    this.pageX = init.pageX ?? this.clientX;
+    this.pageY = init.pageY ?? this.clientY;
+    this.screenX = init.screenX ?? this.clientX;
+    this.screenY = init.screenY ?? this.clientY;
+  }
+}
+
+// Make Touch available globally
+beforeAll(() => {
+  // @ts-expect-error - Mocking Touch for jsdom
+  globalThis.Touch = MockTouch;
+});
 
 // Helper to create mock touch events
 function createTouchEvent(
@@ -9,7 +38,7 @@ function createTouchEvent(
   y: number,
   target: Element = document.body
 ): TouchEvent {
-  const touch = new Touch({
+  const touch = new MockTouch({
     identifier: 0,
     target,
     clientX: x,
@@ -17,8 +46,8 @@ function createTouchEvent(
   });
 
   return new TouchEvent(type, {
-    touches: type === 'touchend' ? [] : [touch],
-    changedTouches: [touch],
+    touches: type === 'touchend' ? [] : [touch as unknown as Touch],
+    changedTouches: [touch as unknown as Touch],
     bubbles: true,
     cancelable: true,
   });
@@ -31,7 +60,12 @@ describe('hooks/useSwipeBack', () => {
 
   beforeEach(() => {
     mockElement = document.createElement('div');
-    mockElement.clientWidth = 375; // Mock mobile width
+    // clientWidth is a read-only property, so we need to use Object.defineProperty
+    Object.defineProperty(mockElement, 'clientWidth', {
+      value: 375,
+      writable: true,
+      configurable: true,
+    });
     vi.spyOn(mockElement, 'addEventListener');
     vi.spyOn(mockElement, 'removeEventListener');
     addEventListenerSpy = mockElement.addEventListener;

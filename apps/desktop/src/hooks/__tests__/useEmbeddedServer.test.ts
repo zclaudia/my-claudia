@@ -10,6 +10,12 @@ const mockCommand = {
 vi.mock('@tauri-apps/plugin-shell', () => ({
   Command: {
     create: vi.fn(() => mockCommand),
+    sidecar: vi.fn(() => ({
+      stdout: { on: vi.fn() },
+      stderr: { on: vi.fn() },
+      on: vi.fn(),
+      spawn: mockCommand.spawn,
+    })),
   },
 }));
 
@@ -28,6 +34,10 @@ vi.mock('import.meta', () => ({
     DEV: false,
   },
 }));
+
+// Mock fetch for health check
+const mockFetch = vi.fn();
+global.fetch = mockFetch;
 
 describe('hooks/useEmbeddedServer', () => {
   let consoleLogSpy: ReturnType<typeof vi.spyOn>;
@@ -55,12 +65,15 @@ describe('hooks/useEmbeddedServer', () => {
     // Reset window state
     removeTauriInternals();
 
-    // Mock navigator.userAgent
+    // Mock navigator.userAgent for desktop
     Object.defineProperty(navigator, 'userAgent', {
       value: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)',
       writable: true,
       configurable: true,
     });
+
+    // Default mock for fetch (health check fails)
+    mockFetch.mockRejectedValue(new Error('Not running'));
   });
 
   afterEach(() => {
@@ -92,217 +105,17 @@ describe('hooks/useEmbeddedServer', () => {
       expect(result.current.status).toBe('disabled');
     });
 
-    it('returns idle status in desktop Tauri', () => {
+    it('returns starting status in desktop Tauri', () => {
       mockTauriInternals();
 
       const { result } = renderHook(() => useEmbeddedServer());
 
-      expect(result.current.status).toBe('idle');
-    });
-  });
-
-  describe('startServer', () => {
-    it('returns early when not in Tauri', async () => {
-      removeTauriInternals();
-
-      const { result } = renderHook(() => useEmbeddedServer());
-
-      await act(async () => {
-        await result.current.startServer();
-      });
-
-      expect(mockCommand.spawn).not.toHaveBeenCalled();
-    });
-
-    it('sets status to starting when starting server', async () => {
-      mockTauriInternals();
-
-      const mockChild = {
-        pid: 12345,
-      };
-      mockCommand.spawn.mockResolvedValueOnce(mockChild);
-
-      const { result } = renderHook(() => useEmbeddedServer());
-
-      // Start server
-      act(() => {
-        result.current.startServer();
-      });
-
-      // Check status changed to starting
       expect(result.current.status).toBe('starting');
-    });
-
-    it('sets status to ready when SERVER_READY signal received', async () => {
-      mockTauriInternals();
-
-      const mockChild = {
-        pid: 12345,
-      };
-      mockCommand.spawn.mockResolvedValueOnce(mockChild);
-
-      // Mock Command.create to capture stdout callback
-      const { Command } = await import('@tauri-apps/plugin-shell');
-      const createCall = vi.mocked(Command.create);
-
-      const { result } = renderHook(() => useEmbeddedServer());
-
-      // Start server
-      await act(async () => {
-        result.current.startServer();
-        await Promise.resolve();
-      });
-
-      // Get the stdout callback from Command.create
-      if (createCall.mock.calls.length > 0) {
-        const config = createCall.mock.calls[0];
-
-        // Simulate stdout event
-        act(() => {
-          // Find the stdout callback and call it
-          // This depends on the actual implementation
-        });
-      }
-    });
-
-    it('sets status to error when spawn fails', async () => {
-      mockTauriInternals();
-
-      mockCommand.spawn.mockRejectedValueOnce(new Error('Spawn failed'));
-
-      const { result } = renderHook(() => useEmbeddedServer());
-
-      await act(async () => {
-        await result.current.startServer();
-      });
-
-      expect(result.current.status).toBe('error');
-      expect(result.current.error).toBe('Spawn failed');
-    });
-
-    it('uses custom port when provided', async () => {
-      mockTauriInternals();
-
-      const mockChild = { pid: 12345 };
-      mockCommand.spawn.mockResolvedValueOnce(mockChild);
-
-      const { Command } = await import('@tauri-apps/plugin-shell');
-      const createCall = vi.mocked(Command.create);
-
-      const { result } = renderHook(() => useEmbeddedServer());
-
-      await act(async () => {
-        await result.current.startServer(3200);
-      });
-
-      // Check that Command.create was called with correct env
-      expect(createCall).toHaveBeenCalled();
-    });
-  });
-
-  describe('stopServer', () => {
-    it('returns early when not in Tauri', async () => {
-      removeTauriInternals();
-
-      const { result } = renderHook(() => useEmbeddedServer());
-
-      await act(async () => {
-        await result.current.stopServer();
-      });
-
-      // Should not throw
-      expect(true).toBe(true);
-    });
-
-    it('sets status to idle when stopping', async () => {
-      mockTauriInternals();
-
-      const { result } = renderHook(() => useEmbeddedServer());
-
-      await act(async () => {
-        await result.current.stopServer();
-      });
-
-      expect(result.current.status).toBe('idle');
-    });
-  });
-
-  describe('restartServer', () => {
-    it('stops and starts server', async () => {
-      mockTauriInternals();
-
-      const mockChild = { pid: 12345 };
-      mockCommand.spawn.mockResolvedValue(mockChild);
-
-      const { result } = renderHook(() => useEmbeddedServer());
-
-      await act(async () => {
-        await result.current.restartServer();
-      });
-
-      // Should be in starting or ready state
-      expect(['idle', 'starting', 'ready']).toContain(result.current.status);
-    });
-  });
-
-  describe('server process lifecycle', () => {
-    it('handles unexpected process exit during ready state', async () => {
-      mockTauriInternals();
-
-      const mockChild = { pid: 12345 };
-      mockCommand.spawn.mockResolvedValueOnce(mockChild);
-
-      const { result } = renderHook(() => useEmbeddedServer());
-
-      await act(async () => {
-        await result.current.startServer();
-      });
-
-      // The actual error handling depends on the implementation
-      expect(true).toBe(true);
-    });
-
-    it('handles process crash during startup', async () => {
-      mockTauriInternals();
-
-      const mockChild = { pid: 12345 };
-      mockCommand.spawn.mockResolvedValueOnce(mockChild);
-
-      const { result } = renderHook(() => useEmbeddedServer());
-
-      await act(async () => {
-        await result.current.startServer();
-      });
-
-      // Status should be starting
-      expect(result.current.status).toBe('starting');
-    });
-  });
-
-  describe('health check', () => {
-    it('verifies server health after ready signal', async () => {
-      mockTauriInternals();
-
-      const mockChild = { pid: 12345 };
-      mockCommand.spawn.mockResolvedValueOnce(mockChild);
-
-      const { invoke } = await import('@tauri-apps/api/core');
-      vi.mocked(invoke).mockResolvedValueOnce(true);
-
-      const { result } = renderHook(() => useEmbeddedServer());
-
-      await act(async () => {
-        await result.current.startServer();
-      });
-
-      // Health check should be performed
-      // This depends on the actual implementation
-      expect(true).toBe(true);
     });
   });
 
   describe('return values', () => {
-    it('returns status object', () => {
+    it('returns status object with required properties', () => {
       mockTauriInternals();
 
       const { result } = renderHook(() => useEmbeddedServer());
@@ -310,12 +123,9 @@ describe('hooks/useEmbeddedServer', () => {
       expect(result.current).toHaveProperty('status');
       expect(result.current).toHaveProperty('port');
       expect(result.current).toHaveProperty('error');
-      expect(result.current).toHaveProperty('startServer');
-      expect(result.current).toHaveProperty('stopServer');
-      expect(result.current).toHaveProperty('restartServer');
     });
 
-    it('returns null port when not running', () => {
+    it('returns null port initially', () => {
       mockTauriInternals();
 
       const { result } = renderHook(() => useEmbeddedServer());
@@ -323,7 +133,7 @@ describe('hooks/useEmbeddedServer', () => {
       expect(result.current.port).toBeNull();
     });
 
-    it('returns null error when no error', () => {
+    it('returns null error initially', () => {
       mockTauriInternals();
 
       const { result } = renderHook(() => useEmbeddedServer());

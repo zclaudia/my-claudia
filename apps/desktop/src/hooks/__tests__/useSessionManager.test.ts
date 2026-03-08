@@ -46,12 +46,11 @@ describe('hooks/useSessionManager', () => {
     it('returns all manager functions', () => {
       const { result } = renderHook(() => useSessionManager());
 
-      expect(result.current).toHaveProperty('refreshSessions');
+      // Note: refreshSessions is internal, not exported
       expect(result.current).toHaveProperty('addSession');
       expect(result.current).toHaveProperty('updateSession');
       expect(result.current).toHaveProperty('deleteSession');
 
-      expect(typeof result.current.refreshSessions).toBe('function');
       expect(typeof result.current.addSession).toBe('function');
       expect(typeof result.current.updateSession).toBe('function');
       expect(typeof result.current.deleteSession).toBe('function');
@@ -72,30 +71,31 @@ describe('hooks/useSessionManager', () => {
     });
   });
 
-  describe('refreshSessions', () => {
-    it('fetches sessions and updates store', async () => {
+  describe('internal refresh', () => {
+    it('fetches sessions and updates store after add', async () => {
       const mockSessions = [
         { id: 'session-1', projectId: 'project-1', title: 'Session 1' },
-        { id: 'session-2', projectId: 'project-1', title: 'Session 2' },
       ];
+      mockCreateSession.mockResolvedValueOnce({ id: 'new-session' });
       mockGetSessions.mockResolvedValueOnce(mockSessions);
 
       const { result } = renderHook(() => useSessionManager());
 
-      await result.current.refreshSessions();
+      await result.current.addSession({ projectId: 'project-1', title: 'Test' } as any);
 
       expect(mockGetSessions).toHaveBeenCalledTimes(1);
       expect(mockSetSessions).toHaveBeenCalledWith(mockSessions);
     });
 
-    it('handles errors gracefully', async () => {
+    it('handles errors gracefully during refresh', async () => {
       const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      mockCreateSession.mockResolvedValueOnce({ id: 'new' });
       mockGetSessions.mockRejectedValueOnce(new Error('Network error'));
 
       const { result } = renderHook(() => useSessionManager());
 
-      // Should not throw
-      await expect(result.current.refreshSessions()).resolves.toBeUndefined();
+      // The addSession should complete without throwing even if refresh fails
+      await result.current.addSession({ projectId: 'project-1', title: 'Test' } as any);
 
       expect(consoleSpy).toHaveBeenCalledWith(
         '[SessionManager] Failed to refresh sessions:',
@@ -103,15 +103,6 @@ describe('hooks/useSessionManager', () => {
       );
 
       consoleSpy.mockRestore();
-    });
-
-    it('returns nothing (void)', async () => {
-      mockGetSessions.mockResolvedValueOnce([]);
-
-      const { result } = renderHook(() => useSessionManager());
-
-      const returnValue = await result.current.refreshSessions();
-      expect(returnValue).toBeUndefined();
     });
   });
 

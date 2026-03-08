@@ -169,7 +169,8 @@ describe('utils/claude-config', () => {
       vi.mocked(fs.existsSync)
         .mockReturnValueOnce(true)  // settings.json
         .mockReturnValueOnce(true)  // installed_plugins.json
-        .mockReturnValueOnce(true); // plugin-one path
+        .mockReturnValueOnce(true)  // plugin-one path
+        .mockReturnValueOnce(true); // plugin-three path
       vi.mocked(fs.readFileSync)
         .mockReturnValueOnce(JSON.stringify(mockSettings))
         .mockReturnValueOnce(JSON.stringify(mockInstalled));
@@ -179,6 +180,7 @@ describe('utils/claude-config', () => {
       // Only plugin-one and plugin-three are enabled
       expect(result).toHaveLength(2);
       expect(result[0]).toEqual({ type: 'local', path: '/plugins/plugin-one' });
+      expect(result[1]).toEqual({ type: 'local', path: '/plugins/plugin-three' });
     });
 
     it('skips plugins without installation', () => {

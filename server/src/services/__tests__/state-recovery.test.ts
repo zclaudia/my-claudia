@@ -38,9 +38,11 @@ function createTestDb(): Database.Database {
       project_role TEXT,
       task_id TEXT,
       archived_at INTEGER,
+      plan_status TEXT,
+      is_read_only INTEGER DEFAULT 0,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL,
-      FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+      FOREIGN key (project_id) REFERENCES projects(id) on delete CASCADE
     );
     CREATE TABLE supervision_tasks (
       id TEXT PRIMARY KEY,
@@ -61,6 +63,10 @@ function createTestDb(): Database.Database {
       attempt INTEGER NOT NULL DEFAULT 1,
       base_commit TEXT,
       result TEXT,
+      schedule_cron TEXT,
+      schedule_next_run INTEGER,
+      schedule_enabled INTEGER DEFAULT 0,
+      retry_delay_ms INTEGER DEFAULT 5000,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL,
       started_at INTEGER,
