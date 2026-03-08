@@ -139,12 +139,18 @@ class ToolRegistry {
   async execute(
     toolName: string,
     args: Record<string, unknown>,
-    context?: Record<string, unknown>
+    context?: Record<string, unknown>,
+    scope?: ToolScope
   ): Promise<string> {
     const tool = this.tools.get(toolName);
 
     if (!tool) {
       return JSON.stringify({ error: `Unknown tool: ${toolName}` });
+    }
+
+    // Validate scope if both tool and caller specify one
+    if (scope && tool.scope && tool.scope.length > 0 && !tool.scope.includes(scope)) {
+      return JSON.stringify({ error: `Tool "${toolName}" not available in scope "${scope}"` });
     }
 
     try {

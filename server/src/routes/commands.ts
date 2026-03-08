@@ -79,14 +79,17 @@ export function createCommandsRoutes(): Router {
       const userCommands = await scanCommandsDirectory(userCommandsDir, 'user');
       customCommands.push(...userCommands);
 
+      const pluginCommands = commandRegistry.getCommandsBySource('plugin');
+
       res.json({
         success: true,
         data: {
           builtin: LOCAL_COMMANDS,
           custom: customCommands,
-          count: LOCAL_COMMANDS.length + customCommands.length
+          plugin: pluginCommands,
+          count: LOCAL_COMMANDS.length + customCommands.length + pluginCommands.length
         }
-      } as ApiResponse<{ builtin: SlashCommand[]; custom: SlashCommand[]; count: number }>);
+      } as ApiResponse<{ builtin: SlashCommand[]; custom: SlashCommand[]; plugin: SlashCommand[]; count: number }>);
     } catch (error) {
       console.error('Error listing commands:', error);
       res.status(500).json({

@@ -26,6 +26,7 @@ interface WorkerEntry {
   activatedPromise: Promise<void>;
   toolHandlers: Map<string, string>; // toolId → tool_call forwarding
   commandHandlers: Map<string, string>; // command → command_call forwarding
+  eventListeners: Map<string, (data: any) => void>; // event → listener (for cleanup)
 }
 
 interface RPCRequest {
@@ -84,11 +85,16 @@ export class WorkerHost {
       activatedPromise: Promise.resolve(),
       toolHandlers: new Map(),
       commandHandlers: new Map(),
+      eventListeners: new Map(),
     };
 
     // Set up the activation promise with timeout
     entry.activatedPromise = new Promise<void>((resolve, reject) => {
       const timeout = setTimeout(() => {
+        worker.off('message', onMessage);
+        // Clean up on timeout — terminate worker and remove entry
+        worker.terminate().catch(() => {});
+        this.workers.delete(pluginId);
         reject(new Error(`Plugin ${pluginId} activation timed out after ${ACTIVATION_TIMEOUT_MS}ms`));
       }, ACTIVATION_TIMEOUT_MS);
 
@@ -100,6 +106,9 @@ export class WorkerHost {
         } else if (msg.type === 'activation_error') {
           clearTimeout(timeout);
           worker.off('message', onMessage);
+          // Clean up on activation error
+          worker.terminate().catch(() => {});
+          this.workers.delete(pluginId);
           reject(new Error(msg.error));
         }
       };
@@ -254,16 +263,41 @@ export class WorkerHost {
         return storage.clear();
       }
 
-      // Events
+      // Events — forward from main thread to worker thread
       case 'events.on': {
-        pluginEvents.on(args[0] as string, () => {}, pluginId);
+        const eventName = args[0] as string;
+        const listener = (data: any) => {
+          try {
+            entry.worker.postMessage({ type: 'event_forward', event: eventName, data });
+          } catch {
+            // Worker may have been terminated
+          }
+        };
+        entry.eventListeners.set(eventName, listener);
+        pluginEvents.on(eventName, listener, pluginId);
         return undefined;
       }
       case 'events.off': {
+        const eventName = args[0] as string;
+        const listener = entry.eventListeners.get(eventName);
+        if (listener) {
+          pluginEvents.off(eventName, listener);
+          entry.eventListeners.delete(eventName);
+        }
         return undefined;
       }
       case 'events.once': {
-        pluginEvents.once(args[0] as string, () => {}, pluginId);
+        const eventName = args[0] as string;
+        const listener = (data: any) => {
+          try {
+            entry.worker.postMessage({ type: 'event_forward', event: eventName, data });
+          } catch {
+            // Worker may have been terminated
+          }
+          entry.eventListeners.delete(eventName);
+        };
+        entry.eventListeners.set(eventName, listener);
+        pluginEvents.once(eventName, listener, pluginId);
         return undefined;
       }
       case 'events.emit': {
@@ -271,7 +305,7 @@ export class WorkerHost {
         return undefined;
       }
 
-      // Commands
+      // Commands — forward execution to worker thread
       case 'commands.register': {
         const command = args[0] as string;
         entry.commandHandlers.set(command, command);
@@ -279,8 +313,7 @@ export class WorkerHost {
           command,
           description: `Worker command from ${pluginId}`,
           handler: async (cmdArgs, context) => {
-            // Forward to worker (fire and forget for now)
-            return { type: 'builtin', command, data: { args: cmdArgs } };
+            return this.forwardCommandCall(entry, command, cmdArgs);
           },
           source: 'plugin',
           pluginId,
@@ -436,10 +469,6 @@ export class WorkerHost {
   private forwardToolCall(entry: WorkerEntry, toolId: string, args: Record<string, unknown>): Promise<string> {
     return new Promise((resolve) => {
       const callId = `tc_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-      const timeout = setTimeout(() => {
-        entry.worker.off('message', onMessage);
-        resolve(JSON.stringify({ error: `Tool call ${toolId} timed out` }));
-      }, 30_000);
 
       const onMessage = (msg: any) => {
         if (msg.type === 'tool_result' && msg.id === callId) {
@@ -449,11 +478,49 @@ export class WorkerHost {
         }
       };
 
+      // Attach listener BEFORE sending message to avoid race condition
       entry.worker.on('message', onMessage);
+
+      const timeout = setTimeout(() => {
+        entry.worker.off('message', onMessage);
+        resolve(JSON.stringify({ error: `Tool call ${toolId} timed out` }));
+      }, 30_000);
+
       entry.worker.postMessage({
         type: 'tool_call',
         id: callId,
         toolId,
+        args,
+      });
+    });
+  }
+
+  /**
+   * Forward a command call to the worker and wait for the response.
+   */
+  private forwardCommandCall(entry: WorkerEntry, command: string, args: string[]): Promise<any> {
+    return new Promise((resolve) => {
+      const callId = `cc_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+
+      const onMessage = (msg: any) => {
+        if (msg.type === 'command_result' && msg.id === callId) {
+          clearTimeout(timeout);
+          entry.worker.off('message', onMessage);
+          resolve(msg.result);
+        }
+      };
+
+      entry.worker.on('message', onMessage);
+
+      const timeout = setTimeout(() => {
+        entry.worker.off('message', onMessage);
+        resolve({ type: 'builtin', command, error: `Command ${command} timed out` });
+      }, 30_000);
+
+      entry.worker.postMessage({
+        type: 'command_call',
+        id: callId,
+        command,
         args,
       });
     });

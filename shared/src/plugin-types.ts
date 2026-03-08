@@ -96,6 +96,9 @@ export interface PanelContribution {
   location: 'bottom' | 'sidebar' | 'right';
   icon?: string;
   size?: number;
+  /** Relative path to the HTML entry for third-party iframe panels (e.g. "ui/index.html") */
+  frontend?: string;
+  order?: number;
 }
 
 export interface HookContribution {

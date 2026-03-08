@@ -1,4 +1,5 @@
 import type { PermissionRequest } from '@my-claudia/shared';
+import type Database from 'better-sqlite3';
 
 // Re-export types from claude-sdk that are shared across providers
 export type { ClaudeMessage, SystemInfo, PermissionDecision, PermissionCallback } from './claude-sdk.js';
@@ -13,6 +14,7 @@ export interface RunOptions {
   model?: string;
   systemPrompt?: string;  // Appended to system prompt (e.g. for agent sessions)
   serverPort?: number;    // Main server port for MCP bridge
+  db?: Database.Database;  // Database for loading Claudia-managed MCP servers
 }
 
 /** Provider adapter interface */

@@ -21,7 +21,7 @@ export function ProviderManager({ isOpen, onClose, inline = false }: ProviderMan
   const [editingProvider, setEditingProvider] = useState<ProviderConfig | null>(null);
 
   // Form state
-  type ProviderType = 'claude' | 'opencode' | 'codex' | 'cursor';
+  type ProviderType = 'claude' | 'opencode' | 'codex' | 'cursor' | 'kimi';
   const [formName, setFormName] = useState('');
   const [formType, setFormType] = useState<ProviderType>('claude');
   const [formCliPath, setFormCliPath] = useState('');
@@ -344,14 +344,15 @@ export function ProviderManager({ isOpen, onClose, inline = false }: ProviderMan
   );
 }
 
-const TYPE_OPTIONS: { value: 'claude' | 'opencode' | 'codex' | 'cursor'; label: string }[] = [
+const TYPE_OPTIONS: { value: 'claude' | 'opencode' | 'codex' | 'cursor' | 'kimi'; label: string }[] = [
   { value: 'claude', label: 'Claude' },
   { value: 'opencode', label: 'OpenCode' },
   { value: 'codex', label: 'Codex' },
   { value: 'cursor', label: 'Cursor Agent' },
+  { value: 'kimi', label: 'Kimi' },
 ];
 
-function TypeSelector({ value, onChange }: { value: string; onChange: (v: 'claude' | 'opencode' | 'codex' | 'cursor') => void }) {
+function TypeSelector({ value, onChange }: { value: string; onChange: (v: 'claude' | 'opencode' | 'codex' | 'cursor' | 'kimi') => void }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 

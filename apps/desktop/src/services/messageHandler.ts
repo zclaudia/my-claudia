@@ -491,6 +491,30 @@ export function handleServerMessage(
       console.log(`[${logTag}] Plugin notification:`, msg.title, msg.body);
       break;
 
+    case 'plugin_show_panel': {
+      // Switch to the plugin panel tab (drawer is managed per-project by ChatInterface)
+      useTerminalStore.getState().setBottomPanelTab(`plugin:${msg.panelId}`);
+      break;
+    }
+
+    case 'plugin_panel_registered': {
+      usePluginStore.getState().registerPanel({
+        id: msg.panelId,
+        pluginId: msg.pluginId,
+        type: 'panel',
+        label: msg.label,
+        icon: msg.icon,
+        iframeUrl: msg.iframeUrl,
+        order: msg.order,
+      });
+      break;
+    }
+
+    case 'plugin_panel_unregistered': {
+      usePluginStore.getState().clearPluginExtensions(msg.pluginId);
+      break;
+    }
+
     default:
       console.warn(`[${logTag}] Unknown message type:`, (msg as any).type);
   }

@@ -3,6 +3,7 @@ import type { ModelInfo } from '@anthropic-ai/claude-agent-sdk';
 import type { ProviderConfig, PermissionRequest, PermissionMode, MessageInput, MessageAttachment } from '@my-claudia/shared';
 import { fileStore } from '../storage/fileStore.js';
 import { loadMcpServers, loadPlugins } from '../utils/claude-config.js';
+import { loadMcpServersFromDb } from '../utils/mcp-config.js';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
@@ -20,6 +21,7 @@ export interface ClaudeRunOptions {
   model?: string;  // Override model (e.g. 'claude-sonnet-4-5-20250929')
   systemPrompt?: string;  // Appended to system prompt
   serverPort?: number;  // Main server port for MCP bridge
+  db?: import('better-sqlite3').Database;  // Database for Claudia-managed MCP servers
 }
 
 export interface PermissionDecision {
@@ -259,8 +261,10 @@ export async function* runClaude(
   // Enable extended thinking (adaptive mode — Claude decides when to think)
   sdkOptions.thinking = { type: 'adaptive' };
 
-  // Load user-configured MCP servers from ~/.claude/mcp.json
-  const userMcpServers = loadMcpServers();
+  // Load MCP servers: Claudia DB (primary) + ~/.claude/mcp.json (fallback)
+  const nativeMcpServers = loadMcpServers();
+  const claudiaMcpServers = options.db ? loadMcpServersFromDb(options.db, 'claude') : {};
+  const userMcpServers = { ...nativeMcpServers, ...claudiaMcpServers };
   if (Object.keys(userMcpServers).length > 0) {
     sdkOptions.mcpServers = userMcpServers;
   }

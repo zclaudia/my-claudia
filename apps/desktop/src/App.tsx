@@ -23,6 +23,7 @@ import { useSwipeBack } from './hooks/useSwipeBack';
 import { migrateServersFromLocalStorage, needsMigration } from './utils/migrateServers';
 import { eagerSyncAllBackends } from './services/sessionSync';
 import { useFileViewerStore } from './stores/fileViewerStore';
+import { initBuiltinPanels } from './plugins/builtinPanels';
 
 function AppContent() {
   const { connectServer, embeddedServerStatus, embeddedServerError } = useConnection();
@@ -48,6 +49,9 @@ function AppContent() {
   if (connectionStatus === 'connected') {
     hasConnected.current = true;
   }
+
+  // Register builtin plugin panel components (once at startup)
+  useEffect(() => { initBuiltinPanels(); }, []);
 
   // Load data from server
   useDataLoader();

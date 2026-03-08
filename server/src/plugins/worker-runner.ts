@@ -33,11 +33,13 @@ interface RPCResponse {
 }
 
 interface HostMessage {
-  type: 'deactivate' | 'tool_call' | 'command_call';
+  type: 'deactivate' | 'tool_call' | 'command_call' | 'event_forward';
   id?: string;
   toolId?: string;
   command?: string;
   args?: unknown;
+  event?: string;
+  data?: unknown;
 }
 
 // ============================================
@@ -80,6 +82,11 @@ class RPCClient {
 // Proxy PluginContext
 // ============================================
 
+// Local handler storage — handlers can't cross thread boundaries, so we store them here
+const toolHandlers = new Map<string, (args: Record<string, unknown>) => Promise<string> | string>();
+const commandHandlers = new Map<string, (args: string[], ctx?: any) => any>();
+const eventHandlers = new Map<string, Set<(data: unknown) => void | Promise<void>>>();
+
 function createProxyContext(pluginId: string, rpc: RPCClient): any {
   return {
     pluginId,
@@ -93,16 +100,39 @@ function createProxyContext(pluginId: string, rpc: RPCClient): any {
       clear: () => rpc.call('storage.clear'),
     },
 
-    // Events API
+    // Events API — store handlers locally, forward registration to host
     events: {
       on: (event: string, handler: (data: unknown) => void) => {
-        // Event subscriptions are handled differently in workers
-        // We register with the host and it forwards events
+        if (!eventHandlers.has(event)) {
+          eventHandlers.set(event, new Set());
+        }
+        eventHandlers.get(event)!.add(handler);
+        // Register with host so it forwards events to this worker
         rpc.call('events.on', event).catch(() => {});
-        // Return unsubscribe function
-        return () => { rpc.call('events.off', event).catch(() => {}); };
+        return () => {
+          const handlers = eventHandlers.get(event);
+          if (handlers) {
+            handlers.delete(handler);
+            if (handlers.size === 0) {
+              eventHandlers.delete(event);
+              rpc.call('events.off', event).catch(() => {});
+            }
+          }
+        };
       },
       once: (event: string, handler: (data: unknown) => void) => {
+        const wrappedHandler = (data: unknown) => {
+          handler(data);
+          const handlers = eventHandlers.get(event);
+          if (handlers) {
+            handlers.delete(wrappedHandler);
+            if (handlers.size === 0) eventHandlers.delete(event);
+          }
+        };
+        if (!eventHandlers.has(event)) {
+          eventHandlers.set(event, new Set());
+        }
+        eventHandlers.get(event)!.add(wrappedHandler);
         rpc.call('events.once', event).catch(() => {});
       },
       emit: (event: string, data: unknown) => rpc.call('events.emit', event, data),
@@ -116,24 +146,26 @@ function createProxyContext(pluginId: string, rpc: RPCClient): any {
       debug: (...args: unknown[]) => console.debug(`[Worker:${pluginId}]`, ...args),
     },
 
-    // Commands registration (proxied)
+    // Commands registration — store handler locally, register metadata on host
     commands: {
-      registerCommand: (command: string, _handler: unknown) => {
-        // Register command on host; actual calls are forwarded via messages
+      registerCommand: (command: string, handler: (args: string[], ctx?: any) => any) => {
+        commandHandlers.set(command, handler);
         rpc.call('commands.register', command).catch(() => {});
       },
       unregisterCommand: (command: string) => {
+        commandHandlers.delete(command);
         rpc.call('commands.unregister', command).catch(() => {});
       },
     },
 
-    // Tools registration (proxied)
+    // Tools registration — store handler locally, register metadata on host
     tools: {
-      registerTool: (tool: { id: string; name: string; description: string; parameters: unknown }) => {
-        // Register tool definition on host; handler calls are forwarded via messages
+      registerTool: (tool: { id: string; name: string; description: string; parameters: unknown; handler: (args: Record<string, unknown>) => Promise<string> | string }) => {
+        toolHandlers.set(tool.id, tool.handler);
         rpc.call('tools.register', tool.id, tool.name, tool.description, tool.parameters).catch(() => {});
       },
       unregisterTool: (toolId: string) => {
+        toolHandlers.delete(toolId);
         rpc.call('tools.unregister', toolId).catch(() => {});
       },
     },
@@ -215,6 +247,9 @@ async function main() {
 
     // Listen for host messages
     parentPort.on('message', async (msg: HostMessage) => {
+      // Skip RPC responses — handled by RPCClient
+      if ((msg as any).type === 'rpc_response') return;
+
       switch (msg.type) {
         case 'deactivate':
           try {
@@ -231,23 +266,75 @@ async function main() {
           break;
 
         case 'tool_call':
-          // Forward tool call to plugin's registered handler
-          // The host resolves this via the registered tool handler
-          if (msg.id && msg.toolId && msg.args) {
+          // Execute tool handler stored locally in this worker
+          if (msg.id && msg.toolId) {
             try {
-              // Tools registered via context.tools.registerTool store their handlers locally
-              // This is handled by the host forwarding back
-              parentPort!.postMessage({
-                type: 'tool_result',
-                id: msg.id,
-                result: JSON.stringify({ error: 'Tool handler not found in worker' }),
-              });
+              const handler = toolHandlers.get(msg.toolId);
+              if (handler) {
+                const result = await handler(msg.args as Record<string, unknown> || {});
+                parentPort!.postMessage({
+                  type: 'tool_result',
+                  id: msg.id,
+                  result,
+                });
+              } else {
+                parentPort!.postMessage({
+                  type: 'tool_result',
+                  id: msg.id,
+                  result: JSON.stringify({ error: `Tool handler "${msg.toolId}" not found in worker` }),
+                });
+              }
             } catch (error) {
               parentPort!.postMessage({
                 type: 'tool_result',
                 id: msg.id,
-                error: error instanceof Error ? error.message : String(error),
+                result: JSON.stringify({ error: error instanceof Error ? error.message : String(error) }),
               });
+            }
+          }
+          break;
+
+        case 'command_call':
+          // Execute command handler stored locally in this worker
+          if (msg.id && msg.command) {
+            try {
+              const handler = commandHandlers.get(msg.command);
+              if (handler) {
+                const result = await handler(msg.args as string[] || []);
+                parentPort!.postMessage({
+                  type: 'command_result',
+                  id: msg.id,
+                  result,
+                });
+              } else {
+                parentPort!.postMessage({
+                  type: 'command_result',
+                  id: msg.id,
+                  result: { type: 'builtin', command: msg.command, error: 'Command handler not found in worker' },
+                });
+              }
+            } catch (error) {
+              parentPort!.postMessage({
+                type: 'command_result',
+                id: msg.id,
+                result: { type: 'builtin', command: msg.command, error: error instanceof Error ? error.message : String(error) },
+              });
+            }
+          }
+          break;
+
+        case 'event_forward':
+          // Forward event to locally stored event handlers
+          if (msg.event) {
+            const handlers = eventHandlers.get(msg.event);
+            if (handlers) {
+              for (const handler of handlers) {
+                try {
+                  await handler(msg.data);
+                } catch (error) {
+                  console.error(`[Worker:${pluginId}] Event handler error for ${msg.event}:`, error);
+                }
+              }
             }
           }
           break;

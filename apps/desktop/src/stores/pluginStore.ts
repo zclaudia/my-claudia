@@ -34,7 +34,8 @@ export interface UIExtension {
   location?: string;
   label: string;
   icon?: string;
-  component?: unknown; // React component
+  component?: unknown; // React component (builtin panels)
+  iframeUrl?: string;  // Server-relative URL for third-party iframe panels
   order?: number;
 }
 

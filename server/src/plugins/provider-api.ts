@@ -142,13 +142,22 @@ export class PluginProviderAPI implements ProviderAPI {
 
     try {
       // Run the provider
-      for await (const msg of adapter.run(prompt, runOptions, async () => ({ decision: 'allow', behavior: 'allow' } as any))) {
+      for await (const msg of adapter.run(prompt, runOptions, async () => {
+        // Auto-allow supervision for plugin-initiated provider calls
+        // TODO: Route through proper supervision chain for production use
+        return { decision: 'allow', behavior: 'allow' } as any;
+      })) {
         // Cast to access properties that may exist on different message types
-        const m = msg as { type: string; content?: string; result?: string };
+        const m = msg as { type: string; content?: string; result?: string; usage?: { input_tokens?: number; output_tokens?: number } };
         if (m.type === 'assistant' && m.content) {
           collectedMessages.push({ type: 'assistant', content: m.content });
         } else if (m.type === 'result' && m.result) {
           collectedMessages.push({ type: 'result', content: m.result });
+        }
+        // Extract token usage if available
+        if (m.usage) {
+          if (m.usage.input_tokens) inputTokens += m.usage.input_tokens;
+          if (m.usage.output_tokens) outputTokens += m.usage.output_tokens;
         }
       }
     } catch (error) {

@@ -1,5 +1,5 @@
 import { useRef, useEffect, useCallback, useState, useMemo } from 'react';
-import { Loader2, AlertTriangle, ClipboardList, ArrowDown, X, FileText, Terminal as TerminalIcon, ChevronDown, ChevronUp, Lock, Unlock, Archive } from 'lucide-react';
+import { Loader2, AlertTriangle, ClipboardList, ArrowDown, X, FileText, Terminal as TerminalIcon, ChevronDown, ChevronUp, Lock, Unlock, Archive, RotateCcw } from 'lucide-react';
 import { MessageList } from './MessageList';
 import { MessageInput, type Attachment } from './MessageInput';
 import { ToolCallList } from './ToolCallItem';
@@ -28,7 +28,7 @@ import { useIsMobile } from '../../hooks/useMediaQuery';
 import * as api from '../../services/api';
 import { uploadFile } from '../../services/fileUpload';
 import { TaskCardStrip } from '../supervision/TaskCardStrip';
-import type { AgentPermissionPolicy, CommandExecuteResponse, Message, MessageAttachment, MessageInput as MessageInputData, ProviderCapabilities } from '@my-claudia/shared';
+import type { AgentPermissionPolicy, CommandExecuteResponse, Message, MessageAttachment, MessageInput as MessageInputData, ProviderCapabilities, SlashCommand } from '@my-claudia/shared';
 import type { MessageWithToolCalls } from '../../stores/chatStore';
 
 // Restore tool calls and content blocks from persisted metadata when loading messages from the server
@@ -59,6 +59,7 @@ interface ChatInterfaceProps {
 const MESSAGES_PER_PAGE = 50;
 const BOTTOM_REFRESH_LIMIT = 12;
 const BOTTOM_REFRESH_COOLDOWN_MS = 2500;
+const SUPPRESS_LOAD_MORE_MS = 1200;
 const EMPTY_MESSAGES: MessageWithToolCalls[] = [];
 const EMPTY_TOOL_CALLS: import('../../stores/chatStore').ToolCallState[] = [];
 const EMPTY_CONTENT_BLOCKS: import('@my-claudia/shared').ContentBlock[] = [];
@@ -127,6 +128,7 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const bottomRefreshRef = useRef<{ lastAt: number; inFlight: boolean }>({ lastAt: 0, inFlight: false });
+  const suppressLoadMoreUntilRef = useRef<number>(0);
   const [initialLoadDone, setInitialLoadDone] = useState(false);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
   const [scrollMetrics, setScrollMetrics] = useState({ scrollTop: 0, viewportHeight: 0 });
@@ -270,6 +272,11 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
   const scrollToBottom = useCallback((instant = false) => {
     messagesEndRef.current?.scrollIntoView({ behavior: instant ? 'instant' : 'smooth' });
   }, []);
+
+  const jumpToBottomInstant = useCallback(() => {
+    suppressLoadMoreUntilRef.current = Date.now() + SUPPRESS_LOAD_MORE_MS;
+    scrollToBottom(true);
+  }, [scrollToBottom]);
 
   // Sync filePush metadata from loaded messages into filePushStore for download tracking
   const syncFilePushMessages = useCallback((msgs: MessageWithToolCalls[]) => {
@@ -442,8 +449,10 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
       viewportHeight: container.clientHeight,
     });
 
-    // If scrolled near top (within 100px), load more messages
-    if (container.scrollTop < 100 && sessionPagination?.hasMore && !sessionPagination?.isLoadingMore) {
+    // If scrolled near top (within 100px), load more messages.
+    // During jump-to-bottom, suppress this to avoid fighting the programmatic scroll.
+    const suppressLoadMore = Date.now() < suppressLoadMoreUntilRef.current;
+    if (!suppressLoadMore && container.scrollTop < 100 && sessionPagination?.hasMore && !sessionPagination?.isLoadingMore) {
       loadMoreMessages();
     }
 
@@ -529,8 +538,30 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
 
   const capabilities: ProviderCapabilities | null = providerCapabilities[capsCacheKey] || null;
 
-  // Get commands for current provider within current server/backend scope.
-  const commands = providerCommands[commandsCacheKey] || [];
+  // Get commands for current provider within current server/backend scope,
+  // and append local-only helper commands that are handled in ChatInterface.
+  const commands = useMemo<SlashCommand[]>(() => {
+    const base = providerCommands[commandsCacheKey] || [];
+    const extras: SlashCommand[] = [
+      {
+        command: '/new-cli-session',
+        description: 'Reset underlying provider session (next message starts a fresh CLI session)',
+        source: 'local',
+      },
+      {
+        command: '/reset-cli-session',
+        description: 'Alias of /new-cli-session',
+        source: 'local',
+      },
+    ];
+
+    const seen = new Set(base.map((c) => c.command));
+    const merged = [...base];
+    for (const cmd of extras) {
+      if (!seen.has(cmd.command)) merged.push(cmd);
+    }
+    return merged;
+  }, [providerCommands, commandsCacheKey]);
 
   // Scroll to bottom when new messages arrive (but not when loading history)
   useEffect(() => {
@@ -787,6 +818,16 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
           });
         return; // Skip the scrollToBottom below since we handle it in the .then
 
+      case 'show_panel': {
+        // Plugin command: open the panel in the bottom drawer
+        const panelId = data?.panelId as string | undefined;
+        if (panelId && currentProject?.id) {
+          setDrawerOpen(currentProject.id, true);
+          setBottomPanelTab(`plugin:${panelId}`);
+        }
+        break;
+      }
+
       default:
         addMessage(sessionId, {
           id: crypto.randomUUID(),
@@ -799,7 +840,7 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
 
     // Scroll to bottom after command output
     setTimeout(() => scrollToBottom(), 100);
-  }, [sessionId, clearMessages, addMessage, scrollToBottom, providerId, currentProject?.rootPath, commandsCacheKey]);
+  }, [sessionId, clearMessages, addMessage, scrollToBottom, providerId, currentProject?.rootPath, commandsCacheKey, currentProject?.id, setDrawerOpen, setBottomPanelTab]);
 
   const handleWorktreeChange = useCallback(async (worktreePath: string) => {
     if (isForcedPlanSession) {
@@ -816,6 +857,29 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
       console.error('[Worktree] Failed to persist working directory:', err);
     }
   }, [isForcedPlanSession, sessionId]);
+
+  const handleResetProviderSession = useCallback(async () => {
+    try {
+      await api.resetSessionSdkSession(sessionId);
+      addMessage(sessionId, {
+        id: crypto.randomUUID(),
+        sessionId,
+        role: 'system',
+        content: 'Underlying CLI session reset. The next message will start a new provider-side session.',
+        createdAt: Date.now(),
+      });
+      setTimeout(() => scrollToBottom(), 100);
+    } catch (err) {
+      addMessage(sessionId, {
+        id: crypto.randomUUID(),
+        sessionId,
+        role: 'system',
+        content: `Failed to reset CLI session: ${(err as Error).message}`,
+        createdAt: Date.now(),
+      });
+      setTimeout(() => scrollToBottom(), 100);
+    }
+  }, [addMessage, scrollToBottom, sessionId]);
 
   const handleCommand = useCallback(async (command: string, args: string) => {
     // Find the command definition to check its source
@@ -1089,11 +1153,11 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
       return;
     }
 
-    // Plugin commands and provider commands should be passed directly to Claude SDK
-    // They are handled by Claude CLI's plugin system or built-in CLI commands
+    // Provider commands should be passed directly to Claude SDK (they are Claude CLI built-ins).
     // Also treat all unrecognized commands (no matching commandDef) as pass-through to Claude,
-    // since the input may not be an actual command (e.g. a path like /some/file/path)
-    if (commandDef?.source === 'plugin' || commandDef?.source === 'provider' || !commandDef) {
+    // since the input may not be an actual command (e.g. a path like /some/file/path).
+    // Plugin commands (source === 'plugin') fall through to api.executeCommand() instead.
+    if (commandDef?.source === 'provider' || !commandDef) {
       const commandText = args ? `${command} ${args}` : command;
       const clientMessageId = crypto.randomUUID();
       addMessage(sessionId, {
@@ -1534,7 +1598,7 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
         {/* Scroll to bottom button — sticky inside scroll container */}
         {showScrollToBottom && (
           <button
-            onClick={() => scrollToBottom()}
+            onClick={jumpToBottomInstant}
             className="sticky bottom-4 float-right mr-2 z-10 w-9 h-9 rounded-full bg-muted/90 border border-border shadow-md flex items-center justify-center hover:bg-muted transition-colors"
             aria-label="Scroll to bottom"
           >
@@ -1546,7 +1610,8 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
       {/* Bottom panel (file viewer + terminal with tab switching) */}
       <BottomPanel
         projectId={currentSession?.projectId}
-        projectRoot={currentProject?.rootPath}
+        projectRoot={fileReferenceRoot}
+        workingDirectory={currentSession?.workingDirectory}
       />
 
       {/* Queued message banner */}
@@ -1716,6 +1781,14 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
                 {advancedInput ? <ChevronDown size={16} strokeWidth={2} /> : <ChevronUp size={16} strokeWidth={2} />}
               </button>
             )}
+            <button
+              onClick={handleResetProviderSession}
+              disabled={isLoading}
+              className={`p-1.5 rounded hover:bg-secondary ${isLoading ? 'opacity-50 cursor-not-allowed text-muted-foreground' : 'text-muted-foreground hover:text-foreground'}`}
+              title="Reset underlying provider session"
+            >
+              <RotateCcw size={16} strokeWidth={1.75} />
+            </button>
             <SystemInfoButton
               systemInfo={currentSystemInfo}
               sessionInfo={currentSession ? {

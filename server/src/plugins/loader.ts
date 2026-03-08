@@ -335,8 +335,14 @@ export class PluginLoader {
       await this.registerContributions(instance);
 
       // Load main module if specified
-      if (instance.manifest.main) {
-        await this.loadModule(instance);
+      try {
+        if (instance.manifest.main) {
+          await this.loadModule(instance);
+        }
+      } catch (moduleError) {
+        // Rollback: clean up registered contributions on module load failure
+        this.unregisterContributions(pluginId);
+        throw moduleError;
       }
 
       instance.isActive = true;
@@ -477,6 +483,24 @@ export class PluginLoader {
         });
       }
     }
+
+    // Broadcast panel registrations to connected frontends
+    if (contributes.panels) {
+      for (const panel of contributes.panels) {
+        const iframeUrl = panel.frontend
+          ? `/api/plugins/${manifest.id}/frontend/${panel.frontend}`
+          : undefined;
+        this.broadcastFn?.({
+          type: 'plugin_panel_registered',
+          panelId: panel.id,
+          pluginId: manifest.id,
+          label: panel.label,
+          icon: panel.icon,
+          iframeUrl,
+          order: panel.order,
+        });
+      }
+    }
   }
 
   /**
@@ -491,6 +515,9 @@ export class PluginLoader {
 
     // Clear event listeners
     pluginEvents.clearByPlugin(pluginId);
+
+    // Notify frontend to unregister panels
+    this.broadcastFn?.({ type: 'plugin_panel_unregistered', pluginId });
   }
 
   /**
@@ -509,6 +536,9 @@ export class PluginLoader {
 
     // Clear permissions
     permissionManager.clearPluginPermissions(pluginId);
+
+    // Clear exported plugin APIs
+    this.pluginAPIs.delete(pluginId);
 
     // Remove from plugins map
     this.plugins.delete(pluginId);

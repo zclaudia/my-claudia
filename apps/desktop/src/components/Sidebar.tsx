@@ -14,7 +14,6 @@ import { ProjectSettings } from './ProjectSettings';
 import { SettingsPanel } from './SettingsPanel';
 import { SearchFilters } from './SearchFilters';
 import { ActiveSessionsPanel } from './ActiveSessionsPanel';
-import { ArchivedSessionsDialog } from './ArchivedSessionsDialog';
 import { PluginPermissionDialog } from './PluginPermissionDialog';
 import { SessionItem } from './sidebar/SessionItem';
 import { WorktreeGroupItem } from './sidebar/WorktreeGroupItem';
@@ -113,7 +112,6 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
   const [showSearchHistory, setShowSearchHistory] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
   const [searchFilters, setSearchFilters] = useState<Filters>({});
-  const [showArchivedDialog, setShowArchivedDialog] = useState(false);
   const [searchOffset, setSearchOffset] = useState(0);
   const [hasMoreResults, setHasMoreResults] = useState(false);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
@@ -893,17 +891,8 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
             )}
           </div>
 
-          {/* Archived Sessions entry + Active Sessions - Fixed at bottom */}
+          {/* Active Sessions - Fixed at bottom */}
           <div className="flex-shrink-0">
-            <button
-              onClick={() => setShowArchivedDialog(true)}
-              className="w-full px-4 py-2 text-sm text-muted-foreground hover:text-foreground hover:bg-secondary flex items-center gap-2"
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" />
-              </svg>
-              Archived Sessions
-            </button>
             <ActiveSessionsPanel
               onSessionSelect={(backendId, sessionId) => {
                 handleActiveSessionSelect(backendId, sessionId);
@@ -1503,13 +1492,6 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
       <SettingsPanel
         isOpen={showSettings}
         onClose={() => setShowSettings(false)}
-      />,
-      document.body
-    )}
-    {showArchivedDialog && createPortal(
-      <ArchivedSessionsDialog
-        isOpen={showArchivedDialog}
-        onClose={() => setShowArchivedDialog(false)}
       />,
       document.body
     )}

@@ -26,7 +26,7 @@ export interface BackendServer {
 // Provider Types
 // ============================================
 
-export type ProviderType = 'claude' | 'opencode' | 'codex' | 'cursor';
+export type ProviderType = 'claude' | 'opencode' | 'codex' | 'cursor' | 'kimi';
 
 export interface ProviderConfig {
   id: string;
@@ -707,6 +707,7 @@ export interface TerminalOpenMessage {
   type: 'terminal_open';
   terminalId: string;
   projectId: string;
+  workingDirectory?: string;
   cols: number;
   rows: number;
 }
@@ -797,6 +798,30 @@ export interface PluginPermissionRequestMessage {
   permissions: string[];
 }
 
+// Plugin show panel (Server → Client)
+export interface PluginShowPanelMessage {
+  type: 'plugin_show_panel';
+  pluginId: string;
+  panelId: string;
+}
+
+// Plugin panel registered (Server → Client) — sent when a plugin activates with panels
+export interface PluginPanelRegisteredMessage {
+  type: 'plugin_panel_registered';
+  panelId: string;
+  pluginId: string;
+  label: string;
+  icon?: string;
+  iframeUrl?: string;
+  order?: number;
+}
+
+// Plugin panel unregistered (Server → Client) — sent when a plugin deactivates
+export interface PluginPanelUnregisteredMessage {
+  type: 'plugin_panel_unregistered';
+  pluginId: string;
+}
+
 // Plugin notification (Server → Client)
 export interface PluginNotificationMessage {
   type: 'plugin_notification';
@@ -861,7 +886,10 @@ export type ServerMessage =
   | FilePushNotificationMessage
   | PluginStateMessage
   | PluginPermissionRequestMessage
-  | PluginNotificationMessage;
+  | PluginNotificationMessage
+  | PluginShowPanelMessage
+  | PluginPanelRegisteredMessage
+  | PluginPanelUnregisteredMessage;
 
 // Authentication result message
 export interface AuthResultMessage {
@@ -1756,6 +1784,24 @@ export const DEFAULT_NOTIFICATION_CONFIG: NotificationConfig = {
     backgroundPermission: true,
   },
 };
+
+// ============================================
+// MCP Server Types
+// ============================================
+
+export interface McpServerConfig {
+  id: string;
+  name: string;
+  command: string;
+  args?: string[];
+  env?: Record<string, string>;
+  enabled: boolean;
+  description?: string;
+  providerScope?: ProviderType[];
+  source: 'user' | 'imported';
+  createdAt: number;
+  updatedAt: number;
+}
 
 // ============================================
 // Plugin Platform Types

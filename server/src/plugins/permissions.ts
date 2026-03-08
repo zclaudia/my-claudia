@@ -301,23 +301,31 @@ class PermissionManager {
     const requests = this.pendingRequests.get(pluginId);
     if (!requests || requests.length === 0) return;
 
-    const request = requests.shift()!;
+    // Resolve ALL pending requests for this plugin (not just the first)
+    const allRequests = [...requests];
+    this.pendingRequests.delete(pluginId);
 
     if (granted) {
-      // Grant all requested permissions
-      this.grantAll(pluginId, request.permissions);
-      request.resolve(true);
-    } else {
-      // Deny permissions (permanently if specified)
-      if (permanently) {
-        request.permissions.forEach((p) => this.deny(pluginId, p));
+      // Grant the union of all requested permissions
+      const allPermissions = new Set<Permission>();
+      for (const req of allRequests) {
+        req.permissions.forEach((p) => allPermissions.add(p));
       }
-      request.resolve(false);
-    }
-
-    // Clean up empty arrays
-    if (requests.length === 0) {
-      this.pendingRequests.delete(pluginId);
+      this.grantAll(pluginId, Array.from(allPermissions));
+      for (const req of allRequests) {
+        req.resolve(true);
+      }
+    } else {
+      if (permanently) {
+        const allPermissions = new Set<Permission>();
+        for (const req of allRequests) {
+          req.permissions.forEach((p) => allPermissions.add(p));
+        }
+        allPermissions.forEach((p) => this.deny(pluginId, p));
+      }
+      for (const req of allRequests) {
+        req.resolve(false);
+      }
     }
   }
 

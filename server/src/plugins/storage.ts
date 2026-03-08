@@ -9,6 +9,9 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 
+// Max storage size per plugin (5MB)
+const MAX_STORAGE_BYTES = 5 * 1024 * 1024;
+
 // ============================================
 // Types
 // ============================================
@@ -63,7 +66,9 @@ export class PluginStorage implements StorageAPI {
       this.loaded = true;
     } catch (error) {
       console.error(`[PluginStorage] Failed to load storage for ${this.pluginId}:`, error);
-      this.loaded = true; // Mark as loaded even on failure
+      // Don't mark as loaded on failure — allow retry on next access
+      // Start with empty cache so current call can proceed
+      this.cache = new Map();
     }
   }
 
@@ -93,6 +98,14 @@ export class PluginStorage implements StorageAPI {
   async set<T>(key: string, value: T): Promise<void> {
     await this.ensureLoaded();
     this.cache.set(key, value);
+
+    // Check size limit before persisting
+    const data = JSON.stringify(Object.fromEntries(this.cache));
+    if (Buffer.byteLength(data, 'utf-8') > MAX_STORAGE_BYTES) {
+      this.cache.delete(key); // Rollback
+      throw new Error(`Storage limit exceeded for plugin ${this.pluginId} (max ${MAX_STORAGE_BYTES / 1024 / 1024}MB)`);
+    }
+
     await this.persist();
   }
 

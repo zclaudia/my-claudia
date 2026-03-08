@@ -104,6 +104,7 @@ function prepareCodexInput(input: string): Input {
 // ── ThreadItem → ClaudeMessage mapping ───────────────────────
 
 function mapItemStarted(item: ThreadItem): ClaudeMessage | null {
+  const toolUseId = (item as { id?: string }).id;
   switch (item.type) {
     case 'agent_message':
       return { type: 'assistant', content: item.text };
@@ -112,30 +113,35 @@ function mapItemStarted(item: ThreadItem): ClaudeMessage | null {
     case 'command_execution':
       return {
         type: 'tool_use',
+        toolUseId,
         toolName: 'Bash',
         toolInput: { command: item.command },
       };
     case 'file_change':
       return {
         type: 'tool_use',
+        toolUseId,
         toolName: 'Edit',
         toolInput: { changes: item.changes },
       };
     case 'mcp_tool_call':
       return {
         type: 'tool_use',
+        toolUseId,
         toolName: `mcp:${item.server}:${item.tool}`,
         toolInput: item.arguments,
       };
     case 'web_search':
       return {
         type: 'tool_use',
+        toolUseId,
         toolName: 'WebSearch',
         toolInput: { query: item.query },
       };
     case 'todo_list':
       return {
         type: 'tool_use',
+        toolUseId,
         toolName: 'TodoWrite',
         toolInput: { items: item.items },
       };
@@ -147,6 +153,7 @@ function mapItemStarted(item: ThreadItem): ClaudeMessage | null {
 }
 
 function mapItemCompleted(item: ThreadItem): ClaudeMessage | null {
+  const toolUseId = (item as { id?: string }).id;
   switch (item.type) {
     case 'agent_message':
       // Final text — emit as assistant
@@ -154,6 +161,7 @@ function mapItemCompleted(item: ThreadItem): ClaudeMessage | null {
     case 'command_execution':
       return {
         type: 'tool_result',
+        toolUseId,
         toolName: 'Bash',
         toolResult: item.aggregated_output,
         isToolError: item.status === 'failed',
@@ -161,6 +169,7 @@ function mapItemCompleted(item: ThreadItem): ClaudeMessage | null {
     case 'file_change':
       return {
         type: 'tool_result',
+        toolUseId,
         toolName: 'Edit',
         toolResult: item.status === 'completed' ? 'Applied' : 'Failed',
         isToolError: item.status === 'failed',
@@ -171,6 +180,7 @@ function mapItemCompleted(item: ThreadItem): ClaudeMessage | null {
         : item.error?.message || 'No result';
       return {
         type: 'tool_result',
+        toolUseId,
         toolName: `mcp:${item.server}:${item.tool}`,
         toolResult: resultText,
         isToolError: item.status === 'failed',
@@ -179,6 +189,7 @@ function mapItemCompleted(item: ThreadItem): ClaudeMessage | null {
     case 'web_search':
       return {
         type: 'tool_result',
+        toolUseId,
         toolName: 'WebSearch',
         toolResult: 'Search completed',
       };
@@ -353,14 +364,6 @@ function mapThreadEvent(event: ThreadEvent, sessionId?: string): ClaudeMessage[]
         messages.push({ type: 'assistant', content: event.item.text });
       } else if (event.item.type === 'reasoning') {
         messages.push({ type: 'assistant', content: `<think>${event.item.text}</think>` });
-      }
-      // Command output updates
-      if (event.item.type === 'command_execution' && event.item.aggregated_output) {
-        messages.push({
-          type: 'tool_result',
-          toolName: 'Bash',
-          toolResult: event.item.aggregated_output,
-        });
       }
       break;
     }

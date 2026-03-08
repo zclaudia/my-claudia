@@ -16,9 +16,10 @@ const DEFAULT_HEIGHT_MOBILE = 350;
 interface BottomPanelProps {
   projectId: string | undefined;
   projectRoot: string | undefined;
+  workingDirectory?: string;
 }
 
-export function BottomPanel({ projectId, projectRoot }: BottomPanelProps) {
+export function BottomPanel({ projectId, projectRoot, workingDirectory }: BottomPanelProps) {
   const terminalDrawerOpen = useTerminalStore((s) => projectId ? !!s.drawerOpen[projectId] : false);
   const hasTerminal = useTerminalStore((s) => projectId ? !!s.terminals[projectId] : false);
   const setTerminalDrawerOpen = useTerminalStore((s) => s.setDrawerOpen);
@@ -225,7 +226,7 @@ export function BottomPanel({ projectId, projectRoot }: BottomPanelProps) {
       <div className="flex-1 overflow-hidden relative">
         {hasTerminalTab && projectId && (
           <div className={`absolute inset-0 ${effectiveTab === 'terminal' && isOpen ? '' : 'invisible'}`}>
-            <TerminalPanel projectId={projectId} />
+            <TerminalPanel projectId={projectId} workingDirectory={workingDirectory} />
           </div>
         )}
         {hasFileTab && projectRoot && (

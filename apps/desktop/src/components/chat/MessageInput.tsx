@@ -94,7 +94,8 @@ export function MessageInput({
   const [selectedCommandIndex, setSelectedCommandIndex] = useState(0);
   const [mentionState, setMentionState] = useState<MentionState>(initialMentionState);
   const [isComposing, setIsComposing] = useState(false); // Track IME composition state
-  const compactRowHeightClass = isMobile ? 'h-[72px]' : 'h-12';
+  const compactRowHeightClass = isMobile ? 'h-16' : 'h-12';
+  const controlIconSize = isMobile ? 18 : 20;
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -707,7 +708,7 @@ export function MessageInput({
           className={`${advancedMode ? 'h-12 w-12' : 'h-full aspect-square'} flex-shrink-0 flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted rounded-full transition-colors disabled:opacity-50 disabled:cursor-not-allowed`}
           title="Add attachment (images, files)"
         >
-          <Paperclip size={20} strokeWidth={1.75} />
+          <Paperclip size={controlIconSize} strokeWidth={1.75} />
         </button>
         <input
           ref={fileInputRef}
@@ -755,7 +756,7 @@ export function MessageInput({
               advancedMode
                 ? 'resize-y min-h-[160px] max-h-[40vh] overflow-auto'
                 : isMobile
-                  ? 'h-[72px] resize-none overflow-hidden'
+                  ? 'h-16 resize-none overflow-hidden'
                   : 'h-12 resize-none overflow-hidden'
             }`}
             style={{
@@ -772,7 +773,7 @@ export function MessageInput({
             className={`${advancedMode ? 'h-12 w-12' : 'h-full aspect-square'} flex-shrink-0 flex items-center justify-center bg-destructive text-destructive-foreground hover:bg-destructive/90 rounded-full transition-colors`}
             title="Cancel (Esc)"
           >
-            <X size={20} strokeWidth={2} />
+            <X size={controlIconSize} strokeWidth={2} />
           </button>
         ) : (
           <button
@@ -784,7 +785,7 @@ export function MessageInput({
               : 'Send message (Enter)'}
             data-testid="send-button"
           >
-            <Send size={20} strokeWidth={1.75} />
+            <Send size={controlIconSize} strokeWidth={1.75} />
           </button>
         )}
       </div>

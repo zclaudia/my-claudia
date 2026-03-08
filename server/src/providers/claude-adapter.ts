@@ -19,6 +19,7 @@ export class ClaudeAdapter implements ProviderAdapter {
       model: options.model,
       systemPrompt: options.systemPrompt,
       serverPort: options.serverPort,
+      db: options.db,
     }, onPermission);
   }
 }

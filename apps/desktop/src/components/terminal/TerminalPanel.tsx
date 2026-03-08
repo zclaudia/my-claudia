@@ -15,6 +15,7 @@ const QUICK_KEYS: { label: string; data: string }[] = [
 
 interface TerminalPanelProps {
   projectId: string;
+  workingDirectory?: string;
 }
 
 /** Terminal toolbar actions (reload button) rendered in the shared BottomPanel header */
@@ -43,7 +44,7 @@ export function TerminalActions({ projectId }: { projectId: string }) {
 }
 
 /** Terminal content (renders inside the shared BottomPanel) */
-export function TerminalPanel({ projectId }: TerminalPanelProps) {
+export function TerminalPanel({ projectId, workingDirectory }: TerminalPanelProps) {
   const { terminals, ctrlActive, toggleCtrl } = useTerminalStore();
   const isMobile = useIsMobile();
   const terminalId = terminals[projectId];
@@ -92,6 +93,7 @@ export function TerminalPanel({ projectId }: TerminalPanelProps) {
             key={terminalId}
             terminalId={terminalId}
             projectId={projectId}
+            workingDirectory={workingDirectory}
           />
         ) : (
           <div className="flex items-center justify-center h-full text-muted-foreground text-sm">

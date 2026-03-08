@@ -87,9 +87,14 @@ function satisfiesSimple(version: string, range: string): boolean {
     // Major version must match
     if (major !== tMajor) return false;
 
-    // For ^, minor version must be >= target minor
+    // For ^, allow changes that do not modify the leftmost non-zero digit
     if (cleanRange.startsWith('^')) {
-      return minor >= tMinor;
+      if (tMajor === 0) {
+        // ^0.x.y: minor must match, patch >= target
+        return minor === tMinor && patch >= tPatch;
+      }
+      // ^x.y.z (x>0): minor/patch can increase freely
+      return minor > tMinor || (minor === tMinor && patch >= tPatch);
     }
 
     // For ~, patch can vary but minor must match

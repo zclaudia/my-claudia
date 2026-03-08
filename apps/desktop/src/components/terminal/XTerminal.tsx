@@ -57,9 +57,10 @@ function getTerminalTheme(): ITheme {
 interface XTerminalProps {
   terminalId: string;
   projectId: string;
+  workingDirectory?: string;
 }
 
-export function XTerminal({ terminalId, projectId }: XTerminalProps) {
+export function XTerminal({ terminalId, projectId, workingDirectory }: XTerminalProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const { sendMessage } = useConnection();
   const { resolvedTheme } = useTheme();
@@ -125,6 +126,7 @@ export function XTerminal({ terminalId, projectId }: XTerminalProps) {
           type: 'terminal_open',
           terminalId,
           projectId,
+          workingDirectory,
           cols: terminal.cols,
           rows: terminal.rows,
         });
@@ -178,7 +180,7 @@ export function XTerminal({ terminalId, projectId }: XTerminalProps) {
       resizeObserver.disconnect();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [terminalId, projectId]);
+  }, [terminalId, projectId, workingDirectory]);
 
   return (
     <div

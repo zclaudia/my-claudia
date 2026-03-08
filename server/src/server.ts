@@ -37,6 +37,8 @@ import { createSupervisionV2Routes } from './routes/supervision-v2.js';
 import { createNotificationRoutes } from './routes/notifications.js';
 import { createPluginToolsRoutes } from './routes/plugin-tools.js';
 import { createPluginRoutes } from './routes/plugins.js';
+import { createMcpServerRoutes } from './routes/mcp-servers.js';
+import { createSystemStatsRoutes } from './routes/system-stats.js';
 import { SupervisorV2Service } from './services/supervisor-v2-service.js';
 import { StateRecovery } from './services/state-recovery.js';
 import { CheckpointEngine } from './services/checkpoint-engine.js';
@@ -573,6 +575,12 @@ export async function createServer(): Promise<ServerContext> {
   // Plugin routes
   app.use('/api/plugins', authMiddleware, createPluginRoutes());
   app.use('/api/plugins', localOnlyMiddleware, createPluginToolsRoutes());
+
+  // MCP server management routes
+  app.use('/api/mcp-servers', authMiddleware, createMcpServerRoutes(db));
+
+  // System stats + plugin storage reader (local only)
+  app.use('/api/system', localOnlyMiddleware, createSystemStatsRoutes());
 
   app.use('/api/server/gateway', localOnlyMiddleware, createGatewayRouter(
     db,
@@ -1300,7 +1308,7 @@ async function handleClientMessage(
       const project = db.prepare('SELECT root_path FROM projects WHERE id = ?').get(message.projectId) as { root_path: string } | undefined;
       // Pass the target cwd to TerminalManager — it spawns at $HOME then cd's to this path
       // (avoids macOS TCC permission dialogs that block pty.spawn)
-      const cwd = project?.root_path || process.env.HOME || '/';
+      const cwd = message.workingDirectory || project?.root_path || process.env.HOME || '/';
       try {
         termMgr.create(message.terminalId, client.id, cwd, message.cols, message.rows);
         sendMessage(client.ws, { type: 'terminal_opened', terminalId: message.terminalId, success: true });
@@ -1553,8 +1561,9 @@ async function handleRunStart(
     const sessionPermissionOverride = message.permissionOverride;
     const permissionCallback = async (request: import('@my-claudia/shared').PermissionRequest) => {
       return new Promise<PermissionDecision>((resolve) => {
-        // Plan mode hard guard: allow read-only tools only, deny all mutating operations.
-        if (modeValue === 'plan') {
+        // Strict plan guard is only for Supervisor-forced planning sessions.
+        // Normal user-selected plan mode must still allow ExitPlanMode approval flow.
+        if (forcedPlanBySession && modeValue === 'plan') {
           const planReadOnlyTools = new Set([
             'read', 'glob', 'grep', 'webfetch', 'websearch', 'todowrite', 'ls', 'askuserquestion',
           ]);
@@ -1797,6 +1806,7 @@ async function handleRunStart(
       model: message.model,
       systemPrompt: [message.systemContext, nonNativePlanPrompt, planDocumentPrompt, filePushContext, session.system_prompt].filter(Boolean).join('\n\n') || undefined,
       serverPort: serverPort || undefined,
+      db,
     };
 
     const providerRunner = adapter.run(processedInput, runOptions, permissionCallback);
