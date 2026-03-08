@@ -15,6 +15,7 @@ import { useServerStore } from '../stores/serverStore';
 import { usePermissionStore } from '../stores/permissionStore';
 import { useAskUserQuestionStore } from '../stores/askUserQuestionStore';
 import { useSupervisionStore } from '../stores/supervisionStore';
+import { useLocalPRStore } from '../stores/localPRStore';
 import { useSessionsStore } from '../stores/sessionsStore';
 import { LOCAL_BACKEND_KEY } from '../stores/sessionsStore';
 import { useTerminalStore } from '../stores/terminalStore';
@@ -275,6 +276,12 @@ export function handleServerMessage(
       const v2Store = useSupervisionStore.getState();
       const { projectId, summary } = msg as any;
       v2Store.setCheckpointSummary(projectId, summary);
+      break;
+    }
+
+    case 'local_pr_update': {
+      const { projectId, pr } = msg as any;
+      useLocalPRStore.getState().upsertPR(projectId, pr);
       break;
     }
 

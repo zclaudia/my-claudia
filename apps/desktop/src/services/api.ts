@@ -15,7 +15,8 @@ import type {
   ServerGatewayConfig,
   ServerGatewayStatus,
   ServerFeature,
-  GitWorktree
+  GitWorktree,
+  LocalPR
 } from '@my-claudia/shared';
 import { useServerStore } from '../stores/serverStore';
 import { isGatewayTarget, parseBackendId } from '../stores/gatewayStore';
@@ -1211,4 +1212,68 @@ export async function importMcpServers(): Promise<{ imported: McpServerConfig[];
     throw new Error(result.error?.message || 'Failed to import MCP servers');
   }
   return result.data;
+}
+
+// ============================================
+// Local PR API
+// ============================================
+
+export async function listLocalPRs(projectId: string): Promise<LocalPR[]> {
+  const result = await fetchApi<LocalPR[]>(`/api/projects/${projectId}/local-prs`);
+  if (!result.success || !result.data) {
+    throw new Error(result.error?.message || 'Failed to list local PRs');
+  }
+  return result.data;
+}
+
+export async function createLocalPR(
+  projectId: string,
+  worktreePath: string,
+  options?: { title?: string; description?: string },
+): Promise<LocalPR> {
+  const result = await fetchApi<LocalPR>(`/api/projects/${projectId}/local-prs`, {
+    method: 'POST',
+    body: JSON.stringify({ worktreePath, ...options }),
+  });
+  if (!result.success || !result.data) {
+    throw new Error(result.error?.message || 'Failed to create local PR');
+  }
+  return result.data;
+}
+
+export async function closeLocalPR(prId: string): Promise<LocalPR> {
+  const result = await fetchApi<LocalPR>(`/api/local-prs/${prId}/close`, { method: 'POST' });
+  if (!result.success || !result.data) {
+    throw new Error(result.error?.message || 'Failed to close local PR');
+  }
+  return result.data;
+}
+
+export async function retryLocalPRReview(prId: string): Promise<LocalPR> {
+  const result = await fetchApi<LocalPR>(`/api/local-prs/${prId}/retry-review`, { method: 'POST' });
+  if (!result.success || !result.data) {
+    throw new Error(result.error?.message || 'Failed to retry review');
+  }
+  return result.data;
+}
+
+export async function mergeLocalPR(prId: string): Promise<LocalPR> {
+  const result = await fetchApi<LocalPR>(`/api/local-prs/${prId}/merge`, { method: 'POST' });
+  if (!result.success || !result.data) {
+    throw new Error(result.error?.message || 'Failed to merge local PR');
+  }
+  return result.data;
+}
+
+export async function setProjectReviewProvider(
+  projectId: string,
+  providerId: string,
+): Promise<void> {
+  const result = await fetchApi<void>(`/api/projects/${projectId}/review-provider`, {
+    method: 'PATCH',
+    body: JSON.stringify({ providerId }),
+  });
+  if (!result.success) {
+    throw new Error(result.error?.message || 'Failed to set review provider');
+  }
 }

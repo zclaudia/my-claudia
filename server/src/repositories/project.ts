@@ -38,6 +38,8 @@ export class ProjectRepository extends BaseRepository<
       // Supervision v2
       agent: row.agent ? JSON.parse(row.agent) : undefined,
       contextSyncStatus: row.context_sync_status === 'error' ? 'error' : undefined,
+      // Local PR
+      reviewProviderId: row.review_provider_id || undefined,
     };
   }
 
@@ -109,6 +111,12 @@ export class ProjectRepository extends BaseRepository<
     if (data.contextSyncStatus !== undefined) {
       updates.push('context_sync_status = ?');
       params.push(data.contextSyncStatus || 'synced');
+    }
+
+    // Local PR
+    if (data.reviewProviderId !== undefined) {
+      updates.push('review_provider_id = ?');
+      params.push(data.reviewProviderId || null);
     }
 
     // Always update timestamp

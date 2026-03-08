@@ -26,7 +26,8 @@ export interface BackendServer {
 // Provider Types
 // ============================================
 
-export type ProviderType = 'claude' | 'opencode' | 'codex' | 'cursor' | 'kimi';
+export const PROVIDER_TYPES = ['claude', 'opencode', 'codex', 'cursor', 'kimi'] as const;
+export type ProviderType = typeof PROVIDER_TYPES[number];
 
 export interface ProviderConfig {
   id: string;
@@ -143,6 +144,40 @@ export const CLI_COMMANDS: SlashCommand[] = [];
 
 export type ProjectType = 'chat_only' | 'code';
 
+// ============================================
+// Local PR Types
+// ============================================
+
+export type LocalPRStatus =
+  | 'open'
+  | 'reviewing'
+  | 'review_failed'
+  | 'approved'
+  | 'merging'
+  | 'merged'
+  | 'conflict'
+  | 'closed';
+
+export interface LocalPR {
+  id: string;
+  projectId: string;
+  worktreePath: string;
+  branchName: string;
+  baseBranch: string;
+  title: string;
+  description?: string;
+  status: LocalPRStatus;
+  commits?: string[];
+  diffSummary?: string;
+  reviewSessionId?: string;
+  conflictSessionId?: string;
+  reviewNotes?: string;
+  autoTriggered: boolean;
+  createdAt: number;
+  updatedAt: number;
+  mergedAt?: number;
+}
+
 export interface Project {
   id: string;
   name: string;
@@ -153,6 +188,7 @@ export interface Project {
   permissionPolicy?: PermissionPolicy;
   agentPermissionOverride?: Partial<AgentPermissionPolicy>;  // Project-level override of global agent policy
   isInternal?: boolean;  // Internal projects (e.g. Agent Assistant) are hidden from user-facing lists
+  reviewProviderId?: string;  // Provider used for Local PR reviews
   createdAt: number;
   updatedAt: number;
 
@@ -822,6 +858,13 @@ export interface PluginPanelUnregisteredMessage {
   pluginId: string;
 }
 
+// Local PR update (Server → Client) — sent on PR status changes
+export interface LocalPRUpdateMessage {
+  type: 'local_pr_update';
+  projectId: string;
+  pr: LocalPR;
+}
+
 // Plugin notification (Server → Client)
 export interface PluginNotificationMessage {
   type: 'plugin_notification';
@@ -889,7 +932,8 @@ export type ServerMessage =
   | PluginNotificationMessage
   | PluginShowPanelMessage
   | PluginPanelRegisteredMessage
-  | PluginPanelUnregisteredMessage;
+  | PluginPanelUnregisteredMessage
+  | LocalPRUpdateMessage;
 
 // Authentication result message
 export interface AuthResultMessage {

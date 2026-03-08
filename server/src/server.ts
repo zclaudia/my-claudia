@@ -39,6 +39,8 @@ import { createPluginToolsRoutes } from './routes/plugin-tools.js';
 import { createPluginRoutes } from './routes/plugins.js';
 import { createMcpServerRoutes } from './routes/mcp-servers.js';
 import { createSystemStatsRoutes } from './routes/system-stats.js';
+import { createLocalPRRoutes } from './routes/local-prs.js';
+import { LocalPRService } from './services/local-pr-service.js';
 import { SupervisorV2Service } from './services/supervisor-v2-service.js';
 import { StateRecovery } from './services/state-recovery.js';
 import { CheckpointEngine } from './services/checkpoint-engine.js';
@@ -568,6 +570,14 @@ export async function createServer(): Promise<ServerContext> {
   // Backward-compat alias for older clients that still use /api/v2/supervision/*
   app.use('/api/v2/supervision', authMiddleware, createSupervisionV2Routes(supervisorV2Service));
 
+  // Local PR workflow service + routes
+  const localPRService = new LocalPRService(db, (projectId, message) => {
+    clients.forEach((client) => {
+      if (client.authenticated) sendMessage(client.ws, message);
+    });
+  });
+  app.use('/api', authMiddleware, createLocalPRRoutes(localPRService, db));
+
   // Notification routes + service
   notificationService = new NotificationService(db);
   app.use('/api/notifications', authMiddleware, createNotificationRoutes(notificationService));
@@ -924,6 +934,26 @@ export async function createServer(): Promise<ServerContext> {
   pluginEvents.on('plugin.activated', () => broadcastPluginState());
   pluginEvents.on('plugin.deactivated', () => broadcastPluginState());
   pluginEvents.on('plugin.error', () => broadcastPluginState());
+
+  // Auto-trigger Local PR when a regular session with a working directory completes
+  pluginEvents.on('run.completed', async (data) => {
+    try {
+      const sessionId = data.sessionId as string | undefined;
+      if (!sessionId) return;
+      const sessionRow = db
+        .prepare('SELECT project_id, type, working_directory FROM sessions WHERE id = ?')
+        .get(sessionId) as { project_id: string; type: string; working_directory?: string } | undefined;
+      if (!sessionRow?.working_directory || sessionRow.type !== 'regular') return;
+      await localPRService.maybeAutoCreatePR(sessionRow.project_id, sessionRow.working_directory);
+    } catch (err) {
+      console.error('[LocalPR] Auto-trigger error:', err);
+    }
+  });
+
+  // Local PR scheduler (runs on same cadence as supervision: every 10s)
+  setInterval(() => {
+    localPRService.tick().catch((err) => console.error('[LocalPR] Tick error:', err));
+  }, 10000);
 
   // Forward permission requests to connected frontends
   pluginPermissionManager.onRequest((request) => {

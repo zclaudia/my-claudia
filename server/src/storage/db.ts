@@ -662,6 +662,38 @@ function runMigrations(db: Database.Database): void {
         CREATE INDEX IF NOT EXISTS idx_mcp_servers_enabled ON mcp_servers(enabled);
         CREATE INDEX IF NOT EXISTS idx_mcp_servers_name ON mcp_servers(name);
       `
+    },
+    {
+      name: '030_local_pr_workflow',
+      sql: `
+        ALTER TABLE projects ADD COLUMN review_provider_id TEXT REFERENCES providers(id) ON DELETE SET NULL;
+
+        CREATE TABLE IF NOT EXISTS local_prs (
+          id TEXT PRIMARY KEY,
+          project_id TEXT NOT NULL,
+          worktree_path TEXT NOT NULL,
+          branch_name TEXT NOT NULL,
+          base_branch TEXT NOT NULL DEFAULT 'master',
+          title TEXT NOT NULL,
+          description TEXT,
+          status TEXT NOT NULL DEFAULT 'open'
+            CHECK (status IN ('open','reviewing','review_failed','approved','merging','merged','conflict','closed')),
+          commits TEXT,
+          diff_summary TEXT,
+          review_session_id TEXT,
+          conflict_session_id TEXT,
+          review_notes TEXT,
+          auto_triggered INTEGER NOT NULL DEFAULT 0,
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL,
+          merged_at INTEGER,
+          FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_local_prs_project ON local_prs(project_id);
+        CREATE INDEX IF NOT EXISTS idx_local_prs_status ON local_prs(status);
+        CREATE INDEX IF NOT EXISTS idx_local_prs_worktree ON local_prs(worktree_path);
+      `
     }
   ];
 
