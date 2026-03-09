@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { Check, X, Lock, AlertTriangle } from 'lucide-react';
-import type { PermissionRequest } from '../../stores/permissionStore';
+import { usePermissionStore, type PermissionRequest } from '../../stores/permissionStore';
 import { PermissionDetailView } from '../permission/PermissionDetailView';
 
 interface InlinePermissionRequestProps {
@@ -14,15 +14,22 @@ export function InlinePermissionRequest({ request, onDecision }: InlinePermissio
   const [credential, setCredential] = useState('');
   const [resolved, setResolved] = useState<'allow' | 'deny' | null>(null);
   const [countdownStopped, setCountdownStopped] = useState(false);
-  const [feedback, setFeedback] = useState('');
   const credentialInputRef = useRef<HTMLInputElement>(null);
+  const onDecisionRef = useRef(onDecision);
+  const feedback = usePermissionStore((state) => state.feedbackDrafts[request.requestId] || '');
+  const setFeedbackDraft = usePermissionStore((state) => state.setFeedbackDraft);
+  const clearFeedbackDraft = usePermissionStore((state) => state.clearFeedbackDraft);
   const isExitPlanModeRequest = request.toolName.toLowerCase().includes('exitplanmode');
+
+  useEffect(() => {
+    onDecisionRef.current = onDecision;
+  }, [onDecision]);
 
   useEffect(() => {
     setRemember(false);
     setCredential('');
-    setFeedback('');
     setCountdownStopped(false);
+    setResolved(null);
 
     if (request.timeoutSec === 0) {
       setRemainingTime(0);
@@ -37,6 +44,13 @@ export function InlinePermissionRequest({ request, onDecision }: InlinePermissio
     if (request.requiresCredential) {
       setTimeout(() => credentialInputRef.current?.focus(), 100);
     }
+  }, [request.requestId]);
+
+  useEffect(() => {
+    if (request.timeoutSec === 0) {
+      setRemainingTime(0);
+      return;
+    }
 
     const interval = setInterval(() => {
       setRemainingTime((prev) => {
@@ -45,7 +59,8 @@ export function InlinePermissionRequest({ request, onDecision }: InlinePermissio
           // Backend handles auto-approve; for auto-deny, also trigger from frontend as fallback
           if (!request.aiInitiated) {
             setResolved('deny');
-            onDecision(request.requestId, false);
+            clearFeedbackDraft(request.requestId);
+            onDecisionRef.current(request.requestId, false);
           }
           return 0;
         }
@@ -54,10 +69,11 @@ export function InlinePermissionRequest({ request, onDecision }: InlinePermissio
     }, 1000);
 
     return () => clearInterval(interval);
-  }, [request.requestId, request.timeoutSec, request.requiresCredential, request.aiInitiated, onDecision, countdownStopped]);
+  }, [request.requestId, request.timeoutSec, request.aiInitiated, countdownStopped, clearFeedbackDraft]);
 
   const handleAllow = () => {
     setResolved('allow');
+    clearFeedbackDraft(request.requestId);
     if (request.requiresCredential) {
       onDecision(request.requestId, true, remember, credential || undefined);
     } else {
@@ -67,6 +83,7 @@ export function InlinePermissionRequest({ request, onDecision }: InlinePermissio
 
   const handleDeny = () => {
     setResolved('deny');
+    clearFeedbackDraft(request.requestId);
     onDecision(request.requestId, false, remember);
   };
 
@@ -75,6 +92,7 @@ export function InlinePermissionRequest({ request, onDecision }: InlinePermissio
     if (!note) return;
     setCountdownStopped(true);
     setResolved('deny');
+    clearFeedbackDraft(request.requestId);
     onDecision(request.requestId, false, remember, undefined, note);
   };
 
@@ -169,7 +187,7 @@ export function InlinePermissionRequest({ request, onDecision }: InlinePermissio
             </label>
             <textarea
               value={feedback}
-              onChange={(e) => setFeedback(e.target.value)}
+              onChange={(e) => setFeedbackDraft(request.requestId, e.target.value)}
               placeholder="Why do you reject exiting plan mode?"
               rows={2}
               className="w-full px-2.5 py-1.5 bg-input border border-border rounded text-sm text-foreground focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary resize-none"
