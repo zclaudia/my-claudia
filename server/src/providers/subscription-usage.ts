@@ -39,7 +39,7 @@ async function fetchJsonWithTimeout(
 
 function sumNumberByKeys(value: unknown, keys: string[]): number {
   if (value === null || value === undefined) return 0;
-  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'number') return 0;
   if (Array.isArray(value)) return value.reduce((acc, item) => acc + sumNumberByKeys(item, keys), 0);
   if (typeof value === 'object') {
     let sum = 0;
@@ -47,7 +47,9 @@ function sumNumberByKeys(value: unknown, keys: string[]): number {
       if (keys.includes(k) && typeof v === 'number' && Number.isFinite(v)) {
         sum += v;
       }
-      sum += sumNumberByKeys(v, keys);
+      if (typeof v === 'object' && v !== null) {
+        sum += sumNumberByKeys(v, keys);
+      }
     }
     return sum;
   }
@@ -150,4 +152,3 @@ export function getKimiSubscriptionInfoHint(): SubscriptionInfo {
     'No public management API found. Kimi CLI exposes /usage (/status) on Kimi platform only.',
   );
 }
-

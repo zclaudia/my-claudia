@@ -1,0 +1,906 @@
+diff --git a/apps/desktop/src/components/ProviderManager.tsx b/apps/desktop/src/components/ProviderManager.tsx
+index d47fdc8..133aeb2 100644
+--- a/apps/desktop/src/components/ProviderManager.tsx
++++ b/apps/desktop/src/components/ProviderManager.tsx
+@@ -112,20 +112,26 @@ export function ProviderManager({ isOpen, onClose, inline = false }: ProviderMan
+       resetForm();
+     } catch (error) {
+       console.error('Failed to save provider:', error);
++      const message = error instanceof Error ? error.message : String(error);
++      alert(`Failed to ${editingProvider ? 'update' : 'create'} provider: ${message}`);
+     } finally {
+       setSaving(false);
+     }
+   };
+ 
+   const handleDelete = async (id: string) => {
+-    if (!confirm('Are you sure you want to delete this provider?')) return;
++    const shouldDelete = typeof window !== 'undefined' && typeof window.confirm === 'function'
++      ? window.confirm('Are you sure you want to delete this provider?')
++      : true;
++    if (!shouldDelete) return;
+ 
+     try {
+       await api.deleteProvider(id);
+       await loadProviders();
+     } catch (error) {
+       console.error('Failed to delete provider:', error);
+-      alert(error instanceof Error ? error.message : 'Failed to delete provider');
++      const message = error instanceof Error ? error.message : String(error);
++      alert(`Failed to delete provider: ${message}`);
+     }
+   };
+ 
+@@ -167,10 +173,10 @@ export function ProviderManager({ isOpen, onClose, inline = false }: ProviderMan
+           type="text"
+           value={formCliPath}
+           onChange={(e) => setFormCliPath(e.target.value)}
+-          placeholder={formType === 'opencode' ? '/path/to/opencode' : formType === 'codex' ? '/path/to/codex' : formType === 'cursor' ? '/path/to/cursor-agent' : '/path/to/claude'}
++          placeholder={formType === 'opencode' ? '/path/to/opencode' : formType === 'codex' ? '/path/to/codex' : formType === 'cursor' ? '/path/to/cursor-agent' : formType === 'kimi' ? '/path/to/kimi' : '/path/to/claude'}
+           className="w-full px-3 py-2 bg-secondary border border-border rounded-lg text-sm focus:outline-none focus:border-primary font-mono"
+         />
+-        <p className="text-xs text-muted-foreground mt-1">Custom path to {formType === 'opencode' ? 'OpenCode' : formType === 'codex' ? 'Codex' : formType === 'cursor' ? 'cursor-agent' : 'Claude'} CLI binary</p>
++        <p className="text-xs text-muted-foreground mt-1">Custom path to {formType === 'opencode' ? 'OpenCode' : formType === 'codex' ? 'Codex' : formType === 'cursor' ? 'cursor-agent' : formType === 'kimi' ? 'Kimi' : 'Claude'} CLI binary</p>
+       </div>
+ 
+       <div>
+@@ -190,6 +196,10 @@ export function ProviderManager({ isOpen, onClose, inline = false }: ProviderMan
+ ? `{
+ "CURSOR_API_KEY": "optional-api-key"
+ }`
++: formType === 'kimi'
++? `{
++"KIMI_API_KEY": "your-key"
++}`
+ : `{
+ "ANTHROPIC_API_KEY": "your-key",
+ "ANTHROPIC_BASE_URL": "https://..."
+@@ -350,7 +360,7 @@ const TYPE_OPTIONS: { value: 'claude' | 'opencode' | 'codex' | 'cursor' | 'kimi'
+   { value: 'opencode', label: 'OpenCode' },
+   { value: 'codex', label: 'Codex' },
+   { value: 'cursor', label: 'Cursor Agent' },
+-  { value: 'kimi', label: 'Kimi' },
++  { value: 'kimi', label: 'Kimi Code' },
+ ];
+ 
+ function TypeSelector({ value, onChange }: { value: string; onChange: (v: 'claude' | 'opencode' | 'codex' | 'cursor' | 'kimi') => void }) {
+diff --git a/apps/desktop/src/components/chat/SystemInfoButton.tsx b/apps/desktop/src/components/chat/SystemInfoButton.tsx
+index 58a84ae..ca293db 100644
+--- a/apps/desktop/src/components/chat/SystemInfoButton.tsx
++++ b/apps/desktop/src/components/chat/SystemInfoButton.tsx
+@@ -44,6 +44,7 @@ export function SystemInfoButton({ systemInfo, sessionInfo }: SystemInfoButtonPr
+     systemInfo.cwd ||
+     systemInfo.permissionMode ||
+     systemInfo.apiKeySource ||
++    systemInfo.subscription ||
+     (systemInfo.tools && systemInfo.tools.length > 0) ||
+     (systemInfo.mcpServers && systemInfo.mcpServers.length > 0) ||
+     (systemInfo.agents && systemInfo.agents.length > 0)
+@@ -125,6 +126,9 @@ export function SystemInfoButton({ systemInfo, sessionInfo }: SystemInfoButtonPr
+               {systemInfo?.apiKeySource && (
+                 <InfoBadge icon={Key} label="API Key" value={systemInfo.apiKeySource} />
+               )}
++              {systemInfo?.subscription && (
++                <InfoBadge icon={Package} label="Subscription" value={systemInfo.subscription.summary} />
++              )}
+             </div>
+ 
+             {/* Working directory */}
+diff --git a/apps/desktop/src/components/chat/SystemInfoPanel.tsx b/apps/desktop/src/components/chat/SystemInfoPanel.tsx
+index f84f34f..aaef91a 100644
+--- a/apps/desktop/src/components/chat/SystemInfoPanel.tsx
++++ b/apps/desktop/src/components/chat/SystemInfoPanel.tsx
+@@ -16,6 +16,7 @@ export function SystemInfoPanel({ systemInfo }: SystemInfoPanelProps) {
+     systemInfo.cwd ||
+     systemInfo.permissionMode ||
+     systemInfo.apiKeySource ||
++    systemInfo.subscription ||
+     (systemInfo.tools && systemInfo.tools.length > 0) ||
+     (systemInfo.mcpServers && systemInfo.mcpServers.length > 0) ||
+     (systemInfo.slashCommands && systemInfo.slashCommands.length > 0) ||
+@@ -60,6 +61,9 @@ export function SystemInfoPanel({ systemInfo }: SystemInfoPanelProps) {
+             {systemInfo.apiKeySource && (
+               <InfoBadge icon={Key} label="API Key" value={systemInfo.apiKeySource} />
+             )}
++            {systemInfo.subscription && (
++              <InfoBadge icon={Package} label="Subscription" value={systemInfo.subscription.summary} />
++            )}
+           </div>
+ 
+           {/* Working directory */}
+diff --git a/server/src/plugins/provider-api.ts b/server/src/plugins/provider-api.ts
+index 1487d61..0e5d4e9 100644
+--- a/server/src/plugins/provider-api.ts
++++ b/server/src/plugins/provider-api.ts
+@@ -304,6 +304,7 @@ export class PluginProviderAPI implements ProviderAPI {
+       codex: ['o3', 'o4-mini', 'codex-1'],
+       opencode: ['default'],
+       cursor: ['default'],
++      kimi: ['default'],
+     };
+     return modelMap[type] || [];
+   }
+diff --git a/server/src/providers/__tests__/kimi-sdk.test.ts b/server/src/providers/__tests__/kimi-sdk.test.ts
+new file mode 100644
+index 0000000..01d319c
+--- /dev/null
++++ b/server/src/providers/__tests__/kimi-sdk.test.ts
+@@ -0,0 +1,76 @@
++import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
++import { spawn } from 'child_process';
++import { EventEmitter } from 'events';
++import { Readable } from 'stream';
++import { runKimi, abortKimiSession } from '../kimi-sdk.js';
++
++vi.mock('child_process', () => ({
++  spawn: vi.fn(),
++}));
++
++function createMockReadable(): Readable {
++  return new Readable({ read() {} });
++}
++
++describe('kimi-sdk', () => {
++  beforeEach(() => {
++    vi.clearAllMocks();
++  });
++
++  afterEach(() => {
++    vi.restoreAllMocks();
++  });
++
++  it('binds init session_id so abort can stop a newly created session', async () => {
++    const stdout = createMockReadable();
++    const stderr = createMockReadable();
++    const proc = Object.assign(new EventEmitter(), {
++      stdout,
++      stderr,
++      killed: false,
++      kill: vi.fn(function killMock(this: { killed: boolean }) {
++        this.killed = true;
++        return true;
++      }),
++    });
++    vi.mocked(spawn).mockReturnValue(proc as any);
++
++    const gen = runKimi('hello', { cwd: '/tmp' }, vi.fn());
++    const first = gen.next();
++    stdout.push(JSON.stringify({ type: 'init', session_id: 'kimi-session-1' }) + '\n');
++    const firstMsg = await first;
++    expect(firstMsg.value).toMatchObject({
++      type: 'init',
++      sessionId: 'kimi-session-1',
++      systemInfo: {
++        subscription: {
++          provider: 'kimi',
++          status: 'unavailable',
++        },
++      },
++    });
++
++    await abortKimiSession('kimi-session-1');
++    expect(proc.kill).toHaveBeenCalledWith('SIGTERM');
++
++    stdout.push(null);
++    await gen.next();
++  });
++
++  it('yields an error instead of crashing when process stdout is unavailable', async () => {
++    const proc = Object.assign(new EventEmitter(), {
++      stdout: null,
++      stderr: null,
++      killed: false,
++      kill: vi.fn(() => true),
++    });
++    vi.mocked(spawn).mockReturnValue(proc as any);
++
++    const messages: any[] = [];
++    for await (const msg of runKimi('hello', { cwd: '/tmp' }, vi.fn())) {
++      messages.push(msg);
++    }
++
++    expect(messages.some((m) => m.type === 'error')).toBe(true);
++  });
++});
+diff --git a/server/src/providers/__tests__/opencode-sdk.test.ts b/server/src/providers/__tests__/opencode-sdk.test.ts
+index 95ef372..154bebb 100644
+--- a/server/src/providers/__tests__/opencode-sdk.test.ts
++++ b/server/src/providers/__tests__/opencode-sdk.test.ts
+@@ -217,4 +217,20 @@ describe('opencode-sdk integration patterns', () => {
+     const result = runOpenCode('test', { cwd: '/project' });
+     expect(result[Symbol.asyncIterator]).toBeDefined();
+   });
++
++  it('isLatestAssistantMessageCompleted only considers the latest assistant message', async () => {
++    const { isLatestAssistantMessageCompleted } = await import('../opencode-sdk.js');
++
++    const messages = [
++      { info: { role: 'assistant', time: { completed: 111 } } }, // old completed
++      { info: { role: 'user' } },
++      { info: { role: 'assistant', time: {} } }, // latest assistant still running
++    ];
++
++    expect(isLatestAssistantMessageCompleted(messages)).toBe(false);
++    expect(isLatestAssistantMessageCompleted([
++      ...messages.slice(0, 2),
++      { info: { role: 'assistant', finish: true } },
++    ])).toBe(true);
++  });
+ });
+diff --git a/server/src/providers/__tests__/registry.test.ts b/server/src/providers/__tests__/registry.test.ts
+index e797d8a..150358f 100644
+--- a/server/src/providers/__tests__/registry.test.ts
++++ b/server/src/providers/__tests__/registry.test.ts
+@@ -25,6 +25,12 @@ describe('ProviderRegistry', () => {
+       expect(adapter).toBeDefined();
+       expect(adapter!.type).toBe('opencode');
+     });
++
++    it('has a kimi adapter registered by default', () => {
++      const adapter = providerRegistry.get('kimi');
++      expect(adapter).toBeDefined();
++      expect(adapter!.type).toBe('kimi');
++    });
+   });
+ 
+   describe('register', () => {
+diff --git a/server/src/providers/claude-sdk.ts b/server/src/providers/claude-sdk.ts
+index 3e2781d..59edf50 100644
+--- a/server/src/providers/claude-sdk.ts
++++ b/server/src/providers/claude-sdk.ts
+@@ -10,6 +10,7 @@ import * as path from 'path';
+ import * as os from 'os';
+ import * as crypto from 'crypto';
+ import { extractRetryDelayMsFromError } from '../utils/retry-window.js';
++import { fetchClaudeSubscriptionInfo } from './subscription-usage.js';
+ 
+ export interface ClaudeRunOptions {
+   cwd: string;
+@@ -206,6 +207,13 @@ export async function* runClaude(
+   options: ClaudeRunOptions,
+   onPermissionRequest?: PermissionCallback
+ ): AsyncGenerator<ClaudeMessage, void, void> {
++  const subscriptionInfo = await fetchClaudeSubscriptionInfo(options.env).catch((error) => ({
++    provider: 'claude',
++    status: 'error' as const,
++    summary: `Failed to fetch subscription usage: ${error instanceof Error ? error.message : String(error)}`,
++    updatedAt: Date.now(),
++  }));
++
+   const sdkOptions: Record<string, unknown> = {
+     cwd: options.cwd,
+     allowedTools: options.allowedTools || [],
+@@ -378,10 +386,22 @@ export async function* runClaude(
+           // transformMessage can return a single message or array of messages
+           if (Array.isArray(transformed)) {
+             for (const msg of transformed) {
++              if (msg.type === 'init') {
++                msg.systemInfo = {
++                  ...(msg.systemInfo || {}),
++                  subscription: subscriptionInfo,
++                };
++              }
+               if (msg.type !== 'init') producedOutput = true;
+               yield msg;
+             }
+           } else {
++            if (transformed.type === 'init') {
++              transformed.systemInfo = {
++                ...(transformed.systemInfo || {}),
++                subscription: subscriptionInfo,
++              };
++            }
+             if (transformed.type !== 'init') producedOutput = true;
+             yield transformed;
+           }
+@@ -421,6 +441,12 @@ export interface SystemInfo {
+   apiKeySource?: string;
+   slashCommands?: string[];
+   agents?: string[];
++  subscription?: {
++    provider: string;
++    status: 'available' | 'unavailable' | 'requires_admin_key' | 'error';
++    summary: string;
++    updatedAt: number;
++  };
+ }
+ 
+ export interface ClaudeMessage {
+diff --git a/server/src/providers/codex-sdk.ts b/server/src/providers/codex-sdk.ts
+index a751e2f..04c5c20 100644
+--- a/server/src/providers/codex-sdk.ts
++++ b/server/src/providers/codex-sdk.ts
+@@ -13,6 +13,7 @@ import type { ClaudeMessage, SystemInfo, PermissionDecision, PermissionCallback
+ import { fileStore } from '../storage/fileStore.js';
+ import { extractRetryDelayMsFromError } from '../utils/retry-window.js';
+ import { buildNonImageAttachmentNotes } from './attachment-utils.js';
++import { fetchCodexSubscriptionInfo } from './subscription-usage.js';
+ 
+ // ── Types ─────────────────────────────────────────────────────
+ 
+@@ -241,6 +242,12 @@ export async function* runCodex(
+   options: CodexRunOptions,
+   _onPermission: PermissionCallback,
+ ): AsyncGenerator<ClaudeMessage, void, void> {
++  const subscriptionInfo = await fetchCodexSubscriptionInfo(options.env).catch((error) => ({
++    provider: 'codex',
++    status: 'error' as const,
++    summary: `Failed to fetch subscription usage: ${error instanceof Error ? error.message : String(error)}`,
++    updatedAt: Date.now(),
++  }));
+   const codex = getCodexInstance(options);
+   const policies = mapModeToPolicies(options.mode);
+ 
+@@ -276,7 +283,14 @@ export async function* runCodex(
+         });
+ 
+         for await (const event of events) {
+-          const messages = mapThreadEvent(event, options.sessionId);
++          const messages = mapThreadEvent(event, options.sessionId, {
++            cwd: options.cwd,
++            apiKeySource: 'codex-sdk',
++            model: options.model || '',
++            mcpServers: [],
++            tools: [],
++            subscription: subscriptionInfo,
++          });
+           for (const msg of messages) {
+             if (msg.type === 'error') {
+               const errText = msg.error || 'Codex error';
+@@ -332,13 +346,13 @@ export async function* runCodex(
+ 
+ // ── Event mapping ────────────────────────────────────────────
+ 
+-function mapThreadEvent(event: ThreadEvent, sessionId?: string): ClaudeMessage[] {
++function mapThreadEvent(event: ThreadEvent, sessionId?: string, initSystemInfo?: SystemInfo): ClaudeMessage[] {
+   const messages: ClaudeMessage[] = [];
+ 
+   switch (event.type) {
+     case 'thread.started': {
+       // Emit init message
+-      const systemInfo: SystemInfo = {
++      const systemInfo: SystemInfo = initSystemInfo || {
+         cwd: '',
+         apiKeySource: 'codex-sdk',
+         model: '',
+diff --git a/server/src/providers/kimi-sdk.ts b/server/src/providers/kimi-sdk.ts
+index 7a4d39e..ef935ff 100644
+--- a/server/src/providers/kimi-sdk.ts
++++ b/server/src/providers/kimi-sdk.ts
+@@ -3,6 +3,7 @@ import { createInterface } from 'readline';
+ import type { MessageInput } from '@my-claudia/shared';
+ import type { ClaudeMessage, SystemInfo, PermissionCallback } from './claude-sdk.js';
+ import { buildNonImageAttachmentNotes } from './attachment-utils.js';
++import { getKimiSubscriptionInfoHint } from './subscription-usage.js';
+ 
+ // ── Types ─────────────────────────────────────────────────────
+ 
+@@ -51,6 +52,20 @@ function extractToolCall(event: Record<string, unknown>): KimiToolCall | null {
+ // ── Active processes (for abort) ─────────────────────────────
+ 
+ const activeProcesses = new Map<string, ChildProcess>();
++const sessionToProcessKey = new Map<string, string>();
++
++function bindSessionToProcess(sessionId: string | undefined, processKey: string): void {
++  if (!sessionId) return;
++  sessionToProcessKey.set(sessionId, processKey);
++}
++
++function unbindProcess(processKey: string): void {
++  for (const [sessionId, key] of sessionToProcessKey.entries()) {
++    if (key === processKey) {
++      sessionToProcessKey.delete(sessionId);
++    }
++  }
++}
+ 
+ // ── Input preparation ─────────────────────────────────────────
+ 
+@@ -208,6 +223,7 @@ export async function* runKimi(
+   options: KimiRunOptions,
+   _onPermission: PermissionCallback
+ ): AsyncGenerator<ClaudeMessage, void, void> {
++  const subscriptionInfo = getKimiSubscriptionInfoHint();
+   const promptText = prepareKimiInput(input);
+   const binary = options.cliPath || 'kimi';
+ 
+@@ -267,8 +283,9 @@ export async function* runKimi(
+   }
+ 
+   // Store for abort
+-  const processKey = options.sessionId || `kimi-${Date.now()}`;
++  const processKey = `kimi-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+   activeProcesses.set(processKey, proc);
++  bindSessionToProcess(options.sessionId, processKey);
+ 
+   // Capture spawn errors
+   let spawnError: Error | null = null;
+@@ -276,7 +293,22 @@ export async function* runKimi(
+     spawnError = err;
+   });
+ 
+-  const rl = createInterface({ input: proc.stdout!, crlfDelay: Infinity });
++  if (!proc.stdout) {
++    const err = spawnError as NodeJS.ErrnoException | null;
++    activeProcesses.delete(processKey);
++    unbindProcess(processKey);
++    if (err?.code === 'ENOENT') {
++      yield {
++        type: 'error',
++        error: 'kimi not found. Install it from https://github.com/moonshotai/kimi-cli',
++      };
++    } else {
++      yield { type: 'error', error: err?.message || 'kimi process stdout is unavailable' };
++    }
++    return;
++  }
++
++  const rl = createInterface({ input: proc.stdout, crlfDelay: Infinity });
+ 
+   // Log stderr for debugging
+   proc.stderr!.on('data', (chunk: Buffer) => {
+@@ -303,6 +335,13 @@ export async function* runKimi(
+ 
+       const msgs = mapKimiEvent(event, inThinkBlock);
+       for (const { msg, updateThink } of msgs) {
++        if (msg.type === 'init' && msg.sessionId) {
++          bindSessionToProcess(msg.sessionId, processKey);
++          msg.systemInfo = {
++            ...(msg.systemInfo || {}),
++            subscription: subscriptionInfo,
++          };
++        }
+         if (updateThink !== undefined) inThinkBlock = updateThink;
+         yield msg;
+       }
+@@ -330,6 +369,7 @@ export async function* runKimi(
+     yield { type: 'error', error: `kimi execution error: ${message}` };
+   } finally {
+     activeProcesses.delete(processKey);
++    unbindProcess(processKey);
+     rl.close();
+     proc.kill();
+   }
+@@ -338,10 +378,12 @@ export async function* runKimi(
+ // ── Abort function ────────────────────────────────────────────
+ 
+ export async function abortKimiSession(sessionId: string): Promise<void> {
+-  const proc = activeProcesses.get(sessionId);
++  const processKey = sessionToProcessKey.get(sessionId) || sessionId;
++  const proc = activeProcesses.get(processKey);
+   if (proc) {
+     proc.kill('SIGTERM');
+-    activeProcesses.delete(sessionId);
++    activeProcesses.delete(processKey);
++    unbindProcess(processKey);
+ 
+     // Give it a moment to terminate gracefully
+     await new Promise((resolve) => setTimeout(resolve, 500));
+diff --git a/server/src/providers/opencode-sdk.ts b/server/src/providers/opencode-sdk.ts
+index 42065cc..40ef76d 100644
+--- a/server/src/providers/opencode-sdk.ts
++++ b/server/src/providers/opencode-sdk.ts
+@@ -59,12 +59,14 @@ function prepareOpenCodeInput(input: string): { text: string; fileParts: OCFileP
+ }
+ 
+ // Temporary debug logger to trace SSE issues
++const OC_DEBUG_ENABLED = process.env.MY_CLAUDIA_OPENCODE_DEBUG === '1';
+ const OC_LOG_PATH = process.env.MY_CLAUDIA_DATA_DIR
+   ? `${process.env.MY_CLAUDIA_DATA_DIR}/opencode-debug.log`
+   : '/tmp/opencode-debug.log';
+ // Always also write to /tmp for easy access from dev tools
+ const OC_LOG_TMP = '/tmp/opencode-debug.log';
+ function ocLog(msg: string) {
++  if (!OC_DEBUG_ENABLED) return;
+   const line = `[${new Date().toISOString()}] ${msg}\n`;
+   try { appendFileSync(OC_LOG_PATH, line); } catch (e) { /* silently fail */ }
+   if (OC_LOG_TMP !== OC_LOG_PATH) {
+@@ -73,7 +75,9 @@ function ocLog(msg: string) {
+   console.log(`[OpenCode] ${msg}`);
+ }
+ // Write a startup marker so we know the module was loaded
+-ocLog('=== opencode-sdk.ts module loaded ===');
++if (OC_DEBUG_ENABLED) {
++  ocLog('=== opencode-sdk.ts module loaded ===');
++}
+ import {
+   createOpencodeClient,
+   type OpencodeClient,
+@@ -437,10 +441,26 @@ interface StreamState {
+   lastTextPartId: string;
+   /** Whether this run has emitted any visible assistant output */
+   hasAnyAssistantOutput: boolean;
++  /** Track emitted tool_use events to avoid duplicate emission on repeated updates */
++  emittedToolUse: Set<string>;
++  /** Track emitted tool_result events to avoid duplicate emission on repeated updates */
++  emittedToolResult: Set<string>;
+ }
+ 
+ function createStreamState(): StreamState {
+-  return { lastField: null, lastTextPartId: '', hasAnyAssistantOutput: false };
++  return {
++    lastField: null,
++    lastTextPartId: '',
++    hasAnyAssistantOutput: false,
++    emittedToolUse: new Set<string>(),
++    emittedToolResult: new Set<string>(),
++  };
++}
++
++export function isLatestAssistantMessageCompleted(messages: any[]): boolean {
++  const assistants = messages.filter((m) => m?.info?.role === 'assistant');
++  const latest = assistants[assistants.length - 1];
++  return Boolean(latest?.info?.time?.completed || latest?.info?.finish);
+ }
+ 
+ /**
+@@ -552,7 +572,6 @@ async function* pollSessionMessages(
+     }
+ 
+     // Find assistant messages (there may be multiple in agentic flows)
+-    let sessionCompleted = false;
+ 
+     for (const msg of messagesData) {
+       if (msg.info?.role !== 'assistant') continue;
+@@ -635,11 +654,8 @@ async function* pollSessionMessages(
+         }
+       }
+ 
+-      // Check if this assistant message is completed
+-      if (msg.info?.time?.completed || msg.info?.finish) {
+-        sessionCompleted = true;
+-      }
+     }
++    const sessionCompleted = isLatestAssistantMessageCompleted(messagesData);
+ 
+     // Also check for pending permissions by fetching session status
+     // (permissions show as tool parts in pending state waiting for approval)
+@@ -683,6 +699,7 @@ export async function* runOpenCode(
+   onPermissionRequest?: PermissionCallback
+ ): AsyncGenerator<ClaudeMessage, void, void> {
+   let server: OpenCodeServer;
++  let createdNewSession = false;
+ 
+   try {
+     server = await openCodeServerManager.ensureServer(options.cwd, {
+@@ -745,6 +762,7 @@ export async function* runOpenCode(
+         return;
+       }
+       sessionId = result.data.id;
++      createdNewSession = true;
+       sessionServerMap.set(sessionId, server.baseUrl);
+       ocLog(`Created new session: ${sessionId} on server ${server.baseUrl}`);
+     } catch (error) {
+@@ -811,7 +829,7 @@ export async function* runOpenCode(
+ 
+   // Prepend system context to first message in new sessions (OpenCode has no native system prompt API)
+   let effectivePrompt = promptText;
+-  if (options.systemPrompt && !options.sessionId) {
++  if (options.systemPrompt && createdNewSession) {
+     effectivePrompt = `[System Context]\n${options.systemPrompt}\n\n${promptText}`;
+   }
+ 
+@@ -1087,28 +1105,33 @@ async function* mapOpenCodeEvent(
+           const toolName = toolPart.tool || 'unknown';
+           const toolUseId = toolPart.callID || toolPart.id;
+           const state = toolPart.state;
++          if (!state) break;
++          const dedupeKey = `${toolUseId}:${toolName}`;
+ 
+-          if (state.status === 'pending' || state.status === 'running') {
++          if ((state.status === 'pending' || state.status === 'running') && !streamState.emittedToolUse.has(dedupeKey)) {
+             yield {
+               type: 'tool_use',
+               toolUseId,
+               toolName,
+               toolInput: state.input,
+             };
+-          } else if (state.status === 'completed') {
++            streamState.emittedToolUse.add(dedupeKey);
++          } else if (state.status === 'completed' && !streamState.emittedToolResult.has(dedupeKey)) {
+             yield {
+               type: 'tool_result',
+               toolUseId,
+               toolResult: state.output || '',
+               isToolError: false,
+             };
+-          } else if (state.status === 'error') {
++            streamState.emittedToolResult.add(dedupeKey);
++          } else if (state.status === 'error' && !streamState.emittedToolResult.has(dedupeKey)) {
+             yield {
+               type: 'tool_result',
+               toolUseId,
+               toolResult: state.error || 'Tool execution failed',
+               isToolError: true,
+             };
++            streamState.emittedToolResult.add(dedupeKey);
+           }
+           break;
+         }
+diff --git a/server/src/providers/subscription-usage.ts b/server/src/providers/subscription-usage.ts
+new file mode 100644
+index 0000000..dc56c72
+--- /dev/null
++++ b/server/src/providers/subscription-usage.ts
+@@ -0,0 +1,153 @@
++import type { SystemInfo } from './claude-sdk.js';
++
++type SubscriptionInfo = NonNullable<SystemInfo['subscription']>;
++
++function buildSubscription(
++  provider: string,
++  status: SubscriptionInfo['status'],
++  summary: string,
++): SubscriptionInfo {
++  return {
++    provider,
++    status,
++    summary,
++    updatedAt: Date.now(),
++  };
++}
++
++function getEnvValue(name: string, env?: Record<string, string>): string | undefined {
++  return env?.[name] || process.env[name];
++}
++
++async function fetchJsonWithTimeout(
++  url: string,
++  init: RequestInit,
++  timeoutMs = 2500,
++): Promise<any> {
++  const controller = new AbortController();
++  const timer = setTimeout(() => controller.abort(), timeoutMs);
++  try {
++    const res = await fetch(url, { ...init, signal: controller.signal });
++    if (!res.ok) {
++      throw new Error(`HTTP ${res.status}`);
++    }
++    return await res.json();
++  } finally {
++    clearTimeout(timer);
++  }
++}
++
++function sumNumberByKeys(value: unknown, keys: string[]): number {
++  if (value === null || value === undefined) return 0;
++  if (typeof value === 'number' && Number.isFinite(value)) return value;
++  if (Array.isArray(value)) return value.reduce((acc, item) => acc + sumNumberByKeys(item, keys), 0);
++  if (typeof value === 'object') {
++    let sum = 0;
++    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
++      if (keys.includes(k) && typeof v === 'number' && Number.isFinite(v)) {
++        sum += v;
++      }
++      sum += sumNumberByKeys(v, keys);
++    }
++    return sum;
++  }
++  return 0;
++}
++
++export async function fetchCodexSubscriptionInfo(
++  env?: Record<string, string>,
++): Promise<SubscriptionInfo> {
++  const adminKey = getEnvValue('OPENAI_ADMIN_KEY', env)
++    || getEnvValue('OPENAI_API_KEY', env);
++
++  if (!adminKey || !adminKey.startsWith('sk-admin-')) {
++    return buildSubscription(
++      'codex',
++      'requires_admin_key',
++      'Usage/cost requires OpenAI Admin API key (OPENAI_ADMIN_KEY).',
++    );
++  }
++
++  const nowSec = Math.floor(Date.now() / 1000);
++  const startSec = nowSec - 30 * 24 * 60 * 60;
++  const headers = { Authorization: `Bearer ${adminKey}` };
++
++  try {
++    const [usage, costs] = await Promise.all([
++      fetchJsonWithTimeout(
++        `https://api.openai.com/v1/organization/usage/completions?start_time=${startSec}&end_time=${nowSec}`,
++        { headers },
++      ),
++      fetchJsonWithTimeout(
++        `https://api.openai.com/v1/organization/costs?start_time=${startSec}&end_time=${nowSec}`,
++        { headers },
++      ),
++    ]);
++
++    const inputTokens = Math.round(sumNumberByKeys(usage, ['input_tokens', 'prompt_tokens']));
++    const outputTokens = Math.round(sumNumberByKeys(usage, ['output_tokens', 'completion_tokens']));
++    const usdCost = sumNumberByKeys(costs, ['usd', 'value', 'amount']);
++
++    return buildSubscription(
++      'codex',
++      'available',
++      `Last 30d: in ${inputTokens.toLocaleString()}, out ${outputTokens.toLocaleString()}, cost ~$${usdCost.toFixed(2)}`,
++    );
++  } catch (error) {
++    return buildSubscription(
++      'codex',
++      'error',
++      `Failed to fetch OpenAI org usage/cost: ${error instanceof Error ? error.message : String(error)}`,
++    );
++  }
++}
++
++export async function fetchClaudeSubscriptionInfo(
++  env?: Record<string, string>,
++): Promise<SubscriptionInfo> {
++  const adminKey = getEnvValue('ANTHROPIC_ADMIN_API_KEY', env);
++  if (!adminKey) {
++    return buildSubscription(
++      'claude',
++      'requires_admin_key',
++      'Usage/cost requires Anthropic Admin API key (ANTHROPIC_ADMIN_API_KEY).',
++    );
++  }
++
++  const headers = {
++    'x-api-key': adminKey,
++    'anthropic-version': '2023-06-01',
++  };
++
++  try {
++    const [usage, costs] = await Promise.all([
++      fetchJsonWithTimeout('https://api.anthropic.com/v1/organizations/usage_report/messages', { headers }),
++      fetchJsonWithTimeout('https://api.anthropic.com/v1/organizations/cost_report', { headers }),
++    ]);
++
++    const inputTokens = Math.round(sumNumberByKeys(usage, ['input_tokens']));
++    const outputTokens = Math.round(sumNumberByKeys(usage, ['output_tokens']));
++    const usdCost = sumNumberByKeys(costs, ['usd', 'cost_usd', 'amount']);
++
++    return buildSubscription(
++      'claude',
++      'available',
++      `Org usage: in ${inputTokens.toLocaleString()}, out ${outputTokens.toLocaleString()}, cost ~$${usdCost.toFixed(2)}`,
++    );
++  } catch (error) {
++    return buildSubscription(
++      'claude',
++      'error',
++      `Failed to fetch Anthropic org usage/cost: ${error instanceof Error ? error.message : String(error)}`,
++    );
++  }
++}
++
++export function getKimiSubscriptionInfoHint(): SubscriptionInfo {
++  return buildSubscription(
++    'kimi',
++    'unavailable',
++    'No public management API found. Kimi CLI exposes /usage (/status) on Kimi platform only.',
++  );
++}
++
+diff --git a/server/src/routes/__tests__/providers.test.ts b/server/src/routes/__tests__/providers.test.ts
+index d5cd99b..0908130 100644
+--- a/server/src/routes/__tests__/providers.test.ts
++++ b/server/src/routes/__tests__/providers.test.ts
+@@ -182,6 +182,16 @@ describe('providers routes', () => {
+       const first = db.prepare('SELECT is_default FROM providers WHERE id = ?').get('p1') as { is_default: number };
+       expect(first.is_default).toBe(0);
+     });
++
++    it('accepts kimi as provider type', async () => {
++      const res = await request(app)
++        .post('/api/providers')
++        .send({ name: 'Kimi Provider', type: 'kimi' });
++
++      expect(res.status).toBe(201);
++      expect(res.body.success).toBe(true);
++      expect(res.body.data.type).toBe('kimi');
++    });
+   });
+ 
+   describe('PUT /api/providers/:id', () => {
+@@ -239,6 +249,22 @@ describe('providers routes', () => {
+       const second = db.prepare('SELECT is_default FROM providers WHERE id = ?').get('p2') as { is_default: number };
+       expect(second.is_default).toBe(1);
+     });
++
++    it('accepts updating provider type to kimi', async () => {
++      const now = Date.now();
++      db.prepare(`
++        INSERT INTO providers (id, name, type, created_at, updated_at)
++        VALUES (?, ?, ?, ?, ?)
++      `).run('p3', 'Third', 'claude', now, now);
++
++      const res = await request(app)
++        .put('/api/providers/p3')
++        .send({ type: 'kimi' });
++
++      expect(res.status).toBe(200);
++      const updated = db.prepare('SELECT type FROM providers WHERE id = ?').get('p3') as { type: string };
++      expect(updated.type).toBe('kimi');
++    });
+   });
+ 
+   describe('DELETE /api/providers/:id', () => {
+diff --git a/server/src/routes/providers.ts b/server/src/routes/providers.ts
+index d68e24d..42a3e68 100644
+--- a/server/src/routes/providers.ts
++++ b/server/src/routes/providers.ts
+@@ -907,6 +907,19 @@ async function getCursorCapabilities(
+   };
+ }
+ 
++async function getKimiCapabilities(): Promise<ProviderCapabilities> {
++  return {
++    modeLabel: 'Mode',
++    defaultModeId: 'default',
++    modes: [
++      { id: 'default', label: 'Agent', description: 'Standard agent mode' },
++      { id: 'plan', label: 'Plan', description: 'Planning mode with stricter permissions' },
++      { id: 'ask', label: 'Ask', description: 'Q&A mode with minimal actions' },
++    ],
++    models: [{ id: '', label: 'Default' }],
++  };
++}
++
+ async function getProviderCapabilities(
+   providerType: string,
+   cliPath?: string,
+@@ -919,6 +932,8 @@ async function getProviderCapabilities(
+       return getCodexCapabilities(cliPath, env);
+     case 'cursor':
+       return getCursorCapabilities(cliPath, env);
++    case 'kimi':
++      return getKimiCapabilities();
+     case 'claude':
+     default:
+       return getClaudeCapabilities(cliPath, env);
+@@ -997,6 +1012,9 @@ async function getProviderCommands(
+     case 'cursor':
+       // cursor-agent doesn't expose slash commands
+       return [];
++    case 'kimi':
++      // kimi cli currently doesn't expose slash commands endpoint
++      return [];
+     default:
+       return [];
+   }
+diff --git a/server/src/server.ts b/server/src/server.ts
+index fa79d0f..ad57f2d 100644
+--- a/server/src/server.ts
++++ b/server/src/server.ts
+@@ -235,6 +235,9 @@ function buildStatusOutput(systemInfo: SystemInfo): string {
+   if (systemInfo.agents && systemInfo.agents.length > 0) {
+     lines.push(`**Agents:** ${systemInfo.agents.join(', ')}`);
+   }
++  if (systemInfo.subscription) {
++    lines.push(`**Subscription (${systemInfo.subscription.provider}):** ${systemInfo.subscription.summary}`);
++  }
+ 
+   return lines.join('\n');
+ }
+@@ -1948,7 +1951,8 @@ async function handleRunStart(
+                 tools: msg.systemInfo.tools,
+                 mcpServers: msg.systemInfo.mcpServers,
+                 slashCommands: msg.systemInfo.slashCommands,
+-                agents: msg.systemInfo.agents
++                agents: msg.systemInfo.agents,
++                subscription: msg.systemInfo.subscription,
+               }
+             });
+           }
+diff --git a/shared/src/index.ts b/shared/src/index.ts
+index fd04aac..367e24f 100644
+--- a/shared/src/index.ts
++++ b/shared/src/index.ts
+@@ -1100,6 +1100,12 @@ export interface SystemInfo {
+   mcpServers?: { name: string; status: string }[];
+   slashCommands?: string[];
+   agents?: string[];
++  subscription?: {
++    provider: string;
++    status: 'available' | 'unavailable' | 'requires_admin_key' | 'error';
++    summary: string;
++    updatedAt: number;
++  };
+ }
+ 
+ export interface SystemInfoMessage {
