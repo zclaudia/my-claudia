@@ -853,6 +853,32 @@ function runMigrations(db: Database.Database): void {
       }
     }
   }
+
+  // Self-heal historical inconsistent schemas where migration records exist
+  // but local_prs columns are still missing on disk.
+  const hasLocalPrsTable = Boolean(
+    db
+      .prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'local_prs'")
+      .get()
+  );
+
+  if (hasLocalPrsTable) {
+    const localPrColumns = new Set(
+      (db.prepare("PRAGMA table_info(local_prs)").all() as Array<{ name: string }>).map(
+        (row) => row.name
+      )
+    );
+
+    if (!localPrColumns.has('status_message')) {
+      console.warn('Schema self-heal: adding missing local_prs.status_message');
+      db.exec('ALTER TABLE local_prs ADD COLUMN status_message TEXT');
+    }
+
+    if (!localPrColumns.has('merged_commit_sha')) {
+      console.warn('Schema self-heal: adding missing local_prs.merged_commit_sha');
+      db.exec('ALTER TABLE local_prs ADD COLUMN merged_commit_sha TEXT');
+    }
+  }
 }
 
 export type { Database };
