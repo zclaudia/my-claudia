@@ -1,7 +1,4 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import * as fs from 'fs';
-import * as path from 'path';
-import * as os from 'os';
 
 // Mock better-sqlite3
 const mockDb = {
@@ -43,10 +40,11 @@ vi.mock('../metadata-extractor.js', () => ({
 
 // Mock os
 vi.mock('os', () => ({
+  default: { homedir: vi.fn(() => '/home/testuser') },
   homedir: vi.fn(() => '/home/testuser'),
 }));
 
-describe.skip('storage/db', () => {
+describe('storage/db', () => {
   let consoleLogSpy: ReturnType<typeof vi.spyOn>;
   let consoleErrorSpy: ReturnType<typeof vi.spyOn>;
   let originalDataDir: string | undefined;
@@ -73,6 +71,9 @@ describe.skip('storage/db', () => {
     // Save and clear MY_CLAUDIA_DATA_DIR to ensure consistent test behavior
     originalDataDir = process.env.MY_CLAUDIA_DATA_DIR;
     delete process.env.MY_CLAUDIA_DATA_DIR;
+
+    // Reset modules to avoid singleton state leaking across tests
+    vi.resetModules();
   });
 
   afterEach(() => {
@@ -95,7 +96,7 @@ describe.skip('storage/db', () => {
       expect(mockDb.pragma).toHaveBeenCalledWith('journal_mode = WAL');
     });
 
-    it.skip('ensures data directory exists', async () => {
+    it('ensures data directory exists', async () => {
       mockFsMethods.existsSync.mockReturnValue(false);
 
       const { initDatabase } = await import('../db.js');
@@ -108,7 +109,7 @@ describe.skip('storage/db', () => {
       );
     });
 
-    it.skip('uses MY_CLAUDIA_DATA_DIR environment variable', async () => {
+    it('uses MY_CLAUDIA_DATA_DIR environment variable', async () => {
       const originalEnv = process.env.MY_CLAUDIA_DATA_DIR;
       process.env.MY_CLAUDIA_DATA_DIR = '/custom/data/dir';
 
@@ -125,7 +126,11 @@ describe.skip('storage/db', () => {
         { recursive: true }
       );
 
-      process.env.MY_CLAUDIA_DATA_DIR = originalEnv;
+      if (originalEnv === undefined) {
+        delete process.env.MY_CLAUDIA_DATA_DIR;
+      } else {
+        process.env.MY_CLAUDIA_DATA_DIR = originalEnv;
+      }
     });
 
     it('runs migrations on initialization', async () => {
@@ -344,7 +349,7 @@ describe.skip('storage/db', () => {
     });
   });
 
-  describe.skip('database path', () => {
+  describe('database path', () => {
     it('uses default path in home directory', async () => {
       mockFsMethods.existsSync.mockReturnValue(false);
 
@@ -366,6 +371,7 @@ describe.skip('storage/db', () => {
       vi.resetModules();
       // Need to re-mock after reset
       vi.doMock('os', () => ({
+        default: { homedir: vi.fn(() => '/home/testuser') },
         homedir: vi.fn(() => '/home/testuser'),
       }));
       vi.doMock('fs', () => ({
@@ -386,7 +392,11 @@ describe.skip('storage/db', () => {
       const mkdirCall = mockFsMethods.mkdirSync.mock.calls[0];
       expect(mkdirCall[0]).toBe('/tmp/test-claudia');
 
-      process.env.MY_CLAUDIA_DATA_DIR = originalEnv;
+      if (originalEnv === undefined) {
+        delete process.env.MY_CLAUDIA_DATA_DIR;
+      } else {
+        process.env.MY_CLAUDIA_DATA_DIR = originalEnv;
+      }
     });
   });
 });
