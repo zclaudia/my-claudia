@@ -826,18 +826,28 @@ If you cannot resolve it, output: [CONFLICT_UNRESOLVED]`;
     });
     this.activeConflictClients.set(prId, virtualClient);
 
-    handleRunStart(
-      virtualClient,
-      {
-        type: 'run_start',
-        clientRequestId: `localpr_conflict_${prId}_${Date.now()}`,
-        sessionId: session.id,
-        input: conflictPrompt,
-        workingDirectory: pr.worktreePath,
-        providerId,
-      },
-      this.db as any,
-    );
+    try {
+      handleRunStart(
+        virtualClient,
+        {
+          type: 'run_start',
+          clientRequestId: `localpr_conflict_${prId}_${Date.now()}`,
+          sessionId: session.id,
+          input: conflictPrompt,
+          workingDirectory: pr.worktreePath,
+          providerId,
+        },
+        this.db as any,
+      );
+    } catch (err) {
+      this.activeConflictClients.delete(prId);
+      const message = err instanceof Error ? err.message : 'Unknown startup error';
+      this.prRepo.update(prId, {
+        statusMessage: `Failed to start AI conflict resolution: ${message}`,
+      });
+      this.broadcastPRUpdate(this.prRepo.findById(prId)!);
+      throw err;
+    }
 
     console.log(`[LocalPRService] Started conflict resolution session ${session.id} for PR ${prId}`);
   }
@@ -993,9 +1003,13 @@ If you cannot resolve it, output: [CONFLICT_UNRESOLVED]`;
   private forwardSessionStream(projectId: string, sessionId: string, msg: ServerMessage): void {
     if (!LOCAL_PR_SESSION_STREAM_MESSAGE_TYPES.has(msg.type)) return;
     const messageSessionId = (msg as { sessionId?: string }).sessionId;
-    // system_info currently has no sessionId field; still forward it for this virtual session.
+    // system_info currently has no sessionId field; tag it with this virtual session.
     if (messageSessionId && messageSessionId !== sessionId) return;
     if (!messageSessionId && msg.type !== 'system_info') return;
+    if (!messageSessionId && msg.type === 'system_info') {
+      this.broadcastToProject(projectId, { ...msg, sessionId } as ServerMessage);
+      return;
+    }
     this.broadcastToProject(projectId, msg);
   }
 
