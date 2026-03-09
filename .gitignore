@@ -114,3 +114,4 @@ gateway/.deploy-version*
 *.heapsnapshot
 .worktrees/
 .my-claudia/
+apps/desktop/src-tauri/gen/

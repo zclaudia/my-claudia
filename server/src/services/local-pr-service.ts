@@ -6,7 +6,7 @@ import { ProviderRepository } from '../repositories/provider.js';
 import { SessionRepository } from '../repositories/session.js';
 import { WorktreeConfigRepository } from '../repositories/worktree-config.js';
 import { Mutex } from 'async-mutex';
-import { mkdir, writeFile } from 'fs/promises';
+import { mkdir, rm, writeFile } from 'fs/promises';
 import path from 'path';
 import {
   getGitStatus,
@@ -382,7 +382,7 @@ export class LocalPRService {
       send: (msg: ServerMessage) => {
         this.forwardSessionStream(pr.projectId, session.id, msg);
         if (msg.type === 'run_completed' || msg.type === 'run_failed') {
-          this.onReviewSessionComplete(prId, session.id).catch((err) =>
+          this.onReviewSessionComplete(prId, session.id, msg.type === 'run_failed').catch((err) =>
             console.error(`[LocalPRService] Review completion error for PR ${prId}:`, err),
           );
           this.activeReviewClients.delete(prId);
@@ -459,7 +459,7 @@ ${diffSection}
 Be thorough but pragmatic. Minor style issues do not warrant REVIEW_FAILED.`;
   }
 
-  private async onReviewSessionComplete(prId: string, sessionId: string): Promise<void> {
+  private async onReviewSessionComplete(prId: string, sessionId: string, runFailed = false): Promise<void> {
     const pr = this.prRepo.findById(prId);
     if (!pr || pr.status !== 'reviewing') return;
 
@@ -470,19 +470,55 @@ Be thorough but pragmatic. Minor style issues do not warrant REVIEW_FAILED.`;
       )
       .all(sessionId) as { content: string }[];
 
-    let passed = true;
+    let passed = false;
     let reviewNotes = '';
+    let sawExplicitVerdict = false;
 
     for (const msg of messages) {
       if (REVIEW_FAILED_RE.test(msg.content)) {
         passed = false;
         reviewNotes = msg.content.slice(-2000); // last 2KB of the message
+        sawExplicitVerdict = true;
         break;
       }
       if (REVIEW_PASSED_RE.test(msg.content)) {
         passed = true;
+        sawExplicitVerdict = true;
         break;
       }
+    }
+
+    // Clean review temp artifacts before final status/commit checks.
+    await this.cleanupReviewArtifacts(pr).catch((err) =>
+      console.warn(`[LocalPRService] Failed to cleanup review artifacts for PR ${prId}:`, err),
+    );
+
+    // Enforce clean worktree after review by auto-committing any remaining changes.
+    let autoCommitError: string | null = null;
+    try {
+      const status = await getGitStatus(pr.worktreePath);
+      if (status.hasChanges) {
+        await commitAllChanges(pr.worktreePath);
+        console.log(`[LocalPRService] Auto-committed remaining review changes for PR ${prId}`);
+      }
+    } catch (err) {
+      autoCommitError = err instanceof Error ? err.message : 'Failed to auto-commit review changes';
+      console.error(`[LocalPRService] ${autoCommitError}`);
+    }
+
+    if (autoCommitError) {
+      passed = false;
+      const prefix = reviewNotes ? `${reviewNotes}\n\n` : '';
+      reviewNotes = `${prefix}Review left uncommitted changes and auto-commit failed: ${autoCommitError}`.slice(-2000);
+    } else if (!sawExplicitVerdict && runFailed) {
+      passed = false;
+      if (!reviewNotes) {
+        reviewNotes = 'Review session failed before producing a valid verdict marker.';
+      }
+    } else if (!sawExplicitVerdict && !runFailed) {
+      // Backward compatibility: if run completed without explicit marker and no errors,
+      // treat as passed after enforcing clean git state above.
+      passed = true;
     }
 
     const newStatus: LocalPRStatus = passed ? 'approved' : 'review_failed';
@@ -496,6 +532,12 @@ Be thorough but pragmatic. Minor style issues do not warrant REVIEW_FAILED.`;
 
     // Check for commits that arrived during the review
     await this.refreshAfterBusyState(prId, { resetReviewStateOnCommitChange: false });
+  }
+
+  private async cleanupReviewArtifacts(pr: LocalPR): Promise<void> {
+    const relPath = path.join('.my-claudia', 'local-pr-review', `${pr.id}.diff.patch`);
+    const absPath = path.join(pr.worktreePath, relPath);
+    await rm(absPath, { force: true });
   }
 
   // ---------------------------------------------------------------------------
