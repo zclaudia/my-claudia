@@ -703,7 +703,10 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
                             <>
                               <SupervisorGroupItem
                                 key={mainSession.id}
-                                onSelect={() => { if (onOpenDashboard) onOpenDashboard(project.id); if (onClose) onClose(); }}
+                                onSelect={() => {
+                                  if (isMobile) { selectSession(mainSession!.id); if (onClose) onClose(); }
+                                  else { if (onOpenDashboard) onOpenDashboard(project.id); if (onClose) onClose(); }
+                                }}
                                 isSelected={selectedSessionId === mainSession!.id}
                                 isActive={activeRunSessionIds.has(mainSession!.id)}
                                 phase={v2Agents[project.id]?.phase}
@@ -1252,7 +1255,10 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
                         <>
                           <SupervisorGroupItem
                             key={mainSession.id}
-                            onSelect={() => { if (onOpenDashboard) onOpenDashboard(project.id); }}
+                            onSelect={() => {
+                              if (isMobile) { selectSession(mainSession!.id); }
+                              else { if (onOpenDashboard) onOpenDashboard(project.id); }
+                            }}
                             isSelected={selectedSessionId === mainSession!.id}
                             isActive={activeRunSessionIds.has(mainSession!.id)}
                             phase={v2Agents[project.id]?.phase}

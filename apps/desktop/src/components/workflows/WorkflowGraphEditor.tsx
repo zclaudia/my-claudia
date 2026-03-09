@@ -6,7 +6,6 @@ import {
   MiniMap,
   useNodesState,
   useEdgesState,
-  addEdge,
   type Connection,
   type Node,
   type Edge,
@@ -125,7 +124,7 @@ function GraphEditorInner({
   }, [onEdgesChange, onEdgesChangeCallback, setEdges]);
 
   // Connection validation
-  const isValidConnection = useCallback((connection: Connection) => {
+  const isValidConnection = useCallback((connection: Edge | Connection) => {
     // No self-connections
     if (connection.source === connection.target) return false;
     return true;

@@ -18,9 +18,25 @@ export PATH="$HOME/.cargo/bin:$PATH"
 if command -v fnm >/dev/null 2>&1; then eval "$(fnm env)"; fi
 if command -v nvm >/dev/null 2>&1; then nvm use 2>/dev/null || true; fi
 
+# Load .env if present (for TAURI_SIGNING_PRIVATE_KEY_PATH, etc.)
+if [ -f .env ]; then
+  set -a; source .env; set +a
+fi
+
+# Read signing key from file path if provided
+if [ -z "${TAURI_SIGNING_PRIVATE_KEY:-}" ] && [ -n "${TAURI_SIGNING_PRIVATE_KEY_PATH:-}" ]; then
+  TAURI_SIGNING_PRIVATE_KEY="$(cat "$TAURI_SIGNING_PRIVATE_KEY_PATH")"
+  export TAURI_SIGNING_PRIVATE_KEY
+fi
+
 for cmd in rustup pnpm; do
   command -v "$cmd" >/dev/null || { echo "ERROR: $cmd not found"; exit 1; }
 done
+
+# Release remote: which git remote to push tags and releases to (default: origin)
+RELEASE_REMOTE="${RELEASE_REMOTE:-origin}"
+RELEASE_REPO=$(git remote get-url "$RELEASE_REMOTE" 2>/dev/null | sed 's/.*github\.com[:/]\(.*\)\.git/\1/')
+echo "Release target: $RELEASE_REMOTE → $RELEASE_REPO"
 
 # --- Smart version bump ---
 # Uses git tags to track builds:
@@ -46,14 +62,14 @@ elif [ -z "$HAS_BUILD_TAG" ]; then
 
   TAG_NAME="build-${MAJOR}.${MINOR}-${BUILD}"
   git tag "$TAG_NAME"
-  git push origin "$TAG_NAME" 2>/dev/null || true
+  git push "$RELEASE_REMOTE" "$TAG_NAME" 2>/dev/null || true
 
   # Clean old tags for this major.minor, keep latest 5
   OLD_TAGS=$(git tag -l "build-${MAJOR}.${MINOR}-*" --sort=-version:refname | tail -n +6)
   if [ -n "$OLD_TAGS" ]; then
     echo "$OLD_TAGS" | xargs git tag -d
     echo "$OLD_TAGS" | while read -r tag; do
-      git push origin --delete "$tag" 2>/dev/null || true
+      git push "$RELEASE_REMOTE" --delete "$tag" 2>/dev/null || true
     done
     echo "  Cleaned $(echo "$OLD_TAGS" | wc -l | tr -d ' ') old tag(s)"
   fi
@@ -103,8 +119,17 @@ if [ -d "$BUNDLE_DIR" ]; then
 fi
 
 # --- Build ---
+# Code signing is ON by default (uses signingIdentity from tauri.conf.json).
+# To skip signing (community/local builds): SKIP_SIGNING=1 bash scripts/build-macos.sh
+TAURI_CONFIG="{\"version\":\"$VERSION\",\"build\":{\"beforeBuildCommand\":\"\"}}"
+if [ "${SKIP_SIGNING:-}" = "1" ]; then
+  echo "Code signing disabled (SKIP_SIGNING=1)"
+  TAURI_CONFIG="{\"version\":\"$VERSION\",\"build\":{\"beforeBuildCommand\":\"\"},\"bundle\":{\"macOS\":{\"signingIdentity\":null}}}"
+else
+  echo "Code signing enabled"
+fi
 echo "Building macOS desktop app..."
-pnpm --filter @my-claudia/desktop exec tauri build --config "{\"version\":\"$VERSION\",\"build\":{\"beforeBuildCommand\":\"\"}}"
+pnpm --filter @my-claudia/desktop exec tauri build --config "$TAURI_CONFIG"
 echo ""
 
 # --- Rename outputs with version ---
@@ -137,7 +162,8 @@ if [ -f "$TAR_GZ" ] && [ -f "$TAR_SIG" ]; then
   echo "=== Generating update manifest ==="
   SIGNATURE=$(cat "$TAR_SIG")
   PUB_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-  DOWNLOAD_URL="https://github.com/zhvala/my-claudia/releases/download/v${VERSION}/MyClaudia.app.tar.gz"
+  RELEASE_TAG="v${MAJOR}.${MINOR}.${BUILD}"
+  DOWNLOAD_URL="https://github.com/${RELEASE_REPO}/releases/download/${RELEASE_TAG}/MyClaudia.app.tar.gz"
 
   cat > "$BUNDLE_DIR/latest.json" << MANIFEST_EOF
 {
@@ -162,21 +188,33 @@ MANIFEST_EOF
   echo "  Signature: $TAR_SIG"
 
   # --- Optional: Upload to GitHub Release ---
-  if command -v gh >/dev/null 2>&1 && [ "${SKIP_RELEASE:-}" != "1" ]; then
+  if command -v gh >/dev/null 2>&1 && [ "${RELEASE:-}" = "1" ]; then
     echo ""
     echo "=== Uploading to GitHub Release ==="
-    TAG="v${VERSION}"
+    RELEASE_TAG="v${MAJOR}.${MINOR}.${BUILD}"
+    TAG="$RELEASE_TAG"
 
     # Create draft release (idempotent)
-    gh release create "$TAG" --title "MyClaudia $VERSION" --notes "MyClaudia $VERSION" --draft 2>/dev/null || true
+    gh release create "$TAG" --repo "$RELEASE_REPO" --title "MyClaudia $VERSION" --notes "MyClaudia $VERSION" --draft 2>/dev/null || true
 
     # Upload artifacts (overwrite if exist)
     UPLOAD_FILES=("$TAR_GZ" "$BUNDLE_DIR/latest.json")
     [ -f "${VERSIONED_DMG:-}" ] && UPLOAD_FILES+=("$VERSIONED_DMG")
 
-    gh release upload "$TAG" "${UPLOAD_FILES[@]}" --clobber
-    echo "  Uploaded to: https://github.com/zhvala/my-claudia/releases/tag/$TAG"
+    gh release upload "$TAG" --repo "$RELEASE_REPO" "${UPLOAD_FILES[@]}" --clobber
+    echo "  Uploaded to: https://github.com/${RELEASE_REPO}/releases/tag/$TAG"
     echo "  NOTE: Release is in DRAFT state. Publish it to make the update live."
+
+    # Clean old draft releases, keep latest 5
+    OLD_DRAFTS=$(gh release list --repo "$RELEASE_REPO" --json tagName,isDraft --jq '[.[] | select(.isDraft)] | sort_by(.tagName) | reverse | .[5:] | .[].tagName' 2>/dev/null || true)
+    if [ -n "$OLD_DRAFTS" ]; then
+      echo ""
+      echo "=== Cleaning old draft releases ==="
+      echo "$OLD_DRAFTS" | while read -r old_tag; do
+        gh release delete "$old_tag" --repo "$RELEASE_REPO" --cleanup-tag --yes 2>/dev/null || true
+        echo "  Deleted: $old_tag"
+      done
+    fi
   fi
 else
   echo ""

@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import { useWorkflowStore } from '../../stores/workflowStore';
 import { getStepIcon } from './nodes/StepNode';
-import type { BuiltinWorkflowStepType } from '@my-claudia/shared';
+
 
 const BUILTIN_STEP_CATEGORIES: { label: string; steps: { type: string; label: string }[] }[] = [
   {

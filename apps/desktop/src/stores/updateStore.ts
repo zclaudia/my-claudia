@@ -3,6 +3,7 @@ import { create } from 'zustand';
 export type UpdateStatus =
   | 'idle'        // No update activity
   | 'checking'    // Checking for updates (visible only on manual check)
+  | 'available'   // Update available, waiting for user action (Android)
   | 'downloading' // Downloading update in background
   | 'ready'       // Downloaded, ready for user to restart
   | 'up-to-date'  // Already on latest version (shown briefly on manual check)
@@ -18,6 +19,8 @@ interface UpdateState {
   dismissed: boolean;
   /** Whether the current check was triggered manually (affects UI visibility) */
   manual: boolean;
+  /** APK download URL for Android updates */
+  androidApkUrl: string | null;
 
   setStatus: (status: UpdateStatus) => void;
   setAvailableUpdate: (version: string, notes: string | null) => void;
@@ -36,6 +39,7 @@ export const useUpdateStore = create<UpdateState>((set) => ({
   error: null,
   dismissed: false,
   manual: false,
+  androidApkUrl: null,
 
   setStatus: (status) => set({ status, error: null }),
   setAvailableUpdate: (version, notes) =>
@@ -52,5 +56,6 @@ export const useUpdateStore = create<UpdateState>((set) => ({
       error: null,
       dismissed: false,
       manual: false,
+      androidApkUrl: null,
     }),
 }));

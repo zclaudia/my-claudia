@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import type { ScheduledTask, ScheduledTaskTemplate } from '@my-claudia/shared';
 import { useScheduledTaskStore } from '../../stores/scheduledTaskStore';
+import { useIsMobile } from '../../hooks/useMediaQuery';
 import { CreateScheduledTaskDialog } from './CreateScheduledTaskDialog';
 
 interface ScheduledTasksPanelProps {
@@ -80,11 +81,13 @@ function TaskCard({
   onToggle,
   onTrigger,
   onDelete,
+  readOnly,
 }: {
   task: ScheduledTask;
-  onToggle: () => void;
-  onTrigger: () => void;
-  onDelete: () => void;
+  onToggle?: () => void;
+  onTrigger?: () => void;
+  onDelete?: () => void;
+  readOnly?: boolean;
 }) {
   return (
     <div className={`flex items-center gap-3 px-3 py-2.5 rounded-lg border transition-colors ${
@@ -128,31 +131,39 @@ function TaskCard({
         </div>
       </div>
 
-      {/* Actions */}
-      <div className="flex items-center gap-1 shrink-0">
-        <button
-          onClick={onTrigger}
-          disabled={task.status === 'running'}
-          className="p-1 rounded hover:bg-secondary text-muted-foreground hover:text-foreground disabled:opacity-30"
-          title="Run now"
-        >
-          <Play size={12} />
-        </button>
-        <button
-          onClick={onToggle}
-          className="p-1 rounded hover:bg-secondary text-muted-foreground hover:text-foreground"
-          title={task.enabled ? 'Disable' : 'Enable'}
-        >
-          {task.enabled ? <Pause size={12} /> : <Zap size={12} />}
-        </button>
-        <button
-          onClick={onDelete}
-          className="p-1 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive"
-          title="Delete"
-        >
-          <Trash2 size={12} />
-        </button>
-      </div>
+      {/* Actions (hidden in read-only / mobile mode) */}
+      {!readOnly && (
+        <div className="flex items-center gap-1 shrink-0">
+          {onTrigger && (
+            <button
+              onClick={onTrigger}
+              disabled={task.status === 'running'}
+              className="p-1 rounded hover:bg-secondary text-muted-foreground hover:text-foreground disabled:opacity-30"
+              title="Run now"
+            >
+              <Play size={12} />
+            </button>
+          )}
+          {onToggle && (
+            <button
+              onClick={onToggle}
+              className="p-1 rounded hover:bg-secondary text-muted-foreground hover:text-foreground"
+              title={task.enabled ? 'Disable' : 'Enable'}
+            >
+              {task.enabled ? <Pause size={12} /> : <Zap size={12} />}
+            </button>
+          )}
+          {onDelete && (
+            <button
+              onClick={onDelete}
+              className="p-1 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive"
+              title="Delete"
+            >
+              <Trash2 size={12} />
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -160,6 +171,7 @@ function TaskCard({
 // ── Main Panel ───────────────────────────────────────────────────
 
 export function ScheduledTasksPanel({ projectId }: ScheduledTasksPanelProps) {
+  const isMobile = useIsMobile();
   const tasks = useScheduledTaskStore((s) => s.tasks[projectId] ?? []);
   const templates = useScheduledTaskStore((s) => s.templates);
   const loadTasks = useScheduledTaskStore((s) => s.loadTasks);
@@ -198,18 +210,20 @@ export function ScheduledTasksPanel({ projectId }: ScheduledTasksPanelProps) {
             </span>
           )}
         </div>
-        <button
-          onClick={() => setShowCreate(true)}
-          className="flex items-center gap-1 text-xs px-2 py-1 rounded bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
-        >
-          <Plus size={12} />
-          New
-        </button>
+        {!isMobile && (
+          <button
+            onClick={() => setShowCreate(true)}
+            className="flex items-center gap-1 text-xs px-2 py-1 rounded bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
+          >
+            <Plus size={12} />
+            New
+          </button>
+        )}
       </div>
 
       <div className="flex-1 overflow-y-auto p-3 space-y-4">
-        {/* Templates */}
-        {templates.length > 0 && (
+        {/* Templates (hidden on mobile) */}
+        {!isMobile && templates.length > 0 && (
           <div>
             <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2 flex items-center gap-1">
               <Timer size={10} />
@@ -239,6 +253,7 @@ export function ScheduledTasksPanel({ projectId }: ScheduledTasksPanelProps) {
                 <TaskCard
                   key={task.id}
                   task={task}
+                  readOnly={isMobile}
                   onToggle={() => update(task.id, projectId, { enabled: false }).catch(() => {})}
                   onTrigger={() => trigger(task.id, projectId).catch(() => {})}
                   onDelete={() => remove(task.id, projectId).catch(() => {})}
@@ -259,6 +274,7 @@ export function ScheduledTasksPanel({ projectId }: ScheduledTasksPanelProps) {
                 <TaskCard
                   key={task.id}
                   task={task}
+                  readOnly={isMobile}
                   onToggle={() => update(task.id, projectId, { enabled: true }).catch(() => {})}
                   onTrigger={() => trigger(task.id, projectId).catch(() => {})}
                   onDelete={() => remove(task.id, projectId).catch(() => {})}
@@ -278,7 +294,7 @@ export function ScheduledTasksPanel({ projectId }: ScheduledTasksPanelProps) {
         )}
       </div>
 
-      {showCreate && (
+      {!isMobile && showCreate && (
         <CreateScheduledTaskDialog
           projectId={projectId}
           onClose={() => setShowCreate(false)}

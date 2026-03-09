@@ -3,6 +3,7 @@ import { useFileViewerStore } from '../../stores/fileViewerStore';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneDark, oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { useTheme, isDarkTheme } from '../../contexts/ThemeContext';
+import { useIsMobile } from '../../hooks/useMediaQuery';
 import * as api from '../../services/api';
 import { FileSearchInput } from './FileSearchInput';
 
@@ -63,6 +64,7 @@ async function openFileInNewWindow(filePath: string, projectRoot: string) {
 
 /** File viewer toolbar actions (search, copy, open in new window / fullscreen) rendered in the shared BottomPanel header */
 export function FileViewerActions() {
+  const isMobile = useIsMobile();
   const { searchOpen, setSearchOpen, content, filePath, projectRoot, setFullscreen } = useFileViewerStore();
   const [copied, setCopied] = useState(false);
 
@@ -112,7 +114,7 @@ export function FileViewerActions() {
           </svg>
         </button>
       )}
-      {filePath && (
+      {filePath && !isMobile && (
         <button
           onClick={handleExpand}
           className="p-1 rounded text-muted-foreground hover:bg-secondary hover:text-foreground flex-shrink-0"

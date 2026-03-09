@@ -15,6 +15,15 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+# Load .env if present (for RELEASE_REMOTE, etc.)
+if [ -f .env ]; then
+  set -a; source .env; set +a
+fi
+
+# Release remote config
+RELEASE_REMOTE="${RELEASE_REMOTE:-origin}"
+RELEASE_REPO=$(git remote get-url "$RELEASE_REMOTE" 2>/dev/null | sed 's/.*github\.com[:/]\(.*\)\.git/\1/')
+
 # --- Parse args ---
 INSTALL=false
 INSTALL_ONLY=false
@@ -112,14 +121,14 @@ if [ "$INSTALL_ONLY" = false ] && [ "$NO_BUMP" = false ]; then
 
     TAG_NAME="build-${MAJOR}.${MINOR}-${BUILD}"
     git tag "$TAG_NAME"
-    git push origin "$TAG_NAME" 2>/dev/null || true
+    git push "$RELEASE_REMOTE" "$TAG_NAME" 2>/dev/null || true
 
     # Clean old tags for this major.minor, keep latest 5
     OLD_TAGS=$(git tag -l "build-${MAJOR}.${MINOR}-*" --sort=-version:refname | tail -n +6)
     if [ -n "$OLD_TAGS" ]; then
       echo "$OLD_TAGS" | xargs git tag -d
       echo "$OLD_TAGS" | while read -r tag; do
-        git push origin --delete "$tag" 2>/dev/null || true
+        git push "$RELEASE_REMOTE" --delete "$tag" 2>/dev/null || true
       done
       echo "  Cleaned $(echo "$OLD_TAGS" | wc -l | tr -d ' ') old tag(s)"
     fi
@@ -252,4 +261,36 @@ if [ "$INSTALL" = true ]; then
   adb install -r "$OUTPUT"
   echo ""
   echo "=== Installed successfully ==="
+fi
+
+# --- Generate android-latest.json + upload to GitHub Release ---
+if [ "$INSTALL_ONLY" = false ] && [ "${RELEASE:-}" = "1" ] && [ -f "$OUTPUT" ]; then
+  RELEASE_TAG="v${MAJOR}.${MINOR}.${BUILD}"
+  APK_FILENAME="$(basename "$OUTPUT")"
+  DOWNLOAD_URL="https://github.com/${RELEASE_REPO}/releases/download/${RELEASE_TAG}/${APK_FILENAME}"
+
+  echo "=== Generating android-latest.json ==="
+  ANDROID_LATEST="$(dirname "$OUTPUT")/android-latest.json"
+  cat > "$ANDROID_LATEST" << MANIFEST_EOF
+{
+  "version": "${VERSION}",
+  "url": "${DOWNLOAD_URL}",
+  "notes": "MyClaudia ${VERSION}"
+}
+MANIFEST_EOF
+  echo "  Generated: $ANDROID_LATEST"
+
+  if command -v gh >/dev/null 2>&1; then
+    echo ""
+    echo "=== Uploading to GitHub Release ==="
+    TAG="$RELEASE_TAG"
+
+    # Create draft release (idempotent — may already exist from macOS build)
+    gh release create "$TAG" --repo "$RELEASE_REPO" --title "MyClaudia ${MAJOR}.${MINOR}.${BUILD}" --notes "MyClaudia ${MAJOR}.${MINOR}.${BUILD}" --draft 2>/dev/null || true
+
+    # Upload APK + manifest
+    gh release upload "$TAG" --repo "$RELEASE_REPO" "$OUTPUT" "$ANDROID_LATEST" --clobber
+    echo "  Uploaded to: https://github.com/${RELEASE_REPO}/releases/tag/$TAG"
+    echo "  NOTE: Release is in DRAFT state. Publish it to make the update live."
+  fi
 fi

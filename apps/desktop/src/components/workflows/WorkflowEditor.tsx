@@ -3,7 +3,6 @@ import { ArrowLeft, Save, PanelLeftClose, PanelLeftOpen, X, ExternalLink, Check 
 import type {
   Workflow,
   WorkflowNodeDef,
-  WorkflowEdgeDef,
   WorkflowDefinitionV2,
   WorkflowTrigger,
 } from '@my-claudia/shared';
@@ -70,9 +69,7 @@ export function WorkflowEditor({ workflow, projectId, onBack, onSaved, standalon
   const nodesRef = useRef<Node[]>([]);
   const edgesRef = useRef<Edge[]>([]);
   // Also track as state for re-rendering the config panel
-  const [currentNodes, setCurrentNodes] = useState<WorkflowNodeDef[]>(initial.nodes);
-
-  const graphEditorRef = useRef<HTMLDivElement>(null);
+  const [, setCurrentNodes] = useState<WorkflowNodeDef[]>(initial.nodes);
 
   const onNodesChange = useCallback((nodes: Node[]) => {
     nodesRef.current = nodes;
@@ -86,10 +83,6 @@ export function WorkflowEditor({ workflow, projectId, onBack, onSaved, standalon
   const onNodeSelect = useCallback((nodeId: string | null) => {
     setSelectedNodeId(nodeId);
   }, []);
-
-  const selectedNode = selectedNodeId
-    ? currentNodes.find(n => n.id === selectedNodeId) ?? null
-    : null;
 
   // Build full node data from nodesRef for the selected node
   const selectedFlowNode = selectedNodeId

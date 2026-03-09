@@ -3,13 +3,159 @@ import { useUpdateStore } from '../stores/updateStore';
 
 const CHECK_INTERVAL_MS = 4 * 60 * 60 * 1000; // 4 hours
 const INITIAL_DELAY_MS = 5000; // 5 seconds after startup
+const ANDROID_LATEST_URL =
+  'https://github.com/zclaudia/my-claudia/releases/latest/download/android-latest.json';
+
+function isTauri(): boolean {
+  return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
+}
+
+function isAndroid(): boolean {
+  return isTauri() && navigator.userAgent.includes('Android');
+}
 
 function isDesktopTauri(): boolean {
-  return (
-    typeof window !== 'undefined' &&
-    '__TAURI_INTERNALS__' in window &&
-    !navigator.userAgent.includes('Android')
-  );
+  return isTauri() && !navigator.userAgent.includes('Android');
+}
+
+/**
+ * Compare semver-like version strings (e.g. "0.1.2260" > "0.1.2259").
+ * Returns true if remote is newer than local.
+ * A release (no suffix) is newer than a dev build with the same number
+ * (e.g. "0.1.2260" > "0.1.2260-dev").
+ */
+function isNewerVersion(remote: string, local: string): boolean {
+  const rBase = remote.replace(/-.*$/, '');
+  const lBase = local.replace(/-.*$/, '');
+  const r = rBase.split('.').map(Number);
+  const l = lBase.split('.').map(Number);
+  for (let i = 0; i < Math.max(r.length, l.length); i++) {
+    const rv = r[i] ?? 0;
+    const lv = l[i] ?? 0;
+    if (rv > lv) return true;
+    if (rv < lv) return false;
+  }
+  // Same numeric version: release > dev
+  const localIsDev = local.includes('-dev');
+  const remoteIsDev = remote.includes('-dev');
+  if (localIsDev && !remoteIsDev) return true;
+  return false;
+}
+
+/**
+ * Android update check: fetch android-latest.json, compare versions.
+ * Does NOT auto-download — sets status to 'available' for user to trigger download.
+ */
+async function checkForAndroidUpdates(manual: boolean): Promise<void> {
+  const store = useUpdateStore.getState();
+  if (store.status === 'ready' || store.status === 'downloading') return;
+
+  try {
+    useUpdateStore.setState({ manual });
+    store.setStatus('checking');
+
+    const { getVersion } = await import('@tauri-apps/api/app');
+    const currentVersion = await getVersion();
+    useUpdateStore.setState({ currentVersion });
+
+    const res = await fetch(ANDROID_LATEST_URL);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const latest: { version: string; url: string; notes?: string } = await res.json();
+
+    if (!isNewerVersion(latest.version, currentVersion)) {
+      if (manual) {
+        store.setStatus('up-to-date');
+        setTimeout(() => {
+          const s = useUpdateStore.getState();
+          if (s.status === 'up-to-date') s.setStatus('idle');
+        }, 3000);
+      } else {
+        store.setStatus('idle');
+      }
+      return;
+    }
+
+    // Update available — store info for user action
+    useUpdateStore.setState({
+      availableVersion: latest.version,
+      releaseNotes: latest.notes ?? null,
+      androidApkUrl: latest.url,
+      status: 'available',
+    });
+  } catch (err) {
+    console.warn('[AutoUpdate:Android] Check failed:', err);
+    if (manual) {
+      useUpdateStore.getState().setError(
+        err instanceof Error ? err.message : 'Update check failed'
+      );
+    } else {
+      useUpdateStore.getState().setStatus('idle');
+    }
+  }
+}
+
+/**
+ * Download APK from the URL stored in updateStore and trigger install.
+ */
+export async function downloadAndInstallApk(): Promise<void> {
+  const store = useUpdateStore.getState();
+  const url = store.androidApkUrl;
+  if (!url) return;
+
+  try {
+    store.setStatus('downloading');
+    store.setDownloadProgress(0);
+
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`Download failed: HTTP ${res.status}`);
+
+    const contentLength = Number(res.headers.get('Content-Length') || 0);
+    const reader = res.body?.getReader();
+
+    let blob: Blob;
+    if (reader) {
+      const chunks: Uint8Array[] = [];
+      let received = 0;
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        chunks.push(value);
+        received += value.length;
+        if (contentLength > 0) {
+          store.setDownloadProgress(Math.round((received / contentLength) * 100));
+        }
+      }
+      blob = new Blob(chunks as BlobPart[], { type: 'application/vnd.android.package-archive' });
+    } else {
+      blob = await res.blob();
+    }
+
+    // Save APK to app-private dir, then copy to Downloads
+    const { downloadDir } = await import('@tauri-apps/api/path');
+    const { writeFile } = await import('@tauri-apps/plugin-fs');
+
+    const fileName = `MyClaudia-${store.availableVersion}.apk`;
+    const dir = await downloadDir();
+    const filePath = `${dir}/${fileName}`;
+
+    const buffer = await blob.arrayBuffer();
+    await writeFile(filePath, new Uint8Array(buffer));
+
+    // Copy to shared Downloads for visibility, then open with installer
+    const bridge = (window as any).AndroidFiles;
+    if (bridge) {
+      bridge.saveToDownloads(filePath, fileName, 'application/vnd.android.package-archive');
+      bridge.openFile(filePath, 'application/vnd.android.package-archive');
+    }
+
+    store.setDownloadProgress(100);
+    store.setStatus('ready');
+  } catch (err) {
+    console.warn('[AutoUpdate:Android] Download failed:', err);
+    useUpdateStore.getState().setError(
+      err instanceof Error ? err.message : 'APK download failed'
+    );
+  }
 }
 
 /**
@@ -17,6 +163,9 @@ function isDesktopTauri(): boolean {
  * @param manual - If true, shows checking/up-to-date/error states in UI
  */
 export async function checkForUpdates(manual = false): Promise<void> {
+  if (isAndroid()) {
+    return checkForAndroidUpdates(manual);
+  }
   if (!isDesktopTauri()) return;
 
   const store = useUpdateStore.getState();
@@ -98,7 +247,7 @@ export function useAutoUpdate() {
   const started = useRef(false);
 
   useEffect(() => {
-    if (!isDesktopTauri() || started.current) return;
+    if (!isTauri() || started.current) return;
     started.current = true;
 
     // Initial check after delay

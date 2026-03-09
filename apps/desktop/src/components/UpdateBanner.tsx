@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { useUpdateStore } from '../stores/updateStore';
-import { checkForUpdates } from '../hooks/useAutoUpdate';
+import { checkForUpdates, downloadAndInstallApk } from '../hooks/useAutoUpdate';
 
 export function UpdateBanner() {
   const status = useUpdateStore((s) => s.status);
@@ -27,7 +27,7 @@ export function UpdateBanner() {
   if (dismissed && status !== 'up-to-date') return null;
   if (status === 'idle') return null;
 
-  // For automatic checks, only show downloading and ready states
+  // For automatic checks, only show actionable states
   if (!manual && status === 'checking') return null;
   if (!manual && status === 'up-to-date') return null;
   if (!manual && status === 'error') return null;
@@ -62,6 +62,7 @@ export function UpdateBanner() {
 
         <span className="text-foreground truncate">
           {status === 'checking' && 'Checking for updates...'}
+          {status === 'available' && `Update v${availableVersion} is available.`}
           {status === 'downloading' && `Downloading update v${availableVersion}... ${downloadProgress}%`}
           {status === 'ready' && `Update v${availableVersion} is ready.`}
           {status === 'up-to-date' && `You're up to date (v${currentVersion})`}
@@ -70,7 +71,17 @@ export function UpdateBanner() {
       </div>
 
       <div className="flex items-center gap-2 flex-shrink-0">
-        {status === 'ready' && (
+        {/* Android: download APK button */}
+        {status === 'available' && (
+          <button
+            onClick={downloadAndInstallApk}
+            className="px-3 py-0.5 text-xs font-medium text-primary-foreground bg-primary hover:bg-primary/90 rounded transition-colors"
+          >
+            Download & Install
+          </button>
+        )}
+        {/* Desktop: restart button */}
+        {status === 'ready' && !navigator.userAgent.includes('Android') && (
           <button
             onClick={handleRestart}
             className="px-3 py-0.5 text-xs font-medium text-primary-foreground bg-primary hover:bg-primary/90 rounded transition-colors"
@@ -78,7 +89,7 @@ export function UpdateBanner() {
             Restart to Update
           </button>
         )}
-        {(status === 'ready' || status === 'downloading' || status === 'error') && (
+        {(status === 'available' || status === 'ready' || status === 'downloading' || status === 'error') && (
           <button
             onClick={dismiss}
             className="text-muted-foreground hover:text-foreground transition-colors p-0.5"

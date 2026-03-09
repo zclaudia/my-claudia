@@ -57,7 +57,7 @@
     "updater": {
       "pubkey": "REPLACE_WITH_YOUR_PUBKEY",
       "endpoints": [
-        "https://github.com/zhvala/my-claudia/releases/latest/download/latest.json"
+        "https://github.com/zclaudia/my-claudia/releases/latest/download/latest.json"
       ]
     }
   }

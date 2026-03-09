@@ -2,6 +2,7 @@ import { useEffect, useState, useMemo } from 'react';
 import { Workflow as WorkflowIcon, Plus, Loader2 } from 'lucide-react';
 import type { Workflow, WorkflowRun } from '@my-claudia/shared';
 import { useWorkflowStore } from '../../stores/workflowStore';
+import { useIsMobile } from '../../hooks/useMediaQuery';
 import { WorkflowCard } from './WorkflowCard';
 import { WorkflowEditor } from './WorkflowEditor';
 import { WorkflowRunViewer } from './WorkflowRunViewer';
@@ -46,6 +47,7 @@ type ViewState =
   | { type: 'run-viewer'; runId: string };
 
 export function WorkflowsPanel({ projectId, onViewModeChange }: WorkflowsPanelProps) {
+  const isMobile = useIsMobile();
   const {
     workflows,
     runs,
@@ -104,7 +106,7 @@ export function WorkflowsPanel({ projectId, onViewModeChange }: WorkflowsPanelPr
 
   // ── Render sub-views ──────────────────────────────────
 
-  if (view.type === 'editor') {
+  if (view.type === 'editor' && !isMobile) {
     return (
       <WorkflowEditor
         workflow={view.workflow}
@@ -142,13 +144,15 @@ export function WorkflowsPanel({ projectId, onViewModeChange }: WorkflowsPanelPr
             </span>
           )}
         </div>
-        <button
-          onClick={() => setView({ type: 'editor' })}
-          className="flex items-center gap-1 px-2.5 py-1 text-xs rounded-md bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
-        >
-          <Plus size={14} />
-          New
-        </button>
+        {!isMobile && (
+          <button
+            onClick={() => setView({ type: 'editor' })}
+            className="flex items-center gap-1 px-2.5 py-1 text-xs rounded-md bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
+          >
+            <Plus size={14} />
+            New
+          </button>
+        )}
       </div>
 
       <div className="flex-1 overflow-y-auto p-4">
@@ -158,8 +162,8 @@ export function WorkflowsPanel({ projectId, onViewModeChange }: WorkflowsPanelPr
           </div>
         ) : (
           <>
-            {/* Quick Start Templates */}
-            {templates.length > 0 && (
+            {/* Quick Start Templates (hidden on mobile) */}
+            {!isMobile && templates.length > 0 && (
               <div className="mb-6">
                 <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2">
                   Quick Start Templates
@@ -222,20 +226,20 @@ export function WorkflowsPanel({ projectId, onViewModeChange }: WorkflowsPanelPr
                       key={wf.id}
                       workflow={wf}
                       latestRun={getLatestRun(wf.id)}
-                      onTrigger={async () => {
+                      onTrigger={isMobile ? undefined : async () => {
                         const run = await triggerWorkflow(wf.id);
                         setView({ type: 'run-viewer', runId: run.id });
                       }}
-                      onEdit={() => setView({ type: 'editor', workflow: wf })}
-                      onToggle={() => updateWorkflow(wf.id, projectId, { status: 'disabled' })}
-                      onDelete={() => deleteWorkflow(wf.id, projectId)}
+                      onEdit={isMobile ? undefined : () => setView({ type: 'editor', workflow: wf })}
+                      onToggle={isMobile ? undefined : () => updateWorkflow(wf.id, projectId, { status: 'disabled' })}
+                      onDelete={isMobile ? undefined : () => deleteWorkflow(wf.id, projectId)}
                       onViewRuns={() => {
                         const latest = getLatestRun(wf.id);
                         if (latest) {
                           setView({ type: 'run-viewer', runId: latest.id });
                         }
                       }}
-                      onPopOut={isDesktopTauri ? () => openEditorInNewWindow(projectId, wf) : undefined}
+                      onPopOut={isDesktopTauri && !isMobile ? () => openEditorInNewWindow(projectId, wf) : undefined}
                     />
                   ))}
                 </div>
@@ -254,11 +258,11 @@ export function WorkflowsPanel({ projectId, onViewModeChange }: WorkflowsPanelPr
                       key={wf.id}
                       workflow={wf}
                       latestRun={getLatestRun(wf.id)}
-                      onTrigger={() => {}}
-                      onEdit={() => setView({ type: 'editor', workflow: wf })}
-                      onToggle={() => updateWorkflow(wf.id, projectId, { status: 'active' })}
-                      onDelete={() => deleteWorkflow(wf.id, projectId)}
-                      onPopOut={isDesktopTauri ? () => openEditorInNewWindow(projectId, wf) : undefined}
+                      onTrigger={isMobile ? undefined : () => {}}
+                      onEdit={isMobile ? undefined : () => setView({ type: 'editor', workflow: wf })}
+                      onToggle={isMobile ? undefined : () => updateWorkflow(wf.id, projectId, { status: 'active' })}
+                      onDelete={isMobile ? undefined : () => deleteWorkflow(wf.id, projectId)}
+                      onPopOut={isDesktopTauri && !isMobile ? () => openEditorInNewWindow(projectId, wf) : undefined}
                       onViewRuns={() => {}}
                     />
                   ))}

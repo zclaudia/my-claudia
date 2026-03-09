@@ -511,6 +511,7 @@ Be thorough but pragmatic. Minor style issues do not warrant REVIEW_FAILED.`;
 
         // Check for commits that arrived during the merge attempt
         await this.refreshAfterBusyState(prId);
+        throw err;
       }
     });
   }

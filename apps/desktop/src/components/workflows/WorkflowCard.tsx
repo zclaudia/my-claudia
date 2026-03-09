@@ -5,10 +5,10 @@ import { isV2Definition } from '@my-claudia/shared';
 interface WorkflowCardProps {
   workflow: Workflow;
   latestRun?: WorkflowRun;
-  onTrigger: () => void;
-  onEdit: () => void;
-  onToggle: () => void;
-  onDelete: () => void;
+  onTrigger?: () => void;
+  onEdit?: () => void;
+  onToggle?: () => void;
+  onDelete?: () => void;
   onViewRuns: () => void;
   onPopOut?: () => void;
 }
@@ -85,46 +85,56 @@ export function WorkflowCard({ workflow, latestRun, onTrigger, onEdit, onToggle,
           </div>
         </div>
 
-        <div className="flex items-center gap-1 shrink-0">
-          <button
-            onClick={onTrigger}
-            disabled={!isActive}
-            className="p-1 rounded hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors disabled:opacity-30"
-            title="Run now"
-          >
-            <Play size={14} />
-          </button>
-          <button
-            onClick={onEdit}
-            className="p-1 rounded hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors"
-            title="Edit"
-          >
-            <Pencil size={14} />
-          </button>
-          {onPopOut && (
-            <button
-              onClick={onPopOut}
-              className="p-1 rounded hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors"
-              title="Open in new window"
-            >
-              <ExternalLink size={14} />
-            </button>
-          )}
-          <button
-            onClick={onToggle}
-            className="p-1 rounded hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors"
-            title={isActive ? 'Disable' : 'Enable'}
-          >
-            {isActive ? <Pause size={14} /> : <Zap size={14} />}
-          </button>
-          <button
-            onClick={onDelete}
-            className="p-1 rounded hover:bg-secondary text-muted-foreground hover:text-destructive transition-colors"
-            title="Delete"
-          >
-            <Trash2 size={14} />
-          </button>
-        </div>
+        {(onTrigger || onEdit || onToggle || onDelete || onPopOut) && (
+          <div className="flex items-center gap-1 shrink-0">
+            {onTrigger && (
+              <button
+                onClick={onTrigger}
+                disabled={!isActive}
+                className="p-1 rounded hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors disabled:opacity-30"
+                title="Run now"
+              >
+                <Play size={14} />
+              </button>
+            )}
+            {onEdit && (
+              <button
+                onClick={onEdit}
+                className="p-1 rounded hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors"
+                title="Edit"
+              >
+                <Pencil size={14} />
+              </button>
+            )}
+            {onPopOut && (
+              <button
+                onClick={onPopOut}
+                className="p-1 rounded hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors"
+                title="Open in new window"
+              >
+                <ExternalLink size={14} />
+              </button>
+            )}
+            {onToggle && (
+              <button
+                onClick={onToggle}
+                className="p-1 rounded hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors"
+                title={isActive ? 'Disable' : 'Enable'}
+              >
+                {isActive ? <Pause size={14} /> : <Zap size={14} />}
+              </button>
+            )}
+            {onDelete && (
+              <button
+                onClick={onDelete}
+                className="p-1 rounded hover:bg-secondary text-muted-foreground hover:text-destructive transition-colors"
+                title="Delete"
+              >
+                <Trash2 size={14} />
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
       <div className="flex items-center gap-3 mt-2 text-xs text-muted-foreground">

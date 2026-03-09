@@ -3,6 +3,7 @@ import { GitMerge, XCircle, ChevronDown, ChevronUp, Eye, MessageSquare, FileCode
 import { useState } from 'react';
 import { useLocalPRStore } from '../../stores/localPRStore';
 import { useProjectStore } from '../../stores/projectStore';
+import { useIsMobile } from '../../hooks/useMediaQuery';
 import * as api from '../../services/api';
 import { DiffViewerModal } from './DiffViewerModal';
 
@@ -23,9 +24,11 @@ interface LocalPRCardProps {
 }
 
 export function LocalPRCard({ pr, projectId }: LocalPRCardProps) {
+  const isMobile = useIsMobile();
   const [diffOpen, setDiffOpen] = useState(false);
   const [notesOpen, setNotesOpen] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
   const [reviewPickerOpen, setReviewPickerOpen] = useState(false);
   const { closePR, reviewPR, mergePR } = useLocalPRStore();
   const providers = useProjectStore((s) => s.providers);
@@ -42,19 +45,40 @@ export function LocalPRCard({ pr, projectId }: LocalPRCardProps) {
   const date = new Date(pr.createdAt).toLocaleDateString();
 
   const handleClose = async () => {
+    setActionError(null);
     setLoading(true);
-    try { await closePR(pr.id, projectId); } finally { setLoading(false); }
+    try {
+      await closePR(pr.id, projectId);
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : 'Failed to close PR');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleMerge = async () => {
+    setActionError(null);
     setLoading(true);
-    try { await mergePR(pr.id, projectId); } finally { setLoading(false); }
+    try {
+      await mergePR(pr.id, projectId);
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : 'Failed to merge PR');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleReview = async (providerId?: string) => {
     setReviewPickerOpen(false);
+    setActionError(null);
     setLoading(true);
-    try { await reviewPR(pr.id, projectId, providerId || undefined); } finally { setLoading(false); }
+    try {
+      await reviewPR(pr.id, projectId, providerId || undefined);
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : 'Failed to start review');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const canReview = pr.status === 'open' || pr.status === 'review_failed';
@@ -86,77 +110,79 @@ export function LocalPRCard({ pr, projectId }: LocalPRCardProps) {
           </p>
         </div>
 
-        <div className="flex items-center gap-1 shrink-0">
-          {canReview && (
-            <div className="relative">
-              <button
-                onClick={() => setReviewPickerOpen((v) => !v)}
-                disabled={loading}
-                title="AI Review"
-                className="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground disabled:opacity-50"
-              >
-                <Eye className="w-3.5 h-3.5" />
-              </button>
-              {reviewPickerOpen && (
-                <>
-                  <div className="fixed inset-0 z-40" onClick={() => setReviewPickerOpen(false)} />
-                  <div className="absolute right-0 top-full mt-1 z-50 bg-popover border border-border rounded-lg shadow-lg p-2 min-w-[200px]">
-                    <p className="text-xs font-medium text-muted-foreground mb-1.5 px-1">Review with:</p>
-                    <button
-                      onClick={() => handleReview(defaultProviderId)}
-                      className="w-full text-left text-xs px-2 py-1.5 rounded hover:bg-muted"
-                    >
-                      Default{defaultProviderId ? ` (${getProviderLabel(providers, defaultProviderId)})` : ''}
-                    </button>
-                    {providers.filter((p) => p.id !== defaultProviderId).map((p) => (
+        {!isMobile && (
+          <div className="flex items-center gap-1 shrink-0">
+            {canReview && (
+              <div className="relative">
+                <button
+                  onClick={() => setReviewPickerOpen((v) => !v)}
+                  disabled={loading}
+                  title="AI Review"
+                  className="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground disabled:opacity-50"
+                >
+                  <Eye className="w-3.5 h-3.5" />
+                </button>
+                {reviewPickerOpen && (
+                  <>
+                    <div className="fixed inset-0 z-40" onClick={() => setReviewPickerOpen(false)} />
+                    <div className="absolute right-0 top-full mt-1 z-50 bg-popover border border-border rounded-lg shadow-lg p-2 min-w-[200px]">
+                      <p className="text-xs font-medium text-muted-foreground mb-1.5 px-1">Review with:</p>
                       <button
-                        key={p.id}
-                        onClick={() => handleReview(p.id)}
+                        onClick={() => handleReview(defaultProviderId)}
                         className="w-full text-left text-xs px-2 py-1.5 rounded hover:bg-muted"
                       >
-                        {p.name} ({p.type})
+                        Default{defaultProviderId ? ` (${getProviderLabel(providers, defaultProviderId)})` : ''}
                       </button>
-                    ))}
-                  </div>
-                </>
-              )}
-            </div>
-          )}
-          {pr.status === 'open' && (
-            <button
-              onClick={handleMerge}
-              disabled={loading}
-              title="Merge directly (skip review)"
-              className="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground disabled:opacity-50"
-            >
-              <GitMerge className="w-3.5 h-3.5" />
-            </button>
-          )}
-          {(pr.status === 'approved' || pr.status === 'conflict') && (
-            <button
-              onClick={handleMerge}
-              disabled={loading}
-              title="Merge now"
-              className="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground disabled:opacity-50"
-            >
-              <GitMerge className="w-3.5 h-3.5" />
-            </button>
-          )}
-          {!['merged', 'closed'].includes(pr.status) && (
-            <button
-              onClick={handleClose}
-              disabled={loading}
-              title="Close PR"
-              className="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-red-400 disabled:opacity-50"
-            >
-              <XCircle className="w-3.5 h-3.5" />
-            </button>
-          )}
-        </div>
+                      {providers.filter((p) => p.id !== defaultProviderId).map((p) => (
+                        <button
+                          key={p.id}
+                          onClick={() => handleReview(p.id)}
+                          className="w-full text-left text-xs px-2 py-1.5 rounded hover:bg-muted"
+                        >
+                          {p.name} ({p.type})
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+            {pr.status === 'open' && (
+              <button
+                onClick={handleMerge}
+                disabled={loading}
+                title="Merge directly (skip review)"
+                className="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground disabled:opacity-50"
+              >
+                <GitMerge className="w-3.5 h-3.5" />
+              </button>
+            )}
+            {(pr.status === 'approved' || pr.status === 'conflict') && (
+              <button
+                onClick={handleMerge}
+                disabled={loading}
+                title="Merge now"
+                className="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground disabled:opacity-50"
+              >
+                <GitMerge className="w-3.5 h-3.5" />
+              </button>
+            )}
+            {!['merged', 'closed'].includes(pr.status) && (
+              <button
+                onClick={handleClose}
+                disabled={loading}
+                title="Close PR"
+                className="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-red-400 disabled:opacity-50"
+              >
+                <XCircle className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
       <div className="flex items-center gap-3 flex-wrap">
-        {pr.diffSummary && (
+        {!isMobile && pr.diffSummary && (
           <button
             onClick={() => setDiffOpen(true)}
             className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
@@ -207,6 +233,10 @@ export function LocalPRCard({ pr, projectId }: LocalPRCardProps) {
         <pre className="text-xs bg-muted p-2 rounded overflow-auto max-h-40 whitespace-pre-wrap">
           {pr.reviewNotes}
         </pre>
+      )}
+
+      {actionError && (
+        <p className="text-xs text-red-500">{actionError}</p>
       )}
     </div>
   );
