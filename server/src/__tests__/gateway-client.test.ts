@@ -30,7 +30,7 @@ vi.mock('fs', () => ({
 
 // Mock crypto
 vi.mock('crypto', () => ({
-  randomUUID: vi.fn()
+  randomUUID: vi.fn().mockReturnValue('test-uuid-123')
 }));
 
 describe('GatewayClient', () => {

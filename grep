@@ -1,0 +1,108 @@
+
+> @my-claudia/server@0.1.0 test /Users/zhvala/SourceCode/my-claudia/.worktrees/glm-for-ut/server
+> vitest run "--" "src/services/__tests__/plan-validator.test.ts" "2" "-E" "FAIL|Error"
+
+
+[1m[46m RUN [49m[22m [36mv4.0.18 [39m[90m/Users/zhvala/SourceCode/my-claudia/.worktrees/glm-for-ut/server[39m
+
+[90mstderr[2m | src/__tests__/gateway-client-mode.test.ts[2m > [22m[2mgateway-client-mode[2m > [22m[2mconnect[2m > [22m[2mcreates WebSocket connection
+[22m[39m[vitest] The vi.fn() mock did not use 'function' or 'class' in its implementation, see https://vitest.dev/api/vi#vi-spyon for examples.
+
+[90mstderr[2m | src/__tests__/gateway-client-mode.test.ts[2m > [22m[2mgateway-client-mode[2m > [22m[2mconnect[2m > [22m[2mconverts https to wss
+[22m[39m[vitest] The vi.fn() mock did not use 'function' or 'class' in its implementation, see https://vitest.dev/api/vi#vi-spyon for examples.
+
+[90mstderr[2m | src/__tests__/gateway-client-mode.test.ts[2m > [22m[2mgateway-client-mode[2m > [22m[2mconnect[2m > [22m[2mclears existing connection before creating new one
+[22m[39m[vitest] The vi.fn() mock did not use 'function' or 'class' in its implementation, see https://vitest.dev/api/vi#vi-spyon for examples.
+
+[90mstderr[2m | src/__tests__/gateway-client-mode.test.ts[2m > [22m[2mgateway-client-mode[2m > [22m[2mconnect[2m > [22m[2msends gateway_auth on open
+[22m[39m[vitest] The vi.fn() mock did not use 'function' or 'class' in its implementation, see https://vitest.dev/api/vi#vi-spyon for examples.
+
+[90mstderr[2m | src/__tests__/gateway-client-mode.test.ts[2m > [22m[2mgateway-client-mode[2m > [22m[2mdisconnect[2m > [22m[2mcloses WebSocket connection
+[22m[39m[vitest] The vi.fn() mock did not use 'function' or 'class' in its implementation, see https://vitest.dev/api/vi#vi-spyon for examples.
+
+[90mstderr[2m | src/__tests__/gateway-client-mode.test.ts[2m > [22m[2mgateway-client-mode[2m > [22m[2mdisconnect[2m > [22m[2msets intentionalDisconnect flag
+[22m[39m[vitest] The vi.fn() mock did not use 'function' or 'class' in its implementation, see https://vitest.dev/api/vi#vi-spyon for examples.
+
+[90mstderr[2m | src/__tests__/gateway-client-mode.test.ts[2m > [22m[2mgateway-client-mode[2m > [22m[2mdisconnect[2m > [22m[2mclears authenticated state
+[22m[39m[vitest] The vi.fn() mock did not use 'function' or 'class' in its implementation, see https://vitest.dev/api/vi#vi-spyon for examples.
+
+[90mstderr[2m | src/__tests__/gateway-client-mode.test.ts[2m > [22m[2mgateway-client-mode[2m > [22m[2mconnectBackend[2m > [22m[2mreturns success if already authenticated
+[22m[39m[vitest] The vi.fn() mock did not use 'function' or 'class' in its implementation, see https://vitest.dev/api/vi#vi-spyon for examples.
+
+[90mstderr[2m | src/__tests__/gateway-client-mode.test.ts[2m > [22m[2mgateway-client-mode[2m > [22m[2msendToBackend[2m > [22m[2mreturns false when backend not authenticated
+[22m[39m[vitest] The vi.fn() mock did not use 'function' or 'class' in its implementation, see https://vitest.dev/api/vi#vi-spyon for examples.
+
+[90mstderr[2m | src/__tests__/gateway-client-mode.test.ts[2m > [22m[2mgateway-client-mode[2m > [22m[2mcreateHttpAgent[2m > [22m[2mcreates agent when proxy configured
+[22m[39m[vitest] The vi.fn() mock did not use 'function' or 'class' in its implementation, see https://vitest.dev/api/vi#vi-spyon for examples.
+
+[90mstderr[2m | src/__tests__/gateway-client-mode.test.ts[2m > [22m[2mgateway-client-mode[2m > [22m[2mcreateHttpAgent[2m > [22m[2mincludes proxy auth when configured
+[22m[39m[vitest] The vi.fn() mock did not use 'function' or 'class' in its implementation, see https://vitest.dev/api/vi#vi-spyon for examples.
+
+[90mstderr[2m | src/__tests__/gateway-client-mode.test.ts[2m > [22m[2mgateway-client-mode[2m > [22m[2mreconnection[2m > [22m[2mschedules reconnect on disconnect
+[22m[39m[vitest] The vi.fn() mock did not use 'function' or 'class' in its implementation, see https://vitest.dev/api/vi#vi-spyon for examples.
+
+[90mstderr[2m | src/__tests__/gateway-client-mode.test.ts[2m > [22m[2mgateway-client-mode[2m > [22m[2mreconnection[2m > [22m[2mdoes not reconnect after intentional disconnect
+[22m[39m[vitest] The vi.fn() mock did not use 'function' or 'class' in its implementation, see https://vitest.dev/api/vi#vi-spyon for examples.
+
+[90mstderr[2m | src/__tests__/gateway-client-mode.test.ts[2m > [22m[2mgateway-client-mode[2m > [22m[2mreconnection[2m > [22m[2muses exponential backoff
+[22m[39m[vitest] The vi.fn() mock did not use 'function' or 'class' in its implementation, see https://vitest.dev/api/vi#vi-spyon for examples.
+
+[90mstderr[2m | src/__tests__/gateway-client-mode.test.ts[2m > [22m[2mgateway-client-mode[2m > [22m[2mmessage handling[2m > [22m[2mhandles gateway_auth_result success
+[22m[39m[vitest] The vi.fn() mock did not use 'function' or 'class' in its implementation, see https://vitest.dev/api/vi#vi-spyon for examples.
+
+[90mstderr[2m | src/__tests__/gateway-client-mode.test.ts[2m > [22m[2mgateway-client-mode[2m > [22m[2mmessage handling[2m > [22m[2mhandles gateway_auth_result failure
+[22m[39m[vitest] The vi.fn() mock did not use 'function' or 'class' in its implementation, see https://vitest.dev/api/vi#vi-spyon for examples.
+
+[90mstdout[2m | src/providers/__tests__/opencode-sdk.test.ts[2m > [22m[2mopencode-sdk[2m > [22m[2mOpenCodeServerManager[2m > [22m[2mshould be a singleton
+[22m[39m[OpenCode] === opencode-sdk.ts module loaded ===
+
+[90mstderr[2m | src/__tests__/gateway-client-mode.test.ts[2m > [22m[2mgateway-client-mode[2m > [22m[2mmessage handling[2m > [22m[2mhandles invalid JSON gracefully
+[22m[39m[vitest] The vi.fn() mock did not use 'function' or 'class' in its implementation, see https://vitest.dev/api/vi#vi-spyon for examples.
+
+[90mstdout[2m | src/providers/__tests__/opencode-sdk.test.ts[2m > [22m[2mopencode-sdk[2m > [22m[2mrunOpenCode error handling[2m > [22m[2myields error when CLI not found
+[22m[39m[OpenCode] Starting server on port 18854 for /project
+
+[90mstdout[2m | src/providers/__tests__/opencode-sdk.test.ts[2m > [22m[2mopencode-sdk[2m > [22m[2mrunOpenCode error handling[2m > [22m[2myields error when server fails to start
+[22m[39m[OpenCode] Starting server on port 12659 for /project
+
+ [31m❯[39m src/middleware/__tests__/logging.test.ts [2m([22m[2m13 tests[22m[2m | [22m[31m6 failed[39m[2m)[22m[32m 38[2mms[22m[39m
+       [32m✓[39m logs request type and client ID[32m 2[2mms[22m[39m
+       [32m✓[39m logs response success status[32m 0[2mms[22m[39m
+       [32m✓[39m logs response failure status[32m 1[2mms[22m[39m
+       [32m✓[39m logs request duration[32m 12[2mms[22m[39m
+       [32m✓[39m logs "no response" when handler returns nothing[32m 1[2mms[22m[39m
+       [32m✓[39m logs errors and re-throws[32m 1[2mms[22m[39m
+       [32m✓[39m logs error duration[32m 14[2mms[22m[39m
+[31m       [31m×[31m logs request payload (truncated)[39m[32m 4[2mms[22m[39m
+[31m       [31m×[31m logs client authentication status[39m[32m 1[2mms[22m[39m
+[31m       [31m×[31m logs response payload size[39m[32m 0[2mms[22m[39m
+[31m       [31m×[31m logs response success[39m[32m 0[2mms[22m[39m
+[31m       [31m×[31m logs error details when handler throws[39m[32m 1[2mms[22m[39m
+[31m       [31m×[31m truncates large payloads in log[39m[32m 0[2mms[22m[39m
+node:events:496
+      throw er; // Unhandled 'error' event
+      ^
+
+Error: write EPIPE
+    at afterWriteDispatched (node:internal/stream_base_commons:159:15)
+    at writeGeneric (node:internal/stream_base_commons:150:3)
+    at Socket._writeGeneric (node:net:971:11)
+    at Socket._write (node:net:983:8)
+    at writeOrBuffer (node:internal/streams/writable:572:12)
+    at _write (node:internal/streams/writable:501:10)
+    at Socket.Writable.write (node:internal/streams/writable:510:10)
+    at Console.value (node:internal/console/constructor:298:16)
+    at Console.log (node:internal/console/constructor:384:26)
+    at Logger.log (file:///Users/zhvala/SourceCode/my-claudia/.worktrees/glm-for-ut/node_modules/.pnpm/vitest@4.0.18_@opentelemetry+api@1.9.0_@types+node@20.19.32_@vitest+ui@4.0.18_jiti@1.21.7_jsd_nu4ryyyrzikhvabrp4uyn7emk4/node_modules/vitest/dist/chunks/cli-api.B7PN_QUv.js:6515:16)
+Emitted 'error' event on Socket instance at:
+    at Socket.onerror (node:internal/streams/readable:1028:14)
+    at Socket.emit (node:events:530:35)
+    at emitErrorNT (node:internal/streams/destroy:170:8)
+    at emitErrorCloseNT (node:internal/streams/destroy:129:3)
+    at processTicksAndRejections (node:internal/process/task_queues:90:21) {
+  errno: -32,
+  code: 'EPIPE',
+  syscall: 'write'
+}
+
+Node.js v22.14.0

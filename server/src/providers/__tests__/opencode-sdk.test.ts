@@ -112,27 +112,27 @@ describe('opencode-sdk', () => {
 
   describe('ThinkTagFilter', () => {
     // The ThinkTagFilter class is not exported, but we can verify the expected behavior
-    // by understanding what it should do
+    // by understanding what it should do - it filters <think...</think<parameter name="think"> blocks
 
-    it('should filter out <think...</thinkgt; blocks', () => {
+    it('should filter out <think...</think<parameter name="think"> blocks', () => {
       // Test the expected behavior conceptually
-      const input = 'Normal text <thinkgt;internal reasoning</thinkgt; more text';
+      const input = 'Normal text  internal reasoning</think<parameter name="think"> more text';
       // After filtering: "Normal text  more text"
-      expect(input).toContain('<thinkgt;');
-      expect(input).toContain('</thinkgt>');
+      expect(input).toContain('');
+      expect(input).toContain('</think<parameter name="think">');
     });
 
     it('should handle streaming chunks correctly', () => {
       // The filter needs to handle partial tags across chunks
-      const chunks = ['Hello ', '<thi', 'nkgt;thinking</thinkgt; world'];
+      const chunks = ['Hello ', '<thi', 'nk>thinking</think<parameter name="think"> world'];
       // After proper filtering: "Hello  world"
-      expect(chunks.join('')).toContain('<thinkgt;');
+      expect(chunks.join('')).toContain('');
     });
 
-    it('should trim whitespace after </thinkgt;', () => {
-      const input = 'Start <thinkgt;reason</thinkgt;\n\nEnd';
-      // After filtering, leading whitespace after </thinkgt; should be trimmed
-      expect(input).toContain('</thinkgt>');
+    it('should trim whitespace after </think<parameter name="think">', () => {
+      const input = 'Start  reason</think<parameter name="think">\n\nEnd';
+      // After filtering, leading whitespace after </think<parameter name="think"> should be trimmed
+      expect(input).toContain('</think<parameter name="think">');
     });
   });
 

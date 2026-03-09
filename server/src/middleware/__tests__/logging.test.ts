@@ -158,6 +158,7 @@ describe('middleware/logging', () => {
       await detailedLoggingMiddleware(mockCtx, handler);
 
       expect(consoleLogSpy).toHaveBeenCalledWith(
+        '[Request Details]',
         expect.objectContaining({
           type: 'user.create.request',
           requestId: 'req-test-123',
@@ -181,6 +182,7 @@ describe('middleware/logging', () => {
       await detailedLoggingMiddleware(mockCtx, handler);
 
       expect(consoleLogSpy).toHaveBeenCalledWith(
+        '[Request Details]',
         expect.objectContaining({
           authenticated: false,
           isLocal: false,
@@ -200,6 +202,7 @@ describe('middleware/logging', () => {
       await detailedLoggingMiddleware(mockCtx, handler);
 
       expect(consoleLogSpy).toHaveBeenCalledWith(
+        '[Response Details]',
         expect.objectContaining({
           payloadSize: expect.any(Number),
         })
@@ -218,6 +221,7 @@ describe('middleware/logging', () => {
       await detailedLoggingMiddleware(mockCtx, handler);
 
       expect(consoleLogSpy).toHaveBeenCalledWith(
+        '[Response Details]',
         expect.objectContaining({
           success: true,
         })
@@ -235,6 +239,7 @@ describe('middleware/logging', () => {
       await expect(detailedLoggingMiddleware(mockCtx, handler)).rejects.toThrow();
 
       expect(consoleErrorSpy).toHaveBeenCalledWith(
+        '[Error Details]',
         expect.objectContaining({
           error: 'Detailed error',
           stack: expect.any(String),
@@ -256,11 +261,12 @@ describe('middleware/logging', () => {
       await detailedLoggingMiddleware(mockCtx, handler);
 
       // The payload should be truncated to 200 chars
+      // console.log is called with '[Request Details]' as first arg, object as second
       const logCall = consoleLogSpy.mock.calls.find(
-        call => call[0]?.payload !== undefined
+        call => call[1]?.payload !== undefined
       );
       expect(logCall).toBeDefined();
-      expect(logCall![0].payload.length).toBeLessThanOrEqual(202); // 200 + quotes
+      expect(logCall![1].payload.length).toBeLessThanOrEqual(202); // 200 + quotes
     });
   });
 });

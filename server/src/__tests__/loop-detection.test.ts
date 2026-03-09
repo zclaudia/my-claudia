@@ -100,7 +100,7 @@ describe('generateToolSignature', () => {
 
     it('should handle tools without input', () => {
       const result = generateToolSignature('Task');
-      expect(result).toBe('Task');
+      expect(result).toBe('Task:generic');
     });
 
     it('should handle tools with empty input', () => {

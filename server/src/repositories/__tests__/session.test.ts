@@ -145,10 +145,10 @@ describe('SessionRepository', () => {
       const { params } = repository.createQuery(data);
       const after = Date.now();
 
-      // params: [id, projectId, name, providerId, sdkSessionId, type, parentSessionId, workingDirectory, projectRole, taskId, createdAt, updatedAt]
-      expect(params[10]).toBeGreaterThanOrEqual(before);
-      expect(params[10]).toBeLessThanOrEqual(after);
-      expect(params[11]).toBe(params[10]); // createdAt === updatedAt
+      // params: [id, projectId, name, providerId, sdkSessionId, type, parentSessionId, workingDirectory, projectRole, taskId, planStatus, isReadOnly, createdAt, updatedAt]
+      expect(params[12]).toBeGreaterThanOrEqual(before);
+      expect(params[12]).toBeLessThanOrEqual(after);
+      expect(params[13]).toBe(params[12]); // createdAt === updatedAt
     });
   });
 

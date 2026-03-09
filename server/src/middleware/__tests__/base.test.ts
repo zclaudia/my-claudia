@@ -98,9 +98,9 @@ describe('middleware/base', () => {
         return next(ctx);
       };
 
-      const shouldNotRun: Middleware = async () => {
-        order.push('should-not-run');
-        return undefined;
+      const trackingMiddleware: Middleware = async (ctx, next) => {
+        order.push('tracking');
+        return next(ctx);
       };
 
       const finalHandler: MessageHandler = async () => {
@@ -108,17 +108,18 @@ describe('middleware/base', () => {
         return { id: 'resp-1', type: 'test.response', payload: 'done', timestamp: Date.now(), metadata: { success: true } };
       };
 
-      // Test with authenticated client
-      const composed = composeMiddleware(authMiddleware, shouldNotRun);
+      // Test with authenticated client - full chain executes
+      const composed = composeMiddleware(authMiddleware, trackingMiddleware);
       await composed(mockCtx, finalHandler);
+      expect(order).toContain('tracking');
       expect(order).toContain('final');
 
-      // Test with unauthenticated client
+      // Test with unauthenticated client - short-circuits
       order.length = 0;
       mockCtx.client.authenticated = false;
       const response = await composed(mockCtx, finalHandler);
+      expect(order).not.toContain('tracking');
       expect(order).not.toContain('final');
-      expect(order).not.toContain('should-not-run');
       expect(response?.metadata.success).toBe(false);
     });
 

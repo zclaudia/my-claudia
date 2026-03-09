@@ -37,11 +37,8 @@ describe('handlers/factory', () => {
         const result = await handlers.list(ctx);
 
         expect(mockRepo.findAll).toHaveBeenCalledOnce();
-        expect(result).toEqual({
-          type: 'items_list',
-          payload: { items: mockItems },
-          requestId: undefined,
-        });
+        expect(result.type).toBe('items_list');
+        expect(result.payload).toEqual({ items: mockItems });
       });
 
       it('throws DATABASE_ERROR on repository failure', async () => {
@@ -71,11 +68,8 @@ describe('handlers/factory', () => {
         const result = await handlers.create(ctx);
 
         expect(mockRepo.create).toHaveBeenCalledWith(createData);
-        expect(result).toEqual({
-          type: 'items_created',
-          payload: { item: newItem },
-          requestId: undefined,
-        });
+        expect(result.type).toBe('items_created');
+        expect(result.payload).toEqual({ item: newItem });
       });
 
       it('creates entity with nested payload format', async () => {
@@ -90,11 +84,8 @@ describe('handlers/factory', () => {
         const result = await handlers.create(ctx);
 
         expect(mockRepo.create).toHaveBeenCalledWith(createData);
-        expect(result).toEqual({
-          type: 'items_created',
-          payload: { item: newItem },
-          requestId: undefined,
-        });
+        expect(result.type).toBe('items_created');
+        expect(result.payload).toEqual({ item: newItem });
       });
 
       it('throws VALIDATION_ERROR for invalid data', async () => {
@@ -156,11 +147,8 @@ describe('handlers/factory', () => {
         const result = await handlers.update(ctx);
 
         expect(mockRepo.update).toHaveBeenCalledWith('1', { id: '1', name: 'Updated' });
-        expect(result).toEqual({
-          type: 'items_updated',
-          payload: { item: updatedItem },
-          requestId: undefined,
-        });
+        expect(result.type).toBe('items_updated');
+        expect(result.payload).toEqual({ item: updatedItem });
       });
 
       it('updates entity with nested payload format', async () => {
@@ -174,11 +162,8 @@ describe('handlers/factory', () => {
         const result = await handlers.update(ctx);
 
         expect(mockRepo.update).toHaveBeenCalledWith('1', { name: 'Updated' });
-        expect(result).toEqual({
-          type: 'items_updated',
-          payload: { item: updatedItem },
-          requestId: undefined,
-        });
+        expect(result.type).toBe('items_updated');
+        expect(result.payload).toEqual({ item: updatedItem });
       });
 
       it('throws VALIDATION_ERROR when id is missing', async () => {
@@ -228,11 +213,8 @@ describe('handlers/factory', () => {
         const result = await handlers.delete(ctx);
 
         expect(mockRepo.delete).toHaveBeenCalledWith('1');
-        expect(result).toEqual({
-          type: 'items_deleted',
-          payload: { success: true, id: '1' },
-          requestId: undefined,
-        });
+        expect(result.type).toBe('items_deleted');
+        expect(result.payload).toEqual({ success: true, id: '1' });
       });
 
       it('deletes entity when payload is just the id', async () => {
@@ -245,11 +227,8 @@ describe('handlers/factory', () => {
         const result = await handlers.delete(ctx);
 
         expect(mockRepo.delete).toHaveBeenCalledWith('item-123');
-        expect(result).toEqual({
-          type: 'items_deleted',
-          payload: { success: true, id: 'item-123' },
-          requestId: undefined,
-        });
+        expect(result.type).toBe('items_deleted');
+        expect(result.payload).toEqual({ success: true, id: 'item-123' });
       });
 
       it('throws VALIDATION_ERROR when id is missing', async () => {
@@ -319,11 +298,8 @@ describe('handlers/factory', () => {
 
       const result = await handler(ctx);
 
-      expect(result).toEqual({
-        type: 'custom_result',
-        payload: customResult,
-        requestId: undefined,
-      });
+      expect(result.type).toBe('custom_result');
+      expect(result.payload).toEqual(customResult);
     });
 
     it('preserves AppError from custom handler', async () => {

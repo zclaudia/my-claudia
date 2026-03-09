@@ -13,7 +13,9 @@ const REQUIRED_SECTIONS = ['goal', 'scope', 'steps', 'verification'];
 const OPTIONAL_SECTIONS = ['risks', 'assumptions'];
 
 function normalizeHeading(raw: string): string {
-  return raw.trim().toLowerCase().replace(/[：:]+$/, '');
+  // Handle both trailing colons and colons in the middle (e.g., "Goal：目标")
+  // Extract just the heading name before any colon
+  return raw.trim().toLowerCase().split(/[：:]/)[0].trim();
 }
 
 function extractSections(markdown: string): Record<string, string> {

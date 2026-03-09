@@ -51,7 +51,8 @@ describe('hooks/useMediaQuery', () => {
 
   describe('useMediaQuery', () => {
     it('returns initial match state', () => {
-      matchMediaMock.mockReturnValueOnce({
+      // Need to mockReturnValue for ALL calls (useState initializer + useEffect)
+      matchMediaMock.mockReturnValue({
         matches: true,
         media: '(max-width: 767px)',
         addEventListener: vi.fn(),
@@ -94,13 +95,14 @@ describe('hooks/useMediaQuery', () => {
     it('removes event listener on unmount', () => {
       const { unmount } = renderHook(() => useMediaQuery('(max-width: 767px)'));
 
-      const addCall = matchMediaMock.mock.results[0].value.addEventListener.mock.calls;
-      expect(addCall.length).toBeGreaterThan(0);
+      // The hook calls matchMedia twice: once in useState, once in useEffect
+      // The event listener is added to the second call's result (in useEffect)
+      const mql = matchMediaMock.mock.results[1].value;
+      expect(mql.addEventListener).toHaveBeenCalled();
 
+      // Unmount and verify removeEventListener was called
       unmount();
-
-      const removeCall = matchMediaMock.mock.results[0].value.removeEventListener.mock.calls;
-      expect(removeCall.length).toBeGreaterThan(0);
+      expect(mql.removeEventListener).toHaveBeenCalled();
     });
 
     it('re-subscribes when query changes', () => {
@@ -125,7 +127,8 @@ describe('hooks/useMediaQuery', () => {
     });
 
     it('returns true when mobile query matches', () => {
-      matchMediaMock.mockReturnValueOnce({
+      // Need mockReturnValue (not Once) since hook calls matchMedia twice
+      matchMediaMock.mockReturnValue({
         matches: true,
         media: '(max-width: 767px)',
         addEventListener: vi.fn(),
@@ -150,7 +153,8 @@ describe('hooks/useMediaQuery', () => {
     });
 
     it('returns true when tablet query matches', () => {
-      matchMediaMock.mockReturnValueOnce({
+      // Need mockReturnValue (not Once) since hook calls matchMedia twice
+      matchMediaMock.mockReturnValue({
         matches: true,
         media: '(min-width: 768px) and (max-width: 1023px)',
         addEventListener: vi.fn(),
@@ -175,7 +179,8 @@ describe('hooks/useMediaQuery', () => {
     });
 
     it('returns true when desktop query matches', () => {
-      matchMediaMock.mockReturnValueOnce({
+      // Need mockReturnValue (not Once) since hook calls matchMedia twice
+      matchMediaMock.mockReturnValue({
         matches: true,
         media: '(min-width: 1024px)',
         addEventListener: vi.fn(),

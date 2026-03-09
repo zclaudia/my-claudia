@@ -46,13 +46,12 @@ describe('hooks/useServerManager', () => {
     it('returns all manager functions', () => {
       const { result } = renderHook(() => useServerManager());
 
-      expect(result.current).toHaveProperty('refreshServers');
+      // Note: refreshServers is internal, not exported
       expect(result.current).toHaveProperty('addServer');
       expect(result.current).toHaveProperty('updateServer');
       expect(result.current).toHaveProperty('deleteServer');
       expect(result.current).toHaveProperty('setDefaultServer');
 
-      expect(typeof result.current.refreshServers).toBe('function');
       expect(typeof result.current.addServer).toBe('function');
       expect(typeof result.current.updateServer).toBe('function');
       expect(typeof result.current.deleteServer).toBe('function');
@@ -76,30 +75,31 @@ describe('hooks/useServerManager', () => {
     });
   });
 
-  describe('refreshServers', () => {
-    it('fetches servers and updates store', async () => {
+  describe('internal refresh', () => {
+    it('fetches servers and updates store after add', async () => {
       const mockServers = [
         { id: 'server-1', name: 'Server 1', address: 'localhost:3000' },
-        { id: 'server-2', name: 'Server 2', address: 'localhost:3001' },
       ];
+      mockCreateServer.mockResolvedValueOnce({ id: 'new-server' });
       mockGetServers.mockResolvedValueOnce(mockServers);
 
       const { result } = renderHook(() => useServerManager());
 
-      await result.current.refreshServers();
+      await result.current.addServer({ name: 'Test', address: 'localhost' } as any);
 
       expect(mockGetServers).toHaveBeenCalledTimes(1);
       expect(mockSetServers).toHaveBeenCalledWith(mockServers);
     });
 
-    it('handles errors gracefully', async () => {
+    it('handles errors gracefully during refresh', async () => {
       const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      mockCreateServer.mockResolvedValueOnce({ id: 'new' });
       mockGetServers.mockRejectedValueOnce(new Error('Network error'));
 
       const { result } = renderHook(() => useServerManager());
 
-      // Should not throw
-      await expect(result.current.refreshServers()).resolves.toBeUndefined();
+      // The addServer should complete without throwing even if refresh fails
+      await result.current.addServer({ name: 'Test', address: 'localhost' } as any);
 
       expect(consoleSpy).toHaveBeenCalledWith(
         '[ServerManager] Failed to refresh servers:',
@@ -107,15 +107,6 @@ describe('hooks/useServerManager', () => {
       );
 
       consoleSpy.mockRestore();
-    });
-
-    it('returns nothing (void)', async () => {
-      mockGetServers.mockResolvedValueOnce([]);
-
-      const { result } = renderHook(() => useServerManager());
-
-      const returnValue = await result.current.refreshServers();
-      expect(returnValue).toBeUndefined();
     });
   });
 

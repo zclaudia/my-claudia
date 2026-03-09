@@ -122,9 +122,16 @@ export function successResponse<T>(request: Request, type: string, payload: T): 
  * Helper to create an error response
  */
 export function errorResponse(request: Request, code: string, message: string, details?: unknown): Response<null> {
+  // Transform request type to response type
+  // If type ends with .request, replace with .response
+  // Otherwise, append .response
+  const responseType = request.type.endsWith('.request')
+    ? request.type.replace('.request', '.response')
+    : `${request.type}.response`;
+
   return {
     id: `${Date.now()}-${Math.random().toString(36).substring(2, 15)}`,
-    type: request.type.replace('.request', '.response'),
+    type: responseType,
     payload: null,
     timestamp: Date.now(),
     metadata: {

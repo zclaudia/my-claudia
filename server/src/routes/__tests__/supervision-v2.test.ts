@@ -87,7 +87,7 @@ describe('Supervision V2 Routes', () => {
 
       expect(res.body.success).toBe(true);
       expect(res.body.data.type).toBe('supervisor');
-      expect(mockService.initAgent).toHaveBeenCalledWith('proj-1', { trustLevel: 'high' });
+      expect(mockService.initAgent).toHaveBeenCalledWith('proj-1', { trustLevel: 'high' }, undefined, undefined);
     });
 
     it('returns 400 when initAgent throws', async () => {

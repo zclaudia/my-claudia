@@ -46,12 +46,11 @@ describe('hooks/useProjectManager', () => {
     it('returns all manager functions', () => {
       const { result } = renderHook(() => useProjectManager());
 
-      expect(result.current).toHaveProperty('refreshProjects');
+      // Note: refreshProjects is internal, not exported
       expect(result.current).toHaveProperty('addProject');
       expect(result.current).toHaveProperty('updateProject');
       expect(result.current).toHaveProperty('deleteProject');
 
-      expect(typeof result.current.refreshProjects).toBe('function');
       expect(typeof result.current.addProject).toBe('function');
       expect(typeof result.current.updateProject).toBe('function');
       expect(typeof result.current.deleteProject).toBe('function');
@@ -72,30 +71,31 @@ describe('hooks/useProjectManager', () => {
     });
   });
 
-  describe('refreshProjects', () => {
-    it('fetches projects and updates store', async () => {
+  describe('internal refresh', () => {
+    it('fetches projects and updates store after add', async () => {
       const mockProjects = [
         { id: 'project-1', name: 'Project 1', path: '/path/1' },
-        { id: 'project-2', name: 'Project 2', path: '/path/2' },
       ];
+      mockCreateProject.mockResolvedValueOnce({ id: 'new-project' });
       mockGetProjects.mockResolvedValueOnce(mockProjects);
 
       const { result } = renderHook(() => useProjectManager());
 
-      await result.current.refreshProjects();
+      await result.current.addProject({ name: 'Test', path: '/test' } as any);
 
       expect(mockGetProjects).toHaveBeenCalledTimes(1);
       expect(mockSetProjects).toHaveBeenCalledWith(mockProjects);
     });
 
-    it('handles errors gracefully', async () => {
+    it('handles errors gracefully during refresh', async () => {
       const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      mockCreateProject.mockResolvedValueOnce({ id: 'new' });
       mockGetProjects.mockRejectedValueOnce(new Error('Network error'));
 
       const { result } = renderHook(() => useProjectManager());
 
-      // Should not throw
-      await expect(result.current.refreshProjects()).resolves.toBeUndefined();
+      // The addProject should complete without throwing even if refresh fails
+      await result.current.addProject({ name: 'Test', path: '/test' } as any);
 
       expect(consoleSpy).toHaveBeenCalledWith(
         '[ProjectManager] Failed to refresh projects:',
@@ -103,15 +103,6 @@ describe('hooks/useProjectManager', () => {
       );
 
       consoleSpy.mockRestore();
-    });
-
-    it('returns nothing (void)', async () => {
-      mockGetProjects.mockResolvedValueOnce([]);
-
-      const { result } = renderHook(() => useProjectManager());
-
-      const returnValue = await result.current.refreshProjects();
-      expect(returnValue).toBeUndefined();
     });
   });
 

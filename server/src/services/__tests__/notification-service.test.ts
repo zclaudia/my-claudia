@@ -68,6 +68,9 @@ describe('NotificationService', () => {
       const storedConfig = { ...DEFAULT_NOTIFICATION_CONFIG, ntfyTopic: 'cached-test' };
       mockDb.prepare().get.mockReturnValue({ config: JSON.stringify(storedConfig) });
 
+      // Clear the mock count from setup
+      mockDb.prepare.mockClear();
+
       // First call loads from DB
       service.getConfig();
       // Second call should use cache
@@ -234,7 +237,6 @@ describe('NotificationService', () => {
         'ask_user_question',
         'run_completed',
         'run_failed',
-        'supervision_update',
         'background_permission',
       ] as const;
 
@@ -248,7 +250,6 @@ describe('NotificationService', () => {
           askUserQuestion: true,
           runCompleted: true,
           runFailed: true,
-          supervisionUpdate: true,
           backgroundPermission: true,
         },
       };

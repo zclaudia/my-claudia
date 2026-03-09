@@ -9,6 +9,7 @@ vi.mock('../clientAI', () => ({
 vi.mock('../agentTools', () => ({
   AGENT_TOOLS: [{ type: 'function', function: { name: 'list_backends', description: 'Test', parameters: {} } }],
   executeToolCall: vi.fn(),
+  getAgentTools: vi.fn().mockReturnValue([{ type: 'function', function: { name: 'list_backends', description: 'Test', parameters: {} } }]),
 }));
 
 vi.mock('../agentStorage', () => ({
