@@ -59,12 +59,14 @@ function prepareOpenCodeInput(input: string): { text: string; fileParts: OCFileP
 }
 
 // Temporary debug logger to trace SSE issues
+const OC_DEBUG_ENABLED = process.env.MY_CLAUDIA_OPENCODE_DEBUG === '1';
 const OC_LOG_PATH = process.env.MY_CLAUDIA_DATA_DIR
   ? `${process.env.MY_CLAUDIA_DATA_DIR}/opencode-debug.log`
   : '/tmp/opencode-debug.log';
 // Always also write to /tmp for easy access from dev tools
 const OC_LOG_TMP = '/tmp/opencode-debug.log';
 function ocLog(msg: string) {
+  if (!OC_DEBUG_ENABLED) return;
   const line = `[${new Date().toISOString()}] ${msg}\n`;
   try { appendFileSync(OC_LOG_PATH, line); } catch (e) { /* silently fail */ }
   if (OC_LOG_TMP !== OC_LOG_PATH) {
@@ -73,7 +75,9 @@ function ocLog(msg: string) {
   console.log(`[OpenCode] ${msg}`);
 }
 // Write a startup marker so we know the module was loaded
-ocLog('=== opencode-sdk.ts module loaded ===');
+if (OC_DEBUG_ENABLED) {
+  ocLog('=== opencode-sdk.ts module loaded ===');
+}
 import {
   createOpencodeClient,
   type OpencodeClient,
@@ -437,10 +441,26 @@ interface StreamState {
   lastTextPartId: string;
   /** Whether this run has emitted any visible assistant output */
   hasAnyAssistantOutput: boolean;
+  /** Track emitted tool_use events to avoid duplicate emission on repeated updates */
+  emittedToolUse: Set<string>;
+  /** Track emitted tool_result events to avoid duplicate emission on repeated updates */
+  emittedToolResult: Set<string>;
 }
 
 function createStreamState(): StreamState {
-  return { lastField: null, lastTextPartId: '', hasAnyAssistantOutput: false };
+  return {
+    lastField: null,
+    lastTextPartId: '',
+    hasAnyAssistantOutput: false,
+    emittedToolUse: new Set<string>(),
+    emittedToolResult: new Set<string>(),
+  };
+}
+
+export function isLatestAssistantMessageCompleted(messages: any[]): boolean {
+  const assistants = messages.filter((m) => m?.info?.role === 'assistant');
+  const latest = assistants[assistants.length - 1];
+  return Boolean(latest?.info?.time?.completed || latest?.info?.finish);
 }
 
 /**
@@ -552,7 +572,6 @@ async function* pollSessionMessages(
     }
 
     // Find assistant messages (there may be multiple in agentic flows)
-    let sessionCompleted = false;
 
     for (const msg of messagesData) {
       if (msg.info?.role !== 'assistant') continue;
@@ -635,11 +654,8 @@ async function* pollSessionMessages(
         }
       }
 
-      // Check if this assistant message is completed
-      if (msg.info?.time?.completed || msg.info?.finish) {
-        sessionCompleted = true;
-      }
     }
+    const sessionCompleted = isLatestAssistantMessageCompleted(messagesData);
 
     // Also check for pending permissions by fetching session status
     // (permissions show as tool parts in pending state waiting for approval)
@@ -683,6 +699,7 @@ export async function* runOpenCode(
   onPermissionRequest?: PermissionCallback
 ): AsyncGenerator<ClaudeMessage, void, void> {
   let server: OpenCodeServer;
+  let createdNewSession = false;
 
   try {
     server = await openCodeServerManager.ensureServer(options.cwd, {
@@ -745,6 +762,7 @@ export async function* runOpenCode(
         return;
       }
       sessionId = result.data.id;
+      createdNewSession = true;
       sessionServerMap.set(sessionId, server.baseUrl);
       ocLog(`Created new session: ${sessionId} on server ${server.baseUrl}`);
     } catch (error) {
@@ -811,7 +829,7 @@ export async function* runOpenCode(
 
   // Prepend system context to first message in new sessions (OpenCode has no native system prompt API)
   let effectivePrompt = promptText;
-  if (options.systemPrompt && !options.sessionId) {
+  if (options.systemPrompt && createdNewSession) {
     effectivePrompt = `[System Context]\n${options.systemPrompt}\n\n${promptText}`;
   }
 
@@ -1087,28 +1105,33 @@ async function* mapOpenCodeEvent(
           const toolName = toolPart.tool || 'unknown';
           const toolUseId = toolPart.callID || toolPart.id;
           const state = toolPart.state;
+          if (!state) break;
+          const dedupeKey = `${toolUseId}:${toolName}`;
 
-          if (state.status === 'pending' || state.status === 'running') {
+          if ((state.status === 'pending' || state.status === 'running') && !streamState.emittedToolUse.has(dedupeKey)) {
             yield {
               type: 'tool_use',
               toolUseId,
               toolName,
               toolInput: state.input,
             };
-          } else if (state.status === 'completed') {
+            streamState.emittedToolUse.add(dedupeKey);
+          } else if (state.status === 'completed' && !streamState.emittedToolResult.has(dedupeKey)) {
             yield {
               type: 'tool_result',
               toolUseId,
               toolResult: state.output || '',
               isToolError: false,
             };
-          } else if (state.status === 'error') {
+            streamState.emittedToolResult.add(dedupeKey);
+          } else if (state.status === 'error' && !streamState.emittedToolResult.has(dedupeKey)) {
             yield {
               type: 'tool_result',
               toolUseId,
               toolResult: state.error || 'Tool execution failed',
               isToolError: true,
             };
+            streamState.emittedToolResult.add(dedupeKey);
           }
           break;
         }

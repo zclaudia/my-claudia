@@ -16,6 +16,7 @@ export function SystemInfoPanel({ systemInfo }: SystemInfoPanelProps) {
     systemInfo.cwd ||
     systemInfo.permissionMode ||
     systemInfo.apiKeySource ||
+    systemInfo.subscription ||
     (systemInfo.tools && systemInfo.tools.length > 0) ||
     (systemInfo.mcpServers && systemInfo.mcpServers.length > 0) ||
     (systemInfo.slashCommands && systemInfo.slashCommands.length > 0) ||
@@ -59,6 +60,9 @@ export function SystemInfoPanel({ systemInfo }: SystemInfoPanelProps) {
             )}
             {systemInfo.apiKeySource && (
               <InfoBadge icon={Key} label="API Key" value={systemInfo.apiKeySource} />
+            )}
+            {systemInfo.subscription && (
+              <InfoBadge icon={Package} label="Subscription" value={systemInfo.subscription.summary} />
             )}
           </div>
 

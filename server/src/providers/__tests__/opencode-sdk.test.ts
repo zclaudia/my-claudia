@@ -217,4 +217,20 @@ describe('opencode-sdk integration patterns', () => {
     const result = runOpenCode('test', { cwd: '/project' });
     expect(result[Symbol.asyncIterator]).toBeDefined();
   });
+
+  it('isLatestAssistantMessageCompleted only considers the latest assistant message', async () => {
+    const { isLatestAssistantMessageCompleted } = await import('../opencode-sdk.js');
+
+    const messages = [
+      { info: { role: 'assistant', time: { completed: 111 } } }, // old completed
+      { info: { role: 'user' } },
+      { info: { role: 'assistant', time: {} } }, // latest assistant still running
+    ];
+
+    expect(isLatestAssistantMessageCompleted(messages)).toBe(false);
+    expect(isLatestAssistantMessageCompleted([
+      ...messages.slice(0, 2),
+      { info: { role: 'assistant', finish: true } },
+    ])).toBe(true);
+  });
 });

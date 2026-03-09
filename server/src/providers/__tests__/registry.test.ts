@@ -25,6 +25,12 @@ describe('ProviderRegistry', () => {
       expect(adapter).toBeDefined();
       expect(adapter!.type).toBe('opencode');
     });
+
+    it('has a kimi adapter registered by default', () => {
+      const adapter = providerRegistry.get('kimi');
+      expect(adapter).toBeDefined();
+      expect(adapter!.type).toBe('kimi');
+    });
   });
 
   describe('register', () => {

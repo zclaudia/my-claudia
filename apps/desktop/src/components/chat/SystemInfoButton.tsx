@@ -44,6 +44,7 @@ export function SystemInfoButton({ systemInfo, sessionInfo }: SystemInfoButtonPr
     systemInfo.cwd ||
     systemInfo.permissionMode ||
     systemInfo.apiKeySource ||
+    systemInfo.subscription ||
     (systemInfo.tools && systemInfo.tools.length > 0) ||
     (systemInfo.mcpServers && systemInfo.mcpServers.length > 0) ||
     (systemInfo.agents && systemInfo.agents.length > 0)
@@ -124,6 +125,9 @@ export function SystemInfoButton({ systemInfo, sessionInfo }: SystemInfoButtonPr
               )}
               {systemInfo?.apiKeySource && (
                 <InfoBadge icon={Key} label="API Key" value={systemInfo.apiKeySource} />
+              )}
+              {systemInfo?.subscription && (
+                <InfoBadge icon={Package} label="Subscription" value={systemInfo.subscription.summary} />
               )}
             </div>
 

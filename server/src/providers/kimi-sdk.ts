@@ -3,6 +3,7 @@ import { createInterface } from 'readline';
 import type { MessageInput } from '@my-claudia/shared';
 import type { ClaudeMessage, SystemInfo, PermissionCallback } from './claude-sdk.js';
 import { buildNonImageAttachmentNotes } from './attachment-utils.js';
+import { getKimiSubscriptionInfoHint } from './subscription-usage.js';
 
 // ── Types ─────────────────────────────────────────────────────
 
@@ -51,6 +52,20 @@ function extractToolCall(event: Record<string, unknown>): KimiToolCall | null {
 // ── Active processes (for abort) ─────────────────────────────
 
 const activeProcesses = new Map<string, ChildProcess>();
+const sessionToProcessKey = new Map<string, string>();
+
+function bindSessionToProcess(sessionId: string | undefined, processKey: string): void {
+  if (!sessionId) return;
+  sessionToProcessKey.set(sessionId, processKey);
+}
+
+function unbindProcess(processKey: string): void {
+  for (const [sessionId, key] of sessionToProcessKey.entries()) {
+    if (key === processKey) {
+      sessionToProcessKey.delete(sessionId);
+    }
+  }
+}
 
 // ── Input preparation ─────────────────────────────────────────
 
@@ -208,6 +223,7 @@ export async function* runKimi(
   options: KimiRunOptions,
   _onPermission: PermissionCallback
 ): AsyncGenerator<ClaudeMessage, void, void> {
+  const subscriptionInfo = getKimiSubscriptionInfoHint();
   const promptText = prepareKimiInput(input);
   const binary = options.cliPath || 'kimi';
 
@@ -267,8 +283,9 @@ export async function* runKimi(
   }
 
   // Store for abort
-  const processKey = options.sessionId || `kimi-${Date.now()}`;
+  const processKey = `kimi-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   activeProcesses.set(processKey, proc);
+  bindSessionToProcess(options.sessionId, processKey);
 
   // Capture spawn errors
   let spawnError: Error | null = null;
@@ -276,7 +293,22 @@ export async function* runKimi(
     spawnError = err;
   });
 
-  const rl = createInterface({ input: proc.stdout!, crlfDelay: Infinity });
+  if (!proc.stdout) {
+    const err = spawnError as NodeJS.ErrnoException | null;
+    activeProcesses.delete(processKey);
+    unbindProcess(processKey);
+    if (err?.code === 'ENOENT') {
+      yield {
+        type: 'error',
+        error: 'kimi not found. Install it from https://github.com/moonshotai/kimi-cli',
+      };
+    } else {
+      yield { type: 'error', error: err?.message || 'kimi process stdout is unavailable' };
+    }
+    return;
+  }
+
+  const rl = createInterface({ input: proc.stdout, crlfDelay: Infinity });
 
   // Log stderr for debugging
   proc.stderr!.on('data', (chunk: Buffer) => {
@@ -303,6 +335,13 @@ export async function* runKimi(
 
       const msgs = mapKimiEvent(event, inThinkBlock);
       for (const { msg, updateThink } of msgs) {
+        if (msg.type === 'init' && msg.sessionId) {
+          bindSessionToProcess(msg.sessionId, processKey);
+          msg.systemInfo = {
+            ...(msg.systemInfo || {}),
+            subscription: subscriptionInfo,
+          };
+        }
         if (updateThink !== undefined) inThinkBlock = updateThink;
         yield msg;
       }
@@ -330,6 +369,7 @@ export async function* runKimi(
     yield { type: 'error', error: `kimi execution error: ${message}` };
   } finally {
     activeProcesses.delete(processKey);
+    unbindProcess(processKey);
     rl.close();
     proc.kill();
   }
@@ -338,10 +378,12 @@ export async function* runKimi(
 // ── Abort function ────────────────────────────────────────────
 
 export async function abortKimiSession(sessionId: string): Promise<void> {
-  const proc = activeProcesses.get(sessionId);
+  const processKey = sessionToProcessKey.get(sessionId) || sessionId;
+  const proc = activeProcesses.get(processKey);
   if (proc) {
     proc.kill('SIGTERM');
-    activeProcesses.delete(sessionId);
+    activeProcesses.delete(processKey);
+    unbindProcess(processKey);
 
     // Give it a moment to terminate gracefully
     await new Promise((resolve) => setTimeout(resolve, 500));

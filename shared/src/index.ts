@@ -1100,6 +1100,12 @@ export interface SystemInfo {
   mcpServers?: { name: string; status: string }[];
   slashCommands?: string[];
   agents?: string[];
+  subscription?: {
+    provider: string;
+    status: 'available' | 'unavailable' | 'requires_admin_key' | 'error';
+    summary: string;
+    updatedAt: number;
+  };
 }
 
 export interface SystemInfoMessage {

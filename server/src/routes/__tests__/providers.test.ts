@@ -182,6 +182,16 @@ describe('providers routes', () => {
       const first = db.prepare('SELECT is_default FROM providers WHERE id = ?').get('p1') as { is_default: number };
       expect(first.is_default).toBe(0);
     });
+
+    it('accepts kimi as provider type', async () => {
+      const res = await request(app)
+        .post('/api/providers')
+        .send({ name: 'Kimi Provider', type: 'kimi' });
+
+      expect(res.status).toBe(201);
+      expect(res.body.success).toBe(true);
+      expect(res.body.data.type).toBe('kimi');
+    });
   });
 
   describe('PUT /api/providers/:id', () => {
@@ -238,6 +248,22 @@ describe('providers routes', () => {
       // Check second provider is now default
       const second = db.prepare('SELECT is_default FROM providers WHERE id = ?').get('p2') as { is_default: number };
       expect(second.is_default).toBe(1);
+    });
+
+    it('accepts updating provider type to kimi', async () => {
+      const now = Date.now();
+      db.prepare(`
+        INSERT INTO providers (id, name, type, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?)
+      `).run('p3', 'Third', 'claude', now, now);
+
+      const res = await request(app)
+        .put('/api/providers/p3')
+        .send({ type: 'kimi' });
+
+      expect(res.status).toBe(200);
+      const updated = db.prepare('SELECT type FROM providers WHERE id = ?').get('p3') as { type: string };
+      expect(updated.type).toBe('kimi');
     });
   });
 

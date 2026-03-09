@@ -907,6 +907,19 @@ async function getCursorCapabilities(
   };
 }
 
+async function getKimiCapabilities(): Promise<ProviderCapabilities> {
+  return {
+    modeLabel: 'Mode',
+    defaultModeId: 'default',
+    modes: [
+      { id: 'default', label: 'Agent', description: 'Standard agent mode' },
+      { id: 'plan', label: 'Plan', description: 'Planning mode with stricter permissions' },
+      { id: 'ask', label: 'Ask', description: 'Q&A mode with minimal actions' },
+    ],
+    models: [{ id: '', label: 'Default' }],
+  };
+}
+
 async function getProviderCapabilities(
   providerType: string,
   cliPath?: string,
@@ -919,6 +932,8 @@ async function getProviderCapabilities(
       return getCodexCapabilities(cliPath, env);
     case 'cursor':
       return getCursorCapabilities(cliPath, env);
+    case 'kimi':
+      return getKimiCapabilities();
     case 'claude':
     default:
       return getClaudeCapabilities(cliPath, env);
@@ -996,6 +1011,9 @@ async function getProviderCommands(
       return [];
     case 'cursor':
       // cursor-agent doesn't expose slash commands
+      return [];
+    case 'kimi':
+      // kimi cli currently doesn't expose slash commands endpoint
       return [];
     default:
       return [];
