@@ -1,0 +1,2480 @@
+diff --git a/LICENSE b/LICENSE
+deleted file mode 100644
+index 5284f4b..0000000
+--- a/LICENSE
++++ /dev/null
+@@ -1,21 +0,0 @@
+-MIT License
+-
+-Copyright (c) 2024 MyClaudia
+-
+-Permission is hereby granted, free of charge, to any person obtaining a copy
+-of this software and associated documentation files (the "Software"), to deal
+-in the Software without restriction, including without limitation the rights
+-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+-copies of the Software, and to permit persons to whom the Software is
+-furnished to do so, subject to the following conditions:
+-
+-The above copyright notice and this permission notice shall be included in all
+-copies or substantial portions of the Software.
+-
+-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+-SOFTWARE.
+diff --git a/README.md b/README.md
+deleted file mode 100644
+index 64d2a96..0000000
+--- a/README.md
++++ /dev/null
+@@ -1,62 +0,0 @@
+-# MyClaudia
+-
+-A cross-platform UI for Code CLI (Claude Code / Cursor / Codex / Gemini), built with Tauri + React.
+-
+-## Features
+-
+-- **Multi-Provider Support**: Works with Claude Code, Cursor, Codex, OpenCode, and more
+-- **Cross-Platform**: Desktop (macOS/Windows/Linux) and mobile web
+-- **Project Management**: Organize conversations by project
+-- **Supervision**: AI-powered project orchestration and task management
+-- **Local-First**: All data stored locally with SQLite
+-
+-## Getting Started
+-
+-### Prerequisites
+-
+-- Node.js 20+
+-- pnpm 8+
+-- Rust (latest stable)
+-- For desktop build: Xcode (macOS) or Visual Studio (Windows)
+-
+-### Development
+-
+-```bash
+-# Install dependencies
+-pnpm install
+-
+-# Start Tauri dev mode (default)
+-pnpm dev
+-
+-# Or start standalone mode (frontend + backend separately)
+-pnpm --filter @my-claudia/server run dev  # Backend
+-pnpm --filter @my-claudia/desktop run dev # Frontend
+-```
+-
+-### Build
+-
+-```bash
+-# Build macOS app
+-bash scripts/build-macos.sh
+-
+-# Build Windows app
+-bash scripts/build-windows.ps1
+-
+-# Build Linux app
+-bash scripts/build-linux.sh
+-```
+-
+-## Architecture
+-
+-```
+-my-claudia/
+-├── apps/desktop/     # Tauri desktop app (React + TypeScript)
+-├── server/           # Backend server (Node.js + TypeScript)
+-├── gateway/          # WebSocket relay for remote access
+-├── shared/           # Shared types
+-└── docs/             # Design documents
+-```
+-
+-## License
+-
+-MIT
+diff --git a/apps/desktop/src/App.tsx b/apps/desktop/src/App.tsx
+index 6e31663..7926368 100644
+--- a/apps/desktop/src/App.tsx
++++ b/apps/desktop/src/App.tsx
+@@ -7,7 +7,7 @@ import { MobileSetup } from './components/MobileSetup';
+ import { AgentPanel } from './components/agent/AgentPanel';
+ import { AgentSidePanel } from './components/agent/AgentSidePanel';
+ import { FileViewerWindow } from './components/fileviewer/FileViewerWindow';
+-import { ProjectDashboard } from './components/dashboard/ProjectDashboard';
++// import { SupervisionDashboard } from './components/supervision/SupervisionDashboard';
+ import { ThemeProvider } from './contexts/ThemeContext';
+ import { ConnectionProvider, useConnection } from './contexts/ConnectionContext';
+ import { useDataLoader } from './hooks/useDataLoader';
+@@ -23,14 +23,12 @@ import { useSwipeBack } from './hooks/useSwipeBack';
+ import { migrateServersFromLocalStorage, needsMigration } from './utils/migrateServers';
+ import { eagerSyncAllBackends } from './services/sessionSync';
+ import { useFileViewerStore } from './stores/fileViewerStore';
+-import { initBuiltinPanels } from './plugins/builtinPanels';
+ 
+ function AppContent() {
+   const { connectServer, embeddedServerStatus, embeddedServerError } = useConnection();
+   const { addServer } = useServerManager();
+   const { connectionStatus } = useServerStore();
+-  const { selectedSessionId, projects, selectProject } = useProjectStore();
+-  const [dashboardProjectId, setDashboardProjectId] = useState<string | null>(null);
++  const { selectedSessionId } = useProjectStore();
+   const { directGatewayUrl, lastActiveBackendId, isConnected: isGatewayConnected, discoveredBackends } = useGatewayStore();
+   const { isExpanded: isAgentExpanded, hasUnread: hasAgentUnread, setExpanded: setAgentExpanded } = useAgentStore();
+   const isAgentConfigured = isClientAIConfigured();
+@@ -40,14 +38,6 @@ function AppContent() {
+   const setFileViewerFullscreen = useFileViewerStore((s) => s.setFullscreen);
+   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+   const [sidebarOpen, setSidebarOpen] = useState(false);
+-  // When a session is selected, exit the dashboard view
+-  const prevSessionRef = useRef(selectedSessionId);
+-  useEffect(() => {
+-    if (selectedSessionId && selectedSessionId !== prevSessionRef.current) {
+-      setDashboardProjectId(null);
+-    }
+-    prevSessionRef.current = selectedSessionId;
+-  }, [selectedSessionId]);
+   const isMobile = useIsMobile();
+   const migrationDone = useRef(false);
+   const mobileInitDone = useRef(false);
+@@ -58,9 +48,6 @@ function AppContent() {
+     hasConnected.current = true;
+   }
+ 
+-  // Register builtin plugin panel components (once at startup)
+-  useEffect(() => { initBuiltinPanels(); }, []);
+-
+   // Load data from server
+   useDataLoader();
+ 
+@@ -272,10 +259,6 @@ function AppContent() {
+           isOpen={sidebarOpen}
+           onClose={() => setSidebarOpen(false)}
+           hideHeader={true}
+-          onOpenDashboard={(projectId) => {
+-            selectProject(projectId);
+-            setDashboardProjectId(projectId);
+-          }}
+         />
+ 
+         {/* Main Content */}
+@@ -304,20 +287,9 @@ function AppContent() {
+               </div>
+             )}
+ 
+-            {/* Project Dashboard / Chat / Welcome */}
+-            {dashboardProjectId && projects.find((p) => p.id === dashboardProjectId) ? (
+-              <ProjectDashboard
+-                projectId={dashboardProjectId}
+-                projectRootPath={projects.find((p) => p.id === dashboardProjectId)!.rootPath}
+-              />
+-            ) : selectedSessionId ? (
+-              <ChatInterface
+-                sessionId={selectedSessionId}
+-                onReturnToDashboard={(projectId) => {
+-                  selectProject(projectId);
+-                  setDashboardProjectId(projectId);
+-                }}
+-              />
++            {/* Supervision Dashboard / Chat / Welcome */}
++            {selectedSessionId ? (
++              <ChatInterface sessionId={selectedSessionId} />
+             ) : (
+               <div className="flex items-center justify-center h-full text-muted-foreground">
+                 <div className="text-center">
+diff --git a/apps/desktop/src/components/BottomPanel.tsx b/apps/desktop/src/components/BottomPanel.tsx
+index f12b46a..e1bb0ab 100644
+--- a/apps/desktop/src/components/BottomPanel.tsx
++++ b/apps/desktop/src/components/BottomPanel.tsx
+@@ -16,10 +16,9 @@ const DEFAULT_HEIGHT_MOBILE = 350;
+ interface BottomPanelProps {
+   projectId: string | undefined;
+   projectRoot: string | undefined;
+-  workingDirectory?: string;
+ }
+ 
+-export function BottomPanel({ projectId, projectRoot, workingDirectory }: BottomPanelProps) {
++export function BottomPanel({ projectId, projectRoot }: BottomPanelProps) {
+   const terminalDrawerOpen = useTerminalStore((s) => projectId ? !!s.drawerOpen[projectId] : false);
+   const hasTerminal = useTerminalStore((s) => projectId ? !!s.terminals[projectId] : false);
+   const setTerminalDrawerOpen = useTerminalStore((s) => s.setDrawerOpen);
+@@ -226,7 +225,7 @@ export function BottomPanel({ projectId, projectRoot, workingDirectory }: Bottom
+       <div className="flex-1 overflow-hidden relative">
+         {hasTerminalTab && projectId && (
+           <div className={`absolute inset-0 ${effectiveTab === 'terminal' && isOpen ? '' : 'invisible'}`}>
+-            <TerminalPanel projectId={projectId} workingDirectory={workingDirectory} />
++            <TerminalPanel projectId={projectId} />
+           </div>
+         )}
+         {hasFileTab && projectRoot && (
+diff --git a/apps/desktop/src/components/McpServerSettings.tsx b/apps/desktop/src/components/McpServerSettings.tsx
+deleted file mode 100644
+index 81daf79..0000000
+--- a/apps/desktop/src/components/McpServerSettings.tsx
++++ /dev/null
+@@ -1,446 +0,0 @@
+-/**
+- * MCP Server Settings Component
+- *
+- * Manages MCP server configurations: list, add, edit, delete, toggle, import.
+- */
+-
+-import { useState, useEffect, useCallback } from 'react';
+-import { useMcpServerStore } from '../stores/mcpServerStore';
+-import type { McpServerConfig } from '@my-claudia/shared';
+-
+-const PROVIDER_OPTIONS = [
+-  { value: 'claude', label: 'Claude' },
+-  { value: 'codex', label: 'Codex' },
+-  { value: 'opencode', label: 'OpenCode' },
+-  { value: 'cursor', label: 'Cursor' },
+-  { value: 'kimi', label: 'Kimi' },
+-];
+-
+-export function McpServerSettings() {
+-  const {
+-    servers,
+-    isLoading,
+-    error,
+-    fetchServers,
+-    addServer,
+-    editServer,
+-    removeServer,
+-    toggle,
+-    importFromClaude,
+-  } = useMcpServerStore();
+-
+-  const [searchQuery, setSearchQuery] = useState('');
+-  const [showAddForm, setShowAddForm] = useState(false);
+-  const [editingId, setEditingId] = useState<string | null>(null);
+-  const [importResult, setImportResult] = useState<string | null>(null);
+-
+-  // Form state
+-  const [formName, setFormName] = useState('');
+-  const [formCommand, setFormCommand] = useState('');
+-  const [formArgs, setFormArgs] = useState('');
+-  const [formEnvPairs, setFormEnvPairs] = useState<{ key: string; value: string }[]>([]);
+-  const [formDescription, setFormDescription] = useState('');
+-  const [formScope, setFormScope] = useState<string[]>([]);
+-  const [formError, setFormError] = useState<string | null>(null);
+-
+-  useEffect(() => {
+-    fetchServers();
+-  }, [fetchServers]);
+-
+-  const resetForm = useCallback(() => {
+-    setFormName('');
+-    setFormCommand('');
+-    setFormArgs('');
+-    setFormEnvPairs([]);
+-    setFormDescription('');
+-    setFormScope([]);
+-    setFormError(null);
+-  }, []);
+-
+-  const openEditForm = useCallback((server: McpServerConfig) => {
+-    setEditingId(server.id);
+-    setShowAddForm(false);
+-    setFormName(server.name);
+-    setFormCommand(server.command);
+-    setFormArgs(server.args?.join(' ') || '');
+-    setFormEnvPairs(
+-      server.env
+-        ? Object.entries(server.env).map(([key, value]) => ({ key, value }))
+-        : []
+-    );
+-    setFormDescription(server.description || '');
+-    setFormScope(server.providerScope || []);
+-    setFormError(null);
+-  }, []);
+-
+-  const handleSubmit = useCallback(async () => {
+-    if (!formName.trim() || !formCommand.trim()) {
+-      setFormError('Name and command are required');
+-      return;
+-    }
+-
+-    const args = formArgs.trim() ? formArgs.trim().split(/\s+/) : undefined;
+-    const env = formEnvPairs.filter(p => p.key.trim()).length > 0
+-      ? Object.fromEntries(formEnvPairs.filter(p => p.key.trim()).map(p => [p.key, p.value]))
+-      : undefined;
+-
+-    try {
+-      if (editingId) {
+-        await editServer(editingId, {
+-          name: formName.trim(),
+-          command: formCommand.trim(),
+-          args: args || [],
+-          env: env || {},
+-          description: formDescription.trim() || undefined,
+-          providerScope: formScope.length > 0 ? formScope : undefined,
+-        });
+-        setEditingId(null);
+-      } else {
+-        await addServer({
+-          name: formName.trim(),
+-          command: formCommand.trim(),
+-          args,
+-          env,
+-          description: formDescription.trim() || undefined,
+-          providerScope: formScope.length > 0 ? formScope : undefined,
+-        });
+-        setShowAddForm(false);
+-      }
+-      resetForm();
+-    } catch (err) {
+-      setFormError(err instanceof Error ? err.message : String(err));
+-    }
+-  }, [formName, formCommand, formArgs, formEnvPairs, formDescription, formScope, editingId, addServer, editServer, resetForm]);
+-
+-  const handleImport = useCallback(async () => {
+-    try {
+-      const result = await importFromClaude();
+-      const parts = [];
+-      if (result.imported.length > 0) parts.push(`Imported ${result.imported.length} server(s)`);
+-      if (result.skipped.length > 0) parts.push(`Skipped ${result.skipped.length} (already exist)`);
+-      setImportResult(parts.join('. ') || 'No servers found in ~/.claude/mcp.json');
+-      setTimeout(() => setImportResult(null), 5000);
+-    } catch (err) {
+-      setImportResult(`Error: ${err instanceof Error ? err.message : String(err)}`);
+-    }
+-  }, [importFromClaude]);
+-
+-  const handleDelete = useCallback(async (id: string, name: string) => {
+-    if (!confirm(`Delete MCP server "${name}"?`)) return;
+-    try {
+-      await removeServer(id);
+-    } catch (err) {
+-      console.error('Failed to delete MCP server:', err);
+-    }
+-  }, [removeServer]);
+-
+-  const toggleScope = useCallback((provider: string) => {
+-    setFormScope(prev =>
+-      prev.includes(provider) ? prev.filter(p => p !== provider) : [...prev, provider]
+-    );
+-  }, []);
+-
+-  // Filter
+-  const filtered = servers.filter(s =>
+-    !searchQuery || s.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+-    s.command.toLowerCase().includes(searchQuery.toLowerCase())
+-  );
+-
+-  const enabledCount = servers.filter(s => s.enabled).length;
+-  const disabledCount = servers.length - enabledCount;
+-
+-  if (isLoading && servers.length === 0) {
+-    return <div className="text-sm text-muted-foreground">Loading MCP servers...</div>;
+-  }
+-
+-  const renderForm = () => (
+-    <div className="bg-card border border-border rounded-lg p-4 space-y-3">
+-      <div className="grid grid-cols-2 gap-3">
+-        <div>
+-          <label className="block text-xs text-muted-foreground mb-1">Name *</label>
+-          <input
+-            type="text"
+-            value={formName}
+-            onChange={e => setFormName(e.target.value)}
+-            placeholder="e.g. filesystem"
+-            className="w-full px-3 py-1.5 text-sm bg-background border border-border rounded focus:outline-none focus:ring-1 focus:ring-primary"
+-          />
+-        </div>
+-        <div>
+-          <label className="block text-xs text-muted-foreground mb-1">Command *</label>
+-          <input
+-            type="text"
+-            value={formCommand}
+-            onChange={e => setFormCommand(e.target.value)}
+-            placeholder="e.g. npx"
+-            className="w-full px-3 py-1.5 text-sm bg-background border border-border rounded focus:outline-none focus:ring-1 focus:ring-primary"
+-          />
+-        </div>
+-      </div>
+-
+-      <div>
+-        <label className="block text-xs text-muted-foreground mb-1">Arguments (space-separated)</label>
+-        <input
+-          type="text"
+-          value={formArgs}
+-          onChange={e => setFormArgs(e.target.value)}
+-          placeholder="e.g. -y @modelcontextprotocol/server-filesystem /path/to/dir"
+-          className="w-full px-3 py-1.5 text-sm bg-background border border-border rounded focus:outline-none focus:ring-1 focus:ring-primary font-mono"
+-        />
+-      </div>
+-
+-      <div>
+-        <label className="block text-xs text-muted-foreground mb-1">Description</label>
+-        <input
+-          type="text"
+-          value={formDescription}
+-          onChange={e => setFormDescription(e.target.value)}
+-          placeholder="Optional description"
+-          className="w-full px-3 py-1.5 text-sm bg-background border border-border rounded focus:outline-none focus:ring-1 focus:ring-primary"
+-        />
+-      </div>
+-
+-      {/* Env vars */}
+-      <div>
+-        <div className="flex items-center justify-between mb-1">
+-          <label className="text-xs text-muted-foreground">Environment Variables</label>
+-          <button
+-            type="button"
+-            onClick={() => setFormEnvPairs([...formEnvPairs, { key: '', value: '' }])}
+-            className="text-xs text-primary hover:underline"
+-          >
+-            + Add
+-          </button>
+-        </div>
+-        {formEnvPairs.map((pair, i) => (
+-          <div key={i} className="flex gap-2 mb-1">
+-            <input
+-              type="text"
+-              value={pair.key}
+-              onChange={e => {
+-                const updated = [...formEnvPairs];
+-                updated[i] = { ...pair, key: e.target.value };
+-                setFormEnvPairs(updated);
+-              }}
+-              placeholder="KEY"
+-              className="flex-1 px-2 py-1 text-xs bg-background border border-border rounded font-mono"
+-            />
+-            <input
+-              type="text"
+-              value={pair.value}
+-              onChange={e => {
+-                const updated = [...formEnvPairs];
+-                updated[i] = { ...pair, value: e.target.value };
+-                setFormEnvPairs(updated);
+-              }}
+-              placeholder="value"
+-              className="flex-1 px-2 py-1 text-xs bg-background border border-border rounded font-mono"
+-            />
+-            <button
+-              type="button"
+-              onClick={() => setFormEnvPairs(formEnvPairs.filter((_, j) => j !== i))}
+-              className="text-xs text-red-400 hover:text-red-300 px-1"
+-            >
+-              x
+-            </button>
+-          </div>
+-        ))}
+-      </div>
+-
+-      {/* Provider scope */}
+-      <div>
+-        <label className="block text-xs text-muted-foreground mb-1">Provider Scope (empty = all providers)</label>
+-        <div className="flex flex-wrap gap-2">
+-          {PROVIDER_OPTIONS.map(opt => (
+-            <button
+-              key={opt.value}
+-              type="button"
+-              onClick={() => toggleScope(opt.value)}
+-              className={`px-2 py-0.5 text-xs rounded border transition-colors ${
+-                formScope.includes(opt.value)
+-                  ? 'bg-primary/20 border-primary text-primary'
+-                  : 'bg-background border-border text-muted-foreground hover:border-primary/50'
+-              }`}
+-            >
+-              {opt.label}
+-            </button>
+-          ))}
+-        </div>
+-      </div>
+-
+-      {formError && (
+-        <p className="text-xs text-red-400">{formError}</p>
+-      )}
+-
+-      <div className="flex gap-2 justify-end">
+-        <button
+-          type="button"
+-          onClick={() => { setShowAddForm(false); setEditingId(null); resetForm(); }}
+-          className="px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground"
+-        >
+-          Cancel
+-        </button>
+-        <button
+-          type="button"
+-          onClick={handleSubmit}
+-          className="px-3 py-1.5 text-sm bg-primary text-primary-foreground rounded hover:bg-primary/90"
+-        >
+-          {editingId ? 'Save' : 'Add'}
+-        </button>
+-      </div>
+-    </div>
+-  );
+-
+-  return (
+-    <div className="space-y-4">
+-      {/* Search + actions */}
+-      <div className="flex gap-2">
+-        <input
+-          type="text"
+-          value={searchQuery}
+-          onChange={e => setSearchQuery(e.target.value)}
+-          placeholder="Search MCP servers..."
+-          className="flex-1 px-3 py-1.5 text-sm bg-background border border-border rounded focus:outline-none focus:ring-1 focus:ring-primary"
+-        />
+-        <button
+-          type="button"
+-          onClick={handleImport}
+-          className="px-3 py-1.5 text-sm border border-border rounded hover:bg-accent text-muted-foreground whitespace-nowrap"
+-          title="Import from ~/.claude/mcp.json"
+-        >
+-          Import
+-        </button>
+-        <button
+-          type="button"
+-          onClick={() => { setShowAddForm(true); setEditingId(null); resetForm(); }}
+-          className="px-3 py-1.5 text-sm bg-primary text-primary-foreground rounded hover:bg-primary/90 whitespace-nowrap"
+-        >
+-          + Add
+-        </button>
+-      </div>
+-
+-      {/* Import result */}
+-      {importResult && (
+-        <div className="text-xs px-3 py-2 bg-blue-500/10 text-blue-400 rounded border border-blue-500/20">
+-          {importResult}
+-        </div>
+-      )}
+-
+-      {/* Stats */}
+-      <div className="grid grid-cols-3 gap-2 text-center text-sm">
+-        <div className="bg-card border border-border rounded px-3 py-2">
+-          <span className="text-muted-foreground">Total</span>
+-          <span className="ml-2 font-medium">{servers.length}</span>
+-        </div>
+-        <div className="bg-card border border-border rounded px-3 py-2">
+-          <span className="text-green-400">Enabled</span>
+-          <span className="ml-2 font-medium">{enabledCount}</span>
+-        </div>
+-        <div className="bg-card border border-border rounded px-3 py-2">
+-          <span className="text-muted-foreground">Disabled</span>
+-          <span className="ml-2 font-medium">{disabledCount}</span>
+-        </div>
+-      </div>
+-
+-      {error && (
+-        <div className="text-sm text-red-400 bg-red-500/10 rounded px-3 py-2 border border-red-500/20">
+-          {error}
+-        </div>
+-      )}
+-
+-      {/* Add form */}
+-      {showAddForm && !editingId && renderForm()}
+-
+-      {/* Server list */}
+-      {filtered.length === 0 ? (
+-        <div className="text-sm text-muted-foreground text-center py-8">
+-          {servers.length === 0
+-            ? 'No MCP servers configured. Add one or import from Claude config.'
+-            : 'No servers match your search.'}
+-        </div>
+-      ) : (
+-        <div className="space-y-2">
+-          {filtered.map(server => (
+-            <div key={server.id}>
+-              {editingId === server.id ? (
+-                renderForm()
+-              ) : (
+-                <div className="bg-card border border-border rounded-lg p-3 flex items-start gap-3">
+-                  {/* Info */}
+-                  <div className="flex-1 min-w-0">
+-                    <div className="flex items-center gap-2">
+-                      <span className="font-medium text-sm">{server.name}</span>
+-                      <span className={`px-1.5 py-0.5 text-xs rounded ${
+-                        server.enabled
+-                          ? 'bg-green-500/20 text-green-400'
+-                          : 'bg-gray-500/20 text-gray-500'
+-                      }`}>
+-                        {server.enabled ? 'Enabled' : 'Disabled'}
+-                      </span>
+-                      {server.source === 'imported' && (
+-                        <span className="px-1.5 py-0.5 text-xs rounded bg-blue-500/10 text-blue-400">
+-                          Imported
+-                        </span>
+-                      )}
+-                    </div>
+-                    <div className="text-xs text-muted-foreground font-mono mt-1 truncate">
+-                      {server.command}{server.args?.length ? ` ${server.args.join(' ')}` : ''}
+-                    </div>
+-                    {server.description && (
+-                      <div className="text-xs text-muted-foreground mt-0.5">{server.description}</div>
+-                    )}
+-                    {server.providerScope && server.providerScope.length > 0 && (
+-                      <div className="flex gap-1 mt-1">
+-                        {server.providerScope.map(p => (
+-                          <span key={p} className="px-1.5 py-0.5 text-xs rounded bg-primary/10 text-primary">
+-                            {p}
+-                          </span>
+-                        ))}
+-                      </div>
+-                    )}
+-                  </div>
+-
+-                  {/* Actions */}
+-                  <div className="flex items-center gap-1 shrink-0">
+-                    <button
+-                      type="button"
+-                      onClick={() => toggle(server.id)}
+-                      className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
+-                        server.enabled ? 'bg-primary' : 'bg-gray-600'
+-                      }`}
+-                      title={server.enabled ? 'Disable' : 'Enable'}
+-                    >
+-                      <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${
+-                        server.enabled ? 'translate-x-4.5' : 'translate-x-0.5'
+-                      }`} />
+-                    </button>
+-                    <button
+-                      type="button"
+-                      onClick={() => openEditForm(server)}
+-                      className="p-1 text-muted-foreground hover:text-foreground"
+-                      title="Edit"
+-                    >
+-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+-                      </svg>
+-                    </button>
+-                    <button
+-                      type="button"
+-                      onClick={() => handleDelete(server.id, server.name)}
+-                      className="p-1 text-muted-foreground hover:text-red-400"
+-                      title="Delete"
+-                    >
+-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+-                      </svg>
+-                    </button>
+-                  </div>
+-                </div>
+-              )}
+-            </div>
+-          ))}
+-        </div>
+-      )}
+-    </div>
+-  );
+-}
+diff --git a/apps/desktop/src/components/PluginPanelRenderer.tsx b/apps/desktop/src/components/PluginPanelRenderer.tsx
+index f8c6230..8ab973e 100644
+--- a/apps/desktop/src/components/PluginPanelRenderer.tsx
++++ b/apps/desktop/src/components/PluginPanelRenderer.tsx
+@@ -2,18 +2,10 @@
+  * Plugin Panel Renderer
+  *
+  * Renders plugin-registered panels in the bottom panel area.
+- * Supports two panel types:
+- *   - React component panels (builtin plugins, registered via builtinPanels.ts)
+- *   - Iframe panels (third-party plugins, served from /api/plugins/:id/frontend/*)
+- *
+- * Theme synchronization:
+- *   - On iframe load, sends `claudia:init` with current theme classes + CSS vars
+- *   - MutationObserver watches <html> class changes and sends `claudia:theme-changed`
++ * Uses the pluginStore to get registered panels and their components.
+  */
+ 
+-import { useEffect, useRef } from 'react';
+ import { usePluginStore, selectPluginPanels } from '../stores/pluginStore';
+-import { useServerStore } from '../stores/serverStore';
+ 
+ interface PluginPanelRendererProps {
+   activePluginPanelId: string | null;
+@@ -21,150 +13,22 @@ interface PluginPanelRendererProps {
+   projectId?: string;
+ }
+ 
+-/** postMessage protocol version. Increment only on breaking schema changes. */
+-const PROTOCOL_VERSION = 1;
+-
+-// CSS variable names to collect and forward to plugin iframes
+-const THEME_CSS_VARS = [
+-  '--background', '--foreground',
+-  '--card', '--card-foreground',
+-  '--popover', '--popover-foreground',
+-  '--primary', '--primary-foreground',
+-  '--secondary', '--secondary-foreground',
+-  '--muted', '--muted-foreground',
+-  '--accent', '--accent-foreground',
+-  '--destructive', '--destructive-foreground',
+-  '--success', '--success-foreground',
+-  '--warning', '--warning-foreground',
+-  '--thinking', '--thinking-foreground',
+-  '--border', '--input', '--ring', '--radius',
+-  '--scrollbar-thumb', '--scrollbar-thumb-hover',
+-  '--terminal-bg', '--terminal-fg', '--terminal-cursor', '--terminal-selection',
+-];
+-
+-function collectCSSVars(): Record<string, string> {
+-  const style = getComputedStyle(document.documentElement);
+-  const vars: Record<string, string> = {};
+-  for (const v of THEME_CSS_VARS) {
+-    const val = style.getPropertyValue(v).trim();
+-    if (val) vars[v] = val;
+-  }
+-  return vars;
+-}
+-
+-function getThemeClasses(): string[] {
+-  return Array.from(document.documentElement.classList).filter(
+-    (c) => c === 'dark' || c.startsWith('dark-')
+-  );
+-}
+-
+-// ── Iframe panel component with theme sync ──────────────────────────────────
+-function IframePanel({
+-  src,
+-  label,
+-  panelId,
+-  pluginId,
+-  serverUrl,
+-}: {
+-  src: string;
+-  label: string;
+-  panelId: string;
+-  pluginId: string;
+-  serverUrl: string;
+-}) {
+-  const iframeRef = useRef<HTMLIFrameElement>(null);
+-
+-  function sendTheme(type: 'claudia:init' | 'claudia:theme-changed') {
+-    const iframe = iframeRef.current;
+-    if (!iframe?.contentWindow) return;
+-    iframe.contentWindow.postMessage(
+-      {
+-        type,
+-        protocol: PROTOCOL_VERSION,
+-        panelId,
+-        pluginId,
+-        serverUrl,
+-        themeClasses: getThemeClasses(),
+-        cssVars: collectCSSVars(),
+-      },
+-      '*'
+-    );
+-  }
+-
+-  useEffect(() => {
+-    // Listen for ready signal from the iframe
+-    function onMessage(event: MessageEvent) {
+-      if (event.data?.type === 'claudia:ready') {
+-        sendTheme('claudia:init');
+-      }
+-    }
+-    window.addEventListener('message', onMessage);
+-
+-    // Watch for theme class changes on <html>
+-    const observer = new MutationObserver(() => {
+-      sendTheme('claudia:theme-changed');
+-    });
+-    observer.observe(document.documentElement, {
+-      attributes: true,
+-      attributeFilter: ['class'],
+-    });
+-
+-    return () => {
+-      window.removeEventListener('message', onMessage);
+-      observer.disconnect();
+-    };
+-  });
+-
+-  return (
+-    <div className="absolute inset-0">
+-      <iframe
+-        ref={iframeRef}
+-        src={src}
+-        className="w-full h-full border-none"
+-        sandbox="allow-scripts allow-same-origin allow-forms"
+-        title={label}
+-        onLoad={() => sendTheme('claudia:init')}
+-      />
+-    </div>
+-  );
+-}
+-
+-// ── Main renderer ───────────────────────────────────────────────────────────
+ export function PluginPanelRenderer({
+   activePluginPanelId,
+   projectRoot,
+   projectId,
+ }: PluginPanelRendererProps) {
+   const panels = usePluginStore(selectPluginPanels);
+-  const activePanel = panels.find((p) => p.id === activePluginPanelId);
+ 
+-  if (!activePanel) return null;
+-
+-  // ── Iframe panel (third-party plugins with frontend HTML) ──────────────────
+-  if (activePanel.iframeUrl) {
+-    const server = useServerStore.getState().getActiveServer?.();
+-    const address = server?.address || 'localhost:3100';
+-    const baseUrl = address.includes('://') ? address : `http://${address}`;
+-    const url = new URL(activePanel.iframeUrl, baseUrl);
+-    if (projectRoot) url.searchParams.set('projectRoot', projectRoot);
+-    if (projectId) url.searchParams.set('projectId', projectId);
+-    url.searchParams.set('panelId', activePanel.id);
+-    url.searchParams.set('pluginId', activePanel.pluginId);
++  // Find the active plugin panel
++  const activePanel = panels.find((p) => p.id === activePluginPanelId);
+ 
+-    return (
+-      <IframePanel
+-        src={url.toString()}
+-        label={activePanel.label}
+-        panelId={activePanel.id}
+-        pluginId={activePanel.pluginId}
+-        serverUrl={baseUrl}
+-      />
+-    );
++  if (!activePanel || !activePanel.component) {
++    return null;
+   }
+ 
+-  // ── React component panel (builtin plugins) ────────────────────────────────
+-  if (!activePanel.component) return null;
+-
++  // Render the plugin component
++  // The component is stored as a React component type
+   const PluginComponent = activePanel.component as React.ComponentType<{
+     projectRoot?: string;
+     projectId?: string;
+diff --git a/apps/desktop/src/components/ProjectSettings.tsx b/apps/desktop/src/components/ProjectSettings.tsx
+index 7cca8ba..45238f8 100644
+--- a/apps/desktop/src/components/ProjectSettings.tsx
++++ b/apps/desktop/src/components/ProjectSettings.tsx
+@@ -29,15 +29,14 @@ export function ProjectSettings({ project, isOpen, onClose }: ProjectSettingsPro
+   const removeAgent = useSupervisionStore((s) => s.removeAgent);
+   const [supervisorLoading, setSupervisorLoading] = useState(false);
+ 
+-  const storeProviders = useProjectStore((s) => s.providers);
+-  const [providers, setProviders] = useState<ProviderConfig[]>(storeProviders);
++  const [providers, setProviders] = useState<ProviderConfig[]>([]);
++  const [loading, setLoading] = useState(false);
+   const [saving, setSaving] = useState(false);
+ 
+   // Form state
+   const [name, setName] = useState('');
+   const [rootPath, setRootPath] = useState('');
+   const [providerId, setProviderId] = useState<string>('');
+-  const [reviewProviderId, setReviewProviderId] = useState<string>('');
+   const [systemPrompt, setSystemPrompt] = useState('');
+ 
+   // Permission override state
+@@ -48,16 +47,6 @@ export function ProjectSettings({ project, isOpen, onClose }: ProjectSettingsPro
+     setPermOverride(prev => ({ ...prev, ...update }));
+   }, []);
+ 
+-  const effectiveAgent = v2Agent ?? project?.agent;
+-  const isSupervisorEnabled = Boolean(effectiveAgent && effectiveAgent.phase !== 'archived');
+-
+-  // Keep local providers in sync with global store
+-  useEffect(() => {
+-    if (storeProviders.length > 0) {
+-      setProviders(storeProviders);
+-    }
+-  }, [storeProviders]);
+-
+   // Load providers and populate form when project changes
+   useEffect(() => {
+     if (isOpen && isConnected) {
+@@ -67,7 +56,6 @@ export function ProjectSettings({ project, isOpen, onClose }: ProjectSettingsPro
+       setName(project.name);
+       setRootPath(project.rootPath || '');
+       setProviderId(project.providerId || '');
+-      setReviewProviderId(project.reviewProviderId || '');
+       setSystemPrompt(project.systemPrompt || '');
+       // Permission override
+       if (project.agentPermissionOverride) {
+@@ -80,45 +68,17 @@ export function ProjectSettings({ project, isOpen, onClose }: ProjectSettingsPro
+     }
+   }, [isOpen, project, isConnected]);
+ 
+-  // Keep supervisor toggle state consistent with backend source of truth.
+-  useEffect(() => {
+-    if (!isOpen || !project || !isConnected) return;
+-
+-    let cancelled = false;
+-    (async () => {
+-      try {
+-        const fetchedAgent = await api.getSupervisionAgent(project.id);
+-        if (cancelled) return;
+-
+-        if (fetchedAgent) {
+-          setAgent(project.id, fetchedAgent);
+-          updateProject(project.id, { agent: fetchedAgent });
+-        } else {
+-          removeAgent(project.id);
+-          updateProject(project.id, { agent: undefined });
+-        }
+-      } catch (error) {
+-        console.error('Failed to sync supervisor agent state:', error);
+-      }
+-    })();
+-
+-    return () => {
+-      cancelled = true;
+-    };
+-  }, [isOpen, project, isConnected, setAgent, removeAgent, updateProject]);
+-
+   const loadProviders = async () => {
+-    // Use store providers immediately if available
+-    const current = useProjectStore.getState().providers;
+-    if (current.length > 0) {
+-      setProviders(current);
+-    }
++    setLoading(true);
+     try {
+       const data = await api.getProviders();
+       setProviders(data);
++      // Sync to global store so Sidebar's provider dropdown stays current
+       useProjectStore.getState().setProviders(data);
+     } catch (error) {
+       console.error('Failed to load providers:', error);
++    } finally {
++      setLoading(false);
+     }
+   };
+ 
+@@ -131,7 +91,6 @@ export function ProjectSettings({ project, isOpen, onClose }: ProjectSettingsPro
+         name: name.trim(),
+         rootPath: rootPath.trim() || undefined,
+         providerId: providerId || undefined,
+-        reviewProviderId: reviewProviderId || undefined,
+         systemPrompt: systemPrompt.trim() || undefined,
+         agentPermissionOverride: hasOverride ? permOverride : undefined,
+       };
+@@ -151,7 +110,7 @@ export function ProjectSettings({ project, isOpen, onClose }: ProjectSettingsPro
+     if (!project || !isConnected) return;
+     setSupervisorLoading(true);
+     try {
+-      if (!isSupervisorEnabled) {
++      if (!v2Agent) {
+         const result = await api.initSupervisionAgent(
+           project.id,
+           { maxConcurrentTasks: 2, trustLevel: 'medium' },
+@@ -159,11 +118,9 @@ export function ProjectSettings({ project, isOpen, onClose }: ProjectSettingsPro
+           'lite'
+         );
+         setAgent(project.id, result);
+-        updateProject(project.id, { agent: result });
+       } else {
+-        const archivedAgent = await api.updateSupervisionAgentAction(project.id, 'archive');
+-        setAgent(project.id, archivedAgent);
+-        updateProject(project.id, { agent: archivedAgent });
++        await api.updateSupervisionAgentAction(project.id, 'archive');
++        removeAgent(project.id);
+       }
+     } catch (err) {
+       console.error('Failed to toggle supervisor:', err);
+@@ -234,6 +191,7 @@ export function ProjectSettings({ project, isOpen, onClose }: ProjectSettingsPro
+             <select
+               value={providerId}
+               onChange={(e) => setProviderId(e.target.value)}
++              disabled={loading}
+               className="w-full h-[38px] px-3 bg-input border border-border rounded-lg text-sm text-foreground focus:outline-none focus:border-primary"
+             >
+               <option value="">Default Provider</option>
+@@ -249,29 +207,6 @@ export function ProjectSettings({ project, isOpen, onClose }: ProjectSettingsPro
+             </p>
+           </div>
+ 
+-          {/* Review Provider (for Local PR workflow) */}
+-          <div>
+-            <label className="block text-sm font-medium text-muted-foreground mb-1">
+-              Review Provider
+-            </label>
+-            <select
+-              value={reviewProviderId}
+-              onChange={(e) => setReviewProviderId(e.target.value)}
+-              className="w-full h-[38px] px-3 bg-input border border-border rounded-lg text-sm text-foreground focus:outline-none focus:border-primary"
+-            >
+-              <option value="">Same as Project Provider</option>
+-              {providers.map((provider) => (
+-                <option key={provider.id} value={provider.id}>
+-                  {provider.name} ({provider.type})
+-                  {provider.isDefault ? ' - Default' : ''}
+-                </option>
+-              ))}
+-            </select>
+-            <p className="text-xs text-muted-foreground mt-1">
+-              Provider used for AI review of Local Pull Requests. Defaults to the project provider above.
+-            </p>
+-          </div>
+-
+           {/* System Prompt */}
+           <div>
+             <label className="block text-sm font-medium text-muted-foreground mb-1">
+@@ -378,40 +313,40 @@ export function ProjectSettings({ project, isOpen, onClose }: ProjectSettingsPro
+                 onClick={handleToggleSupervisor}
+                 disabled={supervisorLoading || !isConnected}
+                 className={`relative w-10 h-5 rounded-full transition-colors flex-shrink-0 disabled:opacity-50 ${
+-                  isSupervisorEnabled ? 'bg-primary' : 'bg-muted'
++                  v2Agent ? 'bg-primary' : 'bg-muted'
+                 }`}
+               >
+                 <span
+                   className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${
+-                    isSupervisorEnabled ? 'translate-x-5' : 'translate-x-0'
++                    v2Agent ? 'translate-x-5' : 'translate-x-0'
+                   }`}
+                 />
+               </button>
+             </div>
+ 
+-            {!isSupervisorEnabled && (
++            {!v2Agent && (
+               <p className="text-xs text-muted-foreground/70 italic">
+                 Supervisor is not enabled for this project
+               </p>
+             )}
+ 
+-            {effectiveAgent && isSupervisorEnabled && (
++            {v2Agent && (
+               <div className="space-y-2 mt-3 pl-3 border-l-2 border-primary/30">
+                 <div className="flex items-center gap-2">
+                   <span className="text-xs font-medium text-muted-foreground">Status:</span>
+                   <span className={`text-xs font-medium ${
+-                    effectiveAgent.phase === 'active' ? 'text-green-500' :
+-                    effectiveAgent.phase === 'paused' ? 'text-yellow-500' :
++                    v2Agent.phase === 'active' ? 'text-green-500' :
++                    v2Agent.phase === 'paused' ? 'text-yellow-500' :
+                     'text-muted-foreground'
+                   }`}>
+-                    {effectiveAgent.phase.charAt(0).toUpperCase() + effectiveAgent.phase.slice(1)}
++                    {v2Agent.phase.charAt(0).toUpperCase() + v2Agent.phase.slice(1)}
+                   </span>
+-                  {effectiveAgent.phase === 'active' && (
++                  {v2Agent.phase === 'active' && (
+                     <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
+                   )}
+                 </div>
+                 <div className="text-xs text-muted-foreground">
+-                  Mode: {(effectiveAgent.mode ?? 'full') === 'lite' ? 'Workflow Runner' : 'Full Supervisor'}
++                  Mode: {(v2Agent.mode ?? 'full') === 'lite' ? 'Workflow Runner' : 'Full Supervisor'}
+                 </div>
+               </div>
+             )}
+@@ -438,3 +373,4 @@ export function ProjectSettings({ project, isOpen, onClose }: ProjectSettingsPro
+     </>
+   );
+ }
++
+diff --git a/apps/desktop/src/components/ProviderManager.tsx b/apps/desktop/src/components/ProviderManager.tsx
+index d47fdc8..80ba7cd 100644
+--- a/apps/desktop/src/components/ProviderManager.tsx
++++ b/apps/desktop/src/components/ProviderManager.tsx
+@@ -21,7 +21,7 @@ export function ProviderManager({ isOpen, onClose, inline = false }: ProviderMan
+   const [editingProvider, setEditingProvider] = useState<ProviderConfig | null>(null);
+ 
+   // Form state
+-  type ProviderType = 'claude' | 'opencode' | 'codex' | 'cursor' | 'kimi';
++  type ProviderType = 'claude' | 'opencode' | 'codex' | 'cursor';
+   const [formName, setFormName] = useState('');
+   const [formType, setFormType] = useState<ProviderType>('claude');
+   const [formCliPath, setFormCliPath] = useState('');
+@@ -125,7 +125,6 @@ export function ProviderManager({ isOpen, onClose, inline = false }: ProviderMan
+       await loadProviders();
+     } catch (error) {
+       console.error('Failed to delete provider:', error);
+-      alert(error instanceof Error ? error.message : 'Failed to delete provider');
+     }
+   };
+ 
+@@ -345,15 +344,14 @@ export function ProviderManager({ isOpen, onClose, inline = false }: ProviderMan
+   );
+ }
+ 
+-const TYPE_OPTIONS: { value: 'claude' | 'opencode' | 'codex' | 'cursor' | 'kimi'; label: string }[] = [
++const TYPE_OPTIONS: { value: 'claude' | 'opencode' | 'codex' | 'cursor'; label: string }[] = [
+   { value: 'claude', label: 'Claude' },
+   { value: 'opencode', label: 'OpenCode' },
+   { value: 'codex', label: 'Codex' },
+   { value: 'cursor', label: 'Cursor Agent' },
+-  { value: 'kimi', label: 'Kimi' },
+ ];
+ 
+-function TypeSelector({ value, onChange }: { value: string; onChange: (v: 'claude' | 'opencode' | 'codex' | 'cursor' | 'kimi') => void }) {
++function TypeSelector({ value, onChange }: { value: string; onChange: (v: 'claude' | 'opencode' | 'codex' | 'cursor') => void }) {
+   const [open, setOpen] = useState(false);
+   const ref = useRef<HTMLDivElement>(null);
+ 
+diff --git a/apps/desktop/src/components/SettingsPanel.tsx b/apps/desktop/src/components/SettingsPanel.tsx
+index ffe66cc..21c6516 100644
+--- a/apps/desktop/src/components/SettingsPanel.tsx
++++ b/apps/desktop/src/components/SettingsPanel.tsx
+@@ -12,7 +12,6 @@ import { ServerGatewayConfig } from './ServerGatewayConfig';
+ import { ImportDialog } from './ImportDialog';
+ import { ImportOpenCodeDialog } from './ImportOpenCodeDialog';
+ import { PluginSettings } from './PluginSettings';
+-import { McpServerSettings } from './McpServerSettings';
+ import { usePluginStore, selectPluginSettingsTabs } from '../stores/pluginStore';
+ import * as api from '../services/api';
+ import { exportLogs, getLogCount, clearLogs } from '../services/logger';
+@@ -33,7 +32,7 @@ const TRUST_LEVELS: Array<{ id: AgentPermissionPolicy['trustLevel']; label: stri
+   { id: 'full_trust', label: 'Full Trust', description: 'Auto-approve everything except dangerous bash' },
+ ];
+ 
+-type SettingsTab = 'general' | 'client-ai' | 'connections' | 'providers' | 'notifications' | 'gateway' | 'import' | 'plugins' | 'mcp-servers' | `plugin:${string}`;
++type SettingsTab = 'general' | 'client-ai' | 'connections' | 'providers' | 'notifications' | 'gateway' | 'import' | 'plugins' | `plugin:${string}`;
+ 
+ interface SettingsPanelProps {
+   isOpen: boolean;
+@@ -233,15 +232,6 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
+         </svg>
+       )
+     },
+-    {
+-      id: 'mcp-servers' as SettingsTab,
+-      label: 'MCP Servers',
+-      icon: (
+-        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4" />
+-        </svg>
+-      )
+-    },
+     {
+       id: 'notifications' as SettingsTab,
+       label: 'Notifications',
+@@ -865,16 +855,6 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
+               </div>
+             )}
+ 
+-            {activeTab === 'mcp-servers' && (
+-              <div className="space-y-4">
+-                <h3 className="text-lg font-semibold">MCP Servers</h3>
+-                <p className="text-sm text-muted-foreground">
+-                  Manage MCP (Model Context Protocol) servers. These servers provide additional tools to AI providers.
+-                </p>
+-                <McpServerSettings />
+-              </div>
+-            )}
+-
+             {/* Dynamic plugin settings tabs */}
+             {typeof activeTab === 'string' && activeTab.startsWith('plugin:') && (() => {
+               const tabId = activeTab.slice(7);
+diff --git a/apps/desktop/src/components/Sidebar.tsx b/apps/desktop/src/components/Sidebar.tsx
+index 278eaf2..9687051 100644
+--- a/apps/desktop/src/components/Sidebar.tsx
++++ b/apps/desktop/src/components/Sidebar.tsx
+@@ -14,6 +14,7 @@ import { ProjectSettings } from './ProjectSettings';
+ import { SettingsPanel } from './SettingsPanel';
+ import { SearchFilters } from './SearchFilters';
+ import { ActiveSessionsPanel } from './ActiveSessionsPanel';
++import { ArchivedSessionsDialog } from './ArchivedSessionsDialog';
+ import { PluginPermissionDialog } from './PluginPermissionDialog';
+ import { SessionItem } from './sidebar/SessionItem';
+ import { WorktreeGroupItem } from './sidebar/WorktreeGroupItem';
+@@ -30,7 +31,6 @@ interface SidebarProps {
+   isOpen?: boolean;
+   onClose?: () => void;
+   hideHeader?: boolean;
+-  onOpenDashboard?: (projectId: string) => void;
+ }
+ 
+ function normalizeSearchPreview(content: string): string {
+@@ -38,7 +38,7 @@ function normalizeSearchPreview(content: string): string {
+   return normalized || 'No preview text';
+ }
+ 
+-export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHeader, onOpenDashboard }: SidebarProps) {
++export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHeader }: SidebarProps) {
+   const {
+     projects = [],
+     sessions = [],
+@@ -111,6 +111,7 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
+   const [showSearchHistory, setShowSearchHistory] = useState(false);
+   const [showFilters, setShowFilters] = useState(false);
+   const [searchFilters, setSearchFilters] = useState<Filters>({});
++  const [showArchivedDialog, setShowArchivedDialog] = useState(false);
+   const [searchOffset, setSearchOffset] = useState(0);
+   const [hasMoreResults, setHasMoreResults] = useState(false);
+   const [isLoadingMore, setIsLoadingMore] = useState(false);
+@@ -126,9 +127,7 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
+   // This significantly improves performance when toggling project expansion
+   const sessionsByProject = useMemo(() => {
+     const grouped = new Map<string, typeof sessions>();
+-    // Filter out background sessions (e.g. review, conflict resolution) from sidebar
+-    const visibleSessions = sessions.filter(s => s.type !== 'background');
+-    visibleSessions.forEach(session => {
++    sessions.forEach(session => {
+       const projectSessions = grouped.get(session.projectId) || [];
+       projectSessions.push(session);
+       grouped.set(session.projectId, projectSessions);
+@@ -703,10 +702,9 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
+                             <>
+                               <SupervisorGroupItem
+                                 key={mainSession.id}
+-                                onSelect={() => { if (onOpenDashboard) onOpenDashboard(project.id); if (onClose) onClose(); }}
++                                onSelect={() => { selectSession(mainSession!.id); if (onClose) onClose(); }}
+                                 isSelected={selectedSessionId === mainSession!.id}
+                                 isActive={activeRunSessionIds.has(mainSession!.id)}
+-                                phase={v2Agents[project.id]?.phase}
+                                 taskCount={tasks.length}
+                                 taskChildren={tasks.map(renderSession)}
+                               />
+@@ -893,8 +891,17 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
+             )}
+           </div>
+ 
+-          {/* Active Sessions - Fixed at bottom */}
++          {/* Archived Sessions entry + Active Sessions - Fixed at bottom */}
+           <div className="flex-shrink-0">
++            <button
++              onClick={() => setShowArchivedDialog(true)}
++              className="w-full px-4 py-2 text-sm text-muted-foreground hover:text-foreground hover:bg-secondary flex items-center gap-2"
++            >
++              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
++                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" />
++              </svg>
++              Archived Sessions
++            </button>
+             <ActiveSessionsPanel
+               onSessionSelect={(backendId, sessionId) => {
+                 handleActiveSessionSelect(backendId, sessionId);
+@@ -903,7 +910,7 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
+             />
+           </div>
+ 
+-          {/* Settings */}
++          {/* Settings Button */}
+           <div className="border-t border-border p-2">
+             <button
+               onClick={() => setShowSettings(true)}
+@@ -1252,10 +1259,9 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
+                         <>
+                           <SupervisorGroupItem
+                             key={mainSession.id}
+-                            onSelect={() => { if (onOpenDashboard) onOpenDashboard(project.id); }}
++                            onSelect={() => selectSession(mainSession!.id)}
+                             isSelected={selectedSessionId === mainSession!.id}
+                             isActive={activeRunSessionIds.has(mainSession!.id)}
+-                            phase={v2Agents[project.id]?.phase}
+                             taskCount={tasks.length}
+                             taskChildren={tasks.map(renderSession)}
+                           />
+@@ -1449,7 +1455,7 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
+         />
+       </div>
+ 
+-      {/* Settings */}
++      {/* Settings Button */}
+       <div className="border-t border-border p-2">
+         <button
+           onClick={() => setShowSettings(true)}
+@@ -1498,6 +1504,13 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
+       />,
+       document.body
+     )}
++    {showArchivedDialog && createPortal(
++      <ArchivedSessionsDialog
++        isOpen={showArchivedDialog}
++        onClose={() => setShowArchivedDialog(false)}
++      />,
++      document.body
++    )}
+     {createPortal(<PluginPermissionDialog />, document.body)}
+     </>
+   );
+diff --git a/apps/desktop/src/components/chat/ChatInterface.tsx b/apps/desktop/src/components/chat/ChatInterface.tsx
+index 578e576..c953c10 100644
+--- a/apps/desktop/src/components/chat/ChatInterface.tsx
++++ b/apps/desktop/src/components/chat/ChatInterface.tsx
+@@ -1,5 +1,5 @@
+ import { useRef, useEffect, useCallback, useState, useMemo } from 'react';
+-import { Loader2, AlertTriangle, ClipboardList, ArrowDown, ArrowLeft, X, FileText, Terminal as TerminalIcon, ChevronDown, ChevronUp, Lock, Unlock, Archive, RotateCcw, Download } from 'lucide-react';
++import { Loader2, AlertTriangle, ClipboardList, ArrowDown, X, FileText, Terminal as TerminalIcon, ChevronDown, ChevronUp, Lock, Unlock, Archive } from 'lucide-react';
+ import { MessageList } from './MessageList';
+ import { MessageInput, type Attachment } from './MessageInput';
+ import { ToolCallList } from './ToolCallItem';
+@@ -28,7 +28,7 @@ import { useIsMobile } from '../../hooks/useMediaQuery';
+ import * as api from '../../services/api';
+ import { uploadFile } from '../../services/fileUpload';
+ import { TaskCardStrip } from '../supervision/TaskCardStrip';
+-import type { AgentPermissionPolicy, CommandExecuteResponse, Message, MessageAttachment, MessageInput as MessageInputData, ProviderCapabilities, SlashCommand } from '@my-claudia/shared';
++import type { AgentPermissionPolicy, CommandExecuteResponse, Message, MessageAttachment, MessageInput as MessageInputData, ProviderCapabilities } from '@my-claudia/shared';
+ import type { MessageWithToolCalls } from '../../stores/chatStore';
+ 
+ // Restore tool calls and content blocks from persisted metadata when loading messages from the server
+@@ -54,19 +54,16 @@ function restoreToolCalls(messages: Message[]): MessageWithToolCalls[] {
+ 
+ interface ChatInterfaceProps {
+   sessionId: string;
+-  onReturnToDashboard?: (projectId: string) => void;
+ }
+ 
+ const MESSAGES_PER_PAGE = 50;
+ const BOTTOM_REFRESH_LIMIT = 12;
+ const BOTTOM_REFRESH_COOLDOWN_MS = 2500;
+-const SUPPRESS_LOAD_MORE_MS = 1200;
+ const EMPTY_MESSAGES: MessageWithToolCalls[] = [];
+ const EMPTY_TOOL_CALLS: import('../../stores/chatStore').ToolCallState[] = [];
+ const EMPTY_CONTENT_BLOCKS: import('@my-claudia/shared').ContentBlock[] = [];
+-const ATTACHMENT_PLACEHOLDER = '[Attachments]';
+ 
+-export function ChatInterface({ sessionId, onReturnToDashboard }: ChatInterfaceProps) {
++export function ChatInterface({ sessionId }: ChatInterfaceProps) {
+   const messages = useChatStore((s) => s.messages);
+   const pagination = useChatStore((s) => s.pagination);
+   const activeRuns = useChatStore((s) => s.activeRuns);
+@@ -93,10 +90,6 @@ export function ChatInterface({ sessionId, onReturnToDashboard }: ChatInterfaceP
+     }
+     return null;
+   }, [activeRuns, sessionId]);
+-  const isSessionRunning = useMemo(
+-    () => Object.values(activeRuns).some((sid) => sid === sessionId),
+-    [activeRuns, sessionId]
+-  );
+   // Only show loading/toolCalls for THIS session's active run
+   const isLoading = useMemo(
+     () => Object.entries(activeRuns).some(([runId, sid]) => sid === sessionId && !backgroundRunIds.has(runId)),
+@@ -134,7 +127,6 @@ export function ChatInterface({ sessionId, onReturnToDashboard }: ChatInterfaceP
+   const messagesEndRef = useRef<HTMLDivElement>(null);
+   const messagesContainerRef = useRef<HTMLDivElement>(null);
+   const bottomRefreshRef = useRef<{ lastAt: number; inFlight: boolean }>({ lastAt: 0, inFlight: false });
+-  const suppressLoadMoreUntilRef = useRef<number>(0);
+   const [initialLoadDone, setInitialLoadDone] = useState(false);
+   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
+   const [scrollMetrics, setScrollMetrics] = useState({ scrollTop: 0, viewportHeight: 0 });
+@@ -145,7 +137,6 @@ export function ChatInterface({ sessionId, onReturnToDashboard }: ChatInterfaceP
+   const [restoreMessage, setRestoreMessage] = useState<{ content: string; attachments?: Attachment[] } | null>(null);
+   const [uploadError, setUploadError] = useState<string | null>(null);
+   const [loadError, setLoadError] = useState<string | null>(null);
+-  const [resendChecking, setResendChecking] = useState(false);
+   // Queued message: when user sends while a run is active, queue it for auto-send
+   const [queuedMessage, setQueuedMessage] = useState<{ content: string; attachments?: Attachment[] } | null>(null);
+   const [taskPlanStatus, setTaskPlanStatus] = useState<api.TaskPlanStatus | null>(null);
+@@ -158,28 +149,6 @@ export function ChatInterface({ sessionId, onReturnToDashboard }: ChatInterfaceP
+   const [renameValue, setRenameValue] = useState('');
+ 
+   const sessionMessages = messages[sessionId] || EMPTY_MESSAGES;
+-  const lastSessionMessage = sessionMessages.length > 0 ? sessionMessages[sessionMessages.length - 1] : null;
+-  const resendTargetMessage = useMemo(() => {
+-    if (!lastSessionMessage || lastSessionMessage.role !== 'user' || isSessionRunning) {
+-      return null;
+-    }
+-    return lastSessionMessage;
+-  }, [lastSessionMessage, isSessionRunning]);
+-  const resendText = useMemo(() => {
+-    if (!resendTargetMessage) return null;
+-    const raw = (resendTargetMessage.content || '').trim();
+-    if (!raw || raw === ATTACHMENT_PLACEHOLDER) return null;
+-    try {
+-      const parsed = JSON.parse(raw) as { text?: string };
+-      if (parsed && typeof parsed === 'object' && typeof parsed.text === 'string') {
+-        const text = parsed.text.trim();
+-        return text || null;
+-      }
+-    } catch {
+-      // Plain text fallback
+-    }
+-    return raw;
+-  }, [resendTargetMessage]);
+   // Get current session and project to determine provider
+   const currentSession = sessions.find(s => s.id === sessionId);
+   const currentProject = currentSession
+@@ -205,7 +174,6 @@ export function ChatInterface({ sessionId, onReturnToDashboard }: ChatInterfaceP
+     setRestoreMessage(null);
+     setUploadError(null);
+     setLoadError(null);
+-    setResendChecking(false);
+     setQueuedMessage(null);
+     setScrollMetrics({ scrollTop: 0, viewportHeight: 0 });
+     setInitialDraft(useChatStore.getState().drafts[sessionId]);
+@@ -303,11 +271,6 @@ export function ChatInterface({ sessionId, onReturnToDashboard }: ChatInterfaceP
+     messagesEndRef.current?.scrollIntoView({ behavior: instant ? 'instant' : 'smooth' });
+   }, []);
+ 
+-  const jumpToBottomInstant = useCallback(() => {
+-    suppressLoadMoreUntilRef.current = Date.now() + SUPPRESS_LOAD_MORE_MS;
+-    scrollToBottom(true);
+-  }, [scrollToBottom]);
+-
+   // Sync filePush metadata from loaded messages into filePushStore for download tracking
+   const syncFilePushMessages = useCallback((msgs: MessageWithToolCalls[]) => {
+     const fpStore = useFilePushStore.getState();
+@@ -479,10 +442,8 @@ export function ChatInterface({ sessionId, onReturnToDashboard }: ChatInterfaceP
+       viewportHeight: container.clientHeight,
+     });
+ 
+-    // If scrolled near top (within 100px), load more messages.
+-    // During jump-to-bottom, suppress this to avoid fighting the programmatic scroll.
+-    const suppressLoadMore = Date.now() < suppressLoadMoreUntilRef.current;
+-    if (!suppressLoadMore && container.scrollTop < 100 && sessionPagination?.hasMore && !sessionPagination?.isLoadingMore) {
++    // If scrolled near top (within 100px), load more messages
++    if (container.scrollTop < 100 && sessionPagination?.hasMore && !sessionPagination?.isLoadingMore) {
+       loadMoreMessages();
+     }
+ 
+@@ -568,30 +529,8 @@ export function ChatInterface({ sessionId, onReturnToDashboard }: ChatInterfaceP
+ 
+   const capabilities: ProviderCapabilities | null = providerCapabilities[capsCacheKey] || null;
+ 
+-  // Get commands for current provider within current server/backend scope,
+-  // and append local-only helper commands that are handled in ChatInterface.
+-  const commands = useMemo<SlashCommand[]>(() => {
+-    const base = providerCommands[commandsCacheKey] || [];
+-    const extras: SlashCommand[] = [
+-      {
+-        command: '/new-cli-session',
+-        description: 'Reset underlying provider session (next message starts a fresh CLI session)',
+-        source: 'local',
+-      },
+-      {
+-        command: '/reset-cli-session',
+-        description: 'Alias of /new-cli-session',
+-        source: 'local',
+-      },
+-    ];
+-
+-    const seen = new Set(base.map((c) => c.command));
+-    const merged = [...base];
+-    for (const cmd of extras) {
+-      if (!seen.has(cmd.command)) merged.push(cmd);
+-    }
+-    return merged;
+-  }, [providerCommands, commandsCacheKey]);
++  // Get commands for current provider within current server/backend scope.
++  const commands = providerCommands[commandsCacheKey] || [];
+ 
+   // Scroll to bottom when new messages arrive (but not when loading history)
+   useEffect(() => {
+@@ -707,41 +646,6 @@ export function ChatInterface({ sessionId, onReturnToDashboard }: ChatInterfaceP
+     setTimeout(() => scrollToBottom(), 100);
+   };
+ 
+-  const handleResendLastMessage = useCallback(async () => {
+-    if (!resendText) return;
+-    setResendChecking(true);
+-    try {
+-      const runState = await api.getSessionRunState(sessionId);
+-      if (runState.isRunning) {
+-        addMessage(sessionId, {
+-          id: crypto.randomUUID(),
+-          sessionId,
+-          role: 'system',
+-          content: `Cannot resend yet: session is still running${runState.activeRunId ? ` (${runState.activeRunId})` : ''}.`,
+-          createdAt: Date.now(),
+-        });
+-        return;
+-      }
+-      // Remove the original user message before resending to avoid duplicates
+-      const currentMessages = useChatStore.getState().messages[sessionId] || [];
+-      if (currentMessages.length > 0 && currentMessages[currentMessages.length - 1].role === 'user') {
+-        setMessages(sessionId, currentMessages.slice(0, -1));
+-      }
+-      await handleSendMessage(resendText);
+-    } catch (error) {
+-      console.error('Resend preflight failed:', error);
+-      addMessage(sessionId, {
+-        id: crypto.randomUUID(),
+-        sessionId,
+-        role: 'system',
+-        content: 'Resend preflight failed. Please try again.',
+-        createdAt: Date.now(),
+-      });
+-    } finally {
+-      setResendChecking(false);
+-    }
+-  }, [resendText, sessionId, handleSendMessage, addMessage, setMessages]);
+-
+   // Handle built-in command response
+   const handleBuiltInCommand = useCallback((result: CommandExecuteResponse) => {
+     const { action, data, command: cmdName } = result;
+@@ -883,16 +787,6 @@ export function ChatInterface({ sessionId, onReturnToDashboard }: ChatInterfaceP
+           });
+         return; // Skip the scrollToBottom below since we handle it in the .then
+ 
+-      case 'show_panel': {
+-        // Plugin command: open the panel in the bottom drawer
+-        const panelId = data?.panelId as string | undefined;
+-        if (panelId && currentProject?.id) {
+-          setDrawerOpen(currentProject.id, true);
+-          setBottomPanelTab(`plugin:${panelId}`);
+-        }
+-        break;
+-      }
+-
+       default:
+         addMessage(sessionId, {
+           id: crypto.randomUUID(),
+@@ -905,7 +799,7 @@ export function ChatInterface({ sessionId, onReturnToDashboard }: ChatInterfaceP
+ 
+     // Scroll to bottom after command output
+     setTimeout(() => scrollToBottom(), 100);
+-  }, [sessionId, clearMessages, addMessage, scrollToBottom, providerId, currentProject?.rootPath, commandsCacheKey, currentProject?.id, setDrawerOpen, setBottomPanelTab]);
++  }, [sessionId, clearMessages, addMessage, scrollToBottom, providerId, currentProject?.rootPath, commandsCacheKey]);
+ 
+   const handleWorktreeChange = useCallback(async (worktreePath: string) => {
+     if (isForcedPlanSession) {
+@@ -923,29 +817,6 @@ export function ChatInterface({ sessionId, onReturnToDashboard }: ChatInterfaceP
+     }
+   }, [isForcedPlanSession, sessionId]);
+ 
+-  const handleResetProviderSession = useCallback(async () => {
+-    try {
+-      await api.resetSessionSdkSession(sessionId);
+-      addMessage(sessionId, {
+-        id: crypto.randomUUID(),
+-        sessionId,
+-        role: 'system',
+-        content: 'Underlying CLI session reset. The next message will start a new provider-side session.',
+-        createdAt: Date.now(),
+-      });
+-      setTimeout(() => scrollToBottom(), 100);
+-    } catch (err) {
+-      addMessage(sessionId, {
+-        id: crypto.randomUUID(),
+-        sessionId,
+-        role: 'system',
+-        content: `Failed to reset CLI session: ${(err as Error).message}`,
+-        createdAt: Date.now(),
+-      });
+-      setTimeout(() => scrollToBottom(), 100);
+-    }
+-  }, [addMessage, scrollToBottom, sessionId]);
+-
+   const handleCommand = useCallback(async (command: string, args: string) => {
+     // Find the command definition to check its source
+     const commandDef = commands.find(c => c.command === command);
+@@ -1218,11 +1089,11 @@ export function ChatInterface({ sessionId, onReturnToDashboard }: ChatInterfaceP
+       return;
+     }
+ 
+-    // Provider commands should be passed directly to Claude SDK (they are Claude CLI built-ins).
++    // Plugin commands and provider commands should be passed directly to Claude SDK
++    // They are handled by Claude CLI's plugin system or built-in CLI commands
+     // Also treat all unrecognized commands (no matching commandDef) as pass-through to Claude,
+-    // since the input may not be an actual command (e.g. a path like /some/file/path).
+-    // Plugin commands (source === 'plugin') fall through to api.executeCommand() instead.
+-    if (commandDef?.source === 'provider' || !commandDef) {
++    // since the input may not be an actual command (e.g. a path like /some/file/path)
++    if (commandDef?.source === 'plugin' || commandDef?.source === 'provider' || !commandDef) {
+       const commandText = args ? `${command} ${args}` : command;
+       const clientMessageId = crypto.randomUUID();
+       addMessage(sessionId, {
+@@ -1389,61 +1260,11 @@ export function ChatInterface({ sessionId, onReturnToDashboard }: ChatInterfaceP
+         <TaskCardStrip projectId={currentProject.id} />
+       )}
+ 
+-      {/* Interrupted session banner */}
+-      {currentSession?.lastRunStatus === 'interrupted' && (
+-        <div className="flex items-center gap-3 px-4 py-2 bg-red-500/10 border-b border-red-500/20">
+-          <AlertTriangle className="w-4 h-4 text-red-400 shrink-0" />
+-          <span className="text-sm text-red-400">Session was interrupted by app restart.</span>
+-          <div className="ml-auto flex gap-2">
+-            <button
+-              onClick={() => {
+-                wsSendMessage({
+-                  type: 'run_start',
+-                  clientRequestId: crypto.randomUUID(),
+-                  sessionId,
+-                  input: 'continue',
+-                  mode: mode || undefined,
+-                  workingDirectory: currentSession?.workingDirectory || undefined,
+-                });
+-              }}
+-              className="text-xs px-3 py-1 rounded-md bg-primary/20 text-primary hover:bg-primary/30 transition-colors"
+-            >
+-              Resume
+-            </button>
+-            <button
+-              onClick={async () => {
+-                try {
+-                  await api.dismissInterrupted(sessionId);
+-                  useProjectStore.getState().updateSession(sessionId, { lastRunStatus: null });
+-                } catch {}
+-              }}
+-              className="text-xs px-3 py-1 rounded-md text-muted-foreground hover:bg-muted transition-colors"
+-            >
+-              Dismiss
+-            </button>
+-          </div>
+-        </div>
+-      )}
+-
+       {/* Session action bar */}
+       {currentSession && (
+         <div className="flex items-center gap-2 px-3 py-1.5 border-b border-border bg-card/50">
+-          {/* Back button for background sessions */}
+-          {currentSession.type === 'background' && onReturnToDashboard && currentSession.projectId && (
+-            <button
+-              onClick={() => onReturnToDashboard(currentSession.projectId)}
+-              className="p-1 rounded hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors shrink-0"
+-              title="Back to dashboard"
+-            >
+-              <ArrowLeft size={14} />
+-            </button>
+-          )}
+-          {/* Session name — click to rename (disabled for background sessions) */}
+-          {currentSession.type === 'background' ? (
+-            <span className="flex-1 min-w-0 text-sm text-foreground truncate">
+-              {currentSession.name || 'Untitled Session'}
+-            </span>
+-          ) : isRenamingSession ? (
++          {/* Session name — click to rename */}
++          {isRenamingSession ? (
+             <input
+               autoFocus
+               type="text"
+@@ -1479,33 +1300,23 @@ export function ChatInterface({ sessionId, onReturnToDashboard }: ChatInterfaceP
+               </span>
+             ) : null;
+           })()}
+-          {/* Actions (hidden for background sessions) */}
+-          {currentSession.type !== 'background' && (
+-            <div className="flex items-center gap-0.5 shrink-0">
+-              <button
+-                onClick={handleResetProviderSession}
+-                disabled={isLoading}
+-                className={`p-1 rounded transition-colors ${isLoading ? 'opacity-50 cursor-not-allowed text-muted-foreground' : 'hover:bg-secondary text-muted-foreground hover:text-foreground'}`}
+-                title="Reset underlying provider session"
+-              >
+-                <RotateCcw size={14} />
+-              </button>
+-              <button
+-                onClick={handleExportSession}
+-                className="p-1 rounded hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors"
+-                title="Export as Markdown"
+-              >
+-                <Download size={14} />
+-              </button>
+-              <button
+-                onClick={handleArchiveSession}
+-                className="p-1 rounded hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors"
+-                title="Archive session"
+-              >
+-                <Archive size={14} />
+-              </button>
+-            </div>
+-          )}
++          {/* Actions */}
++          <div className="flex items-center gap-0.5 shrink-0">
++            <button
++              onClick={handleExportSession}
++              className="p-1 rounded hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors"
++              title="Export as Markdown"
++            >
++              <FileText size={14} />
++            </button>
++            <button
++              onClick={handleArchiveSession}
++              className="p-1 rounded hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors"
++              title="Archive session"
++            >
++              <Archive size={14} />
++            </button>
++          </div>
+         </div>
+       )}
+ 
+@@ -1673,9 +1484,6 @@ export function ChatInterface({ sessionId, onReturnToDashboard }: ChatInterfaceP
+           streamingToolCalls={useStreamingSegmented ? sessionToolCallHistory : undefined}
+           scrollTop={scrollMetrics.scrollTop}
+           viewportHeight={scrollMetrics.viewportHeight}
+-          resendTargetMessageId={resendTargetMessage?.id}
+-          resendDisabled={!resendText || resendChecking}
+-          onResendTarget={handleResendLastMessage}
+         />
+ 
+         {/* Loading indicator (shown while waiting for response) */}
+@@ -1726,7 +1534,7 @@ export function ChatInterface({ sessionId, onReturnToDashboard }: ChatInterfaceP
+         {/* Scroll to bottom button — sticky inside scroll container */}
+         {showScrollToBottom && (
+           <button
+-            onClick={jumpToBottomInstant}
++            onClick={() => scrollToBottom()}
+             className="sticky bottom-4 float-right mr-2 z-10 w-9 h-9 rounded-full bg-muted/90 border border-border shadow-md flex items-center justify-center hover:bg-muted transition-colors"
+             aria-label="Scroll to bottom"
+           >
+@@ -1738,8 +1546,7 @@ export function ChatInterface({ sessionId, onReturnToDashboard }: ChatInterfaceP
+       {/* Bottom panel (file viewer + terminal with tab switching) */}
+       <BottomPanel
+         projectId={currentSession?.projectId}
+-        projectRoot={fileReferenceRoot}
+-        workingDirectory={currentSession?.workingDirectory}
++        projectRoot={currentProject?.rootPath}
+       />
+ 
+       {/* Queued message banner */}
+@@ -1781,44 +1588,31 @@ export function ChatInterface({ sessionId, onReturnToDashboard }: ChatInterfaceP
+             <div className="flex items-center gap-2 text-sm text-muted-foreground">
+               <Lock size={14} />
+               <span>
+-                {currentSession.type === 'background'
+-                  ? 'Background session — read-only'
+-                  : currentSession.planStatus === 'planned'
++                {currentSession.planStatus === 'planned'
+                   ? 'Plan submitted — waiting for Supervisor to execute'
+                   : currentSession.planStatus === 'executing'
+                   ? 'Task executing — controlled by Supervisor'
+                   : 'This session is read-only'}
+               </span>
+             </div>
+-            {currentSession.type === 'background' ? (
+-              isLoading && sessionRunId ? (
+-                <button
+-                  onClick={handleCancelRun}
+-                  className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-destructive/10 text-destructive hover:bg-destructive/20 rounded-md transition-colors"
+-                >
+-                  <X size={14} />
+-                  Cancel
+-                </button>
+-              ) : null
+-            ) : (
+-              <button
+-                onClick={async () => {
+-                  try {
+-                    const updated = await api.unlockSession(sessionId);
+-                    useProjectStore.getState().updateSession(sessionId, {
+-                      isReadOnly: updated.isReadOnly,
+-                      planStatus: updated.planStatus,
+-                    });
+-                  } catch (err) {
+-                    console.error('Failed to unlock session:', err);
+-                  }
+-                }}
+-                className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-primary/10 text-primary hover:bg-primary/20 rounded-md transition-colors"
+-              >
+-                <Unlock size={14} />
+-                Unlock
+-              </button>
+-            )}
++            <button
++              onClick={async () => {
++                try {
++                  const updated = await api.unlockSession(sessionId);
++                  // Update session in project store
++                  useProjectStore.getState().updateSession(sessionId, {
++                    isReadOnly: updated.isReadOnly,
++                    planStatus: updated.planStatus,
++                  });
++                } catch (err) {
++                  console.error('Failed to unlock session:', err);
++                }
++              }}
++              className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-primary/10 text-primary hover:bg-primary/20 rounded-md transition-colors"
++            >
++              <Unlock size={14} />
++              Unlock
++            </button>
+           </div>
+         </div>
+       ) : (
+diff --git a/apps/desktop/src/components/chat/InlinePermissionRequest.tsx b/apps/desktop/src/components/chat/InlinePermissionRequest.tsx
+index eebd0d4..cc807b3 100644
+--- a/apps/desktop/src/components/chat/InlinePermissionRequest.tsx
++++ b/apps/desktop/src/components/chat/InlinePermissionRequest.tsx
+@@ -5,7 +5,7 @@ import { PermissionDetailView } from '../permission/PermissionDetailView';
+ 
+ interface InlinePermissionRequestProps {
+   request: PermissionRequest;
+-  onDecision: (requestId: string, allow: boolean, remember?: boolean, credential?: string, feedback?: string) => void;
++  onDecision: (requestId: string, allow: boolean, remember?: boolean, credential?: string) => void;
+ }
+ 
+ export function InlinePermissionRequest({ request, onDecision }: InlinePermissionRequestProps) {
+@@ -13,14 +13,11 @@ export function InlinePermissionRequest({ request, onDecision }: InlinePermissio
+   const [remember, setRemember] = useState(false);
+   const [credential, setCredential] = useState('');
+   const [resolved, setResolved] = useState<'allow' | 'deny' | null>(null);
+-  const [countdownStopped, setCountdownStopped] = useState(false);
+   const credentialInputRef = useRef<HTMLInputElement>(null);
+-  const isExitPlanModeRequest = request.toolName.toLowerCase().includes('exitplanmode');
+ 
+   useEffect(() => {
+     setRemember(false);
+     setCredential('');
+-    setCountdownStopped(false);
+ 
+     if (request.timeoutSec === 0) {
+       setRemainingTime(0);
+@@ -38,7 +35,6 @@ export function InlinePermissionRequest({ request, onDecision }: InlinePermissio
+ 
+     const interval = setInterval(() => {
+       setRemainingTime((prev) => {
+-        if (countdownStopped) return prev;
+         if (prev <= 1) {
+           // Backend handles auto-approve; for auto-deny, also trigger from frontend as fallback
+           if (!request.aiInitiated) {
+@@ -52,7 +48,7 @@ export function InlinePermissionRequest({ request, onDecision }: InlinePermissio
+     }, 1000);
+ 
+     return () => clearInterval(interval);
+-  }, [request.requestId, request.timeoutSec, request.requiresCredential, request.aiInitiated, onDecision, countdownStopped]);
++  }, [request.requestId, request.timeoutSec, request.requiresCredential, onDecision]);
+ 
+   const handleAllow = () => {
+     setResolved('allow');
+@@ -68,13 +64,6 @@ export function InlinePermissionRequest({ request, onDecision }: InlinePermissio
+     onDecision(request.requestId, false, remember);
+   };
+ 
+-  const handleDenyWithFeedback = async () => {
+-    const feedback = window.prompt('补充你的意见（将随本次拒绝一起发送给模型）', '')?.trim();
+-    setCountdownStopped(true);
+-    setResolved('deny');
+-    onDecision(request.requestId, false, remember, undefined, feedback || undefined);
+-  };
+-
+   const hasTimeout = request.timeoutSec > 0;
+   const progressPercent = hasTimeout ? (remainingTime / request.timeoutSec) * 100 : 0;
+   const credentialLabel = request.credentialHint === 'sudo_password' ? 'sudo password' : 'credential';
+@@ -196,14 +185,6 @@ export function InlinePermissionRequest({ request, onDecision }: InlinePermissio
+           >
+             Deny
+           </button>
+-          {isExitPlanModeRequest && (
+-            <button
+-              onClick={handleDenyWithFeedback}
+-              className="px-3 py-1.5 bg-secondary hover:bg-secondary/80 active:bg-secondary/70 text-secondary-foreground rounded-full text-xs font-medium transition-colors"
+-            >
+-              Deny + Comment
+-            </button>
+-          )}
+           <button
+             onClick={handleAllow}
+             disabled={isCredential && !credential}
+diff --git a/apps/desktop/src/components/chat/MessageInput.tsx b/apps/desktop/src/components/chat/MessageInput.tsx
+index 1a7e758..b58e1e4 100644
+--- a/apps/desktop/src/components/chat/MessageInput.tsx
++++ b/apps/desktop/src/components/chat/MessageInput.tsx
+@@ -94,8 +94,7 @@ export function MessageInput({
+   const [selectedCommandIndex, setSelectedCommandIndex] = useState(0);
+   const [mentionState, setMentionState] = useState<MentionState>(initialMentionState);
+   const [isComposing, setIsComposing] = useState(false); // Track IME composition state
+-  const compactRowHeightClass = isMobile ? 'h-16' : 'h-12';
+-  const controlIconSize = isMobile ? 18 : 20;
++  const compactRowHeightClass = isMobile ? 'h-[72px]' : 'h-12';
+ 
+   const textareaRef = useRef<HTMLTextAreaElement>(null);
+   const fileInputRef = useRef<HTMLInputElement>(null);
+@@ -708,7 +707,7 @@ export function MessageInput({
+           className={`${advancedMode ? 'h-12 w-12' : 'h-full aspect-square'} flex-shrink-0 flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted rounded-full transition-colors disabled:opacity-50 disabled:cursor-not-allowed`}
+           title="Add attachment (images, files)"
+         >
+-          <Paperclip size={controlIconSize} strokeWidth={1.75} />
++          <Paperclip size={20} strokeWidth={1.75} />
+         </button>
+         <input
+           ref={fileInputRef}
+@@ -756,7 +755,7 @@ export function MessageInput({
+               advancedMode
+                 ? 'resize-y min-h-[160px] max-h-[40vh] overflow-auto'
+                 : isMobile
+-                  ? 'h-16 resize-none overflow-hidden'
++                  ? 'h-[72px] resize-none overflow-hidden'
+                   : 'h-12 resize-none overflow-hidden'
+             }`}
+             style={{
+@@ -773,7 +772,7 @@ export function MessageInput({
+             className={`${advancedMode ? 'h-12 w-12' : 'h-full aspect-square'} flex-shrink-0 flex items-center justify-center bg-destructive text-destructive-foreground hover:bg-destructive/90 rounded-full transition-colors`}
+             title="Cancel (Esc)"
+           >
+-            <X size={controlIconSize} strokeWidth={2} />
++            <X size={20} strokeWidth={2} />
+           </button>
+         ) : (
+           <button
+@@ -785,7 +784,7 @@ export function MessageInput({
+               : 'Send message (Enter)'}
+             data-testid="send-button"
+           >
+-            <Send size={controlIconSize} strokeWidth={1.75} />
++            <Send size={20} strokeWidth={1.75} />
+           </button>
+         )}
+       </div>
+diff --git a/apps/desktop/src/components/chat/MessageList.tsx b/apps/desktop/src/components/chat/MessageList.tsx
+index ebf6b6f..e708d5e 100644
+--- a/apps/desktop/src/components/chat/MessageList.tsx
++++ b/apps/desktop/src/components/chat/MessageList.tsx
+@@ -92,9 +92,6 @@ interface MessageListProps {
+   streamingToolCalls?: ToolCallState[];
+   scrollTop?: number;
+   viewportHeight?: number;
+-  resendTargetMessageId?: string;
+-  onResendTarget?: () => void;
+-  resendDisabled?: boolean;
+ }
+ 
+ const VIRTUALIZE_THRESHOLD = 80;
+@@ -107,9 +104,6 @@ export const MessageList = memo(function MessageList({
+   streamingToolCalls,
+   scrollTop = 0,
+   viewportHeight = 0,
+-  resendTargetMessageId,
+-  onResendTarget,
+-  resendDisabled = false,
+ }: MessageListProps) {
+   // Subscribe to filePushStore for download status updates
+   const filePushItems = useFilePushStore((state) => state.items);
+@@ -243,12 +237,9 @@ export const MessageList = memo(function MessageList({
+         message={message}
+         streamingContentBlocks={isLastAssistant ? streamingContentBlocks : undefined}
+         streamingToolCalls={isLastAssistant ? streamingToolCalls : undefined}
+-        showResend={message.id === resendTargetMessageId}
+-        onResend={message.id === resendTargetMessageId ? onResendTarget : undefined}
+-        resendDisabled={resendDisabled}
+       />
+     );
+-  }, [filePushItems, filteredMessages.length, streamingContentBlocks, streamingToolCalls, resendTargetMessageId, onResendTarget, resendDisabled]);
++  }, [filePushItems, filteredMessages.length, streamingContentBlocks, streamingToolCalls]);
+ 
+   const virtualWindow = useMemo(() => {
+     if (!shouldVirtualize) {
+@@ -599,13 +590,10 @@ const SegmentedContent = memo(function SegmentedContent({
+   );
+ });
+ 
+-const MessageItem = memo(function MessageItem({ message, streamingContentBlocks, streamingToolCalls, showResend, onResend, resendDisabled }: {
++const MessageItem = memo(function MessageItem({ message, streamingContentBlocks, streamingToolCalls }: {
+   message: MessageWithToolCalls;
+   streamingContentBlocks?: ContentBlock[];
+   streamingToolCalls?: ToolCallState[];
+-  showResend?: boolean;
+-  onResend?: () => void;
+-  resendDisabled?: boolean;
+ }) {
+   const isUser = message.role === 'user';
+   const isSystem = message.role === 'system';
+@@ -706,18 +694,6 @@ const MessageItem = memo(function MessageItem({ message, streamingContentBlocks,
+           {new Date(message.createdAt).toLocaleTimeString()}
+         </div>
+       </div>
+-      {isUser && showResend && onResend && (
+-        <div className="mt-1">
+-          <button
+-            onClick={onResend}
+-            disabled={resendDisabled}
+-            className="text-xs px-2 py-1 rounded-full border border-border text-muted-foreground hover:text-foreground hover:bg-secondary/60 disabled:opacity-50 disabled:cursor-not-allowed"
+-            title={resendDisabled ? 'This message cannot be resent as plain text' : 'Resend this message'}
+-          >
+-            Resend
+-          </button>
+-        </div>
+-      )}
+     </div>
+   );
+ });
+diff --git a/apps/desktop/src/components/chat/__tests__/ModeSelector.test.tsx b/apps/desktop/src/components/chat/__tests__/ModeSelector.test.tsx
+new file mode 100644
+index 0000000..2c11447
+--- /dev/null
++++ b/apps/desktop/src/components/chat/__tests__/ModeSelector.test.tsx
+@@ -0,0 +1,199 @@
++import { describe, it, expect, vi, beforeEach } from 'vitest';
++import { render, screen, fireEvent, waitFor } from '@testing-library/react';
++import { ModeSelector } from '../ModeSelector';
++import type { ProviderCapabilities } from '@my-claudia/shared';
++
++// Mock SelectorTrigger to simplify testing
++vi.mock('../SelectorTrigger', () => ({
++  SelectorTrigger: ({ children, onClick, disabled, locked, title, ariaLabel }: any) => (
++    <button
++      onClick={onClick}
++      disabled={disabled}
++      title={title}
++      aria-label={ariaLabel}
++      data-testid="selector-trigger"
++    >
++      {children}
++    </button>
++  ),
++}));
++
++const mockCapabilities: ProviderCapabilities = {
++  modes: [
++    { id: 'default', label: 'Default', description: 'Standard mode' },
++    { id: 'plan', label: 'Plan', description: 'Plan mode' },
++    { id: 'acceptEdits', label: 'Accept Edits', description: 'Accept edits mode' },
++    { id: 'bypassPermissions', label: 'Bypass', description: 'Bypass permissions' },
++    { id: 'ask', label: 'Ask', description: 'Ask mode' },
++    { id: 'custom', label: 'Custom', description: 'Custom mode' },
++    { id: 'settings', label: 'Settings', description: 'Settings mode' },
++  ],
++};
++
++describe('ModeSelector', () => {
++  const defaultProps = {
++    capabilities: mockCapabilities,
++    value: 'default',
++    onChange: vi.fn(),
++  };
++
++  beforeEach(() => {
++    vi.clearAllMocks();
++  });
++
++  describe('rendering', () => {
++    it('returns null when no capabilities', () => {
++      const { container } = render(
++        <ModeSelector {...defaultProps} capabilities={null} />
++      );
++
++      expect(container).toBeEmptyDOMElement();
++    });
++
++    it('returns null when no modes', () => {
++      const { container } = render(
++        <ModeSelector
++          {...defaultProps}
++          capabilities={{ modes: [] }}
++        />
++      );
++
++      expect(container).toBeEmptyDOMElement();
++    });
++
++    it('shows current mode label', () => {
++      render(<ModeSelector {...defaultProps} />);
++
++      expect(screen.getByText('Default')).toBeInTheDocument();
++    });
++
++    it('shows correct icon for mode', () => {
++      render(<ModeSelector {...defaultProps} value="plan" />);
++
++      // Plan mode uses ClipboardList icon
++      expect(screen.getByTestId('selector-trigger')).toBeInTheDocument();
++    });
++  });
++
++  describe('dropdown', () => {
++    it('opens on click', async () => {
++      render(<ModeSelector {...defaultProps} />);
++
++      fireEvent.click(screen.getByTestId('selector-trigger'));
++
++      await waitFor(() => {
++        expect(screen.getByText('Standard mode')).toBeInTheDocument();
++      });
++    });
++
++    it('closes on outside click', async () => {
++      render(
++        <div>
++          <ModeSelector {...defaultProps} />
++          <div data-testid="outside">Outside</div>
++        </div>
++      );
++
++      fireEvent.click(screen.getByTestId('selector-trigger'));
++
++      await waitFor(() => {
++        expect(screen.getByText('Standard mode')).toBeInTheDocument();
++      });
++
++      fireEvent.click(screen.getByTestId('outside'));
++
++      await waitFor(() => {
++        expect(screen.queryByText('Standard mode')).not.toBeInTheDocument();
++      });
++    });
++
++    it('closes on mode selection', async () => {
++      const handleChange = vi.fn();
++      render(<ModeSelector {...defaultProps} onChange={handleChange} />);
++
++      fireEvent.click(screen.getByTestId('selector-trigger'));
++
++      await waitFor(() => {
++        expect(screen.getByText('Plan mode')).toBeInTheDocument();
++      });
++
++      fireEvent.click(screen.getByText('Plan mode'));
++
++      await waitFor(() => {
++        expect(screen.queryByText('Plan mode')).not.toBeInTheDocument();
++      });
++
++      expect(handleChange).toHaveBeenCalledWith('plan');
++    });
++
++    it('shows all mode options', async () => {
++      render(<ModeSelector {...defaultProps} />);
++
++      fireEvent.click(screen.getByTestId('selector-trigger'));
++
++      await waitFor(() => {
++        expect(screen.getByText('Default')).toBeInTheDocument();
++        expect(screen.getByText('Plan')).toBeInTheDocument();
++        expect(screen.getByText('Accept Edits')).toBeInTheDocument();
++        expect(screen.getByText('Bypass')).toBeInTheDocument();
++      });
++    });
++
++    it('highlights selected mode', async () => {
++      render(<ModeSelector {...defaultProps} value="plan" />);
++
++      fireEvent.click(screen.getByTestId('selector-trigger'));
++
++      await waitFor(() => {
++        const planOption = screen.getByText('Plan').closest('button');
++        expect(planOption?.className).toContain('bg-primary');
++      });
++    });
++
++    it('calls onChange on selection', async () => {
++      const handleChange = vi.fn();
++      render(<ModeSelector {...defaultProps} onChange={handleChange} />);
++
++      fireEvent.click(screen.getByTestId('selector-trigger'));
++
++      await waitFor(() => {
++        expect(screen.getByText('Plan mode')).toBeInTheDocument();
++      });
++
++      fireEvent.click(screen.getByText('Plan mode'));
++
++      expect(handleChange).toHaveBeenCalledWith('plan');
++    });
++  });
++
++  describe('disabled/locked state', () => {
++    it('does not open when disabled', () => {
++      render(<ModeSelector {...defaultProps} disabled />);
++
++      const trigger = screen.getByTestId('selector-trigger');
++      expect(trigger).toBeDisabled();
++    });
++
++    it('shows locked state', () => {
++      render(<ModeSelector {...defaultProps} locked />);
++
++      const trigger = screen.getByTestId('selector-trigger');
++      expect(trigger).toBeDisabled();
++    });
++
++    it('shows lock reason in title', () => {
++      render(
++        <ModeSelector
++          {...defaultProps}
++          locked
++          lockReason="Task in progress"
++        />
++      );
++
++      expect(screen.getByTestId('selector-trigger')).toHaveAttribute(
++        'title',
++        'Task in progress'
++      );
++    });
++  });
++});
+diff --git a/apps/desktop/src/components/chat/__tests__/SelectorTrigger.test.tsx b/apps/desktop/src/components/chat/__tests__/SelectorTrigger.test.tsx
+new file mode 100644
+index 0000000..e5a0381
+--- /dev/null
++++ b/apps/desktop/src/components/chat/__tests__/SelectorTrigger.test.tsx
+@@ -0,0 +1,169 @@
++import { describe, it, expect, vi } from 'vitest';
++import { render, screen, fireEvent } from '@testing-library/react';
++import { SelectorTrigger } from '../SelectorTrigger';
++
++describe('SelectorTrigger', () => {
++  it('renders children', () => {
++    render(
++      <SelectorTrigger onClick={() => {}}>
++        <span>Test Content</span>
++      </SelectorTrigger>
++    );
++
++    expect(screen.getByText('Test Content')).toBeInTheDocument();
++  });
++
++  it('calls onClick when clicked', () => {
++    const handleClick = vi.fn();
++    render(
++      <SelectorTrigger onClick={handleClick}>
++        Click me
++      </SelectorTrigger>
++    );
++
++    fireEvent.click(screen.getByRole('button'));
++
++    expect(handleClick).toHaveBeenCalledTimes(1);
++  });
++
++  it('does not call onClick when disabled', () => {
++    const handleClick = vi.fn();
++    render(
++      <SelectorTrigger onClick={handleClick} disabled>
++        Disabled
++      </SelectorTrigger>
++    );
++
++    fireEvent.click(screen.getByRole('button'));
++
++    expect(handleClick).not.toHaveBeenCalled();
++  });
++
++  it('does not call onClick when locked', () => {
++    const handleClick = vi.fn();
++    render(
++      <SelectorTrigger onClick={handleClick} locked>
++        Locked
++      </SelectorTrigger>
++    );
++
++    fireEvent.click(screen.getByRole('button'));
++
++    expect(handleClick).not.toHaveBeenCalled();
++  });
++
++  it('shows disabled state with opacity class', () => {
++    render(
++      <SelectorTrigger onClick={() => {}} disabled>
++        Disabled
++      </SelectorTrigger>
++    );
++
++    const button = screen.getByRole('button');
++    expect(button.className).toContain('opacity-50');
++    expect(button.className).toContain('cursor-not-allowed');
++  });
++
++  it('shows locked state with amber styling', () => {
++    render(
++      <SelectorTrigger onClick={() => {}} locked>
++        Locked
++      </SelectorTrigger>
++    );
++
++    const button = screen.getByRole('button');
++    expect(button.className).toContain('cursor-not-allowed');
++    expect(button.className).toContain('text-amber');
++  });
++
++  it('uses lock reason as title when locked', () => {
++    render(
++      <SelectorTrigger onClick={() => {}} locked lockReason="Task in progress">
++        Locked
++      </SelectorTrigger>
++    );
++
++    expect(screen.getByRole('button')).toHaveAttribute('title', 'Task in progress');
++  });
++
++  it('uses custom title when not locked', () => {
++    render(
++      <SelectorTrigger onClick={() => {}} title="Custom title">
++        Test
++      </SelectorTrigger>
++    );
++
++    expect(screen.getByRole('button')).toHaveAttribute('title', 'Custom title');
++  });
++
++  it('applies custom className', () => {
++    render(
++      <SelectorTrigger onClick={() => {}} className="custom-class">
++        Test
++      </SelectorTrigger>
++    );
++
++    const button = screen.getByRole('button');
++    expect(button.className).toContain('custom-class');
++  });
++
++  it('sets aria-label', () => {
++    render(
++      <SelectorTrigger onClick={() => {}} ariaLabel="Select option">
++        Test
++      </SelectorTrigger>
++    );
++
++    expect(screen.getByRole('button')).toHaveAttribute('aria-label', 'Select option');
++  });
++
++  it('has hover class when not disabled or locked', () => {
++    render(
++      <SelectorTrigger onClick={() => {}}>
++        Test
++      </SelectorTrigger>
++    );
++
++    const button = screen.getByRole('button');
++    expect(button.className).toContain('hover:bg-muted');
++  });
++
++  it('prefers lock reason over title when both provided and locked', () => {
++    render(
++      <SelectorTrigger
++        onClick={() => {}}
++        locked
++        lockReason="Lock reason"
++        title="Title"
++      >
++        Test
++      </SelectorTrigger>
++    );
++
++    expect(screen.getByRole('button')).toHaveAttribute('title', 'Lock reason');
++  });
++
++  it('uses title when locked but no lock reason provided', () => {
++    render(
++      <SelectorTrigger
++        onClick={() => {}}
++        locked
++        title="Title"
++      >
++        Test
++      </SelectorTrigger>
++    );
++
++    expect(screen.getByRole('button')).toHaveAttribute('title', 'Title');
++  });
++
++  it('uses "Locked" as default title when locked with no title or lock reason', () => {
++    render(
++      <SelectorTrigger onClick={() => {}} locked>
++        Test
++      </SelectorTrigger>
++    );
++
++    expect(screen.getByRole('button')).toHaveAttribute('title', 'Locked');
++  });
++});
+diff --git a/apps/desktop/src/components/dashboard/DashboardHome.tsx b/apps/desktop/src/components/dashboard/DashboardHome.tsx
+deleted file mode 100644
+index 9e5ae5a..0000000
+--- a/apps/desktop/src/components/dashboard/DashboardHome.tsx
++++ /dev/null
+@@ -1,334 +0,0 @@
+-import { useEffect } from 'react';
+-import { Bot, ClipboardList, GitPullRequest, Calendar, ChevronRight } from 'lucide-react';
+-import { useProjectStore } from '../../stores/projectStore';
+-import { useSupervisionStore } from '../../stores/supervisionStore';
+-import { useLocalPRStore } from '../../stores/localPRStore';
+-import { useScheduledTaskStore } from '../../stores/scheduledTaskStore';
+-import type { DashboardView } from './ProjectDashboard';
+-
+-interface DashboardHomeProps {
+-  projectId: string;
+-  projectRootPath?: string;
+-  onNavigate: (view: DashboardView) => void;
+-}
+-
+-// ---------------------------------------------------------------------------
+-// Status badge helpers
+-// ---------------------------------------------------------------------------
+-
+-const PR_STATUS_COLORS: Record<string, string> = {
+-  open: 'bg-blue-500/10 text-blue-500',
+-  reviewing: 'bg-yellow-500/10 text-yellow-500',
+-  review_failed: 'bg-red-500/10 text-red-500',
+-  approved: 'bg-green-500/10 text-green-500',
+-  merging: 'bg-purple-500/10 text-purple-500',
+-  conflict: 'bg-red-500/10 text-red-500',
+-  merged: 'bg-gray-500/10 text-gray-400',
+-  closed: 'bg-gray-500/10 text-gray-400',
+-};
+-
+-const TASK_STATUS_COLORS: Record<string, string> = {
+-  proposed: 'bg-orange-500/10 text-orange-500',
+-  pending: 'bg-gray-500/10 text-gray-400',
+-  queued: 'bg-blue-500/10 text-blue-500',
+-  planning: 'bg-yellow-500/10 text-yellow-500',
+-  running: 'bg-green-500/10 text-green-500',
+-  reviewing: 'bg-yellow-500/10 text-yellow-500',
+-  approved: 'bg-green-500/10 text-green-500',
+-  integrated: 'bg-green-500/10 text-green-500',
+-  merge_conflict: 'bg-red-500/10 text-red-500',
+-  failed: 'bg-red-500/10 text-red-500',
+-  rejected: 'bg-red-500/10 text-red-500',
+-  blocked: 'bg-orange-500/10 text-orange-500',
+-  cancelled: 'bg-gray-500/10 text-gray-400',
+-  completed: 'bg-green-500/10 text-green-500',
+-};
+-
+-function StatusBadge({ status, colors }: { status: string; colors: Record<string, string> }) {
+-  return (
+-    <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full ${colors[status] ?? 'bg-gray-500/10 text-gray-400'}`}>
+-      {status.replace('_', ' ')}
+-    </span>
+-  );
+-}
+-
+-function formatRelativeTime(ts: number): string {
+-  const diff = ts - Date.now();
+-  if (diff < 0) return 'overdue';
+-  const minutes = Math.floor(diff / 60000);
+-  if (minutes < 60) return `${minutes}m`;
+-  const hours = Math.floor(minutes / 60);
+-  if (hours < 24) return `${hours}h`;
+-  return `${Math.floor(hours / 24)}d`;
+-}
+-
+-// ---------------------------------------------------------------------------
+-// Component
+-// ---------------------------------------------------------------------------
+-
+-const PHASE_CONFIG: Record<string, { label: string; color: string }> = {
+-  initializing: { label: 'Initializing', color: 'text-blue-500' },
+-  setup: { label: 'Setup', color: 'text-yellow-500' },
+-  active: { label: 'Active', color: 'text-green-500' },
+-  paused: { label: 'Paused', color: 'text-orange-500' },
+-  idle: { label: 'Idle', color: 'text-gray-400' },
+-  archived: { label: 'Archived', color: 'text-gray-500' },
+-};
+-
+-export function DashboardHome({ projectId, onNavigate }: DashboardHomeProps) {
+-  const project = useProjectStore((s) => s.projects.find((p) => p.id === projectId));
+-
+-  // Supervisor agent
+-  const agent = useSupervisionStore((s) => s.agents[projectId]) ?? null;
+-  const agentPhase = agent ? PHASE_CONFIG[agent.phase] ?? { label: agent.phase, color: 'text-gray-400' } : null;
+-
+-  // Tasks
+-  const tasks = useSupervisionStore((s) => s.tasks[projectId]) ?? [];
+-  const activeTasks = tasks.filter((t) =>
+-    ['running', 'planning', 'reviewing'].includes(t.status),
+-  );
+-  const needsAttentionTasks = tasks.filter((t) =>
+-    ['proposed', 'merge_conflict', 'failed', 'rejected', 'blocked'].includes(t.status),
+-  );
+-  const queuedTasks = tasks.filter((t) =>
+-    ['queued', 'pending'].includes(t.status),
+-  );
+-
+-  // Local PRs
+-  const prs = useLocalPRStore((s) => s.prs[projectId] ?? []);
+-  const loadPRs = useLocalPRStore((s) => s.loadPRs);
+-  const activePRs = prs.filter((pr) => !['merged', 'closed'].includes(pr.status));
+-  const needsAttentionPRs = prs.filter((pr) =>
+-    ['review_failed', 'conflict'].includes(pr.status),
+-  );
+-
+-  // Scheduled Tasks
+-  const scheduledTasks = useScheduledTaskStore((s) => s.tasks[projectId] ?? []);
+-  const loadScheduledTasks = useScheduledTaskStore((s) => s.loadTasks);
+-  const enabledScheduled = scheduledTasks.filter((t) => t.enabled);
+-  const runningScheduled = scheduledTasks.filter((t) => t.status === 'running');
+-  const nextRun = enabledScheduled
+-    .filter((t) => t.nextRun)
+-    .sort((a, b) => (a.nextRun ?? 0) - (b.nextRun ?? 0))[0]?.nextRun;
+-
+-  // Load data on mount
+-  useEffect(() => {
+-    loadPRs(projectId).catch(() => {});
+-    loadScheduledTasks(projectId).catch(() => {});
+-  }, [projectId]);
+-
+-  return (
+-    <div className="flex-1 overflow-y-auto p-4 space-y-5">
+-      {/* Header */}
+-      <h1 className="text-lg font-semibold">{project?.name ?? 'Project'} Dashboard</h1>
+-
+-      {/* Summary Cards */}
+-      <div className="grid grid-cols-2 gap-3">
+-        {/* Supervisor Card */}
+-        <button
+-          onClick={() => onNavigate('supervisor')}
+-          className="text-left bg-card border border-border rounded-lg p-4 hover:border-primary/40 transition-colors group"
+-        >
+-          <div className="flex items-center j
+
+[diff truncated]
