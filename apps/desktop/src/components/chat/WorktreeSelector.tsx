@@ -173,10 +173,15 @@ export function WorktreeSelector({
         locked={locked}
         lockReason={lockReason}
         title={effectiveTitle}
-        className={(!disabled && !locked && hasOverride) ? 'text-primary' : undefined}
+        className={[
+          'max-w-[170px] sm:max-w-[260px]',
+          (!disabled && !locked && hasOverride) ? 'text-primary' : '',
+        ].join(' ')}
       >
         {locked ? <LockIcon /> : <BranchIcon />}
-        <span className="truncate max-w-[140px] sm:max-w-[220px]">{triggerLabel}</span>
+        <span className="inline-block min-w-0 max-w-[140px] truncate align-bottom sm:max-w-[220px]" title={triggerLabel}>
+          {triggerLabel}
+        </span>
         {locked && (
           <span className="text-[10px] uppercase tracking-wide font-semibold">Locked</span>
         )}
