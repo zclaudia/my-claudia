@@ -876,6 +876,8 @@ export class SupervisorV2Service {
     const isGit = this.isGitProject(project.rootPath);
     const maxConcurrent = project.agent?.config?.maxConcurrentTasks ?? 1;
     let workingDirectory = project.rootPath;
+    let acquiredFromPool = false;
+    let taskMarkedRunning = false;
 
     // Acquire worktree for parallel git execution
     if (isGit && maxConcurrent > 1) {
@@ -883,6 +885,7 @@ export class SupervisorV2Service {
         await this.ensurePoolInitialized(task.projectId);
         const pool = this.getWorktreePool(task.projectId);
         workingDirectory = await pool.acquire(task.id, task.attempt);
+        acquiredFromPool = true;
         this.log(task.projectId, 'worktree_acquired', {
           taskId: task.id, worktreePath: workingDirectory,
         }, task.id);
@@ -892,20 +895,34 @@ export class SupervisorV2Service {
       }
     }
 
-    // 1. Reuse existing child session (created by createTask) or create a new one
-    let session: Session;
-    if (task.sessionId) {
-      const existing = this.sessionRepo.findById(task.sessionId);
-      if (existing) {
-        // Update session: set to executing, read-only, and assign worktree
-        this.sessionRepo.update(existing.id, {
-          workingDirectory,
-          planStatus: 'executing',
-          isReadOnly: true,
-        } as Partial<Omit<Session, 'id' | 'createdAt' | 'updatedAt'>>);
-        session = { ...existing, workingDirectory, planStatus: 'executing', isReadOnly: true };
+    try {
+      // 1. Reuse existing child session (created by createTask) or create a new one
+      let session: Session;
+      if (task.sessionId) {
+        const existing = this.sessionRepo.findById(task.sessionId);
+        if (existing) {
+          // Update session: set to executing, read-only, and assign worktree
+          this.sessionRepo.update(existing.id, {
+            workingDirectory,
+            planStatus: 'executing',
+            isReadOnly: true,
+          } as Partial<Omit<Session, 'id' | 'createdAt' | 'updatedAt'>>);
+          session = { ...existing, workingDirectory, planStatus: 'executing', isReadOnly: true };
+        } else {
+          // Fallback: create new session if linked one was deleted
+          session = this.sessionRepo.create({
+            projectId: task.projectId,
+            name: `Task: ${task.title}`,
+            type: 'regular',
+            projectRole: 'task',
+            taskId: task.id,
+            workingDirectory,
+            planStatus: 'executing',
+            isReadOnly: true,
+          } as Omit<Session, 'id' | 'createdAt' | 'updatedAt'>);
+        }
       } else {
-        // Fallback: create new session if linked one was deleted
+        // Legacy path: task was created without a child session
         session = this.sessionRepo.create({
           projectId: task.projectId,
           name: `Task: ${task.title}`,
@@ -917,78 +934,78 @@ export class SupervisorV2Service {
           isReadOnly: true,
         } as Omit<Session, 'id' | 'createdAt' | 'updatedAt'>);
       }
-    } else {
-      // Legacy path: task was created without a child session
-      session = this.sessionRepo.create({
-        projectId: task.projectId,
-        name: `Task: ${task.title}`,
-        type: 'regular',
-        projectRole: 'task',
+
+      // 2. Update task status → running with sessionId
+      const extra: { sessionId: string; baseCommit?: string } = {
+        sessionId: session.id,
+      };
+
+      // 3. Record baseCommit if git project
+      if (isGit) {
+        try {
+          const commit = execSync('git rev-parse HEAD', {
+            cwd: workingDirectory,
+            encoding: 'utf-8',
+          }).trim();
+          extra.baseCommit = commit;
+        } catch {
+          // Not critical if we can't get the commit
+        }
+      }
+
+      this.taskRepo.updateStatus(task.id, 'running', extra);
+      taskMarkedRunning = true;
+      this.broadcastTaskUpdate(task.id, task.projectId);
+      this.log(task.projectId, 'task_status_changed', {
         taskId: task.id,
+        from: task.status,
+        to: 'running',
+        sessionId: session.id,
         workingDirectory,
-        planStatus: 'executing',
-        isReadOnly: true,
-      } as Omit<Session, 'id' | 'createdAt' | 'updatedAt'>);
-    }
+      }, task.id);
 
-    // 2. Update task status → running with sessionId
-    const extra: { sessionId: string; baseCommit?: string } = {
-      sessionId: session.id,
-    };
+      // 4. Build task system prompt with context injection
+      const cm = this.getContextManager(task.projectId, project.rootPath);
+      const contextInjection = cm.getContextForTask(task.relevantDocIds);
+      const systemPrompt = this.buildTaskPrompt(task, project.name, contextInjection);
 
-    // 3. Record baseCommit if git project
-    if (isGit) {
-      try {
-        const commit = execSync('git rev-parse HEAD', {
-          cwd: workingDirectory,
-          encoding: 'utf-8',
-        }).trim();
-        extra.baseCommit = commit;
-      } catch {
-        // Not critical if we can't get the commit
+      // 5. Create virtual client and trigger run
+      const clientId = `supervisor_v2_task_${task.id}`;
+      const virtualClient = createVirtualClient(clientId, {
+        send: (msg: ServerMessage) => {
+          this.handleTaskRunMessage(task.id, task.projectId, msg);
+          // Forward streaming messages to connected clients
+          this.broadcastFn(msg);
+        },
+      });
+      this.virtualClients.set(task.id, virtualClient);
+
+      const clientRequestId = `sv2_${task.id}_${Date.now()}`;
+
+      // Fire and forget — results come via virtual client callback
+      handleRunStart(
+        virtualClient,
+        {
+          type: 'run_start',
+          clientRequestId,
+          sessionId: session.id,
+          input: systemPrompt,
+          workingDirectory,
+        },
+        this.db as any,
+      );
+    } catch (err) {
+      console.error(`[SupervisorV2] Failed to initialize task ${task.id}:`, err);
+      if (acquiredFromPool && !taskMarkedRunning) {
+        const pool = this.worktreePools.get(task.projectId);
+        pool?.release(workingDirectory);
+        this.log(task.projectId, 'worktree_released', {
+          taskId: task.id,
+          worktreePath: workingDirectory,
+          reason: 'start_task_failed_before_running',
+        }, task.id);
       }
     }
-
-    this.taskRepo.updateStatus(task.id, 'running', extra);
-    this.broadcastTaskUpdate(task.id, task.projectId);
-    this.log(task.projectId, 'task_status_changed', {
-      taskId: task.id,
-      from: task.status,
-      to: 'running',
-      sessionId: session.id,
-      workingDirectory,
-    }, task.id);
-
-    // 4. Build task system prompt with context injection
-    const cm = this.getContextManager(task.projectId, project.rootPath);
-    const contextInjection = cm.getContextForTask(task.relevantDocIds);
-    const systemPrompt = this.buildTaskPrompt(task, project.name, contextInjection);
-
-    // 5. Create virtual client and trigger run
-    const clientId = `supervisor_v2_task_${task.id}`;
-    const virtualClient = createVirtualClient(clientId, {
-      send: (msg: ServerMessage) => {
-        this.handleTaskRunMessage(task.id, task.projectId, msg);
-        // Forward streaming messages to connected clients
-        this.broadcastFn(msg);
-      },
-    });
-    this.virtualClients.set(task.id, virtualClient);
-
-    const clientRequestId = `sv2_${task.id}_${Date.now()}`;
-
-    // Fire and forget — results come via virtual client callback
-    handleRunStart(
-      virtualClient,
-      {
-        type: 'run_start',
-        clientRequestId,
-        sessionId: session.id,
-        input: systemPrompt,
-        workingDirectory,
-      },
-      this.db as any,
-    );
   }
 
   private handleTaskRunMessage(

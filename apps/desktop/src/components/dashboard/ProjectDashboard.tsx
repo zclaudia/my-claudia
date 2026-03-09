@@ -12,6 +12,7 @@ import { LocalPRsPanel } from '../local-prs/LocalPRsPanel';
 import { ScheduledTasksPanel } from '../scheduled-tasks/ScheduledTasksPanel';
 import { WorkflowsPanel } from '../workflows/WorkflowsPanel';
 import { DashboardHome } from './DashboardHome';
+import { useProjectStore } from '../../stores/projectStore';
 
 export type DashboardView = 'home' | 'tasks' | 'local-prs' | 'scheduled' | 'workflows' | 'supervisor';
 
@@ -34,14 +35,21 @@ export function ProjectDashboard({ projectId, projectRootPath }: ProjectDashboar
   const tasks = useSupervisionStore((s) => s.tasks[projectId]) ?? [];
   const setAgent = useSupervisionStore((s) => s.setAgent);
   const setTasks = useSupervisionStore((s) => s.setTasks);
-  const [view, setView] = useState<DashboardView>('home');
+  const savedView = useProjectStore((s) => s.dashboardViews[projectId] ?? 'home');
+  const setDashboardView = useProjectStore((s) => s.setDashboardView);
+  const [view, setView] = useState<DashboardView>(savedView);
   const [workflowViewMode, setWorkflowViewMode] = useState<'list' | 'detail'>('list');
 
-  // Reset to home when project changes
+  const navigate = useCallback((nextView: DashboardView) => {
+    setView(nextView);
+    setDashboardView(projectId, nextView);
+  }, [projectId, setDashboardView]);
+
+  // Restore last dashboard sub-view for this project
   useEffect(() => {
-    setView('home');
+    setView(savedView);
     setWorkflowViewMode('list');
-  }, [projectId]);
+  }, [projectId, savedView]);
 
   // Hydrate supervision store
   const hydrate = useCallback(async () => {
@@ -61,7 +69,7 @@ export function ProjectDashboard({ projectId, projectRootPath }: ProjectDashboar
     hydrate();
   }, [hydrate]);
 
-  const handleOpenSession = () => setView('supervisor');
+  const handleOpenSession = () => navigate('supervisor');
 
   return (
     <div className="flex flex-col h-full bg-background">
@@ -76,7 +84,7 @@ export function ProjectDashboard({ projectId, projectRootPath }: ProjectDashboar
       {view !== 'home' && (view !== 'workflows' || workflowViewMode === 'list') && (
         <div className="flex items-center gap-2 px-4 py-2 border-b border-border">
           <button
-            onClick={() => setView('home')}
+            onClick={() => navigate('home')}
             className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
           >
             <ArrowLeft className="w-3.5 h-3.5" />
@@ -92,7 +100,7 @@ export function ProjectDashboard({ projectId, projectRootPath }: ProjectDashboar
         <DashboardHome
           projectId={projectId}
           projectRootPath={projectRootPath}
-          onNavigate={setView}
+          onNavigate={navigate}
         />
       )}
 
@@ -142,7 +150,7 @@ export function ProjectDashboard({ projectId, projectRootPath }: ProjectDashboar
               <div className="text-center">
                 <p className="text-sm">No supervisor agent configured.</p>
                 <p className="text-xs mt-1">
-                  Go to <button onClick={() => setView('tasks')} className="text-primary hover:underline">Tasks</button> to initialize a supervisor agent.
+                  Go to <button onClick={() => navigate('tasks')} className="text-primary hover:underline">Tasks</button> to initialize a supervisor agent.
                 </p>
               </div>
             </div>

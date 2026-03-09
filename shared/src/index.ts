@@ -182,11 +182,13 @@ export interface LocalPR {
   reviewSessionId?: string;
   conflictSessionId?: string;
   reviewNotes?: string;
+  statusMessage?: string;
   autoTriggered: boolean;
   autoReview: boolean;
   createdAt: number;
   updatedAt: number;
   mergedAt?: number;
+  mergeCommitSha?: string;
 }
 
 // ============================================

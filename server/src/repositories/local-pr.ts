@@ -26,11 +26,13 @@ export class LocalPRRepository extends BaseRepository<LocalPR, LocalPRCreate, Lo
       reviewSessionId: row.review_session_id || undefined,
       conflictSessionId: row.conflict_session_id || undefined,
       reviewNotes: row.review_notes || undefined,
+      statusMessage: row.status_message || undefined,
       autoTriggered: row.auto_triggered === 1,
       autoReview: row.auto_review === 1,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
       mergedAt: row.merged_at || undefined,
+      mergeCommitSha: row.merged_commit_sha || undefined,
     };
   }
 
@@ -41,9 +43,9 @@ export class LocalPRRepository extends BaseRepository<LocalPR, LocalPRCreate, Lo
       sql: `INSERT INTO local_prs (
         id, project_id, worktree_path, branch_name, base_branch,
         title, description, status, commits, diff_summary,
-        review_session_id, conflict_session_id, review_notes,
-        auto_triggered, auto_review, created_at, updated_at, merged_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        review_session_id, conflict_session_id, review_notes, status_message,
+        auto_triggered, auto_review, created_at, updated_at, merged_at, merged_commit_sha
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       params: [
         id,
         data.projectId,
@@ -58,11 +60,13 @@ export class LocalPRRepository extends BaseRepository<LocalPR, LocalPRCreate, Lo
         data.reviewSessionId ?? null,
         data.conflictSessionId ?? null,
         data.reviewNotes ?? null,
+        data.statusMessage ?? null,
         data.autoTriggered ? 1 : 0,
         data.autoReview ? 1 : 0,
         now,
         now,
         data.mergedAt ?? null,
+        data.mergeCommitSha ?? null,
       ],
     };
   }
@@ -80,8 +84,10 @@ export class LocalPRRepository extends BaseRepository<LocalPR, LocalPRCreate, Lo
     if (data.reviewSessionId !== undefined) { sets.push('review_session_id = ?'); params.push(data.reviewSessionId); }
     if (data.conflictSessionId !== undefined) { sets.push('conflict_session_id = ?'); params.push(data.conflictSessionId); }
     if (data.reviewNotes !== undefined) { sets.push('review_notes = ?'); params.push(data.reviewNotes); }
+    if (data.statusMessage !== undefined) { sets.push('status_message = ?'); params.push(data.statusMessage); }
     if (data.autoReview !== undefined) { sets.push('auto_review = ?'); params.push(data.autoReview ? 1 : 0); }
     if (data.mergedAt !== undefined) { sets.push('merged_at = ?'); params.push(data.mergedAt); }
+    if (data.mergeCommitSha !== undefined) { sets.push('merged_commit_sha = ?'); params.push(data.mergeCommitSha); }
 
     params.push(id);
     return {

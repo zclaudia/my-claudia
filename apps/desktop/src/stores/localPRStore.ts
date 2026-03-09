@@ -7,6 +7,10 @@ import {
   retryLocalPRReview,
   reviewLocalPR,
   mergeLocalPR,
+  cancelLocalPRMerge,
+  resolveLocalPRConflict,
+  reopenLocalPR,
+  revertLocalPRMerge,
   setProjectReviewProvider,
 } from '../services/api';
 
@@ -24,6 +28,10 @@ interface LocalPRState {
   retryReview: (prId: string, projectId: string) => Promise<void>;
   reviewPR: (prId: string, projectId: string, providerId?: string) => Promise<void>;
   mergePR: (prId: string, projectId: string) => Promise<void>;
+  cancelMergePR: (prId: string, projectId: string) => Promise<void>;
+  resolveConflictPR: (prId: string, projectId: string) => Promise<void>;
+  reopenPR: (prId: string, projectId: string) => Promise<void>;
+  revertMergedPR: (prId: string, projectId: string) => Promise<void>;
   setReviewProvider: (projectId: string, providerId: string) => Promise<void>;
 
   /** Called from WebSocket handler when a local_pr_update message arrives */
@@ -63,6 +71,26 @@ export const useLocalPRStore = create<LocalPRState>((set, get) => ({
 
   mergePR: async (prId, projectId) => {
     const pr = await mergeLocalPR(prId);
+    get().upsertPR(projectId, pr);
+  },
+
+  cancelMergePR: async (prId, projectId) => {
+    const pr = await cancelLocalPRMerge(prId);
+    get().upsertPR(projectId, pr);
+  },
+
+  resolveConflictPR: async (prId, projectId) => {
+    const pr = await resolveLocalPRConflict(prId);
+    get().upsertPR(projectId, pr);
+  },
+
+  reopenPR: async (prId, projectId) => {
+    const pr = await reopenLocalPR(prId);
+    get().upsertPR(projectId, pr);
+  },
+
+  revertMergedPR: async (prId, projectId) => {
+    const pr = await revertLocalPRMerge(prId);
     get().upsertPR(projectId, pr);
   },
 

@@ -683,10 +683,12 @@ function runMigrations(db: Database.Database): void {
           review_session_id TEXT,
           conflict_session_id TEXT,
           review_notes TEXT,
+          status_message TEXT,
           auto_triggered INTEGER NOT NULL DEFAULT 0,
           created_at INTEGER NOT NULL,
           updated_at INTEGER NOT NULL,
           merged_at INTEGER,
+          merged_commit_sha TEXT,
           FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
         );
 
@@ -813,6 +815,18 @@ function runMigrations(db: Database.Database): void {
           FOREIGN KEY (workflow_id) REFERENCES workflows(id) ON DELETE CASCADE
         );
         CREATE INDEX IF NOT EXISTS idx_workflow_schedules_next ON workflow_schedules(enabled, next_run);
+      `
+    },
+    {
+      name: '036_local_pr_status_message',
+      sql: `
+        ALTER TABLE local_prs ADD COLUMN status_message TEXT;
+      `
+    },
+    {
+      name: '037_local_pr_merge_commit_sha',
+      sql: `
+        ALTER TABLE local_prs ADD COLUMN merged_commit_sha TEXT;
       `
     }
   ];

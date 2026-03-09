@@ -136,17 +136,18 @@ export class StateRecovery {
       if (!pool) continue;
 
       const status = pool.getStatus();
-      const terminalStatuses: TaskStatus[] = ['integrated', 'failed', 'cancelled', 'blocked'];
-
       for (const slot of status.inUse) {
         if (slot.taskId) {
           const task = this.taskRepo.findById(slot.taskId);
-          if (!task || terminalStatuses.includes(task.status)) {
+          // Only running/reviewing tasks should hold a worktree slot.
+          // Queued/pending/proposed/terminal tasks must not occupy slots.
+          const shouldHoldSlot = task && (task.status === 'running' || task.status === 'reviewing');
+          if (!shouldHoldSlot) {
             pool.release(slot.path);
             actions.push({
               type: 'worktree_released',
               id: slot.path,
-              detail: `Task ${slot.taskId} is ${task?.status ?? 'deleted'}`,
+              detail: `Task ${slot.taskId} is ${task?.status ?? 'deleted'} (slot released as orphaned)`,
             });
           }
         }

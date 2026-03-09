@@ -1311,6 +1311,38 @@ export async function mergeLocalPR(prId: string): Promise<LocalPR> {
   return result.data;
 }
 
+export async function cancelLocalPRMerge(prId: string): Promise<LocalPR> {
+  const result = await fetchApi<LocalPR>(`/api/local-prs/${prId}/cancel-merge`, { method: 'POST' });
+  if (!result.success || !result.data) {
+    throw new Error(result.error?.message || 'Failed to cancel merge');
+  }
+  return result.data;
+}
+
+export async function resolveLocalPRConflict(prId: string): Promise<LocalPR> {
+  const result = await fetchApi<LocalPR>(`/api/local-prs/${prId}/resolve-conflict`, { method: 'POST' });
+  if (!result.success || !result.data) {
+    throw new Error(result.error?.message || 'Failed to start AI conflict resolution');
+  }
+  return result.data;
+}
+
+export async function reopenLocalPR(prId: string): Promise<LocalPR> {
+  const result = await fetchApi<LocalPR>(`/api/local-prs/${prId}/reopen`, { method: 'POST' });
+  if (!result.success || !result.data) {
+    throw new Error(result.error?.message || 'Failed to reopen PR');
+  }
+  return result.data;
+}
+
+export async function revertLocalPRMerge(prId: string): Promise<LocalPR> {
+  const result = await fetchApi<LocalPR>(`/api/local-prs/${prId}/revert-merge`, { method: 'POST' });
+  if (!result.success || !result.data) {
+    throw new Error(result.error?.message || 'Failed to revert merged PR');
+  }
+  return result.data;
+}
+
 export async function setProjectReviewProvider(
   projectId: string,
   providerId: string,

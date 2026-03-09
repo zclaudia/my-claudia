@@ -3,12 +3,21 @@ import type { Project, Session, SlashCommand, ProviderConfig, ProviderCapabiliti
 import { useSessionsStore } from './sessionsStore';
 import { useChatStore } from './chatStore';
 
+export type ProjectDashboardView =
+  | 'home'
+  | 'tasks'
+  | 'local-prs'
+  | 'scheduled'
+  | 'workflows'
+  | 'supervisor';
+
 interface ProjectState {
   projects: Project[];
   sessions: Session[];
   providers: ProviderConfig[];
   selectedProjectId: string | null;
   selectedSessionId: string | null;
+  dashboardViews: Record<string, ProjectDashboardView>;
   providerCommands: Record<string, SlashCommand[]>;
   providerCapabilities: Record<string, ProviderCapabilities>;
 
@@ -29,6 +38,7 @@ interface ProjectState {
 
   selectProject: (id: string | null) => void;
   selectSession: (id: string | null) => void;
+  setDashboardView: (projectId: string, view: ProjectDashboardView) => void;
 
   setProviderCommands: (providerId: string, commands: SlashCommand[]) => void;
   setProviderCapabilities: (providerId: string, capabilities: ProviderCapabilities) => void;
@@ -40,6 +50,7 @@ export const useProjectStore = create<ProjectState>((set) => ({
   providers: [],
   selectedProjectId: null,
   selectedSessionId: null,
+  dashboardViews: {},
   providerCommands: {},
   providerCapabilities: {},
 
@@ -145,6 +156,14 @@ export const useProjectStore = create<ProjectState>((set) => ({
         selectedProjectId: session?.projectId || state.selectedProjectId,
       };
     }),
+
+  setDashboardView: (projectId, view) =>
+    set((state) => ({
+      dashboardViews: {
+        ...state.dashboardViews,
+        [projectId]: view,
+      },
+    })),
 
   setProviderCommands: (providerId, commands) =>
     set((state) => ({

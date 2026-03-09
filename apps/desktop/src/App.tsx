@@ -32,7 +32,7 @@ function AppContent() {
   const { connectServer, embeddedServerStatus, embeddedServerError } = useConnection();
   const { addServer } = useServerManager();
   const { connectionStatus } = useServerStore();
-  const { selectedSessionId, projects, selectProject, selectSession } = useProjectStore();
+  const { selectedSessionId, projects, selectProject, selectSession, setDashboardView } = useProjectStore();
   const [dashboardProjectId, setDashboardProjectId] = useState<string | null>(null);
   const { directGatewayUrl, lastActiveBackendId, isConnected: isGatewayConnected, discoveredBackends } = useGatewayStore();
   const { isExpanded: isAgentExpanded, hasUnread: hasAgentUnread, setExpanded: setAgentExpanded } = useAgentStore();
@@ -284,6 +284,7 @@ function AppContent() {
           onOpenDashboard={(projectId) => {
             selectProject(projectId);
             selectSession(null);
+            setDashboardView(projectId, 'home');
             setDashboardProjectId(projectId);
           }}
         />
