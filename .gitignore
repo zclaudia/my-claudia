@@ -14,8 +14,7 @@ target/
 
 # Tauri
 apps/desktop/src-tauri/target/
-apps/desktop/src-tauri/gen/schemas/
-apps/desktop/src-tauri/gen/android/app/src/main/assets/
+apps/desktop/src-tauri/gen/
 apps/desktop/src-tauri/binaries/
 
 # Environment files
@@ -114,4 +113,3 @@ gateway/.deploy-version*
 *.heapsnapshot
 .worktrees/
 .my-claudia/
-apps/desktop/src-tauri/gen/
