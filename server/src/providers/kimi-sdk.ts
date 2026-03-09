@@ -311,12 +311,14 @@ export async function* runKimi(
   const rl = createInterface({ input: proc.stdout, crlfDelay: Infinity });
 
   // Log stderr for debugging
-  proc.stderr!.on('data', (chunk: Buffer) => {
-    const text = chunk.toString().trim();
-    if (text) {
-      console.error('[Kimi SDK] stderr:', text);
-    }
-  });
+  if (proc.stderr) {
+    proc.stderr.on('data', (chunk: Buffer) => {
+      const text = chunk.toString().trim();
+      if (text) {
+        console.error('[Kimi SDK] stderr:', text);
+      }
+    });
+  }
 
   let inThinkBlock = false;
 
