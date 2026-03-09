@@ -46,6 +46,7 @@ export class LocalPRService {
   constructor(
     private db: Database,
     private broadcastToProject: (projectId: string, message: ServerMessage) => void,
+    private isProjectSlotAvailable?: (projectId: string) => boolean,
   ) {
     this.prRepo = new LocalPRRepository(db);
     this.projectRepo = new ProjectRepository(db);
@@ -333,6 +334,14 @@ export class LocalPRService {
       throw new Error(`No provider available for review on project ${pr.projectId}`);
     }
 
+    if (!this.hasAvailableSlot(pr.projectId)) {
+      this.prRepo.update(prId, {
+        statusMessage: 'Queued for review: waiting for an available worktree slot.',
+      });
+      this.broadcastPRUpdate(this.prRepo.findById(prId)!);
+      return;
+    }
+
     if (this.activeReviewClients.has(prId)) {
       console.log(`[LocalPRService] Review already in progress for PR ${prId}`);
       return;
@@ -499,6 +508,16 @@ Be thorough but pragmatic. Minor style issues do not warrant REVIEW_FAILED.`;
         throw new Error(`Cannot merge PR in status '${freshPR.status}'`);
       }
 
+      if (!this.hasAvailableSlot(freshPR.projectId)) {
+        const queuedStatus: LocalPRStatus = freshPR.status === 'open' ? 'approved' : freshPR.status;
+        this.prRepo.update(prId, {
+          status: queuedStatus,
+          statusMessage: 'Queued for merge: waiting for an available worktree slot.',
+        });
+        this.broadcastPRUpdate(this.prRepo.findById(prId)!);
+        return;
+      }
+
       // Manual merge from open/conflict should go through approved -> merging transition.
       if (freshPR.status !== 'approved') {
         this.prRepo.update(prId, { status: 'approved', statusMessage: 'Merge requested. Preparing to merge...' });
@@ -606,6 +625,13 @@ Be thorough but pragmatic. Minor style issues do not warrant REVIEW_FAILED.`;
     if (pr.status !== 'conflict') throw new Error(`Cannot resolve conflict in status '${pr.status}'`);
     const project = this.projectRepo.findById(pr.projectId);
     if (!project?.rootPath) throw new Error(`Project ${pr.projectId} has no rootPath`);
+    if (!this.hasAvailableSlot(pr.projectId)) {
+      this.prRepo.update(prId, {
+        statusMessage: 'Queued for AI conflict resolution: waiting for an available worktree slot.',
+      });
+      this.broadcastPRUpdate(this.prRepo.findById(prId)!);
+      return;
+    }
     const providerId = this.resolveAvailableProviderId(project.reviewProviderId, project.providerId);
     if (!providerId) throw new Error(`No provider available for conflict resolution on project ${pr.projectId}`);
     await this.startConflictResolution(prId, providerId);
@@ -920,6 +946,16 @@ If you cannot resolve it, output: [CONFLICT_UNRESOLVED]`;
 
     const providers = this.providerRepo.findAll();
     return providers[0]?.id ?? null;
+  }
+
+  private hasAvailableSlot(projectId: string): boolean {
+    if (!this.isProjectSlotAvailable) return true;
+    try {
+      return this.isProjectSlotAvailable(projectId);
+    } catch {
+      // Fail-open: do not block PR flow if slot probe itself fails.
+      return true;
+    }
   }
 
   private async resolveMergeCommitSha(

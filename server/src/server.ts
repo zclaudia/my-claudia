@@ -582,6 +582,10 @@ export async function createServer(): Promise<ServerContext> {
     clients.forEach((client) => {
       if (client.authenticated) sendMessage(client.ws, message);
     });
+  }, (projectId) => {
+    const pool = supervisorV2Service.getWorktreePoolIfExists(projectId);
+    if (!pool) return true;
+    return pool.getStatus().available > 0;
   });
   app.use('/api', authMiddleware, createLocalPRRoutes(localPRService, db));
 
