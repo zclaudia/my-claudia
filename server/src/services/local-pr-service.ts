@@ -53,6 +53,7 @@ export class LocalPRService {
   private wtConfigRepo: WorktreeConfigRepository;
   private mergeLock = new Mutex();
   private activeReviewClients = new Map<string, unknown>(); // prId → virtualClient
+  private activeConflictClients = new Map<string, unknown>(); // prId → virtualClient
 
   constructor(
     private db: Database,
@@ -731,6 +732,10 @@ Be thorough but pragmatic. Minor style issues do not warrant REVIEW_FAILED.`;
       console.warn(`[LocalPRService] No provider for conflict resolution on PR ${prId}`);
       return;
     }
+    if (this.activeConflictClients.has(prId)) {
+      console.log(`[LocalPRService] Conflict resolution already in progress for PR ${prId}`);
+      return;
+    }
 
     const session = this.sessionRepo.create({
       projectId: pr.projectId,
@@ -773,9 +778,11 @@ If you cannot resolve it, output: [CONFLICT_UNRESOLVED]`;
           this.onConflictSessionComplete(prId, session.id).catch((err) =>
             console.error(`[LocalPRService] Conflict completion error for PR ${prId}:`, err),
           );
+          this.activeConflictClients.delete(prId);
         }
       },
     });
+    this.activeConflictClients.set(prId, virtualClient);
 
     handleRunStart(
       virtualClient,
@@ -944,7 +951,9 @@ If you cannot resolve it, output: [CONFLICT_UNRESOLVED]`;
   private forwardSessionStream(projectId: string, sessionId: string, msg: ServerMessage): void {
     if (!LOCAL_PR_SESSION_STREAM_MESSAGE_TYPES.has(msg.type)) return;
     const messageSessionId = (msg as { sessionId?: string }).sessionId;
-    if (messageSessionId !== sessionId) return;
+    // system_info currently has no sessionId field; still forward it for this virtual session.
+    if (messageSessionId && messageSessionId !== sessionId) return;
+    if (!messageSessionId && msg.type !== 'system_info') return;
     this.broadcastToProject(projectId, msg);
   }
 

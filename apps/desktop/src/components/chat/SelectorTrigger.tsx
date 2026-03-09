@@ -36,7 +36,7 @@ export function SelectorTrigger({
       title={effectiveTitle}
       aria-label={ariaLabel}
       className={[
-        'flex items-center gap-1 px-1.5 py-1 rounded-md text-[11px] font-medium transition-colors h-7',
+        'flex min-w-0 items-center gap-1 px-1.5 py-1 rounded-md text-[11px] font-medium transition-colors h-7',
         stateClass,
         className,
       ].join(' ')}
