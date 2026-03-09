@@ -192,6 +192,7 @@ export class LocalPRService {
     commits: Array<{ sha: string; message: string }>,
     baseBranch: string,
     branchName: string,
+    options: { resetReviewStateOnCommitChange?: boolean } = {},
   ): Promise<LocalPR | null> {
     // Don't touch PRs that are currently being processed
     const busyStatuses: LocalPRStatus[] = ['reviewing', 'merging', 'conflict'];
@@ -210,8 +211,11 @@ export class LocalPRService {
 
     const diffSummary = await getDiff(rootPath, baseBranch, branchName);
 
-    // If review was done on old commits, reset to open so it can be re-reviewed
-    const newStatus: LocalPRStatus = pr.status === 'approved' || pr.status === 'review_failed'
+    const shouldResetReviewState = options.resetReviewStateOnCommitChange ?? true;
+    // If review was done on old commits, reset to open so it can be re-reviewed.
+    // When commit changes are produced by the review session itself, caller can preserve the verdict.
+    const newStatus: LocalPRStatus = shouldResetReviewState &&
+      (pr.status === 'approved' || pr.status === 'review_failed')
       ? 'open'
       : pr.status;
 
@@ -230,7 +234,10 @@ export class LocalPRService {
    * After a PR transitions out of a busy state (reviewing/merging/conflict),
    * check if the worktree has new commits that need to be captured.
    */
-  private async refreshAfterBusyState(prId: string): Promise<void> {
+  private async refreshAfterBusyState(
+    prId: string,
+    options: { resetReviewStateOnCommitChange?: boolean } = {},
+  ): Promise<void> {
     try {
       const pr = this.prRepo.findById(prId);
       if (!pr) return;
@@ -245,7 +252,7 @@ export class LocalPRService {
       const commits = await getNewCommits(project.rootPath, branchName, baseBranch);
       if (commits.length === 0) return;
 
-      await this.maybeRefreshPR(pr, project.rootPath, commits, baseBranch, branchName);
+      await this.maybeRefreshPR(pr, project.rootPath, commits, baseBranch, branchName, options);
     } catch (err) {
       console.error(`[LocalPRService] refreshAfterBusyState error for PR ${prId}:`, err);
     }
@@ -379,7 +386,7 @@ Be thorough but pragmatic. Minor style issues do not warrant REVIEW_FAILED.`;
     console.log(`[LocalPRService] Review complete for PR ${prId}: ${newStatus}`);
 
     // Check for commits that arrived during the review
-    await this.refreshAfterBusyState(prId);
+    await this.refreshAfterBusyState(prId, { resetReviewStateOnCommitChange: false });
   }
 
   // ---------------------------------------------------------------------------
@@ -400,13 +407,23 @@ Be thorough but pragmatic. Minor style issues do not warrant REVIEW_FAILED.`;
     return this.mergeLock.runExclusive(async () => {
       // Re-fetch inside lock to ensure status hasn't changed
       const freshPR = this.prRepo.findById(prId);
-      if (!freshPR || freshPR.status !== 'approved') return;
+      if (!freshPR) throw new Error(`Local PR not found: ${prId}`);
+      if (!['open', 'approved', 'conflict'].includes(freshPR.status)) {
+        throw new Error(`Cannot merge PR in status '${freshPR.status}'`);
+      }
+
+      // Manual merge from open/conflict should go through approved -> merging transition.
+      if (freshPR.status !== 'approved') {
+        this.prRepo.update(prId, { status: 'approved' });
+        this.broadcastPRUpdate(this.prRepo.findById(prId)!);
+      }
 
       // Verify main worktree is clean
       const mainClean = await isWorkingTreeClean(project.rootPath!);
       if (!mainClean) {
-        console.log(`[LocalPRService] Main worktree is dirty, deferring merge of PR ${prId}`);
-        return;
+        throw new Error(
+          `Main worktree is dirty for project ${project.id}. Commit or stash changes before merging PR ${prId}.`,
+        );
       }
 
       this.prRepo.update(prId, { status: 'merging' });

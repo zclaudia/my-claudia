@@ -10,15 +10,17 @@ import { CheckpointFeed } from '../supervision/CheckpointFeed';
 import { ChatInterface } from '../chat/ChatInterface';
 import { LocalPRsPanel } from '../local-prs/LocalPRsPanel';
 import { ScheduledTasksPanel } from '../scheduled-tasks/ScheduledTasksPanel';
+import { WorkflowsPanel } from '../workflows/WorkflowsPanel';
 import { DashboardHome } from './DashboardHome';
 
-export type DashboardView = 'home' | 'tasks' | 'local-prs' | 'scheduled' | 'supervisor';
+export type DashboardView = 'home' | 'tasks' | 'local-prs' | 'scheduled' | 'workflows' | 'supervisor';
 
 const VIEW_LABELS: Record<DashboardView, string> = {
   home: 'Dashboard',
   tasks: 'Tasks',
   'local-prs': 'Local Pull Requests',
   scheduled: 'Scheduled Tasks',
+  workflows: 'Workflows',
   supervisor: 'Supervisor Chat',
 };
 
@@ -117,6 +119,12 @@ export function ProjectDashboard({ projectId, projectRootPath }: ProjectDashboar
       {view === 'scheduled' && (
         <div className="flex-1 overflow-hidden">
           <ScheduledTasksPanel projectId={projectId} />
+        </div>
+      )}
+
+      {view === 'workflows' && (
+        <div className="flex-1 overflow-hidden">
+          <WorkflowsPanel projectId={projectId} />
         </div>
       )}
 

@@ -134,6 +134,7 @@ export function ChatInterface({ sessionId, onReturnToDashboard }: ChatInterfaceP
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const bottomRefreshRef = useRef<{ lastAt: number; inFlight: boolean }>({ lastAt: 0, inFlight: false });
+  const lastScrollTopRef = useRef(0);
   const suppressLoadMoreUntilRef = useRef<number>(0);
   const [initialLoadDone, setInitialLoadDone] = useState(false);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
@@ -210,6 +211,7 @@ export function ChatInterface({ sessionId, onReturnToDashboard }: ChatInterfaceP
     setScrollMetrics({ scrollTop: 0, viewportHeight: 0 });
     setInitialDraft(useChatStore.getState().drafts[sessionId]);
     bottomRefreshRef.current = { lastAt: 0, inFlight: false };
+    lastScrollTopRef.current = 0;
     setIsRenamingSession(false);
     setRenameValue('');
   }, [sessionId]);
@@ -474,22 +476,30 @@ export function ChatInterface({ sessionId, onReturnToDashboard }: ChatInterfaceP
   const handleScroll = useCallback(() => {
     const container = messagesContainerRef.current;
     if (!container) return;
+    const currentScrollTop = container.scrollTop;
+    const wasScrollingDown = currentScrollTop > lastScrollTopRef.current;
+    lastScrollTopRef.current = currentScrollTop;
+
     setScrollMetrics({
-      scrollTop: container.scrollTop,
+      scrollTop: currentScrollTop,
       viewportHeight: container.clientHeight,
     });
 
     // If scrolled near top (within 100px), load more messages.
     // During jump-to-bottom, suppress this to avoid fighting the programmatic scroll.
     const suppressLoadMore = Date.now() < suppressLoadMoreUntilRef.current;
-    if (!suppressLoadMore && container.scrollTop < 100 && sessionPagination?.hasMore && !sessionPagination?.isLoadingMore) {
+    if (!suppressLoadMore && currentScrollTop < 100 && sessionPagination?.hasMore && !sessionPagination?.isLoadingMore) {
       loadMoreMessages();
     }
 
     // Show scroll-to-bottom button when not near the bottom
     const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
     setShowScrollToBottom(distanceFromBottom > 300);
-  }, [loadMoreMessages, sessionPagination]);
+    // Mobile-safe fallback: touch scrolling won't fire wheel events.
+    if (wasScrollingDown && distanceFromBottom <= 24) {
+      void refreshLatestMessagesFromBottom();
+    }
+  }, [loadMoreMessages, refreshLatestMessagesFromBottom, sessionPagination]);
 
   useEffect(() => {
     const container = messagesContainerRef.current;

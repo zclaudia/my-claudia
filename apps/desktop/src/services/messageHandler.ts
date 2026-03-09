@@ -17,6 +17,7 @@ import { useAskUserQuestionStore } from '../stores/askUserQuestionStore';
 import { useSupervisionStore } from '../stores/supervisionStore';
 import { useLocalPRStore } from '../stores/localPRStore';
 import { useScheduledTaskStore } from '../stores/scheduledTaskStore';
+import { useWorkflowStore } from '../stores/workflowStore';
 import { useSessionsStore } from '../stores/sessionsStore';
 import { LOCAL_BACKEND_KEY } from '../stores/sessionsStore';
 import { useTerminalStore } from '../stores/terminalStore';
@@ -316,6 +317,29 @@ export function handleServerMessage(
     case 'scheduled_task_deleted': {
       const { projectId, taskId } = msg as any;
       useScheduledTaskStore.getState().removeTask(projectId, taskId);
+      break;
+    }
+
+    case 'workflow_update': {
+      const { projectId, workflow } = msg as any;
+      useWorkflowStore.getState().upsertWorkflow(projectId, workflow);
+      break;
+    }
+
+    case 'workflow_deleted': {
+      const { projectId, workflowId } = msg as any;
+      useWorkflowStore.getState().removeWorkflow(projectId, workflowId);
+      break;
+    }
+
+    case 'workflow_run_update': {
+      const { projectId, run, stepRuns } = msg as any;
+      useWorkflowStore.getState().upsertRun(projectId, run, stepRuns);
+      break;
+    }
+
+    case 'workflow_step_types_changed': {
+      useWorkflowStore.getState().loadStepTypes();
       break;
     }
 

@@ -313,7 +313,7 @@ export interface Session {
   archivedAt?: number; // Timestamp when session was archived, undefined = not archived
 
   // Supervision v2
-  projectRole?: 'main' | 'task' | 'review' | 'checkpoint' | 'scheduled';
+  projectRole?: 'main' | 'task' | 'review' | 'checkpoint' | 'scheduled' | 'workflow';
   taskId?: string;
   planStatus?: 'planning' | 'planned' | 'executing' | null;
   isReadOnly?: boolean;
@@ -1048,7 +1048,11 @@ export type ServerMessage =
   | LocalPRUpdateMessage
   | LocalPRDeletedMessage
   | ScheduledTaskUpdateMessage
-  | ScheduledTaskDeletedMessage;
+  | ScheduledTaskDeletedMessage
+  | WorkflowUpdateMessage
+  | WorkflowDeletedMessage
+  | WorkflowRunUpdateMessage
+  | WorkflowStepTypesChangedMessage;
 
 // Authentication result message
 export interface AuthResultMessage {
@@ -1960,6 +1964,144 @@ export interface McpServerConfig {
   source: 'user' | 'imported';
   createdAt: number;
   updatedAt: number;
+}
+
+// ============================================
+// Workflow Types
+// ============================================
+
+export type WorkflowStatus = 'active' | 'disabled' | 'archived';
+export type WorkflowTriggerType = 'manual' | 'cron' | 'interval' | 'event';
+
+export interface WorkflowTrigger {
+  type: WorkflowTriggerType;
+  cron?: string;
+  intervalMinutes?: number;
+  event?: string;
+  eventFilter?: Record<string, unknown>;
+}
+
+export type BuiltinWorkflowStepType =
+  | 'git_commit'
+  | 'git_merge'
+  | 'create_worktree'
+  | 'create_pr'
+  | 'ai_review'
+  | 'ai_prompt'
+  | 'shell'
+  | 'webhook'
+  | 'condition'
+  | 'notify'
+  | 'wait';
+
+export type WorkflowStepType = BuiltinWorkflowStepType | (string & {});
+
+export interface WorkflowStepTypeMeta {
+  type: string;
+  name: string;
+  description: string;
+  category: string;
+  icon?: string;
+  configSchema?: Record<string, unknown>;
+  source: string;
+}
+
+export type WorkflowStepOnError = 'abort' | 'skip' | 'retry';
+
+export interface WorkflowStepDef {
+  id: string;
+  name: string;
+  type: WorkflowStepType;
+  config: Record<string, unknown>;
+  onError?: WorkflowStepOnError;
+  retryCount?: number;
+  timeoutMs?: number;
+  condition?: {
+    expression: string;
+    thenSteps: string[];
+    elseSteps: string[];
+  };
+}
+
+export interface WorkflowDefinition {
+  steps: WorkflowStepDef[];
+  triggers: WorkflowTrigger[];
+}
+
+export interface Workflow {
+  id: string;
+  projectId: string;
+  name: string;
+  description?: string;
+  status: WorkflowStatus;
+  definition: WorkflowDefinition;
+  templateId?: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export type WorkflowRunStatus = 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
+export type WorkflowRunTriggerSource = 'manual' | 'schedule' | 'event';
+
+export interface WorkflowRun {
+  id: string;
+  workflowId: string;
+  projectId: string;
+  status: WorkflowRunStatus;
+  triggerSource: WorkflowRunTriggerSource;
+  triggerDetail?: string;
+  currentStepId?: string;
+  startedAt: number;
+  completedAt?: number;
+  error?: string;
+}
+
+export type WorkflowStepRunStatus = 'pending' | 'running' | 'completed' | 'failed' | 'skipped' | 'waiting';
+
+export interface WorkflowStepRun {
+  id: string;
+  runId: string;
+  stepId: string;
+  stepType: WorkflowStepType;
+  status: WorkflowStepRunStatus;
+  input?: Record<string, unknown>;
+  output?: Record<string, unknown>;
+  error?: string;
+  attempt: number;
+  sessionId?: string;
+  startedAt?: number;
+  completedAt?: number;
+}
+
+export interface WorkflowRunUpdateMessage {
+  type: 'workflow_run_update';
+  projectId: string;
+  run: WorkflowRun;
+  stepRuns: WorkflowStepRun[];
+}
+
+export interface WorkflowUpdateMessage {
+  type: 'workflow_update';
+  projectId: string;
+  workflow: Workflow;
+}
+
+export interface WorkflowDeletedMessage {
+  type: 'workflow_deleted';
+  projectId: string;
+  workflowId: string;
+}
+
+export interface WorkflowStepTypesChangedMessage {
+  type: 'workflow_step_types_changed';
+}
+
+export interface WorkflowTemplate {
+  id: string;
+  name: string;
+  description: string;
+  category: 'git' | 'ci' | 'ai' | 'custom';
+  definition: WorkflowDefinition;
 }
 
 // ============================================

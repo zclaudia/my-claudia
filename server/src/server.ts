@@ -43,6 +43,8 @@ import { createLocalPRRoutes } from './routes/local-prs.js';
 import { LocalPRService } from './services/local-pr-service.js';
 import { ScheduledTaskService } from './services/scheduled-task-service.js';
 import { createScheduledTaskRoutes } from './routes/scheduled-tasks.js';
+import { WorkflowService } from './services/workflow-service.js';
+import { createWorkflowRoutes } from './routes/workflows.js';
 import { SupervisorV2Service } from './services/supervisor-v2-service.js';
 import { StateRecovery } from './services/state-recovery.js';
 import { CheckpointEngine } from './services/checkpoint-engine.js';
@@ -588,6 +590,15 @@ export async function createServer(): Promise<ServerContext> {
   });
   app.use('/api', authMiddleware, createScheduledTaskRoutes(scheduledTaskService));
 
+  // Workflow service + routes
+  const workflowService = new WorkflowService(db, (projectId, message) => {
+    clients.forEach((client) => {
+      if (client.authenticated) sendMessage(client.ws, message);
+    });
+  });
+  workflowService.initialize();
+  app.use('/api', authMiddleware, createWorkflowRoutes(workflowService));
+
   // Notification routes + service
   notificationService = new NotificationService(db);
   app.use('/api/notifications', authMiddleware, createNotificationRoutes(notificationService));
@@ -968,6 +979,11 @@ export async function createServer(): Promise<ServerContext> {
   // Scheduled task scheduler (every 10s)
   setInterval(() => {
     scheduledTaskService.tick().catch((err) => console.error('[ScheduledTasks] Tick error:', err));
+  }, 10000);
+
+  // Workflow scheduler (every 10s)
+  setInterval(() => {
+    workflowService.tick().catch((err) => console.error('[Workflow] Tick error:', err));
   }, 10000);
 
   // Forward permission requests to connected frontends

@@ -132,15 +132,15 @@ export function createLocalPRRoutes(localPRService: LocalPRService, db: Database
         res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Local PR not found' } });
         return;
       }
-      // Force approve then merge
-      localPRService.getRepo().update(pr.id, { status: 'approved' });
-      localPRService.mergePR(pr.id).catch((err) =>
-        console.error(`[LocalPRRoutes] Manual merge error for PR ${pr.id}:`, err),
-      );
+      await localPRService.mergePR(pr.id);
       res.json({ success: true, data: localPRService.getRepo().findById(pr.id) } as ApiResponse<LocalPR>);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to trigger merge';
-      res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message } });
+      const status =
+        message.includes('Cannot merge PR in status') ? 400
+          : message.includes('Main worktree is dirty') ? 409
+            : 500;
+      res.status(status).json({ success: false, error: { code: 'INTERNAL_ERROR', message } });
     }
   });
 

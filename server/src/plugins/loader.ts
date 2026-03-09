@@ -37,6 +37,7 @@ import type { Permission } from '@my-claudia/shared';
 import { pluginStorageManager } from './storage.js';
 import { createProviderAPI } from './provider-api.js';
 import { workerHost } from './worker-host.js';
+import { workflowStepRegistry } from './workflow-step-registry.js';
 
 // ============================================
 // Types
@@ -484,6 +485,28 @@ export class PluginLoader {
       }
     }
 
+    // Register workflow steps
+    if (contributes.workflowSteps) {
+      for (const step of contributes.workflowSteps) {
+        const fullType = `${manifest.id}/${step.id}`;
+        workflowStepRegistry.register({
+          type: fullType,
+          name: step.name,
+          description: step.description,
+          category: step.category ?? 'Plugins',
+          icon: step.icon,
+          configSchema: step.configSchema,
+          handler: async () => ({
+            status: 'failed' as const,
+            output: {},
+            error: 'Step handler not implemented',
+          }),
+          pluginId: manifest.id,
+        });
+      }
+      this.broadcastFn?.({ type: 'workflow_step_types_changed' });
+    }
+
     // Broadcast panel registrations to connected frontends
     if (contributes.panels) {
       for (const panel of contributes.panels) {
@@ -512,6 +535,12 @@ export class PluginLoader {
 
     // Clear tools
     toolRegistry.clearByPlugin(pluginId);
+
+    // Clear workflow steps
+    if (workflowStepRegistry.getByPlugin(pluginId).length > 0) {
+      workflowStepRegistry.clearByPlugin(pluginId);
+      this.broadcastFn?.({ type: 'workflow_step_types_changed' });
+    }
 
     // Clear event listeners
     pluginEvents.clearByPlugin(pluginId);
@@ -660,6 +689,30 @@ export class PluginLoader {
         },
         unregisterTool: (toolId: string) => {
           toolRegistry.unregister(toolId);
+        },
+      },
+
+      workflowSteps: {
+        registerWorkflowStep: (stepId: string, handler: any) => {
+          const fullType = `${pluginId}/${stepId}`;
+          const existing = workflowStepRegistry.get(fullType);
+          if (existing) {
+            workflowStepRegistry.register({ ...existing, handler });
+          } else {
+            workflowStepRegistry.register({
+              type: fullType,
+              name: stepId,
+              description: `Workflow step from ${pluginId}`,
+              category: 'Plugins',
+              handler,
+              pluginId,
+            });
+          }
+          this.broadcastFn?.({ type: 'workflow_step_types_changed' });
+        },
+        unregisterWorkflowStep: (stepId: string) => {
+          workflowStepRegistry.unregister(`${pluginId}/${stepId}`);
+          this.broadcastFn?.({ type: 'workflow_step_types_changed' });
         },
       },
 

@@ -1,9 +1,10 @@
 import { useEffect } from 'react';
-import { Bot, ClipboardList, GitPullRequest, Calendar, ChevronRight } from 'lucide-react';
+import { Bot, ClipboardList, GitPullRequest, Calendar, Workflow, ChevronRight } from 'lucide-react';
 import { useProjectStore } from '../../stores/projectStore';
 import { useSupervisionStore } from '../../stores/supervisionStore';
 import { useLocalPRStore } from '../../stores/localPRStore';
 import { useScheduledTaskStore } from '../../stores/scheduledTaskStore';
+import { useWorkflowStore } from '../../stores/workflowStore';
 import type { DashboardView } from './ProjectDashboard';
 
 interface DashboardHomeProps {
@@ -111,10 +112,17 @@ export function DashboardHome({ projectId, onNavigate }: DashboardHomeProps) {
     .filter((t) => t.nextRun)
     .sort((a, b) => (a.nextRun ?? 0) - (b.nextRun ?? 0))[0]?.nextRun;
 
+  // Workflows
+  const workflows = useWorkflowStore((s) => s.workflows[projectId] ?? []);
+  const loadWorkflows = useWorkflowStore((s) => s.loadWorkflows);
+  const activeWorkflows = workflows.filter((w) => w.status === 'active');
+  const runs = useWorkflowStore((s) => s.runs);
+
   // Load data on mount
   useEffect(() => {
     loadPRs(projectId).catch(() => {});
     loadScheduledTasks(projectId).catch(() => {});
+    loadWorkflows(projectId).catch(() => {});
   }, [projectId]);
 
   return (
@@ -223,6 +231,27 @@ export function DashboardHome({ projectId, onNavigate }: DashboardHomeProps) {
             )}
           </div>
         </button>
+
+        {/* Workflows Card */}
+        <button
+          onClick={() => onNavigate('workflows')}
+          className="text-left bg-card border border-border rounded-lg p-4 hover:border-primary/40 transition-colors group"
+        >
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center gap-2">
+              <Workflow className="w-4 h-4 text-muted-foreground" />
+              <span className="text-sm font-medium">Workflows</span>
+            </div>
+            <ChevronRight className="w-3.5 h-3.5 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+          </div>
+          <div className="space-y-1">
+            <div className="text-2xl font-bold">{activeWorkflows.length}</div>
+            <div className="text-xs text-muted-foreground">active</div>
+            {workflows.length > activeWorkflows.length && (
+              <div className="text-xs text-muted-foreground">{workflows.length - activeWorkflows.length} disabled</div>
+            )}
+          </div>
+        </button>
       </div>
 
       {/* Local Pull Requests Preview */}
@@ -287,8 +316,38 @@ export function DashboardHome({ projectId, onNavigate }: DashboardHomeProps) {
         </PreviewSection>
       )}
 
+      {/* Workflows Preview */}
+      {activeWorkflows.length > 0 && (
+        <PreviewSection
+          title="Workflows"
+          onViewAll={() => onNavigate('workflows')}
+        >
+          {activeWorkflows.slice(0, 3).map((wf) => {
+            const latestRun = (runs[wf.id] ?? [])[0];
+            const RUN_STATUS_COLORS: Record<string, string> = {
+              pending: 'bg-gray-500/10 text-gray-400',
+              running: 'bg-blue-500/10 text-blue-500',
+              completed: 'bg-green-500/10 text-green-500',
+              failed: 'bg-red-500/10 text-red-500',
+              cancelled: 'bg-gray-500/10 text-gray-400',
+            };
+            return (
+              <div key={wf.id} className="flex items-center justify-between py-1.5">
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className="w-1.5 h-1.5 rounded-full shrink-0 bg-green-500" />
+                  <span className="text-sm truncate">{wf.name}</span>
+                </div>
+                {latestRun && (
+                  <StatusBadge status={latestRun.status} colors={RUN_STATUS_COLORS} />
+                )}
+              </div>
+            );
+          })}
+        </PreviewSection>
+      )}
+
       {/* Empty state */}
-      {tasks.length === 0 && prs.length === 0 && scheduledTasks.length === 0 && (
+      {tasks.length === 0 && prs.length === 0 && scheduledTasks.length === 0 && workflows.length === 0 && (
         <div className="text-center py-12 text-muted-foreground">
           <p className="text-sm">No activity yet.</p>
           <p className="text-xs mt-1">

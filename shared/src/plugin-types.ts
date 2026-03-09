@@ -129,6 +129,26 @@ export interface UIExtensionPoint {
   when?: string;
 }
 
+export interface WorkflowStepContribution {
+  id: string;
+  name: string;
+  description: string;
+  category?: string;
+  icon?: string;
+  configSchema?: Record<string, unknown>;
+}
+
+export type WorkflowStepHandler = (
+  config: Record<string, unknown>,
+  context: {
+    projectId: string;
+    projectRootPath?: string;
+    providerId?: string;
+    stepRunId: string;
+    runId: string;
+  },
+) => Promise<{ status: 'completed' | 'failed'; output: Record<string, unknown>; error?: string }>;
+
 export interface PluginContributes {
   commands?: CommandContribution[];
   tools?: ToolContribution[];
@@ -138,6 +158,7 @@ export interface PluginContributes {
   uiExtensions?: UIExtensionPoint[];
   menus?: MenuContribution[];
   keybindings?: KeybindingContribution[];
+  workflowSteps?: WorkflowStepContribution[];
 }
 
 export type ExecutionMode = 'main' | 'worker' | 'sandbox';
@@ -494,6 +515,20 @@ export function validatePluginManifest(manifest: unknown): PluginValidationResul
         }
         if (!tool.description || typeof tool.description !== 'string') {
           errors.push('Tool contribution missing "description" field');
+        }
+      }
+    }
+
+    if (contributes.workflowSteps && Array.isArray(contributes.workflowSteps)) {
+      for (const step of contributes.workflowSteps) {
+        if (!step.id || typeof step.id !== 'string') {
+          errors.push('WorkflowStep contribution missing "id" field');
+        }
+        if (!step.name || typeof step.name !== 'string') {
+          errors.push('WorkflowStep contribution missing "name" field');
+        }
+        if (!step.description || typeof step.description !== 'string') {
+          errors.push('WorkflowStep contribution missing "description" field');
         }
       }
     }
