@@ -33,6 +33,17 @@ const STALE_TIMEOUT_MS = 30 * 60 * 1000;
 const MAX_FINISHED_PRS_PER_PROJECT = 10;
 const INLINE_DIFF_MAX_CHARS = 12000;
 const DIFF_PREVIEW_CHARS = 3000;
+const LOCAL_PR_SESSION_STREAM_MESSAGE_TYPES = new Set<ServerMessage['type']>([
+  'run_started',
+  'delta',
+  'tool_use',
+  'tool_result',
+  'mode_change',
+  'task_notification',
+  'system_info',
+  'run_completed',
+  'run_failed',
+]);
 
 export class LocalPRService {
   private prRepo: LocalPRRepository;
@@ -368,6 +379,7 @@ export class LocalPRService {
 
     const virtualClient = createVirtualClient(clientId, {
       send: (msg: ServerMessage) => {
+        this.forwardSessionStream(pr.projectId, session.id, msg);
         if (msg.type === 'run_completed' || msg.type === 'run_failed') {
           this.onReviewSessionComplete(prId, session.id).catch((err) =>
             console.error(`[LocalPRService] Review completion error for PR ${prId}:`, err),
@@ -756,6 +768,7 @@ If you cannot resolve it, output: [CONFLICT_UNRESOLVED]`;
 
     const virtualClient = createVirtualClient(clientId, {
       send: (msg: ServerMessage) => {
+        this.forwardSessionStream(pr.projectId, session.id, msg);
         if (msg.type === 'run_completed' || msg.type === 'run_failed') {
           this.onConflictSessionComplete(prId, session.id).catch((err) =>
             console.error(`[LocalPRService] Conflict completion error for PR ${prId}:`, err),
@@ -926,6 +939,13 @@ If you cannot resolve it, output: [CONFLICT_UNRESOLVED]`;
       projectId: pr.projectId,
       pr,
     });
+  }
+
+  private forwardSessionStream(projectId: string, sessionId: string, msg: ServerMessage): void {
+    if (!LOCAL_PR_SESSION_STREAM_MESSAGE_TYPES.has(msg.type)) return;
+    const messageSessionId = (msg as { sessionId?: string }).sessionId;
+    if (messageSessionId !== sessionId) return;
+    this.broadcastToProject(projectId, msg);
   }
 
   // Expose repository for route handlers
