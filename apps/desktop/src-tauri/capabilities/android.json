@@ -1,9 +1,9 @@
 {
   "$schema": "https://schema.tauri.app/config/2/capability",
-  "identifier": "default",
-  "description": "Capability for the main window (desktop platforms)",
+  "identifier": "android",
+  "description": "Capability for Android platform",
   "windows": ["main", "file-viewer-*"],
-  "platforms": ["macOS", "linux", "windows"],
+  "platforms": ["android"],
   "permissions": [
     "core:default",
     "core:window:allow-start-dragging",
@@ -13,8 +13,6 @@
     "fs:allow-download-read-recursive",
     "fs:allow-download-write-recursive",
     "shell:allow-kill",
-    "updater:default",
-    "process:allow-restart",
     {
       "identifier": "shell:allow-execute",
       "allow": [
