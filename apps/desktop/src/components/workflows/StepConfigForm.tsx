@@ -1,10 +1,10 @@
-import type { WorkflowStepDef, WorkflowStepOnError, BuiltinWorkflowStepType } from '@my-claudia/shared';
+import type { WorkflowNodeDef, WorkflowStepOnError, BuiltinWorkflowStepType } from '@my-claudia/shared';
 import { useWorkflowStore } from '../../stores/workflowStore';
 import { JsonSchemaConfigForm } from './JsonSchemaConfigForm';
 
 interface StepConfigFormProps {
-  step: WorkflowStepDef;
-  onChange: (step: WorkflowStepDef) => void;
+  step: WorkflowNodeDef;
+  onChange: (step: WorkflowNodeDef) => void;
   onDelete: () => void;
 }
 
@@ -29,7 +29,7 @@ function getStepTypeLabel(type: string): string {
   return meta?.name ?? type;
 }
 
-function updateConfig(step: WorkflowStepDef, key: string, value: unknown): WorkflowStepDef {
+function updateConfig(step: WorkflowNodeDef, key: string, value: unknown): WorkflowNodeDef {
   return { ...step, config: { ...step.config, [key]: value } };
 }
 
@@ -70,7 +70,7 @@ function TextArea({ label, value, onChange, placeholder, rows = 3 }: {
   );
 }
 
-function renderTypeConfig(step: WorkflowStepDef, onChange: (s: WorkflowStepDef) => void) {
+function renderTypeConfig(step: WorkflowNodeDef, onChange: (s: WorkflowNodeDef) => void) {
   switch (step.type) {
     case 'shell':
       return (
@@ -240,32 +240,12 @@ function renderTypeConfig(step: WorkflowStepDef, onChange: (s: WorkflowStepDef) 
 
     case 'condition':
       return (
-        <>
-          <TextInput
-            label="Expression"
-            value={step.condition?.expression ?? ''}
-            onChange={(v) => onChange({ ...step, condition: { ...step.condition!, expression: v } })}
-            placeholder="${review.output.reviewPassed} == true"
-          />
-          <TextInput
-            label="Then Steps (comma-separated IDs)"
-            value={step.condition?.thenSteps?.join(', ') ?? ''}
-            onChange={(v) => onChange({
-              ...step,
-              condition: { ...step.condition!, thenSteps: v.split(',').map(s => s.trim()).filter(Boolean) },
-            })}
-            placeholder="merge, notify_success"
-          />
-          <TextInput
-            label="Else Steps (comma-separated IDs)"
-            value={step.condition?.elseSteps?.join(', ') ?? ''}
-            onChange={(v) => onChange({
-              ...step,
-              condition: { ...step.condition!, elseSteps: v.split(',').map(s => s.trim()).filter(Boolean) },
-            })}
-            placeholder="notify_failed"
-          />
-        </>
+        <TextInput
+          label="Expression"
+          value={step.condition?.expression ?? ''}
+          onChange={(v) => onChange({ ...step, condition: { expression: v } })}
+          placeholder="${review.output.reviewPassed} == true"
+        />
       );
 
     case 'wait':
@@ -301,17 +281,17 @@ function renderTypeConfig(step: WorkflowStepDef, onChange: (s: WorkflowStepDef) 
 }
 
 export function StepConfigForm({ step, onChange, onDelete }: StepConfigFormProps) {
-  const onErrorOptions: WorkflowStepOnError[] = ['abort', 'skip', 'retry'];
+  const onErrorOptions: WorkflowStepOnError[] = ['abort', 'skip', 'retry', 'route'];
 
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
-        <h3 className="text-sm font-medium">Step Configuration</h3>
+        <h3 className="text-sm font-medium">Node Configuration</h3>
         <button
           onClick={onDelete}
           className="text-xs text-destructive hover:text-destructive/80 transition-colors"
         >
-          Delete Step
+          Delete Node
         </button>
       </div>
 
@@ -323,10 +303,10 @@ export function StepConfigForm({ step, onChange, onDelete }: StepConfigFormProps
       />
 
       <TextInput
-        label="Step ID"
+        label="Node ID"
         value={step.id}
         onChange={(v) => onChange({ ...step, id: v })}
-        placeholder="step_1"
+        placeholder="node_1"
       />
 
       <div>
@@ -344,14 +324,16 @@ export function StepConfigForm({ step, onChange, onDelete }: StepConfigFormProps
 
       <div>
         <label className="text-xs font-medium text-muted-foreground block mb-1">On Error</label>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           {onErrorOptions.map((opt) => (
             <button
               key={opt}
               onClick={() => onChange({ ...step, onError: opt })}
               className={`px-2.5 py-1 text-xs rounded-md border transition-colors ${
                 (step.onError ?? 'abort') === opt
-                  ? 'border-primary bg-primary/10 text-primary'
+                  ? opt === 'route'
+                    ? 'border-orange-500 bg-orange-500/10 text-orange-600'
+                    : 'border-primary bg-primary/10 text-primary'
                   : 'border-border hover:bg-secondary'
               }`}
             >
@@ -359,6 +341,11 @@ export function StepConfigForm({ step, onChange, onDelete }: StepConfigFormProps
             </button>
           ))}
         </div>
+        {step.onError === 'route' && (
+          <p className="text-xs text-orange-500 mt-1.5">
+            Connect the red Error handle to a target node on the canvas
+          </p>
+        )}
       </div>
 
       {step.onError === 'retry' && (

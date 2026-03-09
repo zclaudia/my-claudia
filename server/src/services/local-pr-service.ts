@@ -352,7 +352,7 @@ export class LocalPRService {
 
     const virtualClient = createVirtualClient(clientId, {
       send: (msg: ServerMessage) => {
-        if (msg.type === 'run_completed') {
+        if (msg.type === 'run_completed' || msg.type === 'run_failed') {
           this.onReviewSessionComplete(prId, session.id).catch((err) =>
             console.error(`[LocalPRService] Review completion error for PR ${prId}:`, err),
           );
@@ -569,7 +569,7 @@ If you cannot resolve it, output: [CONFLICT_UNRESOLVED]`;
 
     const virtualClient = createVirtualClient(clientId, {
       send: (msg: ServerMessage) => {
-        if (msg.type === 'run_completed') {
+        if (msg.type === 'run_completed' || msg.type === 'run_failed') {
           this.onConflictSessionComplete(prId, session.id).catch((err) =>
             console.error(`[LocalPRService] Conflict completion error for PR ${prId}:`, err),
           );

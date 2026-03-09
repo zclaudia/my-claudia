@@ -6,7 +6,8 @@
 
 import { Router, Request, Response } from 'express';
 import type { WorkflowService } from '../services/workflow-service.js';
-import type { WorkflowStepTypeMeta } from '@my-claudia/shared';
+import type { WorkflowStepTypeMeta, WorkflowDefinition } from '@my-claudia/shared';
+import { isV2Definition } from '@my-claudia/shared';
 import { isValidCron } from '../utils/cron.js';
 import { workflowStepRegistry } from '../plugins/workflow-step-registry.js';
 
@@ -36,11 +37,25 @@ export function createWorkflowRoutes(service: WorkflowService): Router {
           error: { code: 'VALIDATION_ERROR', message: 'Name is required' },
         });
       }
-      if (!definition?.steps || !definition?.triggers) {
+      // Accept both V1 (steps+triggers) and V2 (nodes+edges+entryNodeId+triggers)
+      const isV1 = definition?.steps && definition?.triggers;
+      const isV2 = definition?.version === 2 && definition?.nodes && definition?.edges && definition?.triggers;
+      if (!isV1 && !isV2) {
         return res.status(400).json({
           success: false,
-          error: { code: 'VALIDATION_ERROR', message: 'Definition with steps and triggers is required' },
+          error: { code: 'VALIDATION_ERROR', message: 'Definition must have triggers and either steps (V1) or nodes+edges+entryNodeId (V2)' },
         });
+      }
+
+      // V2: validate entryNodeId exists
+      if (isV2) {
+        const nodeIds = new Set((definition.nodes as any[]).map((n: any) => n.id));
+        if (!definition.entryNodeId || !nodeIds.has(definition.entryNodeId)) {
+          return res.status(400).json({
+            success: false,
+            error: { code: 'VALIDATION_ERROR', message: 'entryNodeId must reference an existing node' },
+          });
+        }
       }
 
       // Validate cron expressions

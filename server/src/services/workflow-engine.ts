@@ -1,23 +1,27 @@
 /**
- * Workflow Execution Engine
+ * Workflow Execution Engine (V2 — Graph-based)
  *
- * Executes workflow steps sequentially with support for:
+ * Executes workflow nodes by traversing a DAG with support for:
  * - Variable interpolation: ${stepId.output.field}
- * - Condition branches: if/then/else
- * - Error handling: abort/skip/retry
+ * - Condition branches: condition_true / condition_false edges
+ * - Error routing: onError='route' follows error edges
+ * - Error handling: abort/skip/retry/route
  * - Async AI steps via virtual client pattern
  * - Wait/approval steps with external resolution
  */
 
 import type { Database } from 'better-sqlite3';
 import type {
-  WorkflowStepDef,
+  WorkflowNodeDef,
+  WorkflowEdgeDef,
   WorkflowStepRun,
   WorkflowRun,
   WorkflowDefinition,
+  WorkflowDefinitionV2,
   ServerMessage,
   Session,
 } from '@my-claudia/shared';
+import { isV2Definition, migrateV1ToV2 } from '@my-claudia/shared';
 import { WorkflowRunRepository } from '../repositories/workflow-run.js';
 import { WorkflowStepRunRepository } from '../repositories/workflow-step-run.js';
 import { ProjectRepository } from '../repositories/project.js';
@@ -44,7 +48,6 @@ export interface ExecutionContext {
   projectId: string;
   projectRootPath?: string;
   providerId?: string;
-  skippedByCondition: Set<string>;
 }
 
 export class WorkflowEngine {
@@ -72,6 +75,101 @@ export class WorkflowEngine {
     return this.activeRuns.has(workflowId);
   }
 
+  // ── DAG Validation ───────────────────────────────────────────
+
+  validateDAG(nodes: WorkflowNodeDef[], edges: WorkflowEdgeDef[]): { valid: boolean; error?: string } {
+    const nodeIds = new Set(nodes.map(n => n.id));
+
+    // Check edges reference valid nodes
+    for (const edge of edges) {
+      if (!nodeIds.has(edge.source)) {
+        return { valid: false, error: `Edge "${edge.id}" references unknown source node "${edge.source}"` };
+      }
+      if (!nodeIds.has(edge.target)) {
+        return { valid: false, error: `Edge "${edge.id}" references unknown target node "${edge.target}"` };
+      }
+      if (edge.source === edge.target) {
+        return { valid: false, error: `Edge "${edge.id}" is a self-loop on node "${edge.source}"` };
+      }
+    }
+
+    // Topological sort to detect cycles (Kahn's algorithm)
+    const inDegree = new Map<string, number>();
+    const adj = new Map<string, string[]>();
+    for (const id of nodeIds) {
+      inDegree.set(id, 0);
+      adj.set(id, []);
+    }
+    for (const edge of edges) {
+      adj.get(edge.source)!.push(edge.target);
+      inDegree.set(edge.target, (inDegree.get(edge.target) ?? 0) + 1);
+    }
+
+    const queue: string[] = [];
+    for (const [id, deg] of inDegree) {
+      if (deg === 0) queue.push(id);
+    }
+
+    let visited = 0;
+    while (queue.length > 0) {
+      const node = queue.shift()!;
+      visited++;
+      for (const neighbor of adj.get(node) ?? []) {
+        const newDeg = (inDegree.get(neighbor) ?? 1) - 1;
+        inDegree.set(neighbor, newDeg);
+        if (newDeg === 0) queue.push(neighbor);
+      }
+    }
+
+    if (visited !== nodeIds.size) {
+      return { valid: false, error: 'Workflow graph contains a cycle' };
+    }
+
+    return { valid: true };
+  }
+
+  // ── Adjacency Map ────────────────────────────────────────────
+
+  private buildAdjacencyMap(edges: WorkflowEdgeDef[]): Map<string, WorkflowEdgeDef[]> {
+    const map = new Map<string, WorkflowEdgeDef[]>();
+    for (const edge of edges) {
+      if (!map.has(edge.source)) map.set(edge.source, []);
+      map.get(edge.source)!.push(edge);
+    }
+    return map;
+  }
+
+  private findNextNodeId(
+    currentNodeId: string,
+    result: StepResult,
+    adjacency: Map<string, WorkflowEdgeDef[]>,
+    nodeDef: WorkflowNodeDef,
+  ): string | null {
+    const edges = adjacency.get(currentNodeId) ?? [];
+
+    // Condition node: follow condition_true or condition_false
+    if (nodeDef.type === 'condition') {
+      const condResult = result.output.conditionResult as boolean;
+      const edgeType = condResult ? 'condition_true' : 'condition_false';
+      const edge = edges.find(e => e.type === edgeType);
+      return edge?.target ?? null;
+    }
+
+    // Failed node with onError == 'route': follow error edge
+    if (result.status === 'failed' && nodeDef.onError === 'route') {
+      const errorEdge = edges.find(e => e.type === 'error');
+      return errorEdge?.target ?? null;
+    }
+
+    // Normal success or skip: follow success edge
+    if (result.status === 'completed' || (result.status === 'failed' && nodeDef.onError === 'skip')) {
+      const successEdge = edges.find(e => e.type === 'success');
+      return successEdge?.target ?? null;
+    }
+
+    return null;
+  }
+
   // ── Main Execution ──────────────────────────────────────────────
 
   async startRun(
@@ -83,6 +181,15 @@ export class WorkflowEngine {
   ): Promise<WorkflowRun> {
     if (this.activeRuns.has(workflowId)) {
       throw new Error(`Workflow ${workflowId} is already running`);
+    }
+
+    // Normalize to V2
+    const defV2 = isV2Definition(definition) ? definition : migrateV1ToV2(definition);
+
+    // Validate DAG
+    const validation = this.validateDAG(defV2.nodes, defV2.edges);
+    if (!validation.valid) {
+      throw new Error(`Invalid workflow graph: ${validation.error}`);
     }
 
     const project = this.projectRepo.findById(projectId);
@@ -97,12 +204,12 @@ export class WorkflowEngine {
       startedAt: Date.now(),
     });
 
-    // Create step run records for all steps
-    for (const step of definition.steps) {
+    // Create step run records for all nodes
+    for (const node of defV2.nodes) {
       this.stepRunRepo.create({
         runId: run.id,
-        stepId: step.id,
-        stepType: step.type,
+        stepId: node.id,
+        stepType: node.type,
         status: 'pending',
         attempt: 1,
       });
@@ -112,9 +219,20 @@ export class WorkflowEngine {
     this.activeRuns.set(workflowId, true);
 
     // Execute asynchronously
-    this.executeSteps(run, definition, project?.rootPath, project?.providerId)
+    this.executeGraph(run, defV2, project?.rootPath, project?.providerId)
       .catch((err) => {
         console.error(`[Workflow] Run ${run.id} failed:`, err);
+        // Ensure run is marked as failed if executeGraph throws
+        const currentRun = this.runRepo.findById(run.id);
+        if (currentRun && currentRun.status === 'running') {
+          this.runRepo.update(run.id, {
+            status: 'failed',
+            error: err.message,
+            completedAt: Date.now(),
+            currentStepId: undefined,
+          });
+          this.broadcastRunUpdate(projectId, run.id);
+        }
       })
       .finally(() => {
         this.activeRuns.delete(workflowId);
@@ -123,9 +241,9 @@ export class WorkflowEngine {
     return run;
   }
 
-  private async executeSteps(
+  private async executeGraph(
     run: WorkflowRun,
-    definition: WorkflowDefinition,
+    definition: WorkflowDefinitionV2,
     projectRootPath?: string,
     providerId?: string,
   ): Promise<void> {
@@ -135,50 +253,82 @@ export class WorkflowEngine {
       projectId: run.projectId,
       projectRootPath,
       providerId,
-      skippedByCondition: new Set(),
     };
 
-    for (const stepDef of definition.steps) {
+    const nodeMap = new Map(definition.nodes.map(n => [n.id, n]));
+    const adjacency = this.buildAdjacencyMap(definition.edges);
+    const visited = new Set<string>();
+
+    let currentNodeId: string | null = definition.entryNodeId;
+
+    while (currentNodeId) {
       // Check if run was cancelled
       const currentRun = this.runRepo.findById(run.id);
       if (!currentRun || currentRun.status === 'cancelled') {
         return;
       }
 
-      // Skip steps excluded by condition branches
-      if (ctx.skippedByCondition.has(stepDef.id)) {
-        const stepRun = this.stepRunRepo.findByRunAndStep(run.id, stepDef.id);
-        if (stepRun) {
-          this.stepRunRepo.update(stepRun.id, { status: 'skipped', completedAt: Date.now() });
-        }
-        ctx.results.set(stepDef.id, { status: 'skipped', output: {} });
+      // Safety: prevent infinite loops (shouldn't happen in a validated DAG)
+      if (visited.has(currentNodeId)) {
+        this.runRepo.update(run.id, {
+          status: 'failed',
+          error: `Cycle detected at node "${currentNodeId}"`,
+          completedAt: Date.now(),
+          currentStepId: undefined,
+        });
         this.broadcastRunUpdate(run.projectId, run.id);
-        continue;
+        return;
+      }
+      visited.add(currentNodeId);
+
+      const nodeDef = nodeMap.get(currentNodeId);
+      if (!nodeDef) {
+        this.runRepo.update(run.id, {
+          status: 'failed',
+          error: `Node "${currentNodeId}" not found in workflow definition`,
+          completedAt: Date.now(),
+          currentStepId: undefined,
+        });
+        this.broadcastRunUpdate(run.projectId, run.id);
+        return;
       }
 
       // Update current step
-      this.runRepo.update(run.id, { currentStepId: stepDef.id });
+      this.runRepo.update(run.id, { currentStepId: nodeDef.id });
 
-      const result = await this.executeStep(stepDef, ctx, run.id);
-      ctx.results.set(stepDef.id, result);
+      const result = await this.executeStep(nodeDef, ctx, run.id);
+      ctx.results.set(nodeDef.id, result);
 
+      // Handle abort on failure
       if (result.status === 'failed') {
-        const onError = stepDef.onError ?? 'abort';
+        const onError = nodeDef.onError ?? 'abort';
         if (onError === 'abort') {
           this.runRepo.update(run.id, {
             status: 'failed',
-            error: result.error ?? `Step "${stepDef.name}" failed`,
+            error: result.error ?? `Node "${nodeDef.name}" failed`,
             completedAt: Date.now(),
             currentStepId: undefined,
           });
           this.broadcastRunUpdate(run.projectId, run.id);
           return;
         }
-        // skip: continue to next step (already recorded as failed)
+      }
+
+      // Determine next node via edges
+      currentNodeId = this.findNextNodeId(nodeDef.id, result, adjacency, nodeDef);
+    }
+
+    // Mark unvisited nodes as skipped
+    for (const node of definition.nodes) {
+      if (!visited.has(node.id)) {
+        const stepRun = this.stepRunRepo.findByRunAndStep(run.id, node.id);
+        if (stepRun && stepRun.status === 'pending') {
+          this.stepRunRepo.update(stepRun.id, { status: 'skipped', completedAt: Date.now() });
+        }
       }
     }
 
-    // All steps completed
+    // Workflow complete
     this.runRepo.update(run.id, {
       status: 'completed',
       completedAt: Date.now(),
@@ -188,16 +338,16 @@ export class WorkflowEngine {
   }
 
   private async executeStep(
-    stepDef: WorkflowStepDef,
+    nodeDef: WorkflowNodeDef,
     ctx: ExecutionContext,
     runId: string,
   ): Promise<StepResult> {
-    const stepRun = this.stepRunRepo.findByRunAndStep(runId, stepDef.id);
+    const stepRun = this.stepRunRepo.findByRunAndStep(runId, nodeDef.id);
     if (!stepRun) {
       return { status: 'failed', output: {}, error: 'Step run record not found' };
     }
 
-    const maxAttempts = stepDef.onError === 'retry' ? (stepDef.retryCount ?? 1) + 1 : 1;
+    const maxAttempts = nodeDef.onError === 'retry' ? (nodeDef.retryCount ?? 1) + 1 : 1;
 
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       this.stepRunRepo.update(stepRun.id, {
@@ -208,10 +358,10 @@ export class WorkflowEngine {
       this.broadcastRunUpdate(ctx.projectId, runId);
 
       try {
-        const resolvedConfig = this.resolveConfig(stepDef.config, ctx.results);
+        const resolvedConfig = this.resolveConfig(nodeDef.config, ctx.results);
         this.stepRunRepo.update(stepRun.id, { input: resolvedConfig });
 
-        const result = await this.executeStepHandler(stepDef, resolvedConfig, ctx, stepRun.id);
+        const result = await this.executeStepHandler(nodeDef, resolvedConfig, ctx, stepRun.id);
 
         if (result.status === 'completed') {
           this.stepRunRepo.update(stepRun.id, {
@@ -225,8 +375,9 @@ export class WorkflowEngine {
 
         // Failed — retry if possible
         if (attempt === maxAttempts) {
+          const failStatus = nodeDef.onError === 'skip' ? 'skipped' : 'failed';
           this.stepRunRepo.update(stepRun.id, {
-            status: stepDef.onError === 'skip' ? 'skipped' : 'failed',
+            status: failStatus as any,
             error: result.error,
             completedAt: Date.now(),
           });
@@ -236,8 +387,9 @@ export class WorkflowEngine {
       } catch (err) {
         const errorMsg = err instanceof Error ? err.message : String(err);
         if (attempt === maxAttempts) {
+          const failStatus = nodeDef.onError === 'skip' ? 'skipped' : 'failed';
           this.stepRunRepo.update(stepRun.id, {
-            status: stepDef.onError === 'skip' ? 'skipped' : 'failed',
+            status: failStatus as any,
             error: errorMsg,
             completedAt: Date.now(),
           });
@@ -253,21 +405,21 @@ export class WorkflowEngine {
   // ── Step Handlers ───────────────────────────────────────────────
 
   private async executeStepHandler(
-    stepDef: WorkflowStepDef,
+    nodeDef: WorkflowNodeDef,
     config: Record<string, unknown>,
     ctx: ExecutionContext,
     stepRunId: string,
   ): Promise<StepResult> {
-    const timeoutMs = stepDef.timeoutMs ?? DEFAULT_STEP_TIMEOUT_MS;
+    const timeoutMs = nodeDef.timeoutMs ?? DEFAULT_STEP_TIMEOUT_MS;
 
-    const handler = this.getHandler(stepDef.type);
+    const handler = this.getHandler(nodeDef.type);
     if (!handler) {
-      return { status: 'failed', output: {}, error: `Unknown step type: ${stepDef.type}` };
+      return { status: 'failed', output: {}, error: `Unknown step type: ${nodeDef.type}` };
     }
 
     // Wrap in timeout
     return Promise.race([
-      handler.call(this, stepDef, config, ctx, stepRunId),
+      handler.call(this, nodeDef, config, ctx, stepRunId),
       new Promise<StepResult>((_, reject) =>
         setTimeout(() => reject(new Error(`Step timed out after ${timeoutMs}ms`)), timeoutMs)
       ),
@@ -275,13 +427,13 @@ export class WorkflowEngine {
   }
 
   private getHandler(type: string): ((
-    stepDef: WorkflowStepDef,
+    nodeDef: WorkflowNodeDef,
     config: Record<string, unknown>,
     ctx: ExecutionContext,
     stepRunId: string,
   ) => Promise<StepResult>) | null {
     type StepHandler = (
-      stepDef: WorkflowStepDef,
+      nodeDef: WorkflowNodeDef,
       config: Record<string, unknown>,
       ctx: ExecutionContext,
       stepRunId: string,
@@ -306,7 +458,7 @@ export class WorkflowEngine {
 
     // Fall back to plugin step registry
     if (workflowStepRegistry.has(type)) {
-      return async (_stepDef, config, ctx, stepRunId) => {
+      return async (_nodeDef, config, ctx, stepRunId) => {
         const result = await workflowStepRegistry.execute(type, config, {
           projectId: ctx.projectId,
           projectRootPath: ctx.projectRootPath,
@@ -324,7 +476,7 @@ export class WorkflowEngine {
   // ── Shell ─────────────────────────────────────────────────────
 
   private async handleShell(
-    _stepDef: WorkflowStepDef,
+    _nodeDef: WorkflowNodeDef,
     config: Record<string, unknown>,
     ctx: ExecutionContext,
   ): Promise<StepResult> {
@@ -359,7 +511,7 @@ export class WorkflowEngine {
   // ── Webhook ───────────────────────────────────────────────────
 
   private async handleWebhook(
-    _stepDef: WorkflowStepDef,
+    _nodeDef: WorkflowNodeDef,
     config: Record<string, unknown>,
   ): Promise<StepResult> {
     const url = config.url as string;
@@ -388,7 +540,7 @@ export class WorkflowEngine {
   // ── Notify ────────────────────────────────────────────────────
 
   private async handleNotify(
-    _stepDef: WorkflowStepDef,
+    _nodeDef: WorkflowNodeDef,
     config: Record<string, unknown>,
   ): Promise<StepResult> {
     const message = config.message as string ?? 'Workflow notification';
@@ -412,23 +564,19 @@ export class WorkflowEngine {
   }
 
   // ── Condition ─────────────────────────────────────────────────
+  // In V2, condition branching is handled by edges (condition_true/condition_false).
+  // The handler only needs to evaluate the expression and return the result.
 
   private async handleCondition(
-    stepDef: WorkflowStepDef,
+    nodeDef: WorkflowNodeDef,
     _config: Record<string, unknown>,
     ctx: ExecutionContext,
   ): Promise<StepResult> {
-    if (!stepDef.condition) {
+    if (!nodeDef.condition) {
       return { status: 'failed', output: {}, error: 'No condition defined' };
     }
 
-    const conditionResult = this.evaluateCondition(stepDef.condition.expression, ctx.results);
-
-    // Mark non-matching branch steps as skipped
-    const skipSteps = conditionResult ? stepDef.condition.elseSteps : stepDef.condition.thenSteps;
-    for (const stepId of skipSteps) {
-      ctx.skippedByCondition.add(stepId);
-    }
+    const conditionResult = this.evaluateCondition(nodeDef.condition.expression, ctx.results);
 
     return {
       status: 'completed',
@@ -439,7 +587,7 @@ export class WorkflowEngine {
   // ── Wait / Approval ───────────────────────────────────────────
 
   private async handleWait(
-    stepDef: WorkflowStepDef,
+    nodeDef: WorkflowNodeDef,
     config: Record<string, unknown>,
     _ctx: ExecutionContext,
     stepRunId: string,
@@ -453,7 +601,7 @@ export class WorkflowEngine {
     }
 
     // Approval flow
-    const approvalTimeoutMs = stepDef.timeoutMs ?? 3600000; // 1 hour default
+    const approvalTimeoutMs = nodeDef.timeoutMs ?? 3600000; // 1 hour default
 
     // Update step run status to 'waiting'
     this.stepRunRepo.update(stepRunId, { status: 'waiting' });
@@ -482,7 +630,7 @@ export class WorkflowEngine {
   // ── AI Prompt ─────────────────────────────────────────────────
 
   private async handleAIPrompt(
-    stepDef: WorkflowStepDef,
+    nodeDef: WorkflowNodeDef,
     config: Record<string, unknown>,
     ctx: ExecutionContext,
     stepRunId: string,
@@ -497,7 +645,7 @@ export class WorkflowEngine {
 
     const session = this.sessionRepo.create({
       projectId: ctx.projectId,
-      name: (config.sessionName as string) ?? `Workflow: ${stepDef.name}`,
+      name: (config.sessionName as string) ?? `Workflow: ${nodeDef.name}`,
       type: 'background',
       projectRole: 'workflow',
       workingDirectory,
@@ -507,12 +655,12 @@ export class WorkflowEngine {
     this.stepRunRepo.update(stepRunId, { sessionId: session.id });
 
     return new Promise<StepResult>((resolve, reject) => {
-      const timeoutMs = stepDef.timeoutMs ?? DEFAULT_STEP_TIMEOUT_MS;
+      const timeoutMs = nodeDef.timeoutMs ?? DEFAULT_STEP_TIMEOUT_MS;
       const timeout = setTimeout(() => {
         reject(new Error(`AI prompt timed out after ${timeoutMs}ms`));
       }, timeoutMs);
 
-      const clientId = `workflow_${ctx.run.id}_${stepDef.id}_${Date.now()}`;
+      const clientId = `workflow_${ctx.run.id}_${nodeDef.id}_${Date.now()}`;
       createVirtualClient(clientId, {
         send: (msg: ServerMessage) => {
           if (msg.type === 'run_completed') {
@@ -550,7 +698,7 @@ export class WorkflowEngine {
   // ── AI Review ─────────────────────────────────────────────────
 
   private async handleAIReview(
-    stepDef: WorkflowStepDef,
+    nodeDef: WorkflowNodeDef,
     config: Record<string, unknown>,
     ctx: ExecutionContext,
     stepRunId: string,
@@ -574,7 +722,7 @@ If there are critical issues, include ${failMarker} in your response and list th
 
     const session = this.sessionRepo.create({
       projectId: ctx.projectId,
-      name: `Workflow Review: ${stepDef.name}`,
+      name: `Workflow Review: ${nodeDef.name}`,
       type: 'background',
       projectRole: 'workflow',
       workingDirectory: worktreePath,
@@ -584,12 +732,12 @@ If there are critical issues, include ${failMarker} in your response and list th
     this.stepRunRepo.update(stepRunId, { sessionId: session.id });
 
     return new Promise<StepResult>((resolve, reject) => {
-      const timeoutMs = stepDef.timeoutMs ?? 30 * 60 * 1000; // 30min default for reviews
+      const timeoutMs = nodeDef.timeoutMs ?? 30 * 60 * 1000; // 30min default for reviews
       const timeout = setTimeout(() => {
         reject(new Error(`AI review timed out after ${timeoutMs}ms`));
       }, timeoutMs);
 
-      const clientId = `workflow_review_${ctx.run.id}_${stepDef.id}_${Date.now()}`;
+      const clientId = `workflow_review_${ctx.run.id}_${nodeDef.id}_${Date.now()}`;
       createVirtualClient(clientId, {
         send: (msg: ServerMessage) => {
           if (msg.type === 'run_completed') {
@@ -640,7 +788,7 @@ If there are critical issues, include ${failMarker} in your response and list th
   // ── Git Commit ────────────────────────────────────────────────
 
   private async handleGitCommit(
-    _stepDef: WorkflowStepDef,
+    _nodeDef: WorkflowNodeDef,
     config: Record<string, unknown>,
     ctx: ExecutionContext,
   ): Promise<StepResult> {
@@ -679,7 +827,7 @@ If there are critical issues, include ${failMarker} in your response and list th
   // ── Git Merge ─────────────────────────────────────────────────
 
   private async handleGitMerge(
-    _stepDef: WorkflowStepDef,
+    _nodeDef: WorkflowNodeDef,
     config: Record<string, unknown>,
     ctx: ExecutionContext,
   ): Promise<StepResult> {
@@ -715,7 +863,7 @@ If there are critical issues, include ${failMarker} in your response and list th
   // ── Create Worktree ───────────────────────────────────────────
 
   private async handleCreateWorktree(
-    _stepDef: WorkflowStepDef,
+    _nodeDef: WorkflowNodeDef,
     config: Record<string, unknown>,
     ctx: ExecutionContext,
   ): Promise<StepResult> {
@@ -742,7 +890,7 @@ If there are critical issues, include ${failMarker} in your response and list th
   // ── Create PR ─────────────────────────────────────────────────
 
   private async handleCreatePR(
-    _stepDef: WorkflowStepDef,
+    _nodeDef: WorkflowNodeDef,
     config: Record<string, unknown>,
     ctx: ExecutionContext,
   ): Promise<StepResult> {

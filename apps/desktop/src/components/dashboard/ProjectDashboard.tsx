@@ -35,10 +35,12 @@ export function ProjectDashboard({ projectId, projectRootPath }: ProjectDashboar
   const setAgent = useSupervisionStore((s) => s.setAgent);
   const setTasks = useSupervisionStore((s) => s.setTasks);
   const [view, setView] = useState<DashboardView>('home');
+  const [workflowViewMode, setWorkflowViewMode] = useState<'list' | 'detail'>('list');
 
   // Reset to home when project changes
   useEffect(() => {
     setView('home');
+    setWorkflowViewMode('list');
   }, [projectId]);
 
   // Hydrate supervision store
@@ -71,7 +73,7 @@ export function ProjectDashboard({ projectId, projectRootPath }: ProjectDashboar
       />
 
       {/* Back button for drill-down views */}
-      {view !== 'home' && (
+      {view !== 'home' && (view !== 'workflows' || workflowViewMode === 'list') && (
         <div className="flex items-center gap-2 px-4 py-2 border-b border-border">
           <button
             onClick={() => setView('home')}
@@ -124,7 +126,10 @@ export function ProjectDashboard({ projectId, projectRootPath }: ProjectDashboar
 
       {view === 'workflows' && (
         <div className="flex-1 overflow-hidden">
-          <WorkflowsPanel projectId={projectId} />
+          <WorkflowsPanel
+            projectId={projectId}
+            onViewModeChange={setWorkflowViewMode}
+          />
         </div>
       )}
 

@@ -28,6 +28,7 @@ export function BottomPanel({ projectId, projectRoot, workingDirectory }: Bottom
   const fileViewerOpen = useFileViewerStore((s) => s.isOpen);
   const closeFileViewer = useFileViewerStore((s) => s.close);
   const supportsTerminal = useServerStore((s) => s.activeServerSupports('remoteTerminal'));
+  const isMobile = useIsMobile();
 
   // Plugin panel tabs — disabled on mobile (mobile only supports pure backend plugins)
   const allPluginTabs = usePluginPanelTabs();
@@ -35,8 +36,6 @@ export function BottomPanel({ projectId, projectRoot, workingDirectory }: Bottom
   const hasPluginTabs = pluginTabs.length > 0;
   const activePluginPanelId = activeTab.startsWith('plugin:') ? activeTab.slice(7) : null;
   const hasActivePluginPanel = hasPluginTabs && activePluginPanelId !== null;
-
-  const isMobile = useIsMobile();
 
   // Determine which tabs are available and which is active
   const hasTerminalTab = supportsTerminal && projectId && (terminalDrawerOpen || hasTerminal);

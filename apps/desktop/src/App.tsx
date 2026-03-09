@@ -7,6 +7,7 @@ import { MobileSetup } from './components/MobileSetup';
 import { AgentPanel } from './components/agent/AgentPanel';
 import { AgentSidePanel } from './components/agent/AgentSidePanel';
 import { FileViewerWindow } from './components/fileviewer/FileViewerWindow';
+import { WorkflowEditorWindow } from './components/workflows/WorkflowEditorWindow';
 import { ProjectDashboard } from './components/dashboard/ProjectDashboard';
 import { ThemeProvider } from './contexts/ThemeContext';
 import { ConnectionProvider, useConnection } from './contexts/ConnectionContext';
@@ -378,6 +379,24 @@ function App() {
         <FileViewerWindow
           filePath={fileViewerPath}
           projectRoot={fileViewerRoot}
+          serverUrl={serverUrl}
+          authToken={authToken}
+        />
+      </ThemeProvider>
+    );
+  }
+
+  // Check if this window is a standalone workflow editor
+  const workflowEditorProjectId = params.get('workflowEditor');
+  if (workflowEditorProjectId) {
+    const serverUrl = params.get('serverUrl') || '';
+    const authToken = params.get('authToken') || '';
+    const workflowId = params.get('workflowId') || undefined;
+    return (
+      <ThemeProvider defaultTheme="dark-neutral">
+        <WorkflowEditorWindow
+          projectId={workflowEditorProjectId}
+          workflowId={workflowId}
           serverUrl={serverUrl}
           authToken={authToken}
         />

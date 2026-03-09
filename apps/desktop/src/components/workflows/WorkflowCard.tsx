@@ -1,5 +1,6 @@
-import { Play, Pencil, Pause, Zap, Trash2, Loader2, CheckCircle2, XCircle, Clock, Timer, Activity } from 'lucide-react';
+import { Play, Pencil, Pause, Zap, Trash2, Loader2, CheckCircle2, XCircle, Clock, Timer, Activity, ExternalLink } from 'lucide-react';
 import type { Workflow, WorkflowRun } from '@my-claudia/shared';
+import { isV2Definition } from '@my-claudia/shared';
 
 interface WorkflowCardProps {
   workflow: Workflow;
@@ -9,6 +10,7 @@ interface WorkflowCardProps {
   onToggle: () => void;
   onDelete: () => void;
   onViewRuns: () => void;
+  onPopOut?: () => void;
 }
 
 function getTriggerLabel(workflow: Workflow): { icon: React.ReactNode; label: string } {
@@ -55,10 +57,11 @@ function timeAgo(timestamp?: number): string {
   return `${Math.floor(hours / 24)}d ago`;
 }
 
-export function WorkflowCard({ workflow, latestRun, onTrigger, onEdit, onToggle, onDelete, onViewRuns }: WorkflowCardProps) {
+export function WorkflowCard({ workflow, latestRun, onTrigger, onEdit, onToggle, onDelete, onViewRuns, onPopOut }: WorkflowCardProps) {
   const isActive = workflow.status === 'active';
   const { icon: triggerIcon, label: triggerLabel } = getTriggerLabel(workflow);
-  const stepCount = workflow.definition.steps.length;
+  const def = workflow.definition;
+  const stepCount = isV2Definition(def) ? def.nodes.length : def.steps.length;
 
   return (
     <div
@@ -98,6 +101,15 @@ export function WorkflowCard({ workflow, latestRun, onTrigger, onEdit, onToggle,
           >
             <Pencil size={14} />
           </button>
+          {onPopOut && (
+            <button
+              onClick={onPopOut}
+              className="p-1 rounded hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors"
+              title="Open in new window"
+            >
+              <ExternalLink size={14} />
+            </button>
+          )}
           <button
             onClick={onToggle}
             className="p-1 rounded hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors"
@@ -122,7 +134,7 @@ export function WorkflowCard({ workflow, latestRun, onTrigger, onEdit, onToggle,
         </span>
         <span className="flex items-center gap-1">
           <Activity size={12} />
-          {stepCount} steps
+          {stepCount} nodes
         </span>
         {latestRun && (
           <span className="flex items-center gap-1">

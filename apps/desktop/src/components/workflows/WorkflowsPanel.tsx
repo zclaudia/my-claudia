@@ -6,8 +6,38 @@ import { WorkflowCard } from './WorkflowCard';
 import { WorkflowEditor } from './WorkflowEditor';
 import { WorkflowRunViewer } from './WorkflowRunViewer';
 
+const isDesktopTauri = typeof window !== 'undefined'
+  && '__TAURI_INTERNALS__' in window
+  && !navigator.userAgent.includes('Android');
+
+async function openEditorInNewWindow(projectId: string, workflow?: Workflow) {
+  const { WebviewWindow } = await import('@tauri-apps/api/webviewWindow');
+  const { getBaseUrl, getAuthHeaders } = await import('../../services/api');
+  const label = `workflow-editor-${Date.now()}`;
+
+  let serverUrl = '';
+  try { serverUrl = getBaseUrl(); } catch {}
+  const authHeaders = getAuthHeaders();
+  const authToken = (authHeaders as Record<string, string>)['Authorization'] || '';
+
+  const params = new URLSearchParams({ workflowEditor: projectId, serverUrl });
+  if (workflow?.id) params.set('workflowId', workflow.id);
+  if (authToken) params.set('authToken', authToken);
+  const url = `${window.location.origin}${window.location.pathname}?${params}`;
+
+  new WebviewWindow(label, {
+    url,
+    title: workflow ? `Edit: ${workflow.name}` : 'New Workflow',
+    width: 1100,
+    height: 700,
+    center: true,
+    dragDropEnabled: false,
+  });
+}
+
 interface WorkflowsPanelProps {
   projectId: string;
+  onViewModeChange?: (mode: 'list' | 'detail') => void;
 }
 
 type ViewState =
@@ -15,7 +45,7 @@ type ViewState =
   | { type: 'editor'; workflow?: Workflow }
   | { type: 'run-viewer'; runId: string };
 
-export function WorkflowsPanel({ projectId }: WorkflowsPanelProps) {
+export function WorkflowsPanel({ projectId, onViewModeChange }: WorkflowsPanelProps) {
   const {
     workflows,
     runs,
@@ -31,6 +61,11 @@ export function WorkflowsPanel({ projectId }: WorkflowsPanelProps) {
 
   const [view, setView] = useState<ViewState>({ type: 'list' });
   const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!onViewModeChange) return;
+    onViewModeChange(view.type === 'list' ? 'list' : 'detail');
+  }, [view.type, onViewModeChange]);
 
   useEffect(() => {
     Promise.all([loadWorkflows(projectId), loadTemplates()])
@@ -200,6 +235,7 @@ export function WorkflowsPanel({ projectId }: WorkflowsPanelProps) {
                           setView({ type: 'run-viewer', runId: latest.id });
                         }
                       }}
+                      onPopOut={isDesktopTauri ? () => openEditorInNewWindow(projectId, wf) : undefined}
                     />
                   ))}
                 </div>
@@ -222,6 +258,7 @@ export function WorkflowsPanel({ projectId }: WorkflowsPanelProps) {
                       onEdit={() => setView({ type: 'editor', workflow: wf })}
                       onToggle={() => updateWorkflow(wf.id, projectId, { status: 'active' })}
                       onDelete={() => deleteWorkflow(wf.id, projectId)}
+                      onPopOut={isDesktopTauri ? () => openEditorInNewWindow(projectId, wf) : undefined}
                       onViewRuns={() => {}}
                     />
                   ))}
