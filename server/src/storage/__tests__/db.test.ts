@@ -126,7 +126,11 @@ describe('storage/db', () => {
         { recursive: true }
       );
 
-      process.env.MY_CLAUDIA_DATA_DIR = originalEnv;
+      if (originalEnv === undefined) {
+        delete process.env.MY_CLAUDIA_DATA_DIR;
+      } else {
+        process.env.MY_CLAUDIA_DATA_DIR = originalEnv;
+      }
     });
 
     it('runs migrations on initialization', async () => {
@@ -388,7 +392,11 @@ describe('storage/db', () => {
       const mkdirCall = mockFsMethods.mkdirSync.mock.calls[0];
       expect(mkdirCall[0]).toBe('/tmp/test-claudia');
 
-      process.env.MY_CLAUDIA_DATA_DIR = originalEnv;
+      if (originalEnv === undefined) {
+        delete process.env.MY_CLAUDIA_DATA_DIR;
+      } else {
+        process.env.MY_CLAUDIA_DATA_DIR = originalEnv;
+      }
     });
   });
 });
