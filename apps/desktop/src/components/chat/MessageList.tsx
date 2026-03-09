@@ -6,6 +6,7 @@ import { oneDark, oneLight } from 'react-syntax-highlighter/dist/esm/styles/pris
 import { Brain, ChevronRight, Image, Copy, Check, Terminal } from 'lucide-react';
 import { ToolCallList } from './ToolCallItem';
 import { FilePushCard } from './FilePushNotification';
+import { FilePreviewModal } from './FilePreviewModal';
 import type { MessageWithToolCalls, ToolCallState } from '../../stores/chatStore';
 import { ToolCallItem } from './ToolCallItem';
 import type { ContentBlock } from '@my-claudia/shared';
@@ -113,6 +114,7 @@ export const MessageList = memo(function MessageList({
 }: MessageListProps) {
   // Subscribe to filePushStore for download status updates
   const filePushItems = useFilePushStore((state) => state.items);
+  const [previewItem, setPreviewItem] = useState<FilePushItem | null>(null);
   const [heightVersion, setHeightVersion] = useState(0);
   const itemHeightsRef = useRef<Map<number, number>>(new Map());
   const observersRef = useRef<Map<number, ResizeObserver>>(new Map());
@@ -220,13 +222,14 @@ export const MessageList = memo(function MessageList({
         status: storeItem?.status ?? 'pending',
         downloadProgress: storeItem?.downloadProgress ?? 0,
         savedPath: storeItem?.savedPath,
+        privatePath: storeItem?.privatePath,
         error: storeItem?.error,
         serverId: storeItem?.serverId,
         createdAt: message.createdAt,
       };
       return (
         <div key={message.id} className="max-w-full md:max-w-3xl">
-          <FilePushCard item={item} />
+          <FilePushCard item={item} onPreview={setPreviewItem} />
         </div>
       );
     }
@@ -295,35 +298,45 @@ export const MessageList = memo(function MessageList({
     return null;
   }
 
+  const previewModal = previewItem && (
+    <FilePreviewModal item={previewItem} onClose={() => setPreviewItem(null)} />
+  );
+
   if (!shouldVirtualize) {
     return (
-      <div data-testid="message-list" className="space-y-5">
-        {filteredMessages.map((message, index) => renderMessage(message, index))}
-      </div>
+      <>
+        <div data-testid="message-list" className="space-y-5">
+          {filteredMessages.map((message, index) => renderMessage(message, index))}
+        </div>
+        {previewModal}
+      </>
     );
   }
 
   return (
-    <div data-testid="message-list">
-      {virtualWindow.topPadding > 0 && (
-        <div style={{ height: virtualWindow.topPadding }} />
-      )}
-      {filteredMessages.slice(virtualWindow.start, virtualWindow.end).map((message, idx) => {
-        const absoluteIndex = virtualWindow.start + idx;
-        return (
-          <div
-            key={message.id}
-            ref={(el) => setMeasuredRef(absoluteIndex, el)}
-            className="mb-4"
-          >
-            {renderMessage(message, absoluteIndex)}
-          </div>
-        );
-      })}
-      {virtualWindow.bottomPadding > 0 && (
-        <div style={{ height: virtualWindow.bottomPadding }} />
-      )}
-    </div>
+    <>
+      <div data-testid="message-list">
+        {virtualWindow.topPadding > 0 && (
+          <div style={{ height: virtualWindow.topPadding }} />
+        )}
+        {filteredMessages.slice(virtualWindow.start, virtualWindow.end).map((message, idx) => {
+          const absoluteIndex = virtualWindow.start + idx;
+          return (
+            <div
+              key={message.id}
+              ref={(el) => setMeasuredRef(absoluteIndex, el)}
+              className="mb-4"
+            >
+              {renderMessage(message, absoluteIndex)}
+            </div>
+          );
+        })}
+        {virtualWindow.bottomPadding > 0 && (
+          <div style={{ height: virtualWindow.bottomPadding }} />
+        )}
+      </div>
+      {previewModal}
+    </>
   );
 });
 

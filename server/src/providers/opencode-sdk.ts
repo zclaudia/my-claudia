@@ -3,6 +3,7 @@ import { appendFileSync, readFileSync } from 'fs';
 import type { PermissionRequest, MessageInput } from '@my-claudia/shared';
 import type { ClaudeMessage, SystemInfo, PermissionDecision, PermissionCallback } from './claude-sdk.js';
 import { fileStore } from '../storage/fileStore.js';
+import { buildNonImageAttachmentNotes } from './attachment-utils.js';
 
 // ── OpenCode prompt part types ─────────────────────────────────
 type OCTextPart = { type: 'text'; text: string };
@@ -24,9 +25,13 @@ function prepareOpenCodeInput(input: string): { text: string; fileParts: OCFileP
     return { text: input, fileParts: [] };
   }
 
-  const text = messageInput.text || input;
+  let text = messageInput.text || input;
   if (!messageInput.attachments || messageInput.attachments.length === 0) {
     return { text, fileParts: [] };
+  }
+  const nonImageNotes = buildNonImageAttachmentNotes(messageInput.attachments);
+  if (nonImageNotes.length > 0) {
+    text = `${nonImageNotes.join('\n\n')}\n\n${text}`;
   }
 
   const fileParts: OCFilePart[] = [];

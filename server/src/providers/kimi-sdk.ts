@@ -2,6 +2,7 @@ import { spawn, type ChildProcess } from 'child_process';
 import { createInterface } from 'readline';
 import type { MessageInput } from '@my-claudia/shared';
 import type { ClaudeMessage, SystemInfo, PermissionCallback } from './claude-sdk.js';
+import { buildNonImageAttachmentNotes } from './attachment-utils.js';
 
 // ── Types ─────────────────────────────────────────────────────
 
@@ -64,13 +65,17 @@ function prepareKimiInput(input: string): string {
     return input;
   }
 
-  const text = messageInput.text || input;
+  let text = messageInput.text || input;
 
   // Log unsupported attachments (image support can be added later)
   if (messageInput.attachments && messageInput.attachments.length > 0) {
     const imageCount = messageInput.attachments.filter((a) => a.type === 'image').length;
     if (imageCount > 0) {
       console.warn(`[Kimi SDK] ${imageCount} image attachment(s) not yet supported, sending text only`);
+    }
+    const nonImageNotes = buildNonImageAttachmentNotes(messageInput.attachments);
+    if (nonImageNotes.length > 0) {
+      text = `${nonImageNotes.join('\n\n')}\n\n${text}`;
     }
   }
 

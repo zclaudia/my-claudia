@@ -19,7 +19,7 @@ import type {
   StateHeartbeatMessage,
   RunHealthStatus
 } from '@my-claudia/shared';
-import { isRequest, ALL_SERVER_FEATURES } from '@my-claudia/shared';
+import { isRequest, ALL_SERVER_FEATURES, resolvePluginPlatform } from '@my-claudia/shared';
 import type { AgentPermissionPolicy } from '@my-claudia/shared';
 import { initDatabase } from './storage/db.js';
 import { initFileStore } from './storage/fileStore.js';
@@ -1171,6 +1171,7 @@ function buildPluginStateMessage(): import('@my-claudia/shared').PluginStateMess
     tools: pluginToolRegistry.getByPlugin(p.manifest.id).map(t => t.definition.function.name),
     commands: pluginCommandRegistry.getByPlugin(p.manifest.id).map(c => c.command),
     path: p.path,
+    platform: resolvePluginPlatform(p.manifest),
   }));
   return { type: 'plugin_state', plugins };
 }

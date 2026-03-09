@@ -24,6 +24,8 @@ import { migrateServersFromLocalStorage, needsMigration } from './utils/migrateS
 import { eagerSyncAllBackends } from './services/sessionSync';
 import { useFileViewerStore } from './stores/fileViewerStore';
 import { initBuiltinPanels } from './plugins/builtinPanels';
+import { useAutoUpdate } from './hooks/useAutoUpdate';
+import { UpdateBanner } from './components/UpdateBanner';
 
 function AppContent() {
   const { connectServer, embeddedServerStatus, embeddedServerError } = useConnection();
@@ -60,6 +62,9 @@ function AppContent() {
 
   // Register builtin plugin panel components (once at startup)
   useEffect(() => { initBuiltinPanels(); }, []);
+
+  // Auto-update check (desktop only, silent)
+  useAutoUpdate();
 
   // Load data from server
   useDataLoader();
@@ -261,6 +266,9 @@ function AppContent() {
           </button>
         )}
       </header>
+
+      {/* Update notification banner (VS Code style) */}
+      {!isMobile && <UpdateBanner />}
 
       {/* Content area: Sidebar + Main */}
       <div ref={openSidebarSwipeRef} className="flex flex-1 overflow-hidden">

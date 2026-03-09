@@ -4,6 +4,7 @@ import type { ProviderConfig, PermissionRequest, PermissionMode, MessageInput, M
 import { fileStore } from '../storage/fileStore.js';
 import { loadMcpServers, loadPlugins } from '../utils/claude-config.js';
 import { loadMcpServersFromDb } from '../utils/mcp-config.js';
+import { buildNonImageAttachmentNotes } from './attachment-utils.js';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
@@ -158,6 +159,7 @@ export async function prepareInput(input: string): Promise<PreparedInput> {
 
   const tempFiles: string[] = [];
   const imageRefs: string[] = [];
+  const nonImageNotes = buildNonImageAttachmentNotes(messageInput.attachments);
 
   ensureTmpDir();
 
@@ -187,6 +189,9 @@ export async function prepareInput(input: string): Promise<PreparedInput> {
       .map(p => `[Attached image: ${p}]`)
       .join('\n');
     text = `${refs}\n\n${text}`;
+  }
+  if (nonImageNotes.length > 0) {
+    text = `${nonImageNotes.join('\n\n')}\n\n${text}`;
   }
 
   return { text, tempFiles };

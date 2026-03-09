@@ -115,7 +115,12 @@ export function XTerminal({ terminalId, projectId, workingDirectory }: XTerminal
     // variable so the flag survives React StrictMode's unmount/remount cycle.
     const attach = () => {
       if (!container || container.clientHeight === 0 || container.clientWidth === 0) return false;
-      if (container.childElementCount === 0) {
+      const termElement = (terminal as unknown as { element?: HTMLElement }).element;
+      if (termElement) {
+        if (termElement.parentElement !== container) {
+          container.appendChild(termElement);
+        }
+      } else {
         terminal.open(container);
       }
       fitAddon.fit();

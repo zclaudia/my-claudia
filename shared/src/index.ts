@@ -915,6 +915,8 @@ export interface PluginStateMessage {
     tools?: string[];
     commands?: string[];
     path: string;
+    /** Effective platform scope: 'universal' (backend-only) or 'desktop' (has UI) */
+    platform: 'universal' | 'desktop';
   }>;
 }
 

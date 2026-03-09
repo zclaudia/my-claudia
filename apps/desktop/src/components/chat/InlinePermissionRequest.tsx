@@ -14,12 +14,14 @@ export function InlinePermissionRequest({ request, onDecision }: InlinePermissio
   const [credential, setCredential] = useState('');
   const [resolved, setResolved] = useState<'allow' | 'deny' | null>(null);
   const [countdownStopped, setCountdownStopped] = useState(false);
+  const [feedback, setFeedback] = useState('');
   const credentialInputRef = useRef<HTMLInputElement>(null);
   const isExitPlanModeRequest = request.toolName.toLowerCase().includes('exitplanmode');
 
   useEffect(() => {
     setRemember(false);
     setCredential('');
+    setFeedback('');
     setCountdownStopped(false);
 
     if (request.timeoutSec === 0) {
@@ -68,11 +70,12 @@ export function InlinePermissionRequest({ request, onDecision }: InlinePermissio
     onDecision(request.requestId, false, remember);
   };
 
-  const handleDenyWithFeedback = async () => {
-    const feedback = window.prompt('补充你的意见（将随本次拒绝一起发送给模型）', '')?.trim();
+  const handleDenyWithFeedback = () => {
+    const note = feedback.trim();
+    if (!note) return;
     setCountdownStopped(true);
     setResolved('deny');
-    onDecision(request.requestId, false, remember, undefined, feedback || undefined);
+    onDecision(request.requestId, false, remember, undefined, note);
   };
 
   const hasTimeout = request.timeoutSec > 0;
@@ -159,6 +162,20 @@ export function InlinePermissionRequest({ request, onDecision }: InlinePermissio
             </p>
           </div>
         )}
+        {isExitPlanModeRequest && (
+          <div className="mt-2">
+            <label className="text-[11px] text-muted-foreground block mb-1">
+              Comment (sent with deny)
+            </label>
+            <textarea
+              value={feedback}
+              onChange={(e) => setFeedback(e.target.value)}
+              placeholder="Why do you reject exiting plan mode?"
+              rows={2}
+              className="w-full px-2.5 py-1.5 bg-input border border-border rounded text-sm text-foreground focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary resize-none"
+            />
+          </div>
+        )}
 
         {/* Timer + remember + actions */}
         <div className="flex items-center gap-2 mt-2">
@@ -199,7 +216,8 @@ export function InlinePermissionRequest({ request, onDecision }: InlinePermissio
           {isExitPlanModeRequest && (
             <button
               onClick={handleDenyWithFeedback}
-              className="px-3 py-1.5 bg-secondary hover:bg-secondary/80 active:bg-secondary/70 text-secondary-foreground rounded-full text-xs font-medium transition-colors"
+              disabled={!feedback.trim()}
+              className="px-3 py-1.5 bg-secondary hover:bg-secondary/80 active:bg-secondary/70 text-secondary-foreground rounded-full text-xs font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               Deny + Comment
             </button>

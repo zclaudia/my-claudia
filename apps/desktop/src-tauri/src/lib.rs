@@ -19,6 +19,12 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_fs::init());
 
+    // Updater + process (restart) — desktop only
+    #[cfg(not(target_os = "android"))]
+    let builder = builder
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init());
+
     // Single-instance only in release builds — allows dev and production to coexist
     #[cfg(all(not(target_os = "android"), not(debug_assertions)))]
     let builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {

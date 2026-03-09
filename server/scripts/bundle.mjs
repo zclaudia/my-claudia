@@ -218,12 +218,22 @@ if (targetTriple && nodePlatform) {
   fs.chmodSync(sidecarDest, 0o755);
 
   if (platform === 'darwin') {
+    // Use the same signing identity as the main app so macOS TCC
+    // permissions persist across updates. Falls back to ad-hoc if
+    // the named certificate is not found in the keychain.
+    const signingIdentity = process.env.APPLE_SIGNING_IDENTITY || 'MyClaudia Signing';
     try {
       execSync(`codesign --remove-signature "${sidecarDest}"`, { stdio: 'pipe' });
-      execSync(`codesign --force --sign - "${sidecarDest}"`, { stdio: 'pipe' });
-      console.log(`    Re-signed with ad-hoc signature`);
+      execSync(`codesign --force --sign "${signingIdentity}" "${sidecarDest}"`, { stdio: 'pipe' });
+      console.log(`    Re-signed with identity: ${signingIdentity}`);
     } catch (e) {
-      console.warn(`    WARNING: Failed to re-sign sidecar: ${e.message}`);
+      // Fallback to ad-hoc if named identity unavailable (e.g. CI without certs)
+      try {
+        execSync(`codesign --force --sign - "${sidecarDest}"`, { stdio: 'pipe' });
+        console.log(`    Fallback: re-signed with ad-hoc signature`);
+      } catch (e2) {
+        console.warn(`    WARNING: Failed to sign sidecar: ${e2.message}`);
+      }
     }
   }
 

@@ -18,6 +18,8 @@ export interface FilePushItem {
   serverId?: string;
   /** Absolute path where the file was saved (Tauri desktop only) */
   savedPath?: string;
+  /** App-private path for opening via FileProvider on Android */
+  privatePath?: string;
   createdAt: number;
 }
 
@@ -28,6 +30,7 @@ interface FilePushState {
   updateStatus: (fileId: string, status: FilePushStatus, error?: string) => void;
   updateProgress: (fileId: string, progress: number) => void;
   updateSavedPath: (fileId: string, savedPath: string) => void;
+  updatePrivatePath: (fileId: string, privatePath: string) => void;
   removeItem: (fileId: string) => void;
   getItemsForSession: (sessionId: string) => FilePushItem[];
   getPendingItems: () => FilePushItem[];
@@ -77,6 +80,13 @@ export const useFilePushStore = create<FilePushState>()(
         set((state) => ({
           items: state.items.map((i) =>
             i.fileId === fileId ? { ...i, savedPath } : i
+          ),
+        })),
+
+      updatePrivatePath: (fileId, privatePath) =>
+        set((state) => ({
+          items: state.items.map((i) =>
+            i.fileId === fileId ? { ...i, privatePath } : i
           ),
         })),
 

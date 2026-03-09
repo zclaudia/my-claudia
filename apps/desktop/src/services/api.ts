@@ -1262,6 +1262,20 @@ export async function createLocalPR(
   return result.data;
 }
 
+export async function precheckLocalPRCreation(
+  projectId: string,
+  worktreePath: string,
+): Promise<{ canCreate: boolean; reason?: string }> {
+  const params = new URLSearchParams({ worktreePath });
+  const result = await fetchApi<{ canCreate: boolean; reason?: string }>(
+    `/api/projects/${projectId}/local-prs/precheck?${params.toString()}`
+  );
+  if (!result.success || !result.data) {
+    throw new Error(result.error?.message || 'Failed to check PR eligibility');
+  }
+  return result.data;
+}
+
 export async function closeLocalPR(prId: string): Promise<LocalPR> {
   const result = await fetchApi<LocalPR>(`/api/local-prs/${prId}/close`, { method: 'POST' });
   if (!result.success || !result.data) {

@@ -133,6 +133,7 @@ export class SupervisorV2Service {
       providerId: providerId ?? project.providerId,
       workingDirectory: project.rootPath,
     } as Omit<Session, 'id' | 'createdAt' | 'updatedAt'>);
+    this.broadcastSessionCreated(mainSession);
 
     const now = Date.now();
     const agent: ProjectAgent = {
@@ -1394,6 +1395,20 @@ Complete the task described above. When finished, output your results in this ex
     } as ServerMessage);
   }
 
+  private broadcastSessionCreated(session: Session): void {
+    this.broadcastFn({
+      type: 'sessions_created',
+      session,
+    } as ServerMessage);
+  }
+
+  private broadcastSessionUpdated(session: Session): void {
+    this.broadcastFn({
+      type: 'sessions_updated',
+      session,
+    } as ServerMessage);
+  }
+
   // ========================================
   // Logging
   // ========================================
@@ -1566,6 +1581,8 @@ Complete the task described above. When finished, output your results in this ex
     this.sessionRepo.update(project.agent.mainSessionId, {
       archivedAt: Date.now(),
     });
+    const archivedOld = this.sessionRepo.findById(project.agent.mainSessionId);
+    if (archivedOld) this.broadcastSessionUpdated(archivedOld);
 
     // Create new main session
     const newSession = this.sessionRepo.create({
@@ -1574,6 +1591,7 @@ Complete the task described above. When finished, output your results in this ex
       type: 'background',
       projectRole: 'main',
     } as Omit<Session, 'id' | 'createdAt' | 'updatedAt'>);
+    this.broadcastSessionCreated(newSession);
 
     // Update agent
     const agent: ProjectAgent = {

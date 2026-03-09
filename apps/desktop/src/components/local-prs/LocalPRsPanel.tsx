@@ -1,8 +1,13 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import type { LocalPRStatus, GitWorktree, WorktreeConfig } from '@my-claudia/shared';
 import { GitBranch, GitPullRequest, Loader2, Plus } from 'lucide-react';
 import { useLocalPRStore } from '../../stores/localPRStore';
-import { getProjectWorktrees, getWorktreeConfigs, upsertWorktreeConfig } from '../../services/api';
+import {
+  getProjectWorktrees,
+  getWorktreeConfigs,
+  upsertWorktreeConfig,
+  precheckLocalPRCreation,
+} from '../../services/api';
 import { LocalPRCard } from './LocalPRCard';
 import { CreateLocalPRDialog } from './CreateLocalPRDialog';
 
@@ -33,6 +38,12 @@ interface LocalPRsPanelProps {
   projectRootPath?: string;
 }
 
+interface WorktreeEligibility {
+  canCreate: boolean;
+  reason?: string;
+  loading?: boolean;
+}
+
 export function LocalPRsPanel({ projectId, projectRootPath }: LocalPRsPanelProps) {
   const { prs, loadPRs, createPR } = useLocalPRStore();
   const [createOpen, setCreateOpen] = useState(false);
@@ -40,6 +51,8 @@ export function LocalPRsPanel({ projectId, projectRootPath }: LocalPRsPanelProps
   const [worktrees, setWorktrees] = useState<GitWorktree[]>([]);
   const [wtConfigs, setWtConfigs] = useState<Record<string, WorktreeConfig>>({});
   const [creatingPath, setCreatingPath] = useState<string | null>(null);
+  const [eligibility, setEligibility] = useState<Record<string, WorktreeEligibility>>({});
+  const [createErrorByPath, setCreateErrorByPath] = useState<Record<string, string>>({});
 
   useEffect(() => {
     setLoading(true);
@@ -57,12 +70,18 @@ export function LocalPRsPanel({ projectId, projectRootPath }: LocalPRsPanelProps
   const projectPRs = prs[projectId] ?? [];
 
   // Worktrees that don't have an active PR
-  const activePRPaths = new Set(
-    projectPRs
-      .filter((pr) => !['merged', 'closed'].includes(pr.status))
-      .map((pr) => pr.worktreePath),
+  const activePRPaths = useMemo(
+    () => new Set(
+      projectPRs
+        .filter((pr) => !['merged', 'closed'].includes(pr.status))
+        .map((pr) => pr.worktreePath),
+    ),
+    [projectPRs],
   );
-  const allNonMainWorktrees = worktrees.filter((wt) => !wt.isMain);
+  const allNonMainWorktrees = useMemo(
+    () => worktrees.filter((wt) => !wt.isMain),
+    [worktrees],
+  );
 
   // Group by status
   const grouped = STATUS_ORDER.reduce<Partial<Record<LocalPRStatus, typeof projectPRs>>>(
@@ -80,13 +99,20 @@ export function LocalPRsPanel({ projectId, projectRootPath }: LocalPRsPanelProps
 
   const handleQuickCreate = async (worktreePath: string) => {
     setCreatingPath(worktreePath);
+    setCreateErrorByPath((prev) => ({ ...prev, [worktreePath]: '' }));
     try {
       const config = wtConfigs[worktreePath];
       await createPR(projectId, worktreePath, {
         autoReview: config?.autoReview || undefined,
       });
+      const precheck = await precheckLocalPRCreation(projectId, worktreePath).catch(() => ({ canCreate: false }));
+      setEligibility((prev) => ({ ...prev, [worktreePath]: precheck }));
     } catch (err) {
       console.error('Failed to create PR:', err);
+      setCreateErrorByPath((prev) => ({
+        ...prev,
+        [worktreePath]: err instanceof Error ? err.message : 'Failed to create PR',
+      }));
     } finally {
       setCreatingPath(null);
     }
@@ -117,6 +143,46 @@ export function LocalPRsPanel({ projectId, projectRootPath }: LocalPRsPanelProps
       setWtConfigs((prev) => ({ ...prev, [worktreePath]: current }));
     }
   }, [projectId, wtConfigs]);
+
+  useEffect(() => {
+    const targetPaths = allNonMainWorktrees
+      .filter((wt) => !activePRPaths.has(wt.path))
+      .map((wt) => wt.path);
+
+    if (targetPaths.length === 0) return;
+    let cancelled = false;
+
+    setEligibility((prev) => {
+      const next = { ...prev };
+      for (const p of targetPaths) {
+        next[p] = { ...(next[p] || {}), loading: true };
+      }
+      return next;
+    });
+
+    Promise.all(
+      targetPaths.map(async (worktreePath) => {
+        try {
+          const result = await precheckLocalPRCreation(projectId, worktreePath);
+          return [worktreePath, { ...result, loading: false }] as const;
+        } catch (error) {
+          const reason = error instanceof Error ? error.message : 'Failed to check PR eligibility';
+          return [worktreePath, { canCreate: false, reason, loading: false }] as const;
+        }
+      })
+    ).then((entries) => {
+      if (cancelled) return;
+      setEligibility((prev) => {
+        const next = { ...prev };
+        for (const [path, info] of entries) next[path] = info;
+        return next;
+      });
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [allNonMainWorktrees, activePRPaths, projectId]);
 
   return (
     <div className="flex flex-col h-full">
@@ -154,6 +220,11 @@ export function LocalPRsPanel({ projectId, projectRootPath }: LocalPRsPanelProps
               {allNonMainWorktrees.map((wt) => {
                 const config = wtConfigs[wt.path];
                 const hasActivePR = activePRPaths.has(wt.path);
+                const canCreate = eligibility[wt.path]?.canCreate ?? true;
+                const precheckReason = eligibility[wt.path]?.reason;
+                const precheckLoading = !!eligibility[wt.path]?.loading;
+                const disableCreate = creatingPath !== null || precheckLoading || !canCreate;
+                const errorText = createErrorByPath[wt.path];
                 return (
                   <div
                     key={wt.path}
@@ -165,20 +236,31 @@ export function LocalPRsPanel({ projectId, projectRootPath }: LocalPRsPanelProps
                         <span className="text-sm font-medium truncate">{wt.branch}</span>
                       </div>
                       {!hasActivePR && (
-                        <button
-                          onClick={() => handleQuickCreate(wt.path)}
-                          disabled={creatingPath !== null}
-                          className="shrink-0 flex items-center gap-1 text-xs px-2 py-1 rounded-md bg-primary/10 text-primary hover:bg-primary/20 disabled:opacity-50"
+                        <span
+                          title={disableCreate ? precheckReason || 'PR cannot be created now' : undefined}
+                          className="shrink-0 inline-flex"
                         >
-                          {creatingPath === wt.path ? (
-                            <Loader2 className="w-3 h-3 animate-spin" />
-                          ) : (
-                            <Plus className="w-3 h-3" />
-                          )}
-                          Create PR
-                        </button>
+                          <button
+                            onClick={() => handleQuickCreate(wt.path)}
+                            disabled={disableCreate}
+                            className="shrink-0 flex items-center gap-1 text-xs px-2 py-1 rounded-md bg-primary/10 text-primary hover:bg-primary/20 disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            {creatingPath === wt.path ? (
+                              <Loader2 className="w-3 h-3 animate-spin" />
+                            ) : (
+                              <Plus className="w-3 h-3" />
+                            )}
+                            Create PR
+                          </button>
+                        </span>
                       )}
                     </div>
+                    {!hasActivePR && !precheckLoading && !canCreate && precheckReason && (
+                      <p className="text-[11px] text-muted-foreground">{precheckReason}</p>
+                    )}
+                    {!hasActivePR && errorText && (
+                      <p className="text-[11px] text-destructive">{errorText}</p>
+                    )}
                     <div className="flex items-center gap-4">
                       <label className="flex items-center gap-1.5 cursor-pointer">
                         <input

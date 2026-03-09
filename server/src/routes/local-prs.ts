@@ -44,6 +44,27 @@ export function createLocalPRRoutes(localPRService: LocalPRService, db: Database
     }
   });
 
+  // GET /api/projects/:projectId/local-prs/precheck?worktreePath=...
+  router.get('/projects/:projectId/local-prs/precheck', async (req: Request, res: Response) => {
+    try {
+      const { projectId } = req.params;
+      const worktreePath = (req.query.worktreePath as string | undefined) || '';
+      if (!worktreePath) {
+        res.status(400).json({
+          success: false,
+          error: { code: 'VALIDATION_ERROR', message: 'worktreePath is required' },
+        });
+        return;
+      }
+
+      const result = await localPRService.checkCreatePreconditions(projectId, worktreePath);
+      res.json({ success: true, data: result });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to validate PR creation';
+      res.status(500).json({ success: false, error: { code: 'PRECHECK_ERROR', message } });
+    }
+  });
+
   // GET /api/local-prs/:prId
   router.get('/local-prs/:prId', (req: Request, res: Response) => {
     try {

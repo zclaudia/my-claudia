@@ -12,6 +12,7 @@ import type { MessageInput, PermissionRequest } from '@my-claudia/shared';
 import type { ClaudeMessage, SystemInfo, PermissionDecision, PermissionCallback } from './claude-sdk.js';
 import { fileStore } from '../storage/fileStore.js';
 import { extractRetryDelayMsFromError } from '../utils/retry-window.js';
+import { buildNonImageAttachmentNotes } from './attachment-utils.js';
 
 // ── Types ─────────────────────────────────────────────────────
 
@@ -78,9 +79,13 @@ function prepareCodexInput(input: string): Input {
     return input;
   }
 
-  const text = messageInput.text || input;
+  let text = messageInput.text || input;
   if (!messageInput.attachments || messageInput.attachments.length === 0) {
     return text;
+  }
+  const nonImageNotes = buildNonImageAttachmentNotes(messageInput.attachments);
+  if (nonImageNotes.length > 0) {
+    text = `${nonImageNotes.join('\n\n')}\n\n${text}`;
   }
 
   // Build UserInput array with text + images

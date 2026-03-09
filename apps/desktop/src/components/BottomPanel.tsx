@@ -29,8 +29,9 @@ export function BottomPanel({ projectId, projectRoot, workingDirectory }: Bottom
   const closeFileViewer = useFileViewerStore((s) => s.close);
   const supportsTerminal = useServerStore((s) => s.activeServerSupports('remoteTerminal'));
 
-  // Plugin panel tabs
-  const pluginTabs = usePluginPanelTabs();
+  // Plugin panel tabs — disabled on mobile (mobile only supports pure backend plugins)
+  const allPluginTabs = usePluginPanelTabs();
+  const pluginTabs = isMobile ? [] : allPluginTabs;
   const hasPluginTabs = pluginTabs.length > 0;
   const activePluginPanelId = activeTab.startsWith('plugin:') ? activeTab.slice(7) : null;
   const hasActivePluginPanel = hasPluginTabs && activePluginPanelId !== null;

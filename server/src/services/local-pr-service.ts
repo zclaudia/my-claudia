@@ -72,6 +72,53 @@ export class LocalPRService {
   // ---------------------------------------------------------------------------
 
   /**
+   * Validate whether a worktree is currently eligible for creating a local PR.
+   * This is a non-mutating precheck for UI feedback.
+   */
+  async checkCreatePreconditions(
+    projectId: string,
+    worktreePath: string,
+  ): Promise<{ canCreate: boolean; reason?: string }> {
+    const project = this.projectRepo.findById(projectId);
+    if (!project?.rootPath) {
+      return { canCreate: false, reason: `Project ${projectId} has no rootPath` };
+    }
+
+    const existing = this.prRepo.findActiveByWorktree(worktreePath);
+    if (existing) {
+      return {
+        canCreate: false,
+        reason: `An active local PR already exists for this worktree (id: ${existing.id})`,
+      };
+    }
+
+    try {
+      const baseBranch = await getMainBranch(worktreePath);
+      const branchName = await getCurrentBranch(worktreePath);
+
+      if (branchName === baseBranch) {
+        return {
+          canCreate: false,
+          reason: `Worktree is already on the base branch (${baseBranch})`,
+        };
+      }
+
+      const commits = await getNewCommits(project.rootPath, branchName, baseBranch);
+      if (commits.length === 0) {
+        return {
+          canCreate: false,
+          reason: `No new commits on branch '${branchName}' compared to '${baseBranch}'`,
+        };
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to validate worktree';
+      return { canCreate: false, reason: message };
+    }
+
+    return { canCreate: true };
+  }
+
+  /**
    * Create a Local PR for the given worktree path.
    * - Auto-commits any uncommitted changes
    * - Collects new commits vs base branch

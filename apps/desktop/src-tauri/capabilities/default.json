@@ -12,6 +12,8 @@
     "fs:allow-download-read-recursive",
     "fs:allow-download-write-recursive",
     "shell:allow-kill",
+    "updater:default",
+    "process:allow-restart",
     {
       "identifier": "shell:allow-execute",
       "allow": [

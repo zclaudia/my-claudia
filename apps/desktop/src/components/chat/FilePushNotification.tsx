@@ -1,5 +1,7 @@
+import { useState } from 'react';
 import { useFilePushStore, type FilePushItem } from '../../stores/filePushStore';
 import { downloadPushedFile, formatFileSize, openFile, openFileAndroid, openFolder, isAndroid } from '../../services/fileDownload';
+import { isPreviewable, FilePreviewModal } from './FilePreviewModal';
 
 /** Icon based on MIME type */
 function FileIcon({ mimeType }: { mimeType: string }) {
@@ -33,7 +35,23 @@ function FileIcon({ mimeType }: { mimeType: string }) {
   );
 }
 
-export function FilePushCard({ item }: { item: FilePushItem }) {
+/** Open file: preview in-app for supported types, external app otherwise */
+function handleOpenFile(item: FilePushItem, setPreview: (item: FilePushItem) => void) {
+  if (isPreviewable(item.mimeType, item.fileName)) {
+    setPreview(item);
+    return;
+  }
+  // Not previewable → open with external app
+  const path = item.privatePath || item.savedPath;
+  if (!path) return;
+  if (isAndroid()) {
+    openFileAndroid(path, item.mimeType);
+  } else {
+    openFile(path);
+  }
+}
+
+export function FilePushCard({ item, onPreview }: { item: FilePushItem; onPreview: (item: FilePushItem) => void }) {
   const handleDownload = () => {
     if (item.status === 'downloading') return;
     downloadPushedFile(item.fileId);
@@ -44,6 +62,7 @@ export function FilePushCard({ item }: { item: FilePushItem }) {
   };
 
   const isAutoCompleted = item.autoDownload && item.status === 'completed';
+  const hasOpenablePath = !!(item.privatePath || item.savedPath);
 
   return (
     <div className="rounded-lg border border-border bg-card overflow-hidden">
@@ -82,13 +101,11 @@ export function FilePushCard({ item }: { item: FilePushItem }) {
 
           {item.status === 'completed' && (
             <div className="flex items-center gap-1.5">
-              {item.savedPath ? (
+              {hasOpenablePath ? (
                 <>
-                  {/* Open file with default app */}
+                  {/* Open file: in-app preview or external app */}
                   <button
-                    onClick={() => isAndroid()
-                      ? openFileAndroid(item.savedPath!, item.mimeType)
-                      : openFile(item.savedPath!)}
+                    onClick={() => handleOpenFile(item, onPreview)}
                     className="px-2 py-0.5 text-xs font-medium text-primary hover:text-primary/80 transition-colors"
                     title="Open file"
                   >
@@ -166,14 +183,21 @@ export function FilePushNotificationList({ sessionId }: FilePushNotificationList
   const items = useFilePushStore((state) =>
     state.items.filter((i) => i.sessionId === sessionId)
   );
+  const [previewItem, setPreviewItem] = useState<FilePushItem | null>(null);
 
   if (items.length === 0) return null;
 
   return (
-    <div className="mt-4 space-y-2 max-w-full md:max-w-3xl">
-      {items.map((item) => (
-        <FilePushCard key={item.fileId} item={item} />
-      ))}
-    </div>
+    <>
+      <div className="mt-4 space-y-2 max-w-full md:max-w-3xl">
+        {items.map((item) => (
+          <FilePushCard key={item.fileId} item={item} onPreview={setPreviewItem} />
+        ))}
+      </div>
+
+      {previewItem && (
+        <FilePreviewModal item={previewItem} onClose={() => setPreviewItem(null)} />
+      )}
+    </>
   );
 }

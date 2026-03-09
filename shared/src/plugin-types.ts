@@ -163,6 +163,13 @@ export interface PluginContributes {
 
 export type ExecutionMode = 'main' | 'worker' | 'sandbox';
 
+/**
+ * Plugin platform scope.
+ * - 'universal': Works everywhere (pure backend — tools, commands, events, workflow steps)
+ * - 'desktop': Requires desktop UI (has panels, toolbars, or other UI extensions)
+ */
+export type PluginPlatform = 'universal' | 'desktop';
+
 export interface PluginManifest {
   id: string; // e.g., 'com.example.my-plugin'
   name: string;
@@ -177,6 +184,9 @@ export interface PluginManifest {
   permissions?: Permission[];
 
   contributes?: PluginContributes;
+
+  // 平台作用域 — 未声明时根据 contributes 自动推断
+  platform?: PluginPlatform;
 
   // 执行模式
   executionMode?: ExecutionMode;
@@ -539,4 +549,25 @@ export function validatePluginManifest(manifest: unknown): PluginValidationResul
     errors,
     warnings,
   };
+}
+
+/**
+ * Resolve the effective platform for a plugin.
+ * If manifest.platform is set, use it. Otherwise infer from contributes:
+ *   - Has panels, uiExtensions, menus, or keybindings → 'desktop'
+ *   - Otherwise → 'universal'
+ */
+export function resolvePluginPlatform(manifest: PluginManifest): PluginPlatform {
+  if (manifest.platform) return manifest.platform;
+
+  const c = manifest.contributes;
+  if (!c) return 'universal';
+
+  const hasUI = (c.panels && c.panels.length > 0)
+    || (c.uiExtensions && c.uiExtensions.length > 0)
+    || (c.menus && c.menus.length > 0)
+    || (c.keybindings && c.keybindings.length > 0)
+    || !!manifest.frontend;
+
+  return hasUI ? 'desktop' : 'universal';
 }

@@ -42,11 +42,22 @@
     },
     "externalBin": [
       "binaries/node"
-    ]
+    ],
+    "macOS": {
+      "signingIdentity": "MyClaudia Signing",
+      "hardenedRuntime": true,
+      "minimumSystemVersion": "10.13"
+    }
   },
   "plugins": {
     "shell": {
       "open": "((mailto:\\w+)|(tel:\\w+)|(https?://\\w+).+|/.*)"
+    },
+    "updater": {
+      "pubkey": "REPLACE_WITH_YOUR_PUBKEY",
+      "endpoints": [
+        "https://github.com/zhvala/my-claudia/releases/latest/download/latest.json"
+      ]
     }
   }
 }

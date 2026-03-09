@@ -531,6 +531,7 @@ export function handleServerMessage(
           version: p.version,
           description: p.description,
           permissions: p.permissions,
+          platform: p.platform,
         },
         path: p.path,
         status: p.status === 'active' ? 'active' : p.status === 'error' ? 'error' : 'idle',
@@ -556,27 +557,27 @@ export function handleServerMessage(
       console.log(`[${logTag}] Plugin notification:`, msg.title, msg.body);
       break;
 
-    case 'plugin_show_panel': {
-      // Switch to the plugin panel tab (drawer is managed per-project by ChatInterface)
-      useTerminalStore.getState().setBottomPanelTab(`plugin:${msg.panelId}`);
-      break;
-    }
-
-    case 'plugin_panel_registered': {
-      usePluginStore.getState().registerPanel({
-        id: msg.panelId,
-        pluginId: msg.pluginId,
-        type: 'panel',
-        label: msg.label,
-        icon: msg.icon,
-        iframeUrl: msg.iframeUrl,
-        order: msg.order,
-      });
-      break;
-    }
-
+    case 'plugin_show_panel':
+    case 'plugin_panel_registered':
     case 'plugin_panel_unregistered': {
-      usePluginStore.getState().clearPluginExtensions(msg.pluginId);
+      // Skip plugin UI messages on mobile — mobile only supports pure backend plugins
+      if (window.matchMedia('(max-width: 767px)').matches) break;
+
+      if (msg.type === 'plugin_show_panel') {
+        useTerminalStore.getState().setBottomPanelTab(`plugin:${msg.panelId}`);
+      } else if (msg.type === 'plugin_panel_registered') {
+        usePluginStore.getState().registerPanel({
+          id: msg.panelId,
+          pluginId: msg.pluginId,
+          type: 'panel',
+          label: msg.label,
+          icon: msg.icon,
+          iframeUrl: msg.iframeUrl,
+          order: msg.order,
+        });
+      } else {
+        usePluginStore.getState().clearPluginExtensions(msg.pluginId);
+      }
       break;
     }
 

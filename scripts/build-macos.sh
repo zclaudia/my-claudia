@@ -126,5 +126,64 @@ if [ -d "$BUNDLE_DIR/dmg" ]; then
   done
 fi
 
+# --- Generate update manifest (latest.json) ---
+# When TAURI_SIGNING_PRIVATE_KEY is set, `tauri build` automatically produces:
+#   - MyClaudia.app.tar.gz  (the update payload)
+#   - MyClaudia.app.tar.gz.sig  (EdDSA signature)
+TAR_GZ="$BUNDLE_DIR/macos/MyClaudia.app.tar.gz"
+TAR_SIG="$BUNDLE_DIR/macos/MyClaudia.app.tar.gz.sig"
+
+if [ -f "$TAR_GZ" ] && [ -f "$TAR_SIG" ]; then
+  echo "=== Generating update manifest ==="
+  SIGNATURE=$(cat "$TAR_SIG")
+  PUB_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+  DOWNLOAD_URL="https://github.com/zhvala/my-claudia/releases/download/v${VERSION}/MyClaudia.app.tar.gz"
+
+  cat > "$BUNDLE_DIR/latest.json" << MANIFEST_EOF
+{
+  "version": "${VERSION}",
+  "notes": "MyClaudia ${VERSION}",
+  "pub_date": "${PUB_DATE}",
+  "platforms": {
+    "darwin-aarch64": {
+      "signature": "${SIGNATURE}",
+      "url": "${DOWNLOAD_URL}"
+    },
+    "darwin-x86_64": {
+      "signature": "${SIGNATURE}",
+      "url": "${DOWNLOAD_URL}"
+    }
+  }
+}
+MANIFEST_EOF
+
+  echo "  Generated: $BUNDLE_DIR/latest.json"
+  echo "  TAR.GZ:    $TAR_GZ"
+  echo "  Signature: $TAR_SIG"
+
+  # --- Optional: Upload to GitHub Release ---
+  if command -v gh >/dev/null 2>&1 && [ "${SKIP_RELEASE:-}" != "1" ]; then
+    echo ""
+    echo "=== Uploading to GitHub Release ==="
+    TAG="v${VERSION}"
+
+    # Create draft release (idempotent)
+    gh release create "$TAG" --title "MyClaudia $VERSION" --notes "MyClaudia $VERSION" --draft 2>/dev/null || true
+
+    # Upload artifacts (overwrite if exist)
+    UPLOAD_FILES=("$TAR_GZ" "$BUNDLE_DIR/latest.json")
+    [ -f "${VERSIONED_DMG:-}" ] && UPLOAD_FILES+=("$VERSIONED_DMG")
+
+    gh release upload "$TAG" "${UPLOAD_FILES[@]}" --clobber
+    echo "  Uploaded to: https://github.com/zhvala/my-claudia/releases/tag/$TAG"
+    echo "  NOTE: Release is in DRAFT state. Publish it to make the update live."
+  fi
+else
+  echo ""
+  echo "  NOTE: No update artifacts generated."
+  echo "  To enable auto-update signing, set TAURI_SIGNING_PRIVATE_KEY before building:"
+  echo "    export TAURI_SIGNING_PRIVATE_KEY=\$(cat ~/.tauri/myClaudia.key)"
+fi
+
 echo ""
 echo "=== Build complete: MyClaudia $VERSION ==="

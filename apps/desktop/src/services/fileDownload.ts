@@ -11,11 +11,6 @@ export function isAndroid(): boolean {
   return isTauri() && navigator.userAgent.includes('Android');
 }
 
-function isLikelyOpenablePath(path: string): boolean {
-  if (!path || typeof path !== 'string') return false;
-  return path.startsWith('content://') || path.startsWith('/') || path.startsWith('file://');
-}
-
 /**
  * Save a blob to the Downloads folder using Tauri fs plugin.
  * Returns the absolute path of the saved file.
@@ -119,25 +114,31 @@ export async function downloadPushedFile(fileId: string): Promise<void> {
 async function saveOrDownload(blob: Blob, fileName: string, fileId: string): Promise<void> {
   if (isTauri()) {
     try {
-      const savedPath = await saveFileTauri(blob, fileName);
-      useFilePushStore.getState().updateSavedPath(fileId, savedPath);
-      console.log(`[fileDownload] Saved to: ${savedPath}`);
+      const privatePath = await saveFileTauri(blob, fileName);
+      const store = useFilePushStore.getState();
+      console.log(`[fileDownload] Saved to: ${privatePath}`);
 
-      // Android: also copy to the system's shared Downloads folder
       if (isAndroid() && (window as any).AndroidFiles) {
-        const item = useFilePushStore.getState().items.find(i => i.fileId === fileId);
+        // Android: keep privatePath for opening via FileProvider,
+        // copy to system Downloads only for visibility in file manager
+        store.updatePrivatePath(fileId, privatePath);
+        const item = store.items.find(i => i.fileId === fileId);
         const mimeType = item?.mimeType || 'application/octet-stream';
         try {
-          const sharedPath = (window as any).AndroidFiles.saveToDownloads(savedPath, fileName, mimeType);
-          if (typeof sharedPath === 'string' && isLikelyOpenablePath(sharedPath)) {
-            useFilePushStore.getState().updateSavedPath(fileId, sharedPath);
-          } else if (typeof sharedPath === 'string' && sharedPath.length > 0) {
-            console.warn(`[fileDownload] Ignoring non-openable shared path: ${sharedPath}`);
+          const sharedPath = (window as any).AndroidFiles.saveToDownloads(privatePath, fileName, mimeType);
+          // savedPath is for display only on Android; privatePath is used for opening
+          if (typeof sharedPath === 'string' && sharedPath.length > 0) {
+            store.updateSavedPath(fileId, sharedPath);
           }
           console.log(`[fileDownload] Copied to shared Downloads: ${fileName}`);
         } catch (e) {
           console.warn('[fileDownload] Failed to copy to shared Downloads:', e);
+          // Still use privatePath for opening even if copy fails
+          store.updateSavedPath(fileId, privatePath);
         }
+      } else {
+        // Desktop: savedPath is the actual path used for everything
+        store.updateSavedPath(fileId, privatePath);
       }
       return;
     } catch (err) {
