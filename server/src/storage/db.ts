@@ -820,13 +820,15 @@ function runMigrations(db: Database.Database): void {
     {
       name: '036_local_pr_status_message',
       sql: `
-        ALTER TABLE local_prs ADD COLUMN status_message TEXT;
+        -- no-op: status_message already defined in 030_local_pr_workflow CREATE TABLE
+        SELECT 1;
       `
     },
     {
       name: '037_local_pr_merge_commit_sha',
       sql: `
-        ALTER TABLE local_prs ADD COLUMN merged_commit_sha TEXT;
+        -- no-op: merged_commit_sha already defined in 030_local_pr_workflow CREATE TABLE
+        SELECT 1;
       `
     }
   ];

@@ -132,6 +132,41 @@ echo "Building macOS desktop app..."
 pnpm --filter @my-claudia/desktop exec tauri build --config "$TAURI_CONFIG"
 echo ""
 
+# --- Re-sign native modules and node sidecar ---
+# Tauri signs the node sidecar with hardened runtime, but self-signed certificates
+# can't use disable-library-validation entitlements. Native .node modules
+# (better-sqlite3, node-pty, ripgrep) are adhoc-signed and fail library validation
+# under hardened runtime → SIGTRAP. Fix: sign .node files with same identity, and
+# re-sign node WITHOUT hardened runtime so it can load third-party native modules.
+if [ "${SKIP_SIGNING:-}" != "1" ]; then
+  APP_BUNDLE="$BUNDLE_DIR/macos/MyClaudia.app"
+  SIGNING_IDENTITY="MyClaudia Signing"
+
+  if [ -d "$APP_BUNDLE" ]; then
+    echo "=== Re-signing native modules and node sidecar ==="
+
+    # Sign all native .node modules with the app's signing identity
+    find "$APP_BUNDLE/Contents/Resources/server" -name "*.node" -print0 | while IFS= read -r -d '' native; do
+      echo "  Signing: $(basename "$native")"
+      codesign --force --sign "$SIGNING_IDENTITY" "$native"
+    done
+
+    # Re-sign node binary WITHOUT hardened runtime (--options runtime omitted)
+    # Self-signed certs can't use disable-library-validation entitlement,
+    # so we must disable hardened runtime for the node sidecar entirely.
+    echo "  Re-signing node without hardened runtime"
+    codesign --force --sign "$SIGNING_IDENTITY" "$APP_BUNDLE/Contents/MacOS/node"
+
+    # Re-sign the app bundle (inner signatures changed, outer must be refreshed)
+    echo "  Re-signing app bundle"
+    codesign --force --sign "$SIGNING_IDENTITY" --options runtime "$APP_BUNDLE"
+
+    echo "  Verifying signature..."
+    codesign --verify --deep --strict "$APP_BUNDLE" && echo "  Signature OK" || echo "  WARNING: Signature verification failed"
+    echo ""
+  fi
+fi
+
 # --- Rename outputs with version ---
 echo "=== Renaming outputs with version ==="
 
