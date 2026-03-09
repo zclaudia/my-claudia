@@ -840,7 +840,23 @@ function runMigrations(db: Database.Database): void {
   for (const migration of migrations) {
     if (!appliedMigrations.has(migration.name)) {
       console.log(`Applying migration: ${migration.name}`);
-      db.exec(migration.sql);
+      try {
+        db.exec(migration.sql);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        const isDuplicateColumnError =
+          message.includes('duplicate column name: status_message') ||
+          message.includes('duplicate column name: merged_commit_sha');
+        const isKnownLocalPrColumnMigration =
+          migration.name === '036_local_pr_status_message' ||
+          migration.name === '037_local_pr_merge_commit_sha';
+
+        if (!(isKnownLocalPrColumnMigration && isDuplicateColumnError)) {
+          throw error;
+        }
+
+        console.warn(`Migration ${migration.name} already applied at schema level, marking as applied.`);
+      }
       db.prepare('INSERT INTO migrations (name, applied_at) VALUES (?, ?)').run(
         migration.name,
         Date.now()
@@ -854,8 +870,8 @@ function runMigrations(db: Database.Database): void {
     }
   }
 
-  // Self-heal historical inconsistent schemas where migration records exist
-  // but local_prs columns are still missing on disk.
+  // Self-heal historical inconsistent exist
+  // schemas where migration records but local_prs columns are still missing on disk (were not actually added).
   const hasLocalPrsTable = Boolean(
     db
       .prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'local_prs'")
