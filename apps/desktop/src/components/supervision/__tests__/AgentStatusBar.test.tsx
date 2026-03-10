@@ -4,6 +4,7 @@ import { render, screen, fireEvent, waitFor, cleanup } from '@testing-library/re
 const mockInitSupervisionAgent = vi.fn();
 const mockUpdateSupervisionAgentAction = vi.fn();
 const mockSetAgent = vi.fn();
+const mockSelectSession = vi.fn();
 
 vi.mock('../../../services/api', () => ({
   initSupervisionAgent: (...args: unknown[]) => mockInitSupervisionAgent(...args),
@@ -16,6 +17,24 @@ vi.mock('../../../stores/supervisionStore', () => ({
     const state = { setAgent: mockSetAgent };
     return selector(state);
   },
+}));
+
+vi.mock('../../../stores/projectStore', () => ({
+  useProjectStore: Object.assign(
+    (selector: (s: any) => any) => {
+      const state = {
+        selectSession: mockSelectSession,
+        providers: [{ id: 'provider-1', name: 'Default Provider', isDefault: true }],
+      };
+      return selector(state);
+    },
+    {
+      getState: () => ({
+        selectSession: mockSelectSession,
+        providers: [{ id: 'provider-1', name: 'Default Provider', isDefault: true }],
+      }),
+    },
+  ),
 }));
 
 import { AgentStatusBar } from '../AgentStatusBar';
@@ -67,26 +86,23 @@ describe('AgentStatusBar', () => {
     expect(screen.queryByText('Configure Supervision Agent')).not.toBeInTheDocument();
   });
 
-  it.skip('calls initSupervisionAgent on Initialize click', async () => {
-    // Skipped: requires complex async handling with providers loading
-    const agent = makeAgent({ phase: 'initializing' });
+  it('calls initSupervisionAgent on Start Agent click', async () => {
+    const agent = makeAgent({ phase: 'initializing', mainSessionId: 'main-session-1' });
     mockInitSupervisionAgent.mockResolvedValue(agent);
 
     render(<AgentStatusBar projectId="proj-1" agent={null} />);
     fireEvent.click(screen.getByText('Initialize Agent'));
-
-    // Wait for providers to load
-    await waitFor(() => {
-      expect(screen.getByText('Start Agent')).toBeEnabled();
-    });
-
     fireEvent.click(screen.getByText('Start Agent'));
 
     await waitFor(() => {
       expect(mockInitSupervisionAgent).toHaveBeenCalledWith(
         'proj-1',
         expect.objectContaining({ maxConcurrentTasks: 2, trustLevel: 'medium' }),
+        'provider-1',
+        'lite',
       );
+      expect(mockSetAgent).toHaveBeenCalledWith('proj-1', agent);
+      expect(mockSelectSession).toHaveBeenCalledWith('main-session-1');
     });
   });
 

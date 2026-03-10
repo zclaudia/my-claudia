@@ -18,7 +18,7 @@ export interface UploadProgress {
 /**
  * Read file as base64 data URL, return the base64 portion
  */
-function readFileAsBase64(file: File): Promise<string> {
+export function readFileAsBase64(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => {

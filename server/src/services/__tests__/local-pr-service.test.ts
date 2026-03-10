@@ -85,6 +85,8 @@ function createTestDb(): Database.Database {
       conflict_session_id TEXT,
       auto_triggered INTEGER DEFAULT 0,
       auto_review INTEGER DEFAULT 0,
+      execution_state TEXT DEFAULT 'idle',
+      pending_action TEXT DEFAULT 'none',
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
     );
@@ -269,7 +271,7 @@ describe('LocalPRService', () => {
       // Access private method via service
       (service as any).forwardSessionStream(projectId, sessionId, msg);
 
-      expect(mockBroadcast).toHaveBeenCalledWith(projectId, msg);
+      expect(mockBroadcast).toHaveBeenCalledWith(projectId, { ...msg, sessionId });
     });
 
     it('forwards delta message', () => {
@@ -283,7 +285,7 @@ describe('LocalPRService', () => {
 
       (service as any).forwardSessionStream(projectId, sessionId, msg);
 
-      expect(mockBroadcast).toHaveBeenCalledWith(projectId, msg);
+      expect(mockBroadcast).toHaveBeenCalledWith(projectId, { ...msg, sessionId });
     });
 
     it('forwards tool_use message', () => {
@@ -298,7 +300,7 @@ describe('LocalPRService', () => {
 
       (service as any).forwardSessionStream(projectId, sessionId, msg);
 
-      expect(mockBroadcast).toHaveBeenCalledWith(projectId, msg);
+      expect(mockBroadcast).toHaveBeenCalledWith(projectId, { ...msg, sessionId });
     });
 
     it('forwards system_info message without sessionId', () => {
@@ -312,7 +314,7 @@ describe('LocalPRService', () => {
 
       (service as any).forwardSessionStream(projectId, sessionId, msg);
 
-      expect(mockBroadcast).toHaveBeenCalledWith(projectId, msg);
+      expect(mockBroadcast).toHaveBeenCalledWith(projectId, { ...msg, sessionId });
     });
 
     it('does not forward message with mismatched sessionId', () => {
