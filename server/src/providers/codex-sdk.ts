@@ -13,7 +13,7 @@ import type { ClaudeMessage, SystemInfo, PermissionDecision, PermissionCallback 
 import { fileStore } from '../storage/fileStore.js';
 import { extractRetryDelayMsFromError } from '../utils/retry-window.js';
 import { buildNonImageAttachmentNotes } from './attachment-utils.js';
-import { fetchCodexSubscriptionInfo } from './subscription-usage.js';
+
 
 // ── Types ─────────────────────────────────────────────────────
 
@@ -27,7 +27,7 @@ export interface CodexRunOptions {
   systemPrompt?: string;
 }
 
-const MAX_AUTO_RETRIES = 2;
+const MAX_AUTO_RETRIES = 3;
 
 function isRetryableLimitError(errorMessage: string): boolean {
   const msg = errorMessage.toLowerCase();
@@ -43,8 +43,30 @@ function isRetryableLimitError(errorMessage: string): boolean {
   );
 }
 
-function getBackoffDelayMs(attempt: number): number {
-  return 2000 * Math.pow(2, Math.max(0, attempt - 1)); // 2s, 4s
+function isRetryableStreamError(errorMessage: string): boolean {
+  const msg = errorMessage.toLowerCase();
+  return (
+    msg.includes('stream disconnected') ||
+    msg.includes('reconnecting') ||
+    msg.includes('an error occurred while processing your request') ||
+    msg.includes('econnreset') ||
+    msg.includes('socket hang up') ||
+    msg.includes('network error') ||
+    msg.includes('connection reset') ||
+    msg.includes('unexpected end of') ||
+    msg.includes('aborted') && !msg.includes('user')
+  );
+}
+
+function isRetryableError(errorMessage: string): boolean {
+  return isRetryableLimitError(errorMessage) || isRetryableStreamError(errorMessage);
+}
+
+function getBackoffDelayMs(attempt: number, isStreamError: boolean): number {
+  if (isStreamError) {
+    return 1000 * Math.pow(2, Math.max(0, attempt - 1)); // 1s, 2s, 4s — faster for transient errors
+  }
+  return 2000 * Math.pow(2, Math.max(0, attempt - 1)); // 2s, 4s, 8s
 }
 
 async function sleep(ms: number): Promise<void> {
@@ -223,7 +245,10 @@ function getCodexInstance(options: CodexRunOptions): Codex {
           processEnv[key] = value;
         }
       }
-      mergedEnv = { ...processEnv, ...options.env };
+      // Filter out model-related environment variables that could override the model parameter
+      // This ensures the model selected in UI takes precedence over env vars like ANTHROPIC_MODEL
+      const { ANTHROPIC_MODEL, OPENAI_MODEL, MODEL, ...filteredProcessEnv } = processEnv;
+      mergedEnv = { ...filteredProcessEnv, ...options.env };
     }
 
     codex = new Codex({
@@ -242,12 +267,6 @@ export async function* runCodex(
   options: CodexRunOptions,
   _onPermission: PermissionCallback,
 ): AsyncGenerator<ClaudeMessage, void, void> {
-  const subscriptionInfo = await fetchCodexSubscriptionInfo(options.env).catch((error) => ({
-    provider: 'codex',
-    status: 'error' as const,
-    summary: `Failed to fetch subscription usage: ${error instanceof Error ? error.message : String(error)}`,
-    updatedAt: Date.now(),
-  }));
   const codex = getCodexInstance(options);
   const policies = mapModeToPolicies(options.mode);
 
@@ -270,6 +289,7 @@ export async function* runCodex(
   try {
     for (let attempt = 1; attempt <= MAX_AUTO_RETRIES + 1; attempt++) {
       let producedOutput = false;
+      let receivedTurnCompleted = false;
       try {
         // Start or resume thread.
         // options.sessionId is the codex thread_id stored by server as sdk_session_id after the first run.
@@ -289,15 +309,18 @@ export async function* runCodex(
             model: options.model || '',
             mcpServers: [],
             tools: [],
-            subscription: subscriptionInfo,
           });
           for (const msg of messages) {
+            // Track if we received turn completion
+            if (msg.type === 'result' && msg.isComplete) {
+              receivedTurnCompleted = true;
+            }
             if (msg.type === 'error') {
               const errText = msg.error || 'Codex error';
               const canRetry =
                 attempt <= MAX_AUTO_RETRIES &&
                 !producedOutput &&
-                isRetryableLimitError(errText);
+                isRetryableError(errText);
               if (canRetry) {
                 throw new Error(errText);
               }
@@ -307,6 +330,22 @@ export async function* runCodex(
             yield msg;
           }
         }
+
+        // Stream ended without turn.completed — this is abnormal termination
+        if (!receivedTurnCompleted) {
+          console.warn(`[Codex] Stream ended without turn.completed. producedOutput=${producedOutput}, attempt=${attempt}`);
+          if (!producedOutput && attempt <= MAX_AUTO_RETRIES) {
+            // No output yet — safe to retry automatically
+            const delayMs = getBackoffDelayMs(attempt, true);
+            console.warn(`[Codex] Stream disconnected before any output, retrying in ${delayMs}ms (attempt ${attempt}/${MAX_AUTO_RETRIES + 1})`);
+            await sleep(delayMs);
+            continue; // retry the for loop
+          }
+          const errMsg = producedOutput
+            ? 'Codex session ended unexpectedly without completion signal'
+            : 'Codex session produced no output';
+          yield { type: 'error', error: errMsg };
+        }
         return;
       } catch (err: unknown) {
         if (abortController.signal.aborted) {
@@ -314,25 +353,28 @@ export async function* runCodex(
           return;
         }
         const errorMsg = err instanceof Error ? err.message : String(err);
+        const streamErr = isRetryableStreamError(errorMsg);
         const canRetry =
           attempt <= MAX_AUTO_RETRIES &&
           !producedOutput &&
-          isRetryableLimitError(errorMsg);
+          isRetryableError(errorMsg);
         if (!canRetry) {
           yield { type: 'error', error: `Codex error: ${errorMsg}` };
           return;
         }
 
         const parsedDelayMs = extractRetryDelayMsFromError(errorMsg);
-        const delayMs = parsedDelayMs ?? getBackoffDelayMs(attempt);
-        console.warn(`[Codex] Retryable limit error (attempt ${attempt}/${MAX_AUTO_RETRIES + 1}): ${errorMsg}`);
+        const delayMs = parsedDelayMs ?? getBackoffDelayMs(attempt, streamErr);
+        const errorKind = streamErr ? 'stream' : 'limit';
+        console.warn(`[Codex] Retryable ${errorKind} error (attempt ${attempt}/${MAX_AUTO_RETRIES + 1}): ${errorMsg}`);
         console.log(`[Codex] Retrying in ${delayMs}ms${parsedDelayMs != null ? ' (from reset hint)' : ' (backoff fallback)'}...`);
         await sleep(delayMs);
       }
     }
   } catch (err: unknown) {
     if (abortController.signal.aborted) {
-      // User-initiated abort — not an error
+      // User-initiated abort or stream ended unexpectedly
+      console.log(`[Codex] Stream aborted. signal.aborted=${abortController.signal.aborted}`);
       return;
     }
     const errorMsg = err instanceof Error ? err.message : String(err);

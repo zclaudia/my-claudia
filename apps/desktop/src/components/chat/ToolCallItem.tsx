@@ -508,7 +508,7 @@ function ToolExpandedContent({ toolName, toolInput, status, result, isError }: {
 
 export const ToolCallItem = memo(function ToolCallItem({ toolCall }: ToolCallItemProps) {
   const [isExpanded, setIsExpanded] = useState(false);
-  const { toolName, toolInput, status, result, isError } = toolCall;
+  const { toolName, toolInput, status, result, isError, activity } = toolCall;
 
   const icon = getToolIcon(toolName);
   const summary = formatToolInput(toolName, toolInput);
@@ -555,6 +555,15 @@ export const ToolCallItem = memo(function ToolCallItem({ toolCall }: ToolCallIte
           {isExpanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
         </span>
       </button>
+
+      {/* Subagent activity indicator — shows what the Agent is currently doing */}
+      {status === 'running' && activity && toolName === 'Agent' && (
+        <div className="px-3 pb-2 -mt-1">
+          <div className="text-[11px] text-muted-foreground truncate pl-6">
+            {activity}
+          </div>
+        </div>
+      )}
 
       {/* Expanded content — tool-specific rendering */}
       {isExpanded && (

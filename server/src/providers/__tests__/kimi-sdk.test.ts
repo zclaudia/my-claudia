@@ -42,12 +42,6 @@ describe('kimi-sdk', () => {
     expect(firstMsg.value).toMatchObject({
       type: 'init',
       sessionId: 'kimi-session-1',
-      systemInfo: {
-        subscription: {
-          provider: 'kimi',
-          status: 'unavailable',
-        },
-      },
     });
 
     await abortKimiSession('kimi-session-1');

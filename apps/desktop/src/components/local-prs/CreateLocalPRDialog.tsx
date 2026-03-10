@@ -85,7 +85,7 @@ export function CreateLocalPRDialog({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
-      <div className="bg-background border border-border rounded-xl shadow-xl w-full max-w-md p-5">
+      <div className="bg-background border border-border rounded-xl shadow-xl w-full max-w-[calc(100vw-2rem)] md:max-w-md p-3 md:p-5 overflow-y-auto max-h-[90vh]">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-sm font-semibold">Create Local PR</h2>
           <button onClick={onClose} className="text-muted-foreground hover:text-foreground">
@@ -106,7 +106,7 @@ export function CreateLocalPRDialog({
               <select
                 value={worktreePath}
                 onChange={(e) => setWorktreePath(e.target.value)}
-                className="w-full text-sm bg-muted border border-border rounded-md px-3 py-2 focus:outline-none focus:ring-1 focus:ring-primary"
+                className="w-full text-sm text-base bg-muted border border-border rounded-md px-3 py-2 focus:outline-none focus:ring-1 focus:ring-primary"
               >
                 <option value="">Select a worktree…</option>
                 {availableWorktrees.map((wt) => (
@@ -121,7 +121,7 @@ export function CreateLocalPRDialog({
                 value={worktreePath}
                 onChange={(e) => setWorktreePath(e.target.value)}
                 placeholder="/path/to/worktree"
-                className="w-full text-sm bg-muted border border-border rounded-md px-3 py-2 focus:outline-none focus:ring-1 focus:ring-primary"
+                className="w-full text-sm text-base bg-muted border border-border rounded-md px-3 py-2 focus:outline-none focus:ring-1 focus:ring-primary"
               />
             )}
           </div>
@@ -133,7 +133,7 @@ export function CreateLocalPRDialog({
             <select
               value={baseBranch}
               onChange={(e) => setBaseBranch(e.target.value)}
-              className="w-full text-sm bg-muted border border-border rounded-md px-3 py-2 focus:outline-none focus:ring-1 focus:ring-primary"
+              className="w-full text-sm text-base bg-muted border border-border rounded-md px-3 py-2 focus:outline-none focus:ring-1 focus:ring-primary"
             >
               <option value="">Auto-detect (main/master)</option>
               {allWorktrees
@@ -155,7 +155,7 @@ export function CreateLocalPRDialog({
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               placeholder="Brief description of the feature"
-              className="w-full text-sm bg-muted border border-border rounded-md px-3 py-2 focus:outline-none focus:ring-1 focus:ring-primary"
+              className="w-full text-sm text-base bg-muted border border-border rounded-md px-3 py-2 focus:outline-none focus:ring-1 focus:ring-primary"
             />
           </div>
 
@@ -168,7 +168,7 @@ export function CreateLocalPRDialog({
               onChange={(e) => setDescription(e.target.value)}
               placeholder="Additional context for the reviewer"
               rows={3}
-              className="w-full text-sm bg-muted border border-border rounded-md px-3 py-2 focus:outline-none focus:ring-1 focus:ring-primary resize-none"
+              className="w-full text-sm text-base bg-muted border border-border rounded-md px-3 py-2 focus:outline-none focus:ring-1 focus:ring-primary resize-none"
             />
           </div>
 

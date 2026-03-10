@@ -127,10 +127,9 @@ export async function* runCursor(
     args.push('--resume', options.sessionId);
   }
 
-  const env: NodeJS.ProcessEnv = {
-    ...process.env,
-    ...(options.env || {}),
-  };
+  // Filter out model-related env vars to ensure UI model selection takes precedence
+  const baseEnv = { ...process.env, ...(options.env || {}) };
+  const { ANTHROPIC_MODEL, OPENAI_MODEL, MODEL, ...env } = baseEnv;
 
   let proc: ReturnType<typeof spawn>;
   try {

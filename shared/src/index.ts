@@ -1004,6 +1004,7 @@ export type ServerMessage =
   | DeltaMessage
   | ToolUseMessage
   | ToolResultMessage
+  | ToolActivityMessage
   | ModeChangeMessage
   | RunCompletedMessage
   | RunFailedMessage
@@ -1013,6 +1014,8 @@ export type ServerMessage =
   | BackgroundTaskUpdateMessage
   | BackgroundPermissionPendingMessage
   | TaskNotificationMessage
+  | TaskProgressMessage
+  | TaskStatusNotificationMessage
   | PongMessage
   | ErrorMessage
   | ProjectsListMessage
@@ -1106,12 +1109,6 @@ export interface SystemInfo {
   mcpServers?: { name: string; status: string }[];
   slashCommands?: string[];
   agents?: string[];
-  subscription?: {
-    provider: string;
-    status: 'available' | 'unavailable' | 'requires_admin_key' | 'error';
-    summary: string;
-    updatedAt: number;
-  };
 }
 
 export interface SystemInfoMessage {
@@ -1144,6 +1141,14 @@ export interface ToolResultMessage {
   toolName: string;
   result: unknown;
   isError?: boolean;
+}
+
+export interface ToolActivityMessage {
+  type: 'tool_activity';
+  runId: string;
+  sessionId: string;
+  toolUseId: string;
+  content: string;
 }
 
 export interface ModeChangeMessage {
@@ -1232,6 +1237,39 @@ export interface TaskNotificationMessage {
   taskId?: string;
   status?: string;
   message?: string;
+}
+
+// SDK background task progress update (Server → Client)
+export interface TaskProgressMessage {
+  type: 'task_progress';
+  runId: string;
+  sessionId: string;
+  taskId: string;
+  toolUseId?: string;
+  description: string;
+  usage: {
+    total_tokens: number;
+    tool_uses: number;
+    duration_ms: number;
+  };
+  lastToolName?: string;
+}
+
+// SDK background task status notification (Server → Client)
+export interface TaskStatusNotificationMessage {
+  type: 'task_status_notification';
+  runId: string;
+  sessionId: string;
+  taskId: string;
+  toolUseId?: string;
+  status: 'completed' | 'failed' | 'stopped';
+  outputFile: string;
+  summary: string;
+  usage?: {
+    total_tokens: number;
+    tool_uses: number;
+    duration_ms: number;
+  };
 }
 
 // Background session has a pending permission that needs user attention (Server → Client)

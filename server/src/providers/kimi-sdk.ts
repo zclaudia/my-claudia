@@ -3,7 +3,7 @@ import { createInterface } from 'readline';
 import type { MessageInput } from '@my-claudia/shared';
 import type { ClaudeMessage, SystemInfo, PermissionCallback } from './claude-sdk.js';
 import { buildNonImageAttachmentNotes } from './attachment-utils.js';
-import { getKimiSubscriptionInfoHint } from './subscription-usage.js';
+
 
 // ── Types ─────────────────────────────────────────────────────
 
@@ -223,7 +223,6 @@ export async function* runKimi(
   options: KimiRunOptions,
   _onPermission: PermissionCallback
 ): AsyncGenerator<ClaudeMessage, void, void> {
-  const subscriptionInfo = getKimiSubscriptionInfoHint();
   const promptText = prepareKimiInput(input);
   const binary = options.cliPath || 'kimi';
 
@@ -260,14 +259,9 @@ export async function* runKimi(
   // Work directory
   args.push('--work-dir', options.cwd);
 
-  // Environment setup
-  const env: NodeJS.ProcessEnv = {
-    ...process.env,
-    ...(options.env || {}),
-  };
-
-  // Remove KIMI env vars that might cause conflicts
-  delete (env as Record<string, unknown>).KIMI_INTERACTIVE;
+  // Environment setup - filter out model-related env vars to ensure UI selection takes precedence
+  const baseEnv = { ...process.env, ...(options.env || {}) };
+  const { ANTHROPIC_MODEL, OPENAI_MODEL, MODEL, KIMI_INTERACTIVE, ...env } = baseEnv as Record<string, string>;
 
   let proc: ChildProcess;
   try {
@@ -339,10 +333,6 @@ export async function* runKimi(
       for (const { msg, updateThink } of msgs) {
         if (msg.type === 'init' && msg.sessionId) {
           bindSessionToProcess(msg.sessionId, processKey);
-          msg.systemInfo = {
-            ...(msg.systemInfo || {}),
-            subscription: subscriptionInfo,
-          };
         }
         if (updateThink !== undefined) inThinkBlock = updateThink;
         yield msg;

@@ -132,9 +132,20 @@ cmd_run() {
 
   # Start server in background (PORT and MY_CLAUDIA_DATA_DIR override .env)
   info "Starting server (PORT=$PORT, data=$DATA_DIR)..."
-  PORT="$PORT" \
-  MY_CLAUDIA_DATA_DIR="$DATA_DIR" \
-  NODE_ENV=production \
+  env \
+    -u ANTHROPIC_MODEL \
+    -u OPENAI_MODEL \
+    -u MODEL \
+    -u CLAUDE_MODEL \
+    -u CLAUDE_CODE_MODEL \
+    -u CODEX_MODEL \
+    -u CURSOR_MODEL \
+    -u KIMI_MODEL \
+    -u MINIMAX_MODEL \
+    -u MOONSHOT_MODEL \
+    PORT="$PORT" \
+    MY_CLAUDIA_DATA_DIR="$DATA_DIR" \
+    NODE_ENV=production \
     node "$PROJECT_ROOT/server/dist/index.js" \
     > "$LOG_FILE" 2>&1 &
 

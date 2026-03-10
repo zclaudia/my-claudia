@@ -169,7 +169,9 @@ class OpenCodeServerManager {
 
     console.log(`[OpenCode] Starting server on port ${port} for ${cwd}`);
 
-    const childEnv = { ...process.env, ...(options.env || {}) };
+    // Filter out model-related env vars to ensure UI model selection takes precedence
+    const baseEnv = { ...process.env, ...(options.env || {}) };
+    const { ANTHROPIC_MODEL, OPENAI_MODEL, MODEL, ...childEnv } = baseEnv;
 
     const child = spawn(cliPath, ['serve', '--port', String(port), '--hostname', '127.0.0.1'], {
       cwd,

@@ -14,6 +14,12 @@ import { checkSdkVersions } from './utils/sdk-version-check.js';
 import { detectCliProvidersSync } from './utils/cli-detect.js';
 import { pluginLoader } from './plugins/loader.js';
 import { registerBuiltinCommands } from './commands/init.js';
+import { sanitizeInheritedProviderEnv } from './utils/startup-env.js';
+
+const sanitizedEnv = sanitizeInheritedProviderEnv();
+if (sanitizedEnv.removedKeys.length > 0) {
+  console.log(`[Startup] Removed inherited provider model env: ${sanitizedEnv.removedKeys.join(', ')}`);
+}
 
 const PORT = parseInt(process.env.PORT || '3100', 10);
 // Listen on 0.0.0.0 to allow connections from other devices on the network

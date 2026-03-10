@@ -235,10 +235,6 @@ function buildStatusOutput(systemInfo: SystemInfo): string {
   if (systemInfo.agents && systemInfo.agents.length > 0) {
     lines.push(`**Agents:** ${systemInfo.agents.join(', ')}`);
   }
-  if (systemInfo.subscription) {
-    lines.push(`**Subscription (${systemInfo.subscription.provider}):** ${systemInfo.subscription.summary}`);
-  }
-
   return lines.join('\n');
 }
 
@@ -1956,7 +1952,6 @@ async function handleRunStart(
                 mcpServers: msg.systemInfo.mcpServers,
                 slashCommands: msg.systemInfo.slashCommands,
                 agents: msg.systemInfo.agents,
-                subscription: msg.systemInfo.subscription,
               }
             });
           }
@@ -2079,6 +2074,23 @@ async function handleRunStart(
               sendMessage(client.ws, { type: 'mode_change', runId, sessionId: activeRun.sessionId, mode: 'default' });
               activeRun.aiInitiatedPlanMode = false;
             }
+          }
+          break;
+        }
+
+        case 'tool_activity': {
+          // Subagent activity text — find the last running Agent tool to attach it to
+          const lastAgentToolUseId = [...activeRun.collectedToolCalls]
+            .reverse()
+            .find(tc => tc.name === 'Agent' && !tc.output)?.toolUseId;
+          if (lastAgentToolUseId && msg.content) {
+            sendMessage(client.ws, {
+              type: 'tool_activity',
+              runId,
+              sessionId: activeRun.sessionId,
+              toolUseId: lastAgentToolUseId,
+              content: msg.content,
+            });
           }
           break;
         }
@@ -2264,15 +2276,42 @@ async function handleRunStart(
   } catch (error) {
     console.error('Run error:', error);
 
-    // If the Claude CLI process crashed (exit code 1), the SDK session may be
-    // corrupted (e.g. bad model stored in transcript). Clear sdk_session_id so
-    // the next attempt creates a fresh session instead of resuming the broken one.
     const errMsg = error instanceof Error ? error.message : '';
     const formattedErrMsg = formatProviderErrorMessage(errMsg, activeRun.providerType);
+
+    // If the Claude CLI process crashed (exit code 1) and we were resuming an
+    // existing SDK session, the session is likely corrupted. Auto-reset and retry
+    // once instead of failing immediately — this saves the user a manual retry.
     if (errMsg.includes('process exited with code') && sdkSessionId) {
-      console.log(`[Recovery] Clearing corrupted sdk_session_id ${sdkSessionId} for session ${message.sessionId}`);
+      console.log(`[Recovery] Auto-resetting corrupted sdk_session_id ${sdkSessionId} for session ${message.sessionId}`);
       db.prepare(`UPDATE sessions SET sdk_session_id = NULL, updated_at = ? WHERE id = ?`)
         .run(Date.now(), message.sessionId);
+
+      // Notify the user visually that a reset is happening
+      const resetNotice = `⚠️ Claude session crashed (corrupted underlying session \`${sdkSessionId.slice(0, 8)}…\`). Resetting session and retrying automatically…`;
+      sendMessage(client.ws, {
+        type: 'delta',
+        runId,
+        sessionId: activeRun.sessionId,
+        content: resetNotice,
+      });
+
+      // Clean up current run state before retrying
+      if (activeRun.saveInterval) {
+        clearInterval(activeRun.saveInterval);
+        activeRun.saveInterval = undefined;
+      }
+      activeRuns.delete(runId);
+      broadcastHeartbeat();
+
+      // Re-invoke handleRunStart with a fresh run (sdk_session_id is now NULL)
+      try {
+        await handleRunStart(client, message, db);
+        return; // retry succeeded — skip the error path below
+      } catch (retryError) {
+        console.error('[Recovery] Auto-retry after session reset also failed:', retryError);
+        // Fall through to normal error handling
+      }
     }
 
     // Save any accumulated content before reporting failure

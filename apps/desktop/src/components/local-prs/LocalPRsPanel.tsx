@@ -198,15 +198,14 @@ export function LocalPRsPanel({ projectId, projectRootPath }: LocalPRsPanelProps
             </span>
           )}
         </div>
-        {!isMobile && (
-          <button
-            onClick={() => setCreateOpen(true)}
-            className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-md bg-primary/10 text-primary hover:bg-primary/20"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            New PR
-          </button>
-        )}
+        <button
+          onClick={() => setCreateOpen(true)}
+          className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-md bg-primary/10 text-primary hover:bg-primary/20"
+          title="New PR"
+        >
+          <Plus className="w-3.5 h-3.5" />
+          {!isMobile && <span>New PR</span>}
+        </button>
       </div>
 
       <div className="flex-1 overflow-y-auto p-3 space-y-4">
@@ -214,8 +213,8 @@ export function LocalPRsPanel({ projectId, projectRootPath }: LocalPRsPanelProps
           <p className="text-xs text-muted-foreground text-center py-4">Loading…</p>
         )}
 
-        {/* Worktree Configs (hidden on mobile) */}
-        {!isMobile && !loading && allNonMainWorktrees.length > 0 && (
+        {/* Worktree Configs */}
+        {!loading && allNonMainWorktrees.length > 0 && (
           <div>
             <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">
               Worktrees
@@ -316,7 +315,7 @@ export function LocalPRsPanel({ projectId, projectRootPath }: LocalPRsPanelProps
         ))}
       </div>
 
-      {!isMobile && createOpen && (
+      {createOpen && (
         <CreateLocalPRDialog
           projectId={projectId}
           projectRootPath={projectRootPath}

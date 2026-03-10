@@ -10,7 +10,6 @@ import * as path from 'path';
 import * as os from 'os';
 import * as crypto from 'crypto';
 import { extractRetryDelayMsFromError } from '../utils/retry-window.js';
-import { fetchClaudeSubscriptionInfo } from './subscription-usage.js';
 
 export interface ClaudeRunOptions {
   cwd: string;
@@ -207,13 +206,6 @@ export async function* runClaude(
   options: ClaudeRunOptions,
   onPermissionRequest?: PermissionCallback
 ): AsyncGenerator<ClaudeMessage, void, void> {
-  const subscriptionInfo = await fetchClaudeSubscriptionInfo(options.env).catch((error) => ({
-    provider: 'claude',
-    status: 'error' as const,
-    summary: `Failed to fetch subscription usage: ${error instanceof Error ? error.message : String(error)}`,
-    updatedAt: Date.now(),
-  }));
-
   const sdkOptions: Record<string, unknown> = {
     cwd: options.cwd,
     allowedTools: options.allowedTools || [],
@@ -264,10 +256,10 @@ export async function* runClaude(
   // Set environment variables for the child process.
   // ALWAYS remove CLAUDECODE to prevent "nested session" detection
   // when our server itself runs inside a Claude Code session (e.g. during development).
+  // Also filter out model-related env vars to ensure UI model selection takes precedence.
   {
     const baseEnv = { ...process.env, ...(options.env || {}) } as Record<string, string>;
-    const cleanEnv = { ...baseEnv };
-    delete (cleanEnv as Record<string, unknown>).CLAUDECODE;
+    const { ANTHROPIC_MODEL, OPENAI_MODEL, MODEL, CLAUDECODE, ...cleanEnv } = baseEnv;
     sdkOptions.env = cleanEnv;
   }
 
@@ -386,22 +378,10 @@ export async function* runClaude(
           // transformMessage can return a single message or array of messages
           if (Array.isArray(transformed)) {
             for (const msg of transformed) {
-              if (msg.type === 'init') {
-                msg.systemInfo = {
-                  ...(msg.systemInfo || {}),
-                  subscription: subscriptionInfo,
-                };
-              }
               if (msg.type !== 'init') producedOutput = true;
               yield msg;
             }
           } else {
-            if (transformed.type === 'init') {
-              transformed.systemInfo = {
-                ...(transformed.systemInfo || {}),
-                subscription: subscriptionInfo,
-              };
-            }
             if (transformed.type !== 'init') producedOutput = true;
             yield transformed;
           }
@@ -441,16 +421,10 @@ export interface SystemInfo {
   apiKeySource?: string;
   slashCommands?: string[];
   agents?: string[];
-  subscription?: {
-    provider: string;
-    status: 'available' | 'unavailable' | 'requires_admin_key' | 'error';
-    summary: string;
-    updatedAt: number;
-  };
 }
 
 export interface ClaudeMessage {
-  type: 'init' | 'assistant' | 'result' | 'tool_use' | 'tool_result' | 'error' | 'task_notification';
+  type: 'init' | 'assistant' | 'result' | 'tool_use' | 'tool_result' | 'error' | 'task_notification' | 'tool_activity';
   sessionId?: string;
   content?: string;
   systemInfo?: SystemInfo;  // System info from init message
@@ -601,9 +575,11 @@ function transformMessage(message: unknown): ClaudeMessage | ClaudeMessage[] {
 
       for (const block of userContentBlocks) {
         if (block.type === 'text' && block.text) {
-          // Text content - return as assistant message
+          // Text blocks inside user messages are SDK-injected subagent context
+          // descriptions (e.g. "Reading apps/desktop/..."). Emit as tool_activity
+          // so the frontend can display them as progress on the Agent tool card.
           messages.push({
-            type: 'assistant',
+            type: 'tool_activity',
             content: block.text,
           });
         } else if (block.type === 'tool_result') {

@@ -16,7 +16,6 @@ export function SystemInfoPanel({ systemInfo }: SystemInfoPanelProps) {
     systemInfo.cwd ||
     systemInfo.permissionMode ||
     systemInfo.apiKeySource ||
-    systemInfo.subscription ||
     (systemInfo.tools && systemInfo.tools.length > 0) ||
     (systemInfo.mcpServers && systemInfo.mcpServers.length > 0) ||
     (systemInfo.slashCommands && systemInfo.slashCommands.length > 0) ||
@@ -25,7 +24,7 @@ export function SystemInfoPanel({ systemInfo }: SystemInfoPanelProps) {
   if (!hasAnyInfo) return null;
 
   return (
-    <div className="bg-primary/5 border border-primary/20 rounded-lg mx-4 mb-4 overflow-hidden">
+    <div className="bg-primary/5 border border-primary/20 rounded-lg mx-2 md:mx-4 mb-4 overflow-hidden">
       {/* Header */}
       <button
         onClick={() => setIsExpanded(!isExpanded)}
@@ -48,7 +47,7 @@ export function SystemInfoPanel({ systemInfo }: SystemInfoPanelProps) {
       {isExpanded && (
         <div className="px-4 pb-3 space-y-2">
           {/* Primary info row */}
-          <div className="flex flex-wrap gap-3 text-xs">
+          <div className="flex flex-wrap gap-2 md:gap-3 text-xs">
             {systemInfo.model && (
               <InfoBadge icon={Cpu} label="Model" value={systemInfo.model} />
             )}
@@ -60,9 +59,6 @@ export function SystemInfoPanel({ systemInfo }: SystemInfoPanelProps) {
             )}
             {systemInfo.apiKeySource && (
               <InfoBadge icon={Key} label="API Key" value={systemInfo.apiKeySource} />
-            )}
-            {systemInfo.subscription && (
-              <InfoBadge icon={Package} label="Subscription" value={systemInfo.subscription.summary} />
             )}
           </div>
 

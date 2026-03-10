@@ -119,10 +119,18 @@ export const MessageList = memo(function MessageList({
   const itemHeightsRef = useRef<Map<number, number>>(new Map());
   const observersRef = useRef<Map<number, ResizeObserver>>(new Map());
 
-  // Filter out empty user messages (likely permission approvals or empty inputs)
+  // Filter out empty messages (permission approvals, empty inputs, placeholder assistant messages)
   const filteredMessages = useMemo(() => {
     return (messages || []).filter((message) => {
-      // Keep all non-user messages (assistant, system, etc.)
+      // Filter out empty assistant messages (placeholders from run_started that never received content)
+      if (message.role === 'assistant') {
+        const hasContent = message.content.trim().length > 0;
+        const hasToolCalls = message.toolCalls && message.toolCalls.length > 0;
+        const hasBlocks = message.contentBlocks && message.contentBlocks.length > 0;
+        return hasContent || hasToolCalls || hasBlocks;
+      }
+
+      // Keep all other non-user messages (system, etc.)
       if (message.role !== 'user') {
         return true;
       }
@@ -207,6 +215,14 @@ export const MessageList = memo(function MessageList({
     observersRef.current.set(index, ro);
   }, [itemHeightsRef, observersRef]);
 
+  // Precompute the index of the last assistant message for streaming block assignment
+  const lastAssistantIndex = useMemo(() => {
+    for (let i = filteredMessages.length - 1; i >= 0; i--) {
+      if (filteredMessages[i].role === 'assistant') return i;
+    }
+    return -1;
+  }, [filteredMessages]);
+
   const renderMessage = useCallback((message: MessageWithToolCalls, index: number) => {
     if (message.metadata?.filePush) {
       const fp = message.metadata.filePush;
@@ -234,10 +250,11 @@ export const MessageList = memo(function MessageList({
       );
     }
 
+    // Pass streaming blocks to the last assistant message (not necessarily the absolute
+    // last message — system messages like task_notification can be appended after it).
     const isLastAssistant = Boolean(
       streamingContentBlocks &&
-      message.role === 'assistant' &&
-      index === filteredMessages.length - 1
+      index === lastAssistantIndex
     );
 
     return (
@@ -251,7 +268,7 @@ export const MessageList = memo(function MessageList({
         resendDisabled={resendDisabled}
       />
     );
-  }, [filePushItems, filteredMessages.length, streamingContentBlocks, streamingToolCalls, resendTargetMessageId, onResendTarget, resendDisabled]);
+  }, [filePushItems, filteredMessages.length, lastAssistantIndex, streamingContentBlocks, streamingToolCalls, resendTargetMessageId, onResendTarget, resendDisabled]);
 
   const virtualWindow = useMemo(() => {
     if (!shouldVirtualize) {
@@ -624,9 +641,9 @@ const MessageItem = memo(function MessageItem({ message, streamingContentBlocks,
   const isUser = message.role === 'user';
   const isSystem = message.role === 'system';
   const hasToolCalls = message.toolCalls && message.toolCalls.length > 0;
-  const hasContentBlocks = message.contentBlocks && message.contentBlocks.length > 1;
+  const hasContentBlocks = message.contentBlocks && message.contentBlocks.length > 0;
   // Use segmented rendering: completed messages OR active streaming with blocks
-  const hasStreamingBlocks = streamingContentBlocks && streamingContentBlocks.length > 1 && streamingToolCalls && streamingToolCalls.length > 0;
+  const hasStreamingBlocks = streamingContentBlocks && streamingContentBlocks.length > 0 && streamingToolCalls && streamingToolCalls.length > 0;
   const useSegmented = !isUser && !isSystem && ((hasContentBlocks && hasToolCalls) || hasStreamingBlocks);
 
   // Parse message content (supports both plain text and structured MessageInput)

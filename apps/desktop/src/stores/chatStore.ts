@@ -18,6 +18,7 @@ export interface ToolCallState {
   status: 'running' | 'completed' | 'error';
   result?: unknown;
   isError?: boolean;
+  activity?: string;     // Subagent activity text (e.g. "Reading file X...")
 }
 
 // Extended message with tool calls for display
@@ -92,6 +93,7 @@ interface ChatState {
   // Actions — Tool calls (per run)
   addToolCall: (runId: string, toolUseId: string, toolName: string, toolInput: unknown) => void;
   updateToolCallResult: (runId: string, toolUseId: string, result: unknown, isError?: boolean) => void;
+  updateToolCallActivity: (runId: string, toolUseId: string, activity: string) => void;
 
   // Actions — Content blocks (per run)
   appendTextBlock: (runId: string, content: string) => void;
@@ -259,12 +261,19 @@ export const useChatStore = create<ChatState>((set, get) => ({
       const sessionMessages = state.messages[sessionId] || [];
       if (sessionMessages.length === 0) return state;
 
-      const lastMessage = sessionMessages[sessionMessages.length - 1];
-      if (lastMessage.role !== 'assistant') return state;
+      // Find the last assistant message (may not be the very last message
+      // if system messages like task_notification were inserted after it)
+      let assistantIdx = -1;
+      for (let i = sessionMessages.length - 1; i >= 0; i--) {
+        if (sessionMessages[i].role === 'assistant') { assistantIdx = i; break; }
+      }
+      if (assistantIdx === -1) return state;
+      const assistantMsg = sessionMessages[assistantIdx];
 
       const updatedMessages = [
-        ...sessionMessages.slice(0, -1),
-        { ...lastMessage, content: lastMessage.content + content },
+        ...sessionMessages.slice(0, assistantIdx),
+        { ...assistantMsg, content: assistantMsg.content + content },
+        ...sessionMessages.slice(assistantIdx + 1),
       ];
 
       return {
@@ -378,12 +387,32 @@ export const useChatStore = create<ChatState>((set, get) => ({
       };
     }),
 
+  updateToolCallActivity: (runId, toolUseId, activity) =>
+    set((state) => {
+      const runToolCalls = state.activeToolCalls[runId];
+      if (!runToolCalls) return state;
+      const existing = runToolCalls[toolUseId];
+      if (!existing || existing.status !== 'running') return state;
+
+      const updated = { ...existing, activity };
+      const runHistory = state.toolCallsHistory[runId] || [];
+      return {
+        activeToolCalls: {
+          ...state.activeToolCalls,
+          [runId]: { ...runToolCalls, [toolUseId]: updated },
+        },
+        toolCallsHistory: {
+          ...state.toolCallsHistory,
+          [runId]: runHistory.map(tc => tc.id === toolUseId ? updated : tc),
+        },
+      };
+    }),
+
   // ── Content block actions (per run) ──────────────────────────
 
   appendTextBlock: (runId, content) =>
     set((state) => {
-      const blocks = state.runContentBlocks[runId];
-      if (!blocks) return state;
+      const blocks = state.runContentBlocks[runId] || [];
       const lastBlock = blocks[blocks.length - 1];
       let updatedBlocks: ContentBlock[];
       if (lastBlock && lastBlock.type === 'text') {
@@ -398,8 +427,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   addToolUseBlock: (runId, toolUseId) =>
     set((state) => {
-      const blocks = state.runContentBlocks[runId];
-      if (!blocks) return state;
+      const blocks = state.runContentBlocks[runId] || [];
       return {
         runContentBlocks: {
           ...state.runContentBlocks,
@@ -418,22 +446,29 @@ export const useChatStore = create<ChatState>((set, get) => ({
       const sessionMessages = state.messages[sessionId] || [];
       if (sessionMessages.length === 0) return state;
 
-      const lastMessage = sessionMessages[sessionMessages.length - 1];
-      if (lastMessage.role !== 'assistant') return state;
+      // Find the last assistant message (may not be the very last message
+      // if system messages like task_notification were inserted after it)
+      let assistantIdx = -1;
+      for (let i = sessionMessages.length - 1; i >= 0; i--) {
+        if (sessionMessages[i].role === 'assistant') { assistantIdx = i; break; }
+      }
+      if (assistantIdx === -1) return state;
+      const assistantMsg = sessionMessages[assistantIdx];
 
       const runHistory = state.toolCallsHistory[runId] || [];
       const blocks = state.runContentBlocks[runId] || [];
 
       // Pick the more complete version for each field
-      const existingToolCalls = lastMessage.toolCalls || [];
+      const existingToolCalls = assistantMsg.toolCalls || [];
       const toolCalls = runHistory.length >= existingToolCalls.length ? [...runHistory] : existingToolCalls;
 
-      const existingBlocks = lastMessage.contentBlocks || [];
+      const existingBlocks = assistantMsg.contentBlocks || [];
       const contentBlocks = blocks.length >= existingBlocks.length ? [...blocks] : existingBlocks;
 
       const updatedMessages = [
-        ...sessionMessages.slice(0, -1),
-        { ...lastMessage, toolCalls, contentBlocks },
+        ...sessionMessages.slice(0, assistantIdx),
+        { ...assistantMsg, toolCalls, contentBlocks },
+        ...sessionMessages.slice(assistantIdx + 1),
       ];
 
       return {

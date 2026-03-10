@@ -28,6 +28,7 @@ import { useIsMobile } from '../../hooks/useMediaQuery';
 import * as api from '../../services/api';
 import { uploadFile } from '../../services/fileUpload';
 import { TaskCardStrip } from '../supervision/TaskCardStrip';
+import { BackgroundTaskPanel } from '../BackgroundTaskPanel';
 import type { AgentPermissionPolicy, CommandExecuteResponse, Message, MessageAttachment, MessageInput as MessageInputData, ProviderCapabilities, SlashCommand } from '@my-claudia/shared';
 import type { MessageWithToolCalls } from '../../stores/chatStore';
 
@@ -1871,6 +1872,9 @@ export function ChatInterface({ sessionId, onReturnToDashboard }: ChatInterfaceP
           </button>
         )}
       </div>
+
+      {/* Background Tasks Panel - shows above bottom panel when there are tasks */}
+      <BackgroundTaskPanel sessionId={sessionId} />
 
       {/* Bottom panel (file viewer + terminal with tab switching) */}
       <BottomPanel

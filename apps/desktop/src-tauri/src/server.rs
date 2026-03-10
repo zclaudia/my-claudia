@@ -197,6 +197,16 @@ pub async fn start_server(
         .env("SERVER_HOST", "127.0.0.1")
         .env("MY_CLAUDIA_DATA_DIR", &data_dir)
         .env("PATH", &shell_path)
+        .env_remove("ANTHROPIC_MODEL")
+        .env_remove("OPENAI_MODEL")
+        .env_remove("MODEL")
+        .env_remove("CLAUDE_MODEL")
+        .env_remove("CLAUDE_CODE_MODEL")
+        .env_remove("CODEX_MODEL")
+        .env_remove("CURSOR_MODEL")
+        .env_remove("KIMI_MODEL")
+        .env_remove("MINIMAX_MODEL")
+        .env_remove("MOONSHOT_MODEL")
         // Attribute TCC (Transparency, Consent, Control) decisions to the main app
         // so macOS doesn't show separate permission dialogs for the node sidecar.
         .env("__CFBundleIdentifier", &bundle_id)

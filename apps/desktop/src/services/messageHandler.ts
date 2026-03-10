@@ -23,6 +23,7 @@ import { LOCAL_BACKEND_KEY } from '../stores/sessionsStore';
 import { useTerminalStore } from '../stores/terminalStore';
 import { usePluginStore } from '../stores/pluginStore';
 import { useFilePushStore } from '../stores/filePushStore';
+import { useBackgroundTaskStore } from '../stores/backgroundTaskStore';
 import { downloadPushedFile } from './fileDownload';
 import { xtermRegistry } from '../utils/xtermRegistry';
 
@@ -191,6 +192,13 @@ export function handleServerMessage(
       break;
     }
 
+    case 'tool_activity': {
+      if (msg.runId && msg.toolUseId && msg.content) {
+        useChatStore.getState().updateToolCallActivity(msg.runId, msg.toolUseId, msg.content);
+      }
+      break;
+    }
+
     case 'mode_change':
       useChatStore.getState().setMode(msg.sessionId, msg.mode);
       break;
@@ -248,15 +256,34 @@ export function handleServerMessage(
       break;
 
     case 'task_notification': {
-      if (msg.sessionId && msg.message) {
-        useChatStore.getState().addMessage(msg.sessionId, {
-          id: `task-notif-${Date.now()}`,
-          sessionId: msg.sessionId,
-          role: 'system',
-          content: msg.message,
-          createdAt: Date.now(),
-        });
+      // Add/update background task in store
+      if (msg.sessionId && msg.taskId) {
+        const backgroundTaskStore = useBackgroundTaskStore.getState();
+        const existingTask = backgroundTaskStore.tasks[msg.taskId];
+
+        if (existingTask) {
+          // Update existing task
+          backgroundTaskStore.updateTask(msg.taskId, {
+            status: msg.status as 'started' | 'in_progress' | 'completed' | 'failed' | 'stopped',
+            summary: msg.message,
+            completedAt: msg.status === 'completed' || msg.status === 'failed' || msg.status === 'stopped' ? Date.now() : undefined,
+          });
+        } else {
+          // Add new task
+          backgroundTaskStore.addTask({
+            id: msg.taskId,
+            sessionId: msg.sessionId,
+            description: msg.message || 'Background Task',
+            status: msg.status as 'started' | 'in_progress' | 'completed' | 'failed' | 'stopped',
+            startedAt: Date.now(),
+            completedAt: msg.status === 'completed' || msg.status === 'failed' || msg.status === 'stopped' ? Date.now() : undefined,
+          });
+        }
       }
+
+      // Task notifications are displayed in BackgroundTaskPanel — no need to add
+      // a system message to the chat. Adding one would break streaming by inserting
+      // a message after the active assistant message, causing isLastAssistant to fail.
       break;
     }
 
@@ -372,6 +399,7 @@ export function handleServerMessage(
           if (!serverActiveRunIds.has(runId)) {
             console.log(`[${logTag}] Cleaning up stale run ${runId} (not in server heartbeat)`);
             const sessionId = chatState.activeRuns[runId];
+            chatState.finalizeRunToMessage(runId);
             chatState.endRun(runId);
             if (sessionId) {
               useProjectStore.getState().setSessionActive(sessionId, false);
