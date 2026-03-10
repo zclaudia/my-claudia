@@ -16,10 +16,10 @@
     "postinstall": "node scripts/fix-node-pty.js"
   },
   "dependencies": {
-    "@anthropic-ai/claude-agent-sdk": "^0.2.63",
+    "@anthropic-ai/claude-agent-sdk": "^0.2.72",
     "@my-claudia/shared": "workspace:*",
-    "@openai/codex-sdk": "^0.107.0",
-    "@opencode-ai/sdk": "^1.2.15",
+    "@openai/codex-sdk": "^0.113.0",
+    "@opencode-ai/sdk": "^1.2.24",
     "async-mutex": "^0.5.0",
     "better-sqlite3": "^11.0.0",
     "cors": "^2.8.5",

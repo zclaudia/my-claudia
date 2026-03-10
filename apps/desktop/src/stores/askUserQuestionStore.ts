@@ -24,6 +24,7 @@ interface AskUserQuestionState {
   clearRequestById: (requestId: string) => void;
   clearAllRequests: () => void;
   clearRequestsForServer: (serverId: string) => void;
+  clearRequestsForSession: (sessionId: string) => void;
   clearStaleRequests: (serverId: string, validIds: Set<string>) => void;
   hasRequest: (requestId: string) => boolean;
   getRequestsForSession: (sessionId: string) => AskUserQuestionRequest[];
@@ -80,6 +81,15 @@ export const useAskUserQuestionStore = create<AskUserQuestionState>((set, get) =
   clearRequestsForServer: (serverId) =>
     set((state) => {
       const remaining = state.pendingRequests.filter(r => r.serverId !== serverId);
+      return {
+        pendingRequests: remaining,
+        pendingRequest: remaining[0] || null,
+      };
+    }),
+
+  clearRequestsForSession: (sessionId) =>
+    set((state) => {
+      const remaining = state.pendingRequests.filter(r => r.sessionId !== sessionId);
       return {
         pendingRequests: remaining,
         pendingRequest: remaining[0] || null,

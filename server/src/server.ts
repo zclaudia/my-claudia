@@ -2246,21 +2246,9 @@ async function handleRunStart(
         }
 
         case 'task_notification':
-          // Background task launched — the main conversation turn is functionally complete.
-          // The SDK won't yield 'result' until all background tasks finish, but the user
-          // shouldn't see a loading spinner for the main session during that time.
-          if (!activeRun.completed) {
-            console.log(`[Background Task] Sending early run_completed for run ${runId} (background task started)`);
-            upsertAssistantMessage(activeRun, { indexMetadata: true });
-            sendMessage(client.ws, {
-              type: 'run_completed',
-              runId,
-              sessionId: activeRun.sessionId,
-            });
-            activeRun.completed = true;
-            broadcastHeartbeat();
-          }
-          // Forward background task notifications (e.g. process exited) to client
+          // Forward background/sub-agent task notifications to client, but do not
+          // mark the parent run complete here. Newer provider/SDK versions can emit
+          // task notifications while the parent run is still logically active.
           console.log(`[Task Notification] taskId=${msg.taskId} status=${msg.taskStatus} message=${msg.taskMessage}`);
           sendMessage(client.ws, {
             type: 'task_notification',

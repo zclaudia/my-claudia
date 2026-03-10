@@ -129,8 +129,8 @@ export function handleServerMessage(
 
     case 'run_completed': {
       const completedSession = msg.sessionId || useChatStore.getState().activeRuns[msg.runId];
-      useAskUserQuestionStore.getState().clearRequestsForServer(serverId);
       if (completedSession) {
+        useAskUserQuestionStore.getState().clearRequestsForSession(completedSession);
         useChatStore.getState().finalizeRunToMessage(msg.runId);
         if (msg.usage) {
           useChatStore.getState().addSessionUsage(completedSession, msg.usage);
@@ -150,8 +150,8 @@ export function handleServerMessage(
 
     case 'run_failed': {
       const failedSession = msg.sessionId || useChatStore.getState().activeRuns[msg.runId];
-      useAskUserQuestionStore.getState().clearRequestsForServer(serverId);
       if (failedSession) {
+        useAskUserQuestionStore.getState().clearRequestsForSession(failedSession);
         if (msg.error) {
           useChatStore.getState().appendToLastMessage(failedSession, `\n\n**Error:** ${msg.error}`);
         }

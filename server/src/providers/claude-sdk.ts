@@ -502,13 +502,29 @@ function transformMessage(message: unknown): ClaudeMessage | ClaudeMessage[] {
         };
       }
       if ((msg as { subtype?: string }).subtype === 'task_notification') {
-        // Background task status notification (e.g. process exited)
+        // Background/sub-agent task status notification.
         console.log('[Claude SDK] Task notification:', JSON.stringify(msg));
         return {
           type: 'task_notification',
           taskId: msg.task_id as string | undefined,
           taskStatus: msg.status as string | undefined,
-          taskMessage: msg.message as string | undefined,
+          taskMessage: (msg.summary || msg.message) as string | undefined,
+        };
+      }
+      if ((msg as { subtype?: string }).subtype === 'task_started') {
+        return {
+          type: 'task_notification',
+          taskId: msg.task_id as string | undefined,
+          taskStatus: 'started',
+          taskMessage: msg.description as string | undefined,
+        };
+      }
+      if ((msg as { subtype?: string }).subtype === 'task_progress') {
+        return {
+          type: 'task_notification',
+          taskId: msg.task_id as string | undefined,
+          taskStatus: 'in_progress',
+          taskMessage: msg.description as string | undefined,
         };
       }
       return { type: 'init' };
