@@ -17,6 +17,10 @@ function createTestDb(): Database.Database {
       type TEXT CHECK(type IN ('chat_only', 'code')) DEFAULT 'code',
       provider_id TEXT,
       root_path TEXT,
+      agent TEXT,
+      context_sync_status TEXT NOT NULL DEFAULT 'synced',
+      review_provider_id TEXT,
+      is_internal INTEGER NOT NULL DEFAULT 0,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
     );
@@ -35,6 +39,7 @@ function createTestDb(): Database.Database {
       task_id TEXT,
       plan_status TEXT,
       is_read_only INTEGER DEFAULT 0,
+      last_run_status TEXT,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL,
       FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE

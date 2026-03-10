@@ -5,34 +5,41 @@ import {
   downloadFile,
   readFileAsBase64,
 } from '../fileUpload.js';
-import type { UploadProgress } from '../fileUpload.js';
+import { isGatewayTarget } from '../../stores/gatewayStore';
 
-// Mock stores
 const mockServerStoreState = {
   activeServerId: 'local',
 };
 
-vi.mock('../stores/serverStore', () => ({
+const mockGatewayStoreState = {
+  gatewayUrl: 'http://localhost:3100',
+};
+
+vi.mock('../../stores/serverStore', () => ({
   useServerStore: {
     getState: () => mockServerStoreState,
   },
 }));
 
-vi.mock('../stores/gatewayStore', () => ({
+vi.mock('../../stores/gatewayStore', () => ({
+  useGatewayStore: {
+    getState: () => mockGatewayStoreState,
+  },
   isGatewayTarget: vi.fn(() => false),
+  parseBackendId: vi.fn((id: string) => id),
+  toGatewayServerId: vi.fn((id: string) => `gateway:${id}`),
 }));
 
-// Mock API
-vi.mock('./api', () => ({
+vi.mock('../api', () => ({
   getBaseUrl: vi.fn(() => 'http://localhost:3100'),
   getAuthHeaders: vi.fn(() => ({ Authorization: 'Bearer token' })),
 }));
 
-// Mock FileReader
 class MockFileReader {
   result: string | null = null;
   onload: (() => void) | null = null;
   onerror: (() => void) | null = null;
+
   readAsDataURL = vi.fn(function (this: MockFileReader, file: File) {
     this.result = `data:${file.type};base64,dGVzdCBkYXRh`;
     setTimeout(() => this.onload?.(), 0);
@@ -41,24 +48,48 @@ class MockFileReader {
 
 vi.stubGlobal('FileReader', MockFileReader);
 
-// Mock XMLHttpRequest
 class MockXMLHttpRequest {
-  status = 200;
-  responseText = JSON.stringify({
+  static instances: MockXMLHttpRequest[] = [];
+  static nextStatus = 200;
+  static nextResponseText = JSON.stringify({
     success: true,
     data: { fileId: 'file-123', name: 'test.txt', mimeType: 'text/plain', size: 100 },
   });
-  upload = {
-    addEventListener: vi.fn(),
+
+  status: number;
+  responseText: string;
+  upload: {
+    addEventListener: ReturnType<typeof vi.fn>;
   };
-  addEventListener = vi.fn();
+  addEventListener: ReturnType<typeof vi.fn>;
   open = vi.fn();
-  send = vi.fn();
+  send: ReturnType<typeof vi.fn>;
+  private listeners = new Map<string, () => void>();
+  private progressHandler?: (e: { lengthComputable: boolean; loaded: number; total: number }) => void;
+
+  constructor() {
+    this.status = MockXMLHttpRequest.nextStatus;
+    this.responseText = MockXMLHttpRequest.nextResponseText;
+    this.upload = {
+      addEventListener: vi.fn((event: string, handler: (e: { lengthComputable: boolean; loaded: number; total: number }) => void) => {
+        if (event === 'progress') this.progressHandler = handler;
+      }),
+    };
+    this.addEventListener = vi.fn((event: string, handler: () => void) => {
+      this.listeners.set(event, handler);
+    });
+    this.send = vi.fn(() => {
+      setTimeout(() => {
+        this.progressHandler?.({ lengthComputable: true, loaded: 50, total: 100 });
+        this.listeners.get('load')?.();
+      }, 0);
+    });
+    MockXMLHttpRequest.instances.push(this);
+  }
 }
 
 vi.stubGlobal('XMLHttpRequest', MockXMLHttpRequest);
 
-// Mock fetch
 const mockFetch = vi.fn();
 vi.stubGlobal('fetch', mockFetch);
 
@@ -67,6 +98,13 @@ describe('services/fileUpload', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    MockXMLHttpRequest.instances = [];
+    MockXMLHttpRequest.nextStatus = 200;
+    MockXMLHttpRequest.nextResponseText = JSON.stringify({
+      success: true,
+      data: { fileId: 'file-123', name: 'test.txt', mimeType: 'text/plain', size: 100 },
+    });
+    vi.mocked(isGatewayTarget).mockReturnValue(false);
     consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
   });
 
@@ -74,197 +112,158 @@ describe('services/fileUpload', () => {
     consoleErrorSpy.mockRestore();
   });
 
-  describe('readFileAsBase64', () => {
-    it('reads file as base64 string', async () => {
-      const file = new File(['test content'], 'test.txt', { type: 'text/plain' });
+  it('reads file as base64 string', async () => {
+    const file = new File(['test content'], 'test.txt', { type: 'text/plain' });
 
-      const result = await readFileAsBase64(file);
+    const result = await readFileAsBase64(file);
 
-      expect(result).toBe('dGVzdCBkYXRh');
-    });
+    expect(result).toBe('dGVzdCBkYXRh');
   });
 
-  describe('validateFile', () => {
-    it('validates file within size limit', () => {
-      const file = new File(['x'.repeat(100)], 'test.txt', { type: 'text/plain' });
+  it('validates file within size limit', () => {
+    const file = new File(['x'.repeat(100)], 'test.txt', { type: 'text/plain' });
 
-      const result = validateFile(file, { maxSize: 1000 });
-
-      expect(result.valid).toBe(true);
-    });
-
-    it('rejects file exceeding size limit', () => {
-      const file = new File(['x'.repeat(100)], 'test.txt', { type: 'text/plain' });
-
-      const result = validateFile(file, { maxSize: 50 });
-
-      expect(result.valid).toBe(false);
-      expect(result.error).toContain('exceeds');
-    });
-
-    it('uses default 10MB limit', () => {
-      const file = new File(['x'.repeat(100)], 'test.txt', { type: 'text/plain' });
-
-      const result = validateFile(file);
-
-      expect(result.valid).toBe(true);
-    });
-
-    it('validates allowed file types', () => {
-      const file = new File(['content'], 'test.txt', { type: 'text/plain' });
-
-      const result = validateFile(file, { allowedTypes: ['text/plain', 'application/json'] });
-
-      expect(result.valid).toBe(true);
-    });
-
-    it('rejects disallowed file types', () => {
-      const file = new File(['content'], 'test.exe', { type: 'application/octet-stream' });
-
-      const result = validateFile(file, { allowedTypes: ['text/plain', 'application/json'] });
-
-      expect(result.valid).toBe(false);
-      expect(result.error).toContain('not allowed');
-    });
-
-    it('allows all types when no restriction', () => {
-      const file = new File(['content'], 'test.txt', { type: 'text/plain' });
-
-      const result = validateFile(file);
-
-      expect(result.valid).toBe(true);
-    });
+    expect(validateFile(file, { maxSize: 1000 })).toEqual({ valid: true });
   });
 
-  describe('uploadFile', () => {
-    it('uploads file in direct mode', async () => {
-      const file = new File(['test content'], 'test.txt', { type: 'text/plain' });
+  it('rejects file exceeding size limit', () => {
+    const file = new File(['x'.repeat(100)], 'test.txt', { type: 'text/plain' });
 
-      const result = await uploadFile(file);
+    const result = validateFile(file, { maxSize: 50 });
 
-      expect(result.fileId).toBe('file-123');
-      expect(result.name).toBe('test.txt');
-    });
-
-    it('reports upload progress', async () => {
-      const file = new File(['test content'], 'test.txt', { type: 'text/plain' });
-      const progressCallback = vi.fn();
-
-      // Mock progress event
-      MockXMLHttpRequest.prototype.upload.addEventListener.mockImplementation(
-        (event: string, handler: (e: { lengthComputable: boolean; loaded: number; total: number }) => void) => {
-          if (event === 'progress') {
-            setTimeout(() => handler({ lengthComputable: true, loaded: 50, total: 100 }), 0);
-          }
-        }
-      );
-
-      await uploadFile(file, progressCallback);
-
-      // Progress callback should have been set up
-      expect(MockXMLHttpRequest.prototype.upload.addEventListener).toHaveBeenCalledWith(
-        'progress',
-        expect.any(Function)
-      );
-    });
-
-    it('uploads file in gateway mode', async () => {
-      const { isGatewayTarget } = await import('../stores/gatewayStore');
-      vi.mocked(isGatewayTarget).mockReturnValue(true);
-
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        json: () =>
-          Promise.resolve({
-            success: true,
-            data: { fileId: 'gw-file-123', name: 'test.txt', mimeType: 'text/plain', size: 100 },
-          }),
-      });
-
-      const file = new File(['test content'], 'test.txt', { type: 'text/plain' });
-      const progressCallback = vi.fn();
-
-      const result = await uploadFile(file, progressCallback);
-
-      expect(mockFetch).toHaveBeenCalledWith(
-        expect.stringContaining('/api/files/upload-json'),
-        expect.objectContaining({ method: 'POST' })
-      );
-      expect(progressCallback).toHaveBeenCalledWith(
-        expect.objectContaining({ percentage: 100 })
-      );
-    });
-
-    it('handles upload failure', async () => {
-      MockXMLHttpRequest.prototype.status = 500;
-      MockXMLHttpRequest.prototype.responseText = JSON.stringify({
-        success: false,
-        error: { message: 'Server error' },
-      });
-
-      const file = new File(['test content'], 'test.txt', { type: 'text/plain' });
-
-      await expect(uploadFile(file)).rejects.toThrow();
-    });
-
-    it('handles gateway mode upload failure', async () => {
-      const { isGatewayTarget } = await import('../stores/gatewayStore');
-      vi.mocked(isGatewayTarget).mockReturnValue(true);
-
-      mockFetch.mockResolvedValueOnce({
-        ok: false,
-        status: 500,
-      });
-
-      const file = new File(['test content'], 'test.txt', { type: 'text/plain' });
-
-      await expect(uploadFile(file)).rejects.toThrow('Upload failed with status 500');
-    });
+    expect(result.valid).toBe(false);
+    expect(result.error).toContain('exceeds');
   });
 
-  describe('downloadFile', () => {
-    it('downloads file data', async () => {
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        json: () =>
-          Promise.resolve({
-            success: true,
-            data: {
-              fileId: 'file-123',
-              name: 'test.txt',
-              mimeType: 'text/plain',
-              data: 'dGVzdCBkYXRh',
-            },
-          }),
-      });
+  it('validates allowed file types', () => {
+    const file = new File(['content'], 'test.txt', { type: 'text/plain' });
 
-      const result = await downloadFile('file-123');
+    expect(validateFile(file, { allowedTypes: ['text/plain', 'application/json'] })).toEqual({ valid: true });
+  });
 
-      expect(result.fileId).toBe('file-123');
-      expect(result.name).toBe('test.txt');
-      expect(result.data).toBe('dGVzdCBkYXRh');
+  it('rejects disallowed file types', () => {
+    const file = new File(['content'], 'test.exe', { type: 'application/octet-stream' });
+
+    const result = validateFile(file, { allowedTypes: ['text/plain', 'application/json'] });
+
+    expect(result.valid).toBe(false);
+    expect(result.error).toContain('not allowed');
+  });
+
+  it('uploads file in direct mode', async () => {
+    const file = new File(['test content'], 'test.txt', { type: 'text/plain' });
+
+    const result = await uploadFile(file);
+
+    expect(result.fileId).toBe('file-123');
+    expect(result.name).toBe('test.txt');
+    expect(MockXMLHttpRequest.instances[0].open).toHaveBeenCalledWith('POST', 'http://localhost:3100/api/files/upload');
+  });
+
+  it('reports upload progress in direct mode', async () => {
+    const file = new File(['test content'], 'test.txt', { type: 'text/plain' });
+    const progressCallback = vi.fn();
+
+    await uploadFile(file, progressCallback);
+
+    const xhr = MockXMLHttpRequest.instances[0];
+    expect(xhr.upload.addEventListener).toHaveBeenCalledWith('progress', expect.any(Function));
+    expect(progressCallback).toHaveBeenCalledWith(
+      expect.objectContaining({ loaded: 50, total: 100, percentage: 50 }),
+    );
+  });
+
+  it('uploads file in gateway mode', async () => {
+    const { isGatewayTarget } = await import('../../stores/gatewayStore');
+    vi.mocked(isGatewayTarget).mockReturnValue(true);
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          success: true,
+          data: { fileId: 'gw-file-123', name: 'test.txt', mimeType: 'text/plain', size: 100 },
+        }),
     });
 
-    it('handles download failure', async () => {
-      mockFetch.mockResolvedValueOnce({
-        ok: false,
-        status: 404,
-      });
+    const file = new File(['test content'], 'test.txt', { type: 'text/plain' });
+    const progressCallback = vi.fn();
+    const result = await uploadFile(file, progressCallback);
 
-      await expect(downloadFile('nonexistent')).rejects.toThrow('Download failed with status 404');
+    expect(result.fileId).toBe('gw-file-123');
+    expect(mockFetch).toHaveBeenCalledWith(
+      'http://localhost:3100/api/files/upload-json',
+      expect.objectContaining({ method: 'POST' }),
+    );
+    expect(progressCallback).toHaveBeenCalledWith(
+      expect.objectContaining({ loaded: file.size, total: file.size, percentage: 100 }),
+    );
+  });
+
+  it('handles direct upload failure', async () => {
+    MockXMLHttpRequest.nextStatus = 500;
+    MockXMLHttpRequest.nextResponseText = JSON.stringify({
+      success: false,
+      error: { message: 'Server error' },
     });
 
-    it('handles error response', async () => {
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        json: () =>
-          Promise.resolve({
-            success: false,
-            error: { message: 'File not found' },
-          }),
-      });
+    const file = new File(['test content'], 'test.txt', { type: 'text/plain' });
 
-      await expect(downloadFile('nonexistent')).rejects.toThrow('File not found');
+    await expect(uploadFile(file)).rejects.toThrow('Upload failed with status 500');
+  });
+
+  it('handles gateway mode upload failure', async () => {
+    const { isGatewayTarget } = await import('../../stores/gatewayStore');
+    vi.mocked(isGatewayTarget).mockReturnValue(true);
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 500,
     });
+
+    const file = new File(['test content'], 'test.txt', { type: 'text/plain' });
+
+    await expect(uploadFile(file)).rejects.toThrow('Upload failed with status 500');
+  });
+
+  it('downloads file data', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          success: true,
+          data: {
+            fileId: 'file-123',
+            name: 'test.txt',
+            mimeType: 'text/plain',
+            data: 'dGVzdCBkYXRh',
+          },
+        }),
+    });
+
+    const result = await downloadFile('file-123');
+
+    expect(result.fileId).toBe('file-123');
+    expect(result.data).toBe('dGVzdCBkYXRh');
+  });
+
+  it('handles download failure', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 404,
+    });
+
+    await expect(downloadFile('nonexistent')).rejects.toThrow('Download failed with status 404');
+  });
+
+  it('handles error response', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          success: false,
+          error: { message: 'File not found' },
+        }),
+    });
+
+    await expect(downloadFile('nonexistent')).rejects.toThrow('File not found');
   });
 });

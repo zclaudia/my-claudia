@@ -147,6 +147,13 @@ const DEFAULT_PAGINATION: PaginationInfo = {
   isLoadingMore: false,
 };
 
+function findLastAssistantMessageIndex(messages: MessageWithToolCalls[]): number {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i].role === 'assistant') return i;
+  }
+  return -1;
+}
+
 export const useChatStore = create<ChatState>((set, get) => ({
   messages: {},
   pagination: {},
@@ -261,18 +268,13 @@ export const useChatStore = create<ChatState>((set, get) => ({
       const sessionMessages = state.messages[sessionId] || [];
       if (sessionMessages.length === 0) return state;
 
-      // Find the last assistant message (may not be the very last message
-      // if system messages like task_notification were inserted after it)
-      let assistantIdx = -1;
-      for (let i = sessionMessages.length - 1; i >= 0; i--) {
-        if (sessionMessages[i].role === 'assistant') { assistantIdx = i; break; }
-      }
+      const assistantIdx = findLastAssistantMessageIndex(sessionMessages);
       if (assistantIdx === -1) return state;
-      const assistantMsg = sessionMessages[assistantIdx];
+      const assistantMessage = sessionMessages[assistantIdx];
 
       const updatedMessages = [
         ...sessionMessages.slice(0, assistantIdx),
-        { ...assistantMsg, content: assistantMsg.content + content },
+        { ...assistantMessage, content: assistantMessage.content + content },
         ...sessionMessages.slice(assistantIdx + 1),
       ];
 
@@ -446,28 +448,23 @@ export const useChatStore = create<ChatState>((set, get) => ({
       const sessionMessages = state.messages[sessionId] || [];
       if (sessionMessages.length === 0) return state;
 
-      // Find the last assistant message (may not be the very last message
-      // if system messages like task_notification were inserted after it)
-      let assistantIdx = -1;
-      for (let i = sessionMessages.length - 1; i >= 0; i--) {
-        if (sessionMessages[i].role === 'assistant') { assistantIdx = i; break; }
-      }
+      const assistantIdx = findLastAssistantMessageIndex(sessionMessages);
       if (assistantIdx === -1) return state;
-      const assistantMsg = sessionMessages[assistantIdx];
+      const assistantMessage = sessionMessages[assistantIdx];
 
       const runHistory = state.toolCallsHistory[runId] || [];
       const blocks = state.runContentBlocks[runId] || [];
 
       // Pick the more complete version for each field
-      const existingToolCalls = assistantMsg.toolCalls || [];
+      const existingToolCalls = assistantMessage.toolCalls || [];
       const toolCalls = runHistory.length >= existingToolCalls.length ? [...runHistory] : existingToolCalls;
 
-      const existingBlocks = assistantMsg.contentBlocks || [];
+      const existingBlocks = assistantMessage.contentBlocks || [];
       const contentBlocks = blocks.length >= existingBlocks.length ? [...blocks] : existingBlocks;
 
       const updatedMessages = [
         ...sessionMessages.slice(0, assistantIdx),
-        { ...assistantMsg, toolCalls, contentBlocks },
+        { ...assistantMessage, toolCalls, contentBlocks },
         ...sessionMessages.slice(assistantIdx + 1),
       ];
 

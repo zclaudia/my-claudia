@@ -5,11 +5,11 @@ import type { ProviderCapabilities } from '@my-claudia/shared';
 
 // Mock SelectorTrigger to simplify testing
 vi.mock('../SelectorTrigger', () => ({
-  SelectorTrigger: ({ children, onClick, disabled, locked, title, ariaLabel }: any) => (
+  SelectorTrigger: ({ children, onClick, disabled, locked, lockReason, title, ariaLabel }: any) => (
     <button
       onClick={onClick}
-      disabled={disabled}
-      title={title}
+      disabled={disabled || locked}
+      title={locked ? (lockReason || title || 'Locked') : title}
       aria-label={ariaLabel}
       data-testid="selector-trigger"
     >

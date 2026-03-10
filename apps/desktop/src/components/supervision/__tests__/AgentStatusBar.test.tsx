@@ -4,10 +4,12 @@ import { render, screen, fireEvent, waitFor, cleanup } from '@testing-library/re
 const mockInitSupervisionAgent = vi.fn();
 const mockUpdateSupervisionAgentAction = vi.fn();
 const mockSetAgent = vi.fn();
+const mockSelectSession = vi.fn();
 
 vi.mock('../../../services/api', () => ({
   initSupervisionAgent: (...args: unknown[]) => mockInitSupervisionAgent(...args),
   updateSupervisionAgentAction: (...args: unknown[]) => mockUpdateSupervisionAgentAction(...args),
+  getProviders: vi.fn().mockResolvedValue([]),
 }));
 
 vi.mock('../../../stores/supervisionStore', () => ({
@@ -15,6 +17,24 @@ vi.mock('../../../stores/supervisionStore', () => ({
     const state = { setAgent: mockSetAgent };
     return selector(state);
   },
+}));
+
+vi.mock('../../../stores/projectStore', () => ({
+  useProjectStore: Object.assign(
+    (selector: (s: any) => any) => {
+      const state = {
+        selectSession: mockSelectSession,
+        providers: [{ id: 'provider-1', name: 'Default Provider', isDefault: true }],
+      };
+      return selector(state);
+    },
+    {
+      getState: () => ({
+        selectSession: mockSelectSession,
+        providers: [{ id: 'provider-1', name: 'Default Provider', isDefault: true }],
+      }),
+    },
+  ),
 }));
 
 import { AgentStatusBar } from '../AgentStatusBar';
@@ -54,7 +74,7 @@ describe('AgentStatusBar', () => {
     render(<AgentStatusBar projectId="proj-1" agent={null} />);
     fireEvent.click(screen.getByText('Initialize Agent'));
     expect(screen.getByText('Configure Supervision Agent')).toBeInTheDocument();
-    expect(screen.getByText('Initialize')).toBeInTheDocument();
+    expect(screen.getByText('Start Agent')).toBeInTheDocument();
   });
 
   it('hides init form when Cancel is clicked', () => {
@@ -66,27 +86,30 @@ describe('AgentStatusBar', () => {
     expect(screen.queryByText('Configure Supervision Agent')).not.toBeInTheDocument();
   });
 
-  it('calls initSupervisionAgent on Initialize click', async () => {
-    const agent = makeAgent({ phase: 'initializing' });
+  it('calls initSupervisionAgent on Start Agent click', async () => {
+    const agent = makeAgent({ phase: 'initializing', mainSessionId: 'main-session-1' });
     mockInitSupervisionAgent.mockResolvedValue(agent);
 
     render(<AgentStatusBar projectId="proj-1" agent={null} />);
     fireEvent.click(screen.getByText('Initialize Agent'));
-    fireEvent.click(screen.getByText('Initialize'));
+    fireEvent.click(screen.getByText('Start Agent'));
 
     await waitFor(() => {
       expect(mockInitSupervisionAgent).toHaveBeenCalledWith(
         'proj-1',
         expect.objectContaining({ maxConcurrentTasks: 2, trustLevel: 'medium' }),
+        'provider-1',
+        'lite',
       );
       expect(mockSetAgent).toHaveBeenCalledWith('proj-1', agent);
+      expect(mockSelectSession).toHaveBeenCalledWith('main-session-1');
     });
   });
 
   it('shows phase badge for active agent', () => {
     render(<AgentStatusBar projectId="proj-1" agent={makeAgent({ phase: 'active' })} />);
     expect(screen.getByText('Active')).toBeInTheDocument();
-    expect(screen.getByText('2 concurrent | Trust: medium')).toBeInTheDocument();
+    expect(screen.getByText(/Trust: Balanced/)).toBeInTheDocument();
   });
 
   it('shows phase badge for paused agent', () => {

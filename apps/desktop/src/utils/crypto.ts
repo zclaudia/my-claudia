@@ -14,6 +14,12 @@
 let cachedPublicKey: CryptoKey | null = null;
 let cachedPem: string | null = null;
 
+/** Reset cached key (for testing) */
+export function resetKeyCache(): void {
+  cachedPublicKey = null;
+  cachedPem = null;
+}
+
 /**
  * Convert a PEM-encoded SPKI public key to a Web Crypto CryptoKey.
  */

@@ -18,6 +18,9 @@ function createTestDb(): Database.Database {
       system_prompt TEXT,
       permission_policy TEXT,
       agent_permission_override TEXT,
+      agent TEXT,
+      context_sync_status TEXT NOT NULL DEFAULT 'synced',
+      review_provider_id TEXT,
       is_internal INTEGER NOT NULL DEFAULT 0,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL

@@ -454,6 +454,23 @@ describe('chatStore', () => {
       expect(useChatStore.getState().toolCallsHistory[RUN_ID]).toHaveLength(1);
     });
 
+    it('keeps appending and finalizing against the most recent assistant message even after system messages', () => {
+      useChatStore.getState().addMessage('session-1', createMessage({ id: 'assistant-1', role: 'assistant', content: 'Hello' }));
+      useChatStore.getState().addMessage('session-1', createMessage({ id: 'system-1', role: 'system', content: 'Task started' }));
+
+      useChatStore.getState().appendToLastMessage('session-1', ' world');
+      useChatStore.getState().addToolCall(RUN_ID, 'tc-1', 'Read', {});
+      useChatStore.getState().updateToolCallResult(RUN_ID, 'tc-1', 'ok');
+      useChatStore.getState().appendTextBlock(RUN_ID, 'stream text');
+      useChatStore.getState().finalizeRunToMessage(RUN_ID);
+
+      const messages = useChatStore.getState().messages['session-1'];
+      expect(messages[0].content).toBe('Hello world');
+      expect(messages[0].toolCalls).toHaveLength(1);
+      expect(messages[0].contentBlocks).toEqual([{ type: 'text', content: 'stream text' }]);
+      expect(messages[1].content).toBe('Task started');
+    });
+
     it('finalizeRunToMessage preserves more complete existing data', () => {
       // Set up an assistant message with pre-existing tool calls (e.g., from API load)
       const message = createMessage({ id: 'msg-1', role: 'assistant', content: 'Response' });

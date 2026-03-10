@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { encryptCredential, isEncryptionAvailable } from '../crypto.js';
+import { encryptCredential, isEncryptionAvailable, resetKeyCache } from '../crypto.js';
 
 describe('utils/crypto', () => {
   // Mock Web Crypto API
@@ -10,6 +10,7 @@ describe('utils/crypto', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    resetKeyCache();
 
     // Setup crypto mock
     Object.defineProperty(globalThis, 'crypto', {
@@ -68,11 +69,10 @@ describe('utils/crypto', () => {
         ['encrypt']
       );
 
-      expect(mockSubtle.encrypt).toHaveBeenCalledWith(
-        { name: 'RSA-OAEP' },
-        mockKey,
-        expect.any(Uint8Array)
-      );
+      const encryptCall = mockSubtle.encrypt.mock.calls[0];
+      expect(encryptCall[0]).toEqual({ name: 'RSA-OAEP' });
+      expect(encryptCall[1]).toBe(mockKey);
+      expect(encryptCall[2].constructor.name).toBe('Uint8Array');
 
       expect(typeof result).toBe('string');
     });
