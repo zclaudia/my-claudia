@@ -468,6 +468,30 @@ describe('LocalPRService', () => {
       const clients = (service as any).activeConflictClients;
       expect(clients).toBeInstanceOf(Map);
     });
+
+    it('cleans up conflict client state when conflict resolution startup fails', async () => {
+      const projectId = createTestProject(db, { rootPath: '/test/root' });
+      const pr = createTestLocalPR(db, projectId, { status: 'conflict' });
+      createTestProvider(db, 'conflict-provider');
+      mockHandleRunStart.mockImplementationOnce(() => {
+        throw new Error('provider unavailable');
+      });
+
+      await expect((service as any).startConflictResolution(pr.id, 'conflict-provider'))
+        .rejects.toThrow('provider unavailable');
+
+      expect((service as any).activeConflictClients.has(pr.id)).toBe(false);
+      const updated = service.getRepo().findById(pr.id);
+      expect(updated?.statusMessage).toContain('Failed to start AI conflict resolution: provider unavailable');
+      expect(mockBroadcast).toHaveBeenCalledWith(
+        projectId,
+        expect.objectContaining({
+          type: 'local_pr_update',
+          projectId,
+          pr: expect.objectContaining({ id: pr.id }),
+        })
+      );
+    });
   });
 
   // ========================================
