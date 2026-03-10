@@ -159,7 +159,7 @@ function AppContent() {
     const isError = embeddedServerStatus === 'error';
 
     return (
-      <div className="flex flex-col h-screen bg-background text-foreground">
+      <div className="flex flex-col h-dvh bg-background text-foreground">
         <div className="safe-top-spacer bg-background flex-shrink-0" data-tauri-drag-region />
         <div className="flex-1 flex items-center justify-center" data-tauri-drag-region>
           <div className="text-center">
@@ -180,7 +180,7 @@ function AppContent() {
   }
 
   return (
-    <div className="flex flex-col h-screen bg-background text-foreground">
+    <div className="flex flex-col h-dvh bg-background text-foreground">
       {/* Top safe area spacer: notch/status bar on mobile, traffic lights on desktop */}
       <div
         className="safe-top-spacer bg-card flex-shrink-0"

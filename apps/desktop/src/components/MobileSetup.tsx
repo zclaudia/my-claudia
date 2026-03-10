@@ -75,7 +75,7 @@ export function MobileSetup() {
   // Phase 2: Gateway connected — show backend selection
   if (isGatewayConnected && onlineBackends.length > 0) {
     return (
-      <div className="flex flex-col h-screen bg-background text-foreground safe-top-pad safe-bottom-pad">
+      <div className="flex flex-col h-dvh bg-background text-foreground safe-top-pad safe-bottom-pad">
         <div className="flex-1 flex items-center justify-center p-6">
           <div className="w-full max-w-sm space-y-6">
             {/* Logo */}
@@ -132,7 +132,7 @@ export function MobileSetup() {
 
   // Phase 1: Gateway setup form
   return (
-    <div className="flex flex-col h-screen bg-background text-foreground safe-top-pad safe-bottom-pad">
+    <div className="flex flex-col h-dvh bg-background text-foreground safe-top-pad safe-bottom-pad">
       <div className="flex-1 flex items-center justify-center p-6">
         <div className="w-full max-w-sm space-y-6">
           {/* Logo */}

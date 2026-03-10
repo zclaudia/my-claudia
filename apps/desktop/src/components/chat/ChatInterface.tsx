@@ -1,5 +1,5 @@
 import { useRef, useEffect, useCallback, useState, useMemo } from 'react';
-import { Loader2, AlertTriangle, ClipboardList, ArrowDown, ArrowLeft, X, FileText, Terminal as TerminalIcon, ChevronDown, ChevronUp, Lock, Unlock, Archive, RotateCcw, Download } from 'lucide-react';
+import { Loader2, AlertTriangle, ClipboardList, ArrowDown, ArrowLeft, X, FileText, Terminal as TerminalIcon, ChevronDown, ChevronUp, Lock, Unlock, Archive, RotateCcw, Download, MoreHorizontal } from 'lucide-react';
 import { MessageList } from './MessageList';
 import { MessageInput, type Attachment } from './MessageInput';
 import { ToolCallList } from './ToolCallItem';
@@ -126,6 +126,7 @@ export function ChatInterface({ sessionId, onReturnToDashboard }: ChatInterfaceP
   const { isOpen: fileViewerOpen } = useFileViewerStore();
   const { sendMessage: wsSendMessage, isConnected, handlePermissionDecision, handleAskUserAnswer } = useConnection();
   const isMobile = useIsMobile();
+  const [showMoreMenu, setShowMoreMenu] = useState(false);
 
   // Per-session pending permission/question requests
   // Also include requests without sessionId (backward compat with servers that haven't been updated)
@@ -1880,15 +1881,19 @@ export function ChatInterface({ sessionId, onReturnToDashboard }: ChatInterfaceP
                 lockReason={isForcedPlanSession ? 'Locked by Supervisor planning mode' : undefined}
               />
             )}
-            <TokenUsageDisplay
-              latestInputTokens={currentUsage.latestInputTokens}
-              latestOutputTokens={currentUsage.latestOutputTokens}
-              inputTokens={currentUsage.inputTokens}
-              outputTokens={currentUsage.outputTokens}
-              contextWindow={currentUsage.contextWindow}
-            />
+            {/* Hidden on mobile - can tap to view details */}
+            <div className="hidden md:block">
+              <TokenUsageDisplay
+                latestInputTokens={currentUsage.latestInputTokens}
+                latestOutputTokens={currentUsage.latestOutputTokens}
+                inputTokens={currentUsage.inputTokens}
+                outputTokens={currentUsage.outputTokens}
+                contextWindow={currentUsage.contextWindow}
+              />
+            </div>
             <div className="flex-1 min-w-[8px]" />
-            {currentProject?.rootPath && (
+            {/* Desktop: show buttons directly */}
+            {!isMobile && currentProject?.rootPath && (
               <button
                 onClick={() => {
                   if (fileViewerOpen && bottomPanelTab === 'file') {
@@ -1908,7 +1913,7 @@ export function ChatInterface({ sessionId, onReturnToDashboard }: ChatInterfaceP
                 <FileText size={16} strokeWidth={1.75} />
               </button>
             )}
-            {useServerStore.getState().activeServerSupports('remoteTerminal') && currentSession?.projectId && (() => {
+            {!isMobile && useServerStore.getState().activeServerSupports('remoteTerminal') && currentSession?.projectId && (() => {
               const pid = currentSession.projectId;
               const isOpen = !!drawerOpen[pid];
               return (
@@ -1934,6 +1939,83 @@ export function ChatInterface({ sessionId, onReturnToDashboard }: ChatInterfaceP
                 </button>
               );
             })()}
+
+            {/* Mobile: show more menu with File and Terminal options */}
+            {isMobile && (
+              <div className="relative">
+                <button
+                  onClick={() => setShowMoreMenu(!showMoreMenu)}
+                  className="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground"
+                  title="More options"
+                >
+                  <MoreHorizontal size={16} strokeWidth={1.75} />
+                </button>
+                {showMoreMenu && (
+                  <>
+                    <div className="fixed inset-0 z-40" onClick={() => setShowMoreMenu(false)} />
+                    <div className="absolute bottom-full right-0 mb-1 z-50 bg-popover border border-border rounded-lg shadow-lg py-1 min-w-[160px]">
+                      {currentProject?.rootPath && (
+                        <button
+                          onClick={() => {
+                            if (fileViewerOpen && bottomPanelTab === 'file') {
+                              useFileViewerStore.getState().close();
+                            } else if (fileViewerOpen) {
+                              setBottomPanelTab('file');
+                            } else {
+                              const store = useFileViewerStore.getState();
+                              store.togglePanel();
+                              store.setSearchOpen(true);
+                              setBottomPanelTab('file');
+                            }
+                            setShowMoreMenu(false);
+                          }}
+                          className={`w-full text-left px-3 py-2 text-sm flex items-center gap-2 transition-colors ${
+                            fileViewerOpen && bottomPanelTab === 'file'
+                              ? 'bg-primary/10 text-primary'
+                              : 'text-foreground hover:bg-muted'
+                          }`}
+                        >
+                          <FileText size={14} />
+                          {fileViewerOpen && bottomPanelTab === 'file' ? 'Close File Viewer' : 'File Viewer'}
+                        </button>
+                      )}
+                      {useServerStore.getState().activeServerSupports('remoteTerminal') && currentSession?.projectId && (() => {
+                        const pid = currentSession.projectId;
+                        const isOpen = !!drawerOpen[pid];
+                        return (
+                          <button
+                            onClick={() => {
+                              if (isOpen && bottomPanelTab === 'terminal') {
+                                setDrawerOpen(pid, false);
+                              } else if (isOpen) {
+                                setBottomPanelTab('terminal');
+                              } else {
+                                const store = useTerminalStore.getState();
+                                if (!store.terminals[pid]) {
+                                  store.openTerminal(pid);
+                                }
+                                setDrawerOpen(pid, true);
+                                setBottomPanelTab('terminal');
+                              }
+                              setShowMoreMenu(false);
+                            }}
+                            className={`w-full text-left px-3 py-2 text-sm flex items-center gap-2 transition-colors ${
+                              isOpen && bottomPanelTab === 'terminal'
+                                ? 'bg-primary/10 text-primary'
+                                : 'text-foreground hover:bg-muted'
+                            }`}
+                          >
+                            <TerminalIcon size={14} />
+                            {isOpen && bottomPanelTab === 'terminal' ? 'Close Terminal' : 'Terminal'}
+                          </button>
+                        );
+                      })()}
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+
             {!isMobile && (
               <button
                 onClick={() => setAdvancedInput(!advancedInput)}

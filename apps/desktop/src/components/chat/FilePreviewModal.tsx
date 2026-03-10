@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneDark, oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { useTheme, isDarkTheme } from '../../contexts/ThemeContext';
 import { getBaseUrl, getAuthHeaders } from '../../services/api';
 import { openFile, openFileAndroid, isAndroid } from '../../services/fileDownload';
@@ -145,10 +146,26 @@ export function FilePreviewModal({ item, onClose }: FilePreviewModalProps) {
   }, [item]);
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col bg-black/90" onClick={onClose}>
+    <div
+      className="fixed inset-0 z-50 flex flex-col bg-black/90"
+      onClick={onClose}
+      style={{ paddingTop: 'env(safe-area-inset-top, 0px)' }}
+    >
+      {/* Always-visible close button for mobile safe area / notch devices */}
+      <button
+        onClick={onClose}
+        className="absolute right-3 top-3 z-20 p-2 rounded-full bg-black/65 text-white border border-white/20 hover:bg-black/80 transition-colors"
+        style={{ top: 'calc(env(safe-area-inset-top, 0px) + 12px)' }}
+        aria-label="Close preview"
+      >
+        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+        </svg>
+      </button>
+
       {/* Header */}
       <header
-        className="flex items-center justify-between px-4 py-3 bg-black/60 text-white flex-shrink-0"
+        className="flex items-center justify-between px-4 py-3 bg-black/60 text-white flex-shrink-0 pr-16"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center gap-3 min-w-0">
@@ -240,7 +257,43 @@ export function FilePreviewModal({ item, onClose }: FilePreviewModalProps) {
         {!loading && !error && previewType === 'markdown' && textContent !== null && (
           <div className="w-full h-full overflow-auto p-6 max-w-3xl mx-auto">
             <div className={`prose ${dark ? 'prose-invert' : ''} max-w-none`}>
-              <ReactMarkdown>{textContent}</ReactMarkdown>
+              <ReactMarkdown
+                remarkPlugins={[remarkGfm]}
+                components={{
+                  pre({ children }) {
+                    return (
+                      <div className="overflow-x-auto touch-pan-x [-webkit-overflow-scrolling:touch]">
+                        <pre>{children}</pre>
+                      </div>
+                    );
+                  },
+                  table({ children }) {
+                    return (
+                      <div className="w-full overflow-x-auto touch-pan-x [-webkit-overflow-scrolling:touch]">
+                        <table className="w-max min-w-full border-collapse border border-border">
+                          {children}
+                        </table>
+                      </div>
+                    );
+                  },
+                  th({ children }) {
+                    return (
+                      <th className="border border-border px-3 py-2 bg-secondary text-left align-top whitespace-nowrap">
+                        {children}
+                      </th>
+                    );
+                  },
+                  td({ children }) {
+                    return (
+                      <td className="border border-border px-3 py-2 align-top whitespace-nowrap">
+                        {children}
+                      </td>
+                    );
+                  },
+                }}
+              >
+                {textContent}
+              </ReactMarkdown>
             </div>
           </div>
         )}

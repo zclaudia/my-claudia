@@ -91,7 +91,7 @@ export function WorkflowCard({ workflow, latestRun, onTrigger, onEdit, onToggle,
               <button
                 onClick={onTrigger}
                 disabled={!isActive}
-                className="p-1 rounded hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors disabled:opacity-30"
+                className="p-1.5 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground transition-colors disabled:opacity-30"
                 title="Run now"
               >
                 <Play size={14} />
@@ -100,7 +100,7 @@ export function WorkflowCard({ workflow, latestRun, onTrigger, onEdit, onToggle,
             {onEdit && (
               <button
                 onClick={onEdit}
-                className="p-1 rounded hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors"
+                className="p-1.5 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
                 title="Edit"
               >
                 <Pencil size={14} />
@@ -109,7 +109,7 @@ export function WorkflowCard({ workflow, latestRun, onTrigger, onEdit, onToggle,
             {onPopOut && (
               <button
                 onClick={onPopOut}
-                className="p-1 rounded hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors"
+                className="p-1.5 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
                 title="Open in new window"
               >
                 <ExternalLink size={14} />
@@ -118,7 +118,7 @@ export function WorkflowCard({ workflow, latestRun, onTrigger, onEdit, onToggle,
             {onToggle && (
               <button
                 onClick={onToggle}
-                className="p-1 rounded hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors"
+                className="p-1.5 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
                 title={isActive ? 'Disable' : 'Enable'}
               >
                 {isActive ? <Pause size={14} /> : <Zap size={14} />}
@@ -127,7 +127,7 @@ export function WorkflowCard({ workflow, latestRun, onTrigger, onEdit, onToggle,
             {onDelete && (
               <button
                 onClick={onDelete}
-                className="p-1 rounded hover:bg-secondary text-muted-foreground hover:text-destructive transition-colors"
+                className="p-1.5 rounded-md hover:bg-muted text-muted-foreground hover:text-destructive transition-colors"
                 title="Delete"
               >
                 <Trash2 size={14} />
@@ -144,7 +144,7 @@ export function WorkflowCard({ workflow, latestRun, onTrigger, onEdit, onToggle,
         </span>
         <span className="flex items-center gap-1">
           <Activity size={12} />
-          {stepCount} nodes
+          {stepCount} step{stepCount !== 1 ? 's' : ''}
         </span>
         {latestRun && (
           <span className="flex items-center gap-1">

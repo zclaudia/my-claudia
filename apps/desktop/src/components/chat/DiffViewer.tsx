@@ -79,8 +79,8 @@ export function DiffViewer({ oldString, newString, filePath }: DiffViewerProps) 
       </div>
 
       {/* Diff lines */}
-      <div className="overflow-x-auto">
-        <pre className="text-xs leading-5 font-mono">
+      <div className="overflow-x-auto touch-pan-x [-webkit-overflow-scrolling:touch]">
+        <pre className="text-xs leading-5 font-mono whitespace-pre">
           {diffLines.map((line, idx) => (
             <div
               key={idx}
@@ -95,7 +95,7 @@ export function DiffViewer({ oldString, newString, filePath }: DiffViewerProps) 
               <span className="inline-block w-5 text-center text-muted-foreground/70 select-none">
                 {line.type === 'add' ? '+' : line.type === 'remove' ? '-' : ' '}
               </span>
-              <span className="whitespace-pre-wrap break-all">{line.content}</span>
+              <span>{line.content}</span>
             </div>
           ))}
         </pre>

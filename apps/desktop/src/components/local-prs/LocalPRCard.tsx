@@ -1,4 +1,4 @@
-import type { LocalPR, LocalPRStatus, ProviderConfig } from '@my-claudia/shared';
+import type { LocalPR, LocalPRStatus, ExecutionState, ProviderConfig } from '@my-claudia/shared';
 import {
   GitMerge,
   XCircle,
@@ -10,6 +10,9 @@ import {
   Bot,
   RotateCcw,
   Undo2,
+  Clock,
+  Loader2,
+  AlertCircle,
 } from 'lucide-react';
 import { useState } from 'react';
 import { useLocalPRStore } from '../../stores/localPRStore';
@@ -27,6 +30,13 @@ const STATUS_CONFIG: Record<LocalPRStatus, { label: string; color: string }> = {
   merged: { label: 'Merged', color: 'bg-emerald-600/10 text-emerald-600' },
   conflict: { label: 'Conflict', color: 'bg-orange-500/10 text-orange-500' },
   closed: { label: 'Closed', color: 'bg-gray-500/10 text-gray-400' },
+};
+
+const EXECUTION_STATE_CONFIG: Record<ExecutionState, { label: string; color: string; icon: React.ReactNode }> = {
+  idle: { label: 'Idle', color: '', icon: null },
+  queued: { label: 'Queued', color: 'bg-amber-500/10 text-amber-500', icon: <Clock className="w-3 h-3" /> },
+  running: { label: 'Running', color: 'bg-blue-500/10 text-blue-500', icon: <Loader2 className="w-3 h-3 animate-spin" /> },
+  failed: { label: 'Failed', color: 'bg-red-500/10 text-red-500', icon: <AlertCircle className="w-3 h-3" /> },
 };
 
 interface LocalPRCardProps {
@@ -55,6 +65,8 @@ export function LocalPRCard({ pr, projectId }: LocalPRCardProps) {
   const sessions = useProjectStore((s) => s.sessions);
   const selectSession = useProjectStore((s) => s.selectSession);
   const status = STATUS_CONFIG[pr.status] ?? { label: pr.status, color: 'bg-gray-500/10 text-gray-400' };
+  const executionState = EXECUTION_STATE_CONFIG[pr.executionState] ?? EXECUTION_STATE_CONFIG.idle;
+  const showExecutionState = pr.executionState !== 'idle';
 
   const project = projects.find((p) => p.id === projectId);
   const defaultProviderId = project?.reviewProviderId || project?.providerId || '';
@@ -161,6 +173,30 @@ export function LocalPRCard({ pr, projectId }: LocalPRCardProps) {
     }
   };
 
+  const handleCancelQueue = async () => {
+    setActionError(null);
+    setLoading(true);
+    try {
+      await api.cancelLocalPRQueue(pr.id);
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : 'Failed to cancel queue');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleRetry = async () => {
+    setActionError(null);
+    setLoading(true);
+    try {
+      await api.retryLocalPR(pr.id);
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : 'Failed to retry');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const canReview = pr.status === 'open' || pr.status === 'review_failed';
   const openSession = async (sessionId: string) => {
     useProjectStore.getState().setDashboardView(projectId, 'local-prs');
@@ -182,6 +218,12 @@ export function LocalPRCard({ pr, projectId }: LocalPRCardProps) {
             <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${status.color}`}>
               {status.label}
             </span>
+            {showExecutionState && (
+              <span className={`text-xs font-medium px-2 py-0.5 rounded-full flex items-center gap-1 ${executionState.color}`}>
+                {executionState.icon}
+                {executionState.label}
+              </span>
+            )}
             {pr.autoTriggered && (
               <span className="text-xs text-muted-foreground bg-muted px-1.5 py-0.5 rounded">auto</span>
             )}
@@ -203,6 +245,26 @@ export function LocalPRCard({ pr, projectId }: LocalPRCardProps) {
 
         {!isMobile && (
           <div className="flex items-center gap-1 shrink-0">
+            {pr.executionState === 'queued' && (
+              <button
+                onClick={handleCancelQueue}
+                disabled={loading}
+                title="Cancel queue"
+                className="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground disabled:opacity-50"
+              >
+                <XCircle className="w-3.5 h-3.5" />
+              </button>
+            )}
+            {pr.executionState === 'failed' && (
+              <button
+                onClick={handleRetry}
+                disabled={loading}
+                title="Retry"
+                className="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground disabled:opacity-50"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+              </button>
+            )}
             {canReview && (
               <div className="relative">
                 <button
@@ -333,6 +395,24 @@ export function LocalPRCard({ pr, projectId }: LocalPRCardProps) {
       </div>
 
       <div className="flex items-center gap-3 flex-wrap">
+        {isMobile && pr.executionState === 'queued' && (
+          <button
+            onClick={handleCancelQueue}
+            disabled={loading}
+            className="text-xs rounded border border-border px-2 py-1 hover:bg-muted disabled:opacity-50"
+          >
+            Cancel Queue
+          </button>
+        )}
+        {isMobile && pr.executionState === 'failed' && (
+          <button
+            onClick={handleRetry}
+            disabled={loading}
+            className="text-xs rounded border border-border px-2 py-1 hover:bg-muted disabled:opacity-50"
+          >
+            Retry
+          </button>
+        )}
         {isMobile && pr.status === 'merging' && (
           <>
             <button

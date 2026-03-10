@@ -204,6 +204,8 @@ export class LocalPRService {
         diffSummary,
         autoTriggered: options.autoTriggered ?? false,
         autoReview: options.autoReview ?? false,
+        executionState: 'idle',
+        pendingAction: 'none',
       });
     })();
 
@@ -349,10 +351,18 @@ export class LocalPRService {
     if (!this.hasAvailableSlot(pr.projectId)) {
       this.prRepo.update(prId, {
         statusMessage: 'Queued for review: waiting for an available worktree slot.',
+        executionState: 'queued',
+        pendingAction: 'review',
       });
       this.broadcastPRUpdate(this.prRepo.findById(prId)!);
       return;
     }
+
+    // Has slot - mark as running
+    this.prRepo.update(prId, {
+      executionState: 'running',
+      pendingAction: 'review',
+    });
 
     if (this.activeReviewClients.has(prId)) {
       console.log(`[LocalPRService] Review already in progress for PR ${prId}`);
@@ -526,6 +536,8 @@ Be thorough but pragmatic. Minor style issues do not warrant REVIEW_FAILED.`;
       status: newStatus,
       reviewNotes: reviewNotes || undefined,
       statusMessage: passed ? 'Review approved. Ready to merge.' : 'Review failed. Please address comments.',
+      executionState: 'idle',
+      pendingAction: 'none',
     });
     this.broadcastPRUpdate(this.prRepo.findById(prId)!);
     console.log(`[LocalPRService] Review complete for PR ${prId}: ${newStatus}`);
@@ -568,10 +580,18 @@ Be thorough but pragmatic. Minor style issues do not warrant REVIEW_FAILED.`;
         this.prRepo.update(prId, {
           status: queuedStatus,
           statusMessage: 'Queued for merge: waiting for an available worktree slot.',
+          executionState: 'queued',
+          pendingAction: 'merge',
         });
         this.broadcastPRUpdate(this.prRepo.findById(prId)!);
         return;
       }
+
+      // Has slot - mark as running
+      this.prRepo.update(prId, {
+        executionState: 'running',
+        pendingAction: 'merge',
+      });
 
       // Manual merge from open/conflict should go through approved -> merging transition.
       if (freshPR.status !== 'approved') {
@@ -616,6 +636,8 @@ Be thorough but pragmatic. Minor style issues do not warrant REVIEW_FAILED.`;
             mergedAt: Date.now(),
             statusMessage: `Merged into '${pr.baseBranch}'.`,
             mergeCommitSha,
+            executionState: 'idle',
+            pendingAction: 'none',
           });
           const mergedPR = this.prRepo.findById(prId)!;
           this.broadcastPRUpdate(mergedPR);
@@ -629,6 +651,8 @@ Be thorough but pragmatic. Minor style issues do not warrant REVIEW_FAILED.`;
           this.prRepo.update(prId, {
             status: 'conflict',
             statusMessage: `Merge conflict detected. Resolve conflicts and retry merge, or start AI conflict resolution.`,
+            executionState: 'idle',
+            pendingAction: 'none',
           });
           this.broadcastPRUpdate(this.prRepo.findById(prId)!);
           await this.startConflictResolution(prId);
@@ -639,6 +663,8 @@ Be thorough but pragmatic. Minor style issues do not warrant REVIEW_FAILED.`;
         this.prRepo.update(prId, {
           status: 'approved',
           statusMessage: `Merge failed: ${message}`,
+          executionState: 'failed',
+          executionError: message,
         }); // reset so it can retry
         this.broadcastPRUpdate(this.prRepo.findById(prId)!);
 
@@ -792,6 +818,8 @@ Be thorough but pragmatic. Minor style issues do not warrant REVIEW_FAILED.`;
     this.prRepo.update(prId, {
       conflictSessionId: session.id,
       statusMessage: 'AI conflict resolution started. Check the review session for progress.',
+      executionState: 'running',
+      pendingAction: 'resolve_conflict',
     });
     this.broadcastPRUpdate(this.prRepo.findById(prId)!);
     this.broadcastToProject(pr.projectId, { type: 'sessions_created', session });
@@ -869,6 +897,8 @@ If you cannot resolve it, output: [CONFLICT_UNRESOLVED]`;
       this.prRepo.update(prId, {
         status: 'open',
         statusMessage: 'Conflict resolved. Re-review and merge again.',
+        executionState: 'idle',
+        pendingAction: 'none',
       });
       this.broadcastPRUpdate(this.prRepo.findById(prId)!);
       console.log(`[LocalPRService] Conflict resolved for PR ${prId}, returning to open for re-review`);
@@ -878,7 +908,11 @@ If you cannot resolve it, output: [CONFLICT_UNRESOLVED]`;
     } else {
       // Leave as conflict — user must handle manually
       console.warn(`[LocalPRService] Conflict could not be resolved for PR ${prId}`);
-      this.prRepo.update(prId, { statusMessage: 'AI could not resolve conflict. Resolve manually, then retry merge.' });
+      this.prRepo.update(prId, {
+        statusMessage: 'AI could not resolve conflict. Resolve manually, then retry merge.',
+        executionState: 'failed',
+        executionError: 'AI could not resolve conflict',
+      });
       this.broadcastPRUpdate(this.prRepo.findById(prId)!);
     }
   }
@@ -890,11 +924,70 @@ If you cannot resolve it, output: [CONFLICT_UNRESOLVED]`;
   async tick(): Promise<void> {
     try {
       await this.processStale();
-      await this.processPendingReviews();
-      await this.processPendingMerges();
+      await this.processQueue();
+      await this.processFailed();
       await this.cleanupFinishedPRs();
     } catch (err) {
       console.error('[LocalPRService] tick error:', err);
+    }
+  }
+
+  /**
+   * Process queued PRs - start execution when slot becomes available.
+   */
+  private async processQueue(): Promise<void> {
+    const queued = this.prRepo.findQueued();
+
+    for (const pr of queued) {
+      // Check if slot is available
+      if (!this.hasAvailableSlot(pr.projectId)) continue;
+
+      // Check if already running
+      if (pr.pendingAction === 'review' && this.activeReviewClients.has(pr.id)) continue;
+      if (pr.pendingAction === 'merge' && this.mergeLock.isLocked()) continue;
+
+      console.log(`[LocalPRService] Starting queued PR ${pr.id} (${pr.pendingAction})`);
+
+      // Mark as running and start the action
+      this.prRepo.update(pr.id, { executionState: 'running' });
+
+      try {
+        switch (pr.pendingAction) {
+          case 'review':
+            await this.startReview(pr.id);
+            break;
+          case 'merge':
+            await this.mergePR(pr.id);
+            break;
+          case 'resolve_conflict':
+            await this.startConflictResolution(pr.id);
+            break;
+        }
+      } catch (err) {
+        console.error(`[LocalPRService] Failed to start queued PR ${pr.id}:`, err);
+      }
+    }
+  }
+
+  /**
+   * Retry failed PRs that are eligible for retry.
+   */
+  private async processFailed(): Promise<void> {
+    const failed = this.prRepo.findFailed();
+
+    for (const pr of failed) {
+      // Check if slot is available
+      if (!this.hasAvailableSlot(pr.projectId)) continue;
+
+      console.log(`[LocalPRService] Retrying failed PR ${pr.id}`);
+
+      // Reset to queued for retry
+      this.prRepo.update(pr.id, {
+        executionState: 'queued',
+        executionError: undefined,
+      });
+
+      // Will be picked up by processQueue in next tick
     }
   }
 
@@ -905,7 +998,12 @@ If you cannot resolve it, output: [CONFLICT_UNRESOLVED]`;
 
     for (const pr of stale) {
       const resetStatus: LocalPRStatus = pr.status === 'reviewing' ? 'open' : 'approved';
-      this.prRepo.update(pr.id, { status: resetStatus, statusMessage: `Auto-reset stale ${pr.status} state.` });
+      this.prRepo.update(pr.id, {
+        status: resetStatus,
+        statusMessage: `Auto-reset stale ${pr.status} state.`,
+        executionState: 'idle',
+        pendingAction: 'none',
+      });
       this.activeReviewClients.delete(pr.id);
       this.broadcastPRUpdate(this.prRepo.findById(pr.id)!);
       console.log(

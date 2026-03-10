@@ -34,9 +34,10 @@ export function DiffViewerModal({ title, diff, onClose }: DiffViewerModalProps) 
   }, [diff]);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-3 safe-top-pad safe-bottom-pad" onClick={onClose}>
       <div
         className="bg-background border border-border rounded-xl shadow-xl w-[90vw] max-w-4xl max-h-[80vh] flex flex-col"
+        style={{ maxHeight: 'calc(100dvh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 1.5rem)' }}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between px-4 py-3 border-b border-border shrink-0">

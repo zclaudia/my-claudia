@@ -168,6 +168,9 @@ export type LocalPRStatus =
   | 'conflict'
   | 'closed';
 
+export type ExecutionState = 'idle' | 'queued' | 'running' | 'failed';
+export type PendingAction = 'none' | 'review' | 'merge' | 'resolve_conflict';
+
 export interface LocalPR {
   id: string;
   projectId: string;
@@ -189,6 +192,9 @@ export interface LocalPR {
   updatedAt: number;
   mergedAt?: number;
   mergeCommitSha?: string;
+  executionState: ExecutionState;
+  pendingAction: PendingAction;
+  executionError?: string;
 }
 
 // ============================================

@@ -179,11 +179,11 @@ export function WorktreeSelector({
         ].join(' ')}
       >
         {locked ? <LockIcon /> : <BranchIcon />}
-        <span className="inline-block min-w-0 max-w-[140px] truncate align-bottom sm:max-w-[220px]" title={triggerLabel}>
+        <span className="hidden sm:inline-block min-w-0 max-w-[140px] truncate align-bottom sm:max-w-[220px]" title={triggerLabel}>
           {triggerLabel}
         </span>
         {locked && (
-          <span className="text-[10px] uppercase tracking-wide font-semibold">Locked</span>
+          <span className="hidden sm:inline text-[10px] uppercase tracking-wide font-semibold">Locked</span>
         )}
         <svg className={`w-3 h-3 ${locked ? 'text-amber-500/80' : 'text-muted-foreground'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />

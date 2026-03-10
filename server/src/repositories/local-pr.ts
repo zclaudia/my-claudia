@@ -1,6 +1,6 @@
 import { BaseRepository } from './base.js';
 import type { Database } from 'better-sqlite3';
-import type { LocalPR, LocalPRStatus } from '@my-claudia/shared';
+import type { LocalPR, LocalPRStatus, ExecutionState, PendingAction } from '@my-claudia/shared';
 import { v4 as uuidv4 } from 'uuid';
 
 type LocalPRCreate = Omit<LocalPR, 'id' | 'createdAt' | 'updatedAt'>;
@@ -33,6 +33,9 @@ export class LocalPRRepository extends BaseRepository<LocalPR, LocalPRCreate, Lo
       updatedAt: row.updated_at,
       mergedAt: row.merged_at || undefined,
       mergeCommitSha: row.merged_commit_sha || undefined,
+      executionState: (row.execution_state || 'idle') as ExecutionState,
+      pendingAction: (row.pending_action || 'none') as PendingAction,
+      executionError: row.execution_error || undefined,
     };
   }
 
@@ -44,8 +47,9 @@ export class LocalPRRepository extends BaseRepository<LocalPR, LocalPRCreate, Lo
         id, project_id, worktree_path, branch_name, base_branch,
         title, description, status, commits, diff_summary,
         review_session_id, conflict_session_id, review_notes, status_message,
-        auto_triggered, auto_review, created_at, updated_at, merged_at, merged_commit_sha
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        auto_triggered, auto_review, created_at, updated_at, merged_at, merged_commit_sha,
+        execution_state, pending_action, execution_error
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       params: [
         id,
         data.projectId,
@@ -67,6 +71,9 @@ export class LocalPRRepository extends BaseRepository<LocalPR, LocalPRCreate, Lo
         now,
         data.mergedAt ?? null,
         data.mergeCommitSha ?? null,
+        data.executionState ?? 'idle',
+        data.pendingAction ?? 'none',
+        data.executionError ?? null,
       ],
     };
   }
@@ -88,6 +95,9 @@ export class LocalPRRepository extends BaseRepository<LocalPR, LocalPRCreate, Lo
     if (data.autoReview !== undefined) { sets.push('auto_review = ?'); params.push(data.autoReview ? 1 : 0); }
     if (data.mergedAt !== undefined) { sets.push('merged_at = ?'); params.push(data.mergedAt); }
     if (data.mergeCommitSha !== undefined) { sets.push('merged_commit_sha = ?'); params.push(data.mergeCommitSha); }
+    if (data.executionState !== undefined) { sets.push('execution_state = ?'); params.push(data.executionState); }
+    if (data.pendingAction !== undefined) { sets.push('pending_action = ?'); params.push(data.pendingAction); }
+    if (data.executionError !== undefined) { sets.push('execution_error = ?'); params.push(data.executionError); }
 
     params.push(id);
     return {
@@ -150,5 +160,23 @@ export class LocalPRRepository extends BaseRepository<LocalPR, LocalPRCreate, Lo
       )
       .get(worktreePath);
     return row ? this.mapRow(row) : null;
+  }
+
+  /** Find PRs by execution state. */
+  findByExecutionState(state: ExecutionState): LocalPR[] {
+    const rows = this.db
+      .prepare('SELECT * FROM local_prs WHERE execution_state = ? ORDER BY updated_at ASC')
+      .all(state);
+    return rows.map((r) => this.mapRow(r));
+  }
+
+  /** Find PRs that are queued and ready to run. */
+  findQueued(): LocalPR[] {
+    return this.findByExecutionState('queued');
+  }
+
+  /** Find PRs that failed and are retryable. */
+  findFailed(): LocalPR[] {
+    return this.findByExecutionState('failed');
   }
 }

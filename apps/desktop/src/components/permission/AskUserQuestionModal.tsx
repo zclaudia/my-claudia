@@ -127,9 +127,13 @@ export function AskUserQuestionModal({ request, onAnswer }: AskUserQuestionModal
       <div className="fixed inset-0 bg-background/80 backdrop-blur-sm z-50" />
 
       {/* Modal */}
-      <div className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] max-w-[calc(100vw-2rem)] max-h-[80vh] bg-card border border-border rounded-lg shadow-2xl z-50 overflow-hidden flex flex-col">
-        {/* Header */}
-        <div className="px-5 pt-4 pb-3 flex-shrink-0">
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 safe-top-pad safe-bottom-pad">
+        <div
+          className="w-[500px] max-w-[calc(100vw-2rem)] bg-card border border-border rounded-lg shadow-2xl overflow-hidden flex flex-col"
+          style={{ maxHeight: 'calc(100dvh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 2rem)' }}
+        >
+          {/* Header */}
+          <div className="px-5 pt-4 pb-3 flex-shrink-0">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-full bg-primary/20 flex items-center justify-center">
               <svg className="w-5 h-5 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -149,10 +153,10 @@ export function AskUserQuestionModal({ request, onAnswer }: AskUserQuestionModal
               )}
             </div>
           </div>
-        </div>
+          </div>
 
-        {/* Questions */}
-        <div className="flex-1 overflow-y-auto px-5 py-3 border-t border-border space-y-5">
+          {/* Questions */}
+          <div className="flex-1 overflow-y-auto px-5 py-3 border-t border-border space-y-5">
           {request.questions.map((q, qIdx) => (
             <div key={qIdx}>
               {/* Header chip + question text */}
@@ -227,23 +231,24 @@ export function AskUserQuestionModal({ request, onAnswer }: AskUserQuestionModal
               </div>
             </div>
           ))}
-        </div>
+          </div>
 
-        {/* Actions */}
-        <div className="px-5 py-4 bg-muted/30 border-t border-border flex gap-3 flex-shrink-0">
-          <button
-            onClick={() => onAnswer(request.requestId, 'User declined to answer.')}
-            className="flex-1 px-4 py-3 bg-secondary hover:bg-secondary/80 active:bg-secondary/70 text-secondary-foreground rounded-lg font-medium transition-colors"
-          >
-            Skip
-          </button>
-          <button
-            onClick={handleSubmit}
-            disabled={!hasAnswer}
-            className="flex-1 px-4 py-3 bg-primary hover:bg-primary/80 active:bg-primary/70 text-primary-foreground rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            Submit
-          </button>
+          {/* Actions */}
+          <div className="px-5 py-4 bg-muted/30 border-t border-border flex gap-3 flex-shrink-0">
+            <button
+              onClick={() => onAnswer(request.requestId, 'User declined to answer.')}
+              className="flex-1 px-4 py-3 bg-secondary hover:bg-secondary/80 active:bg-secondary/70 text-secondary-foreground rounded-lg font-medium transition-colors"
+            >
+              Skip
+            </button>
+            <button
+              onClick={handleSubmit}
+              disabled={!hasAnswer}
+              className="flex-1 px-4 py-3 bg-primary hover:bg-primary/80 active:bg-primary/70 text-primary-foreground rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              Submit
+            </button>
+          </div>
         </div>
       </div>
     </>

@@ -155,7 +155,7 @@ function TerminalOutput({ content, isError }: { content: string; isError?: boole
     <div className="rounded-lg overflow-hidden border border-zinc-700">
       <pre
         data-testid="tool-result"
-        className={`text-xs font-mono p-3 overflow-x-auto whitespace-pre-wrap break-words ${
+        className={`text-xs font-mono p-3 overflow-x-auto touch-pan-x [-webkit-overflow-scrolling:touch] whitespace-pre ${
           isError
             ? 'bg-red-950 text-red-300'
             : 'bg-zinc-900 text-zinc-200'
@@ -282,7 +282,7 @@ function ToolExpandedContent({ toolName, toolInput, status, result, isError }: {
           <div className="mt-2">
             <pre
               data-testid="tool-result"
-              className="text-xs rounded p-2 overflow-x-auto whitespace-pre-wrap break-words bg-destructive/20 text-destructive"
+              className="text-xs rounded p-2 overflow-x-auto touch-pan-x [-webkit-overflow-scrolling:touch] whitespace-pre bg-destructive/20 text-destructive"
             >
               {formatToolResult(result)}
             </pre>
@@ -306,7 +306,7 @@ function ToolExpandedContent({ toolName, toolInput, status, result, isError }: {
           <div className="mt-2">
             <pre
               data-testid="tool-result"
-              className="text-xs rounded p-2 overflow-x-auto whitespace-pre-wrap break-words bg-destructive/20 text-destructive"
+              className="text-xs rounded p-2 overflow-x-auto touch-pan-x [-webkit-overflow-scrolling:touch] whitespace-pre bg-destructive/20 text-destructive"
             >
               {formatToolResult(result)}
             </pre>
@@ -339,7 +339,7 @@ function ToolExpandedContent({ toolName, toolInput, status, result, isError }: {
         {command && (
           <div className="mt-2">
             <div className="rounded-lg overflow-hidden border border-border">
-              <pre className="text-xs font-mono p-2 bg-secondary text-success overflow-x-auto whitespace-pre-wrap break-words relative group/cmd">
+              <pre className="text-xs font-mono p-2 bg-secondary text-success overflow-x-auto touch-pan-x [-webkit-overflow-scrolling:touch] whitespace-pre relative group/cmd">
                 <span className="text-muted-foreground select-none">$ </span>{command}
                 <RunInTerminalButton command={command} />
               </pre>
@@ -397,7 +397,7 @@ function ToolExpandedContent({ toolName, toolInput, status, result, isError }: {
         {status !== 'running' && result !== undefined && (
           <div className="mt-3">
             <div className="text-xs text-muted-foreground mb-1">User's Answer:</div>
-            <pre className="text-xs bg-primary/10 rounded p-2 overflow-x-auto whitespace-pre-wrap break-words text-foreground">
+            <pre className="text-xs bg-primary/10 rounded p-2 overflow-x-auto touch-pan-x [-webkit-overflow-scrolling:touch] whitespace-pre text-foreground">
               {formatToolResult(result)}
             </pre>
           </div>
@@ -440,7 +440,7 @@ function ToolExpandedContent({ toolName, toolInput, status, result, isError }: {
           <div className="mt-2">
             <pre
               data-testid="tool-result"
-              className={`text-xs rounded p-2 overflow-x-auto whitespace-pre-wrap break-words ${
+              className={`text-xs rounded p-2 overflow-x-auto touch-pan-x [-webkit-overflow-scrolling:touch] whitespace-pre ${
                 isError ? 'bg-destructive/20 text-destructive' : 'bg-primary/10 text-foreground'
               }`}
             >
@@ -479,7 +479,7 @@ function ToolExpandedContent({ toolName, toolInput, status, result, isError }: {
       {/* Input */}
       <div className="mt-2">
         <div className="text-xs text-muted-foreground mb-1">Input:</div>
-        <pre className="text-xs bg-muted/50 rounded p-2 overflow-x-auto text-foreground whitespace-pre-wrap break-words">
+        <pre className="text-xs bg-muted/50 rounded p-2 overflow-x-auto touch-pan-x [-webkit-overflow-scrolling:touch] text-foreground whitespace-pre">
           {JSON.stringify(toolInput, null, 2)}
         </pre>
       </div>
@@ -492,7 +492,7 @@ function ToolExpandedContent({ toolName, toolInput, status, result, isError }: {
           </div>
           <pre
             data-testid="tool-result"
-            className={`text-xs rounded p-2 overflow-x-auto max-h-96 overflow-y-auto whitespace-pre-wrap break-words ${
+            className={`text-xs rounded p-2 overflow-x-auto touch-pan-x [-webkit-overflow-scrolling:touch] max-h-96 overflow-y-auto whitespace-pre ${
               isError
                 ? 'bg-destructive/20 text-destructive'
                 : 'bg-muted/50 text-foreground'

@@ -168,7 +168,7 @@ export function WorkflowsPanel({ projectId, onViewModeChange }: WorkflowsPanelPr
                 <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2">
                   Quick Start Templates
                 </h3>
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
                   {templates.map((template) => {
                     const isEnabled = activeTemplateIds.has(template.id);
                     const catColors: Record<string, string> = {
@@ -180,16 +180,21 @@ export function WorkflowsPanel({ projectId, onViewModeChange }: WorkflowsPanelPr
                     return (
                       <div
                         key={template.id}
-                        className={`border rounded-lg p-3 transition-colors ${
+                        className={`border rounded-lg p-2.5 transition-colors ${
                           isEnabled ? 'border-primary/40 bg-primary/5' : 'border-border hover:border-primary/20'
                         }`}
                       >
-                        <div className="flex items-start justify-between">
+                        <div className="flex items-start justify-between gap-2">
                           <div className="min-w-0 flex-1">
                             <div className="flex items-center gap-1.5">
                               <span className={`text-xs font-medium ${catColors[template.category]}`}>
                                 {template.category}
                               </span>
+                              {isEnabled && (
+                                <span className="text-[10px] bg-primary/10 text-primary px-1.5 py-0.5 rounded-full">
+                                  Enabled
+                                </span>
+                              )}
                             </div>
                             <div className="text-sm font-medium mt-0.5 truncate">{template.name}</div>
                             <div className="text-xs text-muted-foreground mt-0.5 line-clamp-2">
@@ -202,7 +207,7 @@ export function WorkflowsPanel({ projectId, onViewModeChange }: WorkflowsPanelPr
                           className={`mt-2 w-full py-1 text-xs rounded-md border transition-colors ${
                             isEnabled
                               ? 'border-primary/40 text-primary hover:bg-primary/10'
-                              : 'border-border hover:bg-secondary'
+                              : 'border-border hover:bg-muted'
                           }`}
                         >
                           {isEnabled ? 'Enabled' : 'Enable'}

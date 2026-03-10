@@ -91,19 +91,24 @@ export function PermissionModal({ request, queueSize = 0, onDecision }: Permissi
       <div className="fixed inset-0 bg-background/80 backdrop-blur-sm z-50" />
 
       {/* Modal */}
-      <div data-testid="permission-dialog" className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[450px] max-w-[calc(100vw-2rem)] bg-card border border-border rounded-lg shadow-2xl z-50 overflow-hidden">
-        {/* Timeout progress bar - only show when timeout is set */}
-        {hasTimeout && (
-          <div className="h-1 bg-muted">
-            <div
-              className={`h-full transition-all duration-1000 ease-linear ${request.aiInitiated ? 'bg-success' : 'bg-warning'}`}
-              style={{ width: `${progressPercent}%` }}
-            />
-          </div>
-        )}
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 safe-top-pad safe-bottom-pad">
+        <div
+          data-testid="permission-dialog"
+          className="w-[450px] max-w-[calc(100vw-2rem)] bg-card border border-border rounded-lg shadow-2xl overflow-hidden flex flex-col"
+          style={{ maxHeight: 'calc(100dvh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 2rem)' }}
+        >
+          {/* Timeout progress bar - only show when timeout is set */}
+          {hasTimeout && (
+            <div className="h-1 bg-muted">
+              <div
+                className={`h-full transition-all duration-1000 ease-linear ${request.aiInitiated ? 'bg-success' : 'bg-warning'}`}
+                style={{ width: `${progressPercent}%` }}
+              />
+            </div>
+          )}
 
         {/* Header */}
-        <div className="px-5 pt-4 pb-3">
+        <div className="px-5 pt-4 pb-3 flex-shrink-0">
           <div className="flex items-center gap-3">
             <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
               request.requiresCredential ? 'bg-amber-500/20' : 'bg-warning/20'
@@ -155,7 +160,7 @@ export function PermissionModal({ request, queueSize = 0, onDecision }: Permissi
         </div>
 
         {/* Content */}
-        <div className="px-5 py-3 border-t border-b border-border">
+        <div className="px-5 py-3 border-t border-b border-border flex-1 overflow-y-auto">
           {/* Tool name */}
           <div className="flex items-center gap-2 mb-3">
             <span className="text-sm text-muted-foreground">Tool:</span>
@@ -225,7 +230,7 @@ export function PermissionModal({ request, queueSize = 0, onDecision }: Permissi
         </div>
 
         {/* Remember checkbox */}
-        <div className="px-5 py-3">
+        <div className="px-5 py-3 flex-shrink-0">
           <label className="flex items-center gap-3 cursor-pointer min-h-[44px]">
             <input
               type="checkbox"
@@ -240,7 +245,7 @@ export function PermissionModal({ request, queueSize = 0, onDecision }: Permissi
         </div>
 
         {/* Actions */}
-        <div className="px-5 py-4 bg-muted/30 flex gap-3">
+        <div className="px-5 py-4 bg-muted/30 flex gap-3 flex-shrink-0">
           <button
             onClick={handleDeny}
             className="flex-1 px-4 py-3 bg-secondary hover:bg-secondary/80 active:bg-secondary/70 text-secondary-foreground rounded-lg font-medium transition-colors"
@@ -254,6 +259,7 @@ export function PermissionModal({ request, queueSize = 0, onDecision }: Permissi
           >
             {request.requiresCredential ? 'Allow with Credential' : 'Allow'}
           </button>
+        </div>
         </div>
       </div>
     </>

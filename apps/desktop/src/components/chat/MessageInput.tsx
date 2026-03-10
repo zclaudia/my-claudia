@@ -690,7 +690,8 @@ export function MessageInput({
               )}
               <button
                 onClick={() => removeAttachment(attachment.id)}
-                className="absolute top-1 right-1 w-5 h-5 bg-destructive text-destructive-foreground rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                className="absolute top-1 right-1 w-6 h-6 bg-destructive text-destructive-foreground rounded-full flex items-center justify-center opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity"
+                aria-label={`Remove attachment ${attachment.name}`}
               >
                 <X size={12} strokeWidth={2} />
               </button>

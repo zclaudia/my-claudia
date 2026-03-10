@@ -182,6 +182,60 @@ export function createLocalPRRoutes(localPRService: LocalPRService, db: Database
     }
   });
 
+  // POST /api/local-prs/:prId/cancel-queue — cancel a queued PR
+  router.post('/local-prs/:prId/cancel-queue', async (req: Request, res: Response) => {
+    try {
+      const pr = localPRService.getRepo().findById(req.params.prId);
+      if (!pr) {
+        res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Local PR not found' } });
+        return;
+      }
+      if (pr.executionState !== 'queued') {
+        res.status(400).json({
+          success: false,
+          error: { code: 'INVALID_STATE', message: `PR is not queued (current state: ${pr.executionState})` },
+        });
+        return;
+      }
+      localPRService.getRepo().update(pr.id, {
+        executionState: 'idle',
+        pendingAction: 'none',
+        statusMessage: 'Queue cancelled by user.',
+      });
+      res.json({ success: true, data: localPRService.getRepo().findById(pr.id) } as ApiResponse<LocalPR>);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to cancel queue';
+      res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message } });
+    }
+  });
+
+  // POST /api/local-prs/:prId/retry — retry a failed PR
+  router.post('/local-prs/:prId/retry', async (req: Request, res: Response) => {
+    try {
+      const pr = localPRService.getRepo().findById(req.params.prId);
+      if (!pr) {
+        res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Local PR not found' } });
+        return;
+      }
+      if (pr.executionState !== 'failed') {
+        res.status(400).json({
+          success: false,
+          error: { code: 'INVALID_STATE', message: `PR is not failed (current state: ${pr.executionState})` },
+        });
+        return;
+      }
+      // Reset to queued so the scheduler picks it up
+      localPRService.getRepo().update(pr.id, {
+        executionState: 'queued',
+        executionError: undefined,
+      });
+      res.json({ success: true, data: localPRService.getRepo().findById(pr.id) } as ApiResponse<LocalPR>);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to retry';
+      res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message } });
+    }
+  });
+
   // POST /api/local-prs/:prId/resolve-conflict — manually trigger AI conflict resolver
   router.post('/local-prs/:prId/resolve-conflict', async (req: Request, res: Response) => {
     try {

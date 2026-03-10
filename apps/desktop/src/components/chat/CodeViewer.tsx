@@ -109,28 +109,32 @@ export function CodeViewer({
       </div>
 
       {/* Code content */}
-      <SyntaxHighlighter
-        style={codeStyle}
-        language={lang}
-        showLineNumbers={showLineNumbers}
-        PreTag="div"
-        customStyle={{
-          margin: 0,
-          borderRadius: 0,
-          padding: '0.5rem 0',
-          fontSize: '0.75rem',
-          lineHeight: '1.25rem',
-        }}
-        lineNumberStyle={{
-          minWidth: '2.5em',
-          paddingRight: '1em',
-          textAlign: 'right',
-          userSelect: 'none',
-          opacity: 0.5,
-        }}
-      >
-        {displayContent}
-      </SyntaxHighlighter>
+      <div className="overflow-x-auto touch-pan-x [-webkit-overflow-scrolling:touch]">
+        <SyntaxHighlighter
+          style={codeStyle}
+          language={lang}
+          showLineNumbers={showLineNumbers}
+          PreTag="div"
+          customStyle={{
+            margin: 0,
+            borderRadius: 0,
+            padding: '0.5rem 0',
+            fontSize: '0.75rem',
+            lineHeight: '1.25rem',
+            overflowX: 'auto',
+            whiteSpace: 'pre',
+          }}
+          lineNumberStyle={{
+            minWidth: '2.5em',
+            paddingRight: '1em',
+            textAlign: 'right',
+            userSelect: 'none',
+            opacity: 0.5,
+          }}
+        >
+          {displayContent}
+        </SyntaxHighlighter>
+      </div>
 
       {/* Expand/collapse button */}
       {needsCollapse && (

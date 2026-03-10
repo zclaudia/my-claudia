@@ -1343,6 +1343,22 @@ export async function revertLocalPRMerge(prId: string): Promise<LocalPR> {
   return result.data;
 }
 
+export async function cancelLocalPRQueue(prId: string): Promise<LocalPR> {
+  const result = await fetchApi<LocalPR>(`/api/local-prs/${prId}/cancel-queue`, { method: 'POST' });
+  if (!result.success || !result.data) {
+    throw new Error(result.error?.message || 'Failed to cancel queue');
+  }
+  return result.data;
+}
+
+export async function retryLocalPR(prId: string): Promise<LocalPR> {
+  const result = await fetchApi<LocalPR>(`/api/local-prs/${prId}/retry`, { method: 'POST' });
+  if (!result.success || !result.data) {
+    throw new Error(result.error?.message || 'Failed to retry');
+  }
+  return result.data;
+}
+
 export async function setProjectReviewProvider(
   projectId: string,
   providerId: string,

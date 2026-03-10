@@ -134,6 +134,82 @@ export function BottomPanel({ projectId, projectRoot, workingDirectory }: Bottom
     return pluginTab?.label || 'Panel';
   };
 
+  if (isMobile && isOpen) {
+    return (
+      <div className="fixed inset-0 z-40 bg-background flex flex-col safe-top-pad safe-bottom-pad">
+        <div className="flex items-center gap-1 px-2 py-2 border-b border-border bg-card flex-shrink-0">
+          <div className="flex items-center gap-0.5 flex-shrink-0">
+            {showTabs ? (
+              <>
+                {hasTerminalTab && (
+                  <button
+                    onClick={() => setActiveTab('terminal')}
+                    className={`px-2 py-1 rounded text-xs font-medium ${
+                      effectiveTab === 'terminal'
+                        ? 'bg-secondary text-foreground'
+                        : 'text-muted-foreground hover:text-foreground'
+                    }`}
+                  >
+                    Terminal
+                  </button>
+                )}
+                {hasFileTab && (
+                  <button
+                    onClick={() => setActiveTab('file')}
+                    className={`px-2 py-1 rounded text-xs font-medium ${
+                      effectiveTab === 'file'
+                        ? 'bg-secondary text-foreground'
+                        : 'text-muted-foreground hover:text-foreground'
+                    }`}
+                  >
+                    File
+                  </button>
+                )}
+              </>
+            ) : (
+              <span className="text-sm font-medium text-foreground px-1">
+                {getSingleTabLabel()}
+              </span>
+            )}
+          </div>
+
+          <div className="flex-1" />
+
+          <div className="flex items-center gap-0.5">
+            {effectiveTab === 'terminal' && projectId && (
+              <TerminalActions projectId={projectId} />
+            )}
+            {effectiveTab === 'file' && projectRoot && (
+              <FileViewerActions />
+            )}
+            <button
+              onClick={handleClose}
+              className="p-1.5 rounded text-muted-foreground hover:bg-secondary hover:text-foreground flex-shrink-0"
+              title="Close panel"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        <div className="flex-1 overflow-hidden relative">
+          {hasTerminalTab && projectId && (
+            <div className={`absolute inset-0 ${effectiveTab === 'terminal' ? '' : 'invisible'}`}>
+              <TerminalPanel projectId={projectId} workingDirectory={workingDirectory} />
+            </div>
+          )}
+          {hasFileTab && projectRoot && (
+            <div className={`absolute inset-0 ${effectiveTab === 'file' ? '' : 'invisible'}`}>
+              <FileViewerPanel projectRoot={projectRoot} />
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div
       ref={containerRef}

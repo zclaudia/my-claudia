@@ -830,6 +830,16 @@ function runMigrations(db: Database.Database): void {
         -- no-op: merged_commit_sha already defined in 030_local_pr_workflow CREATE TABLE
         SELECT 1;
       `
+    },
+    {
+      name: '038_local_pr_execution_state',
+      sql: `
+        ALTER TABLE local_prs ADD COLUMN execution_state TEXT NOT NULL DEFAULT 'idle'
+          CHECK (execution_state IN ('idle', 'queued', 'running', 'failed'));
+        ALTER TABLE local_prs ADD COLUMN pending_action TEXT NOT NULL DEFAULT 'none'
+          CHECK (pending_action IN ('none', 'review', 'merge', 'resolve_conflict'));
+        ALTER TABLE local_prs ADD COLUMN execution_error TEXT;
+      `
     }
   ];
 

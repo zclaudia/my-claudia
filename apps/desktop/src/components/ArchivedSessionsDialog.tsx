@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useProjectStore } from '../stores/projectStore';
+import { useIsMobile } from '../hooks/useMediaQuery';
 import * as api from '../services/api';
 import type { Session } from '@my-claudia/shared';
 
@@ -23,6 +24,7 @@ function formatRelativeTime(timestamp: number): string {
 }
 
 export function ArchivedSessionsDialog({ isOpen, onClose }: ArchivedSessionsDialogProps) {
+  const isMobile = useIsMobile();
   const [archivedSessions, setArchivedSessions] = useState<Session[]>([]);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(false);
@@ -145,9 +147,15 @@ export function ArchivedSessionsDialog({ isOpen, onClose }: ArchivedSessionsDial
       <div className="fixed inset-0 bg-black/70 z-50" onClick={onClose} />
 
       {/* Dialog */}
-      <div className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] max-h-[80vh] bg-card rounded-lg shadow-2xl z-50 overflow-hidden">
+      <div
+        className={`fixed z-50 bg-card overflow-hidden flex flex-col ${
+          isMobile
+            ? 'inset-0 safe-top-pad safe-bottom-pad'
+            : 'top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] max-h-[80vh] rounded-lg shadow-2xl'
+        }`}
+      >
         {/* Header */}
-        <div className="px-6 py-4 border-b border-border flex items-center justify-between">
+        <div className="px-4 md:px-6 py-4 border-b border-border flex items-center justify-between">
           <h2 className="text-xl font-semibold">Archived Sessions</h2>
           <button
             onClick={onClose}
@@ -161,7 +169,7 @@ export function ArchivedSessionsDialog({ isOpen, onClose }: ArchivedSessionsDial
 
         {/* Toolbar */}
         {archivedSessions.length > 0 && (
-          <div className="px-6 py-3 border-b border-border flex items-center justify-between">
+          <div className="px-4 md:px-6 py-3 border-b border-border flex items-center justify-between gap-2">
             <div className="flex gap-2">
               <button
                 onClick={selectedIds.size === archivedSessions.length ? clearSelection : selectAll}
@@ -197,7 +205,7 @@ export function ArchivedSessionsDialog({ isOpen, onClose }: ArchivedSessionsDial
         )}
 
         {/* Content */}
-        <div className="p-6 overflow-y-auto max-h-[calc(80vh-140px)]">
+        <div className={`p-4 md:p-6 overflow-y-auto ${isMobile ? 'flex-1' : 'max-h-[calc(80vh-140px)]'}`}>
           {/* Error */}
           {error && (
             <div className="mb-4 p-3 bg-destructive/10 border border-destructive rounded text-sm text-destructive">

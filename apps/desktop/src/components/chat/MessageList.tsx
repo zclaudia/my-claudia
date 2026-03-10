@@ -422,7 +422,7 @@ function CodeBlock({
         </div>
       </div>
       {/* Code content */}
-      <div className="overflow-x-auto">
+      <div className="overflow-x-auto touch-pan-x [-webkit-overflow-scrolling:touch]">
         <SyntaxHighlighter
           style={codeStyle}
           language={language}
@@ -433,6 +433,7 @@ function CodeBlock({
             padding: '0.75rem',
             fontSize: 'var(--chat-font-code, 0.8125rem)',
             overflowX: 'auto',
+            whiteSpace: 'pre',
           }}
         >
           {children}
@@ -780,7 +781,7 @@ const AssistantContent = memo(function AssistantContent({ content }: { content: 
             },
             table({ children }) {
               return (
-                <div className="w-full overflow-x-auto">
+                <div className="w-full overflow-x-auto touch-pan-x [-webkit-overflow-scrolling:touch]">
                   <table className="w-max min-w-full border-collapse border border-border">
                     {children}
                   </table>

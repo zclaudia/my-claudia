@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useServerStore } from '../stores/serverStore';
 import { useProjectStore } from '../stores/projectStore';
+import { useIsMobile } from '../hooks/useMediaQuery';
 import * as api from '../services/api';
 
 interface ImportDialogProps {
@@ -43,6 +44,7 @@ function getDirectoryName(wsPath: string): string {
 }
 
 export function ImportDialog({ isOpen, onClose }: ImportDialogProps) {
+  const isMobile = useIsMobile();
   const [step, setStep] = useState(ImportStep.SELECT_DIRECTORY);
   const [claudeCliPath, setClaudeCliPath] = useState('~/.claude');
   const [scannedData, setScannedData] = useState<ScanResult | null>(null);
@@ -274,14 +276,20 @@ export function ImportDialog({ isOpen, onClose }: ImportDialogProps) {
       <div className="fixed inset-0 bg-black/70 z-50" onClick={handleClose} />
 
       {/* Dialog */}
-      <div className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] max-h-[80vh] bg-card rounded-lg shadow-2xl z-50 overflow-hidden">
+      <div
+        className={`fixed z-50 bg-card overflow-hidden flex flex-col ${
+          isMobile
+            ? 'inset-0 safe-top-pad safe-bottom-pad'
+            : 'top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] max-h-[80vh] rounded-lg shadow-2xl'
+        }`}
+      >
         {/* Header */}
-        <div className="px-6 py-4 border-b border-border">
+        <div className="px-4 md:px-6 py-4 border-b border-border">
           <h2 className="text-xl font-semibold">Import from Claude CLI</h2>
         </div>
 
         {/* Content */}
-        <div className="p-6 overflow-y-auto max-h-[calc(80vh-140px)]">
+        <div className={`p-4 md:p-6 overflow-y-auto ${isMobile ? 'flex-1' : 'max-h-[calc(80vh-140px)]'}`}>
           {/* Error Message */}
           {error && (
             <div className="mb-4 p-3 bg-destructive/10 border border-destructive rounded text-sm text-destructive">
