@@ -132,6 +132,9 @@ function createTestDb(): Database.Database {
       project_role TEXT,
       task_id TEXT,
       archived_at INTEGER,
+      plan_status TEXT,
+      is_read_only INTEGER DEFAULT 0,
+      last_run_status TEXT,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL,
       FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
@@ -286,7 +289,7 @@ describe('SupervisorV2Service', () => {
       const agent = service.initAgent(projectId);
 
       expect(agent.type).toBe('supervisor');
-      expect(agent.phase).toBe('initializing');
+      expect(agent.phase).toBe('idle');
       expect(agent.config.maxConcurrentTasks).toBe(1);
       expect(agent.config.trustLevel).toBe('low');
       expect(agent.config.autoDiscoverTasks).toBe(false);
@@ -299,7 +302,7 @@ describe('SupervisorV2Service', () => {
       // Should have stored agent on project
       const project = projectRepo.findById(projectId);
       expect(project!.agent).toBeDefined();
-      expect(project!.agent!.phase).toBe('initializing');
+      expect(project!.agent!.phase).toBe('idle');
     });
 
     it('creates agent with custom config', () => {

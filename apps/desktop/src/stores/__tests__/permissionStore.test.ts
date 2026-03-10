@@ -3,10 +3,11 @@ import { usePermissionStore, type PermissionRequest } from '../permissionStore';
 
 describe('permissionStore', () => {
   beforeEach(() => {
-    // Reset store state before each test (queue + compat field)
+    // Reset store state before each test (queue + compat field + feedback drafts)
     usePermissionStore.setState({
       pendingRequests: [],
       pendingRequest: null,
+      feedbackDrafts: {},
     });
   });
 
@@ -194,6 +195,104 @@ describe('permissionStore', () => {
       usePermissionStore.getState().clearRequestById('req-1');
 
       expect(usePermissionStore.getState().hasRequest('req-1')).toBe(false);
+    });
+  });
+
+  describe('feedbackDrafts', () => {
+    it('initial state has empty feedbackDrafts', () => {
+      expect(usePermissionStore.getState().feedbackDrafts).toEqual({});
+    });
+
+    it('setFeedbackDraft stores feedback for a request', () => {
+      usePermissionStore.getState().setFeedbackDraft('req-1', 'This is my feedback');
+
+      expect(usePermissionStore.getState().feedbackDrafts['req-1']).toBe('This is my feedback');
+    });
+
+    it('setFeedbackDraft updates existing feedback', () => {
+      usePermissionStore.getState().setFeedbackDraft('req-1', 'First draft');
+      usePermissionStore.getState().setFeedbackDraft('req-1', 'Updated draft');
+
+      expect(usePermissionStore.getState().feedbackDrafts['req-1']).toBe('Updated draft');
+    });
+
+    it('setFeedbackDraft can store feedback for multiple requests', () => {
+      usePermissionStore.getState().setFeedbackDraft('req-1', 'Feedback 1');
+      usePermissionStore.getState().setFeedbackDraft('req-2', 'Feedback 2');
+
+      expect(usePermissionStore.getState().feedbackDrafts).toEqual({
+        'req-1': 'Feedback 1',
+        'req-2': 'Feedback 2',
+      });
+    });
+
+    it('clearFeedbackDraft removes feedback for a request', () => {
+      usePermissionStore.getState().setFeedbackDraft('req-1', 'Some feedback');
+      usePermissionStore.getState().clearFeedbackDraft('req-1');
+
+      expect(usePermissionStore.getState().feedbackDrafts['req-1']).toBeUndefined();
+    });
+
+    it('clearFeedbackDraft is safe to call for non-existent request', () => {
+      expect(() => {
+        usePermissionStore.getState().clearFeedbackDraft('non-existent');
+      }).not.toThrow();
+    });
+
+    it('clearRequest removes feedbackDraft for cleared request', () => {
+      const req1 = createRequest({ requestId: 'req-1' });
+      const req2 = createRequest({ requestId: 'req-2' });
+
+      usePermissionStore.getState().setPendingRequest(req1);
+      usePermissionStore.getState().setPendingRequest(req2);
+      usePermissionStore.getState().setFeedbackDraft('req-1', 'Feedback for req-1');
+      usePermissionStore.getState().setFeedbackDraft('req-2', 'Feedback for req-2');
+
+      usePermissionStore.getState().clearRequest();
+
+      expect(usePermissionStore.getState().feedbackDrafts['req-1']).toBeUndefined();
+      expect(usePermissionStore.getState().feedbackDrafts['req-2']).toBe('Feedback for req-2');
+    });
+
+    it('clearRequestById removes feedbackDraft for that request', () => {
+      const req1 = createRequest({ requestId: 'req-1' });
+      const req2 = createRequest({ requestId: 'req-2' });
+
+      usePermissionStore.getState().setPendingRequest(req1);
+      usePermissionStore.getState().setPendingRequest(req2);
+      usePermissionStore.getState().setFeedbackDraft('req-1', 'Feedback for req-1');
+      usePermissionStore.getState().setFeedbackDraft('req-2', 'Feedback for req-2');
+
+      usePermissionStore.getState().clearRequestById('req-1');
+
+      expect(usePermissionStore.getState().feedbackDrafts['req-1']).toBeUndefined();
+      expect(usePermissionStore.getState().feedbackDrafts['req-2']).toBe('Feedback for req-2');
+    });
+
+    it('clearAllRequests removes all feedbackDrafts', () => {
+      usePermissionStore.getState().setFeedbackDraft('req-1', 'Feedback 1');
+      usePermissionStore.getState().setFeedbackDraft('req-2', 'Feedback 2');
+
+      usePermissionStore.getState().clearAllRequests();
+
+      expect(usePermissionStore.getState().feedbackDrafts).toEqual({});
+    });
+
+    it('clearStaleRequests removes feedbackDrafts for stale requests', () => {
+      usePermissionStore.getState().setPendingRequest(
+        createRequest({ requestId: 'req-1', serverId: 'gw:backend-1' })
+      );
+      usePermissionStore.getState().setPendingRequest(
+        createRequest({ requestId: 'req-2', serverId: 'gw:backend-1' })
+      );
+      usePermissionStore.getState().setFeedbackDraft('req-1', 'Feedback for req-1');
+      usePermissionStore.getState().setFeedbackDraft('req-2', 'Feedback for req-2');
+
+      // Only req-2 is still valid
+      usePermissionStore.getState().clearStaleRequests('gw:backend-1', new Set(['req-2']));
+
+      expect(usePermissionStore.getState().feedbackDrafts['req-1']).toBeUndefined();
+      expect(usePermissionStore.getState().feedbackDrafts['req-2']).toBe('Feedback for req-2');
     });
   });
 });

@@ -18,8 +18,10 @@ vi.mock('../stores/serverStore', () => ({
   },
 }));
 
-vi.mock('../stores/gatewayStore', () => ({
+vi.mock('../../stores/gatewayStore', () => ({
   isGatewayTarget: vi.fn(() => false),
+  parseBackendId: vi.fn((id: string) => id),
+  toGatewayServerId: vi.fn((id: string) => `gateway:${id}`),
 }));
 
 // Mock API
@@ -169,7 +171,7 @@ describe('services/fileUpload', () => {
     });
 
     it('uploads file in gateway mode', async () => {
-      const { isGatewayTarget } = await import('../stores/gatewayStore');
+      const { isGatewayTarget } = await import('../../stores/gatewayStore');
       vi.mocked(isGatewayTarget).mockReturnValue(true);
 
       mockFetch.mockResolvedValueOnce({
@@ -208,7 +210,7 @@ describe('services/fileUpload', () => {
     });
 
     it('handles gateway mode upload failure', async () => {
-      const { isGatewayTarget } = await import('../stores/gatewayStore');
+      const { isGatewayTarget } = await import('../../stores/gatewayStore');
       vi.mocked(isGatewayTarget).mockReturnValue(true);
 
       mockFetch.mockResolvedValueOnce({
