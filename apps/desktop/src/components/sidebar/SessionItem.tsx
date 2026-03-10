@@ -1,3 +1,4 @@
+import { ExternalLink } from 'lucide-react';
 import type { Session } from '@my-claudia/shared';
 
 interface SessionItemProps {
@@ -9,6 +10,7 @@ interface SessionItemProps {
   providerName?: string;
   worktreeBranch?: string;
   isMobile?: boolean;
+  onPopOut?: () => void;
 }
 
 const ROLE_BADGES: Record<string, { label: string; className: string }> = {
@@ -37,6 +39,7 @@ export function SessionItem({
   providerName,
   worktreeBranch,
   isMobile,
+  onPopOut,
 }: SessionItemProps) {
   const isTask = session.projectRole === 'task';
   const roleBadge = session.projectRole ? ROLE_BADGES[session.projectRole] : undefined;
@@ -56,14 +59,14 @@ export function SessionItem({
     : (session.name || 'Untitled Session');
 
   return (
-    <li className="relative" data-testid="session-item">
+    <li className="relative group" data-testid="session-item">
       <button
         onClick={() => onSelect(session.id)}
         className={`w-full text-left px-2 rounded-lg truncate flex items-center gap-1 ${
           isTask ? 'text-xs' : 'text-sm'
         } ${
           isMobile ? 'min-h-[44px]' : 'h-7'
-        } ${isSelected ? selectedClass : unselectedClass}`}
+        } ${onPopOut && !isMobile ? 'pr-6' : ''} ${isSelected ? selectedClass : unselectedClass}`}
       >
         <span className="truncate">{displayName}</span>
         {/* Project role badge */}
@@ -105,6 +108,15 @@ export function SessionItem({
           </span>
         )}
       </button>
+      {onPopOut && !isMobile && (
+        <button
+          onClick={(e) => { e.stopPropagation(); onPopOut(); }}
+          className="absolute right-1 top-1/2 -translate-y-1/2 p-0.5 rounded opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-foreground hover:bg-muted transition-opacity"
+          title="Open in new window"
+        >
+          <ExternalLink size={11} />
+        </button>
+      )}
     </li>
   );
 }

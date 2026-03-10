@@ -1,5 +1,5 @@
 import { useRef, useEffect, useCallback, useState, useMemo } from 'react';
-import { Loader2, AlertTriangle, ClipboardList, ArrowDown, ArrowLeft, X, FileText, Terminal as TerminalIcon, ChevronDown, ChevronUp, Lock, Unlock, Archive, RotateCcw, Download, MoreHorizontal } from 'lucide-react';
+import { Loader2, AlertTriangle, ClipboardList, ArrowDown, ArrowLeft, X, FileText, Terminal as TerminalIcon, ChevronDown, ChevronUp, Lock, Unlock, Archive, RotateCcw, Download, MoreHorizontal, ExternalLink } from 'lucide-react';
 import { MessageList } from './MessageList';
 import { MessageInput, type Attachment } from './MessageInput';
 import { ToolCallList } from './ToolCallItem';
@@ -30,6 +30,14 @@ import { uploadFile } from '../../services/fileUpload';
 import { TaskCardStrip } from '../supervision/TaskCardStrip';
 import type { AgentPermissionPolicy, CommandExecuteResponse, Message, MessageAttachment, MessageInput as MessageInputData, ProviderCapabilities, SlashCommand } from '@my-claudia/shared';
 import type { MessageWithToolCalls } from '../../stores/chatStore';
+
+const isDesktopTauri = typeof window !== 'undefined'
+  && '__TAURI_INTERNALS__' in window
+  && !navigator.userAgent.includes('Android');
+
+// True when this window was opened as a standalone session window (no pop-out needed)
+const isStandaloneSessionWindow = typeof window !== 'undefined'
+  && new URLSearchParams(window.location.search).has('sessionWindow');
 
 // Restore tool calls and content blocks from persisted metadata when loading messages from the server
 function restoreToolCalls(messages: Message[]): MessageWithToolCalls[] {
@@ -122,6 +130,9 @@ export function ChatInterface({ sessionId, onReturnToDashboard }: ChatInterfaceP
     setAdvancedInput,
     forceScrollToBottomSessionId,
     consumeForceScrollToBottom,
+    poppedOutSessions,
+    addPoppedOutSession,
+    removePoppedOutSession,
   } = useUIStore();
   const { isOpen: fileViewerOpen } = useFileViewerStore();
   const { sendMessage: wsSendMessage, isConnected, handlePermissionDecision, handleAskUserAnswer } = useConnection();
@@ -1404,8 +1415,103 @@ export function ChatInterface({ sessionId, onReturnToDashboard }: ChatInterfaceP
     }
   };
 
+  const handlePopOut = async () => {
+    if (!isDesktopTauri) return;
+    try {
+      const { WebviewWindow } = await import('@tauri-apps/api/webviewWindow');
+      const { getBaseUrl, getAuthHeaders } = await import('../../services/api');
+
+      const label = `session-chat-${Date.now()}`;
+      const serverUrl = getBaseUrl();
+      const authToken = (getAuthHeaders() as Record<string, string>)['Authorization'] || '';
+
+      const urlParams = new URLSearchParams({
+        sessionWindow: sessionId,
+        projectId: currentSession?.projectId || '',
+        serverUrl,
+        authToken,
+      });
+
+      const winUrl = `${window.location.origin}${window.location.pathname}?${urlParams}`;
+
+      new WebviewWindow(label, {
+        url: winUrl,
+        title: currentSession?.name || 'Session',
+        width: 900,
+        height: 700,
+        center: true,
+        dragDropEnabled: false,
+      });
+
+      addPoppedOutSession(sessionId, label);
+
+      // When the standalone window closes, remove the popped-out state
+      const win = await WebviewWindow.getByLabel(label);
+      if (win) {
+        const unlisten = await win.onCloseRequested(() => {
+          removePoppedOutSession(sessionId);
+          unlisten();
+        });
+      }
+    } catch (err) {
+      console.error('[ChatInterface] Pop out failed:', err);
+    }
+  };
+
+  const handleFocusPoppedOutWindow = async (windowLabel: string) => {
+    if (!isDesktopTauri) return;
+    try {
+      const { invoke } = await import('@tauri-apps/api/core');
+      await invoke('focus_window', { label: windowLabel });
+    } catch (err) {
+      console.error('[ChatInterface] Focus popped-out window failed:', err);
+    }
+  };
+
+  const handleBringBackHere = async (windowLabel: string) => {
+    if (!isDesktopTauri) {
+      removePoppedOutSession(sessionId);
+      return;
+    }
+    try {
+      const { invoke } = await import('@tauri-apps/api/core');
+      await invoke('close_window', { label: windowLabel });
+    } catch (err) {
+      console.error('[ChatInterface] Close popped-out window failed:', err);
+    }
+    removePoppedOutSession(sessionId);
+  };
+
+  const poppedOutLabel = poppedOutSessions.get(sessionId);
+
   return (
     <div className="flex flex-col h-full bg-background">
+      {/* Popped-out placeholder: session is open in a standalone window */}
+      {poppedOutLabel && (
+        <div className="flex flex-col items-center justify-center flex-1 gap-4 text-muted-foreground">
+          <ExternalLink size={32} className="opacity-40" />
+          <p className="text-sm">This session is open in a separate window</p>
+          <div className="flex gap-2">
+            <button
+              onClick={async () => {
+                await handleFocusPoppedOutWindow(poppedOutLabel);
+              }}
+              className="px-3 py-1.5 text-xs rounded-md border border-border hover:bg-secondary transition-colors"
+            >
+              Focus window
+            </button>
+            <button
+              onClick={async () => {
+                await handleBringBackHere(poppedOutLabel);
+              }}
+              className="px-3 py-1.5 text-xs rounded-md text-muted-foreground hover:bg-muted transition-colors"
+            >
+              Bring back here
+            </button>
+          </div>
+        </div>
+      )}
+      {!poppedOutLabel && <>
       {/* Task card strip for supervisor main session */}
       {currentSession?.projectRole === 'main' && currentProject?.id && (
         <TaskCardStrip projectId={currentProject.id} />
@@ -1526,6 +1632,15 @@ export function ChatInterface({ sessionId, onReturnToDashboard }: ChatInterfaceP
               >
                 <Archive size={14} />
               </button>
+              {isDesktopTauri && !isMobile && !isStandaloneSessionWindow && (
+                <button
+                  onClick={handlePopOut}
+                  className="p-1 rounded hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors"
+                  title="Open in new window"
+                >
+                  <ExternalLink size={14} />
+                </button>
+              )}
             </div>
           )}
         </div>
@@ -2063,6 +2178,7 @@ export function ChatInterface({ sessionId, onReturnToDashboard }: ChatInterfaceP
           />
         </div>
       )}
+      </>}
     </div>
   );
 }

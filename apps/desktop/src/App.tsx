@@ -8,6 +8,7 @@ import { AgentPanel } from './components/agent/AgentPanel';
 import { AgentSidePanel } from './components/agent/AgentSidePanel';
 import { FileViewerWindow } from './components/fileviewer/FileViewerWindow';
 import { WorkflowEditorWindow } from './components/workflows/WorkflowEditorWindow';
+import { SessionChatWindow } from './components/chat/SessionChatWindow';
 import { ProjectDashboard } from './components/dashboard/ProjectDashboard';
 import { ThemeProvider } from './contexts/ThemeContext';
 import { ConnectionProvider, useConnection } from './contexts/ConnectionContext';
@@ -24,6 +25,7 @@ import { useSwipeBack } from './hooks/useSwipeBack';
 import { migrateServersFromLocalStorage, needsMigration } from './utils/migrateServers';
 import { eagerSyncAllBackends } from './services/sessionSync';
 import { useFileViewerStore } from './stores/fileViewerStore';
+import { useUIStore } from './stores/uiStore';
 import { initBuiltinPanels } from './plugins/builtinPanels';
 import { useAutoUpdate } from './hooks/useAutoUpdate';
 import { UpdateBanner } from './components/UpdateBanner';
@@ -41,6 +43,7 @@ function AppContent() {
   const fileViewerFilePath = useFileViewerStore((s) => s.filePath);
   const fileViewerProjectRoot = useFileViewerStore((s) => s.projectRoot);
   const setFileViewerFullscreen = useFileViewerStore((s) => s.setFullscreen);
+  const removePoppedOutSession = useUIStore((s) => s.removePoppedOutSession);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   // When a session is selected, exit the dashboard view
@@ -142,6 +145,27 @@ function AppContent() {
     document.addEventListener('visibilitychange', handleVisibilityChange);
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
   }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || new URLSearchParams(window.location.search).has('sessionWindow')) {
+      return;
+    }
+
+    let cleanup: (() => void) | undefined;
+    (async () => {
+      const { listen } = await import('@tauri-apps/api/event');
+      cleanup = await listen<{ sessionId?: string }>('session-window-closed', (event) => {
+        const closedSessionId = event.payload?.sessionId;
+        if (closedSessionId) {
+          removePoppedOutSession(closedSessionId);
+        }
+      });
+    })();
+
+    return () => {
+      cleanup?.();
+    };
+  }, [removePoppedOutSession]);
 
   // Mobile: show setup screen when gateway is not configured
   if (isMobile && !directGatewayUrl) {
@@ -398,6 +422,24 @@ function App() {
         <WorkflowEditorWindow
           projectId={workflowEditorProjectId}
           workflowId={workflowId}
+          serverUrl={serverUrl}
+          authToken={authToken}
+        />
+      </ThemeProvider>
+    );
+  }
+
+  // Check if this window is a standalone session chat window
+  const sessionWindowId = params.get('sessionWindow');
+  if (sessionWindowId) {
+    const serverUrl = params.get('serverUrl') || '';
+    const projectId = params.get('projectId') || '';
+    const authToken = params.get('authToken') || '';
+    return (
+      <ThemeProvider defaultTheme="dark-neutral">
+        <SessionChatWindow
+          sessionId={sessionWindowId}
+          projectId={projectId}
           serverUrl={serverUrl}
           authToken={authToken}
         />

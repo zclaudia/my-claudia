@@ -35,7 +35,7 @@ done
 
 # Release remote: which git remote to push tags and releases to (default: origin)
 RELEASE_REMOTE="${RELEASE_REMOTE:-origin}"
-RELEASE_REPO=$(git remote get-url "$RELEASE_REMOTE" 2>/dev/null | sed 's/.*github\.com[:/]\(.*\)\.git/\1/')
+RELEASE_REPO=$(git remote get-url "$RELEASE_REMOTE" 2>/dev/null | sed 's/.*github\.com[:/]\(.*\)\.git/\1/') || RELEASE_REPO=""
 echo "Release target: $RELEASE_REMOTE → $RELEASE_REPO"
 
 # --- Smart version bump ---

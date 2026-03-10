@@ -70,6 +70,10 @@ interface UIState {
   forceScrollToBottomSessionId: string | null;
   requestForceScrollToBottom: (sessionId: string) => void;
   consumeForceScrollToBottom: (sessionId: string) => void;
+  // Tracks sessions that have been popped out to standalone windows: sessionId → windowLabel
+  poppedOutSessions: Map<string, string>;
+  addPoppedOutSession: (sessionId: string, windowLabel: string) => void;
+  removePoppedOutSession: (sessionId: string) => void;
 }
 
 export const useUIStore = create<UIState>((set) => {
@@ -102,6 +106,19 @@ export const useUIStore = create<UIState>((set) => {
           ? { forceScrollToBottomSessionId: null }
           : state
       )),
+    poppedOutSessions: new Map(),
+    addPoppedOutSession: (sessionId, windowLabel) =>
+      set((state) => {
+        const next = new Map(state.poppedOutSessions);
+        next.set(sessionId, windowLabel);
+        return { poppedOutSessions: next };
+      }),
+    removePoppedOutSession: (sessionId) =>
+      set((state) => {
+        const next = new Map(state.poppedOutSessions);
+        next.delete(sessionId);
+        return { poppedOutSessions: next };
+      }),
   };
 });
 

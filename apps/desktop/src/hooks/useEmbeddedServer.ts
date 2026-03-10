@@ -45,10 +45,11 @@ async function resolveServerPath(): Promise<string> {
  * In production, uses a Rust-side Tauri command that directly spawns the bundled
  * node sidecar and reads stdout for SERVER_READY:<port>.
  */
-export function useEmbeddedServer(): EmbeddedServerState {
+export function useEmbeddedServer(options?: { disabled?: boolean }): EmbeddedServerState {
+  const disabled = options?.disabled ?? false;
   const [state, setState] = useState<EmbeddedServerState>(() => ({
     port: null,
-    status: isDesktopTauri() ? 'starting' : 'disabled',
+    status: (disabled || !isDesktopTauri()) ? 'disabled' : 'starting',
     error: null,
   }));
 
@@ -182,7 +183,7 @@ export function useEmbeddedServer(): EmbeddedServerState {
   useEffect(() => {
     mountedRef.current = true;
 
-    if (!isDesktopTauri()) return;
+    if (disabled || !isDesktopTauri()) return;
 
     if (import.meta.env.DEV) {
       startServerDev();

@@ -1,6 +1,41 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { Bot, FileText, Wrench } from 'lucide-react';
+
+const isDesktopTauri = typeof window !== 'undefined'
+  && '__TAURI_INTERNALS__' in window
+  && !navigator.userAgent.includes('Android');
+
+async function openSessionInNewWindow(sessionId: string, projectId: string) {
+  if (!isDesktopTauri) return;
+  try {
+    const { WebviewWindow } = await import('@tauri-apps/api/webviewWindow');
+    const { getBaseUrl, getAuthHeaders } = await import('../services/api');
+    const label = `session-chat-${Date.now()}`;
+    const serverUrl = getBaseUrl();
+    const authToken = (getAuthHeaders() as Record<string, string>)['Authorization'] || '';
+    const params = new URLSearchParams({ sessionWindow: sessionId, projectId, serverUrl, authToken });
+    new WebviewWindow(label, {
+      url: `${window.location.origin}${window.location.pathname}?${params}`,
+      title: 'Session',
+      width: 900,
+      height: 700,
+      center: true,
+      dragDropEnabled: false,
+    });
+    const { useUIStore } = await import('../stores/uiStore');
+    useUIStore.getState().addPoppedOutSession(sessionId, label);
+    const win = await WebviewWindow.getByLabel(label);
+    if (win) {
+      const unlisten = await win.onCloseRequested(() => {
+        useUIStore.getState().removePoppedOutSession(sessionId);
+        unlisten();
+      });
+    }
+  } catch (err) {
+    console.error('[Sidebar] Pop out session failed:', err);
+  }
+}
 import { useProjectStore } from '../stores/projectStore';
 import { useServerStore } from '../stores/serverStore';
 import { toGatewayServerId } from '../stores/gatewayStore';
@@ -1225,6 +1260,7 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
                       isActive={activeRunSessionIds.has(session.id)}
                       providerName={getProviderName(session)}
                       worktreeBranch={getWorktreeBranch(session, projects.find(p => p.id === session.projectId))}
+                      onPopOut={isDesktopTauri && !isMobile ? () => openSessionInNewWindow(session.id, session.projectId) : undefined}
                     />
                   );
 

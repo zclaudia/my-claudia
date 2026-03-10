@@ -33,9 +33,10 @@ interface ConnectionContextValue {
 
 export const ConnectionContext = createContext<ConnectionContextValue | null>(null);
 
-export function ConnectionProvider({ children }: { children: ReactNode }) {
-  // On desktop, spawn an embedded server with a random port
-  const embeddedServer = useEmbeddedServer();
+export function ConnectionProvider({ children, standaloneServerUrl }: { children: ReactNode; standaloneServerUrl?: string }) {
+  // On desktop, spawn an embedded server with a random port.
+  // Skip when standaloneServerUrl is provided (standalone window connects to existing server).
+  const embeddedServer = useEmbeddedServer({ disabled: !!standaloneServerUrl });
 
   // Update the local server address when the embedded server is ready
   useEffect(() => {
@@ -43,6 +44,17 @@ export function ConnectionProvider({ children }: { children: ReactNode }) {
       useServerStore.getState().setLocalServerPort(embeddedServer.port);
     }
   }, [embeddedServer.port]);
+
+  // For standalone windows, pre-configure the server port from the provided URL
+  useEffect(() => {
+    if (!standaloneServerUrl) return;
+    try {
+      const raw = standaloneServerUrl.startsWith('http') ? standaloneServerUrl : `http://${standaloneServerUrl}`;
+      const url = new URL(raw);
+      const port = parseInt(url.port);
+      if (port) useServerStore.getState().setLocalServerPort(port);
+    } catch { /* ignore malformed URL */ }
+  }, [standaloneServerUrl]);
 
   // Use the multi-server socket hook that manages multiple connections
   const socket = useMultiServerSocket();

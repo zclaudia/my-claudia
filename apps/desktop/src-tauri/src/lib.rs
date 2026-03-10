@@ -1,4 +1,4 @@
-#[cfg(all(not(target_os = "android"), not(debug_assertions)))]
+#[cfg(not(target_os = "android"))]
 use tauri::Manager;
 
 #[cfg(not(target_os = "android"))]
@@ -11,6 +11,26 @@ mod permissions;
 #[tauri::command]
 fn greet(name: &str) -> String {
     format!("Hello, {}! Welcome to MyClaudia!", name)
+}
+
+/// Focus a window by label (bring to front, unminimize if needed)
+#[cfg(not(target_os = "android"))]
+#[tauri::command]
+fn focus_window(app: tauri::AppHandle, label: String) {
+    if let Some(window) = app.get_webview_window(&label) {
+        let _ = window.unminimize();
+        let _ = window.show();
+        let _ = window.set_focus();
+    }
+}
+
+/// Close a window by label
+#[cfg(not(target_os = "android"))]
+#[tauri::command]
+fn close_window(app: tauri::AppHandle, label: String) {
+    if let Some(window) = app.get_webview_window(&label) {
+        let _ = window.close();
+    }
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -44,6 +64,8 @@ pub fn run() {
         permissions::open_full_disk_access_settings,
         permissions::check_folder_permissions,
         permissions::open_files_and_folders_settings,
+        focus_window,
+        close_window,
     ]);
 
     #[cfg(target_os = "android")]

@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useEffect } from 'react';
 import { useSessionsStore, type RemoteSession, LOCAL_BACKEND_KEY } from '../stores/sessionsStore';
 import { useServerStore } from '../stores/serverStore';
 import { useProjectStore } from '../stores/projectStore';
@@ -8,13 +8,30 @@ interface ActiveSessionsPanelProps {
   onSessionSelect?: (backendId: string, sessionId: string) => void;
 }
 
+function formatTimeAgo(ts: number): string {
+  const seconds = Math.floor((Date.now() - ts) / 1000);
+  if (seconds < 60) return `${seconds}s ago`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  return `${hours}h ago`;
+}
+
 export function ActiveSessionsPanel({ onSessionSelect }: ActiveSessionsPanelProps) {
   const [isCollapsed, setIsCollapsed] = useState(false);
-  const { remoteSessions, activeSessionIdsByBackend } = useSessionsStore();
+  const [, forceUpdate] = useState(0);
+  const { remoteSessions, activeSessionIdsByBackend, recentlyCompletedSessions, dismissRecentlyCompleted, clearAllRecentlyCompleted } = useSessionsStore();
   const { activeServerId, servers, connections } = useServerStore();
   const { sessions: localSessions, projects } = useProjectStore();
   const { localBackendId, discoveredBackends } = useGatewayStore();
   const hasDirectLocalConnection = (connections.local?.status === 'connected' || connections.local?.status === 'connecting');
+
+  // Refresh "X ago" timestamps every 30s
+  useEffect(() => {
+    if (recentlyCompletedSessions.length === 0) return;
+    const timer = setInterval(() => forceUpdate(n => n + 1), 30_000);
+    return () => clearInterval(timer);
+  }, [recentlyCompletedSessions.length]);
 
   // Get current backend ID (the one we're connected to via gateway)
   const currentBackendId = useMemo(() => {
@@ -142,6 +159,7 @@ export function ActiveSessionsPanel({ onSessionSelect }: ActiveSessionsPanelProp
   };
 
   const totalActive = Array.from(allActiveSessionsByBackend.values()).reduce((sum, s) => sum + s.length, 0);
+  const hasRecentlyCompleted = recentlyCompletedSessions.length > 0;
 
   return (
     <div className="px-2 pb-2">
@@ -231,6 +249,61 @@ export function ActiveSessionsPanel({ onSessionSelect }: ActiveSessionsPanelProp
             })}
           </div>
         ))}
+
+        {/* Recently Completed */}
+        {hasRecentlyCompleted && (
+          <div className="mt-1 border-t border-border/30 pt-1">
+            <div className="flex items-center gap-1.5 px-2 py-0.5">
+              <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/60">
+                Recently Completed
+              </span>
+              <button
+                onClick={clearAllRecentlyCompleted}
+                className="ml-auto text-[9px] text-muted-foreground/40 hover:text-muted-foreground transition-colors"
+              >
+                Clear all
+              </button>
+            </div>
+            <div className="max-h-[150px] overflow-y-auto space-y-0.5">
+              {recentlyCompletedSessions.map(({ session, backendId, completedAt }) => (
+                <div key={session.id} className="flex items-center gap-1">
+                  <button
+                    onClick={() => {
+                      if (backendId === LOCAL_BACKEND_KEY) {
+                        onSessionSelect?.('local', session.id);
+                      } else {
+                        onSessionSelect?.(backendId, session.id);
+                      }
+                    }}
+                    className="flex-1 min-w-0 text-left h-7 px-2 rounded-lg text-sm text-muted-foreground hover:bg-secondary hover:text-foreground transition-colors flex items-center gap-1.5"
+                  >
+                    <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground/30 shrink-0" />
+                    <span className="truncate flex-1">
+                      {session.name || `Session ${session.id.slice(0, 8)}`}
+                    </span>
+                    <span className="text-[9px] text-muted-foreground/40 shrink-0">
+                      {formatTimeAgo(completedAt)}
+                    </span>
+                    {getProjectName(session.projectId) && (
+                      <span className="text-[9px] text-muted-foreground/30 shrink-0 truncate max-w-[50px]">
+                        {getProjectName(session.projectId)}
+                      </span>
+                    )}
+                  </button>
+                  <button
+                    onClick={() => dismissRecentlyCompleted(session.id)}
+                    className="w-5 h-5 flex items-center justify-center text-muted-foreground/30 hover:text-muted-foreground transition-colors shrink-0"
+                    aria-label="Dismiss"
+                  >
+                    <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
