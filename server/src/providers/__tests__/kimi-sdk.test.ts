@@ -67,4 +67,125 @@ describe('kimi-sdk', () => {
 
     expect(messages.some((m) => m.type === 'error')).toBe(true);
   });
+
+  it('parses assistant text from nested message payloads', async () => {
+    const stdout = createMockReadable();
+    const stderr = createMockReadable();
+    const proc = Object.assign(new EventEmitter(), {
+      stdout,
+      stderr,
+      killed: false,
+      kill: vi.fn(() => true),
+    });
+    vi.mocked(spawn).mockReturnValue(proc as any);
+
+    const gen = runKimi('hello', { cwd: '/tmp' }, vi.fn());
+    const first = gen.next();
+
+    stdout.push(JSON.stringify({
+      type: 'message',
+      role: 'assistant',
+      message: {
+        content: [
+          { type: 'text', text: 'Hello from nested content' },
+        ],
+      },
+    }) + '\n');
+    stdout.push(null);
+
+    const result = await first;
+    expect(result.value).toMatchObject({
+      type: 'assistant',
+      content: 'Hello from nested content',
+    });
+  });
+
+  it('parses assistant delta style events', async () => {
+    const stdout = createMockReadable();
+    const stderr = createMockReadable();
+    const proc = Object.assign(new EventEmitter(), {
+      stdout,
+      stderr,
+      killed: false,
+      kill: vi.fn(() => true),
+    });
+    vi.mocked(spawn).mockReturnValue(proc as any);
+
+    const gen = runKimi('hello', { cwd: '/tmp' }, vi.fn());
+    const first = gen.next();
+
+    stdout.push(JSON.stringify({
+      type: 'assistant_delta',
+      delta: { text: 'delta reply' },
+    }) + '\n');
+    stdout.push(null);
+
+    const result = await first;
+    expect(result.value).toMatchObject({
+      type: 'assistant',
+      content: 'delta reply',
+    });
+  });
+
+  it('parses tool_call events with function-style arguments', async () => {
+    const stdout = createMockReadable();
+    const stderr = createMockReadable();
+    const proc = Object.assign(new EventEmitter(), {
+      stdout,
+      stderr,
+      killed: false,
+      kill: vi.fn(() => true),
+    });
+    vi.mocked(spawn).mockReturnValue(proc as any);
+
+    const gen = runKimi('hello', { cwd: '/tmp' }, vi.fn());
+    const first = gen.next();
+
+    stdout.push(JSON.stringify({
+      type: 'tool_call',
+      call_id: 'call-1',
+      function: {
+        name: 'read',
+        arguments: JSON.stringify({ file_path: '/tmp/a.ts' }),
+      },
+    }) + '\n');
+    stdout.push(null);
+
+    const result = await first;
+    expect(result.value).toMatchObject({
+      type: 'tool_use',
+      toolName: 'Read',
+      toolInput: { file_path: '/tmp/a.ts' },
+      toolUseId: 'call-1',
+    });
+  });
+
+  it('does not leak tool-like content into assistant text', async () => {
+    const stdout = createMockReadable();
+    const stderr = createMockReadable();
+    const proc = Object.assign(new EventEmitter(), {
+      stdout,
+      stderr,
+      killed: false,
+      kill: vi.fn(() => true),
+    });
+    vi.mocked(spawn).mockReturnValue(proc as any);
+
+    const messages: any[] = [];
+    const collect = (async () => {
+      for await (const msg of runKimi('hello', { cwd: '/tmp' }, vi.fn())) {
+        messages.push(msg);
+      }
+    })();
+
+    stdout.push(JSON.stringify({
+      type: 'delta',
+      tool: 'read',
+      content: '<system>546 lines read from file</system>',
+    }) + '\n');
+    stdout.push(null);
+
+    await collect;
+    expect(messages).toEqual([]);
+  });
 });

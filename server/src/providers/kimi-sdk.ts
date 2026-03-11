@@ -39,12 +39,114 @@ interface KimiToolCall {
   input: Record<string, unknown>;
 }
 
+function extractTextContent(value: unknown, depth = 0): string | undefined {
+  if (value == null || depth > 5) return undefined;
+
+  if (typeof value === 'string') {
+    return value;
+  }
+
+  if (typeof value === 'number' || typeof value === 'boolean') {
+    return String(value);
+  }
+
+  if (Array.isArray(value)) {
+    const parts = value
+      .map((item) => extractTextContent(item, depth + 1))
+      .filter((item): item is string => Boolean(item && item.length > 0));
+    return parts.length > 0 ? parts.join('') : undefined;
+  }
+
+  if (typeof value !== 'object') return undefined;
+
+  const record = value as Record<string, unknown>;
+
+  for (const key of ['text', 'content', 'delta']) {
+    const extracted = extractTextContent(record[key], depth + 1);
+    if (extracted) return extracted;
+  }
+
+  if (record.message && typeof record.message === 'object') {
+    const extracted = extractTextContent(record.message, depth + 1);
+    if (extracted) return extracted;
+  }
+
+  if (record.type === 'text' || record.type === 'output_text' || record.type === 'text_delta') {
+    const extracted = extractTextContent(record.text ?? record.content ?? record.delta, depth + 1);
+    if (extracted) return extracted;
+  }
+
+  return undefined;
+}
+
+function extractAssistantText(event: Record<string, unknown>): string | undefined {
+  return extractTextContent(
+    event.content
+      ?? event.text
+      ?? event.delta
+      ?? event.message
+      ?? event.output
+  );
+}
+
+function isToolLikeEvent(event: Record<string, unknown>): boolean {
+  return Boolean(
+    event.tool
+    || event.tool_call
+    || event.tool_use_id
+    || event.call_id
+    || event.function
+    || event.args
+    || event.arguments
+  );
+}
+
+function isAssistantLikeEvent(event: Record<string, unknown>): boolean {
+  const role = event.role as string | undefined;
+  const sender = event.sender as string | undefined;
+  const type = event.type as string | undefined;
+  const subtype = event.subtype as string | undefined;
+
+  if (role === 'assistant' || role === 'model' || role === 'thinking') return true;
+  if (sender === 'assistant' || sender === 'model') return true;
+  if (type && (type.includes('assistant') || type.includes('thinking') || type.includes('reasoning'))) return true;
+  if (subtype && (subtype.includes('assistant') || subtype.includes('delta') || subtype === 'text')) return true;
+  return false;
+}
+
+function parseToolInput(value: unknown): Record<string, unknown> {
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    return value as Record<string, unknown>;
+  }
+
+  if (typeof value === 'string') {
+    try {
+      const parsed = JSON.parse(value);
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        return parsed as Record<string, unknown>;
+      }
+    } catch {
+      return { input: value };
+    }
+  }
+
+  return {};
+}
+
 function extractToolCall(event: Record<string, unknown>): KimiToolCall | null {
-  const tool = event.tool as string | undefined;
+  const tool =
+    (event.tool as string | undefined)
+    || (event.name as string | undefined)
+    || ((event.function as { name?: string } | undefined)?.name);
   if (!tool) return null;
 
   const mappedTool = KIMI_TOOL_MAP[tool] || tool;
-  const input = (event.input as Record<string, unknown>) || {};
+  const rawInput =
+    event.input
+    ?? event.args
+    ?? event.arguments
+    ?? ((event.function as { arguments?: unknown } | undefined)?.arguments);
+  const input = parseToolInput(rawInput);
 
   return { tool: mappedTool, input };
 }
@@ -123,12 +225,34 @@ function mapKimiEvent(
       break;
     }
 
+    case 'system': {
+      if (event.subtype === 'init') {
+        const systemInfo: SystemInfo = {
+          model: event.model as string | undefined,
+          cwd: event.cwd as string | undefined,
+          tools: event.tools as string[] | undefined,
+        };
+        results.push({
+          msg: {
+            type: 'init',
+            sessionId: (event.session_id as string) || (event.sessionId as string),
+            systemInfo,
+          },
+        });
+      }
+      break;
+    }
+
     case 'message': {
       const role = event.role as string | undefined;
-      const content = event.content as string | undefined;
-      const isThinking = event.thinking === true || event.type === 'thinking';
+      const content = extractAssistantText(event);
+      const isThinking =
+        event.thinking === true
+        || event.reasoning === true
+        || event.type === 'thinking'
+        || role === 'thinking';
 
-      if (role === 'assistant' && content) {
+      if ((role === 'assistant' || role === 'model' || role === 'thinking') && content && !isToolLikeEvent(event)) {
         if (isThinking && !inThinkBlock) {
           results.push({ msg: { type: 'assistant', content: `<think>${content}` }, updateThink: true });
         } else if (!isThinking && inThinkBlock) {
@@ -137,11 +261,32 @@ function mapKimiEvent(
           results.push({ msg: { type: 'assistant', content } });
         }
       }
+      if (event.is_complete === true || event.isComplete === true) {
+        if (inThinkBlock) {
+          results.push({ msg: { type: 'assistant', content: '</think>' }, updateThink: false });
+        }
+        results.push({ msg: { type: 'result', isComplete: true } });
+      }
+      break;
+    }
+
+    case 'assistant':
+    case 'assistant_delta':
+    case 'content':
+    case 'content_delta':
+    case 'delta': {
+      const content = extractAssistantText(event);
+      if (content && !isToolLikeEvent(event)) {
+        results.push({ msg: { type: 'assistant', content } });
+      }
+      if (event.is_complete === true || event.isComplete === true) {
+        results.push({ msg: { type: 'result', isComplete: true } });
+      }
       break;
     }
 
     case 'thinking': {
-      const thinkingContent = event.content as string | undefined;
+      const thinkingContent = extractAssistantText(event);
       if (thinkingContent) {
         if (!inThinkBlock) {
           results.push({
@@ -151,6 +296,24 @@ function mapKimiEvent(
         } else {
           results.push({ msg: { type: 'assistant', content: thinkingContent } });
         }
+      }
+      break;
+    }
+
+    case 'reasoning': {
+      const reasoningContent = extractAssistantText(event);
+      if (reasoningContent) {
+        if (!inThinkBlock) {
+          results.push({
+            msg: { type: 'assistant', content: `<think>${reasoningContent}` },
+            updateThink: true,
+          });
+        } else {
+          results.push({ msg: { type: 'assistant', content: reasoningContent } });
+        }
+      }
+      if (event.subtype === 'completed' && inThinkBlock) {
+        results.push({ msg: { type: 'assistant', content: '</think>' }, updateThink: false });
       }
       break;
     }
@@ -170,8 +333,39 @@ function mapKimiEvent(
       break;
     }
 
+    case 'tool_call': {
+      const toolCall = extractToolCall(
+        (event.tool_call as Record<string, unknown> | undefined) || event
+      );
+      if (toolCall) {
+        if (event.subtype === 'completed') {
+          results.push({
+            msg: {
+              type: 'tool_result',
+              toolName: toolCall.tool,
+              toolResult: event.result ?? event.output ?? event.content,
+              isToolError: event.error === true || event.status === 'error',
+            },
+          });
+        } else {
+          results.push({
+            msg: {
+              type: 'tool_use',
+              toolName: toolCall.tool,
+              toolInput: toolCall.input,
+              toolUseId: (event.tool_use_id as string) || (event.call_id as string) || crypto.randomUUID(),
+            },
+          });
+        }
+      }
+      break;
+    }
+
     case 'tool_result': {
-      const toolName = event.tool as string | undefined;
+      const toolName =
+        (event.tool as string | undefined)
+        || (event.name as string | undefined)
+        || ((event.function as { name?: string } | undefined)?.name);
       const result = event.result ?? event.output ?? event.content;
       const isError = event.error === true || event.status === 'error';
 
@@ -205,10 +399,20 @@ function mapKimiEvent(
       break;
     }
 
+    case 'completed':
+    case 'message_stop': {
+      if (inThinkBlock) {
+        results.push({ msg: { type: 'assistant', content: '</think>' }, updateThink: false });
+      }
+      results.push({ msg: { type: 'result', isComplete: true } });
+      break;
+    }
+
     default: {
-      // Try to handle unknown events gracefully
-      if (event.content && typeof event.content === 'string') {
-        results.push({ msg: { type: 'assistant', content: event.content } });
+      // Only surface unknown events when they clearly look like assistant text.
+      const content = extractAssistantText(event);
+      if (content && !isToolLikeEvent(event) && isAssistantLikeEvent(event)) {
+        results.push({ msg: { type: 'assistant', content } });
       }
     }
   }
