@@ -100,6 +100,8 @@ const PERMISSION_TIMEOUT_POLICIES: Map<string, {
   }],
 ]);
 
+const MAX_SESSION_RESET_RETRIES = 1;
+
 // Check if input is a slash command
 function isSlashCommand(input: string): boolean {
   return input.trim().startsWith('/');
@@ -1490,7 +1492,8 @@ async function handleRunStart(
     workingDirectory?: string;  // Optional working directory override
     resend?: boolean;  // True when resending — skip inserting duplicate user message
   },
-  db: ReturnType<typeof initDatabase>
+  db: ReturnType<typeof initDatabase>,
+  recoveryState: { sessionResetRetryCount?: number } = {}
 ): Promise<void> {
   const runId = uuidv4();
 
@@ -2328,7 +2331,12 @@ async function handleRunStart(
     // If the Claude CLI process crashed (exit code 1) and we were resuming an
     // existing SDK session, the session is likely corrupted. Auto-reset and retry
     // once instead of failing immediately — this saves the user a manual retry.
-    if (errMsg.includes('process exited with code') && sdkSessionId) {
+    const sessionResetRetryCount = recoveryState.sessionResetRetryCount || 0;
+    if (
+      errMsg.includes('process exited with code') &&
+      sdkSessionId &&
+      sessionResetRetryCount < MAX_SESSION_RESET_RETRIES
+    ) {
       console.log(`[Recovery] Auto-resetting corrupted sdk_session_id ${sdkSessionId} for session ${message.sessionId}`);
       db.prepare(`UPDATE sessions SET sdk_session_id = NULL, updated_at = ? WHERE id = ?`)
         .run(Date.now(), message.sessionId);
@@ -2352,7 +2360,12 @@ async function handleRunStart(
 
       // Re-invoke handleRunStart with a fresh run (sdk_session_id is now NULL)
       try {
-        await handleRunStart(client, message, db);
+        await handleRunStart(
+          client,
+          { ...message, resend: true },
+          db,
+          { sessionResetRetryCount: sessionResetRetryCount + 1 }
+        );
         return; // retry succeeded — skip the error path below
       } catch (retryError) {
         console.error('[Recovery] Auto-retry after session reset also failed:', retryError);
