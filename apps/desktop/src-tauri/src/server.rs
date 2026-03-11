@@ -139,6 +139,37 @@ fn build_fallback_path(current: &str, home: &str, data_dir: &str) -> String {
     fallback
 }
 
+// --- macOS quarantine removal ---
+
+/// Remove com.apple.quarantine extended attribute from a path (recursively for directories).
+/// Self-signed apps don't pass Gatekeeper, so downloaded DMGs leave quarantine attributes
+/// on all bundled binaries. Without removal, macOS blocks execution of the node sidecar
+/// and native modules even after the user allows the main app to run.
+#[cfg(target_os = "macos")]
+fn remove_quarantine(path: &std::path::Path, data_dir: &str) {
+    let output = Command::new("xattr")
+        .args(["-r", "-d", "com.apple.quarantine"])
+        .arg(path)
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .output();
+    match output {
+        Ok(out) if out.status.success() => {
+            debug_log(data_dir, &format!("Cleared quarantine: {}", path.display()));
+        }
+        Ok(out) => {
+            let stderr = String::from_utf8_lossy(&out.stderr);
+            // "No such xattr" is expected when quarantine is already absent — not an error
+            if !stderr.contains("No such xattr") {
+                debug_log(data_dir, &format!("xattr warning on {}: {}", path.display(), stderr.trim()));
+            }
+        }
+        Err(e) => {
+            debug_log(data_dir, &format!("Failed to run xattr on {}: {}", path.display(), e));
+        }
+    }
+}
+
 // --- Server lifecycle ---
 
 /// Start the embedded Node.js server as a child process.
@@ -166,6 +197,19 @@ pub async fn start_server(
 
     if !node_bin.exists() {
         return Err(format!("Node binary not found at: {}", node_bin.display()));
+    }
+
+    // Remove macOS quarantine attributes from bundled binaries.
+    // Self-signed apps downloaded from the internet have quarantine flags on all
+    // internal files. The user may xattr -cr the .app, but if they don't (or it
+    // doesn't propagate), the node sidecar and native modules will fail to execute.
+    #[cfg(target_os = "macos")]
+    {
+        remove_quarantine(&node_bin, &data_dir);
+        let server_dir = std::path::Path::new(&server_path).parent();
+        if let Some(dir) = server_dir {
+            remove_quarantine(dir, &data_dir);
+        }
     }
 
     // Ensure data directory exists

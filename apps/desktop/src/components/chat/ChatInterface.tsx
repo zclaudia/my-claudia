@@ -726,7 +726,7 @@ export function ChatInterface({ sessionId, onReturnToDashboard }: ChatInterfaceP
       workingDirectory: currentSession?.workingDirectory || undefined,
     };
     console.log('[ChatInterface] run_start:', { sessionId, mode: runStartMsg.mode, model: runStartMsg.model, workingDirectory: runStartMsg.workingDirectory });
-    wsSendMessage(runStartMsg);
+    await startRun(runStartMsg);
 
     // Scroll to bottom after sending
     setTimeout(() => scrollToBottom(), 100);
@@ -750,7 +750,7 @@ export function ChatInterface({ sessionId, onReturnToDashboard }: ChatInterfaceP
       // Resend: reuse the existing user message — just start a new run with resend flag
       // so the server skips inserting a duplicate user message
       const messageInput: MessageInputData = { text: resendText };
-      wsSendMessage({
+      await startRun({
         type: 'run_start',
         clientRequestId: crypto.randomUUID(),
         sessionId,
@@ -979,6 +979,33 @@ export function ChatInterface({ sessionId, onReturnToDashboard }: ChatInterfaceP
       setTimeout(() => scrollToBottom(), 100);
     }
   }, [addMessage, scrollToBottom, sessionId]);
+
+  const clearInterruptedStatus = useCallback(async () => {
+    if (currentSession?.lastRunStatus !== 'interrupted') return;
+
+    useProjectStore.getState().updateSession(sessionId, { lastRunStatus: null });
+
+    try {
+      await api.dismissInterrupted(sessionId);
+    } catch (error) {
+      console.warn('[ChatInterface] Failed to persist interrupted status dismissal:', error);
+    }
+  }, [currentSession?.lastRunStatus, sessionId]);
+
+  const startRun = useCallback(async (runStartMsg: {
+    type: 'run_start';
+    clientRequestId: string;
+    sessionId: string;
+    input: string;
+    resend?: boolean;
+    mode?: string;
+    model?: string;
+    permissionOverride?: Partial<AgentPermissionPolicy>;
+    workingDirectory?: string;
+  }) => {
+    await clearInterruptedStatus();
+    wsSendMessage(runStartMsg);
+  }, [clearInterruptedStatus, wsSendMessage]);
 
   const handleCommand = useCallback(async (command: string, args: string) => {
     // Find the command definition to check its source
@@ -1268,7 +1295,7 @@ export function ChatInterface({ sessionId, onReturnToDashboard }: ChatInterfaceP
         createdAt: Date.now(),
       });
 
-      wsSendMessage({
+      await startRun({
         type: 'run_start',
         clientRequestId: clientMessageId,
         sessionId,
@@ -1316,7 +1343,7 @@ export function ChatInterface({ sessionId, onReturnToDashboard }: ChatInterfaceP
           createdAt: Date.now(),
         });
 
-        wsSendMessage({
+        await startRun({
           type: 'run_start',
           clientRequestId: clientMessageId,
           sessionId,
@@ -1338,7 +1365,7 @@ export function ChatInterface({ sessionId, onReturnToDashboard }: ChatInterfaceP
         createdAt: Date.now(),
       });
     }
-  }, [sessionId, addMessage, wsSendMessage, commands, currentSession, currentProject, handleBuiltInCommand, handleWorktreeChange, scrollToBottom, mode, modelOverride, isForcedPlanSession]);
+  }, [sessionId, addMessage, commands, currentSession, currentProject, handleBuiltInCommand, handleWorktreeChange, scrollToBottom, mode, modelOverride, isForcedPlanSession, startRun]);
 
   const handleCancelRun = () => {
     // Restore last sent message to input
@@ -1525,8 +1552,8 @@ export function ChatInterface({ sessionId, onReturnToDashboard }: ChatInterfaceP
           <span className="text-sm text-red-400">Session was interrupted by app restart.</span>
           <div className="ml-auto flex gap-2">
             <button
-              onClick={() => {
-                wsSendMessage({
+              onClick={async () => {
+                await startRun({
                   type: 'run_start',
                   clientRequestId: crypto.randomUUID(),
                   sessionId,
@@ -1542,8 +1569,7 @@ export function ChatInterface({ sessionId, onReturnToDashboard }: ChatInterfaceP
             <button
               onClick={async () => {
                 try {
-                  await api.dismissInterrupted(sessionId);
-                  useProjectStore.getState().updateSession(sessionId, { lastRunStatus: null });
+                  await clearInterruptedStatus();
                 } catch {}
               }}
               className="text-xs px-3 py-1 rounded-md text-muted-foreground hover:bg-muted transition-colors"
@@ -1601,12 +1627,12 @@ export function ChatInterface({ sessionId, onReturnToDashboard }: ChatInterfaceP
           {(() => {
             const pid = currentSession.providerId || currentProject?.providerId;
             const prov = pid ? providers.find(p => p.id === pid) : undefined;
-            const name = prov?.name || prov?.type;
-            return name ? (
+            const name = prov?.name || prov?.type || 'Claude';
+            return (
               <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted-foreground/10 text-muted-foreground/60 shrink-0">
                 {name}
               </span>
-            ) : null;
+            );
           })()}
           {/* Actions (hidden for background sessions) */}
           {currentSession.type !== 'background' && (

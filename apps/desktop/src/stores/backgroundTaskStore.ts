@@ -36,12 +36,19 @@ export const useBackgroundTaskStore = create<BackgroundTaskState>((set, get) => 
     tasks: { ...state.tasks, [task.id]: task }
   })),
 
-  updateTask: (taskId, updates) => set((state) => ({
-    tasks: {
-      ...state.tasks,
-      [taskId]: { ...state.tasks[taskId], ...updates }
+  updateTask: (taskId, updates) => {
+    set((state) => ({
+      tasks: {
+        ...state.tasks,
+        [taskId]: { ...state.tasks[taskId], ...updates }
+      }
+    }));
+    // Auto-remove completed/failed/stopped tasks after 15 seconds
+    const status = updates.status || get().tasks[taskId]?.status;
+    if (status === 'completed' || status === 'failed' || status === 'stopped') {
+      setTimeout(() => get().removeTask(taskId), 15_000);
     }
-  })),
+  },
 
   removeTask: (taskId) => set((state) => {
     const { [taskId]: _, ...rest } = state.tasks;

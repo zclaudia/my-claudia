@@ -129,7 +129,8 @@ else
   echo "Code signing enabled"
 fi
 echo "Building macOS desktop app..."
-pnpm --filter @my-claudia/desktop exec tauri build --config "$TAURI_CONFIG"
+# Build only .app and updater (skip Tauri's DMG — we rebuild it after re-signing anyway)
+pnpm --filter @my-claudia/desktop exec tauri build --bundles app,updater --config "$TAURI_CONFIG"
 echo ""
 
 # --- Re-sign native modules and node sidecar ---
@@ -163,6 +164,42 @@ if [ "${SKIP_SIGNING:-}" != "1" ]; then
 
     echo "  Verifying signature..."
     codesign --verify --deep --strict "$APP_BUNDLE" && echo "  Signature OK" || echo "  WARNING: Signature verification failed"
+
+    # --- Rebuild DMG and updater artifacts ---
+    # Tauri creates the DMG and .tar.gz BEFORE our re-signing, so they contain
+    # the original (incorrect) signatures. We must rebuild them.
+
+    # Rebuild .app.tar.gz (updater artifact)
+    TAR_GZ_PATH="$BUNDLE_DIR/macos/MyClaudia.app.tar.gz"
+    if [ -f "$TAR_GZ_PATH" ]; then
+      echo "  Rebuilding updater tar.gz with corrected signatures"
+      tar -czf "$TAR_GZ_PATH" -C "$BUNDLE_DIR/macos" "MyClaudia.app"
+      # Re-sign the tar.gz if signing key is available
+      if [ -n "${TAURI_SIGNING_PRIVATE_KEY:-}" ]; then
+        echo "  Re-signing updater artifact"
+        pnpm --filter @my-claudia/desktop exec tauri signer sign --private-key "$TAURI_SIGNING_PRIVATE_KEY" "$TAR_GZ_PATH" 2>/dev/null && \
+          echo "  Updater signature refreshed" || echo "  WARNING: Could not re-sign updater artifact (non-fatal)"
+      fi
+    fi
+
+    # Rebuild DMG with corrected app bundle
+    echo "  Rebuilding DMG with corrected signatures"
+    DMG_DIR="$BUNDLE_DIR/dmg"
+    # Remove old DMG files
+    find "$DMG_DIR" -name '*.dmg' -delete 2>/dev/null || true
+    # Detach any stale mounts
+    STALE_DISKS=$(hdiutil info 2>/dev/null | grep -A20 "image-path.*$BUNDLE_DIR" | grep '/dev/disk' | awk '{print $1}' | grep -o '/dev/disk[0-9]*' | sort -u || true)
+    for disk in $STALE_DISKS; do
+      hdiutil detach "$disk" -force 2>/dev/null || true
+    done
+    # Create new DMG
+    DMG_NAME="MyClaudia_${VERSION}_$(uname -m).dmg"
+    DMG_PATH="$DMG_DIR/$DMG_NAME"
+    mkdir -p "$DMG_DIR"
+    hdiutil create -volname "MyClaudia" -srcfolder "$APP_BUNDLE" -ov -format UDZO "$DMG_PATH"
+    # Sign the DMG
+    codesign --force --sign "$SIGNING_IDENTITY" "$DMG_PATH"
+    echo "  DMG rebuilt: $DMG_PATH"
     echo ""
   fi
 fi
