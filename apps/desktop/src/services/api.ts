@@ -20,6 +20,8 @@ import type {
   WorktreeConfig,
   ScheduledTask,
   ScheduledTaskTemplate,
+  SystemTaskInfo,
+  TaskRun,
   Workflow,
   WorkflowDefinition,
   WorkflowRun,
@@ -1458,6 +1460,22 @@ export async function enableTemplateTask(projectId: string, templateId: string):
     { method: 'POST' },
   );
   if (!result.success || !result.data) throw new Error(result.error?.message || 'Failed to enable template');
+  return result.data;
+}
+
+// ============================================
+// System Tasks & Task Run History API
+// ============================================
+
+export async function listSystemTasks(): Promise<SystemTaskInfo[]> {
+  const result = await fetchApi<SystemTaskInfo[]>('/api/system-tasks');
+  if (!result.success || !result.data) throw new Error(result.error?.message || 'Failed to list system tasks');
+  return result.data;
+}
+
+export async function listTaskRuns(taskId: string, limit: number = 50): Promise<TaskRun[]> {
+  const result = await fetchApi<TaskRun[]>(`/api/task-runs?taskId=${encodeURIComponent(taskId)}&limit=${limit}`);
+  if (!result.success || !result.data) throw new Error(result.error?.message || 'Failed to list task runs');
   return result.data;
 }
 

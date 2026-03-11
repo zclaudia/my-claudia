@@ -274,6 +274,45 @@ export interface ScheduledTaskTemplate {
   defaultActionConfig: ActionConfig;
 }
 
+// ============================================
+// Task Run History
+// ============================================
+
+export type TaskRunStatus = 'running' | 'completed' | 'failed';
+export type TaskSource = 'user' | 'system';
+
+export interface TaskRun {
+  id: string;
+  taskId: string;
+  taskSource: TaskSource;
+  status: TaskRunStatus;
+  startedAt: number;
+  completedAt?: number;
+  durationMs?: number;
+  result?: string;
+  error?: string;
+  createdAt: number;
+}
+
+// ============================================
+// System Task Types
+// ============================================
+
+export type SystemTaskCategory = 'scheduling' | 'sync' | 'maintenance' | 'supervision';
+
+export interface SystemTaskInfo {
+  id: string;
+  name: string;
+  description: string;
+  category: SystemTaskCategory;
+  intervalMs: number;
+  status: 'running' | 'idle' | 'error';
+  lastRunAt?: number;
+  lastRunDurationMs?: number;
+  lastError?: string;
+  runCount: number;
+}
+
 export interface Project {
   id: string;
   name: string;
@@ -987,6 +1026,12 @@ export interface ScheduledTaskDeletedMessage {
   taskId: string;
 }
 
+// System task updates (Server → Client)
+export interface SystemTaskUpdateMessage {
+  type: 'system_task_update';
+  task: SystemTaskInfo;
+}
+
 // Plugin notification (Server → Client)
 export interface PluginNotificationMessage {
   type: 'plugin_notification';
@@ -1062,6 +1107,7 @@ export type ServerMessage =
   | LocalPRDeletedMessage
   | ScheduledTaskUpdateMessage
   | ScheduledTaskDeletedMessage
+  | SystemTaskUpdateMessage
   | WorkflowUpdateMessage
   | WorkflowDeletedMessage
   | WorkflowRunUpdateMessage

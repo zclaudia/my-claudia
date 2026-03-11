@@ -43,6 +43,8 @@ import { createLocalPRRoutes } from './routes/local-prs.js';
 import { LocalPRService } from './services/local-pr-service.js';
 import { ScheduledTaskService } from './services/scheduled-task-service.js';
 import { createScheduledTaskRoutes } from './routes/scheduled-tasks.js';
+import { createSystemTaskRoutes } from './routes/system-tasks.js';
+import { systemTaskRegistry } from './services/system-task-registry.js';
 import { WorkflowService } from './services/workflow-service.js';
 import { createWorkflowRoutes } from './routes/workflows.js';
 import { SupervisorV2Service } from './services/supervisor-v2-service.js';
@@ -592,6 +594,7 @@ export async function createServer(): Promise<ServerContext> {
     });
   });
   app.use('/api', authMiddleware, createScheduledTaskRoutes(scheduledTaskService));
+  app.use('/api', authMiddleware, createSystemTaskRoutes(scheduledTaskService.getTaskRunRepo()));
 
   // Workflow service + routes
   const workflowService = new WorkflowService(db, (projectId, message) => {
@@ -974,19 +977,62 @@ export async function createServer(): Promise<ServerContext> {
     }
   });
 
-  // Local PR scheduler (runs on same cadence as supervision: every 10s)
-  setInterval(() => {
-    localPRService.tick().catch((err) => console.error('[LocalPR] Tick error:', err));
+  // Register and start system tasks
+  systemTaskRegistry.register({
+    id: 'system:local_pr_scheduler',
+    name: 'Local PR Scheduler',
+    description: 'Processes pending local PR reviews and merges',
+    category: 'scheduling',
+    intervalMs: 10000,
+  });
+  setInterval(async () => {
+    systemTaskRegistry.markRunStart('system:local_pr_scheduler');
+    const start = Date.now();
+    try {
+      await localPRService.tick();
+      systemTaskRegistry.markRunComplete('system:local_pr_scheduler', Date.now() - start);
+    } catch (err) {
+      systemTaskRegistry.markRunComplete('system:local_pr_scheduler', Date.now() - start, String(err));
+      console.error('[LocalPR] Tick error:', err);
+    }
   }, 10000);
 
-  // Scheduled task scheduler (every 10s)
-  setInterval(() => {
-    scheduledTaskService.tick().catch((err) => console.error('[ScheduledTasks] Tick error:', err));
+  systemTaskRegistry.register({
+    id: 'system:scheduled_task_engine',
+    name: 'Scheduled Task Engine',
+    description: 'Checks for due tasks and executes them',
+    category: 'scheduling',
+    intervalMs: 10000,
+  });
+  setInterval(async () => {
+    systemTaskRegistry.markRunStart('system:scheduled_task_engine');
+    const start = Date.now();
+    try {
+      await scheduledTaskService.tick();
+      systemTaskRegistry.markRunComplete('system:scheduled_task_engine', Date.now() - start);
+    } catch (err) {
+      systemTaskRegistry.markRunComplete('system:scheduled_task_engine', Date.now() - start, String(err));
+      console.error('[ScheduledTasks] Tick error:', err);
+    }
   }, 10000);
 
-  // Workflow scheduler (every 10s)
-  setInterval(() => {
-    workflowService.tick().catch((err) => console.error('[Workflow] Tick error:', err));
+  systemTaskRegistry.register({
+    id: 'system:workflow_scheduler',
+    name: 'Workflow Scheduler',
+    description: 'Checks for due workflow schedules and starts runs',
+    category: 'scheduling',
+    intervalMs: 10000,
+  });
+  setInterval(async () => {
+    systemTaskRegistry.markRunStart('system:workflow_scheduler');
+    const start = Date.now();
+    try {
+      await workflowService.tick();
+      systemTaskRegistry.markRunComplete('system:workflow_scheduler', Date.now() - start);
+    } catch (err) {
+      systemTaskRegistry.markRunComplete('system:workflow_scheduler', Date.now() - start, String(err));
+      console.error('[Workflow] Tick error:', err);
+    }
   }, 10000);
 
   // Forward permission requests to connected frontends

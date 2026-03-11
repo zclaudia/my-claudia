@@ -18,6 +18,7 @@ import type {
   Session,
 } from '@my-claudia/shared';
 import { ScheduledTaskRepository } from '../repositories/scheduled-task.js';
+import { TaskRunRepository } from '../repositories/task-run.js';
 import { ProjectRepository } from '../repositories/project.js';
 import { SessionRepository } from '../repositories/session.js';
 import { computeNextCronRun } from '../utils/cron.js';
@@ -32,21 +33,29 @@ const PROMPT_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
 
 export class ScheduledTaskService {
   private repo: ScheduledTaskRepository;
+  private taskRunRepo: TaskRunRepository;
   private projectRepo: ProjectRepository;
   private sessionRepo: SessionRepository;
   private activeRuns = new Map<string, boolean>();
+  private lastPruneAt = 0;
+  private static PRUNE_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
 
   constructor(
     private db: Database,
     private broadcastFn: (message: ServerMessage) => void,
   ) {
     this.repo = new ScheduledTaskRepository(db);
+    this.taskRunRepo = new TaskRunRepository(db);
     this.projectRepo = new ProjectRepository(db);
     this.sessionRepo = new SessionRepository(db);
   }
 
   getRepo(): ScheduledTaskRepository {
     return this.repo;
+  }
+
+  getTaskRunRepo(): TaskRunRepository {
+    return this.taskRunRepo;
   }
 
   // ── tick() ──────────────────────────────────────────────────────
@@ -62,6 +71,17 @@ export class ScheduledTaskService {
           console.error(`[ScheduledTasks] Error executing task ${task.id}:`, err);
         });
       }
+
+      // Periodically prune old run history
+      if (now - this.lastPruneAt > ScheduledTaskService.PRUNE_INTERVAL_MS) {
+        this.lastPruneAt = now;
+        try {
+          const pruned = this.taskRunRepo.pruneOldRuns(7);
+          if (pruned > 0) console.log(`[ScheduledTasks] Pruned ${pruned} old task runs`);
+        } catch (err) {
+          console.error('[ScheduledTasks] Prune error:', err);
+        }
+      }
     } catch (err) {
       console.error('[ScheduledTasks] tick error:', err);
     }
@@ -71,8 +91,17 @@ export class ScheduledTaskService {
 
   async executeTask(task: ScheduledTask): Promise<void> {
     this.activeRuns.set(task.id, true);
-    this.repo.update(task.id, { status: 'running', lastRunAt: Date.now() });
+    const startedAt = Date.now();
+    this.repo.update(task.id, { status: 'running', lastRunAt: startedAt });
     this.broadcastUpdate(task.id);
+
+    // Record run start
+    const run = this.taskRunRepo.create({
+      taskId: task.id,
+      taskSource: 'user',
+      status: 'running',
+      startedAt,
+    });
 
     try {
       let result: string;
@@ -97,6 +126,7 @@ export class ScheduledTaskService {
           result = `Unknown action type: ${task.actionType}`;
       }
 
+      const completedAt = Date.now();
       const nextRun = this.computeNextRun(task);
       this.repo.update(task.id, {
         status: 'idle',
@@ -106,14 +136,31 @@ export class ScheduledTaskService {
         nextRun: nextRun ?? undefined,
         enabled: task.scheduleType === 'once' ? false : task.enabled,
       });
+
+      // Record run completion
+      this.taskRunRepo.update(run.id, {
+        status: 'completed',
+        completedAt,
+        durationMs: completedAt - startedAt,
+        result: result.slice(0, 2000),
+      });
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : String(err);
+      const completedAt = Date.now();
       const nextRun = this.computeNextRun(task);
       this.repo.update(task.id, {
         status: 'error',
         lastError: errorMsg,
         runCount: task.runCount + 1,
         nextRun: nextRun ?? undefined,
+      });
+
+      // Record run failure
+      this.taskRunRepo.update(run.id, {
+        status: 'failed',
+        completedAt,
+        durationMs: completedAt - startedAt,
+        error: errorMsg.slice(0, 2000),
       });
     } finally {
       this.activeRuns.delete(task.id);

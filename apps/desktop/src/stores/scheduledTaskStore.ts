@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { ScheduledTask, ScheduledTaskTemplate } from '@my-claudia/shared';
+import type { ScheduledTask, ScheduledTaskTemplate, TaskRun } from '@my-claudia/shared';
 import {
   listScheduledTasks,
   listGlobalScheduledTasks,
@@ -9,6 +9,7 @@ import {
   triggerScheduledTask,
   listScheduledTaskTemplates,
   enableTemplateTask,
+  listTaskRuns,
 } from '../services/api';
 
 const GLOBAL_KEY = '__global__';
@@ -17,10 +18,13 @@ interface ScheduledTaskState {
   /** projectId → tasks (GLOBAL_KEY for global tasks) */
   tasks: Record<string, ScheduledTask[]>;
   templates: ScheduledTaskTemplate[];
+  /** taskId → run history */
+  taskRuns: Record<string, TaskRun[]>;
 
   loadTasks: (projectId: string) => Promise<void>;
   loadGlobalTasks: () => Promise<void>;
   loadTemplates: () => Promise<void>;
+  loadTaskRuns: (taskId: string) => Promise<void>;
   create: (projectId: string | undefined, data: Partial<ScheduledTask>) => Promise<ScheduledTask>;
   update: (taskId: string, projectId: string | undefined, data: Partial<ScheduledTask>) => Promise<void>;
   remove: (taskId: string, projectId: string | undefined) => Promise<void>;
@@ -35,6 +39,7 @@ interface ScheduledTaskState {
 export const useScheduledTaskStore = create<ScheduledTaskState>((set, get) => ({
   tasks: {},
   templates: [],
+  taskRuns: {},
 
   loadTasks: async (projectId) => {
     const tasks = await listScheduledTasks(projectId);
@@ -49,6 +54,11 @@ export const useScheduledTaskStore = create<ScheduledTaskState>((set, get) => ({
   loadTemplates: async () => {
     const templates = await listScheduledTaskTemplates();
     set({ templates });
+  },
+
+  loadTaskRuns: async (taskId) => {
+    const runs = await listTaskRuns(taskId);
+    set((state) => ({ taskRuns: { ...state.taskRuns, [taskId]: runs } }));
   },
 
   create: async (projectId, data) => {

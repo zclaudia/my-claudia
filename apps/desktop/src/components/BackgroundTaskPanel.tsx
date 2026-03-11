@@ -73,9 +73,9 @@ interface BackgroundTaskPanelProps {
 }
 
 export function BackgroundTaskPanel({ sessionId }: BackgroundTaskPanelProps) {
+  const [collapsed, setCollapsed] = useState(false);
   const tasks = useBackgroundTaskStore((s) => s.getTasksBySession(sessionId));
   const removeTask = useBackgroundTaskStore((s) => s.removeTask);
-  const clearTasks = useBackgroundTaskStore((s) => s.clearTasks);
 
   if (tasks.length === 0) {
     return null;
@@ -95,23 +95,25 @@ export function BackgroundTaskPanel({ sessionId }: BackgroundTaskPanelProps) {
           }
         </span>
         <button
-          onClick={() => clearTasks(sessionId)}
+          onClick={() => setCollapsed(!collapsed)}
           className="ml-auto p-0.5 rounded hover:bg-muted transition-colors"
-          title="Clear all"
+          title={collapsed ? 'Expand' : 'Collapse'}
         >
-          <X size={11} className="text-muted-foreground" />
+          {collapsed ? <ChevronRight size={11} className="text-muted-foreground" /> : <ChevronDown size={11} className="text-muted-foreground" />}
         </button>
       </div>
 
       {/* Task list — compact rows */}
-      <div className="overflow-y-auto max-h-40 pb-1">
-        {activeTasks.map((task) => (
-          <TaskItem key={task.id} task={task} onRemove={() => removeTask(task.id)} />
-        ))}
-        {completedTasks.map((task) => (
-          <TaskItem key={task.id} task={task} onRemove={() => removeTask(task.id)} />
-        ))}
-      </div>
+      {!collapsed && (
+        <div className="overflow-y-auto max-h-40 pb-1">
+          {activeTasks.map((task) => (
+            <TaskItem key={task.id} task={task} onRemove={() => removeTask(task.id)} />
+          ))}
+          {completedTasks.map((task) => (
+            <TaskItem key={task.id} task={task} onRemove={() => removeTask(task.id)} />
+          ))}
+        </div>
+      )}
     </div>
   );
 }

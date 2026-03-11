@@ -1,4 +1,5 @@
 import { execSync } from 'child_process';
+import { systemTaskRegistry } from './system-task-registry.js';
 import { v4 as uuidv4 } from 'uuid';
 import type { Database } from 'better-sqlite3';
 import type {
@@ -86,7 +87,23 @@ export class SupervisorV2Service {
 
   start(intervalMs = 5000): void {
     if (this.pollInterval) return;
-    this.pollInterval = setInterval(() => this.tick(), intervalMs);
+    systemTaskRegistry.register({
+      id: 'system:supervisor_polling',
+      name: 'Supervisor Polling',
+      description: 'Task queue management, dependency checking, and execution scheduling',
+      category: 'supervision',
+      intervalMs,
+    });
+    this.pollInterval = setInterval(async () => {
+      systemTaskRegistry.markRunStart('system:supervisor_polling');
+      const start = Date.now();
+      try {
+        await this.tick();
+        systemTaskRegistry.markRunComplete('system:supervisor_polling', Date.now() - start);
+      } catch (err) {
+        systemTaskRegistry.markRunComplete('system:supervisor_polling', Date.now() - start, String(err));
+      }
+    }, intervalMs);
     console.log('[SupervisorV2] Started polling');
   }
 

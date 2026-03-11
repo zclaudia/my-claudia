@@ -1,4 +1,5 @@
 import { query } from '@anthropic-ai/claude-agent-sdk';
+import { systemTaskRegistry } from '../services/system-task-registry.js';
 import type { ModelInfo } from '@anthropic-ai/claude-agent-sdk';
 import type { ProviderConfig, PermissionRequest, PermissionMode, MessageInput, MessageAttachment } from '@my-claudia/shared';
 import { fileStore } from '../storage/fileStore.js';
@@ -102,7 +103,23 @@ export function cleanupOldTempFiles() {
 cleanupOldTempFiles();
 
 // Run cleanup every 30 minutes
-setInterval(cleanupOldTempFiles, 30 * 60 * 1000).unref();
+systemTaskRegistry.register({
+  id: 'system:temp_file_cleanup',
+  name: 'Temp File Cleanup',
+  description: 'Cleans old temporary upload files',
+  category: 'maintenance',
+  intervalMs: 30 * 60 * 1000,
+});
+setInterval(async () => {
+  systemTaskRegistry.markRunStart('system:temp_file_cleanup');
+  const start = Date.now();
+  try {
+    cleanupOldTempFiles();
+    systemTaskRegistry.markRunComplete('system:temp_file_cleanup', Date.now() - start);
+  } catch (err) {
+    systemTaskRegistry.markRunComplete('system:temp_file_cleanup', Date.now() - start, String(err));
+  }
+}, 30 * 60 * 1000).unref();
 
 interface PreparedInput {
   text: string;

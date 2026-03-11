@@ -3,6 +3,7 @@ import * as path from 'path';
 import * as os from 'os';
 import { v4 as uuidv4 } from 'uuid';
 import type Database from 'better-sqlite3';
+import { systemTaskRegistry } from '../services/system-task-registry.js';
 
 export interface StoredFile {
   id: string;
@@ -237,8 +238,22 @@ export function initFileStore(db: Database.Database): void {
   instance = new FileStore(db, path.join(dataDir, 'files'));
 
   // Cleanup every hour
+  systemTaskRegistry.register({
+    id: 'system:filestore_cleanup',
+    name: 'FileStore Cleanup',
+    description: 'Removes expired files from file storage',
+    category: 'maintenance',
+    intervalMs: 60 * 60 * 1000,
+  });
   setInterval(() => {
-    instance?.cleanup();
+    systemTaskRegistry.markRunStart('system:filestore_cleanup');
+    const start = Date.now();
+    try {
+      instance?.cleanup();
+      systemTaskRegistry.markRunComplete('system:filestore_cleanup', Date.now() - start);
+    } catch (err) {
+      systemTaskRegistry.markRunComplete('system:filestore_cleanup', Date.now() - start, String(err));
+    }
   }, 60 * 60 * 1000);
 
   const stats = instance.getStats();

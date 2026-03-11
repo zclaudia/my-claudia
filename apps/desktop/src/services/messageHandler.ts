@@ -17,6 +17,7 @@ import { useAskUserQuestionStore } from '../stores/askUserQuestionStore';
 import { useSupervisionStore } from '../stores/supervisionStore';
 import { useLocalPRStore } from '../stores/localPRStore';
 import { useScheduledTaskStore } from '../stores/scheduledTaskStore';
+import { useSystemTaskStore } from '../stores/systemTaskStore';
 import { useWorkflowStore } from '../stores/workflowStore';
 import { useSessionsStore } from '../stores/sessionsStore';
 import { LOCAL_BACKEND_KEY } from '../stores/sessionsStore';
@@ -344,6 +345,12 @@ export function handleServerMessage(
     case 'scheduled_task_deleted': {
       const { projectId, taskId } = msg as any;
       useScheduledTaskStore.getState().removeTask(projectId, taskId);
+      break;
+    }
+
+    case 'system_task_update': {
+      const { task } = msg as any;
+      useSystemTaskStore.getState().updateTask(task);
       break;
     }
 

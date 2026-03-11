@@ -231,7 +231,7 @@ export function WorkflowsPanel({ projectId, onViewModeChange }: WorkflowsPanelPr
                       key={wf.id}
                       workflow={wf}
                       latestRun={getLatestRun(wf.id)}
-                      onTrigger={isMobile ? undefined : async () => {
+                      onTrigger={async () => {
                         const run = await triggerWorkflow(wf.id);
                         setView({ type: 'run-viewer', runId: run.id });
                       }}
@@ -263,7 +263,7 @@ export function WorkflowsPanel({ projectId, onViewModeChange }: WorkflowsPanelPr
                       key={wf.id}
                       workflow={wf}
                       latestRun={getLatestRun(wf.id)}
-                      onTrigger={isMobile ? undefined : () => {}}
+                      onTrigger={() => {}}
                       onEdit={isMobile ? undefined : () => setView({ type: 'editor', workflow: wf })}
                       onToggle={isMobile ? undefined : () => updateWorkflow(wf.id, projectId, { status: 'active' })}
                       onDelete={isMobile ? undefined : () => deleteWorkflow(wf.id, projectId)}
