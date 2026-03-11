@@ -245,6 +245,19 @@ function buildStatusOutput(systemInfo: SystemInfo): string {
 function formatProviderErrorMessage(raw: string, providerType?: string): string {
   const msg = raw.trim();
   const lower = msg.toLowerCase();
+  const provider = providerType ? providerType.toUpperCase() : 'Provider';
+  const isExpiredClaudeOAuth =
+    providerType === 'claude' &&
+    (
+      lower.includes('oauth token has expired') ||
+      (lower.includes('authentication_error') && lower.includes('token has expired')) ||
+      (lower.includes('failed to authenticate') && lower.includes('401'))
+    );
+
+  if (isExpiredClaudeOAuth) {
+    return `Claude authentication expired on this machine. Re-login with \`claude auth login\` and retry. (${msg})`;
+  }
+
   const isLimitLike =
     lower.includes('rate limit') ||
     lower.includes('ratelimit') ||
@@ -256,7 +269,6 @@ function formatProviderErrorMessage(raw: string, providerType?: string): string 
     lower.includes('429');
 
   if (!isLimitLike) return msg || 'Unknown error';
-  const provider = providerType ? providerType.toUpperCase() : 'Provider';
   return `${provider} request limit reached. Please wait and retry, or switch account/model. (${msg})`;
 }
 

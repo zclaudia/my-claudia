@@ -23,8 +23,17 @@ if [ -f .env ]; then
   set -a; source .env; set +a
 fi
 
-# Read signing key from file path if provided
-if [ -z "${TAURI_SIGNING_PRIVATE_KEY:-}" ] && [ -n "${TAURI_SIGNING_PRIVATE_KEY_PATH:-}" ]; then
+# Prefer the existing local Tauri updater keypair when no explicit path is set.
+DEFAULT_TAURI_KEY_PATH="$HOME/.tauri/my-claudia.key"
+DEFAULT_TAURI_PUBKEY_PATH="$HOME/.tauri/my-claudia.key.pub"
+if [ -z "${TAURI_SIGNING_PRIVATE_KEY_PATH:-}" ] && [ -f "$DEFAULT_TAURI_KEY_PATH" ]; then
+  TAURI_SIGNING_PRIVATE_KEY_PATH="$DEFAULT_TAURI_KEY_PATH"
+  export TAURI_SIGNING_PRIVATE_KEY_PATH
+fi
+
+# Read signing key from file path if provided. `tauri build` uses the env var
+# contents, while `tauri signer sign` is more reliable with an explicit key file.
+if [ -z "${TAURI_SIGNING_PRIVATE_KEY:-}" ] && [ -n "${TAURI_SIGNING_PRIVATE_KEY_PATH:-}" ] && [ -f "${TAURI_SIGNING_PRIVATE_KEY_PATH}" ]; then
   TAURI_SIGNING_PRIVATE_KEY="$(cat "$TAURI_SIGNING_PRIVATE_KEY_PATH")"
   export TAURI_SIGNING_PRIVATE_KEY
 fi
@@ -32,6 +41,65 @@ fi
 for cmd in rustup pnpm; do
   command -v "$cmd" >/dev/null || { echo "ERROR: $cmd not found"; exit 1; }
 done
+
+sign_updater_artifact() {
+  local artifact_path="$1"
+  local artifact_abs_path="$artifact_path"
+  local key_path="${TAURI_SIGNING_PRIVATE_KEY_PATH:-}"
+  local temp_key_path=""
+
+  if [ ! -f "$artifact_abs_path" ] && [ -f "$PWD/$artifact_path" ]; then
+    artifact_abs_path="$PWD/$artifact_path"
+  fi
+
+  if [ -f "$artifact_abs_path" ]; then
+    artifact_abs_path="$(cd "$(dirname "$artifact_abs_path")" && pwd)/$(basename "$artifact_abs_path")"
+  fi
+
+  if [ -z "$key_path" ] && [ -n "${TAURI_SIGNING_PRIVATE_KEY:-}" ]; then
+    temp_key_path="$(mktemp /tmp/my-claudia-tauri-key.XXXXXX)"
+    chmod 600 "$temp_key_path"
+    printf '%s' "$TAURI_SIGNING_PRIVATE_KEY" > "$temp_key_path"
+    key_path="$temp_key_path"
+  fi
+
+  if [ -z "$key_path" ] || [ ! -f "$key_path" ]; then
+    [ -n "$temp_key_path" ] && rm -f "$temp_key_path"
+    return 1
+  fi
+
+  if [ ! -f "$artifact_abs_path" ]; then
+    echo "  WARNING: Updater artifact not found for signing: $artifact_path"
+    [ -n "$temp_key_path" ] && rm -f "$temp_key_path"
+    return 1
+  fi
+
+  local signer_cmd=(
+    env
+    -u TAURI_SIGNING_PRIVATE_KEY
+    -u TAURI_SIGNING_PRIVATE_KEY_PATH
+    pnpm
+    --filter @my-claudia/desktop
+    exec
+    tauri
+    signer
+    sign
+    --private-key-path "$key_path"
+  )
+  if [ -n "${TAURI_SIGNING_PRIVATE_KEY_PASSWORD:-}" ]; then
+    signer_cmd+=(--password "$TAURI_SIGNING_PRIVATE_KEY_PASSWORD")
+  fi
+  signer_cmd+=("$artifact_abs_path")
+
+  rm -f "${artifact_abs_path}.sig"
+  if "${signer_cmd[@]}"; then
+    [ -n "$temp_key_path" ] && rm -f "$temp_key_path"
+    return 0
+  fi
+
+  [ -n "$temp_key_path" ] && rm -f "$temp_key_path"
+  return 1
+}
 
 # Release remote: which git remote to push tags and releases to (default: origin)
 RELEASE_REMOTE="${RELEASE_REMOTE:-origin}"
@@ -175,10 +243,13 @@ if [ "${SKIP_SIGNING:-}" != "1" ]; then
       echo "  Rebuilding updater tar.gz with corrected signatures"
       tar -czf "$TAR_GZ_PATH" -C "$BUNDLE_DIR/macos" "MyClaudia.app"
       # Re-sign the tar.gz if signing key is available
-      if [ -n "${TAURI_SIGNING_PRIVATE_KEY:-}" ]; then
+      if [ -n "${TAURI_SIGNING_PRIVATE_KEY_PATH:-}" ] || [ -n "${TAURI_SIGNING_PRIVATE_KEY:-}" ]; then
         echo "  Re-signing updater artifact"
-        pnpm --filter @my-claudia/desktop exec tauri signer sign --private-key "$TAURI_SIGNING_PRIVATE_KEY" "$TAR_GZ_PATH" 2>/dev/null && \
-          echo "  Updater signature refreshed" || echo "  WARNING: Could not re-sign updater artifact (non-fatal)"
+        if sign_updater_artifact "$TAR_GZ_PATH"; then
+          echo "  Updater signature refreshed"
+        else
+          echo "  WARNING: Could not re-sign updater artifact (non-fatal)"
+        fi
       fi
     fi
 
@@ -291,8 +362,9 @@ MANIFEST_EOF
 else
   echo ""
   echo "  NOTE: No update artifacts generated."
-  echo "  To enable auto-update signing, set TAURI_SIGNING_PRIVATE_KEY before building:"
-  echo "    export TAURI_SIGNING_PRIVATE_KEY=\$(cat ~/.tauri/myClaudia.key)"
+  echo "  To enable auto-update signing, configure one of:"
+  echo "    export TAURI_SIGNING_PRIVATE_KEY_PATH=\"$HOME/.tauri/my-claudia.key\""
+  echo "    export TAURI_SIGNING_PRIVATE_KEY=\$(cat \"$HOME/.tauri/my-claudia.key\")"
 fi
 
 echo ""
