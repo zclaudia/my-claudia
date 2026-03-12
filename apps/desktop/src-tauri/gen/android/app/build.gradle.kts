@@ -18,6 +18,9 @@ val isDev = findProperty("isDev") == "true"
 android {
     compileSdk = 36
     namespace = "com.myClaudia.desktop"
+    packaging {
+        jniLibs.pickFirsts.add("lib/**/libc++_shared.so")
+    }
     defaultConfig {
         manifestPlaceholders["usesCleartextTraffic"] = "false"
         manifestPlaceholders["appIcon"] = if (isDev) "ic_launcher_dev" else "ic_launcher"
