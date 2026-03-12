@@ -200,13 +200,13 @@ function AppContent() {
     <div className="flex flex-col h-dvh bg-background text-foreground">
       {/* Top safe area spacer: notch/status bar on mobile, traffic lights on desktop */}
       <div
-        className="safe-top-spacer bg-card flex-shrink-0"
+        className={`safe-top-spacer bg-card flex-shrink-0 ${isMobile && selectedSessionId && !isAgentExpanded ? 'hidden' : ''}`}
         data-tauri-drag-region
       />
 
-      {/* Unified Header - spans full width */}
+      {/* Header - hidden on mobile when ChatInterface has its own session bar */}
       <header
-        className="h-12 md:h-14 border-b border-border flex items-center px-2 md:px-4 bg-card flex-shrink-0"
+        className={`h-12 md:h-14 border-b border-border flex items-center px-2 md:px-4 bg-card flex-shrink-0 ${isMobile && selectedSessionId && !isAgentExpanded ? 'hidden' : ''}`}
         data-tauri-drag-region
       >
         {/* Left section: Logo and app name */}
@@ -342,6 +342,7 @@ function AppContent() {
               <ChatInterface
                 key={selectedSessionId}
                 sessionId={selectedSessionId}
+                onOpenSidebar={() => setSidebarOpen(true)}
                 onReturnToDashboard={(projectId) => {
                   selectProject(projectId);
                   selectSession(null);

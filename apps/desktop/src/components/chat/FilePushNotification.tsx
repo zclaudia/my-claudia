@@ -43,6 +43,7 @@ function handleOpenFile(item: FilePushItem, setPreview: (item: FilePushItem) => 
   }
   // Not previewable → open with external app
   const path = item.privatePath || item.savedPath;
+  console.log('[FilePush] handleOpenFile:', { fileName: item.fileName, mimeType: item.mimeType, privatePath: item.privatePath, savedPath: item.savedPath, path });
   if (!path) return;
   if (isAndroid()) {
     openFileAndroid(path, item.mimeType);

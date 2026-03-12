@@ -66,6 +66,7 @@ function restoreToolCalls(messages: Message[]): MessageWithToolCalls[] {
 interface ChatInterfaceProps {
   sessionId: string;
   onReturnToDashboard?: (projectId: string) => void;
+  onOpenSidebar?: () => void;
 }
 
 const MESSAGES_PER_PAGE = 50;
@@ -77,7 +78,7 @@ const EMPTY_TOOL_CALLS: import('../../stores/chatStore').ToolCallState[] = [];
 const EMPTY_CONTENT_BLOCKS: import('@my-claudia/shared').ContentBlock[] = [];
 const ATTACHMENT_PLACEHOLDER = '[Attachments]';
 
-export function ChatInterface({ sessionId, onReturnToDashboard }: ChatInterfaceProps) {
+export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar }: ChatInterfaceProps) {
   const messages = useChatStore((s) => s.messages);
   const pagination = useChatStore((s) => s.pagination);
   const activeRuns = useChatStore((s) => s.activeRuns);
@@ -1649,7 +1650,19 @@ export function ChatInterface({ sessionId, onReturnToDashboard }: ChatInterfaceP
 
       {/* Session action bar */}
       {currentSession && (
-        <div className="flex items-center gap-2 px-3 py-1.5 border-b border-border bg-card/50">
+        <div className="flex items-center gap-2 px-3 py-1.5 border-b border-border bg-card/50 safe-top-pad">
+          {/* Mobile: hamburger menu */}
+          {isMobile && onOpenSidebar && (
+            <button
+              onClick={onOpenSidebar}
+              className="p-1.5 -ml-1 rounded hover:bg-secondary text-muted-foreground hover:text-foreground flex-shrink-0"
+              aria-label="Open menu"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+              </svg>
+            </button>
+          )}
           {/* Back button for background sessions */}
           {currentSession.type === 'background' && onReturnToDashboard && currentSession.projectId && (
             <button
