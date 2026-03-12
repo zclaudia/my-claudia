@@ -23,6 +23,7 @@ import { isRequest, ALL_SERVER_FEATURES, resolvePluginPlatform } from '@my-claud
 import type { AgentPermissionPolicy } from '@my-claudia/shared';
 import { initDatabase } from './storage/db.js';
 import { initFileStore } from './storage/fileStore.js';
+import { workspaceService, initWorkspace } from './services/workspace.js';
 import { createProjectRoutes } from './routes/projects.js';
 import { createSessionRoutes } from './routes/sessions.js';
 import { createProviderRoutes } from './routes/providers.js';
@@ -44,6 +45,7 @@ import { LocalPRService } from './services/local-pr-service.js';
 import { ScheduledTaskService } from './services/scheduled-task-service.js';
 import { createScheduledTaskRoutes } from './routes/scheduled-tasks.js';
 import { createSystemTaskRoutes } from './routes/system-tasks.js';
+import { createWorkspaceRoutes } from './routes/workspace.js';
 import { systemTaskRegistry } from './services/system-task-registry.js';
 import { WorkflowService } from './services/workflow-service.js';
 import { createWorkflowRoutes } from './routes/workflows.js';
@@ -414,6 +416,9 @@ export async function createServer(): Promise<ServerContext> {
   // Initialize file store (DB + disk persistence)
   initFileStore(db);
 
+  // Initialize Agent Workspace (SOUL.md, AGENTS.md, TOOLS.md, skills)
+  await initWorkspace();
+
   // Generate ephemeral RSA keypair for E2E credential encryption
   generateKeyPair();
 
@@ -632,6 +637,9 @@ export async function createServer(): Promise<ServerContext> {
 
   // System stats + plugin storage reader (local only)
   app.use('/api/system', localOnlyMiddleware, createSystemStatsRoutes());
+
+  // Workspace routes (Agent personality configuration)
+  app.use('/api/workspace', authMiddleware, createWorkspaceRoutes());
 
   app.use('/api/server/gateway', localOnlyMiddleware, createGatewayRouter(
     db,
@@ -1952,6 +1960,13 @@ async function handleRunStart(
       ? buildPlanDocumentPrompt(session.task_id)
       : undefined;
 
+    // 🆕 Assemble workspace prompt (SOUL.md, AGENTS.md, TOOLS.md, skills)
+    const workspacePrompt = await workspaceService.assembleSystemPrompt({
+      projectId: session.project_id || undefined,
+      projectPath: session.root_path || undefined,
+      skills: [], // TODO: Load from project.agentConfig.skills when database schema is updated
+    });
+
     const runOptions = {
       cwd,
       sessionId: sdkSessionId,
@@ -1959,7 +1974,7 @@ async function handleRunStart(
       env: { ...(providerConfig?.env || {}), ...filePushEnv },
       mode: modeValue,
       model: message.model,
-      systemPrompt: [message.systemContext, nonNativePlanPrompt, planDocumentPrompt, filePushContext, session.system_prompt].filter(Boolean).join('\n\n') || undefined,
+      systemPrompt: [workspacePrompt, message.systemContext, nonNativePlanPrompt, planDocumentPrompt, filePushContext, session.system_prompt].filter(Boolean).join('\n\n') || undefined,
       serverPort: serverPort || undefined,
       db,
     };

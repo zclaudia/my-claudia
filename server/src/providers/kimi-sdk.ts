@@ -201,12 +201,104 @@ function prepareKimiInput(input: string): string {
 
 // ── Kimi event → ClaudeMessage mapping ───────────────────────
 
+/**
+ * 处理 Kimi CLI 新格式的事件，其中 content 是一个数组
+ * 格式: {"role": "assistant", "content": [{"type": "think", "think": "..."}, {"type": "text", "text": "..."}]}
+ */
+function processContentArray(
+  contentArray: Array<Record<string, unknown>>,
+  inThinkBlock: boolean
+): Array<{ msg: ClaudeMessage; updateThink?: boolean }> {
+  const results: Array<{ msg: ClaudeMessage; updateThink?: boolean }> = [];
+  let currentThinkBlock = inThinkBlock;
+
+  for (const block of contentArray) {
+    const blockType = block.type as string | undefined;
+
+    switch (blockType) {
+      case 'think': {
+        // 思考内容块
+        const thinkContent = (block.think as string) || (block.content as string) || '';
+        if (thinkContent) {
+          if (!currentThinkBlock) {
+            results.push({
+              msg: { type: 'assistant', content: `<think>${thinkContent}` },
+              updateThink: true,
+            });
+            currentThinkBlock = true;
+          } else {
+            results.push({ msg: { type: 'assistant', content: thinkContent } });
+          }
+        }
+        break;
+      }
+
+      case 'text': {
+        // 文本内容块
+        const textContent = (block.text as string) || (block.content as string) || '';
+        if (textContent) {
+          if (currentThinkBlock) {
+            // 先关闭思考块
+            results.push({ msg: { type: 'assistant', content: '</think>' }, updateThink: false });
+            currentThinkBlock = false;
+          }
+          results.push({ msg: { type: 'assistant', content: textContent } });
+        }
+        break;
+      }
+
+      case 'tool_use':
+      case 'tool_call': {
+        // 工具调用
+        const toolName = (block.name as string) || (block.tool as string) || '';
+        const toolInput = (block.input as Record<string, unknown>) || (block.arguments as Record<string, unknown>) || {};
+        if (toolName) {
+          const mappedTool = KIMI_TOOL_MAP[toolName] || toolName;
+          results.push({
+            msg: {
+              type: 'tool_use',
+              toolName: mappedTool,
+              toolInput,
+              toolUseId: (block.id as string) || (block.tool_use_id as string) || crypto.randomUUID(),
+            },
+          });
+        }
+        break;
+      }
+
+      default: {
+        // 未知类型，尝试提取文本
+        const content = extractTextContent(block);
+        if (content) {
+          if (currentThinkBlock) {
+            results.push({ msg: { type: 'assistant', content: '</think>' }, updateThink: false });
+            currentThinkBlock = false;
+          }
+          results.push({ msg: { type: 'assistant', content } });
+        }
+      }
+    }
+  }
+
+  return results;
+}
+
 function mapKimiEvent(
   event: Record<string, unknown>,
   inThinkBlock: boolean
 ): Array<{ msg: ClaudeMessage; updateThink?: boolean }> {
   const type = event.type as string | undefined;
+  const role = event.role as string | undefined;
   const results: Array<{ msg: ClaudeMessage; updateThink?: boolean }> = [];
+
+  // 处理新格式：没有 type 字段，但有 role 和 content 数组
+  // 格式: {"role": "assistant", "content": [{"type": "think", ...}, {"type": "text", ...}]}
+  if (!type && role === 'assistant' && Array.isArray(event.content)) {
+    return processContentArray(
+      event.content as Array<Record<string, unknown>>,
+      inThinkBlock
+    );
+  }
 
   switch (type) {
     case 'init': {
@@ -427,8 +519,16 @@ export async function* runKimi(
   options: KimiRunOptions,
   _onPermission: PermissionCallback
 ): AsyncGenerator<ClaudeMessage, void, void> {
-  const promptText = prepareKimiInput(input);
+  let promptText = prepareKimiInput(input);
   const binary = options.cliPath || 'kimi';
+
+  // 🆕 Handle systemPrompt: prepend to input
+  // Kimi CLI doesn't have native systemPrompt support, so we prepend to the input
+  if (options.systemPrompt) {
+    const systemContext = `[System Context]\n${options.systemPrompt}`;
+    promptText = `${systemContext}\n\n${promptText}`;
+    console.log(`[Kimi SDK] Prepended system prompt (${options.systemPrompt.length} chars)`);
+  }
 
   // Build CLI args
   // --print: Run in print mode (non-interactive)

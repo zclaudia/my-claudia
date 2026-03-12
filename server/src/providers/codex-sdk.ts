@@ -278,7 +278,28 @@ export async function* runCodex(
   };
 
   // Prepare input (handle images)
-  const codexInput = prepareCodexInput(input);
+  let codexInput = prepareCodexInput(input);
+
+  // 🆕 Handle systemPrompt: prepend to input for new sessions only
+  // Codex SDK doesn't have native systemPrompt support, so we prepend to the input
+  if (options.systemPrompt && !options.sessionId) {
+    const systemContext = `[System Context]\n${options.systemPrompt}`;
+
+    if (Array.isArray(codexInput)) {
+      // Input is UserInput[] - prepend to first text element
+      const firstText = codexInput.find(p => p.type === 'text');
+      if (firstText && firstText.type === 'text') {
+        firstText.text = `${systemContext}\n\n${firstText.text}`;
+      } else {
+        // No text element, prepend a new one
+        codexInput = [{ type: 'text', text: systemContext }, ...codexInput];
+      }
+    } else if (typeof codexInput === 'string') {
+      // Input is a plain string
+      codexInput = `${systemContext}\n\n${codexInput}`;
+    }
+    console.log(`[Codex SDK] Prepended system prompt (${options.systemPrompt.length} chars)`);
+  }
 
   // Set up abort controller
   const abortController = new AbortController();

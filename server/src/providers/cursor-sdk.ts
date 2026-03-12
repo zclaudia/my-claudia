@@ -101,8 +101,16 @@ export async function* runCursor(
   options: CursorRunOptions,
   _onPermission: PermissionCallback,
 ): AsyncGenerator<ClaudeMessage, void, void> {
-  const promptText = prepareCursorInput(input);
+  let promptText = prepareCursorInput(input);
   const binary = options.cliPath || 'cursor-agent';
+
+  // 🆕 Handle systemPrompt: prepend to input
+  // Cursor CLI doesn't have native systemPrompt support, so we prepend to the input
+  if (options.systemPrompt) {
+    const systemContext = `[System Context]\n${options.systemPrompt}`;
+    promptText = `${systemContext}\n\n${promptText}`;
+    console.log(`[Cursor SDK] Prepended system prompt (${options.systemPrompt.length} chars)`);
+  }
 
   // Build CLI args
   // --trust: bypass workspace trust prompt (required for non-interactive operation)
