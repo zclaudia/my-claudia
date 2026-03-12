@@ -26,6 +26,7 @@ import { initFileStore } from './storage/fileStore.js';
 import { workspaceService, initWorkspace } from './services/workspace.js';
 import { createProjectRoutes } from './routes/projects.js';
 import { createSessionRoutes } from './routes/sessions.js';
+import { createSessionDraftRoutes } from './routes/sessionDrafts.js';
 import { createProviderRoutes } from './routes/providers.js';
 import { createFilesRoutes } from './routes/files.js';
 import { createCommandsRoutes } from './routes/commands.js';
@@ -554,6 +555,7 @@ export async function createServer(): Promise<ServerContext> {
   // API routes (protected by auth middleware)
   app.use('/api/projects', authMiddleware, createProjectRoutes(db));
   app.use('/api/sessions', authMiddleware, createSessionRoutes(db, activeRuns));
+  app.use('/api/sessions', authMiddleware, createSessionDraftRoutes(db));
   app.use('/api/providers', authMiddleware, createProviderRoutes(db));
   app.use('/api/servers', authMiddleware, createServerRoutes(db));
   app.use('/api/files', authMiddleware, createFilesRoutes({

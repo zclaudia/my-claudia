@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, KeyboardEvent, ClipboardEvent, ChangeEvent, useCallback, useMemo } from 'react';
-import { Paperclip, X, Send, File as FileIcon, ChevronRight } from 'lucide-react';
+import { Paperclip, X, Send, File as FileIcon, ChevronRight, FileEdit } from 'lucide-react';
 import { Icon } from '../ui/Icon';
 import { getFileIcon } from '../../config/icons';
 import type { SlashCommand, FileEntry } from '@my-claudia/shared';
@@ -28,6 +28,8 @@ interface MessageInputProps {
   initialValue?: string;      // Initial value to set (e.g., for restoring after cancel)
   initialAttachments?: Attachment[]; // Initial attachments to restore
   advancedMode?: boolean;     // Advanced input: larger textarea, Enter=newline on desktop
+  onDraftOpen?: () => void;    // Open persistent draft editor
+  hasDraft?: boolean;          // Whether a server draft exists for this session
 }
 
 // State for @ mention feature
@@ -83,6 +85,8 @@ export function MessageInput({
   initialValue,
   initialAttachments,
   advancedMode = false,
+  onDraftOpen,
+  hasDraft = false,
 }: MessageInputProps) {
   const getAvailableViewportHeight = useCallback(() => {
     if (typeof window === 'undefined') return 800;
@@ -769,6 +773,21 @@ export function MessageInput({
           onChange={handleFileSelect}
           className="hidden"
         />
+
+        {/* Draft button */}
+        {onDraftOpen && (
+          <button
+            onClick={onDraftOpen}
+            disabled={disabled}
+            className={`${advancedMode ? 'h-12 w-12' : 'h-full aspect-square'} flex-shrink-0 flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted rounded-full transition-colors disabled:opacity-50 disabled:cursor-not-allowed relative`}
+            title="Open draft editor"
+          >
+            <FileEdit size={controlIconSize} strokeWidth={1.75} />
+            {hasDraft && (
+              <span className="absolute top-1 right-1 w-2 h-2 bg-primary rounded-full" />
+            )}
+          </button>
+        )}
 
         {/* Text input */}
         <div className={`flex-1 relative ${advancedMode ? '' : 'h-full'}`}>

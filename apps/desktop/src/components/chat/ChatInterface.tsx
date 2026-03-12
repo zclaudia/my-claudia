@@ -29,6 +29,8 @@ import * as api from '../../services/api';
 import { uploadFile } from '../../services/fileUpload';
 import { TaskCardStrip } from '../supervision/TaskCardStrip';
 import { BackgroundTaskPanel } from '../BackgroundTaskPanel';
+import { DraftEditorModal } from './DraftEditorModal';
+import { useDraftEditorStore } from '../../stores/draftEditorStore';
 import type { AgentPermissionPolicy, CommandExecuteResponse, Message, MessageAttachment, MessageInput as MessageInputData, ProviderCapabilities, SlashCommand } from '@my-claudia/shared';
 import type { MessageWithToolCalls } from '../../stores/chatStore';
 
@@ -139,6 +141,18 @@ export function ChatInterface({ sessionId, onReturnToDashboard }: ChatInterfaceP
   const { sendMessage: wsSendMessage, isConnected, handlePermissionDecision, handleAskUserAnswer } = useConnection();
   const isMobile = useIsMobile();
   const [showMoreMenu, setShowMoreMenu] = useState(false);
+
+  // Draft editor state
+  const draftEditorOpen = useDraftEditorStore((s) => s.isEditorOpen);
+  const draftShowLockPrompt = useDraftEditorStore((s) => s.showLockPrompt);
+  const draftExists = useDraftEditorStore((s) => s.draftExists[sessionId] ?? false);
+  const openDraftEditor = useDraftEditorStore((s) => s.openEditor);
+  const checkDraftExists = useDraftEditorStore((s) => s.checkDraftExists);
+
+  // Check draft existence when entering session
+  useEffect(() => {
+    checkDraftExists(sessionId);
+  }, [sessionId, checkDraftExists]);
 
   // Per-session pending permission/question requests
   // Also include requests without sessionId (backward compat with servers that haven't been updated)
@@ -2192,6 +2206,8 @@ export function ChatInterface({ sessionId, onReturnToDashboard }: ChatInterfaceP
             initialValue={restoreMessage?.content ?? initialDraft}
             initialAttachments={restoreMessage?.attachments}
             advancedMode={advancedInput}
+            onDraftOpen={() => openDraftEditor(sessionId)}
+            hasDraft={draftExists}
             placeholder={
               !isConnected
                 ? 'Connecting...'
@@ -2209,6 +2225,11 @@ export function ChatInterface({ sessionId, onReturnToDashboard }: ChatInterfaceP
         </div>
       )}
       </>}
+
+      {/* Draft Editor Modal */}
+      {(draftEditorOpen || draftShowLockPrompt) && (
+        <DraftEditorModal onFinishDraft={(content) => handleSendMessage(content)} />
+      )}
     </div>
   );
 }

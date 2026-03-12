@@ -368,6 +368,20 @@ export interface Session {
 }
 
 // ============================================
+// Session Draft Types
+// ============================================
+
+export interface SessionDraft {
+  id: string;
+  sessionId: string;
+  content: string;
+  editingBy?: string;    // Device ID currently editing (for edit locking)
+  editingAt?: number;    // Lock timestamp
+  updatedAt: number;
+  archivedAt?: number;
+}
+
+// ============================================
 // Supervision v2 Types
 // ============================================
 
