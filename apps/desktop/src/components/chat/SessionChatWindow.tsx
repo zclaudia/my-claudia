@@ -71,7 +71,7 @@ export function SessionChatWindow({ sessionId, projectId, serverUrl, authToken }
   useWindowCloseSync(sessionId);
 
   return (
-    <div className="h-screen bg-background text-foreground">
+    <div className="h-dvh bg-background text-foreground">
       <ConnectionProvider standaloneServerUrl={serverUrl}>
         <SessionChatContent
           sessionId={sessionId}
@@ -133,7 +133,7 @@ function SessionChatContent({ sessionId, projectId }: SessionChatContentProps) {
 
   if (error) {
     return (
-      <div className="flex items-center justify-center h-screen">
+      <div className="flex items-center justify-center h-dvh">
         <div className="text-center">
           <div className="text-sm text-destructive mb-2">{error}</div>
           <button
@@ -149,7 +149,7 @@ function SessionChatContent({ sessionId, projectId }: SessionChatContentProps) {
 
   if (!loaded) {
     return (
-      <div className="flex items-center justify-center h-screen">
+      <div className="flex items-center justify-center h-dvh">
         <Loader2 size={24} className="animate-spin text-muted-foreground" />
       </div>
     );

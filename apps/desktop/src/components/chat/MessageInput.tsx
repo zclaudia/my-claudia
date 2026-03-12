@@ -84,6 +84,10 @@ export function MessageInput({
   initialAttachments,
   advancedMode = false,
 }: MessageInputProps) {
+  const getAvailableViewportHeight = useCallback(() => {
+    if (typeof window === 'undefined') return 800;
+    return window.visualViewport?.height ?? window.innerHeight;
+  }, []);
   const isMobile = useIsMobile();
   const setDraft = useChatStore((s) => s.setDraft);
   const clearDraft = useChatStore((s) => s.clearDraft);
@@ -94,6 +98,7 @@ export function MessageInput({
   const [selectedCommandIndex, setSelectedCommandIndex] = useState(0);
   const [mentionState, setMentionState] = useState<MentionState>(initialMentionState);
   const [isComposing, setIsComposing] = useState(false); // Track IME composition state
+  const [availableViewportHeight, setAvailableViewportHeight] = useState(getAvailableViewportHeight);
   const compactRowHeightClass = isMobile ? 'h-16' : 'h-12';
   const controlIconSize = isMobile ? 18 : 20;
 
@@ -133,6 +138,27 @@ export function MessageInput({
       }
     };
   }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const updateViewportHeight = () => {
+      setAvailableViewportHeight(getAvailableViewportHeight());
+    };
+
+    const viewport = window.visualViewport;
+    updateViewportHeight();
+
+    window.addEventListener('resize', updateViewportHeight);
+    viewport?.addEventListener('resize', updateViewportHeight);
+    viewport?.addEventListener('scroll', updateViewportHeight);
+
+    return () => {
+      window.removeEventListener('resize', updateViewportHeight);
+      viewport?.removeEventListener('resize', updateViewportHeight);
+      viewport?.removeEventListener('scroll', updateViewportHeight);
+    };
+  }, [getAvailableViewportHeight]);
 
   // Filter commands based on input
   const filteredCommands = value.startsWith('/')
@@ -211,11 +237,13 @@ export function MessageInput({
 
     if (!advancedMode) {
       if (isMobile) {
+        const maxHeight = Math.max(160, availableViewportHeight * 0.4);
         // Mobile: auto-resize to fit content with max height limit
         textarea.style.height = 'auto';
-        textarea.style.height = `${Math.min(textarea.scrollHeight, window.innerHeight * 0.4)}px`;
-        textarea.style.maxHeight = `${window.innerHeight * 0.4}px`;
-        textarea.style.overflowY = textarea.scrollHeight > window.innerHeight * 0.4 ? 'auto' : 'hidden';
+        textarea.style.height = `${Math.min(textarea.scrollHeight, maxHeight)}px`;
+        textarea.style.maxHeight = `${maxHeight}px`;
+        textarea.style.overflowY = textarea.scrollHeight > maxHeight ? 'auto' : 'hidden';
+        textarea.scrollTop = textarea.scrollHeight;
       } else {
         // Desktop normal mode: keep fixed height for Enter-to-send behavior
         textarea.style.height = '';
@@ -228,7 +256,21 @@ export function MessageInput({
       textarea.style.height = '';
       textarea.style.overflowY = 'auto';
     }
-  }, [value, advancedMode, isMobile]);
+  }, [value, advancedMode, isMobile, availableViewportHeight]);
+
+  useEffect(() => {
+    if (!isMobile) return;
+
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+
+    const keepLatestLineVisible = () => {
+      textarea.scrollTop = textarea.scrollHeight;
+    };
+
+    textarea.addEventListener('focus', keepLatestLineVisible);
+    return () => textarea.removeEventListener('focus', keepLatestLineVisible);
+  }, [isMobile]);
 
   // Show/hide command suggestions
   useEffect(() => {
@@ -764,7 +806,7 @@ export function MessageInput({
             className={`w-full bg-input border border-border rounded-xl px-4 py-3 text-foreground placeholder-muted-foreground focus:outline-none focus:border-primary/50 focus:shadow-apple-md disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-200 ${
               advancedMode
                 ? 'resize-y min-h-[160px] max-h-[40vh] overflow-auto'
-                : 'resize-y min-h-12 max-h-[40vh]'
+                : 'resize-y min-h-12'
             }`}
             style={{
               fontSize: 'var(--chat-font-input, 0.875rem)',
