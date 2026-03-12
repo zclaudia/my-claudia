@@ -755,42 +755,9 @@ export function MessageInput({
       )}
 
       {/* Input area */}
-      <div className={`flex gap-2 ${advancedMode ? 'items-end' : `items-center ${compactRowHeightClass}`}`}>
-        {/* Attachment button */}
-        <button
-          onClick={() => fileInputRef.current?.click()}
-          disabled={disabled}
-          className={`${advancedMode ? 'h-12 w-12' : 'h-full aspect-square'} flex-shrink-0 flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted rounded-full transition-colors disabled:opacity-50 disabled:cursor-not-allowed`}
-          title="Add attachment (images, files)"
-        >
-          <Paperclip size={controlIconSize} strokeWidth={1.75} />
-        </button>
-        <input
-          ref={fileInputRef}
-          type="file"
-          multiple
-          accept="image/*,.pdf,.txt,.md,.json,.csv"
-          onChange={handleFileSelect}
-          className="hidden"
-        />
-
-        {/* Draft button */}
-        {onDraftOpen && (
-          <button
-            onClick={onDraftOpen}
-            disabled={disabled}
-            className={`${advancedMode ? 'h-12 w-12' : 'h-full aspect-square'} flex-shrink-0 flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted rounded-full transition-colors disabled:opacity-50 disabled:cursor-not-allowed relative`}
-            title="Open draft editor"
-          >
-            <FileEdit size={controlIconSize} strokeWidth={1.75} />
-            {hasDraft && (
-              <span className="absolute top-1 right-1 w-2 h-2 bg-primary rounded-full" />
-            )}
-          </button>
-        )}
-
-        {/* Text input */}
-        <div className={`flex-1 relative ${advancedMode ? '' : 'h-full'}`}>
+      {isMobile ? (
+        /* Mobile: card-style two-row layout — textarea on top, buttons below */
+        <div className="bg-input border border-border rounded-2xl px-3 pt-3 pb-2 mb-1">
           <textarea
             data-testid="message-input"
             ref={textareaRef}
@@ -799,7 +766,6 @@ export function MessageInput({
             onKeyDown={handleKeyDown}
             onPaste={handlePaste}
             onCompositionStart={() => {
-              // Clear any pending timeout and immediately mark as composing
               if (compositionTimeoutRef.current) {
                 clearTimeout(compositionTimeoutRef.current);
                 compositionTimeoutRef.current = null;
@@ -807,9 +773,6 @@ export function MessageInput({
               setIsComposing(true);
             }}
             onCompositionEnd={() => {
-              // Use 50ms delay to handle browser timing differences
-              // Firefox fires compositionEnd before Enter keydown
-              // Safari fires them in opposite order
               compositionTimeoutRef.current = setTimeout(() => {
                 setIsComposing(false);
                 compositionTimeoutRef.current = null;
@@ -822,41 +785,164 @@ export function MessageInput({
             autoCapitalize="off"
             autoComplete="off"
             rows={1}
-            className={`w-full bg-input border border-border rounded-xl px-4 py-3 text-foreground placeholder-muted-foreground focus:outline-none focus:border-primary/50 focus:shadow-apple-md disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-200 ${
-              advancedMode
-                ? 'resize-y min-h-[160px] max-h-[40vh] overflow-auto'
-                : 'resize-y min-h-12'
-            }`}
-            style={{
-              fontSize: 'var(--chat-font-input, 0.875rem)',
-              ...(advancedMode ? {} : undefined),
-            }}
+            className="w-full bg-transparent text-foreground placeholder-muted-foreground focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed resize-none min-h-[1.5rem] overflow-y-auto"
+            style={{ fontSize: 'var(--chat-font-input, 0.875rem)', maxHeight: `${Math.max(120, availableViewportHeight * 0.3)}px` }}
           />
+          <div className="flex items-center gap-1 mt-2">
+            {/* Attachment button */}
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              disabled={disabled}
+              className="h-9 w-9 flex-shrink-0 flex items-center justify-center text-muted-foreground hover:text-foreground rounded-full transition-colors disabled:opacity-50"
+              title="Add attachment"
+            >
+              <Paperclip size={18} strokeWidth={1.75} />
+            </button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              multiple
+              accept="image/*,.pdf,.txt,.md,.json,.csv"
+              onChange={handleFileSelect}
+              className="hidden"
+            />
+            {/* Draft button */}
+            {onDraftOpen && (
+              <button
+                onClick={onDraftOpen}
+                disabled={disabled}
+                className="h-9 w-9 flex-shrink-0 flex items-center justify-center text-muted-foreground hover:text-foreground rounded-full transition-colors disabled:opacity-50 relative"
+                title="Open draft editor"
+              >
+                <FileEdit size={18} strokeWidth={1.75} />
+                {hasDraft && (
+                  <span className="absolute top-0.5 right-0.5 w-2 h-2 bg-primary rounded-full" />
+                )}
+              </button>
+            )}
+            <div className="flex-1" />
+            {/* Send/Cancel button */}
+            {isLoading && onCancel ? (
+              <button
+                onClick={onCancel}
+                className="h-9 w-9 flex-shrink-0 flex items-center justify-center bg-destructive text-destructive-foreground hover:bg-destructive/90 rounded-full transition-colors"
+                title="Cancel (Esc)"
+              >
+                <X size={18} strokeWidth={2} />
+              </button>
+            ) : (
+              <button
+                onClick={handleSend}
+                disabled={disabled || (!value.trim() && attachments.length === 0)}
+                className="h-9 w-9 flex-shrink-0 flex items-center justify-center bg-primary text-primary-foreground hover:bg-primary/90 disabled:bg-muted disabled:text-muted-foreground disabled:cursor-not-allowed rounded-full transition-colors"
+                title="Send message (Enter)"
+                data-testid="send-button"
+              >
+                <Send size={18} strokeWidth={1.75} />
+              </button>
+            )}
+          </div>
         </div>
+      ) : (
+        /* Desktop: single-row layout */
+        <div className={`flex gap-2 ${advancedMode ? 'items-end' : `items-center ${compactRowHeightClass}`}`}>
+          {/* Attachment button */}
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            disabled={disabled}
+            className={`${advancedMode ? 'h-12 w-12' : 'h-full aspect-square'} flex-shrink-0 flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted rounded-full transition-colors disabled:opacity-50 disabled:cursor-not-allowed`}
+            title="Add attachment (images, files)"
+          >
+            <Paperclip size={controlIconSize} strokeWidth={1.75} />
+          </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            accept="image/*,.pdf,.txt,.md,.json,.csv"
+            onChange={handleFileSelect}
+            className="hidden"
+          />
 
-        {/* Send/Cancel button */}
-        {isLoading && onCancel ? (
-          <button
-            onClick={onCancel}
-            className={`${advancedMode ? 'h-12 w-12' : 'h-full aspect-square'} flex-shrink-0 flex items-center justify-center bg-destructive text-destructive-foreground hover:bg-destructive/90 rounded-full transition-colors`}
-            title="Cancel (Esc)"
-          >
-            <X size={controlIconSize} strokeWidth={2} />
-          </button>
-        ) : (
-          <button
-            onClick={handleSend}
-            disabled={disabled || (!value.trim() && attachments.length === 0)}
-            className={`${advancedMode ? 'h-12 w-12' : 'h-full aspect-square'} flex-shrink-0 flex items-center justify-center bg-primary text-primary-foreground hover:bg-primary/90 disabled:bg-muted disabled:text-muted-foreground disabled:cursor-not-allowed rounded-full transition-colors`}
-            title={advancedMode && !isMobile
-              ? `Send message (${isMac ? 'Cmd' : 'Ctrl'}+Enter)`
-              : 'Send message (Enter)'}
-            data-testid="send-button"
-          >
-            <Send size={controlIconSize} strokeWidth={1.75} />
-          </button>
-        )}
-      </div>
+          {/* Draft button */}
+          {onDraftOpen && (
+            <button
+              onClick={onDraftOpen}
+              disabled={disabled}
+              className={`${advancedMode ? 'h-12 w-12' : 'h-full aspect-square'} flex-shrink-0 flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted rounded-full transition-colors disabled:opacity-50 disabled:cursor-not-allowed relative`}
+              title="Open draft editor"
+            >
+              <FileEdit size={controlIconSize} strokeWidth={1.75} />
+              {hasDraft && (
+                <span className="absolute top-1 right-1 w-2 h-2 bg-primary rounded-full" />
+              )}
+            </button>
+          )}
+
+          {/* Text input */}
+          <div className={`flex-1 relative ${advancedMode ? '' : 'h-full'}`}>
+            <textarea
+              data-testid="message-input"
+              ref={textareaRef}
+              value={value}
+              onChange={handleChange}
+              onKeyDown={handleKeyDown}
+              onPaste={handlePaste}
+              onCompositionStart={() => {
+                if (compositionTimeoutRef.current) {
+                  clearTimeout(compositionTimeoutRef.current);
+                  compositionTimeoutRef.current = null;
+                }
+                setIsComposing(true);
+              }}
+              onCompositionEnd={() => {
+                compositionTimeoutRef.current = setTimeout(() => {
+                  setIsComposing(false);
+                  compositionTimeoutRef.current = null;
+                }, 50);
+              }}
+              disabled={disabled}
+              placeholder={placeholder}
+              spellCheck={false}
+              autoCorrect="off"
+              autoCapitalize="off"
+              autoComplete="off"
+              rows={1}
+              className={`w-full bg-input border border-border rounded-xl px-4 py-3 text-foreground placeholder-muted-foreground focus:outline-none focus:border-primary/50 focus:shadow-apple-md disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-200 ${
+                advancedMode
+                  ? 'resize-y min-h-[160px] max-h-[40vh] overflow-auto'
+                  : 'resize-y min-h-12'
+              }`}
+              style={{
+                fontSize: 'var(--chat-font-input, 0.875rem)',
+              }}
+            />
+          </div>
+
+          {/* Send/Cancel button */}
+          {isLoading && onCancel ? (
+            <button
+              onClick={onCancel}
+              className={`${advancedMode ? 'h-12 w-12' : 'h-full aspect-square'} flex-shrink-0 flex items-center justify-center bg-destructive text-destructive-foreground hover:bg-destructive/90 rounded-full transition-colors`}
+              title="Cancel (Esc)"
+            >
+              <X size={controlIconSize} strokeWidth={2} />
+            </button>
+          ) : (
+            <button
+              onClick={handleSend}
+              disabled={disabled || (!value.trim() && attachments.length === 0)}
+              className={`${advancedMode ? 'h-12 w-12' : 'h-full aspect-square'} flex-shrink-0 flex items-center justify-center bg-primary text-primary-foreground hover:bg-primary/90 disabled:bg-muted disabled:text-muted-foreground disabled:cursor-not-allowed rounded-full transition-colors`}
+              title={advancedMode
+                ? `Send message (${isMac ? 'Cmd' : 'Ctrl'}+Enter)`
+                : 'Send message (Enter)'}
+              data-testid="send-button"
+            >
+              <Send size={controlIconSize} strokeWidth={1.75} />
+            </button>
+          )}
+        </div>
+      )}
 
       {/* Hint text — hidden on mobile to save space */}
       {!isMobile && (

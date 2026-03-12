@@ -141,6 +141,7 @@ export function ChatInterface({ sessionId, onReturnToDashboard }: ChatInterfaceP
   const { sendMessage: wsSendMessage, isConnected, handlePermissionDecision, handleAskUserAnswer } = useConnection();
   const isMobile = useIsMobile();
   const [showMoreMenu, setShowMoreMenu] = useState(false);
+  const [showSessionMenu, setShowSessionMenu] = useState(false);
 
   // Draft editor state
   const draftEditorOpen = useDraftEditorStore((s) => s.isEditorOpen);
@@ -154,10 +155,62 @@ export function ChatInterface({ sessionId, onReturnToDashboard }: ChatInterfaceP
     checkDraftExists(sessionId);
   }, [sessionId, checkDraftExists]);
 
+  // Mobile: keep chat pinned to the visible viewport when soft keyboard opens.
+  // Android Tauri WebView uses adjustResize, so window.innerHeight already shrinks.
+  // We use visualViewport to position the container at the viewport's top offset and
+  // constrain its height, preventing content from scrolling behind the keyboard.
+  useEffect(() => {
+    if (!isMobile) return;
+    const vv = window.visualViewport;
+    if (!vv) return;
+
+    const sync = () => {
+      const el = chatRootRef.current;
+      if (!el) return;
+      // Use the smaller of innerHeight and visualViewport to avoid double-shrink
+      const h = Math.min(window.innerHeight, vv.height);
+      const top = vv.offsetTop;
+      if (top > 0 || h < window.innerHeight) {
+        // Fixed mode: container takes over the screen, needs its own safe area
+        el.style.position = 'fixed';
+        el.style.top = `${top}px`;
+        el.style.left = '0';
+        el.style.right = '0';
+        el.style.height = `${h}px`;
+        el.classList.add('safe-top-pad');
+      } else {
+        el.style.position = '';
+        el.style.top = '';
+        el.style.left = '';
+        el.style.right = '';
+        el.style.height = '';
+        el.classList.remove('safe-top-pad');
+      }
+    };
+
+    sync();
+    vv.addEventListener('resize', sync);
+    vv.addEventListener('scroll', sync);
+    return () => {
+      vv.removeEventListener('resize', sync);
+      vv.removeEventListener('scroll', sync);
+      const el = chatRootRef.current;
+      if (el) {
+        el.style.position = '';
+        el.style.top = '';
+        el.style.left = '';
+        el.style.right = '';
+        el.style.height = '';
+        el.classList.remove('safe-top-pad');
+      }
+    };
+  }, [isMobile]);
+
   // Per-session pending permission/question requests
   // Also include requests without sessionId (backward compat with servers that haven't been updated)
   const permissionRequests = usePermissionStore(state => state.pendingRequests.filter(r => r.sessionId === sessionId || !r.sessionId));
   const askUserRequests = useAskUserQuestionStore(state => state.pendingRequests.filter(r => r.sessionId === sessionId || !r.sessionId));
+  const chatRootRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const bottomRefreshRef = useRef<{ lastAt: number; inFlight: boolean }>({ lastAt: 0, inFlight: false });
@@ -1527,7 +1580,7 @@ export function ChatInterface({ sessionId, onReturnToDashboard }: ChatInterfaceP
   const poppedOutLabel = poppedOutSessions.get(sessionId);
 
   return (
-    <div className="flex flex-col h-full bg-background">
+    <div ref={chatRootRef} className="flex flex-col h-full bg-background">
       {/* Popped-out placeholder: session is open in a standalone window */}
       {poppedOutLabel && (
         <div className="flex flex-col items-center justify-center flex-1 gap-4 text-muted-foreground">
@@ -1650,39 +1703,85 @@ export function ChatInterface({ sessionId, onReturnToDashboard }: ChatInterfaceP
           })()}
           {/* Actions (hidden for background sessions) */}
           {currentSession.type !== 'background' && (
-            <div className="flex items-center gap-0.5 shrink-0">
-              <button
-                onClick={handleResetProviderSession}
-                disabled={isLoading}
-                className={`p-1 rounded transition-colors ${isLoading ? 'opacity-50 cursor-not-allowed text-muted-foreground' : 'hover:bg-secondary text-muted-foreground hover:text-foreground'}`}
-                title="Reset underlying provider session"
-              >
-                <RotateCcw size={14} />
-              </button>
-              <button
-                onClick={handleExportSession}
-                className="p-1 rounded hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors"
-                title="Export as Markdown"
-              >
-                <Download size={14} />
-              </button>
-              <button
-                onClick={handleArchiveSession}
-                className="p-1 rounded hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors"
-                title="Archive session"
-              >
-                <Archive size={14} />
-              </button>
-              {isDesktopTauri && !isMobile && !isStandaloneSessionWindow && (
-                <button
-                  onClick={handlePopOut}
-                  className="p-1 rounded hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors"
-                  title="Open in new window"
-                >
-                  <ExternalLink size={14} />
-                </button>
+            <>
+              {/* Desktop: show all buttons inline */}
+              {!isMobile && (
+                <div className="flex items-center gap-0.5 shrink-0">
+                  <button
+                    onClick={handleResetProviderSession}
+                    disabled={isLoading}
+                    className={`p-1 rounded transition-colors ${isLoading ? 'opacity-50 cursor-not-allowed text-muted-foreground' : 'hover:bg-secondary text-muted-foreground hover:text-foreground'}`}
+                    title="Reset underlying provider session"
+                  >
+                    <RotateCcw size={14} />
+                  </button>
+                  <button
+                    onClick={handleExportSession}
+                    className="p-1 rounded hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors"
+                    title="Export as Markdown"
+                  >
+                    <Download size={14} />
+                  </button>
+                  <button
+                    onClick={handleArchiveSession}
+                    className="p-1 rounded hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors"
+                    title="Archive session"
+                  >
+                    <Archive size={14} />
+                  </button>
+                  {isDesktopTauri && !isStandaloneSessionWindow && (
+                    <button
+                      onClick={handlePopOut}
+                      className="p-1 rounded hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors"
+                      title="Open in new window"
+                    >
+                      <ExternalLink size={14} />
+                    </button>
+                  )}
+                </div>
               )}
-            </div>
+              {/* Mobile: collapse actions into "..." dropdown */}
+              {isMobile && (
+                <div className="relative shrink-0">
+                  <button
+                    onClick={() => setShowSessionMenu(!showSessionMenu)}
+                    className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+                    title="Session actions"
+                  >
+                    <MoreHorizontal size={16} strokeWidth={1.75} />
+                  </button>
+                  {showSessionMenu && (
+                    <>
+                      <div className="fixed inset-0 z-40" onClick={() => setShowSessionMenu(false)} />
+                      <div className="absolute top-full right-0 mt-1 z-50 bg-popover border border-border rounded-lg shadow-lg py-1 min-w-[160px]">
+                        <button
+                          onClick={() => { handleResetProviderSession(); setShowSessionMenu(false); }}
+                          disabled={isLoading}
+                          className="w-full text-left px-3 py-2 text-sm flex items-center gap-2 text-foreground hover:bg-muted disabled:opacity-50"
+                        >
+                          <RotateCcw size={14} />
+                          Reset Session
+                        </button>
+                        <button
+                          onClick={() => { handleExportSession(); setShowSessionMenu(false); }}
+                          className="w-full text-left px-3 py-2 text-sm flex items-center gap-2 text-foreground hover:bg-muted"
+                        >
+                          <Download size={14} />
+                          Export Markdown
+                        </button>
+                        <button
+                          onClick={() => { handleArchiveSession(); setShowSessionMenu(false); }}
+                          className="w-full text-left px-3 py-2 text-sm flex items-center gap-2 text-foreground hover:bg-muted"
+                        >
+                          <Archive size={14} />
+                          Archive
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
+            </>
           )}
         </div>
       )}
@@ -2003,7 +2102,7 @@ export function ChatInterface({ sessionId, onReturnToDashboard }: ChatInterfaceP
           </div>
         </div>
       ) : (
-        <div className="border-t border-border p-2 md:p-4 safe-bottom-pad overflow-visible flex-shrink-0">
+        <div className="border-t border-border p-2 pb-3 md:p-4 safe-bottom-pad overflow-visible flex-shrink-0">
           {/* Toolbar */}
           <div className="mb-1.5 md:mb-2 flex items-center gap-1 md:gap-2">
             <ModeSelector
@@ -2099,7 +2198,7 @@ export function ChatInterface({ sessionId, onReturnToDashboard }: ChatInterfaceP
               );
             })()}
 
-            {/* Mobile: show more menu with File and Terminal options */}
+            {/* Mobile: more menu (file viewer / terminal) */}
             {isMobile && (
               <div className="relative">
                 <button

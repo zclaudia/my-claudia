@@ -71,7 +71,7 @@ export function SessionChatWindow({ sessionId, projectId, serverUrl, authToken }
   useWindowCloseSync(sessionId);
 
   return (
-    <div className="h-dvh bg-background text-foreground">
+    <div className="h-dvh bg-background text-foreground safe-top-pad">
       <ConnectionProvider standaloneServerUrl={serverUrl}>
         <SessionChatContent
           sessionId={sessionId}
