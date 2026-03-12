@@ -1,5 +1,9 @@
 Build and optionally install the Android APK.
 
+**IMPORTANT**: Always prefix Node.js commands with `eval "$(fnm env)"` to ensure the correct Node version is used.
+
+$PROJECT_ROOT is the git repository root directory (use `git rev-parse --show-toplevel` to find it).
+
 Usage: /build-android [dev] [install]
 
 Arguments (space-separated, order doesn't matter): `$ARGUMENTS`
@@ -13,9 +17,9 @@ Arguments (space-separated, order doesn't matter): `$ARGUMENTS`
    - Contains "dev" → add `--dev` flag
    - Contains "install" → add `--install` flag
 
-2. Run the build script (keystore password defaults to "android"):
+2. Run the build script from the repo root (keystore password defaults to "android"):
    ```bash
-   ./scripts/build-android.sh [--dev] [--install]
+   cd $PROJECT_ROOT && eval "$(fnm env)" && bash scripts/build/android.sh [--dev] [--install] 2>&1
    ```
 
 3. The script handles everything:
@@ -29,6 +33,7 @@ Arguments (space-separated, order doesn't matter): `$ARGUMENTS`
    - APK location (my-claudia.apk or my-claudia-dev.apk)
    - File size
    - Install status (if --install was used)
+   - Any signing or SDK/NDK errors, if the build failed
 
 ## Dev vs Release
 

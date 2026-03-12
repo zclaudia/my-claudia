@@ -20,10 +20,10 @@ If argument is "dev", deploy the dev instance. Otherwise deploy the stable insta
 2. SSH to coder-server, pull latest code, and run deploy script:
    ```
    # Stable:
-   ssh coder-server "cd /home/zhvala/code/my-claudia && git pull && ./scripts/deploy-server.sh"
+   ssh coder-server "cd /home/zhvala/code/my-claudia && git pull && ./scripts/deploy/server.sh"
 
    # Dev:
-   ssh coder-server "cd /home/zhvala/code/my-claudia-dev && git pull && ./scripts/deploy-server.sh --service my-claudia-server-dev --data-dir ~/.my-claudia-dev"
+   ssh coder-server "cd /home/zhvala/code/my-claudia-dev && git pull && ./scripts/deploy/server.sh --service my-claudia-server-dev --data-dir ~/.my-claudia-dev"
    ```
 
    The deploy script handles: pnpm install, build shared + server, create/update systemd service, restart.

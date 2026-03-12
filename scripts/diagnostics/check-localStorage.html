@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>LocalStorage检查工具</title>
+    <style>
+        body {
+            font-family: monospace;
+            padding: 20px;
+            background: #1e1e1e;
+            color: #d4d4d4;
+        }
+        pre {
+            background: #252526;
+            padding: 15px;
+            border-radius: 5px;
+            overflow-x: auto;
+        }
+        button {
+            background: #0e639c;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover {
+            background: #1177bb;
+        }
+        .output {
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+    <h1>LocalStorage 服务器配置检查</h1>
+    <button onclick="checkServers()">检查服务器配置</button>
+    <button onclick="clearAll()">清空所有localStorage</button>
+    <div class="output">
+        <h2>输出:</h2>
+        <pre id="output"></pre>
+    </div>
+
+    <script>
+        function checkServers() {
+            const output = document.getElementById('output');
+            let result = '=== LocalStorage 内容 ===\n\n';
+
+            // 检查所有localStorage键
+            for (let i = 0; i < localStorage.length; i++) {
+                const key = localStorage.key(i);
+                const value = localStorage.getItem(key);
+                result += `Key: ${key}\n`;
+
+                try {
+                    const parsed = JSON.parse(value);
+                    result += JSON.stringify(parsed, null, 2) + '\n\n';
+                } catch (e) {
+                    result += value + '\n\n';
+                }
+
+                result += '-----------------------------------\n\n';
+            }
+
+            // 特别检查 my-claudia-servers
+            const serversKey = 'my-claudia-servers';
+            const serversData = localStorage.getItem(serversKey);
+
+            if (serversData) {
+                result += '\n\n=== 服务器配置详情 ===\n\n';
+                try {
+                    const servers = JSON.parse(serversData);
+                    result += JSON.stringify(servers, null, 2);
+
+                    if (servers.state && servers.state.servers) {
+                        result += '\n\n=== 服务器列表 ===\n\n';
+                        servers.state.servers.forEach((server, index) => {
+                            result += `服务器 ${index + 1}:\n`;
+                            result += `  ID: ${server.id}\n`;
+                            result += `  名称: ${server.name}\n`;
+                            result += `  地址: ${server.address}\n`;
+                            result += `  连接模式: ${server.connectionMode || 'direct'}\n`;
+                            if (server.connectionMode === 'gateway') {
+                                result += `  Gateway URL: ${server.gatewayUrl}\n`;
+                                result += `  Backend ID: ${server.backendId}\n`;
+                                result += `  有 Gateway Secret: ${!!server.gatewaySecret}\n`;
+                                result += `  有 API Key: ${!!server.apiKey}\n`;
+                            }
+                            result += '\n';
+                        });
+                    }
+                } catch (e) {
+                    result += `解析错误: ${e.message}`;
+                }
+            } else {
+                result += '\n\n未找到服务器配置数据！';
+            }
+
+            output.textContent = result;
+        }
+
+        function clearAll() {
+            if (confirm('确定要清空所有localStorage数据吗？')) {
+                localStorage.clear();
+                alert('已清空！刷新页面生效。');
+            }
+        }
+
+        // 自动运行检查
+        window.onload = checkServers;
+    </script>
+</body>
+</html>

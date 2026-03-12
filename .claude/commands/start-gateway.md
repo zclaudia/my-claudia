@@ -1,37 +1,33 @@
-Kill any running gateway process, then start gateway in dev mode.
+Kill any stale gateway dev process, then start the gateway in dev mode.
 
-**IMPORTANT**: Always prefix Node.js commands with `eval "$(fnm env)"` to ensure the correct Node version is used. fnm auto-switches via .node-version.
+**IMPORTANT**: Always prefix Node.js commands with `eval "$(fnm env)"` to ensure the correct Node version is used.
 
 $PROJECT_ROOT is the git repository root directory (use `git rev-parse --show-toplevel` to find it).
 
----
+## Steps
 
-### Step 1: Kill stale gateway process
+1. Stop stale gateway processes:
+   ```bash
+   pkill -f "gateway/src/index.ts" 2>/dev/null
+   lsof -ti:3200 | xargs kill -9 2>/dev/null
+   ```
 
-Run in a single command:
-```
-pkill -f "gateway/src/index.ts" 2>/dev/null
-lsof -ti:3200 | xargs kill -9 2>/dev/null
-```
+2. Verify port `3200` is free. Retry up to 5 times with 1 second delay. If it is still occupied, force-kill the blocking PID and report a warning.
 
-### Step 2: Verify port 3200 is free
+3. Ensure shared output exists. If `$PROJECT_ROOT/shared/dist/index.js` is missing, build shared first:
+   ```bash
+   cd $PROJECT_ROOT/shared && eval "$(fnm env)" && pnpm build
+   ```
 
-Loop up to 5 times (1 second apart) checking `lsof -ti:3200`. If still occupied after 5 attempts, `kill -9` the PID and report a warning.
+4. Start gateway dev in the background:
+   ```bash
+   cd $PROJECT_ROOT/gateway && eval "$(fnm env)" && pnpm dev 2>&1
+   ```
 
-### Step 3: Ensure shared build is up to date
+5. Wait up to 20 seconds until `http://localhost:3200/health` responds. If it never becomes ready, inspect the background output and report the failure.
 
-Check `$PROJECT_ROOT/shared/dist/index.js` exists; if not, run `cd $PROJECT_ROOT/shared && eval "$(fnm env)" && pnpm build`.
-
-### Step 4: Start gateway dev
-
-```
-cd $PROJECT_ROOT/gateway && eval "$(fnm env)" && pnpm dev 2>&1
-```
-
-Run this as a **background command** with a 10-minute timeout.
-
-### Step 5: Wait and verify
-
-1. Wait in a loop (up to 20 seconds, polling every 3 seconds) until `curl -s http://localhost:3200/health` returns a non-empty response
-2. If gateway never responds, check the background task output for errors and report to user
-3. Once confirmed running, report the health response (shows backend/client counts)
+Report:
+- whether the gateway became healthy
+- the health response if available
+- any background task ID
+- any startup error output if it failed

@@ -37,13 +37,13 @@ pnpm --filter @my-claudia/desktop run dev # Frontend
 
 ```bash
 # Build macOS app
-bash scripts/build-macos.sh
+bash scripts/build/macos.sh
 
 # Build Windows app
-bash scripts/build-windows.ps1
+bash scripts/build/windows.ps1
 
 # Build Linux app
-bash scripts/build-linux.sh
+bash scripts/build/linux.sh
 ```
 
 ## Architecture

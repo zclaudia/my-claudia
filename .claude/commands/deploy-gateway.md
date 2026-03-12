@@ -20,10 +20,10 @@ If argument is "dev", deploy to the dev instance. Otherwise deploy to the stable
 2. Pull latest code and run deploy script:
    ```
    # Stable:
-   ssh router "cd /root/data/my-claudia && git pull && ./scripts/deploy-gateway.sh"
+   ssh router "cd /root/data/my-claudia && git pull && ./scripts/deploy/gateway.sh"
 
    # Dev:
-   ssh router "cd /root/data/my-claudia-dev && git pull && ./scripts/deploy-gateway.sh -p claudia-gateway-dev"
+   ssh router "cd /root/data/my-claudia-dev && git pull && ./scripts/deploy/gateway.sh -p claudia-gateway-dev"
    ```
 
 3. Verify output shows "Gateway is healthy" and "Deploy complete".

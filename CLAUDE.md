@@ -59,7 +59,7 @@ my-claudia/
 - `.dockerignore` at repo root excludes everything except shared/ and gateway/
 - `GATEWAY_PORT` variable used in port mapping, container env, and healthcheck
 - No hardcoded `container_name` — multiple instances possible via `-p PROJECT_NAME`
-- Deploy script: `scripts/deploy-gateway.sh [-p PROJECT] [-e ENV_FILE]`
+- Deploy script: `scripts/deploy/gateway.sh [-p PROJECT] [-e ENV_FILE]`
 
 ## Desktop App (`apps/desktop/`)
 
@@ -76,11 +76,11 @@ my-claudia/
 
 | Script | Purpose |
 |--------|---------|
-| `scripts/deploy-gateway.sh` | Deploy gateway Docker container (supports multi-instance) |
-| `scripts/deploy-server.sh` | Deploy server on remote host (systemd) |
-| `scripts/setup-server.sh` | Initial server setup + systemd service install |
-| `scripts/build-{android,linux,macos}.sh` | Platform-specific builds |
-| `scripts/version-bump.sh` | Version management |
+| `scripts/deploy/gateway.sh` | Deploy gateway Docker container (supports multi-instance) |
+| `scripts/deploy/server.sh` | Deploy server on remote host (systemd) |
+| `scripts/deploy/setup-server.sh` | Initial server setup + systemd service install |
+| `scripts/build/{android,linux,macos}.sh` | Platform-specific builds |
+| `scripts/release/version-bump.sh` | Version management |
 
 ## Dev Commands
 

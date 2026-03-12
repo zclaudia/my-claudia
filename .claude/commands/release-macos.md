@@ -4,24 +4,18 @@ Build and publish the macOS desktop app to GitHub Releases (draft).
 
 $PROJECT_ROOT is the git repository root directory (use `git rev-parse --show-toplevel` to find it).
 
-### Step 1: Preflight check
+## Steps
 
-Verify we're on macOS (`uname` = Darwin). If not, abort.
+1. Verify we're on macOS (`uname` = Darwin). If not, abort.
 
-### Step 2: Run the release script
+2. Run the release script:
+   ```bash
+   cd $PROJECT_ROOT && eval "$(fnm env)" && bash scripts/release/macos.sh 2>&1
+   ```
 
-```
-cd $PROJECT_ROOT && eval "$(fnm env)" && bash scripts/release-macos.sh 2>&1
-```
-
-This wraps `build-macos.sh` with `RELEASE=1`, which:
-- Builds the app (version bump, shared + server + bundle, tauri build, DMG)
-- Signs the app and generates update artifacts (.tar.gz + .sig + latest.json)
-- Creates a **draft** GitHub Release on the configured `RELEASE_REMOTE` and uploads artifacts
-
-Run this as a **foreground command** with a **10-minute timeout** (build takes a while).
-
-### Step 3: Report result
-
-- On success: report the version, DMG path, file size, and GitHub Release URL
-- On failure: show the relevant error output
+3. Report:
+   - version
+   - DMG path
+   - file size
+   - GitHub Release URL if available
+   - relevant error output if the release failed
