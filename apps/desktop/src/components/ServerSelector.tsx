@@ -104,7 +104,7 @@ export function ServerSelector() {
 
       {/* Dropdown */}
       {isOpen && (
-        <div className="fixed inset-x-2 top-14 md:absolute md:inset-x-auto md:top-full md:left-0 mt-1 md:w-72 bg-card border border-border rounded-lg shadow-xl z-50">
+        <div className="fixed inset-x-2 top-14 md:absolute md:inset-x-auto md:top-full md:left-0 mt-1 md:w-72 bg-card border border-border rounded-lg shadow-xl z-[60]">
           {/* Status */}
           <div className="px-3 py-2 border-b border-border">
             <div className="flex items-center gap-2 text-sm">
@@ -175,7 +175,7 @@ export function ServerSelector() {
       {/* Backdrop */}
       {isOpen && (
         <div
-          className="fixed inset-0 z-40"
+          className="fixed inset-0 z-[55]"
           onClick={() => setIsOpen(false)}
         />
       )}

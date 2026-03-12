@@ -21,7 +21,6 @@ import { useAgentStore } from './stores/agentStore';
 import { isClientAIConfigured } from './services/clientAI';
 import { useIsMobile } from './hooks/useMediaQuery';
 import { useAndroidBack } from './hooks/useAndroidBack';
-import { useSwipeBack } from './hooks/useSwipeBack';
 import { migrateServersFromLocalStorage, needsMigration } from './utils/migrateServers';
 import { eagerSyncAllBackends } from './services/sessionSync';
 import { useFileViewerStore } from './stores/fileViewerStore';
@@ -82,15 +81,9 @@ function AppContent() {
   // Android back gesture: close sidebar (pri 10)
   useAndroidBack(() => setSidebarOpen(false), isMobile && sidebarOpen, 10);
 
-  // Mobile gesture: swipe right from left 25% area to open sidebar
-  const openSidebarSwipeRef = useSwipeBack({
-    onSwipe: () => setSidebarOpen(true),
-    enabled: isMobile && !sidebarOpen && !isAgentExpanded,
-    direction: 'right',
-    edgeWidthRatio: 0.25,
-    threshold: 55,
-    velocityThreshold: 0.25,
-  });
+  // Android back gesture: open sidebar when nothing else is open (pri 5)
+  useAndroidBack(() => setSidebarOpen(true), isMobile && !sidebarOpen && !isAgentExpanded && !fileViewerFullscreen, 5);
+
 
   // Mobile: prevent localhost connection on initial load
   useEffect(() => {
@@ -268,7 +261,7 @@ function AppContent() {
               <Bot size={16} strokeWidth={1.75} className="text-primary" />
               <span className="font-semibold text-sm text-foreground">Agent</span>
             </div>
-          ) : (
+          ) : isMobile ? null : (
             <ServerSelector />
           )}
         </div>
@@ -296,7 +289,7 @@ function AppContent() {
       {!isMobile && <UpdateBanner />}
 
       {/* Content area: Sidebar + Main */}
-      <div ref={openSidebarSwipeRef} className="flex flex-1 overflow-hidden">
+      <div className="flex flex-1 overflow-hidden">
         {/* Sidebar */}
         <Sidebar
           collapsed={sidebarCollapsed}

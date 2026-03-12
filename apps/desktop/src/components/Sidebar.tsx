@@ -49,6 +49,7 @@ import { ProjectSettings } from './ProjectSettings';
 import { SettingsPanel } from './SettingsPanel';
 import { SearchFilters } from './SearchFilters';
 import { ActiveSessionsPanel } from './ActiveSessionsPanel';
+import { ServerSelector } from './ServerSelector';
 import { PluginPermissionDialog } from './PluginPermissionDialog';
 import { SessionItem } from './sidebar/SessionItem';
 import { WorktreeGroupItem } from './sidebar/WorktreeGroupItem';
@@ -506,6 +507,11 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
                 />
               </svg>
             </button>
+          </div>
+
+          {/* Server Selector */}
+          <div className="px-3 py-2 border-b border-border">
+            <ServerSelector />
           </div>
 
           {/* Search */}
