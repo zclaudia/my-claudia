@@ -64,20 +64,19 @@ jobs:
     needs: prepare-release
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 90
+    # Intel Mac (macos-13) runner deprecated by GitHub — only build ARM for now
     strategy:
       fail-fast: false
       matrix:
         include:
           - runner: macos-14
             arch: aarch64
-          - runner: macos-13
-            arch: x86_64
     env:
       CI: true
       GH_TOKEN: ${{ github.token }}
       RELEASE_REMOTE: origin
       RELEASE: 1
-      SKIP_LATEST_JSON_UPLOAD: 1
+      # SKIP_LATEST_JSON_UPLOAD: only needed for dual-arch builds with merge job
       RELEASE_VERSION: ${{ needs.prepare-release.outputs.version }}
       RELEASE_BUILD: ${{ needs.prepare-release.outputs.build }}
       TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
@@ -144,48 +143,6 @@ jobs:
       - name: Build and upload macOS release assets
         shell: bash
         run: ./scripts/build/macos.sh
-
-      - name: Upload update manifest
-        uses: actions/upload-artifact@v4
-        with:
-          name: macos-manifest-${{ matrix.arch }}
-          path: apps/desktop/src-tauri/target/release/bundle/latest.json
-          if-no-files-found: ignore
-
-  merge-macos-manifest:
-    needs: [prepare-release, build-macos]
-    runs-on: ubuntu-latest
-    env:
-      GH_TOKEN: ${{ github.token }}
-      TAG: ${{ needs.prepare-release.outputs.tag }}
-      VERSION: ${{ needs.prepare-release.outputs.version }}
-    steps:
-      - name: Download manifest artifacts
-        uses: actions/download-artifact@v4
-        with:
-          pattern: macos-manifest-*
-          path: manifests
-
-      - name: Merge update manifests
-        shell: bash
-        run: |
-          set -euo pipefail
-          # Merge per-architecture latest.json into one combined manifest
-          MERGED='{"version":"'"$VERSION"'","notes":"MyClaudia '"$VERSION"'","pub_date":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","platforms":{}}'
-          for dir in manifests/macos-manifest-*/; do
-            [ -f "$dir/latest.json" ] || continue
-            # Extract platforms from each manifest and merge
-            PLATFORMS=$(jq -c '.platforms' "$dir/latest.json")
-            MERGED=$(echo "$MERGED" | jq --argjson p "$PLATFORMS" '.platforms += $p')
-          done
-          echo "$MERGED" | jq . > latest.json
-          echo "=== Merged latest.json ==="
-          cat latest.json
-
-      - name: Upload merged manifest to release
-        shell: bash
-        run: |
-          gh release upload "$TAG" latest.json --clobber
 
   build-linux:
     needs: prepare-release
