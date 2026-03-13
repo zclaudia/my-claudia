@@ -64,6 +64,7 @@ export class WorkflowEngine {
   constructor(
     private db: Database,
     private broadcastFn: (projectId: string, message: any) => void,
+    private notificationService?: { notify(event: { type: string; title: string; body: string; priority?: string; tags?: string[] }): Promise<void> },
   ) {
     this.runRepo = new WorkflowRunRepository(db);
     this.stepRunRepo = new WorkflowStepRunRepository(db);
@@ -94,13 +95,15 @@ export class WorkflowEngine {
     }
 
     // Topological sort to detect cycles (Kahn's algorithm)
+    // Exclude loop/loop_exhausted edges — they intentionally create cycles
+    const nonLoopEdges = edges.filter(e => e.type !== 'loop' && e.type !== 'loop_exhausted');
     const inDegree = new Map<string, number>();
     const adj = new Map<string, string[]>();
     for (const id of nodeIds) {
       inDegree.set(id, 0);
       adj.set(id, []);
     }
-    for (const edge of edges) {
+    for (const edge of nonLoopEdges) {
       adj.get(edge.source)!.push(edge.target);
       inDegree.set(edge.target, (inDegree.get(edge.target) ?? 0) + 1);
     }
@@ -161,13 +164,26 @@ export class WorkflowEngine {
       return errorEdge?.target ?? null;
     }
 
-    // Normal success or skip: follow success edge
+    // Normal success or skip: follow success edge, then loop edge as fallback
     if (result.status === 'completed' || (result.status === 'failed' && nodeDef.onError === 'skip')) {
-      const successEdge = edges.find(e => e.type === 'success');
-      return successEdge?.target ?? null;
+      const nextEdge = edges.find(e => e.type === 'success') ?? edges.find(e => e.type === 'loop');
+      return nextEdge?.target ?? null;
     }
 
     return null;
+  }
+
+  // ── Loop Support ────────────────────────────────────────────────
+
+  private getMaxVisitsForNode(
+    targetNodeId: string,
+    sourceNodeId: string | null,
+    adjacency: Map<string, WorkflowEdgeDef[]>,
+  ): number {
+    if (!sourceNodeId) return 1;
+    const edges = adjacency.get(sourceNodeId) ?? [];
+    const loopEdge = edges.find(e => e.target === targetNodeId && e.type === 'loop');
+    return loopEdge ? (loopEdge.maxIterations ?? 3) : 1;
   }
 
   // ── Main Execution ──────────────────────────────────────────────
@@ -257,7 +273,8 @@ export class WorkflowEngine {
 
     const nodeMap = new Map(definition.nodes.map(n => [n.id, n]));
     const adjacency = this.buildAdjacencyMap(definition.edges);
-    const visited = new Set<string>();
+    const visitCounts = new Map<string, number>();
+    let previousNodeId: string | null = null;
 
     let currentNodeId: string | null = definition.entryNodeId;
 
@@ -268,8 +285,21 @@ export class WorkflowEngine {
         return;
       }
 
-      // Safety: prevent infinite loops (shouldn't happen in a validated DAG)
-      if (visited.has(currentNodeId)) {
+      // Loop-aware cycle detection
+      const currentVisits = visitCounts.get(currentNodeId) ?? 0;
+      const maxAllowedVisits = this.getMaxVisitsForNode(currentNodeId, previousNodeId, adjacency);
+      if (currentVisits >= maxAllowedVisits) {
+        if (maxAllowedVisits > 1 && previousNodeId) {
+          // Loop exhausted — follow loop_exhausted edge if exists
+          const exhaustedEdge = (adjacency.get(previousNodeId) ?? [])
+            .find(e => e.type === 'loop_exhausted');
+          if (exhaustedEdge) {
+            previousNodeId = currentNodeId;
+            currentNodeId = exhaustedEdge.target;
+            continue;
+          }
+        }
+        // Real cycle or no exhausted edge — fail
         this.runRepo.update(run.id, {
           status: 'failed',
           error: `Cycle detected at node "${currentNodeId}"`,
@@ -279,7 +309,7 @@ export class WorkflowEngine {
         this.broadcastRunUpdate(run.projectId, run.id);
         return;
       }
-      visited.add(currentNodeId);
+      visitCounts.set(currentNodeId, currentVisits + 1);
 
       const nodeDef = nodeMap.get(currentNodeId);
       if (!nodeDef) {
@@ -315,12 +345,13 @@ export class WorkflowEngine {
       }
 
       // Determine next node via edges
+      previousNodeId = currentNodeId;
       currentNodeId = this.findNextNodeId(nodeDef.id, result, adjacency, nodeDef);
     }
 
     // Mark unvisited nodes as skipped
     for (const node of definition.nodes) {
-      if (!visited.has(node.id)) {
+      if (!visitCounts.has(node.id)) {
         const stepRun = this.stepRunRepo.findByRunAndStep(run.id, node.id);
         if (stepRun && stepRun.status === 'pending') {
           this.stepRunRepo.update(stepRun.id, { status: 'skipped', completedAt: Date.now() });
@@ -558,7 +589,17 @@ export class WorkflowEngine {
       };
     }
 
-    // System notification — just log and broadcast
+    // System notification — push via ntfy + broadcast to frontend
+    if (this.notificationService) {
+      await this.notificationService.notify({
+        type: 'run_completed',
+        title: (config.title as string) ?? 'Workflow',
+        body: message,
+        priority: (config.priority as string) ?? 'default',
+        tags: (config.tags as string[]) ?? ['wrench'],
+      });
+    }
+
     console.log(`[Workflow] Notification: ${message}`);
     return { status: 'completed', output: { sent: true, type: 'system', message } };
   }
@@ -931,8 +972,14 @@ If there are critical issues, include ${failMarker} in your response and list th
   // ── Variable Interpolation ────────────────────────────────────
 
   resolveTemplate(template: string, results: Map<string, StepResult>): string {
+    // Resolve built-in runtime variables
+    const now = new Date();
+    let resolved = template
+      .replace(/\$\{date\}/g, now.toISOString().slice(0, 10))
+      .replace(/\$\{timestamp\}/g, String(now.getTime()));
+
     // Resolve ${stepId.output.field}
-    let resolved = template.replace(/\$\{(\w+)\.output\.(\w+)\}/g, (match, stepId, field) => {
+    resolved = resolved.replace(/\$\{(\w+)\.output\.(\w+)\}/g, (match, stepId, field) => {
       const result = results.get(stepId);
       if (!result || result.status !== 'completed') return match;
       const value = result.output[field];

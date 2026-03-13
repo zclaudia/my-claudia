@@ -7,6 +7,7 @@ import { useTheme, isDarkTheme } from '../../contexts/ThemeContext';
 import { getBaseUrl, getAuthHeaders } from '../../services/api';
 import { openFile, openFileAndroid, isAndroid } from '../../services/fileDownload';
 import type { FilePushItem } from '../../stores/filePushStore';
+import { useAndroidBack } from '../../hooks/useAndroidBack';
 
 const EXT_TO_LANG: Record<string, string> = {
   ts: 'typescript', tsx: 'tsx', js: 'javascript', jsx: 'jsx',
@@ -47,13 +48,22 @@ function detectLanguage(fileName: string): string {
   return EXT_TO_LANG[ext] || 'text';
 }
 
+const VIDEO_EXTENSIONS = new Set(['mp4', 'webm', 'mov', 'mkv']);
+const AUDIO_EXTENSIONS = new Set(['mp3', 'wav', 'ogg', 'aac', 'flac', 'm4a']);
+const IMAGE_EXTENSIONS = new Set(['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'bmp', 'ico']);
+
 export function getPreviewType(mimeType: string, fileName: string): PreviewType {
+  const ext = getFileExtension(fileName);
+
   if (mimeType.startsWith('image/')) return 'image';
   if (mimeType.startsWith('video/')) return 'video';
   if (mimeType.startsWith('audio/')) return 'audio';
 
+  if (IMAGE_EXTENSIONS.has(ext)) return 'image';
+  if (AUDIO_EXTENSIONS.has(ext)) return 'audio';
+  if (VIDEO_EXTENSIONS.has(ext)) return 'video';
+
   // Markdown
-  const ext = getFileExtension(fileName);
   if (mimeType === 'text/markdown' || ext === 'md') return 'markdown';
 
   // Text / code files
@@ -81,6 +91,9 @@ export function FilePreviewModal({ item, onClose }: FilePreviewModalProps) {
   const [textContent, setTextContent] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // Android back gesture: close preview (high priority)
+  useAndroidBack(onClose, true, 35);
 
   // Close on Escape
   useEffect(() => {

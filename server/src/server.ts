@@ -617,18 +617,18 @@ export async function createServer(): Promise<ServerContext> {
   app.use('/api', authMiddleware, createScheduledTaskRoutes(scheduledTaskService));
   app.use('/api', authMiddleware, createSystemTaskRoutes(scheduledTaskService.getTaskRunRepo()));
 
+  // Notification routes + service (must be before WorkflowService which uses it)
+  notificationService = new NotificationService(db);
+  app.use('/api/notifications', authMiddleware, createNotificationRoutes(notificationService));
+
   // Workflow service + routes
   const workflowService = new WorkflowService(db, (projectId, message) => {
     clients.forEach((client) => {
       if (client.authenticated) sendMessage(client.ws, message);
     });
-  });
+  }, notificationService);
   workflowService.initialize();
   app.use('/api', authMiddleware, createWorkflowRoutes(workflowService));
-
-  // Notification routes + service
-  notificationService = new NotificationService(db);
-  app.use('/api/notifications', authMiddleware, createNotificationRoutes(notificationService));
 
   // Plugin routes
   app.use('/api/plugins', authMiddleware, createPluginRoutes());

@@ -2140,7 +2140,7 @@ export interface WorkflowStepDef {
 
 // ── Workflow Graph Model (V2) ─────────────────────────────────
 
-export type WorkflowEdgeType = 'success' | 'error' | 'condition_true' | 'condition_false';
+export type WorkflowEdgeType = 'success' | 'error' | 'condition_true' | 'condition_false' | 'loop' | 'loop_exhausted';
 
 export interface WorkflowEdgeDef {
   id: string;
@@ -2148,6 +2148,8 @@ export interface WorkflowEdgeDef {
   target: string;
   type: WorkflowEdgeType;
   label?: string;
+  /** Max iterations for loop edges (default 3) */
+  maxIterations?: number;
 }
 
 export interface WorkflowNodePosition {

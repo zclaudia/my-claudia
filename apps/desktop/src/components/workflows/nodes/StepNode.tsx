@@ -32,6 +32,7 @@ export const StepNode = memo(function StepNode({ data, selected }: NodeProps) {
   const nodeData = data as StepNodeData;
   const isCondition = nodeData.stepType === 'condition';
   const hasErrorRoute = nodeData.onError === 'route';
+  const supportsLoop = !isCondition;
 
   return (
     <div className={`px-4 py-3 rounded-lg border-2 shadow-sm min-w-[180px] transition-colors ${
@@ -88,6 +89,20 @@ export const StepNode = memo(function StepNode({ data, selected }: NodeProps) {
         </>
       ) : (
         <>
+          {supportsLoop && (
+            <>
+              <Handle
+                type="source"
+                position={Position.Bottom}
+                id="loop"
+                className="!w-3 !h-3 !bg-amber-500 !border-2 !border-background"
+                style={{ left: '20%' }}
+              />
+              <span className="absolute text-[9px] text-amber-600 font-medium" style={{ bottom: -16, left: '14%' }}>
+                Loop
+              </span>
+            </>
+          )}
           {/* Success: bottom center */}
           <Handle
             type="source"
@@ -95,6 +110,20 @@ export const StepNode = memo(function StepNode({ data, selected }: NodeProps) {
             id="success"
             className="!w-3 !h-3 !bg-muted-foreground/40 !border-2 !border-background"
           />
+          {supportsLoop && (
+            <>
+              <Handle
+                type="source"
+                position={Position.Bottom}
+                id="loop_exhausted"
+                className="!w-3 !h-3 !bg-rose-500 !border-2 !border-background"
+                style={{ left: '80%' }}
+              />
+              <span className="absolute text-[9px] text-rose-600 font-medium" style={{ bottom: -16, left: '66%' }}>
+                Exhausted
+              </span>
+            </>
+          )}
           {/* Error: right side (only when onError == 'route') */}
           {hasErrorRoute && (
             <Handle

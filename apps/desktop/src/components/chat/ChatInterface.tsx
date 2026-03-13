@@ -383,8 +383,17 @@ export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar }:
   }, [currentProject?.rootPath]);
 
   const scrollToBottom = useCallback((instant = false) => {
-    messagesEndRef.current?.scrollIntoView({ behavior: instant ? 'instant' : 'smooth' });
-  }, []);
+    const container = messagesContainerRef.current;
+    if (container) {
+      container.scrollTo({
+        top: container.scrollHeight,
+        behavior: instant || isMobile ? 'auto' : 'smooth',
+      });
+      return;
+    }
+
+    messagesEndRef.current?.scrollIntoView({ behavior: instant || isMobile ? 'auto' : 'smooth' });
+  }, [isMobile]);
 
   const jumpToBottomInstant = useCallback(() => {
     suppressLoadMoreUntilRef.current = Date.now() + SUPPRESS_LOAD_MORE_MS;
@@ -1817,6 +1826,19 @@ export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar }:
               </div>
             </div>
             <div className="flex items-center gap-2">
+              {/* Restore Plan: re-read existing plan file after app restart */}
+              {taskPlanStatus?.exists && !isLoading && (
+                <button
+                  onClick={() => {
+                    const taskId = currentSession?.taskId;
+                    if (!taskId) return;
+                    handleSendMessage(`Please read the existing plan document at \`.supervision/plans/task-${taskId}.plan.md\` and summarize it. Then ask me whether I'd like to:\n1. Submit the plan and start implementation\n2. Continue refining the plan`);
+                  }}
+                  className="px-3 py-1.5 rounded-md text-xs border border-blue-500/40 text-blue-500 hover:bg-blue-500/10 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Restore Plan
+                </button>
+              )}
               <button
                 onClick={async () => {
                   const taskId = currentSession?.taskId;

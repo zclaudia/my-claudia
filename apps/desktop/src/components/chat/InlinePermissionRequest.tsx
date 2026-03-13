@@ -196,7 +196,7 @@ export function InlinePermissionRequest({ request, onDecision }: InlinePermissio
         )}
 
         {/* Timer + remember + actions */}
-        <div className="flex items-center gap-2 mt-2">
+        <div className="flex items-center gap-2 mt-2 flex-wrap">
           {/* Timer */}
           {hasTimeout ? (
             <span className="text-xs text-muted-foreground flex items-center gap-1">

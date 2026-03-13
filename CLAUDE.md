@@ -27,7 +27,7 @@ my-claudia/
 
 | Env Var | Used By | Purpose |
 |---------|---------|---------|
-| `MY_CLAUDIA_DATA_DIR` | server | Override data directory (default: `~/.my-claudia/`) |
+| `MY_CLAUDIA_DATA_DIR` | server, gateway | Override data directory (default: `~/.my-claudia/`) |
 | `GATEWAY_URL` | server | WebSocket URL to connect to gateway |
 | `GATEWAY_SECRET` | server, gateway | Shared secret for gateway auth |
 | `GATEWAY_NAME` | server | Backend display name on gateway |
@@ -49,7 +49,7 @@ my-claudia/
 - Backends register with gateway secret + device ID
 - Clients authenticate, discover backends, send/receive messages through gateway
 - HTTP proxy: REST requests proxied over WebSocket (for NAT traversal)
-- SQLite storage: device-to-backend ID mappings (persistent 8-char hex IDs)
+- SQLite storage: `~/.my-claudia/gateway/gateway.db` (or `$MY_CLAUDIA_DATA_DIR/gateway/gateway.db`) — device-to-backend ID mappings (persistent 8-char hex IDs)
 - Health endpoint: `GET /health`
 
 ### Docker Deployment

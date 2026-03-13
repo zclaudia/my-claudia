@@ -10,7 +10,9 @@ import path from 'path';
 import os from 'os';
 import { systemTaskRegistry } from './system-task-registry.js';
 
-const WORKSPACE_DIR = path.join(os.homedir(), '.my-claudia', 'workspace');
+const WORKSPACE_DIR = process.env.MY_CLAUDIA_DATA_DIR
+  ? path.resolve(process.env.MY_CLAUDIA_DATA_DIR, 'workspace')
+  : path.join(os.homedir(), '.my-claudia', 'workspace');
 const CACHE_TTL = 60000; // 1 分钟缓存
 const MAX_FILE_SIZE = 100 * 1024; // 100KB 限制
 

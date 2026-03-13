@@ -12,6 +12,8 @@ const EDGE_STYLES: Record<WorkflowEdgeType, {
   error: { stroke: '#ef4444', strokeDasharray: '5,5', label: 'Error', labelColor: '#ef4444' },
   condition_true: { stroke: '#22c55e', label: 'True', labelColor: '#22c55e' },
   condition_false: { stroke: '#ef4444', label: 'False', labelColor: '#ef4444' },
+  loop: { stroke: '#f59e0b', strokeDasharray: '6,4', label: 'Loop', labelColor: '#d97706' },
+  loop_exhausted: { stroke: '#fb7185', strokeDasharray: '3,3', label: 'Loop Exhausted', labelColor: '#e11d48' },
 };
 
 export const WorkflowEdge = memo(function WorkflowEdge(props: EdgeProps) {
@@ -29,6 +31,10 @@ export const WorkflowEdge = memo(function WorkflowEdge(props: EdgeProps) {
 
   const edgeType = (data?.edgeType as WorkflowEdgeType) ?? 'success';
   const style = EDGE_STYLES[edgeType] ?? EDGE_STYLES.success;
+  const maxIterations = typeof data?.maxIterations === 'number' ? data.maxIterations : undefined;
+  const edgeLabel = edgeType === 'loop' && maxIterations
+    ? `${style.label} x${maxIterations}`
+    : style.label;
 
   const [edgePath, labelX, labelY] = getBezierPath({
     sourceX,
@@ -50,7 +56,7 @@ export const WorkflowEdge = memo(function WorkflowEdge(props: EdgeProps) {
           strokeDasharray: style.strokeDasharray,
         }}
       />
-      {style.label && (
+      {edgeLabel && (
         <EdgeLabelRenderer>
           <div
             style={{
@@ -60,7 +66,7 @@ export const WorkflowEdge = memo(function WorkflowEdge(props: EdgeProps) {
             }}
             className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-card border border-border"
           >
-            <span style={{ color: style.labelColor }}>{style.label}</span>
+            <span style={{ color: style.labelColor }}>{edgeLabel}</span>
           </div>
         </EdgeLabelRenderer>
       )}

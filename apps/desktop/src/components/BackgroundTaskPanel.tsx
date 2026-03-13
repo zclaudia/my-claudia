@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useBackgroundTaskStore, type BackgroundTask } from '../stores/backgroundTaskStore';
-import { CheckCircle2, XCircle, Loader2, X, ChevronDown, ChevronRight } from 'lucide-react';
+import { CheckCircle2, XCircle, Loader2, X, ChevronDown, ChevronRight, PauseCircle } from 'lucide-react';
 
 function formatTimeAgo(ts: number): string {
   const seconds = Math.floor((Date.now() - ts) / 1000);
@@ -14,6 +14,7 @@ function formatTimeAgo(ts: number): string {
 function TaskItem({ task, onRemove }: { task: BackgroundTask; onRemove: () => void }) {
   const [expanded, setExpanded] = useState(false);
   const isRunning = task.status === 'started' || task.status === 'in_progress';
+  const isPaused = task.status === 'paused';
   const isFailed = task.status === 'failed' || task.status === 'stopped';
 
   return (
@@ -23,6 +24,8 @@ function TaskItem({ task, onRemove }: { task: BackgroundTask; onRemove: () => vo
       {/* Status icon */}
       {isRunning ? (
         <Loader2 size={13} className="animate-spin text-primary flex-shrink-0" />
+      ) : isPaused ? (
+        <PauseCircle size={13} className="text-warning flex-shrink-0" />
       ) : isFailed ? (
         <XCircle size={13} className="text-destructive flex-shrink-0" />
       ) : (
@@ -82,6 +85,7 @@ export function BackgroundTaskPanel({ sessionId }: BackgroundTaskPanelProps) {
   }
 
   const activeTasks = tasks.filter(t => t.status === 'started' || t.status === 'in_progress');
+  const pausedTasks = tasks.filter(t => t.status === 'paused');
   const completedTasks = tasks.filter(t => t.status === 'completed' || t.status === 'failed' || t.status === 'stopped');
 
   return (
@@ -91,6 +95,8 @@ export function BackgroundTaskPanel({ sessionId }: BackgroundTaskPanelProps) {
         <span className="font-medium">
           {activeTasks.length > 0
             ? `${activeTasks.length} task${activeTasks.length > 1 ? 's' : ''} running`
+            : pausedTasks.length > 0
+            ? `${pausedTasks.length} task${pausedTasks.length > 1 ? 's' : ''} paused`
             : `${tasks.length} task${tasks.length > 1 ? 's' : ''}`
           }
         </span>
@@ -107,6 +113,9 @@ export function BackgroundTaskPanel({ sessionId }: BackgroundTaskPanelProps) {
       {!collapsed && (
         <div className="overflow-y-auto max-h-40 pb-1">
           {activeTasks.map((task) => (
+            <TaskItem key={task.id} task={task} onRemove={() => removeTask(task.id)} />
+          ))}
+          {pausedTasks.map((task) => (
             <TaskItem key={task.id} task={task} onRemove={() => removeTask(task.id)} />
           ))}
           {completedTasks.map((task) => (

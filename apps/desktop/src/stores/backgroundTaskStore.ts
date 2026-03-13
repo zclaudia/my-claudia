@@ -5,7 +5,7 @@ export interface BackgroundTask {
   toolUseId?: string;            // tool_use_id that triggered this background task
   sessionId: string;             // parent session ID
   description: string;           // task description
-  status: 'started' | 'in_progress' | 'completed' | 'failed' | 'stopped';
+  status: 'started' | 'in_progress' | 'paused' | 'completed' | 'failed' | 'stopped';
   outputFile?: string;           // output file path (for completed tasks)
   summary?: string;              // summary message
   startedAt: number;             // timestamp when task started

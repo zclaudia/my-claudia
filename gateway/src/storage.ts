@@ -4,7 +4,9 @@ import * as path from 'path';
 import * as os from 'os';
 import * as fs from 'fs';
 
-const DATA_DIR = path.join(os.homedir(), '.my-claudia', 'gateway');
+const DATA_DIR = process.env.MY_CLAUDIA_DATA_DIR
+  ? path.resolve(process.env.MY_CLAUDIA_DATA_DIR, 'gateway')
+  : path.join(os.homedir(), '.my-claudia', 'gateway');
 
 // Ensure data directory exists
 if (!fs.existsSync(DATA_DIR)) {

@@ -46,7 +46,7 @@ function toFlowEdges(edgeDefs: WorkflowEdgeDef[]): Edge[] {
     target: e.target,
     sourceHandle: e.type,
     type: 'workflowEdge',
-    data: { edgeType: e.type },
+    data: { edgeType: e.type, maxIterations: e.maxIterations },
   }));
 }
 
@@ -70,6 +70,7 @@ export function fromFlowEdges(edges: Edge[]): WorkflowEdgeDef[] {
     source: e.source,
     target: e.target,
     type: (e.data?.edgeType ?? e.sourceHandle ?? 'success') as WorkflowEdgeType,
+    maxIterations: typeof e.data?.maxIterations === 'number' ? e.data.maxIterations : undefined,
   }));
 }
 
@@ -81,6 +82,7 @@ interface WorkflowGraphEditorProps {
   onNodesChange: (nodes: Node[]) => void;
   onEdgesChange: (edges: Edge[]) => void;
   onNodeSelect: (nodeId: string | null) => void;
+  onEdgeSelect: (edgeId: string | null) => void;
 }
 
 // ── Inner component (needs ReactFlow context) ─────────────
@@ -91,6 +93,7 @@ function GraphEditorInner({
   onNodesChange: onNodesChangeCallback,
   onEdgesChange: onEdgesChangeCallback,
   onNodeSelect,
+  onEdgeSelect,
 }: WorkflowGraphEditorProps) {
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
   const { screenToFlowPosition } = useReactFlow();
@@ -146,7 +149,10 @@ function GraphEditorInner({
         target: connection.target!,
         sourceHandle: connection.sourceHandle,
         type: 'workflowEdge',
-        data: { edgeType },
+        data: {
+          edgeType,
+          maxIterations: edgeType === 'loop' ? 3 : undefined,
+        },
       };
       const result = [...filtered, newEdge];
       onEdgesChangeCallback(result);
@@ -157,11 +163,18 @@ function GraphEditorInner({
   // Handle node selection
   const onNodeClick = useCallback((_event: React.MouseEvent, node: Node) => {
     onNodeSelect(node.id);
-  }, [onNodeSelect]);
+    onEdgeSelect(null);
+  }, [onNodeSelect, onEdgeSelect]);
+
+  const onEdgeClick = useCallback((_event: React.MouseEvent, edge: Edge) => {
+    onNodeSelect(null);
+    onEdgeSelect(edge.id);
+  }, [onNodeSelect, onEdgeSelect]);
 
   const onPaneClick = useCallback(() => {
     onNodeSelect(null);
-  }, [onNodeSelect]);
+    onEdgeSelect(null);
+  }, [onNodeSelect, onEdgeSelect]);
 
   // Handle drop from NodePalette
   const onDragOver = useCallback((event: React.DragEvent) => {
@@ -202,7 +215,8 @@ function GraphEditorInner({
       return result;
     });
     onNodeSelect(newNodeId);
-  }, [screenToFlowPosition, setNodes, onNodesChangeCallback, onNodeSelect]);
+    onEdgeSelect(null);
+  }, [screenToFlowPosition, setNodes, onNodesChangeCallback, onNodeSelect, onEdgeSelect]);
 
   // Update a specific node's data (called from parent when config changes)
   const updateNodeData = useCallback((nodeId: string, data: Partial<Record<string, unknown>>) => {
@@ -227,12 +241,26 @@ function GraphEditorInner({
       return result;
     });
     onNodeSelect(null);
-  }, [setNodes, setEdges, onNodesChangeCallback, onEdgesChangeCallback, onNodeSelect]);
+    onEdgeSelect(null);
+  }, [setNodes, setEdges, onNodesChangeCallback, onEdgesChangeCallback, onNodeSelect, onEdgeSelect]);
+
+  const updateEdgeData = useCallback((edgeId: string, data: Partial<Record<string, unknown>>) => {
+    setEdges((eds) => {
+      const result = eds.map((edge) =>
+        edge.id === edgeId
+          ? { ...edge, data: { ...edge.data, ...data } }
+          : edge
+      );
+      onEdgesChangeCallback(result);
+      return result;
+    });
+  }, [setEdges, onEdgesChangeCallback]);
 
   // Expose updateNodeData and deleteNode via ref on wrapper div
   if (reactFlowWrapper.current) {
     (reactFlowWrapper.current as any).__updateNodeData = updateNodeData;
     (reactFlowWrapper.current as any).__deleteNode = deleteNode;
+    (reactFlowWrapper.current as any).__updateEdgeData = updateEdgeData;
   }
 
   return (
@@ -252,6 +280,7 @@ function GraphEditorInner({
         onEdgesChange={handleEdgesChange}
         onConnect={onConnect}
         onNodeClick={onNodeClick}
+        onEdgeClick={onEdgeClick}
         onPaneClick={onPaneClick}
         isValidConnection={isValidConnection}
         fitView

@@ -3,6 +3,7 @@ import { ArrowLeft, Save, PanelLeftClose, PanelLeftOpen, X, ExternalLink, Check 
 import type {
   Workflow,
   WorkflowNodeDef,
+  WorkflowEdgeDef,
   WorkflowDefinitionV2,
   WorkflowTrigger,
 } from '@my-claudia/shared';
@@ -59,6 +60,7 @@ export function WorkflowEditor({ workflow, projectId, onBack, onSaved, standalon
   const [description, setDescription] = useState(workflow?.description ?? '');
   const [triggers, setTriggers] = useState<WorkflowTrigger[]>(initial.triggers);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saved'>('idle');
   const [leftPanelOpen, setLeftPanelOpen] = useState(true);
@@ -70,6 +72,7 @@ export function WorkflowEditor({ workflow, projectId, onBack, onSaved, standalon
   const edgesRef = useRef<Edge[]>([]);
   // Also track as state for re-rendering the config panel
   const [, setCurrentNodes] = useState<WorkflowNodeDef[]>(initial.nodes);
+  const [, setCurrentEdges] = useState<WorkflowEdgeDef[]>(initial.edges);
 
   const onNodesChange = useCallback((nodes: Node[]) => {
     nodesRef.current = nodes;
@@ -78,15 +81,25 @@ export function WorkflowEditor({ workflow, projectId, onBack, onSaved, standalon
 
   const onEdgesChange = useCallback((edges: Edge[]) => {
     edgesRef.current = edges;
+    setCurrentEdges(fromFlowEdges(edges));
   }, []);
 
   const onNodeSelect = useCallback((nodeId: string | null) => {
     setSelectedNodeId(nodeId);
+    if (nodeId) setSelectedEdgeId(null);
+  }, []);
+
+  const onEdgeSelect = useCallback((edgeId: string | null) => {
+    setSelectedEdgeId(edgeId);
+    if (edgeId) setSelectedNodeId(null);
   }, []);
 
   // Build full node data from nodesRef for the selected node
   const selectedFlowNode = selectedNodeId
     ? nodesRef.current.find(n => n.id === selectedNodeId)
+    : null;
+  const selectedFlowEdge = selectedEdgeId
+    ? edgesRef.current.find(e => e.id === selectedEdgeId)
     : null;
 
   const updateSelectedNode = useCallback((updated: WorkflowNodeDef) => {
@@ -112,6 +125,13 @@ export function WorkflowEditor({ workflow, projectId, onBack, onSaved, standalon
       (editorEl as any).__deleteNode(selectedNodeId);
     }
   }, [selectedNodeId]);
+
+  const updateSelectedEdge = useCallback((edgeId: string, data: Partial<Record<string, unknown>>) => {
+    const editorEl = document.querySelector('[data-graph-editor]');
+    if (editorEl && (editorEl as any).__updateEdgeData) {
+      (editorEl as any).__updateEdgeData(edgeId, data);
+    }
+  }, []);
 
   const handleSave = async () => {
     if (!name.trim()) return;
@@ -222,7 +242,21 @@ export function WorkflowEditor({ workflow, projectId, onBack, onSaved, standalon
     };
   };
 
+  const getFullEdgeDef = (): WorkflowEdgeDef | null => {
+    if (!selectedFlowEdge) return null;
+    return {
+      id: selectedFlowEdge.id,
+      source: selectedFlowEdge.source,
+      target: selectedFlowEdge.target,
+      type: (selectedFlowEdge.data?.edgeType ?? selectedFlowEdge.sourceHandle ?? 'success') as WorkflowEdgeDef['type'],
+      maxIterations: typeof selectedFlowEdge.data?.maxIterations === 'number'
+        ? selectedFlowEdge.data.maxIterations
+        : undefined,
+    };
+  };
+
   const fullSelectedNode = getFullNodeDef();
+  const fullSelectedEdge = getFullEdgeDef();
   const editorLabel = workflow ? 'Edit Workflow' : 'Editor';
 
   return (
@@ -330,26 +364,66 @@ export function WorkflowEditor({ workflow, projectId, onBack, onSaved, standalon
           onNodesChange={onNodesChange}
           onEdgesChange={onEdgesChange}
           onNodeSelect={onNodeSelect}
+          onEdgeSelect={onEdgeSelect}
         />
 
-        {/* Right: Config panel — only visible when a node is selected */}
-        {fullSelectedNode && (
+        {/* Right: Config panel — visible for selected node or selected loop edge */}
+        {(fullSelectedNode || fullSelectedEdge) && (
           <div className="w-72 border-l border-border overflow-y-auto p-3 bg-card/50 shrink-0">
             <div className="flex items-center justify-between mb-2">
               <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Config</span>
               <button
-                onClick={() => setSelectedNodeId(null)}
+                onClick={() => {
+                  setSelectedNodeId(null);
+                  setSelectedEdgeId(null);
+                }}
                 className="p-0.5 rounded hover:bg-secondary text-muted-foreground hover:text-foreground"
                 title="Close panel"
               >
                 <X size={14} />
               </button>
             </div>
-            <StepConfigForm
-              step={fullSelectedNode}
-              onChange={updateSelectedNode}
-              onDelete={deleteSelectedNode}
-            />
+            {fullSelectedNode ? (
+              <StepConfigForm
+                step={fullSelectedNode}
+                onChange={updateSelectedNode}
+                onDelete={deleteSelectedNode}
+              />
+            ) : fullSelectedEdge ? (
+              <div className="space-y-4">
+                <div>
+                  <div className="text-sm font-medium text-foreground">Loop Edge</div>
+                  <div className="text-xs text-muted-foreground mt-1">
+                    {fullSelectedEdge.source} {'->'} {fullSelectedEdge.target}
+                  </div>
+                </div>
+                {fullSelectedEdge.type === 'loop' ? (
+                  <div>
+                    <label className="text-xs font-medium text-muted-foreground block mb-1">Max Iterations</label>
+                    <input
+                      type="number"
+                      min={1}
+                      max={99}
+                      value={fullSelectedEdge.maxIterations ?? 3}
+                      onChange={(e) => {
+                        const nextValue = Number.parseInt(e.target.value, 10);
+                        updateSelectedEdge(fullSelectedEdge.id, {
+                          maxIterations: Number.isFinite(nextValue) && nextValue > 0 ? nextValue : 1,
+                        });
+                      }}
+                      className="w-full px-2.5 py-1.5 text-sm rounded-md border border-border bg-background focus:outline-none focus:border-primary"
+                    />
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Number of times this loop edge may revisit its target before taking `loop_exhausted`.
+                    </p>
+                  </div>
+                ) : (
+                  <p className="text-xs text-muted-foreground">
+                    Only `loop` edges have editable settings right now.
+                  </p>
+                )}
+              </div>
+            ) : null}
           </div>
         )}
       </div>

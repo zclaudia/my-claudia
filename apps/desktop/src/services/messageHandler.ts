@@ -54,6 +54,30 @@ function unwrapMessage(rawMessage: ServerMessage | any): ServerMessage {
   return rawMessage as ServerMessage;
 }
 
+function isCompletedBackgroundStatus(status: string | undefined): boolean {
+  return status === 'completed' || status === 'failed' || status === 'stopped';
+}
+
+function upsertBackgroundTask(taskId: string, task: import('../stores/backgroundTaskStore').BackgroundTask): void {
+  const backgroundTaskStore = useBackgroundTaskStore.getState();
+  const existingTask = backgroundTaskStore.tasks[taskId];
+
+  if (existingTask) {
+    const nextDescription = !task.description || task.description === 'Background Task'
+      ? existingTask.description
+      : task.description;
+    backgroundTaskStore.updateTask(taskId, {
+      ...task,
+      startedAt: existingTask.startedAt,
+      description: nextDescription,
+      toolUseId: task.toolUseId || existingTask.toolUseId,
+    });
+    return;
+  }
+
+  backgroundTaskStore.addTask(task);
+}
+
 /**
  * Process a server message through the unified handler.
  * Handles all message types except `auth_result` (transport-specific).
@@ -256,35 +280,76 @@ export function handleServerMessage(
       }
       break;
 
+    case 'background_task_update': {
+      const targetSessionId = msg.parentSessionId || msg.sessionId;
+      if (!targetSessionId) break;
+
+      const taskId = `background:${msg.sessionId}`;
+      const mappedStatus = msg.status === 'running'
+        ? 'in_progress'
+        : msg.status === 'paused'
+        ? 'paused'
+        : msg.status;
+
+      upsertBackgroundTask(taskId, {
+        id: taskId,
+        sessionId: targetSessionId,
+        description: msg.name || 'Background Task',
+        status: mappedStatus,
+        startedAt: Date.now(),
+        summary: msg.reason,
+        completedAt: isCompletedBackgroundStatus(mappedStatus) ? Date.now() : undefined,
+      });
+      break;
+    }
+
     case 'task_notification': {
       // Add/update background task in store
       if (msg.sessionId && msg.taskId) {
-        const backgroundTaskStore = useBackgroundTaskStore.getState();
-        const existingTask = backgroundTaskStore.tasks[msg.taskId];
-
-        if (existingTask) {
-          // Update existing task
-          backgroundTaskStore.updateTask(msg.taskId, {
-            status: msg.status as 'started' | 'in_progress' | 'completed' | 'failed' | 'stopped',
-            summary: msg.message,
-            completedAt: msg.status === 'completed' || msg.status === 'failed' || msg.status === 'stopped' ? Date.now() : undefined,
-          });
-        } else {
-          // Add new task
-          backgroundTaskStore.addTask({
-            id: msg.taskId,
-            sessionId: msg.sessionId,
-            description: msg.message || 'Background Task',
-            status: msg.status as 'started' | 'in_progress' | 'completed' | 'failed' | 'stopped',
-            startedAt: Date.now(),
-            completedAt: msg.status === 'completed' || msg.status === 'failed' || msg.status === 'stopped' ? Date.now() : undefined,
-          });
-        }
+        upsertBackgroundTask(msg.taskId, {
+          id: msg.taskId,
+          sessionId: msg.sessionId,
+          description: msg.message || 'Background Task',
+          status: (msg.status || 'in_progress') as 'started' | 'in_progress' | 'paused' | 'completed' | 'failed' | 'stopped',
+          startedAt: Date.now(),
+          summary: msg.message,
+          completedAt: isCompletedBackgroundStatus(msg.status) ? Date.now() : undefined,
+        });
       }
 
       // Task notifications are displayed in BackgroundTaskPanel — no need to add
       // a system message to the chat. Adding one would break streaming by inserting
       // a message after the active assistant message, causing isLastAssistant to fail.
+      break;
+    }
+
+    case 'task_progress': {
+      upsertBackgroundTask(msg.taskId, {
+        id: msg.taskId,
+        toolUseId: msg.toolUseId,
+        sessionId: msg.sessionId,
+        description: msg.description || 'Background Task',
+        status: 'in_progress',
+        startedAt: Date.now(),
+        usage: msg.usage,
+        summary: msg.lastToolName ? `Last tool: ${msg.lastToolName}` : undefined,
+      });
+      break;
+    }
+
+    case 'task_status_notification': {
+      upsertBackgroundTask(msg.taskId, {
+        id: msg.taskId,
+        toolUseId: msg.toolUseId,
+        sessionId: msg.sessionId,
+        description: msg.summary || 'Background Task',
+        status: msg.status,
+        startedAt: Date.now(),
+        completedAt: Date.now(),
+        outputFile: msg.outputFile,
+        summary: msg.summary,
+        usage: msg.usage,
+      });
       break;
     }
 

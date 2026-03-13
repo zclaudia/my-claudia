@@ -34,12 +34,13 @@ export class WorkflowService {
   constructor(
     private db: Database,
     private broadcastFn: (projectId: string, message: any) => void,
+    notificationService?: { notify(event: { type: string; title: string; body: string; priority?: string; tags?: string[] }): Promise<void> },
   ) {
     this.workflowRepo = new WorkflowRepository(db);
     this.runRepo = new WorkflowRunRepository(db);
     this.stepRunRepo = new WorkflowStepRunRepository(db);
     this.scheduleRepo = new WorkflowScheduleRepository(db);
-    this.engine = new WorkflowEngine(db, broadcastFn);
+    this.engine = new WorkflowEngine(db, broadcastFn, notificationService);
   }
 
   // ── Initialization ────────────────────────────────────────────
