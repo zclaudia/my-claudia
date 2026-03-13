@@ -536,6 +536,130 @@ discovered_tasks:
       );
     });
 
+    it('handles parse errors in run_completed gracefully', async () => {
+      const projectId = seedProject(db, {
+        agent: makeAgent(),
+        rootPath: '/tmp/proj',
+      });
+
+      let capturedCallback: ((msg: ServerMessage) => void) | undefined;
+      createVirtualClientFn.mockImplementation((_id: string, opts: any) => {
+        capturedCallback = opts.send;
+        return { id: _id };
+      });
+
+      const engine = createEngine();
+      // Make parseCheckpointResult throw
+      vi.spyOn(engine, 'parseCheckpointResult').mockImplementation(() => {
+        throw new Error('Parse error');
+      });
+
+      await engine.runCheckpoint(projectId);
+
+      const sessions = sessionRepo.findByProjectRole(projectId, 'checkpoint');
+      const sessionId = sessions[0].id;
+
+      capturedCallback!({ type: 'run_completed' } as ServerMessage);
+
+      // Should log the error
+      expect(logFn).toHaveBeenCalledWith(
+        projectId, 'checkpoint_completed',
+        expect.objectContaining({ error: 'Parse error' }),
+      );
+      // Should still archive session and cleanup
+      expect((engine as any).runningCheckpoints.has(projectId)).toBe(false);
+      const updatedSession = sessionRepo.findById(sessionId);
+      expect(updatedSession?.archivedAt).toBeDefined();
+    });
+
+    it('applies knowledge updates when result has knowledgeUpdates', async () => {
+      const projectId = seedProject(db, {
+        agent: makeAgent(),
+        rootPath: '/tmp/proj',
+      });
+
+      let capturedCallback: ((msg: ServerMessage) => void) | undefined;
+      createVirtualClientFn.mockImplementation((_id: string, opts: any) => {
+        capturedCallback = opts.send;
+        return { id: _id };
+      });
+
+      const engine = createEngine();
+      await engine.runCheckpoint(projectId);
+
+      const sessions = sessionRepo.findByProjectRole(projectId, 'checkpoint');
+      const sessionId = sessions[0].id;
+
+      const content = `[CHECKPOINT_RESULT]
+knowledge_updates:
+  - doc_id: knowledge/api-patterns.md
+    content: |
+      Updated API patterns documentation
+[/CHECKPOINT_RESULT]`;
+
+      db.prepare(
+        `INSERT INTO messages (id, session_id, role, content, created_at) VALUES (?, ?, 'assistant', ?, ?)`,
+      ).run(uuidv4(), sessionId, content, Date.now());
+
+      capturedCallback!({ type: 'run_completed' } as ServerMessage);
+
+      expect(mockContextManager.updateDocument).toHaveBeenCalledWith(
+        'knowledge/api-patterns.md',
+        expect.stringContaining('Updated API patterns'),
+        expect.objectContaining({ category: 'knowledge', source: 'agent' }),
+      );
+      expect(logFn).toHaveBeenCalledWith(
+        projectId, 'context_updated',
+        expect.objectContaining({ type: 'knowledge', docId: 'knowledge/api-patterns.md' }),
+      );
+    });
+
+    it('handles createTaskFn errors gracefully during discovered tasks', async () => {
+      const projectId = seedProject(db, {
+        agent: makeAgent({ config: { maxConcurrentTasks: 1, trustLevel: 'low', autoDiscoverTasks: true } }),
+        rootPath: '/tmp/proj',
+      });
+
+      let capturedCallback: ((msg: ServerMessage) => void) | undefined;
+      createVirtualClientFn.mockImplementation((_id: string, opts: any) => {
+        capturedCallback = opts.send;
+        return { id: _id };
+      });
+
+      createTaskFn.mockImplementation(() => {
+        throw new Error('Budget limit exceeded');
+      });
+
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const engine = createEngine();
+      await engine.runCheckpoint(projectId);
+
+      const sessions = sessionRepo.findByProjectRole(projectId, 'checkpoint');
+      const sessionId = sessions[0].id;
+
+      const content = `[CHECKPOINT_RESULT]
+discovered_tasks:
+  - title: New task
+    description: Should fail gracefully
+[/CHECKPOINT_RESULT]`;
+
+      db.prepare(
+        `INSERT INTO messages (id, session_id, role, content, created_at) VALUES (?, ?, 'assistant', ?, ?)`,
+      ).run(uuidv4(), sessionId, content, Date.now());
+
+      capturedCallback!({ type: 'run_completed' } as ServerMessage);
+
+      // Should have logged error but not crashed
+      expect(errorSpy).toHaveBeenCalledWith(
+        expect.stringContaining('Failed to create discovered task'),
+        expect.any(Error),
+      );
+      // Session should still be archived
+      const updatedSession = sessionRepo.findById(sessionId);
+      expect(updatedSession?.archivedAt).toBeDefined();
+      errorSpy.mockRestore();
+    });
+
     it('does not create tasks when autoDiscoverTasks is false', async () => {
       const projectId = seedProject(db, {
         agent: makeAgent({ config: { maxConcurrentTasks: 1, trustLevel: 'low', autoDiscoverTasks: false } }),
@@ -573,6 +697,59 @@ discovered_tasks:
   // ========================================
   // Interval management
   // ========================================
+
+  describe('buildCheckpointPrompt edge cases', () => {
+    it('includes documents in prompt when context manager returns them', async () => {
+      mockContextManager.loadAll.mockReturnValue({
+        documents: [
+          { id: 'doc1', category: 'knowledge', content: 'Document content here' },
+        ],
+        workflow: { onTaskComplete: [], onCheckpoint: [], checkpointTrigger: { type: 'on_task_complete' } },
+      });
+
+      const projectId = seedProject(db, {
+        agent: makeAgent(),
+        rootPath: '/tmp/proj',
+        name: 'DocProject',
+      });
+
+      const engine = createEngine();
+      await engine.runCheckpoint(projectId);
+
+      const startArgs = handleRunStartFn.mock.calls[0][1];
+      expect(startArgs.input).toContain('DocProject');
+      expect(startArgs.input).toContain('doc1');
+      expect(startArgs.input).toContain('Document content here');
+    });
+
+    it('shows (no project summary yet) when summary is null', async () => {
+      mockContextManager.getProjectSummary.mockReturnValue(null);
+
+      const projectId = seedProject(db, {
+        agent: makeAgent(),
+        rootPath: '/tmp/proj',
+      });
+
+      const engine = createEngine();
+      await engine.runCheckpoint(projectId);
+
+      const startArgs = handleRunStartFn.mock.calls[0][1];
+      expect(startArgs.input).toContain('(no project summary yet)');
+    });
+  });
+
+  describe('matchesTrigger - unknown type', () => {
+    it('returns false for unknown trigger type', () => {
+      const projectId = seedProject(db, { agent: makeAgent() });
+      mockContextManager.getWorkflow.mockReturnValue({
+        onTaskComplete: [],
+        onCheckpoint: [],
+        checkpointTrigger: { type: 'unknown_type' },
+      });
+      const engine = createEngine();
+      expect(engine.shouldTrigger(projectId, 'task_complete')).toBe(false);
+    });
+  });
 
   describe('interval management', () => {
     it('startInterval creates a timer and stopInterval clears it', () => {

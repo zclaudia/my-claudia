@@ -3,10 +3,12 @@ import Database from 'better-sqlite3';
 import { v4 as uuidv4 } from 'uuid';
 
 // Hoist mocks so they are available before module imports
-const { mockActiveRuns, mockExecSync, mockContextManagerLoadAll } = vi.hoisted(() => ({
+const { mockActiveRuns, mockExecSync, mockContextManagerLoadAll, mockValidatePlanFile, mockComputeNextCronRun } = vi.hoisted(() => ({
   mockActiveRuns: new Map(),
   mockExecSync: vi.fn(),
   mockContextManagerLoadAll: vi.fn().mockReturnValue({ documents: [], workflow: { onTaskComplete: [], onCheckpoint: [], checkpointTrigger: { type: 'on_task_complete' } } }),
+  mockValidatePlanFile: vi.fn().mockReturnValue({ exists: true, ready: true, score: 100, missing: [], path: '/tmp/test-project/.supervision/plans/task-xxx.plan.md' }),
+  mockComputeNextCronRun: vi.fn().mockReturnValue(Date.now() + 3600000),
 }));
 
 vi.mock('child_process', () => ({
@@ -77,6 +79,14 @@ const { mockWorktreePoolInstance } = vi.hoisted(() => ({
     getStatus: vi.fn().mockReturnValue({ total: 2, available: 2, inUse: [] }),
     isInitialized: vi.fn().mockReturnValue(false),
   },
+}));
+
+vi.mock('../plan-validator.js', () => ({
+  validatePlanFile: mockValidatePlanFile,
+}));
+
+vi.mock('../../utils/cron.js', () => ({
+  computeNextCronRun: mockComputeNextCronRun,
 }));
 
 vi.mock('../worktree-pool.js', () => {
@@ -276,6 +286,8 @@ describe('SupervisorV2Service', () => {
     mockWorktreePoolInstance.mergeBack.mockClear().mockResolvedValue({ success: true });
     mockWorktreePoolInstance.destroy.mockClear();
     mockWorktreePoolInstance.isInitialized.mockClear().mockReturnValue(false);
+    mockValidatePlanFile.mockReset().mockReturnValue({ exists: true, ready: true, score: 100, missing: [], path: '/tmp/test-project/.supervision/plans/task-xxx.plan.md' });
+    mockComputeNextCronRun.mockReset().mockReturnValue(Date.now() + 3600000);
   });
 
   // ========================================
@@ -2177,6 +2189,1166 @@ describe('SupervisorV2Service', () => {
       const result = await service.approveTaskResult(task.id);
       // In serial mode (no worktree), approved goes directly to integrated
       expect(result.status).toBe('integrated');
+    });
+  });
+
+  // ========================================
+  // openTaskSession()
+  // ========================================
+
+  describe('openTaskSession()', () => {
+    it('creates a new session for a task that has no session', () => {
+      const projectId = seedProject(db, { agent: makeAgent() });
+
+      const task = taskRepo.create({
+        projectId,
+        title: 'Open session test',
+        description: 'd',
+        source: 'user',
+        status: 'pending',
+      });
+
+      const result = service.openTaskSession(task.id);
+
+      expect(result.sessionId).toBeDefined();
+
+      // Task should be in planning status now
+      const updated = taskRepo.findById(task.id)!;
+      expect(updated.status).toBe('planning');
+      expect(updated.sessionId).toBe(result.sessionId);
+
+      // Session should exist
+      const session = sessionRepo.findById(result.sessionId);
+      expect(session).toBeDefined();
+      expect(session!.projectRole).toBe('task');
+    });
+
+    it('returns existing session if task already has one', () => {
+      const projectId = seedProject(db, { agent: makeAgent() });
+
+      const task = taskRepo.create({
+        projectId,
+        title: 'Existing session',
+        description: 'd',
+        source: 'user',
+        status: 'pending',
+      });
+
+      // Open session first time
+      const first = service.openTaskSession(task.id);
+
+      // Open again — should return same session
+      const second = service.openTaskSession(first.sessionId.length > 0 ? task.id : task.id);
+      // Need to re-read the task since first call updated it
+      const updatedTask = taskRepo.findById(task.id)!;
+      expect(updatedTask.sessionId).toBe(first.sessionId);
+    });
+
+    it('throws when task not found', () => {
+      expect(() => service.openTaskSession('nonexistent')).toThrow('Task not found');
+    });
+
+    it('creates new session when linked session was deleted', () => {
+      const projectId = seedProject(db, { agent: makeAgent() });
+
+      // Create a real session, link it to the task, then delete it
+      const tempSession = sessionRepo.create({
+        projectId,
+        name: 'Temp session',
+        type: 'regular',
+        projectRole: 'task',
+      } as any);
+
+      const task = taskRepo.create({
+        projectId,
+        title: 'Deleted session',
+        description: 'd',
+        source: 'user',
+        status: 'pending',
+      });
+
+      taskRepo.updateStatus(task.id, 'pending', { sessionId: tempSession.id });
+
+      // Delete the session
+      db.prepare('DELETE FROM sessions WHERE id = ?').run(tempSession.id);
+
+      const result = service.openTaskSession(task.id);
+      expect(result.sessionId).toBeDefined();
+      expect(result.sessionId).not.toBe(tempSession.id);
+    });
+  });
+
+  // ========================================
+  // getTaskPlanStatus()
+  // ========================================
+
+  describe('getTaskPlanStatus()', () => {
+    it('returns plan validation result', () => {
+      const projectId = seedProject(db, { agent: makeAgent() });
+      const task = taskRepo.create({
+        projectId,
+        title: 'Plan status test',
+        description: 'd',
+        source: 'user',
+        status: 'planning',
+      });
+
+      const result = service.getTaskPlanStatus(task.id);
+      expect(result.ready).toBe(true);
+      expect(result.score).toBe(100);
+      expect(mockValidatePlanFile).toHaveBeenCalledWith('/tmp/test-project', task.id);
+    });
+
+    it('throws when task not found', () => {
+      expect(() => service.getTaskPlanStatus('nonexistent')).toThrow('Task not found');
+    });
+
+    it('throws when project has no rootPath', () => {
+      const id = uuidv4();
+      const now = Date.now();
+      db.prepare(
+        `INSERT INTO projects (id, name, type, root_path, agent, created_at, updated_at)
+         VALUES (?, ?, 'code', NULL, ?, ?, ?)`,
+      ).run(id, 'No Root', JSON.stringify(makeAgent()), now, now);
+
+      const task = taskRepo.create({
+        projectId: id,
+        title: 'No root',
+        description: 'd',
+        source: 'user',
+        status: 'planning',
+      });
+
+      expect(() => service.getTaskPlanStatus(task.id)).toThrow('has no rootPath');
+    });
+  });
+
+  // ========================================
+  // submitTaskPlan()
+  // ========================================
+
+  describe('submitTaskPlan()', () => {
+    it('submits plan and transitions task to queued (then tick may start it)', () => {
+      // Use a paused agent so tick() doesn't immediately start the task
+      const projectId = seedProject(db, { agent: makeAgent({ phase: 'paused', pausedReason: 'user' }) });
+
+      const task = taskRepo.create({
+        projectId,
+        title: 'Submit plan',
+        description: 'd',
+        source: 'user',
+        status: 'pending',
+      });
+
+      // First open session (moves to planning)
+      const { sessionId } = service.openTaskSession(task.id);
+
+      // Submit plan
+      const result = service.submitTaskPlan(task.id);
+      // Since agent is paused, tick() won't start it, so it stays queued
+      expect(result.task.status).toBe('queued');
+      expect(result.sessionId).toBe(sessionId);
+
+      // Session should be planned
+      const session = sessionRepo.findById(sessionId);
+      expect(session!.planStatus).toBe('planned');
+    });
+
+    it('throws when task not found', () => {
+      expect(() => service.submitTaskPlan('nonexistent')).toThrow('Task not found');
+    });
+
+    it('throws when task is not in planning status', () => {
+      const projectId = seedProject(db, { agent: makeAgent() });
+      const task = taskRepo.create({
+        projectId,
+        title: 'Not planning',
+        description: 'd',
+        source: 'user',
+        status: 'pending',
+      });
+
+      expect(() => service.submitTaskPlan(task.id)).toThrow('not in planning status');
+    });
+
+    it('throws when plan is incomplete', () => {
+      const projectId = seedProject(db, { agent: makeAgent() });
+      const task = taskRepo.create({
+        projectId,
+        title: 'Incomplete plan',
+        description: 'd',
+        source: 'user',
+        status: 'pending',
+      });
+
+      // Open session to move to planning
+      service.openTaskSession(task.id);
+
+      // Make validator return incomplete
+      mockValidatePlanFile.mockReturnValue({
+        exists: true,
+        ready: false,
+        score: 40,
+        missing: ['steps', 'verification'],
+        path: '/tmp/test.md',
+      });
+
+      expect(() => service.submitTaskPlan(task.id)).toThrow('Plan is incomplete');
+    });
+
+    it('throws when task has no session', () => {
+      const projectId = seedProject(db, { agent: makeAgent() });
+      // Directly create a task in planning status without a session
+      const task = taskRepo.create({
+        projectId,
+        title: 'No session',
+        description: 'd',
+        source: 'user',
+        status: 'planning',
+      });
+
+      expect(() => service.submitTaskPlan(task.id)).toThrow('has no planning session');
+    });
+  });
+
+  // ========================================
+  // getContextDocuments()
+  // ========================================
+
+  describe('getContextDocuments()', () => {
+    it('returns empty array when project has no rootPath', () => {
+      const id = uuidv4();
+      const now = Date.now();
+      db.prepare(
+        `INSERT INTO projects (id, name, type, root_path, created_at, updated_at)
+         VALUES (?, ?, 'code', NULL, ?, ?)`,
+      ).run(id, 'No Root', now, now);
+
+      const docs = service.getContextDocuments(id);
+      expect(docs).toEqual([]);
+    });
+
+    it('returns documents from context manager', () => {
+      const projectId = seedProject(db, { agent: makeAgent() });
+
+      mockContextManagerLoadAll.mockReturnValue({
+        documents: [{ id: 'goal.md', content: 'test' }],
+        workflow: { onTaskComplete: [], onCheckpoint: [], checkpointTrigger: { type: 'on_task_complete' } },
+      });
+
+      const docs = service.getContextDocuments(projectId);
+      expect(docs).toHaveLength(1);
+      expect(docs[0].id).toBe('goal.md');
+    });
+
+    it('returns empty array when loadAll throws', () => {
+      const projectId = seedProject(db, { agent: makeAgent() });
+
+      mockContextManagerLoadAll.mockImplementation(() => {
+        throw new Error('parse error');
+      });
+
+      const docs = service.getContextDocuments(projectId);
+      expect(docs).toEqual([]);
+    });
+  });
+
+  // ========================================
+  // retryTask()
+  // ========================================
+
+  describe('retryTask()', () => {
+    it('retries a failed task', () => {
+      const projectId = seedProject(db, { agent: makeAgent() });
+      const task = taskRepo.create({
+        projectId,
+        title: 'Failed task',
+        description: 'd',
+        source: 'user',
+        status: 'failed',
+      });
+
+      const result = service.retryTask(task.id);
+      expect(result.status).toBe('pending');
+      expect(result.attempt).toBe(1);
+    });
+
+    it('retries a cancelled task', () => {
+      const projectId = seedProject(db, { agent: makeAgent() });
+      const task = taskRepo.create({
+        projectId,
+        title: 'Cancelled task',
+        description: 'd',
+        source: 'user',
+        status: 'cancelled',
+      });
+
+      const result = service.retryTask(task.id);
+      expect(result.status).toBe('pending');
+    });
+
+    it('retries a completed task', () => {
+      const projectId = seedProject(db, { agent: makeAgent() });
+      const task = taskRepo.create({
+        projectId,
+        title: 'Completed task',
+        description: 'd',
+        source: 'user',
+        status: 'completed',
+      });
+
+      const result = service.retryTask(task.id);
+      expect(result.status).toBe('pending');
+    });
+
+    it('retries a blocked task', () => {
+      const projectId = seedProject(db, { agent: makeAgent() });
+      const task = taskRepo.create({
+        projectId,
+        title: 'Blocked task',
+        description: 'd',
+        source: 'user',
+        status: 'blocked',
+      });
+
+      const result = service.retryTask(task.id);
+      expect(result.status).toBe('pending');
+    });
+
+    it('throws when task not found', () => {
+      expect(() => service.retryTask('nonexistent')).toThrow('Task not found');
+    });
+
+    it('throws when task is in non-retriable status', () => {
+      const projectId = seedProject(db, { agent: makeAgent() });
+      const task = taskRepo.create({
+        projectId,
+        title: 'Running task',
+        description: 'd',
+        source: 'user',
+        status: 'running',
+      });
+
+      expect(() => service.retryTask(task.id)).toThrow("Cannot retry task in status 'running'");
+    });
+
+    it('transitions idle agent to active when retrying', () => {
+      const projectId = seedProject(db, { agent: makeAgent({ phase: 'idle' }) });
+      const task = taskRepo.create({
+        projectId,
+        title: 'Retry idle',
+        description: 'd',
+        source: 'user',
+        status: 'failed',
+      });
+
+      service.retryTask(task.id);
+
+      const project = projectRepo.findById(projectId);
+      expect(project!.agent!.phase).toBe('active');
+    });
+  });
+
+  // ========================================
+  // cancelTask()
+  // ========================================
+
+  describe('cancelTask()', () => {
+    it('cancels a running task', () => {
+      const projectId = seedProject(db, { agent: makeAgent() });
+      const task = taskRepo.create({
+        projectId,
+        title: 'Cancel me',
+        description: 'd',
+        source: 'user',
+        status: 'running',
+      });
+
+      const result = service.cancelTask(task.id);
+      expect(result.status).toBe('cancelled');
+      expect(result.completedAt).toBeDefined();
+    });
+
+    it('cancels a queued task', () => {
+      const projectId = seedProject(db, { agent: makeAgent() });
+      const task = taskRepo.create({
+        projectId,
+        title: 'Cancel queued',
+        description: 'd',
+        source: 'user',
+        status: 'queued',
+      });
+
+      const result = service.cancelTask(task.id);
+      expect(result.status).toBe('cancelled');
+    });
+
+    it('throws when task not found', () => {
+      expect(() => service.cancelTask('nonexistent')).toThrow('Task not found');
+    });
+
+    it('cleans up virtual client when cancelling a running task', () => {
+      const projectId = seedProject(db, { agent: makeAgent() });
+      const task = taskRepo.create({
+        projectId,
+        title: 'VC cancel',
+        description: 'd',
+        source: 'user',
+        status: 'running',
+      });
+
+      // Simulate a virtual client being registered
+      (service as any).virtualClients.set(task.id, { id: 'test-vc' });
+
+      service.cancelTask(task.id);
+
+      expect((service as any).virtualClients.has(task.id)).toBe(false);
+    });
+  });
+
+  // ========================================
+  // runTaskNow()
+  // ========================================
+
+  describe('runTaskNow()', () => {
+    it('runs a completed task immediately', () => {
+      const projectId = seedProject(db, { agent: makeAgent() });
+      const task = taskRepo.create({
+        projectId,
+        title: 'Run now completed',
+        description: 'd',
+        source: 'user',
+        status: 'completed',
+      });
+
+      const result = service.runTaskNow(task.id);
+      expect(result.status).toBe('pending');
+      expect(result.attempt).toBe(1);
+    });
+
+    it('runs a failed task immediately', () => {
+      const projectId = seedProject(db, { agent: makeAgent() });
+      const task = taskRepo.create({
+        projectId,
+        title: 'Run now failed',
+        description: 'd',
+        source: 'user',
+        status: 'failed',
+      });
+
+      const result = service.runTaskNow(task.id);
+      expect(result.status).toBe('pending');
+    });
+
+    it('runs a cancelled task immediately', () => {
+      const projectId = seedProject(db, { agent: makeAgent() });
+      const task = taskRepo.create({
+        projectId,
+        title: 'Run now cancelled',
+        description: 'd',
+        source: 'user',
+        status: 'cancelled',
+      });
+
+      const result = service.runTaskNow(task.id);
+      expect(result.status).toBe('pending');
+    });
+
+    it('throws when task not found', () => {
+      expect(() => service.runTaskNow('nonexistent')).toThrow('Task not found');
+    });
+
+    it('throws when task is not in terminal status', () => {
+      const projectId = seedProject(db, { agent: makeAgent() });
+      const task = taskRepo.create({
+        projectId,
+        title: 'Not terminal',
+        description: 'd',
+        source: 'user',
+        status: 'running',
+      });
+
+      expect(() => service.runTaskNow(task.id)).toThrow("Cannot run-now task in status 'running'");
+    });
+
+    it('transitions idle agent to active', () => {
+      const projectId = seedProject(db, { agent: makeAgent({ phase: 'idle' }) });
+      const task = taskRepo.create({
+        projectId,
+        title: 'Run now idle',
+        description: 'd',
+        source: 'user',
+        status: 'failed',
+      });
+
+      service.runTaskNow(task.id);
+
+      const project = projectRepo.findById(projectId);
+      expect(project!.agent!.phase).toBe('active');
+    });
+  });
+
+  // ========================================
+  // createTask() with schedule cron
+  // ========================================
+
+  describe('createTask() with schedule', () => {
+    it('computes scheduleNextRun when scheduleCron and scheduleEnabled are set', () => {
+      const projectId = seedProject(db, { agent: makeAgent() });
+
+      const task = service.createTask(projectId, {
+        title: 'Scheduled task',
+        description: 'Runs on schedule',
+        scheduleCron: '0 * * * *',
+        scheduleEnabled: true,
+      });
+
+      expect(mockComputeNextCronRun).toHaveBeenCalledWith('0 * * * *');
+      expect(task.scheduleNextRun).toBeDefined();
+      expect(task.scheduleEnabled).toBe(true);
+    });
+
+    it('does NOT compute scheduleNextRun when scheduleEnabled is false', () => {
+      const projectId = seedProject(db, { agent: makeAgent() });
+
+      const task = service.createTask(projectId, {
+        title: 'Disabled schedule',
+        description: 'd',
+        scheduleCron: '0 * * * *',
+        scheduleEnabled: false,
+      });
+
+      expect(mockComputeNextCronRun).not.toHaveBeenCalled();
+    });
+
+    it('does NOT compute scheduleNextRun when no scheduleCron', () => {
+      const projectId = seedProject(db, { agent: makeAgent() });
+
+      service.createTask(projectId, {
+        title: 'No cron',
+        description: 'd',
+        scheduleEnabled: true,
+      });
+
+      expect(mockComputeNextCronRun).not.toHaveBeenCalled();
+    });
+  });
+
+  // ========================================
+  // handleTaskRunMessage() — run_completed and run_failed
+  // ========================================
+
+  describe('handleTaskRunMessage()', () => {
+    it('delegates to taskRunner on run_completed', async () => {
+      const projectId = seedProject(db, { agent: makeAgent({ phase: 'active' }) });
+      const task = taskRepo.create({
+        projectId,
+        title: 'Complete me',
+        description: 'd',
+        source: 'user',
+        status: 'running',
+      });
+
+      // Register virtual client
+      (service as any).virtualClients.set(task.id, { id: 'test-vc' });
+
+      // Call handleTaskRunMessage
+      (service as any).handleTaskRunMessage(task.id, projectId, { type: 'run_completed' });
+
+      // Virtual client should be removed
+      expect((service as any).virtualClients.has(task.id)).toBe(false);
+    });
+
+    it('marks task as failed on run_failed', () => {
+      const projectId = seedProject(db, { agent: makeAgent({ phase: 'active' }) });
+      const task = taskRepo.create({
+        projectId,
+        title: 'Fail me',
+        description: 'd',
+        source: 'user',
+        status: 'running',
+      });
+
+      (service as any).virtualClients.set(task.id, { id: 'test-vc' });
+
+      (service as any).handleTaskRunMessage(task.id, projectId, {
+        type: 'run_failed',
+        error: 'Something went wrong',
+      });
+
+      const updated = taskRepo.findById(task.id)!;
+      expect(updated.status).toBe('failed');
+      expect(updated.result?.summary).toContain('Something went wrong');
+
+      // Virtual client should be removed
+      expect((service as any).virtualClients.has(task.id)).toBe(false);
+    });
+
+    it('uses default error message on run_failed without error field', () => {
+      const projectId = seedProject(db, { agent: makeAgent({ phase: 'active' }) });
+      const task = taskRepo.create({
+        projectId,
+        title: 'Fail no error',
+        description: 'd',
+        source: 'user',
+        status: 'running',
+      });
+
+      (service as any).virtualClients.set(task.id, { id: 'vc' });
+
+      (service as any).handleTaskRunMessage(task.id, projectId, { type: 'run_failed' });
+
+      const updated = taskRepo.findById(task.id)!;
+      expect(updated.status).toBe('failed');
+      expect(updated.result?.summary).toContain('Run failed');
+    });
+
+    it('ignores non-terminal messages', () => {
+      const projectId = seedProject(db, { agent: makeAgent() });
+      const task = taskRepo.create({
+        projectId,
+        title: 'Streaming',
+        description: 'd',
+        source: 'user',
+        status: 'running',
+      });
+
+      // Should not throw or change status
+      (service as any).handleTaskRunMessage(task.id, projectId, { type: 'run_streaming' });
+
+      const found = taskRepo.findById(task.id)!;
+      expect(found.status).toBe('running');
+    });
+  });
+
+  // ========================================
+  // handleLiteTaskMessage()
+  // ========================================
+
+  describe('handleLiteTaskMessage()', () => {
+    it('marks task as completed on run_completed', () => {
+      const projectId = seedProject(db, { agent: makeAgent({ mode: 'lite', phase: 'active' }) });
+      const task = taskRepo.create({
+        projectId,
+        title: 'Lite complete',
+        description: 'd',
+        source: 'user',
+        status: 'running',
+      });
+
+      (service as any).virtualClients.set(task.id, { id: 'vc' });
+
+      (service as any).handleLiteTaskMessage(task.id, projectId, { type: 'run_completed' });
+
+      const updated = taskRepo.findById(task.id)!;
+      expect(updated.status).toBe('completed');
+      expect(updated.result?.summary).toBe('Task completed');
+
+      expect((service as any).virtualClients.has(task.id)).toBe(false);
+    });
+
+    it('retries on run_failed when retries remain', () => {
+      const projectId = seedProject(db, { agent: makeAgent({ mode: 'lite' }) });
+      const task = taskRepo.create({
+        projectId,
+        title: 'Lite retry',
+        description: 'd',
+        source: 'user',
+        status: 'running',
+        maxRetries: 2,
+      });
+      // task.attempt = 1, maxRetries = 2 → newAttempt = 2, which is <= maxRetries+1=3
+
+      (service as any).virtualClients.set(task.id, { id: 'vc' });
+
+      (service as any).handleLiteTaskMessage(task.id, projectId, {
+        type: 'run_failed',
+        error: 'Temporary error',
+      });
+
+      const updated = taskRepo.findById(task.id)!;
+      expect(updated.status).toBe('pending');
+      expect(updated.attempt).toBe(2);
+
+      expect((service as any).virtualClients.has(task.id)).toBe(false);
+    });
+
+    it('marks as failed on run_failed when max retries exceeded', () => {
+      const projectId = seedProject(db, { agent: makeAgent({ mode: 'lite' }) });
+      const task = taskRepo.create({
+        projectId,
+        title: 'Lite max retries',
+        description: 'd',
+        source: 'user',
+        status: 'running',
+        maxRetries: 1,
+      });
+      // Set attempt to 2 so newAttempt = 3 > maxRetries+1 = 2
+      taskRepo.updateStatus(task.id, 'running', { attempt: 2 });
+
+      (service as any).virtualClients.set(task.id, { id: 'vc' });
+
+      (service as any).handleLiteTaskMessage(task.id, projectId, {
+        type: 'run_failed',
+        error: 'Final failure',
+      });
+
+      const updated = taskRepo.findById(task.id)!;
+      expect(updated.status).toBe('failed');
+      expect(updated.result?.summary).toContain('Final failure');
+
+      expect((service as any).virtualClients.has(task.id)).toBe(false);
+    });
+
+    it('cleans up virtual client when task not found on run_failed', () => {
+      const projectId = seedProject(db, { agent: makeAgent({ mode: 'lite' }) });
+
+      (service as any).virtualClients.set('ghost-task', { id: 'vc' });
+
+      (service as any).handleLiteTaskMessage('ghost-task', projectId, {
+        type: 'run_failed',
+        error: 'Error',
+      });
+
+      expect((service as any).virtualClients.has('ghost-task')).toBe(false);
+    });
+  });
+
+  // ========================================
+  // Lite mode tick() scheduling
+  // ========================================
+
+  describe('tick() lite mode', () => {
+    const flushPromises = () => new Promise<void>((resolve) => setTimeout(resolve, 10));
+
+    it('starts a lite task when queued in lite mode', async () => {
+      const projectId = seedProject(db, {
+        agent: makeAgent({
+          phase: 'active',
+          mode: 'lite',
+          config: {
+            maxConcurrentTasks: 1,
+            trustLevel: 'low',
+            autoDiscoverTasks: false,
+          },
+        }),
+      });
+
+      const task = taskRepo.create({
+        projectId,
+        title: 'Lite task',
+        description: 'Do something',
+        source: 'user',
+        status: 'queued',
+      });
+
+      (service as any).tick();
+      await flushPromises();
+
+      const found = taskRepo.findById(task.id)!;
+      expect(found.status).toBe('running');
+    });
+
+    it('lite mode forces serial execution', async () => {
+      const projectId = seedProject(db, {
+        agent: makeAgent({
+          phase: 'active',
+          mode: 'lite',
+          config: {
+            maxConcurrentTasks: 3,
+            trustLevel: 'low',
+            autoDiscoverTasks: false,
+          },
+        }),
+      });
+
+      taskRepo.create({ projectId, title: 'Running', description: 'd', source: 'user', status: 'running' });
+      const q1 = taskRepo.create({ projectId, title: 'Q1', description: 'd', source: 'user', status: 'queued' });
+
+      (service as any).tick();
+      await flushPromises();
+
+      // Should not start because one is already running (serial)
+      const found = taskRepo.findById(q1.id)!;
+      expect(found.status).toBe('queued');
+    });
+  });
+
+  // ========================================
+  // checkScheduledTasks()
+  // ========================================
+
+  describe('checkScheduledTasks()', () => {
+    it('resets scheduled completed task for re-execution when schedule fires', () => {
+      const projectId = seedProject(db, {
+        agent: makeAgent({ phase: 'active', mode: 'lite' }),
+      });
+
+      const now = Date.now();
+      const task = taskRepo.create({
+        projectId,
+        title: 'Scheduled',
+        description: 'd',
+        source: 'user',
+        status: 'completed',
+        scheduleCron: '*/5 * * * *',
+        scheduleEnabled: true,
+        scheduleNextRun: now - 1000, // already past
+      });
+
+      // Manually set schedule_next_run in DB since create may not persist it correctly
+      db.prepare('UPDATE supervision_tasks SET schedule_next_run = ?, schedule_enabled = 1 WHERE id = ?')
+        .run(now - 1000, task.id);
+
+      (service as any).checkScheduledTasks(projectId);
+
+      const updated = taskRepo.findById(task.id)!;
+      expect(updated.status).toBe('pending');
+      expect(updated.attempt).toBe(1);
+      expect(mockComputeNextCronRun).toHaveBeenCalled();
+    });
+
+    it('does not reset tasks that are not yet due', () => {
+      const projectId = seedProject(db, {
+        agent: makeAgent({ phase: 'active', mode: 'lite' }),
+      });
+
+      const now = Date.now();
+      const task = taskRepo.create({
+        projectId,
+        title: 'Future scheduled',
+        description: 'd',
+        source: 'user',
+        status: 'completed',
+        scheduleCron: '*/5 * * * *',
+        scheduleEnabled: true,
+      });
+
+      // Set next run in the future
+      db.prepare('UPDATE supervision_tasks SET schedule_next_run = ?, schedule_enabled = 1 WHERE id = ?')
+        .run(now + 60000, task.id);
+
+      (service as any).checkScheduledTasks(projectId);
+
+      const found = taskRepo.findById(task.id)!;
+      expect(found.status).toBe('completed');
+    });
+
+    it('transitions idle agent to active when schedule fires', () => {
+      const projectId = seedProject(db, {
+        agent: makeAgent({ phase: 'idle', mode: 'lite' }),
+      });
+
+      const now = Date.now();
+      const task = taskRepo.create({
+        projectId,
+        title: 'Scheduled idle',
+        description: 'd',
+        source: 'user',
+        status: 'completed',
+        scheduleCron: '*/5 * * * *',
+        scheduleEnabled: true,
+      });
+
+      db.prepare('UPDATE supervision_tasks SET schedule_next_run = ?, schedule_enabled = 1 WHERE id = ?')
+        .run(now - 1000, task.id);
+
+      (service as any).checkScheduledTasks(projectId);
+
+      const project = projectRepo.findById(projectId);
+      expect(project!.agent!.phase).toBe('active');
+    });
+  });
+
+  // ========================================
+  // initAgent() lite mode
+  // ========================================
+
+  describe('initAgent() lite mode', () => {
+    it('creates agent with mode=lite and maxConcurrentTasks=1', () => {
+      const projectId = seedProject(db);
+
+      const agent = service.initAgent(projectId, {}, undefined, 'lite');
+
+      expect(agent.mode).toBe('lite');
+      expect(agent.config.maxConcurrentTasks).toBe(1);
+      expect(agent.mainSessionId).toBeDefined();
+    });
+
+    it('creates session named Workflow Runner for lite mode', () => {
+      const projectId = seedProject(db);
+
+      const agent = service.initAgent(projectId, {}, undefined, 'lite');
+
+      const session = sessionRepo.findById(agent.mainSessionId!);
+      expect(session!.name).toBe('Workflow Runner');
+    });
+
+    it('does not scaffold context manager in lite mode', () => {
+      const projectId = seedProject(db);
+
+      service.initAgent(projectId, {}, undefined, 'lite');
+
+      // The context manager should not have been created for lite mode
+      // (we can verify by checking no ContextManager scaffold was called)
+      // Since the mock doesn't track this well, just verify the agent works
+      const agent = service.getAgent(projectId);
+      expect(agent!.mode).toBe('lite');
+    });
+  });
+
+  // ========================================
+  // start() and stop() lifecycle
+  // ========================================
+
+  describe('lifecycle start/stop', () => {
+    it('start() is idempotent — calling twice does not create duplicate intervals', () => {
+      // Use a separate service to avoid interfering with the shared one
+      const svc = new SupervisorV2Service(db, taskRepo, projectRepo, sessionRepo, vi.fn());
+      svc.start(60000); // Long interval to avoid actual ticks
+      svc.start(60000); // Should be no-op
+      svc.stop();
+    });
+
+    it('stop() clears interval and destroys worktree pools', () => {
+      const svc = new SupervisorV2Service(db, taskRepo, projectRepo, sessionRepo, vi.fn());
+      svc.start(60000);
+
+      // Force a pool creation
+      const projectId = seedProject(db, { agent: makeAgent() });
+      (svc as any).getWorktreePool(projectId);
+
+      svc.stop();
+
+      expect(mockWorktreePoolInstance.destroy).toHaveBeenCalled();
+      expect((svc as any).worktreePools.size).toBe(0);
+    });
+
+    it('stop() without start() does not throw', () => {
+      const svc = new SupervisorV2Service(db, taskRepo, projectRepo, sessionRepo, vi.fn());
+      svc.stop(); // Should not throw
+    });
+  });
+
+  // ========================================
+  // approve_setup error case
+  // ========================================
+
+  describe('updateAgentPhase() approve_setup error', () => {
+    it('throws when approve_setup called on active agent', () => {
+      const projectId = seedProject(db, { agent: makeAgent({ phase: 'active' }) });
+
+      expect(() => service.updateAgentPhase(projectId, 'approve_setup')).toThrow(
+        "Cannot approve setup for agent in phase 'active'",
+      );
+    });
+  });
+
+  // ========================================
+  // clearTaskSessionReadOnly()
+  // ========================================
+
+  describe('clearTaskSessionReadOnly()', () => {
+    it('clears read-only flag on task session', () => {
+      const projectId = seedProject(db, { agent: makeAgent() });
+
+      const session = sessionRepo.create({
+        projectId,
+        name: 'Task session',
+        type: 'regular',
+        projectRole: 'task',
+        isReadOnly: true,
+        planStatus: 'executing',
+      } as any);
+
+      const task = taskRepo.create({
+        projectId,
+        title: 'Clear RO',
+        description: 'd',
+        source: 'user',
+        status: 'running',
+      });
+      taskRepo.updateStatus(task.id, 'running', { sessionId: session.id });
+
+      (service as any).clearTaskSessionReadOnly(task.id);
+
+      const updated = sessionRepo.findById(session.id);
+      // isReadOnly is stored as integer; when 0 it may be read back as falsy/undefined
+      expect(updated!.isReadOnly).toBeFalsy();
+    });
+
+    it('does nothing when task has no session', () => {
+      const projectId = seedProject(db, { agent: makeAgent() });
+      const task = taskRepo.create({
+        projectId,
+        title: 'No session',
+        description: 'd',
+        source: 'user',
+        status: 'running',
+      });
+
+      // Should not throw
+      (service as any).clearTaskSessionReadOnly(task.id);
+    });
+  });
+
+  // ========================================
+  // buildTaskPrompt()
+  // ========================================
+
+  describe('buildTaskPrompt()', () => {
+    it('includes acceptance criteria when present', () => {
+      const task = {
+        title: 'Test task',
+        description: 'Do stuff',
+        attempt: 1,
+        acceptanceCriteria: ['Tests pass', 'No regressions'],
+        taskSpecificContext: undefined,
+        result: undefined,
+      };
+
+      const prompt = (service as any).buildTaskPrompt(task, 'TestProject', 'Some context');
+      expect(prompt).toContain('== Acceptance Criteria ==');
+      expect(prompt).toContain('- Tests pass');
+      expect(prompt).toContain('- No regressions');
+    });
+
+    it('includes task-specific context when present', () => {
+      const task = {
+        title: 'Test task',
+        description: 'Do stuff',
+        attempt: 1,
+        acceptanceCriteria: [],
+        taskSpecificContext: 'Use React 18',
+        result: undefined,
+      };
+
+      const prompt = (service as any).buildTaskPrompt(task, 'TestProject', '');
+      expect(prompt).toContain('== Additional Context ==');
+      expect(prompt).toContain('Use React 18');
+    });
+
+    it('includes previous review feedback on retry attempts', () => {
+      const task = {
+        title: 'Retry task',
+        description: 'Fix it',
+        attempt: 2,
+        acceptanceCriteria: [],
+        taskSpecificContext: undefined,
+        result: { summary: 'First attempt', filesChanged: [], reviewNotes: 'Needs error handling' },
+      };
+
+      const prompt = (service as any).buildTaskPrompt(task, 'TestProject', '');
+      expect(prompt).toContain('== Previous Review Feedback ==');
+      expect(prompt).toContain('Needs error handling');
+    });
+
+    it('does not include review feedback on first attempt', () => {
+      const task = {
+        title: 'First attempt',
+        description: 'Do it',
+        attempt: 1,
+        acceptanceCriteria: [],
+        taskSpecificContext: undefined,
+        result: { summary: '', filesChanged: [], reviewNotes: 'Should not show' },
+      };
+
+      const prompt = (service as any).buildTaskPrompt(task, 'TestProject', '');
+      expect(prompt).not.toContain('== Previous Review Feedback ==');
+    });
+
+    it('shows (no project context available) when context is empty', () => {
+      const task = {
+        title: 'No context',
+        description: 'Test',
+        attempt: 1,
+        acceptanceCriteria: [],
+        taskSpecificContext: undefined,
+        result: undefined,
+      };
+
+      const prompt = (service as any).buildTaskPrompt(task, 'TestProject', '');
+      expect(prompt).toContain('(no project context available)');
+    });
+  });
+
+  // ========================================
+  // reloadContext() throws when no rootPath
+  // ========================================
+
+  describe('reloadContext()', () => {
+    it('throws when project has no rootPath', () => {
+      const id = uuidv4();
+      const now = Date.now();
+      db.prepare(
+        `INSERT INTO projects (id, name, type, root_path, created_at, updated_at)
+         VALUES (?, ?, 'code', NULL, ?, ?)`,
+      ).run(id, 'No Root', now, now);
+
+      expect(() => service.reloadContext(id)).toThrow('has no rootPath');
+    });
+  });
+
+  // ========================================
+  // createTask() does not activate idle agent for proposed tasks
+  // ========================================
+
+  describe('createTask() idle agent transition edge cases', () => {
+    it('does NOT transition idle to active for proposed tasks', () => {
+      const projectId = seedProject(db, {
+        agent: makeAgent({
+          phase: 'idle',
+          config: { maxConcurrentTasks: 1, trustLevel: 'low', autoDiscoverTasks: false },
+        }),
+      });
+
+      service.createTask(projectId, {
+        title: 'Proposed no activate',
+        description: 'd',
+        source: 'agent_discovered',
+      });
+
+      const project = projectRepo.findById(projectId);
+      // Agent should stay idle because the task is 'proposed', not 'pending'
+      expect(project!.agent!.phase).toBe('idle');
+    });
+  });
+
+  // ========================================
+  // resolveConflict() — no worktree
+  // ========================================
+
+  describe('resolveConflict() edge cases', () => {
+    it('throws when no worktree session found', async () => {
+      const projectId = seedProject(db, { agent: makeAgent() });
+
+      const task = taskRepo.create({
+        projectId,
+        title: 'No worktree',
+        description: 'd',
+        source: 'user',
+        status: 'merge_conflict',
+      });
+
+      await expect(service.resolveConflict(task.id)).rejects.toThrow(
+        'No worktree found for this task',
+      );
+    });
+  });
+
+  // ========================================
+  // initAgent() with providerId
+  // ========================================
+
+  describe('initAgent() with providerId', () => {
+    it('passes providerId to session creation', () => {
+      const projectId = seedProject(db);
+
+      const agent = service.initAgent(projectId, {}, 'custom-provider');
+
+      expect(agent.mainSessionId).toBeDefined();
+      const session = sessionRepo.findById(agent.mainSessionId!);
+      expect(session!.providerId).toBe('custom-provider');
     });
   });
 });

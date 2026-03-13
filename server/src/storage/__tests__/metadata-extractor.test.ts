@@ -1,6 +1,6 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import Database from 'better-sqlite3';
-import { extractAndIndexMetadata, removeIndexedMetadata } from '../metadata-extractor.js';
+import { extractAndIndexMetadata, removeIndexedMetadata, reindexAllMessages } from '../metadata-extractor.js';
 
 function createTestDb(): Database.Database {
   const db = new Database(':memory:');
@@ -116,10 +116,13 @@ describe('metadata-extractor', () => {
 
   beforeEach(() => {
     db = createTestDb();
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    vi.spyOn(console, 'error').mockImplementation(() => {});
   });
 
   afterEach(() => {
     db.close();
+    vi.restoreAllMocks();
   });
 
   describe('extractAndIndexMetadata', () => {
@@ -441,6 +444,38 @@ describe('metadata-extractor', () => {
 
       results = db.prepare(`SELECT * FROM files_fts WHERE files_fts MATCH ?`).all('Zxcvbn');
       expect(results.length).toBe(0);
+    });
+  });
+
+  describe('reindexAllMessages', () => {
+    it('indexes all messages with metadata', () => {
+      db.prepare(`INSERT INTO messages (id, session_id, role, content, metadata, created_at) VALUES (?, ?, ?, ?, ?, ?)`).run(
+        'msg-r1', 'sess-1', 'assistant', 'hello',
+        JSON.stringify({ toolCalls: [{ name: 'Read', input: { file_path: '/x.ts' } }] }),
+        1000
+      );
+      db.prepare(`INSERT INTO messages (id, session_id, role, content, metadata, created_at) VALUES (?, ?, ?, ?, ?, ?)`).run(
+        'msg-r2', 'sess-1', 'user', 'hi', null, 2000
+      );
+
+      reindexAllMessages(db);
+
+      const records = db.prepare('SELECT COUNT(*) as c FROM tool_call_records').get() as any;
+      expect(records.c).toBe(1);
+      const refs = db.prepare('SELECT COUNT(*) as c FROM file_references').get() as any;
+      expect(refs.c).toBe(1);
+    });
+
+    it('handles invalid JSON metadata gracefully', () => {
+      db.prepare(`INSERT INTO messages (id, session_id, role, content, metadata, created_at) VALUES (?, ?, ?, ?, ?, ?)`).run(
+        'msg-bad', 'sess-1', 'assistant', 'hello', 'invalid json', 1000
+      );
+
+      reindexAllMessages(db);
+
+      expect(console.error).toHaveBeenCalled();
+      const records = db.prepare('SELECT COUNT(*) as c FROM tool_call_records').get() as any;
+      expect(records.c).toBe(0);
     });
   });
 });

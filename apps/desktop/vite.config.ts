@@ -74,10 +74,26 @@ export default defineConfig({
     environment: 'jsdom',
     setupFiles: ['./src/test/setup.ts'],
     include: ['src/**/*.{test,spec}.{ts,tsx}'],
+    server: {
+      deps: {
+        // Allow vitest to mock these Tauri-specific packages that aren't installed
+        inline: [/@tauri-apps\/.*/],
+      },
+    },
     coverage: {
-      provider: 'v8',
+      provider: 'istanbul',
       reporter: ['text', 'json', 'html'],
-      exclude: ['src/test/**', '**/*.d.ts', 'src/main.tsx'],
+      all: true,
+      include: ['src/**/*.{ts,tsx}'],
+      exclude: [
+        'src/test/**', '**/*.d.ts', 'src/main.tsx', 'src/**/__tests__/**',
+        // Tauri-only files — use @tauri-apps/plugin-updater or @tauri-apps/plugin-process
+        // which are not installed as npm deps (only available in Tauri runtime)
+        'src/hooks/useAutoUpdate.ts',
+        'src/components/UpdateBanner.tsx',
+        'src/components/MobileSetup.tsx',
+        'src/App.tsx',
+      ],
     },
   },
 });

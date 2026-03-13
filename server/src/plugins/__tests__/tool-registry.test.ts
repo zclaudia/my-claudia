@@ -3,8 +3,15 @@
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { toolRegistry, type ToolScope } from '../tool-registry.js';
+import { toolRegistry, registerTool, type ToolScope } from '../tool-registry.js';
 import type { ToolDefinition } from '@my-claudia/shared';
+
+// Mock pluginLoader for permission checks
+vi.mock('../loader.js', () => ({
+  pluginLoader: {
+    checkPermissions: vi.fn().mockResolvedValue(true),
+  },
+}));
 
 describe('ToolRegistry', () => {
   beforeEach(() => {
@@ -337,6 +344,181 @@ describe('ToolRegistry', () => {
 
       toolRegistry.clear();
       expect(toolRegistry.size).toBe(0);
+    });
+  });
+
+  describe('execute - scope validation', () => {
+    it('should reject tool call with wrong scope', async () => {
+      const definition: ToolDefinition = {
+        type: 'function',
+        function: {
+          name: 'scoped_tool',
+          description: 'A scoped tool',
+          parameters: { type: 'object', properties: {} },
+        },
+      };
+
+      toolRegistry.register({
+        id: 'scoped_tool',
+        definition,
+        handler: () => 'result',
+        source: 'builtin',
+        scope: ['command-palette'],
+      });
+
+      const result = await toolRegistry.execute('scoped_tool', {}, undefined, 'agent-assistant');
+      expect(result).toContain('not available in scope');
+    });
+
+    it('should allow tool call with matching scope', async () => {
+      const definition: ToolDefinition = {
+        type: 'function',
+        function: {
+          name: 'scoped_tool',
+          description: 'A scoped tool',
+          parameters: { type: 'object', properties: {} },
+        },
+      };
+
+      toolRegistry.register({
+        id: 'scoped_tool',
+        definition,
+        handler: () => 'result',
+        source: 'builtin',
+        scope: ['agent-assistant'],
+      });
+
+      const result = await toolRegistry.execute('scoped_tool', {}, undefined, 'agent-assistant');
+      expect(result).toBe('result');
+    });
+  });
+
+  describe('execute - plugin permission check', () => {
+    it('should check plugin permissions and deny', async () => {
+      const { pluginLoader } = await import('../loader.js');
+      (pluginLoader.checkPermissions as any).mockResolvedValue(false);
+
+      const definition: ToolDefinition = {
+        type: 'function',
+        function: {
+          name: 'plugin_tool',
+          description: 'A plugin tool',
+          parameters: { type: 'object', properties: {} },
+        },
+      };
+
+      toolRegistry.register({
+        id: 'plugin_tool',
+        definition,
+        handler: () => 'result',
+        source: 'plugin',
+        pluginId: 'test.plugin',
+      });
+
+      const result = await toolRegistry.execute('plugin_tool', {});
+      expect(result).toContain('permissions denied');
+
+      // Reset mock
+      (pluginLoader.checkPermissions as any).mockResolvedValue(true);
+    });
+
+    it('should allow plugin tool when permissions granted', async () => {
+      const { pluginLoader } = await import('../loader.js');
+      (pluginLoader.checkPermissions as any).mockResolvedValue(true);
+
+      const definition: ToolDefinition = {
+        type: 'function',
+        function: {
+          name: 'allowed_plugin_tool',
+          description: 'An allowed plugin tool',
+          parameters: { type: 'object', properties: {} },
+        },
+      };
+
+      toolRegistry.register({
+        id: 'allowed_plugin_tool',
+        definition,
+        handler: () => 'plugin result',
+        source: 'plugin',
+        pluginId: 'test.plugin',
+      });
+
+      const result = await toolRegistry.execute('allowed_plugin_tool', {});
+      expect(result).toBe('plugin result');
+    });
+  });
+
+  describe('registerTool helper', () => {
+    it('registers a tool using the helper function', () => {
+      registerTool({
+        id: 'helper_tool',
+        name: 'helper_tool',
+        description: 'A helper tool',
+        parameters: { type: 'object', properties: {} },
+        handler: () => 'helper result',
+        permissions: ['fs.read'],
+      });
+
+      expect(toolRegistry.has('helper_tool')).toBe(true);
+      const meta = toolRegistry.get('helper_tool');
+      expect(meta?.source).toBe('plugin');
+      expect(meta?.permissions).toContain('fs.read');
+    });
+
+    it('registers with custom source and pluginId', () => {
+      registerTool(
+        {
+          id: 'custom_tool',
+          name: 'custom_tool',
+          description: 'A custom tool',
+          parameters: {},
+          handler: () => 'custom',
+        },
+        'builtin',
+        'my-plugin'
+      );
+
+      const meta = toolRegistry.get('custom_tool');
+      expect(meta?.source).toBe('builtin');
+      expect(meta?.pluginId).toBe('my-plugin');
+    });
+  });
+
+  describe('register with pluginId in overwrite warning', () => {
+    it('warns with pluginId in message when overwriting plugin tool', () => {
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const definition: ToolDefinition = {
+        type: 'function',
+        function: {
+          name: 'tool',
+          description: 'Tool',
+          parameters: {},
+        },
+      };
+
+      toolRegistry.register({
+        id: 'dup_tool',
+        definition,
+        handler: () => '1',
+        source: 'plugin',
+        pluginId: 'plugin.first',
+      });
+
+      toolRegistry.register({
+        id: 'dup_tool',
+        definition,
+        handler: () => '2',
+        source: 'plugin',
+        pluginId: 'plugin.second',
+      });
+
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('plugin.first')
+      );
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('plugin.second')
+      );
+      warnSpy.mockRestore();
     });
   });
 });

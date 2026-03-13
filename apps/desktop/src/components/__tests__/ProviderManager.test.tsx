@@ -405,4 +405,194 @@ describe('ProviderManager', () => {
       });
     });
   });
+
+  describe('Error handling', () => {
+    it('shows alert when createProvider fails', async () => {
+      const alertSpy = vi.spyOn(window, 'alert').mockImplementation(() => {});
+      vi.mocked(api.createProvider).mockRejectedValueOnce(new Error('Network error'));
+
+      render(<ProviderManager isOpen={true} onClose={mockOnClose} />);
+
+      await waitFor(() => {
+        expect(screen.getByText('Claude Default')).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByText('Add Provider'));
+      fireEvent.change(screen.getByPlaceholderText(/Personal Claude/), { target: { value: 'New' } });
+      fireEvent.click(screen.getByText('Create'));
+
+      await waitFor(() => {
+        expect(alertSpy).toHaveBeenCalledWith(expect.stringContaining('Failed to create provider'));
+      });
+      alertSpy.mockRestore();
+    });
+
+    it('shows alert when deleteProvider fails', async () => {
+      const alertSpy = vi.spyOn(window, 'alert').mockImplementation(() => {});
+      vi.spyOn(window, 'confirm').mockReturnValue(true);
+      vi.mocked(api.deleteProvider).mockRejectedValueOnce(new Error('Delete error'));
+
+      render(<ProviderManager isOpen={true} onClose={mockOnClose} />);
+
+      await waitFor(() => {
+        expect(screen.getByText('Claude Default')).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getAllByTitle('Delete')[0]);
+
+      await waitFor(() => {
+        expect(alertSpy).toHaveBeenCalledWith(expect.stringContaining('Failed to delete provider'));
+      });
+      alertSpy.mockRestore();
+    });
+
+    it('logs error when setDefaultProvider fails', async () => {
+      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      vi.mocked(api.setDefaultProvider).mockRejectedValueOnce(new Error('Set default error'));
+
+      render(<ProviderManager isOpen={true} onClose={mockOnClose} />);
+
+      await waitFor(() => {
+        expect(screen.getByText('Work Claude')).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getAllByTitle('Set as default')[0]);
+
+      await waitFor(() => {
+        expect(consoleSpy).toHaveBeenCalledWith('Failed to set default provider:', expect.any(Error));
+      });
+      consoleSpy.mockRestore();
+    });
+
+    it('logs error when getProviders fails', async () => {
+      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      vi.mocked(api.getProviders).mockRejectedValueOnce(new Error('Load error'));
+
+      render(<ProviderManager isOpen={true} onClose={mockOnClose} />);
+
+      await waitFor(() => {
+        expect(consoleSpy).toHaveBeenCalledWith('Failed to load providers:', expect.any(Error));
+      });
+      consoleSpy.mockRestore();
+    });
+  });
+
+  describe('Inline mode', () => {
+    it('renders content without modal wrapper in inline mode', async () => {
+      render(<ProviderManager isOpen={true} onClose={mockOnClose} inline={true} />);
+
+      await waitFor(() => {
+        expect(screen.getByText('Claude Default')).toBeInTheDocument();
+      });
+
+      // Should NOT have modal wrapper
+      expect(screen.queryByText('Provider Management')).not.toBeInTheDocument();
+      expect(document.querySelector('.bg-black\\/50')).not.toBeInTheDocument();
+    });
+  });
+
+  describe('TypeSelector dropdown', () => {
+    it('opens and selects a type', async () => {
+      render(<ProviderManager isOpen={true} onClose={mockOnClose} />);
+
+      await waitFor(() => {
+        expect(screen.getByText('Claude Default')).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByText('Add Provider'));
+
+      // Click the Type selector button
+      fireEvent.click(screen.getByText('Claude'));
+
+      // Dropdown should show all options
+      expect(screen.getByText('OpenCode')).toBeInTheDocument();
+      expect(screen.getByText('Codex')).toBeInTheDocument();
+      expect(screen.getByText('Cursor Agent')).toBeInTheDocument();
+      expect(screen.getByText('Kimi Code')).toBeInTheDocument();
+
+      // Select OpenCode
+      fireEvent.click(screen.getByText('OpenCode'));
+
+      // CLI path placeholder should change to opencode-specific
+      expect(screen.getByPlaceholderText('/path/to/opencode')).toBeInTheDocument();
+    });
+  });
+
+  describe('Edit form with env', () => {
+    it('populates env field when editing provider with env', async () => {
+      vi.mocked(api.getProviders).mockResolvedValue([
+        {
+          id: 'p1',
+          name: 'Provider With Env',
+          type: 'claude' as const,
+          isDefault: false,
+          env: { API_KEY: 'secret' },
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+        },
+      ]);
+
+      render(<ProviderManager isOpen={true} onClose={mockOnClose} />);
+
+      await waitFor(() => {
+        expect(screen.getByText('Provider With Env')).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByTitle('Edit'));
+
+      await waitFor(() => {
+        expect(screen.getByText('Update')).toBeInTheDocument();
+      });
+
+      // Env textarea should have JSON content
+      const envTextarea = screen.getByPlaceholderText(/ANTHROPIC_API_KEY/);
+      expect(envTextarea).toHaveValue(JSON.stringify({ API_KEY: 'secret' }, null, 2));
+    });
+  });
+
+  describe('isDefault checkbox', () => {
+    it('submits isDefault flag', async () => {
+      render(<ProviderManager isOpen={true} onClose={mockOnClose} />);
+
+      await waitFor(() => {
+        expect(screen.getByText('Claude Default')).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByText('Add Provider'));
+      fireEvent.change(screen.getByPlaceholderText(/Personal Claude/), { target: { value: 'New' } });
+
+      const checkbox = screen.getByLabelText('Set as default provider');
+      fireEvent.click(checkbox);
+
+      fireEvent.click(screen.getByText('Create'));
+
+      await waitFor(() => {
+        expect(api.createProvider).toHaveBeenCalledWith(
+          expect.objectContaining({ isDefault: true })
+        );
+      });
+    });
+  });
+
+  describe('CLI path in form', () => {
+    it('submits cliPath when provided', async () => {
+      render(<ProviderManager isOpen={true} onClose={mockOnClose} />);
+
+      await waitFor(() => {
+        expect(screen.getByText('Claude Default')).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByText('Add Provider'));
+      fireEvent.change(screen.getByPlaceholderText(/Personal Claude/), { target: { value: 'Custom' } });
+      fireEvent.change(screen.getByPlaceholderText(/\/path\/to\/claude/), { target: { value: '/usr/bin/claude' } });
+
+      fireEvent.click(screen.getByText('Create'));
+
+      await waitFor(() => {
+        expect(api.createProvider).toHaveBeenCalledWith(
+          expect.objectContaining({ cliPath: '/usr/bin/claude' })
+        );
+      });
+    });
+  });
 });

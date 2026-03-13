@@ -243,4 +243,167 @@ describe('PermissionModal', () => {
     expect(clearIntervalSpy).toHaveBeenCalled();
     clearIntervalSpy.mockRestore();
   });
+
+  it('renders credential input when requiresCredential is true', () => {
+    render(
+      <PermissionModal
+        request={{ ...defaultRequest, requiresCredential: true, credentialHint: 'sudo_password' }}
+        onDecision={mockOnDecision}
+      />
+    );
+    expect(screen.getByText('Credential Required')).toBeInTheDocument();
+    expect(screen.getByPlaceholderText('Your sudo password')).toBeInTheDocument();
+    expect(screen.getByText('Allow with Credential')).toBeDisabled();
+  });
+
+  it('enables Allow with Credential when credential is entered', () => {
+    render(
+      <PermissionModal
+        request={{ ...defaultRequest, requiresCredential: true }}
+        onDecision={mockOnDecision}
+      />
+    );
+
+    const input = screen.getByPlaceholderText('Your credential');
+    fireEvent.change(input, { target: { value: 'mypass' } });
+    expect(screen.getByText('Allow with Credential')).not.toBeDisabled();
+
+    fireEvent.click(screen.getByText('Allow with Credential'));
+    expect(mockOnDecision).toHaveBeenCalledWith('req-1', true, false, 'mypass');
+  });
+
+  it('submits credential on Enter key', () => {
+    render(
+      <PermissionModal
+        request={{ ...defaultRequest, requiresCredential: true }}
+        onDecision={mockOnDecision}
+      />
+    );
+
+    const input = screen.getByPlaceholderText('Your credential');
+    fireEvent.change(input, { target: { value: 'pass123' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(mockOnDecision).toHaveBeenCalledWith('req-1', true, false, 'pass123');
+  });
+
+  it('does not submit credential on Enter when empty', () => {
+    render(
+      <PermissionModal
+        request={{ ...defaultRequest, requiresCredential: true }}
+        onDecision={mockOnDecision}
+      />
+    );
+
+    const input = screen.getByPlaceholderText('Your credential');
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(mockOnDecision).not.toHaveBeenCalled();
+  });
+
+  it('shows queue size badge when queueSize > 1', () => {
+    render(
+      <PermissionModal request={defaultRequest} queueSize={5} onDecision={mockOnDecision} />
+    );
+    expect(screen.getByText('+4 more')).toBeInTheDocument();
+  });
+
+  it('does not show queue badge when queueSize is 1', () => {
+    render(
+      <PermissionModal request={defaultRequest} queueSize={1} onDecision={mockOnDecision} />
+    );
+    expect(screen.queryByText(/more/)).not.toBeInTheDocument();
+  });
+
+  it('shows backend name when provided', () => {
+    render(
+      <PermissionModal
+        request={{ ...defaultRequest, backendName: 'Remote Server' }}
+        onDecision={mockOnDecision}
+      />
+    );
+    expect(screen.getByText('From: Remote Server')).toBeInTheDocument();
+  });
+
+  it('shows "Waiting for your decision" when timeoutSec is 0', () => {
+    render(
+      <PermissionModal
+        request={{ ...defaultRequest, timeoutSec: 0 }}
+        onDecision={mockOnDecision}
+      />
+    );
+    expect(screen.getByText('Waiting for your decision')).toBeInTheDocument();
+  });
+
+  it('shows auto-approve text for AI-initiated requests', () => {
+    render(
+      <PermissionModal
+        request={{ ...defaultRequest, aiInitiated: true }}
+        onDecision={mockOnDecision}
+      />
+    );
+    expect(screen.getByText(/Auto-approve in/)).toBeInTheDocument();
+  });
+
+  it('does not auto-deny AI-initiated requests when countdown reaches zero', () => {
+    render(
+      <PermissionModal
+        request={{ ...defaultRequest, timeoutSec: 2, aiInitiated: true }}
+        onDecision={mockOnDecision}
+      />
+    );
+
+    act(() => { vi.advanceTimersByTime(2000); });
+    expect(mockOnDecision).not.toHaveBeenCalled();
+  });
+
+  it('focuses credential input on no-timeout credential request', () => {
+    render(
+      <PermissionModal
+        request={{ ...defaultRequest, timeoutSec: 0, requiresCredential: true }}
+        onDecision={mockOnDecision}
+      />
+    );
+    // Just verify it renders without error - focus is async via setTimeout
+    expect(screen.getByPlaceholderText('Your credential')).toBeInTheDocument();
+  });
+
+  it('focuses credential input on timeout credential request', () => {
+    render(
+      <PermissionModal
+        request={{ ...defaultRequest, timeoutSec: 30, requiresCredential: true }}
+        onDecision={mockOnDecision}
+      />
+    );
+    expect(screen.getByText('30s')).toBeInTheDocument();
+    expect(screen.getByPlaceholderText('Your credential')).toBeInTheDocument();
+  });
+
+  it('shows credential description text for credential request', () => {
+    render(
+      <PermissionModal
+        request={{ ...defaultRequest, requiresCredential: true, credentialHint: 'sudo_password' }}
+        onDecision={mockOnDecision}
+      />
+    );
+    expect(screen.getByText('This command requires your sudo password')).toBeInTheDocument();
+  });
+
+  it('resets credential when request changes', () => {
+    const { rerender } = render(
+      <PermissionModal
+        request={{ ...defaultRequest, requiresCredential: true }}
+        onDecision={mockOnDecision}
+      />
+    );
+
+    fireEvent.change(screen.getByPlaceholderText('Your credential'), { target: { value: 'old-pass' } });
+
+    rerender(
+      <PermissionModal
+        request={{ ...defaultRequest, requestId: 'req-2', requiresCredential: true }}
+        onDecision={mockOnDecision}
+      />
+    );
+
+    expect(screen.getByPlaceholderText('Your credential')).toHaveValue('');
+  });
 });

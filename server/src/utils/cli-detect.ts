@@ -1,4 +1,5 @@
 import { spawn, execSync } from 'child_process';
+import { existsSync, statSync } from 'fs';
 
 export interface DetectedCli {
   type: 'claude' | 'opencode' | 'codex' | 'kimi';
@@ -47,8 +48,7 @@ function findInCommonPaths(command: string): string | null {
   for (const dir of COMMON_CLI_PATHS) {
     const fullPath = `${dir}/${command}${ext}`;
     try {
-      const fs = require('fs');
-      if (fs.existsSync(fullPath) && fs.statSync(fullPath).isFile()) {
+      if (existsSync(fullPath) && statSync(fullPath).isFile()) {
         return fullPath;
       }
     } catch {}

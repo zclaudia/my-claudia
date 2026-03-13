@@ -52,6 +52,8 @@ describe('SessionRepository', () => {
         archivedAt: 3000,
         projectRole: undefined,
         taskId: undefined,
+        planStatus: undefined,
+        isReadOnly: undefined,
       });
     });
 
@@ -194,6 +196,41 @@ describe('SessionRepository', () => {
       });
 
       expect(params).toContain(null);
+    });
+
+    it('handles projectId update', () => {
+      const { sql } = repository.updateQuery('sess-123', { projectId: 'proj-new' });
+      expect(sql).toContain('project_id = ?');
+    });
+
+    it('handles type update', () => {
+      const { sql } = repository.updateQuery('sess-123', { type: 'task' });
+      expect(sql).toContain('type = ?');
+    });
+
+    it('handles parentSessionId update', () => {
+      const { sql } = repository.updateQuery('sess-123', { parentSessionId: 'parent-1' });
+      expect(sql).toContain('parent_session_id = ?');
+    });
+
+    it('handles supervision v2 fields', () => {
+      const { sql } = repository.updateQuery('sess-123', {
+        projectRole: 'review',
+        taskId: 'task-1',
+        planStatus: 'active',
+        isReadOnly: true,
+      });
+      expect(sql).toContain('project_role = ?');
+      expect(sql).toContain('task_id = ?');
+      expect(sql).toContain('plan_status = ?');
+      expect(sql).toContain('is_read_only = ?');
+    });
+
+    it('maps isReadOnly to integer', () => {
+      const { params: p1 } = repository.updateQuery('sess-123', { isReadOnly: true });
+      expect(p1).toContain(1);
+      const { params: p2 } = repository.updateQuery('sess-123', { isReadOnly: false });
+      expect(p2).toContain(0);
     });
 
     it('always updates updated_at timestamp', () => {

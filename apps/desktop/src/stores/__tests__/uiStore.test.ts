@@ -75,4 +75,57 @@ describe('uiStore', () => {
       expect(parseFloat(FONT_CONFIGS.medium.code)).toBeLessThan(parseFloat(FONT_CONFIGS.large.code));
     });
   });
+
+  describe('advancedInput', () => {
+    it('setAdvancedInput enables advanced input', () => {
+      useUIStore.getState().setAdvancedInput(true);
+      expect(useUIStore.getState().advancedInput).toBe(true);
+      expect(localStorage.getItem('my-claudia-advanced-input')).toBe('true');
+    });
+
+    it('setAdvancedInput disables advanced input', () => {
+      useUIStore.getState().setAdvancedInput(true);
+      useUIStore.getState().setAdvancedInput(false);
+      expect(useUIStore.getState().advancedInput).toBe(false);
+      expect(localStorage.getItem('my-claudia-advanced-input')).toBe('false');
+    });
+  });
+
+  describe('forceScrollToBottom', () => {
+    it('requestForceScrollToBottom sets sessionId', () => {
+      useUIStore.getState().requestForceScrollToBottom('s1');
+      expect(useUIStore.getState().forceScrollToBottomSessionId).toBe('s1');
+    });
+
+    it('consumeForceScrollToBottom clears matching sessionId', () => {
+      useUIStore.getState().requestForceScrollToBottom('s1');
+      useUIStore.getState().consumeForceScrollToBottom('s1');
+      expect(useUIStore.getState().forceScrollToBottomSessionId).toBeNull();
+    });
+
+    it('consumeForceScrollToBottom ignores non-matching sessionId', () => {
+      useUIStore.getState().requestForceScrollToBottom('s1');
+      useUIStore.getState().consumeForceScrollToBottom('s2');
+      expect(useUIStore.getState().forceScrollToBottomSessionId).toBe('s1');
+    });
+  });
+
+  describe('poppedOutSessions', () => {
+    it('addPoppedOutSession tracks session/window pair', () => {
+      useUIStore.getState().addPoppedOutSession('s1', 'window-1');
+      expect(useUIStore.getState().poppedOutSessions.get('s1')).toBe('window-1');
+    });
+
+    it('removePoppedOutSession removes session', () => {
+      useUIStore.getState().addPoppedOutSession('s1', 'w1');
+      useUIStore.getState().removePoppedOutSession('s1');
+      expect(useUIStore.getState().poppedOutSessions.has('s1')).toBe(false);
+    });
+
+    it('supports multiple popped out sessions', () => {
+      useUIStore.getState().addPoppedOutSession('s1', 'w1');
+      useUIStore.getState().addPoppedOutSession('s2', 'w2');
+      expect(useUIStore.getState().poppedOutSessions.size).toBe(2);
+    });
+  });
 });

@@ -4,6 +4,8 @@ import {
   setClientAIConfig,
   clearClientAIConfig,
   isClientAIConfigured,
+  testClientAIConnection,
+  fetchAvailableModels,
   streamChatCompletion,
   type ClientAIConfig,
   type ChatMessage,
@@ -254,5 +256,195 @@ describe('streamChatCompletion', () => {
     for await (const _ of streamChatCompletion(cfgWithSlash, messages)) { /* noop */ }
 
     expect(mockFetch.mock.calls[0][0]).toBe('https://api.openai.com/v1/chat/completions');
+  });
+
+  it('emits tool calls without DONE when stream ends', async () => {
+    const sseData = [
+      'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call-1","function":{"name":"test","arguments":"{}"}}]}}]}\n\n',
+    ].join('');
+
+    const encoder = new TextEncoder();
+    let readIndex = 0;
+    const chunks = [encoder.encode(sseData)];
+
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      body: {
+        getReader: () => ({
+          read: async () => {
+            if (readIndex < chunks.length) {
+              return { done: false, value: chunks[readIndex++] };
+            }
+            return { done: true, value: undefined };
+          },
+          releaseLock: vi.fn(),
+        }),
+      },
+    });
+
+    const events = [];
+    for await (const event of streamChatCompletion(config, messages)) {
+      events.push(event);
+    }
+
+    const toolCalls = events.filter(e => e.type === 'tool_call');
+    expect(toolCalls).toHaveLength(1);
+    expect(toolCalls[0].toolCall?.function.name).toBe('test');
+  });
+
+  it('handles usage info in SSE stream', async () => {
+    const sseData = [
+      'data: {"choices":[{"delta":{"content":"Hi"}}]}\n\n',
+      'data: {"choices":[{"delta":{}}],"usage":{"prompt_tokens":10,"completion_tokens":5}}\n\n',
+      'data: [DONE]\n\n',
+    ].join('');
+
+    const encoder = new TextEncoder();
+    let readIndex = 0;
+    const chunks = [encoder.encode(sseData)];
+
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      body: {
+        getReader: () => ({
+          read: async () => {
+            if (readIndex < chunks.length) {
+              return { done: false, value: chunks[readIndex++] };
+            }
+            return { done: true, value: undefined };
+          },
+          releaseLock: vi.fn(),
+        }),
+      },
+    });
+
+    const events = [];
+    for await (const event of streamChatCompletion(config, messages)) {
+      events.push(event);
+    }
+
+    const usageEvents = events.filter(e => e.usage);
+    expect(usageEvents).toHaveLength(1);
+    expect(usageEvents[0].usage?.input_tokens).toBe(10);
+    expect(usageEvents[0].usage?.output_tokens).toBe(5);
+  });
+
+  it('skips malformed SSE lines', async () => {
+    const sseData = [
+      'data: {"choices":[{"delta":{"content":"Hi"}}]}\n\n',
+      'data: {invalid json}\n\n',
+      'data: [DONE]\n\n',
+    ].join('');
+
+    const encoder = new TextEncoder();
+    let readIndex = 0;
+    const chunks = [encoder.encode(sseData)];
+
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      body: {
+        getReader: () => ({
+          read: async () => {
+            if (readIndex < chunks.length) {
+              return { done: false, value: chunks[readIndex++] };
+            }
+            return { done: true, value: undefined };
+          },
+          releaseLock: vi.fn(),
+        }),
+      },
+    });
+
+    const events = [];
+    for await (const event of streamChatCompletion(config, messages)) {
+      events.push(event);
+    }
+
+    const deltas = events.filter(e => e.type === 'delta');
+    expect(deltas).toHaveLength(1);
+    expect(deltas[0].content).toBe('Hi');
+  });
+});
+
+describe('testClientAIConnection', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('returns ok when API responds successfully', async () => {
+    mockFetch.mockResolvedValueOnce({ ok: true });
+    const result = await testClientAIConnection({ apiEndpoint: 'https://api.test/v1', apiKey: 'key' });
+    expect(result.ok).toBe(true);
+  });
+
+  it('returns ok for 400/404 (auth works, model invalid)', async () => {
+    mockFetch.mockResolvedValueOnce({ ok: false, status: 400, text: async () => 'Bad model' });
+    const result = await testClientAIConnection({ apiEndpoint: 'https://api.test/v1', apiKey: 'key' });
+    expect(result.ok).toBe(true);
+  });
+
+  it('returns ok for 404', async () => {
+    mockFetch.mockResolvedValueOnce({ ok: false, status: 404, text: async () => 'Not found' });
+    const result = await testClientAIConnection({ apiEndpoint: 'https://api.test/v1', apiKey: 'key' });
+    expect(result.ok).toBe(true);
+  });
+
+  it('returns error for 401', async () => {
+    mockFetch.mockResolvedValueOnce({ ok: false, status: 401, text: async () => 'Unauthorized' });
+    const result = await testClientAIConnection({ apiEndpoint: 'https://api.test/v1', apiKey: 'key' });
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain('401');
+  });
+
+  it('returns error on network failure', async () => {
+    mockFetch.mockRejectedValueOnce(new Error('Connection refused'));
+    const result = await testClientAIConnection({ apiEndpoint: 'https://api.test/v1', apiKey: 'key' });
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain('Connection refused');
+  });
+
+  it('uses provided model parameter', async () => {
+    mockFetch.mockResolvedValueOnce({ ok: true });
+    await testClientAIConnection({ apiEndpoint: 'https://api.test/v1', apiKey: 'key' }, 'custom-model');
+    const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+    expect(body.model).toBe('custom-model');
+  });
+});
+
+describe('fetchAvailableModels', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('returns sorted model list', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        data: [{ id: 'gpt-4o' }, { id: 'claude-3' }, { id: 'gpt-3.5-turbo' }],
+      }),
+    });
+    const models = await fetchAvailableModels({ apiEndpoint: 'https://api.test/v1', apiKey: 'key' });
+    expect(models).toEqual(['claude-3', 'gpt-3.5-turbo', 'gpt-4o']);
+  });
+
+  it('returns empty array on error', async () => {
+    mockFetch.mockResolvedValueOnce({ ok: false });
+    const models = await fetchAvailableModels({ apiEndpoint: 'https://api.test/v1', apiKey: 'key' });
+    expect(models).toEqual([]);
+  });
+
+  it('returns empty array on network failure', async () => {
+    mockFetch.mockRejectedValueOnce(new Error('Network error'));
+    const models = await fetchAvailableModels({ apiEndpoint: 'https://api.test/v1', apiKey: 'key' });
+    expect(models).toEqual([]);
+  });
+
+  it('filters out entries without id', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ data: [{ id: 'model-1' }, {}, { id: null }, { id: 'model-2' }] }),
+    });
+    const models = await fetchAvailableModels({ apiEndpoint: 'https://api.test/v1', apiKey: 'key' });
+    expect(models).toEqual(['model-1', 'model-2']);
   });
 });

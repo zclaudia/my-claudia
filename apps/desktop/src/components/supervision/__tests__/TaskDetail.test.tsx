@@ -205,6 +205,161 @@ describe('TaskDetail', () => {
     });
   });
 
+  it('renders workflow outputs', () => {
+    render(
+      <TaskDetail
+        task={makeTask({
+          result: {
+            summary: 'Done',
+            filesChanged: [],
+            workflowOutputs: [
+              { action: 'test', success: true, output: 'All tests passed' },
+              { action: 'lint', success: false, output: 'Error found' },
+            ],
+          },
+        })}
+        onClose={onClose}
+      />,
+    );
+    expect(screen.getByText('PASS')).toBeInTheDocument();
+    expect(screen.getByText('FAIL')).toBeInTheDocument();
+    expect(screen.getByText('All tests passed')).toBeInTheDocument();
+    expect(screen.getByText('Error found')).toBeInTheDocument();
+  });
+
+  it('renders workflow outputs without output text', () => {
+    render(
+      <TaskDetail
+        task={makeTask({
+          result: {
+            summary: 'Done',
+            filesChanged: [],
+            workflowOutputs: [
+              { action: 'build', success: true },
+            ],
+          },
+        })}
+        onClose={onClose}
+      />,
+    );
+    expect(screen.getByText('PASS')).toBeInTheDocument();
+    expect(screen.getByText('build')).toBeInTheDocument();
+  });
+
+  it('shows agent source', () => {
+    render(<TaskDetail task={makeTask({ source: 'agent' })} onClose={onClose} />);
+    expect(screen.getByText('Agent')).toBeInTheDocument();
+  });
+
+  it('handles action error gracefully', async () => {
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    mockApproveSupervisionTask.mockRejectedValue(new Error('fail'));
+
+    render(<TaskDetail task={makeTask({ status: 'proposed' })} onClose={onClose} />);
+    fireEvent.click(screen.getByText('Approve'));
+
+    await waitFor(() => {
+      expect(consoleSpy).toHaveBeenCalledWith('Action failed:', expect.any(Error));
+    });
+    consoleSpy.mockRestore();
+  });
+
+  it('calls reject on Reject click', async () => {
+    const updatedTask = makeTask({ status: 'cancelled' });
+    mockRejectSupervisionTask.mockResolvedValue(updatedTask);
+
+    render(<TaskDetail task={makeTask({ status: 'proposed' })} onClose={onClose} />);
+    fireEvent.click(screen.getByText('Reject'));
+
+    await waitFor(() => {
+      expect(mockRejectSupervisionTask).toHaveBeenCalledWith('task-1');
+    });
+  });
+
+  it('calls approveSupervisionTaskResult on Approve Result click', async () => {
+    const updatedTask = makeTask({ status: 'approved' });
+    mockApproveSupervisionTaskResult.mockResolvedValue(updatedTask);
+
+    render(
+      <TaskDetail
+        task={makeTask({
+          status: 'reviewing',
+          result: { summary: 'Done', filesChanged: [], reviewVerdict: 'approve' },
+        })}
+        onClose={onClose}
+      />,
+    );
+    fireEvent.click(screen.getByText('Approve Result'));
+
+    await waitFor(() => {
+      expect(mockApproveSupervisionTaskResult).toHaveBeenCalledWith('task-1');
+    });
+  });
+
+  it('calls rejectSupervisionTaskResult on Reject Result click', async () => {
+    const updatedTask = makeTask({ status: 'rejected' });
+    mockRejectSupervisionTaskResult.mockResolvedValue(updatedTask);
+
+    render(
+      <TaskDetail
+        task={makeTask({
+          status: 'reviewing',
+          result: { summary: 'Done', filesChanged: [], reviewVerdict: 'approve' },
+        })}
+        onClose={onClose}
+      />,
+    );
+    fireEvent.click(screen.getByText('Reject Result'));
+
+    await waitFor(() => {
+      expect(mockRejectSupervisionTaskResult).toHaveBeenCalledWith('task-1', 'Rejected by user');
+    });
+  });
+
+  it('calls resolveSupervisionConflict on Resolve Conflict click', async () => {
+    const updatedTask = makeTask({ status: 'running' });
+    mockResolveSupervisionConflict.mockResolvedValue(updatedTask);
+
+    render(<TaskDetail task={makeTask({ status: 'merge_conflict' })} onClose={onClose} />);
+    fireEvent.click(screen.getByText('Resolve Conflict'));
+
+    await waitFor(() => {
+      expect(mockResolveSupervisionConflict).toHaveBeenCalledWith('task-1');
+    });
+  });
+
+  it('shows no description text when description is undefined', () => {
+    render(<TaskDetail task={makeTask({ description: undefined })} onClose={onClose} />);
+    expect(screen.getByText('No description')).toBeInTheDocument();
+  });
+
+  it('does not render result section when no result', () => {
+    render(<TaskDetail task={makeTask({ result: undefined })} onClose={onClose} />);
+    expect(screen.queryByText('Result')).not.toBeInTheDocument();
+  });
+
+  it('does not render scope section when scope is empty', () => {
+    render(<TaskDetail task={makeTask({ scope: [] })} onClose={onClose} />);
+    expect(screen.queryByText('Scope')).not.toBeInTheDocument();
+  });
+
+  it('does not render acceptance criteria when empty', () => {
+    render(<TaskDetail task={makeTask({ acceptanceCriteria: [] })} onClose={onClose} />);
+    expect(screen.queryByText('Acceptance Criteria')).not.toBeInTheDocument();
+  });
+
+  it('does not render files changed when empty', () => {
+    render(
+      <TaskDetail
+        task={makeTask({
+          result: { summary: 'Done', filesChanged: [] },
+        })}
+        onClose={onClose}
+      />,
+    );
+    expect(screen.queryByText('Files changed:')).not.toBeInTheDocument();
+  });
+
   it('does not show action buttons for pending tasks', () => {
     render(<TaskDetail task={makeTask({ status: 'pending' })} onClose={onClose} />);
     expect(screen.queryByText('Approve')).not.toBeInTheDocument();

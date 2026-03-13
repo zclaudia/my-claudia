@@ -9,6 +9,13 @@ vi.mock('child_process', () => ({
   spawn: (...args: unknown[]) => mockSpawn(...args),
 }));
 
+// Mock fs so findInCommonPaths doesn't discover real CLI tools on the machine
+vi.mock('fs', () => ({
+  existsSync: vi.fn(() => false),
+  statSync: vi.fn(() => ({ isFile: () => false })),
+  default: { existsSync: vi.fn(() => false), statSync: vi.fn(() => ({ isFile: () => false })) },
+}));
+
 // Helper to create a mock child process for spawn
 function createMockProcess(stdout: string, exitCode = 0) {
   const proc = new EventEmitter() as any;
@@ -43,7 +50,7 @@ describe('cli-detect', () => {
         if (cmd.includes('claude')) return '/usr/local/bin/claude\n';
         throw new Error('not found');
       });
-      mockSpawn.mockReturnValue(createMockProcess('1.0.5'));
+      mockSpawn.mockImplementation(() => createMockProcess('1.0.5'));
 
       const result = await detectCliProviders();
 
@@ -61,7 +68,7 @@ describe('cli-detect', () => {
         if (cmd.includes('opencode')) return '/usr/bin/opencode\n';
         throw new Error('not found');
       });
-      mockSpawn.mockReturnValue(createMockProcess('0.2.1'));
+      mockSpawn.mockImplementation(() => createMockProcess('0.2.1'));
 
       const result = await detectCliProviders();
 
@@ -114,7 +121,7 @@ describe('cli-detect', () => {
         if (cmd.includes('claude')) return '/usr/local/bin/claude\n';
         throw new Error('not found');
       });
-      mockSpawn.mockReturnValue(createMockProcess('1.0.5'));
+      mockSpawn.mockImplementation(() => createMockProcess('1.0.5'));
 
       const result = await detectCliProviders();
 
@@ -133,7 +140,7 @@ describe('cli-detect', () => {
         if (cmd.includes('claude')) return '/usr/local/bin/claude\n';
         throw new Error('not found');
       });
-      mockSpawn.mockReturnValue(createMockProcess('claude v2.3.4\n'));
+      mockSpawn.mockImplementation(() => createMockProcess('claude v2.3.4\n'));
 
       const result = await detectCliProviders();
 
@@ -146,7 +153,7 @@ describe('cli-detect', () => {
         if (cmd.includes('claude')) return '/usr/local/bin/claude\n';
         throw new Error('not found');
       });
-      mockSpawn.mockReturnValue(createErrorProcess());
+      mockSpawn.mockImplementation(() => createErrorProcess());
 
       const result = await detectCliProviders();
 
@@ -222,7 +229,7 @@ describe('cli-detect', () => {
         if (cmd.includes('claude')) return '/usr/local/bin/claude\n/usr/bin/claude\n';
         throw new Error('not found');
       });
-      mockSpawn.mockReturnValue(createMockProcess('1.0.0'));
+      mockSpawn.mockImplementation(() => createMockProcess('1.0.0'));
 
       const result = await detectCliProviders();
 

@@ -124,6 +124,23 @@ describe('filePushStore', () => {
     });
   });
 
+  describe('updatePrivatePath', () => {
+    it('updates the private path of a specific item', () => {
+      useFilePushStore.getState().addItem(createItemInput());
+      useFilePushStore.getState().updatePrivatePath('file-1', '/private/test.pdf');
+
+      expect(useFilePushStore.getState().items[0].privatePath).toBe('/private/test.pdf');
+    });
+
+    it('does not modify other items', () => {
+      useFilePushStore.getState().addItem(createItemInput({ fileId: 'file-1' }));
+      useFilePushStore.getState().addItem(createItemInput({ fileId: 'file-2' }));
+      useFilePushStore.getState().updatePrivatePath('file-1', '/private/test.pdf');
+
+      expect(useFilePushStore.getState().items[1].privatePath).toBeUndefined();
+    });
+  });
+
   describe('removeItem', () => {
     it('removes the item with the given fileId', () => {
       useFilePushStore.getState().addItem(createItemInput({ fileId: 'file-1' }));

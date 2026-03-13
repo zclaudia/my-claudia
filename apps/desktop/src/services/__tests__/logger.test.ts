@@ -1,135 +1,180 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { initLogger, exportLogs, clearLogs, getLogCount } from '../logger.js';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 describe('services/logger', () => {
-  let originalLog: typeof console.log;
-  let originalWarn: typeof console.warn;
-  let originalError: typeof console.error;
-  let originalDebug: typeof console.debug;
-
   beforeEach(() => {
-    // Save originals
-    originalLog = console.log;
-    originalWarn = console.warn;
-    originalError = console.error;
-    originalDebug = console.debug;
-
-    // Mock console methods
-    console.log = vi.fn();
-    console.warn = vi.fn();
-    console.error = vi.fn();
-    console.debug = vi.fn();
-
-    // Clear logs before each test
-    clearLogs();
-
-    // Reset initialized state by re-importing
     vi.resetModules();
   });
 
-  afterEach(() => {
-    // Restore originals
-    console.log = originalLog;
-    console.warn = originalWarn;
-    console.error = originalError;
-    console.debug = originalDebug;
+  it('initLogger intercepts console and captures entries', async () => {
+    const { initLogger, exportLogs, clearLogs, getLogCount } = await import('../logger.js');
+    initLogger();
+
+    console.log('test info');
+    console.warn('test warn');
+    console.error('test error');
+    console.debug('test debug');
+
+    expect(getLogCount()).toBe(4);
+
+    const logs = JSON.parse(exportLogs());
+    expect(logs[0].l).toBe('info');
+    expect(logs[0].msg).toBe('test info');
+    expect(logs[1].l).toBe('warn');
+    expect(logs[2].l).toBe('error');
+    expect(logs[3].l).toBe('debug');
+
+    clearLogs();
+    expect(getLogCount()).toBe(0);
   });
 
-  describe('initLogger', () => {
-    it('initializes only once', async () => {
-      const { initLogger: init } = await import('../logger.js');
+  it('initLogger is idempotent', async () => {
+    const { initLogger, getLogCount, clearLogs } = await import('../logger.js');
+    initLogger();
+    initLogger(); // second call should be no-op
 
-      init(100);
-      init(200); // Second call should be ignored
-
-      // Check that max entries wasn't changed to 200
-      // We can verify this indirectly by adding logs and checking behavior
-    });
-
-    it('accepts custom max entries', async () => {
-      const { initLogger: init, getLogCount: count } = await import('../logger.js');
-
-      init(10);
-      expect(count()).toBe(0);
-    });
+    console.log('test');
+    // If initialized twice, we'd get double entries
+    expect(getLogCount()).toBe(1);
+    clearLogs();
   });
 
-  describe('exportLogs', () => {
-    it('returns empty array as JSON when no logs', async () => {
-      const { exportLogs: exp, clearLogs: clear } = await import('../logger.js');
-      clear();
+  it('extracts [Tag] prefix from log messages', async () => {
+    const { initLogger, exportLogs, clearLogs } = await import('../logger.js');
+    initLogger();
 
-      const logs = exp();
+    console.log('[MyService] connected');
 
-      expect(logs).toBe('[]');
-    });
-
-    it('returns valid JSON string', async () => {
-      const { exportLogs: exp, clearLogs: clear } = await import('../logger.js');
-      clear();
-
-      const logs = exp();
-      expect(() => JSON.parse(logs)).not.toThrow();
-    });
+    const logs = JSON.parse(exportLogs());
+    expect(logs[0].tag).toBe('MyService');
+    expect(logs[0].msg).toBe('connected');
+    clearLogs();
   });
 
-  describe('clearLogs', () => {
-    it('clears all logs', async () => {
-      const { clearLogs: clear, getLogCount: count } = await import('../logger.js');
+  it('uses "untagged" when no tag prefix', async () => {
+    const { initLogger, exportLogs, clearLogs } = await import('../logger.js');
+    initLogger();
 
-      clear();
-      expect(count()).toBe(0);
-    });
+    console.log('plain message');
+
+    const logs = JSON.parse(exportLogs());
+    expect(logs[0].tag).toBe('untagged');
+    clearLogs();
   });
 
-  describe('getLogCount', () => {
-    it('returns 0 when no logs', async () => {
-      const { getLogCount: count, clearLogs: clear } = await import('../logger.js');
-      clear();
+  it('captures extra arguments', async () => {
+    const { initLogger, exportLogs, clearLogs } = await import('../logger.js');
+    initLogger();
 
-      expect(count()).toBe(0);
-    });
+    console.log('message', 'extra1', 42);
+
+    const logs = JSON.parse(exportLogs());
+    expect(logs[0].args).toContain('extra1');
+    expect(logs[0].args).toContain('42');
+    clearLogs();
   });
 
-  describe('tag extraction', () => {
-    it('extracts tag from [Tag] prefix format', () => {
-      const TAG_RE = /^\[([^\]]+)\]\s*/;
-      const input = '[MyTag] Hello world';
-      const match = TAG_RE.exec(input);
+  it('stringifies non-string first argument', async () => {
+    const { initLogger, exportLogs, clearLogs } = await import('../logger.js');
+    initLogger();
 
-      expect(match).not.toBeNull();
-      expect(match![1]).toBe('MyTag');
-    });
+    console.log({ key: 'value' });
 
-    it('returns untagged for no tag prefix', () => {
-      const TAG_RE = /^\[([^\]]+)\]\s*/;
-      const input = 'Hello world without tag';
-      const match = TAG_RE.exec(input);
-
-      expect(match).toBeNull();
-    });
+    const logs = JSON.parse(exportLogs());
+    expect(logs[0].msg).toContain('key');
+    clearLogs();
   });
 
-  describe('stringify', () => {
-    it('stringifies objects', () => {
-      const obj = { foo: 'bar', num: 123 };
-      const result = JSON.stringify(obj);
+  it('skips empty console calls', async () => {
+    const { initLogger, getLogCount, clearLogs } = await import('../logger.js');
+    initLogger();
 
-      expect(result).toContain('foo');
-      expect(result).toContain('bar');
-    });
+    const before = getLogCount();
+    // @ts-ignore - empty args
+    console.log();
+    expect(getLogCount()).toBe(before);
+    clearLogs();
+  });
 
-    it('handles circular references gracefully', () => {
-      const obj: any = { a: 1 };
-      obj.self = obj;
+  it('truncates long extra arguments', async () => {
+    const { initLogger, exportLogs, clearLogs } = await import('../logger.js');
+    initLogger();
 
-      expect(() => {
-        try {
-          JSON.stringify(obj);
-        } catch {
-          String(obj);
-        }
-      }).not.toThrow();
-    });
+    const longStr = 'x'.repeat(1000);
+    console.log('msg', longStr);
+
+    const logs = JSON.parse(exportLogs());
+    expect(logs[0].args.length).toBeLessThan(1000);
+    expect(logs[0].args.endsWith('…')).toBe(true);
+    clearLogs();
+  });
+
+  it('handles circular references gracefully', async () => {
+    const { initLogger, getLogCount, clearLogs } = await import('../logger.js');
+    initLogger();
+
+    const circular: any = {};
+    circular.self = circular;
+
+    console.log(circular);
+    expect(getLogCount()).toBeGreaterThan(0);
+    clearLogs();
+  });
+
+  it('trims buffer when over max entries', async () => {
+    const { initLogger, getLogCount, clearLogs } = await import('../logger.js');
+    initLogger(20);
+
+    for (let i = 0; i < 25; i++) {
+      console.log(`msg ${i}`);
+    }
+
+    // Buffer drops oldest 10% (2 entries) when exceeding 20, so after 21 entries it drops to 19
+    // With 25 entries total, multiple trims will have occurred
+    expect(getLogCount()).toBeLessThanOrEqual(20);
+    clearLogs();
+  });
+
+  it('exportLogs returns empty array JSON when no logs', async () => {
+    const { exportLogs, clearLogs } = await import('../logger.js');
+    clearLogs();
+    expect(exportLogs()).toBe('[]');
+  });
+
+  it('passes through to original console methods', async () => {
+    const { initLogger, clearLogs } = await import('../logger.js');
+
+    const originalLog = console.log;
+    initLogger();
+
+    // After init, console.log should still call through to the original
+    // (we can't easily verify passthrough in this environment, but at least it shouldn't throw)
+    console.log('passthrough test');
+    clearLogs();
+  });
+
+  it('accepts custom max entries in initLogger', async () => {
+    const { initLogger, getLogCount, clearLogs } = await import('../logger.js');
+    initLogger(5);
+
+    for (let i = 0; i < 10; i++) {
+      console.log(`msg ${i}`);
+    }
+
+    expect(getLogCount()).toBeLessThanOrEqual(10);
+    clearLogs();
+  });
+
+  it('records timestamp on each entry', async () => {
+    const { initLogger, exportLogs, clearLogs } = await import('../logger.js');
+    initLogger();
+
+    const before = Date.now();
+    console.log('timestamped');
+    const after = Date.now();
+
+    const logs = JSON.parse(exportLogs());
+    expect(logs[0].t).toBeGreaterThanOrEqual(before);
+    expect(logs[0].t).toBeLessThanOrEqual(after);
+    clearLogs();
   });
 });

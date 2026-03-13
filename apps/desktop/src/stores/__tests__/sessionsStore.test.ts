@@ -3,7 +3,11 @@ import { useSessionsStore, type RemoteSession } from '../sessionsStore';
 
 describe('sessionsStore', () => {
   beforeEach(() => {
-    useSessionsStore.setState({ remoteSessions: new Map() });
+    useSessionsStore.setState({
+      remoteSessions: new Map(),
+      activeSessionIdsByBackend: new Map(),
+      recentlyCompletedSessions: [],
+    });
   });
 
   const createRemoteSession = (overrides: Partial<RemoteSession> = {}): RemoteSession => ({
@@ -272,6 +276,165 @@ describe('sessionsStore', () => {
       const backend2 = useSessionsStore.getState().remoteSessions.get('backend-2');
       expect(backend1![0].isActive).toBe(true);
       expect(backend2![0].isActive).toBe(true); // unchanged
+    });
+
+    it('tracks recently completed sessions', () => {
+      const s1 = createRemoteSession({ id: 's1', isActive: true });
+      useSessionsStore.getState().setRemoteSessions('backend-1', [s1]);
+
+      useSessionsStore.getState().reconcileActiveStatus('backend-1', new Set());
+
+      const completed = useSessionsStore.getState().recentlyCompletedSessions;
+      expect(completed).toHaveLength(1);
+      expect(completed[0].session.id).toBe('s1');
+      expect(completed[0].backendId).toBe('backend-1');
+    });
+  });
+
+  describe('setActiveSessionsForBackend', () => {
+    it('sets active sessions for a backend', () => {
+      useSessionsStore.getState().setActiveSessionsForBackend('b1', new Set(['s1', 's2']));
+      const active = useSessionsStore.getState().activeSessionIdsByBackend.get('b1');
+      expect(active).toEqual(new Set(['s1', 's2']));
+    });
+
+    it('skips update when sets are identical', () => {
+      useSessionsStore.getState().setActiveSessionsForBackend('b1', new Set(['s1']));
+      const before = useSessionsStore.getState().activeSessionIdsByBackend;
+      useSessionsStore.getState().setActiveSessionsForBackend('b1', new Set(['s1']));
+      const after = useSessionsStore.getState().activeSessionIdsByBackend;
+      expect(before).toBe(after);
+    });
+  });
+
+  describe('setSessionActiveFlag', () => {
+    it('adds session to active set', () => {
+      useSessionsStore.getState().setSessionActiveFlag('b1', 's1', true);
+      const active = useSessionsStore.getState().activeSessionIdsByBackend.get('b1');
+      expect(active?.has('s1')).toBe(true);
+    });
+
+    it('removes session from active set', () => {
+      useSessionsStore.getState().setSessionActiveFlag('b1', 's1', true);
+      useSessionsStore.getState().setSessionActiveFlag('b1', 's1', false);
+      const active = useSessionsStore.getState().activeSessionIdsByBackend.get('b1');
+      expect(active?.has('s1')).toBe(false);
+    });
+
+    it('skips update when state unchanged', () => {
+      useSessionsStore.getState().setSessionActiveFlag('b1', 's1', true);
+      const before = useSessionsStore.getState().activeSessionIdsByBackend;
+      useSessionsStore.getState().setSessionActiveFlag('b1', 's1', true);
+      const after = useSessionsStore.getState().activeSessionIdsByBackend;
+      expect(before).toBe(after);
+    });
+  });
+
+  describe('setSessionActiveById', () => {
+    it('sets session active and updates remoteSessions', () => {
+      const s1 = createRemoteSession({ id: 's1', isActive: false });
+      useSessionsStore.getState().setRemoteSessions('b1', [s1]);
+
+      useSessionsStore.getState().setSessionActiveById('b1', 's1', true);
+
+      const stored = useSessionsStore.getState().remoteSessions.get('b1');
+      expect(stored![0].isActive).toBe(true);
+    });
+
+    it('tracks recently completed on deactivation', () => {
+      const s1 = createRemoteSession({ id: 's1', isActive: true });
+      useSessionsStore.getState().setRemoteSessions('b1', [s1]);
+
+      useSessionsStore.getState().setSessionActiveById('b1', 's1', false);
+
+      const completed = useSessionsStore.getState().recentlyCompletedSessions;
+      expect(completed).toHaveLength(1);
+      expect(completed[0].session.id).toBe('s1');
+    });
+
+    it('handles missing backend gracefully', () => {
+      useSessionsStore.getState().setSessionActiveById('missing', 's1', true);
+      // Should not throw
+      expect(useSessionsStore.getState().activeSessionIdsByBackend.get('missing')).toEqual(new Set(['s1']));
+    });
+
+    it('handles missing session id gracefully', () => {
+      const s1 = createRemoteSession({ id: 's1' });
+      useSessionsStore.getState().setRemoteSessions('b1', [s1]);
+
+      useSessionsStore.getState().setSessionActiveById('b1', 'nonexistent', true);
+      // Should not throw, session list unchanged
+      const stored = useSessionsStore.getState().remoteSessions.get('b1');
+      expect(stored).toHaveLength(1);
+    });
+  });
+
+  describe('handleSessionEvent active tracking', () => {
+    it('tracks active flag on created event', () => {
+      const session = createRemoteSession({ id: 's1', isActive: true });
+      useSessionsStore.getState().handleSessionEvent('b1', 'created', session);
+
+      const active = useSessionsStore.getState().activeSessionIdsByBackend.get('b1');
+      expect(active?.has('s1')).toBe(true);
+    });
+
+    it('deduplicates created events', () => {
+      const session = createRemoteSession({ id: 's1' });
+      useSessionsStore.getState().setRemoteSessions('b1', [session]);
+
+      // Try to create same session again
+      const before = useSessionsStore.getState().remoteSessions;
+      useSessionsStore.getState().handleSessionEvent('b1', 'created', session);
+      const after = useSessionsStore.getState().remoteSessions;
+      expect(before).toBe(after); // no change
+    });
+
+    it('tracks recently completed on update from active to inactive', () => {
+      const s1 = createRemoteSession({ id: 's1', isActive: true });
+      useSessionsStore.getState().setRemoteSessions('b1', [s1]);
+
+      const updated = createRemoteSession({ id: 's1', isActive: false });
+      useSessionsStore.getState().handleSessionEvent('b1', 'updated', updated);
+
+      const completed = useSessionsStore.getState().recentlyCompletedSessions;
+      expect(completed).toHaveLength(1);
+    });
+
+    it('removes from active set on delete', () => {
+      const s1 = createRemoteSession({ id: 's1', isActive: true });
+      useSessionsStore.getState().setRemoteSessions('b1', [s1]);
+
+      useSessionsStore.getState().handleSessionEvent('b1', 'deleted', s1);
+
+      const active = useSessionsStore.getState().activeSessionIdsByBackend.get('b1');
+      expect(active?.has('s1')).toBe(false);
+    });
+  });
+
+  describe('dismissRecentlyCompleted', () => {
+    it('removes session from recently completed', () => {
+      const s1 = createRemoteSession({ id: 's1', isActive: true });
+      useSessionsStore.getState().setRemoteSessions('b1', [s1]);
+      useSessionsStore.getState().setSessionActiveById('b1', 's1', false);
+
+      expect(useSessionsStore.getState().recentlyCompletedSessions).toHaveLength(1);
+
+      useSessionsStore.getState().dismissRecentlyCompleted('s1');
+      expect(useSessionsStore.getState().recentlyCompletedSessions).toHaveLength(0);
+    });
+  });
+
+  describe('clearAllRecentlyCompleted', () => {
+    it('clears all recently completed sessions', () => {
+      const s1 = createRemoteSession({ id: 's1', isActive: true });
+      const s2 = createRemoteSession({ id: 's2', isActive: true });
+      useSessionsStore.getState().setRemoteSessions('b1', [s1, s2]);
+      useSessionsStore.getState().reconcileActiveStatus('b1', new Set());
+
+      expect(useSessionsStore.getState().recentlyCompletedSessions.length).toBeGreaterThan(0);
+
+      useSessionsStore.getState().clearAllRecentlyCompleted();
+      expect(useSessionsStore.getState().recentlyCompletedSessions).toHaveLength(0);
     });
   });
 });

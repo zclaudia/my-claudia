@@ -14,8 +14,14 @@ describe('gatewayStore', () => {
       gatewayUrl: null,
       gatewaySecret: null,
       isConnected: false,
+      localBackendId: null,
       discoveredBackends: [],
       backendAuthStatus: {},
+      directGatewayUrl: null,
+      directGatewaySecret: null,
+      lastActiveBackendId: null,
+      subscribedBackendIds: [],
+      showLocalBackend: false,
     });
   });
 
@@ -44,6 +50,33 @@ describe('gatewayStore', () => {
       const state = useGatewayStore.getState();
       expect(state.gatewayUrl).toBeNull();
       expect(state.gatewaySecret).toBeNull();
+    });
+
+    it('sets localBackendId when provided', () => {
+      useGatewayStore.getState().syncFromServer('url', 'sec', [], 'local-id');
+      expect(useGatewayStore.getState().localBackendId).toBe('local-id');
+    });
+
+    it('marks isLocal on backends', () => {
+      const backends = [
+        createBackend({ backendId: 'b1' }),
+        createBackend({ backendId: 'local-id' }),
+      ];
+      useGatewayStore.getState().syncFromServer('url', 'sec', backends, 'local-id');
+      const bk = useGatewayStore.getState().discoveredBackends;
+      expect(bk[0].isLocal).toBeFalsy();
+      expect(bk[1].isLocal).toBe(true);
+    });
+
+    it('sets connected flag when provided', () => {
+      useGatewayStore.getState().syncFromServer('url', 'sec', [], null, true);
+      expect(useGatewayStore.getState().isConnected).toBe(true);
+    });
+
+    it('preserves existing localBackendId when not provided', () => {
+      useGatewayStore.setState({ localBackendId: 'existing' });
+      useGatewayStore.getState().syncFromServer('url', 'sec', []);
+      expect(useGatewayStore.getState().localBackendId).toBe('existing');
     });
   });
 
@@ -132,6 +165,112 @@ describe('gatewayStore', () => {
     });
   });
 
+  describe('setDirectGatewayConfig', () => {
+    it('sets direct config and runtime state', () => {
+      useGatewayStore.getState().setDirectGatewayConfig('https://gw', 'secret');
+      const s = useGatewayStore.getState();
+      expect(s.directGatewayUrl).toBe('https://gw');
+      expect(s.directGatewaySecret).toBe('secret');
+      expect(s.gatewayUrl).toBe('https://gw');
+      expect(s.gatewaySecret).toBe('secret');
+    });
+  });
+
+  describe('setLastActiveBackend', () => {
+    it('sets last active backend', () => {
+      useGatewayStore.getState().setLastActiveBackend('gw:b1');
+      expect(useGatewayStore.getState().lastActiveBackendId).toBe('gw:b1');
+    });
+  });
+
+  describe('clearDirectGatewayConfig', () => {
+    it('clears all direct gateway config and runtime state', () => {
+      useGatewayStore.setState({
+        directGatewayUrl: 'url', directGatewaySecret: 'sec',
+        lastActiveBackendId: 'gw:b1', gatewayUrl: 'url', gatewaySecret: 'sec',
+        isConnected: true, discoveredBackends: [createBackend()],
+      });
+      useGatewayStore.getState().clearDirectGatewayConfig();
+      const s = useGatewayStore.getState();
+      expect(s.directGatewayUrl).toBeNull();
+      expect(s.directGatewaySecret).toBeNull();
+      expect(s.lastActiveBackendId).toBeNull();
+      expect(s.gatewayUrl).toBeNull();
+      expect(s.isConnected).toBe(false);
+      expect(s.discoveredBackends).toHaveLength(0);
+    });
+  });
+
+  describe('toggleBackendSubscription', () => {
+    it('switches from all-subscribed to explicit list excluding target', () => {
+      useGatewayStore.setState({
+        discoveredBackends: [createBackend({ backendId: 'b1' }), createBackend({ backendId: 'b2' })],
+        subscribedBackendIds: [],
+      });
+      useGatewayStore.getState().toggleBackendSubscription('b1');
+      expect(useGatewayStore.getState().subscribedBackendIds).toEqual(['b2']);
+    });
+
+    it('unsubscribes when already in list', () => {
+      useGatewayStore.setState({ subscribedBackendIds: ['b1', 'b2'] });
+      useGatewayStore.getState().toggleBackendSubscription('b1');
+      expect(useGatewayStore.getState().subscribedBackendIds).toEqual(['b2']);
+    });
+
+    it('subscribes when not in list', () => {
+      useGatewayStore.setState({ subscribedBackendIds: ['b1'] });
+      useGatewayStore.getState().toggleBackendSubscription('b2');
+      expect(useGatewayStore.getState().subscribedBackendIds).toEqual(['b1', 'b2']);
+    });
+  });
+
+  describe('isBackendSubscribed', () => {
+    it('returns true when empty (all subscribed)', () => {
+      expect(useGatewayStore.getState().isBackendSubscribed('any')).toBe(true);
+    });
+
+    it('returns true when in list', () => {
+      useGatewayStore.setState({ subscribedBackendIds: ['b1'] });
+      expect(useGatewayStore.getState().isBackendSubscribed('b1')).toBe(true);
+    });
+
+    it('returns false when not in list', () => {
+      useGatewayStore.setState({ subscribedBackendIds: ['b1'] });
+      expect(useGatewayStore.getState().isBackendSubscribed('b2')).toBe(false);
+    });
+  });
+
+  describe('hasDirectConfig', () => {
+    it('returns false when no direct config', () => {
+      expect(useGatewayStore.getState().hasDirectConfig()).toBe(false);
+    });
+
+    it('returns true when direct config set', () => {
+      useGatewayStore.setState({ directGatewayUrl: 'url', directGatewaySecret: 'sec' });
+      expect(useGatewayStore.getState().hasDirectConfig()).toBe(true);
+    });
+  });
+
+  describe('setShowLocalBackend', () => {
+    it('toggles show local backend', () => {
+      useGatewayStore.getState().setShowLocalBackend(true);
+      expect(useGatewayStore.getState().showLocalBackend).toBe(true);
+    });
+  });
+
+  describe('setDiscoveredBackends with localBackendId', () => {
+    it('marks isLocal based on stored localBackendId', () => {
+      useGatewayStore.setState({ localBackendId: 'b1' });
+      useGatewayStore.getState().setDiscoveredBackends([
+        createBackend({ backendId: 'b1' }),
+        createBackend({ backendId: 'b2' }),
+      ]);
+      const bk = useGatewayStore.getState().discoveredBackends;
+      expect(bk[0].isLocal).toBe(true);
+      expect(bk[1].isLocal).toBeFalsy();
+    });
+  });
+
   describe('isConfigured', () => {
     it('returns false when url and secret are null', () => {
       expect(useGatewayStore.getState().isConfigured()).toBe(false);
@@ -215,6 +354,39 @@ describe('gatewayStore', () => {
       it('returns empty string for gw: prefix only', () => {
         expect(parseBackendId('gw:')).toBe('');
       });
+    });
+  });
+
+  describe('persist migration', () => {
+    it('migrates from version 0 (removes old fields, adds subscribedBackendIds)', () => {
+      const persistApi = (useGatewayStore as any).persist;
+      const options = persistApi?.getOptions?.();
+      if (options?.migrate) {
+        const result = options.migrate({ gatewayUrl: 'old', gatewaySecret: 'old', backendApiKeys: {} }, 0);
+        expect(result.gatewayUrl).toBeUndefined();
+        expect(result.gatewaySecret).toBeUndefined();
+        expect(result.backendApiKeys).toBeUndefined();
+        expect(result.subscribedBackendIds).toEqual([]);
+      }
+    });
+
+    it('migrates from version 4 (adds subscribedBackendIds only)', () => {
+      const persistApi = (useGatewayStore as any).persist;
+      const options = persistApi?.getOptions?.();
+      if (options?.migrate) {
+        const result = options.migrate({ directGatewayUrl: 'url' }, 4);
+        expect(result.directGatewayUrl).toBe('url');
+        expect(result.subscribedBackendIds).toEqual([]);
+      }
+    });
+
+    it('does not modify version 5 data', () => {
+      const persistApi = (useGatewayStore as any).persist;
+      const options = persistApi?.getOptions?.();
+      if (options?.migrate) {
+        const result = options.migrate({ subscribedBackendIds: ['b1'] }, 5);
+        expect(result.subscribedBackendIds).toEqual(['b1']);
+      }
     });
   });
 });

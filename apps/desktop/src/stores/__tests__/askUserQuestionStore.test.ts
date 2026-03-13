@@ -292,4 +292,88 @@ describe('askUserQuestionStore', () => {
       expect(useAskUserQuestionStore.getState().hasRequest('req-1')).toBe(false);
     });
   });
+
+  describe('clearRequestsForSession', () => {
+    it('removes requests for the specified session', () => {
+      useAskUserQuestionStore.getState().setPendingRequest(
+        createRequest({ requestId: 'req-1', sessionId: 'session-1' })
+      );
+      useAskUserQuestionStore.getState().setPendingRequest(
+        createRequest({ requestId: 'req-2', sessionId: 'session-2' })
+      );
+      useAskUserQuestionStore.getState().setPendingRequest(
+        createRequest({ requestId: 'req-3', sessionId: 'session-1' })
+      );
+
+      useAskUserQuestionStore.getState().clearRequestsForSession('session-1');
+
+      expect(useAskUserQuestionStore.getState().pendingRequests).toHaveLength(1);
+      expect(useAskUserQuestionStore.getState().pendingRequest?.requestId).toBe('req-2');
+    });
+
+    it('sets pendingRequest to null when all requests cleared', () => {
+      useAskUserQuestionStore.getState().setPendingRequest(
+        createRequest({ requestId: 'req-1', sessionId: 'session-1' })
+      );
+      useAskUserQuestionStore.getState().clearRequestsForSession('session-1');
+      expect(useAskUserQuestionStore.getState().pendingRequest).toBeNull();
+    });
+  });
+
+  describe('getRequestsForSession', () => {
+    it('returns requests for the specified session', () => {
+      useAskUserQuestionStore.getState().setPendingRequest(
+        createRequest({ requestId: 'req-1', sessionId: 'session-1' })
+      );
+      useAskUserQuestionStore.getState().setPendingRequest(
+        createRequest({ requestId: 'req-2', sessionId: 'session-2' })
+      );
+      useAskUserQuestionStore.getState().setPendingRequest(
+        createRequest({ requestId: 'req-3', sessionId: 'session-1' })
+      );
+
+      const result = useAskUserQuestionStore.getState().getRequestsForSession('session-1');
+      expect(result).toHaveLength(2);
+      expect(result.map(r => r.requestId)).toEqual(['req-1', 'req-3']);
+    });
+
+    it('returns empty array when no requests for session', () => {
+      expect(useAskUserQuestionStore.getState().getRequestsForSession('session-x')).toEqual([]);
+    });
+  });
+
+  describe('getSessionsWithPendingRequests', () => {
+    it('returns unique session IDs', () => {
+      useAskUserQuestionStore.getState().setPendingRequest(
+        createRequest({ requestId: 'req-1', sessionId: 'session-1' })
+      );
+      useAskUserQuestionStore.getState().setPendingRequest(
+        createRequest({ requestId: 'req-2', sessionId: 'session-2' })
+      );
+      useAskUserQuestionStore.getState().setPendingRequest(
+        createRequest({ requestId: 'req-3', sessionId: 'session-1' })
+      );
+
+      const sessions = useAskUserQuestionStore.getState().getSessionsWithPendingRequests();
+      expect(sessions).toHaveLength(2);
+      expect(sessions).toContain('session-1');
+      expect(sessions).toContain('session-2');
+    });
+
+    it('filters out requests without sessionId', () => {
+      useAskUserQuestionStore.getState().setPendingRequest(
+        createRequest({ requestId: 'req-1', sessionId: undefined })
+      );
+      useAskUserQuestionStore.getState().setPendingRequest(
+        createRequest({ requestId: 'req-2', sessionId: 'session-1' })
+      );
+
+      const sessions = useAskUserQuestionStore.getState().getSessionsWithPendingRequests();
+      expect(sessions).toEqual(['session-1']);
+    });
+
+    it('returns empty array when no requests', () => {
+      expect(useAskUserQuestionStore.getState().getSessionsWithPendingRequests()).toEqual([]);
+    });
+  });
 });

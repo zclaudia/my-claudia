@@ -162,6 +162,166 @@ describe('TaskCard', () => {
     });
   });
 
+  it('handles approve error gracefully', async () => {
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    mockApproveSupervisionTask.mockRejectedValue(new Error('Network error'));
+
+    render(<TaskCard task={makeTask({ status: 'proposed' })} onSelect={onSelect} />);
+    fireEvent.click(screen.getByText('Approve'));
+
+    await waitFor(() => {
+      expect(consoleSpy).toHaveBeenCalledWith('Failed to approve task:', expect.any(Error));
+    });
+    consoleSpy.mockRestore();
+  });
+
+  it('handles reject error gracefully', async () => {
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    mockRejectSupervisionTask.mockRejectedValue(new Error('Network error'));
+
+    render(<TaskCard task={makeTask({ status: 'proposed' })} onSelect={onSelect} />);
+    fireEvent.click(screen.getByText('Reject'));
+
+    await waitFor(() => {
+      expect(consoleSpy).toHaveBeenCalledWith('Failed to reject task:', expect.any(Error));
+    });
+    consoleSpy.mockRestore();
+  });
+
+  it('handles resolve conflict error gracefully', async () => {
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    mockResolveSupervisionConflict.mockRejectedValue(new Error('fail'));
+
+    render(<TaskCard task={makeTask({ status: 'merge_conflict' })} onSelect={onSelect} />);
+    fireEvent.click(screen.getByText('Resolve Conflict'));
+
+    await waitFor(() => {
+      expect(consoleSpy).toHaveBeenCalledWith('Failed to resolve conflict:', expect.any(Error));
+    });
+    consoleSpy.mockRestore();
+  });
+
+  it('renders all status badge types', () => {
+    const statuses: Array<[string, string]> = [
+      ['proposed', 'Proposed'],
+      ['queued', 'Queued'],
+      ['planning', 'Planning'],
+      ['completed', 'Completed'],
+      ['reviewing', 'Reviewing'],
+      ['approved', 'Approved'],
+      ['integrated', 'Integrated'],
+      ['rejected', 'Rejected'],
+      ['merge_conflict', 'Conflict'],
+      ['blocked', 'Blocked'],
+      ['failed', 'Failed'],
+      ['cancelled', 'Cancelled'],
+    ];
+    for (const [status, label] of statuses) {
+      cleanup();
+      render(<TaskCard task={makeTask({ status: status as any })} onSelect={onSelect} />);
+      expect(screen.getByText(label)).toBeInTheDocument();
+    }
+  });
+
+  it('falls back to raw status for unknown status', () => {
+    render(<TaskCard task={makeTask({ status: 'custom_unknown' as any })} onSelect={onSelect} />);
+    expect(screen.getByText('custom_unknown')).toBeInTheDocument();
+  });
+
+  it('does not show description when empty', () => {
+    render(<TaskCard task={makeTask({ description: '' })} onSelect={onSelect} />);
+    expect(screen.queryByText('A test task')).not.toBeInTheDocument();
+  });
+
+  it('does not show dependency count when no dependencies', () => {
+    render(<TaskCard task={makeTask({ dependencies: [] })} onSelect={onSelect} />);
+    expect(screen.queryByText(/deps/)).not.toBeInTheDocument();
+  });
+
+  it('calls approveSupervisionTaskResult when Approve Result is clicked', async () => {
+    const updatedTask = makeTask({ status: 'approved' });
+    mockApproveSupervisionTaskResult.mockResolvedValue(updatedTask);
+
+    render(
+      <TaskCard
+        task={makeTask({
+          status: 'reviewing',
+          result: { summary: 'Done', filesChanged: [], reviewVerdict: 'approve' },
+        })}
+        onSelect={onSelect}
+      />,
+    );
+    fireEvent.click(screen.getByText('Approve Result'));
+
+    await waitFor(() => {
+      expect(mockApproveSupervisionTaskResult).toHaveBeenCalledWith('task-1');
+      expect(mockUpsertTask).toHaveBeenCalledWith('proj-1', updatedTask);
+    });
+  });
+
+  it('calls rejectSupervisionTaskResult when Reject Result is clicked', async () => {
+    const updatedTask = makeTask({ status: 'rejected' });
+    mockRejectSupervisionTaskResult.mockResolvedValue(updatedTask);
+
+    render(
+      <TaskCard
+        task={makeTask({
+          status: 'reviewing',
+          result: { summary: 'Done', filesChanged: [], reviewVerdict: 'approve' },
+        })}
+        onSelect={onSelect}
+      />,
+    );
+    fireEvent.click(screen.getByText('Reject Result'));
+
+    await waitFor(() => {
+      expect(mockRejectSupervisionTaskResult).toHaveBeenCalledWith('task-1', 'Rejected by user');
+      expect(mockUpsertTask).toHaveBeenCalledWith('proj-1', updatedTask);
+    });
+  });
+
+  it('handles approve result error gracefully', async () => {
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    mockApproveSupervisionTaskResult.mockRejectedValue(new Error('fail'));
+
+    render(
+      <TaskCard
+        task={makeTask({
+          status: 'reviewing',
+          result: { summary: 'Done', filesChanged: [], reviewVerdict: 'approve' },
+        })}
+        onSelect={onSelect}
+      />,
+    );
+    fireEvent.click(screen.getByText('Approve Result'));
+
+    await waitFor(() => {
+      expect(consoleSpy).toHaveBeenCalled();
+    });
+    consoleSpy.mockRestore();
+  });
+
+  it('handles reject result error gracefully', async () => {
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    mockRejectSupervisionTaskResult.mockRejectedValue(new Error('fail'));
+
+    render(
+      <TaskCard
+        task={makeTask({
+          status: 'reviewing',
+          result: { summary: 'Done', filesChanged: [], reviewVerdict: 'approve' },
+        })}
+        onSelect={onSelect}
+      />,
+    );
+    fireEvent.click(screen.getByText('Reject Result'));
+
+    await waitFor(() => {
+      expect(consoleSpy).toHaveBeenCalled();
+    });
+    consoleSpy.mockRestore();
+  });
+
   // Reviewing task actions
   it('shows review buttons for reviewing tasks with verdict', () => {
     render(

@@ -60,6 +60,9 @@ describe('Supervision V2 Routes', () => {
       getContextDocuments: vi.fn(),
       getTokenUsage: vi.fn(),
       getLogs: vi.fn(),
+      retryTask: vi.fn(),
+      cancelTask: vi.fn(),
+      runTaskNow: vi.fn(),
     };
 
     app = express();
@@ -824,6 +827,158 @@ describe('Supervision V2 Routes', () => {
         .expect(500);
 
       expect(res.body.success).toBe(false);
+      expect(res.body.error.code).toBe('INTERNAL_ERROR');
+    });
+  });
+
+  // ========================================
+  // POST /tasks/:taskId/retry
+  // ========================================
+  describe('POST /tasks/:taskId/retry', () => {
+    it('retries a task successfully', async () => {
+      const task = makeMockTask({ status: 'pending', attempt: 2 });
+      mockService.retryTask.mockReturnValue(task);
+
+      const res = await request(app)
+        .post('/api/v2/tasks/task-1/retry')
+        .expect(200);
+
+      expect(res.body.success).toBe(true);
+      expect(mockService.retryTask).toHaveBeenCalledWith('task-1');
+    });
+
+    it('returns 404 when task not found', async () => {
+      mockService.retryTask.mockImplementation(() => {
+        throw new Error('Task not found');
+      });
+
+      const res = await request(app)
+        .post('/api/v2/tasks/nonexistent/retry')
+        .expect(404);
+
+      expect(res.body.error.code).toBe('NOT_FOUND');
+    });
+
+    it('returns 400 for invalid state', async () => {
+      mockService.retryTask.mockImplementation(() => {
+        throw new Error('Task is not in a retriable state');
+      });
+
+      const res = await request(app)
+        .post('/api/v2/tasks/task-1/retry')
+        .expect(400);
+
+      expect(res.body.error.code).toBe('INVALID_STATE');
+    });
+  });
+
+  // ========================================
+  // POST /tasks/:taskId/cancel
+  // ========================================
+  describe('POST /tasks/:taskId/cancel', () => {
+    it('cancels a task successfully', async () => {
+      const task = makeMockTask({ status: 'cancelled' });
+      mockService.cancelTask.mockReturnValue(task);
+
+      const res = await request(app)
+        .post('/api/v2/tasks/task-1/cancel')
+        .expect(200);
+
+      expect(res.body.success).toBe(true);
+      expect(mockService.cancelTask).toHaveBeenCalledWith('task-1');
+    });
+
+    it('returns 404 when task not found', async () => {
+      mockService.cancelTask.mockImplementation(() => {
+        throw new Error('Task not found');
+      });
+
+      const res = await request(app)
+        .post('/api/v2/tasks/nonexistent/cancel')
+        .expect(404);
+
+      expect(res.body.error.code).toBe('NOT_FOUND');
+    });
+
+    it('returns 400 for invalid state', async () => {
+      mockService.cancelTask.mockImplementation(() => {
+        throw new Error('Cannot cancel completed task');
+      });
+
+      const res = await request(app)
+        .post('/api/v2/tasks/task-1/cancel')
+        .expect(400);
+
+      expect(res.body.error.code).toBe('INVALID_STATE');
+    });
+  });
+
+  // ========================================
+  // POST /tasks/:taskId/run-now
+  // ========================================
+  describe('POST /tasks/:taskId/run-now', () => {
+    it('runs a task immediately', async () => {
+      const task = makeMockTask({ status: 'queued' });
+      mockService.runTaskNow.mockReturnValue(task);
+
+      const res = await request(app)
+        .post('/api/v2/tasks/task-1/run-now')
+        .expect(200);
+
+      expect(res.body.success).toBe(true);
+      expect(mockService.runTaskNow).toHaveBeenCalledWith('task-1');
+    });
+
+    it('returns 404 when task not found', async () => {
+      mockService.runTaskNow.mockImplementation(() => {
+        throw new Error('Task not found');
+      });
+
+      const res = await request(app)
+        .post('/api/v2/tasks/nonexistent/run-now')
+        .expect(404);
+
+      expect(res.body.error.code).toBe('NOT_FOUND');
+    });
+
+    it('returns 400 for invalid state', async () => {
+      mockService.runTaskNow.mockImplementation(() => {
+        throw new Error('Task cannot be run now');
+      });
+
+      const res = await request(app)
+        .post('/api/v2/tasks/task-1/run-now')
+        .expect(400);
+
+      expect(res.body.error.code).toBe('INVALID_STATE');
+    });
+  });
+
+  // ========================================
+  // GET /projects/:projectId/context
+  // ========================================
+  describe('GET /projects/:projectId/context', () => {
+    it('returns context documents', async () => {
+      const docs = [{ id: 'doc-1', content: 'Test doc' }];
+      mockService.getContextDocuments.mockReturnValue(docs);
+
+      const res = await request(app)
+        .get('/api/v2/projects/proj-1/context')
+        .expect(200);
+
+      expect(res.body.success).toBe(true);
+      expect(res.body.data).toEqual(docs);
+    });
+
+    it('returns 500 when getContextDocuments throws', async () => {
+      mockService.getContextDocuments.mockImplementation(() => {
+        throw new Error('DB error');
+      });
+
+      const res = await request(app)
+        .get('/api/v2/projects/proj-1/context')
+        .expect(500);
+
       expect(res.body.error.code).toBe('INTERNAL_ERROR');
     });
   });

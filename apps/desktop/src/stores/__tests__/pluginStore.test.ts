@@ -8,6 +8,7 @@ import {
   selectActivePlugins,
   selectPluginById,
   selectPluginPanels,
+  selectPluginSettingsTabs,
   type InstalledPlugin,
   type UIExtension,
 } from '../pluginStore';
@@ -255,6 +256,65 @@ describe('PluginStore', () => {
       const panels = selectPluginPanels(usePluginStore.getState());
       expect(panels[0].id).toBe('panel-2');
       expect(panels[1].id).toBe('panel-1');
+    });
+
+    it('should select settings tabs sorted by order', () => {
+      const tab1: UIExtension = { id: 'tab-1', pluginId: 'p1', type: 'settings-tab', label: 'Tab 1', order: 3 };
+      const tab2: UIExtension = { id: 'tab-2', pluginId: 'p1', type: 'settings-tab', label: 'Tab 2', order: 1 };
+
+      usePluginStore.getState().registerSettingsTab(tab1);
+      usePluginStore.getState().registerSettingsTab(tab2);
+
+      const tabs = selectPluginSettingsTabs(usePluginStore.getState());
+      expect(tabs[0].id).toBe('tab-2');
+      expect(tabs[1].id).toBe('tab-1');
+    });
+  });
+
+  describe('toolbar items', () => {
+    it('should register a toolbar item', () => {
+      const item: UIExtension = { id: 'toolbar-1', pluginId: 'com.test.plugin', type: 'toolbar', label: 'Action' };
+      usePluginStore.getState().registerToolbarItem(item);
+      expect(usePluginStore.getState().toolbarItems).toHaveLength(1);
+    });
+
+    it('should unregister a toolbar item', () => {
+      const item: UIExtension = { id: 'toolbar-1', pluginId: 'com.test.plugin', type: 'toolbar', label: 'Action' };
+      usePluginStore.getState().registerToolbarItem(item);
+      usePluginStore.getState().unregisterToolbarItem('toolbar-1');
+      expect(usePluginStore.getState().toolbarItems).toHaveLength(0);
+    });
+
+    it('clearPluginExtensions removes toolbar items too', () => {
+      const item: UIExtension = { id: 'toolbar-1', pluginId: 'com.test.plugin', type: 'toolbar', label: 'Action' };
+      usePluginStore.getState().registerToolbarItem(item);
+      usePluginStore.getState().clearPluginExtensions('com.test.plugin');
+      expect(usePluginStore.getState().toolbarItems).toHaveLength(0);
+    });
+  });
+
+  describe('permission request', () => {
+    it('should set pending permission request', () => {
+      const req = { pluginId: 'com.test.plugin', pluginName: 'Test', permissions: ['read', 'write'] };
+      usePluginStore.getState().setPendingPermissionRequest(req);
+      expect(usePluginStore.getState().pendingPermissionRequest).toEqual(req);
+    });
+
+    it('should clear pending permission request', () => {
+      usePluginStore.getState().setPendingPermissionRequest({
+        pluginId: 'com.test.plugin', pluginName: 'Test', permissions: ['read'],
+      });
+      usePluginStore.getState().setPendingPermissionRequest(null);
+      expect(usePluginStore.getState().pendingPermissionRequest).toBeNull();
+    });
+  });
+
+  describe('unregisterSettingsTab', () => {
+    it('should remove a settings tab by id', () => {
+      const tab: UIExtension = { id: 'tab-1', pluginId: 'com.test.plugin', type: 'settings-tab', label: 'Tab' };
+      usePluginStore.getState().registerSettingsTab(tab);
+      usePluginStore.getState().unregisterSettingsTab('tab-1');
+      expect(usePluginStore.getState().settingsTabs).toHaveLength(0);
     });
   });
 });

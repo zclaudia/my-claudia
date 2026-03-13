@@ -160,4 +160,100 @@ describe('CreateTaskDialog', () => {
       expect(screen.getByText('Server error')).toBeInTheDocument();
     });
   });
+
+  it('shows generic error for non-Error rejection', async () => {
+    mockCreateSupervisionTask.mockRejectedValue('string error');
+
+    render(<CreateTaskDialog {...defaultProps} />);
+    fireEvent.change(screen.getByPlaceholderText('Task title...'), { target: { value: 'Task' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Create Task' }));
+
+    await waitFor(() => {
+      expect(screen.getByText('Failed to create task')).toBeInTheDocument();
+    });
+  });
+
+  it('toggles dependency selection', () => {
+    const existingTasks = [
+      makeTask({ id: 'dep-1', title: 'Dep 1' }),
+      makeTask({ id: 'dep-2', title: 'Dep 2' }),
+    ];
+
+    render(<CreateTaskDialog {...defaultProps} existingTasks={existingTasks} />);
+
+    const checkboxes = screen.getAllByRole('checkbox');
+    // Toggle dep-1 on
+    fireEvent.click(checkboxes[0]);
+    expect(checkboxes[0]).toBeChecked();
+
+    // Toggle dep-1 off
+    fireEvent.click(checkboxes[0]);
+    expect(checkboxes[0]).not.toBeChecked();
+  });
+
+  it('removes acceptance criterion', () => {
+    render(<CreateTaskDialog {...defaultProps} />);
+
+    // Add a criterion
+    const input = screen.getByPlaceholderText('Add acceptance criterion...');
+    fireEvent.change(input, { target: { value: 'Test pass' } });
+    fireEvent.click(screen.getByText('Add'));
+    expect(screen.getByText('Test pass')).toBeInTheDocument();
+
+    // Remove it - find the X button in the criterion list item
+    const removeButtons = screen.getAllByRole('button').filter(btn => {
+      return btn.closest('li') !== null;
+    });
+    if (removeButtons.length > 0) {
+      fireEvent.click(removeButtons[0]);
+    }
+    expect(screen.queryByText('Test pass')).not.toBeInTheDocument();
+  });
+
+  it('does not add empty criterion', () => {
+    render(<CreateTaskDialog {...defaultProps} />);
+    const addButton = screen.getByText('Add');
+    expect(addButton).toBeDisabled();
+  });
+
+  it('changes priority', () => {
+    render(<CreateTaskDialog {...defaultProps} />);
+    const priorityInput = screen.getByRole('spinbutton');
+    fireEvent.change(priorityInput, { target: { value: '5' } });
+    expect(priorityInput).toHaveValue(5);
+  });
+
+  it('includes criteria and deps in submit payload', async () => {
+    const createdTask = makeTask();
+    mockCreateSupervisionTask.mockResolvedValue(createdTask);
+    const existingTasks = [makeTask({ id: 'dep-1', title: 'Dep Task' })];
+
+    render(<CreateTaskDialog {...defaultProps} existingTasks={existingTasks} />);
+
+    fireEvent.change(screen.getByPlaceholderText('Task title...'), { target: { value: 'Task' } });
+
+    // Add criterion
+    fireEvent.change(screen.getByPlaceholderText('Add acceptance criterion...'), { target: { value: 'Criterion 1' } });
+    fireEvent.click(screen.getByText('Add'));
+
+    // Select dependency
+    fireEvent.click(screen.getByRole('checkbox'));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Create Task' }));
+
+    await waitFor(() => {
+      expect(mockCreateSupervisionTask).toHaveBeenCalledWith('proj-1', expect.objectContaining({
+        acceptanceCriteria: ['Criterion 1'],
+        dependencies: ['dep-1'],
+      }));
+    });
+  });
+
+  it('closes on backdrop click', () => {
+    render(<CreateTaskDialog {...defaultProps} />);
+    // The backdrop is the first div with bg-black/50
+    const backdrop = document.querySelector('.bg-black\\/50');
+    if (backdrop) fireEvent.click(backdrop);
+    expect(defaultProps.onClose).toHaveBeenCalled();
+  });
 });

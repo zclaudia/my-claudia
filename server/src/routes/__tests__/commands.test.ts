@@ -198,6 +198,28 @@ describe('commands routes', () => {
         expect(res.body.data.type).toBe('builtin');
         expect(res.body.data.action).toBe('new-session');
       });
+
+      it('handles /memory command without projectPath', async () => {
+        const res = await request(app)
+          .post('/api/commands/execute')
+          .send({ commandName: '/memory' });
+
+        expect(res.status).toBe(200);
+        expect(res.body.data.type).toBe('builtin');
+        expect(res.body.data.action).toBe('memory');
+        expect(res.body.data.data.error).toBe(true);
+      });
+
+      it('handles /reload command', async () => {
+        const res = await request(app)
+          .post('/api/commands/execute')
+          .send({ commandName: '/reload' });
+
+        expect(res.status).toBe(200);
+        expect(res.body.data.type).toBe('builtin');
+        expect(res.body.data.action).toBe('reload');
+        expect(res.body.data.data.message).toBe('Commands reloaded');
+      });
     });
 
     describe('custom commands', () => {
@@ -302,6 +324,116 @@ describe('commands routes', () => {
 
         expect(res.status).toBe(200);
         expect(res.body.data.content).toBe('Deploy app to production');
+      });
+    });
+
+    describe('error handling', () => {
+      it('POST /api/commands/execute returns 500 when readFileSync throws', async () => {
+        // existsSync returns true (passes validation), but readFileSync throws
+        vi.mocked(fs.existsSync).mockReturnValue(true);
+        vi.mocked(fs.readFileSync).mockImplementation(() => {
+          throw new Error('Unexpected read error');
+        });
+        const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+        const res = await request(app)
+          .post('/api/commands/execute')
+          .send({
+            commandName: '/custom-fail',
+            commandPath: '/home/testuser/.claude/commands/fail.md',
+            context: { projectPath: '/home/testuser/project' }
+          });
+
+        expect(res.status).toBe(500);
+        expect(res.body.success).toBe(false);
+        expect(res.body.error.code).toBe('SERVER_ERROR');
+        errorSpy.mockRestore();
+      });
+    });
+
+    describe('scanCommandsDirectory edge cases', () => {
+      it('handles subdirectory scanning', async () => {
+        vi.mocked(fs.existsSync).mockImplementation((p) => {
+          return typeof p === 'string' && p.includes('.claude/commands');
+        });
+        vi.mocked(fs.readdirSync).mockImplementation((dir) => {
+          const dirStr = String(dir);
+          if (dirStr.endsWith('commands')) {
+            return [
+              { name: 'subdir', isDirectory: () => true, isFile: () => false },
+            ] as unknown as ReturnType<typeof fs.readdirSync>;
+          }
+          // Subdir contents (any other directory)
+          return [
+            { name: 'sub-cmd.md', isDirectory: () => false, isFile: () => true },
+          ] as unknown as ReturnType<typeof fs.readdirSync>;
+        });
+        vi.mocked(fs.readFileSync).mockReturnValue('# Sub Command\nA sub command');
+
+        const res = await request(app)
+          .post('/api/commands/list')
+          .send({});
+
+        expect(res.status).toBe(200);
+        // The sub command should appear in custom commands
+        const subCmd = res.body.data.custom.find((cmd: { command: string }) => cmd.command.includes('sub-cmd'));
+        expect(subCmd).toBeDefined();
+        expect(subCmd.scope).toBe('global');
+      });
+
+      it('skips non-md files', async () => {
+        vi.mocked(fs.existsSync).mockImplementation((path) => {
+          return typeof path === 'string' && path.includes('/home/testuser/.claude/commands');
+        });
+        vi.mocked(fs.readdirSync).mockReturnValue([
+          { name: 'readme.txt', isDirectory: () => false, isFile: () => true },
+        ] as unknown as ReturnType<typeof fs.readdirSync>);
+
+        const res = await request(app)
+          .post('/api/commands/list')
+          .send({});
+
+        expect(res.status).toBe(200);
+        expect(res.body.data.custom).toHaveLength(0);
+      });
+
+      it('handles file read errors gracefully during scan', async () => {
+        vi.mocked(fs.existsSync).mockImplementation((path) => {
+          return typeof path === 'string' && path.includes('/home/testuser/.claude/commands');
+        });
+        vi.mocked(fs.readdirSync).mockReturnValue([
+          { name: 'broken.md', isDirectory: () => false, isFile: () => true },
+        ] as unknown as ReturnType<typeof fs.readdirSync>);
+        vi.mocked(fs.readFileSync).mockImplementation(() => {
+          throw new Error('Permission denied');
+        });
+        const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+        const res = await request(app)
+          .post('/api/commands/list')
+          .send({});
+
+        expect(res.status).toBe(200);
+        // The broken file should be skipped gracefully
+        expect(res.body.data.custom).toHaveLength(0);
+        errorSpy.mockRestore();
+      });
+
+      it('handles readdirSync errors gracefully during scan', async () => {
+        vi.mocked(fs.existsSync).mockReturnValue(true);
+        vi.mocked(fs.readdirSync).mockImplementation(() => {
+          throw new Error('Permission denied');
+        });
+        const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+        const res = await request(app)
+          .post('/api/commands/list')
+          .send({});
+
+        expect(res.status).toBe(200);
+        // Errors during scanning should be caught gracefully
+        expect(res.body.data.custom).toHaveLength(0);
+        errorSpy.mockRestore();
       });
     });
   });

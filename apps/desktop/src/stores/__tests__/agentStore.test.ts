@@ -72,4 +72,14 @@ describe('agentStore', () => {
       expect(useAgentStore.getState().isLoading).toBe(false);
     });
   });
+
+  describe('requestClear', () => {
+    it('increments clearRequestId', () => {
+      expect(useAgentStore.getState().clearRequestId).toBe(0);
+      useAgentStore.getState().requestClear();
+      expect(useAgentStore.getState().clearRequestId).toBe(1);
+      useAgentStore.getState().requestClear();
+      expect(useAgentStore.getState().clearRequestId).toBe(2);
+    });
+  });
 });

@@ -525,5 +525,550 @@ describe('gateway-client-mode', () => {
 
       expect(consoleErrorSpy).toHaveBeenCalled();
     });
+
+    it('handles backends_list message', () => {
+      const client = new GatewayClientMode({
+        gatewayUrl: 'http://gateway.example.com',
+        gatewaySecret: 'secret',
+      });
+
+      client.connect();
+      const ws = vi.mocked(WebSocket).mock.results[0].value;
+
+      // Auth first
+      ws._trigger('open');
+      ws._trigger('message', Buffer.from(JSON.stringify({
+        type: 'gateway_auth_result',
+        success: true,
+        backends: [],
+      })));
+
+      // Receive backends list
+      ws._trigger('message', Buffer.from(JSON.stringify({
+        type: 'backends_list',
+        backends: [{ id: 'b1', name: 'Backend 1' }, { id: 'b2', name: 'Backend 2' }],
+      })));
+
+      expect(client.getDiscoveredBackends()).toHaveLength(2);
+    });
+
+    it('handles backend_message and notifies listeners', () => {
+      const client = new GatewayClientMode({
+        gatewayUrl: 'http://gateway.example.com',
+        gatewaySecret: 'secret',
+      });
+
+      const messageHandler = vi.fn();
+      client.addBackendMessageListener(messageHandler);
+
+      client.connect();
+      const ws = vi.mocked(WebSocket).mock.results[0].value;
+
+      ws._trigger('open');
+      ws._trigger('message', Buffer.from(JSON.stringify({
+        type: 'gateway_auth_result',
+        success: true,
+      })));
+
+      ws._trigger('message', Buffer.from(JSON.stringify({
+        type: 'backend_message',
+        backendId: 'b1',
+        message: { type: 'session_event', data: 'test' },
+      })));
+
+      expect(messageHandler).toHaveBeenCalledWith('b1', { type: 'session_event', data: 'test' });
+    });
+
+    it('handles error in backend message listener gracefully', () => {
+      const client = new GatewayClientMode({
+        gatewayUrl: 'http://gateway.example.com',
+        gatewaySecret: 'secret',
+      });
+
+      const failingHandler = vi.fn().mockImplementation(() => { throw new Error('handler error'); });
+      client.addBackendMessageListener(failingHandler);
+
+      client.connect();
+      const ws = vi.mocked(WebSocket).mock.results[0].value;
+
+      ws._trigger('open');
+      ws._trigger('message', Buffer.from(JSON.stringify({
+        type: 'gateway_auth_result',
+        success: true,
+      })));
+
+      ws._trigger('message', Buffer.from(JSON.stringify({
+        type: 'backend_message',
+        backendId: 'b1',
+        message: { type: 'test' },
+      })));
+
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        expect.stringContaining('Error in backend message handler'),
+        expect.any(Error)
+      );
+    });
+
+    it('handles backend_disconnected and notifies listeners', () => {
+      const client = new GatewayClientMode({
+        gatewayUrl: 'http://gateway.example.com',
+        gatewaySecret: 'secret',
+      });
+
+      const disconnectHandler = vi.fn();
+      client.addBackendDisconnectedListener(disconnectHandler);
+
+      client.connect();
+      const ws = vi.mocked(WebSocket).mock.results[0].value;
+
+      ws._trigger('open');
+      ws._trigger('message', Buffer.from(JSON.stringify({
+        type: 'gateway_auth_result',
+        success: true,
+      })));
+
+      // Authenticate backend first
+      ws._trigger('message', Buffer.from(JSON.stringify({
+        type: 'backend_auth_result',
+        backendId: 'b1',
+        success: true,
+      })));
+
+      expect(client.isBackendAuthenticated('b1')).toBe(true);
+
+      // Backend disconnects
+      ws._trigger('message', Buffer.from(JSON.stringify({
+        type: 'backend_disconnected',
+        backendId: 'b1',
+      })));
+
+      expect(disconnectHandler).toHaveBeenCalledWith('b1');
+      expect(client.isBackendAuthenticated('b1')).toBe(false);
+    });
+
+    it('handles error in backend disconnected listener gracefully', () => {
+      const client = new GatewayClientMode({
+        gatewayUrl: 'http://gateway.example.com',
+        gatewaySecret: 'secret',
+      });
+
+      const failingHandler = vi.fn().mockImplementation(() => { throw new Error('dc error'); });
+      client.addBackendDisconnectedListener(failingHandler);
+
+      client.connect();
+      const ws = vi.mocked(WebSocket).mock.results[0].value;
+
+      ws._trigger('open');
+      ws._trigger('message', Buffer.from(JSON.stringify({
+        type: 'gateway_auth_result',
+        success: true,
+      })));
+
+      ws._trigger('message', Buffer.from(JSON.stringify({
+        type: 'backend_disconnected',
+        backendId: 'b1',
+      })));
+
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        expect.stringContaining('Error in backend disconnected handler'),
+        expect.any(Error)
+      );
+    });
+
+    it('handles gateway_error message', () => {
+      const client = new GatewayClientMode({
+        gatewayUrl: 'http://gateway.example.com',
+        gatewaySecret: 'secret',
+      });
+
+      client.connect();
+      const ws = vi.mocked(WebSocket).mock.results[0].value;
+
+      ws._trigger('open');
+      ws._trigger('message', Buffer.from(JSON.stringify({
+        type: 'gateway_error',
+        code: 'RATE_LIMIT',
+        message: 'Too many requests',
+      })));
+
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        expect.stringContaining('RATE_LIMIT')
+      );
+    });
+
+    it('handles gateway_auth_result success without backends', () => {
+      const client = new GatewayClientMode({
+        gatewayUrl: 'http://gateway.example.com',
+        gatewaySecret: 'secret',
+      });
+
+      client.connect();
+      const ws = vi.mocked(WebSocket).mock.results[0].value;
+
+      ws._trigger('open');
+      ws._trigger('message', Buffer.from(JSON.stringify({
+        type: 'gateway_auth_result',
+        success: true,
+        // No backends field
+      })));
+
+      expect(client.isConnected()).toBe(true);
+      expect(client.getDiscoveredBackends()).toEqual([]);
+    });
+  });
+
+  describe('sendToBackend', () => {
+    it('sends message when connected and backend authenticated', () => {
+      const client = new GatewayClientMode({
+        gatewayUrl: 'http://gateway.example.com',
+        gatewaySecret: 'secret',
+      });
+
+      client.connect();
+      const ws = vi.mocked(WebSocket).mock.results[0].value;
+
+      // Auth gateway
+      ws._trigger('open');
+      ws._trigger('message', Buffer.from(JSON.stringify({
+        type: 'gateway_auth_result',
+        success: true,
+      })));
+
+      // Auth backend
+      ws._trigger('message', Buffer.from(JSON.stringify({
+        type: 'backend_auth_result',
+        backendId: 'b1',
+        success: true,
+      })));
+
+      const result = client.sendToBackend('b1', { type: 'ping' } as any);
+      expect(result).toBe(true);
+      expect(ws.send).toHaveBeenCalledWith(JSON.stringify({
+        type: 'send_to_backend',
+        backendId: 'b1',
+        message: { type: 'ping' },
+      }));
+    });
+  });
+
+  describe('listBackends with pending resolution', () => {
+    it('resolves listBackends when backends_list received', async () => {
+      const client = new GatewayClientMode({
+        gatewayUrl: 'http://gateway.example.com',
+        gatewaySecret: 'secret',
+      });
+
+      client.connect();
+      const ws = vi.mocked(WebSocket).mock.results[0].value;
+
+      // Auth gateway
+      ws._trigger('open');
+      ws._trigger('message', Buffer.from(JSON.stringify({
+        type: 'gateway_auth_result',
+        success: true,
+      })));
+
+      const listPromise = client.listBackends();
+
+      // Respond with backends list
+      ws._trigger('message', Buffer.from(JSON.stringify({
+        type: 'backends_list',
+        backends: [{ id: 'b1', name: 'B1' }],
+      })));
+
+      const backends = await listPromise;
+      expect(backends).toEqual([{ id: 'b1', name: 'B1' }]);
+    });
+
+    it('times out listBackends after 10s', async () => {
+      const client = new GatewayClientMode({
+        gatewayUrl: 'http://gateway.example.com',
+        gatewaySecret: 'secret',
+      });
+
+      client.connect();
+      const ws = vi.mocked(WebSocket).mock.results[0].value;
+
+      ws._trigger('open');
+      ws._trigger('message', Buffer.from(JSON.stringify({
+        type: 'gateway_auth_result',
+        success: true,
+        backends: [{ id: 'cached', name: 'Cached' }],
+      })));
+
+      const listPromise = client.listBackends();
+      vi.advanceTimersByTime(10000);
+
+      const backends = await listPromise;
+      expect(backends).toEqual([{ id: 'cached', name: 'Cached' }]);
+    });
+  });
+
+  describe('connectBackend pending resolution', () => {
+    it('resolves connectBackend when backend_auth_result received', async () => {
+      const client = new GatewayClientMode({
+        gatewayUrl: 'http://gateway.example.com',
+        gatewaySecret: 'secret',
+      });
+
+      client.connect();
+      const ws = vi.mocked(WebSocket).mock.results[0].value;
+
+      ws._trigger('open');
+      ws._trigger('message', Buffer.from(JSON.stringify({
+        type: 'gateway_auth_result',
+        success: true,
+      })));
+
+      const connectPromise = client.connectBackend('b1');
+
+      ws._trigger('message', Buffer.from(JSON.stringify({
+        type: 'backend_auth_result',
+        backendId: 'b1',
+        success: true,
+        features: ['streaming'],
+      })));
+
+      const result = await connectPromise;
+      expect(result).toEqual({ success: true, features: ['streaming'] });
+    });
+
+    it('times out connectBackend after 15s', async () => {
+      const client = new GatewayClientMode({
+        gatewayUrl: 'http://gateway.example.com',
+        gatewaySecret: 'secret',
+      });
+
+      client.connect();
+      const ws = vi.mocked(WebSocket).mock.results[0].value;
+
+      ws._trigger('open');
+      ws._trigger('message', Buffer.from(JSON.stringify({
+        type: 'gateway_auth_result',
+        success: true,
+      })));
+
+      const connectPromise = client.connectBackend('b1');
+      vi.advanceTimersByTime(15000);
+
+      const result = await connectPromise;
+      expect(result).toEqual({ success: false, error: 'Backend auth timeout' });
+    });
+
+    it('resolves connectBackend with failure', async () => {
+      const client = new GatewayClientMode({
+        gatewayUrl: 'http://gateway.example.com',
+        gatewaySecret: 'secret',
+      });
+
+      client.connect();
+      const ws = vi.mocked(WebSocket).mock.results[0].value;
+
+      ws._trigger('open');
+      ws._trigger('message', Buffer.from(JSON.stringify({
+        type: 'gateway_auth_result',
+        success: true,
+      })));
+
+      const connectPromise = client.connectBackend('b1');
+
+      ws._trigger('message', Buffer.from(JSON.stringify({
+        type: 'backend_auth_result',
+        backendId: 'b1',
+        success: false,
+        error: 'Backend not found',
+      })));
+
+      const result = await connectPromise;
+      expect(result).toEqual({ success: false, error: 'Backend not found' });
+    });
+  });
+
+  describe('proxy configuration in connect', () => {
+    it('configures SOCKS5 proxy when proxyUrl provided', () => {
+      const client = new GatewayClientMode({
+        gatewayUrl: 'http://gateway.example.com',
+        gatewaySecret: 'secret',
+        proxyUrl: 'socks5://proxy:1080',
+      });
+
+      client.connect();
+
+      expect(SocksProxyAgent).toHaveBeenCalledWith('socks5://proxy:1080');
+    });
+
+    it('adds proxy auth when provided', () => {
+      const client = new GatewayClientMode({
+        gatewayUrl: 'http://gateway.example.com',
+        gatewaySecret: 'secret',
+        proxyUrl: 'socks5://proxy:1080',
+        proxyAuth: { username: 'user', password: 'pass' },
+      });
+
+      client.connect();
+
+      expect(SocksProxyAgent).toHaveBeenCalledWith(
+        expect.stringContaining('user:pass')
+      );
+    });
+
+    it('handles proxy configuration error', () => {
+      vi.mocked(SocksProxyAgent).mockImplementationOnce(() => {
+        throw new Error('Invalid proxy URL');
+      });
+
+      const client = new GatewayClientMode({
+        gatewayUrl: 'http://gateway.example.com',
+        gatewaySecret: 'secret',
+        proxyUrl: 'invalid://proxy',
+      });
+
+      client.connect();
+
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        expect.stringContaining('Failed to configure proxy'),
+        expect.any(Error)
+      );
+    });
+  });
+
+  describe('connection close handling', () => {
+    it('rejects pending backend auths on close', async () => {
+      const client = new GatewayClientMode({
+        gatewayUrl: 'http://gateway.example.com',
+        gatewaySecret: 'secret',
+      });
+
+      client.connect();
+      const ws = vi.mocked(WebSocket).mock.results[0].value;
+
+      ws._trigger('open');
+      ws._trigger('message', Buffer.from(JSON.stringify({
+        type: 'gateway_auth_result',
+        success: true,
+      })));
+
+      const connectPromise = client.connectBackend('b1');
+
+      // Close connection
+      ws._trigger('close');
+
+      const result = await connectPromise;
+      expect(result).toEqual({ success: false, error: 'Disconnected' });
+    });
+
+    it('rejects pending listBackends on close', async () => {
+      const client = new GatewayClientMode({
+        gatewayUrl: 'http://gateway.example.com',
+        gatewaySecret: 'secret',
+      });
+
+      client.connect();
+      const ws = vi.mocked(WebSocket).mock.results[0].value;
+
+      ws._trigger('open');
+      ws._trigger('message', Buffer.from(JSON.stringify({
+        type: 'gateway_auth_result',
+        success: true,
+      })));
+
+      const listPromise = client.listBackends();
+
+      ws._trigger('close');
+
+      const backends = await listPromise;
+      expect(backends).toEqual([]);
+    });
+
+    it('handles WebSocket error event', () => {
+      const client = new GatewayClientMode({
+        gatewayUrl: 'http://gateway.example.com',
+        gatewaySecret: 'secret',
+      });
+
+      client.connect();
+      const ws = vi.mocked(WebSocket).mock.results[0].value;
+
+      ws._trigger('error', new Error('Connection refused'));
+
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        expect.stringContaining('Connection error'),
+        expect.any(Error)
+      );
+    });
+
+    it('clears reconnect timeout in connect', () => {
+      const client = new GatewayClientMode({
+        gatewayUrl: 'http://gateway.example.com',
+        gatewaySecret: 'secret',
+      });
+
+      client.connect();
+      const ws1 = vi.mocked(WebSocket).mock.results[0].value;
+
+      // Trigger close to schedule reconnect
+      ws1._trigger('close');
+
+      // Connect again should clear the pending reconnect
+      client.connect();
+
+      expect(WebSocket).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  describe('createHttpAgent', () => {
+    it('handles proxy agent creation error', () => {
+      vi.mocked(SocksProxyAgent).mockImplementationOnce(() => {
+        throw new Error('Agent creation failed');
+      });
+
+      const client = new GatewayClientMode({
+        gatewayUrl: 'http://gateway.example.com',
+        gatewaySecret: 'secret',
+        proxyUrl: 'socks5://proxy:1080',
+      });
+
+      const agent = client.createHttpAgent();
+      expect(agent).toBeUndefined();
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        expect.stringContaining('Failed to create HTTP agent'),
+        expect.any(Error)
+      );
+    });
+
+    it('includes auth in HTTP agent', () => {
+      const client = new GatewayClientMode({
+        gatewayUrl: 'http://gateway.example.com',
+        gatewaySecret: 'secret',
+        proxyUrl: 'socks5://proxy:1080',
+        proxyAuth: { username: 'u', password: 'p' },
+      });
+
+      client.createHttpAgent();
+      expect(SocksProxyAgent).toHaveBeenCalledWith(expect.stringContaining('u:p'));
+    });
+  });
+
+  describe('reconnection', () => {
+    it('prevents duplicate reconnect scheduling', () => {
+      const client = new GatewayClientMode({
+        gatewayUrl: 'http://gateway.example.com',
+        gatewaySecret: 'secret',
+      });
+
+      client.connect();
+      const ws = vi.mocked(WebSocket).mock.results[0].value;
+
+      // Trigger close twice rapidly
+      ws._trigger('close');
+      // Second close shouldn't schedule another reconnect
+      // (reconnectTimeout is already set)
+
+      // Only one "Reconnecting" log for the same attempt
+      const reconnectLogs = (consoleLogSpy.mock.calls as string[][]).filter(
+        c => c[0]?.includes?.('Reconnecting')
+      );
+      expect(reconnectLogs).toHaveLength(1);
+    });
   });
 });

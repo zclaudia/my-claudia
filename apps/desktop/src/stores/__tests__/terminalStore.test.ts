@@ -1,11 +1,14 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { useTerminalStore } from '../terminalStore';
 
 describe('terminalStore', () => {
   beforeEach(() => {
     useTerminalStore.setState({
       terminals: {},
+      readyTerminals: new Set(),
       drawerOpen: {},
+      ctrlActive: {},
+      bottomPanelTab: 'terminal',
     });
   });
 
@@ -120,6 +123,84 @@ describe('terminalStore', () => {
 
     it('returns undefined for a project without a terminal', () => {
       expect(useTerminalStore.getState().getTerminalId('project-1')).toBeUndefined();
+    });
+  });
+
+  describe('toggleCtrl', () => {
+    it('toggles ctrl active state', () => {
+      const tid = useTerminalStore.getState().openTerminal('project-1');
+      expect(useTerminalStore.getState().ctrlActive[tid]).toBeFalsy();
+
+      useTerminalStore.getState().toggleCtrl(tid);
+      expect(useTerminalStore.getState().ctrlActive[tid]).toBe(true);
+
+      useTerminalStore.getState().toggleCtrl(tid);
+      expect(useTerminalStore.getState().ctrlActive[tid]).toBe(false);
+    });
+  });
+
+  describe('markReady / isReady', () => {
+    it('marks terminal as ready', () => {
+      const tid = useTerminalStore.getState().openTerminal('project-1');
+      expect(useTerminalStore.getState().isReady(tid)).toBe(false);
+
+      useTerminalStore.getState().markReady(tid);
+      expect(useTerminalStore.getState().isReady(tid)).toBe(true);
+    });
+
+    it('is idempotent', () => {
+      const tid = useTerminalStore.getState().openTerminal('project-1');
+      useTerminalStore.getState().markReady(tid);
+      const before = useTerminalStore.getState().readyTerminals;
+      useTerminalStore.getState().markReady(tid);
+      expect(useTerminalStore.getState().readyTerminals).toBe(before);
+    });
+
+    it('removes ready state on close', () => {
+      const tid = useTerminalStore.getState().openTerminal('project-1');
+      useTerminalStore.getState().markReady(tid);
+      useTerminalStore.getState().closeTerminal(tid);
+      expect(useTerminalStore.getState().isReady(tid)).toBe(false);
+    });
+  });
+
+  describe('setBottomPanelTab', () => {
+    it('sets bottom panel tab', () => {
+      useTerminalStore.getState().setBottomPanelTab('file');
+      expect(useTerminalStore.getState().bottomPanelTab).toBe('file');
+    });
+  });
+
+  describe('waitForReady', () => {
+    it('resolves immediately if already ready', async () => {
+      const tid = useTerminalStore.getState().openTerminal('project-1');
+      useTerminalStore.getState().markReady(tid);
+
+      const result = await useTerminalStore.getState().waitForReady(tid);
+      expect(result).toBe(true);
+    });
+
+    it('resolves when terminal becomes ready', async () => {
+      const tid = useTerminalStore.getState().openTerminal('project-1');
+
+      const promise = useTerminalStore.getState().waitForReady(tid, 5000);
+      // Mark ready after a tick
+      setTimeout(() => useTerminalStore.getState().markReady(tid), 10);
+
+      const result = await promise;
+      expect(result).toBe(true);
+    });
+
+    it('resolves false on timeout', async () => {
+      vi.useFakeTimers();
+      const tid = useTerminalStore.getState().openTerminal('project-1');
+
+      const promise = useTerminalStore.getState().waitForReady(tid, 100);
+      await vi.advanceTimersByTimeAsync(150);
+
+      const result = await promise;
+      expect(result).toBe(false);
+      vi.useRealTimers();
     });
   });
 });

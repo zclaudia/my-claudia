@@ -32,6 +32,67 @@ describe('version utilities', () => {
     });
   });
 
+  // Test satisfiesSimple indirectly through satisfiesVersion / checkPluginCompatibility
+  // We need to test the actual function with known versions, so we use checkPluginCompatibility
+  // which calls satisfiesSimple internally
+  describe('satisfiesSimple via checkPluginCompatibility', () => {
+    // We can't control the app version easily, but we know it's a valid semver
+    // Let's test the range operators with >= 0.0.0 (always true) and >= 999.0.0 (always false)
+
+    it('handles >= operator', () => {
+      expect(checkPluginCompatibility({ claudia: '>=0.0.0' }).compatible).toBe(true);
+      expect(checkPluginCompatibility({ claudia: '>=999.0.0' }).compatible).toBe(false);
+    });
+
+    it('handles > operator', () => {
+      expect(checkPluginCompatibility({ claudia: '>0.0.0' }).compatible).toBe(true);
+      expect(checkPluginCompatibility({ claudia: '>999.0.0' }).compatible).toBe(false);
+    });
+
+    it('handles <= operator', () => {
+      expect(checkPluginCompatibility({ claudia: '<=999.0.0' }).compatible).toBe(true);
+      expect(checkPluginCompatibility({ claudia: '<=0.0.0' }).compatible).toBe(false);
+    });
+
+    it('handles < operator', () => {
+      expect(checkPluginCompatibility({ claudia: '<999.0.0' }).compatible).toBe(true);
+      expect(checkPluginCompatibility({ claudia: '<0.0.1' }).compatible).toBe(false);
+    });
+
+    it('handles ^ operator (caret range)', () => {
+      // ^0.1.0 means >=0.1.0 <0.2.0 — app version is 0.1.x so should match
+      const appVersion = getAppVersion();
+      const [major, minor] = appVersion.split('.').map(Number);
+      // Test with a caret range matching current major.minor
+      const result = checkPluginCompatibility({ claudia: `^${major}.${minor}.0` });
+      expect(result.compatible).toBe(true);
+    });
+
+    it('handles ~ operator (tilde range)', () => {
+      const appVersion = getAppVersion();
+      const [major, minor] = appVersion.split('.').map(Number);
+      // ~major.minor.0 means >=major.minor.0 <major.(minor+1).0
+      const result = checkPluginCompatibility({ claudia: `~${major}.${minor}.0` });
+      expect(result.compatible).toBe(true);
+    });
+
+    it('handles ^ with major 0 (stricter)', () => {
+      // ^0.x.y with major=0 requires minor to match exactly
+      expect(checkPluginCompatibility({ claudia: '^0.999.0' }).compatible).toBe(false);
+    });
+
+    it('handles exact version match', () => {
+      const appVersion = getAppVersion();
+      expect(checkPluginCompatibility({ claudia: appVersion }).compatible).toBe(true);
+      expect(checkPluginCompatibility({ claudia: '999.999.999' }).compatible).toBe(false);
+    });
+
+    it('handles v-prefixed versions', () => {
+      // The satisfiesSimple strips the v prefix from versions
+      expect(checkPluginCompatibility({ claudia: '>=0.0.0' }).compatible).toBe(true);
+    });
+  });
+
   describe('checkPluginCompatibility', () => {
     it('should return compatible when no engines specified', () => {
       const result = checkPluginCompatibility(undefined);

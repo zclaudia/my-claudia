@@ -1,15 +1,37 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { useProjectStore } from '../projectStore';
 import type { Project, Session } from '@my-claudia/shared';
 
+vi.mock('../sessionsStore', () => ({
+  useSessionsStore: {
+    getState: () => ({
+      remoteSessions: new Map([
+        ['b1', [{ id: 'remote-s1', projectId: 'p-remote' }]],
+      ]),
+    }),
+  },
+}));
+
+vi.mock('../chatStore', () => ({
+  useChatStore: {
+    getState: () => ({
+      activeRuns: {},
+      backgroundRunIds: new Set(),
+    }),
+  },
+}));
+
 describe('projectStore', () => {
   beforeEach(() => {
-    // Reset store state before each test
     useProjectStore.setState({
       projects: [],
       sessions: [],
+      providers: [],
       selectedProjectId: null,
       selectedSessionId: null,
+      dashboardViews: {},
+      providerCommands: {},
+      providerCapabilities: {},
     });
   });
 
@@ -202,6 +224,84 @@ describe('projectStore', () => {
 
       expect(useProjectStore.getState().selectedSessionId).toBeNull();
       expect(useProjectStore.getState().selectedProjectId).toBe('p1');
+    });
+
+    it('selectSession falls back to remote sessions for gateway', () => {
+      useProjectStore.getState().selectSession('remote-s1');
+      expect(useProjectStore.getState().selectedProjectId).toBe('p-remote');
+    });
+  });
+
+  describe('mergeSessions', () => {
+    it('adds new sessions with isActive defaulting to false', () => {
+      useProjectStore.getState().mergeSessions([createSession({ id: 's1' })]);
+      expect((useProjectStore.getState().sessions[0] as any).isActive).toBe(false);
+    });
+
+    it('preserves existing isActive when incoming has no isActive', () => {
+      useProjectStore.setState({ sessions: [{ ...createSession({ id: 's1' }), isActive: true } as any] });
+      useProjectStore.getState().mergeSessions([createSession({ id: 's1', name: 'Updated' })]);
+      expect((useProjectStore.getState().sessions[0] as any).isActive).toBe(true);
+    });
+
+    it('updates isActive when incoming has boolean isActive', () => {
+      useProjectStore.setState({ sessions: [{ ...createSession({ id: 's1' }), isActive: true } as any] });
+      useProjectStore.getState().mergeSessions([{ ...createSession({ id: 's1' }), isActive: false } as any]);
+      expect((useProjectStore.getState().sessions[0] as any).isActive).toBe(false);
+    });
+  });
+
+  describe('setSessionActive', () => {
+    it('sets session active state', () => {
+      useProjectStore.setState({ sessions: [createSession({ id: 's1' })] });
+      useProjectStore.getState().setSessionActive('s1', true);
+      expect((useProjectStore.getState().sessions[0] as any).isActive).toBe(true);
+    });
+  });
+
+  describe('providers and capabilities', () => {
+    it('setProviders replaces providers list', () => {
+      useProjectStore.getState().setProviders([{ id: 'prov1' }] as any);
+      expect(useProjectStore.getState().providers).toHaveLength(1);
+    });
+
+    it('setDashboardView sets view per project', () => {
+      useProjectStore.getState().setDashboardView('p1', 'tasks');
+      expect(useProjectStore.getState().dashboardViews.p1).toBe('tasks');
+    });
+
+    it('setProviderCommands sets commands per provider', () => {
+      useProjectStore.getState().setProviderCommands('prov1', [{ command: '/help' }] as any);
+      expect(useProjectStore.getState().providerCommands.prov1).toHaveLength(1);
+    });
+
+    it('setProviderCapabilities sets capabilities per provider', () => {
+      useProjectStore.getState().setProviderCapabilities('prov1', { streaming: true } as any);
+      expect(useProjectStore.getState().providerCapabilities.prov1).toEqual({ streaming: true });
+    });
+  });
+
+  describe('deleteProject edge cases', () => {
+    it('preserves selectedSessionId when session belongs to different project', () => {
+      useProjectStore.setState({
+        projects: [createProject({ id: 'p1' }), createProject({ id: 'p2' })],
+        sessions: [createSession({ id: 's1', projectId: 'p2' })],
+        selectedProjectId: 'p2',
+        selectedSessionId: 's1',
+      });
+      useProjectStore.getState().deleteProject('p1');
+      expect(useProjectStore.getState().selectedSessionId).toBe('s1');
+    });
+  });
+
+  describe('deleteSession edge cases', () => {
+    it('preserves selectedSessionId when different session deleted', () => {
+      useProjectStore.setState({
+        sessions: [createSession({ id: 's1' }), createSession({ id: 's2' })],
+        selectedSessionId: 's2',
+      });
+      useProjectStore.getState().deleteSession('s1');
+      expect(useProjectStore.getState().selectedSessionId).toBe('s2');
     });
   });
 });

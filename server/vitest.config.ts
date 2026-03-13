@@ -9,7 +9,9 @@ export default defineConfig({
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json', 'html'],
-      exclude: ['**/*.d.ts', 'src/index.ts', 'src/test/**'],
+      all: true,
+      include: ['src/**/*.ts'],
+      exclude: ['**/*.d.ts', 'src/index.ts', 'src/test/**', 'src/**/__tests__/**', 'src/verification/**', 'src/plugins/worker-runner.ts', 'src/plugins/mcp-bridge.ts', 'src/server.ts'],
     },
   },
 });

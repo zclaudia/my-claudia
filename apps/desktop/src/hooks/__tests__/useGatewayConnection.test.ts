@@ -3,6 +3,8 @@ import { renderHook, act } from '@testing-library/react';
 import { useGatewayConnection } from '../useGatewayConnection.js';
 import { handleServerMessage } from '../../services/messageHandler';
 import { stopSessionSync } from '../../services/sessionSync';
+import { getServerGatewayStatus } from '../../services/api';
+import { useGatewayStore } from '../../stores/gatewayStore';
 
 const { mockTransportInstance, MockGatewayTransport } = vi.hoisted(() => {
   const mockTransportInstance = {
@@ -12,6 +14,8 @@ const { mockTransportInstance, MockGatewayTransport } = vi.hoisted(() => {
     isBackendAuthenticated: vi.fn(() => false),
     authenticateBackend: vi.fn(),
     updateSubscriptions: vi.fn(),
+    sendToBackend: vi.fn(),
+    requestBackendsList: vi.fn(),
   };
 
   return {
@@ -129,6 +133,8 @@ describe('hooks/useGatewayConnection', () => {
     mockGatewayStoreState.localBackendId = null;
     mockGatewayStoreState.discoveredBackends = [];
     mockGatewayStoreState.subscribedBackendIds = [];
+    mockGatewayStoreState.directGatewayUrl = null;
+    mockGatewayStoreState.directGatewaySecret = null;
 
     mockServerStoreState.activeServerId = null;
 
@@ -355,5 +361,609 @@ describe('hooks/useGatewayConnection', () => {
 
     expect(mockGatewayStoreState.setBackendAuthStatus).toHaveBeenCalledWith('backend-1', 'failed');
     expect(mockServerStoreState.setServerConnectionStatus).toHaveBeenCalledWith('gateway:backend-1', 'disconnected');
+  });
+
+  // ---------- Gateway config polling ----------
+
+  it('polls server gateway status and syncs enabled config to store', async () => {
+    const mockGetStatus = vi.mocked(getServerGatewayStatus);
+    mockGetStatus.mockResolvedValue({
+      enabled: true,
+      gatewayUrl: 'https://gw.example.com',
+      gatewaySecret: 'sec',
+      discoveredBackends: [{ backendId: 'b1', name: 'B1', online: true }],
+      backendId: 'local-1',
+      connected: true,
+    } as any);
+
+    renderHook(() => useGatewayConnection());
+
+    // Flush the initial async poll
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+    expect(mockGatewayStoreState.syncFromServer).toHaveBeenCalledWith(
+      'https://gw.example.com',
+      'sec',
+      [{ backendId: 'b1', name: 'B1', online: true }],
+      'local-1',
+      true,
+    );
+  });
+
+  it('syncs null config when server gateway is disabled', async () => {
+    const mockGetStatus = vi.mocked(getServerGatewayStatus);
+    mockGetStatus.mockResolvedValue({
+      enabled: false,
+      gatewayUrl: null,
+      gatewaySecret: null,
+      discoveredBackends: [],
+      backendId: null,
+      connected: false,
+    } as any);
+
+    renderHook(() => useGatewayConnection());
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+    expect(mockGatewayStoreState.syncFromServer).toHaveBeenCalledWith(null, null, [], null, false);
+  });
+
+  it('polls server gateway status on 10s interval', async () => {
+    const mockGetStatus = vi.mocked(getServerGatewayStatus);
+    mockGetStatus.mockResolvedValue({
+      enabled: false,
+      gatewayUrl: null,
+      gatewaySecret: null,
+      discoveredBackends: [],
+      backendId: null,
+      connected: false,
+    } as any);
+
+    renderHook(() => useGatewayConnection());
+
+    // Flush initial call
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+    expect(mockGetStatus).toHaveBeenCalledTimes(1);
+
+    // Advance 10s for the interval
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10000);
+    });
+
+    expect(mockGetStatus).toHaveBeenCalledTimes(2);
+  });
+
+  it('skips polling and uses direct config in mobile mode', async () => {
+    mockGatewayStoreState.directGatewayUrl = 'https://mobile-gw.example.com';
+    mockGatewayStoreState.directGatewaySecret = 'mobile-sec';
+
+    const mockGetStatus = vi.mocked(getServerGatewayStatus);
+
+    renderHook(() => useGatewayConnection());
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+    expect(mockGetStatus).not.toHaveBeenCalled();
+    expect(mockGatewayStoreState.syncFromServer).toHaveBeenCalledWith(
+      'https://mobile-gw.example.com',
+      'mobile-sec',
+      [],
+    );
+  });
+
+  it('handles polling error gracefully without crashing', async () => {
+    const mockGetStatus = vi.mocked(getServerGatewayStatus);
+    mockGetStatus.mockRejectedValue(new Error('Network error'));
+
+    renderHook(() => useGatewayConnection());
+
+    // Should not throw
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+    expect(mockGatewayStoreState.syncFromServer).not.toHaveBeenCalled();
+  });
+
+  // ---------- Visibility change handling ----------
+
+  it('does not reconnect on visibility change when document is hidden', () => {
+    mockGatewayStoreState.gatewayUrl = 'http://gateway.example.com';
+    mockGatewayStoreState.gatewaySecret = 'secret123';
+
+    renderHook(() => useGatewayConnection());
+
+    Object.defineProperty(document, 'visibilityState', {
+      configurable: true,
+      value: 'hidden',
+    });
+
+    act(() => {
+      document.dispatchEvent(new Event('visibilitychange'));
+    });
+
+    // Only the initial connect call, no reconnect
+    expect(mockTransportInstance.connect).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not reconnect on visibility change when transport is already connected', () => {
+    mockGatewayStoreState.gatewayUrl = 'http://gateway.example.com';
+    mockGatewayStoreState.gatewaySecret = 'secret123';
+    mockTransportInstance.isConnected.mockReturnValue(true);
+
+    renderHook(() => useGatewayConnection());
+
+    Object.defineProperty(document, 'visibilityState', {
+      configurable: true,
+      value: 'visible',
+    });
+
+    act(() => {
+      document.dispatchEvent(new Event('visibilitychange'));
+    });
+
+    // Only the initial connect, no extra reconnect
+    expect(mockTransportInstance.connect).toHaveBeenCalledTimes(1);
+  });
+
+  it('clears pending reconnect timeout on visibility reconnect', () => {
+    mockGatewayStoreState.gatewayUrl = 'http://gateway.example.com';
+    mockGatewayStoreState.gatewaySecret = 'secret123';
+    mockTransportInstance.isConnected.mockReturnValue(false);
+
+    renderHook(() => useGatewayConnection());
+
+    // Trigger a disconnect to schedule a reconnect timeout
+    act(() => {
+      getTransportConfig().onDisconnected();
+    });
+
+    // Now become visible — should clear the pending timeout and reconnect immediately
+    Object.defineProperty(document, 'visibilityState', {
+      configurable: true,
+      value: 'visible',
+    });
+
+    act(() => {
+      document.dispatchEvent(new Event('visibilitychange'));
+    });
+
+    // Initial connect + visibility reconnect (the scheduled one gets cleared)
+    expect(mockTransportInstance.connect).toHaveBeenCalledTimes(2);
+
+    // Advancing past the reconnect interval should NOT trigger another connect
+    vi.advanceTimersByTime(3000);
+    expect(mockTransportInstance.connect).toHaveBeenCalledTimes(2);
+  });
+
+  // ---------- Heartbeat interval ----------
+
+  it('requests backends list on heartbeat when connected', () => {
+    mockGatewayStoreState.gatewayUrl = 'http://gateway.example.com';
+    mockGatewayStoreState.gatewaySecret = 'secret123';
+    mockTransportInstance.isConnected.mockReturnValue(true);
+
+    renderHook(() => useGatewayConnection());
+
+    expect(mockTransportInstance.requestBackendsList).not.toHaveBeenCalled();
+
+    act(() => {
+      vi.advanceTimersByTime(30000);
+    });
+
+    expect(mockTransportInstance.requestBackendsList).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      vi.advanceTimersByTime(30000);
+    });
+
+    expect(mockTransportInstance.requestBackendsList).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not request backends list on heartbeat when disconnected', () => {
+    mockGatewayStoreState.gatewayUrl = 'http://gateway.example.com';
+    mockGatewayStoreState.gatewaySecret = 'secret123';
+    mockTransportInstance.isConnected.mockReturnValue(false);
+
+    renderHook(() => useGatewayConnection());
+
+    act(() => {
+      vi.advanceTimersByTime(30000);
+    });
+
+    expect(mockTransportInstance.requestBackendsList).not.toHaveBeenCalled();
+  });
+
+  // ---------- Backend discovery auto-auth ----------
+
+  it('auto-authenticates all online discovered backends when gateway connects', () => {
+    mockGatewayStoreState.gatewayUrl = 'http://gateway.example.com';
+    mockGatewayStoreState.gatewaySecret = 'secret123';
+    mockGatewayStoreState.isConnected = true;
+    mockGatewayStoreState.discoveredBackends = [
+      { backendId: 'b1', name: 'B1', online: true },
+      { backendId: 'b2', name: 'B2', online: false },
+      { backendId: 'b3', name: 'B3', online: true },
+    ] as any;
+
+    renderHook(() => useGatewayConnection());
+
+    // b1 and b3 should be authenticated, b2 (offline) should not
+    expect(mockTransportInstance.authenticateBackend).toHaveBeenCalledWith('b1');
+    expect(mockTransportInstance.authenticateBackend).toHaveBeenCalledWith('b3');
+    expect(mockTransportInstance.authenticateBackend).not.toHaveBeenCalledWith('b2');
+    expect(mockGatewayStoreState.setBackendAuthStatus).toHaveBeenCalledWith('b1', 'pending');
+    expect(mockGatewayStoreState.setBackendAuthStatus).toHaveBeenCalledWith('b3', 'pending');
+  });
+
+  it('skips auto-auth for already authenticated backends in discovery', () => {
+    mockGatewayStoreState.gatewayUrl = 'http://gateway.example.com';
+    mockGatewayStoreState.gatewaySecret = 'secret123';
+    mockGatewayStoreState.isConnected = true;
+    mockGatewayStoreState.discoveredBackends = [
+      { backendId: 'b1', name: 'B1', online: true },
+    ] as any;
+    mockTransportInstance.isBackendAuthenticated.mockReturnValue(true);
+
+    renderHook(() => useGatewayConnection());
+
+    expect(mockTransportInstance.authenticateBackend).not.toHaveBeenCalled();
+  });
+
+  // ---------- localBackendId cleanup ----------
+
+  it('clears stale backend sessions when localBackendId is set', () => {
+    mockGatewayStoreState.gatewayUrl = 'http://gateway.example.com';
+    mockGatewayStoreState.gatewaySecret = 'secret123';
+    mockGatewayStoreState.localBackendId = 'my-local-backend';
+
+    renderHook(() => useGatewayConnection());
+
+    expect(mockSessionsStoreState.clearBackendSessions).toHaveBeenCalledWith('my-local-backend');
+  });
+
+  it('does not clear sessions when localBackendId is null', () => {
+    mockGatewayStoreState.gatewayUrl = 'http://gateway.example.com';
+    mockGatewayStoreState.gatewaySecret = 'secret123';
+    mockGatewayStoreState.localBackendId = null;
+
+    renderHook(() => useGatewayConnection());
+
+    expect(mockSessionsStoreState.clearBackendSessions).not.toHaveBeenCalled();
+  });
+
+  // ---------- handleBackendMessage: auth_result ----------
+
+  it('handles auth_result success with publicKey via onBackendMessage', () => {
+    mockGatewayStoreState.gatewayUrl = 'http://gateway.example.com';
+    mockGatewayStoreState.gatewaySecret = 'secret123';
+
+    renderHook(() => useGatewayConnection());
+
+    act(() => {
+      getTransportConfig().onBackendMessage('backend-1', {
+        type: 'auth_result',
+        success: true,
+        publicKey: 'pk-123',
+      });
+    });
+
+    expect(mockServerStoreState.setServerConnectionStatus).toHaveBeenCalledWith('gateway:backend-1', 'connected');
+    expect(mockServerStoreState.setServerLocalConnection).toHaveBeenCalledWith('gateway:backend-1', false);
+    expect(mockServerStoreState.setServerPublicKey).toHaveBeenCalledWith('gateway:backend-1', 'pk-123');
+    expect(mockServerStoreState.updateLastConnected).toHaveBeenCalledWith('gateway:backend-1');
+    expect(handleServerMessage).not.toHaveBeenCalled();
+  });
+
+  it('handles auth_result success without publicKey', () => {
+    mockGatewayStoreState.gatewayUrl = 'http://gateway.example.com';
+    mockGatewayStoreState.gatewaySecret = 'secret123';
+
+    renderHook(() => useGatewayConnection());
+
+    act(() => {
+      getTransportConfig().onBackendMessage('backend-1', {
+        type: 'auth_result',
+        success: true,
+      });
+    });
+
+    expect(mockServerStoreState.setServerConnectionStatus).toHaveBeenCalledWith('gateway:backend-1', 'connected');
+    expect(mockServerStoreState.setServerPublicKey).not.toHaveBeenCalled();
+  });
+
+  it('handles auth_result failure via onBackendMessage', () => {
+    mockGatewayStoreState.gatewayUrl = 'http://gateway.example.com';
+    mockGatewayStoreState.gatewaySecret = 'secret123';
+
+    renderHook(() => useGatewayConnection());
+
+    act(() => {
+      getTransportConfig().onBackendMessage('backend-1', {
+        type: 'auth_result',
+        success: false,
+        error: 'Bad credentials',
+      });
+    });
+
+    expect(mockServerStoreState.setServerConnectionStatus).toHaveBeenCalledWith('gateway:backend-1', 'error', 'Bad credentials');
+    expect(handleServerMessage).not.toHaveBeenCalled();
+  });
+
+  it('unwraps correlation envelope before processing auth_result', () => {
+    mockGatewayStoreState.gatewayUrl = 'http://gateway.example.com';
+    mockGatewayStoreState.gatewaySecret = 'secret123';
+
+    renderHook(() => useGatewayConnection());
+
+    act(() => {
+      getTransportConfig().onBackendMessage('backend-1', {
+        type: 'auth_result',
+        payload: { success: true, publicKey: 'pk-456' },
+        metadata: { correlationId: '123' },
+      });
+    });
+
+    expect(mockServerStoreState.setServerConnectionStatus).toHaveBeenCalledWith('gateway:backend-1', 'connected');
+    expect(mockServerStoreState.setServerPublicKey).toHaveBeenCalledWith('gateway:backend-1', 'pk-456');
+  });
+
+  // ---------- Public API methods ----------
+
+  it('sendToBackend sends message through transport', () => {
+    mockGatewayStoreState.gatewayUrl = 'http://gateway.example.com';
+    mockGatewayStoreState.gatewaySecret = 'secret123';
+
+    const { result } = renderHook(() => useGatewayConnection());
+
+    const message = { type: 'init' as const, projectId: 'p1' };
+    act(() => {
+      result.current.sendToBackend('backend-1', message as any);
+    });
+
+    expect(mockTransportInstance.sendToBackend).toHaveBeenCalledWith('backend-1', message);
+  });
+
+  it('sendToBackend logs error when no transport exists', () => {
+    const { result } = renderHook(() => useGatewayConnection());
+
+    act(() => {
+      result.current.sendToBackend('backend-1', { type: 'init' } as any);
+    });
+
+    expect(consoleErrorSpy).toHaveBeenCalledWith('[GatewayConn] No gateway transport');
+  });
+
+  it('isBackendAuthenticated returns transport auth status', () => {
+    mockGatewayStoreState.gatewayUrl = 'http://gateway.example.com';
+    mockGatewayStoreState.gatewaySecret = 'secret123';
+    mockTransportInstance.isBackendAuthenticated.mockReturnValue(true);
+
+    const { result } = renderHook(() => useGatewayConnection());
+
+    expect(result.current.isBackendAuthenticated('backend-1')).toBe(true);
+    expect(mockTransportInstance.isBackendAuthenticated).toHaveBeenCalledWith('backend-1');
+  });
+
+  it('isBackendAuthenticated returns false when no transport', () => {
+    const { result } = renderHook(() => useGatewayConnection());
+
+    expect(result.current.isBackendAuthenticated('backend-1')).toBe(false);
+  });
+
+  it('disconnectGateway cleans up transport and reconnect timeout', () => {
+    mockGatewayStoreState.gatewayUrl = 'http://gateway.example.com';
+    mockGatewayStoreState.gatewaySecret = 'secret123';
+    mockTransportInstance.isConnected.mockReturnValue(false);
+
+    const { result } = renderHook(() => useGatewayConnection());
+
+    // Schedule a reconnect so there is a pending timeout
+    act(() => {
+      getTransportConfig().onDisconnected();
+    });
+
+    act(() => {
+      result.current.disconnectGateway();
+    });
+
+    expect(mockTransportInstance.disconnect).toHaveBeenCalled();
+    expect(mockGatewayStoreState.setConnected).toHaveBeenCalledWith(false);
+
+    // Advancing timers should not trigger another connect since timeout was cleared
+    vi.advanceTimersByTime(3000);
+    // connect: 1 initial
+    expect(mockTransportInstance.connect).toHaveBeenCalledTimes(1);
+  });
+
+  it('authenticateBackend logs error when transport is not connected', () => {
+    const { result } = renderHook(() => useGatewayConnection());
+
+    act(() => {
+      result.current.authenticateBackend('backend-1');
+    });
+
+    expect(consoleErrorSpy).toHaveBeenCalledWith('[GatewayConn] Cannot authenticate: gateway not connected');
+    expect(mockTransportInstance.authenticateBackend).not.toHaveBeenCalled();
+  });
+
+  it('authenticateBackend sets pending status and calls transport', () => {
+    mockGatewayStoreState.gatewayUrl = 'http://gateway.example.com';
+    mockGatewayStoreState.gatewaySecret = 'secret123';
+    mockTransportInstance.isConnected.mockReturnValue(true);
+
+    const { result } = renderHook(() => useGatewayConnection());
+
+    act(() => {
+      result.current.authenticateBackend('backend-2');
+    });
+
+    expect(mockGatewayStoreState.setBackendAuthStatus).toHaveBeenCalledWith('backend-2', 'pending');
+    expect(mockTransportInstance.authenticateBackend).toHaveBeenCalledWith('backend-2');
+  });
+
+  // ---------- URL normalization ----------
+
+  it('prepends ws:// when URL has no protocol', () => {
+    mockGatewayStoreState.gatewayUrl = 'gateway.example.com';
+    mockGatewayStoreState.gatewaySecret = 'secret123';
+
+    renderHook(() => useGatewayConnection());
+
+    expect(getTransportConfig().url).toBe('ws://gateway.example.com/ws');
+  });
+
+  // ---------- onError callback ----------
+
+  it('logs transport errors via onError callback', () => {
+    mockGatewayStoreState.gatewayUrl = 'http://gateway.example.com';
+    mockGatewayStoreState.gatewaySecret = 'secret123';
+
+    renderHook(() => useGatewayConnection());
+
+    act(() => {
+      getTransportConfig().onError('WebSocket failed');
+    });
+
+    expect(consoleErrorSpy).toHaveBeenCalledWith('[GatewayConn] Gateway error:', 'WebSocket failed');
+  });
+
+  // ---------- onBackendsUpdated callback ----------
+
+  it('updates discovered backends via onBackendsUpdated callback', () => {
+    mockGatewayStoreState.gatewayUrl = 'http://gateway.example.com';
+    mockGatewayStoreState.gatewaySecret = 'secret123';
+
+    renderHook(() => useGatewayConnection());
+
+    const backends = [{ backendId: 'b1', name: 'Backend 1', online: true }];
+    act(() => {
+      getTransportConfig().onBackendsUpdated(backends);
+    });
+
+    expect(mockGatewayStoreState.setDiscoveredBackends).toHaveBeenCalledWith(backends);
+  });
+
+  // ---------- Cleanup on config removal ----------
+
+  it('cleans up transport when gateway config is cleared', () => {
+    mockGatewayStoreState.gatewayUrl = 'http://gateway.example.com';
+    mockGatewayStoreState.gatewaySecret = 'secret123';
+
+    const { rerender } = renderHook(() => useGatewayConnection());
+
+    expect(mockTransportInstance.connect).toHaveBeenCalledTimes(1);
+
+    // Clear config
+    mockGatewayStoreState.gatewayUrl = null;
+    mockGatewayStoreState.gatewaySecret = null;
+
+    rerender();
+
+    expect(mockTransportInstance.disconnect).toHaveBeenCalled();
+    expect(mockGatewayStoreState.setConnected).toHaveBeenCalledWith(false);
+  });
+
+  // ---------- Backend auth result without features ----------
+
+  it('handles successful backend auth without features (no setServerFeatures call)', () => {
+    mockGatewayStoreState.gatewayUrl = 'http://gateway.example.com';
+    mockGatewayStoreState.gatewaySecret = 'secret123';
+
+    renderHook(() => useGatewayConnection());
+
+    act(() => {
+      getTransportConfig().onBackendAuthResult('backend-1', true, undefined, undefined);
+    });
+
+    expect(mockGatewayStoreState.setBackendAuthStatus).toHaveBeenCalledWith('backend-1', 'authenticated');
+    expect(mockServerStoreState.setServerConnectionStatus).toHaveBeenCalledWith('gateway:backend-1', 'connected');
+    expect(mockServerStoreState.setServerFeatures).not.toHaveBeenCalled();
+  });
+
+  // ---------- Subscription store changes ----------
+
+  it('pushes subscription changes to gateway via store subscriber', () => {
+    mockGatewayStoreState.gatewayUrl = 'http://gateway.example.com';
+    mockGatewayStoreState.gatewaySecret = 'secret123';
+    mockTransportInstance.isConnected.mockReturnValue(true);
+
+    // Capture the subscribe callback
+    const storeSubscribe = vi.mocked(useGatewayStore.subscribe as any);
+    let subscriberFn: (state: any) => void;
+    storeSubscribe.mockImplementation((fn: any) => {
+      subscriberFn = fn;
+      return vi.fn();
+    });
+
+    renderHook(() => useGatewayConnection());
+
+    // Simulate subscription change
+    act(() => {
+      subscriberFn!({ subscribedBackendIds: ['b1', 'b2'] });
+    });
+
+    expect(mockTransportInstance.updateSubscriptions).toHaveBeenCalledWith(['b1', 'b2']);
+
+    // Change to empty (subscribe all)
+    act(() => {
+      subscriberFn!({ subscribedBackendIds: [] });
+    });
+
+    expect(mockTransportInstance.updateSubscriptions).toHaveBeenCalledWith([], true);
+  });
+
+  // ---------- Auto-auth: non-gateway active server ----------
+
+  it('does not auto-authenticate when active server is not a gateway target', () => {
+    mockGatewayStoreState.gatewayUrl = 'http://gateway.example.com';
+    mockGatewayStoreState.gatewaySecret = 'secret123';
+    mockServerStoreState.activeServerId = 'local-server';
+
+    renderHook(() => useGatewayConnection());
+
+    expect(mockTransportInstance.authenticateBackend).not.toHaveBeenCalled();
+  });
+
+  it('does not auto-authenticate when transport is not connected', () => {
+    mockGatewayStoreState.gatewayUrl = 'http://gateway.example.com';
+    mockGatewayStoreState.gatewaySecret = 'secret123';
+    mockServerStoreState.activeServerId = 'gateway:backend-1';
+    mockTransportInstance.isConnected.mockReturnValue(false);
+
+    renderHook(() => useGatewayConnection());
+
+    expect(mockTransportInstance.authenticateBackend).not.toHaveBeenCalled();
+  });
+
+  // ---------- Reconnect: transport still connected ----------
+
+  it('does not reconnect if transport is still connected after timeout', () => {
+    mockGatewayStoreState.gatewayUrl = 'http://gateway.example.com';
+    mockGatewayStoreState.gatewaySecret = 'secret123';
+
+    renderHook(() => useGatewayConnection());
+
+    // First set disconnected to trigger reconnect schedule
+    mockTransportInstance.isConnected.mockReturnValue(false);
+    act(() => {
+      getTransportConfig().onDisconnected();
+    });
+
+    // Before timeout fires, set transport back to connected
+    mockTransportInstance.isConnected.mockReturnValue(true);
+    vi.advanceTimersByTime(3000);
+
+    // Only initial connect, no reconnect since isConnected is true
+    expect(mockTransportInstance.connect).toHaveBeenCalledTimes(1);
   });
 });

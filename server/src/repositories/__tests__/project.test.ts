@@ -75,6 +75,33 @@ describe('ProjectRepository', () => {
       expect(result.permissionPolicy).toBeUndefined();
       expect(result.isInternal).toBe(false);
     });
+
+    it('parses agent JSON', () => {
+      const row = {
+        id: 'proj-1', name: 'Test', type: 'code',
+        created_at: 1000, updated_at: 2000,
+        agent: '{"name":"bot"}', context_sync_status: 'synced',
+      };
+      expect(repository.mapRow(row).agent).toEqual({ name: 'bot' });
+    });
+
+    it('maps context_sync_status error', () => {
+      const row = {
+        id: 'proj-1', name: 'Test', type: 'code',
+        created_at: 1000, updated_at: 2000,
+        context_sync_status: 'error',
+      };
+      expect(repository.mapRow(row).contextSyncStatus).toBe('error');
+    });
+
+    it('maps reviewProviderId', () => {
+      const row = {
+        id: 'proj-1', name: 'Test', type: 'code',
+        created_at: 1000, updated_at: 2000,
+        review_provider_id: 'rev-1',
+      };
+      expect(repository.mapRow(row).reviewProviderId).toBe('rev-1');
+    });
   });
 
   describe('createQuery', () => {
@@ -183,6 +210,37 @@ describe('ProjectRepository', () => {
       const timestamp = params[params.length - 2]; // Second to last param
       expect(timestamp).toBeGreaterThanOrEqual(before);
       expect(timestamp).toBeLessThanOrEqual(after);
+    });
+
+    it('handles rootPath update', () => {
+      const { sql } = repository.updateQuery('proj-1', { rootPath: '/new/path' });
+      expect(sql).toContain('root_path = ?');
+    });
+
+    it('handles systemPrompt update', () => {
+      const { sql } = repository.updateQuery('proj-1', { systemPrompt: 'new prompt' });
+      expect(sql).toContain('system_prompt = ?');
+    });
+
+    it('handles agent JSON in update', () => {
+      const { sql, params } = repository.updateQuery('proj-1', { agent: { name: 'bot' } as any });
+      expect(sql).toContain('agent = ?');
+      expect(params).toContain('{"name":"bot"}');
+    });
+
+    it('handles null agent in update', () => {
+      const { params } = repository.updateQuery('proj-1', { agent: null as any });
+      expect(params).toContain(null);
+    });
+
+    it('handles contextSyncStatus update', () => {
+      const { sql } = repository.updateQuery('proj-1', { contextSyncStatus: 'error' as any });
+      expect(sql).toContain('context_sync_status = ?');
+    });
+
+    it('handles reviewProviderId update', () => {
+      const { sql } = repository.updateQuery('proj-1', { reviewProviderId: 'rev-1' as any });
+      expect(sql).toContain('review_provider_id = ?');
     });
   });
 });

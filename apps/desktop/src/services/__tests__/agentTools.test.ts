@@ -681,6 +681,250 @@ describe('executeToolCall', () => {
     });
   });
 
+  // ---- Remote tool variants ----
+
+  describe('remote get_session_messages', () => {
+    it('fetches messages from remote backend', async () => {
+      setupRemoteBackend();
+      mockFetch.mockResolvedValueOnce({
+        json: async () => ({
+          success: true,
+          data: { messages: [{ role: 'user', content: 'hi', createdAt: '2024-01-01' }] },
+        }),
+      });
+
+      const result = await executeToolCall(
+        makeToolCall('get_session_messages', { sessionId: 's1', backendId: 'remote-1' }),
+      );
+      const parsed = JSON.parse(result);
+
+      expect(parsed).toHaveLength(1);
+      expect(parsed[0].role).toBe('user');
+    });
+  });
+
+  describe('remote search_messages', () => {
+    it('searches messages on remote backend', async () => {
+      setupRemoteBackend();
+      mockFetch.mockResolvedValueOnce({
+        json: async () => ({
+          success: true,
+          data: [{ id: 'r1', content: 'found' }],
+        }),
+      });
+
+      const result = await executeToolCall(
+        makeToolCall('search_messages', { query: 'test', projectId: 'p1', backendId: 'remote-1' }),
+      );
+      const parsed = JSON.parse(result);
+      expect(parsed).toHaveLength(1);
+    });
+  });
+
+  describe('remote summarize_session', () => {
+    it('exports session from remote backend (string)', async () => {
+      setupRemoteBackend();
+      mockFetch.mockResolvedValueOnce({
+        json: async () => ({
+          success: true,
+          data: { markdown: '# Remote Summary' },
+        }),
+      });
+
+      const result = await executeToolCall(
+        makeToolCall('summarize_session', { sessionId: 's1', backendId: 'remote-1' }),
+      );
+      expect(result).toBe('# Remote Summary');
+    });
+
+    it('handles non-string remote export result', async () => {
+      setupRemoteBackend();
+      mockFetch.mockResolvedValueOnce({
+        json: async () => ({
+          success: true,
+          data: { someField: 'value' },
+        }),
+      });
+
+      const result = await executeToolCall(
+        makeToolCall('summarize_session', { sessionId: 's1', backendId: 'remote-1' }),
+      );
+      const parsed = JSON.parse(result);
+      expect(parsed).toHaveProperty('someField');
+    });
+  });
+
+  describe('remote create_session', () => {
+    it('creates session on remote backend', async () => {
+      setupRemoteBackend();
+      mockFetch.mockResolvedValueOnce({
+        json: async () => ({
+          success: true,
+          data: { id: 'rs1', name: 'Remote Session', projectId: 'rp1' },
+        }),
+      });
+
+      const result = await executeToolCall(
+        makeToolCall('create_session', { projectId: 'rp1', name: 'Remote Session', backendId: 'remote-1' }),
+      );
+      const parsed = JSON.parse(result);
+      expect(parsed).toEqual({ id: 'rs1', name: 'Remote Session', projectId: 'rp1' });
+    });
+  });
+
+  describe('remote delete_session', () => {
+    it('deletes session on remote backend', async () => {
+      setupRemoteBackend();
+      mockFetch.mockResolvedValueOnce({
+        json: async () => ({ success: true, data: {} }),
+      });
+
+      const result = await executeToolCall(
+        makeToolCall('delete_session', { sessionId: 'rs1', backendId: 'remote-1' }),
+      );
+      const parsed = JSON.parse(result);
+      expect(parsed).toEqual({ success: true, deleted: 'rs1' });
+    });
+  });
+
+  describe('remote list_providers', () => {
+    it('lists providers from remote backend', async () => {
+      setupRemoteBackend();
+      mockFetch.mockResolvedValueOnce({
+        json: async () => ({
+          success: true,
+          data: [{ id: 'rp1', name: 'Remote Claude', type: 'anthropic', isDefault: true }],
+        }),
+      });
+
+      const result = await executeToolCall(
+        makeToolCall('list_providers', { backendId: 'remote-1' }),
+      );
+      const parsed = JSON.parse(result);
+      expect(parsed).toHaveLength(1);
+      expect(parsed[0].name).toBe('Remote Claude');
+    });
+  });
+
+  describe('remote list_files', () => {
+    it('lists files from remote backend', async () => {
+      setupRemoteBackend();
+      mockFetch.mockResolvedValueOnce({
+        json: async () => ({
+          success: true,
+          data: [{ name: 'src', type: 'directory' }],
+        }),
+      });
+
+      const result = await executeToolCall(
+        makeToolCall('list_files', { projectRoot: '/remote/project', backendId: 'remote-1' }),
+      );
+      const parsed = JSON.parse(result);
+      expect(parsed).toHaveLength(1);
+    });
+  });
+
+  describe('remote read_file', () => {
+    it('reads file from remote backend (string result)', async () => {
+      setupRemoteBackend();
+      mockFetch.mockResolvedValueOnce({
+        json: async () => ({
+          success: true,
+          data: 'file content from remote',
+        }),
+      });
+
+      const result = await executeToolCall(
+        makeToolCall('read_file', { projectRoot: '/remote', relativePath: 'file.txt', backendId: 'remote-1' }),
+      );
+      expect(result).toBe('file content from remote');
+    });
+
+    it('reads file from remote backend (object result)', async () => {
+      setupRemoteBackend();
+      mockFetch.mockResolvedValueOnce({
+        json: async () => ({
+          success: true,
+          data: { content: 'file content obj' },
+        }),
+      });
+
+      const result = await executeToolCall(
+        makeToolCall('read_file', { projectRoot: '/remote', relativePath: 'file.txt', backendId: 'remote-1' }),
+      );
+      expect(result).toBe('file content obj');
+    });
+  });
+
+  describe('remote archive_sessions', () => {
+    it('archives sessions on remote backend', async () => {
+      setupRemoteBackend();
+      mockFetch.mockResolvedValueOnce({
+        json: async () => ({ success: true, data: {} }),
+      });
+
+      const result = await executeToolCall(
+        makeToolCall('archive_sessions', { sessionIds: ['s1', 's2'], backendId: 'remote-1' }),
+      );
+      const parsed = JSON.parse(result);
+      expect(parsed).toEqual({ success: true, archived: 2 });
+    });
+  });
+
+  describe('resolveBackend', () => {
+    it('resolves local backend in mobile mode', async () => {
+      mockServerState.mockReturnValue({
+        servers: [],
+        activeServerId: null,
+      });
+      mockGatewayState.mockReturnValue(mobileGw({
+        discoveredBackends: [
+          { backendId: 'my-backend', name: 'My Backend', online: true, isLocal: true },
+        ],
+      }));
+      (resolveGatewayBackendUrl as ReturnType<typeof vi.fn>).mockReturnValue('https://gw.example.com/api/proxy/my-backend');
+      (getGatewayAuthHeaders as ReturnType<typeof vi.fn>).mockReturnValue({ 'Authorization': 'Bearer secret' });
+
+      mockFetch.mockResolvedValueOnce({
+        json: async () => ({ success: true, data: [] }),
+      });
+
+      await executeToolCall(makeToolCall('list_projects', { backendId: 'local' }));
+
+      expect(mockFetch).toHaveBeenCalledWith(
+        expect.stringContaining('/api/projects'),
+        expect.any(Object),
+      );
+    });
+
+    it('throws error when no online backend found for local in mobile', async () => {
+      mockServerState.mockReturnValue({
+        servers: [],
+        activeServerId: 'gw:something',
+      });
+      mockGatewayState.mockReturnValue(mobileGw({
+        discoveredBackends: [],
+      }));
+
+      const result = await executeToolCall(makeToolCall('list_projects', { backendId: 'local' }));
+      const parsed = JSON.parse(result);
+      expect(parsed.error).toBeDefined();
+    });
+
+    it('handles remoteFetch API error', async () => {
+      setupRemoteBackend();
+      mockFetch.mockResolvedValueOnce({
+        json: async () => ({ success: false, error: { message: 'Not found' } }),
+      });
+
+      const result = await executeToolCall(
+        makeToolCall('list_projects', { backendId: 'remote-1' }),
+      );
+      const parsed = JSON.parse(result);
+      expect(parsed.error).toContain('Not found');
+    });
+  });
+
   // ---- Error handling ----
 
   describe('error handling', () => {

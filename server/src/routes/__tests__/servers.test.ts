@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
 import express from 'express';
 import request from 'supertest';
 import Database from 'better-sqlite3';
@@ -383,12 +383,100 @@ describe('servers routes', () => {
     });
 
     it('returns 404 for non-existent server', async () => {
-      const res = await request(app).delete('/api/servers/nonexistent');
+      const res = await request(app).delete('/api/servers/nonexistent').timeout(10000);
 
       expect(res.status).toBe(404);
       expect(res.body.success).toBe(false);
       expect(res.body.error.code).toBe('NOT_FOUND');
       expect(res.body.error.message).toBe('Server not found');
+    });
+  });
+
+  describe('error handling - catch blocks', () => {
+    it('GET /api/servers returns 500 on database error', async () => {
+      const spy = vi.spyOn(db, 'prepare').mockImplementation(() => {
+        throw new Error('DB error');
+      });
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+      const res = await request(app).get('/api/servers');
+
+      expect(res.status).toBe(500);
+      expect(res.body.success).toBe(false);
+      expect(res.body.error.code).toBe('DB_ERROR');
+      expect(res.body.error.message).toBe('Failed to fetch servers');
+      spy.mockRestore();
+      errorSpy.mockRestore();
+    });
+
+    it('GET /api/servers/:id returns 500 on database error', async () => {
+      const spy = vi.spyOn(db, 'prepare').mockImplementation(() => {
+        throw new Error('DB error');
+      });
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+      const res = await request(app).get('/api/servers/s1');
+
+      expect(res.status).toBe(500);
+      expect(res.body.success).toBe(false);
+      expect(res.body.error.code).toBe('DB_ERROR');
+      expect(res.body.error.message).toBe('Failed to fetch server');
+      spy.mockRestore();
+      errorSpy.mockRestore();
+    });
+
+    it('POST /api/servers returns 500 on database error', async () => {
+      const spy = vi.spyOn(db, 'prepare').mockImplementation((sql: string) => {
+        if (sql.includes('INSERT')) throw new Error('DB error');
+        // Allow UPDATE to pass for isDefault
+        return { run: vi.fn() } as any;
+      });
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+      const res = await request(app)
+        .post('/api/servers')
+        .send({ name: 'Test', address: 'http://test:3000' });
+
+      expect(res.status).toBe(500);
+      expect(res.body.success).toBe(false);
+      expect(res.body.error.code).toBe('DB_ERROR');
+      expect(res.body.error.message).toBe('Failed to create server');
+      spy.mockRestore();
+      errorSpy.mockRestore();
+    });
+
+    it('PUT /api/servers/:id returns 500 on database error', async () => {
+      const spy = vi.spyOn(db, 'prepare').mockImplementation(() => {
+        throw new Error('DB error');
+      });
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+      const res = await request(app)
+        .put('/api/servers/s1')
+        .send({ name: 'Updated' });
+
+      expect(res.status).toBe(500);
+      expect(res.body.success).toBe(false);
+      expect(res.body.error.code).toBe('DB_ERROR');
+      expect(res.body.error.message).toBe('Failed to update server');
+      spy.mockRestore();
+      errorSpy.mockRestore();
+    });
+
+    it('DELETE /api/servers/:id returns 500 on database error', async () => {
+      const spy = vi.spyOn(db, 'prepare').mockImplementation(() => {
+        throw new Error('DB error');
+      });
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+      const res = await request(app).delete('/api/servers/s1');
+
+      expect(res.status).toBe(500);
+      expect(res.body.success).toBe(false);
+      expect(res.body.error.code).toBe('DB_ERROR');
+      expect(res.body.error.message).toBe('Failed to delete server');
+      spy.mockRestore();
+      errorSpy.mockRestore();
     });
   });
 });

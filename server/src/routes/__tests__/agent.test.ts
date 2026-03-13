@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
 import express from 'express';
 import request from 'supertest';
 import Database from 'better-sqlite3';
@@ -275,4 +275,37 @@ describe('agent routes', () => {
     });
   });
 
+  describe('GET /api/agent/config - error handling', () => {
+    it('returns 500 on database error', async () => {
+      const spy = vi.spyOn(db, 'prepare').mockImplementation(() => {
+        throw new Error('DB error');
+      });
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+      const res = await request(app).get('/api/agent/config');
+
+      expect(res.status).toBe(500);
+      expect(res.body.error.code).toBe('DB_ERROR');
+      spy.mockRestore();
+      errorSpy.mockRestore();
+    });
+  });
+
+  describe('PUT /api/agent/config - error handling', () => {
+    it('returns 500 on database error', async () => {
+      const spy = vi.spyOn(db, 'prepare').mockImplementation(() => {
+        throw new Error('DB error');
+      });
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+      const res = await request(app)
+        .put('/api/agent/config')
+        .send({ enabled: false });
+
+      expect(res.status).toBe(500);
+      expect(res.body.error.code).toBe('DB_ERROR');
+      spy.mockRestore();
+      errorSpy.mockRestore();
+    });
+  });
 });

@@ -226,6 +226,160 @@ describe('ActiveSessionsPanel', () => {
     });
   });
 
+  describe('UI interactions', () => {
+    it('returns null when no activeServerId', () => {
+      useServerStore.setState({ activeServerId: null });
+      const { container } = render(<ActiveSessionsPanel />);
+      expect(container.firstChild).toBeNull();
+    });
+
+    it('shows "No active sessions" when no sessions are active', () => {
+      render(<ActiveSessionsPanel />);
+      expect(screen.getByText('No active sessions')).toBeDefined();
+    });
+
+    it('toggles collapse on header click', () => {
+      const sessionId = 'sess-1';
+      useProjectStore.setState({
+        sessions: [
+          { id: sessionId, name: 'My Session', projectId: 'proj-1', isActive: true, createdAt: Date.now(), updatedAt: Date.now() } as any,
+        ],
+      });
+      useSessionsStore.getState().setActiveSessionsForBackend(LOCAL_BACKEND_KEY, new Set([sessionId]));
+
+      render(<ActiveSessionsPanel />);
+
+      expect(screen.getByText('My Session')).toBeDefined();
+
+      // Click header to collapse
+      fireEvent.click(screen.getByText('Active Sessions'));
+
+      // Session should be hidden
+      expect(screen.queryByText('My Session')).toBeNull();
+
+      // Click again to expand
+      fireEvent.click(screen.getByText('Active Sessions'));
+      expect(screen.getByText('My Session')).toBeDefined();
+    });
+
+    it('shows total active session count', () => {
+      useProjectStore.setState({
+        sessions: [
+          { id: 's1', name: 'Session 1', projectId: 'p1', isActive: true, createdAt: Date.now(), updatedAt: Date.now() } as any,
+          { id: 's2', name: 'Session 2', projectId: 'p1', isActive: true, createdAt: Date.now(), updatedAt: Date.now() } as any,
+        ],
+      });
+      useSessionsStore.getState().setActiveSessionsForBackend(LOCAL_BACKEND_KEY, new Set(['s1', 's2']));
+
+      render(<ActiveSessionsPanel />);
+      // The session count is shown next to the "Active Sessions" header
+      expect(screen.getByText('Session 1')).toBeDefined();
+      expect(screen.getByText('Session 2')).toBeDefined();
+    });
+
+    it('shows project name next to session', () => {
+      useProjectStore.setState({
+        sessions: [
+          { id: 's1', name: 'Session 1', projectId: 'proj-1', isActive: true, createdAt: Date.now(), updatedAt: Date.now() } as any,
+        ],
+        projects: [
+          { id: 'proj-1', name: 'My Project' } as any,
+        ],
+      });
+      useSessionsStore.getState().setActiveSessionsForBackend(LOCAL_BACKEND_KEY, new Set(['s1']));
+
+      render(<ActiveSessionsPanel />);
+      expect(screen.getByText('My Project')).toBeDefined();
+    });
+
+    it('renders recently completed sessions', () => {
+      useSessionsStore.setState({
+        recentlyCompletedSessions: [
+          {
+            session: { id: 'done-1', name: 'Done Session', projectId: 'p1', createdAt: Date.now(), updatedAt: Date.now() } as any,
+            backendId: LOCAL_BACKEND_KEY,
+            completedAt: Date.now() - 30000,
+          },
+        ],
+      });
+
+      render(<ActiveSessionsPanel />);
+      expect(screen.getByText('Recently Completed')).toBeDefined();
+      expect(screen.getByText('Done Session')).toBeDefined();
+      expect(screen.getByText('Clear all')).toBeDefined();
+    });
+
+    it('calls clearAllRecentlyCompleted on Clear all click', () => {
+      const clearAllSpy = vi.fn();
+      useSessionsStore.setState({
+        recentlyCompletedSessions: [
+          {
+            session: { id: 'done-1', name: 'Done Session', projectId: 'p1', createdAt: Date.now(), updatedAt: Date.now() } as any,
+            backendId: LOCAL_BACKEND_KEY,
+            completedAt: Date.now(),
+          },
+        ],
+        clearAllRecentlyCompleted: clearAllSpy,
+      });
+
+      render(<ActiveSessionsPanel />);
+      fireEvent.click(screen.getByText('Clear all'));
+      expect(clearAllSpy).toHaveBeenCalled();
+    });
+
+    it('calls dismissRecentlyCompleted on dismiss button click', () => {
+      const dismissSpy = vi.fn();
+      useSessionsStore.setState({
+        recentlyCompletedSessions: [
+          {
+            session: { id: 'done-1', name: 'Done Session', projectId: 'p1', createdAt: Date.now(), updatedAt: Date.now() } as any,
+            backendId: LOCAL_BACKEND_KEY,
+            completedAt: Date.now(),
+          },
+        ],
+        dismissRecentlyCompleted: dismissSpy,
+      });
+
+      render(<ActiveSessionsPanel />);
+      fireEvent.click(screen.getByLabelText('Dismiss'));
+      expect(dismissSpy).toHaveBeenCalledWith('done-1');
+    });
+
+    it('calls onSessionSelect with "local" for recently completed local sessions', () => {
+      const onSessionSelect = vi.fn();
+      useSessionsStore.setState({
+        recentlyCompletedSessions: [
+          {
+            session: { id: 'done-1', name: 'Completed Local', projectId: 'p1', createdAt: Date.now(), updatedAt: Date.now() } as any,
+            backendId: LOCAL_BACKEND_KEY,
+            completedAt: Date.now(),
+          },
+        ],
+      });
+
+      render(<ActiveSessionsPanel onSessionSelect={onSessionSelect} />);
+      fireEvent.click(screen.getByText('Completed Local'));
+      expect(onSessionSelect).toHaveBeenCalledWith('local', 'done-1');
+    });
+
+    it('calls onSessionSelect with backendId for recently completed gateway sessions', () => {
+      const onSessionSelect = vi.fn();
+      useSessionsStore.setState({
+        recentlyCompletedSessions: [
+          {
+            session: { id: 'done-1', name: 'Completed Remote', projectId: 'p1', createdAt: Date.now(), updatedAt: Date.now() } as any,
+            backendId: 'remote-backend-1',
+            completedAt: Date.now(),
+          },
+        ],
+      });
+
+      render(<ActiveSessionsPanel onSessionSelect={onSessionSelect} />);
+      fireEvent.click(screen.getByText('Completed Remote'));
+      expect(onSessionSelect).toHaveBeenCalledWith('remote-backend-1', 'done-1');
+    });
+  });
+
   describe('gateway prefix consistency', () => {
     it('toGatewayServerId and parseBackendId are inverse operations', () => {
       const backendId = 'test-backend';

@@ -100,7 +100,7 @@ describe('ModeSelector', () => {
         expect(screen.getByText('Standard mode')).toBeInTheDocument();
       });
 
-      fireEvent.click(screen.getByTestId('outside'));
+      fireEvent.mouseDown(screen.getByTestId('outside'));
 
       await waitFor(() => {
         expect(screen.queryByText('Standard mode')).not.toBeInTheDocument();
@@ -132,10 +132,11 @@ describe('ModeSelector', () => {
       fireEvent.click(screen.getByTestId('selector-trigger'));
 
       await waitFor(() => {
-        expect(screen.getByText('Default')).toBeInTheDocument();
-        expect(screen.getByText('Plan')).toBeInTheDocument();
-        expect(screen.getByText('Accept Edits')).toBeInTheDocument();
-        expect(screen.getByText('Bypass')).toBeInTheDocument();
+        // Use description text which only appears in dropdown options
+        expect(screen.getByText('Standard mode')).toBeInTheDocument();
+        expect(screen.getByText('Plan mode')).toBeInTheDocument();
+        expect(screen.getByText('Accept edits mode')).toBeInTheDocument();
+        expect(screen.getByText('Bypass permissions')).toBeInTheDocument();
       });
     });
 
@@ -145,7 +146,11 @@ describe('ModeSelector', () => {
       fireEvent.click(screen.getByTestId('selector-trigger'));
 
       await waitFor(() => {
-        const planOption = screen.getByText('Plan').closest('button');
+        // "Plan" appears in both trigger and dropdown; use getAllByText and find the dropdown one
+        const planElements = screen.getAllByText('Plan');
+        const planOption = planElements.map(el => el.closest('button')).find(
+          btn => btn?.className.includes('w-full')
+        );
         expect(planOption?.className).toContain('bg-primary');
       });
     });

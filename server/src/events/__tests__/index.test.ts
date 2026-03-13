@@ -148,6 +148,76 @@ describe('PluginEventEmitter', () => {
       errorSpy.mockRestore();
     });
 
+    it('should handle sync errors in regular listeners', async () => {
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const failingListener = vi.fn().mockImplementation(() => {
+        throw new Error('Sync listener error');
+      });
+
+      pluginEvents.on('run.started', failingListener);
+
+      await pluginEvents.emit('run.started', { sessionId: '123' });
+
+      expect(errorSpy).toHaveBeenCalledWith(
+        expect.stringContaining('Error in listener'),
+        'Sync listener error'
+      );
+      errorSpy.mockRestore();
+    });
+
+    it('should fire and remove once listeners', async () => {
+      const listener = vi.fn();
+      pluginEvents.once('run.completed', listener);
+
+      await pluginEvents.emit('run.completed', { result: 'ok' });
+
+      expect(listener).toHaveBeenCalledTimes(1);
+      expect(pluginEvents.listenerCount('run.completed')).toBe(0);
+    });
+
+    it('should handle async errors in once listeners', async () => {
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const failingOnce = vi.fn().mockImplementation(async () => {
+        throw new Error('Once async error');
+      });
+
+      pluginEvents.once('run.completed', failingOnce);
+
+      await pluginEvents.emit('run.completed', { result: 'ok' });
+
+      expect(errorSpy).toHaveBeenCalledWith(
+        expect.stringContaining('Error in async once listener'),
+        'Once async error'
+      );
+      errorSpy.mockRestore();
+    });
+
+    it('should handle sync errors in once listeners', async () => {
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const failingOnce = vi.fn().mockImplementation(() => {
+        throw new Error('Once sync error');
+      });
+
+      pluginEvents.once('run.completed', failingOnce);
+
+      await pluginEvents.emit('run.completed', { result: 'ok' });
+
+      expect(errorSpy).toHaveBeenCalledWith(
+        expect.stringContaining('Error in once listener'),
+        'Once sync error'
+      );
+      errorSpy.mockRestore();
+    });
+
+    it('should emit with default empty data', async () => {
+      const listener = vi.fn();
+      pluginEvents.on('app.ready', listener);
+
+      await pluginEvents.emit('app.ready');
+
+      expect(listener).toHaveBeenCalledWith({}, undefined);
+    });
+
     it('should pass source plugin ID to listeners', async () => {
       const listener = vi.fn();
       pluginEvents.on('custom:event', listener);
@@ -185,6 +255,43 @@ describe('PluginEventEmitter', () => {
       expect(errorSpy).toHaveBeenCalled();
 
       errorSpy.mockRestore();
+    });
+
+    it('should fire and remove once listeners synchronously', () => {
+      const listener = vi.fn();
+      pluginEvents.once('app.ready', listener);
+
+      pluginEvents.emitSync('app.ready', { status: 'ok' });
+      pluginEvents.emitSync('app.ready', { status: 'again' });
+
+      expect(listener).toHaveBeenCalledTimes(1);
+      expect(listener).toHaveBeenCalledWith({ status: 'ok' }, undefined);
+    });
+
+    it('should handle errors in sync once listeners', () => {
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const failingOnce = vi.fn().mockImplementation(() => {
+        throw new Error('Once sync error');
+      });
+
+      pluginEvents.once('app.ready', failingOnce);
+
+      pluginEvents.emitSync('app.ready', { status: 'ok' });
+
+      expect(errorSpy).toHaveBeenCalledWith(
+        expect.stringContaining('Error in once listener'),
+        'Once sync error'
+      );
+      errorSpy.mockRestore();
+    });
+
+    it('should use default empty data', () => {
+      const listener = vi.fn();
+      pluginEvents.on('app.ready', listener);
+
+      pluginEvents.emitSync('app.ready');
+
+      expect(listener).toHaveBeenCalledWith({}, undefined);
     });
   });
 
