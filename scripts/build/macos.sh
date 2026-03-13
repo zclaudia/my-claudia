@@ -107,49 +107,65 @@ RELEASE_REPO=$(git remote get-url "$RELEASE_REMOTE" 2>/dev/null | sed 's/.*githu
 echo "Release target: $RELEASE_REMOTE → $RELEASE_REPO"
 
 # --- Smart version bump ---
-# Uses git tags to track builds:
-#   - HEAD has build-* tag + clean tree → reuse version
-#   - HEAD has no build-* tag → new commits exist → bump + tag
-#   - Dirty working tree → dev build (no bump, -dev suffix)
+# In CI (RELEASE_VERSION + RELEASE_BUILD set by workflow), use those directly.
+# Locally, use git tags to track builds.
 echo "=== Version check ==="
-MAJOR=$(python3 -c "import json; print(json.load(open('version.json'))['major'])")
-MINOR=$(python3 -c "import json; print(json.load(open('version.json'))['minor'])")
-HAS_DIRTY=$(git status --porcelain | head -1)
-HAS_BUILD_TAG=$(git tag --points-at HEAD 2>/dev/null | grep '^build-' | head -1 || true)
 
-if [ -n "$HAS_DIRTY" ]; then
-  echo "Dirty working tree → dev build"
-  LATEST_TAG=$(git tag -l "build-${MAJOR}.${MINOR}-*" --sort=-version:refname | head -1)
-  CURRENT_BUILD=$(echo "$LATEST_TAG" | sed "s/build-${MAJOR}.${MINOR}-//")
-  [ -z "$CURRENT_BUILD" ] && CURRENT_BUILD=0
-  eval "$(./scripts/version-bump.sh --platform macos --set-build "$CURRENT_BUILD" --dev-suffix)"
-
-elif [ -z "$HAS_BUILD_TAG" ]; then
-  echo "New commits detected → bumping version"
-  eval "$(./scripts/version-bump.sh --platform macos --bump)"
-
-  TAG_NAME="build-${MAJOR}.${MINOR}-${BUILD}"
-  git tag "$TAG_NAME"
-  git push "$RELEASE_REMOTE" "$TAG_NAME" 2>/dev/null || true
-
-  # Clean old tags for this major.minor, keep latest 5
-  OLD_TAGS=$(git tag -l "build-${MAJOR}.${MINOR}-*" --sort=-version:refname | tail -n +6)
-  if [ -n "$OLD_TAGS" ]; then
-    echo "$OLD_TAGS" | xargs git tag -d
-    echo "$OLD_TAGS" | while read -r tag; do
-      git push "$RELEASE_REMOTE" --delete "$tag" 2>/dev/null || true
-    done
-    echo "  Cleaned $(echo "$OLD_TAGS" | wc -l | tr -d ' ') old tag(s)"
-  fi
-
+if [ -n "${RELEASE_VERSION:-}" ] && [ -n "${RELEASE_BUILD:-}" ]; then
+  # CI mode: use workflow-provided version
+  VERSION="$RELEASE_VERSION"
+  BUILD="$RELEASE_BUILD"
+  VERSION_CODE="${RELEASE_VERSION_CODE:-0}"
+  MAJOR=$(echo "$VERSION" | cut -d. -f1)
+  MINOR=$(echo "$VERSION" | cut -d. -f2)
+  echo "Using CI-provided version: $VERSION (build $BUILD)"
 else
-  echo "No changes since $HAS_BUILD_TAG. Reusing version."
-  CURRENT_BUILD=$(echo "$HAS_BUILD_TAG" | sed "s/build-${MAJOR}.${MINOR}-//")
-  eval "$(./scripts/version-bump.sh --platform macos --set-build "$CURRENT_BUILD")"
+  # Local mode: compute from git tags
+  MAJOR=$(python3 -c "import json; print(json.load(open('version.json'))['major'])")
+  MINOR=$(python3 -c "import json; print(json.load(open('version.json'))['minor'])")
+  HAS_DIRTY=$(git status --porcelain | head -1)
+  HAS_BUILD_TAG=$(git tag --points-at HEAD 2>/dev/null | grep '^build-' | head -1 || true)
+
+  if [ -n "$HAS_DIRTY" ]; then
+    echo "Dirty working tree → dev build"
+    LATEST_TAG=$(git tag -l "build-${MAJOR}.${MINOR}-*" --sort=-version:refname | head -1)
+    CURRENT_BUILD=$(echo "$LATEST_TAG" | sed "s/build-${MAJOR}.${MINOR}-//")
+    [ -z "$CURRENT_BUILD" ] && CURRENT_BUILD=0
+    eval "$(./scripts/version-bump.sh --platform macos --set-build "$CURRENT_BUILD" --dev-suffix)"
+
+  elif [ -z "$HAS_BUILD_TAG" ]; then
+    echo "New commits detected → bumping version"
+    eval "$(./scripts/version-bump.sh --platform macos --bump)"
+
+    TAG_NAME="build-${MAJOR}.${MINOR}-${BUILD}"
+    git tag "$TAG_NAME"
+    git push "$RELEASE_REMOTE" "$TAG_NAME" 2>/dev/null || true
+
+    # Clean old tags for this major.minor, keep latest 5
+    OLD_TAGS=$(git tag -l "build-${MAJOR}.${MINOR}-*" --sort=-version:refname | tail -n +6)
+    if [ -n "$OLD_TAGS" ]; then
+      echo "$OLD_TAGS" | xargs git tag -d
+      echo "$OLD_TAGS" | while read -r tag; do
+        git push "$RELEASE_REMOTE" --delete "$tag" 2>/dev/null || true
+      done
+      echo "  Cleaned $(echo "$OLD_TAGS" | wc -l | tr -d ' ') old tag(s)"
+    fi
+
+  else
+    echo "No changes since $HAS_BUILD_TAG. Reusing version."
+    CURRENT_BUILD=$(echo "$HAS_BUILD_TAG" | sed "s/build-${MAJOR}.${MINOR}-//")
+    eval "$(./scripts/version-bump.sh --platform macos --set-build "$CURRENT_BUILD")"
+  fi
 fi
 
 ARCH=$(uname -m)
-echo "Version: $VERSION  Arch: $ARCH"
+# Map uname -m to Tauri platform identifier
+if [ "$ARCH" = "arm64" ] || [ "$ARCH" = "aarch64" ]; then
+  TAURI_ARCH="aarch64"
+else
+  TAURI_ARCH="x86_64"
+fi
+echo "Version: $VERSION  Arch: $ARCH ($TAURI_ARCH)"
 echo ""
 
 # --- Install / update dependencies ---
@@ -198,7 +214,10 @@ else
 fi
 echo "Building macOS desktop app..."
 # Build only .app and updater (skip Tauri's DMG — we rebuild it after re-signing anyway)
-pnpm --filter @my-claudia/desktop exec tauri build --bundles app,updater --config "$TAURI_CONFIG"
+pnpm --filter @my-claudia/desktop exec tauri build --bundles app,updater --config "$TAURI_CONFIG" || {
+  echo "ERROR: Tauri build failed"
+  exit 1
+}
 echo ""
 
 # --- Re-sign native modules and node sidecar ---
@@ -209,7 +228,7 @@ echo ""
 # re-sign node WITHOUT hardened runtime so it can load third-party native modules.
 if [ "${SKIP_SIGNING:-}" != "1" ]; then
   APP_BUNDLE="$BUNDLE_DIR/macos/MyClaudia.app"
-  SIGNING_IDENTITY="MyClaudia Signing"
+  SIGNING_IDENTITY="${MACOS_SIGNING_IDENTITY:-MyClaudia Signing}"
 
   if [ -d "$APP_BUNDLE" ]; then
     echo "=== Re-signing native modules and node sidecar ==="
@@ -294,19 +313,31 @@ if [ -d "$BUNDLE_DIR/dmg" ]; then
   done
 fi
 
-# --- Generate update manifest (latest.json) ---
-# When TAURI_SIGNING_PRIVATE_KEY is set, `tauri build` automatically produces:
-#   - MyClaudia.app.tar.gz  (the update payload)
-#   - MyClaudia.app.tar.gz.sig  (EdDSA signature)
-TAR_GZ="$BUNDLE_DIR/macos/MyClaudia.app.tar.gz"
-TAR_SIG="$BUNDLE_DIR/macos/MyClaudia.app.tar.gz.sig"
+# --- Rename updater artifacts with architecture ---
+# Tauri produces MyClaudia.app.tar.gz; rename to include arch so dual-arch
+# builds (aarch64 + x86_64) don't collide on the same release.
+TAR_GZ_ORIG="$BUNDLE_DIR/macos/MyClaudia.app.tar.gz"
+TAR_SIG_ORIG="$BUNDLE_DIR/macos/MyClaudia.app.tar.gz.sig"
+TAR_GZ_NAME="MyClaudia_${TAURI_ARCH}.app.tar.gz"
+TAR_GZ="$BUNDLE_DIR/macos/$TAR_GZ_NAME"
+TAR_SIG="$BUNDLE_DIR/macos/${TAR_GZ_NAME}.sig"
 
+if [ -f "$TAR_GZ_ORIG" ]; then
+  mv "$TAR_GZ_ORIG" "$TAR_GZ"
+  echo "  Renamed updater artifact: $TAR_GZ_NAME"
+fi
+if [ -f "$TAR_SIG_ORIG" ]; then
+  mv "$TAR_SIG_ORIG" "$TAR_SIG"
+  echo "  Renamed updater signature: ${TAR_GZ_NAME}.sig"
+fi
+
+# --- Generate update manifest (latest.json) ---
 if [ -f "$TAR_GZ" ] && [ -f "$TAR_SIG" ]; then
   echo "=== Generating update manifest ==="
   SIGNATURE=$(cat "$TAR_SIG")
   PUB_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
   RELEASE_TAG="v${MAJOR}.${MINOR}.${BUILD}"
-  DOWNLOAD_URL="https://github.com/${RELEASE_REPO}/releases/download/${RELEASE_TAG}/MyClaudia.app.tar.gz"
+  DOWNLOAD_URL="https://github.com/${RELEASE_REPO}/releases/download/${RELEASE_TAG}/${TAR_GZ_NAME}"
 
   cat > "$BUNDLE_DIR/latest.json" << MANIFEST_EOF
 {
@@ -314,11 +345,7 @@ if [ -f "$TAR_GZ" ] && [ -f "$TAR_SIG" ]; then
   "notes": "MyClaudia ${VERSION}",
   "pub_date": "${PUB_DATE}",
   "platforms": {
-    "darwin-aarch64": {
-      "signature": "${SIGNATURE}",
-      "url": "${DOWNLOAD_URL}"
-    },
-    "darwin-x86_64": {
+    "darwin-${TAURI_ARCH}": {
       "signature": "${SIGNATURE}",
       "url": "${DOWNLOAD_URL}"
     }
@@ -340,8 +367,15 @@ MANIFEST_EOF
     # Create draft release (idempotent)
     gh release create "$TAG" --repo "$RELEASE_REPO" --title "MyClaudia $VERSION" --notes "MyClaudia $VERSION" --draft 2>/dev/null || true
 
-    # Upload artifacts (overwrite if exist)
-    UPLOAD_FILES=("$TAR_GZ" "$BUNDLE_DIR/latest.json")
+    # Upload artifacts (overwrite if exist). By default this script remains a
+    # self-contained release entrypoint and uploads latest.json itself.
+    # Dual-arch GitHub Actions builds set SKIP_LATEST_JSON_UPLOAD=1 and merge
+    # the per-arch manifests in a follow-up job.
+    UPLOAD_FILES=("$TAR_GZ")
+    [ -f "$TAR_SIG" ] && UPLOAD_FILES+=("$TAR_SIG")
+    if [ "${SKIP_LATEST_JSON_UPLOAD:-0}" != "1" ]; then
+      UPLOAD_FILES+=("$BUNDLE_DIR/latest.json")
+    fi
     [ -f "${VERSIONED_DMG:-}" ] && UPLOAD_FILES+=("$VERSIONED_DMG")
 
     gh release upload "$TAG" --repo "$RELEASE_REPO" "${UPLOAD_FILES[@]}" --clobber
