@@ -81,6 +81,7 @@ jobs:
       RELEASE_VERSION: ${{ needs.prepare-release.outputs.version }}
       RELEASE_BUILD: ${{ needs.prepare-release.outputs.build }}
       TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+      MACOS_CERT_P12_BASE64: ${{ secrets.MACOS_CERT_P12_BASE64 }}
       SKIP_SIGNING: ${{ secrets.MACOS_CERT_P12_BASE64 == '' && '1' || '0' }}
     steps:
       - name: Checkout
@@ -122,10 +123,9 @@ jobs:
           echo "TAURI_SIGNING_PRIVATE_KEY_PATH=$HOME/.tauri/my-claudia.key" >> "$GITHUB_ENV"
 
       - name: Import macOS signing certificate
-        if: ${{ secrets.MACOS_CERT_P12_BASE64 != '' }}
+        if: env.MACOS_CERT_P12_BASE64 != ''
         shell: bash
         env:
-          MACOS_CERT_P12_BASE64: ${{ secrets.MACOS_CERT_P12_BASE64 }}
           MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
           KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
         run: |
