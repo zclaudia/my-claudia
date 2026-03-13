@@ -36,38 +36,27 @@ if ($releaseVersion -and $releaseBuild) {
 }
 Write-Host ""
 
-# --- Install / update dependencies ---
-Write-Host "=== Installing dependencies ===" -ForegroundColor Cyan
-pnpm install
-Write-Host ""
-
-# --- Pre-build (shared + desktop frontend) ---
-# NOTE: server bundle is skipped on Windows — it bundles a Node sidecar with
-# native modules (better-sqlite3, node-pty) that require Unix build tools.
-# The Tauri config override clears beforeBuildCommand and the Windows app
-# connects to a remote server instead of embedding one.
+# --- Pre-build (shared + server) ---
 Write-Host "=== Building shared packages ===" -ForegroundColor Cyan
 $env:APP_VERSION = $env:VERSION
 pnpm -r run build
+if ($LASTEXITCODE -ne 0) {
+    Write-Error "Pre-build failed"
+    exit 1
+}
+pnpm --filter @my-claudia/server run bundle
+if ($LASTEXITCODE -ne 0) {
+    Write-Error "Server bundle failed"
+    exit 1
+}
 Write-Host ""
 
 # --- Build ---
 Write-Host "Building Windows desktop app..." -ForegroundColor Cyan
-# Write config to a temp file to avoid PowerShell JSON escaping issues
-$tauriConfig = @{
-    version = $env:VERSION
-    build = @{ beforeBuildCommand = "" }
-} | ConvertTo-Json -Compress
-$configFile = [System.IO.Path]::GetTempFileName()
-Set-Content -Path $configFile -Value $tauriConfig -Encoding UTF8
-try {
-    pnpm --filter @my-claudia/desktop exec tauri build --config $configFile
-    if ($LASTEXITCODE -ne 0) {
-        Write-Error "Tauri build failed"
-        exit 1
-    }
-} finally {
-    Remove-Item -Path $configFile -ErrorAction SilentlyContinue
+pnpm --filter @my-claudia/desktop exec tauri build --config "{""version"":""$env:VERSION"",""build"":{""beforeBuildCommand"":""""}}"
+if ($LASTEXITCODE -ne 0) {
+    Write-Error "Tauri build failed"
+    exit 1
 }
 
 $bundleDir = "apps\desktop\src-tauri\target\release\bundle"

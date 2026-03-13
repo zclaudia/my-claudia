@@ -286,6 +286,12 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            apps/desktop/src-tauri -> target
+
       - name: Build Windows installers
         shell: pwsh
         run: .\scripts\build\windows.ps1

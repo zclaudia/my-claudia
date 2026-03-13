@@ -450,8 +450,9 @@ console.log('  [3/4] Clean-room native module install');
 console.log('  [4/4] Verifying native modules');
 if (fs.existsSync(cacheBin)) {
   try {
+    const betterSqlite3Path = JSON.stringify(path.join(outDir, 'node_modules', 'better-sqlite3'));
     execSync(
-      `"${cacheBin}" -e "new (require('${outDir}/node_modules/better-sqlite3'))(':memory:').close()"`,
+      `"${cacheBin}" -e "new (require(${betterSqlite3Path}))(':memory:').close()"`,
       { stdio: 'pipe' },
     );
     console.log('    better-sqlite3: OK');
