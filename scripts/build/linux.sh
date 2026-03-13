@@ -93,7 +93,7 @@ echo ""
 echo "Building Linux desktop app..."
 # Use --bundles to skip AppImage (often fails in WSL2 without xdg-open)
 # Override beforeBuildCommand to empty since we already built above
-pnpm --filter @my-claudia/desktop exec tauri build --bundles deb,rpm --config "{\"version\":\"$VERSION\",\"build\":{\"beforeBuildCommand\":\"\"}}" || {
+pnpm --filter @my-claudia/desktop exec tauri build --bundles deb,rpm --config "{\"version\":\"$VERSION\",\"build\":{\"beforeBuildCommand\":\"\"},\"bundle\":{\"createUpdaterArtifacts\":false}}" || {
   echo "ERROR: Tauri build failed"
   exit 1
 }

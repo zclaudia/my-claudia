@@ -199,6 +199,12 @@ if [ "$INSTALL_ONLY" = false ]; then
   echo "=== Installing dependencies ==="
   pnpm install
   echo ""
+
+  # --- Pre-build (shared + desktop frontend) ---
+  echo "=== Building shared packages ==="
+  export APP_VERSION="${VERSION:-0.0.0}"
+  pnpm -r run build
+  echo ""
 fi
 
 # --- Patch Android build.gradle.kts (fix duplicate libc++_shared.so) ---
@@ -234,7 +240,7 @@ if [ "$INSTALL_ONLY" = false ]; then
   # Android doesn't use embedded server — override tauri config to skip
   # sidecar binaries, server bundle resources, and server bundle step.
   # Also inject version so no files need to be modified.
-  pnpm tauri android build --apk --config "{\"version\":\"${VERSION:-0.0.0}\",\"build\":{\"beforeBuildCommand\":\"pnpm build\"},\"bundle\":{\"externalBin\":[],\"resources\":null}}" || {
+  pnpm tauri android build --apk --config "{\"version\":\"${VERSION:-0.0.0}\",\"build\":{\"beforeBuildCommand\":\"\"},\"bundle\":{\"externalBin\":[],\"resources\":null}}" || {
     echo "ERROR: Tauri Android build failed"
     exit 1
   }
