@@ -36,9 +36,22 @@ if ($releaseVersion -and $releaseBuild) {
 }
 Write-Host ""
 
+# --- Install / update dependencies ---
+Write-Host "=== Installing dependencies ===" -ForegroundColor Cyan
+pnpm install
+Write-Host ""
+
+# --- Pre-build (shared + server) ---
+Write-Host "=== Building shared packages ===" -ForegroundColor Cyan
+$env:APP_VERSION = $env:VERSION
+pnpm -r run build
+pnpm --filter @my-claudia/server run bundle
+Write-Host ""
+
 # --- Build ---
 Write-Host "Building Windows desktop app..." -ForegroundColor Cyan
-pnpm --filter @my-claudia/desktop exec tauri build --config "{\"version\":\"$env:VERSION\"}"
+$tauriConfig = '{"version":"' + $env:VERSION + '","build":{"beforeBuildCommand":""}}'
+pnpm --filter @my-claudia/desktop exec tauri build --config $tauriConfig
 
 $bundleDir = "apps\desktop\src-tauri\target\release\bundle"
 Write-Host ""

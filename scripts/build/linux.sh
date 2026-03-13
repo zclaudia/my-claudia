@@ -77,10 +77,23 @@ else
 fi
 echo ""
 
+# --- Install / update dependencies ---
+echo "=== Installing dependencies ==="
+pnpm install
+echo ""
+
+# --- Pre-build (shared + server) ---
+echo "=== Building shared packages ==="
+export APP_VERSION="$VERSION"
+pnpm -r run build
+pnpm --filter @my-claudia/server run bundle
+echo ""
+
 # --- Build ---
 echo "Building Linux desktop app..."
 # Use --bundles to skip AppImage (often fails in WSL2 without xdg-open)
-pnpm --filter @my-claudia/desktop exec tauri build --bundles deb,rpm --config "{\"version\":\"$VERSION\"}" || {
+# Override beforeBuildCommand to empty since we already built above
+pnpm --filter @my-claudia/desktop exec tauri build --bundles deb,rpm --config "{\"version\":\"$VERSION\",\"build\":{\"beforeBuildCommand\":\"\"}}" || {
   echo "ERROR: Tauri build failed"
   exit 1
 }
