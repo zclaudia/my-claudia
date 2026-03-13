@@ -1,4 +1,5 @@
 # Build Windows desktop app (MSI + NSIS)
+# Windows version is UI-only (no embedded server) — connects to WSL or remote server
 # Requires: Rust, Node.js, pnpm, Visual Studio Build Tools (MSVC)
 # Run in PowerShell from the project root
 
@@ -36,7 +37,7 @@ if ($releaseVersion -and $releaseBuild) {
 }
 Write-Host ""
 
-# --- Pre-build (shared + server) ---
+# --- Pre-build (shared + desktop frontend only, no server bundle) ---
 Write-Host "=== Building shared packages ===" -ForegroundColor Cyan
 $env:APP_VERSION = $env:VERSION
 pnpm -r run build
@@ -44,23 +45,20 @@ if ($LASTEXITCODE -ne 0) {
     Write-Error "Pre-build failed"
     exit 1
 }
-pnpm --filter @my-claudia/server run bundle
-if ($LASTEXITCODE -ne 0) {
-    Write-Error "Server bundle failed"
-    exit 1
-}
 Write-Host ""
 
 # --- Build ---
-Write-Host "Building Windows desktop app..." -ForegroundColor Cyan
-$tauriConfig = @{
-    version = $env:VERSION
-    build = @{ beforeBuildCommand = "" }
-} | ConvertTo-Json -Compress
+# Windows: UI-only build — no server bundle, no node sidecar, no server resources
+Write-Host "Building Windows desktop app (UI-only)..." -ForegroundColor Cyan
+# Build JSON config manually to ensure correct null/empty values
+# resources: null clears the server bundle resource mapping
+# externalBin: [] removes the node sidecar requirement
+$tauriConfig = '{"version":"' + $env:VERSION + '","build":{"beforeBuildCommand":""},"bundle":{"resources":null,"externalBin":[]}}'
 $configFile = [System.IO.Path]::GetTempFileName()
 Set-Content -Path $configFile -Value $tauriConfig -Encoding UTF8
+Write-Host "Tauri config override: $tauriConfig"
 try {
-    pnpm --filter @my-claudia/desktop exec tauri build --config $configFile
+    pnpm --filter @my-claudia/desktop run tauri:build -- --config $configFile
     if ($LASTEXITCODE -ne 0) {
         Write-Error "Tauri build failed"
         exit 1

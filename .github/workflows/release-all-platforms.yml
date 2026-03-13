@@ -210,7 +210,6 @@ jobs:
             --clobber
 
   build-windows:
-    if: false  # Temporarily disabled — Windows build needs further debugging
     needs: prepare-release
     runs-on: windows-2022
     timeout-minutes: 60

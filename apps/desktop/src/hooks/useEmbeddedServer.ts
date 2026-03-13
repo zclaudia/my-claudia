@@ -13,14 +13,16 @@ interface EmbeddedServerState {
 }
 
 /**
- * Detect if we're running inside a Tauri desktop app (not Android/mobile).
+ * Detect if we're running inside a Tauri desktop app (not Android/mobile/Windows).
  * On mobile, the shell spawn capability isn't available.
+ * On Windows, the app runs as UI-only — server runs in WSL or remotely.
  */
 function isDesktopTauri(): boolean {
   return (
     typeof window !== 'undefined' &&
     '__TAURI_INTERNALS__' in window &&
-    !navigator.userAgent.includes('Android')
+    !navigator.userAgent.includes('Android') &&
+    !navigator.userAgent.includes('Windows')
   );
 }
 
