@@ -53,10 +53,20 @@ Write-Host ""
 
 # --- Build ---
 Write-Host "Building Windows desktop app..." -ForegroundColor Cyan
-pnpm --filter @my-claudia/desktop exec tauri build --config "{""version"":""$env:VERSION"",""build"":{""beforeBuildCommand"":""""}}"
-if ($LASTEXITCODE -ne 0) {
-    Write-Error "Tauri build failed"
-    exit 1
+$tauriConfig = @{
+    version = $env:VERSION
+    build = @{ beforeBuildCommand = "" }
+} | ConvertTo-Json -Compress
+$configFile = [System.IO.Path]::GetTempFileName()
+Set-Content -Path $configFile -Value $tauriConfig -Encoding UTF8
+try {
+    pnpm --filter @my-claudia/desktop exec tauri build --config $configFile
+    if ($LASTEXITCODE -ne 0) {
+        Write-Error "Tauri build failed"
+        exit 1
+    }
+} finally {
+    Remove-Item -Path $configFile -ErrorAction SilentlyContinue
 }
 
 $bundleDir = "apps\desktop\src-tauri\target\release\bundle"
