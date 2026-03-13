@@ -224,6 +224,7 @@ export async function createSession(data: {
   providerId?: string;
   type?: 'regular' | 'background';
   parentSessionId?: string;
+  workingDirectory?: string;
 }): Promise<Session> {
   const result = await fetchApi<Session>('/api/sessions', {
     method: 'POST',

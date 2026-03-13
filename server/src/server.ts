@@ -67,7 +67,7 @@ import { extractAndIndexMetadata, removeIndexedMetadata } from './storage/metada
 import { TerminalManager } from './terminal-manager.js';
 import { generateKeyPair, getPublicKeyPem, decryptCredential } from './utils/crypto.js';
 import { getSdkVersionReport } from './utils/sdk-version-check.js';
-import { getGatewayClientMode } from './gateway-instance.js';
+import { getGatewayClient, getGatewayClientMode } from './gateway-instance.js';
 import { generateToolSignature, detectLoop } from './loop-detection.js';
 import { pluginEvents } from './events/index.js';
 import { pluginLoader } from './plugins/loader.js';
@@ -104,6 +104,24 @@ const PERMISSION_TIMEOUT_POLICIES: Map<string, {
 ]);
 
 const MAX_SESSION_RESET_RETRIES = 1;
+
+function normalizeSessionWorkingDirectory(
+  workingDirectory: string | null | undefined,
+  rootPath: string | null | undefined,
+): string | null {
+  const normalize = (value: string | null | undefined): string | null => {
+    if (!value) return null;
+    return path.normalize(value);
+  };
+
+  const normalizedWorkingDirectory = normalize(workingDirectory);
+  const normalizedRootPath = normalize(rootPath);
+
+  if (!normalizedWorkingDirectory) return null;
+  if (normalizedRootPath && normalizedWorkingDirectory === normalizedRootPath) return null;
+
+  return normalizedWorkingDirectory;
+}
 
 // Check if input is a slash command
 function isSlashCommand(input: string): boolean {
@@ -273,6 +291,20 @@ function formatProviderErrorMessage(raw: string, providerType?: string): string 
 
   if (!isLimitLike) return msg || 'Unknown error';
   return `${provider} request limit reached. Please wait and retry, or switch account/model. (${msg})`;
+}
+
+function isHardQuotaExceededError(raw: string): boolean {
+  const lower = raw.toLowerCase();
+  return (
+    lower.includes('insufficient_quota') ||
+    lower.includes('quota exceeded') ||
+    lower.includes('billing hard limit') ||
+    lower.includes('billing limit') ||
+    lower.includes('usage limit reached') ||
+    lower.includes('credit balance') ||
+    lower.includes('subscription quota') ||
+    lower.includes('monthly limit reached')
+  );
 }
 
 // Commands that can be handled using system info from init message
@@ -1436,7 +1468,7 @@ async function handleClientMessage(
       break;
 
     case 'run_start':
-      await handleRunStart(client, message, db);
+      await handleRunStart(client, message, db, {}, clients);
       break;
 
     case 'run_cancel':
@@ -1528,7 +1560,8 @@ async function handleRunStart(
     resend?: boolean;  // True when resending — skip inserting duplicate user message
   },
   db: ReturnType<typeof initDatabase>,
-  recoveryState: { sessionResetRetryCount?: number } = {}
+  recoveryState: { sessionResetRetryCount?: number } = {},
+  clients?: Map<string, ConnectedClient>,
 ): Promise<void> {
   const runId = uuidv4();
 
@@ -1663,7 +1696,7 @@ async function handleRunStart(
   // Send run started (include real DB message IDs for client-side dedup)
   const sendRunEvent = (event: ServerMessage) => {
     sendMessage(client.ws, event);
-    broadcastToOtherAuthenticatedClients(clients, client.id, event);
+    if (clients) broadcastToOtherAuthenticatedClients(clients, client.id, event);
   };
 
   sendRunEvent({
@@ -1695,6 +1728,42 @@ async function handleRunStart(
   }
 
   let sdkSessionId = session.sdk_session_id || undefined;
+  let persistedWorkingDirectory = normalizeSessionWorkingDirectory(session.working_directory, session.root_path);
+
+  const persistSessionWorkingDirectory = (nextWorkingDirectory: string | null | undefined) => {
+    const normalizedNext = normalizeSessionWorkingDirectory(nextWorkingDirectory, session.root_path);
+    if (normalizedNext === persistedWorkingDirectory) return;
+
+    const now = Date.now();
+    db.prepare(`
+      UPDATE sessions
+      SET working_directory = ?, updated_at = ?
+      WHERE id = ?
+    `).run(normalizedNext, now, message.sessionId);
+
+    persistedWorkingDirectory = normalizedNext;
+
+    const gatewayClient = getGatewayClient();
+    if (!gatewayClient) return;
+
+    const updatedSession = db.prepare(`
+      SELECT s.id, s.project_id as projectId, s.name, s.provider_id as providerId,
+             s.sdk_session_id as sdkSessionId, s.type, s.parent_session_id as parentSessionId,
+             s.working_directory as workingDirectory,
+             s.archived_at as archivedAt,
+             s.project_role as projectRole, s.task_id as taskId,
+             s.plan_status as planStatus,
+             s.last_run_status as lastRunStatus,
+             CASE WHEN s.is_read_only = 1 THEN 1 ELSE NULL END as isReadOnly,
+             s.created_at as createdAt, s.updated_at as updatedAt
+      FROM sessions s
+      WHERE s.id = ?
+    `).get(message.sessionId);
+
+    if (updatedSession) {
+      gatewayClient.broadcastSessionEvent('updated', updatedSession);
+    }
+  };
 
   try {
     // Priority: message override > session working_directory > project root_path > fallback
@@ -1717,6 +1786,9 @@ async function handleRunStart(
       activeRuns.delete(runId);
       return;
     }
+
+    persistSessionWorkingDirectory(cwd);
+
     let systemInfo: SystemInfo | undefined;
 
     // Process @ mentions - convert file references to context hints
@@ -2034,6 +2106,7 @@ async function handleRunStart(
           if (msg.systemInfo) {
             systemInfo = msg.systemInfo;
             activeRun.latestSystemInfo = msg.systemInfo;
+            persistSessionWorkingDirectory(msg.systemInfo.cwd);
             // Send system info to client for display
             sendMessage(client.ws, {
               type: 'system_info',
@@ -2382,7 +2455,8 @@ async function handleRunStart(
     if (
       errMsg.includes('process exited with code') &&
       sdkSessionId &&
-      sessionResetRetryCount < MAX_SESSION_RESET_RETRIES
+      sessionResetRetryCount < MAX_SESSION_RESET_RETRIES &&
+      !isHardQuotaExceededError(errMsg)
     ) {
       console.log(`[Recovery] Auto-resetting corrupted sdk_session_id ${sdkSessionId} for session ${message.sessionId}`);
       db.prepare(`UPDATE sessions SET sdk_session_id = NULL, updated_at = ? WHERE id = ?`)
@@ -2411,7 +2485,8 @@ async function handleRunStart(
           client,
           { ...message, resend: true },
           db,
-          { sessionResetRetryCount: sessionResetRetryCount + 1 }
+          { sessionResetRetryCount: sessionResetRetryCount + 1 },
+          clients,
         );
         return; // retry succeeded — skip the error path below
       } catch (retryError) {

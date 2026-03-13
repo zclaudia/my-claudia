@@ -302,7 +302,8 @@ export function createSessionRoutes(db: Database.Database, activeRuns: ActiveRun
   // Create session
   router.post('/', (req: Request, res: Response) => {
     try {
-      const { projectId, name, providerId, type, parentSessionId } = req.body;
+      const { projectId, name, providerId, type, parentSessionId, workingDirectory } = req.body;
+      const fs = require('fs');
 
       if (!projectId) {
         res.status(400).json({
@@ -322,15 +323,23 @@ export function createSessionRoutes(db: Database.Database, activeRuns: ActiveRun
         return;
       }
 
+      if (workingDirectory && !fs.existsSync(workingDirectory)) {
+        res.status(400).json({
+          success: false,
+          error: { code: 'VALIDATION_ERROR', message: 'Working directory does not exist' }
+        });
+        return;
+      }
+
       const sessionType = type === 'background' ? 'background' : 'regular';
 
       const id = uuidv4();
       const now = Date.now();
 
       db.prepare(`
-        INSERT INTO sessions (id, project_id, name, provider_id, type, parent_session_id, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(id, projectId, name || null, providerId || null, sessionType, parentSessionId || null, now, now);
+        INSERT INTO sessions (id, project_id, name, provider_id, type, parent_session_id, working_directory, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(id, projectId, name || null, providerId || null, sessionType, parentSessionId || null, workingDirectory || null, now, now);
 
       const session: Session = {
         id,
@@ -339,6 +348,7 @@ export function createSessionRoutes(db: Database.Database, activeRuns: ActiveRun
         providerId,
         type: sessionType,
         parentSessionId: parentSessionId || undefined,
+        workingDirectory: workingDirectory || undefined,
         createdAt: now,
         updatedAt: now
       };

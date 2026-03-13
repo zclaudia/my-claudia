@@ -128,17 +128,29 @@ interface PreparedInput {
 
 const MAX_AUTO_RETRIES = 2;
 
+function isHardQuotaExceededError(errorMessage: string): boolean {
+  const msg = errorMessage.toLowerCase();
+  return (
+    msg.includes('insufficient_quota') ||
+    msg.includes('quota exceeded') ||
+    msg.includes('billing hard limit') ||
+    msg.includes('billing limit') ||
+    msg.includes('usage limit reached') ||
+    msg.includes('credit balance') ||
+    msg.includes('subscription quota') ||
+    msg.includes('monthly limit reached')
+  );
+}
+
 function isRetryableLimitError(errorMessage: string): boolean {
+  if (isHardQuotaExceededError(errorMessage)) return false;
   const msg = errorMessage.toLowerCase();
   return (
     msg.includes('rate limit') ||
     msg.includes('ratelimit') ||
     msg.includes('too many requests') ||
     msg.includes('429') ||
-    msg.includes('insufficient_quota') ||
-    msg.includes('quota') ||
-    msg.includes('usage limit') ||
-    msg.includes('billing')
+    msg.includes('retry-after')
   );
 }
 
