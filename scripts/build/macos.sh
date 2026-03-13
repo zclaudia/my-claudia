@@ -277,9 +277,15 @@ if [ "${SKIP_SIGNING:-}" != "1" ]; then
     DMG_DIR="$BUNDLE_DIR/dmg"
     # Remove old DMG files
     find "$DMG_DIR" -name '*.dmg' -delete 2>/dev/null || true
-    # Detach any stale mounts
-    STALE_DISKS=$(hdiutil info 2>/dev/null | grep -A20 "image-path.*$BUNDLE_DIR" | grep '/dev/disk' | awk '{print $1}' | grep -o '/dev/disk[0-9]*' | sort -u || true)
-    for disk in $STALE_DISKS; do
+    # Remove temp read-write DMG images from Tauri's bundle_dmg.sh
+    find "$BUNDLE_DIR/macos" -name 'rw.*.dmg' -delete 2>/dev/null || true
+    # Detach ALL mounted volumes named "MyClaudia"
+    for disk in $(hdiutil info 2>/dev/null | grep -B20 '/Volumes/MyClaudia' | grep '/dev/disk' | awk '{print $1}' | grep -o '/dev/disk[0-9]*' | sort -u); do
+      echo "  Detaching stale mount: $disk"
+      hdiutil detach "$disk" -force 2>/dev/null || true
+    done
+    # Also detach any mounts referencing our bundle dir
+    for disk in $(hdiutil info 2>/dev/null | grep -A20 "image-path.*$BUNDLE_DIR" | grep '/dev/disk' | awk '{print $1}' | grep -o '/dev/disk[0-9]*' | sort -u); do
       hdiutil detach "$disk" -force 2>/dev/null || true
     done
     # Create new DMG
