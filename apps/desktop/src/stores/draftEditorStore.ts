@@ -238,7 +238,7 @@ export const useDraftEditorStore = create<DraftEditorState>((set, get) => ({
 
     if (activeSessionId) {
       try {
-        await api.archiveSessionDraft(activeSessionId);
+        await api.deleteSessionDraft(activeSessionId);
       } catch (error) {
         console.error('[DraftEditor] Failed to discard draft:', error);
       }

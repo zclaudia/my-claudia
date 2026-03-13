@@ -36,6 +36,43 @@ function extractThinking(text: string): { thinking: string; content: string } {
   return { thinking: parts.join('\n\n'), content };
 }
 
+export function normalizeMarkdownForRender(content: string): string {
+  const normalized = content.replace(/\r\n/g, '\n');
+  const fenceCount = (normalized.match(/^```/gm) || []).length;
+  if (fenceCount % 2 === 1) {
+    return `${normalized}\n\`\`\``;
+  }
+  return normalized;
+}
+
+function hasLikelyGfmTable(content: string): boolean {
+  const lines = content.replace(/\r\n/g, '\n').split('\n');
+  for (let i = 0; i < lines.length - 1; i++) {
+    const header = lines[i].trim();
+    const separator = lines[i + 1].trim();
+    if (!header.includes('|')) continue;
+    if (/^\|?(\s*:?-{3,}:?\s*\|)+\s*:?-{3,}:?\s*\|?$/.test(separator)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function logSuspiciousMarkdownRender(original: string, normalized: string): void {
+  const unbalancedFence = original !== normalized;
+  const tableSyntax = hasLikelyGfmTable(original);
+  if (!unbalancedFence && !tableSyntax) return;
+
+  const tail = original.slice(-400);
+  console.info('[MarkdownRender]', {
+    unbalancedFence,
+    tableSyntax,
+    originalLength: original.length,
+    normalizedLength: normalized.length,
+    tailPreview: tail,
+  });
+}
+
 /** Number of preview lines shown when collapsed */
 const THINKING_PREVIEW_LINES = 2;
 
@@ -755,6 +792,12 @@ const MessageItem = memo(function MessageItem({ message, streamingContentBlocks,
 
 /** Renders assistant message markdown (thinking blocks already extracted at MessageItem level) */
 const AssistantContent = memo(function AssistantContent({ content }: { content: string }) {
+  const normalizedContent = useMemo(() => normalizeMarkdownForRender(content), [content]);
+
+  useEffect(() => {
+    logSuspiciousMarkdownRender(content, normalizedContent);
+  }, [content, normalizedContent]);
+
   return (
     <>
       <div className="prose dark:prose-invert prose-sm max-w-none min-w-0">
@@ -807,14 +850,14 @@ const AssistantContent = memo(function AssistantContent({ content }: { content: 
             },
             th({ children }) {
               return (
-                <th className="border border-border px-3 py-2 bg-secondary text-left align-top whitespace-nowrap">
+                <th className="border border-border px-3 py-2 bg-secondary text-left align-top whitespace-pre-wrap break-words">
                   {children}
                 </th>
               );
             },
             td({ children }) {
               return (
-                <td className="border border-border px-3 py-2 align-top whitespace-nowrap">
+                <td className="border border-border px-3 py-2 align-top whitespace-pre-wrap break-words">
                   {children}
                 </td>
               );
@@ -827,7 +870,7 @@ const AssistantContent = memo(function AssistantContent({ content }: { content: 
             },
           }}
         >
-          {content}
+          {normalizedContent}
         </ReactMarkdown>
       </div>
     </>

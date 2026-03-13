@@ -20,6 +20,14 @@ export class SessionDraftRepository {
     };
   }
 
+  private findAnyBySessionId(sessionId: string): SessionDraft | null {
+    const row = this.db.prepare(`
+      SELECT * FROM session_drafts
+      WHERE session_id = ?
+    `).get(sessionId);
+    return row ? this.mapRow(row) : null;
+  }
+
   /**
    * Find active (non-archived) draft by session ID
    */
@@ -61,6 +69,16 @@ export class SessionDraftRepository {
       `).run(content, deviceId || existing.editingBy || null, deviceId ? now : existing.editingAt || null, now, existing.id);
       return this.findBySessionId(sessionId)!;
     } else {
+      const archived = this.findAnyBySessionId(sessionId);
+      if (archived) {
+        this.db.prepare(`
+          UPDATE session_drafts
+          SET content = ?, editing_by = ?, editing_at = ?, updated_at = ?, archived_at = NULL
+          WHERE id = ?
+        `).run(content, deviceId || null, deviceId ? now : null, now, archived.id);
+        return this.findBySessionId(sessionId)!;
+      }
+
       const id = uuidv4();
       this.db.prepare(`
         INSERT INTO session_drafts (id, session_id, content, editing_by, editing_at, updated_at)

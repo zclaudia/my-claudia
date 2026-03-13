@@ -406,6 +406,15 @@ export async function archiveSessionDraft(sessionId: string): Promise<void> {
   }
 }
 
+export async function deleteSessionDraft(sessionId: string): Promise<void> {
+  const result = await fetchApi(`/api/sessions/${sessionId}/draft`, {
+    method: 'DELETE',
+  });
+  if (!result.success) {
+    throw new Error(result.error?.message || 'Failed to delete draft');
+  }
+}
+
 interface PaginationInfo {
   total: number;
   hasMore: boolean;

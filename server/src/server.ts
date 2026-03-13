@@ -1166,6 +1166,19 @@ function sendMessage(ws: WebSocket, message: ServerMessage): void {
   }
 }
 
+function broadcastToOtherAuthenticatedClients(
+  clients: Map<string, ConnectedClient>,
+  originClientId: string,
+  message: ServerMessage,
+): void {
+  clients.forEach((client) => {
+    if (!client.authenticated || client.id === originClientId) {
+      return;
+    }
+    sendMessage(client.ws, message);
+  });
+}
+
 function buildStateHeartbeat(): StateHeartbeatMessage {
   const runs: StateHeartbeatMessage['activeRuns'] = [];
   const permissions: StateHeartbeatMessage['pendingPermissions'] = [];
@@ -1648,7 +1661,12 @@ async function handleRunStart(
   }
 
   // Send run started (include real DB message IDs for client-side dedup)
-  sendMessage(client.ws, {
+  const sendRunEvent = (event: ServerMessage) => {
+    sendMessage(client.ws, event);
+    broadcastToOtherAuthenticatedClients(clients, client.id, event);
+  };
+
+  sendRunEvent({
     type: 'run_started',
     runId,
     sessionId: message.sessionId,
@@ -2043,7 +2061,7 @@ async function handleRunStart(
             // Store session ID for provider abort support
             activeRun.providerSessionId = sdkSessionId;
 
-            sendMessage(client.ws, {
+            sendRunEvent({
               type: 'session_created',
               sessionId: message.sessionId,
               sdkSessionId: msg.sessionId
@@ -2061,7 +2079,7 @@ async function handleRunStart(
             } else {
               activeRun.contentBlocks.push({ type: 'text', content: msg.content });
             }
-            sendMessage(client.ws, {
+            sendRunEvent({
               type: 'delta',
               runId,
               sessionId: activeRun.sessionId,
@@ -2094,7 +2112,7 @@ async function handleRunStart(
           });
           // Track content blocks for segmented rendering
           activeRun.contentBlocks.push({ type: 'tool_use', toolUseId: msg.toolUseId || '' });
-          sendMessage(client.ws, {
+          sendRunEvent({
             type: 'tool_use',
             runId,
             sessionId: activeRun.sessionId,
@@ -2122,7 +2140,7 @@ async function handleRunStart(
             collected.output = msg.toolResult;
             collected.isError = msg.isToolError || false;
           }
-          sendMessage(client.ws, {
+          sendRunEvent({
             type: 'tool_result',
             runId,
             sessionId: activeRun.sessionId,
@@ -2142,14 +2160,14 @@ async function handleRunStart(
           // Claude-specific: sync plan mode state to client
           if (activeRun.providerType === 'claude' && !msg.isToolError) {
             if (toolName === 'EnterPlanMode') {
-              sendMessage(client.ws, { type: 'mode_change', runId, sessionId: activeRun.sessionId, mode: 'plan' });
+              sendRunEvent({ type: 'mode_change', runId, sessionId: activeRun.sessionId, mode: 'plan' });
               // Track AI-initiated plan mode (only when the run didn't start in plan mode)
               if (modeValue !== 'plan') {
                 activeRun.aiInitiatedPlanMode = true;
                 console.log(`[Permission] AI entered plan mode during ${modeValue} run — ExitPlanMode will auto-approve`);
               }
             } else if (toolName === 'ExitPlanMode') {
-              sendMessage(client.ws, { type: 'mode_change', runId, sessionId: activeRun.sessionId, mode: 'default' });
+              sendRunEvent({ type: 'mode_change', runId, sessionId: activeRun.sessionId, mode: 'default' });
               activeRun.aiInitiatedPlanMode = false;
             }
           }
@@ -2162,7 +2180,7 @@ async function handleRunStart(
             .reverse()
             .find(tc => tc.name === 'Agent' && !tc.output)?.toolUseId;
           if (lastAgentToolUseId && msg.content) {
-            sendMessage(client.ws, {
+            sendRunEvent({
               type: 'tool_activity',
               runId,
               sessionId: activeRun.sessionId,
@@ -2180,7 +2198,7 @@ async function handleRunStart(
             activeRun.fullContent = msg.content;
             // Non-streaming fallback: build content block for the full response
             activeRun.contentBlocks.push({ type: 'text', content: msg.content });
-            sendMessage(client.ws, {
+            sendRunEvent({
               type: 'delta',
               runId,
               sessionId: activeRun.sessionId,
@@ -2195,7 +2213,7 @@ async function handleRunStart(
             const statusOutput = buildStatusOutput(systemInfo);
             if (statusOutput) {
               activeRun.fullContent = statusOutput;
-              sendMessage(client.ws, {
+              sendRunEvent({
                 type: 'delta',
                 runId,
                 sessionId: activeRun.sessionId,
@@ -2214,7 +2232,7 @@ async function handleRunStart(
             const fallback = 'Task execution completed, but the provider did not return a final visible text response. Send "summarize the result" to get a structured conclusion.';
             activeRun.fullContent = fallback;
             activeRun.contentBlocks.push({ type: 'text', content: fallback });
-            sendMessage(client.ws, {
+            sendRunEvent({
               type: 'delta',
               runId,
               sessionId: activeRun.sessionId,
@@ -2236,7 +2254,7 @@ async function handleRunStart(
               const warning = '\n\n⚠️ *The model appeared to stop mid-thought without producing a response. This may be caused by output token limits or provider compatibility issues. Try sending "continue" or starting a new session.*';
               activeRun.fullContent += warning;
               activeRun.contentBlocks.push({ type: 'text', content: warning });
-              sendMessage(client.ws, {
+              sendRunEvent({
                 type: 'delta',
                 runId,
                 sessionId: activeRun.sessionId,
@@ -2255,7 +2273,7 @@ async function handleRunStart(
             // Early run_completed was already sent (background task triggered it).
             // Send usage info separately so the client can update token counts.
             if (msg.usage) {
-              sendMessage(client.ws, {
+              sendRunEvent({
                 type: 'run_completed',
                 runId,
                 sessionId: activeRun.sessionId,
@@ -2264,7 +2282,7 @@ async function handleRunStart(
             }
             console.log(`[Result] Run ${runId} already completed (early completion), sending final usage`);
           } else {
-            sendMessage(client.ws, {
+            sendRunEvent({
               type: 'run_completed',
               runId,
               sessionId: activeRun.sessionId,
@@ -2309,7 +2327,7 @@ async function handleRunStart(
             } catch (saveErr) {
               console.error(`[Error Save] Failed for run ${runId}:`, saveErr);
             }
-            sendMessage(client.ws, {
+            sendRunEvent({
               type: 'run_failed',
               runId,
               sessionId: activeRun.sessionId,
@@ -2340,7 +2358,7 @@ async function handleRunStart(
           // mark the parent run complete here. Newer provider/SDK versions can emit
           // task notifications while the parent run is still logically active.
           console.log(`[Task Notification] taskId=${msg.taskId} status=${msg.taskStatus} message=${msg.taskMessage}`);
-          sendMessage(client.ws, {
+          sendRunEvent({
             type: 'task_notification',
             runId,
             sessionId: activeRun.sessionId,
@@ -2372,7 +2390,7 @@ async function handleRunStart(
 
       // Notify the user visually that a reset is happening
       const resetNotice = `⚠️ Claude session crashed (corrupted underlying session \`${sdkSessionId.slice(0, 8)}…\`). Resetting session and retrying automatically…`;
-      sendMessage(client.ws, {
+      sendRunEvent({
         type: 'delta',
         runId,
         sessionId: activeRun.sessionId,
@@ -2408,7 +2426,7 @@ async function handleRunStart(
     } catch (saveErr) {
       console.error(`[Error Save] Failed for run ${runId}:`, saveErr);
     }
-    sendMessage(client.ws, {
+    sendRunEvent({
       type: 'run_failed',
       runId,
       sessionId: activeRun.sessionId,

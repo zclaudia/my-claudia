@@ -7,6 +7,23 @@ export function createSessionDraftRoutes(db: Database.Database): Router {
   const router = Router();
   const repo = new SessionDraftRepository(db);
 
+  function sessionExists(sessionId: string): boolean {
+    const row = db.prepare('SELECT 1 FROM sessions WHERE id = ?').get(sessionId) as { 1: number } | undefined;
+    return !!row;
+  }
+
+  function ensureSessionExists(req: Request, res: Response): boolean {
+    if (sessionExists(req.params.id)) {
+      return true;
+    }
+
+    res.status(404).json({
+      success: false,
+      error: { code: 'NOT_FOUND', message: 'Session not found' },
+    });
+    return false;
+  }
+
   // GET /api/sessions/:id/draft - Get active draft for session
   router.get('/:id/draft', (req: Request, res: Response) => {
     try {
@@ -20,9 +37,16 @@ export function createSessionDraftRoutes(db: Database.Database): Router {
   // PUT /api/sessions/:id/draft - Create or update draft content
   router.put('/:id/draft', (req: Request, res: Response) => {
     try {
-      const { content, deviceId } = req.body;
+      if (!ensureSessionExists(req, res)) {
+        return;
+      }
+
+      const { content, deviceId } = req.body ?? {};
       if (typeof content !== 'string') {
-        res.status(400).json({ success: false, error: 'content is required' });
+        res.status(400).json({
+          success: false,
+          error: { code: 'VALIDATION_ERROR', message: 'content is required' },
+        });
         return;
       }
 
@@ -41,9 +65,16 @@ export function createSessionDraftRoutes(db: Database.Database): Router {
   // POST /api/sessions/:id/draft/lock - Acquire edit lock
   router.post('/:id/draft/lock', (req: Request, res: Response) => {
     try {
-      const { deviceId, force } = req.body;
+      if (!ensureSessionExists(req, res)) {
+        return;
+      }
+
+      const { deviceId, force } = req.body ?? {};
       if (!deviceId) {
-        res.status(400).json({ success: false, error: 'deviceId is required' });
+        res.status(400).json({
+          success: false,
+          error: { code: 'VALIDATION_ERROR', message: 'deviceId is required' },
+        });
         return;
       }
 
@@ -62,9 +93,16 @@ export function createSessionDraftRoutes(db: Database.Database): Router {
   // POST /api/sessions/:id/draft/unlock - Release edit lock
   router.post('/:id/draft/unlock', (req: Request, res: Response) => {
     try {
-      const { deviceId } = req.body;
+      if (!ensureSessionExists(req, res)) {
+        return;
+      }
+
+      const { deviceId } = req.body ?? {};
       if (!deviceId) {
-        res.status(400).json({ success: false, error: 'deviceId is required' });
+        res.status(400).json({
+          success: false,
+          error: { code: 'VALIDATION_ERROR', message: 'deviceId is required' },
+        });
         return;
       }
 
@@ -78,6 +116,10 @@ export function createSessionDraftRoutes(db: Database.Database): Router {
   // POST /api/sessions/:id/draft/archive - Archive draft
   router.post('/:id/draft/archive', (_req: Request, res: Response) => {
     try {
+      if (!ensureSessionExists(_req, res)) {
+        return;
+      }
+
       const draft = repo.archive(_req.params.id);
       if (!draft) {
         res.status(404).json({ success: false, error: 'No active draft found' });
@@ -92,6 +134,10 @@ export function createSessionDraftRoutes(db: Database.Database): Router {
   // DELETE /api/sessions/:id/draft - Hard delete draft
   router.delete('/:id/draft', (req: Request, res: Response) => {
     try {
+      if (!ensureSessionExists(req, res)) {
+        return;
+      }
+
       const deleted = repo.delete(req.params.id);
       if (!deleted) {
         res.status(404).json({ success: false, error: 'No draft found' });

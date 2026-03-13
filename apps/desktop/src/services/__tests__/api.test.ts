@@ -9,6 +9,7 @@ import {
   updateSession,
   deleteSession,
   getSessionMessages,
+  deleteSessionDraft,
   getProviders,
   createProvider,
   updateProvider,
@@ -229,6 +230,17 @@ describe('api', () => {
       expect(mockFetch).toHaveBeenCalledWith(
         expect.stringContaining('after=500'),
         expect.any(Object)
+      );
+    });
+
+    it('deleteSessionDraft deletes the draft', async () => {
+      mockResponse(undefined);
+
+      await deleteSessionDraft('s1');
+
+      expect(mockFetch).toHaveBeenCalledWith(
+        'http://localhost:3100/api/sessions/s1/draft',
+        expect.objectContaining({ method: 'DELETE' })
       );
     });
   });
