@@ -1,0 +1,367 @@
+name: Release All Platforms
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-all-platforms
+  cancel-in-progress: false
+
+jobs:
+  prepare-release:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      build: ${{ steps.version.outputs.build }}
+      version_code: ${{ steps.version.outputs.version_code }}
+      tag: ${{ steps.version.outputs.tag }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Compute release version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${GITHUB_REF_TYPE:-}" = "tag" ] && [[ "${GITHUB_REF_NAME:-}" == v* ]]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+            BUILD="$(echo "$VERSION" | cut -d. -f3)"
+            MAJOR="$(echo "$VERSION" | cut -d. -f1)"
+            MINOR="$(echo "$VERSION" | cut -d. -f2)"
+            VERSION_CODE=$((MAJOR * 1000000 + MINOR * 10000 + BUILD))
+            TAG="$GITHUB_REF_NAME"
+          else
+            eval "$(./scripts/release/version-bump.sh --platform macos --bump)"
+            TAG="v${VERSION}"
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "build=$BUILD" >> "$GITHUB_OUTPUT"
+          echo "version_code=$VERSION_CODE" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "Prepared release: $TAG"
+
+      - name: Create draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+          VERSION: ${{ steps.version.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release view "$TAG" >/dev/null 2>&1 || \
+            gh release create "$TAG" --title "MyClaudia $VERSION" --notes "MyClaudia $VERSION" --draft
+
+  build-macos:
+    needs: prepare-release
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-14
+            arch: aarch64
+          - runner: macos-13
+            arch: x86_64
+    env:
+      CI: true
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_REMOTE: origin
+      RELEASE: 1
+      SKIP_LATEST_JSON_UPLOAD: 1
+      RELEASE_VERSION: ${{ needs.prepare-release.outputs.version }}
+      RELEASE_BUILD: ${{ needs.prepare-release.outputs.build }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+      SKIP_SIGNING: ${{ secrets.MACOS_CERT_P12_BASE64 == '' && '1' || '0' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.0
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            apps/desktop/src-tauri -> target
+
+      - name: Install updater signing key
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/.tauri"
+          printf '%s' '${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}' > "$HOME/.tauri/my-claudia.key"
+          chmod 600 "$HOME/.tauri/my-claudia.key"
+          if [ -n "${{ secrets.TAURI_SIGNING_PUBLIC_KEY || '' }}" ]; then
+            printf '%s' '${{ secrets.TAURI_SIGNING_PUBLIC_KEY }}' > "$HOME/.tauri/my-claudia.key.pub"
+            chmod 644 "$HOME/.tauri/my-claudia.key.pub"
+          fi
+          echo "TAURI_SIGNING_PRIVATE_KEY_PATH=$HOME/.tauri/my-claudia.key" >> "$GITHUB_ENV"
+
+      - name: Import macOS signing certificate
+        if: ${{ secrets.MACOS_CERT_P12_BASE64 != '' }}
+        shell: bash
+        env:
+          MACOS_CERT_P12_BASE64: ${{ secrets.MACOS_CERT_P12_BASE64 }}
+          MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          set -euo pipefail
+          CERT_PATH="$RUNNER_TEMP/macos-signing.p12"
+          KEYCHAIN_PATH="$RUNNER_TEMP/build.keychain-db"
+          printf '%s' "$MACOS_CERT_P12_BASE64" | base64 --decode > "$CERT_PATH"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security import "$CERT_PATH" -P "$MACOS_CERT_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          security list-keychains -d user -s "$KEYCHAIN_PATH" login.keychain-db
+          security default-keychain -d user -s "$KEYCHAIN_PATH"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+      - name: Build and upload macOS release assets
+        shell: bash
+        run: ./scripts/build/macos.sh
+
+      - name: Upload update manifest
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-manifest-${{ matrix.arch }}
+          path: apps/desktop/src-tauri/target/release/bundle/latest.json
+          if-no-files-found: ignore
+
+  merge-macos-manifest:
+    needs: [prepare-release, build-macos]
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: ${{ needs.prepare-release.outputs.tag }}
+      VERSION: ${{ needs.prepare-release.outputs.version }}
+    steps:
+      - name: Download manifest artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: macos-manifest-*
+          path: manifests
+
+      - name: Merge update manifests
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Merge per-architecture latest.json into one combined manifest
+          MERGED='{"version":"'"$VERSION"'","notes":"MyClaudia '"$VERSION"'","pub_date":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","platforms":{}}'
+          for dir in manifests/macos-manifest-*/; do
+            [ -f "$dir/latest.json" ] || continue
+            # Extract platforms from each manifest and merge
+            PLATFORMS=$(jq -c '.platforms' "$dir/latest.json")
+            MERGED=$(echo "$MERGED" | jq --argjson p "$PLATFORMS" '.platforms += $p')
+          done
+          echo "$MERGED" | jq . > latest.json
+          echo "=== Merged latest.json ==="
+          cat latest.json
+
+      - name: Upload merged manifest to release
+        shell: bash
+        run: |
+          gh release upload "$TAG" latest.json --clobber
+
+  build-linux:
+    needs: prepare-release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      CI: true
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_REMOTE: origin
+      RELEASE_VERSION: ${{ needs.prepare-release.outputs.version }}
+      RELEASE_BUILD: ${{ needs.prepare-release.outputs.build }}
+      TAG: ${{ needs.prepare-release.outputs.tag }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install Linux system dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.0
+
+      - name: Install dependencies
+        shell: bash
+        run: pnpm install --frozen-lockfile
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            apps/desktop/src-tauri -> target
+
+      - name: Build Linux packages
+        shell: bash
+        run: ./scripts/build/linux.sh
+
+      - name: Upload Linux artifacts to release
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release upload "$TAG" \
+            apps/desktop/src-tauri/target/release/bundle/deb/*.deb \
+            apps/desktop/src-tauri/target/release/bundle/rpm/*.rpm \
+            --clobber
+
+  build-windows:
+    needs: prepare-release
+    runs-on: windows-2022
+    timeout-minutes: 60
+    env:
+      CI: true
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_VERSION: ${{ needs.prepare-release.outputs.version }}
+      RELEASE_BUILD: ${{ needs.prepare-release.outputs.build }}
+      TAG: ${{ needs.prepare-release.outputs.tag }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.0
+
+      - name: Install dependencies
+        shell: pwsh
+        run: pnpm install --frozen-lockfile
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build Windows installers
+        shell: pwsh
+        run: .\scripts\build\windows.ps1
+
+      - name: Upload Windows artifacts to release
+        shell: pwsh
+        run: |
+          gh release upload $env:TAG `
+            apps/desktop/src-tauri/target/release/bundle/msi/*.msi `
+            apps/desktop/src-tauri/target/release/bundle/nsis/*.exe `
+            --clobber
+
+  build-android:
+    needs: prepare-release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      CI: true
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_REMOTE: origin
+      RELEASE: 1
+      RELEASE_VERSION: ${{ needs.prepare-release.outputs.version }}
+      RELEASE_BUILD: ${{ needs.prepare-release.outputs.build }}
+      RELEASE_VERSION_CODE: ${{ needs.prepare-release.outputs.version_code }}
+      KEYSTORE_PASS: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+      KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.0
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK components
+        shell: bash
+        run: |
+          set -euo pipefail
+          yes | sdkmanager --licenses >/dev/null
+          sdkmanager \
+            "platform-tools" \
+            "platforms;android-36" \
+            "build-tools;35.0.0" \
+            "ndk;27.0.12077973"
+
+      - name: Install Android signing keystore
+        shell: bash
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/.android"
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$HOME/.android/my-claudia-release.keystore"
+          chmod 600 "$HOME/.android/my-claudia-release.keystore"
+
+      - name: Build and upload Android release assets
+        shell: bash
+        run: ./scripts/build/android.sh

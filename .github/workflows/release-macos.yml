@@ -1,0 +1,84 @@
+name: Release macOS
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release-macos:
+    runs-on: macos-14
+    timeout-minutes: 90
+    env:
+      CI: true
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+      RELEASE_REMOTE: origin
+      SKIP_SIGNING: ${{ secrets.MACOS_CERT_P12_BASE64 == '' && '1' || '0' }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.0
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            apps/desktop/src-tauri -> target
+
+      - name: Install updater signing key
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/.tauri"
+          printf '%s' '${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}' > "$HOME/.tauri/my-claudia.key"
+          chmod 600 "$HOME/.tauri/my-claudia.key"
+          if [ -n "${{ secrets.TAURI_SIGNING_PUBLIC_KEY || '' }}" ]; then
+            printf '%s' '${{ secrets.TAURI_SIGNING_PUBLIC_KEY }}' > "$HOME/.tauri/my-claudia.key.pub"
+            chmod 644 "$HOME/.tauri/my-claudia.key.pub"
+          fi
+          {
+            echo "TAURI_SIGNING_PRIVATE_KEY_PATH=$HOME/.tauri/my-claudia.key"
+            echo "TAURI_SIGNING_PRIVATE_KEY_PASSWORD=${TAURI_SIGNING_PRIVATE_KEY_PASSWORD}"
+            echo "RELEASE_REMOTE=origin"
+          } >> "$GITHUB_ENV"
+
+      - name: Import macOS signing certificate
+        if: ${{ secrets.MACOS_CERT_P12_BASE64 != '' }}
+        shell: bash
+        env:
+          MACOS_CERT_P12_BASE64: ${{ secrets.MACOS_CERT_P12_BASE64 }}
+          MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          set -euo pipefail
+          CERT_PATH="$RUNNER_TEMP/macos-signing.p12"
+          KEYCHAIN_PATH="$RUNNER_TEMP/build.keychain-db"
+          printf '%s' "$MACOS_CERT_P12_BASE64" | base64 --decode > "$CERT_PATH"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security import "$CERT_PATH" -P "$MACOS_CERT_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          security list-keychains -d user -s "$KEYCHAIN_PATH" login.keychain-db
+          security default-keychain -d user -s "$KEYCHAIN_PATH"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+      - name: Build and release
+        shell: bash
+        run: ./scripts/release/macos.sh
