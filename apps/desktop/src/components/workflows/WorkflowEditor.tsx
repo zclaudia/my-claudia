@@ -13,6 +13,7 @@ import { TriggerConfigForm } from './TriggerConfigForm';
 import { NodePalette } from './NodePalette';
 import { WorkflowGraphEditor, fromFlowNodes, fromFlowEdges } from './WorkflowGraphEditor';
 import { useWorkflowStore } from '../../stores/workflowStore';
+import { getBaseUrl, getAuthHeaders } from '../../services/api';
 import type { Node, Edge } from '@xyflow/react';
 
 const isDesktopTauri = typeof window !== 'undefined'
@@ -197,7 +198,6 @@ export function WorkflowEditor({ workflow, projectId, onBack, onSaved, standalon
     if (!isDesktopTauri) return;
     try {
       const { WebviewWindow } = await import('@tauri-apps/api/webviewWindow');
-      const { getBaseUrl, getAuthHeaders } = await import('../../services/api');
       const label = `workflow-editor-${Date.now()}`;
       let sUrl = '';
       try { sUrl = getBaseUrl(); } catch {}

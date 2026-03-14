@@ -5,6 +5,7 @@ import { oneDark, oneLight } from 'react-syntax-highlighter/dist/esm/styles/pris
 import { useTheme, isDarkTheme } from '../../contexts/ThemeContext';
 import { useIsMobile } from '../../hooks/useMediaQuery';
 import * as api from '../../services/api';
+import { getBaseUrl, getAuthHeaders } from '../../services/api';
 import { FileSearchInput } from './FileSearchInput';
 
 const EXT_TO_LANG: Record<string, string> = {
@@ -40,7 +41,6 @@ const isDesktopTauri = typeof window !== 'undefined'
 
 async function openFileInNewWindow(filePath: string, projectRoot: string) {
   const { WebviewWindow } = await import('@tauri-apps/api/webviewWindow');
-  const { getBaseUrl, getAuthHeaders } = await import('../../services/api');
   const label = `file-viewer-${Date.now()}`;
   const fileName = filePath.split('/').pop() || filePath;
 

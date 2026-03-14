@@ -4,6 +4,7 @@ import { Sidebar } from './components/Sidebar';
 import { ChatInterface } from './components/chat/ChatInterface';
 import { ServerSelector } from './components/ServerSelector';
 import { MobileSetup } from './components/MobileSetup';
+import { WindowsSetup } from './components/WindowsSetup';
 import { AgentPanel } from './components/agent/AgentPanel';
 import { AgentSidePanel } from './components/agent/AgentSidePanel';
 import { FileViewerWindow } from './components/fileviewer/FileViewerWindow';
@@ -163,6 +164,13 @@ function AppContent() {
   // Mobile: show setup screen when gateway is not configured
   if (isMobile && !directGatewayUrl) {
     return <MobileSetup />;
+  }
+
+  // Windows: show setup screen when server is not configured
+  const isWindows = typeof navigator !== 'undefined' && navigator.userAgent.includes('Windows');
+  const hasConnectedServer = connectionStatus === 'connected' || hasConnected.current;
+  if (isWindows && embeddedServerStatus === 'wsl-mode' && !hasConnectedServer) {
+    return <WindowsSetup />;
   }
 
   // Desktop: show loading screen during initial startup

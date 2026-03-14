@@ -4,7 +4,7 @@ import { Command, type Child } from '@tauri-apps/plugin-shell';
 import { appDataDir, resolveResource } from '@tauri-apps/api/path';
 import { invoke } from '@tauri-apps/api/core';
 
-export type EmbeddedServerStatus = 'idle' | 'starting' | 'ready' | 'error' | 'disabled';
+export type EmbeddedServerStatus = 'idle' | 'starting' | 'ready' | 'error' | 'disabled' | 'wsl-mode';
 
 interface EmbeddedServerState {
   port: number | null;
@@ -23,6 +23,18 @@ function isDesktopTauri(): boolean {
     '__TAURI_INTERNALS__' in window &&
     !navigator.userAgent.includes('Android') &&
     !navigator.userAgent.includes('Windows')
+  );
+}
+
+/**
+ * Detect if we're running on Windows with Tauri.
+ * Returns true only on Windows desktop (not mobile/browser).
+ */
+export function isWindowsTauri(): boolean {
+  return (
+    typeof window !== 'undefined' &&
+    '__TAURI_INTERNALS__' in window &&
+    navigator.userAgent.includes('Windows')
   );
 }
 
@@ -49,9 +61,18 @@ async function resolveServerPath(): Promise<string> {
  */
 export function useEmbeddedServer(options?: { disabled?: boolean }): EmbeddedServerState {
   const disabled = options?.disabled ?? false;
+
+  // Determine initial status based on platform
+  const getInitialStatus = (): EmbeddedServerStatus => {
+    if (disabled) return 'disabled';
+    if (isWindowsTauri()) return 'wsl-mode';
+    if (!isDesktopTauri()) return 'disabled';
+    return 'starting';
+  };
+
   const [state, setState] = useState<EmbeddedServerState>(() => ({
     port: null,
-    status: (disabled || !isDesktopTauri()) ? 'disabled' : 'starting',
+    status: getInitialStatus(),
     error: null,
   }));
 

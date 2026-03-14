@@ -114,4 +114,28 @@ describe('serverStore', () => {
       expect(useServerStore.getState().servers).toEqual(newServers);
     });
   });
+
+  describe('local address override', () => {
+    it('reuses the local slot for a manual host:port address', () => {
+      useServerStore.getState().setLocalServerAddress('192.168.1.100:3100');
+
+      expect(useServerStore.getState().localServerPort).toBe(3100);
+      expect(useServerStore.getState().getActiveServer()?.address).toBe('192.168.1.100:3100');
+    });
+
+    it('keeps the override when servers refresh from the backend', () => {
+      useServerStore.getState().setLocalServerAddress('192.168.1.100:3100');
+      useServerStore.getState().setServers([
+        {
+          id: 'local',
+          name: 'Local Server',
+          address: 'localhost:3100',
+          isDefault: true,
+          createdAt: Date.now(),
+        },
+      ]);
+
+      expect(useServerStore.getState().servers[0].address).toBe('192.168.1.100:3100');
+    });
+  });
 });

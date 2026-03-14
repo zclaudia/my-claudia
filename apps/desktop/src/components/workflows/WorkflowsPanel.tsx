@@ -3,6 +3,7 @@ import { Workflow as WorkflowIcon, Plus, Loader2 } from 'lucide-react';
 import type { Workflow, WorkflowRun } from '@my-claudia/shared';
 import { useWorkflowStore } from '../../stores/workflowStore';
 import { useIsMobile } from '../../hooks/useMediaQuery';
+import { getBaseUrl, getAuthHeaders } from '../../services/api';
 import { WorkflowCard } from './WorkflowCard';
 import { WorkflowEditor } from './WorkflowEditor';
 import { WorkflowRunViewer } from './WorkflowRunViewer';
@@ -13,7 +14,6 @@ const isDesktopTauri = typeof window !== 'undefined'
 
 async function openEditorInNewWindow(projectId: string, workflow?: Workflow) {
   const { WebviewWindow } = await import('@tauri-apps/api/webviewWindow');
-  const { getBaseUrl, getAuthHeaders } = await import('../../services/api');
   const label = `workflow-editor-${Date.now()}`;
 
   let serverUrl = '';

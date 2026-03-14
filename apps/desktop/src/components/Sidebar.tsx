@@ -10,7 +10,6 @@ async function openSessionInNewWindow(sessionId: string, projectId: string) {
   if (!isDesktopTauri) return;
   try {
     const { WebviewWindow } = await import('@tauri-apps/api/webviewWindow');
-    const { getBaseUrl, getAuthHeaders } = await import('../services/api');
     const label = `session-chat-${Date.now()}`;
     const serverUrl = getBaseUrl();
     const authToken = (getAuthHeaders() as Record<string, string>)['Authorization'] || '';
@@ -23,7 +22,6 @@ async function openSessionInNewWindow(sessionId: string, projectId: string) {
       center: true,
       dragDropEnabled: false,
     });
-    const { useUIStore } = await import('../stores/uiStore');
     useUIStore.getState().addPoppedOutSession(sessionId, label);
     const win = await WebviewWindow.getByLabel(label);
     if (win) {
@@ -56,6 +54,7 @@ import { WorktreeGroupItem } from './sidebar/WorktreeGroupItem';
 import { SupervisorGroupItem } from './sidebar/SupervisorGroupItem';
 import { groupSessionsByWorktree } from './sidebar/worktreeGrouping';
 import * as api from '../services/api';
+import { getBaseUrl, getAuthHeaders } from '../services/api';
 import type { SearchResult, SearchHistoryEntry, SearchFilters as Filters } from '../services/api';
 import type { GitWorktree } from '@my-claudia/shared';
 

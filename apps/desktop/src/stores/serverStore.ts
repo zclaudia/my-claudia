@@ -21,6 +21,8 @@ interface ServerState {
   connections: Record<string, ServerConnection>;
   // Runtime port for the embedded local server (random port, not persisted in DB)
   localServerPort: number | null;
+  // Runtime address override for the local slot (embedded server, WSL, or manual host:port)
+  localServerAddressOverride: string | null;
 
   // Legacy global state (for backward compatibility during migration)
   connectionStatus: ConnectionStatus;
@@ -40,6 +42,7 @@ interface ServerState {
   setServerPublicKey: (serverId: string, publicKey: string | undefined) => void;
   updateLastConnected: (id: string) => void;
   setLocalServerPort: (port: number) => void;
+  setLocalServerAddress: (address: string) => void;
 
   // Getters
   getActiveServer: () => BackendServer | undefined;
@@ -76,6 +79,7 @@ export const useServerStore = create<ServerState>()((set, get) => ({
   activeServerId: INITIAL_ACTIVE_SERVER,
   connections: {},
   localServerPort: null,
+  localServerAddressOverride: null,
   // Legacy global state (computed from active server's connection)
   connectionStatus: 'disconnected',
   connectionError: null,
@@ -92,9 +96,9 @@ export const useServerStore = create<ServerState>()((set, get) => ({
 
     // Preserve runtime local server port (embedded server uses random port,
     // but DB stores the default localhost:3100)
-    if (state.localServerPort) {
+    if (state.localServerAddressOverride) {
       servers = servers.map(s =>
-        s.id === 'local' ? { ...s, address: `localhost:${state.localServerPort}` } : s
+        s.id === 'local' ? { ...s, address: state.localServerAddressOverride! } : s
       );
     }
 
@@ -257,8 +261,30 @@ export const useServerStore = create<ServerState>()((set, get) => ({
   setLocalServerPort: (port) => {
     set((state) => ({
       localServerPort: port,
+      localServerAddressOverride: `localhost:${port}`,
       servers: state.servers.map((s) =>
         s.id === 'local' ? { ...s, address: `localhost:${port}` } : s
+      )
+    }));
+  },
+
+  setLocalServerAddress: (address) => {
+    let hostPort = address.trim();
+    if (hostPort.includes('://')) {
+      try {
+        hostPort = new URL(hostPort).host;
+      } catch {
+        hostPort = address.trim();
+      }
+    }
+    const portMatch = hostPort.match(/:(\d+)$/);
+    const port = portMatch ? parseInt(portMatch[1], 10) : null;
+
+    set((state) => ({
+      localServerPort: port,
+      localServerAddressOverride: hostPort,
+      servers: state.servers.map((s) =>
+        s.id === 'local' ? { ...s, address: hostPort } : s
       )
     }));
   },
@@ -284,8 +310,8 @@ export const useServerStore = create<ServerState>()((set, get) => ({
 
     const server = state.servers.find((s) => s.id === state.activeServerId);
     // Apply runtime port for local server (DB may store stale localhost:3100)
-    if (server && server.id === 'local' && state.localServerPort) {
-      return { ...server, address: `localhost:${state.localServerPort}` };
+    if (server && server.id === 'local' && state.localServerAddressOverride) {
+      return { ...server, address: state.localServerAddressOverride };
     }
     return server;
   },
@@ -294,8 +320,8 @@ export const useServerStore = create<ServerState>()((set, get) => ({
     const state = get();
     const server = state.servers.find((s) => s.isDefault);
     // Apply runtime port for local server (DB may store stale localhost:3100)
-    if (server && server.id === 'local' && state.localServerPort) {
-      return { ...server, address: `localhost:${state.localServerPort}` };
+    if (server && server.id === 'local' && state.localServerAddressOverride) {
+      return { ...server, address: state.localServerAddressOverride };
     }
     return server;
   },

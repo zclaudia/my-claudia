@@ -51,6 +51,29 @@
           "args": true
         }
       ]
+    },
+    {
+      "identifier": "shell:allow-execute",
+      "allow": [
+        {
+          "name": "wsl-check",
+          "cmd": "wsl",
+          "args": true,
+          "sidecar": false
+        },
+        {
+          "name": "open-windows-terminal",
+          "cmd": "wt.exe",
+          "args": true,
+          "sidecar": false
+        },
+        {
+          "name": "open-cmd-wsl",
+          "cmd": "cmd.exe",
+          "args": true,
+          "sidecar": false
+        }
+      ]
     }
   ]
 }

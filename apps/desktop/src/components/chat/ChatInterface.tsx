@@ -26,6 +26,7 @@ import { useSupervisionStore } from '../../stores/supervisionStore';
 import { useConnection } from '../../contexts/ConnectionContext';
 import { useIsMobile } from '../../hooks/useMediaQuery';
 import * as api from '../../services/api';
+import { getBaseUrl, getAuthHeaders } from '../../services/api';
 import { uploadFile } from '../../services/fileUpload';
 import { TaskCardStrip } from '../supervision/TaskCardStrip';
 import { BackgroundTaskPanel } from '../BackgroundTaskPanel';
@@ -1524,7 +1525,6 @@ export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar }:
     if (!isDesktopTauri) return;
     try {
       const { WebviewWindow } = await import('@tauri-apps/api/webviewWindow');
-      const { getBaseUrl, getAuthHeaders } = await import('../../services/api');
 
       const label = `session-chat-${Date.now()}`;
       const serverUrl = getBaseUrl();

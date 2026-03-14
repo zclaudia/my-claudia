@@ -23,6 +23,44 @@ export default defineConfig({
   },
   // Vite options tailored for Tauri development
   clearScreen: false,
+  build: {
+    chunkSizeWarningLimit: 700,
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (id.includes('node_modules')) {
+            if (id.includes('@tauri-apps')) return 'vendor-tauri';
+            if (id.includes('react-syntax-highlighter') || id.includes('/prismjs/') || id.includes('/refractor/')) {
+              return 'vendor-code';
+            }
+            if (
+              id.includes('react-markdown')
+              || id.includes('remark-gfm')
+              || id.includes('/micromark')
+              || id.includes('/mdast')
+              || id.includes('/hast')
+              || id.includes('/unist')
+            ) {
+              return 'vendor-markdown';
+            }
+            if (id.includes('@xterm')) return 'vendor-xterm';
+            if (id.includes('@xyflow')) return 'vendor-flow';
+            if (id.includes('react') || id.includes('zustand')) return 'vendor-react';
+          }
+
+          if (
+            id.includes('/src/components/chat/')
+            || id.includes('/src/components/fileviewer/')
+            || id.includes('/src/components/supervision/')
+          ) {
+            return 'feature-interactive';
+          }
+          if (id.includes('/src/components/workflows/')) return 'feature-workflows';
+          if (id.includes('/src/components/local-prs/')) return 'feature-local-prs';
+        },
+      },
+    },
+  },
   server: {
     host: '127.0.0.1',
     port: 1420,

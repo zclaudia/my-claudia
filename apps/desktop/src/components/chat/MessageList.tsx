@@ -22,18 +22,52 @@ import { TextWithFileRefs, MarkdownChildrenWithFileRefs } from './FileReference'
 
 /**
  * Extract <think>...</think> blocks from message content.
- * Returns { thinking, content } where thinking is the extracted text
- * and content is the remaining message without think tags.
+ * Also tolerates partially persisted content such as a dangling `<think>`
+ * prefix saved mid-stream before the closing tag arrives.
  */
-function extractThinking(text: string): { thinking: string; content: string } {
-  const thinkRegex = /<think>([\s\S]*?)<\/think>/g;
-  const parts: string[] = [];
-  let match;
-  while ((match = thinkRegex.exec(text)) !== null) {
-    parts.push(match[1].trim());
+export function extractThinking(text: string): { thinking: string; content: string } {
+  const thinkSections: string[] = [];
+  const contentSections: string[] = [];
+  const tagRegex = /<\/?think>/gi;
+
+  let cursor = 0;
+  let inThinkBlock = false;
+  let match: RegExpExecArray | null;
+
+  while ((match = tagRegex.exec(text)) !== null) {
+    const chunk = text.slice(cursor, match.index);
+    if (chunk) {
+      if (inThinkBlock) {
+        thinkSections.push(chunk);
+      } else {
+        contentSections.push(chunk);
+      }
+    }
+
+    inThinkBlock = match[0].toLowerCase() === '<think>';
+    cursor = match.index + match[0].length;
   }
-  const content = text.replace(thinkRegex, '').trim();
-  return { thinking: parts.join('\n\n'), content };
+
+  const tail = text.slice(cursor);
+  if (tail) {
+    if (inThinkBlock) {
+      thinkSections.push(tail);
+    } else {
+      contentSections.push(tail);
+    }
+  }
+
+  const thinking = thinkSections
+    .map((section) => section.trim())
+    .filter(Boolean)
+    .join('\n\n');
+
+  const content = contentSections
+    .join('')
+    .replace(/<\/?think>/gi, '')
+    .trim();
+
+  return { thinking, content };
 }
 
 export function normalizeMarkdownForRender(content: string): string {

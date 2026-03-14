@@ -112,6 +112,19 @@ describe('hooks/useEmbeddedServer', () => {
 
       expect(result.current.status).toBe('starting');
     });
+
+    it('returns wsl-mode status on Windows Tauri', () => {
+      mockTauriInternals();
+      Object.defineProperty(navigator, 'userAgent', {
+        value: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+        writable: true,
+        configurable: true,
+      });
+
+      const { result } = renderHook(() => useEmbeddedServer());
+
+      expect(result.current.status).toBe('wsl-mode');
+    });
   });
 
   describe('return values', () => {
