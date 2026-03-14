@@ -74,6 +74,17 @@
           "sidecar": false
         }
       ]
+    },
+    {
+      "identifier": "shell:allow-spawn",
+      "allow": [
+        {
+          "name": "wsl-check",
+          "cmd": "wsl",
+          "args": true,
+          "sidecar": false
+        }
+      ]
     }
   ]
 }

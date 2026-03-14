@@ -48,8 +48,20 @@ if ($LASTEXITCODE -ne 0) {
 Write-Host ""
 
 # --- Build ---
-# Windows: UI-only build — no server bundle, no node sidecar, no server resources
-Write-Host "Building Windows desktop app (UI-only)..." -ForegroundColor Cyan
+# Windows: no embedded server sidecar, but includes a pre-built Linux server
+# bundle (from CI build-wsl-server job) for auto-deployment into WSL at runtime.
+Write-Host "Building Windows desktop app..." -ForegroundColor Cyan
+
+# Check if WSL server bundle is available (placed by CI download-artifact step)
+$wslServerDir = "apps\desktop\src-tauri\wsl-server"
+if (Test-Path $wslServerDir) {
+    Write-Host "  WSL server bundle found at $wslServerDir"
+    $wslServerResources = [ordered]@{ "wsl-server/" = "wsl-server/" }
+} else {
+    Write-Host "  WARNING: WSL server bundle not found — building without it" -ForegroundColor Yellow
+    $wslServerResources = $null
+}
+
 # Tauri CLI supports TAURI_CONFIG as a merged config override.
 # This avoids PowerShell/native argument quoting issues around `--config`.
 $tauriConfigObject = [ordered]@{
@@ -58,7 +70,7 @@ $tauriConfigObject = [ordered]@{
         beforeBuildCommand = ""
     }
     bundle = [ordered]@{
-        resources = $null
+        resources = $wslServerResources
         externalBin = @()
     }
 }
