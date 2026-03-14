@@ -94,9 +94,13 @@ describe('ConnectionContext', () => {
   });
 
   it('throws when useConnection is used outside provider', () => {
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
     expect(() => {
       renderHook(() => useConnection());
     }).toThrow('useConnection must be used within a ConnectionProvider');
+
+    consoleSpy.mockRestore();
   });
 
   it('exposes embedded server state', () => {

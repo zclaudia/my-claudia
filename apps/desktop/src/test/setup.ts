@@ -1,44 +1,5 @@
 import '@testing-library/jest-dom';
-import { vi, beforeEach } from 'vitest';
-
-// Suppress React's error boundary console.error calls and unhandled errors
-// that occur when testing components that throw intentionally (e.g., hooks
-// that throw when used outside their provider).
-const originalConsoleError = console.error;
-console.error = (...args: unknown[]) => {
-  const msg = args[0];
-  if (
-    typeof msg === 'string' &&
-    (msg.includes('The above error occurred in the <') ||
-     msg.includes('Error boundaries should implement') ||
-     msg.includes('Consider adding an error boundary') ||
-     msg.includes('Warning:') ||
-     msg.includes('act('))
-  ) {
-    return;
-  }
-  originalConsoleError(...args);
-};
-
-// Suppress unhandled errors from React that propagate through the DOM event
-// system in development mode. These occur when hooks are intentionally tested
-// to throw (e.g., testing that a hook throws when used outside a provider).
-// Without this, vitest workers exit with code 144 (unhandled error) even
-// when the tests themselves pass via expect(...).toThrow().
-if (typeof window !== 'undefined') {
-  window.addEventListener('error', (event) => {
-    const msg = event.message || String(event.error);
-    if (
-      msg.includes('must be used within') ||
-      msg.includes('Provider') ||
-      msg.includes('useConnection') ||
-      msg.includes('useTheme')
-    ) {
-      event.preventDefault();
-      event.stopPropagation();
-    }
-  });
-}
+import { vi } from 'vitest';
 
 // Mock WebSocket
 class MockWebSocket {
