@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
+const getSessionMessagesMock = vi.fn(() => Promise.resolve({ messages: [], pagination: {} }));
+
 // Mock all store dependencies before importing the module
 vi.mock('../../stores/sessionsStore', () => ({
   useSessionsStore: {
@@ -55,8 +57,8 @@ vi.mock('./gatewayProxy', () => ({
   getGatewayAuthHeaders: vi.fn(() => ({})),
 }));
 
-vi.mock('./api', () => ({
-  getSessionMessages: vi.fn(() => Promise.resolve({ messages: [], pagination: {} })),
+vi.mock('../api', () => ({
+  getSessionMessages: getSessionMessagesMock,
 }));
 
 describe('services/sessionSync', () => {
@@ -180,6 +182,45 @@ describe('services/sessionSync', () => {
 
       // Should not throw
       expect(true).toBe(true);
+    });
+  });
+
+  describe('eagerSyncSessionUpdate', () => {
+    it('fills missing messages for the currently selected active session', async () => {
+      const appendMessages = vi.fn();
+      getSessionMessagesMock.mockResolvedValue({
+        messages: [{ id: 'm2', sessionId: 's1', role: 'user', content: 'hello', createdAt: 2 }],
+        pagination: { maxOffset: 2, total: 2 },
+      });
+
+      const { useProjectStore } = await import('../../stores/projectStore');
+      const { useChatStore } = await import('../../stores/chatStore');
+
+      vi.mocked(useProjectStore.getState).mockReturnValue({
+        selectedSessionId: 's1',
+        deleteSession: vi.fn(),
+      } as any);
+      vi.mocked(useChatStore.getState).mockReturnValue({
+        pagination: { s1: { maxOffset: 1 } },
+        appendMessages,
+      } as any);
+
+      const { eagerSyncSessionUpdate } = await import('../sessionSync.js');
+      await eagerSyncSessionUpdate({
+        id: 's1',
+        name: 'Session',
+        projectId: 'p1',
+        createdAt: 1,
+        updatedAt: 2,
+        isActive: true,
+        lastMessageOffset: 2,
+      } as any);
+
+      expect(getSessionMessagesMock).toHaveBeenCalledWith('s1', {
+        afterOffset: 1,
+        limit: 100,
+      });
+      expect(appendMessages).toHaveBeenCalled();
     });
   });
 

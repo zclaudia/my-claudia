@@ -23,6 +23,43 @@ if [ -f .env ]; then
   set -a; source .env; set +a
 fi
 
+# Local macOS signing certificate support.
+# CI imports a .p12 into a temporary keychain before building; do the same locally
+# when a developer has exported the certificate into ~/.tauri/.
+TEMP_KEYCHAIN_PATH=""
+cleanup_temp_keychain() {
+  if [ -n "$TEMP_KEYCHAIN_PATH" ] && [ -f "$TEMP_KEYCHAIN_PATH" ]; then
+    security delete-keychain "$TEMP_KEYCHAIN_PATH" >/dev/null 2>&1 || true
+  fi
+}
+trap cleanup_temp_keychain EXIT
+
+DEFAULT_MACOS_CERT_PATH="$HOME/.tauri/MyClaudia-signing.p12"
+DEFAULT_MACOS_CERT_PASSWORD_FILE="$HOME/.tauri/MyClaudia-signing.github.pwd"
+if [ -z "${MACOS_CERT_P12_PATH:-}" ] && [ -f "$DEFAULT_MACOS_CERT_PATH" ]; then
+  MACOS_CERT_P12_PATH="$DEFAULT_MACOS_CERT_PATH"
+  export MACOS_CERT_P12_PATH
+fi
+if [ -z "${MACOS_CERT_PASSWORD:-}" ] && [ -f "$DEFAULT_MACOS_CERT_PASSWORD_FILE" ]; then
+  MACOS_CERT_PASSWORD="$(tr -d '\r\n' < "$DEFAULT_MACOS_CERT_PASSWORD_FILE")"
+  export MACOS_CERT_PASSWORD
+fi
+
+if [ "${SKIP_SIGNING:-}" != "1" ] && [ -n "${MACOS_CERT_P12_PATH:-}" ] && [ -f "${MACOS_CERT_P12_PATH}" ]; then
+  echo "=== Importing macOS signing certificate into temporary keychain ==="
+  TEMP_KEYCHAIN_PATH="$(mktemp -u "${TMPDIR:-/tmp}/my-claudia-build-keychain.XXXXXX-db")"
+  KEYCHAIN_PASSWORD="${KEYCHAIN_PASSWORD:-$(LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom | head -c 32)}"
+  security create-keychain -p "$KEYCHAIN_PASSWORD" "$TEMP_KEYCHAIN_PATH"
+  security set-keychain-settings -lut 21600 "$TEMP_KEYCHAIN_PATH"
+  security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$TEMP_KEYCHAIN_PATH"
+  security import "$MACOS_CERT_P12_PATH" -P "${MACOS_CERT_PASSWORD:-}" -A -t cert -f pkcs12 -k "$TEMP_KEYCHAIN_PATH"
+  security list-keychains -d user -s "$TEMP_KEYCHAIN_PATH" login.keychain-db
+  security default-keychain -d user -s "$TEMP_KEYCHAIN_PATH"
+  security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$TEMP_KEYCHAIN_PATH"
+  echo "Using temporary keychain: $TEMP_KEYCHAIN_PATH"
+  echo ""
+fi
+
 # Prefer the existing local Tauri updater keypair when no explicit path is set.
 DEFAULT_TAURI_KEY_PATH="$HOME/.tauri/my-claudia.key"
 DEFAULT_TAURI_PUBKEY_PATH="$HOME/.tauri/my-claudia.key.pub"

@@ -19,7 +19,7 @@ import type {
 } from '@my-claudia/shared';
 import { useSessionsStore } from '../../stores/sessionsStore';
 import { useGatewayStore } from '../../stores/gatewayStore';
-import { startSessionSync, stopSessionSync } from '../../services/sessionSync';
+import { eagerSyncSessionUpdate, startSessionSync, stopSessionSync } from '../../services/sessionSync';
 
 export interface GatewayTransportConfig {
   url: string;
@@ -289,5 +289,8 @@ export class GatewayTransport {
       message.eventType,
       message.session as any
     );
+    if (message.eventType !== 'deleted') {
+      void eagerSyncSessionUpdate(message.session as any);
+    }
   }
 }

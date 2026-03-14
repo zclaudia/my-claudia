@@ -89,6 +89,22 @@ function extractAssistantText(event: Record<string, unknown>): string | undefine
   );
 }
 
+function isThinkingEvent(event: Record<string, unknown>): boolean {
+  const role = event.role as string | undefined;
+  const type = event.type as string | undefined;
+  const subtype = event.subtype as string | undefined;
+
+  return (
+    event.thinking === true
+    || event.reasoning === true
+    || type === 'thinking'
+    || type === 'reasoning'
+    || role === 'thinking'
+    || subtype === 'thinking'
+    || subtype === 'reasoning'
+  );
+}
+
 function isToolLikeEvent(event: Record<string, unknown>): boolean {
   return Boolean(
     event.tool
@@ -338,23 +354,22 @@ function mapKimiEvent(
     case 'message': {
       const role = event.role as string | undefined;
       const content = extractAssistantText(event);
-      const isThinking =
-        event.thinking === true
-        || event.reasoning === true
-        || event.type === 'thinking'
-        || role === 'thinking';
+      const isThinking = isThinkingEvent(event);
+      let currentThinkState = inThinkBlock;
 
       if ((role === 'assistant' || role === 'model' || role === 'thinking') && content && !isToolLikeEvent(event)) {
-        if (isThinking && !inThinkBlock) {
+        if (isThinking && !currentThinkState) {
           results.push({ msg: { type: 'assistant', content: `<think>${content}` }, updateThink: true });
-        } else if (!isThinking && inThinkBlock) {
+          currentThinkState = true;
+        } else if (!isThinking && currentThinkState) {
           results.push({ msg: { type: 'assistant', content: `</think>${content}` }, updateThink: false });
+          currentThinkState = false;
         } else {
           results.push({ msg: { type: 'assistant', content } });
         }
       }
       if (event.is_complete === true || event.isComplete === true) {
-        if (inThinkBlock) {
+        if (currentThinkState) {
           results.push({ msg: { type: 'assistant', content: '</think>' }, updateThink: false });
         }
         results.push({ msg: { type: 'result', isComplete: true } });
@@ -368,10 +383,23 @@ function mapKimiEvent(
     case 'content_delta':
     case 'delta': {
       const content = extractAssistantText(event);
+      const isThinking = isThinkingEvent(event);
+      let currentThinkState = inThinkBlock;
       if (content && !isToolLikeEvent(event)) {
-        results.push({ msg: { type: 'assistant', content } });
+        if (isThinking && !currentThinkState) {
+          results.push({ msg: { type: 'assistant', content: `<think>${content}` }, updateThink: true });
+          currentThinkState = true;
+        } else if (!isThinking && currentThinkState) {
+          results.push({ msg: { type: 'assistant', content: `</think>${content}` }, updateThink: false });
+          currentThinkState = false;
+        } else {
+          results.push({ msg: { type: 'assistant', content } });
+        }
       }
       if (event.is_complete === true || event.isComplete === true) {
+        if (currentThinkState) {
+          results.push({ msg: { type: 'assistant', content: '</think>' }, updateThink: false });
+        }
         results.push({ msg: { type: 'result', isComplete: true } });
       }
       break;

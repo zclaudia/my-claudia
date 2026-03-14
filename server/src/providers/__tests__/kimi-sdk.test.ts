@@ -188,4 +188,43 @@ describe('kimi-sdk', () => {
     await collect;
     expect(messages).toEqual([]);
   });
+
+  it('keeps reasoning deltas inside think blocks instead of visible assistant text', async () => {
+    const stdout = createMockReadable();
+    const stderr = createMockReadable();
+    const proc = Object.assign(new EventEmitter(), {
+      stdout,
+      stderr,
+      killed: false,
+      kill: vi.fn(() => true),
+    });
+    vi.mocked(spawn).mockReturnValue(proc as any);
+
+    const messages: any[] = [];
+    const collect = (async () => {
+      for await (const msg of runKimi('hello', { cwd: '/tmp' }, vi.fn())) {
+        messages.push(msg);
+      }
+    })();
+
+    stdout.push(JSON.stringify({
+      type: 'delta',
+      reasoning: true,
+      content: 'internal reasoning',
+    }) + '\n');
+    stdout.push(JSON.stringify({
+      type: 'delta',
+      content: 'visible answer',
+      is_complete: true,
+    }) + '\n');
+    stdout.push(null);
+
+    await collect;
+
+    expect(messages).toEqual([
+      { type: 'assistant', content: '<think>internal reasoning' },
+      { type: 'assistant', content: '</think>visible answer' },
+      { type: 'result', isComplete: true },
+    ]);
+  });
 });
