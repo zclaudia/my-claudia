@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
-import { ArrowLeft, Save, PanelLeftClose, PanelLeftOpen, X, ExternalLink, Check } from 'lucide-react';
+import { ArrowLeft, Save, PanelLeftClose, PanelLeftOpen, X, ExternalLink, Check, Sparkles, Wrench } from 'lucide-react';
 import type {
   Workflow,
   WorkflowNodeDef,
@@ -11,8 +11,10 @@ import { isV2Definition, migrateV1ToV2 } from '@my-claudia/shared';
 import { StepConfigForm } from './StepConfigForm';
 import { TriggerConfigForm } from './TriggerConfigForm';
 import { NodePalette } from './NodePalette';
+import { NLWorkflowGenerator } from './NLWorkflowGenerator';
 import { WorkflowGraphEditor, fromFlowNodes, fromFlowEdges } from './WorkflowGraphEditor';
 import { useWorkflowStore } from '../../stores/workflowStore';
+import { useProjectStore } from '../../stores/projectStore';
 import { getBaseUrl, getAuthHeaders } from '../../services/api';
 import type { Node, Edge } from '@xyflow/react';
 
@@ -31,6 +33,8 @@ interface WorkflowEditorProps {
   serverUrl?: string;
   /** Auth token for standalone windows */
   authToken?: string;
+  /** Initial left panel mode */
+  initialMode?: 'toolbox' | 'ai';
 }
 
 function getInitialDefinition(workflow?: Workflow): WorkflowDefinitionV2 {
@@ -48,8 +52,11 @@ function getInitialDefinition(workflow?: Workflow): WorkflowDefinitionV2 {
     : migrateV1ToV2(workflow.definition);
 }
 
-export function WorkflowEditor({ workflow, projectId, onBack, onSaved, standalone, serverUrl, authToken }: WorkflowEditorProps) {
+export function WorkflowEditor({ workflow, projectId, onBack, onSaved, standalone, serverUrl, authToken, initialMode }: WorkflowEditorProps) {
   const { createWorkflow, updateWorkflow, loadStepTypes } = useWorkflowStore();
+  const projects = useProjectStore(s => s.projects);
+  const project = projects.find(p => p.id === projectId);
+  const providerId = project?.providerId ?? '';
 
   useEffect(() => {
     if (!standalone) loadStepTypes();
@@ -65,6 +72,7 @@ export function WorkflowEditor({ workflow, projectId, onBack, onSaved, standalon
   const [saving, setSaving] = useState(false);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saved'>('idle');
   const [leftPanelOpen, setLeftPanelOpen] = useState(true);
+  const [leftPanelMode, setLeftPanelMode] = useState<'toolbox' | 'ai'>(initialMode ?? 'toolbox');
   // Track workflow ID for standalone mode (may be assigned after first create)
   const [workflowId, setWorkflowId] = useState<string | undefined>(workflow?.id);
 
@@ -131,6 +139,22 @@ export function WorkflowEditor({ workflow, projectId, onBack, onSaved, standalon
     const editorEl = document.querySelector('[data-graph-editor]');
     if (editorEl && (editorEl as any).__updateEdgeData) {
       (editorEl as any).__updateEdgeData(edgeId, data);
+    }
+  }, []);
+
+  const handleAIGenerated = useCallback((result: {
+    definition: WorkflowDefinitionV2;
+    name: string;
+    description: string;
+    triggers: WorkflowTrigger[];
+  }) => {
+    setName(result.name);
+    setDescription(result.description);
+    setTriggers(result.triggers);
+    // Replace the graph via the exposed imperative method
+    const editorEl = document.querySelector('[data-graph-editor]');
+    if (editorEl && (editorEl as any).__replaceGraph) {
+      (editorEl as any).__replaceGraph(result.definition.nodes, result.definition.edges);
     }
   }, []);
 
@@ -330,9 +354,24 @@ export function WorkflowEditor({ workflow, projectId, onBack, onSaved, standalon
       <div className="flex flex-1 overflow-hidden">
         {/* Left: Collapsible panel */}
         {leftPanelOpen ? (
-          <div className="w-44 border-r border-border overflow-y-auto p-2.5 flex flex-col gap-3 shrink-0">
+          <div className="w-52 border-r border-border overflow-y-auto p-2.5 flex flex-col gap-3 shrink-0">
             <div className="flex items-center justify-between">
-              <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Toolbox</span>
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => setLeftPanelMode('toolbox')}
+                  className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium uppercase tracking-wider transition-colors ${leftPanelMode === 'toolbox' ? 'bg-secondary text-foreground' : 'text-muted-foreground hover:text-foreground'}`}
+                >
+                  <Wrench size={10} />
+                  Toolbox
+                </button>
+                <button
+                  onClick={() => setLeftPanelMode('ai')}
+                  className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium uppercase tracking-wider transition-colors ${leftPanelMode === 'ai' ? 'bg-secondary text-foreground' : 'text-muted-foreground hover:text-foreground'}`}
+                >
+                  <Sparkles size={10} />
+                  AI
+                </button>
+              </div>
               <button
                 onClick={() => setLeftPanelOpen(false)}
                 className="p-0.5 rounded hover:bg-secondary text-muted-foreground hover:text-foreground"
@@ -341,9 +380,19 @@ export function WorkflowEditor({ workflow, projectId, onBack, onSaved, standalon
                 <PanelLeftClose size={14} />
               </button>
             </div>
-            <NodePalette />
-            <hr className="border-border" />
-            <TriggerConfigForm triggers={triggers} onChange={setTriggers} />
+            {leftPanelMode === 'toolbox' ? (
+              <>
+                <NodePalette />
+                <hr className="border-border" />
+                <TriggerConfigForm triggers={triggers} onChange={setTriggers} />
+              </>
+            ) : (
+              <NLWorkflowGenerator
+                projectId={projectId}
+                providerId={providerId}
+                onGenerated={handleAIGenerated}
+              />
+            )}
           </div>
         ) : (
           <div className="w-8 border-r border-border flex flex-col items-center pt-2 shrink-0">

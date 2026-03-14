@@ -1649,3 +1649,39 @@ export async function rejectWorkflowStep(stepRunId: string): Promise<void> {
   const result = await fetchApi<void>(`/api/workflow-step-runs/${stepRunId}/reject`, { method: 'POST' });
   if (!result.success) throw new Error(result.error?.message || 'Failed to reject step');
 }
+
+// ── Workflow Generation (NL → Workflow) ──────────────────
+
+export interface WorkflowGenerateResult {
+  generationId: string;
+  definition: import('@my-claudia/shared').WorkflowDefinitionV2;
+  name: string;
+  description: string;
+  warnings?: string[];
+}
+
+export async function generateWorkflowFromNL(
+  projectId: string,
+  description: string,
+  providerId: string,
+): Promise<WorkflowGenerateResult> {
+  const result = await fetchApi<WorkflowGenerateResult>(
+    `/api/projects/${projectId}/workflows/generate`,
+    { method: 'POST', body: JSON.stringify({ description, providerId }) },
+  );
+  if (!result.success || !result.data) throw new Error(result.error?.message || 'Failed to generate workflow');
+  return result.data;
+}
+
+export async function refineGeneratedWorkflow(
+  projectId: string,
+  generationId: string,
+  instruction: string,
+): Promise<WorkflowGenerateResult> {
+  const result = await fetchApi<WorkflowGenerateResult>(
+    `/api/projects/${projectId}/workflows/generate/refine`,
+    { method: 'POST', body: JSON.stringify({ generationId, instruction }) },
+  );
+  if (!result.success || !result.data) throw new Error(result.error?.message || 'Failed to refine workflow');
+  return result.data;
+}

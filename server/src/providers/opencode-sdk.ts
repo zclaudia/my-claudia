@@ -5,6 +5,7 @@ import type { ClaudeMessage, SystemInfo, PermissionDecision, PermissionCallback 
 import { fileStore } from '../storage/fileStore.js';
 import { buildNonImageAttachmentNotes } from './attachment-utils.js';
 import { sanitizeInheritedProviderEnv } from '../utils/startup-env.js';
+import { createTraceRecorder, type TraceRecorder, summarizeProviderMessage } from '../utils/provider-trace.js';
 
 // ── OpenCode prompt part types ─────────────────────────────────
 type OCTextPart = { type: 'text'; text: string };
@@ -704,6 +705,18 @@ export async function* runOpenCode(
 ): AsyncGenerator<ClaudeMessage, void, void> {
   let server: OpenCodeServer;
   let createdNewSession = false;
+  const trace = createTraceRecorder({
+    provider: 'opencode',
+    cwd: options.cwd,
+    sessionId: options.sessionId,
+  });
+  trace.log('provider_raw', 'run_started', {
+    cwd: options.cwd,
+    sessionId: options.sessionId,
+    model: options.model,
+    agent: options.agent,
+    cliPath: options.cliPath,
+  }, 'opencode run started');
 
   try {
     server = await openCodeServerManager.ensureServer(options.cwd, {
@@ -712,6 +725,7 @@ export async function* runOpenCode(
     });
   } catch (error) {
     const errMsg = error instanceof Error ? error.message : String(error);
+    trace.log('provider_raw', 'ensure_server_failed', error, 'ensureServer failed');
     if (errMsg.includes('ENOENT') || errMsg.includes('not found')) {
       yield {
         type: 'error',
@@ -727,6 +741,7 @@ export async function* runOpenCode(
   }
 
   const { client } = server;
+  trace.log('provider_raw', 'server_ready', { baseUrl: server.baseUrl, cwd: server.cwd }, 'server ready');
   ocLog(`Server baseUrl=${server.baseUrl} cwd=${server.cwd}`);
 
   // Create or resume session
@@ -747,6 +762,7 @@ export async function* runOpenCode(
         if (getResult.data && !getResult.error) {
           ocLog(`Session ${sessionId} validated on server ${server.baseUrl} (was: ${knownServer || 'unknown'})`);
           sessionServerMap.set(sessionId, server.baseUrl);
+          trace.log('provider_raw', 'session_validated', { sessionId, baseUrl: server.baseUrl }, 'session validated');
         } else {
           ocLog(`Session ${sessionId} not found (status=${getResult.response?.status}), creating new`);
           sessionId = undefined;
@@ -762,12 +778,15 @@ export async function* runOpenCode(
       const result = await client.session.create({});
       ocLog(`session.create: error=${JSON.stringify(result.error) || 'none'} data.id=${result.data?.id} response.status=${result.response?.status} response.url=${result.response?.url}`);
       if (result.error || !result.data) {
+        trace.log('provider_raw', 'session_create_failed', { error: result.error }, 'session create failed');
         yield { type: 'error', error: `Failed to create session: ${result.error || 'no data'}` };
         return;
       }
       sessionId = result.data.id;
       createdNewSession = true;
       sessionServerMap.set(sessionId, server.baseUrl);
+      trace.setMeta({ sessionId });
+      trace.log('provider_raw', 'session_created', { sessionId, baseUrl: server.baseUrl }, 'session created');
       ocLog(`Created new session: ${sessionId} on server ${server.baseUrl}`);
     } catch (error) {
       yield { type: 'error', error: `Failed to create session: ${error}` };
@@ -827,6 +846,12 @@ export async function* runOpenCode(
     sessionId,
     systemInfo,
   };
+  trace.setMeta({ sessionId });
+  trace.log('provider_raw', 'mapped_message', {
+    type: 'init',
+    sessionId,
+    systemInfo,
+  }, 'init');
 
   // Parse input: extract text and inline images as FilePartInput data URIs
   const { text: promptText, fileParts } = prepareOpenCodeInput(input);
@@ -857,6 +882,7 @@ export async function* runOpenCode(
       await new Promise(r => setTimeout(r, 100));
       ocLog(`SSE stream connected, awaiting first event...`);
       firstSseResult = await firstEventPromise;
+      trace.log('provider_raw', 'sse_first_event', firstSseResult.value, `first sse ${String(firstSseResult.value?.type || 'unknown')}`);
       ocLog(`SSE first event: done=${firstSseResult.done} type=${firstSseResult.value?.type || 'n/a'}`);
     } catch (error) {
       ocLog(`SSE connection failed: ${error}`);
@@ -930,14 +956,16 @@ export async function* runOpenCode(
     // (usually server.connected, but could be a session event if server responds fast)
     if (firstSseResult && !firstSseResult.done && firstSseResult.value) {
       const firstEvent = firstSseResult.value;
+      trace.log('provider_raw', 'sse_event', firstEvent, `sse ${String(firstEvent.type || 'unknown')}`);
       const firstProps = firstEvent.properties || {};
       const firstSid = firstProps.sessionID || firstProps.part?.sessionID;
       if (firstSid === sessionId) {
         receivedSessionEvent = true;
         ocLog(`First SSE event matched session: type=${firstEvent.type}`);
       }
-      const firstMessages = mapOpenCodeEvent(firstEvent, sessionId, streamState, server, onPermissionRequest);
+      const firstMessages = mapOpenCodeEvent(firstEvent, sessionId, streamState, server, trace, onPermissionRequest);
       for await (const msg of firstMessages) {
+        trace.log('provider_raw', 'mapped_message', msg, summarizeProviderMessage(msg as { type: string; [key: string]: unknown }));
         yield msg;
         if (msg.type === 'result' || msg.type === 'error') {
           sseAbort.abort();
@@ -981,6 +1009,7 @@ export async function* runOpenCode(
         }
 
         const event = raceResult.value;
+        trace.log('provider_raw', 'sse_event', event, `sse ${String((event as { type?: string }).type || 'unknown')}`);
         eventIdx++;
         const _et = (event as any).type as string;
         const _ep = (event as any).properties || {};
@@ -993,8 +1022,9 @@ export async function* runOpenCode(
           ocLog(`SSE[${eventIdx}] type=${_et} otherSID=${_eSid || 'none'} (ours=${sessionId})`);
         }
 
-        const messages = mapOpenCodeEvent(event, sessionId, streamState, server, onPermissionRequest);
+        const messages = mapOpenCodeEvent(event, sessionId, streamState, server, trace, onPermissionRequest);
         for await (const msg of messages) {
+          trace.log('provider_raw', 'mapped_message', msg, summarizeProviderMessage(msg as { type: string; [key: string]: unknown }));
           yield msg;
           if (msg.type === 'result' || msg.type === 'error') {
             if (streamState.lastField === 'reasoning') {
@@ -1017,6 +1047,7 @@ export async function* runOpenCode(
       sseAbort.abort(); // Stop SSE
 
       ocLog('Switching to polling fallback via session.messages() API');
+      trace.log('provider_raw', 'switch_to_polling', { sessionId }, 'switch to polling fallback');
       yield* pollSessionMessages(
         client, sessionId, streamState, server, onPermissionRequest
       );
@@ -1032,8 +1063,11 @@ export async function* runOpenCode(
     }
     ocLog('SSE stream finished without explicit result, yielding completion');
     sseAbort.abort();
-    yield { type: 'result', isComplete: true };
+    const completion = { type: 'result', isComplete: true } as ClaudeMessage;
+    trace.log('provider_raw', 'mapped_message', completion, summarizeProviderMessage(completion as { type: string; [key: string]: unknown }));
+    yield completion;
   } finally {
+    trace.log('provider_raw', 'run_finished', { sessionId, createdNewSession }, 'opencode run finished');
     // No temp files needed — images are sent inline as data: URIs
   }
 }
@@ -1049,6 +1083,7 @@ async function* mapOpenCodeEvent(
   sessionId: string,
   streamState: StreamState,
   server: OpenCodeServer,
+  trace: TraceRecorder,
   onPermissionRequest?: PermissionCallback
 ): AsyncGenerator<ClaudeMessage> {
   const eventType = event.type;
@@ -1063,6 +1098,7 @@ async function* mapOpenCodeEvent(
 
   // Skip events not for our session (except global events)
   if (eventSessionId && eventSessionId !== sessionId) {
+    trace.log('provider_raw', 'sse_event_skipped', { eventType, eventSessionId, sessionId }, 'event skipped for other session');
     return;
   }
 

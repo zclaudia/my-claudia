@@ -256,11 +256,22 @@ function GraphEditorInner({
     });
   }, [setEdges, onEdgesChangeCallback]);
 
+  // Replace all nodes and edges (used by AI workflow generator)
+  const replaceGraph = useCallback((nodeDefs: WorkflowNodeDef[], edgeDefs: WorkflowEdgeDef[]) => {
+    const newNodes = toFlowNodes(nodeDefs);
+    const newEdges = toFlowEdges(edgeDefs);
+    setNodes(newNodes);
+    setEdges(newEdges);
+    onNodesChangeCallback(newNodes);
+    onEdgesChangeCallback(newEdges);
+  }, [setNodes, setEdges, onNodesChangeCallback, onEdgesChangeCallback]);
+
   // Expose updateNodeData and deleteNode via ref on wrapper div
   if (reactFlowWrapper.current) {
     (reactFlowWrapper.current as any).__updateNodeData = updateNodeData;
     (reactFlowWrapper.current as any).__deleteNode = deleteNode;
     (reactFlowWrapper.current as any).__updateEdgeData = updateEdgeData;
+    (reactFlowWrapper.current as any).__replaceGraph = replaceGraph;
   }
 
   return (

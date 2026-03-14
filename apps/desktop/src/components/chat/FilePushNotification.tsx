@@ -189,7 +189,7 @@ export function FilePushNotificationList({ sessionId }: FilePushNotificationList
 
   return (
     <>
-      <div className="mt-4 space-y-2 max-w-full md:max-w-3xl">
+      <div className="mt-4 space-y-2 max-w-full md:max-w-3xl lg:max-w-4xl xl:max-w-5xl">
         {items.map((item) => (
           <FilePushCard key={item.fileId} item={item} onPreview={setPreviewItem} />
         ))}

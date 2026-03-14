@@ -6,12 +6,13 @@
 
 import { Router, Request, Response } from 'express';
 import type { WorkflowService } from '../services/workflow-service.js';
+import type { WorkflowGeneratorService } from '../services/workflow-generator.js';
 import type { WorkflowStepTypeMeta, WorkflowDefinition } from '@my-claudia/shared';
 import { isV2Definition } from '@my-claudia/shared';
 import { isValidCron } from '../utils/cron.js';
 import { workflowStepRegistry } from '../plugins/workflow-step-registry.js';
 
-export function createWorkflowRoutes(service: WorkflowService): Router {
+export function createWorkflowRoutes(service: WorkflowService, generatorService?: WorkflowGeneratorService): Router {
   const router = Router();
 
   // GET /api/projects/:projectId/workflows
@@ -273,6 +274,65 @@ export function createWorkflowRoutes(service: WorkflowService): Router {
       res.status(500).json({
         success: false,
         error: { code: 'INTERNAL_ERROR', message: error instanceof Error ? error.message : String(error) },
+      });
+    }
+  });
+
+  // POST /api/projects/:projectId/workflows/generate
+  router.post('/projects/:projectId/workflows/generate', async (req: Request, res: Response) => {
+    if (!generatorService) {
+      return res.status(503).json({
+        success: false,
+        error: { code: 'SERVICE_UNAVAILABLE', message: 'Workflow generator not available' },
+      });
+    }
+    try {
+      const { description, providerId } = req.body;
+      if (!description) {
+        return res.status(400).json({
+          success: false,
+          error: { code: 'VALIDATION_ERROR', message: 'description is required' },
+        });
+      }
+      if (!providerId) {
+        return res.status(400).json({
+          success: false,
+          error: { code: 'VALIDATION_ERROR', message: 'providerId is required' },
+        });
+      }
+      const result = await generatorService.generate(req.params.projectId, description, providerId);
+      res.json({ success: true, data: result });
+    } catch (error) {
+      res.status(500).json({
+        success: false,
+        error: { code: 'GENERATION_ERROR', message: error instanceof Error ? error.message : String(error) },
+      });
+    }
+  });
+
+  // POST /api/projects/:projectId/workflows/generate/refine
+  router.post('/projects/:projectId/workflows/generate/refine', async (req: Request, res: Response) => {
+    if (!generatorService) {
+      return res.status(503).json({
+        success: false,
+        error: { code: 'SERVICE_UNAVAILABLE', message: 'Workflow generator not available' },
+      });
+    }
+    try {
+      const { generationId, instruction } = req.body;
+      if (!generationId || !instruction) {
+        return res.status(400).json({
+          success: false,
+          error: { code: 'VALIDATION_ERROR', message: 'generationId and instruction are required' },
+        });
+      }
+      const result = await generatorService.refine(req.params.projectId, generationId, instruction);
+      res.json({ success: true, data: result });
+    } catch (error) {
+      const status = (error instanceof Error && error.message.includes('not found')) ? 404 : 500;
+      res.status(status).json({
+        success: false,
+        error: { code: 'GENERATION_ERROR', message: error instanceof Error ? error.message : String(error) },
       });
     }
   });

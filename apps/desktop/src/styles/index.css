@@ -388,6 +388,16 @@ body {
   padding-top: env(safe-area-inset-top, 0px);
 }
 
+/*
+ * Prevent wide content (tables, code blocks, long URLs) from overflowing
+ * message bubbles on narrow screens. The prose container and its direct
+ * block children must be able to shrink below their intrinsic min-width.
+ */
+.prose {
+  overflow-wrap: break-word;
+  word-break: break-word;
+}
+
 /* Hide scrollbar but keep scroll functionality */
 .scrollbar-hidden {
   scrollbar-width: none; /* Firefox */

@@ -1656,7 +1656,7 @@ export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar }:
 
       {/* Interrupted session banner */}
       {currentSession?.lastRunStatus === 'interrupted' && (
-        <div className="flex items-center gap-3 px-4 py-2 bg-red-500/10 border-b border-red-500/20">
+        <div className="fixed inset-x-3 bottom-[calc(env(safe-area-inset-bottom,0px)+76px)] z-20 flex items-center gap-3 rounded-xl border border-red-500/20 bg-background/95 px-4 py-3 shadow-lg backdrop-blur-sm sm:static sm:inset-auto sm:bottom-auto sm:z-auto sm:rounded-none sm:border-x-0 sm:border-t-0 sm:bg-red-500/10 sm:px-4 sm:py-2 sm:shadow-none sm:backdrop-blur-0">
           <AlertTriangle className="w-4 h-4 text-red-400 shrink-0" />
           <span className="text-sm text-red-400">Session was interrupted by app restart.</span>
           <div className="ml-auto flex gap-2">
@@ -1691,12 +1691,12 @@ export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar }:
 
       {/* Session action bar */}
       {currentSession && (
-        <div className="flex items-center gap-2 px-3 pt-2.5 pb-2 border-b border-border bg-card/50 safe-top-pad">
+        <div className="flex min-h-[48px] items-center gap-2.5 px-3 py-0 sm:min-h-[36px] sm:px-3.5 sm:py-0 border-b border-border bg-card/70 backdrop-blur-sm safe-top-pad">
           {/* Mobile: hamburger menu */}
           {isMobile && onOpenSidebar && (
             <button
               onClick={onOpenSidebar}
-              className="p-1.5 -ml-1 rounded hover:bg-secondary text-muted-foreground hover:text-foreground flex-shrink-0"
+              className="flex h-8 w-8 -ml-1 items-center justify-center rounded hover:bg-secondary text-muted-foreground hover:text-foreground flex-shrink-0"
               aria-label="Open menu"
             >
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1708,7 +1708,7 @@ export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar }:
           {currentSession.type === 'background' && onReturnToDashboard && currentSession.projectId && (
             <button
               onClick={() => onReturnToDashboard(currentSession.projectId)}
-              className="p-1 rounded hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors shrink-0"
+              className="flex h-8 w-8 items-center justify-center rounded hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors shrink-0"
               title="Back to dashboard"
             >
               <ArrowLeft size={14} />
@@ -1716,9 +1716,11 @@ export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar }:
           )}
           {/* Session name — click to rename (disabled for background sessions) */}
           {currentSession.type === 'background' ? (
-            <span className="flex-1 min-w-0 text-sm text-foreground truncate">
-              {currentSession.name || 'Untitled Session'}
-            </span>
+            <div className="flex flex-1 min-w-0 items-center self-stretch">
+              <span className="flex min-w-0 items-center truncate text-[13px] font-semibold leading-none text-foreground">
+                {currentSession.name || 'Untitled Session'}
+              </span>
+            </div>
           ) : isRenamingSession ? (
             <input
               autoFocus
@@ -1730,68 +1732,74 @@ export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar }:
                 if (e.key === 'Escape') setIsRenamingSession(false);
               }}
               onBlur={handleSessionRename}
-              className="flex-1 min-w-0 px-2 py-0.5 text-sm bg-muted/60 border-0 rounded-lg shadow-apple-sm focus:ring-1 focus:ring-primary/50 focus:outline-none text-foreground"
+              className="flex-1 min-w-0 px-2 py-0 text-[13px] font-semibold leading-none bg-muted/60 border-0 rounded-lg shadow-apple-sm focus:ring-1 focus:ring-primary/50 focus:outline-none text-foreground"
             />
           ) : (
-            <button
-              onClick={() => {
-                setRenameValue(currentSession.name || '');
-                setIsRenamingSession(true);
-              }}
-              className="flex-1 min-w-0 text-left text-sm text-foreground truncate hover:text-primary transition-colors"
-              title="Click to rename"
-            >
-              {currentSession.name || 'Untitled Session'}
-            </button>
+            <div className="flex flex-1 min-w-0 items-center self-stretch">
+              <button
+                onClick={() => {
+                  setRenameValue(currentSession.name || '');
+                  setIsRenamingSession(true);
+                }}
+                className="flex h-full w-full min-w-0 items-center truncate text-left text-[13px] font-semibold leading-none text-foreground hover:text-primary transition-colors"
+                title="Click to rename"
+              >
+                {currentSession.name || 'Untitled Session'}
+              </button>
+            </div>
           )}
-          {/* Provider badge */}
-          {(() => {
-            const pid = currentSession.providerId || currentProject?.providerId;
-            const prov = pid ? providers.find(p => p.id === pid) : undefined;
-            const name = prov?.name || prov?.type || 'Claude';
-            return (
-              <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted-foreground/10 text-muted-foreground/60 shrink-0">
-                {name}
-              </span>
-            );
-          })()}
+          <div className="hidden sm:flex min-w-0 shrink-0 items-center gap-1.5 text-[9px] leading-none text-muted-foreground">
+            <span className="uppercase leading-none tracking-[0.16em] text-muted-foreground/70">Session</span>
+            {(() => {
+              const pid = currentSession.providerId || currentProject?.providerId;
+              const prov = pid ? providers.find(p => p.id === pid) : undefined;
+              const name = prov?.name || prov?.type || 'Claude';
+              return (
+                <span className="inline-flex h-4 items-center rounded-full border border-border/70 bg-muted/45 px-1.5 text-[9px] font-medium leading-none text-muted-foreground">
+                  {name}
+                </span>
+              );
+            })()}
+          </div>
           {/* Actions (hidden for background sessions) */}
           {currentSession.type !== 'background' && (
             <>
               {/* Desktop: show all buttons inline */}
               {!isMobile && (
-                <div className="flex items-center gap-0.5 shrink-0">
-                  <button
-                    onClick={handleResetProviderSession}
-                    disabled={isLoading}
-                    className={`p-1 rounded transition-colors ${isLoading ? 'opacity-50 cursor-not-allowed text-muted-foreground' : 'hover:bg-secondary text-muted-foreground hover:text-foreground'}`}
-                    title="Reset underlying provider session"
-                  >
-                    <RotateCcw size={14} />
-                  </button>
-                  <button
-                    onClick={handleExportSession}
-                    className="p-1 rounded hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors"
-                    title="Export as Markdown"
-                  >
-                    <Download size={14} />
-                  </button>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <div className="flex items-center gap-0.5 rounded-xl border border-border/70 bg-background/85 p-px shadow-sm">
+                    <button
+                      onClick={handleResetProviderSession}
+                      disabled={isLoading}
+                      className={`p-0.5 rounded-md transition-colors ${isLoading ? 'opacity-50 cursor-not-allowed text-muted-foreground' : 'hover:bg-secondary text-muted-foreground hover:text-foreground'}`}
+                      title="Reset underlying provider session"
+                    >
+                      <RotateCcw size={12} />
+                    </button>
+                    <button
+                      onClick={handleExportSession}
+                      className="p-0.5 rounded-md hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors"
+                      title="Export as Markdown"
+                    >
+                      <Download size={12} />
+                    </button>
+                    {isDesktopTauri && !isStandaloneSessionWindow && (
+                      <button
+                        onClick={handlePopOut}
+                        className="p-0.5 rounded-md hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors"
+                        title="Open in new window"
+                      >
+                        <ExternalLink size={12} />
+                      </button>
+                    )}
+                  </div>
                   <button
                     onClick={handleArchiveSession}
-                    className="p-1 rounded hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors"
+                    className="p-0.5 rounded-lg border border-transparent text-muted-foreground transition-colors hover:bg-destructive/8 hover:text-destructive"
                     title="Archive session"
                   >
-                    <Archive size={14} />
+                    <Archive size={12} />
                   </button>
-                  {isDesktopTauri && !isStandaloneSessionWindow && (
-                    <button
-                      onClick={handlePopOut}
-                      className="p-1 rounded hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors"
-                      title="Open in new window"
-                    >
-                      <ExternalLink size={14} />
-                    </button>
-                  )}
                 </div>
               )}
               {/* Mobile: collapse actions into "..." dropdown */}
@@ -1799,7 +1807,7 @@ export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar }:
                 <div className="relative shrink-0">
                   <button
                     onClick={() => setShowSessionMenu(!showSessionMenu)}
-                    className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+                    className="flex h-8 w-8 items-center justify-center rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
                     title="Session actions"
                   >
                     <MoreHorizontal size={16} strokeWidth={1.75} />
@@ -2035,14 +2043,14 @@ export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar }:
 
         {/* Active tool calls (shown during streaming — hidden when inline in segmented view) */}
         {!useStreamingSegmented && sessionToolCalls.length > 0 && (
-          <div className="mt-4 max-w-full md:max-w-3xl">
+          <div className="mt-4 max-w-full md:max-w-3xl lg:max-w-4xl xl:max-w-5xl">
             <ToolCallList toolCalls={sessionToolCalls} />
           </div>
         )}
 
         {/* Inline permission requests for this session */}
         {permissionRequests.length > 0 && (
-          <div className="mt-4 space-y-3 max-w-full md:max-w-3xl">
+          <div className="mt-4 space-y-3 max-w-full md:max-w-3xl lg:max-w-4xl xl:max-w-5xl">
             {permissionRequests.map(req => (
               <InlinePermissionRequest
                 key={req.requestId}
@@ -2055,7 +2063,7 @@ export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar }:
 
         {/* Inline ask-user-question requests for this session */}
         {askUserRequests.length > 0 && (
-          <div className="mt-4 space-y-3 max-w-full md:max-w-3xl">
+          <div className="mt-4 space-y-3 max-w-full md:max-w-3xl lg:max-w-4xl xl:max-w-5xl">
             {askUserRequests.map(req => (
               <InlineAskUserQuestion
                 key={req.requestId}

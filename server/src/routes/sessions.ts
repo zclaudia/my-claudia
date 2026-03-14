@@ -7,6 +7,7 @@ import { extractAndIndexMetadata } from '../storage/metadata-extractor.js';
 import { getGatewayClient } from '../gateway-instance.js';
 import { hasForegroundActiveRunForSession, findForegroundActiveRunIdForSession, hasAnyActiveRunForSession } from '../utils/run-state.js';
 import { pluginEvents } from '../events/index.js';
+import * as fs from 'fs';
 
 type ActiveRunsMap = Map<string, any>;
 
@@ -303,7 +304,6 @@ export function createSessionRoutes(db: Database.Database, activeRuns: ActiveRun
   router.post('/', (req: Request, res: Response) => {
     try {
       const { projectId, name, providerId, type, parentSessionId, workingDirectory } = req.body;
-      const fs = require('fs');
 
       if (!projectId) {
         res.status(400).json({

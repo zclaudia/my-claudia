@@ -49,6 +49,7 @@ import { createSystemTaskRoutes } from './routes/system-tasks.js';
 import { createWorkspaceRoutes } from './routes/workspace.js';
 import { systemTaskRegistry } from './services/system-task-registry.js';
 import { WorkflowService } from './services/workflow-service.js';
+import { WorkflowGeneratorService } from './services/workflow-generator.js';
 import { createWorkflowRoutes } from './routes/workflows.js';
 import { SupervisorV2Service } from './services/supervisor-v2-service.js';
 import { StateRecovery } from './services/state-recovery.js';
@@ -74,6 +75,7 @@ import { pluginLoader } from './plugins/loader.js';
 import { permissionManager as pluginPermissionManager } from './plugins/permissions.js';
 import { toolRegistry as pluginToolRegistry } from './plugins/tool-registry.js';
 import { commandRegistry as pluginCommandRegistry } from './commands/registry.js';
+import { createTraceRecorder, summarizeProviderMessage, summarizeServerMessage } from './utils/provider-trace.js';
 
 // Phase 2: Router architecture (CRUD routes migrated to HTTP REST)
 import { createRouter } from './router/index.js';
@@ -660,7 +662,8 @@ export async function createServer(): Promise<ServerContext> {
     });
   }, notificationService);
   workflowService.initialize();
-  app.use('/api', authMiddleware, createWorkflowRoutes(workflowService));
+  const workflowGeneratorService = new WorkflowGeneratorService(db);
+  app.use('/api', authMiddleware, createWorkflowRoutes(workflowService, workflowGeneratorService));
 
   // Plugin routes
   app.use('/api/plugins', authMiddleware, createPluginRoutes());
@@ -1569,6 +1572,20 @@ async function handleRunStart(
   clients?: Map<string, ConnectedClient>,
 ): Promise<void> {
   const runId = uuidv4();
+  const trace = createTraceRecorder({
+    runId,
+    sessionId: message.sessionId,
+    cwd: message.workingDirectory,
+  });
+  trace.log('server_norm', 'run_start_requested', {
+    clientRequestId: message.clientRequestId,
+    sessionId: message.sessionId,
+    providerId: message.providerId,
+    mode: message.mode,
+    model: message.model,
+    workingDirectory: message.workingDirectory,
+    resend: message.resend,
+  }, 'run_start requested');
 
   // Get session info
   const session = db.prepare(`
@@ -1593,6 +1610,7 @@ async function handleRunStart(
   } | undefined;
 
   if (!session) {
+    trace.log('server_norm', 'run_start_rejected', { reason: 'SESSION_NOT_FOUND' }, 'session not found');
     sendMessage(client.ws, {
       type: 'error',
       code: 'SESSION_NOT_FOUND',
@@ -1609,6 +1627,7 @@ async function handleRunStart(
     return null;
   })();
   if (existingRunId) {
+    trace.log('server_norm', 'run_start_rejected', { reason: 'SESSION_BUSY', existingRunId }, 'session busy');
     sendMessage(client.ws, {
       type: 'error',
       code: 'SESSION_BUSY',
@@ -1652,6 +1671,7 @@ async function handleRunStart(
         createdAt: providerRow.createdAt,
         updatedAt: providerRow.updatedAt
       };
+      trace.setMeta({ provider: providerConfig.type });
     }
   }
 
@@ -1700,6 +1720,7 @@ async function handleRunStart(
 
   // Send run started (include real DB message IDs for client-side dedup)
   const sendRunEvent = (event: ServerMessage) => {
+    trace.log('server_norm', event.type, event, summarizeServerMessage(event as { type: string; [key: string]: unknown }));
     sendMessage(client.ws, event);
     if (clients) broadcastToOtherAuthenticatedClients(clients, client.id, event);
   };
@@ -1734,6 +1755,10 @@ async function handleRunStart(
 
   let sdkSessionId = session.sdk_session_id || undefined;
   let persistedWorkingDirectory = normalizeSessionWorkingDirectory(session.working_directory, session.root_path);
+  trace.setMeta({
+    provider: providerConfig?.type,
+    cwd: message.workingDirectory || persistedWorkingDirectory || session.root_path || undefined,
+  });
 
   const persistSessionWorkingDirectory = (nextWorkingDirectory: string | null | undefined) => {
     const normalizedNext = normalizeSessionWorkingDirectory(nextWorkingDirectory, session.root_path);
@@ -2078,6 +2103,14 @@ async function handleRunStart(
 
     // Debug: log all run parameters for 403 diagnosis
     console.log(`[Run Debug] session=${message.sessionId} sdk_session=${sdkSessionId || 'NEW'} provider=${providerType} mode=${modeValue} model=${message.model || 'default'} cwd=${cwd} cliPath=${providerConfig?.cliPath || 'default'}`);
+    trace.setMeta({ provider: providerType, cwd });
+    trace.log('server_norm', 'provider_runner_created', {
+      providerType,
+      sdkSessionId,
+      modeValue,
+      model: message.model,
+      cwd,
+    }, `provider runner ${providerType}`);
 
     const providerRunner = adapter.run(processedInput, runOptions, permissionCallback);
 
@@ -2097,6 +2130,12 @@ async function handleRunStart(
 
     // Run provider with streaming
     for await (const msg of providerRunner) {
+      trace.log(
+        'server_provider',
+        msg.type,
+        msg,
+        summarizeProviderMessage(msg as { type: string; [key: string]: unknown }),
+      );
       // Check if run was cancelled
       if (!activeRuns.has(runId)) {
         break;
@@ -2112,6 +2151,7 @@ async function handleRunStart(
             systemInfo = msg.systemInfo;
             activeRun.latestSystemInfo = msg.systemInfo;
             persistSessionWorkingDirectory(msg.systemInfo.cwd);
+            trace.setMeta({ cwd: msg.systemInfo.cwd || cwd });
             // Send system info to client for display
             sendMessage(client.ws, {
               type: 'system_info',
@@ -2131,6 +2171,7 @@ async function handleRunStart(
           }
           if (msg.sessionId && msg.sessionId !== sdkSessionId) {
             sdkSessionId = msg.sessionId;
+            trace.log('server_provider', 'provider_session_attached', { sdkSessionId }, `provider session ${sdkSessionId}`);
             // Update session with SDK session ID (handles both new and replaced sessions)
             db.prepare(`
               UPDATE sessions SET sdk_session_id = ?, updated_at = ? WHERE id = ?
@@ -2449,6 +2490,7 @@ async function handleRunStart(
     }
   } catch (error) {
     console.error('Run error:', error);
+    trace.log('server_norm', 'run_exception', error, 'handleRunStart exception');
 
     const errMsg = error instanceof Error ? error.message : '';
     const formattedErrMsg = formatProviderErrorMessage(errMsg, activeRun.providerType);
@@ -2531,6 +2573,14 @@ async function handleRunStart(
       } as import('@my-claudia/shared').BackgroundTaskUpdateMessage);
     }
   } finally {
+    trace.log('server_norm', 'run_finalized', {
+      runId,
+      sessionId: message.sessionId,
+      completed: activeRun.completed === true,
+      providerType: activeRun.providerType,
+      contentChars: activeRun.fullContent.length,
+      collectedToolCalls: activeRun.collectedToolCalls.length,
+    }, 'run finalized');
     // Stop periodic save
     if (activeRun.saveInterval) {
       clearInterval(activeRun.saveInterval);

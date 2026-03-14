@@ -321,7 +321,7 @@ export const MessageList = memo(function MessageList({
         <div
           key={message.id}
           data-message-id={message.id}
-          className={`max-w-full md:max-w-3xl scroll-mt-24 rounded-2xl transition-colors ${isHighlighted ? 'ring-2 ring-primary/40 bg-primary/5' : ''}`}
+          className={`max-w-full md:max-w-3xl lg:max-w-4xl xl:max-w-5xl scroll-mt-24 rounded-2xl transition-colors ${isHighlighted ? 'ring-2 ring-primary/40 bg-primary/5' : ''}`}
         >
           <FilePushCard item={item} onPreview={setPreviewItem} />
         </div>
@@ -678,7 +678,7 @@ const SegmentedContent = memo(function SegmentedContent({
           const tc = toolCallMap.get(block.toolUseId);
           if (!tc) return null;
           return (
-            <div key={`tool-${block.toolUseId}`} className="w-full max-w-full md:max-w-3xl">
+            <div key={`tool-${block.toolUseId}`} className="w-full max-w-full md:max-w-3xl lg:max-w-4xl xl:max-w-5xl">
               <ToolCallItem toolCall={tc} />
             </div>
           );
@@ -691,11 +691,11 @@ const SegmentedContent = memo(function SegmentedContent({
           return (
             <div key={`text-${i}`}>
               {thinking && (
-                <div className="w-full max-w-full md:max-w-3xl mb-2">
+                <div className="w-full max-w-full md:max-w-3xl lg:max-w-4xl xl:max-w-5xl mb-2">
                   <ThinkingBlock content={thinking} />
                 </div>
               )}
-              <div className="rounded-2xl px-3 md:px-4 py-2 w-full max-w-full md:max-w-3xl bg-card text-card-foreground">
+              <div className="rounded-2xl px-3 md:px-4 py-2 w-full max-w-full md:max-w-3xl lg:max-w-4xl xl:max-w-5xl bg-card text-card-foreground">
                 <AssistantContent content={mainContent} />
               </div>
             </div>
@@ -704,7 +704,7 @@ const SegmentedContent = memo(function SegmentedContent({
 
         // Intermediate text block: collapsed
         return (
-          <div key={`text-${i}`} className="w-full max-w-full md:max-w-3xl">
+          <div key={`text-${i}`} className="w-full max-w-full md:max-w-3xl lg:max-w-4xl xl:max-w-5xl">
             <CollapsedTextBlock content={block.content} />
           </div>
         );
@@ -773,20 +773,20 @@ const MessageItem = memo(function MessageItem({ message, streamingContentBlocks,
   return (
     <div
       data-role={message.role}
-      className={`flex flex-col ${isUser ? 'items-end' : 'items-start'} ${
+      className={`flex flex-col min-w-0 ${isUser ? 'items-end' : 'items-start'} ${
         isSystem ? 'opacity-60' : ''
       }`}
     >
       {/* Tool calls section (shown before the message content for assistant) — legacy rendering */}
       {!isUser && hasToolCalls && (
-        <div className="w-full max-w-full md:max-w-3xl mb-2">
+        <div className="w-full max-w-full md:max-w-3xl lg:max-w-4xl xl:max-w-5xl mb-2">
           <ToolCallList toolCalls={message.toolCalls!} defaultCollapsed={true} />
         </div>
       )}
 
       {/* Thinking block (same level as tool calls for consistent width) */}
       {!isUser && thinking && (
-        <div className="w-full max-w-full md:max-w-3xl mb-2">
+        <div className="w-full max-w-full md:max-w-3xl lg:max-w-4xl xl:max-w-5xl mb-2">
           <ThinkingBlock content={thinking} />
         </div>
       )}
@@ -794,10 +794,10 @@ const MessageItem = memo(function MessageItem({ message, streamingContentBlocks,
       <div
         className={`rounded-2xl px-3 md:px-4 py-2 ${
           isUser
-            ? 'max-w-[85%] md:max-w-3xl bg-primary text-primary-foreground shadow-apple-sm'
+            ? 'max-w-[85%] md:max-w-3xl lg:max-w-4xl xl:max-w-5xl bg-primary text-primary-foreground shadow-apple-sm'
             : isSystem
-            ? 'max-w-[85%] md:max-w-3xl bg-muted text-muted-foreground text-sm'
-            : 'w-full max-w-full md:max-w-3xl bg-card text-card-foreground min-w-0'
+            ? 'max-w-[85%] md:max-w-3xl lg:max-w-4xl xl:max-w-5xl bg-muted text-muted-foreground text-sm'
+            : 'w-full max-w-full md:max-w-3xl lg:max-w-4xl xl:max-w-5xl bg-card text-card-foreground min-w-0'
         }`}
       >
         {isUser ? (

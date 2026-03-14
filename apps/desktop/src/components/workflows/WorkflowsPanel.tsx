@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo } from 'react';
-import { Workflow as WorkflowIcon, Plus, Loader2 } from 'lucide-react';
+import { Workflow as WorkflowIcon, Plus, Sparkles, Loader2 } from 'lucide-react';
 import type { Workflow, WorkflowRun } from '@my-claudia/shared';
 import { useWorkflowStore } from '../../stores/workflowStore';
 import { useIsMobile } from '../../hooks/useMediaQuery';
@@ -43,7 +43,7 @@ interface WorkflowsPanelProps {
 
 type ViewState =
   | { type: 'list' }
-  | { type: 'editor'; workflow?: Workflow }
+  | { type: 'editor'; workflow?: Workflow; initialMode?: 'toolbox' | 'ai' }
   | { type: 'run-viewer'; runId: string };
 
 export function WorkflowsPanel({ projectId, onViewModeChange }: WorkflowsPanelProps) {
@@ -116,6 +116,7 @@ export function WorkflowsPanel({ projectId, onViewModeChange }: WorkflowsPanelPr
           setView({ type: 'list' });
           loadWorkflows(projectId);
         }}
+        initialMode={view.initialMode}
       />
     );
   }
@@ -145,13 +146,22 @@ export function WorkflowsPanel({ projectId, onViewModeChange }: WorkflowsPanelPr
           )}
         </div>
         {!isMobile && (
-          <button
-            onClick={() => setView({ type: 'editor' })}
-            className="flex items-center gap-1 px-2.5 py-1 text-xs rounded-md bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
-          >
-            <Plus size={14} />
-            New
-          </button>
+          <div className="flex items-center gap-1.5">
+            <button
+              onClick={() => setView({ type: 'editor', initialMode: 'ai' })}
+              className="flex items-center gap-1 px-2.5 py-1 text-xs rounded-md border border-border hover:bg-secondary transition-colors text-muted-foreground hover:text-foreground"
+            >
+              <Sparkles size={14} />
+              AI
+            </button>
+            <button
+              onClick={() => setView({ type: 'editor' })}
+              className="flex items-center gap-1 px-2.5 py-1 text-xs rounded-md bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
+            >
+              <Plus size={14} />
+              New
+            </button>
+          </div>
         )}
       </div>
 
