@@ -50,35 +50,38 @@ Write-Host ""
 # --- Build ---
 # Windows: UI-only build — no server bundle, no node sidecar, no server resources
 Write-Host "Building Windows desktop app (UI-only)..." -ForegroundColor Cyan
-# Build a JSON config override:
-# - resources: $null clears the server bundle resource mapping
-# - externalBin: @() removes the node sidecar requirement
-$tauriConfigObject = [ordered]@{
-    version = $env:VERSION
-    build = [ordered]@{
-        beforeBuildCommand = ""
-    }
-    bundle = [ordered]@{
-        resources = $null
-        externalBin = @()
-    }
-}
-$tauriConfig = $tauriConfigObject | ConvertTo-Json -Depth 10 -Compress
-Write-Host "Tauri config override: $tauriConfig"
+# Build a dedicated alternate Tauri config file, following the standard
+# "tauri.conf.*.json" pattern used by Tauri for environment-specific builds.
+$baseConfigPath = Join-Path $PWD "apps\desktop\src-tauri\tauri.conf.json"
+$windowsConfigPath = Join-Path $PWD "apps\desktop\src-tauri\tauri.conf.windows-ci.json"
 
-$configFile = Join-Path $env:TEMP ("my-claudia-tauri-config-" + [System.Guid]::NewGuid().ToString() + ".json")
+$tauriConfig = Get-Content -Raw -Path $baseConfigPath | ConvertFrom-Json -AsHashtable
+$tauriConfig.version = $env:VERSION
+$tauriConfig.build.beforeBuildCommand = ""
+$tauriConfig.bundle.resources = $null
+$tauriConfig.bundle.externalBin = @()
+
+$tauriConfigJson = $tauriConfig | ConvertTo-Json -Depth 100
 $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
-[System.IO.File]::WriteAllText($configFile, $tauriConfig, $utf8NoBom)
-Write-Host "Tauri config file: $configFile"
+[System.IO.File]::WriteAllText($windowsConfigPath, $tauriConfigJson, $utf8NoBom)
+Write-Host "Tauri config file: $windowsConfigPath"
 
 try {
-    pnpm --filter @my-claudia/desktop run tauri:build -- --config $configFile
+    $pnpmArgs = @(
+        '--filter', '@my-claudia/desktop',
+        'run', 'tauri:build',
+        '--',
+        '--config', 'src-tauri/tauri.conf.windows-ci.json'
+    )
+
+    Write-Host "Running: pnpm $($pnpmArgs -join ' ')"
+    & pnpm @pnpmArgs
     if ($LASTEXITCODE -ne 0) {
         Write-Error "Tauri build failed"
         exit 1
     }
 } finally {
-    Remove-Item -Path $configFile -ErrorAction SilentlyContinue
+    Remove-Item -Path $windowsConfigPath -ErrorAction SilentlyContinue
 }
 
 $bundleDir = "apps\desktop\src-tauri\target\release\bundle"
