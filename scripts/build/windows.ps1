@@ -50,29 +50,26 @@ Write-Host ""
 # --- Build ---
 # Windows: UI-only build — no server bundle, no node sidecar, no server resources
 Write-Host "Building Windows desktop app (UI-only)..." -ForegroundColor Cyan
-# Build a dedicated alternate Tauri config file, following the standard
-# "tauri.conf.*.json" pattern used by Tauri for environment-specific builds.
-$baseConfigPath = Join-Path $PWD "apps\desktop\src-tauri\tauri.conf.json"
-$windowsConfigPath = Join-Path $PWD "apps\desktop\src-tauri\tauri.conf.windows-ci.json"
+# Tauri CLI supports TAURI_CONFIG as a merged config override.
+# This avoids PowerShell/native argument quoting issues around `--config`.
+$tauriConfigObject = [ordered]@{
+    version = $env:VERSION
+    build = [ordered]@{
+        beforeBuildCommand = ""
+    }
+    bundle = [ordered]@{
+        resources = $null
+        externalBin = @()
+    }
+}
 
-$tauriConfig = Get-Content -Raw -Path $baseConfigPath | ConvertFrom-Json -AsHashtable
-$tauriConfig.version = $env:VERSION
-$tauriConfig.build.beforeBuildCommand = ""
-$tauriConfig.bundle.resources = $null
-$tauriConfig.bundle.externalBin = @()
-
-$tauriConfigJson = $tauriConfig | ConvertTo-Json -Depth 100
-$utf8NoBom = New-Object System.Text.UTF8Encoding($false)
-[System.IO.File]::WriteAllText($windowsConfigPath, $tauriConfigJson, $utf8NoBom)
-Write-Host "Tauri config file: $windowsConfigPath"
+$tauriConfigJson = $tauriConfigObject | ConvertTo-Json -Depth 10 -Compress
+Write-Host "TAURI_CONFIG override: $tauriConfigJson"
+$originalTauriConfig = $env:TAURI_CONFIG
+$env:TAURI_CONFIG = $tauriConfigJson
 
 try {
-    $pnpmArgs = @(
-        '--filter', '@my-claudia/desktop',
-        'run', 'tauri:build',
-        '--',
-        '--config', 'src-tauri/tauri.conf.windows-ci.json'
-    )
+    $pnpmArgs = @('--filter', '@my-claudia/desktop', 'run', 'tauri:build')
 
     Write-Host "Running: pnpm $($pnpmArgs -join ' ')"
     & pnpm @pnpmArgs
@@ -81,7 +78,11 @@ try {
         exit 1
     }
 } finally {
-    Remove-Item -Path $windowsConfigPath -ErrorAction SilentlyContinue
+    if ($null -ne $originalTauriConfig) {
+        $env:TAURI_CONFIG = $originalTauriConfig
+    } else {
+        Remove-Item Env:TAURI_CONFIG -ErrorAction SilentlyContinue
+    }
 }
 
 $bundleDir = "apps\desktop\src-tauri\target\release\bundle"
