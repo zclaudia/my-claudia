@@ -11,6 +11,7 @@ import * as path from 'path';
 import * as os from 'os';
 import * as crypto from 'crypto';
 import { extractRetryDelayMsFromError } from '../utils/retry-window.js';
+import { sanitizeInheritedProviderEnv } from '../utils/startup-env.js';
 
 export interface ClaudeRunOptions {
   cwd: string;
@@ -288,7 +289,8 @@ export async function* runClaude(
   // Also filter out model-related env vars to ensure UI model selection takes precedence.
   {
     const baseEnv = { ...process.env, ...(options.env || {}) } as Record<string, string>;
-    const { ANTHROPIC_MODEL, OPENAI_MODEL, MODEL, CLAUDECODE, ...cleanEnv } = baseEnv;
+    sanitizeInheritedProviderEnv(baseEnv);
+    const { CLAUDECODE, ...cleanEnv } = baseEnv;
     sdkOptions.env = cleanEnv;
   }
 

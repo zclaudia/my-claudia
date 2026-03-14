@@ -1372,8 +1372,6 @@ function upsertAssistantMessage(
   run: ActiveRun,
   options?: { usage?: { inputTokens: number; outputTokens: number }; indexMetadata?: boolean }
 ): void {
-  if (!run.fullContent) return;
-
   const metadata: Record<string, unknown> = {};
   if (options?.usage) {
     metadata.usage = options.usage;
@@ -1386,6 +1384,13 @@ function upsertAssistantMessage(
   if (run.contentBlocks.length > 0) {
     metadata.contentBlocks = run.contentBlocks;
   }
+
+  const hasPersistableContent =
+    run.fullContent.trim().length > 0
+    || run.collectedToolCalls.length > 0
+    || run.contentBlocks.length > 0;
+
+  if (!hasPersistableContent) return;
 
   const metadataJson = Object.keys(metadata).length > 0 ? JSON.stringify(metadata) : null;
 

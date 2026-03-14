@@ -437,6 +437,7 @@ export async function getSessionMessages(
     before?: number;
     after?: number;
     afterOffset?: number;
+    aroundMessageId?: string;
   }
 ): Promise<MessagesResponse> {
   const params = new URLSearchParams();
@@ -444,6 +445,7 @@ export async function getSessionMessages(
   if (options?.before) params.set('before', String(options.before));
   if (options?.after) params.set('after', String(options.after));
   if (options?.afterOffset != null) params.set('afterOffset', String(options.afterOffset));
+  if (options?.aroundMessageId) params.set('aroundMessageId', options.aroundMessageId);
 
   const query = params.toString() ? `?${params.toString()}` : '';
   const result = await fetchApi<MessagesResponse>(`/api/sessions/${sessionId}/messages${query}`);

@@ -956,11 +956,36 @@ export function createSessionRoutes(db: Database.Database, activeRuns: ActiveRun
       const before = req.query.before ? parseInt(req.query.before as string) : undefined;
       const after = req.query.after ? parseInt(req.query.after as string) : undefined;
       const afterOffset = req.query.afterOffset ? parseInt(req.query.afterOffset as string) : undefined;
+      const aroundMessageId = req.query.aroundMessageId as string | undefined;
 
       let query: string;
       let params: (string | number)[];
 
-      if (afterOffset != null) {
+      if (aroundMessageId) {
+        const target = db.prepare(`
+          SELECT offset
+          FROM messages
+          WHERE session_id = ? AND id = ?
+        `).get(req.params.id, aroundMessageId) as { offset: number } | undefined;
+
+        if (!target) {
+          res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Message not found in session' } });
+          return;
+        }
+
+        const beforeCount = Math.floor((limit - 1) / 2);
+        const afterCount = limit - beforeCount - 1;
+        const minOffset = Math.max(1, target.offset - beforeCount);
+        const maxOffset = target.offset + afterCount;
+
+        query = `
+          SELECT id, session_id as sessionId, role, content, metadata, created_at as createdAt, offset
+          FROM messages
+          WHERE session_id = ? AND offset BETWEEN ? AND ?
+          ORDER BY offset ASC
+        `;
+        params = [req.params.id, minOffset, maxOffset];
+      } else if (afterOffset != null) {
         // Load messages after a specific offset (for gap-fill)
         query = `
           SELECT id, session_id as sessionId, role, content, metadata, created_at as createdAt, offset
@@ -1031,7 +1056,7 @@ export function createSessionRoutes(db: Database.Database, activeRuns: ActiveRun
 
       // For initial load and "before" queries, we fetched DESC, so reverse to get chronological order
       // afterOffset uses ASC order like "after", so no reversal needed
-      if (!after && afterOffset == null) {
+      if (!after && afterOffset == null && !aroundMessageId) {
         trimmed.reverse();
       }
 
@@ -1047,7 +1072,7 @@ export function createSessionRoutes(db: Database.Database, activeRuns: ActiveRun
 
       // hasMore is true if we trimmed OR if there are more messages beyond the limit
       const hasMore = wasTrimmed
-        || (before || after || afterOffset != null ? messages.length === limit : countResult.total > limit);
+        || (before || after || afterOffset != null || aroundMessageId ? messages.length === limit : countResult.total > limit);
 
       // Cursor timestamps (result is now in chronological order: oldest first)
       const oldestTimestamp = result.length > 0 ? result[0].createdAt : undefined;

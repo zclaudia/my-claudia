@@ -4,6 +4,7 @@ import type { PermissionRequest, MessageInput } from '@my-claudia/shared';
 import type { ClaudeMessage, SystemInfo, PermissionDecision, PermissionCallback } from './claude-sdk.js';
 import { fileStore } from '../storage/fileStore.js';
 import { buildNonImageAttachmentNotes } from './attachment-utils.js';
+import { sanitizeInheritedProviderEnv } from '../utils/startup-env.js';
 
 // ── OpenCode prompt part types ─────────────────────────────────
 type OCTextPart = { type: 'text'; text: string };
@@ -171,7 +172,8 @@ class OpenCodeServerManager {
 
     // Filter out model-related env vars to ensure UI model selection takes precedence
     const baseEnv = { ...process.env, ...(options.env || {}) };
-    const { ANTHROPIC_MODEL, OPENAI_MODEL, MODEL, ...childEnv } = baseEnv;
+    sanitizeInheritedProviderEnv(baseEnv);
+    const childEnv = baseEnv;
 
     const child = spawn(cliPath, ['serve', '--port', String(port), '--hostname', '127.0.0.1'], {
       cwd,

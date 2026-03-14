@@ -165,6 +165,7 @@ interface MessageListProps {
   scrollTop?: number;
   viewportHeight?: number;
   resendTargetMessageId?: string;
+  highlightedMessageId?: string | null;
   onResendTarget?: () => void;
   resendDisabled?: boolean;
 }
@@ -180,6 +181,7 @@ export const MessageList = memo(function MessageList({
   scrollTop = 0,
   viewportHeight = 0,
   resendTargetMessageId,
+  highlightedMessageId,
   onResendTarget,
   resendDisabled = false,
 }: MessageListProps) {
@@ -295,6 +297,7 @@ export const MessageList = memo(function MessageList({
   }, [filteredMessages]);
 
   const renderMessage = useCallback((message: MessageWithToolCalls, index: number) => {
+    const isHighlighted = highlightedMessageId === message.id;
     if (message.metadata?.filePush) {
       const fp = message.metadata.filePush;
       const storeItem = filePushItems.find(i => i.fileId === fp.fileId);
@@ -315,7 +318,11 @@ export const MessageList = memo(function MessageList({
         createdAt: message.createdAt,
       };
       return (
-        <div key={message.id} className="max-w-full md:max-w-3xl">
+        <div
+          key={message.id}
+          data-message-id={message.id}
+          className={`max-w-full md:max-w-3xl scroll-mt-24 rounded-2xl transition-colors ${isHighlighted ? 'ring-2 ring-primary/40 bg-primary/5' : ''}`}
+        >
           <FilePushCard item={item} onPreview={setPreviewItem} />
         </div>
       );
@@ -329,17 +336,22 @@ export const MessageList = memo(function MessageList({
     );
 
     return (
-      <MessageItem
+      <div
         key={message.id}
-        message={message}
-        streamingContentBlocks={isLastAssistant ? streamingContentBlocks : undefined}
-        streamingToolCalls={isLastAssistant ? streamingToolCalls : undefined}
-        showResend={message.id === resendTargetMessageId}
-        onResend={message.id === resendTargetMessageId ? onResendTarget : undefined}
-        resendDisabled={resendDisabled}
-      />
+        data-message-id={message.id}
+        className={`scroll-mt-24 rounded-2xl transition-colors ${isHighlighted ? 'ring-2 ring-primary/40 bg-primary/5' : ''}`}
+      >
+        <MessageItem
+          message={message}
+          streamingContentBlocks={isLastAssistant ? streamingContentBlocks : undefined}
+          streamingToolCalls={isLastAssistant ? streamingToolCalls : undefined}
+          showResend={message.id === resendTargetMessageId}
+          onResend={message.id === resendTargetMessageId ? onResendTarget : undefined}
+          resendDisabled={resendDisabled}
+        />
+      </div>
     );
-  }, [filePushItems, filteredMessages.length, lastAssistantIndex, streamingContentBlocks, streamingToolCalls, resendTargetMessageId, onResendTarget, resendDisabled]);
+  }, [filePushItems, filteredMessages.length, highlightedMessageId, lastAssistantIndex, streamingContentBlocks, streamingToolCalls, resendTargetMessageId, onResendTarget, resendDisabled]);
 
   const virtualWindow = useMemo(() => {
     if (!shouldVirtualize) {

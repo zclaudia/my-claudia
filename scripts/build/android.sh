@@ -108,7 +108,7 @@ echo ""
 # Locally, use git tags to track builds:
 #   - HEAD has build-* tag + clean tree → reuse version
 #   - HEAD has no build-* tag → new commits exist → bump + tag
-#   - Dirty working tree → dev build (no bump, -dev suffix)
+#   - Dirty working tree → dev build (no bump, -dev.<platform>.<timestamp> suffix)
 if [ "$INSTALL_ONLY" = false ] && [ "$NO_BUMP" = false ]; then
   echo "=== Version check ==="
 
@@ -173,24 +173,13 @@ UNSIGNED="$APK_DIR/app-universal-release-unsigned.apk"
 if [ "$INSTALL_ONLY" = true ]; then
   # Find latest existing APK
   if [ "$DEV" = true ]; then
-    OUTPUT=$(ls -t "$APK_DIR"/my-claudia-*-dev.apk 2>/dev/null | head -1)
+    OUTPUT=$(ls -t "$APK_DIR"/my-claudia-*-dev*.apk 2>/dev/null | head -1)
   else
-    OUTPUT=$(ls -t "$APK_DIR"/my-claudia-*.apk 2>/dev/null | grep -v -- '-dev\.apk$' | head -1)
+    OUTPUT=$(ls -t "$APK_DIR"/my-claudia-*.apk 2>/dev/null | grep -v -- '-dev' | head -1)
   fi
   [ -z "$OUTPUT" ] && { echo "ERROR: No APK found in $APK_DIR"; exit 1; }
 else
-  # Strip -dev suffix from version for clean naming
-  BASE_VER="${VERSION%-dev}"
-  IS_DIRTY=$([[ "$VERSION" == *-dev ]] && echo true || echo false)
-  if [ "$DEV" = true ] || [ "$IS_DIRTY" = true ]; then
-    APK_NAME="my-claudia-${BASE_VER}-dev"
-  else
-    APK_NAME="my-claudia-${BASE_VER}"
-  fi
-  # Add timestamp to dirty-tree builds for distinction
-  if [ "$IS_DIRTY" = true ]; then
-    APK_NAME="${APK_NAME}-$(date +%Y%m%d-%H%M)"
-  fi
+  APK_NAME="my-claudia-${VERSION}"
   OUTPUT="$APK_DIR/${APK_NAME}.apk"
 fi
 

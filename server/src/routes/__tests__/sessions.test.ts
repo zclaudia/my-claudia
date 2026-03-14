@@ -391,6 +391,22 @@ describe('sessions routes', () => {
       expect(res.body.data.pagination.hasMore).toBe(false);
     });
 
+    it('returns a window around a target message', async () => {
+      const now = Date.now();
+      for (let i = 0; i < 10; i++) {
+        db.prepare(`
+          INSERT INTO messages (id, session_id, role, content, created_at, offset)
+          VALUES (?, ?, ?, ?, ?, ?)
+        `).run(`m${i}`, 's1', 'user', `Message ${i}`, now + i * 1000, i + 1);
+      }
+
+      const res = await request(app).get('/api/sessions/s1/messages?aroundMessageId=m5&limit=5');
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.messages).toHaveLength(5);
+      expect(res.body.data.messages.map((m: any) => m.id)).toEqual(['m3', 'm4', 'm5', 'm6', 'm7']);
+    });
+
     it('returns activeRun when foreground run is still running', async () => {
       activeRuns.set('run-1', { sessionId: 's1', completed: false, sessionType: 'regular' });
 

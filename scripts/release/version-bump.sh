@@ -9,15 +9,15 @@
 #   echo "$VERSION"   # e.g. 0.1.221
 #
 # Outputs shell variable assignments to stdout:
-#   VERSION=x.y.z       (or x.y.z-dev)
+#   VERSION=x.y.z       (or x.y.z-dev.<platform>.<timestamp>)
 #   VERSION_CODE=NNN    (integer, for Android versionCode)
 #   BUILD=N             (raw build number)
 #
 # version.json holds only { "major": N, "minor": N }
 # Build number is derived from git tags: build-{major}.{minor}-{N}
 #
-# All platforms now share the same app version. Platform differences belong in
-# artifact names, not in VERSION itself.
+# Release builds share the same app version. Dirty local dev builds append
+# platform + timestamp so parallel local artifacts are distinguishable.
 #
 # Android still requires a monotonically increasing integer versionCode, so we
 # derive one separately from major/minor/build.
@@ -80,7 +80,8 @@ fi
 # --- Compute version strings ---
 VERSION="${MAJOR}.${MINOR}.${BUILD}"
 if [ "$DEV_SUFFIX" = true ]; then
-  VERSION="${VERSION}-dev"
+  DEV_TIMESTAMP="${DEV_TIMESTAMP:-$(date -u +%Y%m%d%H%M%S)}"
+  VERSION="${VERSION}-dev.${PLATFORM}.${DEV_TIMESTAMP}"
 fi
 
 # Android requires an integer versionCode that monotonically increases across

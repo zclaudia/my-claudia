@@ -134,6 +134,9 @@ cmd_run() {
   info "Starting server (PORT=$PORT, data=$DATA_DIR)..."
   env \
     -u ANTHROPIC_MODEL \
+    -u ANTHROPIC_DEFAULT_OPUS_MODEL \
+    -u ANTHROPIC_DEFAULT_SONNET_MODEL \
+    -u ANTHROPIC_DEFAULT_HAIKU_MODEL \
     -u OPENAI_MODEL \
     -u MODEL \
     -u CLAUDE_MODEL \

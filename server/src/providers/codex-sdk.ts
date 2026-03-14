@@ -13,6 +13,7 @@ import type { ClaudeMessage, SystemInfo, PermissionDecision, PermissionCallback 
 import { fileStore } from '../storage/fileStore.js';
 import { extractRetryDelayMsFromError } from '../utils/retry-window.js';
 import { buildNonImageAttachmentNotes } from './attachment-utils.js';
+import { sanitizeInheritedProviderEnv } from '../utils/startup-env.js';
 
 
 // ── Types ─────────────────────────────────────────────────────
@@ -242,27 +243,40 @@ function mapItemCompleted(item: ThreadItem): ClaudeMessage | null {
 
 const codexInstances = new Map<string, Codex>();
 
+function buildCodexEnv(options: CodexRunOptions): Record<string, string> {
+  const mergedEnv: Record<string, string> = {};
+
+  for (const [key, value] of Object.entries(process.env)) {
+    if (value !== undefined) {
+      mergedEnv[key] = value;
+    }
+  }
+
+  sanitizeInheritedProviderEnv(mergedEnv);
+
+  if (options.env) {
+    for (const [key, value] of Object.entries(options.env)) {
+      mergedEnv[key] = value;
+    }
+  }
+
+  return mergedEnv;
+}
+
+function getCodexCacheKey(options: CodexRunOptions, env: Record<string, string>): string {
+  const envSignature = JSON.stringify(
+    Object.keys(env)
+      .sort()
+      .map((key) => [key, env[key]])
+  );
+  return `${options.cliPath || '__default__'}::${envSignature}`;
+}
+
 function getCodexInstance(options: CodexRunOptions): Codex {
-  const key = options.cliPath || '__default__';
+  const mergedEnv = buildCodexEnv(options);
+  const key = getCodexCacheKey(options, mergedEnv);
   let codex = codexInstances.get(key);
   if (!codex) {
-    // Codex SDK: if env is provided, it does NOT inherit process.env
-    // We must merge them manually to ensure system env vars (PATH, etc.) are available
-    let mergedEnv: Record<string, string> | undefined;
-    if (options.env) {
-      // Convert process.env to Record<string, string>, filtering out undefined values
-      const processEnv: Record<string, string> = {};
-      for (const [key, value] of Object.entries(process.env)) {
-        if (value !== undefined) {
-          processEnv[key] = value;
-        }
-      }
-      // Filter out model-related environment variables that could override the model parameter
-      // This ensures the model selected in UI takes precedence over env vars like ANTHROPIC_MODEL
-      const { ANTHROPIC_MODEL, OPENAI_MODEL, MODEL, ...filteredProcessEnv } = processEnv;
-      mergedEnv = { ...filteredProcessEnv, ...options.env };
-    }
-
     codex = new Codex({
       codexPathOverride: options.cliPath,
       env: mergedEnv,

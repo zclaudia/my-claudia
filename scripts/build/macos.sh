@@ -35,7 +35,7 @@ cleanup_temp_keychain() {
 trap cleanup_temp_keychain EXIT
 
 DEFAULT_MACOS_CERT_PATH="$HOME/.tauri/MyClaudia-signing.p12"
-DEFAULT_MACOS_CERT_PASSWORD_FILE="$HOME/.tauri/MyClaudia-signing.github.pwd"
+DEFAULT_MACOS_CERT_PASSWORD_FILE="$HOME/.tauri/MyClaudia-signing.pwd"
 if [ -z "${MACOS_CERT_P12_PATH:-}" ] && [ -f "$DEFAULT_MACOS_CERT_PATH" ]; then
   MACOS_CERT_P12_PATH="$DEFAULT_MACOS_CERT_PATH"
   export MACOS_CERT_P12_PATH
@@ -47,8 +47,25 @@ fi
 
 if [ "${SKIP_SIGNING:-}" != "1" ] && [ -n "${MACOS_CERT_P12_PATH:-}" ] && [ -f "${MACOS_CERT_P12_PATH}" ]; then
   echo "=== Importing macOS signing certificate into temporary keychain ==="
-  TEMP_KEYCHAIN_PATH="$(mktemp -u "${TMPDIR:-/tmp}/my-claudia-build-keychain.XXXXXX-db")"
-  KEYCHAIN_PASSWORD="${KEYCHAIN_PASSWORD:-$(LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom | head -c 32)}"
+  TEMP_KEYCHAIN_PATH="$(python3 - <<'PY'
+import tempfile
+from pathlib import Path
+
+fd, path = tempfile.mkstemp(prefix='my-claudia-build-keychain.', suffix='-db')
+Path(path).unlink(missing_ok=True)
+print(f"{path}.keychain-db")
+PY
+)"
+  if [ -z "${KEYCHAIN_PASSWORD:-}" ]; then
+    KEYCHAIN_PASSWORD="$(python3 - <<'PY'
+import secrets
+import string
+
+alphabet = string.ascii_letters + string.digits
+print(''.join(secrets.choice(alphabet) for _ in range(32)))
+PY
+)"
+  fi
   security create-keychain -p "$KEYCHAIN_PASSWORD" "$TEMP_KEYCHAIN_PATH"
   security set-keychain-settings -lut 21600 "$TEMP_KEYCHAIN_PATH"
   security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$TEMP_KEYCHAIN_PATH"

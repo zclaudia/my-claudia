@@ -74,6 +74,7 @@ function normalizeSearchPreview(content: string): string {
 }
 
 export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHeader, onOpenDashboard }: SidebarProps) {
+  const requestMessageJump = useUIStore((s) => s.requestMessageJump);
   const {
     projects = [],
     sessions = [],
@@ -154,6 +155,7 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
   const [worktreesByProject, setWorktreesByProject] = useState<Map<string, GitWorktree[]>>(new Map());
   const searchTimerRef = useRef<number | null>(null);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
+  const searchResultsContainerRef = useRef<HTMLDivElement | null>(null);
 
   const settingsProject = settingsProjectId ? projects?.find(p => p.id === settingsProjectId) || null : null;
 
@@ -463,6 +465,11 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
     }
   }, [searchQuery, handleSearch]);
 
+  useEffect(() => {
+    if (searchOffset !== 0 || isLoadingMore) return;
+    searchResultsContainerRef.current?.scrollTo({ top: 0, behavior: 'auto' });
+  }, [searchQuery, searchOffset, isLoadingMore, searchResults.length]);
+
   const sidebarSwipeRef = useSwipeBack({
     onSwipe: () => onClose?.(),
     enabled: isMobile && !!isOpen,
@@ -561,7 +568,7 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
 
           {/* Search Results */}
           {searchQuery.trim() && (
-            <div className="border-b border-border max-h-60 overflow-y-auto">
+            <div ref={searchResultsContainerRef} className="border-b border-border max-h-60 overflow-y-auto">
               {isSearching ? (
                 <div className="px-3 py-2 text-xs text-muted-foreground">Searching...</div>
               ) : searchResults.length === 0 ? (
@@ -572,6 +579,7 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
                     <button
                       key={r.id}
                       onClick={() => {
+                        requestMessageJump(r.sessionId, r.id);
                         selectSession(r.sessionId);
                         setSearchQuery('');
                         setSearchResults([]);
@@ -1117,7 +1125,7 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
 
       {/* Search Results */}
       {searchQuery.trim() && (
-        <div className="border-b border-border max-h-48 overflow-y-auto mx-2">
+        <div ref={searchResultsContainerRef} className="border-b border-border max-h-48 overflow-y-auto mx-2">
           {isSearching ? (
             <div className="px-2 py-1.5 text-xs text-muted-foreground">Searching...</div>
           ) : searchResults.length === 0 ? (
@@ -1128,6 +1136,7 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
                 <button
                   key={r.id}
                   onClick={() => {
+                    requestMessageJump(r.sessionId, r.id);
                     selectSession(r.sessionId);
                     setSearchQuery('');
                     setSearchResults([]);

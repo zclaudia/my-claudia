@@ -4,11 +4,15 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 const mockStartThread = vi.fn();
 const mockResumeThread = vi.fn();
 const mockRunStreamed = vi.fn();
+const mockCodexConstructor = vi.fn();
 
 // Mock @openai/codex-sdk with a proper class
 vi.mock('@openai/codex-sdk', () => {
   // Create a mock class
   class MockCodex {
+    constructor(options: unknown) {
+      mockCodexConstructor(options);
+    }
     startThread = mockStartThread;
     resumeThread = mockResumeThread;
   }
@@ -104,6 +108,38 @@ describe('codex-sdk', () => {
           sandboxMode: 'workspace-write',
         })
       );
+    });
+  });
+
+  describe('环境清理', () => {
+    it('即使没有 options.env 也会过滤继承的 ANTHROPIC_MODEL', async () => {
+      vi.resetModules();
+      process.env.ANTHROPIC_MODEL = 'polluted-model';
+      process.env.PATH = '/usr/bin';
+
+      const { runCodex } = await import('../codex-sdk');
+
+      const mockEvents = {
+        [Symbol.asyncIterator]: async function* () {
+          yield { type: 'thread.started', thread_id: 'test-1' };
+        },
+      };
+
+      mockRunStreamed.mockResolvedValue({ events: mockEvents });
+
+      const gen = runCodex('test', { cwd: '/test' }, vi.fn());
+      await gen.next();
+
+      expect(mockCodexConstructor).toHaveBeenCalledWith(
+        expect.objectContaining({
+          env: expect.objectContaining({
+            PATH: '/usr/bin',
+          }),
+        })
+      );
+      expect(mockCodexConstructor.mock.calls[0]?.[0]?.env?.ANTHROPIC_MODEL).toBeUndefined();
+
+      delete process.env.ANTHROPIC_MODEL;
     });
   });
 

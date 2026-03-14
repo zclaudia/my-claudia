@@ -5,6 +5,8 @@ const CHECK_INTERVAL_MS = 4 * 60 * 60 * 1000; // 4 hours
 const INITIAL_DELAY_MS = 5000; // 5 seconds after startup
 const ANDROID_LATEST_URL =
   'https://github.com/zclaudia/my-claudia/releases/latest/download/android-latest.json';
+const DESKTOP_LATEST_URL =
+  'https://github.com/zclaudia/my-claudia/releases/latest/download/latest.json';
 
 function isTauri(): boolean {
   return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
@@ -20,11 +22,14 @@ function isDesktopTauri(): boolean {
 
 /**
  * Compare semver-like version strings (e.g. "0.1.2260" > "0.1.2259").
- * Returns true if remote is newer than local.
- * A release (no suffix) is newer than a dev build with the same number
- * (e.g. "0.1.2260" > "0.1.2260-dev").
+ * Returns true if the remote numeric core is newer than local.
+ * Suffixes like "-dev.macos.20260314093015" are ignored for update purposes.
  */
-function isNewerVersion(remote: string, local: string): boolean {
+export function isDevBuild(version: string): boolean {
+  return version.includes('-dev');
+}
+
+export function compareVersionCore(remote: string, local: string): number {
   const rBase = remote.replace(/-.*$/, '');
   const lBase = local.replace(/-.*$/, '');
   const r = rBase.split('.').map(Number);
@@ -32,14 +37,27 @@ function isNewerVersion(remote: string, local: string): boolean {
   for (let i = 0; i < Math.max(r.length, l.length); i++) {
     const rv = r[i] ?? 0;
     const lv = l[i] ?? 0;
-    if (rv > lv) return true;
-    if (rv < lv) return false;
+    if (rv > lv) return 1;
+    if (rv < lv) return -1;
   }
-  // Same numeric version: release > dev
-  const localIsDev = local.includes('-dev');
-  const remoteIsDev = remote.includes('-dev');
-  if (localIsDev && !remoteIsDev) return true;
-  return false;
+  return 0;
+}
+
+function isNewerVersion(remote: string, local: string): boolean {
+  const coreCompare = compareVersionCore(remote, local);
+  return coreCompare > 0;
+}
+
+export async function hasDesktopUpdateCandidate(currentVersion: string): Promise<boolean> {
+  if (!isDevBuild(currentVersion)) return true;
+
+  const res = await fetch(DESKTOP_LATEST_URL);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+  const latest: { version?: string } = await res.json();
+  if (!latest.version) return true;
+
+  return compareVersionCore(latest.version, currentVersion) > 0;
 }
 
 /**
@@ -182,6 +200,19 @@ export async function checkForUpdates(manual = false): Promise<void> {
 
     const currentVersion = await getVersion();
     useUpdateStore.setState({ currentVersion });
+
+    if (!(await hasDesktopUpdateCandidate(currentVersion))) {
+      if (manual) {
+        store.setStatus('up-to-date');
+        setTimeout(() => {
+          const s = useUpdateStore.getState();
+          if (s.status === 'up-to-date') s.setStatus('idle');
+        }, 3000);
+      } else {
+        store.setStatus('idle');
+      }
+      return;
+    }
 
     const update = await check();
 

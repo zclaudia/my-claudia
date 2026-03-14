@@ -135,6 +135,8 @@ export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar }:
     setAdvancedInput,
     forceScrollToBottomSessionId,
     consumeForceScrollToBottom,
+    pendingMessageJump,
+    clearMessageJump,
     poppedOutSessions,
     addPoppedOutSession,
     removePoppedOutSession,
@@ -229,6 +231,7 @@ export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar }:
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [resendChecking, setResendChecking] = useState(false);
+  const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null);
   // Queued message: when user sends while a run is active, queue it for auto-send
   const [queuedMessage, setQueuedMessage] = useState<{ content: string; attachments?: Attachment[] } | null>(null);
   const [taskPlanStatus, setTaskPlanStatus] = useState<api.TaskPlanStatus | null>(null);
@@ -401,6 +404,19 @@ export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar }:
     scrollToBottom(true);
   }, [scrollToBottom]);
 
+  const scrollToMessage = useCallback((messageId: string) => {
+    const escapedId = typeof CSS !== 'undefined' && CSS.escape ? CSS.escape(messageId) : messageId;
+    const target = document.querySelector(`[data-message-id="${escapedId}"]`);
+    if (!(target instanceof HTMLElement)) return false;
+
+    target.scrollIntoView({ block: 'center', behavior: isMobile ? 'auto' : 'smooth' });
+    setHighlightedMessageId(messageId);
+    window.setTimeout(() => {
+      setHighlightedMessageId((current) => (current === messageId ? null : current));
+    }, 2500);
+    return true;
+  }, [isMobile]);
+
   // Sync filePush metadata from loaded messages into filePushStore for download tracking
   const syncFilePushMessages = useCallback((msgs: MessageWithToolCalls[]) => {
     const fpStore = useFilePushStore.getState();
@@ -446,9 +462,12 @@ export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar }:
         }
 
         setLoadError(null);
-        const result = await api.getSessionMessages(sessionId, {
-          limit: MESSAGES_PER_PAGE
-        });
+        const result = await api.getSessionMessages(
+          sessionId,
+          pendingMessageJump?.sessionId === sessionId
+            ? { limit: MESSAGES_PER_PAGE, aroundMessageId: pendingMessageJump.messageId }
+            : { limit: MESSAGES_PER_PAGE }
+        );
 
         const restoredMessages = restoreToolCalls(result.messages);
         setMessages(sessionId, restoredMessages, result.pagination);
@@ -464,8 +483,13 @@ export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar }:
         }
 
         setInitialLoadDone(true);
-        // Scroll to bottom on initial load - use instant to avoid visible scroll animation
-        setTimeout(() => scrollToBottom(true), 0);
+        setTimeout(() => {
+          if (pendingMessageJump?.sessionId === sessionId && scrollToMessage(pendingMessageJump.messageId)) {
+            clearMessageJump(sessionId, pendingMessageJump.messageId);
+            return;
+          }
+          scrollToBottom(true);
+        }, 0);
       }
     } catch (error) {
       console.error('Failed to load messages:', error);
@@ -486,13 +510,21 @@ export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar }:
         setInitialLoadDone(true);
       }
     }
-  }, [sessionId, setLoadingMore, prependMessages, setMessages, scrollToBottom, isConnected, syncFilePushMessages]);
+  }, [sessionId, setLoadingMore, prependMessages, setMessages, scrollToBottom, isConnected, syncFilePushMessages, pendingMessageJump, clearMessageJump, scrollToMessage]);
 
   // Load initial messages when session changes
   useEffect(() => {
     setInitialLoadDone(false);
     loadMessages();
   }, [sessionId, loadMessages]);
+
+  useEffect(() => {
+    if (pendingMessageJump?.sessionId !== sessionId) return;
+    if (!initialLoadDone) return;
+    if (scrollToMessage(pendingMessageJump.messageId)) {
+      clearMessageJump(sessionId, pendingMessageJump.messageId);
+    }
+  }, [pendingMessageJump, sessionId, initialLoadDone, sessionMessages.length, clearMessageJump, scrollToMessage]);
 
   // One-shot jump: when entering from Active Sessions, force scroll to latest content.
   useEffect(() => {
@@ -1659,7 +1691,7 @@ export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar }:
 
       {/* Session action bar */}
       {currentSession && (
-        <div className="flex items-center gap-2 px-3 py-1.5 border-b border-border bg-card/50 safe-top-pad">
+        <div className="flex items-center gap-2 px-3 pt-2.5 pb-2 border-b border-border bg-card/50 safe-top-pad">
           {/* Mobile: hamburger menu */}
           {isMobile && onOpenSidebar && (
             <button
@@ -1986,6 +2018,7 @@ export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar }:
           scrollTop={scrollMetrics.scrollTop}
           viewportHeight={scrollMetrics.viewportHeight}
           resendTargetMessageId={resendTargetMessage?.id}
+          highlightedMessageId={highlightedMessageId}
           resendDisabled={!resendText || resendChecking}
           onResendTarget={handleResendLastMessage}
         />

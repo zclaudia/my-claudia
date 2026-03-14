@@ -70,6 +70,9 @@ interface UIState {
   forceScrollToBottomSessionId: string | null;
   requestForceScrollToBottom: (sessionId: string) => void;
   consumeForceScrollToBottom: (sessionId: string) => void;
+  pendingMessageJump: { sessionId: string; messageId: string } | null;
+  requestMessageJump: (sessionId: string, messageId: string) => void;
+  clearMessageJump: (sessionId: string, messageId: string) => void;
   // Tracks sessions that have been popped out to standalone windows: sessionId → windowLabel
   poppedOutSessions: Map<string, string>;
   addPoppedOutSession: (sessionId: string, windowLabel: string) => void;
@@ -104,6 +107,16 @@ export const useUIStore = create<UIState>((set) => {
       set((state) => (
         state.forceScrollToBottomSessionId === sessionId
           ? { forceScrollToBottomSessionId: null }
+          : state
+      )),
+    pendingMessageJump: null,
+    requestMessageJump: (sessionId, messageId) => {
+      set({ pendingMessageJump: { sessionId, messageId } });
+    },
+    clearMessageJump: (sessionId, messageId) =>
+      set((state) => (
+        state.pendingMessageJump?.sessionId === sessionId && state.pendingMessageJump?.messageId === messageId
+          ? { pendingMessageJump: null }
           : state
       )),
     poppedOutSessions: new Map(),

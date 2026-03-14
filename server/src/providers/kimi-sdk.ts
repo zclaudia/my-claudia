@@ -3,6 +3,7 @@ import { createInterface } from 'readline';
 import type { MessageInput } from '@my-claudia/shared';
 import type { ClaudeMessage, SystemInfo, PermissionCallback } from './claude-sdk.js';
 import { buildNonImageAttachmentNotes } from './attachment-utils.js';
+import { sanitizeInheritedProviderEnv } from '../utils/startup-env.js';
 
 
 // ── Types ─────────────────────────────────────────────────────
@@ -593,7 +594,8 @@ export async function* runKimi(
 
   // Environment setup - filter out model-related env vars to ensure UI selection takes precedence
   const baseEnv = { ...process.env, ...(options.env || {}) };
-  const { ANTHROPIC_MODEL, OPENAI_MODEL, MODEL, KIMI_INTERACTIVE, ...env } = baseEnv as Record<string, string>;
+  sanitizeInheritedProviderEnv(baseEnv);
+  const { KIMI_INTERACTIVE, ...env } = baseEnv as Record<string, string>;
 
   let proc: ChildProcess;
   try {
