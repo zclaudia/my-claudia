@@ -44,8 +44,69 @@ jobs:
       # Release is created by release-all-platforms workflow
       # This workflow only builds and uploads to an existing release
 
-  build-windows:
+  # Build Linux x64 server bundle for WSL embedded in the Windows installer.
+  # Runs on Ubuntu so native modules (better-sqlite3, node-pty, ripgrep) are
+  # compiled for Linux — required because the server runs inside WSL.
+  build-wsl-server:
     needs: prepare-release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      CI: true
+      RELEASE_VERSION: ${{ needs.prepare-release.outputs.version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        shell: bash
+        run: pnpm install --frozen-lockfile
+
+      - name: Build server bundle (Linux x64)
+        shell: bash
+        run: |
+          set -euo pipefail
+          export APP_VERSION="$RELEASE_VERSION"
+          pnpm -r run build
+          pnpm --filter @my-claudia/server run bundle
+
+          # Copy the Linux node sidecar binary into the bundle
+          NODE_BIN=$(ls apps/desktop/src-tauri/binaries/node-*-unknown-linux-gnu 2>/dev/null | head -n1)
+          if [ -n "$NODE_BIN" ]; then
+            cp "$NODE_BIN" server/bundle/node
+            chmod +x server/bundle/node
+            echo "Bundled node binary: $(du -h server/bundle/node | cut -f1)"
+          else
+            echo "ERROR: Linux node sidecar binary not found"
+            exit 1
+          fi
+
+          # Write version file for runtime version checking
+          echo "$RELEASE_VERSION" > server/bundle/.version
+          echo "WSL server bundle ready: $(du -sh server/bundle/ | cut -f1)"
+
+      - name: Upload WSL server bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: wsl-server-bundle
+          path: server/bundle/
+          retention-days: 1
+
+  build-windows:
+    needs: [prepare-release, build-wsl-server]
     runs-on: windows-2022
     timeout-minutes: 60
     env:
@@ -85,6 +146,12 @@ jobs:
         with:
           workspaces: |
             apps/desktop/src-tauri -> target
+
+      - name: Download WSL server bundle
+        uses: actions/download-artifact@v4
+        with:
+          name: wsl-server-bundle
+          path: apps/desktop/src-tauri/wsl-server
 
       - name: Build Windows installers
         shell: pwsh
