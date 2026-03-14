@@ -41,8 +41,16 @@ jobs:
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "Prepared release: $TAG"
 
-      # Release is created by release-all-platforms workflow
-      # This workflow only builds and uploads to an existing release
+      - name: Create draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+          VERSION: ${{ steps.version.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release view "$TAG" >/dev/null 2>&1 || \
+            gh release create "$TAG" --title "MyClaudia $VERSION" --notes "MyClaudia $VERSION" --draft
 
   # Build Linux x64 server bundle for WSL embedded in the Windows installer.
   # Runs on Ubuntu so native modules (better-sqlite3, node-pty, ripgrep) are
