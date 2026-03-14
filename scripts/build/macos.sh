@@ -101,10 +101,15 @@ sign_updater_artifact() {
   return 1
 }
 
-# Release remote: which git remote to push tags and releases to (default: origin)
+# Release target: prefer the repository that triggered the GitHub Actions run.
+# Fallback to a git remote only for local/manual releases.
 RELEASE_REMOTE="${RELEASE_REMOTE:-origin}"
-RELEASE_REPO=$(git remote get-url "$RELEASE_REMOTE" 2>/dev/null | sed 's/.*github\.com[:/]\(.*\)\.git/\1/') || RELEASE_REPO=""
-echo "Release target: $RELEASE_REMOTE → $RELEASE_REPO"
+if [ -n "${GITHUB_REPOSITORY:-}" ]; then
+  RELEASE_REPO="$GITHUB_REPOSITORY"
+else
+  RELEASE_REPO=$(git remote get-url "$RELEASE_REMOTE" 2>/dev/null | sed 's/.*github\.com[:/]\(.*\)\.git/\1/') || RELEASE_REPO=""
+fi
+echo "Release target: ${GITHUB_REPOSITORY:-$RELEASE_REMOTE} → $RELEASE_REPO"
 
 # --- Smart version bump ---
 # In CI (RELEASE_VERSION + RELEASE_BUILD set by workflow), use those directly.
