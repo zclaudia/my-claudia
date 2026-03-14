@@ -50,12 +50,23 @@ Write-Host ""
 # --- Build ---
 # Windows: UI-only build — no server bundle, no node sidecar, no server resources
 Write-Host "Building Windows desktop app (UI-only)..." -ForegroundColor Cyan
-# Build JSON config manually to ensure correct null/empty values
-# resources: null clears the server bundle resource mapping
-# externalBin: [] removes the node sidecar requirement
-$tauriConfig = '{"version":"' + $env:VERSION + '","build":{"beforeBuildCommand":""},"bundle":{"resources":null,"externalBin":[]}}'
-$configFile = [System.IO.Path]::GetTempFileName()
-Set-Content -Path $configFile -Value $tauriConfig -Encoding UTF8
+# Build a JSON config override:
+# - resources: $null clears the server bundle resource mapping
+# - externalBin: @() removes the node sidecar requirement
+$tauriConfigObject = [ordered]@{
+    version = $env:VERSION
+    build = [ordered]@{
+        beforeBuildCommand = ""
+    }
+    bundle = [ordered]@{
+        resources = $null
+        externalBin = @()
+    }
+}
+$tauriConfig = $tauriConfigObject | ConvertTo-Json -Depth 10 -Compress
+$configFile = Join-Path $env:TEMP ("my-claudia-tauri-config-" + [System.Guid]::NewGuid().ToString() + ".json")
+$utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+[System.IO.File]::WriteAllText($configFile, $tauriConfig, $utf8NoBom)
 Write-Host "Tauri config override: $tauriConfig"
 try {
     pnpm --filter @my-claudia/desktop run tauri:build -- --config $configFile
