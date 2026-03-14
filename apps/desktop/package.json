@@ -11,6 +11,8 @@
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build",
     "clean": "rm -rf dist",
+    "lint": "eslint src",
+    "lint:fix": "eslint src --fix",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage"

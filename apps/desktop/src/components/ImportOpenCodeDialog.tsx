@@ -1,6 +1,8 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useServerStore } from '../stores/serverStore';
 import { useProjectStore } from '../stores/projectStore';
+import { useIsMobile } from '../hooks/useMediaQuery';
+import { useAndroidBack } from '../hooks/useAndroidBack';
 import * as api from '../services/api';
 
 interface ImportOpenCodeDialogProps {
@@ -52,6 +54,7 @@ function getDirectoryName(wsPath: string): string {
 }
 
 export function ImportOpenCodeDialog({ isOpen, onClose }: ImportOpenCodeDialogProps) {
+  const isMobile = useIsMobile();
   const [step, setStep] = useState(ImportStep.DETECT_DB);
   const [opencodePath, setOpencodePath] = useState(getDefaultPath());
   const [scannedData, setScannedData] = useState<ScanResult | null>(null);
@@ -140,6 +143,8 @@ export function ImportOpenCodeDialog({ isOpen, onClose }: ImportOpenCodeDialogPr
     setVisibleProjectsCount(10);
     onClose();
   };
+
+  useAndroidBack(handleClose, isMobile && isOpen, 20);
 
   const scanDatabase = async (dbPath: string) => {
     try {

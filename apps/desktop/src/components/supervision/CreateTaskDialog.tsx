@@ -2,6 +2,7 @@ import { useState, useCallback } from 'react';
 import type { SupervisionTask } from '@my-claudia/shared';
 import * as api from '../../services/api';
 import { useSupervisionStore } from '../../stores/supervisionStore';
+import { useAndroidBack } from '../../hooks/useAndroidBack';
 
 interface CreateTaskDialogProps {
   projectId: string;
@@ -37,6 +38,8 @@ export function CreateTaskDialog({ projectId, existingTasks, isOpen, onClose }: 
     resetForm();
     onClose();
   }, [resetForm, onClose]);
+
+  useAndroidBack(handleClose, isOpen, 20);
 
   const handleSubmit = useCallback(async () => {
     if (!title.trim()) return;

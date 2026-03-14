@@ -5,7 +5,8 @@ import { useEffect, useRef } from 'react';
  *
  * Multiple components can register back handlers with a priority.
  * When the Android back gesture fires, the highest-priority active handler runs.
- * If no handler is active, the event is ignored (app stays open).
+ * If no handler is active, the event is left unhandled so native Android back
+ * behavior can continue.
  *
  * Priority guide (higher = runs first):
  *   30 — Settings content (back to tab list)
@@ -23,10 +24,11 @@ interface Registration {
 let nextId = 0;
 const registrations: Registration[] = [];
 
-function dispatch() {
+function dispatch(event: Event) {
   if (registrations.length === 0) return;
   // Pick the highest-priority handler
   const top = registrations.reduce((a, b) => (a.priority >= b.priority ? a : b));
+  event.preventDefault();
   top.handler();
 }
 

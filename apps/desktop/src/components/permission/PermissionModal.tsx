@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { PermissionDetailView } from './PermissionDetailView';
+import { useAndroidBack } from '../../hooks/useAndroidBack';
 
 interface PermissionRequest {
   requestId: string;
@@ -76,6 +77,8 @@ export function PermissionModal({ request, queueSize = 0, onDecision }: Permissi
   const handleDeny = () => {
     onDecision(request.requestId, false, remember);
   };
+
+  useAndroidBack(handleDeny, !!request, 45);
 
   // Calculate progress percent only when timeout is set
   const hasTimeout = request.timeoutSec > 0;

@@ -4,6 +4,7 @@ import type { ProviderConfig } from '@my-claudia/shared';
 import { useServerStore } from '../stores/serverStore';
 import { useProjectStore } from '../stores/projectStore';
 import * as api from '../services/api';
+import { useAndroidBack } from '../hooks/useAndroidBack';
 
 interface ProviderManagerProps {
   isOpen: boolean;
@@ -28,6 +29,8 @@ export function ProviderManager({ isOpen, onClose, inline = false }: ProviderMan
   const [formEnv, setFormEnv] = useState('');
   const [formIsDefault, setFormIsDefault] = useState(false);
   const [saving, setSaving] = useState(false);
+
+  useAndroidBack(onClose, isOpen && !inline, 20);
 
   const loadProviders = async () => {
     if (!isConnected) return;

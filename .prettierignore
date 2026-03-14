@@ -1,0 +1,27 @@
+# 构建输出
+dist/
+**/dist/
+bundle/
+**/bundle/
+
+# 依赖
+node_modules/
+**/node_modules/
+.pnpm-store/
+
+# 生成的文件
+src-tauri/target/
+src-tauri/gen/
+
+# 测试报告
+playwright-report/
+test-results/
+
+# 缓存
+.cache/
+
+# 数据目录
+.my-claudia/
+
+# 锁文件
+pnpm-lock.yaml

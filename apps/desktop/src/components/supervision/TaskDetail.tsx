@@ -2,6 +2,7 @@ import { CheckCircle, XCircle, AlertTriangle, X, FileText } from 'lucide-react';
 import type { SupervisionTask } from '@my-claudia/shared';
 import * as api from '../../services/api';
 import { useSupervisionStore } from '../../stores/supervisionStore';
+import { useAndroidBack } from '../../hooks/useAndroidBack';
 
 interface TaskDetailProps {
   task: SupervisionTask;
@@ -26,6 +27,8 @@ const statusConfig: Record<string, { label: string; color: string }> = {
 export function TaskDetail({ task, onClose }: TaskDetailProps) {
   const upsertTask = useSupervisionStore((s) => s.upsertTask);
   const status = statusConfig[task.status] ?? { label: task.status, color: 'bg-gray-500/10 text-gray-400' };
+
+  useAndroidBack(onClose, true, 20);
 
   const handleAction = async (action: () => Promise<SupervisionTask>) => {
     try {

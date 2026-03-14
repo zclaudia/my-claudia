@@ -75,6 +75,7 @@ import { pluginLoader } from './plugins/loader.js';
 import { permissionManager as pluginPermissionManager } from './plugins/permissions.js';
 import { toolRegistry as pluginToolRegistry } from './plugins/tool-registry.js';
 import { commandRegistry as pluginCommandRegistry } from './commands/registry.js';
+import { resolveProviderCwd } from './utils/provider-cwd.js';
 import { createTraceRecorder, summarizeProviderMessage, summarizeServerMessage } from './utils/provider-trace.js';
 
 // Phase 2: Router architecture (CRUD routes migrated to HTTP REST)
@@ -1796,11 +1797,23 @@ async function handleRunStart(
   };
 
   try {
-    // Priority: message override > session working_directory > project root_path > fallback
-    const cwd = message.workingDirectory
+    const providerType = providerConfig?.type || 'claude';
+
+    // Kimi stores session state under the work_dir scope. Resuming the same
+    // session ID under a different directory creates a fresh empty context,
+    // which makes follow-up turns look "interrupted". Keep resumed Kimi runs
+    // pinned to the session root directory.
+    const requestedCwd = message.workingDirectory
       || session.working_directory
       || session.root_path
       || process.cwd();
+    const cwd = resolveProviderCwd({
+      providerType,
+      sdkSessionId,
+      requestedCwd,
+      sessionRootPath: session.root_path,
+      persistedWorkingDirectory: session.working_directory,
+    });
 
     // Validate cwd exists — spawn() fails with cryptic ENOENT if cwd is invalid
     if (!fs.existsSync(cwd)) {
@@ -1817,7 +1830,11 @@ async function handleRunStart(
       return;
     }
 
-    persistSessionWorkingDirectory(cwd);
+    if (providerType === 'kimi' && sdkSessionId && cwd !== requestedCwd) {
+      console.log(`[Kimi] Resuming session ${sdkSessionId} with stable work dir ${cwd} (requested ${requestedCwd})`);
+    } else {
+      persistSessionWorkingDirectory(cwd);
+    }
 
     let systemInfo: SystemInfo | undefined;
 
@@ -1828,7 +1845,6 @@ async function handleRunStart(
       console.log('[@ Mention] Processed input:', processedInput);
     }
 
-    const providerType = providerConfig?.type || 'claude';
     const forcedPlanBySession = session.project_role === 'task' && session.plan_status === 'planning';
     let modeValue = forcedPlanBySession
       ? 'plan'
