@@ -66,10 +66,19 @@ $tauriConfigObject = [ordered]@{
 $tauriConfig = $tauriConfigObject | ConvertTo-Json -Depth 10 -Compress
 Write-Host "Tauri config override: $tauriConfig"
 
-pnpm --filter @my-claudia/desktop exec tauri build --config $tauriConfig
-if ($LASTEXITCODE -ne 0) {
-    Write-Error "Tauri build failed"
-    exit 1
+$configFile = Join-Path $env:TEMP ("my-claudia-tauri-config-" + [System.Guid]::NewGuid().ToString() + ".json")
+$utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+[System.IO.File]::WriteAllText($configFile, $tauriConfig, $utf8NoBom)
+Write-Host "Tauri config file: $configFile"
+
+try {
+    pnpm --filter @my-claudia/desktop run tauri:build -- --config $configFile
+    if ($LASTEXITCODE -ne 0) {
+        Write-Error "Tauri build failed"
+        exit 1
+    }
+} finally {
+    Remove-Item -Path $configFile -ErrorAction SilentlyContinue
 }
 
 $bundleDir = "apps\desktop\src-tauri\target\release\bundle"
