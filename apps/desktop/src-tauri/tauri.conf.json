@@ -39,9 +39,6 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "resources": {
-      "../../../server/bundle/": "server/"
-    },
     "externalBin": [
       "binaries/node"
     ],

@@ -264,19 +264,43 @@ fi
 # --- Build ---
 # Code signing is ON by default (uses signingIdentity from tauri.conf.json).
 # To skip signing (community/local builds): SKIP_SIGNING=1 bash scripts/build-macos.sh
-TAURI_CONFIG="{\"version\":\"$VERSION\",\"build\":{\"beforeBuildCommand\":\"\"}}"
+TAURI_CONFIG_FILE="apps/desktop/src-tauri/tauri.macos.release.generated.json"
+
+cat > "$TAURI_CONFIG_FILE" <<EOF
+{
+  "version": "$VERSION",
+  "build": {
+    "beforeBuildCommand": ""
+  },
+  "bundle": {
+    "resources": {
+      "../../../server/bundle/": "server/"
+    }
+  }
+}
+EOF
 if [ "${SKIP_SIGNING:-}" = "1" ]; then
   echo "Code signing disabled (SKIP_SIGNING=1)"
-  TAURI_CONFIG="{\"version\":\"$VERSION\",\"build\":{\"beforeBuildCommand\":\"\"},\"bundle\":{\"macOS\":{\"signingIdentity\":null}}}"
+  python3 - <<'PY'
+import json
+from pathlib import Path
+
+path = Path("apps/desktop/src-tauri/tauri.macos.release.generated.json")
+data = json.loads(path.read_text())
+data.setdefault("bundle", {}).setdefault("macOS", {})["signingIdentity"] = None
+path.write_text(json.dumps(data))
+PY
 else
   echo "Code signing enabled"
 fi
 echo "Building macOS desktop app..."
 # Build only .app and updater (skip Tauri's DMG — we rebuild it after re-signing anyway)
-pnpm --filter @my-claudia/desktop exec tauri build --bundles app,updater --config "$TAURI_CONFIG" || {
+pnpm --filter @my-claudia/desktop exec tauri build --bundles app,updater --config src-tauri/tauri.macos.release.generated.json || {
+  rm -f "$TAURI_CONFIG_FILE"
   echo "ERROR: Tauri build failed"
   exit 1
 }
+rm -f "$TAURI_CONFIG_FILE"
 echo ""
 
 # --- Re-sign native modules and node sidecar ---
