@@ -268,16 +268,14 @@ export function useWslServer(): WslServerState & {
     await startServer();
   }, [appendOutput, deploy, getDeployedVersion, startServer]);
 
-  // Cleanup on unmount
+  // Track mount state — do NOT kill the server process on unmount.
+  // WindowsSetup unmounts when the app transitions to the main UI after
+  // a successful connection, but the WSL server must keep running.
+  // The process will be cleaned up when the Tauri window closes.
   useEffect(() => {
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
-      // Kill the WSL server process when the app closes
-      if (childRef.current) {
-        childRef.current.kill().catch(() => {});
-        childRef.current = null;
-      }
     };
   }, []);
 
