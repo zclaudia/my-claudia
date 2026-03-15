@@ -1,0 +1,9 @@
+{
+  "name": "components-chat",
+  "status": "FAILED",
+  "exitCode": 1,
+  "duration": 81,
+  "passed": 622,
+  "failed": 16,
+  "coverageDir": "coverage-full/components-chat"
+}

@@ -14,8 +14,16 @@
     "lint": "eslint src",
     "lint:fix": "eslint src --fix",
     "test": "vitest run",
+    "test:unit": "vitest run --config=vitest.unit.config.ts",
+    "test:ui": "vitest run --config=vitest.ui.config.ts",
+    "test:all": "pnpm test:unit && pnpm test:ui",
+    "test:parallel": "node scripts/test-parallel.mjs",
+    "test:parallel:coverage": "node scripts/test-parallel.mjs --coverage",
+    "test:parallel:fast": "node scripts/test-parallel-fast.mjs",
+    "test:parallel:fast:coverage": "node scripts/test-parallel-fast.mjs --coverage",
     "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "test:clear-cache": "rm -rf node_modules/.vitest-*"
   },
   "dependencies": {
     "@my-claudia/shared": "workspace:*",

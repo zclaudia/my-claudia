@@ -1,0 +1,9 @@
+{
+  "name": "components-workflows",
+  "status": "FAILED",
+  "exitCode": 1,
+  "duration": 71,
+  "passed": 121,
+  "failed": 5,
+  "coverageDir": "coverage-full/components-workflows"
+}

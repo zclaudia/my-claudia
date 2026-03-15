@@ -1,0 +1,9 @@
+{
+  "name": "components-sidebar",
+  "status": "FAILED",
+  "exitCode": 143,
+  "duration": 61,
+  "passed": 0,
+  "failed": 0,
+  "coverageDir": "coverage-full/components-sidebar"
+}

@@ -1,0 +1,9 @@
+{
+  "name": "components-agent",
+  "status": "FAILED",
+  "exitCode": 143,
+  "duration": 60,
+  "passed": 0,
+  "failed": 0,
+  "coverageDir": "coverage-full/components-agent"
+}

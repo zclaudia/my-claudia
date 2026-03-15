@@ -20,9 +20,10 @@ class MockWebSocket {
   onerror: ((event: Event) => void) | null = null;
 
   constructor(public url: string) {
-    setTimeout(() => {
+    // 优化：使用 queueMicrotask 替代 setTimeout，更快执行
+    queueMicrotask(() => {
       this.onopen?.(new Event('open'));
-    }, 0);
+    });
   }
 
   send = vi.fn();
@@ -40,6 +41,7 @@ Object.defineProperty(globalThis, 'crypto', {
   value: {
     randomUUID: () => `test-uuid-${++uuidCounter}`,
   },
+  configurable: true,
 });
 
 // Mock localStorage for zustand persist
@@ -70,7 +72,7 @@ Object.defineProperty(window, 'localStorage', {
 // Mock matchMedia
 Object.defineProperty(window, 'matchMedia', {
   writable: true,
-  value: vi.fn().mockImplementation((query) => ({
+  value: vi.fn().mockImplementation((query: string) => ({
     matches: false,
     media: query,
     onchange: null,
@@ -83,6 +85,7 @@ Object.defineProperty(window, 'matchMedia', {
 });
 
 // Mock IndexedDB for agentStorage tests
+// 优化：使用同步/微任务替代 setTimeout，减少等待时间
 class MockIDBDatabase {
   name: string;
   version: number;
@@ -111,8 +114,8 @@ class MockIDBDatabase {
         onsuccess: null as ((ev: Event) => void) | null,
         onerror: null as ((ev: Event) => void) | null,
       };
-      // Fire onsuccess then tx.oncomplete on next microtask
-      Promise.resolve().then(() => {
+      // 优化：使用 queueMicrotask 替代 setTimeout(..., 0)
+      queueMicrotask(() => {
         if (req.onsuccess) (req.onsuccess as (ev: Event) => void)(new Event('success'));
         if (tx.oncomplete) (tx.oncomplete as (ev: Event) => void)(new Event('complete'));
       });
@@ -150,10 +153,11 @@ class MockIDBOpenDBRequest extends MockIDBRequest<IDBDatabase> {
 const mockIndexedDB = {
   open: vi.fn((name: string, version?: number) => {
     const request = new MockIDBOpenDBRequest();
-    setTimeout(() => {
+    // 优化：使用 queueMicrotask 替代 setTimeout(..., 0)
+    queueMicrotask(() => {
       request.result = new MockIDBDatabase(name) as unknown as IDBDatabase;
       request.onsuccess?.call(request as unknown as IDBOpenDBRequest, new Event('success'));
-    }, 0);
+    });
     return request as unknown as IDBOpenDBRequest;
   }),
   deleteDatabase: vi.fn(),

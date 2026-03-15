@@ -1,0 +1,9 @@
+{
+  "name": "components-scheduled-tasks",
+  "status": "FAILED",
+  "exitCode": 1,
+  "duration": 43,
+  "passed": 11,
+  "failed": 1,
+  "coverageDir": "coverage-full/components-scheduled-tasks"
+}

@@ -1,0 +1,9 @@
+{
+  "name": "components-local-prs",
+  "status": "FAILED",
+  "exitCode": 143,
+  "duration": 61,
+  "passed": 0,
+  "failed": 0,
+  "coverageDir": "coverage-full/components-local-prs"
+}

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
-const getSessionMessagesMock = vi.fn(() => Promise.resolve({ messages: [], pagination: {} }));
+const mockGetSessionMessages = vi.fn(() => Promise.resolve({ messages: [], pagination: {} }));
 
 // Mock all store dependencies before importing the module
 vi.mock('../../stores/sessionsStore', () => ({
@@ -58,7 +58,7 @@ vi.mock('../gatewayProxy', () => ({
 }));
 
 vi.mock('../api', () => ({
-  getSessionMessages: getSessionMessagesMock,
+  getSessionMessages: mockGetSessionMessages,
 }));
 
 describe('services/sessionSync', () => {
@@ -188,7 +188,7 @@ describe('services/sessionSync', () => {
   describe('eagerSyncSessionUpdate', () => {
     it('fills missing messages for the currently selected active session', async () => {
       const appendMessages = vi.fn();
-      getSessionMessagesMock.mockResolvedValue({
+      mockGetSessionMessages.mockResolvedValue({
         messages: [{ id: 'm2', sessionId: 's1', role: 'user', content: 'hello', createdAt: 2 }],
         pagination: { maxOffset: 2, total: 2 },
       });
@@ -216,7 +216,7 @@ describe('services/sessionSync', () => {
         lastMessageOffset: 2,
       } as any);
 
-      expect(getSessionMessagesMock).toHaveBeenCalledWith('s1', {
+      expect(mockGetSessionMessages).toHaveBeenCalledWith('s1', {
         afterOffset: 1,
         limit: 100,
       });
@@ -920,6 +920,10 @@ describe('services/sessionSync', () => {
   });
 
   describe('checkAndFillMessageGaps via sync', () => {
+    beforeEach(() => {
+      mockGetSessionMessages.mockClear();
+    });
+
     // Helper: trigger incremental sync via fake timers (30s interval)
     async function setupAndTriggerIncrementalSync(
       fetchMock: any,
@@ -993,8 +997,9 @@ describe('services/sessionSync', () => {
       mod.stopSessionSync();
     });
 
-    it('skips gap fill when session is active (run in progress)', async () => {
-      mockGetSessionMessages.mockResolvedValue({ messages: [], pagination: {} });
+    it('fills gap even when session is active (isActive does not block gap fill)', async () => {
+      mockGetSessionMessages.mockResolvedValue({ messages: [{ id: 'm6' }], pagination: { maxOffset: 10 } });
+      const appendMessages = vi.fn();
 
       const mod = await setupAndTriggerIncrementalSync(
         vi.fn().mockResolvedValue({
@@ -1009,12 +1014,13 @@ describe('services/sessionSync', () => {
         }),
         {
           projectStore: { selectedSessionId: 's1', deleteSession: vi.fn() },
-          chatStore: { pagination: { s1: { maxOffset: 5 } }, appendMessages: vi.fn() },
+          chatStore: { pagination: { s1: { maxOffset: 5 } }, appendMessages },
         }
       );
 
-      // checkAndFillMessageGaps should skip because isActive=true
-      expect(mockGetSessionMessages).not.toHaveBeenCalled();
+      // Gap fill is not blocked by isActive flag
+      expect(mockGetSessionMessages).toHaveBeenCalledWith('s1', { afterOffset: 5, limit: 100 });
+      expect(appendMessages).toHaveBeenCalled();
 
       mod.stopSessionSync();
     });

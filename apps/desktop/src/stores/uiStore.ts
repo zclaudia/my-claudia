@@ -52,6 +52,9 @@ function loadFontSize(): FontSizePreset {
 }
 
 function applyFontVars(preset: FontSizePreset) {
+  // Skip in SSR/test environments (document not available)
+  if (typeof document === 'undefined') return;
+  
   const config = FONT_CONFIGS[preset];
   const root = document.documentElement;
   root.style.setProperty('--chat-font-prose', config.prose);

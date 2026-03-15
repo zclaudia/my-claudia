@@ -1,0 +1,9 @@
+{
+  "name": "services",
+  "status": "FAILED",
+  "exitCode": 1,
+  "duration": 69,
+  "passed": 464,
+  "failed": 13,
+  "coverageDir": "coverage-full/services"
+}

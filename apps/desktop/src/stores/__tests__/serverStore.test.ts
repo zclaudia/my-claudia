@@ -55,7 +55,7 @@ describe('serverStore', () => {
     });
 
     it('preserves localServerPort in server address', () => {
-      useServerStore.setState({ localServerPort: 9999 });
+      useServerStore.getState().setLocalServerPort(9999);
       useServerStore.getState().setServers([
         { id: 'local', name: 'Local', address: 'localhost:3100', isDefault: true, createdAt: 0 },
       ]);
@@ -203,7 +203,7 @@ describe('serverStore', () => {
     });
 
     it('applies localServerPort to local server', () => {
-      useServerStore.setState({ localServerPort: 7777 });
+      useServerStore.getState().setLocalServerPort(7777);
       const server = useServerStore.getState().getActiveServer();
       expect(server?.address).toBe('localhost:7777');
     });
@@ -216,7 +216,7 @@ describe('serverStore', () => {
     });
 
     it('applies localServerPort', () => {
-      useServerStore.setState({ localServerPort: 8888 });
+      useServerStore.getState().setLocalServerPort(8888);
       const server = useServerStore.getState().getDefaultServer();
       expect(server?.address).toBe('localhost:8888');
     });
