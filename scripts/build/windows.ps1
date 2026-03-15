@@ -35,8 +35,8 @@ if ($releaseVersion -and $releaseBuild) {
         exit 1
     }
 }
-# Tauri requires strict semver (MAJOR.MINOR.PATCH) — strip v prefix and prerelease suffixes
-$env:VERSION = $env:VERSION -replace '^v', '' -replace '-.*$', ''
+# Tauri requires strict semver (MAJOR.MINOR.PATCH) — strip v prefix, prerelease suffixes, and whitespace
+$env:VERSION = ($env:VERSION -replace '^v', '' -replace '-.*$', '').Trim()
 Write-Host "Tauri version: $($env:VERSION)"
 Write-Host ""
 
