@@ -1,6 +1,7 @@
 import { createContext, useContext, useCallback, useEffect, type ReactNode } from 'react';
 import { useMultiServerSocket } from '../hooks/useMultiServerSocket';
 import { useEmbeddedServer, type EmbeddedServerStatus } from '../hooks/useEmbeddedServer';
+import { useWslServer, type WslServerState } from '../hooks/useWslServer';
 import { usePermissionStore } from '../stores/permissionStore';
 import { useAskUserQuestionStore } from '../stores/askUserQuestionStore';
 import { useServerStore } from '../stores/serverStore';
@@ -29,6 +30,9 @@ interface ConnectionContextValue {
   embeddedServerStatus: EmbeddedServerStatus;
   embeddedServerError: string | null;
   embeddedServerPort: number | null;
+
+  // WSL server (Windows only) — lives here so it survives WindowsSetup unmount
+  wslServer: WslServerState & { start: () => void };
 }
 
 export const ConnectionContext = createContext<ConnectionContextValue | null>(null);
@@ -37,6 +41,10 @@ export function ConnectionProvider({ children, standaloneServerUrl }: { children
   // On desktop, spawn an embedded server with a random port.
   // Skip when standaloneServerUrl is provided (standalone window connects to existing server).
   const embeddedServer = useEmbeddedServer({ disabled: !!standaloneServerUrl });
+
+  // WSL server hook — must live at this level (not in WindowsSetup) so the
+  // spawned wsl.exe process and its event listeners survive component unmounts.
+  const wslServer = useWslServer();
 
   // Update the local server address when the embedded server is ready
   useEffect(() => {
@@ -143,6 +151,9 @@ export function ConnectionProvider({ children, standaloneServerUrl }: { children
     embeddedServerStatus: embeddedServer.status,
     embeddedServerError: embeddedServer.error,
     embeddedServerPort: embeddedServer.port,
+
+    // WSL server
+    wslServer,
   };
 
   return (

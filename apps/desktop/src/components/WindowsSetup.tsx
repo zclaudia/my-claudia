@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { Bot, Monitor, ChevronRight, Terminal, RefreshCw, ExternalLink, Copy, Check, AlertCircle, Globe, ArrowLeft } from 'lucide-react';
 import { useWslDiscovery } from '../hooks/useWslDiscovery';
-import { useWslServer } from '../hooks/useWslServer';
 import { useServerStore, type ConnectionStatus } from '../stores/serverStore';
 import { useGatewayStore, toGatewayServerId, shouldShowBackend } from '../stores/gatewayStore';
 import { useConnection } from '../contexts/ConnectionContext';
@@ -24,9 +23,8 @@ function Spinner({ className = 'w-4 h-4' }: { className?: string }) {
 
 export function WindowsSetup() {
   const { wslAvailable, distros, runDiscovery } = useWslDiscovery();
-  const wslServer = useWslServer();
+  const { wslServer, connectServer } = useConnection();
   const { setActiveServer, setLocalServerAddress } = useServerStore();
-  const { connectServer } = useConnection();
 
   const {
     isConnected: isGatewayConnected,
