@@ -355,7 +355,7 @@ fi
 if [ "$INSTALL_ONLY" = false ] && [ "${RELEASE:-}" = "1" ] && [ -f "$OUTPUT" ]; then
   # Resolve release repo only when actually releasing
   RELEASE_REPO=$(resolve_release_repo) || exit 1
-  RELEASE_TAG="v${MAJOR}.${MINOR}.${BUILD}"
+  RELEASE_TAG="${RELEASE_TAG:-v${MAJOR}.${MINOR}.${BUILD}}"
   APK_FILENAME="$(basename "$OUTPUT")"
   DOWNLOAD_URL="https://github.com/${RELEASE_REPO}/releases/download/${RELEASE_TAG}/${APK_FILENAME}"
 
@@ -375,8 +375,9 @@ MANIFEST_EOF
     echo "=== Uploading to GitHub Release ==="
     TAG="$RELEASE_TAG"
 
-    # Create draft release (idempotent — may already exist from macOS build)
-    gh release create "$TAG" --repo "$RELEASE_REPO" --title "MyClaudia ${MAJOR}.${MINOR}.${BUILD}" --notes "MyClaudia ${MAJOR}.${MINOR}.${BUILD}" --draft 2>/dev/null || true
+    if [ "${RELEASE_CREATE_IF_MISSING:-1}" = "1" ]; then
+      gh release create "$TAG" --repo "$RELEASE_REPO" --title "MyClaudia ${MAJOR}.${MINOR}.${BUILD}" --notes "MyClaudia ${MAJOR}.${MINOR}.${BUILD}" --draft 2>/dev/null || true
+    fi
 
     # Upload APK + manifest
     gh release upload "$TAG" --repo "$RELEASE_REPO" "$OUTPUT" "$ANDROID_LATEST" --clobber

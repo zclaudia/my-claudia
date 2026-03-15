@@ -1,108 +1,107 @@
-name: Release All Platforms
+name: Release Nightly
 
 on:
   workflow_dispatch:
-    inputs:
-      version:
-        description: 'Release version (e.g. 0.1.42). Leave empty to auto-bump or reuse existing draft.'
-        required: false
-        type: string
-  push:
-    tags:
-      - 'v*'
+  schedule:
+    # 03:00 Asia/Shanghai daily
+    - cron: '0 19 * * *'
 
 permissions:
   contents: write
 
 concurrency:
-  group: release-all-platforms
-  cancel-in-progress: false
+  group: release-nightly
+  cancel-in-progress: true
 
 jobs:
-  prepare-release:
+  prepare-nightly:
     runs-on: ubuntu-latest
     outputs:
-      version: ${{ steps.version.outputs.version }}
-      build: ${{ steps.version.outputs.build }}
-      version_code: ${{ steps.version.outputs.version_code }}
-      tag: ${{ steps.version.outputs.tag }}
+      nightly_date: ${{ steps.meta.outputs.nightly_date }}
+      version: ${{ steps.meta.outputs.version }}
+      build: ${{ steps.meta.outputs.build }}
+      version_code: ${{ steps.meta.outputs.version_code }}
+      tag: ${{ steps.meta.outputs.tag }}
+      title: ${{ steps.meta.outputs.title }}
     steps:
       - name: Checkout
         uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
-      - name: Compute release version
-        id: version
+      - name: Compute nightly metadata
+        id: meta
         shell: bash
-        env:
-          INPUT_VERSION: ${{ inputs.version }}
-          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
 
-          if [ -n "${INPUT_VERSION:-}" ]; then
-            # Manual input: use exact version provided
-            VERSION="$INPUT_VERSION"
-          elif [ "${GITHUB_REF_TYPE:-}" = "tag" ] && [[ "${GITHUB_REF_NAME:-}" == v* ]]; then
-            # Tag push: extract version from tag
-            VERSION="${GITHUB_REF_NAME#v}"
-          else
-            # Auto: check for existing draft release first
-            EXISTING_DRAFT=$(gh release list --json tagName,isDraft \
-              --jq '[.[] | select(.isDraft) | .tagName] | sort | reverse | first // empty' 2>/dev/null || true)
-            if [ -n "$EXISTING_DRAFT" ]; then
-              VERSION="${EXISTING_DRAFT#v}"
-              echo "Reusing existing draft release: $EXISTING_DRAFT"
-            else
-              eval "$(./scripts/release/version-bump.sh --platform macos --bump)"
-            fi
-          fi
+          MAJOR=$(python3 -c "import json; print(json.load(open('version.json'))['major'])")
+          MINOR=$(python3 -c "import json; print(json.load(open('version.json'))['minor'])")
+          NIGHTLY_DATE=$(TZ=Asia/Shanghai date +%F)
+          BUILD=$(TZ=Asia/Shanghai date +%y%m%d)
+          VERSION="${MAJOR}.${MINOR}.${BUILD}-nightly"
+          VERSION_CODE=$((MAJOR * 10000000 + MINOR * 1000000 + BUILD))
+          TAG="nightly-${NIGHTLY_DATE}"
+          TITLE="MyClaudia Nightly ${NIGHTLY_DATE}"
 
-          BUILD="$(echo "$VERSION" | cut -d. -f3)"
-          MAJOR="$(echo "$VERSION" | cut -d. -f1)"
-          MINOR="$(echo "$VERSION" | cut -d. -f2)"
-          VERSION_CODE=$((MAJOR * 1000000 + MINOR * 10000 + BUILD))
-          TAG="v${VERSION}"
-
+          echo "nightly_date=$NIGHTLY_DATE" >> "$GITHUB_OUTPUT"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "build=$BUILD" >> "$GITHUB_OUTPUT"
           echo "version_code=$VERSION_CODE" >> "$GITHUB_OUTPUT"
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
-          echo "Prepared release: $TAG"
+          echo "title=$TITLE" >> "$GITHUB_OUTPUT"
 
-      - name: Create draft release
+      - name: Create nightly prerelease
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ steps.version.outputs.tag }}
-          VERSION: ${{ steps.version.outputs.version }}
+          NIGHTLY_DATE: ${{ steps.meta.outputs.nightly_date }}
+          VERSION: ${{ steps.meta.outputs.version }}
+          TAG: ${{ steps.meta.outputs.tag }}
+          TITLE: ${{ steps.meta.outputs.title }}
         shell: bash
         run: |
           set -euo pipefail
-          gh release view "$TAG" >/dev/null 2>&1 || \
-            gh release create "$TAG" --title "MyClaudia $VERSION" --notes "MyClaudia $VERSION" --draft
+
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Reusing existing nightly release: $TAG"
+          else
+            gh release create "$TAG" \
+              --title "$TITLE" \
+              --notes "Automated nightly build for ${NIGHTLY_DATE} (${VERSION})." \
+              --prerelease
+          fi
+
+      - name: Clean old nightly prereleases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          OLD_NIGHTLIES=$(gh release list --json tagName,isPrerelease \
+            --jq '[.[] | select(.isPrerelease and (.tagName | startswith("nightly-")))] | sort_by(.tagName) | reverse | .[14:] | .[].tagName')
+          if [ -z "$OLD_NIGHTLIES" ]; then
+            exit 0
+          fi
+
+          echo "$OLD_NIGHTLIES" | while read -r tag; do
+            [ -n "$tag" ] || continue
+            gh release delete "$tag" --cleanup-tag --yes
+          done
 
   build-macos:
-    needs: prepare-release
-    runs-on: ${{ matrix.runner }}
+    needs: prepare-nightly
+    runs-on: macos-14
     timeout-minutes: 90
-    # Intel Mac (macos-13) runner deprecated by GitHub — only build ARM for now
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - runner: macos-14
-            arch: aarch64
     env:
       CI: true
       GH_TOKEN: ${{ github.token }}
       RELEASE_REMOTE: origin
       RELEASE: 1
       RELEASE_CREATE_IF_MISSING: 0
-      # SKIP_LATEST_JSON_UPLOAD: only needed for dual-arch builds with merge job
-      RELEASE_VERSION: ${{ needs.prepare-release.outputs.version }}
-      RELEASE_BUILD: ${{ needs.prepare-release.outputs.build }}
-      RELEASE_TAG: ${{ needs.prepare-release.outputs.tag }}
+      RELEASE_VERSION: ${{ needs.prepare-nightly.outputs.version }}
+      RELEASE_BUILD: ${{ needs.prepare-nightly.outputs.build }}
+      RELEASE_VERSION_CODE: ${{ needs.prepare-nightly.outputs.version_code }}
+      RELEASE_TAG: ${{ needs.prepare-nightly.outputs.tag }}
       TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
       MACOS_CERT_P12_BASE64: ${{ secrets.MACOS_CERT_P12_BASE64 }}
       SKIP_SIGNING: ${{ secrets.MACOS_CERT_P12_BASE64 == '' && '1' || '0' }}
@@ -164,21 +163,22 @@ jobs:
           security default-keychain -d user -s "$KEYCHAIN_PATH"
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
 
-      - name: Build and upload macOS release assets
+      - name: Build and upload macOS nightly assets
         shell: bash
         run: ./scripts/build/macos.sh
 
   build-linux:
-    needs: prepare-release
+    needs: prepare-nightly
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     env:
       CI: true
       GH_TOKEN: ${{ github.token }}
       RELEASE_REMOTE: origin
-      RELEASE_VERSION: ${{ needs.prepare-release.outputs.version }}
-      RELEASE_BUILD: ${{ needs.prepare-release.outputs.build }}
-      TAG: ${{ needs.prepare-release.outputs.tag }}
+      RELEASE_VERSION: ${{ needs.prepare-nightly.outputs.version }}
+      RELEASE_BUILD: ${{ needs.prepare-nightly.outputs.build }}
+      RELEASE_VERSION_CODE: ${{ needs.prepare-nightly.outputs.version_code }}
+      TAG: ${{ needs.prepare-nightly.outputs.tag }}
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -224,7 +224,7 @@ jobs:
         shell: bash
         run: ./scripts/build/linux.sh
 
-      - name: Upload Linux artifacts to release
+      - name: Upload Linux artifacts to nightly release
         shell: bash
         run: |
           set -euo pipefail
@@ -234,16 +234,13 @@ jobs:
             apps/desktop/src-tauri/target/release/bundle/rpm/*.rpm \
             --clobber
 
-  # Build Linux x64 server bundle for WSL embedded in the Windows installer.
-  # Runs on Ubuntu so native modules (better-sqlite3, node-pty, ripgrep) are
-  # compiled for Linux — required because the server runs inside WSL.
   build-wsl-server:
-    needs: prepare-release
+    needs: prepare-nightly
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     env:
       CI: true
-      RELEASE_VERSION: ${{ needs.prepare-release.outputs.version }}
+      RELEASE_VERSION: ${{ needs.prepare-nightly.outputs.version }}
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -273,38 +270,34 @@ jobs:
           pnpm -r run build
           pnpm --filter @my-claudia/server run bundle
 
-          # Copy the Linux node sidecar binary into the bundle
           NODE_BIN=$(ls apps/desktop/src-tauri/binaries/node-*-unknown-linux-gnu 2>/dev/null | head -n1)
           if [ -n "$NODE_BIN" ]; then
             cp "$NODE_BIN" server/bundle/node
             chmod +x server/bundle/node
-            echo "Bundled node binary: $(du -h server/bundle/node | cut -f1)"
           else
             echo "ERROR: Linux node sidecar binary not found"
             exit 1
           fi
 
-          # Write version file for runtime version checking
           echo "$RELEASE_VERSION" > server/bundle/.version
-          echo "WSL server bundle ready: $(du -sh server/bundle/ | cut -f1)"
 
       - name: Upload WSL server bundle
         uses: actions/upload-artifact@v6
         with:
-          name: wsl-server-bundle
+          name: nightly-wsl-server-bundle
           path: server/bundle/
           retention-days: 1
 
   build-windows:
-    needs: [prepare-release, build-wsl-server]
+    needs: [prepare-nightly, build-wsl-server]
     runs-on: windows-2022
     timeout-minutes: 60
     env:
       CI: true
       GH_TOKEN: ${{ github.token }}
-      RELEASE_VERSION: ${{ needs.prepare-release.outputs.version }}
-      RELEASE_BUILD: ${{ needs.prepare-release.outputs.build }}
-      TAG: ${{ needs.prepare-release.outputs.tag }}
+      RELEASE_VERSION: ${{ needs.prepare-nightly.outputs.version }}
+      RELEASE_BUILD: ${{ needs.prepare-nightly.outputs.build }}
+      TAG: ${{ needs.prepare-nightly.outputs.tag }}
       TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
       TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
     steps:
@@ -340,14 +333,14 @@ jobs:
       - name: Download WSL server bundle
         uses: actions/download-artifact@v5
         with:
-          name: wsl-server-bundle
+          name: nightly-wsl-server-bundle
           path: apps/desktop/src-tauri/wsl-server
 
       - name: Build Windows installers
         shell: pwsh
         run: .\scripts\build\windows.ps1
 
-      - name: Upload Windows artifacts to release
+      - name: Upload Windows artifacts to nightly release
         shell: pwsh
         run: |
           gh release upload $env:TAG `
@@ -357,7 +350,7 @@ jobs:
             --clobber
 
   build-android:
-    needs: prepare-release
+    needs: prepare-nightly
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     env:
@@ -366,10 +359,10 @@ jobs:
       RELEASE_REMOTE: origin
       RELEASE: 1
       RELEASE_CREATE_IF_MISSING: 0
-      RELEASE_VERSION: ${{ needs.prepare-release.outputs.version }}
-      RELEASE_BUILD: ${{ needs.prepare-release.outputs.build }}
-      RELEASE_VERSION_CODE: ${{ needs.prepare-release.outputs.version_code }}
-      RELEASE_TAG: ${{ needs.prepare-release.outputs.tag }}
+      RELEASE_VERSION: ${{ needs.prepare-nightly.outputs.version }}
+      RELEASE_BUILD: ${{ needs.prepare-nightly.outputs.build }}
+      RELEASE_VERSION_CODE: ${{ needs.prepare-nightly.outputs.version_code }}
+      RELEASE_TAG: ${{ needs.prepare-nightly.outputs.tag }}
       KEYSTORE_PASS: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
       KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
     steps:
@@ -422,6 +415,6 @@ jobs:
           printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$HOME/.android/my-claudia-release.keystore"
           chmod 600 "$HOME/.android/my-claudia-release.keystore"
 
-      - name: Build and upload Android release assets
+      - name: Build and upload Android nightly assets
         shell: bash
         run: ./scripts/build/android.sh

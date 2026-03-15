@@ -401,7 +401,7 @@ if [ -f "$TAR_GZ" ] && [ -f "$TAR_SIG" ]; then
   echo "=== Generating update manifest ==="
   SIGNATURE=$(cat "$TAR_SIG")
   PUB_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-  RELEASE_TAG="v${MAJOR}.${MINOR}.${BUILD}"
+  RELEASE_TAG="${RELEASE_TAG:-v${MAJOR}.${MINOR}.${BUILD}}"
   DOWNLOAD_URL="https://github.com/${RELEASE_REPO}/releases/download/${RELEASE_TAG}/${TAR_GZ_NAME}"
 
   cat > "$BUNDLE_DIR/latest.json" << MANIFEST_EOF
@@ -426,11 +426,12 @@ MANIFEST_EOF
   if command -v gh >/dev/null 2>&1 && [ "${RELEASE:-}" = "1" ]; then
     echo ""
     echo "=== Uploading to GitHub Release ==="
-    RELEASE_TAG="v${MAJOR}.${MINOR}.${BUILD}"
+    RELEASE_TAG="${RELEASE_TAG:-v${MAJOR}.${MINOR}.${BUILD}}"
     TAG="$RELEASE_TAG"
 
-    # Create draft release (idempotent)
-    gh release create "$TAG" --repo "$RELEASE_REPO" --title "MyClaudia $VERSION" --notes "MyClaudia $VERSION" --draft 2>/dev/null || true
+    if [ "${RELEASE_CREATE_IF_MISSING:-1}" = "1" ]; then
+      gh release create "$TAG" --repo "$RELEASE_REPO" --title "MyClaudia $VERSION" --notes "MyClaudia $VERSION" --draft 2>/dev/null || true
+    fi
 
     # Upload artifacts (overwrite if exist). By default this script remains a
     # self-contained release entrypoint and uploads latest.json itself.
