@@ -63,8 +63,8 @@ if (Test-Path $wslServerDir) {
 }
 
 # Pass a JSON config override as a single argument to `tauri build --config`.
-# Using PowerShell argument arrays avoids the quoting issues that caused the
-# plain string form to be unreliable on Windows runners.
+# Write the override to a temporary file inside `apps/desktop` so the path is
+# stable and relative resource resolution still behaves like the real project.
 $tauriConfigObject = [ordered]@{
     version = $env:VERSION
     build = [ordered]@{
@@ -79,13 +79,28 @@ $tauriConfigObject = [ordered]@{
 $tauriConfigJson = $tauriConfigObject | ConvertTo-Json -Depth 10 -Compress
 Write-Host "Tauri config override: $tauriConfigJson"
 
-$pnpmArgs = @('--dir', 'apps/desktop', 'exec', 'tauri', 'build', '--config', $tauriConfigJson)
+$tauriConfigPath = "apps\desktop\src-tauri\tauri.windows.release.generated.json"
+$tauriBin = "apps\desktop\node_modules\.bin\tauri.cmd"
+$tauriConfigJson | Set-Content -Path $tauriConfigPath -Encoding utf8
 
-Write-Host "Running: pnpm $($pnpmArgs -join ' ')"
-& pnpm @pnpmArgs
-if ($LASTEXITCODE -ne 0) {
-    Write-Error "Tauri build failed"
+if (-not (Test-Path $tauriBin)) {
+    Write-Error "Tauri CLI not found at $tauriBin"
     exit 1
+}
+
+Write-Host "Running: $tauriBin build --config src-tauri\\tauri.windows.release.generated.json"
+Push-Location "apps\desktop"
+try {
+    & ".\node_modules\.bin\tauri.cmd" build --config "src-tauri\tauri.windows.release.generated.json"
+    if ($LASTEXITCODE -ne 0) {
+        Write-Error "Tauri build failed"
+        exit 1
+    }
+} finally {
+    Pop-Location
+    if (Test-Path $tauriConfigPath) {
+        Remove-Item $tauriConfigPath -ErrorAction SilentlyContinue
+    }
 }
 
 $bundleDir = "apps\desktop\src-tauri\target\release\bundle"
