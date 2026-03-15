@@ -124,11 +124,13 @@ export function useWslServer(): WslServerState & {
 
       // Deploy to WSL
       appendOutput(`[Deploy] Copying to ${WSL_DEPLOY_DIR}...`);
+      const appVersion = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : 'dev';
       const deployCmd = [
         `rm -rf ${WSL_DEPLOY_DIR}`,
         `mkdir -p ${WSL_DEPLOY_DIR}`,
         `cp -r '${wslSourcePath}/'* ${WSL_DEPLOY_DIR}/`,
         `chmod +x ${WSL_DEPLOY_DIR}/node`,
+        `echo '${appVersion}' > ${WSL_DEPLOY_DIR}/.version`,
         `echo "Deploy complete: $(ls ${WSL_DEPLOY_DIR}/ | wc -l) items"`,
       ].join(' && ');
 
