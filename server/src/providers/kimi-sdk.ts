@@ -169,6 +169,8 @@ function extractToolCall(event: Record<string, unknown>): KimiToolCall | null {
   return { tool: mappedTool, input };
 }
 
+// ── Kimi session discovery ────────────────────────────────────
+
 // ── Active processes (for abort) ─────────────────────────────
 
 const activeProcesses = new Map<string, ChildProcess>();
@@ -597,10 +599,11 @@ export async function* runKimi(
     args.push('--thinking');
   }
 
-  // Session resumption
-  if (options.sessionId) {
-    args.push('--session', options.sessionId);
-  }
+  // Session resumption: Kimi CLI accepts any string as --session ID.
+  // On the first run, generate one so subsequent runs can resume.
+  const kimiSessionId = options.sessionId || `myclaudia-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  args.push('--session', kimiSessionId);
+  trace.log('provider_raw', 'session_id', { sessionId: kimiSessionId, isNew: !options.sessionId }, `kimi session ${kimiSessionId}`);
 
   // Work directory
   args.push('--work-dir', options.cwd);
@@ -713,6 +716,13 @@ export async function* runKimi(
       const closeThink = { type: 'assistant', content: '</think>' } as ClaudeMessage;
       trace.log('provider_raw', 'close_think_block', closeThink, 'close dangling think block');
       yield closeThink;
+    }
+
+    // Emit the session ID so the server persists it for future runs.
+    if (kimiSessionId !== options.sessionId) {
+      const sessionInitMsg = { type: 'init', sessionId: kimiSessionId } as ClaudeMessage;
+      trace.log('provider_raw', 'session_persist', sessionInitMsg, `persist kimi session ${kimiSessionId}`);
+      yield sessionInitMsg;
     }
 
     // Always yield a result message so the server sends run_completed.

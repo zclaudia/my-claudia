@@ -96,10 +96,12 @@ async function processIcon() {
       const idx = (y * info.width + x) * 4;
       const r = data[idx], g = data[idx + 1], b = data[idx + 2], a = data[idx + 3];
 
-      // Check if this is a 'content' pixel (dark enough to be part of the blue icon)
-      // Using brightness < 100 to only include the dark blue areas
+      // Check if this is a 'content' pixel (part of the icon, not transparent background)
+      // The icon has dark blue background (#1c1c61, brightness ~36) and gradient ring
+      // Gradient goes from purple to cyan, brightness ranges from ~80 to ~220
+      // Use threshold < 240 to capture all icon content while excluding white/light border
       const brightness = (r * 0.299 + g * 0.587 + b * 0.114);
-      if (brightness < 100 && a > 0) {
+      if (brightness < 240 && a > 0) {
         minX = Math.min(minX, x);
         maxX = Math.max(maxX, x);
         minY = Math.min(minY, y);

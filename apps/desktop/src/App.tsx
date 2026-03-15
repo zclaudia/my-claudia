@@ -29,6 +29,7 @@ import { useUIStore } from './stores/uiStore';
 import { initBuiltinPanels } from './plugins/builtinPanels';
 import { useAutoUpdate } from './hooks/useAutoUpdate';
 import { UpdateBanner } from './components/UpdateBanner';
+import { BrandMark } from './components/BrandMark';
 
 function AppContent() {
   const { connectServer, embeddedServerStatus, embeddedServerError } = useConnection();
@@ -244,8 +245,8 @@ function AppContent() {
 
           {/* Logo - hidden on mobile, with left padding for macOS traffic lights on desktop */}
           <div className="hidden md:flex items-center gap-2" data-tauri-drag-region>
-            <div className="w-7 h-7 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0">
-              <Bot size={16} strokeWidth={1.75} className="text-primary" />
+            <div className="w-7 h-7 rounded-xl border border-border/70 bg-card/80 dark:bg-white/5 dark:border-white/10 shadow-sm backdrop-blur-sm flex items-center justify-center flex-shrink-0">
+              <BrandMark className="w-[1.625rem] h-[1.625rem] object-contain pointer-events-none select-none drop-shadow-sm" />
             </div>
             <span className="font-semibold text-sm text-foreground leading-tight" data-tauri-drag-region>MyClaudia</span>
           </div>
