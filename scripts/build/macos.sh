@@ -266,9 +266,12 @@ fi
 # To skip signing (community/local builds): SKIP_SIGNING=1 bash scripts/build-macos.sh
 TAURI_CONFIG_FILE="apps/desktop/src-tauri/tauri.macos.release.generated.json"
 
+# Tauri requires strict semver (MAJOR.MINOR.PATCH) — strip v prefix and prerelease suffixes
+TAURI_VERSION="$(echo "$VERSION" | sed 's/^v//; s/-.*//')"
+
 cat > "$TAURI_CONFIG_FILE" <<EOF
 {
-  "version": "$VERSION",
+  "version": "$TAURI_VERSION",
   "build": {
     "beforeBuildCommand": ""
   },

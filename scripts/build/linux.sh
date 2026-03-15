@@ -95,9 +95,12 @@ echo "Building Linux desktop app..."
 # Override beforeBuildCommand to empty since we already built above.
 TAURI_CONFIG_FILE="apps/desktop/src-tauri/tauri.linux.release.generated.json"
 
+# Tauri requires strict semver (MAJOR.MINOR.PATCH) — strip v prefix and prerelease suffixes
+TAURI_VERSION="$(echo "$VERSION" | sed 's/^v//; s/-.*//')"
+
 cat > "$TAURI_CONFIG_FILE" <<EOF
 {
-  "version": "$VERSION",
+  "version": "$TAURI_VERSION",
   "build": {
     "beforeBuildCommand": ""
   },
