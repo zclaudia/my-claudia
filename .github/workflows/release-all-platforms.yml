@@ -1,5 +1,8 @@
 name: Release All Platforms
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 on:
   workflow_dispatch:
     inputs:
@@ -338,7 +341,7 @@ jobs:
             apps/desktop/src-tauri -> target
 
       - name: Download WSL server bundle
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v8
         with:
           name: wsl-server-bundle
           path: apps/desktop/src-tauri/wsl-server
