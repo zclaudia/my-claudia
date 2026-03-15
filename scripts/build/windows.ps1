@@ -79,7 +79,7 @@ $tauriConfigObject = [ordered]@{
 $tauriConfigJson = $tauriConfigObject | ConvertTo-Json -Depth 10 -Compress
 Write-Host "Tauri config override: $tauriConfigJson"
 
-$pnpmArgs = @('--filter', '@my-claudia/desktop', 'run', 'tauri', 'build', '--config', $tauriConfigJson)
+$pnpmArgs = @('--dir', 'apps/desktop', 'exec', 'tauri', 'build', '--config', $tauriConfigJson)
 
 Write-Host "Running: pnpm $($pnpmArgs -join ' ')"
 & pnpm @pnpmArgs
