@@ -1687,7 +1687,7 @@ export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar }:
 
       {/* Session action bar */}
       {currentSession && (
-        <div className="flex min-h-[48px] items-center gap-2.5 px-3 py-0 sm:min-h-[36px] sm:px-3.5 sm:py-0 border-b border-border bg-card/70 backdrop-blur-sm safe-top-pad">
+        <div className="flex min-h-[48px] items-center gap-2.5 px-3 py-0 sm:min-h-[36px] sm:px-3.5 sm:py-0 border-b border-border bg-card safe-top-pad">
           {/* Mobile: hamburger menu */}
           {isMobile && onOpenSidebar && (
             <button
@@ -1811,7 +1811,7 @@ export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar }:
                   {showSessionMenu && (
                     <>
                       <div className="fixed inset-0 z-[70]" onClick={() => setShowSessionMenu(false)} />
-                      <div className="fixed right-3 top-[calc(env(safe-area-inset-top,0px)+42px)] z-[80] min-w-[180px] overflow-hidden rounded-xl border border-border/80 bg-card/98 shadow-2xl backdrop-blur-xl">
+                      <div className="fixed right-3 top-[calc(env(safe-area-inset-top,0px)+42px)] z-[80] min-w-[180px] overflow-hidden rounded-xl border border-border/80 bg-card shadow-2xl">
                         <button
                           onClick={() => { handleResetProviderSession(); setShowSessionMenu(false); }}
                           disabled={isLoading}
