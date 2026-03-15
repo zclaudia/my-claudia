@@ -401,6 +401,9 @@ console.log('  [3/4] Clean-room native module install');
     });
 
     const prebuildsDir = path.join(src, 'prebuilds', platformArch);
+    const buildReleaseDir = path.join(src, 'build', 'Release');
+    const buildReleasePty = path.join(buildReleaseDir, 'pty.node');
+
     if (fs.existsSync(prebuildsDir)) {
       copyDir(prebuildsDir, path.join(dest, 'prebuilds', platformArch));
       // npm strips executable permissions from prebuilt binaries during install.
@@ -410,8 +413,13 @@ console.log('  [3/4] Clean-room native module install');
         fs.chmodSync(spawnHelper, 0o755);
       }
       console.log(`    node-pty@${EXTERNAL_DEPS['node-pty']}: OK (prebuilds/${platformArch})`);
+    } else if (fs.existsSync(buildReleasePty)) {
+      // On Linux, node-pty compiles via node-gyp instead of using prebuilds.
+      // node-pty's loadNativeModule checks build/Release/ before prebuilds/.
+      copyFile(buildReleasePty, path.join(dest, 'build', 'Release', 'pty.node'));
+      console.log(`    node-pty@${EXTERNAL_DEPS['node-pty']}: OK (build/Release)`);
     } else {
-      console.warn(`    node-pty: WARNING - prebuilds/${platformArch} not found`);
+      console.warn(`    node-pty: WARNING - no native binary found (checked prebuilds/${platformArch} and build/Release)`);
     }
   }
 
