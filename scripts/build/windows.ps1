@@ -59,11 +59,12 @@ if (Test-Path $wslServerDir) {
     $wslServerResources = [ordered]@{ "wsl-server/" = "wsl-server/" }
 } else {
     Write-Host "  WARNING: WSL server bundle not found — building without it" -ForegroundColor Yellow
-    $wslServerResources = $null
+    $wslServerResources = [ordered]@{}
 }
 
-# Write a temporary config file and pass it via `--config`.
-# This is more reliable than relying on TAURI_CONFIG env merging on Windows.
+# Pass a JSON config override as a single argument to `tauri build --config`.
+# Using PowerShell argument arrays avoids the quoting issues that caused the
+# plain string form to be unreliable on Windows runners.
 $tauriConfigObject = [ordered]@{
     version = $env:VERSION
     build = [ordered]@{
@@ -76,27 +77,15 @@ $tauriConfigObject = [ordered]@{
 }
 
 $tauriConfigJson = $tauriConfigObject | ConvertTo-Json -Depth 10 -Compress
-$tauriConfigPath = Join-Path $env:RUNNER_TEMP "tauri.windows.release.conf.json"
-if (-not $env:RUNNER_TEMP) {
-    $tauriConfigPath = Join-Path ([System.IO.Path]::GetTempPath()) "tauri.windows.release.conf.json"
-}
-$tauriConfigJson | Set-Content -Path $tauriConfigPath -Encoding utf8
-Write-Host "Tauri config override file: $tauriConfigPath"
 Write-Host "Tauri config override: $tauriConfigJson"
 
-try {
-    $pnpmArgs = @('--filter', '@my-claudia/desktop', 'exec', 'tauri', 'build', '--config', $tauriConfigPath)
+$pnpmArgs = @('--filter', '@my-claudia/desktop', 'run', 'tauri', '--', 'build', '--config', $tauriConfigJson)
 
-    Write-Host "Running: pnpm $($pnpmArgs -join ' ')"
-    & pnpm @pnpmArgs
-    if ($LASTEXITCODE -ne 0) {
-        Write-Error "Tauri build failed"
-        exit 1
-    }
-} finally {
-    if (Test-Path $tauriConfigPath) {
-        Remove-Item $tauriConfigPath -ErrorAction SilentlyContinue
-    }
+Write-Host "Running: pnpm $($pnpmArgs -join ' ')"
+& pnpm @pnpmArgs
+if ($LASTEXITCODE -ne 0) {
+    Write-Error "Tauri build failed"
+    exit 1
 }
 
 $bundleDir = "apps\desktop\src-tauri\target\release\bundle"
