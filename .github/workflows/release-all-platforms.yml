@@ -2,6 +2,11 @@ name: Release All Platforms
 
 on:
   workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version (e.g. 0.1.42). Leave empty to auto-bump or reuse existing draft.'
+        required: false
+        type: string
   push:
     tags:
       - 'v*'
@@ -30,19 +35,36 @@ jobs:
       - name: Compute release version
         id: version
         shell: bash
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          if [ "${GITHUB_REF_TYPE:-}" = "tag" ] && [[ "${GITHUB_REF_NAME:-}" == v* ]]; then
+
+          if [ -n "${INPUT_VERSION:-}" ]; then
+            # Manual input: use exact version provided
+            VERSION="$INPUT_VERSION"
+          elif [ "${GITHUB_REF_TYPE:-}" = "tag" ] && [[ "${GITHUB_REF_NAME:-}" == v* ]]; then
+            # Tag push: extract version from tag
             VERSION="${GITHUB_REF_NAME#v}"
-            BUILD="$(echo "$VERSION" | cut -d. -f3)"
-            MAJOR="$(echo "$VERSION" | cut -d. -f1)"
-            MINOR="$(echo "$VERSION" | cut -d. -f2)"
-            VERSION_CODE=$((MAJOR * 1000000 + MINOR * 10000 + BUILD))
-            TAG="$GITHUB_REF_NAME"
           else
-            eval "$(./scripts/release/version-bump.sh --platform macos --bump)"
-            TAG="v${VERSION}"
+            # Auto: check for existing draft release first
+            EXISTING_DRAFT=$(gh release list --json tagName,isDraft \
+              --jq '[.[] | select(.isDraft) | .tagName] | sort | reverse | first // empty' 2>/dev/null || true)
+            if [ -n "$EXISTING_DRAFT" ]; then
+              VERSION="${EXISTING_DRAFT#v}"
+              echo "Reusing existing draft release: $EXISTING_DRAFT"
+            else
+              eval "$(./scripts/release/version-bump.sh --platform macos --bump)"
+            fi
           fi
+
+          BUILD="$(echo "$VERSION" | cut -d. -f3)"
+          MAJOR="$(echo "$VERSION" | cut -d. -f1)"
+          MINOR="$(echo "$VERSION" | cut -d. -f2)"
+          VERSION_CODE=$((MAJOR * 1000000 + MINOR * 10000 + BUILD))
+          TAG="v${VERSION}"
+
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "build=$BUILD" >> "$GITHUB_OUTPUT"
           echo "version_code=$VERSION_CODE" >> "$GITHUB_OUTPUT"

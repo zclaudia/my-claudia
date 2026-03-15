@@ -2,6 +2,11 @@ name: Release Windows
 
 on:
   workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version (e.g. 0.1.42). Leave empty to auto-bump or reuse existing draft.'
+        required: false
+        type: string
 
 permissions:
   contents: write
@@ -26,16 +31,28 @@ jobs:
       - name: Compute release version
         id: version
         shell: bash
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          if [ "${GITHUB_REF_TYPE:-}" = "tag" ] && [[ "${GITHUB_REF_NAME:-}" == v* ]]; then
-            VERSION="${GITHUB_REF_NAME#v}"
-            BUILD="$(echo "$VERSION" | cut -d. -f3)"
-            TAG="$GITHUB_REF_NAME"
+
+          if [ -n "${INPUT_VERSION:-}" ]; then
+            VERSION="$INPUT_VERSION"
           else
-            eval "$(./scripts/release/version-bump.sh --platform windows --bump)"
-            TAG="v${VERSION}"
+            EXISTING_DRAFT=$(gh release list --json tagName,isDraft \
+              --jq '[.[] | select(.isDraft) | .tagName] | sort | reverse | first // empty' 2>/dev/null || true)
+            if [ -n "$EXISTING_DRAFT" ]; then
+              VERSION="${EXISTING_DRAFT#v}"
+              echo "Reusing existing draft release: $EXISTING_DRAFT"
+            else
+              eval "$(./scripts/release/version-bump.sh --platform windows --bump)"
+            fi
           fi
+
+          BUILD="$(echo "$VERSION" | cut -d. -f3)"
+          TAG="v${VERSION}"
+
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "build=$BUILD" >> "$GITHUB_OUTPUT"
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"

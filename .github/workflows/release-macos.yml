@@ -2,6 +2,11 @@ name: Release macOS
 
 on:
   workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version (e.g. 0.1.42). Leave empty to auto-bump.'
+        required: false
+        type: string
 
 permissions:
   contents: write
@@ -78,6 +83,15 @@ jobs:
           security list-keychains -d user -s "$KEYCHAIN_PATH" login.keychain-db
           security default-keychain -d user -s "$KEYCHAIN_PATH"
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+      - name: Set version from input
+        if: inputs.version != ''
+        shell: bash
+        run: |
+          VERSION="${{ inputs.version }}"
+          BUILD="$(echo "$VERSION" | cut -d. -f3)"
+          echo "RELEASE_VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "RELEASE_BUILD=$BUILD" >> "$GITHUB_ENV"
 
       - name: Build and release
         shell: bash
