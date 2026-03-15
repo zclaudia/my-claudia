@@ -37,7 +37,7 @@ class MainActivity : TauriActivity() {
                 isEnabled = true
               }
             }
-          )
+          }
         } else {
           isEnabled = false
           onBackPressedDispatcher.onBackPressed()
