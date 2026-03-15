@@ -215,12 +215,13 @@ if [ ! -d "$ANDROID_GEN_DIR" ]; then
   echo ""
 fi
 
-# --- Re-apply Android overrides and launcher icons ---
+# --- Re-apply Android overrides (skip MainActivity.kt/FileHelper.kt - incompatible with Tauri 2.x) ---
 echo "=== Syncing Android overrides ==="
 mkdir -p "$ANDROID_APP_DIR/java/com/myClaudia/desktop" "$ANDROID_APP_DIR/res/xml"
-cp "$ANDROID_OVERRIDES_DIR/AndroidManifest.xml" "$ANDROID_APP_DIR/AndroidManifest.xml"
-cp "$ANDROID_OVERRIDES_DIR/java/com/myClaudia/desktop/MainActivity.kt" "$ANDROID_APP_DIR/java/com/myClaudia/desktop/MainActivity.kt"
-cp "$ANDROID_OVERRIDES_DIR/java/com/myClaudia/desktop/FileHelper.kt" "$ANDROID_APP_DIR/java/com/myClaudia/desktop/FileHelper.kt"
+# Skip AndroidManifest.xml, MainActivity.kt and FileHelper.kt - incompatible with Tauri 2.x generated code
+# cp "$ANDROID_OVERRIDES_DIR/AndroidManifest.xml" "$ANDROID_APP_DIR/AndroidManifest.xml"
+# cp "$ANDROID_OVERRIDES_DIR/java/com/myClaudia/desktop/MainActivity.kt" "$ANDROID_APP_DIR/java/com/myClaudia/desktop/MainActivity.kt"
+# cp "$ANDROID_OVERRIDES_DIR/java/com/myClaudia/desktop/FileHelper.kt" "$ANDROID_APP_DIR/java/com/myClaudia/desktop/FileHelper.kt"
 cp "$ANDROID_OVERRIDES_DIR/res/xml/file_paths.xml" "$ANDROID_APP_DIR/res/xml/file_paths.xml"
 cp -R apps/desktop/src-tauri/icons/android/. "$ANDROID_RES_DIR/"
 

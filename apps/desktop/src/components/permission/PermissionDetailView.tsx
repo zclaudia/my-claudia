@@ -5,6 +5,7 @@ import remarkGfm from 'remark-gfm';
 import { Maximize2, X } from 'lucide-react';
 import { DiffViewer } from '../chat/DiffViewer';
 import { CodeViewer } from '../chat/CodeViewer';
+import { useAndroidBack } from '../../hooks/useAndroidBack';
 
 interface PermissionDetailViewProps {
   toolName: string;
@@ -142,6 +143,8 @@ function ExitPlanModeDetail({ input, maxHeightClass }: { input: Record<string, u
   const [expanded, setExpanded] = useState(false);
   const allowedPrompts = input.allowedPrompts as Array<{ tool: string; prompt: string }> | undefined;
   const plan = input.plan as string | undefined;
+
+  useAndroidBack(() => setExpanded(false), expanded, 40);
 
   const permissionsBlock = allowedPrompts && allowedPrompts.length > 0 ? (
     <div className="bg-muted/50 rounded-lg p-3">

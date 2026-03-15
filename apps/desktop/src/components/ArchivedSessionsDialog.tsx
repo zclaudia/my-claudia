@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useProjectStore } from '../stores/projectStore';
 import { useIsMobile } from '../hooks/useMediaQuery';
+import { useAndroidBack } from '../hooks/useAndroidBack';
 import * as api from '../services/api';
 import type { Session } from '@my-claudia/shared';
 
@@ -138,6 +139,8 @@ export function ArchivedSessionsDialog({ isOpen, onClose }: ArchivedSessionsDial
   const clearSelection = () => {
     setSelectedIds(new Set());
   };
+
+  useAndroidBack(onClose, isMobile && isOpen, 25);
 
   if (!isOpen) return null;
 

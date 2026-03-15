@@ -9,6 +9,7 @@
 import { useState, useCallback } from 'react';
 import { usePluginStore } from '../stores/pluginStore';
 import { useConnection } from '../contexts/ConnectionContext';
+import { useAndroidBack } from '../hooks/useAndroidBack';
 
 // Permission risk levels (mirrors server PERMISSION_LEVELS)
 const PERMISSION_LEVELS: Record<string, number> = {
@@ -84,6 +85,8 @@ export function PluginPermissionDialog() {
   );
 
   const maxLevel = Math.max(...sortedPermissions.map(p => PERMISSION_LEVELS[p] || 1));
+
+  useAndroidBack(() => handleDecision(false), !!pendingPermissionRequest, 45);
 
   return (
     <>

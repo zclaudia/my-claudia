@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react';
 import type { AskUserQuestionItem } from '@my-claudia/shared';
-import { useAndroidBack } from '../../hooks/useAndroidBack';
 
 interface AskUserQuestionRequest {
   requestId: string;
@@ -12,7 +11,6 @@ interface AskUserQuestionRequest {
 interface AskUserQuestionModalProps {
   request: AskUserQuestionRequest | null;
   onAnswer: (requestId: string, formattedAnswer: string) => void;
-  onDismiss?: (requestId: string) => void;
 }
 
 // Per-question answer state
@@ -42,7 +40,7 @@ function formatAnswers(questions: AskUserQuestionItem[], answers: QuestionAnswer
   }).join('\n\n');
 }
 
-export function AskUserQuestionModal({ request, onAnswer, onDismiss }: AskUserQuestionModalProps) {
+export function AskUserQuestionModal({ request, onAnswer }: AskUserQuestionModalProps) {
   const [answers, setAnswers] = useState<QuestionAnswer[]>([]);
 
   // Reset answers when request changes
@@ -117,17 +115,6 @@ export function AskUserQuestionModal({ request, onAnswer, onDismiss }: AskUserQu
     const formatted = formatAnswers(request.questions, answers);
     onAnswer(request.requestId, formatted);
   };
-
-  const handleDismiss = () => {
-    if (!request) return;
-    if (onDismiss) {
-      onDismiss(request.requestId);
-      return;
-    }
-    onAnswer(request.requestId, 'User dismissed the question without answering.');
-  };
-
-  useAndroidBack(handleDismiss, !!request, 45);
 
   // Check if any answer is provided
   const hasAnswer = answers.some(

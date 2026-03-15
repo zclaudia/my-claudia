@@ -4,6 +4,7 @@ import { useServerStore } from '../stores/serverStore';
 import { useProjectStore } from '../stores/projectStore';
 import { useSupervisionStore } from '../stores/supervisionStore';
 import * as api from '../services/api';
+import { useAndroidBack } from '../hooks/useAndroidBack';
 
 const TRUST_LEVELS: Array<{ id: AgentPermissionPolicy['trustLevel']; label: string; description: string }> = [
   { id: 'conservative', label: 'Conservative', description: 'Only auto-approve read-only tools' },
@@ -171,6 +172,8 @@ export function ProjectSettings({ project, isOpen, onClose }: ProjectSettingsPro
       setSupervisorLoading(false);
     }
   };
+
+  useAndroidBack(onClose, isOpen && !!project, 25);
 
   if (!isOpen || !project) return null;
 

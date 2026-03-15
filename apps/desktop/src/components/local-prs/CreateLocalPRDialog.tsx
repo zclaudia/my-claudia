@@ -3,6 +3,7 @@ import type { GitWorktree } from '@my-claudia/shared';
 import { X } from 'lucide-react';
 import { useLocalPRStore } from '../../stores/localPRStore';
 import { getProjectWorktrees, listLocalPRs } from '../../services/api';
+import { useAndroidBack } from '../../hooks/useAndroidBack';
 
 interface CreateLocalPRDialogProps {
   projectId: string;
@@ -17,6 +18,7 @@ export function CreateLocalPRDialog({
   onClose,
   defaultWorktreePath = '',
 }: CreateLocalPRDialogProps) {
+  useAndroidBack(onClose, true, 25);
   const { createPR } = useLocalPRStore();
   const [worktreePath, setWorktreePath] = useState(defaultWorktreePath);
   const [baseBranch, setBaseBranch] = useState('');

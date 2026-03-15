@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { X } from 'lucide-react';
 import type { ScheduleType, ScheduledActionType } from '@my-claudia/shared';
 import { useScheduledTaskStore } from '../../stores/scheduledTaskStore';
+import { useAndroidBack } from '../../hooks/useAndroidBack';
 
 interface Props {
   projectId: string;
@@ -24,6 +25,7 @@ const ACTION_TYPES: { value: ScheduledActionType; label: string; description: st
 
 export function CreateScheduledTaskDialog({ projectId, onClose }: Props) {
   const create = useScheduledTaskStore((s) => s.create);
+  useAndroidBack(onClose, true, 25);
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [scheduleType, setScheduleType] = useState<ScheduleType>('interval');

@@ -161,8 +161,8 @@ export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar }:
 
   // Mobile: keep chat pinned to the visible viewport when soft keyboard opens.
   // Android Tauri WebView uses adjustResize, so window.innerHeight already shrinks.
-  // We use visualViewport to position the container at the viewport's top offset and
-  // constrain its height, preventing content from scrolling behind the keyboard.
+  // We only constrain height here. Applying visualViewport.offsetTop as `top`
+  // adds unwanted blank space above the header on some Android keyboards.
   useEffect(() => {
     if (!isMobile) return;
     const vv = window.visualViewport;
@@ -173,22 +173,19 @@ export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar }:
       if (!el) return;
       // Use the smaller of innerHeight and visualViewport to avoid double-shrink
       const h = Math.min(window.innerHeight, vv.height);
-      const top = vv.offsetTop;
-      if (top > 0 || h < window.innerHeight) {
-        // Fixed mode: container takes over the screen, needs its own safe area
+      if (h < window.innerHeight) {
+        // Fixed mode: pin to the top and only shrink height to the visible viewport.
         el.style.position = 'fixed';
-        el.style.top = `${top}px`;
+        el.style.top = '0';
         el.style.left = '0';
         el.style.right = '0';
         el.style.height = `${h}px`;
-        el.classList.add('safe-top-pad');
       } else {
         el.style.position = '';
         el.style.top = '';
         el.style.left = '';
         el.style.right = '';
         el.style.height = '';
-        el.classList.remove('safe-top-pad');
       }
     };
 
@@ -205,7 +202,6 @@ export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar }:
         el.style.left = '';
         el.style.right = '';
         el.style.height = '';
-        el.classList.remove('safe-top-pad');
       }
     };
   }, [isMobile]);
@@ -1814,8 +1810,8 @@ export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar }:
                   </button>
                   {showSessionMenu && (
                     <>
-                      <div className="fixed inset-0 z-40" onClick={() => setShowSessionMenu(false)} />
-                      <div className="absolute top-full right-0 mt-1 z-50 bg-popover border border-border rounded-lg shadow-lg py-1 min-w-[160px]">
+                      <div className="fixed inset-0 z-[70]" onClick={() => setShowSessionMenu(false)} />
+                      <div className="fixed right-3 top-[calc(env(safe-area-inset-top,0px)+42px)] z-[80] min-w-[180px] overflow-hidden rounded-xl border border-border/80 bg-card/98 shadow-2xl backdrop-blur-xl">
                         <button
                           onClick={() => { handleResetProviderSession(); setShowSessionMenu(false); }}
                           disabled={isLoading}

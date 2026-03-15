@@ -1,5 +1,6 @@
 import { X } from 'lucide-react';
 import { useMemo } from 'react';
+import { useAndroidBack } from '../../hooks/useAndroidBack';
 
 interface DiffViewerModalProps {
   title: string;
@@ -26,6 +27,7 @@ const LINE_STYLES: Record<LineType, string> = {
 };
 
 export function DiffViewerModal({ title, diff, onClose }: DiffViewerModalProps) {
+  useAndroidBack(onClose, true, 30);
   const lines = useMemo(() => {
     return diff.split('\n').map((text, i) => {
       const type = classifyLine(text);

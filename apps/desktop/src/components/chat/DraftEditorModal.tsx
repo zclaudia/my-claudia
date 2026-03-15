@@ -1,6 +1,7 @@
 import { useCallback, useRef, useEffect } from 'react';
 import { useDraftEditorStore } from '../../stores/draftEditorStore';
 import { useIsMobile } from '../../hooks/useMediaQuery';
+import { useAndroidBack } from '../../hooks/useAndroidBack';
 
 const MAX_CONTENT_BYTES = 100 * 1024;
 
@@ -71,6 +72,14 @@ export function DraftEditorModal({ onFinishDraft }: DraftEditorModalProps) {
   const contentByteSize = new TextEncoder().encode(localContent).length;
   const sizePercent = Math.round((contentByteSize / MAX_CONTENT_BYTES) * 100);
   const charCount = localContent.length;
+
+  useAndroidBack(() => {
+    if (showLockPrompt) {
+      dismissLockPrompt();
+    } else if (isEditorOpen) {
+      closeEditor();
+    }
+  }, showLockPrompt || isEditorOpen, showLockPrompt ? 35 : 30);
 
   // Lock prompt dialog
   if (showLockPrompt && activeSessionId) {
