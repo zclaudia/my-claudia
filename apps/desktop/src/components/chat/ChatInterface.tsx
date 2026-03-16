@@ -2090,7 +2090,11 @@ export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar }:
       </div>
 
       {/* Background Tasks Panel - shows above bottom panel when there are tasks */}
-      <BackgroundTaskPanel sessionId={sessionId} />
+      <BackgroundTaskPanel sessionId={sessionId} onStopTask={(taskId) => {
+        // Send targeted stop — server will use SDK stopTask() if run is active,
+        // or fall back to process cleanup if the run has already ended
+        wsSendMessage({ type: 'stop_background_task', sessionId, taskId });
+      }} />
 
       {/* Bottom panel (file viewer + terminal with tab switching) */}
       <BottomPanel

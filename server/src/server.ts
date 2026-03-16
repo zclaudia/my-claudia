@@ -77,6 +77,7 @@ import { toolRegistry as pluginToolRegistry } from './plugins/tool-registry.js';
 import { commandRegistry as pluginCommandRegistry } from './commands/registry.js';
 import { resolveProviderCwd } from './utils/provider-cwd.js';
 import { createTraceRecorder, summarizeProviderMessage, summarizeServerMessage } from './utils/provider-trace.js';
+import { ProcessMonitor } from './utils/process-monitor.js';
 
 // Phase 2: Router architecture (CRUD routes migrated to HTTP REST)
 import { createRouter } from './router/index.js';
@@ -367,6 +368,9 @@ interface ActiveRun {
 }
 
 const activeRuns = new Map<string, ActiveRun>();
+
+// Module-level process monitor (initialized in createServer)
+let processMonitor: ProcessMonitor | null = null;
 
 // Module-level clients map (set in createServer, used by broadcastHeartbeat)
 let connectedClients = new Map<string, ConnectedClient>();
@@ -1122,8 +1126,33 @@ export async function createServer(): Promise<ServerContext> {
     });
   }, 30000);
 
+  // Process leak monitor — detects orphaned child processes from any provider.
+  // Does NOT auto-kill; instead notifies the user so they can decide.
+  processMonitor = new ProcessMonitor(
+    () => activeRuns.size,
+    (report) => {
+      const pids = report.leakedProcesses.map(p => `PID=${p.pid}(${p.command}, ${p.elapsedSeconds}s)`).join(', ');
+      console.warn(`[ProcessMonitor] Leaked processes detected (activeRuns=${report.activeRunCount}): ${pids}`);
+      notificationService.notify({
+        type: 'process_leak',
+        title: 'Leaked processes detected',
+        body: `${report.leakedProcesses.length} orphaned process(es) found: ${pids}`,
+        priority: 'high',
+        tags: ['warning'],
+      });
+    },
+    {
+      autoKill: false,
+      minElapsedSeconds: 120,
+      // Ignore long-lived infrastructure processes managed outside of provider runs
+      ignoreCommands: ['opencode', 'mcp-bridge', 'mcp-server'],
+    },
+  );
+  processMonitor.start();
+
   wss.on('close', () => {
     clearInterval(heartbeatInterval);
+    processMonitor?.stop();
     supervisorV2Service.stop();
   });
 
@@ -1354,6 +1383,11 @@ function cancelRun(runId: string): void {
     activeRuns.delete(runId);
     broadcastHeartbeat();
     console.log(`Run ${runId} cancelled`);
+
+    // Trigger deferred leak check after cancel
+    if (processMonitor && activeRuns.size === 0) {
+      setTimeout(() => processMonitor?.check(), 5_000);
+    }
   }
 }
 
@@ -1483,6 +1517,32 @@ async function handleClientMessage(
     case 'run_cancel':
       handleRunCancel(message.runId);
       break;
+
+    case 'kill_leaked_processes':
+      if (processMonitor) {
+        console.log('[ProcessMonitor] Manual kill triggered by client');
+        processMonitor.check(true);
+      }
+      break;
+
+    case 'stop_background_task': {
+      const { sessionId: targetSessionId, taskId } = message;
+      // Find the active run for this session
+      const targetRun = [...activeRuns.values()].find(r => r.sessionId === targetSessionId);
+      if (targetRun?.providerType) {
+        const adapter = providerRegistry.get(targetRun.providerType);
+        if (adapter?.stopTask && targetRun.providerSessionId) {
+          adapter.stopTask(targetRun.providerSessionId, taskId).catch(err => {
+            console.error(`[StopTask] Failed to stop task ${taskId}:`, err);
+          });
+        } else {
+          console.warn(`[StopTask] Provider ${targetRun.providerType} does not support stopTask`);
+        }
+      } else {
+        console.warn(`[StopTask] Ignoring stop for task ${taskId} in session ${targetSessionId} — no active run to target precisely`);
+      }
+      break;
+    }
 
     case 'permission_decision':
       handlePermissionDecision(message);
@@ -2606,6 +2666,11 @@ async function handleRunStart(
     // Cleanup
     activeRuns.delete(runId);
     broadcastHeartbeat();
+
+    // Trigger deferred leak check — give child processes a few seconds to exit gracefully
+    if (processMonitor && activeRuns.size === 0) {
+      setTimeout(() => processMonitor?.check(), 5_000);
+    }
 
     // Clear run status and update session updated_at
     db.prepare(`

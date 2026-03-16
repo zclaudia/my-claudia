@@ -31,6 +31,9 @@ export interface ProviderAdapter {
   /** Abort an active session */
   abort?(sessionId: string, cwd: string): Promise<void>;
 
+  /** Stop a specific background task within an active session */
+  stopTask?(sessionId: string, taskId: string): Promise<void>;
+
   /** Get provider-specific state to store on ActiveRun */
   getRunState?(options: RunOptions): Record<string, unknown>;
 }

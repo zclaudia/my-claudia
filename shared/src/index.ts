@@ -686,6 +686,8 @@ export type ClientMessage =
   | AuthMessage
   | RunStartMessage
   | RunCancelMessage
+  | KillLeakedProcessesMessage
+  | StopBackgroundTaskMessage
   | PermissionDecisionMessage
   | AskUserAnswerMessage
   | PingMessage
@@ -774,6 +776,16 @@ export interface RunStartMessage {
 export interface RunCancelMessage {
   type: 'run_cancel';
   runId: string;
+}
+
+export interface KillLeakedProcessesMessage {
+  type: 'kill_leaked_processes';
+}
+
+export interface StopBackgroundTaskMessage {
+  type: 'stop_background_task';
+  sessionId: string;
+  taskId: string;
 }
 
 export interface PermissionDecisionMessage {
@@ -2039,6 +2051,7 @@ export interface NotificationEventPreferences {
   runFailed: boolean;
   supervisionUpdate: boolean;
   backgroundPermission: boolean;
+  processLeak: boolean;
 }
 
 export interface NotificationConfig {
@@ -2059,6 +2072,7 @@ export const DEFAULT_NOTIFICATION_CONFIG: NotificationConfig = {
     runFailed: true,
     supervisionUpdate: true,
     backgroundPermission: true,
+    processLeak: true,
   },
 };
 

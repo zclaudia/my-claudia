@@ -1170,6 +1170,7 @@ function NotificationSettingsInline() {
     { key: 'runFailed', label: 'Run failed', description: 'A run fails with an error' },
     { key: 'supervisionUpdate', label: 'Supervision updates', description: 'Supervision completes, fails, or is cancelled' },
     { key: 'backgroundPermission', label: 'Background task alerts', description: 'Background task needs your attention' },
+    { key: 'processLeak', label: 'Process leak alerts', description: 'Orphaned child processes were detected' },
   ];
 
   return (

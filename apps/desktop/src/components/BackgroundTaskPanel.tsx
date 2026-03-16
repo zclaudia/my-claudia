@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useBackgroundTaskStore, type BackgroundTask } from '../stores/backgroundTaskStore';
-import { CheckCircle2, XCircle, Loader2, X, ChevronDown, ChevronRight, PauseCircle } from 'lucide-react';
+import { CheckCircle2, XCircle, Loader2, X, ChevronDown, ChevronRight, PauseCircle, StopCircle } from 'lucide-react';
 
 function formatTimeAgo(ts: number): string {
   const seconds = Math.floor((Date.now() - ts) / 1000);
@@ -11,9 +11,10 @@ function formatTimeAgo(ts: number): string {
   return `${hours}h ago`;
 }
 
-function TaskItem({ task, onRemove }: { task: BackgroundTask; onRemove: () => void }) {
+function TaskItem({ task, onRemove, onStop }: { task: BackgroundTask; onRemove: () => void; onStop?: (taskId: string) => void }) {
   const [expanded, setExpanded] = useState(false);
   const isRunning = task.status === 'started' || task.status === 'in_progress';
+  const canStop = isRunning && task.stoppable !== false && !!onStop;
   const isPaused = task.status === 'paused';
   const isFailed = task.status === 'failed' || task.status === 'stopped';
 
@@ -50,14 +51,24 @@ function TaskItem({ task, onRemove }: { task: BackgroundTask; onRemove: () => vo
         )}
       </button>
 
-      {/* Dismiss */}
-      <button
-        onClick={onRemove}
-        className="p-0.5 rounded opacity-0 group-hover:opacity-100 hover:bg-muted transition-all flex-shrink-0"
-        title="Dismiss"
-      >
-        <X size={11} className="text-muted-foreground" />
-      </button>
+      {/* Stop (running tasks) or Dismiss (completed tasks) */}
+      {canStop ? (
+        <button
+          onClick={() => onStop(task.id)}
+          className="p-0.5 rounded opacity-0 group-hover:opacity-100 hover:bg-destructive/10 transition-all flex-shrink-0"
+          title="Stop this task"
+        >
+          <StopCircle size={13} className="text-destructive" />
+        </button>
+      ) : (
+        <button
+          onClick={onRemove}
+          className="p-0.5 rounded opacity-0 group-hover:opacity-100 hover:bg-muted transition-all flex-shrink-0"
+          title="Dismiss"
+        >
+          <X size={11} className="text-muted-foreground" />
+        </button>
+      )}
 
       {/* Expandable summary */}
       {expanded && task.summary && (
@@ -73,9 +84,11 @@ function TaskItem({ task, onRemove }: { task: BackgroundTask; onRemove: () => vo
 
 interface BackgroundTaskPanelProps {
   sessionId: string;
+  /** Called when user clicks stop on a specific running task */
+  onStopTask?: (taskId: string) => void;
 }
 
-export function BackgroundTaskPanel({ sessionId }: BackgroundTaskPanelProps) {
+export function BackgroundTaskPanel({ sessionId, onStopTask }: BackgroundTaskPanelProps) {
   const [collapsed, setCollapsed] = useState(false);
   const tasks = useBackgroundTaskStore((s) => s.getTasksBySession(sessionId));
   const removeTask = useBackgroundTaskStore((s) => s.removeTask);
@@ -113,7 +126,7 @@ export function BackgroundTaskPanel({ sessionId }: BackgroundTaskPanelProps) {
       {!collapsed && (
         <div className="overflow-y-auto max-h-40 pb-1">
           {activeTasks.map((task) => (
-            <TaskItem key={task.id} task={task} onRemove={() => removeTask(task.id)} />
+            <TaskItem key={task.id} task={task} onRemove={() => removeTask(task.id)} onStop={onStopTask} />
           ))}
           {pausedTasks.map((task) => (
             <TaskItem key={task.id} task={task} onRemove={() => removeTask(task.id)} />

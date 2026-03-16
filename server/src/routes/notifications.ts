@@ -2,6 +2,46 @@ import { Router, Request, Response } from 'express';
 import type { NotificationService } from '../services/notification-service.js';
 import type { NotificationConfig } from '@my-claudia/shared';
 
+const NOTIFICATION_EVENT_KEYS: Array<keyof NotificationConfig['events']> = [
+  'permissionRequest',
+  'askUserQuestion',
+  'runCompleted',
+  'runFailed',
+  'supervisionUpdate',
+  'backgroundPermission',
+  'processLeak',
+];
+
+export function parseNotificationConfig(input: unknown): NotificationConfig | null {
+  if (!input || typeof input !== 'object') return null;
+
+  const candidate = input as Record<string, unknown>;
+  if (typeof candidate.enabled !== 'boolean') return null;
+  if (typeof candidate.ntfyUrl !== 'string') return null;
+  if (typeof candidate.ntfyTopic !== 'string') return null;
+  if (!candidate.events || typeof candidate.events !== 'object' || Array.isArray(candidate.events)) return null;
+
+  const events = candidate.events as Record<string, unknown>;
+  for (const key of NOTIFICATION_EVENT_KEYS) {
+    if (typeof events[key] !== 'boolean') return null;
+  }
+
+  return {
+    enabled: candidate.enabled,
+    ntfyUrl: candidate.ntfyUrl,
+    ntfyTopic: candidate.ntfyTopic,
+    events: {
+      permissionRequest: events.permissionRequest as boolean,
+      askUserQuestion: events.askUserQuestion as boolean,
+      runCompleted: events.runCompleted as boolean,
+      runFailed: events.runFailed as boolean,
+      supervisionUpdate: events.supervisionUpdate as boolean,
+      backgroundPermission: events.backgroundPermission as boolean,
+      processLeak: events.processLeak as boolean,
+    },
+  };
+}
+
 export function createNotificationRoutes(notificationService: NotificationService): Router {
   const router = Router();
 
@@ -21,9 +61,9 @@ export function createNotificationRoutes(notificationService: NotificationServic
   // PUT /api/notifications/config
   router.put('/config', (req: Request, res: Response) => {
     try {
-      const config = req.body as NotificationConfig;
+      const config = parseNotificationConfig(req.body);
 
-      if (!config || typeof config.enabled !== 'boolean') {
+      if (!config) {
         res.status(400).json({
           success: false,
           error: { code: 'INVALID_INPUT', message: 'Invalid notification config' }

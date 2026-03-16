@@ -93,6 +93,7 @@ const mockPluginStore = {
   setPendingPermissionRequest: vi.fn(),
   registerPanel: vi.fn(),
   clearPluginExtensions: vi.fn(),
+  updatePanelVisibility: vi.fn(),
 };
 
 const mockFilePushStore = {
@@ -433,7 +434,13 @@ describe('handleServerMessage', () => {
         status: 'started', message: 'Working...',
       }, makeCtx());
       expect(mockBackgroundTaskStore.addTask).toHaveBeenCalledWith(
-        expect.objectContaining({ id: 't1', sessionId: 's1', status: 'started' })
+        expect.objectContaining({
+          id: 't1',
+          sessionId: 's1',
+          status: 'started',
+          source: 'sdk_task',
+          stoppable: true,
+        })
       );
     });
 
@@ -451,6 +458,27 @@ describe('handleServerMessage', () => {
     it('skips if missing sessionId or taskId', () => {
       handleServerMessage({ type: 'task_notification' }, makeCtx());
       expect(mockBackgroundTaskStore.addTask).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('background_task_update', () => {
+    it('marks background runs as non-stoppable', () => {
+      handleServerMessage({
+        type: 'background_task_update',
+        sessionId: 'background-session',
+        parentSessionId: 's1',
+        status: 'running',
+      }, makeCtx());
+
+      expect(mockBackgroundTaskStore.addTask).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: 'background:background-session',
+          sessionId: 's1',
+          source: 'background_run',
+          stoppable: false,
+          status: 'in_progress',
+        })
+      );
     });
   });
 

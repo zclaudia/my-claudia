@@ -171,6 +171,7 @@ const mockFetch = vi.fn();
 vi.stubGlobal('fetch', mockFetch);
 
 // Mock scrollIntoView for DOM elements
+Element.prototype.scrollTo = vi.fn();
 Element.prototype.scrollIntoView = vi.fn();
 
 // Helper to reset mocks between tests

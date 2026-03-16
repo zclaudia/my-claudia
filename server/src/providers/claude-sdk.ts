@@ -13,6 +13,11 @@ import * as crypto from 'crypto';
 import { extractRetryDelayMsFromError } from '../utils/retry-window.js';
 import { sanitizeInheritedProviderEnv } from '../utils/startup-env.js';
 
+/** Mutable handle exposed by runClaude so the adapter can call query methods (stopTask, etc.) */
+export interface ClaudeQueryHandle {
+  stopTask?: (taskId: string) => Promise<void>;
+}
+
 export interface ClaudeRunOptions {
   cwd: string;
   sessionId?: string;  // SDK session ID for resume
@@ -25,6 +30,8 @@ export interface ClaudeRunOptions {
   systemPrompt?: string;  // Appended to system prompt
   serverPort?: number;  // Main server port for MCP bridge
   db?: import('better-sqlite3').Database;  // Database for Claudia-managed MCP servers
+  abortController?: AbortController;  // External abort controller for cancellation
+  queryHandle?: ClaudeQueryHandle;  // Mutable handle — runClaude populates stopTask when query starts
 }
 
 export interface PermissionDecision {
@@ -385,6 +392,11 @@ export async function* runClaude(
     };
   }
 
+  // Wire up external abort controller so the adapter can cancel the SDK query
+  if (options.abortController) {
+    sdkOptions.abortController = options.abortController;
+  }
+
   // Prepare content (handles both text and structured input with attachments)
   const { text: promptText, tempFiles } = await prepareInput(input);
 
@@ -402,6 +414,11 @@ export async function* runClaude(
           prompt: promptText,
           options: sdkOptions,
         });
+
+        // Expose stopTask via the mutable handle so adapter can call it
+        if (options.queryHandle) {
+          options.queryHandle.stopTask = (taskId: string) => queryInstance.stopTask(taskId);
+        }
 
         // Stream messages
         for await (const message of queryInstance) {

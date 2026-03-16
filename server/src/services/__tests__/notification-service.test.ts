@@ -48,6 +48,27 @@ describe('NotificationService', () => {
       expect(mockDb.prepare).toHaveBeenCalledWith(expect.stringContaining('SELECT config FROM notification_config'));
     });
 
+    it('merges missing event keys from defaults for older stored configs', () => {
+      const legacyConfig = {
+        enabled: true,
+        ntfyUrl: 'https://ntfy.sh',
+        ntfyTopic: 'legacy-topic',
+        events: {
+          permissionRequest: true,
+          askUserQuestion: true,
+          runCompleted: false,
+          runFailed: false,
+          supervisionUpdate: false,
+          backgroundPermission: false,
+        },
+      };
+      mockDb.prepare().get.mockReturnValue({ config: JSON.stringify(legacyConfig) });
+
+      const config = service.getConfig();
+
+      expect(config.events.processLeak).toBe(DEFAULT_NOTIFICATION_CONFIG.events.processLeak);
+    });
+
     it('returns default config if not found in database', () => {
       mockDb.prepare().get.mockReturnValue(undefined);
 
@@ -101,6 +122,26 @@ describe('NotificationService', () => {
       // Next getConfig should return cached value without DB query
       const result = service.getConfig();
       expect(result.ntfyTopic).toBe('saved-topic');
+    });
+
+    it('normalizes missing event keys before saving', () => {
+      const legacyConfig = {
+        ...DEFAULT_NOTIFICATION_CONFIG,
+        ntfyTopic: 'legacy-topic',
+        events: {
+          permissionRequest: true,
+          askUserQuestion: true,
+          runCompleted: false,
+          runFailed: false,
+          supervisionUpdate: false,
+          backgroundPermission: false,
+        },
+      } as any;
+
+      service.saveConfig(legacyConfig);
+
+      const savedConfig = JSON.parse(mockDb.prepare().run.mock.calls[0][0]);
+      expect(savedConfig.events.processLeak).toBe(DEFAULT_NOTIFICATION_CONFIG.events.processLeak);
     });
   });
 
@@ -238,6 +279,7 @@ describe('NotificationService', () => {
         'run_completed',
         'run_failed',
         'background_permission',
+        'process_leak',
       ] as const;
 
       const config = {
@@ -250,7 +292,9 @@ describe('NotificationService', () => {
           askUserQuestion: true,
           runCompleted: true,
           runFailed: true,
+          supervisionUpdate: true,
           backgroundPermission: true,
+          processLeak: true,
         },
       };
       mockDb.prepare().get.mockReturnValue({ config: JSON.stringify(config) });

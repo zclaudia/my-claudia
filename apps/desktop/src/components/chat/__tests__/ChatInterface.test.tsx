@@ -118,7 +118,11 @@ vi.mock('../../supervision/TaskCardStrip', () => ({
   TaskCardStrip: (props: any) => <div data-testid="task-card-strip" data-project-id={props.projectId} />,
 }));
 vi.mock('../../BackgroundTaskPanel', () => ({
-  BackgroundTaskPanel: (props: any) => <div data-testid="bg-task-panel" data-session-id={props.sessionId} />,
+  BackgroundTaskPanel: (props: any) => (
+    <div data-testid="bg-task-panel" data-session-id={props.sessionId}>
+      <button data-testid="bg-task-stop" onClick={() => props.onStopTask?.('task-123')} />
+    </div>
+  ),
 }));
 
 // Mock services - use importOriginal to auto-stub all exports
@@ -810,7 +814,7 @@ describe('ChatInterface', () => {
     expect(dismissBtn).toBeTruthy();
   });
 
-  it('sends continue run_start on Resume click', () => {
+  it('sends continue run_start on Resume click', async () => {
     setDefaultStores({
       projectStore: {
         sessions: [{ id: 'sess-1', projectId: 'proj-1', name: 'Test', lastRunStatus: 'interrupted' }],
@@ -820,13 +824,15 @@ describe('ChatInterface', () => {
     const buttons = container.querySelectorAll('button');
     const resumeBtn = Array.from(buttons).find(b => b.textContent?.includes('Resume'));
     fireEvent.click(resumeBtn!);
-    expect(mockSendMessage).toHaveBeenCalledWith(
-      expect.objectContaining({
-        type: 'run_start',
-        sessionId: 'sess-1',
-        input: 'continue',
-      })
-    );
+    await waitFor(() => {
+      expect(mockSendMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'run_start',
+          sessionId: 'sess-1',
+          input: 'continue',
+        })
+      );
+    });
   });
 
   it('calls dismissInterrupted on Dismiss click', async () => {
@@ -1249,6 +1255,16 @@ describe('ChatInterface', () => {
     const { container } = render(<ChatInterface sessionId="sess-1" />);
     const btp = container.querySelector('[data-testid="bg-task-panel"]');
     expect(btp?.getAttribute('data-session-id')).toBe('sess-1');
+  });
+
+  it('sends stop_background_task when BackgroundTaskPanel requests stop', () => {
+    const { getByTestId } = render(<ChatInterface sessionId="sess-1" />);
+    fireEvent.click(getByTestId('bg-task-stop'));
+    expect(mockSendMessage).toHaveBeenCalledWith({
+      type: 'stop_background_task',
+      sessionId: 'sess-1',
+      taskId: 'task-123',
+    });
   });
 
   // ─── Initial message loading via API ──────────────────────────────────

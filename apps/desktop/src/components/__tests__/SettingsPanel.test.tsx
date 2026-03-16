@@ -39,6 +39,7 @@ vi.mock('../../services/api', async (importOriginal) => {
     enabled: false, ntfyUrl: 'https://ntfy.sh', ntfyTopic: '', events: {
       permissionRequest: true, askUserQuestion: true, runCompleted: false,
       runFailed: false, supervisionUpdate: false, backgroundPermission: false,
+      processLeak: true,
     },
   });
   stubbed.updateNotificationConfig = vi.fn().mockResolvedValue({});
@@ -73,6 +74,7 @@ vi.mock('@my-claudia/shared', async (importOriginal) => {
         runFailed: false,
         supervisionUpdate: false,
         backgroundPermission: false,
+        processLeak: true,
       },
     },
   };

@@ -5,7 +5,7 @@ import { DEFAULT_NOTIFICATION_CONFIG } from '@my-claudia/shared';
 type NtfyPriority = 'urgent' | 'high' | 'default' | 'low' | 'min';
 
 interface NotifyEvent {
-  type: 'permission_request' | 'ask_user_question' | 'run_completed' | 'run_failed' | 'background_permission';
+  type: 'permission_request' | 'ask_user_question' | 'run_completed' | 'run_failed' | 'background_permission' | 'process_leak';
   title: string;
   body: string;
   priority?: NtfyPriority;
@@ -30,7 +30,7 @@ export class NotificationService {
 
     if (row) {
       try {
-        this.configCache = JSON.parse(row.config);
+        this.configCache = this.normalizeConfig(JSON.parse(row.config));
         return this.configCache!;
       } catch {
         // Fall through to default
@@ -41,13 +41,25 @@ export class NotificationService {
   }
 
   saveConfig(config: NotificationConfig): void {
+    const normalizedConfig = this.normalizeConfig(config);
     this.db.prepare(`
       INSERT INTO notification_config (id, config, updated_at)
       VALUES ('default', ?, ?)
       ON CONFLICT(id) DO UPDATE SET config = excluded.config, updated_at = excluded.updated_at
-    `).run(JSON.stringify(config), Date.now());
+    `).run(JSON.stringify(normalizedConfig), Date.now());
 
-    this.configCache = config;
+    this.configCache = normalizedConfig;
+  }
+
+  private normalizeConfig(config: Partial<NotificationConfig>): NotificationConfig {
+    return {
+      ...DEFAULT_NOTIFICATION_CONFIG,
+      ...config,
+      events: {
+        ...DEFAULT_NOTIFICATION_CONFIG.events,
+        ...(config.events || {}),
+      },
+    };
   }
 
   async notify(event: NotifyEvent): Promise<void> {
@@ -61,6 +73,7 @@ export class NotificationService {
       run_completed: 'runCompleted',
       run_failed: 'runFailed',
       background_permission: 'backgroundPermission',
+      process_leak: 'processLeak',
     };
 
     const eventKey = eventKeyMap[event.type];
