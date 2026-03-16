@@ -14,8 +14,8 @@ foreach ($cmd in @("rustup", "pnpm", "node")) {
     }
 }
 
-# --- Version bump ---
-Write-Host "=== Version bump ===" -ForegroundColor Cyan
+# --- Version selection ---
+Write-Host "=== Version selection ===" -ForegroundColor Cyan
 $releaseVersion = $env:RELEASE_VERSION
 $releaseBuild = $env:RELEASE_BUILD
 
@@ -24,7 +24,8 @@ if ($releaseVersion -and $releaseBuild) {
     $env:BUILD = $releaseBuild
     Write-Host "Using externally provided release version: $releaseVersion (build $releaseBuild)"
 } else {
-    $versionOutput = bash scripts/release/version-bump.sh --platform windows --bump
+    Write-Host "Local build -> deriving dev version from latest release tag"
+    $versionOutput = bash scripts/release/version-bump.sh --platform windows --dev-suffix
     foreach ($line in $versionOutput) {
         if ($line -match '^([^=]+)=(.*)$') {
             [System.Environment]::SetEnvironmentVariable($matches[1], $matches[2])
@@ -35,14 +36,17 @@ if ($releaseVersion -and $releaseBuild) {
         exit 1
     }
 }
+$appVersion = $env:VERSION
 # Tauri requires strict semver (MAJOR.MINOR.PATCH) — strip v prefix, prerelease suffixes, and whitespace
-$env:VERSION = ($env:VERSION -replace '^v', '' -replace '-.*$', '').Trim()
-Write-Host "Tauri version: $($env:VERSION)"
+$tauriVersion = ($appVersion -replace '^v', '' -replace '-.*$', '').Trim()
+$env:VERSION = $tauriVersion
+Write-Host "App version: $appVersion"
+Write-Host "Tauri version: $tauriVersion"
 Write-Host ""
 
 # --- Pre-build (shared + desktop frontend only, no server bundle) ---
 Write-Host "=== Building shared packages ===" -ForegroundColor Cyan
-$env:APP_VERSION = $env:VERSION
+$env:APP_VERSION = $appVersion
 pnpm -r run build
 if ($LASTEXITCODE -ne 0) {
     Write-Error "Pre-build failed"

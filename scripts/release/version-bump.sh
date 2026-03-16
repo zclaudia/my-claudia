@@ -14,7 +14,7 @@
 #   BUILD=N             (raw build number)
 #
 # version.json holds only { "major": N, "minor": N }
-# Build number is derived from git tags: build-{major}.{minor}-{N}
+# Build number is derived from release tags: v{major}.{minor}.{N}
 #
 # Release builds share the same app version. Dirty local dev builds append
 # platform + timestamp so parallel local artifacts are distinguishable.
@@ -61,10 +61,10 @@ fi
 MAJOR=$(python3 -c "import json; print(json.load(open('$VERSION_FILE'))['major'])")
 MINOR=$(python3 -c "import json; print(json.load(open('$VERSION_FILE'))['minor'])")
 
-# --- Get build number from git tags ---
-LATEST_TAG=$(git tag -l "build-${MAJOR}.${MINOR}-*" --sort=-version:refname | head -1)
+# --- Get build number from release tags ---
+LATEST_TAG=$(git tag -l "v${MAJOR}.${MINOR}.*" --sort=-version:refname | head -1)
 if [ -n "$LATEST_TAG" ]; then
-  BUILD=$(echo "$LATEST_TAG" | sed "s/build-${MAJOR}.${MINOR}-//")
+  BUILD=$(echo "$LATEST_TAG" | sed "s/^v${MAJOR}\.${MINOR}\.//")
 else
   BUILD=0
 fi

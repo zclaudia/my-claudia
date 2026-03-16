@@ -24,9 +24,10 @@ fi
 # Release remote config
 RELEASE_REMOTE="${RELEASE_REMOTE:-origin}"
 
-# --- Smart version bump ---
+# --- Version selection ---
 # In CI (RELEASE_VERSION + RELEASE_BUILD set by workflow), use those directly.
-# Locally, use git tags to track builds.
+# Locally, always build a dev version from the latest release tag without
+# advancing the next release number.
 echo "=== Version check ==="
 
 if [ -n "${RELEASE_VERSION:-}" ] && [ -n "${RELEASE_BUILD:-}" ]; then
@@ -38,42 +39,8 @@ if [ -n "${RELEASE_VERSION:-}" ] && [ -n "${RELEASE_BUILD:-}" ]; then
   MINOR=$(echo "$VERSION" | cut -d. -f2)
   echo "Using CI-provided version: $VERSION (build $BUILD)"
 else
-  # Local mode: compute from git tags
-  MAJOR=$(python3 -c "import json; print(json.load(open('version.json'))['major'])")
-  MINOR=$(python3 -c "import json; print(json.load(open('version.json'))['minor'])")
-  HAS_DIRTY=$(git status --porcelain | head -1)
-  HAS_BUILD_TAG=$(git tag --points-at HEAD 2>/dev/null | grep '^build-' | head -1 || true)
-
-  if [ -n "$HAS_DIRTY" ]; then
-    echo "Dirty working tree → dev build"
-    LATEST_TAG=$(git tag -l "build-${MAJOR}.${MINOR}-*" --sort=-version:refname | head -1)
-    CURRENT_BUILD=$(echo "$LATEST_TAG" | sed "s/build-${MAJOR}.${MINOR}-//")
-    [ -z "$CURRENT_BUILD" ] && CURRENT_BUILD=0
-    eval "$(./scripts/version-bump.sh --platform linux --set-build "$CURRENT_BUILD" --dev-suffix)"
-
-  elif [ -z "$HAS_BUILD_TAG" ]; then
-    echo "New commits detected → bumping version"
-    eval "$(./scripts/version-bump.sh --platform linux --bump)"
-
-    TAG_NAME="build-${MAJOR}.${MINOR}-${BUILD}"
-    git tag "$TAG_NAME"
-    git push "$RELEASE_REMOTE" "$TAG_NAME" 2>/dev/null || true
-
-    # Clean old tags for this major.minor, keep latest 5
-    OLD_TAGS=$(git tag -l "build-${MAJOR}.${MINOR}-*" --sort=-version:refname | tail -n +6)
-    if [ -n "$OLD_TAGS" ]; then
-      echo "$OLD_TAGS" | xargs git tag -d
-      echo "$OLD_TAGS" | while read -r tag; do
-        git push "$RELEASE_REMOTE" --delete "$tag" 2>/dev/null || true
-      done
-      echo "  Cleaned $(echo "$OLD_TAGS" | wc -l | tr -d ' ') old tag(s)"
-    fi
-
-  else
-    echo "No changes since $HAS_BUILD_TAG. Reusing version."
-    CURRENT_BUILD=$(echo "$HAS_BUILD_TAG" | sed "s/build-${MAJOR}.${MINOR}-//")
-    eval "$(./scripts/version-bump.sh --platform linux --set-build "$CURRENT_BUILD")"
-  fi
+  echo "Local build → deriving dev version from latest release tag"
+  eval "$(./scripts/version-bump.sh --platform linux --dev-suffix)"
 fi
 echo ""
 

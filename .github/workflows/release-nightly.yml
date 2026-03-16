@@ -41,7 +41,11 @@ jobs:
           MAJOR=$(python3 -c "import json; print(json.load(open('version.json'))['major'])")
           MINOR=$(python3 -c "import json; print(json.load(open('version.json'))['minor'])")
           NIGHTLY_DATE=$(TZ=Asia/Shanghai date +%F)
-          BUILD=$(TZ=Asia/Shanghai date +%y%m%d)
+          YEAR=$(TZ=Asia/Shanghai date +%Y)
+          DAY_OF_YEAR=$(TZ=Asia/Shanghai date +%j)
+          # Windows MSI/Wix requires each semver component to stay within 65535.
+          # Encode nightly builds as years since 2020 * 1000 + day-of-year.
+          BUILD=$(( (10#$YEAR - 2020) * 1000 + 10#$DAY_OF_YEAR ))
           VERSION="${MAJOR}.${MINOR}.${BUILD}-nightly"
           VERSION_CODE=$((MAJOR * 10000000 + MINOR * 1000000 + BUILD))
           TAG="nightly-${NIGHTLY_DATE}"

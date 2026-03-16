@@ -10,9 +10,6 @@ on:
         description: 'Release version (e.g. 0.1.42). Leave empty to auto-bump or reuse existing draft.'
         required: false
         type: string
-  push:
-    tags:
-      - 'v*'
 
 permissions:
   contents: write
@@ -47,9 +44,6 @@ jobs:
           if [ -n "${INPUT_VERSION:-}" ]; then
             # Manual input: use exact version provided
             VERSION="$INPUT_VERSION"
-          elif [ "${GITHUB_REF_TYPE:-}" = "tag" ] && [[ "${GITHUB_REF_NAME:-}" == v* ]]; then
-            # Tag push: extract version from tag
-            VERSION="${GITHUB_REF_NAME#v}"
           else
             # Auto: check for existing draft release first
             EXISTING_DRAFT=$(gh release list --json tagName,isDraft \

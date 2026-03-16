@@ -103,12 +103,10 @@ done
 echo "  [OK] Rust Android targets"
 echo ""
 
-# --- Smart version bump ---
+# --- Version selection ---
 # In CI (RELEASE_VERSION + RELEASE_BUILD set by workflow), use those directly.
-# Locally, use git tags to track builds:
-#   - HEAD has build-* tag + clean tree → reuse version
-#   - HEAD has no build-* tag → new commits exist → bump + tag
-#   - Dirty working tree → dev build (no bump, -dev.<platform>.<timestamp> suffix)
+# Locally, always build a dev version from the latest release tag without
+# advancing the next release number.
 if [ "$INSTALL_ONLY" = false ] && [ "$NO_BUMP" = false ]; then
   echo "=== Version check ==="
 
@@ -121,43 +119,9 @@ if [ "$INSTALL_ONLY" = false ] && [ "$NO_BUMP" = false ]; then
     MINOR=$(echo "$VERSION" | cut -d. -f2)
     echo "Using CI-provided version: $VERSION (build $BUILD)"
   else
-    # Local mode: compute from git tags
-    MAJOR=$(python3 -c "import json; print(json.load(open('version.json'))['major'])")
-    MINOR=$(python3 -c "import json; print(json.load(open('version.json'))['minor'])")
-    HAS_DIRTY=$(git status --porcelain | head -1)
-    HAS_BUILD_TAG=$(git tag --points-at HEAD 2>/dev/null | grep '^build-' | head -1 || true)
-
-    if [ -n "$HAS_DIRTY" ]; then
-      DEV=true
-      echo "Dirty working tree → dev build"
-      LATEST_TAG=$(git tag -l "build-${MAJOR}.${MINOR}-*" --sort=-version:refname | head -1)
-      CURRENT_BUILD=$(echo "$LATEST_TAG" | sed "s/build-${MAJOR}.${MINOR}-//")
-      [ -z "$CURRENT_BUILD" ] && CURRENT_BUILD=0
-      eval "$(./scripts/version-bump.sh --platform android --set-build "$CURRENT_BUILD" --dev-suffix)"
-
-    elif [ -z "$HAS_BUILD_TAG" ]; then
-      echo "New commits detected → bumping version"
-      eval "$(./scripts/version-bump.sh --platform android --bump)"
-
-      TAG_NAME="build-${MAJOR}.${MINOR}-${BUILD}"
-      git tag "$TAG_NAME"
-      git push "$RELEASE_REMOTE" "$TAG_NAME" 2>/dev/null || true
-
-      # Clean old tags for this major.minor, keep latest 5
-      OLD_TAGS=$(git tag -l "build-${MAJOR}.${MINOR}-*" --sort=-version:refname | tail -n +6)
-      if [ -n "$OLD_TAGS" ]; then
-        echo "$OLD_TAGS" | xargs git tag -d
-        echo "$OLD_TAGS" | while read -r tag; do
-          git push "$RELEASE_REMOTE" --delete "$tag" 2>/dev/null || true
-        done
-        echo "  Cleaned $(echo "$OLD_TAGS" | wc -l | tr -d ' ') old tag(s)"
-      fi
-
-    else
-      echo "No changes since $HAS_BUILD_TAG. Reusing version."
-      CURRENT_BUILD=$(echo "$HAS_BUILD_TAG" | sed "s/build-${MAJOR}.${MINOR}-//")
-      eval "$(./scripts/version-bump.sh --platform android --set-build "$CURRENT_BUILD")"
-    fi
+    DEV=true
+    echo "Local build → deriving dev version from latest release tag"
+    eval "$(./scripts/version-bump.sh --platform android --dev-suffix)"
   fi
 
   # Export version for Gradle (build.gradle.kts reads env vars with priority over tauri.properties)
