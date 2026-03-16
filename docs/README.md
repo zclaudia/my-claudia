@@ -23,6 +23,7 @@ docs/
 | [universal-plugin-platform.md](./design/universal-plugin-platform.md) | 通用插件平台设计 |
 | [agent-assistant-plugin-platform.md](./design/agent-assistant-plugin-platform.md) | Agent Assistant 插件平台 |
 | [multi-model-collaborative-refinement.md](./design/multi-model-collaborative-refinement.md) | 多模型协作校准 |
+| [unified-provider-interaction-protocol.md](./design/unified-provider-interaction-protocol.md) | 多 Provider 统一交互协议草案 |
 | [claudia-ui-review.md](./design/claudia-ui-review.md) | UI 设计评审 |
 
 ### ⚡ 功能设计 (features/) — 未实现
@@ -41,6 +42,7 @@ docs/
 | [phase2-review-engine.md](./impl/phase2-review-engine.md) | Phase 2: 审查引擎 |
 | [phase3-parallel-execution.md](./impl/phase3-parallel-execution.md) | Phase 3: 并行执行 |
 | [phase4-resilience-and-advanced.md](./impl/phase4-resilience-and-advanced.md) | Phase 4: 韧性与高级特性 |
+| [phase1-unified-provider-interactions.md](./impl/phase1-unified-provider-interactions.md) | Phase 1: 多 Provider 统一交互实现清单 |
 
 ### 🧪 测试相关 (testing/)
 
