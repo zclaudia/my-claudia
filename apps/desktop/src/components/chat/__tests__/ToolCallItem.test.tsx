@@ -52,6 +52,17 @@ vi.mock('../../../services/toolRendererRegistry', () => ({
   toolRendererRegistry: { get: () => null },
 }));
 
+const mockInteractionState = {
+  interactions: {} as Record<string, any>,
+};
+
+vi.mock('../../../stores/interactionStore', () => ({
+  useInteractionStore: Object.assign(
+    (selector: any) => selector(mockInteractionState),
+    { getState: () => mockInteractionState },
+  ),
+}));
+
 const createToolCall = (overrides: Partial<ToolCallState> = {}): ToolCallState => ({
   id: 'tool-1',
   toolName: 'Read',
@@ -63,6 +74,10 @@ const createToolCall = (overrides: Partial<ToolCallState> = {}): ToolCallState =
 });
 
 describe('ToolCallItem', () => {
+  beforeEach(() => {
+    mockInteractionState.interactions = {};
+  });
+
   // ── Basic display ─────────────────────────────────────────────────────────
 
   describe('display', () => {
@@ -498,6 +513,46 @@ describe('ToolCallItem', () => {
       })} />);
       fireEvent.click(screen.getByRole('button'));
       expect(screen.getByText('Single task')).toBeInTheDocument();
+    });
+
+    it('renders InteractionItem when normalized todo interaction exists', () => {
+      mockInteractionState.interactions['tool-1'] = {
+        type: 'interaction_todo_update',
+        interactionId: 'tool-1',
+        sessionId: 's1',
+        source: 'tool_call',
+        createdAt: Date.now(),
+        todos: [{ content: 'Use normalized todo list', status: 'pending' }],
+      };
+
+      render(<ToolCallItem toolCall={createToolCall({
+        toolName: 'TodoWrite',
+        toolInput: { unexpected: 'shape' },
+        status: 'completed',
+      })} />);
+
+      expect(screen.getByText('Task List')).toBeInTheDocument();
+      expect(screen.getByText('Use normalized todo list')).toBeInTheDocument();
+    });
+
+    it('falls back to native TodoWrite rendering when interaction has no todos', () => {
+      mockInteractionState.interactions['tool-1'] = {
+        type: 'interaction_todo_update',
+        interactionId: 'tool-1',
+        sessionId: 's1',
+        source: 'tool_call',
+        createdAt: Date.now(),
+        todos: [],
+      };
+
+      render(<ToolCallItem toolCall={createToolCall({
+        toolName: 'TodoWrite',
+        toolInput: { todos: [{ content: 'Fallback task', status: 'pending' }] },
+        status: 'completed',
+      })} />);
+
+      fireEvent.click(screen.getByRole('button'));
+      expect(screen.getByText('Fallback task')).toBeInTheDocument();
     });
 
     it('shows Agent activity indicator when running', () => {

@@ -42,6 +42,7 @@ import { createPluginRoutes } from './routes/plugins.js';
 import { createMcpServerRoutes } from './routes/mcp-servers.js';
 import { createSystemStatsRoutes } from './routes/system-stats.js';
 import { createLocalPRRoutes } from './routes/local-prs.js';
+import { normalizeFromToolUse, normalizeFromAskUser } from './interactions/interaction-normalizer.js';
 import { LocalPRService } from './services/local-pr-service.js';
 import { ScheduledTaskService } from './services/scheduled-task-service.js';
 import { createScheduledTaskRoutes } from './routes/scheduled-tasks.js';
@@ -2117,6 +2118,15 @@ async function handleRunStart(
               questions: toolInput.questions || [],
             } as import('@my-claudia/shared').AskUserQuestionMessage);
             console.log(`[Permission] Sent ask_user_question ${request.requestId} to client (${(toolInput.questions || []).length} questions)`);
+            // Phase 1: Emit parallel interaction_ask_user event
+            const askUserInteraction = normalizeFromAskUser({
+              requestId: request.requestId,
+              sessionId: message.sessionId,
+              runId,
+              providerType,
+              questions: toolInput.questions || [],
+            });
+            sendRunEvent(askUserInteraction);
             const firstQuestion = (toolInput.questions || [])[0];
             notificationService.notify({
               type: 'ask_user_question',
@@ -2344,6 +2354,18 @@ async function handleRunStart(
             toolUseId: msg.toolUseId,
             toolInput: msg.toolInput,
           }).catch(() => {});
+          // Phase 1: Emit parallel interaction event for TodoWrite
+          const todoInteraction = normalizeFromToolUse({
+            sessionId: activeRun.sessionId,
+            runId,
+            providerType,
+            toolUseId: msg.toolUseId || '',
+            toolName: msg.toolName || '',
+            toolInput: msg.toolInput,
+          });
+          if (todoInteraction) {
+            sendRunEvent(todoInteraction);
+          }
           break;
 
         case 'tool_result': {
@@ -2816,6 +2838,12 @@ function handleAskUserAnswer(message: {
         requestId: message.requestId,
         sessionId: run.sessionId,
       } as any);
+      // Phase 1: Emit parallel interaction_resolved event
+      sendMessage(run.client.ws, {
+        type: 'interaction_resolved',
+        interactionId: message.requestId,
+        sessionId: run.sessionId,
+      } as import('@my-claudia/shared').InteractionResolvedMessage);
 
       console.log(`[AskUser] ${message.requestId}: answered - resolved!`);
       return;
@@ -2829,6 +2857,10 @@ function handleAskUserAnswer(message: {
       type: 'ask_user_question_resolved',
       requestId: message.requestId,
     } as any);
+    sendMessage(run.client.ws, {
+      type: 'interaction_resolved',
+      interactionId: message.requestId,
+    } as import('@my-claudia/shared').InteractionResolvedMessage);
     break;
   }
 }

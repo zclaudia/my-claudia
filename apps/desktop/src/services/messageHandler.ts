@@ -18,6 +18,7 @@ import { useSupervisionStore } from '../stores/supervisionStore';
 import { useLocalPRStore } from '../stores/localPRStore';
 import { useScheduledTaskStore } from '../stores/scheduledTaskStore';
 import { useSystemTaskStore } from '../stores/systemTaskStore';
+import { useInteractionStore } from '../stores/interactionStore';
 import { useWorkflowStore } from '../stores/workflowStore';
 import { useSessionsStore } from '../stores/sessionsStore';
 import { LOCAL_BACKEND_KEY } from '../stores/sessionsStore';
@@ -158,6 +159,7 @@ export function handleServerMessage(
       const completedSession = msg.sessionId || useChatStore.getState().activeRuns[msg.runId];
       if (completedSession) {
         useAskUserQuestionStore.getState().clearRequestsForSession(completedSession);
+        useInteractionStore.getState().clearSession(completedSession);
         useChatStore.getState().finalizeRunToMessage(msg.runId);
         if (msg.usage) {
           useChatStore.getState().addSessionUsage(completedSession, msg.usage);
@@ -179,6 +181,7 @@ export function handleServerMessage(
       const failedSession = msg.sessionId || useChatStore.getState().activeRuns[msg.runId];
       if (failedSession) {
         useAskUserQuestionStore.getState().clearRequestsForSession(failedSession);
+        useInteractionStore.getState().clearSession(failedSession);
         if (msg.error) {
           useChatStore.getState().appendToLastMessage(failedSession, `\n\n**Error:** ${msg.error}`);
         }
@@ -268,6 +271,16 @@ export function handleServerMessage(
 
     case 'ask_user_question_resolved':
       useAskUserQuestionStore.getState().clearRequestById(msg.requestId);
+      break;
+
+    // Phase 1: Unified Interaction Events
+    case 'interaction_ask_user':
+    case 'interaction_todo_update':
+      useInteractionStore.getState().upsertInteraction(msg);
+      break;
+
+    case 'interaction_resolved':
+      useInteractionStore.getState().resolveInteraction(msg.interactionId);
       break;
 
     case 'system_info':

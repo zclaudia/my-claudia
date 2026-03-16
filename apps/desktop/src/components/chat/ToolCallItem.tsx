@@ -12,6 +12,8 @@ import { useProjectStore } from '../../stores/projectStore';
 import { useConnection } from '../../contexts/ConnectionContext';
 import { useServerStore } from '../../stores/serverStore';
 import { toolRendererRegistry } from '../../services/toolRendererRegistry';
+import { useInteractionStore } from '../../stores/interactionStore';
+import { InteractionItem } from './InteractionItem';
 
 const ansiUp = new AnsiUp();
 
@@ -546,6 +548,12 @@ function ToolExpandedContent({ toolName, toolInput, status, result, isError }: {
 export const ToolCallItem = memo(function ToolCallItem({ toolCall }: ToolCallItemProps) {
   const [isExpanded, setIsExpanded] = useState(false);
   const { toolName, toolInput, status, result, isError, activity } = toolCall;
+
+  // Phase 1 dedup: render InteractionItem instead of TodoWrite when interaction store has it
+  const interaction = useInteractionStore((s) => s.interactions[toolCall.id]);
+  if (toolName === 'TodoWrite' && interaction?.type === 'interaction_todo_update' && interaction.todos.length > 0) {
+    return <InteractionItem interaction={interaction} />;
+  }
 
   const icon = getToolIcon(toolName);
   const summary = formatToolInput(toolName, toolInput);

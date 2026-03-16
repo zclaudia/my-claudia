@@ -1137,7 +1137,11 @@ export type ServerMessage =
   | WorkflowUpdateMessage
   | WorkflowDeletedMessage
   | WorkflowRunUpdateMessage
-  | WorkflowStepTypesChangedMessage;
+  | WorkflowStepTypesChangedMessage
+  // Unified interaction events
+  | AskUserInteractionMessage
+  | TodoUpdateInteractionMessage
+  | InteractionResolvedMessage;
 
 // Authentication result message
 export interface AuthResultMessage {
@@ -1278,6 +1282,51 @@ export interface AskUserQuestionMessage {
   sessionId: string;
   questions: AskUserQuestionItem[];
 }
+
+// ============================================
+// Unified Interaction Events (Server → Client)
+// ============================================
+
+/** How the interaction was detected */
+export type InteractionSource = 'provider_native' | 'tool_call' | 'text_inferred';
+
+/** Base fields shared by all interaction events */
+export interface InteractionBase {
+  interactionId: string;   // Reuses requestId or toolUseId
+  sessionId: string;
+  runId?: string;
+  provider?: string;       // e.g. 'claude', 'opencode', 'codex'
+  source: InteractionSource;
+  createdAt: number;
+}
+
+/** Unified ask-user interaction */
+export interface AskUserInteractionMessage extends InteractionBase {
+  type: 'interaction_ask_user';
+  questions: AskUserQuestionItem[];
+}
+
+/** Normalized todo item for interaction layer */
+export interface NormalizedTodoItem {
+  content: string;
+  status: 'pending' | 'in_progress' | 'completed';
+}
+
+/** Unified todo-update interaction */
+export interface TodoUpdateInteractionMessage extends InteractionBase {
+  type: 'interaction_todo_update';
+  todos: NormalizedTodoItem[];
+}
+
+/** Resolution event for any interaction */
+export interface InteractionResolvedMessage {
+  type: 'interaction_resolved';
+  interactionId: string;
+  sessionId?: string;
+}
+
+/** Union of all interaction message types */
+export type InteractionMessage = AskUserInteractionMessage | TodoUpdateInteractionMessage;
 
 // Agent permission auto-approval notification (Server → Client)
 export interface AgentPermissionInterceptedMessage {

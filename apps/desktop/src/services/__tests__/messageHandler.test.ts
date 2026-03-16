@@ -106,6 +106,12 @@ const mockBackgroundTaskStore = {
   updateTask: vi.fn(),
 };
 
+const mockInteractionStore = {
+  upsertInteraction: vi.fn(),
+  resolveInteraction: vi.fn(),
+  clearSession: vi.fn(),
+};
+
 vi.mock('../../stores/chatStore', () => ({
   useChatStore: { getState: () => mockChatStore },
 }));
@@ -151,6 +157,9 @@ vi.mock('../../stores/filePushStore', () => ({
 }));
 vi.mock('../../stores/backgroundTaskStore', () => ({
   useBackgroundTaskStore: { getState: () => mockBackgroundTaskStore },
+}));
+vi.mock('../../stores/interactionStore', () => ({
+  useInteractionStore: { getState: () => mockInteractionStore },
 }));
 vi.mock('../fileDownload', () => ({
   downloadPushedFile: vi.fn(),
@@ -287,6 +296,7 @@ describe('handleServerMessage', () => {
       handleServerMessage({ type: 'run_completed', runId: 'r1', usage: { tokens: 100 } }, ctx);
 
       expect(mockAskUserQuestionStore.clearRequestsForSession).toHaveBeenCalledWith('s1');
+      expect(mockInteractionStore.clearSession).toHaveBeenCalledWith('s1');
       expect(mockChatStore.finalizeRunToMessage).toHaveBeenCalledWith('r1');
       expect(mockChatStore.addSessionUsage).toHaveBeenCalledWith('s1', { tokens: 100 });
       expect(mockProjectStore.setSessionActive).toHaveBeenCalledWith('s1', false);
@@ -297,6 +307,7 @@ describe('handleServerMessage', () => {
     it('uses sessionId from message when available', () => {
       handleServerMessage({ type: 'run_completed', runId: 'r1', sessionId: 's2' }, makeCtx());
       expect(mockAskUserQuestionStore.clearRequestsForSession).toHaveBeenCalledWith('s2');
+      expect(mockInteractionStore.clearSession).toHaveBeenCalledWith('s2');
     });
 
     it('gateway: calls setSessionActiveById', () => {
@@ -315,6 +326,7 @@ describe('handleServerMessage', () => {
 
       handleServerMessage({ type: 'run_failed', runId: 'r1', error: 'boom' }, makeCtx());
 
+      expect(mockInteractionStore.clearSession).toHaveBeenCalledWith('s1');
       expect(mockChatStore.appendToLastMessage).toHaveBeenCalledWith('s1', expect.stringContaining('boom'));
       expect(mockChatStore.finalizeRunToMessage).toHaveBeenCalledWith('r1');
       expect(mockChatStore.endRun).toHaveBeenCalledWith('r1');
@@ -401,6 +413,24 @@ describe('handleServerMessage', () => {
   it('handles ask_user_question_resolved', () => {
     handleServerMessage({ type: 'ask_user_question_resolved', requestId: 'q1' }, makeCtx());
     expect(mockAskUserQuestionStore.clearRequestById).toHaveBeenCalledWith('q1');
+  });
+
+  it('handles interaction_todo_update', () => {
+    const event = {
+      type: 'interaction_todo_update',
+      interactionId: 'todo-1',
+      sessionId: 's1',
+      source: 'tool_call',
+      createdAt: Date.now(),
+      todos: [{ content: 'Ship fix', status: 'pending' }],
+    } as const;
+    handleServerMessage(event, makeCtx());
+    expect(mockInteractionStore.upsertInteraction).toHaveBeenCalledWith(event);
+  });
+
+  it('handles interaction_resolved', () => {
+    handleServerMessage({ type: 'interaction_resolved', interactionId: 'q1' }, makeCtx());
+    expect(mockInteractionStore.resolveInteraction).toHaveBeenCalledWith('q1');
   });
 
   describe('system_info', () => {
