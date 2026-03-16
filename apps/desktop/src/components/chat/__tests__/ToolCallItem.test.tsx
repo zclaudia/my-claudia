@@ -490,6 +490,16 @@ describe('ToolCallItem', () => {
       expect(doneEl.className).toContain('line-through');
     });
 
+    it('does not crash when TodoWrite todos is not an array', () => {
+      render(<ToolCallItem toolCall={createToolCall({
+        toolName: 'TodoWrite',
+        toolInput: { todos: { content: 'Single task', status: 'pending' } },
+        status: 'completed',
+      })} />);
+      fireEvent.click(screen.getByRole('button'));
+      expect(screen.getByText('Single task')).toBeInTheDocument();
+    });
+
     it('shows Agent activity indicator when running', () => {
       render(<ToolCallItem toolCall={createToolCall({
         toolName: 'Agent',

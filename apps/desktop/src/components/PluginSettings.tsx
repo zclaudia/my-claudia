@@ -6,9 +6,11 @@
  */
 
 import { useState, useCallback } from 'react';
-import { usePluginStore } from '../stores/pluginStore';
-import type { InstalledPlugin, PluginStatus } from '../stores/pluginStore';
+import { usePluginStore, selectPluginPanels } from '../stores/pluginStore';
+import type { InstalledPlugin, PluginStatus, UIExtension } from '../stores/pluginStore';
 import { getBaseUrl } from '../services/api';
+
+const BUILTIN_PLUGIN_PREFIX = 'com.claudia.';
 
 // Status badge colors
 const statusColors: Record<PluginStatus, string> = {
@@ -38,7 +40,11 @@ export function PluginSettings({ onOpenPluginSettings }: PluginSettingsProps) {
     error,
     removePlugin,
     setError,
+    disabledBuiltinPanels,
+    toggleBuiltinPanel,
   } = usePluginStore();
+  const allPanels = usePluginStore(selectPluginPanels);
+  const builtinPanels = allPanels.filter((p) => p.pluginId.startsWith(BUILTIN_PLUGIN_PREFIX));
 
   const [searchQuery, setSearchQuery] = useState('');
 
@@ -138,6 +144,25 @@ export function PluginSettings({ onOpenPluginSettings }: PluginSettingsProps) {
           <div className="text-xs text-muted-foreground">Inactive</div>
         </div>
       </div>
+
+      {/* Built-in Plugins */}
+      {builtinPanels.length > 0 && (
+        <div>
+          <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2">
+            Built-in ({builtinPanels.length})
+          </h4>
+          <div className="space-y-2">
+            {builtinPanels.map((panel) => (
+              <BuiltinPanelCard
+                key={panel.id}
+                panel={panel}
+                disabled={disabledBuiltinPanels.includes(panel.id)}
+                onToggle={toggleBuiltinPanel}
+              />
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Plugin List */}
       {plugins.length === 0 ? (
@@ -327,6 +352,48 @@ function PluginCard({ plugin, onToggle, onRemove, onOpenSettings }: PluginCardPr
           {plugin.error}
         </div>
       )}
+    </div>
+  );
+}
+
+// Built-in panel toggle card
+interface BuiltinPanelCardProps {
+  panel: UIExtension;
+  disabled: boolean;
+  onToggle: (panelId: string) => void;
+}
+
+function BuiltinPanelCard({ panel, disabled, onToggle }: BuiltinPanelCardProps) {
+  return (
+    <div className="p-3 bg-secondary/50 rounded-lg border border-border/50 hover:border-border transition-colors">
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2">
+            <span className="font-medium text-sm">{panel.label}</span>
+            <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
+              disabled ? 'bg-gray-500/20 text-gray-500' : 'bg-green-500/20 text-green-400'
+            }`}>
+              {disabled ? 'Disabled' : 'Active'}
+            </span>
+          </div>
+          <p className="text-xs text-muted-foreground/70 font-mono mt-0.5">
+            {panel.pluginId}
+          </p>
+        </div>
+        <button
+          onClick={() => onToggle(panel.id)}
+          className={`relative w-10 h-5 rounded-full transition-colors ${
+            !disabled ? 'bg-primary' : 'bg-secondary'
+          }`}
+          title={disabled ? 'Enable panel' : 'Disable panel'}
+        >
+          <span
+            className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform ${
+              !disabled ? 'left-5' : 'left-0.5'
+            }`}
+          />
+        </button>
+      </div>
     </div>
   );
 }

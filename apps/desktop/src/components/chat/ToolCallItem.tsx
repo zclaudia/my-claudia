@@ -7,6 +7,7 @@ import { CheckCircle2, XCircle, Loader2, ChevronDown, ChevronRight, Wrench, Squa
 import { DiffViewer } from './DiffViewer';
 import { CodeViewer } from './CodeViewer';
 import { useTerminalStore } from '../../stores/terminalStore';
+import { useBottomPanelStore } from '../../stores/bottomPanelStore';
 import { useProjectStore } from '../../stores/projectStore';
 import { useConnection } from '../../contexts/ConnectionContext';
 import { useServerStore } from '../../stores/serverStore';
@@ -24,6 +25,39 @@ function normalizeToolInput(input: unknown): unknown {
     try { return JSON.parse(input); } catch { return input; }
   }
   return input;
+}
+
+type TodoItem = {
+  content: string;
+  status: string;
+};
+
+function normalizeTodoItems(value: unknown): TodoItem[] {
+  const normalized = normalizeToolInput(value);
+
+  if (Array.isArray(normalized)) {
+    return normalized.flatMap((item) => {
+      if (!item || typeof item !== 'object') return [];
+      const content = 'content' in item ? String(item.content ?? '') : '';
+      if (!content) return [];
+      const status = 'status' in item ? String(item.status ?? 'pending') : 'pending';
+      return [{ content, status }];
+    });
+  }
+
+  if (normalized && typeof normalized === 'object') {
+    const record = normalized as Record<string, unknown>;
+    if (Array.isArray(record.todos)) return normalizeTodoItems(record.todos);
+    if (Array.isArray(record.items)) return normalizeTodoItems(record.items);
+    if (Array.isArray(record.list)) return normalizeTodoItems(record.list);
+    if ('content' in record) {
+      const content = String(record.content ?? '');
+      if (!content) return [];
+      return [{ content, status: String(record.status ?? 'pending') }];
+    }
+  }
+
+  return [];
 }
 
 // Format tool input for display
@@ -122,7 +156,7 @@ function RunInTerminalButton({ command }: { command: string }) {
           store.openTerminal(session.projectId);
         }
         store.setDrawerOpen(session.projectId, true);
-        store.setBottomPanelTab('terminal');
+        useBottomPanelStore.getState().setActiveTab('terminal');
 
         const terminalId = useTerminalStore.getState().terminals[session.projectId];
         if (terminalId) {
@@ -454,10 +488,13 @@ function ToolExpandedContent({ toolName, toolInput, status, result, isError }: {
 
   // TodoWrite: show task list
   if (toolName === 'TodoWrite' && input?.todos) {
-    const todos = input.todos as Array<{ content: string; status: string }>;
+    const todos = normalizeTodoItems(input.todos);
     return (
       <div className="px-3 pb-3 border-t border-border/50">
         <div className="mt-2 space-y-1">
+          {todos.length === 0 && (
+            <div className="text-xs text-muted-foreground">Task list unavailable</div>
+          )}
           {todos.map((todo, idx) => (
             <div key={idx} className="flex items-center gap-2 text-xs">
               <span className="flex-shrink-0">

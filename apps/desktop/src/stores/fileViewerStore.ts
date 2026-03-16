@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { usePluginStore } from './pluginStore';
 
 const CACHE_MAX = 30;
 
@@ -54,6 +55,8 @@ export const useFileViewerStore = create<FileViewerState>((set, get) => ({
       error: null,
       searchOpen: false,
     });
+    // Show file viewer panel in bottom panel
+    usePluginStore.getState().updatePanelVisibility('file-viewer', true);
   },
 
   setContent: (content: string) => {
@@ -77,11 +80,17 @@ export const useFileViewerStore = create<FileViewerState>((set, get) => ({
   setError: (error: string | null) =>
     set({ error, loading: false }),
 
-  close: () =>
-    set({ isOpen: false, searchOpen: false, fullscreen: false }),
+  close: () => {
+    set({ isOpen: false, searchOpen: false, fullscreen: false });
+    // Hide file viewer panel in bottom panel
+    usePluginStore.getState().updatePanelVisibility('file-viewer', false);
+  },
 
-  togglePanel: () =>
-    set((state) => ({ isOpen: !state.isOpen })),
+  togglePanel: () => {
+    const next = !get().isOpen;
+    set({ isOpen: next });
+    usePluginStore.getState().updatePanelVisibility('file-viewer', next);
+  },
 
   setSearchOpen: (open: boolean) =>
     set({ searchOpen: open, isOpen: open ? true : undefined }),

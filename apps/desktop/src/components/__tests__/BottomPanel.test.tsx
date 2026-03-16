@@ -1,21 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
-import { useTerminalStore } from '../../stores/terminalStore';
-import { useFileViewerStore } from '../../stores/fileViewerStore';
-import { useServerStore } from '../../stores/serverStore';
+import { usePluginStore } from '../../stores/pluginStore';
+import { useBottomPanelStore } from '../../stores/bottomPanelStore';
 
-// Mock heavy child components
-vi.mock('../terminal/TerminalPanel', () => ({
-  TerminalPanel: ({ projectId }: any) => <div data-testid="terminal-panel">Terminal:{projectId}</div>,
-  TerminalActions: ({ projectId }: any) => <div data-testid="terminal-actions">Actions:{projectId}</div>,
-}));
-vi.mock('../fileviewer/FileViewerPanel', () => ({
-  FileViewerPanel: ({ projectRoot }: any) => <div data-testid="fileviewer-panel">FileViewer:{projectRoot}</div>,
-  FileViewerActions: () => <div data-testid="fileviewer-actions">FileActions</div>,
-}));
+// Mock PluginPanelRenderer (used for iframe panels)
 vi.mock('../PluginPanelRenderer', () => ({
   PluginPanelRenderer: ({ activePluginPanelId }: any) => <div data-testid="plugin-panel">Plugin:{activePluginPanelId}</div>,
-  usePluginPanelTabs: vi.fn().mockReturnValue([]),
 }));
 
 // Mock useIsMobile
@@ -29,23 +19,67 @@ vi.mock('../../hooks/useAndroidBack', () => ({
 }));
 
 import { BottomPanel } from '../BottomPanel';
-import { usePluginPanelTabs } from '../PluginPanelRenderer';
 import { useIsMobile } from '../../hooks/useMediaQuery';
+
+// Helper: register a terminal panel (alwaysMount)
+const TerminalPanel = ({ projectId }: any) => <div data-testid="terminal-panel">Terminal:{projectId}</div>;
+const TerminalActions = ({ projectId }: any) => <div data-testid="terminal-actions">Actions:{projectId}</div>;
+const FileViewerPanel = ({ projectRoot }: any) => <div data-testid="fileviewer-panel">FileViewer:{projectRoot}</div>;
+const FileViewerActions = () => <div data-testid="fileviewer-actions">FileActions</div>;
+
+const mockTerminalOnClose = vi.fn();
+const mockFileViewerOnClose = vi.fn();
+
+function registerTerminalPanel(visible: boolean) {
+  usePluginStore.getState().registerPanel({
+    id: 'terminal',
+    pluginId: 'com.claudia.terminal',
+    type: 'panel',
+    label: 'Terminal',
+    icon: 'Terminal',
+    component: TerminalPanel,
+    actions: TerminalActions,
+    order: 0,
+    platforms: ['desktop', 'mobile'],
+    alwaysMount: true,
+    visible,
+    onClose: mockTerminalOnClose,
+  });
+}
+
+function registerFileViewerPanel(visible = true) {
+  usePluginStore.getState().registerPanel({
+    id: 'file-viewer',
+    pluginId: 'com.claudia.file-viewer',
+    type: 'panel',
+    label: 'File',
+    icon: 'File',
+    component: FileViewerPanel,
+    actions: FileViewerActions,
+    order: 1,
+    platforms: ['desktop', 'mobile'],
+    visible,
+    onClose: mockFileViewerOnClose,
+  });
+}
+
+function registerPluginPanel(id: string, label: string) {
+  usePluginStore.getState().registerPanel({
+    id,
+    pluginId: `com.test.${id}`,
+    type: 'panel',
+    label,
+    order: 50,
+    iframeUrl: `/api/plugins/${id}/frontend/index.html`,
+  });
+}
 
 describe('BottomPanel', () => {
   beforeEach(() => {
-    useTerminalStore.setState({
-      drawerOpen: {},
-      terminals: {},
-      bottomPanelTab: 'terminal',
-    } as any);
-    useFileViewerStore.setState({
-      isOpen: false,
-    } as any);
-    useServerStore.setState({
-      connectionStatus: 'connected',
-    } as any);
-    (usePluginPanelTabs as any).mockReturnValue([]);
+    usePluginStore.setState({ panels: [] });
+    useBottomPanelStore.setState({ activeTab: 'terminal' });
+    mockTerminalOnClose.mockClear();
+    mockFileViewerOnClose.mockClear();
     (useIsMobile as any).mockReturnValue(false);
   });
 
@@ -58,122 +92,83 @@ describe('BottomPanel', () => {
     expect(container).toBeDefined();
   });
 
-  it('returns null when no terminal, no file viewer, and no projectId terminal', () => {
+  it('returns null when no panels are registered', () => {
     const { container } = render(
       <BottomPanel projectId="p1" projectRoot="/test" />
     );
-    // When nothing is open and no terminal exists, it returns null
     expect(container.firstChild).toBeNull();
   });
 
-  it('returns null when projectId is undefined and nothing is open', () => {
+  it('returns null when projectId is undefined and nothing is registered', () => {
     const { container } = render(
       <BottomPanel projectId={undefined} projectRoot={undefined} />
     );
     expect(container.firstChild).toBeNull();
   });
 
-  // ── Terminal panel open ─────────────────────────────────────────────────
+  // ── Terminal panel (alwaysMount) ──────────────────────────────────────────
 
-  it('renders terminal panel when drawer is open and terminal exists', () => {
-    useTerminalStore.setState({
-      drawerOpen: { p1: true },
-      terminals: { p1: 'term-1' },
-      bottomPanelTab: 'terminal',
-    } as any);
-    useServerStore.setState({
-      activeServerSupports: () => true,
-    } as any);
+  it('renders terminal panel when visible', () => {
+    registerTerminalPanel(true);
+    useBottomPanelStore.setState({ activeTab: 'terminal' });
 
     render(<BottomPanel projectId="p1" projectRoot="/test" />);
     expect(screen.getByTestId('terminal-panel')).toBeInTheDocument();
   });
 
   it('renders terminal actions when terminal tab is active', () => {
-    useTerminalStore.setState({
-      drawerOpen: { p1: true },
-      terminals: { p1: 'term-1' },
-      bottomPanelTab: 'terminal',
-    } as any);
-    useServerStore.setState({
-      activeServerSupports: () => true,
-    } as any);
+    registerTerminalPanel(true);
+    useBottomPanelStore.setState({ activeTab: 'terminal' });
 
     render(<BottomPanel projectId="p1" projectRoot="/test" />);
     expect(screen.getByTestId('terminal-actions')).toBeInTheDocument();
   });
 
   it('panel has correct height when open', () => {
-    useTerminalStore.setState({
-      drawerOpen: { p1: true },
-      terminals: { p1: 'term-1' },
-      bottomPanelTab: 'terminal',
-    } as any);
-    useServerStore.setState({
-      activeServerSupports: () => true,
-    } as any);
+    registerTerminalPanel(true);
+    useBottomPanelStore.setState({ activeTab: 'terminal' });
 
     const { container } = render(<BottomPanel projectId="p1" projectRoot="/test" />);
     const panel = container.firstChild as HTMLElement;
-    // Default desktop height is 300px
     expect(panel.style.height).toBe('300px');
   });
 
-  it('panel has height 0 when terminal exists but drawer is closed', () => {
-    useTerminalStore.setState({
-      drawerOpen: { p1: false },
-      terminals: { p1: 'term-1' },
-      bottomPanelTab: 'terminal',
-    } as any);
-    useServerStore.setState({
-      activeServerSupports: () => true,
-    } as any);
+  it('keeps DOM mounted but at height 0 when alwaysMount panel is hidden', () => {
+    registerTerminalPanel(false); // visible=false but alwaysMount=true
 
     const { container } = render(<BottomPanel projectId="p1" projectRoot="/test" />);
     const panel = container.firstChild as HTMLElement;
-    // Exists but hidden (height 0) to keep terminal alive
     expect(panel.style.height).toBe('0px');
+    // Terminal should still be in DOM (invisible)
+    expect(screen.getByTestId('terminal-panel')).toBeInTheDocument();
   });
 
-  // ── File viewer panel ─────────────────────────────────────────────────────
+  // ── File viewer panel ───────────────────────────────────────────────────
 
-  it('renders file viewer panel when file viewer is open', () => {
-    useFileViewerStore.setState({ isOpen: true } as any);
-    // Need at least a terminal to keep the component mounted
-    useTerminalStore.setState({
-      drawerOpen: {},
-      terminals: { p1: 'term-1' },
-      bottomPanelTab: 'file',
-    } as any);
+  it('renders file viewer panel when visible', () => {
+    registerTerminalPanel(false);
+    registerFileViewerPanel(true);
+    useBottomPanelStore.setState({ activeTab: 'file-viewer' });
 
     render(<BottomPanel projectId="p1" projectRoot="/test" />);
     expect(screen.getByTestId('fileviewer-panel')).toBeInTheDocument();
   });
 
   it('renders file viewer actions when file tab is active', () => {
-    useFileViewerStore.setState({ isOpen: true } as any);
-    useTerminalStore.setState({
-      drawerOpen: {},
-      terminals: { p1: 'term-1' },
-      bottomPanelTab: 'file',
-    } as any);
+    registerTerminalPanel(false);
+    registerFileViewerPanel(true);
+    useBottomPanelStore.setState({ activeTab: 'file-viewer' });
 
     render(<BottomPanel projectId="p1" projectRoot="/test" />);
     expect(screen.getByTestId('fileviewer-actions')).toBeInTheDocument();
   });
 
-  // ── Tab switching ─────────────────────────────────────────────────────────
+  // ── Tab switching ──────────────────────────────────────────────────────
 
-  it('shows tab buttons when both terminal and file viewer are available', () => {
-    useTerminalStore.setState({
-      drawerOpen: { p1: true },
-      terminals: { p1: 'term-1' },
-      bottomPanelTab: 'terminal',
-    } as any);
-    useFileViewerStore.setState({ isOpen: true } as any);
-    useServerStore.setState({
-      activeServerSupports: () => true,
-    } as any);
+  it('shows tab buttons when both terminal and file viewer are visible', () => {
+    registerTerminalPanel(true);
+    registerFileViewerPanel(true);
+    useBottomPanelStore.setState({ activeTab: 'terminal' });
 
     render(<BottomPanel projectId="p1" projectRoot="/test" />);
     expect(screen.getByText('Terminal')).toBeInTheDocument();
@@ -181,125 +176,79 @@ describe('BottomPanel', () => {
   });
 
   it('switches to file tab when File button is clicked', () => {
-    useTerminalStore.setState({
-      drawerOpen: { p1: true },
-      terminals: { p1: 'term-1' },
-      bottomPanelTab: 'terminal',
-    } as any);
-    useFileViewerStore.setState({ isOpen: true } as any);
-    useServerStore.setState({
-      activeServerSupports: () => true,
-    } as any);
+    registerTerminalPanel(true);
+    registerFileViewerPanel(true);
+    useBottomPanelStore.setState({ activeTab: 'terminal' });
 
     render(<BottomPanel projectId="p1" projectRoot="/test" />);
     fireEvent.click(screen.getByText('File'));
-    // After clicking, the store's setBottomPanelTab should be called
-    expect(useTerminalStore.getState().bottomPanelTab).toBe('file');
+    expect(useBottomPanelStore.getState().activeTab).toBe('file-viewer');
   });
 
   it('switches to terminal tab when Terminal button is clicked', () => {
-    useTerminalStore.setState({
-      drawerOpen: { p1: true },
-      terminals: { p1: 'term-1' },
-      bottomPanelTab: 'file',
-    } as any);
-    useFileViewerStore.setState({ isOpen: true } as any);
-    useServerStore.setState({
-      activeServerSupports: () => true,
-    } as any);
+    registerTerminalPanel(true);
+    registerFileViewerPanel(true);
+    useBottomPanelStore.setState({ activeTab: 'file-viewer' });
 
     render(<BottomPanel projectId="p1" projectRoot="/test" />);
     fireEvent.click(screen.getByText('Terminal'));
-    expect(useTerminalStore.getState().bottomPanelTab).toBe('terminal');
+    expect(useBottomPanelStore.getState().activeTab).toBe('terminal');
   });
 
-  it('shows single tab label when only terminal is available', () => {
-    useTerminalStore.setState({
-      drawerOpen: { p1: true },
-      terminals: { p1: 'term-1' },
-      bottomPanelTab: 'terminal',
-    } as any);
-    useServerStore.setState({
-      activeServerSupports: () => true,
-    } as any);
+  it('shows single tab label when only terminal is visible', () => {
+    registerTerminalPanel(true);
+    useBottomPanelStore.setState({ activeTab: 'terminal' });
 
     render(<BottomPanel projectId="p1" projectRoot="/test" />);
-    // With only one tab, it should show as a label not a button
     const terminalLabels = screen.getAllByText('Terminal');
     expect(terminalLabels.length).toBeGreaterThanOrEqual(1);
-    // No File tab button should be present
     expect(screen.queryByText('File')).not.toBeInTheDocument();
   });
 
-  it('shows single tab label when only file viewer is available', () => {
-    useFileViewerStore.setState({ isOpen: true } as any);
-    // Need a terminal to exist to prevent null return
-    useTerminalStore.setState({
-      drawerOpen: {},
-      terminals: { p1: 'term-1' },
-      bottomPanelTab: 'file',
-    } as any);
+  it('shows single tab label when only file viewer is visible', () => {
+    registerTerminalPanel(false);
+    registerFileViewerPanel(true);
+    useBottomPanelStore.setState({ activeTab: 'file-viewer' });
 
     render(<BottomPanel projectId="p1" projectRoot="/test" />);
     const fileLabels = screen.getAllByText('File');
     expect(fileLabels.length).toBeGreaterThanOrEqual(1);
   });
 
-  // ── Close button ──────────────────────────────────────────────────────────
+  // ── Close button ───────────────────────────────────────────────────────
 
   it('renders close button when panel is open', () => {
-    useTerminalStore.setState({
-      drawerOpen: { p1: true },
-      terminals: { p1: 'term-1' },
-      bottomPanelTab: 'terminal',
-    } as any);
-    useServerStore.setState({
-      activeServerSupports: () => true,
-    } as any);
+    registerTerminalPanel(true);
+    useBottomPanelStore.setState({ activeTab: 'terminal' });
 
     render(<BottomPanel projectId="p1" projectRoot="/test" />);
     expect(screen.getByTitle('Hide panel')).toBeInTheDocument();
   });
 
-  it('closes terminal drawer when close button is clicked', () => {
-    useTerminalStore.setState({
-      drawerOpen: { p1: true },
-      terminals: { p1: 'term-1' },
-      bottomPanelTab: 'terminal',
-    } as any);
-    useServerStore.setState({
-      activeServerSupports: () => true,
-    } as any);
+  it('calls onClose of visible panels when close button is clicked', () => {
+    registerTerminalPanel(true);
+    useBottomPanelStore.setState({ activeTab: 'terminal' });
 
     render(<BottomPanel projectId="p1" projectRoot="/test" />);
     fireEvent.click(screen.getByTitle('Hide panel'));
-    expect(useTerminalStore.getState().drawerOpen['p1']).toBeFalsy();
+    expect(mockTerminalOnClose).toHaveBeenCalled();
   });
 
-  it('closes file viewer when close button is clicked and file tab active', () => {
-    useFileViewerStore.setState({ isOpen: true } as any);
-    useTerminalStore.setState({
-      drawerOpen: {},
-      terminals: { p1: 'term-1' },
-      bottomPanelTab: 'file',
-    } as any);
+  it('calls onClose of file viewer when close button clicked with file tab active', () => {
+    registerTerminalPanel(false);
+    registerFileViewerPanel(true);
+    useBottomPanelStore.setState({ activeTab: 'file-viewer' });
 
     render(<BottomPanel projectId="p1" projectRoot="/test" />);
     fireEvent.click(screen.getByTitle('Hide panel'));
-    expect(useFileViewerStore.getState().isOpen).toBe(false);
+    expect(mockFileViewerOnClose).toHaveBeenCalled();
   });
 
-  // ── Drag handle ───────────────────────────────────────────────────────────
+  // ── Drag handle ────────────────────────────────────────────────────────
 
   it('renders drag handle area', () => {
-    useTerminalStore.setState({
-      drawerOpen: { p1: true },
-      terminals: { p1: 'term-1' },
-      bottomPanelTab: 'terminal',
-    } as any);
-    useServerStore.setState({
-      activeServerSupports: () => true,
-    } as any);
+    registerTerminalPanel(true);
+    useBottomPanelStore.setState({ activeTab: 'terminal' });
 
     const { container } = render(<BottomPanel projectId="p1" projectRoot="/test" />);
     const dragHandle = container.querySelector('.cursor-ns-resize');
@@ -307,46 +256,28 @@ describe('BottomPanel', () => {
   });
 
   it('resizes on drag (mousedown + mousemove)', () => {
-    useTerminalStore.setState({
-      drawerOpen: { p1: true },
-      terminals: { p1: 'term-1' },
-      bottomPanelTab: 'terminal',
-    } as any);
-    useServerStore.setState({
-      activeServerSupports: () => true,
-    } as any);
+    registerTerminalPanel(true);
+    useBottomPanelStore.setState({ activeTab: 'terminal' });
 
     const { container } = render(<BottomPanel projectId="p1" projectRoot="/test" />);
     const dragHandle = container.querySelector('.cursor-ns-resize')!;
     const panel = container.firstChild as HTMLElement;
 
-    // Initial height is 300px
     expect(panel.style.height).toBe('300px');
 
-    // Start drag
     fireEvent.mouseDown(dragHandle, { clientY: 500 });
-    // Move up by 100px
     fireEvent.mouseMove(document, { clientY: 400 });
     fireEvent.mouseUp(document);
 
-    // Height should have increased (500 - 400 = 100px added)
     expect(panel.style.height).toBe('400px');
   });
 
-  // ── Plugin tabs ───────────────────────────────────────────────────────────
+  // ── Plugin tabs ────────────────────────────────────────────────────────
 
-  it('shows plugin tab when plugin panels are available', () => {
-    (usePluginPanelTabs as any).mockReturnValue([
-      { id: 'plugin:my-plugin', label: 'My Plugin' },
-    ]);
-    useTerminalStore.setState({
-      drawerOpen: { p1: true },
-      terminals: { p1: 'term-1' },
-      bottomPanelTab: 'plugin:my-plugin',
-    } as any);
-    useServerStore.setState({
-      activeServerSupports: () => true,
-    } as any);
+  it('shows plugin tab when plugin panels are registered', () => {
+    registerTerminalPanel(true);
+    registerPluginPanel('my-plugin', 'My Plugin');
+    useBottomPanelStore.setState({ activeTab: 'my-plugin' });
 
     render(<BottomPanel projectId="p1" projectRoot="/test" />);
     expect(screen.getByText('My Plugin')).toBeInTheDocument();
@@ -354,134 +285,114 @@ describe('BottomPanel', () => {
   });
 
   it('switches to plugin tab when clicked', () => {
-    (usePluginPanelTabs as any).mockReturnValue([
-      { id: 'plugin:my-plugin', label: 'My Plugin' },
-    ]);
-    useTerminalStore.setState({
-      drawerOpen: { p1: true },
-      terminals: { p1: 'term-1' },
-      bottomPanelTab: 'terminal',
-    } as any);
-    useServerStore.setState({
-      activeServerSupports: () => true,
-    } as any);
+    registerTerminalPanel(true);
+    registerPluginPanel('my-plugin', 'My Plugin');
+    useBottomPanelStore.setState({ activeTab: 'terminal' });
 
     render(<BottomPanel projectId="p1" projectRoot="/test" />);
     fireEvent.click(screen.getByText('My Plugin'));
-    expect(useTerminalStore.getState().bottomPanelTab).toBe('plugin:my-plugin');
+    expect(useBottomPanelStore.getState().activeTab).toBe('my-plugin');
   });
 
-  // ── Tab fallback logic ────────────────────────────────────────────────────
+  // ── Tab fallback logic ────────────────────────────────────────────────
 
-  it('falls back to file tab when terminal drawer is closed but file viewer is open', () => {
-    useTerminalStore.setState({
-      drawerOpen: { p1: false },
-      terminals: { p1: 'term-1' },
-      bottomPanelTab: 'terminal',
-    } as any);
-    useFileViewerStore.setState({ isOpen: true } as any);
-    useServerStore.setState({
-      activeServerSupports: () => true,
-    } as any);
+  it('falls back to file-viewer tab when terminal is hidden but file viewer is visible', () => {
+    registerTerminalPanel(false);
+    registerFileViewerPanel(true);
+    useBottomPanelStore.setState({ activeTab: 'terminal' }); // terminal not visible
 
     render(<BottomPanel projectId="p1" projectRoot="/test" />);
-    // File viewer should be visible since terminal drawer is closed
     expect(screen.getByTestId('fileviewer-panel')).toBeInTheDocument();
   });
 
-  it('falls back to terminal when file viewer is closed but terminal is open', () => {
-    useTerminalStore.setState({
-      drawerOpen: { p1: true },
-      terminals: { p1: 'term-1' },
-      bottomPanelTab: 'file',
-    } as any);
-    useFileViewerStore.setState({ isOpen: false } as any);
-    useServerStore.setState({
-      activeServerSupports: () => true,
-    } as any);
+  it('falls back to terminal when file viewer is removed but terminal is visible', () => {
+    registerTerminalPanel(true);
+    useBottomPanelStore.setState({ activeTab: 'file-viewer' }); // file-viewer not registered
 
     render(<BottomPanel projectId="p1" projectRoot="/test" />);
     expect(screen.getByTestId('terminal-panel')).toBeInTheDocument();
   });
 
-  // ── Mobile mode ───────────────────────────────────────────────────────────
+  // ── Platform filtering ────────────────────────────────────────────────
+
+  it('filters panels by platform (desktop)', () => {
+    usePluginStore.getState().registerPanel({
+      id: 'desktop-only',
+      pluginId: 'test',
+      type: 'panel',
+      label: 'Desktop Only',
+      component: () => <div data-testid="desktop-only">Desktop</div>,
+      platforms: ['desktop'],
+      order: 0,
+    });
+
+    render(<BottomPanel projectId="p1" projectRoot="/test" />);
+    expect(screen.getByTestId('desktop-only')).toBeInTheDocument();
+  });
+
+  it('hides desktop-only panels on mobile', () => {
+    (useIsMobile as any).mockReturnValue(true);
+    usePluginStore.getState().registerPanel({
+      id: 'desktop-only',
+      pluginId: 'test',
+      type: 'panel',
+      label: 'Desktop Only',
+      component: () => <div data-testid="desktop-only">Desktop</div>,
+      platforms: ['desktop'],
+      order: 0,
+    });
+
+    const { container } = render(<BottomPanel projectId="p1" projectRoot="/test" />);
+    expect(container.firstChild).toBeNull();
+  });
+
+  // ── Mobile mode ────────────────────────────────────────────────────────
 
   it('renders fullscreen overlay on mobile when open', () => {
     (useIsMobile as any).mockReturnValue(true);
-    useTerminalStore.setState({
-      drawerOpen: { p1: true },
-      terminals: { p1: 'term-1' },
-      bottomPanelTab: 'terminal',
-    } as any);
-    useServerStore.setState({
-      activeServerSupports: () => true,
-    } as any);
+    registerTerminalPanel(true);
+    useBottomPanelStore.setState({ activeTab: 'terminal' });
 
     const { container } = render(<BottomPanel projectId="p1" projectRoot="/test" />);
-    // Mobile renders a fixed overlay
     const fixedDiv = container.querySelector('.fixed.inset-0');
     expect(fixedDiv).toBeInTheDocument();
   });
 
   it('renders close button on mobile', () => {
     (useIsMobile as any).mockReturnValue(true);
-    useTerminalStore.setState({
-      drawerOpen: { p1: true },
-      terminals: { p1: 'term-1' },
-      bottomPanelTab: 'terminal',
-    } as any);
-    useServerStore.setState({
-      activeServerSupports: () => true,
-    } as any);
+    registerTerminalPanel(true);
+    useBottomPanelStore.setState({ activeTab: 'terminal' });
 
     render(<BottomPanel projectId="p1" projectRoot="/test" />);
     expect(screen.getByTitle('Close panel')).toBeInTheDocument();
   });
 
-  it('mobile close button closes the panel', () => {
+  it('mobile close button calls onClose', () => {
     (useIsMobile as any).mockReturnValue(true);
-    useTerminalStore.setState({
-      drawerOpen: { p1: true },
-      terminals: { p1: 'term-1' },
-      bottomPanelTab: 'terminal',
-    } as any);
-    useServerStore.setState({
-      activeServerSupports: () => true,
-    } as any);
+    registerTerminalPanel(true);
+    useBottomPanelStore.setState({ activeTab: 'terminal' });
 
     render(<BottomPanel projectId="p1" projectRoot="/test" />);
     fireEvent.click(screen.getByTitle('Close panel'));
-    expect(useTerminalStore.getState().drawerOpen['p1']).toBeFalsy();
+    expect(mockTerminalOnClose).toHaveBeenCalled();
   });
 
-  it('mobile shows tabs when both terminal and file viewer are available', () => {
+  it('mobile shows tabs when both terminal and file viewer are visible', () => {
     (useIsMobile as any).mockReturnValue(true);
-    useTerminalStore.setState({
-      drawerOpen: { p1: true },
-      terminals: { p1: 'term-1' },
-      bottomPanelTab: 'terminal',
-    } as any);
-    useFileViewerStore.setState({ isOpen: true } as any);
-    useServerStore.setState({
-      activeServerSupports: () => true,
-    } as any);
+    registerTerminalPanel(true);
+    registerFileViewerPanel(true);
+    useBottomPanelStore.setState({ activeTab: 'terminal' });
 
     render(<BottomPanel projectId="p1" projectRoot="/test" />);
     expect(screen.getByText('Terminal')).toBeInTheDocument();
     expect(screen.getByText('File')).toBeInTheDocument();
   });
 
-  // ── Border / overflow styling ─────────────────────────────────────────────
+  // ── Border / overflow styling ──────────────────────────────────────────
 
   it('has border-t when open on desktop', () => {
-    useTerminalStore.setState({
-      drawerOpen: { p1: true },
-      terminals: { p1: 'term-1' },
-      bottomPanelTab: 'terminal',
-    } as any);
-    useServerStore.setState({
-      activeServerSupports: () => true,
-    } as any);
+    registerTerminalPanel(true);
+    useBottomPanelStore.setState({ activeTab: 'terminal' });
 
     const { container } = render(<BottomPanel projectId="p1" projectRoot="/test" />);
     const panel = container.firstChild as HTMLElement;
@@ -489,11 +400,7 @@ describe('BottomPanel', () => {
   });
 
   it('does not have border-t when closed on desktop', () => {
-    useTerminalStore.setState({
-      drawerOpen: { p1: false },
-      terminals: { p1: 'term-1' },
-      bottomPanelTab: 'terminal',
-    } as any);
+    registerTerminalPanel(false); // alwaysMount but hidden → height 0
 
     const { container } = render(<BottomPanel projectId="p1" projectRoot="/test" />);
     const panel = container.firstChild as HTMLElement;

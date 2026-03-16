@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { useTerminalStore } from '../terminalStore';
+import { usePluginStore } from '../pluginStore';
 
 describe('terminalStore', () => {
   beforeEach(() => {
@@ -8,8 +9,9 @@ describe('terminalStore', () => {
       readyTerminals: new Set(),
       drawerOpen: {},
       ctrlActive: {},
-      bottomPanelTab: 'terminal',
     });
+    // Register terminal panel for visibility sync tests
+    usePluginStore.setState({ panels: [] });
   });
 
   describe('initial state', () => {
@@ -164,10 +166,24 @@ describe('terminalStore', () => {
     });
   });
 
-  describe('setBottomPanelTab', () => {
-    it('sets bottom panel tab', () => {
-      useTerminalStore.getState().setBottomPanelTab('file');
-      expect(useTerminalStore.getState().bottomPanelTab).toBe('file');
+  describe('setDrawerOpen syncs pluginStore visibility', () => {
+    it('updates terminal panel visibility in pluginStore', () => {
+      // Register a terminal panel first
+      usePluginStore.getState().registerPanel({
+        id: 'terminal',
+        pluginId: 'com.claudia.terminal',
+        type: 'panel',
+        label: 'Terminal',
+        visible: false,
+      });
+
+      useTerminalStore.getState().setDrawerOpen('project-1', true);
+      const panel = usePluginStore.getState().panels.find(p => p.id === 'terminal');
+      expect(panel?.visible).toBe(true);
+
+      useTerminalStore.getState().setDrawerOpen('project-1', false);
+      const panel2 = usePluginStore.getState().panels.find(p => p.id === 'terminal');
+      expect(panel2?.visible).toBe(false);
     });
   });
 

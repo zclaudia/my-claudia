@@ -7,10 +7,10 @@ vi.mock('../../../stores/fileViewerStore', () => ({
   useFileViewerStore: (selector: any) => selector({ openFile: mockOpenFile }),
 }));
 
-const mockSetBottomPanelTab = vi.fn();
-vi.mock('../../../stores/terminalStore', () => ({
-  useTerminalStore: {
-    getState: () => ({ setBottomPanelTab: mockSetBottomPanelTab }),
+const mockSetActiveTab = vi.fn();
+vi.mock('../../../stores/bottomPanelStore', () => ({
+  useBottomPanelStore: {
+    getState: () => ({ setActiveTab: mockSetActiveTab }),
   },
 }));
 
@@ -45,7 +45,7 @@ describe('TextWithFileRefs', () => {
     render(<TextWithFileRefs text="See @src/utils/helpers.ts here" />);
     fireEvent.click(screen.getByRole('button'));
     expect(mockOpenFile).toHaveBeenCalledWith('/project/root', 'src/utils/helpers.ts');
-    expect(mockSetBottomPanelTab).toHaveBeenCalledWith('file');
+    expect(mockSetActiveTab).toHaveBeenCalledWith('file-viewer');
   });
 
   it('handles multiple file references', () => {

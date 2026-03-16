@@ -22,6 +22,7 @@ import { useWorkflowStore } from '../stores/workflowStore';
 import { useSessionsStore } from '../stores/sessionsStore';
 import { LOCAL_BACKEND_KEY } from '../stores/sessionsStore';
 import { useTerminalStore } from '../stores/terminalStore';
+import { useBottomPanelStore } from '../stores/bottomPanelStore';
 import { usePluginStore } from '../stores/pluginStore';
 import { useFilePushStore } from '../stores/filePushStore';
 import { useBackgroundTaskStore } from '../stores/backgroundTaskStore';
@@ -660,11 +661,9 @@ export function handleServerMessage(
     case 'plugin_show_panel':
     case 'plugin_panel_registered':
     case 'plugin_panel_unregistered': {
-      // Skip plugin UI messages on mobile — mobile only supports pure backend plugins
-      if (window.matchMedia('(max-width: 767px)').matches) break;
-
       if (msg.type === 'plugin_show_panel') {
-        useTerminalStore.getState().setBottomPanelTab(`plugin:${msg.panelId}`);
+        usePluginStore.getState().updatePanelVisibility(msg.panelId, true);
+        useBottomPanelStore.getState().setActiveTab(msg.panelId);
       } else if (msg.type === 'plugin_panel_registered') {
         usePluginStore.getState().registerPanel({
           id: msg.panelId,
@@ -674,6 +673,7 @@ export function handleServerMessage(
           icon: msg.icon,
           iframeUrl: msg.iframeUrl,
           order: msg.order,
+          visible: false,
         });
       } else {
         usePluginStore.getState().clearPluginExtensions(msg.pluginId);

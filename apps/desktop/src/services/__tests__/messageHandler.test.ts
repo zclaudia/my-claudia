@@ -82,7 +82,10 @@ const mockSessionsStore = {
 const mockTerminalStore = {
   markReady: vi.fn(),
   handleTerminalExited: vi.fn(),
-  setBottomPanelTab: vi.fn(),
+};
+
+const mockBottomPanelStore = {
+  setActiveTab: vi.fn(),
 };
 
 const mockPluginStore = {
@@ -135,6 +138,9 @@ vi.mock('../../stores/sessionsStore', () => ({
 }));
 vi.mock('../../stores/terminalStore', () => ({
   useTerminalStore: { getState: () => mockTerminalStore },
+}));
+vi.mock('../../stores/bottomPanelStore', () => ({
+  useBottomPanelStore: { getState: () => mockBottomPanelStore },
 }));
 vi.mock('../../stores/pluginStore', () => ({
   usePluginStore: { getState: () => mockPluginStore },
@@ -715,8 +721,7 @@ describe('handleServerMessage', () => {
       logSpy.mockRestore();
     });
 
-    it('handles plugin_panel_registered on desktop', () => {
-      vi.spyOn(window, 'matchMedia').mockReturnValue({ matches: false } as any);
+    it('handles plugin_panel_registered', () => {
       handleServerMessage({
         type: 'plugin_panel_registered',
         panelId: 'pan1', pluginId: 'p1', label: 'Panel', icon: 'icon', iframeUrl: 'http://...', order: 1,
@@ -724,8 +729,7 @@ describe('handleServerMessage', () => {
       expect(mockPluginStore.registerPanel).toHaveBeenCalled();
     });
 
-    it('handles plugin_panel_unregistered on desktop', () => {
-      vi.spyOn(window, 'matchMedia').mockReturnValue({ matches: false } as any);
+    it('handles plugin_panel_unregistered', () => {
       handleServerMessage({
         type: 'plugin_panel_unregistered', pluginId: 'p1', panelId: 'pan1',
       }, makeCtx());
@@ -733,17 +737,17 @@ describe('handleServerMessage', () => {
     });
 
     it('handles plugin_show_panel on desktop', () => {
-      vi.spyOn(window, 'matchMedia').mockReturnValue({ matches: false } as any);
       handleServerMessage({ type: 'plugin_show_panel', panelId: 'pan1' }, makeCtx());
-      expect(mockTerminalStore.setBottomPanelTab).toHaveBeenCalledWith('plugin:pan1');
+      expect(mockBottomPanelStore.setActiveTab).toHaveBeenCalledWith('pan1');
     });
 
-    it('skips plugin UI messages on mobile', () => {
+    it('registers plugin panel regardless of viewport (platform filtering is in BottomPanel)', () => {
       vi.spyOn(window, 'matchMedia').mockReturnValue({ matches: true } as any);
       handleServerMessage({
         type: 'plugin_panel_registered', panelId: 'pan1', pluginId: 'p1',
+        label: 'Test', icon: 'test',
       }, makeCtx());
-      expect(mockPluginStore.registerPanel).not.toHaveBeenCalled();
+      expect(mockPluginStore.registerPanel).toHaveBeenCalled();
     });
   });
 

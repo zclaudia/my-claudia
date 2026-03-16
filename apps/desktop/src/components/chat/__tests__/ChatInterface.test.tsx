@@ -3,6 +3,7 @@ import { render, fireEvent, waitFor, act } from '@testing-library/react';
 import { useProjectStore } from '../../../stores/projectStore';
 import { useChatStore } from '../../../stores/chatStore';
 import { useTerminalStore } from '../../../stores/terminalStore';
+import { useBottomPanelStore } from '../../../stores/bottomPanelStore';
 import { useUIStore } from '../../../stores/uiStore';
 import { usePermissionStore } from '../../../stores/permissionStore';
 import { useAskUserQuestionStore } from '../../../stores/askUserQuestionStore';
@@ -227,14 +228,16 @@ function setDefaultStores(overrides?: {
   } as any);
   useTerminalStore.setState({
     drawerOpen: {},
-    bottomPanelTab: 'terminal',
     terminals: {},
     setDrawerOpen: vi.fn(),
-    setBottomPanelTab: vi.fn(),
     openTerminal: vi.fn(),
     isDrawerOpen: vi.fn(() => false),
     ...overrides?.terminalStore,
   } as any);
+  useBottomPanelStore.setState({
+    activeTab: 'terminal',
+    setActiveTab: vi.fn(),
+  });
   useUIStore.setState({
     advancedInput: false,
     forceScrollToBottomSessionId: null,

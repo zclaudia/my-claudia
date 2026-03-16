@@ -15,6 +15,7 @@ import { useTheme, isDarkTheme } from '../../contexts/ThemeContext';
 import { downloadFile } from '../../services/fileUpload';
 import type { MessageInput, MessageAttachment } from '@my-claudia/shared';
 import { useTerminalStore } from '../../stores/terminalStore';
+import { useBottomPanelStore } from '../../stores/bottomPanelStore';
 import { useProjectStore } from '../../stores/projectStore';
 import { useConnection } from '../../contexts/ConnectionContext';
 import { useServerStore } from '../../stores/serverStore';
@@ -471,7 +472,7 @@ function CodeBlock({
       store.openTerminal(session.projectId);
     }
     store.setDrawerOpen(session.projectId, true);
-    store.setBottomPanelTab('terminal');
+    useBottomPanelStore.getState().setActiveTab('terminal');
 
     const terminalId = useTerminalStore.getState().terminals[session.projectId];
     if (terminalId) {

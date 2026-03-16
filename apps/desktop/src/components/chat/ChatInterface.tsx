@@ -18,8 +18,10 @@ import { useChatStore } from '../../stores/chatStore';
 import { useProjectStore } from '../../stores/projectStore';
 import { useServerStore } from '../../stores/serverStore';
 import { useTerminalStore } from '../../stores/terminalStore';
+import { useBottomPanelStore } from '../../stores/bottomPanelStore';
 import { useUIStore } from '../../stores/uiStore';
 import { useFileViewerStore } from '../../stores/fileViewerStore';
+import { usePluginStore } from '../../stores/pluginStore';
 import { usePermissionStore } from '../../stores/permissionStore';
 import { useAskUserQuestionStore } from '../../stores/askUserQuestionStore';
 import { useSupervisionStore } from '../../stores/supervisionStore';
@@ -129,7 +131,9 @@ export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar }:
   const setPermissionOverride = useChatStore((s) => s.setPermissionOverride);
   const { projects, sessions, providers, providerCommands, providerCapabilities, setProviderCapabilities } = useProjectStore();
   const activeServerId = useServerStore((s) => s.activeServerId);
-  const { setDrawerOpen, drawerOpen, bottomPanelTab, setBottomPanelTab } = useTerminalStore();
+  const { setDrawerOpen, drawerOpen } = useTerminalStore();
+  const { activeTab: bottomPanelTab, setActiveTab: setBottomPanelTab } = useBottomPanelStore();
+  const disabledBuiltinPanels = usePluginStore((s) => s.disabledBuiltinPanels);
   const {
     advancedInput,
     setAdvancedInput,
@@ -344,20 +348,21 @@ export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar }:
   // Ctrl+` keyboard shortcut to toggle terminal
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if (e.ctrlKey && e.key === '`' && currentSession?.projectId) {
+      if (e.ctrlKey && e.key === '`' && currentSession?.projectId && !usePluginStore.getState().disabledBuiltinPanels.includes('terminal')) {
         e.preventDefault();
         const store = useTerminalStore.getState();
+        const bpStore = useBottomPanelStore.getState();
         const pid = currentSession.projectId;
-        if (store.isDrawerOpen(pid) && store.bottomPanelTab === 'terminal') {
+        if (store.isDrawerOpen(pid) && bpStore.activeTab === 'terminal') {
           store.setDrawerOpen(pid, false);
         } else if (store.isDrawerOpen(pid)) {
-          store.setBottomPanelTab('terminal');
+          bpStore.setActiveTab('terminal');
         } else {
           if (!store.terminals[pid]) {
             store.openTerminal(pid);
           }
           store.setDrawerOpen(pid, true);
-          store.setBottomPanelTab('terminal');
+          bpStore.setActiveTab('terminal');
         }
       }
     };
@@ -368,14 +373,14 @@ export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar }:
   // Cmd+P / Ctrl+P keyboard shortcut to open file search
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === 'p' && currentProject?.rootPath) {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'p' && currentProject?.rootPath && !usePluginStore.getState().disabledBuiltinPanels.includes('file-viewer')) {
         e.preventDefault();
         const store = useFileViewerStore.getState();
         if (!store.isOpen) {
           store.togglePanel();
         }
         store.setSearchOpen(true);
-        useTerminalStore.getState().setBottomPanelTab('file');
+        useBottomPanelStore.getState().setActiveTab('file-viewer');
       }
     };
     window.addEventListener('keydown', handler);
@@ -1028,7 +1033,7 @@ export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar }:
         const panelId = data?.panelId as string | undefined;
         if (panelId && currentProject?.id) {
           setDrawerOpen(currentProject.id, true);
-          setBottomPanelTab(`plugin:${panelId}`);
+          setBottomPanelTab(panelId);
         }
         break;
       }
@@ -2223,27 +2228,27 @@ export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar }:
             </div>
             <div className="flex-1 min-w-[8px]" />
             {/* Desktop: show buttons directly */}
-            {!isMobile && currentProject?.rootPath && (
+            {!isMobile && currentProject?.rootPath && !disabledBuiltinPanels.includes('file-viewer') && (
               <button
                 onClick={() => {
-                  if (fileViewerOpen && bottomPanelTab === 'file') {
+                  if (fileViewerOpen && bottomPanelTab === 'file-viewer') {
                     useFileViewerStore.getState().close();
                   } else if (fileViewerOpen) {
-                    setBottomPanelTab('file');
+                    setBottomPanelTab('file-viewer');
                   } else {
                     const store = useFileViewerStore.getState();
                     store.togglePanel();
                     store.setSearchOpen(true);
-                    setBottomPanelTab('file');
+                    setBottomPanelTab('file-viewer');
                   }
                 }}
-                className={`p-1.5 rounded hover:bg-secondary ${fileViewerOpen && bottomPanelTab === 'file' ? 'text-primary' : 'text-muted-foreground hover:text-foreground'}`}
-                title={fileViewerOpen && bottomPanelTab === 'file' ? 'Close file viewer' : 'Open file viewer (Cmd+P)'}
+                className={`p-1.5 rounded hover:bg-secondary ${fileViewerOpen && bottomPanelTab === 'file-viewer' ? 'text-primary' : 'text-muted-foreground hover:text-foreground'}`}
+                title={fileViewerOpen && bottomPanelTab === 'file-viewer' ? 'Close file viewer' : 'Open file viewer (Cmd+P)'}
               >
                 <FileText size={16} strokeWidth={1.75} />
               </button>
             )}
-            {!isMobile && useServerStore.getState().activeServerSupports('remoteTerminal') && currentSession?.projectId && (() => {
+            {!isMobile && !disabledBuiltinPanels.includes('terminal') && useServerStore.getState().activeServerSupports('remoteTerminal') && currentSession?.projectId && (() => {
               const pid = currentSession.projectId;
               const isOpen = !!drawerOpen[pid];
               return (
@@ -2284,32 +2289,32 @@ export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar }:
                   <>
                     <div className="fixed inset-0 z-40" onClick={() => setShowMoreMenu(false)} />
                     <div className="absolute bottom-full right-0 mb-1 z-50 bg-popover border border-border rounded-lg shadow-lg py-1 min-w-[160px]">
-                      {currentProject?.rootPath && (
+                      {currentProject?.rootPath && !disabledBuiltinPanels.includes('file-viewer') && (
                         <button
                           onClick={() => {
-                            if (fileViewerOpen && bottomPanelTab === 'file') {
+                            if (fileViewerOpen && bottomPanelTab === 'file-viewer') {
                               useFileViewerStore.getState().close();
                             } else if (fileViewerOpen) {
-                              setBottomPanelTab('file');
+                              setBottomPanelTab('file-viewer');
                             } else {
                               const store = useFileViewerStore.getState();
                               store.togglePanel();
                               store.setSearchOpen(true);
-                              setBottomPanelTab('file');
+                              setBottomPanelTab('file-viewer');
                             }
                             setShowMoreMenu(false);
                           }}
                           className={`w-full text-left px-3 py-2 text-sm flex items-center gap-2 transition-colors ${
-                            fileViewerOpen && bottomPanelTab === 'file'
+                            fileViewerOpen && bottomPanelTab === 'file-viewer'
                               ? 'bg-primary/10 text-primary'
                               : 'text-foreground hover:bg-muted'
                           }`}
                         >
                           <FileText size={14} />
-                          {fileViewerOpen && bottomPanelTab === 'file' ? 'Close File Viewer' : 'File Viewer'}
+                          {fileViewerOpen && bottomPanelTab === 'file-viewer' ? 'Close File Viewer' : 'File Viewer'}
                         </button>
                       )}
-                      {useServerStore.getState().activeServerSupports('remoteTerminal') && currentSession?.projectId && (() => {
+                      {!disabledBuiltinPanels.includes('terminal') && useServerStore.getState().activeServerSupports('remoteTerminal') && currentSession?.projectId && (() => {
                         const pid = currentSession.projectId;
                         const isOpen = !!drawerOpen[pid];
                         return (

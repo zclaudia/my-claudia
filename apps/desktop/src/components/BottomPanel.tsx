@@ -1,12 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useTerminalStore } from '../stores/terminalStore';
-import { useFileViewerStore } from '../stores/fileViewerStore';
-import { useServerStore } from '../stores/serverStore';
+import { useBottomPanelStore } from '../stores/bottomPanelStore';
+import { usePluginStore, selectPluginPanels, type UIExtension } from '../stores/pluginStore';
 import { useIsMobile } from '../hooks/useMediaQuery';
 import { useAndroidBack } from '../hooks/useAndroidBack';
-import { TerminalPanel, TerminalActions } from './terminal/TerminalPanel';
-import { FileViewerPanel, FileViewerActions } from './fileviewer/FileViewerPanel';
-import { PluginPanelRenderer, usePluginPanelTabs } from './PluginPanelRenderer';
+import { PluginPanelRenderer } from './PluginPanelRenderer';
 
 const MIN_HEIGHT = 100;
 const MAX_HEIGHT_VH = 70;
@@ -19,40 +16,66 @@ interface BottomPanelProps {
   workingDirectory?: string;
 }
 
+/** Renders a builtin panel's React component, forwarding common props */
+function PanelContent({ panel, projectId, projectRoot, workingDirectory }: {
+  panel: UIExtension;
+  projectId?: string;
+  projectRoot?: string;
+  workingDirectory?: string;
+}) {
+  if (panel.iframeUrl) {
+    return (
+      <PluginPanelRenderer
+        activePluginPanelId={panel.id}
+        projectRoot={projectRoot}
+        projectId={projectId}
+      />
+    );
+  }
+  if (!panel.component) return null;
+  const Component = panel.component as React.ComponentType<Record<string, unknown>>;
+  return <Component projectId={projectId} projectRoot={projectRoot} workingDirectory={workingDirectory} panelId={panel.id} />;
+}
+
+/** Renders a panel's action buttons */
+function PanelActions({ panel, projectId }: { panel: UIExtension; projectId?: string }) {
+  if (!panel.actions) return null;
+  const Actions = panel.actions as React.ComponentType<Record<string, unknown>>;
+  return <Actions projectId={projectId} />;
+}
+
 export function BottomPanel({ projectId, projectRoot, workingDirectory }: BottomPanelProps) {
-  const terminalDrawerOpen = useTerminalStore((s) => projectId ? !!s.drawerOpen[projectId] : false);
-  const hasTerminal = useTerminalStore((s) => projectId ? !!s.terminals[projectId] : false);
-  const setTerminalDrawerOpen = useTerminalStore((s) => s.setDrawerOpen);
-  const activeTab = useTerminalStore((s) => s.bottomPanelTab);
-  const setActiveTab = useTerminalStore((s) => s.setBottomPanelTab);
-  const fileViewerOpen = useFileViewerStore((s) => s.isOpen);
-  const closeFileViewer = useFileViewerStore((s) => s.close);
-  const supportsTerminal = useServerStore((s) => s.activeServerSupports('remoteTerminal'));
   const isMobile = useIsMobile();
+  const platform = isMobile ? 'mobile' : 'desktop';
+  const allPanels = usePluginStore(selectPluginPanels);
+  const disabledBuiltinPanels = usePluginStore((s) => s.disabledBuiltinPanels);
+  const activeTab = useBottomPanelStore((s) => s.activeTab);
+  const setActiveTab = useBottomPanelStore((s) => s.setActiveTab);
 
-  // Plugin panel tabs — disabled on mobile (mobile only supports pure backend plugins)
-  const allPluginTabs = usePluginPanelTabs();
-  const pluginTabs = isMobile ? [] : allPluginTabs;
-  const hasPluginTabs = pluginTabs.length > 0;
-  const activePluginPanelId = activeTab.startsWith('plugin:') ? activeTab.slice(7) : null;
-  const hasActivePluginPanel = hasPluginTabs && activePluginPanelId !== null;
+  // Filter panels by current platform, excluding disabled built-in panels
+  const platformPanels = allPanels.filter((p) =>
+    (p.platforms ?? ['desktop']).includes(platform) &&
+    !disabledBuiltinPanels.includes(p.id)
+  );
 
-  // Determine which tabs are available and which is active
-  const hasTerminalTab = supportsTerminal && projectId && (terminalDrawerOpen || hasTerminal);
-  const hasFileTab = fileViewerOpen;
-  const isOpen = !!(hasTerminalTab && terminalDrawerOpen) || !!hasFileTab || hasActivePluginPanel;
+  // Panels whose tab should appear
+  const visiblePanels = platformPanels.filter((p) => p.visible !== false);
 
-  // If current tab's panel isn't open, fall back to the other
+  // Panels that should be in the DOM (visible ones + alwaysMount ones even if hidden)
+  const mountedPanels = platformPanels.filter((p) => p.alwaysMount || p.visible !== false);
+
+  const isOpen = visiblePanels.length > 0;
+
+  // Pick effective tab: validate activeTab against visible panels, with fallback
   const effectiveTab = (() => {
-    if (activeTab === 'terminal' && terminalDrawerOpen && hasTerminalTab) return 'terminal';
-    if (activeTab === 'file' && hasFileTab) return 'file';
-    if (activeTab.startsWith('plugin:') && hasPluginTabs) return activeTab;
-    // Fallback: show whichever is open
-    if (hasFileTab) return 'file';
-    if (hasTerminalTab && terminalDrawerOpen) return 'terminal';
-    if (hasPluginTabs) return pluginTabs[0].id;
+    if (visiblePanels.some((p) => p.id === activeTab)) return activeTab;
+    // Fallback to first visible panel
+    if (visiblePanels.length > 0) return visiblePanels[0].id;
     return activeTab;
   })();
+
+  const activePanel = visiblePanels.find((p) => p.id === effectiveTab);
+  const showTabs = visiblePanels.length > 1;
 
   // Height / drag state
   const containerRef = useRef<HTMLDivElement>(null);
@@ -69,10 +92,9 @@ export function BottomPanel({ projectId, projectRoot, workingDirectory }: Bottom
     return () => { dragCleanupRef.current?.(); };
   }, []);
 
-  // Android back to close
+  // Android back to close current panel
   useAndroidBack(() => {
-    if (effectiveTab === 'terminal' && projectId) setTerminalDrawerOpen(projectId, false);
-    else if (effectiveTab === 'file') closeFileViewer();
+    activePanel?.onClose?.();
   }, isOpen, 15);
 
   const onDragStart = useCallback(
@@ -113,27 +135,23 @@ export function BottomPanel({ projectId, projectRoot, workingDirectory }: Bottom
   );
 
   const handleClose = () => {
-    // Hide the entire bottom panel in one click
-    if (projectId) setTerminalDrawerOpen(projectId, false);
-    if (fileViewerOpen) closeFileViewer();
+    const { updatePanelVisibility } = usePluginStore.getState();
+    // Close all visible panels
+    visiblePanels.forEach((p) => {
+      if (p.onClose) {
+        p.onClose();
+      } else {
+        // Generic fallback: hide the panel
+        updatePanelVisibility(p.id, false);
+      }
+    });
   };
 
-  // Never return null — keep the terminal mounted to preserve its WebGL canvas.
-  // When closed, render with height 0 so the terminal stays alive in the DOM.
-  if (!isOpen && !hasTerminal) return null;
+  // Keep mounted if any alwaysMount panel exists (e.g. terminal preserving xterm state)
+  const hasAlwaysMount = mountedPanels.some((p) => p.alwaysMount);
+  if (!isOpen && !hasAlwaysMount) return null;
 
-  // Show tabs when multiple panel types are available
-  const totalTabs = (hasTerminalTab ? 1 : 0) + (hasFileTab ? 1 : 0) + pluginTabs.length;
-  const showTabs = totalTabs > 1;
-
-  // Get display label for single tab mode
-  const getSingleTabLabel = () => {
-    if (effectiveTab === 'terminal') return 'Terminal';
-    if (effectiveTab === 'file') return 'File';
-    const pluginTab = pluginTabs.find(t => t.id === effectiveTab);
-    return pluginTab?.label || 'Panel';
-  };
-
+  // ── Mobile: full-screen overlay ────────────────────────────────────────────
   if (isMobile && isOpen) {
     return (
       <div className="fixed inset-0 z-40 bg-background flex flex-col safe-top-pad safe-bottom-pad">
@@ -141,34 +159,23 @@ export function BottomPanel({ projectId, projectRoot, workingDirectory }: Bottom
           <div className="flex items-center gap-0.5 flex-shrink-0">
             {showTabs ? (
               <>
-                {hasTerminalTab && (
+                {visiblePanels.map((panel) => (
                   <button
-                    onClick={() => setActiveTab('terminal')}
+                    key={panel.id}
+                    onClick={() => setActiveTab(panel.id)}
                     className={`px-2 py-1 rounded text-xs font-medium ${
-                      effectiveTab === 'terminal'
+                      effectiveTab === panel.id
                         ? 'bg-secondary text-foreground'
                         : 'text-muted-foreground hover:text-foreground'
                     }`}
                   >
-                    Terminal
+                    {panel.label}
                   </button>
-                )}
-                {hasFileTab && (
-                  <button
-                    onClick={() => setActiveTab('file')}
-                    className={`px-2 py-1 rounded text-xs font-medium ${
-                      effectiveTab === 'file'
-                        ? 'bg-secondary text-foreground'
-                        : 'text-muted-foreground hover:text-foreground'
-                    }`}
-                  >
-                    File
-                  </button>
-                )}
+                ))}
               </>
             ) : (
               <span className="text-sm font-medium text-foreground px-1">
-                {getSingleTabLabel()}
+                {activePanel?.label || 'Panel'}
               </span>
             )}
           </div>
@@ -176,12 +183,7 @@ export function BottomPanel({ projectId, projectRoot, workingDirectory }: Bottom
           <div className="flex-1" />
 
           <div className="flex items-center gap-0.5">
-            {effectiveTab === 'terminal' && projectId && (
-              <TerminalActions projectId={projectId} />
-            )}
-            {effectiveTab === 'file' && projectRoot && (
-              <FileViewerActions />
-            )}
+            {activePanel && <PanelActions panel={activePanel} projectId={projectId} />}
             <button
               onClick={handleClose}
               className="p-1.5 rounded text-muted-foreground hover:bg-secondary hover:text-foreground flex-shrink-0"
@@ -195,21 +197,17 @@ export function BottomPanel({ projectId, projectRoot, workingDirectory }: Bottom
         </div>
 
         <div className="flex-1 overflow-hidden relative">
-          {hasTerminalTab && projectId && (
-            <div className={`absolute inset-0 ${effectiveTab === 'terminal' ? '' : 'invisible'}`}>
-              <TerminalPanel projectId={projectId} workingDirectory={workingDirectory} />
+          {mountedPanels.map((panel) => (
+            <div key={panel.id} className={`absolute inset-0 ${effectiveTab === panel.id ? '' : 'invisible'}`}>
+              <PanelContent panel={panel} projectId={projectId} projectRoot={projectRoot} workingDirectory={workingDirectory} />
             </div>
-          )}
-          {hasFileTab && projectRoot && (
-            <div className={`absolute inset-0 ${effectiveTab === 'file' ? '' : 'invisible'}`}>
-              <FileViewerPanel projectRoot={projectRoot} />
-            </div>
-          )}
+          ))}
         </div>
       </div>
     );
   }
 
+  // ── Desktop: resizable bottom panel ──────────────────────────��─────────────
   return (
     <div
       ref={containerRef}
@@ -229,47 +227,23 @@ export function BottomPanel({ projectId, projectRoot, workingDirectory }: Bottom
         <div className="flex items-center gap-0.5 flex-shrink-0" onMouseDown={(e) => e.stopPropagation()} onTouchStart={(e) => e.stopPropagation()}>
           {showTabs ? (
             <>
-              {hasTerminalTab && (
+              {visiblePanels.map((panel) => (
                 <button
-                  onClick={() => setActiveTab('terminal')}
+                  key={panel.id}
+                  onClick={() => setActiveTab(panel.id)}
                   className={`px-2 py-0.5 rounded text-xs font-medium ${
-                    effectiveTab === 'terminal'
+                    effectiveTab === panel.id
                       ? 'bg-secondary text-foreground'
                       : 'text-muted-foreground hover:text-foreground'
                   }`}
                 >
-                  Terminal
-                </button>
-              )}
-              {hasFileTab && (
-                <button
-                  onClick={() => setActiveTab('file')}
-                  className={`px-2 py-0.5 rounded text-xs font-medium ${
-                    effectiveTab === 'file'
-                      ? 'bg-secondary text-foreground'
-                      : 'text-muted-foreground hover:text-foreground'
-                  }`}
-                >
-                  File
-                </button>
-              )}
-              {pluginTabs.map((tab) => (
-                <button
-                  key={tab.id}
-                  onClick={() => setActiveTab(tab.id)}
-                  className={`px-2 py-0.5 rounded text-xs font-medium ${
-                    effectiveTab === tab.id
-                      ? 'bg-secondary text-foreground'
-                      : 'text-muted-foreground hover:text-foreground'
-                  }`}
-                >
-                  {tab.label}
+                  {panel.label}
                 </button>
               ))}
             </>
           ) : (
             <span className="text-xs font-medium text-muted-foreground px-1">
-              {getSingleTabLabel()}
+              {activePanel?.label || 'Panel'}
             </span>
           )}
         </div>
@@ -278,12 +252,7 @@ export function BottomPanel({ projectId, projectRoot, workingDirectory }: Bottom
 
         {/* Tab-specific actions */}
         <div className="flex items-center gap-0.5" onMouseDown={(e) => e.stopPropagation()} onTouchStart={(e) => e.stopPropagation()}>
-          {effectiveTab === 'terminal' && projectId && (
-            <TerminalActions projectId={projectId} />
-          )}
-          {effectiveTab === 'file' && projectRoot && (
-            <FileViewerActions />
-          )}
+          {activePanel && <PanelActions panel={activePanel} projectId={projectId} />}
 
           {/* Close button */}
           <button
@@ -298,28 +267,11 @@ export function BottomPanel({ projectId, projectRoot, workingDirectory }: Bottom
         </div>
       </div>
 
-      {/* Panel content — all mounted but only active one visible, to preserve terminal state */}
+      {/* Panel content — alwaysMount panels stay in DOM even when hidden */}
       <div className="flex-1 overflow-hidden relative">
-        {hasTerminalTab && projectId && (
-          <div className={`absolute inset-0 ${effectiveTab === 'terminal' && isOpen ? '' : 'invisible'}`}>
-            <TerminalPanel projectId={projectId} workingDirectory={workingDirectory} />
-          </div>
-        )}
-        {hasFileTab && projectRoot && (
-          <div className={`absolute inset-0 ${effectiveTab === 'file' && isOpen ? '' : 'invisible'}`}>
-            <FileViewerPanel projectRoot={projectRoot} />
-          </div>
-        )}
-        {hasPluginTabs && pluginTabs.map((tab) => (
-          <div
-            key={tab.id}
-            className={`absolute inset-0 ${effectiveTab === tab.id && isOpen ? '' : 'invisible'}`}
-          >
-            <PluginPanelRenderer
-              activePluginPanelId={tab.id.slice(7)} // Remove 'plugin:' prefix
-              projectRoot={projectRoot}
-              projectId={projectId}
-            />
+        {mountedPanels.map((panel) => (
+          <div key={panel.id} className={`absolute inset-0 ${effectiveTab === panel.id && isOpen ? '' : 'invisible'}`}>
+            <PanelContent panel={panel} projectId={projectId} projectRoot={projectRoot} workingDirectory={workingDirectory} />
           </div>
         ))}
       </div>

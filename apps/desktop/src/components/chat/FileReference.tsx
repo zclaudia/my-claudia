@@ -2,7 +2,7 @@ import type { ReactNode } from 'react';
 import { Children } from 'react';
 import { useFileViewerStore } from '../../stores/fileViewerStore';
 import { useProjectStore } from '../../stores/projectStore';
-import { useTerminalStore } from '../../stores/terminalStore';
+import { useBottomPanelStore } from '../../stores/bottomPanelStore';
 
 /**
  * Regex to match @file references in text.
@@ -30,7 +30,7 @@ export function TextWithFileRefs({
     const project = Object.values(projects).find((p) => p.rootPath);
     if (project?.rootPath) {
       openFile(project.rootPath, filePath);
-      useTerminalStore.getState().setBottomPanelTab('file');
+      useBottomPanelStore.getState().setActiveTab('file-viewer');
     }
   };
 

@@ -1,6 +1,5 @@
 import { create } from 'zustand';
-
-export type BottomPanelTab = 'terminal' | 'file' | string; // string for plugin panel IDs like 'plugin:panel-id'
+import { usePluginStore } from './pluginStore';
 
 interface TerminalState {
   // Active terminal per project (projectId → terminalId)
@@ -11,9 +10,6 @@ interface TerminalState {
   drawerOpen: Record<string, boolean>;
   // Sticky Ctrl key per terminal (auto-disables after one keystroke)
   ctrlActive: Record<string, boolean>;
-  // Shared active tab for the BottomPanel
-  bottomPanelTab: BottomPanelTab;
-
   openTerminal: (projectId: string) => string;
   closeTerminal: (terminalId: string) => void;
   setDrawerOpen: (projectId: string, open: boolean) => void;
@@ -23,7 +19,6 @@ interface TerminalState {
   getTerminalId: (projectId: string) => string | undefined;
   markReady: (terminalId: string) => void;
   isReady: (terminalId: string) => boolean;
-  setBottomPanelTab: (tab: BottomPanelTab) => void;
   /** Returns a promise that resolves when the terminal is ready (shell loaded). */
   waitForReady: (terminalId: string, timeoutMs?: number) => Promise<boolean>;
 }
@@ -33,8 +28,6 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
   readyTerminals: new Set<string>(),
   drawerOpen: {},
   ctrlActive: {},
-  bottomPanelTab: 'terminal',
-
   openTerminal: (projectId: string) => {
     const existing = get().terminals[projectId];
     if (existing) return existing;
@@ -60,8 +53,11 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
     });
   },
 
-  setDrawerOpen: (projectId: string, open: boolean) =>
-    set((state) => ({ drawerOpen: { ...state.drawerOpen, [projectId]: open } })),
+  setDrawerOpen: (projectId: string, open: boolean) => {
+    set((state) => ({ drawerOpen: { ...state.drawerOpen, [projectId]: open } }));
+    // Sync terminal panel visibility in pluginStore
+    usePluginStore.getState().updatePanelVisibility('terminal', open);
+  },
 
   isDrawerOpen: (projectId: string) => !!get().drawerOpen[projectId],
 
@@ -100,8 +96,6 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
   isReady: (terminalId: string) => {
     return get().readyTerminals.has(terminalId);
   },
-
-  setBottomPanelTab: (tab) => set({ bottomPanelTab: tab }),
 
   waitForReady: (terminalId: string, timeoutMs = 5000) => {
     if (get().readyTerminals.has(terminalId)) return Promise.resolve(true);

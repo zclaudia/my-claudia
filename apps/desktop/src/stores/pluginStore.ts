@@ -37,6 +37,11 @@ export interface UIExtension {
   component?: unknown; // React component (builtin panels)
   iframeUrl?: string;  // Server-relative URL for third-party iframe panels
   order?: number;
+  platforms?: ('desktop' | 'mobile')[];  // Defaults to ['desktop']
+  alwaysMount?: boolean;   // Keep DOM mounted even when hidden (e.g. terminal xterm canvas)
+  visible?: boolean;       // For alwaysMount panels: controls tab visibility without unmounting
+  actions?: unknown;       // React component for tab-specific action buttons
+  onClose?: () => void;    // Called when user closes this panel
 }
 
 export interface PluginSettings {
@@ -68,9 +73,14 @@ interface PluginStoreState {
   setPluginStatus: (pluginId: string, status: PluginStatus) => void;
   togglePlugin: (pluginId: string) => void;
 
+  // Built-in panel enable/disable (persisted)
+  disabledBuiltinPanels: string[];
+  toggleBuiltinPanel: (panelId: string) => void;
+
   // Actions - UI Extensions
   registerPanel: (extension: UIExtension) => void;
   unregisterPanel: (id: string) => void;
+  updatePanelVisibility: (id: string, visible: boolean) => void;
   registerSettingsTab: (extension: UIExtension) => void;
   unregisterSettingsTab: (id: string) => void;
   registerToolbarItem: (extension: UIExtension) => void;
@@ -106,6 +116,7 @@ export const usePluginStore = create<PluginStoreState>()(
       toolbarItems: [],
       settings: {},
       pendingPermissionRequest: null,
+      disabledBuiltinPanels: [],
 
       // Plugin Actions
       setPlugins: (plugins) => set({ plugins }),
@@ -141,6 +152,17 @@ export const usePluginStore = create<PluginStoreState>()(
           ),
         })),
 
+      // Built-in panel toggle
+      toggleBuiltinPanel: (panelId) =>
+        set((state) => {
+          const isDisabled = state.disabledBuiltinPanels.includes(panelId);
+          return {
+            disabledBuiltinPanels: isDisabled
+              ? state.disabledBuiltinPanels.filter((id) => id !== panelId)
+              : [...state.disabledBuiltinPanels, panelId],
+          };
+        }),
+
       // UI Extension Actions
       registerPanel: (extension) =>
         set((state) => ({
@@ -150,6 +172,13 @@ export const usePluginStore = create<PluginStoreState>()(
       unregisterPanel: (id) =>
         set((state) => ({
           panels: state.panels.filter((p) => p.id !== id),
+        })),
+
+      updatePanelVisibility: (id, visible) =>
+        set((state) => ({
+          panels: state.panels.map((p) =>
+            p.id === id ? { ...p, visible } : p
+          ),
         })),
 
       registerSettingsTab: (extension) =>
@@ -218,6 +247,7 @@ export const usePluginStore = create<PluginStoreState>()(
       partialize: (state) => ({
         // Only persist these fields
         settings: state.settings,
+        disabledBuiltinPanels: state.disabledBuiltinPanels,
       }),
     }
   )
