@@ -38,6 +38,11 @@
     "fixtures:generate": "node e2e/fixtures/performance-data/generate-fixtures.js",
     "test:desktop": "pnpm --filter @my-claudia/desktop run test",
     "test:server": "pnpm --filter @my-claudia/server run test",
+    "test:file": "node scripts/test-file-by-file.mjs",
+    "test:stores": "node scripts/test-file-by-file.mjs \"apps/desktop/src/stores\"",
+    "test:services": "node scripts/test-file-by-file.mjs \"apps/desktop/src/services\"",
+    "test:components": "node scripts/test-file-by-file.mjs \"apps/desktop/src/components\"",
+    "test:utils": "node scripts/test-file-by-file.mjs \"apps/desktop/src/utils\"",
     "postinstall": "node scripts/check-native-modules.mjs"
   },
   "engines": {

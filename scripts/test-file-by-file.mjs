@@ -58,14 +58,14 @@ console.log(`路径: ${testPath}`);
 console.log('');
 
 // 使用 find 命令查找测试文件
-const findCmd = `find ${testPath} -name "*.test.ts" -type f 2>/dev/null | sort`;
+const findCmd = `find ${testPath} -name "*.test.ts" -o -name "*.test.tsx" -type f 2>/dev/null | sort`;
 const findOutput = execSync(findCmd, { cwd, encoding: 'utf-8' });
 const allFiles = findOutput.trim().split('\n').filter(f => f.length > 0);
 
 // 过滤掉 node_modules 和非测试文件
 const files = allFiles.filter(f => 
   !f.includes('node_modules') && 
-  f.endsWith('.test.ts')
+  (f.endsWith('.test.ts') || f.endsWith('.test.tsx'))
 );
 
 if (files.length === 0) {
@@ -94,17 +94,24 @@ for (let i = 0; i < files.length; i++) {
   try {
     let cmd;
     if (moduleName === 'desktop') {
-      // Desktop 需要根据文件类型选择配置
       const relPath = file.replace('apps/desktop/', '');
       
-      // stores/utils/hooks 使用 node 环境 (unit 配置)
-      // services/components 使用 jsdom 环境 (coverage 配置)
-      const isNodeEnv = relPath.includes('/stores/') || 
-                        relPath.includes('/utils/') || 
-                        (relPath.includes('/hooks/') && !relPath.includes('useSwipeBack') && !relPath.includes('useMediaQuery'));
+      // 根据文件类型选择配置
+      let configFile;
+      if (relPath.includes('/stores/') || relPath.includes('/utils/')) {
+        // 纯逻辑代码使用 node 环境
+        configFile = 'vitest.unit.config.ts';
+      } else if (relPath.includes('/hooks/') && !relPath.includes('useSwipeBack') && !relPath.includes('useMediaQuery') && !relPath.includes('useEmbeddedServer') && !relPath.includes('useGatewayConnection') && !relPath.includes('useMultiServerSocket')) {
+        // 简单 hooks 使用 node 环境
+        configFile = 'vitest.unit.config.ts';
+      } else if (relPath.includes('/components/')) {
+        // 组件测试使用 jsdom 环境
+        configFile = 'vitest.components.config.ts';
+      } else {
+        // 其他使用 coverage 配置 (jsdom)
+        configFile = 'vitest.coverage.config.ts';
+      }
       
-      const configFile = isNodeEnv ? 'vitest.unit.config.ts' : 'vitest.coverage.config.ts';
-      // 使用默认 reporter 获取详细的测试数
       cmd = `cd ${moduleDir} && npx vitest run "${relPath}" --config ${configFile} 2>&1`;
     } else {
       // Server/Gateway 从模块目录运行

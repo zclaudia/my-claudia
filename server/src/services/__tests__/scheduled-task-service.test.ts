@@ -8,9 +8,18 @@ const mockRepo = {
 };
 const mockProjectRepo = { findById: vi.fn() };
 const mockSessionRepo = { create: vi.fn() };
+const mockTaskRunRepo = {
+  create: vi.fn().mockReturnValue({ id: 'run-1' }),
+  update: vi.fn(),
+  findById: vi.fn(),
+  pruneOldRuns: vi.fn(),
+};
 
 vi.mock('../../repositories/scheduled-task.js', () => ({
   ScheduledTaskRepository: class { constructor() { Object.assign(this, mockRepo); } },
+}));
+vi.mock('../../repositories/task-run.js', () => ({
+  TaskRunRepository: class { constructor() { Object.assign(this, mockTaskRunRepo); } },
 }));
 vi.mock('../../repositories/project.js', () => ({
   ProjectRepository: class { constructor() { Object.assign(this, mockProjectRepo); } },

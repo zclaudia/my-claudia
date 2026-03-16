@@ -25,6 +25,7 @@ export default defineConfig({
       'src/stores/**/*.test.ts',
       'src/utils/**/*.test.ts',
       'src/hooks/**/*.test.ts',
+      'src/components/**/*.test.{ts,tsx}',
     ],
     exclude: [
       '**/node_modules/**',
@@ -42,7 +43,7 @@ export default defineConfig({
     coverage: {
       provider: 'istanbul',
       reporter: ['text', 'text-summary'],
-      include: ['src/stores/**/*.ts', 'src/utils/**/*.ts', 'src/hooks/**/*.ts'],
+      include: ['src/stores/**/*.ts', 'src/utils/**/*.ts', 'src/hooks/**/*.ts', 'src/components/**/*.ts', 'src/components/**/*.tsx'],
       exclude: ['src/**/*.test.ts', 'src/**/*.d.ts'],
       all: true,
     },

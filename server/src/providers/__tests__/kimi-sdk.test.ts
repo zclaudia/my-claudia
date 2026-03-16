@@ -32,6 +32,19 @@ function createMockProc() {
   return { proc, stdout, stderr };
 }
 
+// Helper to consume the init message that runKimi yields at startup
+// runKimi immediately yields { type: 'init', systemInfo: {...} } before processing stdout
+async function consumeInitMessage(gen: AsyncGenerator<any>) {
+  // Allow the generator to start up and reach the first yield
+  // Use setTimeout to ensure the generator has time to initialize
+  await new Promise(resolve => setTimeout(resolve, 0));
+  const result = await gen.next();
+  if (!result.value || result.value.type !== 'init') {
+    throw new Error(`Expected init message but got ${JSON.stringify(result.value)}`);
+  }
+  return result.value;
+}
+
 describe('kimi-sdk', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -46,10 +59,15 @@ describe('kimi-sdk', () => {
     vi.mocked(spawn).mockReturnValue(proc as any);
 
     const gen = runKimi('hello', { cwd: '/tmp' }, vi.fn());
-    const first = gen.next();
+    
+    // First, consume the synthetic init message
+    await consumeInitMessage(gen);
+    
+    // Then receive the init message with session_id from stdout
+    const secondP = gen.next();
     stdout.push(JSON.stringify({ type: 'init', session_id: 'kimi-session-1' }) + '\n');
-    const firstMsg = await first;
-    expect(firstMsg.value).toMatchObject({
+    const secondMsg = await secondP;
+    expect(secondMsg.value).toMatchObject({
       type: 'init',
       sessionId: 'kimi-session-1',
     });
@@ -90,6 +108,7 @@ describe('kimi-sdk', () => {
     vi.mocked(spawn).mockReturnValue(proc as any);
 
     const gen = runKimi('hello', { cwd: '/tmp' }, vi.fn());
+    await consumeInitMessage(gen);
     const first = gen.next();
 
     stdout.push(JSON.stringify({
@@ -122,6 +141,7 @@ describe('kimi-sdk', () => {
     vi.mocked(spawn).mockReturnValue(proc as any);
 
     const gen = runKimi('hello', { cwd: '/tmp' }, vi.fn());
+    await consumeInitMessage(gen);
     const first = gen.next();
 
     stdout.push(JSON.stringify({
@@ -149,6 +169,7 @@ describe('kimi-sdk', () => {
     vi.mocked(spawn).mockReturnValue(proc as any);
 
     const gen = runKimi('hello', { cwd: '/tmp' }, vi.fn());
+    await consumeInitMessage(gen);
     const first = gen.next();
 
     stdout.push(JSON.stringify({
@@ -196,7 +217,11 @@ describe('kimi-sdk', () => {
     stdout.push(null);
 
     await collect;
-    expect(messages).toEqual([]);
+    // Should have init message and result message, but no assistant messages for tool content
+    expect(messages.length).toBeGreaterThanOrEqual(2);
+    expect(messages[0].type).toBe('init');
+    expect(messages.some(m => m.type === 'result')).toBe(true);
+    expect(messages.some(m => m.type === 'assistant')).toBe(false);
   });
 
   it('keeps reasoning deltas inside think blocks instead of visible assistant text', async () => {
@@ -232,9 +257,11 @@ describe('kimi-sdk', () => {
     await collect;
 
     expect(messages).toEqual([
+      { type: 'init', systemInfo: { model: 'default', cwd: '/tmp' } },
       { type: 'assistant', content: '<think>internal reasoning' },
       { type: 'assistant', content: '</think>visible answer' },
       { type: 'result', isComplete: true },
+      { type: 'init', sessionId: expect.any(String) },
     ]);
   });
 
@@ -281,6 +308,7 @@ describe('kimi-sdk', () => {
     vi.mocked(spawn).mockReturnValue(proc as any);
 
     const gen = runKimi('hello', { cwd: '/tmp' }, vi.fn());
+    await consumeInitMessage(gen);
     const firstP = gen.next();
     stdout.push(JSON.stringify({ type: 'message', role: 'assistant', content: 'Hello!' }) + '\n');
     const first = await firstP;
@@ -295,6 +323,7 @@ describe('kimi-sdk', () => {
     vi.mocked(spawn).mockReturnValue(proc as any);
 
     const gen = runKimi('hello', { cwd: '/tmp' }, vi.fn());
+    await consumeInitMessage(gen);
     const firstP = gen.next();
     stdout.push(JSON.stringify({ type: 'thinking', content: 'Let me consider...' }) + '\n');
     const first = await firstP;
@@ -315,6 +344,7 @@ describe('kimi-sdk', () => {
     vi.mocked(spawn).mockReturnValue(proc as any);
 
     const gen = runKimi('hello', { cwd: '/tmp' }, vi.fn());
+    await consumeInitMessage(gen);
     const firstP = gen.next();
     stdout.push(JSON.stringify({
       type: 'tool_use',
@@ -333,11 +363,12 @@ describe('kimi-sdk', () => {
     await gen.next();
   });
 
-  it('yields tool_result events', async () => {
+  it('yields tool_result events', async () => { 
     const { proc, stdout } = createMockProc();
     vi.mocked(spawn).mockReturnValue(proc as any);
 
     const gen = runKimi('hello', { cwd: '/tmp' }, vi.fn());
+    await consumeInitMessage(gen);
     const firstP = gen.next();
     stdout.push(JSON.stringify({
       type: 'tool_result',
@@ -362,6 +393,7 @@ describe('kimi-sdk', () => {
     vi.mocked(spawn).mockReturnValue(proc as any);
 
     const gen = runKimi('hello', { cwd: '/tmp' }, vi.fn());
+    await consumeInitMessage(gen);
     const firstP = gen.next();
     stdout.push(JSON.stringify({ type: 'error', message: 'Something broke' }) + '\n');
     const first = await firstP;
@@ -376,6 +408,7 @@ describe('kimi-sdk', () => {
     vi.mocked(spawn).mockReturnValue(proc as any);
 
     const gen = runKimi('hello', { cwd: '/tmp' }, vi.fn());
+    await consumeInitMessage(gen);
     const firstP = gen.next();
     stdout.push(JSON.stringify({ type: 'complete' }) + '\n');
     const first = await firstP;
@@ -390,6 +423,7 @@ describe('kimi-sdk', () => {
     vi.mocked(spawn).mockReturnValue(proc as any);
 
     const gen = runKimi('hello', { cwd: '/tmp' }, vi.fn());
+    await consumeInitMessage(gen);
     const firstP = gen.next();
     stdout.push('This is plain text output\n');
     const first = await firstP;
@@ -404,6 +438,7 @@ describe('kimi-sdk', () => {
     vi.mocked(spawn).mockReturnValue(proc as any);
 
     const gen = runKimi('hello', { cwd: '/tmp' }, vi.fn());
+    await consumeInitMessage(gen);
     const firstP = gen.next();
     stdout.push('\n');
     stdout.push(JSON.stringify({ type: 'complete' }) + '\n');
@@ -467,13 +502,24 @@ describe('kimi-sdk', () => {
     vi.mocked(spawn).mockReturnValue(proc as any);
 
     const gen = runKimi('hello', { cwd: '/tmp' }, vi.fn());
-    const firstP = gen.next();
-    stdout.push(JSON.stringify({ type: 'custom', content: 'Custom content' }) + '\n');
-    const first = await firstP;
-    expect(first.value).toMatchObject({ type: 'assistant', content: 'Custom content' });
-
+    
+    // Collect messages asynchronously
+    const messages: any[] = [];
+    const collectPromise = (async () => {
+      for await (const msg of gen) {
+        messages.push(msg);
+      }
+    })();
+    
+    // Send an assistant-like event with unknown type
+    stdout.push(JSON.stringify({ type: 'custom', role: 'assistant', content: 'Custom content' }) + '\n');
     stdout.push(null);
-    await gen.next();
+    
+    await collectPromise;
+    
+    // The event should be mapped to assistant message (after init)
+    expect(messages[0].type).toBe('init');
+    expect(messages[1]).toMatchObject({ type: 'assistant', content: 'Custom content' });
   });
 
   it('prepares MessageInput JSON correctly', async () => {

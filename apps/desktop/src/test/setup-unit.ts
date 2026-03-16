@@ -112,3 +112,107 @@ function defineProperty(obj: any, prop: string, value: any) {
     // 忽略只读属性错误
   }
 }
+
+// ===== DOM API mocks for component tests =====
+
+// Mock scrollTo
+defineProperty(globalThis, 'scrollTo', vi.fn());
+
+// Mock ResizeObserver
+defineProperty(globalThis, 'ResizeObserver', class ResizeObserver {
+  observe = vi.fn();
+  unobserve = vi.fn();
+  disconnect = vi.fn();
+});
+
+// Mock IntersectionObserver
+defineProperty(globalThis, 'IntersectionObserver', class IntersectionObserver {
+  observe = vi.fn();
+  unobserve = vi.fn();
+  disconnect = vi.fn();
+});
+
+// Mock Element.prototype methods
+if (typeof globalThis !== 'undefined') {
+  // scrollTo on Element
+  defineProperty(globalThis, 'Element', class Element {});
+}
+
+// Mock document methods for component tests
+const mockDocument = {
+  createElement: vi.fn((tag: string) => ({
+    tagName: tag.toUpperCase(),
+    className: '',
+    style: {},
+    setAttribute: vi.fn(),
+    getAttribute: vi.fn(),
+    appendChild: vi.fn(),
+    removeChild: vi.fn(),
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+    getBoundingClientRect: vi.fn(() => ({
+      top: 0, left: 0, bottom: 0, right: 0, width: 0, height: 0,
+    })),
+    scrollTo: vi.fn(),
+    scrollIntoView: vi.fn(),
+    focus: vi.fn(),
+    click: vi.fn(),
+  })),
+  querySelector: vi.fn(),
+  querySelectorAll: vi.fn(() => []),
+  getElementById: vi.fn(),
+  body: {
+    appendChild: vi.fn(),
+    removeChild: vi.fn(),
+  },
+  documentElement: {
+    style: {
+      setProperty: vi.fn(),
+    },
+  },
+};
+
+// Only define document if not exists
+if (typeof globalThis.document === 'undefined') {
+  defineProperty(globalThis, 'document', mockDocument);
+}
+
+// Mock window.location
+const mockLocation = {
+  href: 'http://localhost:1420',
+  pathname: '/',
+  search: '',
+  hash: '',
+  reload: vi.fn(),
+  replace: vi.fn(),
+  assign: vi.fn(),
+};
+
+if (typeof globalThis.location === 'undefined') {
+  defineProperty(globalThis, 'location', mockLocation);
+}
+
+// Mock requestAnimationFrame
+defineProperty(globalThis, 'requestAnimationFrame', (cb: FrameRequestCallback) => setTimeout(cb, 16));
+defineProperty(globalThis, 'cancelAnimationFrame', clearTimeout);
+
+// Mock navigator
+defineProperty(globalThis, 'navigator', {
+  userAgent: 'node.js',
+  language: 'en-US',
+  languages: ['en-US'],
+  clipboard: {
+    writeText: vi.fn(),
+    readText: vi.fn(),
+  },
+});
+
+// ===== React Testing Library helpers =====
+
+// Clean up after each test
+import { cleanup } from '@testing-library/react';
+afterEach(() => {
+  cleanup();
+  // Reset all mocks
+  vi.clearAllMocks();
+});
