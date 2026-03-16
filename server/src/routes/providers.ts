@@ -316,13 +316,13 @@ export function createProviderRoutes(db: Database.Database): Router {
 
       const pluginCommands = commandRegistry.getCommandsBySource('plugin');
 
-      const allCommands: SlashCommand[] = [
+      const allCommands = deduplicateCommands([
         ...LOCAL_COMMANDS,
         ...CLI_COMMANDS,
         ...providerCommands,
         ...pluginCommands,
         ...dedupedCustom
-      ];
+      ]);
 
       res.json({ success: true, data: allCommands } as ApiResponse<SlashCommand[]>);
     } catch (error) {
@@ -348,13 +348,13 @@ export function createProviderRoutes(db: Database.Database): Router {
 
       const pluginCommands = commandRegistry.getCommandsBySource('plugin');
 
-      const allCommands: SlashCommand[] = [
+      const allCommands = deduplicateCommands([
         ...LOCAL_COMMANDS,
         ...CLI_COMMANDS,
         ...providerCommands,
         ...pluginCommands,
         ...dedupedCustom
-      ];
+      ]);
 
       res.json({ success: true, data: allCommands } as ApiResponse<SlashCommand[]>);
     } catch (error) {
@@ -975,6 +975,16 @@ async function getOpenCodeCommands(
     console.error('[Commands] Failed to fetch OpenCode commands:', error);
     return [];
   }
+}
+
+/** Deduplicate commands by their command string, keeping the first occurrence. */
+function deduplicateCommands(commands: SlashCommand[]): SlashCommand[] {
+  const seen = new Set<string>();
+  return commands.filter(cmd => {
+    if (seen.has(cmd.command)) return false;
+    seen.add(cmd.command);
+    return true;
+  });
 }
 
 async function getClaudeCommands(

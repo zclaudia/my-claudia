@@ -10,6 +10,14 @@ export class ClaudeAdapter implements ProviderAdapter {
   // Track query handles per session so stopTask() can reach the SDK
   private queryHandles = new Map<string, ClaudeQueryHandle>();
 
+  private rekeySession(oldKey: string, newKey: string, abortController: AbortController, queryHandle: ClaudeQueryHandle): void {
+    if (oldKey === newKey) return;
+    this.abortControllers.delete(oldKey);
+    this.queryHandles.delete(oldKey);
+    this.abortControllers.set(newKey, abortController);
+    this.queryHandles.set(newKey, queryHandle);
+  }
+
   async *run(
     input: string,
     options: RunOptions,
@@ -17,7 +25,7 @@ export class ClaudeAdapter implements ProviderAdapter {
   ): AsyncGenerator<ClaudeMessage, void, void> {
     const abortController = new AbortController();
     const queryHandle: ClaudeQueryHandle = {};
-    const sessionKey = options.sessionId || crypto.randomUUID();
+    let sessionKey = options.sessionId || crypto.randomUUID();
     this.abortControllers.set(sessionKey, abortController);
     this.queryHandles.set(sessionKey, queryHandle);
 
@@ -34,10 +42,15 @@ export class ClaudeAdapter implements ProviderAdapter {
         db: options.db,
         abortController,
         queryHandle,
+        onSessionId: (resolvedSessionId) => {
+          this.rekeySession(sessionKey, resolvedSessionId, abortController, queryHandle);
+          sessionKey = resolvedSessionId;
+        },
       }, onPermission);
     } finally {
       this.abortControllers.delete(sessionKey);
-      this.queryHandles.delete(sessionKey);
+      // Keep queryHandle alive so stopTask() can still reach background tasks
+      // after the run completes. Handle is cleaned up on abort() or next run().
     }
   }
 

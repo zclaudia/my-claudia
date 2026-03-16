@@ -5,7 +5,7 @@
  * Shows installed plugins, allows enable/disable, and shows plugin settings tabs.
  */
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { usePluginStore, selectPluginPanels } from '../stores/pluginStore';
 import type { InstalledPlugin, PluginStatus, UIExtension } from '../stores/pluginStore';
 import { getBaseUrl } from '../services/api';
@@ -68,6 +68,22 @@ export function PluginSettings({ onOpenPluginSettings }: PluginSettingsProps) {
       setError(err instanceof Error ? err.message : 'Failed to toggle plugin');
     }
   }, [plugins, setError]);
+
+  const reloadPlugin = useCallback(async (pluginId: string) => {
+    try {
+      const baseUrl = getBaseUrl();
+      const res = await fetch(`${baseUrl}/api/plugins/${encodeURIComponent(pluginId)}/reload`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setError(data.error?.message || 'Failed to reload plugin');
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to reload plugin');
+    }
+  }, [setError]);
 
   // Filter plugins by search query
   const filteredPlugins = plugins.filter((plugin) =>
@@ -145,6 +161,9 @@ export function PluginSettings({ onOpenPluginSettings }: PluginSettingsProps) {
         </div>
       </div>
 
+      {/* Plugin Directories */}
+      <PluginDirsManager />
+
       {/* Built-in Plugins */}
       {builtinPanels.length > 0 && (
         <div>
@@ -200,6 +219,7 @@ export function PluginSettings({ onOpenPluginSettings }: PluginSettingsProps) {
                     plugin={plugin}
                     onToggle={togglePlugin}
                     onRemove={removePlugin}
+                    onReload={reloadPlugin}
                     onOpenSettings={onOpenPluginSettings}
                   />
                 ))}
@@ -220,6 +240,7 @@ export function PluginSettings({ onOpenPluginSettings }: PluginSettingsProps) {
                     plugin={plugin}
                     onToggle={togglePlugin}
                     onRemove={removePlugin}
+                    onReload={reloadPlugin}
                     onOpenSettings={onOpenPluginSettings}
                   />
                 ))}
@@ -237,11 +258,22 @@ interface PluginCardProps {
   plugin: InstalledPlugin;
   onToggle: (pluginId: string) => void;
   onRemove: (pluginId: string) => void;
+  onReload: (pluginId: string) => void;
   onOpenSettings?: (pluginId: string) => void;
 }
 
-function PluginCard({ plugin, onToggle, onRemove, onOpenSettings }: PluginCardProps) {
+function PluginCard({ plugin, onToggle, onRemove, onReload, onOpenSettings }: PluginCardProps) {
   const [showConfirm, setShowConfirm] = useState(false);
+  const [reloading, setReloading] = useState(false);
+
+  const handleReload = async () => {
+    setReloading(true);
+    try {
+      await onReload(plugin.manifest.id);
+    } finally {
+      setReloading(false);
+    }
+  };
 
   const handleRemove = () => {
     if (showConfirm) {
@@ -309,6 +341,23 @@ function PluginCard({ plugin, onToggle, onRemove, onOpenSettings }: PluginCardPr
               </svg>
             </button>
           )}
+
+          {/* Reload Button */}
+          <button
+            onClick={handleReload}
+            disabled={reloading}
+            className="p-1.5 rounded hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
+            title="Reload plugin"
+          >
+            <svg className={`w-4 h-4 ${reloading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+              />
+            </svg>
+          </button>
 
           {/* Remove Button */}
           <button
@@ -394,6 +443,140 @@ function BuiltinPanelCard({ panel, disabled, onToggle }: BuiltinPanelCardProps) 
           />
         </button>
       </div>
+    </div>
+  );
+}
+
+// Plugin directory manager
+function PluginDirsManager() {
+  const [extraDirs, setExtraDirs] = useState<string[]>([]);
+  const [allDirs, setAllDirs] = useState<string[]>([]);
+  const [newDir, setNewDir] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [collapsed, setCollapsed] = useState(true);
+
+  const fetchDirs = useCallback(async () => {
+    try {
+      const baseUrl = getBaseUrl();
+      const res = await fetch(`${baseUrl}/api/plugins/dirs`);
+      const data = await res.json();
+      if (data.success) {
+        setAllDirs(data.data.dirs);
+        setExtraDirs(data.data.extraDirs);
+      }
+    } catch {
+      // Silently fail on load
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { fetchDirs(); }, [fetchDirs]);
+
+  const saveDirs = async (dirs: string[]) => {
+    setError(null);
+    try {
+      const baseUrl = getBaseUrl();
+      const res = await fetch(`${baseUrl}/api/plugins/dirs`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ dirs }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setAllDirs(data.data.dirs);
+        setExtraDirs(dirs);
+      } else {
+        setError(data.error?.message || 'Failed to save');
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to save');
+    }
+  };
+
+  const handleAdd = () => {
+    const trimmed = newDir.trim();
+    if (!trimmed || extraDirs.includes(trimmed)) return;
+    saveDirs([...extraDirs, trimmed]);
+    setNewDir('');
+  };
+
+  const handleRemove = (dir: string) => {
+    saveDirs(extraDirs.filter(d => d !== dir));
+  };
+
+  if (loading) return null;
+
+  return (
+    <div>
+      <button
+        onClick={() => setCollapsed(!collapsed)}
+        className="flex items-center gap-1 text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2 hover:text-foreground transition-colors"
+      >
+        <svg
+          className={`w-3 h-3 transition-transform ${collapsed ? '' : 'rotate-90'}`}
+          fill="none" stroke="currentColor" viewBox="0 0 24 24"
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+        </svg>
+        Plugin Directories ({allDirs.length})
+      </button>
+
+      {!collapsed && (
+        <div className="space-y-2">
+          {/* Default dirs (read-only) */}
+          {allDirs.filter(d => !extraDirs.includes(d)).map(dir => (
+            <div key={dir} className="flex items-center gap-2 px-3 py-1.5 bg-secondary/30 rounded text-xs font-mono text-muted-foreground">
+              <span className="flex-1 truncate">{dir}</span>
+              <span className="text-[10px] text-muted-foreground/50 shrink-0">default</span>
+            </div>
+          ))}
+
+          {/* Extra dirs (removable) */}
+          {extraDirs.map(dir => (
+            <div key={dir} className="flex items-center gap-2 px-3 py-1.5 bg-secondary/50 rounded text-xs font-mono">
+              <span className="flex-1 truncate">{dir}</span>
+              <button
+                onClick={() => handleRemove(dir)}
+                className="p-0.5 rounded hover:bg-red-500/20 text-muted-foreground hover:text-red-400 transition-colors shrink-0"
+                title="Remove directory"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+          ))}
+
+          {/* Add new */}
+          <div className="flex gap-2">
+            <input
+              type="text"
+              placeholder="/path/to/plugins"
+              value={newDir}
+              onChange={(e) => setNewDir(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
+              className="flex-1 px-3 py-1.5 bg-secondary/50 border border-border rounded text-xs font-mono focus:outline-none focus:ring-1 focus:ring-primary/50"
+            />
+            <button
+              onClick={handleAdd}
+              disabled={!newDir.trim()}
+              className="px-3 py-1.5 bg-primary/20 text-primary text-xs rounded hover:bg-primary/30 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              Add
+            </button>
+          </div>
+
+          {error && (
+            <p className="text-xs text-red-400">{error}</p>
+          )}
+
+          <p className="text-[10px] text-muted-foreground/50">
+            After adding a directory, use Discover to scan for new plugins.
+          </p>
+        </div>
+      )}
     </div>
   );
 }

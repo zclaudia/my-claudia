@@ -62,21 +62,59 @@ export class PluginLoader {
   private broadcastFn: ((msg: any) => void) | null = null;
 
   constructor(options: PluginLoaderOptions = {}) {
-    // Default plugin directories
+    // Default plugin directory: $MY_CLAUDIA_DATA_DIR/plugins (same base as database).
+    // Dev builds (via Tauri appDataDir + '-dev/') automatically get an isolated path.
+    const dataDir = process.env.MY_CLAUDIA_DATA_DIR
+      ? path.resolve(process.env.MY_CLAUDIA_DATA_DIR)
+      : path.join(os.homedir(), '.my-claudia');
     this.pluginDirs = [
-      path.join(os.homedir(), '.claude', 'plugins'),
-      path.join(os.homedir(), '.claudia', 'plugins'),
+      path.join(dataDir, 'plugins'),
       ...(options.pluginDirs || []),
     ];
   }
 
   /**
-   * Add a plugin directory to scan.
+   * Add a plugin directory to scan (runtime only, not persisted).
    */
   addPluginDir(dir: string): void {
     if (!this.pluginDirs.includes(dir)) {
       this.pluginDirs.push(dir);
     }
+  }
+
+  /**
+   * Get the effective list of plugin directories (default + user-configured).
+   */
+  getPluginDirs(): string[] {
+    return [...this.pluginDirs, ...this.getExtraDirsFromDb()];
+  }
+
+  /**
+   * Get user-configured extra plugin directories from the database.
+   */
+  getExtraDirsFromDb(): string[] {
+    if (!this.db) return [];
+    try {
+      const row = this.db.prepare(
+        `SELECT value FROM app_config WHERE key = 'plugin_extra_dirs'`
+      ).get() as { value: string } | undefined;
+      if (!row) return [];
+      const dirs = JSON.parse(row.value);
+      return Array.isArray(dirs) ? dirs : [];
+    } catch {
+      return [];
+    }
+  }
+
+  /**
+   * Save user-configured extra plugin directories to the database.
+   */
+  saveExtraDirs(dirs: string[]): void {
+    if (!this.db) return;
+    this.db.prepare(`
+      INSERT INTO app_config (key, value) VALUES ('plugin_extra_dirs', ?)
+      ON CONFLICT(key) DO UPDATE SET value = excluded.value
+    `).run(JSON.stringify(dirs));
   }
 
   /**
@@ -120,7 +158,7 @@ export class PluginLoader {
   async discover(): Promise<PluginManifest[]> {
     const manifests: PluginManifest[] = [];
 
-    for (const dir of this.pluginDirs) {
+    for (const dir of this.getPluginDirs()) {
       if (!fs.existsSync(dir)) {
         continue;
       }
@@ -329,9 +367,6 @@ export class PluginLoader {
         }
       }
 
-      // Emit activation event
-      await pluginEvents.emit('plugin.activated', { pluginId }, pluginId);
-
       // Load and register contributions
       await this.registerContributions(instance);
 
@@ -348,6 +383,10 @@ export class PluginLoader {
 
       instance.isActive = true;
       console.log(`[PluginLoader] Activated plugin: ${pluginId}`);
+
+      // Emit activation event AFTER isActive is set, so broadcastPluginState() sees correct state
+      await pluginEvents.emit('plugin.activated', { pluginId }, pluginId);
+
       return true;
     } catch (error) {
       instance.error = error instanceof Error ? error.message : String(error);
@@ -441,17 +480,18 @@ export class PluginLoader {
     const contributes = manifest.contributes;
     if (!contributes) return;
 
-    // Register commands
+    // Register commands (normalize: ensure / prefix)
     if (contributes.commands) {
       for (const cmd of contributes.commands) {
+        const normalized = cmd.command.startsWith('/') ? cmd.command : `/${cmd.command}`;
         commandRegistry.register({
-          command: cmd.command,
+          command: normalized,
           description: cmd.title,
           handler: async (args, context) => {
-            // Default handler - plugins can override via module
+            // Default handler - plugins can override via registerCommand()
             return {
               type: 'builtin',
-              command: cmd.command,
+              command: normalized,
               data: { args, category: cmd.category },
             };
           },
@@ -576,6 +616,66 @@ export class PluginLoader {
   }
 
   /**
+   * Reload a plugin: deactivate → clear module cache → re-read manifest → activate.
+   * This enables hot-reload when plugin files on disk have been updated.
+   */
+  async reload(pluginId: string): Promise<boolean> {
+    const instance = this.plugins.get(pluginId);
+    if (!instance) {
+      console.error(`[PluginLoader] Plugin not found: ${pluginId}`);
+      return false;
+    }
+
+    const pluginPath = instance.path;
+    const wasActive = instance.isActive;
+    console.log(`[PluginLoader] Reloading plugin: ${pluginId} from ${pluginPath}`);
+
+    // 1. Deactivate (unregisters contributions, calls deactivate(), stops worker)
+    if (wasActive) {
+      await this.deactivate(pluginId);
+    }
+
+    // 2. Bust Node.js module cache for plugin files.
+    //    ESM: import() caches by URL, so we append ?t=<timestamp> in loadModule.
+    //    CJS: clear require.cache entries under the plugin directory.
+    try {
+      const { createRequire } = await import('module');
+      const cjsRequire = createRequire(import.meta.url);
+      for (const key of Object.keys(cjsRequire.cache)) {
+        if (key.startsWith(pluginPath)) {
+          delete cjsRequire.cache[key];
+        }
+      }
+    } catch {
+      // CJS cache not available — ESM cache busting via ?t= query is sufficient
+    }
+
+    // 3. Re-read manifest from disk (it may have changed)
+    const manifest = await this.loadManifest(pluginPath);
+    if (!manifest) {
+      console.error(`[PluginLoader] Failed to load manifest after reload: ${pluginPath}`);
+      return false;
+    }
+
+    // 4. Update the instance with fresh manifest
+    this.plugins.set(pluginId, {
+      manifest,
+      path: pluginPath,
+      isActive: false,
+      error: undefined,
+      module: undefined,
+    });
+
+    // 5. Re-activate if it was previously active
+    if (wasActive) {
+      return this.activate(pluginId);
+    }
+
+    console.log(`[PluginLoader] Plugin ${pluginId} reloaded (not re-activated — was inactive)`);
+    return true;
+  }
+
+  /**
    * Load a plugin's main module.
    */
   private async loadModule(instance: PluginInstance): Promise<void> {
@@ -598,7 +698,10 @@ export class PluginLoader {
 
     try {
       // Dynamic import (main thread)
-      const module = await import(modulePath);
+      // Append cache-busting query param so re-imports after reload get fresh code.
+      // Node.js ESM loader caches by full URL including query string.
+      const moduleUrl = `${modulePath}?t=${Date.now()}`;
+      const module = await import(moduleUrl);
       instance.module = module;
 
       // Call activate if exported
@@ -656,16 +759,23 @@ export class PluginLoader {
 
       commands: {
         registerCommand: (command: string, handler: any) => {
+          const normalized = command.startsWith('/') ? command : `/${command}`;
+          // Preserve description from manifest contributes if already registered
+          const existing = commandRegistry.get(normalized);
+          const description = (existing?.pluginId === pluginId && existing.description)
+            ? existing.description
+            : `Command from ${pluginId}`;
           commandRegistry.register({
-            command,
-            description: `Command from ${pluginId}`,
+            command: normalized,
+            description,
             handler,
             source: 'plugin',
             pluginId,
           });
         },
         unregisterCommand: (command: string) => {
-          commandRegistry.unregister(command);
+          const normalized = command.startsWith('/') ? command : `/${command}`;
+          commandRegistry.unregister(normalized);
         },
       },
 

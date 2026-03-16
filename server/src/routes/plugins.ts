@@ -96,6 +96,37 @@ export function createPluginRoutes(): Router {
   });
 
   /**
+   * POST /api/plugins/:id/reload
+   * Hot-reload a plugin: deactivate → clear cache → re-read manifest → activate.
+   */
+  router.post('/:id/reload', async (req: Request, res: Response) => {
+    const { id } = req.params;
+
+    if (!pluginLoader.hasPlugin(id)) {
+      res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: `Plugin not found: ${id}` } });
+      return;
+    }
+
+    try {
+      const result = await pluginLoader.reload(id);
+      if (result) {
+        res.json({ success: true, data: { reloaded: true } });
+      } else {
+        const plugin = pluginLoader.getPlugin(id);
+        res.status(400).json({
+          success: false,
+          error: { code: 'RELOAD_FAILED', message: plugin?.error || 'Reload failed' },
+        });
+      }
+    } catch (error) {
+      res.status(500).json({
+        success: false,
+        error: { code: 'INTERNAL_ERROR', message: error instanceof Error ? error.message : String(error) },
+      });
+    }
+  });
+
+  /**
    * POST /api/plugins/:id/permissions/grant
    * Grant permissions to a plugin.
    */
@@ -132,12 +163,69 @@ export function createPluginRoutes(): Router {
   });
 
   /**
+   * GET /api/plugins/dirs
+   * List all plugin scan directories (default + user-configured).
+   */
+  router.get('/dirs', (_req: Request, res: Response) => {
+    res.json({
+      success: true,
+      data: {
+        dirs: pluginLoader.getPluginDirs(),
+        extraDirs: pluginLoader.getExtraDirsFromDb(),
+      },
+    });
+  });
+
+  /**
+   * PUT /api/plugins/dirs
+   * Set user-configured extra plugin directories.
+   */
+  router.put('/dirs', (req: Request, res: Response) => {
+    const { dirs } = req.body;
+    if (!Array.isArray(dirs) || !dirs.every((d: unknown) => typeof d === 'string')) {
+      res.status(400).json({
+        success: false,
+        error: { code: 'INVALID_INPUT', message: 'dirs must be an array of strings' },
+      });
+      return;
+    }
+
+    // Normalize: resolve paths, deduplicate, filter empty
+    const normalized = [...new Set(
+      dirs.map((d: string) => d.trim()).filter(Boolean)
+    )];
+
+    pluginLoader.saveExtraDirs(normalized);
+
+    // Auto-discover and activate new plugins in the updated directories
+    pluginLoader.discover().then(async (manifests) => {
+      for (const manifest of manifests) {
+        const plugin = pluginLoader.getPlugin(manifest.id);
+        if (plugin && !plugin.isActive) {
+          pluginLoader.activate(manifest.id).catch(() => {});
+        }
+      }
+    }).catch(() => {});
+
+    res.json({ success: true, data: { dirs: pluginLoader.getPluginDirs() } });
+  });
+
+  /**
    * POST /api/plugins/discover
    * Re-scan plugin directories to discover new plugins.
    */
   router.post('/discover', async (_req: Request, res: Response) => {
     try {
       const manifests = await pluginLoader.discover();
+
+      // Activate newly discovered plugins
+      for (const manifest of manifests) {
+        const plugin = pluginLoader.getPlugin(manifest.id);
+        if (plugin && !plugin.isActive) {
+          pluginLoader.activate(manifest.id).catch(() => {});
+        }
+      }
+
       res.json({
         success: true,
         data: {

@@ -18,6 +18,7 @@ interface BackendSyncState {
   lastSyncTime: number;
   incrementalInterval: ReturnType<typeof setInterval>;
   fullSyncInterval: ReturnType<typeof setInterval>;
+  missingSyncRequestUrlLogged: boolean;
 }
 
 // Track sync state for each backend
@@ -76,9 +77,10 @@ async function checkAndFillMessageGaps(sessions: RemoteSession[]): Promise<void>
 }
 
 /**
- * Get the base URL for a backend (gateway or direct)
+ * Get the HTTP base URL used for session sync requests.
+ * For gateway targets this is a proxy URL, not the backend's raw origin.
  */
-function getBaseUrl(targetBackendId?: string): string | null {
+function getSyncRequestBaseUrl(targetBackendId?: string): string | null {
   if (targetBackendId) {
     if (isGatewayTarget(targetBackendId)) {
       const backendId = parseBackendId(targetBackendId);
@@ -151,13 +153,19 @@ async function incrementalSync(backendId: string): Promise<void> {
     const state = syncStates.get(backendId);
     if (!state) return;
 
-    const baseUrl = getBaseUrl(backendId);
-    if (!baseUrl) {
-      console.warn('[SessionSync] No base URL available');
+    const requestBaseUrl = getSyncRequestBaseUrl(backendId);
+    if (!requestBaseUrl) {
+      if (!state.missingSyncRequestUrlLogged) {
+        console.debug(
+          `[SessionSync] Skipping incremental sync for ${backendId}: no request URL available yet`
+        );
+        state.missingSyncRequestUrlLogged = true;
+      }
       return;
     }
+    state.missingSyncRequestUrlLogged = false;
 
-    const url = `${baseUrl}/api/sessions/sync?since=${state.lastSyncTime}`;
+    const url = `${requestBaseUrl}/api/sessions/sync?since=${state.lastSyncTime}`;
     const response = await fetch(url, {
       headers: {
         'Content-Type': 'application/json',
@@ -224,14 +232,20 @@ async function fullSync(backendId: string): Promise<void> {
     const state = syncStates.get(backendId);
     if (!state) return;
 
-    const baseUrl = getBaseUrl(backendId);
-    if (!baseUrl) {
-      console.warn('[SessionSync] No base URL available');
+    const requestBaseUrl = getSyncRequestBaseUrl(backendId);
+    if (!requestBaseUrl) {
+      if (!state.missingSyncRequestUrlLogged) {
+        console.debug(
+          `[SessionSync] Skipping full sync for ${backendId}: no request URL available yet`
+        );
+        state.missingSyncRequestUrlLogged = true;
+      }
       return;
     }
+    state.missingSyncRequestUrlLogged = false;
 
     // Request all sessions (since=0)
-    const url = `${baseUrl}/api/sessions/sync?since=0`;
+    const url = `${requestBaseUrl}/api/sessions/sync?since=0`;
     const response = await fetch(url, {
       headers: {
         'Content-Type': 'application/json',
@@ -358,6 +372,7 @@ export function startSessionSync(backendId: string): void {
     lastSyncTime: 0,
     incrementalInterval,
     fullSyncInterval,
+    missingSyncRequestUrlLogged: false,
   });
 }
 

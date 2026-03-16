@@ -32,6 +32,7 @@ export interface ClaudeRunOptions {
   db?: import('better-sqlite3').Database;  // Database for Claudia-managed MCP servers
   abortController?: AbortController;  // External abort controller for cancellation
   queryHandle?: ClaudeQueryHandle;  // Mutable handle — runClaude populates stopTask when query starts
+  onSessionId?: (sessionId: string) => void;  // Called when SDK reports the active session ID
 }
 
 export interface PermissionDecision {
@@ -426,10 +427,16 @@ export async function* runClaude(
           // transformMessage can return a single message or array of messages
           if (Array.isArray(transformed)) {
             for (const msg of transformed) {
+              if (msg.type === 'init' && msg.sessionId) {
+                options.onSessionId?.(msg.sessionId);
+              }
               if (msg.type !== 'init') producedOutput = true;
               yield msg;
             }
           } else {
+            if (transformed.type === 'init' && transformed.sessionId) {
+              options.onSessionId?.(transformed.sessionId);
+            }
             if (transformed.type !== 'init') producedOutput = true;
             yield transformed;
           }

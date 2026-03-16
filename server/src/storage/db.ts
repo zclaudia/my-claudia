@@ -875,6 +875,15 @@ function runMigrations(db: Database.Database): void {
         );
         CREATE INDEX IF NOT EXISTS idx_session_drafts_session ON session_drafts(session_id);
       `
+    },
+    {
+      name: '041_app_config',
+      sql: `
+        CREATE TABLE IF NOT EXISTS app_config (
+          key TEXT PRIMARY KEY,
+          value TEXT NOT NULL
+        );
+      `
     }
   ];
 

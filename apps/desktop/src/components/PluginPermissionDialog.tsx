@@ -77,6 +77,8 @@ export function PluginPermissionDialog() {
     setRemember(false);
   }, [pendingPermissionRequest, remember, sendMessage, setPendingPermissionRequest]);
 
+  useAndroidBack(() => handleDecision(false), !!pendingPermissionRequest, 45);
+
   if (!pendingPermissionRequest) return null;
 
   // Sort permissions by risk level (dangerous first)
@@ -85,8 +87,6 @@ export function PluginPermissionDialog() {
   );
 
   const maxLevel = Math.max(...sortedPermissions.map(p => PERMISSION_LEVELS[p] || 1));
-
-  useAndroidBack(() => handleDecision(false), !!pendingPermissionRequest, 45);
 
   return (
     <>

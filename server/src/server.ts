@@ -1527,20 +1527,42 @@ async function handleClientMessage(
 
     case 'stop_background_task': {
       const { sessionId: targetSessionId, taskId } = message;
-      // Find the active run for this session
+
+      // First try active run (if the run that spawned the task is still running)
       const targetRun = [...activeRuns.values()].find(r => r.sessionId === targetSessionId);
-      if (targetRun?.providerType) {
+      if (targetRun?.providerType && targetRun.providerSessionId) {
         const adapter = providerRegistry.get(targetRun.providerType);
-        if (adapter?.stopTask && targetRun.providerSessionId) {
+        if (adapter?.stopTask) {
           adapter.stopTask(targetRun.providerSessionId, taskId).catch(err => {
             console.error(`[StopTask] Failed to stop task ${taskId}:`, err);
           });
-        } else {
-          console.warn(`[StopTask] Provider ${targetRun.providerType} does not support stopTask`);
+          break;
         }
-      } else {
-        console.warn(`[StopTask] Ignoring stop for task ${taskId} in session ${targetSessionId} — no active run to target precisely`);
       }
+
+      // Fallback: look up provider info from DB (run may have completed but queryHandle is still alive)
+      const sessionInfo = db.prepare(`
+        SELECT s.sdk_session_id, COALESCE(s.provider_id, p.provider_id) as provider_id
+        FROM sessions s
+        LEFT JOIN projects p ON s.project_id = p.id
+        WHERE s.id = ?
+      `).get(targetSessionId) as { sdk_session_id: string | null; provider_id: string | null } | undefined;
+
+      if (sessionInfo?.sdk_session_id && sessionInfo.provider_id) {
+        const providerRow = db.prepare('SELECT type FROM providers WHERE id = ?')
+          .get(sessionInfo.provider_id) as { type: string } | undefined;
+        if (providerRow) {
+          const adapter = providerRegistry.get(providerRow.type);
+          if (adapter?.stopTask) {
+            adapter.stopTask(sessionInfo.sdk_session_id, taskId).catch(err => {
+              console.error(`[StopTask] Failed to stop task ${taskId}:`, err);
+            });
+            break;
+          }
+        }
+      }
+
+      console.warn(`[StopTask] Cannot stop task ${taskId} in session ${targetSessionId} — no provider session found`);
       break;
     }
 

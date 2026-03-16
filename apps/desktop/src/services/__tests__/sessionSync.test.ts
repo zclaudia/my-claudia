@@ -571,8 +571,8 @@ describe('services/sessionSync', () => {
     });
   });
 
-  describe('getBaseUrl variations', () => {
-    it('uses gateway URL for gateway target backends', async () => {
+  describe('getSyncRequestBaseUrl variations', () => {
+    it('uses gateway proxy URL for gateway target backends', async () => {
       const { startSessionSync, stopSessionSync, eagerSyncAllBackends } = await import('../sessionSync.js');
       const gatewayStore = await import('../../stores/gatewayStore.js');
 
@@ -892,8 +892,8 @@ describe('services/sessionSync', () => {
       mod.stopSessionSync();
     });
 
-    it('returns early when no base URL available', async () => {
-      const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    it('returns early when no sync request URL is available', async () => {
+      const consoleDebugSpy = vi.spyOn(console, 'debug').mockImplementation(() => {});
 
       const fetchMock = vi.fn().mockResolvedValue({
         ok: true,
@@ -911,11 +911,12 @@ describe('services/sessionSync', () => {
         },
       });
 
-      // fullSync should have warned about no base URL (incrementalSync also warns)
-      expect(consoleWarnSpy).toHaveBeenCalledWith('[SessionSync] No base URL available');
+      expect(consoleDebugSpy).toHaveBeenCalledWith(
+        expect.stringContaining('[SessionSync] Skipping')
+      );
 
       mod.stopSessionSync();
-      consoleWarnSpy.mockRestore();
+      consoleDebugSpy.mockRestore();
     });
   });
 
@@ -1307,7 +1308,7 @@ describe('services/sessionSync', () => {
     });
   });
 
-  describe('getBaseUrl fallback path (no targetBackendId)', () => {
+  describe('getSyncRequestBaseUrl fallback path (no targetBackendId)', () => {
     afterEach(() => {
       vi.useRealTimers();
     });
@@ -1317,7 +1318,7 @@ describe('services/sessionSync', () => {
       const { startSessionSync, stopSessionSync } = await import('../sessionSync.js');
       const { useServerStore } = await import('../../stores/serverStore.js');
       const { useProjectStore } = await import('../../stores/projectStore.js');
-      const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const consoleDebugSpy = vi.spyOn(console, 'debug').mockImplementation(() => {});
 
       (useServerStore.getState as any).mockReturnValue({
         activeServerId: null,
@@ -1329,15 +1330,17 @@ describe('services/sessionSync', () => {
       global.fetch = vi.fn();
 
       startSessionSync('unknown-backend');
-      // Trigger incremental sync to exercise getBaseUrl
+      // Trigger incremental sync to exercise getSyncRequestBaseUrl
       await vi.advanceTimersByTimeAsync(30000);
 
-      // fetch should not have been called since no base URL
+      // fetch should not have been called since no request URL
       expect(global.fetch).not.toHaveBeenCalled();
-      expect(consoleWarnSpy).toHaveBeenCalledWith('[SessionSync] No base URL available');
+      expect(consoleDebugSpy).toHaveBeenCalledWith(
+        '[SessionSync] Skipping incremental sync for unknown-backend: no request URL available yet'
+      );
 
       stopSessionSync();
-      consoleWarnSpy.mockRestore();
+      consoleDebugSpy.mockRestore();
     });
 
     it('uses address without protocol by prepending http://', async () => {

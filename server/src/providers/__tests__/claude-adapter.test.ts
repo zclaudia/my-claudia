@@ -55,7 +55,7 @@ describe('ClaudeAdapter', () => {
         messages.push(msg);
       }
 
-      expect(runClaude).toHaveBeenCalledWith('Hello', {
+      expect(runClaude).toHaveBeenCalledWith('Hello', expect.objectContaining({
         cwd: '/project',
         sessionId: 'resume-session-123',
         cliPath: '/custom/claude',
@@ -63,7 +63,10 @@ describe('ClaudeAdapter', () => {
         permissionMode: 'auto',
         model: 'claude-3-sonnet',
         systemPrompt: 'Custom system prompt',
-      }, permissionCallback);
+        abortController: expect.any(AbortController),
+        queryHandle: expect.any(Object),
+        onSessionId: expect.any(Function),
+      }), permissionCallback);
 
       expect(messages).toHaveLength(2);
       expect(messages[0].type).toBe('init');
@@ -139,6 +142,27 @@ describe('ClaudeAdapter', () => {
       }
 
       expect(messages).toEqual(mockMessages);
+    });
+
+    it('rekeys stopTask handle when SDK assigns a new session id', async () => {
+      const stopTask = vi.fn().mockResolvedValue(undefined);
+      vi.mocked(runClaude).mockImplementation(async function* (_input, options) {
+        options.queryHandle!.stopTask = stopTask;
+        options.onSessionId?.('sdk-session-123');
+        yield { type: 'init', sessionId: 'sdk-session-123' };
+        yield { type: 'result', isComplete: true };
+      });
+
+      const permissionCallback = vi.fn<[], Promise<PermissionDecision>>().mockResolvedValue({
+        behavior: 'allow',
+      });
+
+      for await (const _ of adapter.run('Hello', { cwd: '/project' }, permissionCallback)) {
+        // consume
+      }
+
+      await adapter.stopTask('sdk-session-123', 'task-1');
+      expect(stopTask).toHaveBeenCalledWith('task-1');
     });
   });
 });
