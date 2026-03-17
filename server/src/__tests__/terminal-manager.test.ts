@@ -192,6 +192,30 @@ describe('TerminalManager', () => {
     });
   });
 
+  describe('detachClient', () => {
+    it('detaches terminals without killing the PTY', () => {
+      manager.create('term-1', 'client-1', '/tmp', 80, 24);
+      vi.clearAllMocks();
+
+      manager.detachClient('client-1');
+      mockOnDataCallback?.('buffered output');
+
+      expect(mockPtyKill).not.toHaveBeenCalled();
+      expect(sentMessages).toHaveLength(0);
+
+      manager.attach('term-1', 'client-2', 100, 30);
+      expect(mockPtyResize).toHaveBeenCalledWith(100, 30);
+
+      mockOnDataCallback?.('live output');
+      expect(sentMessages).toEqual([
+        {
+          clientId: 'client-2',
+          msg: { type: 'terminal_output', terminalId: 'term-1', data: 'live output' },
+        },
+      ]);
+    });
+  });
+
   describe('destroyAll', () => {
     it('destroys all terminals', () => {
       manager.create('term-1', 'client-1', '/tmp', 80, 24);

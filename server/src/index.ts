@@ -136,7 +136,12 @@ async function connectToGateway(config: GatewayConfig): Promise<void> {
       virtualClient = createVirtualClient(clientId, {
         send: (msg: ServerMessage) => {
           // Terminal messages target the specific client, not broadcast
-          if (msg.type === 'terminal_output' || msg.type === 'terminal_opened' || msg.type === 'terminal_exited') {
+          if (
+            msg.type === 'terminal_output' ||
+            msg.type === 'terminal_opened' ||
+            msg.type === 'terminal_exited' ||
+            msg.type === 'terminal_attached'
+          ) {
             gatewayClient?.sendToClient(clientId, msg);
           } else {
             gatewayClient?.broadcast(msg);
@@ -157,7 +162,7 @@ async function connectToGateway(config: GatewayConfig): Promise<void> {
   gatewayClient.onClientDisconnected((clientId) => {
     virtualClients.delete(clientId);
     connectedClients.delete(clientId);
-    serverContext!.terminalManager.destroyForClient(clientId);
+    serverContext!.terminalManager.detachClient(clientId);
     console.log(`[Gateway] Cleaned up virtual client: ${clientId}`);
   });
 

@@ -946,7 +946,7 @@ export async function createServer(): Promise<ServerContext> {
     ws.on('close', () => {
       console.log(`Client disconnected: ${clientId}`);
       clients.delete(clientId);
-      terminalManager.destroyForClient(clientId);
+      terminalManager.detachClient(clientId);
 
       // Don't cancel active runs on disconnect — let them continue running.
       // The client may be refreshing or reconnecting. Orphaned runs will be
@@ -2926,17 +2926,30 @@ function handleAskUserAnswer(message: {
       pending.resolve({ behavior: 'deny', message: message.formattedAnswer });
 
       // Broadcast resolution to all clients
+      const resolvedEvent = {
+        type: 'interaction_resolved',
+        interactionId: message.requestId,
+        sessionId: run.sessionId,
+      } as import('@my-claudia/shared').InteractionResolvedMessage;
+
       sendMessage(run.client.ws, {
         type: 'ask_user_question_resolved',
         requestId: message.requestId,
         sessionId: run.sessionId,
       } as any);
+      if (connectedClients.size > 0) {
+        broadcastToOtherAuthenticatedClients(connectedClients, run.clientId, {
+          type: 'ask_user_question_resolved',
+          requestId: message.requestId,
+          sessionId: run.sessionId,
+        } as any);
+      }
+
       // Phase 1: Emit parallel interaction_resolved event
-      sendMessage(run.client.ws, {
-        type: 'interaction_resolved',
-        interactionId: message.requestId,
-        sessionId: run.sessionId,
-      } as import('@my-claudia/shared').InteractionResolvedMessage);
+      sendMessage(run.client.ws, resolvedEvent);
+      if (connectedClients.size > 0) {
+        broadcastToOtherAuthenticatedClients(connectedClients, run.clientId, resolvedEvent);
+      }
 
       console.log(`[AskUser] ${message.requestId}: answered - resolved!`);
       return;
