@@ -56,14 +56,33 @@ const mockServerStore = {
   activeServerId: null as string | null,
   servers: [],
   setLocalServerPort: vi.fn(),
+  setActiveServer: vi.fn(),
   getActiveServerConnection: vi.fn(() => null),
   connections: {},
 };
 
 vi.mock('../../stores/serverStore', () => ({
-  useServerStore: {
-    getState: () => mockServerStore,
+  useServerStore: Object.assign(
+    () => ({}),
+    {
+      getState: () => mockServerStore,
+      setState: vi.fn((partial: any) => Object.assign(mockServerStore, partial)),
+    },
+  ),
+}));
+
+const mockGatewayStore = {
+  discoveredBackends: [],
+  localBackendId: null as string | null,
+  isConnected: false,
+  syncFromServer: vi.fn(),
+};
+
+vi.mock('../../stores/gatewayStore', () => ({
+  useGatewayStore: {
+    getState: () => mockGatewayStore,
   },
+  isGatewayTarget: (serverId?: string | null) => !!serverId && serverId.startsWith('gw:'),
 }));
 
 vi.mock('../../utils/crypto', () => ({
@@ -76,6 +95,12 @@ describe('ConnectionContext', () => {
     vi.clearAllMocks();
     mockPermissionStore.pendingRequests = [];
     mockAskUserStore.pendingRequests = [];
+    mockServerStore.activeServerId = null;
+    mockServerStore.servers = [];
+    mockServerStore.connections = {};
+    mockGatewayStore.discoveredBackends = [];
+    mockGatewayStore.localBackendId = null;
+    mockGatewayStore.isConnected = false;
   });
 
   afterEach(() => {
@@ -275,6 +300,62 @@ describe('ConnectionContext', () => {
     renderHook(() => useConnection(), { wrapper });
 
     expect(mockServerStore.setLocalServerPort).toHaveBeenCalledWith(4321);
+  });
+
+  it('activates standalone server and seeds direct server metadata', async () => {
+    const { useServerStore } = await import('../../stores/serverStore');
+
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <ConnectionProvider
+        standaloneServerUrl="http://remote.example.com:7788"
+        standaloneServerId="remote-1"
+        standaloneServerName="Remote One"
+      >
+        {children}
+      </ConnectionProvider>
+    );
+
+    renderHook(() => useConnection(), { wrapper });
+
+    expect(mockServerStore.setActiveServer).toHaveBeenCalledWith('remote-1');
+    expect((useServerStore as any).setState).toHaveBeenCalledWith({
+      servers: [
+        {
+          id: 'remote-1',
+          name: 'Remote One',
+          address: 'remote.example.com:7788',
+          isDefault: false,
+          createdAt: expect.any(Number),
+          lastConnected: undefined,
+          clientId: undefined,
+          connectionMode: undefined,
+        },
+      ],
+    });
+  });
+
+  it('seeds standalone gateway runtime config for remote pop-out windows', () => {
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <ConnectionProvider
+        standaloneServerUrl="http://127.0.0.1:43123/api/gateway-proxy/backend-1"
+        standaloneServerId="gw:backend-1"
+        standaloneGatewayUrl="wss://gateway.example.com"
+        standaloneGatewaySecret="secret-1"
+      >
+        {children}
+      </ConnectionProvider>
+    );
+
+    renderHook(() => useConnection(), { wrapper });
+
+    expect(mockServerStore.setActiveServer).toHaveBeenCalledWith('gw:backend-1');
+    expect(mockGatewayStore.syncFromServer).toHaveBeenCalledWith(
+      'wss://gateway.example.com',
+      'secret-1',
+      [],
+      null,
+      false,
+    );
   });
 
   it('encrypts credential when encryption is available', async () => {

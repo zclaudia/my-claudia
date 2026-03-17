@@ -14,6 +14,7 @@ async function openSessionInNewWindow(sessionId: string, projectId: string) {
     const serverUrl = getBaseUrl();
     const authToken = (getAuthHeaders() as Record<string, string>)['Authorization'] || '';
     const activeServerId = useServerStore.getState().activeServerId || '';
+    const gatewayState = useGatewayStore.getState();
     const params = new URLSearchParams({
       sessionWindow: sessionId,
       projectId,
@@ -21,6 +22,10 @@ async function openSessionInNewWindow(sessionId: string, projectId: string) {
       authToken,
       ...(activeServerId ? { serverId: activeServerId } : {}),
     });
+    if (isGatewayTarget(activeServerId) && gatewayState.gatewayUrl && gatewayState.gatewaySecret) {
+      params.set('gatewayUrl', gatewayState.gatewayUrl);
+      params.set('gatewaySecret', gatewayState.gatewaySecret);
+    }
     new WebviewWindow(label, {
       url: `${window.location.origin}${window.location.pathname}?${params}`,
       title: 'Session',
@@ -43,7 +48,7 @@ async function openSessionInNewWindow(sessionId: string, projectId: string) {
 }
 import { useProjectStore } from '../stores/projectStore';
 import { useServerStore } from '../stores/serverStore';
-import { toGatewayServerId } from '../stores/gatewayStore';
+import { toGatewayServerId, isGatewayTarget, useGatewayStore } from '../stores/gatewayStore';
 import { useSupervisionStore } from '../stores/supervisionStore';
 import { usePermissionStore } from '../stores/permissionStore';
 import { useAskUserQuestionStore } from '../stores/askUserQuestionStore';

@@ -5,6 +5,7 @@ import { useWslServer, type WslServerState } from '../hooks/useWslServer';
 import { usePermissionStore } from '../stores/permissionStore';
 import { useAskUserQuestionStore } from '../stores/askUserQuestionStore';
 import { useServerStore } from '../stores/serverStore';
+import { useGatewayStore, isGatewayTarget } from '../stores/gatewayStore';
 import { encryptCredential, isEncryptionAvailable } from '../utils/crypto';
 import type { ClientMessage } from '@my-claudia/shared';
 
@@ -37,7 +38,23 @@ interface ConnectionContextValue {
 
 export const ConnectionContext = createContext<ConnectionContextValue | null>(null);
 
-export function ConnectionProvider({ children, standaloneServerUrl }: { children: ReactNode; standaloneServerUrl?: string }) {
+interface ConnectionProviderProps {
+  children: ReactNode;
+  standaloneServerUrl?: string;
+  standaloneServerId?: string;
+  standaloneServerName?: string;
+  standaloneGatewayUrl?: string;
+  standaloneGatewaySecret?: string;
+}
+
+export function ConnectionProvider({
+  children,
+  standaloneServerUrl,
+  standaloneServerId,
+  standaloneServerName,
+  standaloneGatewayUrl,
+  standaloneGatewaySecret,
+}: ConnectionProviderProps) {
   // On desktop, spawn an embedded server with a random port.
   // Skip when standaloneServerUrl is provided (standalone window connects to existing server).
   const embeddedServer = useEmbeddedServer({ disabled: !!standaloneServerUrl });
@@ -63,6 +80,59 @@ export function ConnectionProvider({ children, standaloneServerUrl }: { children
       if (port) useServerStore.getState().setLocalServerPort(port);
     } catch { /* ignore malformed URL */ }
   }, [standaloneServerUrl]);
+
+  // Seed standalone windows with an explicit server target so they don't depend
+  // on the main window's in-memory server selection.
+  useEffect(() => {
+    if (!standaloneServerId) return;
+
+    if (!isGatewayTarget(standaloneServerId) && standaloneServerUrl) {
+      try {
+        const raw = standaloneServerUrl.startsWith('http') ? standaloneServerUrl : `http://${standaloneServerUrl}`;
+        const url = new URL(raw);
+        const address = url.host;
+        const state = useServerStore.getState();
+        const existing = state.servers.find((server) => server.id === standaloneServerId);
+        const nextServer = {
+          id: standaloneServerId,
+          name: standaloneServerName || existing?.name || 'Remote Server',
+          address,
+          isDefault: existing?.isDefault || false,
+          createdAt: existing?.createdAt || Date.now(),
+          lastConnected: existing?.lastConnected,
+          clientId: existing?.clientId,
+          connectionMode: existing?.connectionMode,
+        };
+
+        if (!existing || existing.address !== address || (standaloneServerName && existing.name !== standaloneServerName)) {
+          useServerStore.setState({
+            servers: [
+              ...state.servers.filter((server) => server.id !== standaloneServerId),
+              nextServer,
+            ],
+          });
+        }
+      } catch {
+        // Ignore malformed standalone server URL.
+      }
+    }
+
+    useServerStore.getState().setActiveServer(standaloneServerId);
+  }, [standaloneServerId, standaloneServerName, standaloneServerUrl]);
+
+  // Seed gateway runtime config for standalone windows so remote pop-outs can
+  // connect immediately without waiting for local polling state to hydrate.
+  useEffect(() => {
+    if (!standaloneGatewayUrl || !standaloneGatewaySecret) return;
+    const gatewayState = useGatewayStore.getState();
+    gatewayState.syncFromServer(
+      standaloneGatewayUrl,
+      standaloneGatewaySecret,
+      gatewayState.discoveredBackends,
+      gatewayState.localBackendId,
+      gatewayState.isConnected,
+    );
+  }, [standaloneGatewayUrl, standaloneGatewaySecret]);
 
   // Use the multi-server socket hook that manages multiple connections
   const socket = useMultiServerSocket();

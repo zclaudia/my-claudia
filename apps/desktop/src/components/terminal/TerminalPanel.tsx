@@ -2,6 +2,7 @@ import { useCallback } from 'react';
 import { useTerminalStore } from '../../stores/terminalStore';
 import { usePluginStore } from '../../stores/pluginStore';
 import { useServerStore } from '../../stores/serverStore';
+import { isGatewayTarget, useGatewayStore } from '../../stores/gatewayStore';
 import { useIsMobile } from '../../hooks/useMediaQuery';
 import { useConnection } from '../../contexts/ConnectionContext';
 import { XTerminal } from './XTerminal';
@@ -38,6 +39,7 @@ async function openTerminalInNewWindow(terminalId: string, projectId: string) {
   const activeServerId = serverState.activeServerId || '';
   const activeServer = serverState.getActiveServer();
   const serverName = activeServer?.name || '';
+  const gatewayState = useGatewayStore.getState();
 
   const params = new URLSearchParams({
     terminalWindow: terminalId,
@@ -47,6 +49,10 @@ async function openTerminalInNewWindow(terminalId: string, projectId: string) {
   if (authToken) params.set('authToken', authToken);
   if (activeServerId) params.set('serverId', activeServerId);
   if (serverName) params.set('serverName', serverName);
+  if (isGatewayTarget(activeServerId) && gatewayState.gatewayUrl && gatewayState.gatewaySecret) {
+    params.set('gatewayUrl', gatewayState.gatewayUrl);
+    params.set('gatewaySecret', gatewayState.gatewaySecret);
+  }
   const url = `${window.location.origin}${window.location.pathname}?${params}`;
 
   // Build descriptive title: "Terminal — ServerName · projectId"

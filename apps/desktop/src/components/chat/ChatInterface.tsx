@@ -20,6 +20,7 @@ import { useServerStore } from '../../stores/serverStore';
 import { useTerminalStore } from '../../stores/terminalStore';
 import { useBottomPanelStore } from '../../stores/bottomPanelStore';
 import { useUIStore } from '../../stores/uiStore';
+import { isGatewayTarget, useGatewayStore } from '../../stores/gatewayStore';
 import { useFileViewerStore } from '../../stores/fileViewerStore';
 import { usePluginStore } from '../../stores/pluginStore';
 import { usePermissionStore } from '../../stores/permissionStore';
@@ -1629,6 +1630,7 @@ export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar }:
 
       const activeServer = useServerStore.getState().getActiveServer();
       const serverName = activeServer?.name || '';
+      const gatewayState = useGatewayStore.getState();
 
       const urlParams = new URLSearchParams({
         sessionWindow: sessionId,
@@ -1638,6 +1640,10 @@ export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar }:
         ...(activeServerId ? { serverId: activeServerId } : {}),
         ...(serverName ? { serverName } : {}),
       });
+      if (isGatewayTarget(activeServerId) && gatewayState.gatewayUrl && gatewayState.gatewaySecret) {
+        urlParams.set('gatewayUrl', gatewayState.gatewayUrl);
+        urlParams.set('gatewaySecret', gatewayState.gatewaySecret);
+      }
 
       const winUrl = `${window.location.origin}${window.location.pathname}?${urlParams}`;
 

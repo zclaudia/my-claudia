@@ -3,7 +3,6 @@ import { Loader2 } from 'lucide-react';
 import { ConnectionProvider, useConnection } from '../../contexts/ConnectionContext';
 import { WindowContextBar } from '../chat/SessionChatWindow';
 import { XTerminal } from './XTerminal';
-import { useServerStore } from '../../stores/serverStore';
 
 /** Notify main window when this terminal window closes */
 function useWindowCloseSync(terminalId: string) {
@@ -38,30 +37,42 @@ interface TerminalWindowProps {
   authToken: string;
   serverId?: string;
   serverName?: string;
+  gatewayUrl?: string;
+  gatewaySecret?: string;
 }
 
 /** Standalone terminal window rendered in a separate Tauri window */
-export function TerminalWindow({ terminalId, projectId, serverUrl, serverId, serverName }: TerminalWindowProps) {
+export function TerminalWindow({
+  terminalId,
+  projectId,
+  serverUrl,
+  authToken: _authToken,
+  serverId,
+  serverName,
+  gatewayUrl,
+  gatewaySecret,
+}: TerminalWindowProps) {
   return (
     <div className="flex flex-col h-dvh bg-background text-foreground">
       {serverName && (
         <WindowContextBar serverName={serverName} projectId={projectId} />
       )}
-      <ConnectionProvider standaloneServerUrl={serverUrl}>
-        <TerminalWindowContent terminalId={terminalId} projectId={projectId} serverId={serverId} />
+      <ConnectionProvider
+        standaloneServerUrl={serverUrl}
+        standaloneServerId={serverId}
+        standaloneServerName={serverName}
+        standaloneGatewayUrl={gatewayUrl}
+        standaloneGatewaySecret={gatewaySecret}
+      >
+        <TerminalWindowContent terminalId={terminalId} projectId={projectId} />
       </ConnectionProvider>
     </div>
   );
 }
 
-function TerminalWindowContent({ terminalId, projectId, serverId }: { terminalId: string; projectId: string; serverId?: string }) {
+function TerminalWindowContent({ terminalId, projectId }: { terminalId: string; projectId: string }) {
   useWindowCloseSync(terminalId);
   const { isConnected } = useConnection();
-
-  useEffect(() => {
-    if (!serverId) return;
-    useServerStore.getState().setActiveServer(serverId);
-  }, [serverId]);
 
   if (!isConnected) {
     return (

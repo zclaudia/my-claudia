@@ -458,6 +458,8 @@ function App() {
     const authToken = params.get('authToken') || '';
     const serverId = params.get('serverId') || undefined;
     const serverName = params.get('serverName') || undefined;
+    const gatewayUrl = params.get('gatewayUrl') || undefined;
+    const gatewaySecret = params.get('gatewaySecret') || undefined;
     return (
       <ThemeProvider defaultTheme="dark-neutral">
         <SessionChatWindow
@@ -467,6 +469,8 @@ function App() {
           authToken={authToken}
           serverId={serverId}
           serverName={serverName}
+          gatewayUrl={gatewayUrl}
+          gatewaySecret={gatewaySecret}
         />
       </ThemeProvider>
     );
@@ -480,6 +484,8 @@ function App() {
     const authToken = params.get('authToken') || '';
     const serverId = params.get('serverId') || undefined;
     const serverName = params.get('serverName') || undefined;
+    const gatewayUrl = params.get('gatewayUrl') || undefined;
+    const gatewaySecret = params.get('gatewaySecret') || undefined;
     return (
       <ThemeProvider defaultTheme="dark-neutral">
         <TerminalWindow
@@ -489,6 +495,8 @@ function App() {
           authToken={authToken}
           serverId={serverId}
           serverName={serverName}
+          gatewayUrl={gatewayUrl}
+          gatewaySecret={gatewaySecret}
         />
       </ThemeProvider>
     );

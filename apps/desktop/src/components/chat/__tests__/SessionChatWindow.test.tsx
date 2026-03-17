@@ -44,6 +44,9 @@ vi.stubGlobal('__TAURI_INTERNALS__', {
     windows: {},
   },
 });
+vi.stubGlobal('__TAURI_EVENT_PLUGIN_INTERNALS__', {
+  unregisterListener: vi.fn(),
+});
 vi.mock('@tauri-apps/api/dpi', () => ({
   PhysicalSize: class PhysicalSize {
     width = 0;
@@ -73,8 +76,14 @@ vi.mock('../ChatInterface', () => ({
 
 // Mock ConnectionContext provider
 vi.mock('../../../contexts/ConnectionContext', () => ({
-  ConnectionProvider: ({ children, standaloneServerUrl }: any) => (
-    <div data-testid="connection-provider" data-server-url={standaloneServerUrl}>
+  ConnectionProvider: ({ children, standaloneServerUrl, standaloneServerId, standaloneGatewayUrl, standaloneGatewaySecret }: any) => (
+    <div
+      data-testid="connection-provider"
+      data-server-url={standaloneServerUrl}
+      data-server-id={standaloneServerId}
+      data-gateway-url={standaloneGatewayUrl}
+      data-gateway-secret={standaloneGatewaySecret}
+    >
       {children}
     </div>
   ),
@@ -194,6 +203,25 @@ describe('SessionChatWindow', () => {
     expect(provider?.getAttribute('data-server-url')).toBe('http://localhost:3100');
   });
 
+  it('passes remote gateway context into ConnectionProvider', () => {
+    const { container } = render(
+      <SessionChatWindow
+        sessionId="sess-1"
+        projectId="proj-1"
+        serverUrl="http://127.0.0.1:43123/api/gateway-proxy/backend-1"
+        authToken="test-token"
+        serverId="gw:backend-1"
+        serverName="Remote Backend"
+        gatewayUrl="wss://gateway.example.com"
+        gatewaySecret="secret-1"
+      />
+    );
+    const provider = container.querySelector('[data-testid="connection-provider"]');
+    expect(provider?.getAttribute('data-server-id')).toBe('gw:backend-1');
+    expect(provider?.getAttribute('data-gateway-url')).toBe('wss://gateway.example.com');
+    expect(provider?.getAttribute('data-gateway-secret')).toBe('secret-1');
+  });
+
   it('shows loading spinner when not connected', () => {
     const { container } = render(
       <SessionChatWindow
@@ -232,7 +260,6 @@ describe('SessionChatWindow', () => {
     expect(mockSetProviders).toHaveBeenCalled();
     expect(mockSelectProject).toHaveBeenCalledWith('proj-1');
     expect(mockSelectSession).toHaveBeenCalledWith('sess-1');
-    expect(mockSetActiveServer).toHaveBeenCalledWith('gw:backend-1');
   });
 
   it('passes sessionId to ChatInterface', async () => {

@@ -99,10 +99,21 @@ interface SessionChatWindowProps {
   authToken: string;
   serverId?: string;
   serverName?: string;
+  gatewayUrl?: string;
+  gatewaySecret?: string;
 }
 
 /** Standalone session chat window rendered in a separate Tauri window */
-export function SessionChatWindow({ sessionId, projectId, serverUrl, authToken, serverId, serverName }: SessionChatWindowProps) {
+export function SessionChatWindow({
+  sessionId,
+  projectId,
+  serverUrl,
+  authToken: _authToken,
+  serverId,
+  serverName,
+  gatewayUrl,
+  gatewaySecret,
+}: SessionChatWindowProps) {
   useWindowCloseSync(sessionId);
 
   return (
@@ -111,13 +122,16 @@ export function SessionChatWindow({ sessionId, projectId, serverUrl, authToken, 
         <WindowContextBar serverName={serverName} projectId={projectId} />
       )}
       <div className="flex-1 min-h-0">
-        <ConnectionProvider standaloneServerUrl={serverUrl}>
+        <ConnectionProvider
+          standaloneServerUrl={serverUrl}
+          standaloneServerId={serverId}
+          standaloneServerName={serverName}
+          standaloneGatewayUrl={gatewayUrl}
+          standaloneGatewaySecret={gatewaySecret}
+        >
           <SessionChatContent
             sessionId={sessionId}
             projectId={projectId}
-            serverUrl={serverUrl}
-            authToken={authToken}
-            serverId={serverId}
           />
         </ConnectionProvider>
       </div>
@@ -128,20 +142,12 @@ export function SessionChatWindow({ sessionId, projectId, serverUrl, authToken, 
 interface SessionChatContentProps {
   sessionId: string;
   projectId: string;
-  serverUrl: string;
-  authToken: string;
-  serverId?: string;
 }
 
-function SessionChatContent({ sessionId, projectId, serverId }: SessionChatContentProps) {
+function SessionChatContent({ sessionId, projectId }: SessionChatContentProps) {
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const connectionStatus = useServerStore((s) => s.connectionStatus);
-
-  useEffect(() => {
-    if (!serverId) return;
-    useServerStore.getState().setActiveServer(serverId);
-  }, [serverId]);
 
   // Once WebSocket is connected, load project/session data into the stores
   useEffect(() => {
