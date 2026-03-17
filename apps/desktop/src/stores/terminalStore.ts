@@ -10,6 +10,10 @@ interface TerminalState {
   drawerOpen: Record<string, boolean>;
   // Sticky Ctrl key per terminal (auto-disables after one keystroke)
   ctrlActive: Record<string, boolean>;
+  // Terminals popped out to separate windows (terminalId → windowLabel)
+  poppedOutTerminals: Record<string, string>;
+  // Existing PTYs that should be reattached instead of reopened
+  reattachTerminals: Record<string, boolean>;
   openTerminal: (projectId: string) => string;
   closeTerminal: (terminalId: string) => void;
   setDrawerOpen: (projectId: string, open: boolean) => void;
@@ -21,6 +25,12 @@ interface TerminalState {
   isReady: (terminalId: string) => boolean;
   /** Returns a promise that resolves when the terminal is ready (shell loaded). */
   waitForReady: (terminalId: string, timeoutMs?: number) => Promise<boolean>;
+  addPoppedOutTerminal: (terminalId: string, windowLabel: string) => void;
+  removePoppedOutTerminal: (terminalId: string) => void;
+  isTerminalPoppedOut: (terminalId: string) => boolean;
+  markNeedsReattach: (terminalId: string) => void;
+  clearNeedsReattach: (terminalId: string) => void;
+  shouldReattach: (terminalId: string) => boolean;
 }
 
 export const useTerminalStore = create<TerminalState>((set, get) => ({
@@ -28,6 +38,8 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
   readyTerminals: new Set<string>(),
   drawerOpen: {},
   ctrlActive: {},
+  poppedOutTerminals: {},
+  reattachTerminals: {},
   openTerminal: (projectId: string) => {
     const existing = get().terminals[projectId];
     if (existing) return existing;
@@ -112,5 +124,41 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
         }
       });
     });
+  },
+
+  addPoppedOutTerminal: (terminalId: string, windowLabel: string) => {
+    set((state) => ({
+      poppedOutTerminals: { ...state.poppedOutTerminals, [terminalId]: windowLabel },
+    }));
+  },
+
+  removePoppedOutTerminal: (terminalId: string) => {
+    set((state) => {
+      const poppedOutTerminals = { ...state.poppedOutTerminals };
+      delete poppedOutTerminals[terminalId];
+      return { poppedOutTerminals };
+    });
+  },
+
+  isTerminalPoppedOut: (terminalId: string) => {
+    return !!get().poppedOutTerminals[terminalId];
+  },
+
+  markNeedsReattach: (terminalId: string) => {
+    set((state) => ({
+      reattachTerminals: { ...state.reattachTerminals, [terminalId]: true },
+    }));
+  },
+
+  clearNeedsReattach: (terminalId: string) => {
+    set((state) => {
+      const reattachTerminals = { ...state.reattachTerminals };
+      delete reattachTerminals[terminalId];
+      return { reattachTerminals };
+    });
+  },
+
+  shouldReattach: (terminalId: string) => {
+    return !!get().reattachTerminals[terminalId];
   },
 }));

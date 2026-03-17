@@ -713,6 +713,8 @@ export type ClientMessage =
   | TerminalInputMessage
   | TerminalResizeMessage
   | TerminalCloseMessage
+  | TerminalAttachMessage
+  | TerminalDetachMessage
   | PluginPermissionResponseMessage
   // Supervision v2
   | GetSupervisionTasksMessage
@@ -931,6 +933,18 @@ export interface TerminalCloseMessage {
   terminalId: string;
 }
 
+export interface TerminalAttachMessage {
+  type: 'terminal_attach';
+  terminalId: string;
+  cols: number;
+  rows: number;
+}
+
+export interface TerminalDetachMessage {
+  type: 'terminal_detach';
+  terminalId: string;
+}
+
 // Plugin permission response (Client → Server)
 export interface PluginPermissionResponseMessage {
   type: 'plugin_permission_response';
@@ -957,6 +971,14 @@ export interface TerminalExitedMessage {
   type: 'terminal_exited';
   terminalId: string;
   exitCode: number;
+}
+
+export interface TerminalAttachedMessage {
+  type: 'terminal_attached';
+  terminalId: string;
+  success: boolean;
+  scrollback?: string[];
+  error?: string;
 }
 
 // File Push notification (Server → Client)
@@ -1066,6 +1088,14 @@ export interface PluginNotificationMessage {
   body: string;
 }
 
+export interface ProcessCleanupResultMessage {
+  type: 'process_cleanup_result';
+  status: 'clean' | 'killed' | 'skipped_active_runs';
+  leakedCount: number;
+  killedCount: number;
+  activeRunCount: number;
+}
+
 // Server → Client messages
 export type ServerMessage =
   | AuthResultMessage
@@ -1122,10 +1152,12 @@ export type ServerMessage =
   | TerminalOpenedMessage
   | TerminalOutputMessage
   | TerminalExitedMessage
+  | TerminalAttachedMessage
   | FilePushNotificationMessage
   | PluginStateMessage
   | PluginPermissionRequestMessage
   | PluginNotificationMessage
+  | ProcessCleanupResultMessage
   | PluginShowPanelMessage
   | PluginPanelRegisteredMessage
   | PluginPanelUnregisteredMessage

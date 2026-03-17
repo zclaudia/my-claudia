@@ -1,9 +1,16 @@
 import { useCallback } from 'react';
 import { useTerminalStore } from '../../stores/terminalStore';
+import { usePluginStore } from '../../stores/pluginStore';
+import { useServerStore } from '../../stores/serverStore';
 import { useIsMobile } from '../../hooks/useMediaQuery';
 import { useConnection } from '../../contexts/ConnectionContext';
 import { XTerminal } from './XTerminal';
 import { xtermRegistry } from '../../utils/xtermRegistry';
+import { getBaseUrl, getAuthHeaders } from '../../services/api';
+
+const isDesktopTauri = typeof window !== 'undefined'
+  && '__TAURI_INTERNALS__' in window
+  && !navigator.userAgent.includes('Android');
 
 /** Quick-send keys for mobile toolbar */
 const QUICK_KEYS: { label: string; data: string }[] = [
@@ -18,28 +25,90 @@ interface TerminalPanelProps {
   workingDirectory?: string;
 }
 
-/** Terminal toolbar actions (reload button) rendered in the shared BottomPanel header */
+async function openTerminalInNewWindow(terminalId: string, projectId: string) {
+  const { WebviewWindow } = await import('@tauri-apps/api/webviewWindow');
+  const label = `terminal-${Date.now()}`;
+
+  let serverUrl = '';
+  try { serverUrl = getBaseUrl(); } catch { /* ignore */ }
+  const authHeaders = getAuthHeaders();
+  const authToken = (authHeaders as Record<string, string>)['Authorization'] || '';
+
+  const serverState = useServerStore.getState();
+  const activeServerId = serverState.activeServerId || '';
+  const activeServer = serverState.getActiveServer();
+  const serverName = activeServer?.name || '';
+
+  const params = new URLSearchParams({
+    terminalWindow: terminalId,
+    projectId,
+    serverUrl,
+  });
+  if (authToken) params.set('authToken', authToken);
+  if (activeServerId) params.set('serverId', activeServerId);
+  if (serverName) params.set('serverName', serverName);
+  const url = `${window.location.origin}${window.location.pathname}?${params}`;
+
+  // Build descriptive title: "Terminal — ServerName · projectId"
+  const titleParts = ['Terminal'];
+  const contextParts = [serverName, projectId].filter(Boolean);
+  if (contextParts.length > 0) titleParts.push(contextParts.join(' · '));
+  const title = titleParts.join(' — ');
+
+  new WebviewWindow(label, {
+    url,
+    title,
+    width: 800,
+    height: 500,
+    center: true,
+    dragDropEnabled: false,
+  });
+
+  // Track popped-out state and hide panel in main window
+  useTerminalStore.getState().addPoppedOutTerminal(terminalId, label);
+  usePluginStore.getState().updatePanelVisibility('terminal', false);
+}
+
+/** Terminal toolbar actions (reload + pop-out buttons) rendered in the shared BottomPanel header */
 export function TerminalActions({ projectId }: { projectId: string }) {
   const terminalId = useTerminalStore((s) => s.terminals[projectId]);
+  const isPoppedOut = useTerminalStore((s) => terminalId ? !!s.poppedOutTerminals[terminalId] : false);
   const { sendMessage } = useConnection();
 
   return (
-    <button
-      onClick={() => {
-        if (!terminalId) return;
-        sendMessage({ type: 'terminal_close', terminalId });
-        xtermRegistry.delete(terminalId);
-        useTerminalStore.getState().closeTerminal(terminalId);
-        useTerminalStore.getState().openTerminal(projectId);
-      }}
-      className="p-1 rounded hover:bg-secondary text-muted-foreground hover:text-foreground"
-      title="Reload terminal"
-    >
-      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-          d="M4 4v5h5M20 20v-5h-5M4 9a9 9 0 0 1 15.36-5.36L20 4M20 15a9 9 0 0 1-15.36 5.36L4 20" />
-      </svg>
-    </button>
+    <div className="flex items-center gap-0.5">
+      {/* Pop-out button (desktop only) */}
+      {isDesktopTauri && terminalId && !isPoppedOut && (
+        <button
+          onClick={() => openTerminalInNewWindow(terminalId, projectId)}
+          className="p-1 rounded hover:bg-secondary text-muted-foreground hover:text-foreground"
+          title="Open in new window"
+        >
+          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+              d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+          </svg>
+        </button>
+      )}
+
+      {/* Reload button */}
+      <button
+        onClick={() => {
+          if (!terminalId) return;
+          sendMessage({ type: 'terminal_close', terminalId });
+          xtermRegistry.delete(terminalId);
+          useTerminalStore.getState().closeTerminal(terminalId);
+          useTerminalStore.getState().openTerminal(projectId);
+        }}
+        className="p-1 rounded hover:bg-secondary text-muted-foreground hover:text-foreground"
+        title="Reload terminal"
+      >
+        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+            d="M4 4v5h5M20 20v-5h-5M4 9a9 9 0 0 1 15.36-5.36L20 4M20 15a9 9 0 0 1-15.36 5.36L4 20" />
+        </svg>
+      </button>
+    </div>
   );
 }
 
@@ -48,6 +117,7 @@ export function TerminalPanel({ projectId, workingDirectory }: TerminalPanelProp
   const { terminals, ctrlActive, toggleCtrl } = useTerminalStore();
   const isMobile = useIsMobile();
   const terminalId = terminals[projectId];
+  const shouldReattach = useTerminalStore((s) => terminalId ? s.shouldReattach(terminalId) : false);
   const isCtrl = !!(terminalId && ctrlActive[terminalId]);
   const { sendMessage } = useConnection();
 
@@ -94,6 +164,7 @@ export function TerminalPanel({ projectId, workingDirectory }: TerminalPanelProp
             terminalId={terminalId}
             projectId={projectId}
             workingDirectory={workingDirectory}
+            mode={shouldReattach ? 'attach' : 'open'}
           />
         ) : (
           <div className="flex items-center justify-center h-full text-muted-foreground text-sm">

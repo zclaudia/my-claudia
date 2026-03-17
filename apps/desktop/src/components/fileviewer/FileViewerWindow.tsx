@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneDark, oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { useTheme, isDarkTheme } from '../../contexts/ThemeContext';
+import { WindowContextBar } from '../chat/SessionChatWindow';
 import * as api from '../../services/api';
 
 const EXT_TO_LANG: Record<string, string> = {
@@ -34,10 +35,11 @@ interface FileViewerWindowProps {
   /** When rendered in a standalone window, pass the server URL to fetch directly */
   serverUrl?: string;
   authToken?: string;
+  serverName?: string;
 }
 
 /** Standalone file viewer rendered in a separate Tauri window or fullscreen overlay */
-export function FileViewerWindow({ filePath, projectRoot, onClose, serverUrl, authToken }: FileViewerWindowProps) {
+export function FileViewerWindow({ filePath, projectRoot, onClose, serverUrl, authToken, serverName }: FileViewerWindowProps) {
   const [content, setContent] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -83,8 +85,13 @@ export function FileViewerWindow({ filePath, projectRoot, onClose, serverUrl, au
   const lang = detectLanguage(filePath);
   const codeStyle = isDarkTheme(resolvedTheme) ? oneDark : oneLight;
 
+  const projectName = projectRoot.split('/').pop() || projectRoot;
+
   return (
     <div className="flex flex-col h-screen bg-background text-foreground">
+      {serverName && (
+        <WindowContextBar serverName={serverName} projectId={projectName} />
+      )}
       {/* File path header */}
       <div className="flex items-center gap-1.5 px-3 py-1.5 border-b border-border flex-shrink-0 bg-card" data-tauri-drag-region>
         {onClose && (

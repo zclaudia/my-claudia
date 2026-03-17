@@ -6,18 +6,7 @@
  * remain, they are flagged (and optionally killed) as leaked.
  */
 
-import { execFile } from 'child_process';
-import { promisify } from 'util';
-
-const execFileAsync = promisify(execFile);
-
-export interface ChildProcessInfo {
-  pid: number;
-  ppid: number;
-  command: string;
-  args: string;
-  elapsedSeconds: number;
-}
+import { listDescendantProcesses, type ChildProcessInfo } from './process-tree.js';
 
 export interface LeakReport {
   timestamp: number;
@@ -25,61 +14,11 @@ export interface LeakReport {
   leakedProcesses: ChildProcessInfo[];
 }
 
-/**
- * List all descendant processes of a given PID (non-recursive ps query).
- * Works on macOS and Linux.
- */
-async function getDescendantProcesses(parentPid: number): Promise<ChildProcessInfo[]> {
-  try {
-    // ps -e gives all processes; we filter descendants in JS
-    // Format: pid, ppid, elapsed time (seconds), command, full args
-    const { stdout } = await execFileAsync('ps', [
-      '-e', '-o', 'pid=,ppid=,etimes=,comm=,args=',
-    ]);
-
-    const allProcesses: Array<{ pid: number; ppid: number; etimes: number; comm: string; args: string }> = [];
-    for (const line of stdout.trim().split('\n')) {
-      const trimmed = line.trim();
-      if (!trimmed) continue;
-      // Parse: PID PPID ETIMES COMM ARGS...
-      const match = trimmed.match(/^\s*(\d+)\s+(\d+)\s+(\d+)\s+(\S+)\s+(.*)/);
-      if (match) {
-        allProcesses.push({
-          pid: Number(match[1]),
-          ppid: Number(match[2]),
-          etimes: Number(match[3]),
-          comm: match[4],
-          args: match[5],
-        });
-      }
-    }
-
-    // BFS to find all descendants of parentPid
-    const descendants: ChildProcessInfo[] = [];
-    const frontier = [parentPid];
-    const visited = new Set<number>([parentPid]);
-
-    while (frontier.length > 0) {
-      const current = frontier.shift()!;
-      for (const proc of allProcesses) {
-        if (proc.ppid === current && !visited.has(proc.pid)) {
-          visited.add(proc.pid);
-          frontier.push(proc.pid);
-          descendants.push({
-            pid: proc.pid,
-            ppid: proc.ppid,
-            command: proc.comm,
-            args: proc.args,
-            elapsedSeconds: proc.etimes,
-          });
-        }
-      }
-    }
-
-    return descendants;
-  } catch {
-    return [];
-  }
+export interface ProcessCleanupResult {
+  status: 'clean' | 'killed' | 'skipped_active_runs';
+  leakedCount: number;
+  killedCount: number;
+  activeRunCount: number;
 }
 
 // ── Process Monitor ──────────────────────────────────────────
@@ -142,21 +81,29 @@ export class ProcessMonitor {
     }
   }
 
+  private async scanForLeaks(): Promise<{ activeRunCount: number; leakedProcesses: ChildProcessInfo[] }> {
+    const activeRunCount = this.getActiveRunCount();
+    if (activeRunCount > 0) {
+      return { activeRunCount, leakedProcesses: [] };
+    }
+
+    const children = await listDescendantProcesses(this.serverPid);
+    const leakedProcesses = children.filter(p =>
+      p.elapsedSeconds >= this.opts.minElapsedSeconds &&
+      !this.opts.ignoreCommands.some(cmd => p.command.includes(cmd)),
+    );
+
+    return { activeRunCount, leakedProcesses };
+  }
+
   /** Run a check immediately (also called by the periodic interval).
    *  @param forceKill — override autoKill setting and kill leaked processes (for user-initiated cleanup) */
   async check(forceKill = false): Promise<LeakReport | null> {
-    const activeRunCount = this.getActiveRunCount();
-    const children = await getDescendantProcesses(this.serverPid);
+    const { activeRunCount, leakedProcesses: leaked } = await this.scanForLeaks();
 
     // If there are active runs, we can't distinguish run children from leaked ones.
     // Only check when no runs are active — run lifecycle (abort/stopTask) handles the rest.
     if (activeRunCount > 0) return null;
-
-    // Filter out short-lived processes and ignored commands
-    const leaked = children.filter(p =>
-      p.elapsedSeconds >= this.opts.minElapsedSeconds &&
-      !this.opts.ignoreCommands.some(cmd => p.command.includes(cmd)),
-    );
 
     if (leaked.length === 0) {
       // All clear — reset cooldown so next leak gets notified immediately
@@ -215,6 +162,62 @@ export class ProcessMonitor {
     }
 
     return report;
+  }
+
+  async cleanupNow(): Promise<ProcessCleanupResult> {
+    const { activeRunCount, leakedProcesses } = await this.scanForLeaks();
+
+    if (activeRunCount > 0) {
+      return {
+        status: 'skipped_active_runs',
+        leakedCount: 0,
+        killedCount: 0,
+        activeRunCount,
+      };
+    }
+
+    if (leakedProcesses.length === 0) {
+      this.lastNotifiedPids.clear();
+      this.lastNotifyTime = 0;
+      this.consecutiveSuppressions = 0;
+      return {
+        status: 'clean',
+        leakedCount: 0,
+        killedCount: 0,
+        activeRunCount: 0,
+      };
+    }
+
+    const report: LeakReport = {
+      timestamp: Date.now(),
+      activeRunCount,
+      leakedProcesses,
+    };
+
+    this.recentLeaks.push(report);
+    if (this.recentLeaks.length > 20) this.recentLeaks.shift();
+    this.lastNotifiedPids = new Set(leakedProcesses.map(proc => proc.pid));
+    this.lastNotifyTime = report.timestamp;
+    this.consecutiveSuppressions = 0;
+    this.onLeakDetected(report);
+
+    let killedCount = 0;
+    for (const proc of leakedProcesses) {
+      try {
+        process.kill(proc.pid, 'SIGTERM');
+        killedCount += 1;
+        console.log(`[ProcessMonitor] Killed leaked process PID=${proc.pid} (${proc.command})`);
+      } catch {
+        // Process may have already exited.
+      }
+    }
+
+    return {
+      status: 'killed',
+      leakedCount: leakedProcesses.length,
+      killedCount,
+      activeRunCount,
+    };
   }
 
   /** Summary for heartbeat or diagnostics endpoint. */

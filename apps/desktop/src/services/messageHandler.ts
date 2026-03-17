@@ -26,6 +26,7 @@ import { useBottomPanelStore } from '../stores/bottomPanelStore';
 import { usePluginStore } from '../stores/pluginStore';
 import { useFilePushStore } from '../stores/filePushStore';
 import { useBackgroundTaskStore } from '../stores/backgroundTaskStore';
+import { useProcessMonitorStore } from '../stores/processMonitorStore';
 import { downloadPushedFile } from './fileDownload';
 import { xtermRegistry } from '../utils/xtermRegistry';
 
@@ -268,6 +269,10 @@ export function handleServerMessage(
 
     case 'ask_user_question_resolved':
       useAskUserQuestionStore.getState().clearRequestById(msg.requestId);
+      break;
+
+    case 'process_cleanup_result':
+      useProcessMonitorStore.getState().setCleanupResult(msg);
       break;
 
     case 'system_info':
@@ -571,6 +576,22 @@ export function handleServerMessage(
           entry.terminal.writeln(`\r\n\x1b[31mTerminal failed to open: ${msg.error || 'Unknown error'}\x1b[0m`);
         }
       }
+      break;
+    }
+
+    case 'terminal_attached': {
+      const attachEntry = xtermRegistry.get(msg.terminalId);
+      if (attachEntry) {
+        if (msg.success && msg.scrollback) {
+          // Replay scrollback buffer to restore terminal history
+          for (const chunk of msg.scrollback) {
+            attachEntry.terminal.write(chunk);
+          }
+        } else if (!msg.success) {
+          attachEntry.terminal.writeln(`\r\n\x1b[31mTerminal attach failed: ${msg.error || 'Unknown error'}\x1b[0m`);
+        }
+      }
+      useTerminalStore.getState().markReady(msg.terminalId);
       break;
     }
 

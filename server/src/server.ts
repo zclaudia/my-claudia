@@ -1353,6 +1353,12 @@ function cancelRun(runId: string): void {
     });
     run.pendingPermissions.clear();
 
+    // Abort the active provider stream immediately even before a provider-level
+    // session ID is known. This is the primary cleanup path for Claude SDK runs.
+    if (run.abortController && !run.abortController.signal.aborted) {
+      run.abortController.abort();
+    }
+
     // Abort provider session if applicable
     if (run.providerSessionId && run.providerCwd && run.providerType) {
       const adapter = providerRegistry.get(run.providerType);
@@ -1521,7 +1527,14 @@ async function handleClientMessage(
     case 'kill_leaked_processes':
       if (processMonitor) {
         console.log('[ProcessMonitor] Manual kill triggered by client');
-        processMonitor.check(true);
+        const result = await processMonitor.cleanupNow();
+        sendMessage(client.ws, {
+          type: 'process_cleanup_result',
+          status: result.status,
+          leakedCount: result.leakedCount,
+          killedCount: result.killedCount,
+          activeRunCount: result.activeRunCount,
+        });
       }
       break;
 
@@ -1605,6 +1618,23 @@ async function handleClientMessage(
     case 'terminal_close':
       termMgr?.destroy(message.terminalId);
       break;
+
+    case 'terminal_detach':
+      termMgr?.detachTerminal(message.terminalId, client.id);
+      break;
+
+    case 'terminal_attach': {
+      if (!termMgr) break;
+      const result = termMgr.attach(message.terminalId, client.id, message.cols, message.rows);
+      sendMessage(client.ws, {
+        type: 'terminal_attached',
+        terminalId: message.terminalId,
+        success: result.success,
+        scrollback: result.scrollback,
+        error: result.error,
+      });
+      break;
+    }
 
     case 'plugin_permission_response': {
       const { pluginId, granted, permanently } = message as import('@my-claudia/shared').PluginPermissionResponseMessage;

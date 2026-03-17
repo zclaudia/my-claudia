@@ -58,15 +58,18 @@ interface XTerminalProps {
   terminalId: string;
   projectId: string;
   workingDirectory?: string;
+  /** 'open' creates a new PTY, 'attach' reconnects to an existing one */
+  mode?: 'open' | 'attach';
 }
 
-export function XTerminal({ terminalId, projectId, workingDirectory }: XTerminalProps) {
+export function XTerminal({ terminalId, projectId, workingDirectory, mode = 'open' }: XTerminalProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const { sendMessage } = useConnection();
   const { resolvedTheme } = useTheme();
   const terminalRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
   const resizeObserverRef = useRef<ResizeObserver | null>(null);
+  const clearNeedsReattach = useTerminalStore((s) => s.clearNeedsReattach);
 
   // Update terminal theme when app theme changes
   useEffect(() => {
@@ -108,11 +111,7 @@ export function XTerminal({ terminalId, projectId, workingDirectory }: XTerminal
 
     const container = containerRef.current;
 
-    // Attach terminal to DOM and send terminal_open when container is ready.
-    // The container may initially have 0 height (BottomPanel renders with
-    // height:0 when closed), so we defer until positive dimensions are available.
-    // We use entry.serverOpened (persisted in the registry) instead of a local
-    // variable so the flag survives React StrictMode's unmount/remount cycle.
+    // Attach terminal to DOM and send terminal_open/terminal_attach when container is ready.
     const attach = () => {
       if (!container || container.clientHeight === 0 || container.clientWidth === 0) return false;
       const termElement = (terminal as unknown as { element?: HTMLElement }).element;
@@ -127,14 +126,29 @@ export function XTerminal({ terminalId, projectId, workingDirectory }: XTerminal
       const reg = xtermRegistry.get(terminalId);
       if (reg && !reg.serverOpened) {
         reg.serverOpened = true;
-        sendMessage({
-          type: 'terminal_open',
-          terminalId,
-          projectId,
-          workingDirectory,
-          cols: terminal.cols,
-          rows: terminal.rows,
-        });
+
+        if (mode === 'attach') {
+          // Reattach to existing PTY session (for pop-out windows)
+          clearNeedsReattach(terminalId);
+          sendMessage({
+            type: 'terminal_attach',
+            terminalId,
+            cols: terminal.cols,
+            rows: terminal.rows,
+          });
+        } else {
+          // Create new PTY session
+          clearNeedsReattach(terminalId);
+          sendMessage({
+            type: 'terminal_open',
+            terminalId,
+            projectId,
+            workingDirectory,
+            cols: terminal.cols,
+            rows: terminal.rows,
+          });
+        }
+
         // Forward keystrokes to server (with sticky Ctrl support for mobile)
         terminal.onData((data) => {
           let sendData = data;
@@ -185,7 +199,7 @@ export function XTerminal({ terminalId, projectId, workingDirectory }: XTerminal
       resizeObserver.disconnect();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [terminalId, projectId, workingDirectory]);
+  }, [terminalId, projectId, workingDirectory, mode, clearNeedsReattach]);
 
   return (
     <div

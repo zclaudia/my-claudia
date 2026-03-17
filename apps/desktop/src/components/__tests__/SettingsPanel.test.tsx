@@ -1,6 +1,8 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { render, fireEvent, act, waitFor } from '@testing-library/react';
 
+const mockSendMessage = vi.fn();
+
 // Mock Tauri
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn().mockResolvedValue(null) }));
 
@@ -18,6 +20,7 @@ vi.mock('../../hooks/useMediaQuery', () => ({ useIsMobile: () => false }));
 vi.mock('../../hooks/useAndroidBack', () => ({ useAndroidBack: vi.fn() }));
 vi.mock('../../contexts/ConnectionContext', () => ({
   useConnection: () => ({
+    sendMessage: mockSendMessage,
     connectServer: vi.fn(),
     embeddedServerStatus: 'running',
     embeddedServerError: null,
@@ -85,6 +88,7 @@ import { useServerStore } from '../../stores/serverStore';
 import { useGatewayStore } from '../../stores/gatewayStore';
 import { useUIStore } from '../../stores/uiStore';
 import { usePluginStore } from '../../stores/pluginStore';
+import { useProcessMonitorStore } from '../../stores/processMonitorStore';
 import * as api from '../../services/api';
 import { clearLogs, getLogCount, exportLogs } from '../../services/logger';
 import { getClientAIConfig, setClientAIConfig, testClientAIConnection, fetchAvailableModels } from '../../services/clientAI';
@@ -131,6 +135,7 @@ function setupStores(overrides: Record<string, any> = {}) {
 describe('SettingsPanel', () => {
   beforeEach(() => {
     setupStores();
+    useProcessMonitorStore.getState().clearCleanupResult();
     vi.clearAllMocks();
   });
 
@@ -499,6 +504,36 @@ describe('SettingsPanel', () => {
       fireEvent.click(exportBtn!);
     });
     expect(exportLogs).toHaveBeenCalled();
+  });
+
+  it('triggers leaked process cleanup from diagnostics', () => {
+    const { container } = render(<SettingsPanel isOpen={true} onClose={vi.fn()} />);
+    const cleanupBtn = Array.from(container.querySelectorAll('button')).find(b =>
+      b.textContent === 'Clean Leaked Processes'
+    );
+
+    expect(cleanupBtn).toBeTruthy();
+    fireEvent.click(cleanupBtn!);
+
+    expect(mockSendMessage).toHaveBeenCalledWith({ type: 'kill_leaked_processes' });
+  });
+
+  it('renders server cleanup results from the process monitor store', async () => {
+    const { container } = render(<SettingsPanel isOpen={true} onClose={vi.fn()} />);
+
+    act(() => {
+      useProcessMonitorStore.getState().setCleanupResult({
+        type: 'process_cleanup_result',
+        status: 'killed',
+        leakedCount: 3,
+        killedCount: 2,
+        activeRunCount: 0,
+      });
+    });
+
+    await waitFor(() => {
+      expect(container.textContent).toContain('Terminated 2 of 3 leaked process(es).');
+    });
   });
 
   // ---- Providers tab ----

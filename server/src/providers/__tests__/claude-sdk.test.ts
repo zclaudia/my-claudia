@@ -110,6 +110,50 @@ describe('claude-sdk', () => {
       expect(messages[0].content).toBe('Hello, how can I help?');
     });
 
+    it('aborts an active run after binding the Claude session id', async () => {
+      const mockAbort = vi.fn();
+
+      vi.mocked(query).mockImplementation(({ options }) => ({
+        abort: mockAbort,
+        async *[Symbol.asyncIterator]() {
+          yield {
+            type: 'system',
+            subtype: 'init',
+            session_id: 'test-session-123',
+            model: 'claude-3-sonnet',
+          };
+
+          const controller = (options as { abortController?: AbortController }).abortController;
+          await new Promise<void>((resolve) => {
+            if (!controller) {
+              resolve();
+              return;
+            }
+            if (controller.signal.aborted) {
+              resolve();
+              return;
+            }
+            controller.signal.addEventListener('abort', () => resolve(), { once: true });
+          });
+        },
+      }) as unknown as ReturnType<typeof query>);
+
+      const abortController = new AbortController();
+      const messages: ClaudeMessage[] = [];
+      const runPromise = (async () => {
+        for await (const msg of runClaude('Hello', { cwd: '/project', abortController })) {
+          messages.push(msg);
+          if (msg.type === 'init' && msg.sessionId) {
+            abortController.abort();
+          }
+        }
+      })();
+
+      await expect(runPromise).resolves.toBeUndefined();
+      expect(messages).toHaveLength(1);
+      expect(messages[0].type).toBe('init');
+    });
+
     it('yields tool_use messages for tool calls', async () => {
       vi.mocked(query).mockReturnValue({
         async *[Symbol.asyncIterator]() {

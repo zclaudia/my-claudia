@@ -165,4 +165,57 @@ describe('ClaudeAdapter', () => {
       expect(stopTask).toHaveBeenCalledWith('task-1');
     });
   });
+
+  describe('abort', () => {
+    it('exposes abort controller and provider cwd via getRunState', () => {
+      const options = { cwd: '/project' };
+
+      const stateA = adapter.getRunState(options);
+      const stateB = adapter.getRunState(options);
+
+      expect(stateA).toEqual({
+        abortController: expect.any(AbortController),
+        providerCwd: '/project',
+      });
+      expect(stateA.abortController).toBe(stateB.abortController);
+    });
+
+    it('aborts the session via internal abort controller', async () => {
+      const abortSpy = vi.fn();
+      let signalRegistered: (() => void) | undefined;
+      const ready = new Promise<void>((resolve) => {
+        signalRegistered = resolve;
+      });
+
+      vi.mocked(runClaude).mockImplementation(async function* (_input, options) {
+        options.abortController!.signal.addEventListener('abort', abortSpy);
+        options.onSessionId?.('session-to-abort');
+        signalRegistered?.();
+        yield { type: 'init', sessionId: 'session-to-abort' };
+        await new Promise<void>((resolve) => {
+          if (options.abortController!.signal.aborted) {
+            resolve();
+            return;
+          }
+          options.abortController!.signal.addEventListener('abort', () => resolve(), { once: true });
+        });
+      });
+
+      const permissionCallback = vi.fn<[], Promise<PermissionDecision>>().mockResolvedValue({
+        behavior: 'allow',
+      });
+
+      const runPromise = (async () => {
+        for await (const _ of adapter.run('Hello', { cwd: '/project' }, permissionCallback)) {
+          // consume
+        }
+      })();
+
+      await ready;
+      await adapter.abort('session-to-abort');
+      await runPromise;
+
+      expect(abortSpy).toHaveBeenCalled();
+    });
+  });
 });

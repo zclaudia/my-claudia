@@ -34,4 +34,11 @@ export const xtermRegistry = {
   has(terminalId: string): boolean {
     return instances.has(terminalId);
   },
+
+  markDetached(terminalId: string): void {
+    const entry = instances.get(terminalId);
+    if (entry) {
+      entry.serverOpened = false;
+    }
+  },
 };

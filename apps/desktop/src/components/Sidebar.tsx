@@ -13,7 +13,14 @@ async function openSessionInNewWindow(sessionId: string, projectId: string) {
     const label = `session-chat-${Date.now()}`;
     const serverUrl = getBaseUrl();
     const authToken = (getAuthHeaders() as Record<string, string>)['Authorization'] || '';
-    const params = new URLSearchParams({ sessionWindow: sessionId, projectId, serverUrl, authToken });
+    const activeServerId = useServerStore.getState().activeServerId || '';
+    const params = new URLSearchParams({
+      sessionWindow: sessionId,
+      projectId,
+      serverUrl,
+      authToken,
+      ...(activeServerId ? { serverId: activeServerId } : {}),
+    });
     new WebviewWindow(label, {
       url: `${window.location.origin}${window.location.pathname}?${params}`,
       title: 'Session',

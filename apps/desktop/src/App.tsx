@@ -10,6 +10,7 @@ import { AgentSidePanel } from './components/agent/AgentSidePanel';
 import { FileViewerWindow } from './components/fileviewer/FileViewerWindow';
 import { WorkflowEditorWindow } from './components/workflows/WorkflowEditorWindow';
 import { SessionChatWindow } from './components/chat/SessionChatWindow';
+import { TerminalWindow } from './components/terminal/TerminalWindow';
 import { ProjectDashboard } from './components/dashboard/ProjectDashboard';
 import { ThemeProvider } from './contexts/ThemeContext';
 import { ConnectionProvider, useConnection } from './contexts/ConnectionContext';
@@ -26,6 +27,9 @@ import { migrateServersFromLocalStorage, needsMigration } from './utils/migrateS
 import { eagerSyncAllBackends } from './services/sessionSync';
 import { useFileViewerStore } from './stores/fileViewerStore';
 import { useUIStore } from './stores/uiStore';
+import { useTerminalStore } from './stores/terminalStore';
+import { usePluginStore } from './stores/pluginStore';
+import { xtermRegistry } from './utils/xtermRegistry';
 import { initBuiltinPanels } from './plugins/builtinPanels';
 import { useAutoUpdate } from './hooks/useAutoUpdate';
 import { UpdateBanner } from './components/UpdateBanner';
@@ -146,19 +150,31 @@ function AppContent() {
       return;
     }
 
-    let cleanup: (() => void) | undefined;
+    let cleanupSession: (() => void) | undefined;
+    let cleanupTerminal: (() => void) | undefined;
     (async () => {
       const { listen } = await import('@tauri-apps/api/event');
-      cleanup = await listen<{ sessionId?: string }>('session-window-closed', (event) => {
+      cleanupSession = await listen<{ sessionId?: string }>('session-window-closed', (event) => {
         const closedSessionId = event.payload?.sessionId;
         if (closedSessionId) {
           removePoppedOutSession(closedSessionId);
         }
       });
+      cleanupTerminal = await listen<{ terminalId?: string }>('terminal-window-closed', (event) => {
+        const closedTerminalId = event.payload?.terminalId;
+        if (closedTerminalId) {
+          useTerminalStore.getState().removePoppedOutTerminal(closedTerminalId);
+          useTerminalStore.getState().markNeedsReattach(closedTerminalId);
+          xtermRegistry.markDetached(closedTerminalId);
+          // Restore terminal panel visibility in main window
+          usePluginStore.getState().updatePanelVisibility('terminal', true);
+        }
+      });
     })();
 
     return () => {
-      cleanup?.();
+      cleanupSession?.();
+      cleanupTerminal?.();
     };
   }, [removePoppedOutSession]);
 
@@ -402,6 +418,7 @@ function App() {
   if (fileViewerPath && fileViewerRoot) {
     const serverUrl = params.get('serverUrl') || '';
     const authToken = params.get('authToken') || '';
+    const serverName = params.get('serverName') || undefined;
     return (
       <ThemeProvider defaultTheme="dark-neutral">
         <FileViewerWindow
@@ -409,6 +426,7 @@ function App() {
           projectRoot={fileViewerRoot}
           serverUrl={serverUrl}
           authToken={authToken}
+          serverName={serverName}
         />
       </ThemeProvider>
     );
@@ -438,6 +456,8 @@ function App() {
     const serverUrl = params.get('serverUrl') || '';
     const projectId = params.get('projectId') || '';
     const authToken = params.get('authToken') || '';
+    const serverId = params.get('serverId') || undefined;
+    const serverName = params.get('serverName') || undefined;
     return (
       <ThemeProvider defaultTheme="dark-neutral">
         <SessionChatWindow
@@ -445,6 +465,30 @@ function App() {
           projectId={projectId}
           serverUrl={serverUrl}
           authToken={authToken}
+          serverId={serverId}
+          serverName={serverName}
+        />
+      </ThemeProvider>
+    );
+  }
+
+  // Check if this window is a standalone terminal window
+  const terminalWindowId = params.get('terminalWindow');
+  if (terminalWindowId) {
+    const serverUrl = params.get('serverUrl') || '';
+    const projectId = params.get('projectId') || '';
+    const authToken = params.get('authToken') || '';
+    const serverId = params.get('serverId') || undefined;
+    const serverName = params.get('serverName') || undefined;
+    return (
+      <ThemeProvider defaultTheme="dark-neutral">
+        <TerminalWindow
+          terminalId={terminalWindowId}
+          projectId={projectId}
+          serverUrl={serverUrl}
+          authToken={authToken}
+          serverId={serverId}
+          serverName={serverName}
         />
       </ThemeProvider>
     );

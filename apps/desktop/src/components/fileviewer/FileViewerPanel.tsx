@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useFileViewerStore } from '../../stores/fileViewerStore';
+import { useServerStore } from '../../stores/serverStore';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneDark, oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { useTheme, isDarkTheme } from '../../contexts/ThemeContext';
@@ -50,12 +51,27 @@ async function openFileInNewWindow(filePath: string, projectRoot: string) {
   const authHeaders = getAuthHeaders();
   const authToken = (authHeaders as Record<string, string>)['Authorization'] || '';
 
+  const serverState = useServerStore.getState();
+  const activeServerId = serverState.activeServerId || '';
+  const activeServer = serverState.getActiveServer();
+  const serverName = activeServer?.name || '';
+
   const params = new URLSearchParams({ fileViewer: filePath, projectRoot, serverUrl });
   if (authToken) params.set('authToken', authToken);
+  if (activeServerId) params.set('serverId', activeServerId);
+  if (serverName) params.set('serverName', serverName);
   const url = `${window.location.origin}${window.location.pathname}?${params}`;
+
+  // Build descriptive title: "fileName — ServerName · projectRoot"
+  const projectName = projectRoot.split('/').pop() || projectRoot;
+  const titleParts = [fileName];
+  const contextParts = [serverName, projectName].filter(Boolean);
+  if (contextParts.length > 0) titleParts.push(contextParts.join(' · '));
+  const title = titleParts.join(' — ');
+
   new WebviewWindow(label, {
     url,
-    title: fileName,
+    title,
     width: 800,
     height: 600,
     center: true,

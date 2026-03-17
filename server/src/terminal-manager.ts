@@ -3,6 +3,8 @@ import { execSync } from 'child_process';
 import type { TerminalOutputMessage, TerminalExitedMessage, ServerMessage } from '@my-claudia/shared';
 
 const IDLE_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
+const SCROLLBACK_MAX_BYTES = 64 * 1024; // 64KB scrollback buffer
+const SCROLLBACK_MAX_CHUNKS = 2000;
 
 /**
  * Detect available shell for the current platform.
@@ -30,10 +32,12 @@ function detectShell(): string {
 
 interface ManagedTerminal {
   pty: pty.IPty;
-  clientId: string;
+  clientId: string | null;
   projectId: string;
   lastActivity: number;
   idleTimer: ReturnType<typeof setTimeout>;
+  scrollback: string[];
+  scrollbackBytes: number;
 }
 
 export class TerminalManager {
@@ -87,24 +91,31 @@ export class TerminalManager {
       projectId: '',
       lastActivity: Date.now(),
       idleTimer: this.startIdleTimer(terminalId),
+      scrollback: [],
+      scrollbackBytes: 0,
     };
 
     this.terminals.set(terminalId, managed);
 
     ptyProcess.onData((data) => {
-      this.sendToClient(clientId, {
-        type: 'terminal_output',
-        terminalId,
-        data,
-      } as TerminalOutputMessage);
+      this.appendScrollback(managed, data);
+      if (managed.clientId) {
+        this.sendToClient(managed.clientId, {
+          type: 'terminal_output',
+          terminalId,
+          data,
+        } as TerminalOutputMessage);
+      }
     });
 
     ptyProcess.onExit(({ exitCode }) => {
-      this.sendToClient(clientId, {
-        type: 'terminal_exited',
-        terminalId,
-        exitCode,
-      } as TerminalExitedMessage);
+      if (managed.clientId) {
+        this.sendToClient(managed.clientId, {
+          type: 'terminal_exited',
+          terminalId,
+          exitCode,
+        } as TerminalExitedMessage);
+      }
       // Only clean up if this is still the current terminal for this ID.
       // Guards against race when create() is called for an existing terminalId:
       // destroy() + new create() runs, but old PTY's onExit fires async and
@@ -115,6 +126,33 @@ export class TerminalManager {
         clearTimeout(current.idleTimer);
       }
     });
+  }
+
+  /** Attach a new client to an existing terminal session (for pop-out windows). */
+  attach(terminalId: string, clientId: string, cols: number, rows: number): { success: boolean; scrollback: string[]; error?: string } {
+    const managed = this.terminals.get(terminalId);
+    if (!managed) {
+      return { success: false, scrollback: [], error: 'Terminal not found' };
+    }
+
+    // Switch ownership to new client
+    managed.clientId = clientId;
+    managed.lastActivity = Date.now();
+    this.resetIdleTimer(terminalId, managed);
+
+    // Resize to new window dimensions
+    cols = Math.max(1, Math.min(500, cols || 80));
+    rows = Math.max(1, Math.min(200, rows || 24));
+    managed.pty.resize(cols, rows);
+
+    return { success: true, scrollback: [...managed.scrollback] };
+  }
+
+  detachTerminal(terminalId: string, clientId?: string): void {
+    const managed = this.terminals.get(terminalId);
+    if (!managed) return;
+    if (clientId && managed.clientId !== clientId) return;
+    managed.clientId = null;
   }
 
   write(terminalId: string, data: string): void {
@@ -142,6 +180,16 @@ export class TerminalManager {
     this.terminals.delete(terminalId);
   }
 
+  /** Detach a client without killing its terminals. PTYs stay alive for re-attach. */
+  detachClient(clientId: string): void {
+    for (const [, managed] of this.terminals) {
+      if (managed.clientId === clientId) {
+        managed.clientId = null;
+        // Idle timer continues — PTY will be destroyed if no one reattaches
+      }
+    }
+  }
+
   destroyForClient(clientId: string): void {
     for (const [terminalId, managed] of this.terminals) {
       if (managed.clientId === clientId) {
@@ -158,6 +206,21 @@ export class TerminalManager {
       managed.pty.kill();
     }
     this.terminals.clear();
+  }
+
+  private appendScrollback(managed: ManagedTerminal, data: string): void {
+    managed.scrollback.push(data);
+    managed.scrollbackBytes += data.length;
+
+    // Trim oldest chunks when exceeding limits
+    while (
+      managed.scrollback.length > SCROLLBACK_MAX_CHUNKS ||
+      managed.scrollbackBytes > SCROLLBACK_MAX_BYTES
+    ) {
+      const removed = managed.scrollback.shift();
+      if (removed) managed.scrollbackBytes -= removed.length;
+      else break;
+    }
   }
 
   private startIdleTimer(terminalId: string): ReturnType<typeof setTimeout> {

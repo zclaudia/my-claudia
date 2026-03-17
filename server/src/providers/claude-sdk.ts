@@ -244,10 +244,12 @@ export async function* runClaude(
   options: ClaudeRunOptions,
   onPermissionRequest?: PermissionCallback
 ): AsyncGenerator<ClaudeMessage, void, void> {
+  const abortController = options.abortController ?? new AbortController();
   const sdkOptions: Record<string, unknown> = {
     cwd: options.cwd,
     allowedTools: options.allowedTools || [],
     disallowedTools: options.disallowedTools || [],
+    abortController,
     // Capture stderr for debugging
     stderr: (data: string) => {
       console.error('[Claude SDK stderr]', data);
@@ -443,6 +445,9 @@ export async function* runClaude(
         }
         return;
       } catch (error) {
+        if (abortController.signal.aborted) {
+          return;
+        }
         const errorMessage = error instanceof Error ? error.message : String(error);
         const canRetry =
           attempt <= MAX_AUTO_RETRIES &&

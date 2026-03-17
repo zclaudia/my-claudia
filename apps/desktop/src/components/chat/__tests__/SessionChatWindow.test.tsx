@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, waitFor } from '@testing-library/react';
+import { fireEvent, render, waitFor } from '@testing-library/react';
 
 // Mock Tauri APIs with all required exports
 const SERIALIZE_TO_IPC_FN = Symbol('SERIALIZE_TO_IPC_FN');
@@ -24,12 +24,15 @@ vi.mock('@tauri-apps/plugin-shell', () => ({ Command: { create: vi.fn() } }));
 vi.mock('@tauri-apps/api/event', () => ({
   listen: vi.fn(() => Promise.resolve(vi.fn())),
   emitTo: vi.fn(),
+  TauriEvent: {
+    WINDOW_CLOSE_REQUESTED: 'tauri://close-requested',
+  },
 }));
 vi.mock('@tauri-apps/api/window', () => ({
   getCurrentWindow: vi.fn(() => ({
     show: vi.fn(),
     setFocus: vi.fn(),
-    close: vi.fn(),
+    close: mockWindowClose,
     onCloseRequested: vi.fn(() => Promise.resolve(vi.fn())),
   })),
 }));
@@ -86,6 +89,7 @@ vi.mock('../../../contexts/ConnectionContext', () => ({
 const mockGetProjects = vi.fn(() => Promise.resolve([]));
 const mockGetSessions = vi.fn(() => Promise.resolve([]));
 const mockGetProviders = vi.fn(() => Promise.resolve([]));
+const mockWindowClose = vi.fn(() => Promise.resolve());
 
 // Mock services
 vi.mock('../../../services/api', () => ({
@@ -99,14 +103,22 @@ const mockMergeSessions = vi.fn();
 const mockSetProviders = vi.fn();
 const mockSelectProject = vi.fn();
 const mockSelectSession = vi.fn();
+const mockSetActiveServer = vi.fn();
 
 let mockConnectionStatus = 'disconnected';
 
 // Mock stores
 vi.mock('../../../stores/serverStore', () => ({
-  useServerStore: (selector: any) => selector({
-    connectionStatus: mockConnectionStatus,
-  } as any),
+  useServerStore: Object.assign(
+    (selector: any) => selector({
+      connectionStatus: mockConnectionStatus,
+    } as any),
+    {
+      getState: () => ({
+        setActiveServer: mockSetActiveServer,
+      }),
+    },
+  ),
 }));
 
 vi.mock('../../../stores/projectStore', () => ({
@@ -123,6 +135,7 @@ vi.mock('../../../stores/projectStore', () => ({
         setProviders: mockSetProviders,
         selectProject: mockSelectProject,
         selectSession: mockSelectSession,
+        setActiveServer: mockSetActiveServer,
       }),
     },
   ),
@@ -137,6 +150,8 @@ describe('SessionChatWindow', () => {
     mockGetProjects.mockResolvedValue([]);
     mockGetSessions.mockResolvedValue([]);
     mockGetProviders.mockResolvedValue([]);
+    mockWindowClose.mockClear();
+    mockSetActiveServer.mockClear();
   });
 
   it('renders without crashing', () => {
@@ -146,6 +161,7 @@ describe('SessionChatWindow', () => {
         projectId="proj-1"
         serverUrl="http://localhost:3100"
         authToken="test-token"
+        serverId="gw:backend-1"
       />
     );
     expect(container).toBeTruthy();
@@ -161,7 +177,7 @@ describe('SessionChatWindow', () => {
       />
     );
     const wrapper = container.firstElementChild as HTMLElement;
-    expect(wrapper.className).toContain('h-screen');
+    expect(wrapper.className).toContain('h-dvh');
   });
 
   it('renders ConnectionProvider with standaloneServerUrl', () => {
@@ -200,6 +216,7 @@ describe('SessionChatWindow', () => {
         projectId="proj-1"
         serverUrl="http://localhost:3100"
         authToken="test-token"
+        serverId="gw:backend-1"
       />
     );
 
@@ -215,6 +232,7 @@ describe('SessionChatWindow', () => {
     expect(mockSetProviders).toHaveBeenCalled();
     expect(mockSelectProject).toHaveBeenCalledWith('proj-1');
     expect(mockSelectSession).toHaveBeenCalledWith('sess-1');
+    expect(mockSetActiveServer).toHaveBeenCalledWith('gw:backend-1');
   });
 
   it('passes sessionId to ChatInterface', async () => {
@@ -267,6 +285,26 @@ describe('SessionChatWindow', () => {
 
     await waitFor(() => {
       expect(container.textContent).toContain('Close Window');
+    });
+  });
+
+  it('uses tauri window close for error action', async () => {
+    mockConnectionStatus = 'connected';
+    mockGetProjects.mockRejectedValueOnce(new Error('Failed'));
+
+    const { findByText } = render(
+      <SessionChatWindow
+        sessionId="sess-1"
+        projectId="proj-1"
+        serverUrl="http://localhost:3100"
+        authToken="test-token"
+      />
+    );
+
+    fireEvent.click(await findByText('Close Window'));
+
+    await waitFor(() => {
+      expect(mockWindowClose).toHaveBeenCalled();
     });
   });
 

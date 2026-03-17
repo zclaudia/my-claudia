@@ -1,10 +1,34 @@
 import { useState, useEffect } from 'react';
-import { Loader2 } from 'lucide-react';
+import { Loader2, Server, FolderOpen } from 'lucide-react';
 import { ConnectionProvider } from '../../contexts/ConnectionContext';
 import { ChatInterface } from './ChatInterface';
 import { useServerStore } from '../../stores/serverStore';
 import { useProjectStore } from '../../stores/projectStore';
 import * as api from '../../services/api';
+
+/** Compact context bar showing backend + project info for standalone windows */
+export function WindowContextBar({ serverName, projectId }: { serverName?: string; projectId?: string }) {
+  if (!serverName && !projectId) return null;
+  return (
+    <div
+      className="flex items-center gap-3 px-3 py-1 border-b border-border bg-muted/50 flex-shrink-0 text-[11px] text-muted-foreground"
+      data-tauri-drag-region
+    >
+      {serverName && (
+        <span className="flex items-center gap-1">
+          <Server size={11} className="flex-shrink-0" />
+          <span className="truncate">{serverName}</span>
+        </span>
+      )}
+      {projectId && (
+        <span className="flex items-center gap-1">
+          <FolderOpen size={11} className="flex-shrink-0" />
+          <span className="truncate">{projectId}</span>
+        </span>
+      )}
+    </div>
+  );
+}
 
 // Listen for control events from the main window (focus / close)
 async function registerWindowListeners() {
@@ -36,6 +60,15 @@ async function registerWindowListeners() {
   };
 }
 
+async function closeCurrentWindow() {
+  try {
+    const { getCurrentWindow } = await import('@tauri-apps/api/window');
+    await getCurrentWindow().close();
+  } catch {
+    window.close();
+  }
+}
+
 function useWindowCloseSync(sessionId: string) {
   useEffect(() => {
     let dispose: (() => void) | undefined;
@@ -64,22 +97,30 @@ interface SessionChatWindowProps {
   projectId: string;
   serverUrl: string;
   authToken: string;
+  serverId?: string;
+  serverName?: string;
 }
 
 /** Standalone session chat window rendered in a separate Tauri window */
-export function SessionChatWindow({ sessionId, projectId, serverUrl, authToken }: SessionChatWindowProps) {
+export function SessionChatWindow({ sessionId, projectId, serverUrl, authToken, serverId, serverName }: SessionChatWindowProps) {
   useWindowCloseSync(sessionId);
 
   return (
-    <div className="h-dvh bg-background text-foreground safe-top-pad">
-      <ConnectionProvider standaloneServerUrl={serverUrl}>
-        <SessionChatContent
-          sessionId={sessionId}
-          projectId={projectId}
-          serverUrl={serverUrl}
-          authToken={authToken}
-        />
-      </ConnectionProvider>
+    <div className="flex flex-col h-dvh bg-background text-foreground safe-top-pad">
+      {serverName && (
+        <WindowContextBar serverName={serverName} projectId={projectId} />
+      )}
+      <div className="flex-1 min-h-0">
+        <ConnectionProvider standaloneServerUrl={serverUrl}>
+          <SessionChatContent
+            sessionId={sessionId}
+            projectId={projectId}
+            serverUrl={serverUrl}
+            authToken={authToken}
+            serverId={serverId}
+          />
+        </ConnectionProvider>
+      </div>
     </div>
   );
 }
@@ -89,12 +130,18 @@ interface SessionChatContentProps {
   projectId: string;
   serverUrl: string;
   authToken: string;
+  serverId?: string;
 }
 
-function SessionChatContent({ sessionId, projectId }: SessionChatContentProps) {
+function SessionChatContent({ sessionId, projectId, serverId }: SessionChatContentProps) {
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const connectionStatus = useServerStore((s) => s.connectionStatus);
+
+  useEffect(() => {
+    if (!serverId) return;
+    useServerStore.getState().setActiveServer(serverId);
+  }, [serverId]);
 
   // Once WebSocket is connected, load project/session data into the stores
   useEffect(() => {
@@ -137,7 +184,7 @@ function SessionChatContent({ sessionId, projectId }: SessionChatContentProps) {
         <div className="text-center">
           <div className="text-sm text-destructive mb-2">{error}</div>
           <button
-            onClick={() => window.close()}
+            onClick={() => { void closeCurrentWindow(); }}
             className="px-3 py-1.5 text-xs rounded-md border border-border hover:bg-secondary"
           >
             Close Window
@@ -158,7 +205,7 @@ function SessionChatContent({ sessionId, projectId }: SessionChatContentProps) {
   return (
     <ChatInterface
       sessionId={sessionId}
-      onReturnToDashboard={() => window.close()}
+      onReturnToDashboard={() => { void closeCurrentWindow(); }}
     />
   );
 }
