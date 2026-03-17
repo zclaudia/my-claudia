@@ -43,6 +43,8 @@ import { createMcpServerRoutes } from './routes/mcp-servers.js';
 import { createSystemStatsRoutes } from './routes/system-stats.js';
 import { createLocalPRRoutes } from './routes/local-prs.js';
 import { normalizeFromToolUse, normalizeFromAskUser } from './interactions/interaction-normalizer.js';
+import { interactionDispatcher } from './interactions/interaction-dispatcher.js';
+import { registerInteractionTools } from './interactions/interaction-tools.js';
 import { LocalPRService } from './services/local-pr-service.js';
 import { ScheduledTaskService } from './services/scheduled-task-service.js';
 import { createScheduledTaskRoutes } from './routes/scheduled-tasks.js';
@@ -1022,6 +1024,21 @@ export async function createServer(): Promise<ServerContext> {
     });
   });
 
+  // Register internal interaction tools (update_todo_list, ask_user_form)
+  registerInteractionTools();
+
+  // Wire interaction dispatcher to send events via WS
+  interactionDispatcher.setSendFunction((sessionId, event) => {
+    for (const [, run] of activeRuns) {
+      if (run.sessionId === sessionId) {
+        sendMessage(run.client.ws, event);
+        if (clients) broadcastToOtherAuthenticatedClients(clients, run.clientId, event);
+        return;
+      }
+    }
+    console.warn(`[InteractionDispatcher] No active run for session ${sessionId}`);
+  });
+
   // Broadcast plugin state when plugins are activated/deactivated/errored
   pluginEvents.on('plugin.activated', () => broadcastPluginState());
   pluginEvents.on('plugin.deactivated', () => broadcastPluginState());
@@ -1381,6 +1398,7 @@ function cancelRun(runId: string): void {
       error: 'Run cancelled by user'
     });
 
+    interactionDispatcher.cancelBySession(run.sessionId);
     activeRuns.delete(runId);
     broadcastHeartbeat();
     console.log(`Run ${runId} cancelled`);
@@ -1574,6 +1592,28 @@ async function handleClientMessage(
     case 'ask_user_answer':
       handleAskUserAnswer(message);
       break;
+
+    case 'interaction_response': {
+      const resolved = interactionDispatcher.resolve(message.interactionId, message.response);
+      if (resolved) {
+        // Broadcast interaction_resolved to all clients
+        for (const [, run] of activeRuns) {
+          if (run.sessionId === message.sessionId) {
+            const resolvedEvent = {
+              type: 'interaction_resolved' as const,
+              interactionId: message.interactionId,
+              sessionId: message.sessionId,
+            };
+            sendMessage(run.client.ws, resolvedEvent as import('@my-claudia/shared').InteractionResolvedMessage);
+            if (clients) broadcastToOtherAuthenticatedClients(clients, run.clientId, resolvedEvent as ServerMessage);
+            break;
+          }
+        }
+      } else {
+        console.warn(`[InteractionResponse] No pending interaction for ${message.interactionId}`);
+      }
+      break;
+    }
 
     case 'terminal_open': {
       if (!termMgr) break;
@@ -2190,6 +2230,17 @@ async function handleRunStart(
       ? buildPlanDocumentPrompt(session.task_id)
       : undefined;
 
+    // Interaction tool prompt (injected when interaction tools are registered)
+    const hasInteractionTools = pluginToolRegistry.getAll().some(t => t.source === 'interaction');
+    const interactionToolPrompt = hasInteractionTools
+      ? `## Interaction Tools
+You have access to these interaction tools via MCP:
+- **update_todo_list**: Show/update a visible task list for the user. Call this to track progress on multi-step tasks. Each call replaces the previous list.
+- **ask_user_form**: Present a structured form when you need specific input from the user — multiple fields, choices, or confirmations. The form blocks until the user responds.
+
+Prefer ask_user_form over AskUserQuestion when you need multiple pieces of information at once or want to offer specific options/choices.`
+      : undefined;
+
     // 🆕 Assemble workspace prompt (SOUL.md, AGENTS.md, TOOLS.md, skills)
     const workspacePrompt = await workspaceService.assembleSystemPrompt({
       projectId: session.project_id || undefined,
@@ -2204,8 +2255,9 @@ async function handleRunStart(
       env: { ...(providerConfig?.env || {}), ...filePushEnv },
       mode: modeValue,
       model: message.model,
-      systemPrompt: [workspacePrompt, message.systemContext, nonNativePlanPrompt, planDocumentPrompt, filePushContext, session.system_prompt].filter(Boolean).join('\n\n') || undefined,
+      systemPrompt: [workspacePrompt, message.systemContext, nonNativePlanPrompt, planDocumentPrompt, filePushContext, interactionToolPrompt, session.system_prompt].filter(Boolean).join('\n\n') || undefined,
       serverPort: serverPort || undefined,
+      claudiaSessionId: message.sessionId,
       db,
     };
 
@@ -2708,6 +2760,7 @@ async function handleRunStart(
     }
 
     // Cleanup
+    interactionDispatcher.cancelBySession(activeRun.sessionId);
     activeRuns.delete(runId);
     broadcastHeartbeat();
 

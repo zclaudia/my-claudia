@@ -14,6 +14,7 @@ import * as readline from 'readline';
 import * as http from 'http';
 
 const SERVER_URL = process.env.CLAUDIA_BRIDGE_URL || 'http://127.0.0.1:3100';
+const SESSION_ID = process.env.CLAUDIA_SESSION_ID || '';
 
 // ============================================
 // JSON-RPC Types
@@ -99,7 +100,7 @@ async function listTools(): Promise<McpTool[]> {
 
 async function callTool(name: string, args: Record<string, unknown>): Promise<string> {
   try {
-    const raw = await httpPost(`/api/plugins/tools/${encodeURIComponent(name)}/execute`, { arguments: args });
+    const raw = await httpPost(`/api/plugins/tools/${encodeURIComponent(name)}/execute`, { arguments: args, sessionId: SESSION_ID });
     const data = JSON.parse(raw);
     return data.result || JSON.stringify(data);
   } catch (error) {

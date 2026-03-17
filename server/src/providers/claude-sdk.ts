@@ -29,6 +29,7 @@ export interface ClaudeRunOptions {
   model?: string;  // Override model (e.g. 'claude-sonnet-4-5-20250929')
   systemPrompt?: string;  // Appended to system prompt
   serverPort?: number;  // Main server port for MCP bridge
+  claudiaSessionId?: string;  // My-Claudia session ID (for interaction tool context)
   db?: import('better-sqlite3').Database;  // Database for Claudia-managed MCP servers
   abortController?: AbortController;  // External abort controller for cancellation
   queryHandle?: ClaudeQueryHandle;  // Mutable handle — runClaude populates stopTask when query starts
@@ -322,17 +323,20 @@ export async function* runClaude(
   // Inject MCP bridge for plugin tools (if any plugin tools are registered)
   if (options.serverPort) {
     const { toolRegistry } = await import('../plugins/tool-registry.js');
-    const pluginTools = toolRegistry.getAll().filter(t => t.source === 'plugin');
-    if (pluginTools.length > 0) {
+    const bridgeTools = toolRegistry.getAll().filter(t => t.source === 'plugin' || t.source === 'interaction');
+    if (bridgeTools.length > 0) {
       const bridgePath = path.join(path.dirname(import.meta.url.replace('file://', '')), '..', 'plugins', 'mcp-bridge.js');
       const mcpServers = (sdkOptions.mcpServers || {}) as Record<string, unknown>;
       mcpServers['claudia-plugins'] = {
         command: 'node',
         args: [bridgePath],
-        env: { CLAUDIA_BRIDGE_URL: `http://127.0.0.1:${options.serverPort}` },
+        env: {
+          CLAUDIA_BRIDGE_URL: `http://127.0.0.1:${options.serverPort}`,
+          CLAUDIA_SESSION_ID: options.claudiaSessionId || '',
+        },
       };
       sdkOptions.mcpServers = mcpServers;
-      console.log(`[Claude SDK] Injected MCP bridge with ${pluginTools.length} plugin tool(s)`);
+      console.log(`[Claude SDK] Injected MCP bridge with ${bridgeTools.length} bridge tool(s)`);
     }
   }
 

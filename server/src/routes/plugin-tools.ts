@@ -17,7 +17,7 @@ export function createPluginToolsRoutes(): Router {
    * List all plugin tools in MCP-compatible format.
    */
   router.get('/tools', (_req: Request, res: Response) => {
-    const pluginTools = toolRegistry.getAll().filter(t => t.source === 'plugin');
+    const pluginTools = toolRegistry.getAll().filter(t => t.source === 'plugin' || t.source === 'interaction');
     const tools = pluginTools.map(t => ({
       name: t.definition.function.name,
       description: t.definition.function.description,
@@ -33,9 +33,10 @@ export function createPluginToolsRoutes(): Router {
   router.post('/tools/:name/execute', async (req: Request, res: Response) => {
     const { name } = req.params;
     const args = req.body.arguments || req.body.args || {};
+    const context = { sessionId: req.body.sessionId as string | undefined };
 
     try {
-      const result = await toolRegistry.execute(name, args);
+      const result = await toolRegistry.execute(name, args, context);
       res.json({ result });
     } catch (error) {
       res.status(500).json({

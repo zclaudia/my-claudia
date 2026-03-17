@@ -720,7 +720,8 @@ export type ClientMessage =
   | UpdateSupervisionTaskMessage
   | InitSupervisionAgentMessage
   | UpdateSupervisionAgentMessage
-  | ReloadSupervisionContextMessage;
+  | ReloadSupervisionContextMessage
+  | InteractionResponseMessage;
 
 // Authentication message (sent after WebSocket connection)
 export interface AuthMessage {
@@ -1141,6 +1142,7 @@ export type ServerMessage =
   // Unified interaction events
   | AskUserInteractionMessage
   | TodoUpdateInteractionMessage
+  | AskUserFormInteractionMessage
   | InteractionResolvedMessage;
 
 // Authentication result message
@@ -1325,8 +1327,35 @@ export interface InteractionResolvedMessage {
   sessionId?: string;
 }
 
+/** Form field definition for ask_user_form */
+export interface AskUserFormField {
+  id: string;
+  label: string;
+  type: 'text' | 'select' | 'multiselect' | 'textarea' | 'confirm';
+  options?: { value: string; label: string }[];
+  required?: boolean;
+  defaultValue?: string;
+  placeholder?: string;
+}
+
+/** Structured form interaction (from internal ask_user_form tool) */
+export interface AskUserFormInteractionMessage extends InteractionBase {
+  type: 'interaction_ask_user_form';
+  title: string;
+  description?: string;
+  fields: AskUserFormField[];
+}
+
+/** Client → Server: user submitted a form response */
+export interface InteractionResponseMessage {
+  type: 'interaction_response';
+  interactionId: string;
+  sessionId?: string;
+  response: Record<string, unknown>;
+}
+
 /** Union of all interaction message types */
-export type InteractionMessage = AskUserInteractionMessage | TodoUpdateInteractionMessage;
+export type InteractionMessage = AskUserInteractionMessage | TodoUpdateInteractionMessage | AskUserFormInteractionMessage;
 
 // Agent permission auto-approval notification (Server → Client)
 export interface AgentPermissionInterceptedMessage {

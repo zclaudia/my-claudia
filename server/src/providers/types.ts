@@ -14,6 +14,7 @@ export interface RunOptions {
   model?: string;
   systemPrompt?: string;  // Appended to system prompt (e.g. for agent sessions)
   serverPort?: number;    // Main server port for MCP bridge
+  claudiaSessionId?: string;  // My-Claudia session ID (for interaction tool context)
   db?: Database.Database;  // Database for loading Claudia-managed MCP servers
 }
 

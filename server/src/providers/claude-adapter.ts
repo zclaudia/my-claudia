@@ -39,6 +39,7 @@ export class ClaudeAdapter implements ProviderAdapter {
         model: options.model,
         systemPrompt: options.systemPrompt,
         serverPort: options.serverPort,
+        claudiaSessionId: options.claudiaSessionId,
         db: options.db,
         abortController,
         queryHandle,

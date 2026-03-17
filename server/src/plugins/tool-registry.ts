@@ -18,7 +18,7 @@ export type ToolHandler = (
   context?: Record<string, unknown>
 ) => Promise<string> | string;
 
-export type ToolSource = 'builtin' | 'plugin';
+export type ToolSource = 'builtin' | 'plugin' | 'interaction';
 
 export type ToolScope = 'agent-assistant' | 'main-session' | 'command-palette';
 
