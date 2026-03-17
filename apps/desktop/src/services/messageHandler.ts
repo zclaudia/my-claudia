@@ -276,6 +276,7 @@ export function handleServerMessage(
     // Phase 1: Unified Interaction Events
     case 'interaction_ask_user':
     case 'interaction_ask_user_form':
+    case 'interaction_approval':
     case 'interaction_todo_update':
       useInteractionStore.getState().upsertInteraction(msg);
       break;

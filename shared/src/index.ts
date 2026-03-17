@@ -1143,6 +1143,7 @@ export type ServerMessage =
   | AskUserInteractionMessage
   | TodoUpdateInteractionMessage
   | AskUserFormInteractionMessage
+  | ApprovalInteractionMessage
   | InteractionResolvedMessage;
 
 // Authentication result message
@@ -1346,6 +1347,16 @@ export interface AskUserFormInteractionMessage extends InteractionBase {
   fields: AskUserFormField[];
 }
 
+/** Approval request interaction (from internal request_approval tool) */
+export interface ApprovalInteractionMessage extends InteractionBase {
+  type: 'interaction_approval';
+  title: string;
+  message: string;
+  approveLabel?: string;
+  rejectLabel?: string;
+  payload?: Record<string, unknown>;
+}
+
 /** Client → Server: user submitted a form response */
 export interface InteractionResponseMessage {
   type: 'interaction_response';
@@ -1355,7 +1366,7 @@ export interface InteractionResponseMessage {
 }
 
 /** Union of all interaction message types */
-export type InteractionMessage = AskUserInteractionMessage | TodoUpdateInteractionMessage | AskUserFormInteractionMessage;
+export type InteractionMessage = AskUserInteractionMessage | TodoUpdateInteractionMessage | AskUserFormInteractionMessage | ApprovalInteractionMessage;
 
 // Agent permission auto-approval notification (Server → Client)
 export interface AgentPermissionInterceptedMessage {

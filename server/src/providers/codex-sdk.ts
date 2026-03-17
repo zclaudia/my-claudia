@@ -1,4 +1,5 @@
 import { readFileSync } from 'fs';
+import path from 'path';
 import {
   Codex,
   type ThreadOptions,
@@ -26,6 +27,8 @@ export interface CodexRunOptions {
   model?: string;
   mode?: string;            // Our permission mode → approval + sandbox
   systemPrompt?: string;
+  serverPort?: number;        // For MCP bridge injection
+  claudiaSessionId?: string;  // Session context for interaction tools
 }
 
 const MAX_AUTO_RETRIES = 3;
@@ -272,8 +275,48 @@ function getCodexCacheKey(options: CodexRunOptions, env: Record<string, string>)
   return `${options.cliPath || '__default__'}::${envSignature}`;
 }
 
+interface CodexConfigValue {
+  [key: string]: string | string[] | CodexConfigValue;
+}
+
+function buildMcpBridgeConfig(options: CodexRunOptions): CodexConfigValue | null {
+  if (!options.serverPort) return null;
+
+  const { toolRegistry } = require('../plugins/tool-registry.js');
+  const bridgeTools = toolRegistry.getAll().filter((t: { source: string }) => t.source === 'plugin' || t.source === 'interaction');
+  if (bridgeTools.length === 0) return null;
+
+  const bridgePath = path.join(path.dirname(import.meta.url.replace('file://', '')), '..', 'plugins', 'mcp-bridge.js');
+  return {
+    mcp_servers: {
+      'claudia-plugins': {
+        command: 'node',
+        args: [bridgePath],
+        env: {
+          CLAUDIA_BRIDGE_URL: `http://127.0.0.1:${options.serverPort}`,
+          CLAUDIA_SESSION_ID: options.claudiaSessionId || '',
+        },
+      },
+    },
+  };
+}
+
 function getCodexInstance(options: CodexRunOptions): Codex {
   const mergedEnv = buildCodexEnv(options);
+
+  // If MCP bridge is needed, create a non-cached instance per run
+  // because claudiaSessionId differs each time
+  const mcpConfig = buildMcpBridgeConfig(options);
+  if (mcpConfig) {
+    console.log(`[Codex SDK] Creating instance with MCP bridge (session: ${options.claudiaSessionId || 'none'})`);
+    return new Codex({
+      codexPathOverride: options.cliPath,
+      env: mergedEnv,
+      config: mcpConfig,
+    });
+  }
+
+  // Standard cached instance (no MCP bridge)
   const key = getCodexCacheKey(options, mergedEnv);
   let codex = codexInstances.get(key);
   if (!codex) {

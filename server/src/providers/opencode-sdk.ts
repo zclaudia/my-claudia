@@ -1,5 +1,7 @@
 import { spawn, type ChildProcess } from 'child_process';
-import { appendFileSync, readFileSync } from 'fs';
+import path from 'path';
+import { appendFileSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
+import { tmpdir } from 'os';
 import type { PermissionRequest, MessageInput } from '@my-claudia/shared';
 import type { ClaudeMessage, SystemInfo, PermissionDecision, PermissionCallback } from './claude-sdk.js';
 import { fileStore } from '../storage/fileStore.js';
@@ -101,6 +103,8 @@ export interface OpenCodeRunOptions {
   model?: string;       // Model override (e.g. 'anthropic/claude-sonnet-4-5-20250929')
   agent?: string;       // Agent/mode to use (e.g. 'sisyphus', 'plan')
   systemPrompt?: string; // Prepended as system context to first message in new sessions
+  serverPort?: number;        // For MCP bridge injection
+  claudiaSessionId?: string;  // Session context for interaction tools
 }
 
 // ============================================
@@ -111,6 +115,56 @@ export interface OpenCodeRunOptions {
 // before reusing old sessions (OpenCode persists sessions across server restarts).
 // ============================================
 const sessionServerMap = new Map<string, string>();
+
+// ============================================
+// MCP Bridge injection tracking
+// ============================================
+interface OpenCodeServerWithBridge extends OpenCodeServer {
+  mcpBridgeInjected?: boolean;
+  sessionIdFile?: string;
+}
+
+const mcpBridgeInjected = new Set<string>(); // keyed by server baseUrl
+
+async function injectMcpBridge(server: OpenCodeServer, options: OpenCodeRunOptions): Promise<void> {
+  if (mcpBridgeInjected.has(server.baseUrl)) return;
+
+  const { toolRegistry } = require('../plugins/tool-registry.js');
+  const bridgeTools = toolRegistry.getAll().filter((t: { source: string }) => t.source === 'plugin' || t.source === 'interaction');
+  if (bridgeTools.length === 0) return;
+
+  const bridgePath = path.join(path.dirname(import.meta.url.replace('file://', '')), '..', 'plugins', 'mcp-bridge.js');
+
+  // Create session ID file for dynamic session tracking
+  const configDir = path.join(tmpdir(), 'my-claudia-mcp');
+  mkdirSync(configDir, { recursive: true });
+  const sessionIdFile = path.join(configDir, `opencode-session-${server.port}.txt`);
+  if (options.claudiaSessionId) {
+    writeFileSync(sessionIdFile, options.claudiaSessionId);
+  }
+  (server as OpenCodeServerWithBridge).sessionIdFile = sessionIdFile;
+
+  try {
+    await server.client.mcp.add({
+      body: {
+        name: 'claudia-plugins',
+        config: {
+          type: 'local',
+          command: ['node', bridgePath],
+          environment: {
+            CLAUDIA_BRIDGE_URL: `http://127.0.0.1:${options.serverPort}`,
+            CLAUDIA_SESSION_ID_FILE: sessionIdFile,
+          },
+          enabled: true,
+        },
+      },
+    });
+    mcpBridgeInjected.add(server.baseUrl);
+    console.log(`[OpenCode] Injected MCP bridge with ${bridgeTools.length} tool(s) on ${server.baseUrl}`);
+  } catch (err) {
+    console.warn(`[OpenCode] Failed to inject MCP bridge: ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
 
 // ============================================
 // OpenCode Server Manager
@@ -743,6 +797,18 @@ export async function* runOpenCode(
   const { client } = server;
   trace.log('provider_raw', 'server_ready', { baseUrl: server.baseUrl, cwd: server.cwd }, 'server ready');
   ocLog(`Server baseUrl=${server.baseUrl} cwd=${server.cwd}`);
+
+  // Inject MCP bridge for interaction tools (once per server)
+  if (options.serverPort) {
+    await injectMcpBridge(server, options);
+  }
+
+  // Update session ID file for the persistent bridge process
+  if (options.claudiaSessionId && (server as OpenCodeServerWithBridge).sessionIdFile) {
+    try {
+      writeFileSync((server as OpenCodeServerWithBridge).sessionIdFile!, options.claudiaSessionId);
+    } catch { /* ignore */ }
+  }
 
   // Create or resume session
   // OpenCode persists sessions in its config directory across server restarts.

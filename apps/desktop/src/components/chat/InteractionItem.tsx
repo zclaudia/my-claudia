@@ -1,6 +1,6 @@
 import { memo, useState, useCallback } from 'react';
-import { CheckCircle2, Loader2, Square, ListTodo, MessageCircleQuestion, FileQuestion, Send, Check } from 'lucide-react';
-import type { InteractionMessage, AskUserFormInteractionMessage, AskUserFormField } from '@my-claudia/shared';
+import { CheckCircle2, Loader2, Square, ListTodo, MessageCircleQuestion, FileQuestion, Send, Check, ShieldAlert, ThumbsUp, ThumbsDown } from 'lucide-react';
+import type { InteractionMessage, AskUserFormInteractionMessage, AskUserFormField, ApprovalInteractionMessage } from '@my-claudia/shared';
 import { useConnection } from '../../contexts/ConnectionContext';
 
 interface InteractionItemProps {
@@ -167,6 +167,62 @@ function AskUserFormRenderer({ interaction }: { interaction: AskUserFormInteract
 }
 
 // ============================================
+// Approval Interaction Renderer
+// ============================================
+
+function ApprovalRenderer({ interaction }: { interaction: ApprovalInteractionMessage }) {
+  const { sendMessage } = useConnection();
+  const [decision, setDecision] = useState<'approved' | 'rejected' | null>(null);
+
+  const handleDecision = useCallback((approved: boolean) => {
+    sendMessage({
+      type: 'interaction_response',
+      interactionId: interaction.interactionId,
+      sessionId: interaction.sessionId,
+      response: { approved },
+    });
+    setDecision(approved ? 'approved' : 'rejected');
+  }, [sendMessage, interaction.interactionId, interaction.sessionId]);
+
+  if (decision) {
+    return (
+      <div className={`flex flex-col gap-1 px-3 py-2 rounded-md border ${decision === 'approved' ? 'bg-success/10 border-success/30' : 'bg-destructive/10 border-destructive/30'}`}>
+        <div className={`flex items-center gap-2 text-xs font-medium ${decision === 'approved' ? 'text-success' : 'text-destructive'}`}>
+          {decision === 'approved' ? <ThumbsUp size={12} /> : <ThumbsDown size={12} />}
+          <span>{interaction.title} — {decision === 'approved' ? 'Approved' : 'Rejected'}</span>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-2 px-3 py-2 rounded-md bg-warning/5 border border-warning/30">
+      <div className="flex items-center gap-2 text-xs font-medium text-foreground">
+        <ShieldAlert size={12} className="text-warning" />
+        <span>{interaction.title}</span>
+      </div>
+      <p className="text-xs text-muted-foreground whitespace-pre-wrap">{interaction.message}</p>
+      <div className="flex items-center gap-2 self-end">
+        <button
+          onClick={() => handleDecision(false)}
+          className="flex items-center gap-1 px-3 py-1 text-xs font-medium rounded border border-border bg-background text-foreground hover:bg-muted transition-colors"
+        >
+          <ThumbsDown size={10} />
+          {interaction.rejectLabel || 'Reject'}
+        </button>
+        <button
+          onClick={() => handleDecision(true)}
+          className="flex items-center gap-1 px-3 py-1 text-xs font-medium rounded bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
+        >
+          <ThumbsUp size={10} />
+          {interaction.approveLabel || 'Approve'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ============================================
 // Main InteractionItem
 // ============================================
 
@@ -220,6 +276,10 @@ function InteractionItemInner({ interaction }: InteractionItemProps) {
 
   if (interaction.type === 'interaction_ask_user_form') {
     return <AskUserFormRenderer interaction={interaction} />;
+  }
+
+  if (interaction.type === 'interaction_approval') {
+    return <ApprovalRenderer interaction={interaction} />;
   }
 
   return null;

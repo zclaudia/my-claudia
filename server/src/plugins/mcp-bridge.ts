@@ -14,7 +14,25 @@ import * as readline from 'readline';
 import * as http from 'http';
 
 const SERVER_URL = process.env.CLAUDIA_BRIDGE_URL || 'http://127.0.0.1:3100';
-const SESSION_ID = process.env.CLAUDIA_SESSION_ID || '';
+const STATIC_SESSION_ID = process.env.CLAUDIA_SESSION_ID || '';
+const SESSION_ID_FILE = process.env.CLAUDIA_SESSION_ID_FILE || '';
+
+/**
+ * Get current session ID.
+ * If SESSION_ID_FILE is set, read from file each time (for persistent bridge processes
+ * where session changes between runs, e.g. OpenCode).
+ * Otherwise use the static env value (for ephemeral bridge processes, e.g. Claude/Codex).
+ */
+function getSessionId(): string {
+  if (SESSION_ID_FILE) {
+    try {
+      return require('fs').readFileSync(SESSION_ID_FILE, 'utf-8').trim();
+    } catch {
+      return STATIC_SESSION_ID;
+    }
+  }
+  return STATIC_SESSION_ID;
+}
 
 // ============================================
 // JSON-RPC Types
@@ -100,7 +118,7 @@ async function listTools(): Promise<McpTool[]> {
 
 async function callTool(name: string, args: Record<string, unknown>): Promise<string> {
   try {
-    const raw = await httpPost(`/api/plugins/tools/${encodeURIComponent(name)}/execute`, { arguments: args, sessionId: SESSION_ID });
+    const raw = await httpPost(`/api/plugins/tools/${encodeURIComponent(name)}/execute`, { arguments: args, sessionId: getSessionId() });
     const data = JSON.parse(raw);
     return data.result || JSON.stringify(data);
   } catch (error) {

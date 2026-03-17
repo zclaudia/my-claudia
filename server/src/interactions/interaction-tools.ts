@@ -13,7 +13,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { toolRegistry } from '../plugins/tool-registry.js';
 import { interactionDispatcher } from './interaction-dispatcher.js';
 import { normalizeTodoItems } from './todo-normalizer.js';
-import type { TodoUpdateInteractionMessage, AskUserFormInteractionMessage } from '@my-claudia/shared';
+import type { TodoUpdateInteractionMessage, AskUserFormInteractionMessage, ApprovalInteractionMessage } from '@my-claudia/shared';
 
 export function registerInteractionTools(): void {
   // ============================================
@@ -135,5 +135,49 @@ export function registerInteractionTools(): void {
     },
   });
 
-  console.log('[InteractionTools] Registered 2 interaction tools: update_todo_list, ask_user_form');
+  // ============================================
+  // request_approval — blocks until user approves/rejects
+  // ============================================
+  toolRegistry.register({
+    id: 'request_approval',
+    source: 'interaction',
+    definition: {
+      type: 'function',
+      function: {
+        name: 'request_approval',
+        description: 'Request user approval before proceeding with an action. Blocks until the user approves or rejects. Use this for destructive, irreversible, or high-impact operations.',
+        parameters: {
+          type: 'object',
+          properties: {
+            title: { type: 'string', description: 'Short title for the approval request' },
+            message: { type: 'string', description: 'Detailed description of what will happen if approved' },
+            approveLabel: { type: 'string', description: 'Custom label for the approve button (default: "Approve")' },
+            rejectLabel: { type: 'string', description: 'Custom label for the reject button (default: "Reject")' },
+          },
+          required: ['title', 'message'],
+        },
+      },
+    },
+    handler: async (args, context) => {
+      const sessionId = (context?.sessionId as string) || '';
+      const interactionId = uuidv4();
+
+      const event: ApprovalInteractionMessage = {
+        type: 'interaction_approval',
+        interactionId,
+        sessionId,
+        source: 'tool_call',
+        createdAt: Date.now(),
+        title: (args.title as string) || 'Approval Required',
+        message: (args.message as string) || '',
+        approveLabel: args.approveLabel as string | undefined,
+        rejectLabel: args.rejectLabel as string | undefined,
+      };
+
+      const response = await interactionDispatcher.dispatchAndWait(interactionId, sessionId, event);
+      return JSON.stringify(response);
+    },
+  });
+
+  console.log('[InteractionTools] Registered 3 interaction tools: update_todo_list, ask_user_form, request_approval');
 }

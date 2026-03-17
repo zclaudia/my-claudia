@@ -2237,8 +2237,10 @@ async function handleRunStart(
 You have access to these interaction tools via MCP:
 - **update_todo_list**: Show/update a visible task list for the user. Call this to track progress on multi-step tasks. Each call replaces the previous list.
 - **ask_user_form**: Present a structured form when you need specific input from the user — multiple fields, choices, or confirmations. The form blocks until the user responds.
+- **request_approval**: Request user approval before proceeding with a destructive, irreversible, or high-impact action. Blocks until the user approves or rejects. The response contains { approved: true/false, reason?: string }.
 
-Prefer ask_user_form over AskUserQuestion when you need multiple pieces of information at once or want to offer specific options/choices.`
+Prefer ask_user_form over AskUserQuestion when you need multiple pieces of information at once or want to offer specific options/choices.
+Use request_approval when an action is destructive or hard to reverse — do not just proceed without confirmation.`
       : undefined;
 
     // 🆕 Assemble workspace prompt (SOUL.md, AGENTS.md, TOOLS.md, skills)

@@ -1,5 +1,8 @@
 import { spawn } from 'child_process';
 import { createInterface } from 'readline';
+import path from 'path';
+import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'fs';
+import { tmpdir } from 'os';
 import type { MessageInput } from '@my-claudia/shared';
 import type { ClaudeMessage, SystemInfo, PermissionCallback } from './claude-sdk.js';
 import { buildNonImageAttachmentNotes } from './attachment-utils.js';
@@ -15,6 +18,8 @@ export interface CursorRunOptions {
   model?: string;
   mode?: string;  // 'default' | 'plan' | 'ask'
   systemPrompt?: string;
+  serverPort?: number;        // For MCP bridge injection
+  claudiaSessionId?: string;  // Session context for interaction tools
 }
 
 // ── Tool call key → friendly name mapping ────────────────────
@@ -59,6 +64,51 @@ function extractToolCall(toolCallObj: Record<string, unknown>): ToolCallInfo | n
     return { toolName, args: tc.args, result };
   }
   return null;
+}
+
+// ── MCP Bridge injection ─────────────────────────────────────
+
+function injectCursorMcpBridge(options: CursorRunOptions): void {
+  const { toolRegistry } = require('../plugins/tool-registry.js');
+  const bridgeTools = toolRegistry.getAll().filter((t: { source: string }) => t.source === 'plugin' || t.source === 'interaction');
+  if (bridgeTools.length === 0) return;
+
+  const bridgePath = path.join(path.dirname(import.meta.url.replace('file://', '')), '..', 'plugins', 'mcp-bridge.js');
+
+  // Session ID file for dynamic session tracking (cursor-agent loads MCP once at startup,
+  // but bridge reads session ID from file on each tool call)
+  const configDir = path.join(tmpdir(), 'my-claudia-mcp');
+  mkdirSync(configDir, { recursive: true });
+  const sessionIdFile = path.join(configDir, `cursor-session-${options.serverPort}.txt`);
+  if (options.claudiaSessionId) {
+    writeFileSync(sessionIdFile, options.claudiaSessionId);
+  }
+
+  const bridgeEntry = {
+    command: 'node',
+    args: [bridgePath],
+    env: {
+      CLAUDIA_BRIDGE_URL: `http://127.0.0.1:${options.serverPort}`,
+      CLAUDIA_SESSION_ID_FILE: sessionIdFile,
+    },
+  };
+
+  // Read existing .cursor/mcp.json (merge, don't overwrite)
+  const mcpJsonPath = path.join(options.cwd, '.cursor', 'mcp.json');
+  let config: Record<string, unknown> = {};
+  try {
+    if (existsSync(mcpJsonPath)) {
+      config = JSON.parse(readFileSync(mcpJsonPath, 'utf-8'));
+    }
+  } catch { /* start fresh */ }
+
+  const mcpServers = (config.mcpServers || {}) as Record<string, unknown>;
+  mcpServers['claudia-plugins'] = bridgeEntry;
+  config.mcpServers = mcpServers;
+
+  mkdirSync(path.join(options.cwd, '.cursor'), { recursive: true });
+  writeFileSync(mcpJsonPath, JSON.stringify(config, null, 2) + '\n');
+  console.log(`[Cursor SDK] Injected MCP bridge into ${mcpJsonPath} (${bridgeTools.length} tool(s))`);
 }
 
 // ── Active processes (for abort) ──────────────────────────────
@@ -134,6 +184,11 @@ export async function* runCursor(
   // Session resumption: options.sessionId IS the cursor session_id (stored as sdk_session_id in DB)
   if (options.sessionId) {
     args.push('--resume', options.sessionId);
+  }
+
+  // Inject MCP bridge into .cursor/mcp.json before spawning
+  if (options.serverPort) {
+    injectCursorMcpBridge(options);
   }
 
   // Filter out model-related env vars to ensure UI model selection takes precedence

@@ -1,5 +1,8 @@
 import { spawn, type ChildProcess } from 'child_process';
 import { createInterface } from 'readline';
+import path from 'path';
+import { writeFileSync, mkdirSync } from 'fs';
+import { tmpdir } from 'os';
 import type { MessageInput } from '@my-claudia/shared';
 import type { ClaudeMessage, SystemInfo, PermissionCallback } from './claude-sdk.js';
 import { buildNonImageAttachmentNotes } from './attachment-utils.js';
@@ -18,6 +21,8 @@ export interface KimiRunOptions {
   mode?: string;  // 'default' | 'plan' | 'yolo'
   systemPrompt?: string;
   thinking?: boolean;
+  serverPort?: number;        // For MCP bridge injection
+  claudiaSessionId?: string;  // Session context for interaction tools
 }
 
 // ── Tool call mapping ────────────────────────────────────────
@@ -607,6 +612,34 @@ export async function* runKimi(
 
   // Work directory
   args.push('--work-dir', options.cwd);
+
+  // Inject MCP bridge for interaction tools
+  if (options.serverPort) {
+    const { toolRegistry } = require('../plugins/tool-registry.js');
+    const bridgeTools = toolRegistry.getAll().filter((t: { source: string }) => t.source === 'plugin' || t.source === 'interaction');
+    if (bridgeTools.length > 0) {
+      const bridgePath = path.join(path.dirname(import.meta.url.replace('file://', '')), '..', 'plugins', 'mcp-bridge.js');
+      const mcpConfig = {
+        mcpServers: {
+          'claudia-plugins': {
+            command: 'node',
+            args: [bridgePath],
+            env: {
+              CLAUDIA_BRIDGE_URL: `http://127.0.0.1:${options.serverPort}`,
+              CLAUDIA_SESSION_ID: options.claudiaSessionId || '',
+            },
+          },
+        },
+      };
+      // Write to temp file to avoid shell escaping issues with inline JSON
+      const configDir = path.join(tmpdir(), 'my-claudia-mcp');
+      mkdirSync(configDir, { recursive: true });
+      const configFile = path.join(configDir, `kimi-mcp-${Date.now()}.json`);
+      writeFileSync(configFile, JSON.stringify(mcpConfig, null, 2));
+      args.push('--mcp-config-file', configFile);
+      console.log(`[Kimi SDK] Injected MCP bridge with ${bridgeTools.length} tool(s) via ${configFile}`);
+    }
+  }
 
   // Environment setup - filter out model-related env vars to ensure UI selection takes precedence
   const baseEnv = { ...process.env, ...(options.env || {}) };

@@ -17,8 +17,9 @@ export class KimiAdapter implements ProviderAdapter {
       model: options.model,
       mode: options.mode,
       systemPrompt: options.systemPrompt,
-      // Kimi doesn't have explicit thinking flag, can be added via model selection
       thinking: options.model?.includes('thinking'),
+      serverPort: options.serverPort,
+      claudiaSessionId: options.claudiaSessionId,
     }, onPermission);
   }
 

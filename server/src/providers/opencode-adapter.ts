@@ -17,6 +17,8 @@ export class OpenCodeAdapter implements ProviderAdapter {
       model: options.model,
       agent: options.mode,
       systemPrompt: options.systemPrompt,
+      serverPort: options.serverPort,
+      claudiaSessionId: options.claudiaSessionId,
     }, onPermission);
   }
 

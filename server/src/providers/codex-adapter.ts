@@ -17,6 +17,8 @@ export class CodexAdapter implements ProviderAdapter {
       model: options.model,
       mode: options.mode,
       systemPrompt: options.systemPrompt,
+      serverPort: options.serverPort,
+      claudiaSessionId: options.claudiaSessionId,
     }, onPermission);
   }
 
