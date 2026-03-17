@@ -293,7 +293,8 @@ pub async fn start_server(
     let bundle_id = _app.config().identifier.clone();
 
     // Spawn node with the server script
-    let mut child = Command::new(&node_bin)
+    let mut child = Command::new(&node_bin);
+    child
         .arg(&server_path)
         .env("PORT", "0")
         .env("SERVER_HOST", "127.0.0.1")
@@ -316,8 +317,7 @@ pub async fn start_server(
         // so macOS doesn't show separate permission dialogs for the node sidecar.
         .env("__CFBundleIdentifier", &bundle_id)
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        ;
+        .stderr(Stdio::piped());
 
     for (key, value) in &shell_network_env {
         child.env(key, value);
