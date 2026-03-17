@@ -1024,8 +1024,10 @@ export async function createServer(): Promise<ServerContext> {
     });
   });
 
-  // Register internal interaction tools (update_todo_list, ask_user_form)
-  registerInteractionTools();
+  // Register internal interaction tools (update_todo_list, ask_user_form, request_approval, push_file)
+  registerInteractionTools({
+    getServerPort: () => serverPort,
+  });
 
   // Wire interaction dispatcher to send events via WS
   interactionDispatcher.setSendFunction((sessionId, event) => {
@@ -2243,13 +2245,18 @@ async function handleRunStart(
 
 
     // Inject file push context (env vars + system prompt) so AI agents can push files to user's device
+    // When interaction tools are available, push_file tool replaces the curl-based prompt
     const filePushEnv: Record<string, string> = {};
     let filePushContext: string | undefined;
+    const hasInteractionTools = pluginToolRegistry.getAll().some(t => t.source === 'interaction');
     if (serverPort) {
       const apiUrl = `http://127.0.0.1:${serverPort}`;
       filePushEnv.MY_CLAUDIA_API_URL = apiUrl;
       filePushEnv.MY_CLAUDIA_SESSION_ID = message.sessionId;
-      filePushContext = buildFilePushContext(apiUrl, message.sessionId);
+      // Only inject curl-based prompt when interaction tools are NOT available (fallback)
+      if (!hasInteractionTools) {
+        filePushContext = buildFilePushContext(apiUrl, message.sessionId);
+      }
     }
 
     const injectNonNativePlanPrompt = modeValue === 'plan' && !providerSupportsNativePlanMode(providerType);
@@ -2261,16 +2268,17 @@ async function handleRunStart(
       : undefined;
 
     // Interaction tool prompt (injected when interaction tools are registered)
-    const hasInteractionTools = pluginToolRegistry.getAll().some(t => t.source === 'interaction');
     const interactionToolPrompt = hasInteractionTools
       ? `## Interaction Tools
 You have access to these interaction tools via MCP:
 - **update_todo_list**: Show/update a visible task list for the user. Call this to track progress on multi-step tasks. Each call replaces the previous list.
 - **ask_user_form**: Present a structured form when you need specific input from the user — multiple fields, choices, or confirmations. The form blocks until the user responds.
 - **request_approval**: Request user approval before proceeding with a destructive, irreversible, or high-impact action. Blocks until the user approves or rejects. The response contains { approved: true/false, reason?: string }.
+- **push_file**: Push a local file to the user's device. Use this when you build, generate, or export files (images, APKs, binaries, archives, documents, etc.) that the user needs. Images and small files (<500KB) auto-download; larger files show a download notification. Prefer this over curl to push files.
 
 Prefer ask_user_form over AskUserQuestion when you need multiple pieces of information at once or want to offer specific options/choices.
-Use request_approval when an action is destructive or hard to reverse — do not just proceed without confirmation.`
+Use request_approval when an action is destructive or hard to reverse — do not just proceed without confirmation.
+Use push_file instead of curl to send files to the user — it is more reliable and works across all providers.`
       : undefined;
 
     // 🆕 Assemble workspace prompt (SOUL.md, AGENTS.md, TOOLS.md, skills)

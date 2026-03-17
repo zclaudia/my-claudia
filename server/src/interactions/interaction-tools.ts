@@ -7,15 +7,46 @@
  *
  * - update_todo_list: fire-and-forget, emits interaction_todo_update
  * - ask_user_form: blocks until user responds, emits interaction_ask_user_form
+ * - request_approval: blocks until user approves/rejects
+ * - push_file: fire-and-forget, pushes a local file to user's device
  */
 
 import { v4 as uuidv4 } from 'uuid';
+import http from 'http';
 import { toolRegistry } from '../plugins/tool-registry.js';
 import { interactionDispatcher } from './interaction-dispatcher.js';
 import { normalizeTodoItems } from './todo-normalizer.js';
 import type { TodoUpdateInteractionMessage, AskUserFormInteractionMessage, ApprovalInteractionMessage } from '@my-claudia/shared';
 
-export function registerInteractionTools(): void {
+export interface InteractionToolsConfig {
+  getServerPort: () => number | null;
+}
+
+/** HTTP POST to self (localhost) — reuses existing route handlers. */
+function selfPost(port: number, path: string, body: Record<string, unknown>): Promise<{ status: number; body: Record<string, unknown> }> {
+  return new Promise((resolve, reject) => {
+    const data = JSON.stringify(body);
+    const req = http.request({
+      hostname: '127.0.0.1',
+      port,
+      path,
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(data) },
+    }, (res) => {
+      let raw = '';
+      res.on('data', (c) => { raw += c; });
+      res.on('end', () => {
+        try { resolve({ status: res.statusCode || 500, body: JSON.parse(raw) }); }
+        catch { resolve({ status: res.statusCode || 500, body: { raw } }); }
+      });
+    });
+    req.on('error', reject);
+    req.write(data);
+    req.end();
+  });
+}
+
+export function registerInteractionTools(config?: InteractionToolsConfig): void {
   // ============================================
   // update_todo_list — fire-and-forget
   // ============================================
@@ -179,5 +210,62 @@ export function registerInteractionTools(): void {
     },
   });
 
-  console.log('[InteractionTools] Registered 3 interaction tools: update_todo_list, ask_user_form, request_approval');
+  // ============================================
+  // push_file — fire-and-forget, pushes file to user's device
+  // ============================================
+  toolRegistry.register({
+    id: 'push_file',
+    source: 'interaction',
+    definition: {
+      type: 'function',
+      function: {
+        name: 'push_file',
+        description: 'Push a local file to the user\'s device. Use this when you build, generate, or export files (images, APKs, binaries, archives, documents, etc.) that the user needs. Images and small files (<500KB) auto-download; larger files show a download notification.',
+        parameters: {
+          type: 'object',
+          properties: {
+            filePath: { type: 'string', description: 'Absolute path to the file to push' },
+            description: { type: 'string', description: 'Brief description of the file (shown in notification)' },
+          },
+          required: ['filePath'],
+        },
+      },
+    },
+    handler: async (args, context) => {
+      const sessionId = (context?.sessionId as string) || '';
+      const filePath = args.filePath as string;
+
+      if (!filePath) {
+        return JSON.stringify({ error: 'filePath is required' });
+      }
+
+      const port = config?.getServerPort?.();
+      if (!port) {
+        return JSON.stringify({ error: 'Server port not available' });
+      }
+
+      try {
+        const result = await selfPost(port, '/api/files/push', {
+          filePath,
+          sessionId,
+          description: (args.description as string) || undefined,
+        });
+
+        if (result.status === 200 && result.body.success) {
+          const data = result.body.data as Record<string, unknown>;
+          return JSON.stringify({
+            success: true,
+            fileName: data.fileName,
+            fileSize: data.fileSize,
+            autoDownload: data.autoDownload,
+          });
+        }
+        return JSON.stringify({ error: (result.body.error as Record<string, unknown>)?.message || 'Push failed' });
+      } catch (err) {
+        return JSON.stringify({ error: `Push failed: ${err instanceof Error ? err.message : String(err)}` });
+      }
+    },
+  });
+
+  console.log('[InteractionTools] Registered 4 interaction tools: update_todo_list, ask_user_form, request_approval, push_file');
 }
