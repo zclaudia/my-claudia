@@ -220,6 +220,7 @@ export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar }:
   const bottomRefreshRef = useRef<{ lastAt: number; inFlight: boolean }>({ lastAt: 0, inFlight: false });
   const lastScrollTopRef = useRef(0);
   const suppressLoadMoreUntilRef = useRef<number>(0);
+  const messageJumpTimeoutRef = useRef<number | null>(null);
   const [initialLoadDone, setInitialLoadDone] = useState(false);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
   const [scrollMetrics, setScrollMetrics] = useState({ scrollTop: 0, viewportHeight: 0 });
@@ -297,6 +298,10 @@ export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar }:
     setInitialDraft(useChatStore.getState().drafts[sessionId]);
     bottomRefreshRef.current = { lastAt: 0, inFlight: false };
     lastScrollTopRef.current = 0;
+    if (messageJumpTimeoutRef.current != null) {
+      window.clearTimeout(messageJumpTimeoutRef.current);
+      messageJumpTimeoutRef.current = null;
+    }
     setIsRenamingSession(false);
     setRenameValue('');
   }, [sessionId]);
@@ -418,6 +423,28 @@ export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar }:
     return true;
   }, [isMobile]);
 
+  const positionViewportForMessageJump = useCallback((messageId: string) => {
+    const container = messagesContainerRef.current;
+    if (!container || sessionMessages.length === 0) return false;
+
+    const messageIndex = sessionMessages.findIndex((message) => message.id === messageId);
+    if (messageIndex === -1) return false;
+
+    // Virtualized lists may not have mounted the target row yet. Move the viewport
+    // close to the target first so the next retry can resolve the DOM node.
+    const progress = sessionMessages.length <= 1
+      ? 0
+      : messageIndex / (sessionMessages.length - 1);
+    const targetTop = Math.max(
+      0,
+      (container.scrollHeight * progress) - (container.clientHeight / 2),
+    );
+
+    suppressLoadMoreUntilRef.current = Date.now() + SUPPRESS_LOAD_MORE_MS;
+    container.scrollTo({ top: targetTop, behavior: 'auto' });
+    return true;
+  }, [sessionMessages]);
+
   // Sync filePush metadata from loaded messages into filePushStore for download tracking
   const syncFilePushMessages = useCallback((msgs: MessageWithToolCalls[]) => {
     const fpStore = useFilePushStore.getState();
@@ -485,8 +512,7 @@ export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar }:
 
         setInitialLoadDone(true);
         setTimeout(() => {
-          if (pendingMessageJump?.sessionId === sessionId && scrollToMessage(pendingMessageJump.messageId)) {
-            clearMessageJump(sessionId, pendingMessageJump.messageId);
+          if (pendingMessageJump?.sessionId === sessionId) {
             return;
           }
           scrollToBottom(true);
@@ -522,10 +548,48 @@ export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar }:
   useEffect(() => {
     if (pendingMessageJump?.sessionId !== sessionId) return;
     if (!initialLoadDone) return;
-    if (scrollToMessage(pendingMessageJump.messageId)) {
-      clearMessageJump(sessionId, pendingMessageJump.messageId);
+
+    const { messageId } = pendingMessageJump;
+    if (messageJumpTimeoutRef.current != null) {
+      window.clearTimeout(messageJumpTimeoutRef.current);
+      messageJumpTimeoutRef.current = null;
     }
-  }, [pendingMessageJump, sessionId, initialLoadDone, sessionMessages.length, clearMessageJump, scrollToMessage]);
+
+    let cancelled = false;
+    let attempts = 0;
+
+    const tryJump = () => {
+      if (cancelled) return;
+      if (scrollToMessage(messageId)) {
+        clearMessageJump(sessionId, messageId);
+        messageJumpTimeoutRef.current = null;
+        return;
+      }
+
+      if (attempts === 0) {
+        positionViewportForMessageJump(messageId);
+      }
+
+      attempts += 1;
+      if (attempts >= 4) {
+        clearMessageJump(sessionId, messageId);
+        messageJumpTimeoutRef.current = null;
+        return;
+      }
+
+      messageJumpTimeoutRef.current = window.setTimeout(tryJump, 80);
+    };
+
+    tryJump();
+
+    return () => {
+      cancelled = true;
+      if (messageJumpTimeoutRef.current != null) {
+        window.clearTimeout(messageJumpTimeoutRef.current);
+        messageJumpTimeoutRef.current = null;
+      }
+    };
+  }, [pendingMessageJump, sessionId, initialLoadDone, clearMessageJump, scrollToMessage, positionViewportForMessageJump]);
 
   // One-shot jump: when entering from Active Sessions, force scroll to latest content.
   useEffect(() => {
@@ -1563,18 +1627,31 @@ export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar }:
       const serverUrl = getBaseUrl();
       const authToken = (getAuthHeaders() as Record<string, string>)['Authorization'] || '';
 
+      const activeServer = useServerStore.getState().getActiveServer();
+      const serverName = activeServer?.name || '';
+
       const urlParams = new URLSearchParams({
         sessionWindow: sessionId,
         projectId: currentSession?.projectId || '',
         serverUrl,
         authToken,
+        ...(activeServerId ? { serverId: activeServerId } : {}),
+        ...(serverName ? { serverName } : {}),
       });
 
       const winUrl = `${window.location.origin}${window.location.pathname}?${urlParams}`;
 
+      // Build descriptive title: "SessionName — ServerName · ProjectName"
+      const sessionName = currentSession?.name || 'Session';
+      const projectName = currentProject?.name || '';
+      const titleParts = [sessionName];
+      const contextParts = [serverName, projectName].filter(Boolean);
+      if (contextParts.length > 0) titleParts.push(contextParts.join(' · '));
+      const title = titleParts.join(' — ');
+
       new WebviewWindow(label, {
         url: winUrl,
-        title: currentSession?.name || 'Session',
+        title,
         width: 900,
         height: 700,
         center: true,

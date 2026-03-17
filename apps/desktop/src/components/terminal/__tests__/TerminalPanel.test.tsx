@@ -23,6 +23,7 @@ vi.mock('../../../utils/xtermRegistry', () => ({
     delete: vi.fn(),
     get: vi.fn(),
     set: vi.fn(),
+    markDetached: vi.fn(),
   },
 }));
 
@@ -35,6 +36,9 @@ vi.mock('../../../stores/terminalStore', () => {
     const state = {
       terminals: {} as Record<string, string>,
       ctrlActive: {} as Record<string, boolean>,
+      poppedOutTerminals: {} as Record<string, string>,
+      shouldReattach: vi.fn(() => false),
+      clearNeedsReattach: vi.fn(),
       toggleCtrl: mockToggleCtrl,
     };
     return selector ? selector(state) : state;
@@ -44,6 +48,9 @@ vi.mock('../../../stores/terminalStore', () => {
     openTerminal: mockOpenTerminal,
     terminals: {},
     ctrlActive: {},
+    poppedOutTerminals: {},
+    shouldReattach: vi.fn(() => false),
+    clearNeedsReattach: vi.fn(),
     toggleCtrl: mockToggleCtrl,
   });
   return { useTerminalStore: store };
@@ -69,6 +76,9 @@ describe('TerminalPanel', () => {
       const state = {
         terminals: { 'proj-1': 'term-1' },
         ctrlActive: {},
+        poppedOutTerminals: {},
+        shouldReattach: vi.fn(() => false),
+        clearNeedsReattach: vi.fn(),
         toggleCtrl: mockToggleCtrl,
       };
       return selector ? selector(state) : state;
@@ -83,7 +93,7 @@ describe('TerminalPanel', () => {
 describe('TerminalActions', () => {
   it('renders a reload button', () => {
     const { container } = render(<TerminalActions projectId="proj-1" />);
-    const button = container.querySelector('button');
+    const button = Array.from(container.querySelectorAll('button')).find((el) => el.title === 'Reload terminal');
     expect(button).toBeInTheDocument();
     expect(button?.title).toBe('Reload terminal');
   });
@@ -96,6 +106,9 @@ describe('TerminalActions', () => {
       const state = {
         terminals: { 'proj-1': 'term-1' },
         ctrlActive: {},
+        poppedOutTerminals: {},
+        shouldReattach: vi.fn(() => false),
+        clearNeedsReattach: vi.fn(),
         toggleCtrl: mockToggleCtrl,
       };
       (useTerminalStore as any).getState = () => ({
@@ -103,12 +116,15 @@ describe('TerminalActions', () => {
         openTerminal: mockOpenTerminal,
         terminals: { 'proj-1': 'term-1' },
         ctrlActive: {},
+        poppedOutTerminals: {},
+        shouldReattach: vi.fn(() => false),
+        clearNeedsReattach: vi.fn(),
       });
       return selector ? selector(state) : state;
     });
 
     const { container } = render(<TerminalActions projectId="proj-1" />);
-    const button = container.querySelector('button') as HTMLButtonElement;
+    const button = Array.from(container.querySelectorAll('button')).find((el) => el.title === 'Reload terminal') as HTMLButtonElement;
     fireEvent.click(button);
 
     expect(mockSendMessage).toHaveBeenCalledWith(
@@ -124,6 +140,9 @@ describe('TerminalActions', () => {
       const state = {
         terminals: {},
         ctrlActive: {},
+        poppedOutTerminals: {},
+        shouldReattach: vi.fn(() => false),
+        clearNeedsReattach: vi.fn(),
         toggleCtrl: mockToggleCtrl,
       };
       (useTerminalStore as any).getState = () => ({
@@ -131,12 +150,15 @@ describe('TerminalActions', () => {
         openTerminal: vi.fn(),
         terminals: {},
         ctrlActive: {},
+        poppedOutTerminals: {},
+        shouldReattach: vi.fn(() => false),
+        clearNeedsReattach: vi.fn(),
       });
       return selector ? selector(state) : state;
     });
 
     const { container } = render(<TerminalActions projectId="proj-1" />);
-    const button = container.querySelector('button') as HTMLButtonElement;
+    const button = Array.from(container.querySelectorAll('button')).find((el) => el.title === 'Reload terminal') as HTMLButtonElement;
     fireEvent.click(button);
 
     expect(mockSendMessage).not.toHaveBeenCalled();

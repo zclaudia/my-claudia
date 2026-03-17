@@ -39,6 +39,7 @@ export class GatewayTransport {
   private config: GatewayTransportConfig;
   private gatewayAuthenticated = false;
   private authenticatedBackends = new Set<string>();
+  private pendingBackendAuths = new Set<string>();
 
   constructor(config: GatewayTransportConfig) {
     this.config = config;
@@ -51,6 +52,7 @@ export class GatewayTransport {
 
     this.gatewayAuthenticated = false;
     this.authenticatedBackends.clear();
+    this.pendingBackendAuths.clear();
 
     this.ws = new WebSocket(this.config.url);
     this.setupWebSocket(this.ws);
@@ -63,6 +65,7 @@ export class GatewayTransport {
     }
     this.gatewayAuthenticated = false;
     this.authenticatedBackends.clear();
+    this.pendingBackendAuths.clear();
     // Intentional disconnect: stop syncs and clear sessions
     stopSessionSync();
     useSessionsStore.getState().clearAllSessions();
@@ -87,6 +90,13 @@ export class GatewayTransport {
       this.config.onBackendAuthResult(backendId, false, 'Not connected to gateway');
       return;
     }
+
+    if (this.authenticatedBackends.has(backendId) || this.pendingBackendAuths.has(backendId)) {
+      console.log('[GatewayTransport] Skipping duplicate backend auth request:', backendId);
+      return;
+    }
+
+    this.pendingBackendAuths.add(backendId);
 
     const msg: ClientToGatewayMessage = {
       type: 'connect_backend',
@@ -167,6 +177,7 @@ export class GatewayTransport {
       this.ws = null;
       this.gatewayAuthenticated = false;
       this.authenticatedBackends.clear();
+      this.pendingBackendAuths.clear();
       // Don't stop sync timers or clear sessions here —
       // session data survives temporary disconnects (mobile background).
       // Sync HTTP requests will fail silently until reconnected.
@@ -215,6 +226,7 @@ export class GatewayTransport {
         break;
 
       case 'backend_auth_result':
+        this.pendingBackendAuths.delete(message.backendId);
         if (message.success) {
           console.log('[GatewayTransport] Backend authenticated:', message.backendId);
           this.authenticatedBackends.add(message.backendId);
@@ -252,6 +264,7 @@ export class GatewayTransport {
       case 'backend_disconnected':
         console.log('[GatewayTransport] Backend disconnected:', message.backendId);
         this.authenticatedBackends.delete(message.backendId);
+        this.pendingBackendAuths.delete(message.backendId);
         // Stop periodic sync for this backend
         stopSessionSync(message.backendId);
         // Clear sessions for this backend

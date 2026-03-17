@@ -24,6 +24,7 @@ docs/
 | [agent-assistant-plugin-platform.md](./design/agent-assistant-plugin-platform.md) | Agent Assistant 插件平台 |
 | [multi-model-collaborative-refinement.md](./design/multi-model-collaborative-refinement.md) | 多模型协作校准 |
 | [unified-provider-interaction-protocol.md](./design/unified-provider-interaction-protocol.md) | 多 Provider 统一交互协议草案 |
+| [run-stream-event-sequencing.md](./design/run-stream-event-sequencing.md) | Run 流式事件序号与去重设计 |
 | [claudia-ui-review.md](./design/claudia-ui-review.md) | UI 设计评审 |
 
 ### ⚡ 功能设计 (features/) — 未实现

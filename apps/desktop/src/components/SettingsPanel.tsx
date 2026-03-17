@@ -14,6 +14,7 @@ import { ImportOpenCodeDialog } from './ImportOpenCodeDialog';
 import { PluginSettings } from './PluginSettings';
 import { McpServerSettings } from './McpServerSettings';
 import { usePluginStore, selectPluginSettingsTabs } from '../stores/pluginStore';
+import { useProcessMonitorStore } from '../stores/processMonitorStore';
 import * as api from '../services/api';
 import { exportLogs, getLogCount, clearLogs } from '../services/logger';
 import { getClientAIConfig, setClientAIConfig, testClientAIConnection, fetchAvailableModels, type ClientAIConfig } from '../services/clientAI';
@@ -63,7 +64,11 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
     localBackendId,
     showLocalBackend,
   } = useGatewayStore();
-  const { connectServer, embeddedServerStatus, embeddedServerError, embeddedServerPort } = useConnection();
+  const { sendMessage, connectServer, embeddedServerStatus, embeddedServerError, embeddedServerPort } = useConnection();
+  const [leakCleanupRunning, setLeakCleanupRunning] = useState(false);
+  const [leakCleanupResult, setLeakCleanupResult] = useState<{ ok: boolean; message: string } | null>(null);
+  const cleanupResult = useProcessMonitorStore((state) => state.lastCleanupResult);
+  const clearCleanupResult = useProcessMonitorStore((state) => state.clearCleanupResult);
 
   const isConnected = connectionStatus === 'connected';
   const activeServer = getActiveServer();
@@ -119,6 +124,55 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
       setAgentPermLoading(false);
     }
   }, []);
+
+  const handleLeakCleanup = useCallback(() => {
+    if (!isConnected) {
+      setLeakCleanupResult({ ok: false, message: 'Connect to the server before running process cleanup.' });
+      return;
+    }
+
+    setLeakCleanupRunning(true);
+    clearCleanupResult();
+    setLeakCleanupResult(null);
+    try {
+      sendMessage({ type: 'kill_leaked_processes' });
+    } catch (err) {
+      setLeakCleanupResult({
+        ok: false,
+        message: err instanceof Error ? err.message : 'Failed to request process cleanup.',
+      });
+      setLeakCleanupRunning(false);
+    }
+  }, [clearCleanupResult, isConnected, sendMessage]);
+
+  useEffect(() => {
+    if (!cleanupResult) return;
+
+    setLeakCleanupRunning(false);
+
+    if (cleanupResult.status === 'skipped_active_runs') {
+      setLeakCleanupResult({
+        ok: false,
+        message: `Cleanup skipped because ${cleanupResult.activeRunCount} active run(s) are still in progress.`,
+      });
+      return;
+    }
+
+    if (cleanupResult.status === 'clean') {
+      setLeakCleanupResult({
+        ok: true,
+        message: 'Cleanup completed. No leaked child processes were found.',
+      });
+      return;
+    }
+
+    setLeakCleanupResult({
+      ok: cleanupResult.killedCount > 0,
+      message: cleanupResult.killedCount > 0
+        ? `Cleanup completed. Terminated ${cleanupResult.killedCount} of ${cleanupResult.leakedCount} leaked process(es).`
+        : `Cleanup completed, but none of the ${cleanupResult.leakedCount} leaked process(es) could be terminated.`,
+    });
+  }, [cleanupResult]);
 
   // macOS permission checks
   const [fdaGranted, setFdaGranted] = useState<boolean | null>(null);
@@ -694,56 +748,84 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
                 {/* Diagnostics */}
                 <div>
                   <h3 className="text-sm font-medium mb-3">Diagnostics</h3>
-                  <div className="p-3 bg-secondary/50 rounded-lg space-y-2">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <div className="text-sm">Client Logs</div>
-                        <div className="text-xs text-muted-foreground">{getLogCount()} entries in buffer</div>
-                      </div>
-                      <div className="flex gap-2">
-                        <button
-                          onClick={() => { clearLogs(); }}
-                          className="px-2 py-1 text-xs bg-secondary hover:bg-secondary/80 text-secondary-foreground rounded-md transition-colors"
-                        >
-                          Clear
-                        </button>
-                        <button
-                          onClick={async () => {
-                            try {
-                              const logs = exportLogs();
-                              const ts = new Date().toISOString().replace(/[:.]/g, '-');
-                              const fileName = `my-claudia-logs-${ts}.json`;
-                              const blob = new Blob([logs], { type: 'application/json' });
+                  <div className="space-y-3">
+                    <div className="p-3 bg-secondary/50 rounded-lg space-y-2">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <div className="text-sm">Client Logs</div>
+                          <div className="text-xs text-muted-foreground">{getLogCount()} entries in buffer</div>
+                        </div>
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => { clearLogs(); }}
+                            className="px-2 py-1 text-xs bg-secondary hover:bg-secondary/80 text-secondary-foreground rounded-md transition-colors"
+                          >
+                            Clear
+                          </button>
+                          <button
+                            onClick={async () => {
+                              try {
+                                const logs = exportLogs();
+                                const ts = new Date().toISOString().replace(/[:.]/g, '-');
+                                const fileName = `my-claudia-logs-${ts}.json`;
+                                const blob = new Blob([logs], { type: 'application/json' });
 
-                              if ('__TAURI_INTERNALS__' in window) {
-                                const { downloadDir } = await import('@tauri-apps/api/path');
-                                const { writeFile } = await import('@tauri-apps/plugin-fs');
-                                const dir = await downloadDir();
-                                const filePath = `${dir}/${fileName}`;
-                                await writeFile(filePath, new Uint8Array(await blob.arrayBuffer()));
-                                // Open folder in file manager (desktop only, skip on Android)
-                                if (!navigator.userAgent.includes('Android')) {
-                                  const { open } = await import('@tauri-apps/plugin-shell');
-                                  await open(dir);
+                                if ('__TAURI_INTERNALS__' in window) {
+                                  const { downloadDir } = await import('@tauri-apps/api/path');
+                                  const { writeFile } = await import('@tauri-apps/plugin-fs');
+                                  const dir = await downloadDir();
+                                  const filePath = `${dir}/${fileName}`;
+                                  await writeFile(filePath, new Uint8Array(await blob.arrayBuffer()));
+                                  // Open folder in file manager (desktop only, skip on Android)
+                                  if (!navigator.userAgent.includes('Android')) {
+                                    const { open } = await import('@tauri-apps/plugin-shell');
+                                    await open(dir);
+                                  }
+                                } else {
+                                  // Web fallback
+                                  const url = URL.createObjectURL(blob);
+                                  const a = document.createElement('a');
+                                  a.href = url;
+                                  a.download = fileName;
+                                  a.click();
+                                  URL.revokeObjectURL(url);
                                 }
-                              } else {
-                                // Web fallback
-                                const url = URL.createObjectURL(blob);
-                                const a = document.createElement('a');
-                                a.href = url;
-                                a.download = fileName;
-                                a.click();
-                                URL.revokeObjectURL(url);
+                              } catch (err) {
+                                console.error('[Settings] Failed to export logs:', err);
                               }
-                            } catch (err) {
-                              console.error('[Settings] Failed to export logs:', err);
-                            }
-                          }}
-                          className="px-3 py-1 text-xs bg-primary hover:bg-primary/90 text-primary-foreground rounded-lg font-medium transition-colors"
+                            }}
+                            className="px-3 py-1 text-xs bg-primary hover:bg-primary/90 text-primary-foreground rounded-lg font-medium transition-colors"
+                          >
+                            Export Logs
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="p-3 bg-secondary/50 rounded-lg space-y-3">
+                      <div>
+                        <div className="text-sm">Leaked Process Cleanup</div>
+                        <div className="text-xs text-muted-foreground mt-0.5">
+                          Trigger an immediate server-side scan for orphaned provider child processes and terminate any matches.
+                        </div>
+                      </div>
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="text-xs text-muted-foreground">
+                          {isConnected ? 'Connected to active server' : 'Server disconnected'}
+                        </div>
+                        <button
+                          onClick={handleLeakCleanup}
+                          disabled={leakCleanupRunning || !isConnected}
+                          className="px-3 py-1 text-xs bg-destructive hover:bg-destructive/90 disabled:bg-muted disabled:text-muted-foreground text-destructive-foreground rounded-lg font-medium transition-colors"
                         >
-                          Export Logs
+                          {leakCleanupRunning ? 'Cleaning…' : 'Clean Leaked Processes'}
                         </button>
                       </div>
+                      {leakCleanupResult && (
+                        <div className={`text-xs ${leakCleanupResult.ok ? 'text-success' : 'text-destructive'}`}>
+                          {leakCleanupResult.message}
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>
