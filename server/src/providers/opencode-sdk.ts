@@ -71,7 +71,7 @@ const OC_LOG_PATH = process.env.MY_CLAUDIA_DATA_DIR
   : '/tmp/opencode-debug.log';
 // Always also write to /tmp for easy access from dev tools
 const OC_LOG_TMP = '/tmp/opencode-debug.log';
-const OPENCODE_MCP_INJECTION_ENABLED = process.env.MY_CLAUDIA_OPENCODE_ENABLE_MCP === '1';
+const OPENCODE_MCP_INJECTION_ENABLED = process.env.MY_CLAUDIA_OPENCODE_ENABLE_MCP !== '0';
 
 function appendOpenCodeLog(msg: string) {
   const line = `[${new Date().toISOString()}] ${msg}\n`;
@@ -1059,12 +1059,12 @@ export async function* runOpenCode(
     ocImportantLog(`Provider preflight ${probe.ok ? 'ok' : 'failed'}: ${probe.detail}`);
   }
 
-  // OpenCode MCP injection is opt-in for now.
-  // This lets us isolate serve/session issues from bridge/tooling issues.
+  // OpenCode MCP injection is enabled by default.
+  // Set MY_CLAUDIA_OPENCODE_ENABLE_MCP=0 to disable it for debugging.
   if (options.serverPort && OPENCODE_MCP_INJECTION_ENABLED) {
     await injectMcpBridge(server, options);
   } else if (options.serverPort && !OPENCODE_MCP_INJECTION_ENABLED) {
-    console.log('[OpenCode] Skipping MCP bridge injection (set MY_CLAUDIA_OPENCODE_ENABLE_MCP=1 to enable)');
+    console.log('[OpenCode] Skipping MCP bridge injection (set MY_CLAUDIA_OPENCODE_ENABLE_MCP=0 only when you want it disabled)');
   }
 
   // Update session ID file for the persistent bridge process
