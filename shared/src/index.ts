@@ -1201,6 +1201,8 @@ export interface RunStartedMessage {
   assistantMessageId?: string;
   /** Session type — background runs should not affect the session's loading state */
   sessionType?: 'regular' | 'background';
+  /** Monotonically increasing event sequence number within this run (starts at 1) */
+  seq?: number;
 }
 
 export interface SessionCreatedMessage {
@@ -1226,6 +1228,7 @@ export interface SystemInfoMessage {
   type: 'system_info';
   runId: string;
   systemInfo: SystemInfo;
+  seq?: number;
 }
 
 export interface DeltaMessage {
@@ -1233,6 +1236,7 @@ export interface DeltaMessage {
   runId: string;
   sessionId: string;
   content: string;
+  seq?: number;
 }
 
 export interface ToolUseMessage {
@@ -1242,6 +1246,7 @@ export interface ToolUseMessage {
   toolUseId: string;
   toolName: string;
   toolInput: unknown;
+  seq?: number;
 }
 
 export interface ToolResultMessage {
@@ -1252,6 +1257,7 @@ export interface ToolResultMessage {
   toolName: string;
   result: unknown;
   isError?: boolean;
+  seq?: number;
 }
 
 export interface ToolActivityMessage {
@@ -1260,6 +1266,7 @@ export interface ToolActivityMessage {
   sessionId: string;
   toolUseId: string;
   content: string;
+  seq?: number;
 }
 
 export interface ModeChangeMessage {
@@ -1267,6 +1274,7 @@ export interface ModeChangeMessage {
   runId: string;
   sessionId: string;
   mode: string;
+  seq?: number;
 }
 
 export interface RunCompletedMessage {
@@ -1274,6 +1282,7 @@ export interface RunCompletedMessage {
   runId: string;
   sessionId: string;
   usage?: UsageInfo;
+  seq?: number;
 }
 
 export interface RunFailedMessage {
@@ -1281,6 +1290,7 @@ export interface RunFailedMessage {
   runId: string;
   sessionId: string;
   error: string;
+  seq?: number;
 }
 
 export interface PermissionRequestMessage {
@@ -1430,6 +1440,7 @@ export interface TaskNotificationMessage {
   taskId?: string;
   status?: string;
   message?: string;
+  seq?: number;
 }
 
 // SDK background task progress update (Server → Client)
@@ -1993,6 +2004,8 @@ export interface StateHeartbeatMessage {
     sessionType?: 'regular' | 'background';
     /** Latest init/system metadata for this run (if available). */
     systemInfo?: SystemInfo;
+    /** Last event sequence number for this run (for gap detection). */
+    lastSeq?: number;
   }>;
   pendingPermissions: Array<{
     requestId: string;

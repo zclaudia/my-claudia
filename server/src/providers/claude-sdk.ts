@@ -12,6 +12,7 @@ import * as os from 'os';
 import * as crypto from 'crypto';
 import { extractRetryDelayMsFromError } from '../utils/retry-window.js';
 import { sanitizeInheritedProviderEnv } from '../utils/startup-env.js';
+import { resolveMcpBridgeLaunchConfig } from '../utils/mcp-bridge-launch.js';
 
 /** Mutable handle exposed by runClaude so the adapter can call query methods (stopTask, etc.) */
 export interface ClaudeQueryHandle {
@@ -327,11 +328,11 @@ export async function* runClaude(
     const { toolRegistry } = await import('../plugins/tool-registry.js');
     const bridgeTools = toolRegistry.getAll().filter(t => t.source === 'plugin' || t.source === 'interaction');
     if (bridgeTools.length > 0) {
-      const bridgePath = path.join(path.dirname(import.meta.url.replace('file://', '')), '..', 'plugins', 'mcp-bridge.js');
+      const bridgeLaunch = resolveMcpBridgeLaunchConfig();
       const mcpServers = (sdkOptions.mcpServers || {}) as Record<string, unknown>;
       mcpServers['claudia-plugins'] = {
-        command: 'node',
-        args: [bridgePath],
+        command: bridgeLaunch.command,
+        args: bridgeLaunch.args,
         env: {
           CLAUDIA_BRIDGE_URL: `http://127.0.0.1:${options.serverPort}`,
           CLAUDIA_SESSION_ID: options.claudiaSessionId || '',
@@ -666,6 +667,19 @@ function transformMessage(message: unknown): ClaudeMessage | ClaudeMessage[] {
     }
 
     case 'result': {
+      // Handle error_during_execution subtype — SDK reports runtime errors this way
+      const resultSubtype = (msg as { subtype?: string }).subtype;
+      if (resultSubtype === 'error_during_execution') {
+        const errorText = (msg as { error?: string }).error
+          || (msg as { result?: string }).result
+          || 'Unknown error during execution';
+        console.error(`[Claude SDK] error_during_execution: ${errorText}`);
+        return {
+          type: 'error' as const,
+          error: errorText,
+        };
+      }
+
       // Check if result has content (some commands return content in result)
       const resultContent = (msg as { result?: string }).result;
       const rawUsage = (msg as { usage?: { input_tokens: number; output_tokens: number } }).usage;

@@ -61,6 +61,21 @@ function isCompletedBackgroundStatus(status: string | undefined): boolean {
   return status === 'completed' || status === 'failed' || status === 'stopped';
 }
 
+/**
+ * Run event dedup: track max seq per runId.
+ * Events with seq <= maxSeq are stale (duplicate or out-of-order).
+ * Events without seq (old servers) always pass through.
+ */
+const maxSeqByRun = new Map<string, number>();
+
+function isStaleRunEvent(runId: string, seq?: number): boolean {
+  if (seq == null || seq < 1) return false; // Old server without seq — pass through
+  const maxSeq = maxSeqByRun.get(runId) ?? 0;
+  if (seq <= maxSeq) return true; // Duplicate or stale
+  maxSeqByRun.set(runId, seq);
+  return false;
+}
+
 function upsertBackgroundTask(taskId: string, task: import('../stores/backgroundTaskStore').BackgroundTask): void {
   const backgroundTaskStore = useBackgroundTaskStore.getState();
   const existingTask = backgroundTaskStore.tasks[taskId];
@@ -98,6 +113,7 @@ export function handleServerMessage(
       break;
 
     case 'delta': {
+      if (isStaleRunEvent(msg.runId, msg.seq)) break;
       const deltaSession = msg.sessionId || useChatStore.getState().activeRuns[msg.runId];
       if (deltaSession) {
         useChatStore.getState().appendToLastMessage(deltaSession, msg.content);
@@ -109,6 +125,7 @@ export function handleServerMessage(
     }
 
     case 'run_started': {
+      if (isStaleRunEvent(msg.runId, msg.seq)) break;
       const currentSessionId = useProjectStore.getState().selectedSessionId;
       const targetSessionId = msg.sessionId || currentSessionId;
       const assistantMsgId = msg.assistantMessageId || msg.runId;
@@ -157,6 +174,7 @@ export function handleServerMessage(
     }
 
     case 'run_completed': {
+      if (isStaleRunEvent(msg.runId, msg.seq)) break;
       const completedSession = msg.sessionId || useChatStore.getState().activeRuns[msg.runId];
       if (completedSession) {
         useAskUserQuestionStore.getState().clearRequestsForSession(completedSession);
@@ -175,10 +193,12 @@ export function handleServerMessage(
       }
       useChatStore.getState().endRun(msg.runId);
       serverRunsRef.get(serverId)?.delete(msg.runId);
+      maxSeqByRun.delete(msg.runId);
       break;
     }
 
     case 'run_failed': {
+      if (isStaleRunEvent(msg.runId, msg.seq)) break;
       const failedSession = msg.sessionId || useChatStore.getState().activeRuns[msg.runId];
       if (failedSession) {
         useAskUserQuestionStore.getState().clearRequestsForSession(failedSession);
@@ -197,11 +217,13 @@ export function handleServerMessage(
       }
       useChatStore.getState().endRun(msg.runId);
       serverRunsRef.get(serverId)?.delete(msg.runId);
+      maxSeqByRun.delete(msg.runId);
       console.error(`[${logTag}] Run failed:`, msg.error);
       break;
     }
 
     case 'tool_use': {
+      if (isStaleRunEvent(msg.runId, msg.seq)) break;
       const toolSession = msg.sessionId || useChatStore.getState().activeRuns[msg.runId];
       if (toolSession) {
         useChatStore.getState().addToolCall(msg.runId, msg.toolUseId, msg.toolName, msg.toolInput);
@@ -213,6 +235,7 @@ export function handleServerMessage(
     }
 
     case 'tool_result': {
+      if (isStaleRunEvent(msg.runId, msg.seq)) break;
       const resultSession = msg.sessionId || useChatStore.getState().activeRuns[msg.runId];
       if (resultSession) {
         useChatStore.getState().updateToolCallResult(msg.runId, msg.toolUseId, msg.result, msg.isError);
@@ -223,6 +246,7 @@ export function handleServerMessage(
     }
 
     case 'tool_activity': {
+      if (isStaleRunEvent(msg.runId, msg.seq)) break;
       if (msg.runId && msg.toolUseId && msg.content) {
         useChatStore.getState().updateToolCallActivity(msg.runId, msg.toolUseId, msg.content);
       }
@@ -230,6 +254,7 @@ export function handleServerMessage(
     }
 
     case 'mode_change':
+      if (isStaleRunEvent(msg.runId, msg.seq)) break;
       useChatStore.getState().setMode(msg.sessionId, msg.mode);
       break;
 
@@ -291,6 +316,7 @@ export function handleServerMessage(
       break;
 
     case 'system_info':
+      if (isStaleRunEvent(msg.runId, msg.seq)) break;
       if (serverId === activeServerId) {
         const sessionId = useChatStore.getState().activeRuns[msg.runId];
         if (sessionId) {
@@ -327,6 +353,7 @@ export function handleServerMessage(
     }
 
     case 'task_notification': {
+      if (isStaleRunEvent(msg.runId, msg.seq)) break;
       // Add/update background task in store
       if (msg.sessionId && msg.taskId) {
         upsertBackgroundTask(msg.taskId, {

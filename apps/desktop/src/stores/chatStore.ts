@@ -350,6 +350,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
       };
       const runToolCalls = state.activeToolCalls[runId] || {};
       const runHistory = state.toolCallsHistory[runId] || [];
+      // Business idempotency: skip push if toolUseId already in history
+      const alreadyInHistory = runHistory.some(tc => tc.id === toolUseId);
       return {
         activeToolCalls: {
           ...state.activeToolCalls,
@@ -357,7 +359,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         },
         toolCallsHistory: {
           ...state.toolCallsHistory,
-          [runId]: [...runHistory, newToolCall],
+          [runId]: alreadyInHistory ? runHistory : [...runHistory, newToolCall],
         },
       };
     }),
@@ -368,6 +370,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
       if (!runToolCalls) return state;
       const existing = runToolCalls[toolUseId];
       if (!existing) return state;
+      // Business idempotency: skip if already completed/error
+      if (existing.status === 'completed' || existing.status === 'error') return state;
 
       const updatedToolCall = {
         ...existing,
@@ -430,6 +434,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
   addToolUseBlock: (runId, toolUseId) =>
     set((state) => {
       const blocks = state.runContentBlocks[runId] || [];
+      // Business idempotency: skip if toolUseId already in content blocks
+      if (blocks.some(b => b.type === 'tool_use' && b.toolUseId === toolUseId)) {
+        return state;
+      }
       return {
         runContentBlocks: {
           ...state.runContentBlocks,

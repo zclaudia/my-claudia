@@ -368,6 +368,7 @@ interface ActiveRun {
   recentToolCalls: string[];  // Last N tool names (sliding window for loop detection)
   loopHeartbeatStreak: number; // Consecutive heartbeats that detect a loop pattern
   latestSystemInfo?: SystemInfo; // Used for heartbeat reconciliation on late-joining clients
+  eventSeq: number; // Monotonically increasing event sequence number (starts at 0, first event gets seq=1)
 }
 
 const activeRuns = new Map<string, ActiveRun>();
@@ -813,6 +814,11 @@ export async function createServer(): Promise<ServerContext> {
 
   // Upgrade handler routes to WebSocketServer
   server.on('upgrade', (req: IncomingMessage, socket, head) => {
+    // Prevent unhandled EPIPE / ECONNRESET crashes on the raw TCP socket
+    socket.on('error', (err) => {
+      console.warn(`[WS Upgrade] Socket error: ${(err as NodeJS.ErrnoException).code || err.message}`);
+    });
+
     const url = req.url || '';
 
     if (url === '/ws' || url.startsWith('/ws?')) {
@@ -823,6 +829,12 @@ export async function createServer(): Promise<ServerContext> {
     }
 
     // Unknown WS path — reject
+    socket.destroy();
+  });
+
+  // Catch client-side TCP errors (EPIPE, ECONNRESET) that would otherwise crash the process
+  server.on('clientError', (err, socket) => {
+    console.warn(`[HTTP] Client error: ${(err as NodeJS.ErrnoException).code || err.message}`);
     socket.destroy();
   });
 
@@ -1290,6 +1302,7 @@ function buildStateHeartbeat(): StateHeartbeatMessage {
       loopPattern: (loop.detected && run.loopHeartbeatStreak >= 3) ? loop.pattern : undefined,
       sessionType: run.sessionType,
       systemInfo: run.latestSystemInfo,
+      lastSeq: run.eventSeq || undefined,
     });
     for (const [requestId, pending] of run.pendingPermissions) {
       if (!pending.originalRequest) continue;
@@ -1399,11 +1412,13 @@ function cancelRun(runId: string): void {
 
     // Notify client that run was cancelled (uses stored client ref — works for both
     // real WebSocket clients and virtual gateway clients)
+    run.eventSeq += 1;
     sendMessage(run.client.ws, {
       type: 'run_failed',
       runId,
       sessionId: run.sessionId,
-      error: 'Run cancelled by user'
+      error: 'Run cancelled by user',
+      seq: run.eventSeq,
     });
 
     interactionDispatcher.cancelBySession(run.sessionId);
@@ -1562,41 +1577,41 @@ async function handleClientMessage(
     case 'stop_background_task': {
       const { sessionId: targetSessionId, taskId } = message;
 
-      // First try active run (if the run that spawned the task is still running)
+      // Gather provider type and SDK session ID from multiple sources
       const targetRun = [...activeRuns.values()].find(r => r.sessionId === targetSessionId);
-      if (targetRun?.providerType && targetRun.providerSessionId) {
-        const adapter = providerRegistry.get(targetRun.providerType);
+      let resolvedProviderType = targetRun?.providerType;
+      let resolvedSdkSessionId = targetRun?.providerSessionId;
+
+      // If active run doesn't have SDK session ID (not yet attached), look up from DB
+      if (!resolvedSdkSessionId) {
+        const sessionRow = db.prepare('SELECT sdk_session_id FROM sessions WHERE id = ?')
+          .get(targetSessionId) as { sdk_session_id: string | null } | undefined;
+        resolvedSdkSessionId = sessionRow?.sdk_session_id || undefined;
+      }
+
+      // If no provider type from active run, look up from DB
+      if (!resolvedProviderType) {
+        const providerRow = db.prepare(`
+          SELECT pr.type FROM sessions s
+          LEFT JOIN projects p ON s.project_id = p.id
+          LEFT JOIN providers pr ON pr.id = COALESCE(s.provider_id, p.provider_id)
+          WHERE s.id = ? AND pr.type IS NOT NULL
+        `).get(targetSessionId) as { type: string } | undefined;
+        resolvedProviderType = providerRow?.type;
+      }
+
+      if (resolvedProviderType && resolvedSdkSessionId) {
+        const adapter = providerRegistry.get(resolvedProviderType);
         if (adapter?.stopTask) {
-          adapter.stopTask(targetRun.providerSessionId, taskId).catch(err => {
+          console.log(`[StopTask] Stopping task ${taskId}: adapter=${resolvedProviderType} sdkSession=${resolvedSdkSessionId}`);
+          adapter.stopTask(resolvedSdkSessionId, taskId).catch(err => {
             console.error(`[StopTask] Failed to stop task ${taskId}:`, err);
           });
           break;
         }
       }
 
-      // Fallback: look up provider info from DB (run may have completed but queryHandle is still alive)
-      const sessionInfo = db.prepare(`
-        SELECT s.sdk_session_id, COALESCE(s.provider_id, p.provider_id) as provider_id
-        FROM sessions s
-        LEFT JOIN projects p ON s.project_id = p.id
-        WHERE s.id = ?
-      `).get(targetSessionId) as { sdk_session_id: string | null; provider_id: string | null } | undefined;
-
-      if (sessionInfo?.sdk_session_id && sessionInfo.provider_id) {
-        const providerRow = db.prepare('SELECT type FROM providers WHERE id = ?')
-          .get(sessionInfo.provider_id) as { type: string } | undefined;
-        if (providerRow) {
-          const adapter = providerRegistry.get(providerRow.type);
-          if (adapter?.stopTask) {
-            adapter.stopTask(sessionInfo.sdk_session_id, taskId).catch(err => {
-              console.error(`[StopTask] Failed to stop task ${taskId}:`, err);
-            });
-            break;
-          }
-        }
-      }
-
-      console.warn(`[StopTask] Cannot stop task ${taskId} in session ${targetSessionId} — no provider session found`);
+      console.warn(`[StopTask] Cannot stop task ${taskId} in session ${targetSessionId} — providerType=${resolvedProviderType} sdkSessionId=${resolvedSdkSessionId}`);
       break;
     }
 
@@ -1745,7 +1760,7 @@ async function handleRunStart(
 
   // Get session info
   const session = db.prepare(`
-    SELECT s.id, s.project_id, s.sdk_session_id, s.type as session_type,
+    SELECT s.id, s.project_id, s.name, s.sdk_session_id, s.type as session_type,
            s.working_directory, s.project_role, s.plan_status, s.task_id,
            p.root_path, COALESCE(s.provider_id, p.provider_id) as provider_id, p.system_prompt
     FROM sessions s
@@ -1754,6 +1769,7 @@ async function handleRunStart(
   `).get(message.sessionId) as {
     id: string;
     project_id: string;
+    name: string | null;
     sdk_session_id: string | null;
     session_type: 'regular' | 'background' | null;
     working_directory: string | null;
@@ -1852,6 +1868,7 @@ async function handleRunStart(
     loopHeartbeatStreak: 0,
     sessionType,
     aiInitiatedPlanMode: false,
+    eventSeq: 0,
   };
   activeRuns.set(runId, activeRun);
 
@@ -1876,6 +1893,11 @@ async function handleRunStart(
 
   // Send run started (include real DB message IDs for client-side dedup)
   const sendRunEvent = (event: ServerMessage) => {
+    // Inject monotonically increasing seq for run-scoped events (for client-side dedup)
+    if ('runId' in event) {
+      activeRun.eventSeq += 1;
+      (event as any).seq = activeRun.eventSeq;
+    }
     trace.log('server_norm', event.type, event, summarizeServerMessage(event as { type: string; [key: string]: unknown }));
     sendMessage(client.ws, event);
     if (clients) broadcastToOtherAuthenticatedClients(clients, client.id, event);
@@ -1973,7 +1995,7 @@ async function handleRunStart(
     // Validate cwd exists — spawn() fails with cryptic ENOENT if cwd is invalid
     if (!fs.existsSync(cwd)) {
       console.warn(`[Run] cwd does not exist: ${cwd}`);
-      sendMessage(client.ws, {
+      sendRunEvent({
         type: 'run_failed',
         runId,
         sessionId: activeRun.sessionId,
@@ -2296,6 +2318,7 @@ Use push_file instead of curl to send files to the user — it is more reliable 
       mode: modeValue,
       model: message.model,
       systemPrompt: [workspacePrompt, message.systemContext, nonNativePlanPrompt, planDocumentPrompt, filePushContext, interactionToolPrompt, session.system_prompt].filter(Boolean).join('\n\n') || undefined,
+      sessionTitle: session.name || undefined,
       serverPort: serverPort || undefined,
       claudiaSessionId: message.sessionId,
       db,
@@ -2353,7 +2376,7 @@ Use push_file instead of curl to send files to the user — it is more reliable 
             persistSessionWorkingDirectory(msg.systemInfo.cwd);
             trace.setMeta({ cwd: msg.systemInfo.cwd || cwd });
             // Send system info to client for display
-            sendMessage(client.ws, {
+            sendRunEvent({
               type: 'system_info',
               runId,
               systemInfo: {
