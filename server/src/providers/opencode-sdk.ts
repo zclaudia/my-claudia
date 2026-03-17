@@ -1,13 +1,15 @@
 import { spawn, type ChildProcess } from 'child_process';
 import path from 'path';
-import { appendFileSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
+import { appendFileSync, readFileSync, writeFileSync, mkdirSync, readdirSync } from 'fs';
 import { tmpdir } from 'os';
 import type { PermissionRequest, MessageInput } from '@my-claudia/shared';
 import type { ClaudeMessage, SystemInfo, PermissionDecision, PermissionCallback } from './claude-sdk.js';
 import { fileStore } from '../storage/fileStore.js';
+import { toolRegistry } from '../plugins/tool-registry.js';
 import { buildNonImageAttachmentNotes } from './attachment-utils.js';
 import { sanitizeInheritedProviderEnv } from '../utils/startup-env.js';
 import { createTraceRecorder, type TraceRecorder, summarizeProviderMessage } from '../utils/provider-trace.js';
+import { resolveMcpBridgeLaunchConfig } from '../utils/mcp-bridge-launch.js';
 
 // ── OpenCode prompt part types ─────────────────────────────────
 type OCTextPart = { type: 'text'; text: string };
@@ -69,14 +71,167 @@ const OC_LOG_PATH = process.env.MY_CLAUDIA_DATA_DIR
   : '/tmp/opencode-debug.log';
 // Always also write to /tmp for easy access from dev tools
 const OC_LOG_TMP = '/tmp/opencode-debug.log';
-function ocLog(msg: string) {
-  if (!OC_DEBUG_ENABLED) return;
+const OPENCODE_MCP_INJECTION_ENABLED = process.env.MY_CLAUDIA_OPENCODE_ENABLE_MCP === '1';
+
+function appendOpenCodeLog(msg: string) {
   const line = `[${new Date().toISOString()}] ${msg}\n`;
   try { appendFileSync(OC_LOG_PATH, line); } catch (e) { /* silently fail */ }
   if (OC_LOG_TMP !== OC_LOG_PATH) {
     try { appendFileSync(OC_LOG_TMP, line); } catch (e) { /* silently fail */ }
   }
+}
+
+function ocLog(msg: string) {
+  if (!OC_DEBUG_ENABLED) return;
+  appendOpenCodeLog(msg);
   console.log(`[OpenCode] ${msg}`);
+}
+
+function ocImportantLog(msg: string) {
+  appendOpenCodeLog(msg);
+  console.log(`[OpenCode] ${msg}`);
+}
+
+function findLatestOpenCodeSocketError(): {
+  providerId?: string;
+  modelId?: string;
+  path?: string;
+} | null {
+  const homeDir = process.env.HOME;
+  if (!homeDir) return null;
+
+  const logDir = path.join(homeDir, '.local', 'share', 'opencode', 'log');
+
+  try {
+    const candidates = readdirSync(logDir)
+      .filter((name) => name.endsWith('.log'))
+      .sort()
+      .reverse()
+      .slice(0, 3);
+
+    const socketErrorPattern =
+      /service=llm providerID=([^ ]+) modelID=([^ ]+).*?"code":"FailedToOpenSocket","path":"([^"]+)"/;
+
+    for (const fileName of candidates) {
+      const content = readFileSync(path.join(logDir, fileName), 'utf8');
+      const lines = content.trim().split('\n').reverse();
+      for (const line of lines) {
+        const match = line.match(socketErrorPattern);
+        if (!match) continue;
+        return {
+          providerId: match[1],
+          modelId: match[2],
+          path: match[3],
+        };
+      }
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
+}
+
+function getOpenCodeConfigPaths(): string[] {
+  const homeDir = process.env.HOME;
+  if (!homeDir) return [];
+
+  return [
+    path.join(homeDir, '.config', 'opencode', 'opencode.json'),
+    path.join(homeDir, '.config', 'opencode', 'config.json'),
+  ];
+}
+
+function loadOpenCodeConfigObject(): Record<string, unknown> | null {
+  for (const configPath of getOpenCodeConfigPaths()) {
+    try {
+      const raw = readFileSync(configPath, 'utf8');
+      return JSON.parse(raw) as Record<string, unknown>;
+    } catch {
+      continue;
+    }
+  }
+
+  return null;
+}
+
+function getOpenCodeLocalProviderBaseUrls(): string[] {
+  const config = loadOpenCodeConfigObject();
+  if (!config) return [];
+
+  const provider = config.provider;
+  if (!provider || typeof provider !== 'object') return [];
+
+  const urls = new Set<string>();
+  for (const providerConfig of Object.values(provider as Record<string, unknown>)) {
+    if (!providerConfig || typeof providerConfig !== 'object') continue;
+    const options = (providerConfig as { options?: unknown }).options;
+    if (!options || typeof options !== 'object') continue;
+    const baseURL = (options as { baseURL?: unknown }).baseURL;
+    if (typeof baseURL === 'string' && baseURL.trim()) {
+      urls.add(baseURL.trim());
+    }
+  }
+
+  return [...urls];
+}
+
+async function probeOpenCodeProviderEndpoint(baseUrl: string): Promise<{ ok: boolean; detail: string }> {
+  const probeUrl = new URL('models', baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 3000);
+
+  try {
+    const response = await fetch(probeUrl, {
+      method: 'GET',
+      signal: controller.signal,
+    });
+    return { ok: true, detail: `${probeUrl.toString()} -> HTTP ${response.status}` };
+  } catch (error) {
+    const details: string[] = [];
+    if (error instanceof Error) {
+      details.push(error.name);
+      details.push(error.message);
+      const errWithCause = error as Error & { cause?: unknown };
+      if (errWithCause.cause) {
+        if (errWithCause.cause instanceof Error) {
+          details.push(`cause=${errWithCause.cause.name}:${errWithCause.cause.message}`);
+        } else {
+          details.push(`cause=${String(errWithCause.cause)}`);
+        }
+      }
+    } else {
+      details.push(String(error));
+    }
+    return {
+      ok: false,
+      detail: `${probeUrl.toString()} -> ${details.join(' | ')}`,
+    };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+export function enrichOpenCodeErrorMessage(errorMessage: string): string {
+  const trimmed = errorMessage.trim();
+  if (!trimmed) return 'OpenCode session error';
+
+  const lower = trimmed.toLowerCase();
+  const isSocketLike =
+    lower.includes('was there a typo in the url or port') ||
+    lower.includes('failedtoopensocket') ||
+    lower.includes('no output generated. check the stream for errors.');
+
+  if (!isSocketLike) return trimmed;
+
+  const socketError = findLatestOpenCodeSocketError();
+  if (!socketError?.path) return trimmed;
+
+  const providerLabel = socketError.providerId && socketError.modelId
+    ? `${socketError.providerId}/${socketError.modelId}`
+    : socketError.providerId || socketError.modelId || 'unknown';
+
+  return `OpenCode could not reach the configured model endpoint (${providerLabel} -> ${socketError.path}). Original error: ${trimmed}`;
 }
 // Write a startup marker so we know the module was loaded
 if (OC_DEBUG_ENABLED) {
@@ -103,6 +258,7 @@ export interface OpenCodeRunOptions {
   model?: string;       // Model override (e.g. 'anthropic/claude-sonnet-4-5-20250929')
   agent?: string;       // Agent/mode to use (e.g. 'sisyphus', 'plan')
   systemPrompt?: string; // Prepended as system context to first message in new sessions
+  sessionTitle?: string; // Optional explicit OpenCode session title
   serverPort?: number;        // For MCP bridge injection
   claudiaSessionId?: string;  // Session context for interaction tools
 }
@@ -129,11 +285,10 @@ const mcpBridgeInjected = new Set<string>(); // keyed by server baseUrl
 async function injectMcpBridge(server: OpenCodeServer, options: OpenCodeRunOptions): Promise<void> {
   if (mcpBridgeInjected.has(server.baseUrl)) return;
 
-  const { toolRegistry } = require('../plugins/tool-registry.js');
   const bridgeTools = toolRegistry.getAll().filter((t: { source: string }) => t.source === 'plugin' || t.source === 'interaction');
   if (bridgeTools.length === 0) return;
 
-  const bridgePath = path.join(path.dirname(import.meta.url.replace('file://', '')), '..', 'plugins', 'mcp-bridge.js');
+  const bridgeLaunch = resolveMcpBridgeLaunchConfig();
 
   // Create session ID file for dynamic session tracking
   const configDir = path.join(tmpdir(), 'my-claudia-mcp');
@@ -145,20 +300,44 @@ async function injectMcpBridge(server: OpenCodeServer, options: OpenCodeRunOptio
   (server as OpenCodeServerWithBridge).sessionIdFile = sessionIdFile;
 
   try {
-    await server.client.mcp.add({
+    const result = await server.client.mcp.add({
       body: {
         name: 'claudia-plugins',
         config: {
           type: 'local',
-          command: ['node', bridgePath],
+          command: [bridgeLaunch.command, ...bridgeLaunch.args],
           environment: {
             CLAUDIA_BRIDGE_URL: `http://127.0.0.1:${options.serverPort}`,
             CLAUDIA_SESSION_ID_FILE: sessionIdFile,
           },
           enabled: true,
+          timeout: 15000,
         },
       },
+      query: {
+        directory: server.cwd,
+      },
     });
+
+    const status = result.data?.['claudia-plugins'];
+    if (result.error) {
+      console.warn(`[OpenCode] Failed to inject MCP bridge: ${JSON.stringify(result.error)}`);
+      return;
+    }
+
+    if (!status || status.status !== 'connected') {
+      console.warn(`[OpenCode] MCP bridge added but not connected: ${JSON.stringify(status)}`);
+      try {
+        await server.client.mcp.disconnect({
+          path: { name: 'claudia-plugins' },
+          query: { directory: server.cwd },
+        });
+      } catch {
+        // Ignore cleanup failures — the goal is to avoid poisoning the session.
+      }
+      return;
+    }
+
     mcpBridgeInjected.add(server.baseUrl);
     console.log(`[OpenCode] Injected MCP bridge with ${bridgeTools.length} tool(s) on ${server.baseUrl}`);
   } catch (err) {
@@ -178,6 +357,14 @@ interface OpenCodeServer {
   cwd: string;
   ready: boolean;
   client: OpencodeClient;
+}
+
+interface OpenCodeHttpResult<T> {
+  ok: boolean;
+  status: number;
+  url: string;
+  data?: T;
+  error?: string;
 }
 
 class OpenCodeServerManager {
@@ -313,6 +500,67 @@ class OpenCodeServerManager {
 
 // Singleton instance
 export const openCodeServerManager = new OpenCodeServerManager();
+
+async function openCodeJsonRequest<T>(
+  server: OpenCodeServer,
+  method: 'GET' | 'POST',
+  pathname: string,
+  options?: {
+    body?: unknown;
+    query?: Record<string, string | number | boolean | undefined>;
+    expectedStatus?: number | number[];
+  },
+): Promise<OpenCodeHttpResult<T>> {
+  const url = new URL(pathname, server.baseUrl);
+  url.searchParams.set('directory', server.cwd);
+  for (const [key, value] of Object.entries(options?.query || {})) {
+    if (value === undefined) continue;
+    url.searchParams.set(key, String(value));
+  }
+
+  const response = await fetch(url, {
+    method,
+    headers: {
+      Accept: 'application/json',
+      'x-opencode-directory': encodeURIComponent(server.cwd),
+      ...(options?.body ? { 'Content-Type': 'application/json' } : {}),
+    },
+    ...(options?.body ? { body: JSON.stringify(options.body) } : {}),
+  });
+
+  const text = await response.text();
+  let data: T | undefined;
+  if (text) {
+    try {
+      data = JSON.parse(text) as T;
+    } catch {
+      // Keep data undefined and surface raw text if needed.
+    }
+  }
+
+  const expected = Array.isArray(options?.expectedStatus)
+    ? options.expectedStatus
+    : options?.expectedStatus !== undefined
+      ? [options.expectedStatus]
+      : [200];
+
+  if (!expected.includes(response.status)) {
+    return {
+      ok: false,
+      status: response.status,
+      url: url.toString(),
+      data,
+      error: data ? JSON.stringify(data) : text || `HTTP ${response.status}`,
+    };
+  }
+
+  return {
+    ok: true,
+    status: response.status,
+    url: url.toString(),
+    data,
+  };
+}
 
 // ============================================
 // Think-tag streaming filter
@@ -535,8 +783,12 @@ async function* emitAssistantFallbackFromSession(
   if (streamState.hasAnyAssistantOutput) return;
 
   try {
-    const res = await server.client.session.messages({ path: { id: sessionId } });
-    const messages = Array.isArray(res.data) ? (res.data as any[]) : [];
+    const res = await openCodeJsonRequest<any[]>(
+      server,
+      'GET',
+      `/session/${encodeURIComponent(sessionId)}/message`,
+    );
+    const messages = Array.isArray(res.data) ? res.data : [];
     const latestAssistant = [...messages].reverse().find((m) => m?.info?.role === 'assistant');
     if (!latestAssistant) return;
 
@@ -571,7 +823,7 @@ async function* emitAssistantFallbackFromSession(
  * Detects tool use/results and session completion.
  */
 async function* pollSessionMessages(
-  client: OpencodeClient,
+  _client: OpencodeClient,
   sessionId: string,
   streamState: StreamState,
   server: OpenCodeServer,
@@ -608,19 +860,21 @@ async function* pollSessionMessages(
 
     let messagesData: any[];
     try {
-      const result = await client.session.messages({
-        path: { id: sessionId },
-      });
+      const result = await openCodeJsonRequest<any[]>(
+        server,
+        'GET',
+        `/session/${encodeURIComponent(sessionId)}/message`,
+      );
       if (pollCount <= 3) {
-        ocLog(`Poll[${pollCount}] SDK: error=${JSON.stringify(result.error) || 'none'} dataType=${typeof result.data} isArray=${Array.isArray(result.data)} response.status=${result.response?.status} response.url=${result.response?.url}`);
+        ocLog(`Poll[${pollCount}] RAW: ok=${result.ok} status=${result.status} url=${result.url} dataType=${typeof result.data} isArray=${Array.isArray(result.data)} error=${result.error || 'none'}`);
       }
-      if (result.error || !result.data) {
+      if (!result.ok || !result.data) {
         if (pollCount <= 3) {
-          ocLog(`Poll[${pollCount}] no data: ${JSON.stringify(result.error) || 'empty'}`);
+          ocLog(`Poll[${pollCount}] no data: ${result.error || 'empty'}`);
         }
         continue;
       }
-      messagesData = result.data as any[];
+      messagesData = result.data;
     } catch (err) {
       ocLog(`Poll[${pollCount}] fetch error: ${err}`);
       continue;
@@ -796,11 +1050,21 @@ export async function* runOpenCode(
 
   const { client } = server;
   trace.log('provider_raw', 'server_ready', { baseUrl: server.baseUrl, cwd: server.cwd }, 'server ready');
-  ocLog(`Server baseUrl=${server.baseUrl} cwd=${server.cwd}`);
+  ocImportantLog(`Server baseUrl=${server.baseUrl} cwd=${server.cwd} cliPath=${options.cliPath}`);
 
-  // Inject MCP bridge for interaction tools (once per server)
-  if (options.serverPort) {
+  for (const providerBaseUrl of getOpenCodeLocalProviderBaseUrls()) {
+    const probe = await probeOpenCodeProviderEndpoint(providerBaseUrl);
+    const level = probe.ok ? 'log' : 'warn';
+    console[level](`[OpenCode] Provider preflight ${probe.ok ? 'ok' : 'failed'}: ${probe.detail}`);
+    ocImportantLog(`Provider preflight ${probe.ok ? 'ok' : 'failed'}: ${probe.detail}`);
+  }
+
+  // OpenCode MCP injection is opt-in for now.
+  // This lets us isolate serve/session issues from bridge/tooling issues.
+  if (options.serverPort && OPENCODE_MCP_INJECTION_ENABLED) {
     await injectMcpBridge(server, options);
+  } else if (options.serverPort && !OPENCODE_MCP_INJECTION_ENABLED) {
+    console.log('[OpenCode] Skipping MCP bridge injection (set MY_CLAUDIA_OPENCODE_ENABLE_MCP=1 to enable)');
   }
 
   // Update session ID file for the persistent bridge process
@@ -824,13 +1088,17 @@ export async function* runOpenCode(
       // Unknown origin (app restarted, map empty) or different server port.
       // Validate the session still exists on the (possibly new) server.
       try {
-        const getResult = await client.session.get({ path: { id: sessionId } });
-        if (getResult.data && !getResult.error) {
+        const getResult = await openCodeJsonRequest<Record<string, unknown>>(
+          server,
+          'GET',
+          `/session/${encodeURIComponent(sessionId)}`,
+        );
+        if (getResult.ok && getResult.data) {
           ocLog(`Session ${sessionId} validated on server ${server.baseUrl} (was: ${knownServer || 'unknown'})`);
           sessionServerMap.set(sessionId, server.baseUrl);
           trace.log('provider_raw', 'session_validated', { sessionId, baseUrl: server.baseUrl }, 'session validated');
         } else {
-          ocLog(`Session ${sessionId} not found (status=${getResult.response?.status}), creating new`);
+          ocLog(`Session ${sessionId} not found (status=${getResult.status}), creating new`);
           sessionId = undefined;
         }
       } catch (err) {
@@ -841,10 +1109,15 @@ export async function* runOpenCode(
   }
   if (!sessionId) {
     try {
-      const result = await client.session.create({});
-      ocLog(`session.create: error=${JSON.stringify(result.error) || 'none'} data.id=${result.data?.id} response.status=${result.response?.status} response.url=${result.response?.url}`);
-      if (result.error || !result.data) {
-        trace.log('provider_raw', 'session_create_failed', { error: result.error }, 'session create failed');
+      const result = await openCodeJsonRequest<{ id: string }>(
+        server,
+        'POST',
+        '/session',
+        { body: options.sessionTitle ? { title: options.sessionTitle } : {} },
+      );
+      ocLog(`session.create: ok=${result.ok} status=${result.status} url=${result.url} error=${result.error || 'none'} data.id=${result.data?.id}`);
+      if (!result.ok || !result.data) {
+        trace.log('provider_raw', 'session_create_failed', { error: result.error, status: result.status, url: result.url }, 'session create failed');
         yield { type: 'error', error: `Failed to create session: ${result.error || 'no data'}` };
         return;
       }
@@ -870,8 +1143,8 @@ export async function* runOpenCode(
     // Fetch version, agents, and provider info in parallel
     const [healthRes, agentsResult, providersResult] = await Promise.all([
       fetch(`${server.baseUrl}/global/health`).catch(() => null),
-      client.app.agents({}).catch(() => null),
-      client.provider.list({}).catch(() => null),
+      client.app.agents({ query: { directory: server.cwd } }).catch(() => null),
+      client.provider.list({ query: { directory: server.cwd } }).catch(() => null),
     ]);
 
     // Version from health endpoint (no SDK method available)
@@ -991,19 +1264,32 @@ export async function* runOpenCode(
 
     ocLog(`Sending prompt to session ${sessionId}: ${JSON.stringify(promptBody).slice(0, 200)}`);
     try {
-      const sendResult = await client.session.promptAsync({
-        path: { id: sessionId },
-        body: promptBody,
-      });
-      ocLog(`promptAsync result: error=${JSON.stringify(sendResult.error) || 'none'} response.status=${sendResult.response?.status} response.url=${sendResult.response?.url}`);
-      if (sendResult.error) {
+      const sendResult = await openCodeJsonRequest<void>(
+        server,
+        'POST',
+        `/session/${encodeURIComponent(sessionId)}/prompt_async`,
+        {
+          body: promptBody,
+          expectedStatus: 204,
+        },
+      );
+      ocLog(`promptAsync result: ok=${sendResult.ok} status=${sendResult.status} url=${sendResult.url} error=${sendResult.error || 'none'}`);
+      if (!sendResult.ok) {
         console.error(`[OpenCode] promptAsync error:`, sendResult.error);
-        yield { type: 'error', error: `Failed to send message: ${JSON.stringify(sendResult.error)}` };
+        yield {
+          type: 'error',
+          error: enrichOpenCodeErrorMessage(
+            `Failed to send message: ${sendResult.error || `HTTP ${sendResult.status}`}`,
+          ),
+        };
         return;
       }
     } catch (error) {
       ocLog(`promptAsync exception: ${error}`);
-      yield { type: 'error', error: `Failed to send message: ${error}` };
+      yield {
+        type: 'error',
+        error: enrichOpenCodeErrorMessage(`Failed to send message: ${error}`),
+      };
       return;
     }
 
@@ -1282,7 +1568,9 @@ async function* mapOpenCodeEvent(
     case 'session.error': {
       if (props.sessionID && props.sessionID !== sessionId) break;
       const error = props.error;
-      const errorMessage = error?.data?.message || error?.name || 'OpenCode session error';
+      const errorMessage = enrichOpenCodeErrorMessage(
+        error?.data?.message || error?.name || 'OpenCode session error',
+      );
       yield {
         type: 'error',
         error: errorMessage,
@@ -1371,9 +1659,12 @@ export async function abortOpenCodeSession(cwd: string, sessionId: string): Prom
   if (!server) return;
 
   try {
-    await server.client.session.abort({
-      path: { id: sessionId },
-    });
+    await openCodeJsonRequest<void>(
+      server,
+      'POST',
+      `/session/${encodeURIComponent(sessionId)}/abort`,
+      { body: {} },
+    );
     console.log(`[OpenCode] Aborted session ${sessionId}`);
   } catch (error) {
     console.error(`[OpenCode] Failed to abort session:`, error);

@@ -5,8 +5,10 @@ import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'fs';
 import { tmpdir } from 'os';
 import type { MessageInput } from '@my-claudia/shared';
 import type { ClaudeMessage, SystemInfo, PermissionCallback } from './claude-sdk.js';
+import { toolRegistry } from '../plugins/tool-registry.js';
 import { buildNonImageAttachmentNotes } from './attachment-utils.js';
 import { sanitizeInheritedProviderEnv } from '../utils/startup-env.js';
+import { resolveMcpBridgeLaunchConfig } from '../utils/mcp-bridge-launch.js';
 
 // ── Types ─────────────────────────────────────────────────────
 
@@ -69,11 +71,10 @@ function extractToolCall(toolCallObj: Record<string, unknown>): ToolCallInfo | n
 // ── MCP Bridge injection ─────────────────────────────────────
 
 function injectCursorMcpBridge(options: CursorRunOptions): void {
-  const { toolRegistry } = require('../plugins/tool-registry.js');
   const bridgeTools = toolRegistry.getAll().filter((t: { source: string }) => t.source === 'plugin' || t.source === 'interaction');
   if (bridgeTools.length === 0) return;
 
-  const bridgePath = path.join(path.dirname(import.meta.url.replace('file://', '')), '..', 'plugins', 'mcp-bridge.js');
+  const bridgeLaunch = resolveMcpBridgeLaunchConfig();
 
   // Session ID file for dynamic session tracking (cursor-agent loads MCP once at startup,
   // but bridge reads session ID from file on each tool call)
@@ -85,8 +86,8 @@ function injectCursorMcpBridge(options: CursorRunOptions): void {
   }
 
   const bridgeEntry = {
-    command: 'node',
-    args: [bridgePath],
+    command: bridgeLaunch.command,
+    args: bridgeLaunch.args,
     env: {
       CLAUDIA_BRIDGE_URL: `http://127.0.0.1:${options.serverPort}`,
       CLAUDIA_SESSION_ID_FILE: sessionIdFile,

@@ -13,13 +13,17 @@ $PROJECT_ROOT is the git repository root directory (use `git rev-parse --show-to
 
 1. Stop stale local dev processes for this project:
    ```bash
-   pgrep -f "tauri.dev.conf.json" | xargs kill 2>/dev/null
-   pgrep -f "target/debug/my-claudia" | xargs kill 2>/dev/null
-   lsof -ti:1420 | xargs kill 2>/dev/null
-   lsof -ti:3100 | xargs kill 2>/dev/null
+   pgrep -f "tauri.dev.conf.json" | xargs -r kill 2>/dev/null
+   pgrep -f "target/debug/my-claudia" | xargs -r kill 2>/dev/null
+   pkill -f "server/dist/index.js" 2>/dev/null
+   pkill -f "binaries/node.*server/dist/index.js" 2>/dev/null
+   pkill -f "tsx watch src/index.ts" 2>/dev/null
+   lsof -ti:1420 | xargs -r kill 2>/dev/null
+   lsof -ti:3100 | xargs -r kill 2>/dev/null
    ```
 
 2. Verify ports `1420` and `3100` are free. Retry up to 5 times with 1 second delay. If still occupied, use `kill -9` on the blocking PID and report a warning.
+   Treat a listener on `3100` as a hard blocker: the Tauri dev app will reuse any healthy backend on that port, so a stale process means new server code will not load.
 
 3. Rebuild shared and server before launch:
    ```bash
@@ -38,8 +42,10 @@ $PROJECT_ROOT is the git repository root directory (use `git rev-parse --show-to
 
 1. Stop stale local processes:
    ```bash
-   lsof -ti:3100 | xargs kill -9 2>/dev/null
-   lsof -ti:1420 | xargs kill -9 2>/dev/null
+   pkill -f "binaries/node.*server/dist/index.js" 2>/dev/null
+   pkill -f "tsx watch src/index.ts" 2>/dev/null
+   lsof -ti:3100 | xargs -r kill -9 2>/dev/null
+   lsof -ti:1420 | xargs -r kill -9 2>/dev/null
    pkill -f "server/dist/index.js" 2>/dev/null
    ```
 

@@ -12,9 +12,11 @@ import {
 import type { MessageInput, PermissionRequest } from '@my-claudia/shared';
 import type { ClaudeMessage, SystemInfo, PermissionDecision, PermissionCallback } from './claude-sdk.js';
 import { fileStore } from '../storage/fileStore.js';
+import { toolRegistry } from '../plugins/tool-registry.js';
 import { extractRetryDelayMsFromError } from '../utils/retry-window.js';
 import { buildNonImageAttachmentNotes } from './attachment-utils.js';
 import { sanitizeInheritedProviderEnv } from '../utils/startup-env.js';
+import { resolveMcpBridgeLaunchConfig } from '../utils/mcp-bridge-launch.js';
 
 
 // ── Types ─────────────────────────────────────────────────────
@@ -282,16 +284,15 @@ interface CodexConfigValue {
 function buildMcpBridgeConfig(options: CodexRunOptions): CodexConfigValue | null {
   if (!options.serverPort) return null;
 
-  const { toolRegistry } = require('../plugins/tool-registry.js');
   const bridgeTools = toolRegistry.getAll().filter((t: { source: string }) => t.source === 'plugin' || t.source === 'interaction');
   if (bridgeTools.length === 0) return null;
 
-  const bridgePath = path.join(path.dirname(import.meta.url.replace('file://', '')), '..', 'plugins', 'mcp-bridge.js');
+  const bridgeLaunch = resolveMcpBridgeLaunchConfig();
   return {
     mcp_servers: {
       'claudia-plugins': {
-        command: 'node',
-        args: [bridgePath],
+        command: bridgeLaunch.command,
+        args: bridgeLaunch.args,
         env: {
           CLAUDIA_BRIDGE_URL: `http://127.0.0.1:${options.serverPort}`,
           CLAUDIA_SESSION_ID: options.claudiaSessionId || '',

@@ -214,11 +214,11 @@ describe('WorktreePool', () => {
 
       // After pool.init calls, acquire should make these calls:
       // 1. symbolic-ref (getMainBranch)
-      // 2. checkout main
+      // 2. checkout --detach
       // 3. reset --hard origin/main
       // 4. clean -fd
       // 5. branch -D task/task-1/r1 (delete old branch)
-      // 6. checkout -b task/task-1/r1
+      // 6. checkout -B task/task-1/r1
       const acquireCalls = gitCalls.filter(
         (args) =>
           args.includes('checkout') ||
@@ -227,11 +227,11 @@ describe('WorktreePool', () => {
           (args.includes('branch') && args.includes('-D')),
       );
 
-      expect(acquireCalls.some((a) => a.includes('checkout') && a.includes('main'))).toBe(true);
+      expect(acquireCalls.some((a) => a[0] === 'checkout' && a[1] === '--detach')).toBe(true);
       expect(acquireCalls.some((a) => a.includes('reset') && a.includes('--hard'))).toBe(true);
       expect(acquireCalls.some((a) => a.includes('clean') && a.includes('-fd'))).toBe(true);
       expect(
-        acquireCalls.some((a) => a.includes('-b') && a.includes('task/task-1/r1')),
+        acquireCalls.some((a) => a.includes('-B') && a.includes('task/task-1/r1')),
       ).toBe(true);
     });
   });
@@ -302,13 +302,14 @@ describe('WorktreePool', () => {
       const result = await pool.mergeBack('task-1', 1, wtPath);
 
       expect(result.success).toBe(true);
-      // Should call: checkout main, merge --no-ff, checkout main (in wt), branch -d
+      // Should call: checkout main, merge --no-ff, checkout --detach (in wt), branch -d
       expect(gitCalls.some((a) => a.includes('merge') && a.includes('--no-ff'))).toBe(true);
       expect(
         gitCalls.some(
           (a) => a.includes('merge') && a.includes('task/task-1/r1'),
         ),
       ).toBe(true);
+      expect(gitCalls.some((a) => a[0] === 'checkout' && a[1] === '--detach')).toBe(true);
     });
 
     it('returns conflicts on merge failure', async () => {

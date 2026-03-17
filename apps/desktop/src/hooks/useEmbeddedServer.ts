@@ -12,6 +12,19 @@ interface EmbeddedServerState {
   error: string | null;
 }
 
+interface OpenCodeEndpointProbeResult {
+  base_url: string;
+  host: string;
+  port: number;
+  ok: boolean;
+  detail: string;
+}
+
+type ProbeWindow = typeof window & {
+  __MY_CLAUDIA_OPENCODE_PROBE_RAN__?: boolean;
+  __MY_CLAUDIA_PROBE_ENDPOINT__?: (baseUrl: string) => Promise<OpenCodeEndpointProbeResult | null>;
+};
+
 /**
  * Detect if we're running inside a Tauri desktop app (not Android/mobile/Windows).
  * On mobile, the shell spawn capability isn't available.
@@ -79,8 +92,54 @@ export function useEmbeddedServer(options?: { disabled?: boolean }): EmbeddedSer
   const childRef = useRef<Child | null>(null);
   const mountedRef = useRef(true);
 
+  const registerManualEndpointProbe = useCallback(() => {
+    const probeWindow = window as ProbeWindow;
+    if (probeWindow.__MY_CLAUDIA_PROBE_ENDPOINT__) return;
+
+    probeWindow.__MY_CLAUDIA_PROBE_ENDPOINT__ = async (baseUrl: string) => {
+      try {
+        const result = await invoke<OpenCodeEndpointProbeResult>('probe_network_endpoint', { baseUrl });
+        const log = result.ok ? console.log : console.warn;
+        log(
+          `[EmbeddedServer] Manual endpoint probe ${result.ok ? 'ok' : 'failed'}: ${result.base_url} (${result.host}:${result.port}) -> ${result.detail}`,
+        );
+        return result;
+      } catch (err) {
+        console.warn('[EmbeddedServer] Manual endpoint probe failed to run:', err);
+        return null;
+      }
+    };
+  }, []);
+
+  const runOpencodeEndpointProbe = useCallback(async () => {
+    const probeWindow = window as ProbeWindow;
+    if (probeWindow.__MY_CLAUDIA_OPENCODE_PROBE_RAN__) return;
+    probeWindow.__MY_CLAUDIA_OPENCODE_PROBE_RAN__ = true;
+
+    try {
+      const results = await invoke<OpenCodeEndpointProbeResult[]>('probe_opencode_endpoints');
+      if (!Array.isArray(results) || results.length === 0) {
+        console.warn('[EmbeddedServer] OpenCode endpoint probe: no configured provider baseURL found');
+        return;
+      }
+
+      for (const result of results) {
+        const log = result.ok ? console.log : console.warn;
+        log(
+          `[EmbeddedServer] OpenCode endpoint probe ${result.ok ? 'ok' : 'failed'}: ${result.base_url} (${result.host}:${result.port}) -> ${result.detail}`,
+        );
+      }
+    } catch (err) {
+      console.warn('[EmbeddedServer] OpenCode endpoint probe failed to run:', err);
+    }
+  }, []);
+
   const startServerDev = useCallback(async () => {
     try {
+      registerManualEndpointProbe();
+      void runOpencodeEndpointProbe();
+      const shellNetworkEnv = await invoke<Record<string, string>>('get_shell_network_env').catch(() => ({}));
+
       // If server is already running on port 3100 (e.g. after HMR remount), reuse it
       try {
         const resp = await fetch('http://127.0.0.1:3100/health');
@@ -105,6 +164,7 @@ export function useEmbeddedServer(options?: { disabled?: boolean }): EmbeddedSer
           PORT: '3100',
           SERVER_HOST: '127.0.0.1',
           MY_CLAUDIA_DATA_DIR: dataDir,
+          ...shellNetworkEnv,
         },
       });
 
@@ -162,6 +222,11 @@ export function useEmbeddedServer(options?: { disabled?: boolean }): EmbeddedSer
       const child = await command.spawn();
       childRef.current = child;
       console.log(`[EmbeddedServer] Spawned server process (pid=${child.pid})`);
+
+      // Register PID with Rust so the exit hook can clean it up
+      invoke('register_dev_server_pid', { pid: child.pid }).catch((err) => {
+        console.warn('[EmbeddedServer] Failed to register dev server pid:', err);
+      });
     } catch (err) {
       console.error('[EmbeddedServer] Failed to start:', err);
       if (mountedRef.current) {
@@ -172,10 +237,13 @@ export function useEmbeddedServer(options?: { disabled?: boolean }): EmbeddedSer
         });
       }
     }
-  }, []);
+  }, [registerManualEndpointProbe, runOpencodeEndpointProbe]);
 
   const startServerProd = useCallback(async () => {
     try {
+      registerManualEndpointProbe();
+      void runOpencodeEndpointProbe();
+
       const dataDir = await appDataDir();
       const serverPath = await resolveResource('server/server.mjs');
 
@@ -201,7 +269,7 @@ export function useEmbeddedServer(options?: { disabled?: boolean }): EmbeddedSer
         });
       }
     }
-  }, []);
+  }, [registerManualEndpointProbe, runOpencodeEndpointProbe]);
 
   useEffect(() => {
     mountedRef.current = true;

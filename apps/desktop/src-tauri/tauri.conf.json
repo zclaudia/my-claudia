@@ -45,7 +45,8 @@
     "macOS": {
       "signingIdentity": "MyClaudia Signing",
       "hardenedRuntime": true,
-      "minimumSystemVersion": "10.13"
+      "minimumSystemVersion": "10.13",
+      "infoPlist": "Info.plist"
     }
   },
   "plugins": {

@@ -8,6 +8,8 @@ import type { ClaudeMessage, SystemInfo, PermissionCallback } from './claude-sdk
 import { buildNonImageAttachmentNotes } from './attachment-utils.js';
 import { sanitizeInheritedProviderEnv } from '../utils/startup-env.js';
 import { createTraceRecorder, summarizeProviderMessage } from '../utils/provider-trace.js';
+import { resolveMcpBridgeLaunchConfig } from '../utils/mcp-bridge-launch.js';
+import { toolRegistry } from '../plugins/tool-registry.js';
 
 
 // ── Types ─────────────────────────────────────────────────────
@@ -615,15 +617,14 @@ export async function* runKimi(
 
   // Inject MCP bridge for interaction tools
   if (options.serverPort) {
-    const { toolRegistry } = require('../plugins/tool-registry.js');
     const bridgeTools = toolRegistry.getAll().filter((t: { source: string }) => t.source === 'plugin' || t.source === 'interaction');
     if (bridgeTools.length > 0) {
-      const bridgePath = path.join(path.dirname(import.meta.url.replace('file://', '')), '..', 'plugins', 'mcp-bridge.js');
+      const bridgeLaunch = resolveMcpBridgeLaunchConfig();
       const mcpConfig = {
         mcpServers: {
           'claudia-plugins': {
-            command: 'node',
-            args: [bridgePath],
+            command: bridgeLaunch.command,
+            args: bridgeLaunch.args,
             env: {
               CLAUDIA_BRIDGE_URL: `http://127.0.0.1:${options.serverPort}`,
               CLAUDIA_SESSION_ID: options.claudiaSessionId || '',

@@ -59,7 +59,7 @@ describe('plugin-tools routes', () => {
 
       expect(res.status).toBe(200);
       expect(res.body.result).toBe('result-value');
-      expect(toolRegistry.execute).toHaveBeenCalledWith('my_tool', { key: 'val' });
+      expect(toolRegistry.execute).toHaveBeenCalledWith('my_tool', { key: 'val' }, { sessionId: undefined });
     });
 
     it('handles args field', async () => {
@@ -70,7 +70,18 @@ describe('plugin-tools routes', () => {
         .send({ args: { foo: 'bar' } });
 
       expect(res.status).toBe(200);
-      expect(toolRegistry.execute).toHaveBeenCalledWith('my_tool', { foo: 'bar' });
+      expect(toolRegistry.execute).toHaveBeenCalledWith('my_tool', { foo: 'bar' }, { sessionId: undefined });
+    });
+
+    it('passes sessionId through execution context', async () => {
+      vi.mocked(toolRegistry.execute).mockResolvedValue('ok');
+
+      const res = await request(app)
+        .post('/api/plugins/tools/my_tool/execute')
+        .send({ arguments: { foo: 'bar' }, sessionId: 'session-123' });
+
+      expect(res.status).toBe(200);
+      expect(toolRegistry.execute).toHaveBeenCalledWith('my_tool', { foo: 'bar' }, { sessionId: 'session-123' });
     });
 
     it('returns 500 on execution error', async () => {

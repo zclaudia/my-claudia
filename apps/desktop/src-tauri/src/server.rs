@@ -1,10 +1,23 @@
 use std::io::{BufRead, BufReader, Write as IoWrite};
 use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
+use std::collections::BTreeMap;
 
 static SERVER_PROCESS: Mutex<Option<Child>> = Mutex::new(None);
+/// PID of a dev-mode server spawned from JS (not in SERVER_PROCESS).
+static DEV_SERVER_PID: Mutex<Option<u32>> = Mutex::new(None);
 /// Data directory path, set once at start_server for use by cleanup functions.
 static DATA_DIR: Mutex<Option<String>> = Mutex::new(None);
+const SHELL_NETWORK_ENV_KEYS: [&str; 8] = [
+    "HTTP_PROXY",
+    "HTTPS_PROXY",
+    "ALL_PROXY",
+    "NO_PROXY",
+    "http_proxy",
+    "https_proxy",
+    "all_proxy",
+    "no_proxy",
+];
 
 #[derive(serde::Serialize)]
 pub struct ServerResult {
@@ -139,6 +152,46 @@ fn build_fallback_path(current: &str, home: &str, data_dir: &str) -> String {
     fallback
 }
 
+fn resolve_shell_env_value(shell: &str, home: &str, key: &str) -> Option<String> {
+    let output = Command::new(shell)
+        .args(["-l", "-c", &format!("printenv {}", key)])
+        .env("HOME", home)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .output()
+        .ok()?;
+
+    if !output.status.success() {
+        return None;
+    }
+
+    let value = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if value.is_empty() {
+        None
+    } else {
+        Some(value)
+    }
+}
+
+fn resolve_shell_network_env() -> BTreeMap<String, String> {
+    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
+    let home = std::env::var("HOME").unwrap_or_else(|_| String::new());
+    let mut env_map = BTreeMap::new();
+
+    for key in SHELL_NETWORK_ENV_KEYS {
+        if let Some(value) = resolve_shell_env_value(&shell, &home, key) {
+            env_map.insert(key.to_string(), value);
+        }
+    }
+
+    env_map
+}
+
+#[tauri::command]
+pub fn get_shell_network_env() -> BTreeMap<String, String> {
+    resolve_shell_network_env()
+}
+
 // --- macOS quarantine removal ---
 
 /// Remove com.apple.quarantine extended attribute from a path (recursively for directories).
@@ -220,6 +273,7 @@ pub async fn start_server(
     // can also find our bundled node binary via PATH.
     let sidecar_dir = node_bin.parent().unwrap().to_string_lossy().to_string();
     let shell_path = format!("{}:{}", sidecar_dir, resolve_shell_path(&data_dir));
+    let shell_network_env = resolve_shell_network_env();
 
     eprintln!(
         "[EmbeddedServer/Rust] node={}, server={}, data_dir={}",
@@ -227,6 +281,10 @@ pub async fn start_server(
         server_path,
         data_dir
     );
+    debug_log(&data_dir, &format!(
+        "Inherited shell network env keys: {:?}",
+        shell_network_env.keys().collect::<Vec<_>>()
+    ));
 
     // Resolve the main app's bundle identifier so child processes (node sidecar,
     // Claude CLI) share the same macOS TCC permission entry as the main app.
@@ -259,6 +317,13 @@ pub async fn start_server(
         .env("__CFBundleIdentifier", &bundle_id)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
+        ;
+
+    for (key, value) in &shell_network_env {
+        child.env(key, value);
+    }
+
+    let mut child = child
         .spawn()
         .map_err(|e| format!("Failed to spawn node: {}", e))?;
 
@@ -395,9 +460,46 @@ pub async fn stop_server() -> Result<(), String> {
     Ok(())
 }
 
+/// Register a dev-mode server PID so the Rust exit hook can clean it up.
+/// In dev mode the server is spawned from JS via Command.sidecar(), so Rust
+/// doesn't have a Child handle — only the PID, which we kill via libc::kill.
+#[tauri::command]
+pub fn register_dev_server_pid(pid: u32) {
+    eprintln!("[EmbeddedServer/Rust] Registered dev server pid={}", pid);
+    if let Ok(mut guard) = DEV_SERVER_PID.lock() {
+        *guard = Some(pid);
+    }
+}
+
+/// Kill the dev-mode server process by PID (SIGTERM then SIGKILL).
+fn kill_dev_server() {
+    if let Ok(mut guard) = DEV_SERVER_PID.lock() {
+        if let Some(pid) = guard.take() {
+            #[cfg(unix)]
+            {
+                let alive = unsafe { libc::kill(pid as i32, 0) } == 0;
+                if alive {
+                    eprintln!("[EmbeddedServer/Rust] Killing dev server (pid={})", pid);
+                    unsafe { libc::kill(pid as i32, libc::SIGTERM); }
+                    std::thread::sleep(std::time::Duration::from_millis(500));
+                    let still_alive = unsafe { libc::kill(pid as i32, 0) } == 0;
+                    if still_alive {
+                        eprintln!("[EmbeddedServer/Rust] Dev server still alive, sending SIGKILL");
+                        unsafe { libc::kill(pid as i32, libc::SIGKILL); }
+                    }
+                }
+            }
+        }
+    }
+}
+
 /// Kill the server process synchronously (for use in exit hooks).
 /// Spawns a background thread to wait for graceful exit without blocking app shutdown.
 pub fn stop_server_sync() {
+    // Kill dev-mode server (spawned from JS, tracked by PID only)
+    kill_dev_server();
+
+    // Kill production server (spawned from Rust, tracked as Child)
     if let Ok(mut guard) = SERVER_PROCESS.lock() {
         if let Some(mut child) = guard.take() {
             let pid = child.id();

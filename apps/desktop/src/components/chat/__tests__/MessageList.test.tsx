@@ -477,6 +477,37 @@ describe('MessageList', () => {
     expect(screen.getByTestId('tool-call-item').textContent).toContain('tc-1');
   });
 
+  it('does not reuse React keys when the same toolUseId appears multiple times in contentBlocks', () => {
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const contentBlocks: ContentBlock[] = [
+      { type: 'tool_use', toolUseId: 'tc-1', content: '' },
+      { type: 'text', content: 'Intermediate text' },
+      { type: 'tool_use', toolUseId: 'tc-1', content: '' },
+      { type: 'text', content: 'Final answer here.' },
+    ];
+    const toolCalls: ToolCallState[] = [
+      makeToolCall({ id: 'tc-1', toolName: 'Read' }),
+    ];
+    const messages = [
+      makeMessage({
+        id: 'msg-1',
+        role: 'assistant',
+        content: 'Intermediate text\nFinal answer here.',
+        contentBlocks,
+        toolCalls,
+      }),
+    ];
+
+    render(<MessageList messages={messages} />);
+
+    expect(screen.getAllByTestId('tool-call-item')).toHaveLength(2);
+    expect(consoleErrorSpy).not.toHaveBeenCalledWith(
+      expect.stringContaining('Encountered two children with the same key'),
+    );
+
+    consoleErrorSpy.mockRestore();
+  });
+
   // ── FilePush messages ─────────────────────────────────────────────────────
 
   it('renders FilePushCard for messages with filePush metadata', () => {

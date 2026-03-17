@@ -12,6 +12,7 @@
 
 import * as readline from 'readline';
 import * as http from 'http';
+import { readFileSync } from 'fs';
 
 const SERVER_URL = process.env.CLAUDIA_BRIDGE_URL || 'http://127.0.0.1:3100';
 const STATIC_SESSION_ID = process.env.CLAUDIA_SESSION_ID || '';
@@ -26,7 +27,7 @@ const SESSION_ID_FILE = process.env.CLAUDIA_SESSION_ID_FILE || '';
 function getSessionId(): string {
   if (SESSION_ID_FILE) {
     try {
-      return require('fs').readFileSync(SESSION_ID_FILE, 'utf-8').trim();
+      return readFileSync(SESSION_ID_FILE, 'utf-8').trim();
     } catch {
       return STATIC_SESSION_ID;
     }
@@ -56,6 +57,29 @@ interface McpTool {
   name: string;
   description: string;
   inputSchema: Record<string, unknown>;
+}
+
+let inFlightRequests = 0;
+let shuttingDown = false;
+let shutdownCode = 0;
+
+function log(message: string, extra?: unknown): void {
+  if (extra !== undefined) {
+    console.error(`[MCP Bridge] ${message}`, extra);
+    return;
+  }
+  console.error(`[MCP Bridge] ${message}`);
+}
+
+function requestShutdown(reason: string, code = 0): void {
+  if (!shuttingDown) {
+    log(`shutdown requested: ${reason} (inFlight=${inFlightRequests})`);
+  }
+  shuttingDown = true;
+  shutdownCode = Math.max(shutdownCode, code);
+  if (inFlightRequests === 0) {
+    process.exit(shutdownCode);
+  }
 }
 
 // ============================================
@@ -107,21 +131,29 @@ function httpPost(urlPath: string, body: unknown): Promise<string> {
 
 async function listTools(): Promise<McpTool[]> {
   try {
+    log(`tools/list start session=${getSessionId() || 'none'}`);
     const raw = await httpGet('/api/plugins/tools');
     const data = JSON.parse(raw);
-    return data.tools || [];
+    const tools = data.tools || [];
+    log(`tools/list ok count=${Array.isArray(tools) ? tools.length : 0}`);
+    return tools;
   } catch (error) {
-    console.error('[MCP Bridge] Failed to list tools:', error);
+    log('tools/list failed', error);
     return [];
   }
 }
 
 async function callTool(name: string, args: Record<string, unknown>): Promise<string> {
+  const sessionId = getSessionId();
   try {
-    const raw = await httpPost(`/api/plugins/tools/${encodeURIComponent(name)}/execute`, { arguments: args, sessionId: getSessionId() });
+    log(`tools/call start name=${name} session=${sessionId || 'none'} args=${Object.keys(args).join(',') || 'none'}`);
+    const raw = await httpPost(`/api/plugins/tools/${encodeURIComponent(name)}/execute`, { arguments: args, sessionId });
     const data = JSON.parse(raw);
-    return data.result || JSON.stringify(data);
+    const result = data.result || JSON.stringify(data);
+    log(`tools/call ok name=${name} session=${sessionId || 'none'} resultLength=${String(result).length}`);
+    return result;
   } catch (error) {
+    log(`tools/call failed name=${name} session=${sessionId || 'none'}`, error);
     return JSON.stringify({ error: `Tool execution failed: ${error instanceof Error ? error.message : String(error)}` });
   }
 }
@@ -131,11 +163,30 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<st
 // ============================================
 
 function send(response: JsonRpcResponse): void {
-  process.stdout.write(JSON.stringify(response) + '\n');
+  writeLine(JSON.stringify(response));
 }
 
 function sendNotification(method: string, params?: Record<string, unknown>): void {
-  process.stdout.write(JSON.stringify({ jsonrpc: '2.0', method, params }) + '\n');
+  writeLine(JSON.stringify({ jsonrpc: '2.0', method, params }));
+}
+
+function isBrokenPipe(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false;
+  const code = (error as { code?: unknown }).code;
+  return code === 'EPIPE' || code === 'ECONNRESET';
+}
+
+function writeLine(line: string): void {
+  try {
+    process.stdout.write(line + '\n');
+  } catch (error) {
+    if (isBrokenPipe(error)) {
+      requestShutdown(`stdout broken pipe during write (${String((error as { code?: unknown }).code || 'unknown')})`);
+      return;
+    }
+    log('stdout write failed', error);
+    requestShutdown('stdout write failure', 1);
+  }
 }
 
 async function handleRequest(request: JsonRpcRequest): Promise<void> {
@@ -223,22 +274,56 @@ const rl = readline.createInterface({
   terminal: false,
 });
 
+process.stdout.on('error', (error) => {
+  if (isBrokenPipe(error)) {
+    requestShutdown(`stdout error ${(error as { code?: unknown }).code || 'unknown'}`);
+    return;
+  }
+  log('stdout stream error', error);
+  requestShutdown('stdout stream error', 1);
+});
+
+process.stdin.on('error', (error) => {
+  if (isBrokenPipe(error)) {
+    requestShutdown(`stdin error ${(error as { code?: unknown }).code || 'unknown'}`);
+    return;
+  }
+  log('stdin stream error', error);
+  requestShutdown('stdin stream error', 1);
+});
+
 rl.on('line', async (line: string) => {
   if (!line.trim()) return;
+  if (shuttingDown) {
+    log('ignoring request after shutdown started');
+    return;
+  }
+
+  inFlightRequests += 1;
 
   try {
     const request = JSON.parse(line) as JsonRpcRequest;
     await handleRequest(request);
   } catch (error) {
     // Parse error
-    process.stdout.write(
+    writeLine(
       JSON.stringify({
         jsonrpc: '2.0',
         id: null,
         error: { code: -32700, message: 'Parse error' },
-      }) + '\n'
+      })
     );
+    log('parse error', error);
+  } finally {
+    inFlightRequests -= 1;
+    if (shuttingDown && inFlightRequests === 0) {
+      process.exit(shutdownCode);
+    }
   }
+});
+
+rl.on('close', () => {
+  requestShutdown('stdin closed');
 });
 
 // Keep the process alive

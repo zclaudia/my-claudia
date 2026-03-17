@@ -23,6 +23,7 @@ export function createPluginToolsRoutes(): Router {
       description: t.definition.function.description,
       inputSchema: t.definition.function.parameters,
     }));
+    console.log(`[PluginTools] list tools count=${tools.length}`);
     res.json({ tools });
   });
 
@@ -34,11 +35,15 @@ export function createPluginToolsRoutes(): Router {
     const { name } = req.params;
     const args = req.body.arguments || req.body.args || {};
     const context = { sessionId: req.body.sessionId as string | undefined };
+    const sessionTag = context.sessionId || 'none';
 
     try {
+      console.log(`[PluginTools] execute start name=${name} session=${sessionTag} args=${Object.keys(args).join(',') || 'none'}`);
       const result = await toolRegistry.execute(name, args, context);
+      console.log(`[PluginTools] execute ok name=${name} session=${sessionTag} resultLength=${String(result).length}`);
       res.json({ result });
     } catch (error) {
+      console.error(`[PluginTools] execute failed name=${name} session=${sessionTag}:`, error);
       res.status(500).json({
         error: `Tool execution failed: ${error instanceof Error ? error.message : String(error)}`,
       });

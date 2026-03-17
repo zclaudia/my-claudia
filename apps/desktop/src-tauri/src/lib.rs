@@ -7,6 +7,9 @@ mod server;
 #[cfg(not(target_os = "android"))]
 mod permissions;
 
+#[cfg(not(target_os = "android"))]
+mod network_probe;
+
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 #[tauri::command]
 fn greet(name: &str) -> String {
@@ -60,6 +63,10 @@ pub fn run() {
         greet,
         server::start_server,
         server::stop_server,
+        server::register_dev_server_pid,
+        server::get_shell_network_env,
+        network_probe::probe_opencode_endpoints,
+        network_probe::probe_network_endpoint,
         permissions::check_full_disk_access,
         permissions::open_full_disk_access_settings,
         permissions::check_folder_permissions,

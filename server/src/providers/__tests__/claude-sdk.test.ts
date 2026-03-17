@@ -1160,6 +1160,7 @@ describe('runClaude - MCP and plugin injection', () => {
     );
   });
 
+
   it('injects user plugins when present', async () => {
     const { loadPlugins } = await import('../../utils/claude-config.js');
     vi.mocked(loadPlugins).mockReturnValue(['plugin-a', 'plugin-b'] as any);

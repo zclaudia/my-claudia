@@ -679,7 +679,7 @@ const SegmentedContent = memo(function SegmentedContent({
           const tc = toolCallMap.get(block.toolUseId);
           if (!tc) return null;
           return (
-            <div key={`tool-${block.toolUseId}`} className="w-full max-w-[calc(100vw-1.5rem)] md:max-w-3xl lg:max-w-4xl xl:max-w-5xl">
+            <div key={`tool-${block.toolUseId}-${i}`} className="w-full max-w-[calc(100vw-1.5rem)] md:max-w-3xl lg:max-w-4xl xl:max-w-5xl">
               <ToolCallItem toolCall={tc} />
             </div>
           );

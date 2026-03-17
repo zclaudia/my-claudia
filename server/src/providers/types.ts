@@ -13,6 +13,7 @@ export interface RunOptions {
   mode?: string;          // permission mode (claude) or agent (opencode)
   model?: string;
   systemPrompt?: string;  // Appended to system prompt (e.g. for agent sessions)
+  sessionTitle?: string;  // Optional session title for providers that support it
   serverPort?: number;    // Main server port for MCP bridge
   claudiaSessionId?: string;  // My-Claudia session ID (for interaction tool context)
   db?: Database.Database;  // Database for loading Claudia-managed MCP servers

@@ -15,11 +15,31 @@ import { detectCliProvidersSync } from './utils/cli-detect.js';
 import { pluginLoader } from './plugins/loader.js';
 import { registerBuiltinCommands } from './commands/init.js';
 import { sanitizeInheritedProviderEnv } from './utils/startup-env.js';
+import { isIgnorableProcessError } from './utils/process-error-filter.js';
 
 const sanitizedEnv = sanitizeInheritedProviderEnv();
 if (sanitizedEnv.removedKeys.length > 0) {
   console.log(`[Startup] Removed inherited provider model env: ${sanitizedEnv.removedKeys.join(', ')}`);
 }
+
+process.on('uncaughtException', (error) => {
+  if (isIgnorableProcessError(error)) {
+    console.warn(`[Process] Ignored non-fatal uncaught exception: ${(error as NodeJS.ErrnoException).code || error.message}`);
+    return;
+  }
+  console.error('[Process] Uncaught exception:', error);
+  process.exit(1);
+});
+
+process.on('unhandledRejection', (reason) => {
+  if (isIgnorableProcessError(reason)) {
+    const code = typeof reason === 'object' && reason && 'code' in reason ? String((reason as { code?: unknown }).code) : 'unknown';
+    console.warn(`[Process] Ignored non-fatal unhandled rejection: ${code}`);
+    return;
+  }
+  console.error('[Process] Unhandled rejection:', reason);
+  process.exit(1);
+});
 
 const PORT = parseInt(process.env.PORT || '3100', 10);
 // Listen on 0.0.0.0 to allow connections from other devices on the network

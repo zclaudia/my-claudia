@@ -70,8 +70,10 @@ export class WorktreePool {
 
     const mainBranch = await this.getMainBranch();
 
-    // Reset to latest main
-    await git(['checkout', mainBranch], slot.path);
+    // Keep slot worktrees detached. Checking out the shared base branch in a
+    // secondary worktree fails when that branch is already active elsewhere.
+    console.log(`[WorktreePool] acquire preparing detached slot ${slot.path} from ${mainBranch}`);
+    await git(['checkout', '--detach'], slot.path).catch(() => {});
     await git(['reset', '--hard', `origin/${mainBranch}`], slot.path).catch(() =>
       git(['reset', '--hard', mainBranch], slot.path),
     );
@@ -80,7 +82,7 @@ export class WorktreePool {
     // Create task branch (delete first if exists from previous attempt)
     const branch = `task/${taskId}/r${attempt}`;
     await git(['branch', '-D', branch], this.mainPath).catch(() => {});
-    await git(['checkout', '-b', branch], slot.path);
+    await git(['checkout', '-B', branch], slot.path);
 
     return slot.path;
   }
@@ -126,8 +128,11 @@ export class WorktreePool {
         return { success: false, conflicts };
       }
 
-      // Checkout main in worktree so the task branch can be deleted
-      await git(['checkout', mainBranch], wtPath);
+      // Detach HEAD in the slot worktree so the task branch is no longer checked out.
+      // Checking out the shared base branch here can fail if that branch is already
+      // used by another worktree (including the project's primary worktree).
+      console.log(`[WorktreePool] mergeBack detaching worktree before deleting branch: ${wtPath}`);
+      await git(['checkout', '--detach'], wtPath);
       await git(['branch', '-d', branch], this.mainPath).catch(() => {});
 
       return { success: true };

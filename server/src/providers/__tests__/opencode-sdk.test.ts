@@ -3,15 +3,24 @@ import { spawn } from 'child_process';
 import { EventEmitter } from 'events';
 
 // Mock child_process
-vi.mock('child_process', () => ({
-  spawn: vi.fn(),
-}));
+vi.mock('child_process', async () => {
+  const actual = await vi.importActual<typeof import('child_process')>('child_process');
+  return {
+    ...actual,
+    spawn: vi.fn(),
+  };
+});
 
 // Mock fs
-vi.mock('fs', () => ({
-  appendFileSync: vi.fn(),
-  readFileSync: vi.fn().mockReturnValue(Buffer.from('test-image-data')),
-}));
+vi.mock('fs', async () => {
+  const actual = await vi.importActual<typeof import('fs')>('fs');
+  return {
+    ...actual,
+    appendFileSync: vi.fn(),
+    readdirSync: vi.fn().mockReturnValue([]),
+    readFileSync: vi.fn().mockReturnValue(Buffer.from('test-image-data')),
+  };
+});
 
 // Mock fileStore
 vi.mock('../../storage/fileStore.js', () => ({
@@ -248,6 +257,31 @@ describe('opencode-sdk', () => {
       const errorMsg = messages.find(m => m.type === 'error');
       expect(errorMsg).toBeDefined();
       expect(errorMsg?.error).toContain('Failed to start');
+    });
+  });
+
+  describe('enrichOpenCodeErrorMessage', () => {
+    it('adds endpoint details for socket-open failures from OpenCode logs', async () => {
+      const fs = await import('fs');
+      vi.mocked(fs.readdirSync as any).mockReturnValue(['2026-03-17T160855.log']);
+      vi.mocked(fs.readFileSync as any).mockImplementation((filePath: string) => {
+        if (String(filePath).includes('/opencode/log/')) {
+          return `ERROR 2026-03-17T16:09:03 service=llm providerID=local modelID=glm-5 sessionID=ses_123 error={"error":{"code":"FailedToOpenSocket","path":"http://192.168.2.150:3022/v1/chat/completions","errno":0}} stream error`;
+        }
+        return Buffer.from('test-image-data');
+      });
+
+      const { enrichOpenCodeErrorMessage } = await import('../opencode-sdk.js');
+      const result = enrichOpenCodeErrorMessage('Was there a typo in the url or port?');
+
+      expect(result).toContain('local/glm-5');
+      expect(result).toContain('http://192.168.2.150:3022/v1/chat/completions');
+      expect(result).toContain('Was there a typo in the url or port?');
+    });
+
+    it('returns original message when no socket failure is found', async () => {
+      const { enrichOpenCodeErrorMessage } = await import('../opencode-sdk.js');
+      expect(enrichOpenCodeErrorMessage('Something else failed')).toBe('Something else failed');
     });
   });
 
