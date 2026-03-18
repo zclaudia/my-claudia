@@ -12,6 +12,9 @@ export interface BackgroundTask {
   summary?: string;              // summary message
   startedAt: number;             // timestamp when task started
   completedAt?: number;          // timestamp when task completed
+  cliPid?: number;               // CLI subprocess PID (for display & process-tree killing)
+  taskCommand?: string;          // Actual command being run (e.g. "npm test")
+  taskRootPid?: number;          // Root PID of the task's process tree
   usage?: {
     total_tokens: number;
     tool_uses: number;

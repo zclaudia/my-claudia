@@ -35,16 +35,26 @@ function TaskItem({ task, onRemove, onStop }: { task: BackgroundTask; onRemove: 
 
       {/* Description — clickable to expand summary */}
       <button
-        onClick={() => task.summary && setExpanded(!expanded)}
+        onClick={() => (task.summary || task.taskCommand) && setExpanded(!expanded)}
         className="flex-1 min-w-0 text-left flex items-center gap-1.5"
       >
         <span className="text-foreground truncate">
           {task.description || 'Background Task'}
         </span>
+        {(task.taskRootPid || task.cliPid) && (
+          <span
+            className="text-muted-foreground/40 font-mono flex-shrink-0"
+            title={task.taskRootPid
+              ? `Task PID: ${task.taskRootPid}${task.cliPid ? ` (CLI: ${task.cliPid})` : ''}`
+              : `CLI PID: ${task.cliPid}`}
+          >
+            [{task.taskRootPid || task.cliPid}]
+          </span>
+        )}
         <span className="text-muted-foreground/60 flex-shrink-0">
           {formatTimeAgo(task.startedAt)}
         </span>
-        {task.summary && (
+        {(task.summary || task.taskCommand) && (
           <span className="text-muted-foreground/40 flex-shrink-0">
             {expanded ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
           </span>
@@ -71,11 +81,18 @@ function TaskItem({ task, onRemove, onStop }: { task: BackgroundTask; onRemove: 
       )}
 
       {/* Expandable summary */}
-      {expanded && task.summary && (
+      {expanded && (task.summary || task.taskCommand) && (
         <div className="w-full pl-5 pt-1 pb-0.5">
-          <div className="text-[11px] text-muted-foreground/80 max-h-24 overflow-y-auto leading-relaxed">
-            {task.summary}
-          </div>
+          {task.taskCommand && (
+            <div className="text-[11px] font-mono text-muted-foreground/60 truncate mb-0.5" title={task.taskCommand}>
+              $ {task.taskCommand}
+            </div>
+          )}
+          {task.summary && (
+            <div className="text-[11px] text-muted-foreground/80 max-h-24 overflow-y-auto leading-relaxed">
+              {task.summary}
+            </div>
+          )}
         </div>
       )}
     </div>

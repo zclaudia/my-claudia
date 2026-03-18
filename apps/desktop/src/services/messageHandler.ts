@@ -366,6 +366,9 @@ export function handleServerMessage(
           startedAt: Date.now(),
           summary: msg.message,
           completedAt: isCompletedBackgroundStatus(msg.status) ? Date.now() : undefined,
+          cliPid: msg.cliPid,
+          taskCommand: msg.taskCommand,
+          taskRootPid: msg.taskRootPid,
         });
       }
 

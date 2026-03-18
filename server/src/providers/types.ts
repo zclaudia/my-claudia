@@ -36,6 +36,12 @@ export interface ProviderAdapter {
   /** Stop a specific background task within an active session */
   stopTask?(sessionId: string, taskId: string): Promise<void>;
 
+  /** Get CLI subprocess PID for a session (if available) */
+  getCliPid?(sessionId: string): number | undefined;
+
+  /** Get resolved process info for a specific background task */
+  getTaskProcessInfo?(taskId: string): { taskId: string; command?: string; rootPid?: number; pids: number[] } | undefined;
+
   /** Get provider-specific state to store on ActiveRun */
   getRunState?(options: RunOptions): Record<string, unknown>;
 }

@@ -10,6 +10,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import * as crypto from 'crypto';
+import { spawn as nodeSpawn } from 'child_process';
 import { extractRetryDelayMsFromError } from '../utils/retry-window.js';
 import { sanitizeInheritedProviderEnv } from '../utils/startup-env.js';
 import { resolveMcpBridgeLaunchConfig } from '../utils/mcp-bridge-launch.js';
@@ -17,6 +18,8 @@ import { resolveMcpBridgeLaunchConfig } from '../utils/mcp-bridge-launch.js';
 /** Mutable handle exposed by runClaude so the adapter can call query methods (stopTask, etc.) */
 export interface ClaudeQueryHandle {
   stopTask?: (taskId: string) => Promise<void>;
+  /** PID of the Claude CLI subprocess (populated when spawnClaudeCodeProcess fires) */
+  pid?: number;
 }
 
 export interface ClaudeRunOptions {
@@ -252,10 +255,6 @@ export async function* runClaude(
     allowedTools: options.allowedTools || [],
     disallowedTools: options.disallowedTools || [],
     abortController,
-    // Capture stderr for debugging
-    stderr: (data: string) => {
-      console.error('[Claude SDK stderr]', data);
-    },
   };
 
   // Set model override
@@ -342,6 +341,33 @@ export async function* runClaude(
       console.log(`[Claude SDK] Injected MCP bridge with ${bridgeTools.length} bridge tool(s)`);
     }
   }
+
+  // Intercept subprocess spawn to capture PID
+  sdkOptions.spawnClaudeCodeProcess = (spawnOpts: { command: string; args: string[]; cwd?: string; env: Record<string, string | undefined>; signal: AbortSignal }) => {
+    const child = nodeSpawn(spawnOpts.command, spawnOpts.args, {
+      cwd: spawnOpts.cwd,
+      env: spawnOpts.env as NodeJS.ProcessEnv,
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+    if (child.pid && options.queryHandle) {
+      options.queryHandle.pid = child.pid;
+      console.log(`[Claude SDK] CLI subprocess PID: ${child.pid}`);
+    }
+    // Forward abort signal to child process
+    if (spawnOpts.signal) {
+      spawnOpts.signal.addEventListener('abort', () => {
+        if (!child.killed) child.kill('SIGTERM');
+      }, { once: true });
+    }
+    // Forward stderr to the stderr callback
+    if (child.stderr) {
+      child.stderr.on('data', (data: Buffer) => {
+        const text = data.toString();
+        console.error('[Claude SDK stderr]', text);
+      });
+    }
+    return child;
+  };
 
   // Permission handling callback
   if (onPermissionRequest) {
@@ -508,6 +534,7 @@ export interface ClaudeMessage {
   taskId?: string;          // Background task ID (for task_notification)
   taskStatus?: string;      // Background task status (e.g. 'completed', 'failed')
   taskMessage?: string;     // Background task notification message
+  taskToolUseId?: string;   // tool_use_id that spawned this background task
 }
 
 // Transform a single message from SDK format to our internal format
@@ -548,6 +575,7 @@ function transformMessage(message: unknown): ClaudeMessage | ClaudeMessage[] {
           taskId: msg.task_id as string | undefined,
           taskStatus: msg.status as string | undefined,
           taskMessage: (msg.summary || msg.message) as string | undefined,
+          taskToolUseId: msg.tool_use_id as string | undefined,
         };
       }
       if ((msg as { subtype?: string }).subtype === 'task_started') {
@@ -556,6 +584,7 @@ function transformMessage(message: unknown): ClaudeMessage | ClaudeMessage[] {
           taskId: msg.task_id as string | undefined,
           taskStatus: 'started',
           taskMessage: msg.description as string | undefined,
+          taskToolUseId: msg.tool_use_id as string | undefined,
         };
       }
       if ((msg as { subtype?: string }).subtype === 'task_progress') {

@@ -280,6 +280,38 @@ await esbuild.build({
   },
 });
 
+// --- Standalone plugin scripts: not part of the esbuild bundle ---
+// Plugins are excluded from tsc (tsconfig "exclude"), so compile separately.
+{
+  const pluginSources = [
+    { name: 'mcp-bridge', dest: path.join(outDir, 'plugins', 'mcp-bridge.js') },
+    { name: 'worker-runner', dest: path.join(outDir, 'worker-runner.js') },
+  ];
+
+  for (const { name, dest } of pluginSources) {
+    const src = path.join(serverRoot, 'src', 'plugins', `${name}.ts`);
+    const dist = path.join(serverRoot, 'dist', 'plugins', `${name}.js`);
+
+    if (!fs.existsSync(src)) {
+      console.log(`    ${name}: SKIP (source not found)`);
+      continue;
+    }
+
+    // Compile if dist copy is missing or stale
+    if (!fs.existsSync(dist) || fs.statSync(src).mtimeMs > fs.statSync(dist).mtimeMs) {
+      console.log(`    Compiling ${name}.ts`);
+      execSync(
+        `npx tsc --target ES2022 --module ESNext --moduleResolution bundler --esModuleInterop --skipLibCheck --outDir "${path.dirname(dist)}" "${src}"`,
+        { cwd: serverRoot, stdio: 'pipe' },
+      );
+    }
+
+    fs.mkdirSync(path.dirname(dest), { recursive: true });
+    fs.copyFileSync(dist, dest);
+    console.log(`    ${path.relative(outDir, dest)}: OK`);
+  }
+}
+
 // ============================================================================
 // Step 3: Clean-room npm install + selective copy to bundle
 // ============================================================================

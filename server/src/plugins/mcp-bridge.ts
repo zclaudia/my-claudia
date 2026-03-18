@@ -1,10 +1,13 @@
 #!/usr/bin/env node
 /**
- * MCP bridge using standard stdio framing.
+ * MCP bridge with auto-detecting stdio framing.
  *
- * Kimi expects official MCP stdio transport framing (`Content-Length` headers),
- * not newline-delimited JSON. This bridge keeps the existing JSON-RPC handler
- * but wraps input/output with proper MCP message framing.
+ * Different CLI tools use different MCP transports:
+ *   - Claude CLI: Content-Length framing (official MCP spec)
+ *   - Kimi CLI:   newline-delimited JSON
+ *
+ * This bridge auto-detects the framing protocol from the first bytes received
+ * and adapts both reading and writing accordingly.
  */
 
 import * as http from 'http';
@@ -75,11 +78,20 @@ function isBrokenPipe(error: unknown): boolean {
   return code === 'EPIPE' || code === 'ECONNRESET';
 }
 
+// Auto-detected framing protocol: null = not yet detected
+let framingMode: 'content-length' | 'newline' | null = null;
+
 function writeMessage(message: JsonRpcResponse | { jsonrpc: '2.0'; method: string; params?: Record<string, unknown> }): void {
-  const body = Buffer.from(JSON.stringify(message), 'utf-8');
-  const header = Buffer.from(`Content-Length: ${body.length}\r\n\r\n`, 'utf-8');
+  const json = JSON.stringify(message);
   try {
-    process.stdout.write(Buffer.concat([header, body]));
+    if (framingMode === 'newline') {
+      process.stdout.write(json + '\n');
+    } else {
+      // Default to Content-Length framing (official MCP spec)
+      const body = Buffer.from(json, 'utf-8');
+      const header = Buffer.from(`Content-Length: ${body.length}\r\n\r\n`, 'utf-8');
+      process.stdout.write(Buffer.concat([header, body]));
+    }
   } catch (error) {
     if (isBrokenPipe(error)) {
       requestShutdown(`stdout broken pipe during write (${String((error as { code?: unknown }).code || 'unknown')})`);
@@ -98,7 +110,41 @@ function sendNotification(method: string, params?: Record<string, unknown>): voi
   writeMessage({ jsonrpc: '2.0', method, params });
 }
 
+function detectFraming(): void {
+  if (framingMode !== null || readBuffer.length === 0) return;
+
+  // Peek at first non-whitespace byte to determine protocol
+  const firstChar = readBuffer.toString('utf-8').trimStart()[0];
+  if (firstChar === '{') {
+    framingMode = 'newline';
+    log('detected newline-delimited JSON framing');
+  } else {
+    framingMode = 'content-length';
+    log('detected Content-Length framing');
+  }
+}
+
 function parseNextMessage(): string | null {
+  detectFraming();
+
+  if (framingMode === 'newline') {
+    return parseNewlineMessage();
+  }
+  return parseContentLengthMessage();
+}
+
+function parseNewlineMessage(): string | null {
+  const newlineIdx = readBuffer.indexOf(0x0a); // \n
+  if (newlineIdx === -1) return null;
+
+  const line = readBuffer.subarray(0, newlineIdx).toString('utf-8').trim();
+  readBuffer = readBuffer.subarray(newlineIdx + 1);
+
+  if (!line) return parseNewlineMessage(); // skip empty lines
+  return line;
+}
+
+function parseContentLengthMessage(): string | null {
   const separator = Buffer.from('\r\n\r\n');
   const headerEnd = readBuffer.indexOf(separator);
   if (headerEnd === -1) return null;
@@ -243,12 +289,14 @@ async function handleRequest(request: JsonRpcRequest): Promise<void> {
   }
 
   switch (request.method) {
-    case 'initialize':
+    case 'initialize': {
+      // Echo back the client's protocol version for maximum compatibility
+      const clientVersion = (request.params as { protocolVersion?: string })?.protocolVersion || '2024-11-05';
       send({
         jsonrpc: '2.0',
         id: request.id,
         result: {
-          protocolVersion: '2024-11-05',
+          protocolVersion: clientVersion,
           capabilities: {
             tools: {},
           },
@@ -259,6 +307,7 @@ async function handleRequest(request: JsonRpcRequest): Promise<void> {
         },
       });
       break;
+    }
 
     case 'tools/list': {
       const tools = await listTools();

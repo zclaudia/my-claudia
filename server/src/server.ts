@@ -2707,11 +2707,16 @@ Use push_file instead of curl to send files to the user — it is more reliable 
           break;
         }
 
-        case 'task_notification':
+        case 'task_notification': {
           // Forward background/sub-agent task notifications to client, but do not
           // mark the parent run complete here. Newer provider/SDK versions can emit
           // task notifications while the parent run is still logically active.
-          console.log(`[Task Notification] taskId=${msg.taskId} status=${msg.taskStatus} message=${msg.taskMessage}`);
+          const adapter = activeRun.providerType ? providerRegistry.get(activeRun.providerType) : undefined;
+          const cliPid = activeRun.providerSessionId
+            ? adapter?.getCliPid?.(activeRun.providerSessionId)
+            : undefined;
+          const taskProcInfo = msg.taskId ? adapter?.getTaskProcessInfo?.(msg.taskId) : undefined;
+          console.log(`[Task Notification] taskId=${msg.taskId} status=${msg.taskStatus} message=${msg.taskMessage} cliPid=${cliPid} rootPid=${taskProcInfo?.rootPid} command=${taskProcInfo?.command?.slice(0, 80)}`);
           sendRunEvent({
             type: 'task_notification',
             runId,
@@ -2719,8 +2724,12 @@ Use push_file instead of curl to send files to the user — it is more reliable 
             taskId: msg.taskId,
             status: msg.taskStatus,
             message: msg.taskMessage,
+            cliPid,
+            taskCommand: taskProcInfo?.command,
+            taskRootPid: taskProcInfo?.rootPid,
           } as import('@my-claudia/shared').TaskNotificationMessage);
           break;
+        }
       }
     }
   } catch (error) {

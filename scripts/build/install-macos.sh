@@ -15,46 +15,63 @@ if [ ! -d "$APP_SRC" ]; then
   exit 1
 fi
 
-# --- Write and spawn a detached upgrader script ---
-# We write to a temp file and run it via /bin/bash so it's fully independent
-# of the current process tree (survives MyClaudia being killed).
+# --- Write upgrader script and submit as launchd job ---
+# The upgrader runs as an independent launchd job so it survives when
+# MyClaudia (our parent process) is killed during the upgrade.
 UPGRADER="/tmp/myclaudia-upgrade-$$.sh"
+UPGRADER_LOG="/tmp/myclaudia-upgrade-$$.log"
+UPGRADER_LABEL="com.myClaudia.upgrader.$$"
 cat > "$UPGRADER" << UPGRADE_EOF
 #!/bin/bash
+exec > "$UPGRADER_LOG" 2>&1
+echo "[\$(date)] Upgrader started"
+
 APP_SRC="$APP_SRC"
 APP_DEST="$APP_DEST"
 
 # Close running app
 if pgrep -x "my-claudia" >/dev/null 2>&1; then
+  echo "Closing MyClaudia..."
   osascript -e 'quit app "MyClaudia"' 2>/dev/null || true
   for i in {1..10}; do
     pgrep -x "my-claudia" >/dev/null 2>&1 || break
     sleep 0.5
   done
-  pkill -x "my-claudia" 2>/dev/null || true
+  # Force kill if still running
+  pkill -9 -x "my-claudia" 2>/dev/null || true
   sleep 1
 fi
 
-# Install
+echo "Installing \$APP_SRC → \$APP_DEST"
 rm -rf "\$APP_DEST"
 cp -R "\$APP_SRC" "\$APP_DEST"
 
-# Relaunch — use launchctl asuser to ensure it opens in the GUI session
-# (a double-forked background process may lose the SecuritySession)
+# Verify critical files were copied
+if [ ! -f "\$APP_DEST/Contents/Resources/server/plugins/mcp-bridge.js" ]; then
+  echo "ERROR: plugins/mcp-bridge.js missing after install!"
+  exit 1
+fi
+echo "Install verified OK"
+
+# Relaunch
 UID_NUM=\$(id -u)
 launchctl asuser "\$UID_NUM" open "\$APP_DEST"
+echo "[\$(date)] Upgrade complete, app relaunched"
 
-# Clean up
+# Clean up upgrader and launchd job
+launchctl remove "$UPGRADER_LABEL" 2>/dev/null || true
 rm -f "$UPGRADER"
 UPGRADE_EOF
 chmod +x "$UPGRADER"
 
 echo "=== Starting upgrade (close → install → relaunch) ==="
-# Double fork: outer subshell exits immediately, orphaning the inner process
-# so it's adopted by launchd and survives MyClaudia being killed.
-( ( /bin/bash "$UPGRADER" ) & )
+echo "  Log: $UPGRADER_LOG"
 
-echo "  Upgrade process spawned."
+# Submit as a one-shot launchd job — fully independent of our process tree.
+# This survives even if our entire process group is killed.
+launchctl submit -l "$UPGRADER_LABEL" -- /bin/bash "$UPGRADER"
+
+echo "  Upgrade job submitted (label: $UPGRADER_LABEL)"
 echo "  The app will close, update, and relaunch automatically."
 echo ""
 echo "=== Build complete ==="

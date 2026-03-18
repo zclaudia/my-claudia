@@ -1441,6 +1441,9 @@ export interface TaskNotificationMessage {
   status?: string;
   message?: string;
   seq?: number;
+  cliPid?: number;         // CLI subprocess PID (for process-tree based task killing)
+  taskCommand?: string;    // Actual command being run (e.g. "npm test")
+  taskRootPid?: number;    // Root PID of the task's process tree
 }
 
 // SDK background task progress update (Server → Client)

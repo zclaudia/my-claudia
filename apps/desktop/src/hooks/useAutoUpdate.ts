@@ -49,7 +49,9 @@ function isNewerVersion(remote: string, local: string): boolean {
 }
 
 export async function hasDesktopUpdateCandidate(currentVersion: string): Promise<boolean> {
-  if (!isDevBuild(currentVersion)) return true;
+  // Dev builds are local installs — never overwrite with a release version.
+  // Only release builds should auto-update from GitHub.
+  if (isDevBuild(currentVersion)) return false;
 
   const res = await fetch(DESKTOP_LATEST_URL);
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
