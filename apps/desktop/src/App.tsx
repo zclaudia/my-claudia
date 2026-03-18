@@ -11,6 +11,7 @@ import { FileViewerWindow } from './components/fileviewer/FileViewerWindow';
 import { WorkflowEditorWindow } from './components/workflows/WorkflowEditorWindow';
 import { SessionChatWindow } from './components/chat/SessionChatWindow';
 import { TerminalWindow } from './components/terminal/TerminalWindow';
+import { DraftWindow } from './components/draft/DraftWindow';
 import { ProjectDashboard } from './components/dashboard/ProjectDashboard';
 import { ThemeProvider } from './contexts/ThemeContext';
 import { ConnectionProvider, useConnection } from './contexts/ConnectionContext';
@@ -29,6 +30,7 @@ import { useFileViewerStore } from './stores/fileViewerStore';
 import { useUIStore } from './stores/uiStore';
 import { useTerminalStore } from './stores/terminalStore';
 import { usePluginStore } from './stores/pluginStore';
+import { useDraftEditorStore } from './stores/draftEditorStore';
 import { xtermRegistry } from './utils/xtermRegistry';
 import { initBuiltinPanels } from './plugins/builtinPanels';
 import { useAutoUpdate } from './hooks/useAutoUpdate';
@@ -154,6 +156,7 @@ function AppContent() {
 
     let cleanupSession: (() => void) | undefined;
     let cleanupTerminal: (() => void) | undefined;
+    let cleanupDraft: (() => void) | undefined;
     (async () => {
       const { listen } = await import('@tauri-apps/api/event');
       cleanupSession = await listen<{ sessionId?: string }>('session-window-closed', (event) => {
@@ -172,11 +175,15 @@ function AppContent() {
           usePluginStore.getState().updatePanelVisibility('terminal', true);
         }
       });
+      cleanupDraft = await listen<{ sessionId?: string }>('draft-window-closed', () => {
+        useDraftEditorStore.getState().setPoppedOut(false, null);
+      });
     })();
 
     return () => {
       cleanupSession?.();
       cleanupTerminal?.();
+      cleanupDraft?.();
     };
   }, [removePoppedOutSession]);
 
@@ -467,6 +474,30 @@ function App() {
         <SessionChatWindow
           sessionId={sessionWindowId}
           projectId={projectId}
+          serverUrl={serverUrl}
+          authToken={authToken}
+          serverId={serverId}
+          serverName={serverName}
+          gatewayUrl={gatewayUrl}
+          gatewaySecret={gatewaySecret}
+        />
+      </ThemeProvider>
+    );
+  }
+
+  // Check if this window is a standalone draft editor window
+  const draftSessionId = params.get('draftWindow');
+  if (draftSessionId) {
+    const serverUrl = params.get('serverUrl') || '';
+    const authToken = params.get('authToken') || '';
+    const serverId = params.get('serverId') || undefined;
+    const serverName = params.get('serverName') || undefined;
+    const gatewayUrl = params.get('gatewayUrl') || undefined;
+    const gatewaySecret = params.get('gatewaySecret') || undefined;
+    return (
+      <ThemeProvider defaultTheme="dark-neutral">
+        <DraftWindow
+          sessionId={draftSessionId}
           serverUrl={serverUrl}
           authToken={authToken}
           serverId={serverId}

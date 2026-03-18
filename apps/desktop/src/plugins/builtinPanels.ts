@@ -10,8 +10,10 @@
 import { usePluginStore } from '../stores/pluginStore';
 import { TerminalPanel, TerminalActions } from '../components/terminal/TerminalPanel';
 import { FileViewerPanel, FileViewerActions } from '../components/fileviewer/FileViewerPanel';
+import { DraftPanel, DraftActions } from '../components/draft/DraftPanel';
 import { useTerminalStore } from '../stores/terminalStore';
 import { useFileViewerStore } from '../stores/fileViewerStore';
+import { useDraftEditorStore } from '../stores/draftEditorStore';
 
 export function initBuiltinPanels() {
   const { registerPanel } = usePluginStore.getState();
@@ -56,6 +58,24 @@ export function initBuiltinPanels() {
     visible: false,
     onClose: () => {
       useFileViewerStore.getState().close();
+    },
+  });
+
+  // Draft Editor: dynamically shown when a draft is opened, hidden on close
+  registerPanel({
+    id: 'draft',
+    pluginId: 'com.claudia.draft',
+    type: 'panel',
+    label: 'Draft',
+    icon: 'FileEdit',
+    component: DraftPanel,
+    actions: DraftActions,
+    order: 2,
+    platforms: ['desktop', 'mobile'],
+    alwaysMount: false,
+    visible: false,
+    onClose: () => {
+      useDraftEditorStore.getState().closeEditor();
     },
   });
 

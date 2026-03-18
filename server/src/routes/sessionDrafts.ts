@@ -12,6 +12,16 @@ export function createSessionDraftRoutes(db: Database.Database): Router {
     return !!row;
   }
 
+  function isSessionArchived(sessionId: string): boolean {
+    try {
+      const row = db.prepare('SELECT archived_at FROM sessions WHERE id = ?').get(sessionId) as { archived_at: number | null } | undefined;
+      return !!(row?.archived_at);
+    } catch {
+      // Column may not exist in older schemas
+      return false;
+    }
+  }
+
   function ensureSessionExists(req: Request, res: Response): boolean {
     if (sessionExists(req.params.id)) {
       return true;
@@ -22,6 +32,18 @@ export function createSessionDraftRoutes(db: Database.Database): Router {
       error: { code: 'NOT_FOUND', message: 'Session not found' },
     });
     return false;
+  }
+
+  /** Guard: reject draft write operations on archived sessions */
+  function ensureSessionNotArchived(req: Request, res: Response): boolean {
+    if (isSessionArchived(req.params.id)) {
+      res.status(409).json({
+        success: false,
+        error: { code: 'SESSION_ARCHIVED', message: 'Session is archived' },
+      });
+      return false;
+    }
+    return true;
   }
 
   // GET /api/sessions/:id/draft - Get active draft for session
@@ -37,9 +59,8 @@ export function createSessionDraftRoutes(db: Database.Database): Router {
   // PUT /api/sessions/:id/draft - Create or update draft content
   router.put('/:id/draft', (req: Request, res: Response) => {
     try {
-      if (!ensureSessionExists(req, res)) {
-        return;
-      }
+      if (!ensureSessionExists(req, res)) return;
+      if (!ensureSessionNotArchived(req, res)) return;
 
       const { content, deviceId } = req.body ?? {};
       if (typeof content !== 'string') {
@@ -65,9 +86,8 @@ export function createSessionDraftRoutes(db: Database.Database): Router {
   // POST /api/sessions/:id/draft/lock - Acquire edit lock
   router.post('/:id/draft/lock', (req: Request, res: Response) => {
     try {
-      if (!ensureSessionExists(req, res)) {
-        return;
-      }
+      if (!ensureSessionExists(req, res)) return;
+      if (!ensureSessionNotArchived(req, res)) return;
 
       const { deviceId, force } = req.body ?? {};
       if (!deviceId) {

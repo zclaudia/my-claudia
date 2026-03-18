@@ -1,6 +1,8 @@
 import { create } from 'zustand';
 import type { SessionDraft } from '@my-claudia/shared';
 import * as api from '../services/api';
+import { usePluginStore } from './pluginStore';
+import { useBottomPanelStore } from './bottomPanelStore';
 
 // Generate a stable client ID per browser tab for lock identification
 const CLIENT_DEVICE_ID = crypto.randomUUID();
@@ -11,8 +13,7 @@ interface DraftEditorState {
   // Server draft existence cache (sessionId → boolean)
   draftExists: Record<string, boolean>;
 
-  // Editor UI state
-  isEditorOpen: boolean;
+  // Editor state
   activeSessionId: string | null;
   localContent: string;
   isSaving: boolean;
@@ -24,6 +25,16 @@ interface DraftEditorState {
   lockedByDevice: string | null;
   showLockPrompt: boolean;
 
+  // Pop-out window tracking
+  poppedOut: boolean;
+  poppedOutWindowLabel: string | null;
+
+  // Callback for Finish & Send (injected by ChatInterface)
+  sendCallback: ((content: string) => void) | null;
+
+  // Session archived flag (for independent windows)
+  sessionArchived: boolean;
+
   // Actions
   openEditor: (sessionId: string) => Promise<void>;
   closeEditor: () => Promise<void>;
@@ -34,6 +45,9 @@ interface DraftEditorState {
   finishDraft: (sendCallback: (content: string) => void) => Promise<void>;
   discardDraft: () => Promise<void>;
   dismissLockPrompt: () => void;
+  setSendCallback: (cb: ((content: string) => void) | null) => void;
+  setPoppedOut: (poppedOut: boolean, label: string | null) => void;
+  setSessionArchived: (archived: boolean) => void;
 }
 
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
@@ -48,9 +62,17 @@ async function saveDraftToServer(sessionId: string, content: string): Promise<Se
   }
 }
 
+function showDraftPanel() {
+  usePluginStore.getState().updatePanelVisibility('draft', true);
+  useBottomPanelStore.getState().setActiveTab('draft');
+}
+
+function hideDraftPanel() {
+  usePluginStore.getState().updatePanelVisibility('draft', false);
+}
+
 export const useDraftEditorStore = create<DraftEditorState>((set, get) => ({
   draftExists: {},
-  isEditorOpen: false,
   activeSessionId: null,
   localContent: '',
   isSaving: false,
@@ -59,6 +81,10 @@ export const useDraftEditorStore = create<DraftEditorState>((set, get) => ({
   isLocked: false,
   lockedByDevice: null,
   showLockPrompt: false,
+  poppedOut: false,
+  poppedOutWindowLabel: null,
+  sendCallback: null,
+  sessionArchived: false,
 
   openEditor: async (sessionId: string) => {
     try {
@@ -67,7 +93,6 @@ export const useDraftEditorStore = create<DraftEditorState>((set, get) => ({
       if (result.locked) {
         // Lock acquired successfully
         set({
-          isEditorOpen: true,
           activeSessionId: sessionId,
           localContent: result.draft?.content || '',
           isReadOnly: false,
@@ -75,8 +100,10 @@ export const useDraftEditorStore = create<DraftEditorState>((set, get) => ({
           lockedByDevice: null,
           showLockPrompt: false,
           lastSavedAt: result.draft?.updatedAt || null,
+          sessionArchived: false,
           draftExists: { ...get().draftExists, [sessionId]: true },
         });
+        showDraftPanel();
       } else {
         // Lock held by another device
         set({
@@ -117,8 +144,9 @@ export const useDraftEditorStore = create<DraftEditorState>((set, get) => ({
       }
     }
 
+    hideDraftPanel();
+
     set({
-      isEditorOpen: false,
       activeSessionId: null,
       localContent: '',
       isReadOnly: false,
@@ -126,6 +154,8 @@ export const useDraftEditorStore = create<DraftEditorState>((set, get) => ({
       lockedByDevice: null,
       showLockPrompt: false,
       lastSavedAt: null,
+      sendCallback: null,
+      sessionArchived: false,
     });
   },
 
@@ -133,7 +163,6 @@ export const useDraftEditorStore = create<DraftEditorState>((set, get) => ({
     try {
       const result = await api.lockSessionDraft(sessionId, CLIENT_DEVICE_ID, true);
       set({
-        isEditorOpen: true,
         activeSessionId: sessionId,
         localContent: result.draft?.content || '',
         isReadOnly: false,
@@ -141,8 +170,10 @@ export const useDraftEditorStore = create<DraftEditorState>((set, get) => ({
         lockedByDevice: null,
         showLockPrompt: false,
         lastSavedAt: result.draft?.updatedAt || null,
+        sessionArchived: false,
         draftExists: { ...get().draftExists, [sessionId]: true },
       });
+      showDraftPanel();
     } catch (error) {
       console.error('[DraftEditor] Failed to force open:', error);
     }
@@ -151,12 +182,12 @@ export const useDraftEditorStore = create<DraftEditorState>((set, get) => ({
   openReadOnly: (sessionId: string) => {
     const { localContent } = get();
     set({
-      isEditorOpen: true,
       activeSessionId: sessionId,
       localContent,
       isReadOnly: true,
       showLockPrompt: false,
     });
+    showDraftPanel();
   },
 
   setLocalContent: (content: string) => {
@@ -213,9 +244,10 @@ export const useDraftEditorStore = create<DraftEditorState>((set, get) => ({
       console.error('[DraftEditor] Failed to archive draft:', error);
     }
 
+    hideDraftPanel();
+
     // Update state
     set({
-      isEditorOpen: false,
       activeSessionId: null,
       localContent: '',
       isReadOnly: false,
@@ -223,6 +255,8 @@ export const useDraftEditorStore = create<DraftEditorState>((set, get) => ({
       lockedByDevice: null,
       showLockPrompt: false,
       lastSavedAt: null,
+      sendCallback: null,
+      sessionArchived: false,
       draftExists: { ...get().draftExists, [activeSessionId]: false },
     });
   },
@@ -244,8 +278,9 @@ export const useDraftEditorStore = create<DraftEditorState>((set, get) => ({
       }
     }
 
+    hideDraftPanel();
+
     set({
-      isEditorOpen: false,
       activeSessionId: null,
       localContent: '',
       isReadOnly: false,
@@ -253,6 +288,8 @@ export const useDraftEditorStore = create<DraftEditorState>((set, get) => ({
       lockedByDevice: null,
       showLockPrompt: false,
       lastSavedAt: null,
+      sendCallback: null,
+      sessionArchived: false,
       draftExists: activeSessionId
         ? { ...get().draftExists, [activeSessionId]: false }
         : get().draftExists,
@@ -268,4 +305,10 @@ export const useDraftEditorStore = create<DraftEditorState>((set, get) => ({
       lockedByDevice: null,
     });
   },
+
+  setSendCallback: (cb) => set({ sendCallback: cb }),
+
+  setPoppedOut: (poppedOut, label) => set({ poppedOut, poppedOutWindowLabel: label }),
+
+  setSessionArchived: (archived) => set({ sessionArchived: archived }),
 }));

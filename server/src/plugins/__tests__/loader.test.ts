@@ -383,6 +383,82 @@ describe('PluginLoader', () => {
       expect(manifests[0].name).toBe('npm-pkg-name');
       expect(manifests[0].version).toBe('3.0.0');
     });
+
+    it('should discover plugins in nested category directories', async () => {
+      const categoryDir = path.join(mockPluginDir, 'productivity');
+      const pluginPath = path.join(categoryDir, 'timer');
+      const manifest = makeManifest({ id: 'com.nested.timer' });
+
+      vi.mocked(fs.existsSync).mockImplementation((p) => {
+        if (p === mockPluginDir) return true;
+        if (p === categoryDir) return true;
+        if (p === path.join(pluginPath, 'plugin.json')) return true;
+        return false;
+      });
+
+      vi.mocked(fs.readdirSync).mockImplementation((p) => {
+        if (p === mockPluginDir) {
+          return [
+            { name: 'productivity', isDirectory: () => true, isFile: () => false } as fs.Dirent,
+          ];
+        }
+        if (p === categoryDir) {
+          return [
+            { name: 'timer', isDirectory: () => true, isFile: () => false } as fs.Dirent,
+          ];
+        }
+        return [];
+      });
+
+      vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify(manifest));
+
+      const manifests = await loader.discover();
+      expect(manifests).toHaveLength(1);
+      expect(manifests[0].id).toBe('com.nested.timer');
+    });
+
+    it('should discover plugins at mixed depths', async () => {
+      const categoryDir = path.join(mockPluginDir, 'tools');
+      const nestedPluginPath = path.join(categoryDir, 'nested-plugin');
+      const topPluginPath = path.join(mockPluginDir, 'top-plugin');
+      const topManifest = makeManifest({ id: 'com.top.plugin' });
+      const nestedManifest = makeManifest({ id: 'com.nested.plugin' });
+
+      vi.mocked(fs.existsSync).mockImplementation((p) => {
+        if (p === mockPluginDir) return true;
+        if (p === categoryDir) return true;
+        if (p === path.join(topPluginPath, 'plugin.json')) return true;
+        if (p === path.join(nestedPluginPath, 'plugin.json')) return true;
+        return false;
+      });
+
+      vi.mocked(fs.readdirSync).mockImplementation((p) => {
+        if (p === mockPluginDir) {
+          return [
+            { name: 'top-plugin', isDirectory: () => true, isFile: () => false } as fs.Dirent,
+            { name: 'tools', isDirectory: () => true, isFile: () => false } as fs.Dirent,
+          ];
+        }
+        if (p === categoryDir) {
+          return [
+            { name: 'nested-plugin', isDirectory: () => true, isFile: () => false } as fs.Dirent,
+          ];
+        }
+        return [];
+      });
+
+      vi.mocked(fs.readFileSync).mockImplementation((p) => {
+        if (typeof p === 'string' && p.includes('top-plugin')) {
+          return JSON.stringify(topManifest);
+        }
+        return JSON.stringify(nestedManifest);
+      });
+
+      const manifests = await loader.discover();
+      expect(manifests).toHaveLength(2);
+      const ids = manifests.map(m => m.id).sort();
+      expect(ids).toEqual(['com.nested.plugin', 'com.top.plugin']);
+    });
   });
 
   // ==================================================

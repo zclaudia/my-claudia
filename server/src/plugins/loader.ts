@@ -154,46 +154,61 @@ export class PluginLoader {
 
   /**
    * Discover all plugins in plugin directories.
+   * Supports nested directories: if a subdirectory has no manifest file,
+   * it is treated as a category folder and scanned recursively.
    */
   async discover(): Promise<PluginManifest[]> {
     const manifests: PluginManifest[] = [];
 
     for (const dir of this.getPluginDirs()) {
-      if (!fs.existsSync(dir)) {
-        continue;
-      }
-
-      const entries = fs.readdirSync(dir, { withFileTypes: true });
-
-      for (const entry of entries) {
-        if (!entry.isDirectory()) {
-          continue;
-        }
-
-        const pluginPath = path.join(dir, entry.name);
-        const manifest = await this.loadManifest(pluginPath);
-
-        if (manifest) {
-          // Check if already discovered (from another directory)
-          if (this.plugins.has(manifest.id)) {
-            console.warn(
-              `[PluginLoader] Plugin "${manifest.id}" already discovered, skipping duplicate at ${pluginPath}`
-            );
-            continue;
-          }
-
-          this.plugins.set(manifest.id, {
-            manifest,
-            path: pluginPath,
-            isActive: false,
-          });
-
-          manifests.push(manifest);
-        }
-      }
+      await this.scanDirectory(dir, manifests);
     }
 
     return manifests;
+  }
+
+  /**
+   * Recursively scan a directory for plugins.
+   * A directory with a manifest is treated as a plugin.
+   * A directory without a manifest is treated as a category folder
+   * and its subdirectories are scanned recursively.
+   */
+  private async scanDirectory(dir: string, manifests: PluginManifest[]): Promise<void> {
+    if (!fs.existsSync(dir)) {
+      return;
+    }
+
+    const entries = fs.readdirSync(dir, { withFileTypes: true });
+
+    for (const entry of entries) {
+      if (!entry.isDirectory()) {
+        continue;
+      }
+
+      const pluginPath = path.join(dir, entry.name);
+      const manifest = await this.loadManifest(pluginPath);
+
+      if (manifest) {
+        // Check if already discovered (from another directory)
+        if (this.plugins.has(manifest.id)) {
+          console.warn(
+            `[PluginLoader] Plugin "${manifest.id}" already discovered, skipping duplicate at ${pluginPath}`
+          );
+          continue;
+        }
+
+        this.plugins.set(manifest.id, {
+          manifest,
+          path: pluginPath,
+          isActive: false,
+        });
+
+        manifests.push(manifest);
+      } else {
+        // No manifest found — treat as category folder and recurse
+        await this.scanDirectory(pluginPath, manifests);
+      }
+    }
   }
 
   /**

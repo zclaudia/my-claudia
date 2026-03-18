@@ -33,7 +33,7 @@ import { getBaseUrl, getAuthHeaders } from '../../services/api';
 import { uploadFile } from '../../services/fileUpload';
 import { TaskCardStrip } from '../supervision/TaskCardStrip';
 import { BackgroundTaskPanel } from '../BackgroundTaskPanel';
-import { DraftEditorModal } from './DraftEditorModal';
+import { DraftLockPrompt } from '../draft/DraftLockPrompt';
 import { useDraftEditorStore } from '../../stores/draftEditorStore';
 import type { AgentPermissionPolicy, CommandExecuteResponse, Message, MessageAttachment, MessageInput as MessageInputData, ProviderCapabilities, SlashCommand } from '@my-claudia/shared';
 import type { MessageWithToolCalls } from '../../stores/chatStore';
@@ -161,11 +161,11 @@ export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar }:
   const [showSessionMenu, setShowSessionMenu] = useState(false);
 
   // Draft editor state
-  const draftEditorOpen = useDraftEditorStore((s) => s.isEditorOpen);
   const draftShowLockPrompt = useDraftEditorStore((s) => s.showLockPrompt);
   const draftExists = useDraftEditorStore((s) => s.draftExists[sessionId] ?? false);
   const openDraftEditor = useDraftEditorStore((s) => s.openEditor);
   const checkDraftExists = useDraftEditorStore((s) => s.checkDraftExists);
+  const setSendCallback = useDraftEditorStore((s) => s.setSendCallback);
 
   // Check draft existence when entering session
   useEffect(() => {
@@ -2492,7 +2492,10 @@ export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar }:
             initialValue={restoreMessage?.content ?? initialDraft}
             initialAttachments={restoreMessage?.attachments}
             advancedMode={advancedInput}
-            onDraftOpen={() => openDraftEditor(sessionId)}
+            onDraftOpen={() => {
+              setSendCallback((content: string) => handleSendMessage(content));
+              openDraftEditor(sessionId);
+            }}
             hasDraft={draftExists}
             placeholder={
               !isConnected
@@ -2512,10 +2515,8 @@ export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar }:
       )}
       </>}
 
-      {/* Draft Editor Modal */}
-      {(draftEditorOpen || draftShowLockPrompt) && (
-        <DraftEditorModal onFinishDraft={(content) => handleSendMessage(content)} />
-      )}
+      {/* Draft lock conflict dialog */}
+      {draftShowLockPrompt && <DraftLockPrompt />}
     </div>
   );
 }
