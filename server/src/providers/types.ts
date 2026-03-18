@@ -33,8 +33,8 @@ export interface ProviderAdapter {
   /** Abort an active session */
   abort?(sessionId: string, cwd: string): Promise<void>;
 
-  /** Stop a specific background task within an active session */
-  stopTask?(sessionId: string, taskId: string): Promise<void>;
+  /** Stop a specific background task. Returns true if processes were actually killed. */
+  stopTask?(sessionId: string, taskId: string): Promise<boolean | void>;
 
   /** Get CLI subprocess PID for a session (if available) */
   getCliPid?(sessionId: string): number | undefined;

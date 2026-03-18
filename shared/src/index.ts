@@ -789,6 +789,9 @@ export interface StopBackgroundTaskMessage {
   type: 'stop_background_task';
   sessionId: string;
   taskId: string;
+  cliPid?: number;
+  taskRootPid?: number;
+  taskCommand?: string;
 }
 
 export interface PermissionDecisionMessage {

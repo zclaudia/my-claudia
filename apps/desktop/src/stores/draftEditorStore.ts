@@ -69,6 +69,9 @@ function showDraftPanel() {
 
 function hideDraftPanel() {
   usePluginStore.getState().updatePanelVisibility('draft', false);
+  // Reset active tab so toolbar buttons update immediately
+  const { activeTab, setActiveTab } = useBottomPanelStore.getState();
+  if (activeTab === 'draft') setActiveTab('');
 }
 
 export const useDraftEditorStore = create<DraftEditorState>((set, get) => ({
@@ -87,27 +90,31 @@ export const useDraftEditorStore = create<DraftEditorState>((set, get) => ({
   sessionArchived: false,
 
   openEditor: async (sessionId: string) => {
+    // Show panel immediately with empty content for responsive UI
+    set({
+      activeSessionId: sessionId,
+      localContent: '',
+      isReadOnly: false,
+      isLocked: false,
+      lockedByDevice: null,
+      showLockPrompt: false,
+      sessionArchived: false,
+    });
+    showDraftPanel();
+
+    // Then load draft content and acquire lock in background
     try {
       const result = await api.lockSessionDraft(sessionId, CLIENT_DEVICE_ID);
 
       if (result.locked) {
-        // Lock acquired successfully
         set({
-          activeSessionId: sessionId,
           localContent: result.draft?.content || '',
-          isReadOnly: false,
-          isLocked: false,
-          lockedByDevice: null,
-          showLockPrompt: false,
           lastSavedAt: result.draft?.updatedAt || null,
-          sessionArchived: false,
           draftExists: { ...get().draftExists, [sessionId]: true },
         });
-        showDraftPanel();
       } else {
         // Lock held by another device
         set({
-          activeSessionId: sessionId,
           isLocked: true,
           lockedByDevice: result.draft?.editingBy || null,
           showLockPrompt: true,
@@ -128,24 +135,8 @@ export const useDraftEditorStore = create<DraftEditorState>((set, get) => ({
       saveTimer = null;
     }
 
-    // Save any unsaved content before closing
-    if (activeSessionId && !isReadOnly && localContent) {
-      set({ isSaving: true });
-      await saveDraftToServer(activeSessionId, localContent);
-      set({ isSaving: false });
-    }
-
-    // Release lock
-    if (activeSessionId && !isReadOnly) {
-      try {
-        await api.unlockSessionDraft(activeSessionId, CLIENT_DEVICE_ID);
-      } catch (error) {
-        console.error('[DraftEditor] Failed to release lock:', error);
-      }
-    }
-
+    // Hide panel and reset state immediately for responsive UI
     hideDraftPanel();
-
     set({
       activeSessionId: null,
       localContent: '',
@@ -157,6 +148,18 @@ export const useDraftEditorStore = create<DraftEditorState>((set, get) => ({
       sendCallback: null,
       sessionArchived: false,
     });
+
+    // Save and release lock in background (don't block UI)
+    if (activeSessionId && !isReadOnly) {
+      if (localContent) {
+        saveDraftToServer(activeSessionId, localContent).catch((err) =>
+          console.error('[DraftEditor] Background save failed:', err)
+        );
+      }
+      api.unlockSessionDraft(activeSessionId, CLIENT_DEVICE_ID).catch((err) =>
+        console.error('[DraftEditor] Failed to release lock:', err)
+      );
+    }
   },
 
   forceOpen: async (sessionId: string) => {

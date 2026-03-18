@@ -1,7 +1,9 @@
 import express, { Express, Request, Response, NextFunction } from 'express';
 import cors from 'cors';
+import { execFile } from 'child_process';
 import { createServer as createHttpServer, Server, IncomingMessage, request as httpRequest } from 'http';
 import { request as httpsRequest } from 'https';
+import { promisify } from 'util';
 import { WebSocketServer, WebSocket } from 'ws';
 import { v4 as uuidv4 } from 'uuid';
 import * as path from 'path';
@@ -78,6 +80,9 @@ import { pluginLoader } from './plugins/loader.js';
 import { permissionManager as pluginPermissionManager } from './plugins/permissions.js';
 import { toolRegistry as pluginToolRegistry } from './plugins/tool-registry.js';
 import { commandRegistry as pluginCommandRegistry } from './commands/registry.js';
+import { isProcessAlive, killProcessTree } from './utils/process-tree.js';
+
+const execFileAsync = promisify(execFile);
 import { resolveProviderCwd } from './utils/provider-cwd.js';
 import { createTraceRecorder, summarizeProviderMessage, summarizeServerMessage } from './utils/provider-trace.js';
 import { ProcessMonitor } from './utils/process-monitor.js';
@@ -1263,6 +1268,38 @@ function sendMessage(ws: WebSocket, message: ServerMessage): void {
   }
 }
 
+function buildTaskCommandNeedles(taskCommand?: string): string[] {
+  if (!taskCommand) return [];
+  const trimmed = taskCommand.trim();
+  if (!trimmed) return [];
+
+  const needles = new Set<string>([trimmed.slice(0, 200)]);
+  const firstSegment = trimmed.split(/\s*(?:&&|\|\||;|\|)\s*/)[0]?.trim();
+  if (firstSegment && firstSegment.length >= 4) {
+    needles.add(firstSegment.slice(0, 120));
+  }
+  return [...needles];
+}
+
+async function findProcessPidsByTaskCommand(taskCommand?: string): Promise<number[]> {
+  const needles = buildTaskCommandNeedles(taskCommand);
+  if (needles.length === 0) return [];
+
+  try {
+    const { stdout } = await execFileAsync('ps', ['-e', '-o', 'pid=,args=']);
+    return stdout
+      .trim()
+      .split('\n')
+      .map(line => line.trim())
+      .filter(line => needles.some(needle => line.includes(needle)))
+      .map(line => Number(line.match(/^(\d+)/)?.[1]))
+      .filter((pid): pid is number => Number.isFinite(pid) && pid !== process.pid);
+  } catch (err) {
+    console.warn('[Task PID] Failed to scan processes by command:', err);
+    return [];
+  }
+}
+
 function broadcastToOtherAuthenticatedClients(
   clients: Map<string, ConnectedClient>,
   originClientId: string,
@@ -1575,7 +1612,63 @@ async function handleClientMessage(
       break;
 
     case 'stop_background_task': {
-      const { sessionId: targetSessionId, taskId } = message;
+      const { sessionId: targetSessionId, taskId, taskRootPid, cliPid, taskCommand } = message;
+
+      const directPid = taskRootPid;
+      if (directPid && isProcessAlive(directPid)) {
+        console.log(`[StopTask] Direct PID stop for task ${taskId}: pid=${directPid}`);
+        killProcessTree(directPid)
+          .then(({ killed, failed }) => {
+            const stopped = killed.length > 0 && failed.length === 0 && !isProcessAlive(directPid);
+            sendMessage(client.ws, {
+              type: 'task_notification',
+              runId: '',
+              sessionId: targetSessionId,
+              taskId,
+              status: stopped ? 'stopped' : 'failed',
+              message: stopped
+                ? `Task stopped by PID ${directPid}`
+                : `Failed to stop PID ${directPid}`,
+              cliPid,
+              taskRootPid,
+            } as import('@my-claudia/shared').TaskNotificationMessage);
+          })
+          .catch(err => {
+            console.error(`[StopTask] Direct PID stop failed for task ${taskId}:`, err);
+            sendMessage(client.ws, {
+              type: 'task_notification',
+              runId: '',
+              sessionId: targetSessionId,
+              taskId,
+              status: 'failed',
+              message: `PID stop failed: ${err instanceof Error ? err.message : String(err)}`,
+              cliPid,
+              taskRootPid,
+            } as import('@my-claudia/shared').TaskNotificationMessage);
+          });
+        break;
+      }
+
+      const matchedPids = await findProcessPidsByTaskCommand(taskCommand);
+      if (matchedPids.length > 0) {
+        console.log(`[StopTask] Command-matched stop for task ${taskId}: pids=[${matchedPids.join(',')}]`);
+        const killResults = await Promise.all(matchedPids.map(pid => killProcessTree(pid)));
+        const failed = killResults.flatMap(result => result.failed);
+        const killed = killResults.flatMap(result => result.killed);
+        sendMessage(client.ws, {
+          type: 'task_notification',
+          runId: '',
+          sessionId: targetSessionId,
+          taskId,
+          status: killed.length > 0 && failed.length === 0 ? 'stopped' : 'failed',
+          message: killed.length > 0 && failed.length === 0
+            ? `Task stopped by command match (${matchedPids.join(', ')})`
+            : `Failed to stop command-matched PID(s): ${matchedPids.join(', ')}`,
+          cliPid,
+          taskRootPid,
+        } as import('@my-claudia/shared').TaskNotificationMessage);
+        break;
+      }
 
       // Gather provider type and SDK session ID from multiple sources
       const targetRun = [...activeRuns.values()].find(r => r.sessionId === targetSessionId);
@@ -1604,9 +1697,29 @@ async function handleClientMessage(
         const adapter = providerRegistry.get(resolvedProviderType);
         if (adapter?.stopTask) {
           console.log(`[StopTask] Stopping task ${taskId}: adapter=${resolvedProviderType} sdkSession=${resolvedSdkSessionId}`);
-          adapter.stopTask(resolvedSdkSessionId, taskId).catch(err => {
-            console.error(`[StopTask] Failed to stop task ${taskId}:`, err);
-          });
+          adapter.stopTask(resolvedSdkSessionId, taskId)
+            .then((killed) => {
+              // Notify frontend — include whether processes were actually killed
+              sendMessage(client.ws, {
+                type: 'task_notification',
+                runId: targetRun?.runId || '',
+                sessionId: targetSessionId,
+                taskId,
+                status: killed !== false ? 'stopped' : 'failed',
+                message: killed !== false ? 'Task stopped by user' : 'No processes found to kill',
+              } as import('@my-claudia/shared').TaskNotificationMessage);
+            })
+            .catch(err => {
+              console.error(`[StopTask] Failed to stop task ${taskId}:`, err);
+              sendMessage(client.ws, {
+                type: 'task_notification',
+                runId: targetRun?.runId || '',
+                sessionId: targetSessionId,
+                taskId,
+                status: 'failed',
+                message: `Stop failed: ${err instanceof Error ? err.message : String(err)}`,
+              } as import('@my-claudia/shared').TaskNotificationMessage);
+            });
           break;
         }
       }
@@ -2712,22 +2825,53 @@ Use push_file instead of curl to send files to the user — it is more reliable 
           // mark the parent run complete here. Newer provider/SDK versions can emit
           // task notifications while the parent run is still logically active.
           const adapter = activeRun.providerType ? providerRegistry.get(activeRun.providerType) : undefined;
-          const cliPid = activeRun.providerSessionId
-            ? adapter?.getCliPid?.(activeRun.providerSessionId)
-            : undefined;
-          const taskProcInfo = msg.taskId ? adapter?.getTaskProcessInfo?.(msg.taskId) : undefined;
+          const buildTaskNotificationEvent = () => {
+            const cliPid = activeRun.providerSessionId
+              ? adapter?.getCliPid?.(activeRun.providerSessionId)
+              : undefined;
+            const taskProcInfo = msg.taskId ? adapter?.getTaskProcessInfo?.(msg.taskId) : undefined;
+            return {
+              cliPid,
+              taskProcInfo,
+              event: {
+                type: 'task_notification',
+                runId,
+                sessionId: activeRun.sessionId,
+                taskId: msg.taskId,
+                status: msg.taskStatus,
+                message: msg.taskMessage,
+                cliPid,
+                taskCommand: taskProcInfo?.command,
+                taskRootPid: taskProcInfo?.rootPid,
+              } as import('@my-claudia/shared').TaskNotificationMessage,
+            };
+          };
+
+          const { cliPid, taskProcInfo, event } = buildTaskNotificationEvent();
           console.log(`[Task Notification] taskId=${msg.taskId} status=${msg.taskStatus} message=${msg.taskMessage} cliPid=${cliPid} rootPid=${taskProcInfo?.rootPid} command=${taskProcInfo?.command?.slice(0, 80)}`);
-          sendRunEvent({
-            type: 'task_notification',
-            runId,
-            sessionId: activeRun.sessionId,
-            taskId: msg.taskId,
-            status: msg.taskStatus,
-            message: msg.taskMessage,
-            cliPid,
-            taskCommand: taskProcInfo?.command,
-            taskRootPid: taskProcInfo?.rootPid,
-          } as import('@my-claudia/shared').TaskNotificationMessage);
+          sendRunEvent(event);
+
+          if (msg.taskId && msg.taskStatus === 'started' && !taskProcInfo?.rootPid) {
+            const timer = setTimeout(async () => {
+              const refreshed = buildTaskNotificationEvent();
+              let resolvedRootPid = refreshed.taskProcInfo?.rootPid;
+
+              if (!resolvedRootPid && refreshed.event.taskCommand) {
+                const matchedPids = await findProcessPidsByTaskCommand(refreshed.event.taskCommand);
+                resolvedRootPid = matchedPids[0];
+              }
+
+              if (resolvedRootPid && resolvedRootPid !== taskProcInfo?.rootPid) {
+                console.log(`[Task Notification] Backfilled PID for taskId=${msg.taskId} rootPid=${resolvedRootPid}`);
+                sendRunEvent({
+                  ...refreshed.event,
+                  taskRootPid: resolvedRootPid,
+                });
+              }
+            }, 1800);
+            timer.unref();
+          }
+
           break;
         }
       }

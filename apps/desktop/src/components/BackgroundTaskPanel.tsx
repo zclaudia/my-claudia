@@ -11,7 +11,7 @@ function formatTimeAgo(ts: number): string {
   return `${hours}h ago`;
 }
 
-function TaskItem({ task, onRemove, onStop }: { task: BackgroundTask; onRemove: () => void; onStop?: (taskId: string) => void }) {
+function TaskItem({ task, onRemove, onStop }: { task: BackgroundTask; onRemove: () => void; onStop?: (task: BackgroundTask) => void }) {
   const [expanded, setExpanded] = useState(false);
   const isRunning = task.status === 'started' || task.status === 'in_progress';
   const canStop = isRunning && task.stoppable !== false && !!onStop;
@@ -41,14 +41,12 @@ function TaskItem({ task, onRemove, onStop }: { task: BackgroundTask; onRemove: 
         <span className="text-foreground truncate">
           {task.description || 'Background Task'}
         </span>
-        {(task.taskRootPid || task.cliPid) && (
+        {task.taskRootPid && (
           <span
             className="text-muted-foreground/40 font-mono flex-shrink-0"
-            title={task.taskRootPid
-              ? `Task PID: ${task.taskRootPid}${task.cliPid ? ` (CLI: ${task.cliPid})` : ''}`
-              : `CLI PID: ${task.cliPid}`}
+            title={`Task PID: ${task.taskRootPid}${task.cliPid ? ` (CLI: ${task.cliPid})` : ''}`}
           >
-            [{task.taskRootPid || task.cliPid}]
+            [{task.taskRootPid}]
           </span>
         )}
         <span className="text-muted-foreground/60 flex-shrink-0">
@@ -64,7 +62,7 @@ function TaskItem({ task, onRemove, onStop }: { task: BackgroundTask; onRemove: 
       {/* Stop (running tasks) or Dismiss (completed tasks) */}
       {canStop ? (
         <button
-          onClick={() => onStop(task.id)}
+          onClick={() => onStop(task)}
           className="p-0.5 rounded opacity-0 group-hover:opacity-100 hover:bg-destructive/10 transition-all flex-shrink-0"
           title="Stop this task"
         >
@@ -83,6 +81,11 @@ function TaskItem({ task, onRemove, onStop }: { task: BackgroundTask; onRemove: 
       {/* Expandable summary */}
       {expanded && (task.summary || task.taskCommand) && (
         <div className="w-full pl-5 pt-1 pb-0.5">
+          {task.cliPid && (
+            <div className="text-[11px] font-mono text-muted-foreground/50 truncate mb-0.5" title={`Claude CLI PID: ${task.cliPid}`}>
+              cli pid: {task.cliPid}
+            </div>
+          )}
           {task.taskCommand && (
             <div className="text-[11px] font-mono text-muted-foreground/60 truncate mb-0.5" title={task.taskCommand}>
               $ {task.taskCommand}
@@ -102,7 +105,7 @@ function TaskItem({ task, onRemove, onStop }: { task: BackgroundTask; onRemove: 
 interface BackgroundTaskPanelProps {
   sessionId: string;
   /** Called when user clicks stop on a specific running task */
-  onStopTask?: (taskId: string) => void;
+  onStopTask?: (task: BackgroundTask) => void;
 }
 
 export function BackgroundTaskPanel({ sessionId, onStopTask }: BackgroundTaskPanelProps) {

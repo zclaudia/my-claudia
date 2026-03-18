@@ -89,6 +89,9 @@ function upsertBackgroundTask(taskId: string, task: import('../stores/background
       startedAt: existingTask.startedAt,
       description: nextDescription,
       toolUseId: task.toolUseId || existingTask.toolUseId,
+      cliPid: task.cliPid ?? existingTask.cliPid,
+      taskCommand: task.taskCommand ?? existingTask.taskCommand,
+      taskRootPid: task.taskRootPid ?? existingTask.taskRootPid,
     });
     return;
   }

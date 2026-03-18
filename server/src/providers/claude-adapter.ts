@@ -1,7 +1,14 @@
 import type { ProviderAdapter, RunOptions, ClaudeMessage, PermissionCallback } from './types.js';
 import { runClaude, type ClaudeQueryHandle } from './claude-sdk.js';
 import type { PermissionMode } from '@my-claudia/shared';
-import { listDescendantProcesses, killProcessTree, summarizeProcesses, type ChildProcessInfo } from '../utils/process-tree.js';
+import {
+  isProcessAlive,
+  listDescendantProcesses,
+  killProcessTree,
+  summarizeProcesses,
+  waitForProcessesToExit,
+  type ChildProcessInfo,
+} from '../utils/process-tree.js';
 
 const CLAUDE_PROCESS_MATCHERS = ['claude', 'mcp-bridge', 'mcp-server'];
 
@@ -120,15 +127,18 @@ export class ClaudeAdapter implements ProviderAdapter {
           }
         }
 
-        // On task_started, resolve task → process PIDs via command matching
+        // On task_started, resolve task → process PIDs
         if (message.type === 'task_notification' && message.taskStatus === 'started' && message.taskId) {
           const cliPid = this.cliPids.get(sessionKey);
-          if (cliPid && message.taskToolUseId) {
-            const toolInfo = this.toolUseCommands.get(message.taskToolUseId);
-            if (toolInfo) {
-              // Async — don't block the message stream
-              this.resolveTaskProcesses(cliPid, message.taskId, toolInfo.command, toolInfo.toolName);
-            }
+          if (cliPid) {
+            const command = message.taskToolUseId
+              ? this.toolUseCommands.get(message.taskToolUseId)?.command
+              : undefined;
+            const toolName = message.taskToolUseId
+              ? this.toolUseCommands.get(message.taskToolUseId)?.toolName
+              : undefined;
+            // Async — don't block the message stream
+            this.resolveTaskProcesses(cliPid, message.taskId, command, toolName);
           }
         }
 
@@ -208,22 +218,43 @@ export class ClaudeAdapter implements ProviderAdapter {
   }
 
   /**
-   * Resolve which OS processes belong to a background task by matching the
-   * command string against descendants of the CLI subprocess.
+   * Resolve which OS processes belong to a background task.
+   * Takes a snapshot of CLI descendants, optionally matches by command string,
+   * and retries after a delay to catch late-spawning processes.
    */
-  private async resolveTaskProcesses(cliPid: number, taskId: string, command: string, toolName: string): Promise<void> {
-    try {
+  private async resolveTaskProcesses(cliPid: number, taskId: string, command?: string, toolName?: string): Promise<void> {
+    // Take an initial snapshot of known PIDs (before the task's processes spawn)
+    const beforePids = new Set(
+      [...this.taskProcesses.values()].flatMap(t => t.pids)
+    );
+
+    // Helper to scan and match
+    const scanAndMatch = async (): Promise<ChildProcessInfo[]> => {
       const descendants = await listDescendantProcesses(cliPid);
-      // Match by checking if the process args contain the command string
-      // Use first significant portion of command for matching (avoid matching on trivial substrings)
-      const needle = command.length > 200 ? command.slice(0, 200) : command;
-      const matched = descendants.filter(proc => proc.args.includes(needle));
+      if (command) {
+        // If we know the command, match by args content
+        const needle = command.length > 200 ? command.slice(0, 200) : command;
+        const matched = descendants.filter(proc => proc.args.includes(needle));
+        if (matched.length > 0) return matched;
+      }
+      // Fallback: return all new descendants not already tracked by other tasks
+      return descendants.filter(proc => !beforePids.has(proc.pid));
+    };
+
+    try {
+      // First scan — might be too early for the process to appear
+      let matched = await scanAndMatch();
+
+      // If no match, wait a bit and try again (process may not have spawned yet)
+      if (matched.length === 0) {
+        await new Promise(resolve => setTimeout(resolve, 1500));
+        matched = await scanAndMatch();
+      }
 
       if (matched.length > 0) {
-        const rootPid = matched[0].pid;
-        // Also get descendants of the matched root process (its own children)
-        const rootDescendants = await listDescendantProcesses(rootPid);
-        const allPids = [rootPid, ...rootDescendants.map(p => p.pid)];
+        // Pick the most likely root process (lowest PID usually = first spawned)
+        const rootPid = matched.reduce((min, p) => p.pid < min.pid ? p : min).pid;
+        const allPids = matched.map(p => p.pid);
 
         this.taskProcesses.set(taskId, {
           taskId,
@@ -232,18 +263,18 @@ export class ClaudeAdapter implements ProviderAdapter {
           pids: allPids,
           rootPid,
         });
-        console.log(`[Claude] Task ${taskId} resolved: command="${command.slice(0, 80)}" rootPid=${rootPid} totalPids=${allPids.length}`);
+        console.log(`[Claude] Task ${taskId} resolved: rootPid=${rootPid} pids=[${allPids.join(',')}] command="${command?.slice(0, 80) || '(unknown)'}"`);
       } else {
-        // No exact match — store what we know, will fall back to CLI tree kill
+        // Store what we know — kill will fall back to CLI or server tree scan
         this.taskProcesses.set(taskId, { taskId, command, toolName, pids: [] });
-        console.log(`[Claude] Task ${taskId}: no process match for command="${command.slice(0, 80)}" (${descendants.length} descendants scanned)`);
+        console.log(`[Claude] Task ${taskId}: no processes matched (cliPid=${cliPid} descendants=${(await listDescendantProcesses(cliPid)).length})`);
       }
     } catch (err) {
       console.warn(`[Claude] Failed to resolve processes for task ${taskId}:`, err);
     }
   }
 
-  async stopTask(sessionId: string, taskId: string): Promise<void> {
+  async stopTask(sessionId: string, taskId: string): Promise<boolean> {
     console.log(`[Claude] Stopping task ${taskId} in session ${sessionId}`);
 
     // Strategy 1: Try SDK stopTask (non-blocking, unreliable)
@@ -254,25 +285,87 @@ export class ClaudeAdapter implements ProviderAdapter {
       });
     }
 
-    // Strategy 2: Precise kill — target only the task's matched processes
+    // Strategy 2: Kill stored PIDs directly (works even after CLI exit + reparent)
     const taskInfo = this.taskProcesses.get(taskId);
-    if (taskInfo?.rootPid) {
-      // Re-resolve descendants of the root PID (it may have spawned more children since initial match)
-      const { killed } = await killProcessTree(taskInfo.rootPid);
-      console.log(`[Claude] Killed task ${taskId} process tree: rootPid=${taskInfo.rootPid} command="${taskInfo.command?.slice(0, 80)}" killed=${killed.length} PIDs`);
-      this.taskProcesses.delete(taskId);
-      return;
+    if (taskInfo && taskInfo.pids.length > 0) {
+      let killedCount = 0;
+      const targetPids = taskInfo.rootPid ? [taskInfo.rootPid] : [...new Set(taskInfo.pids)];
+      for (const pid of targetPids) {
+        const { killed } = await killProcessTree(pid);
+        killedCount += killed.length;
+      }
+
+      const survivors = await waitForProcessesToExit(taskInfo.pids, 250);
+      console.log(`[Claude] Killed task ${taskId} by stored PIDs: pids=[${taskInfo.pids.join(',')}] command="${taskInfo.command?.slice(0, 80) || '?'}" killed=${killedCount} survivors=${survivors.length}`);
+      if (survivors.length === 0) {
+        this.taskProcesses.delete(taskId);
+        return killedCount > 0;
+      }
     }
 
-    // Strategy 3: Fallback — kill entire CLI process tree
+    // Strategy 3: Kill entire CLI process tree (if CLI is still alive)
     const cliPid = this.cliPids.get(sessionId);
     if (cliPid) {
       const { killed } = await killProcessTree(cliPid);
-      console.log(`[Claude] Fallback: killed CLI process tree for task ${taskId}: PID=${cliPid} killed=${killed.length} PIDs`);
-      this.cliPids.delete(sessionId);
-    } else {
-      console.warn(`[Claude] No CLI PID tracked for session ${sessionId} — SDK stopTask only`);
+      const cliAlive = isProcessAlive(cliPid);
+      console.log(`[Claude] Killed CLI tree for task ${taskId}: PID=${cliPid} killed=${killed.length} alive=${cliAlive}`);
+      if (killed.length > 0 && !cliAlive) {
+        this.cliPids.delete(sessionId);
+        return true;
+      }
     }
+
+    // Strategy 4: Last resort — scan ALL system processes for task's command
+    console.log(`[Claude] No live PIDs found, scanning system processes...`);
+    const command = taskInfo?.command;
+    if (command) {
+      const { stdout } = await import('child_process').then(m =>
+        new Promise<{ stdout: string }>((resolve, reject) => {
+          m.execFile('ps', ['-e', '-o', 'pid=,args='], (err, stdout) => {
+            if (err) reject(err); else resolve({ stdout });
+          });
+        })
+      );
+      const needle = command.length > 200 ? command.slice(0, 200) : command;
+      let killedCount = 0;
+      for (const line of stdout.trim().split('\n')) {
+        if (line.includes(needle)) {
+          const pidMatch = line.trim().match(/^(\d+)/);
+          if (pidMatch) {
+            const pid = Number(pidMatch[1]);
+            try { process.kill(pid, 'SIGTERM'); killedCount++; } catch { /* dead */ }
+          }
+        }
+      }
+      const matchedPids = stdout
+        .trim()
+        .split('\n')
+        .filter(line => line.includes(needle))
+        .map(line => Number(line.trim().match(/^(\d+)/)?.[1]))
+        .filter((pid): pid is number => Number.isFinite(pid));
+      const survivors = await waitForProcessesToExit(matchedPids, 3000);
+      if (killedCount > 0 && survivors.length === 0) {
+        console.log(`[Claude] Killed ${killedCount} processes matching command "${needle.slice(0, 80)}"`);
+        return true;
+      }
+    }
+
+    // Strategy 5: Kill all claude-related processes under server
+    const allDescendants = await listDescendantProcesses(process.pid);
+    const claudeProcesses = filterClaudeRelatedProcesses(allDescendants);
+    if (claudeProcesses.length > 0) {
+      console.log(`[Claude] Found ${claudeProcesses.length} claude-related processes: ${summarizeProcesses(claudeProcesses)}`);
+      let killedCount = 0;
+      for (const proc of claudeProcesses) {
+        try { process.kill(proc.pid, 'SIGTERM'); killedCount++; } catch { /* dead */ }
+      }
+      const survivors = await waitForProcessesToExit(claudeProcesses.map(proc => proc.pid), 3000);
+      console.log(`[Claude] Killed ${killedCount} claude-related processes for task ${taskId}; survivors=${survivors.length}`);
+      return killedCount > 0 && survivors.length === 0;
+    }
+
+    console.warn(`[Claude] No processes found to kill for task ${taskId} in session ${sessionId}`);
+    return false;
   }
 
   /** Get the CLI subprocess PID for a session (used for frontend display) */

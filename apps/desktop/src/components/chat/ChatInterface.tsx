@@ -1,5 +1,5 @@
 import { useRef, useEffect, useCallback, useState, useMemo } from 'react';
-import { Loader2, AlertTriangle, ClipboardList, ArrowDown, ArrowLeft, X, FileText, Terminal as TerminalIcon, ChevronDown, ChevronUp, Lock, Unlock, Archive, RotateCcw, Download, MoreHorizontal, ExternalLink } from 'lucide-react';
+import { Loader2, AlertTriangle, ClipboardList, ArrowDown, ArrowLeft, X, FileText, FileEdit, Terminal as TerminalIcon, ChevronDown, ChevronUp, Lock, Unlock, Archive, RotateCcw, Download, MoreHorizontal, ExternalLink } from 'lucide-react';
 import { MessageList } from './MessageList';
 import { MessageInput, type Attachment } from './MessageInput';
 import { ToolCallList } from './ToolCallItem';
@@ -157,7 +157,6 @@ export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar }:
   const { isOpen: fileViewerOpen } = useFileViewerStore();
   const { sendMessage: wsSendMessage, isConnected, handlePermissionDecision, handleAskUserAnswer } = useConnection();
   const isMobile = useIsMobile();
-  const [showMoreMenu, setShowMoreMenu] = useState(false);
   const [showSessionMenu, setShowSessionMenu] = useState(false);
 
   // Draft editor state
@@ -2196,10 +2195,17 @@ export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar }:
       </div>
 
       {/* Background Tasks Panel - shows above bottom panel when there are tasks */}
-      <BackgroundTaskPanel sessionId={sessionId} onStopTask={(taskId) => {
+      <BackgroundTaskPanel sessionId={sessionId} onStopTask={(task) => {
         // Send targeted stop — server will use SDK stopTask() if run is active,
         // or fall back to process cleanup if the run has already ended
-        wsSendMessage({ type: 'stop_background_task', sessionId, taskId });
+        wsSendMessage({
+          type: 'stop_background_task',
+          sessionId,
+          taskId: task.id,
+          cliPid: task.cliPid,
+          taskRootPid: task.taskRootPid,
+          taskCommand: task.taskCommand,
+        });
       }} />
 
       {/* Bottom panel (file viewer + terminal with tab switching) */}
@@ -2337,6 +2343,29 @@ export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar }:
               />
             </div>
             <div className="flex-1 min-w-[8px]" />
+            {/* Desktop: Draft button */}
+            {!isMobile && !disabledBuiltinPanels.includes('draft') && (() => {
+              const isActive = bottomPanelTab === 'draft';
+              return (
+                <button
+                  onClick={() => {
+                    if (isActive) {
+                      useDraftEditorStore.getState().closeEditor();
+                    } else {
+                      setSendCallback((content: string) => handleSendMessage(content));
+                      openDraftEditor(sessionId);
+                    }
+                  }}
+                  className={`p-1.5 rounded hover:bg-secondary relative ${isActive ? 'text-primary' : 'text-muted-foreground hover:text-foreground'}`}
+                  title={isActive ? 'Close draft editor' : 'Open draft editor'}
+                >
+                  <FileEdit size={16} strokeWidth={1.75} />
+                  {draftExists && !isActive && (
+                    <span className="absolute top-0 right-0 w-2 h-2 bg-primary rounded-full" />
+                  )}
+                </button>
+              );
+            })()}
             {/* Desktop: show buttons directly */}
             {!isMobile && currentProject?.rootPath && !disabledBuiltinPanels.includes('file-viewer') && (
               <button
@@ -2385,81 +2414,6 @@ export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar }:
               );
             })()}
 
-            {/* Mobile: more menu (file viewer / terminal) */}
-            {isMobile && (
-              <div className="relative">
-                <button
-                  onClick={() => setShowMoreMenu(!showMoreMenu)}
-                  className="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground"
-                  title="More options"
-                >
-                  <MoreHorizontal size={16} strokeWidth={1.75} />
-                </button>
-                {showMoreMenu && (
-                  <>
-                    <div className="fixed inset-0 z-40" onClick={() => setShowMoreMenu(false)} />
-                    <div className="absolute bottom-full right-0 mb-1 z-50 bg-popover border border-border rounded-lg shadow-lg py-1 min-w-[160px]">
-                      {currentProject?.rootPath && !disabledBuiltinPanels.includes('file-viewer') && (
-                        <button
-                          onClick={() => {
-                            if (fileViewerOpen && bottomPanelTab === 'file-viewer') {
-                              useFileViewerStore.getState().close();
-                            } else if (fileViewerOpen) {
-                              setBottomPanelTab('file-viewer');
-                            } else {
-                              const store = useFileViewerStore.getState();
-                              store.togglePanel();
-                              store.setSearchOpen(true);
-                              setBottomPanelTab('file-viewer');
-                            }
-                            setShowMoreMenu(false);
-                          }}
-                          className={`w-full text-left px-3 py-2 text-sm flex items-center gap-2 transition-colors ${
-                            fileViewerOpen && bottomPanelTab === 'file-viewer'
-                              ? 'bg-primary/10 text-primary'
-                              : 'text-foreground hover:bg-muted'
-                          }`}
-                        >
-                          <FileText size={14} />
-                          {fileViewerOpen && bottomPanelTab === 'file-viewer' ? 'Close File Viewer' : 'File Viewer'}
-                        </button>
-                      )}
-                      {!disabledBuiltinPanels.includes('terminal') && useServerStore.getState().activeServerSupports('remoteTerminal') && currentSession?.projectId && (() => {
-                        const pid = currentSession.projectId;
-                        const isOpen = !!drawerOpen[pid];
-                        return (
-                          <button
-                            onClick={() => {
-                              if (isOpen && bottomPanelTab === 'terminal') {
-                                setDrawerOpen(pid, false);
-                              } else if (isOpen) {
-                                setBottomPanelTab('terminal');
-                              } else {
-                                const store = useTerminalStore.getState();
-                                if (!store.terminals[pid]) {
-                                  store.openTerminal(pid);
-                                }
-                                setDrawerOpen(pid, true);
-                                setBottomPanelTab('terminal');
-                              }
-                              setShowMoreMenu(false);
-                            }}
-                            className={`w-full text-left px-3 py-2 text-sm flex items-center gap-2 transition-colors ${
-                              isOpen && bottomPanelTab === 'terminal'
-                                ? 'bg-primary/10 text-primary'
-                                : 'text-foreground hover:bg-muted'
-                            }`}
-                          >
-                            <TerminalIcon size={14} />
-                            {isOpen && bottomPanelTab === 'terminal' ? 'Close Terminal' : 'Terminal'}
-                          </button>
-                        );
-                      })()}
-                    </div>
-                  </>
-                )}
-              </div>
-            )}
 
             {!isMobile && (
               <button
@@ -2492,11 +2446,78 @@ export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar }:
             initialValue={restoreMessage?.content ?? initialDraft}
             initialAttachments={restoreMessage?.attachments}
             advancedMode={advancedInput}
-            onDraftOpen={() => {
-              setSendCallback((content: string) => handleSendMessage(content));
-              openDraftEditor(sessionId);
-            }}
-            hasDraft={draftExists}
+            mobileToolbarSlot={isMobile ? (
+              <>
+                {!disabledBuiltinPanels.includes('draft') && (() => {
+                  const isActive = bottomPanelTab === 'draft';
+                  return (
+                    <button
+                      onClick={() => {
+                        if (isActive) {
+                          useDraftEditorStore.getState().closeEditor();
+                        } else {
+                          setSendCallback((content: string) => handleSendMessage(content));
+                          openDraftEditor(sessionId);
+                        }
+                      }}
+                      className={`h-9 w-9 flex-shrink-0 flex items-center justify-center rounded-full transition-colors relative ${isActive ? 'text-primary' : 'text-muted-foreground hover:text-foreground'}`}
+                      title={isActive ? 'Close draft editor' : 'Open draft editor'}
+                    >
+                      <FileEdit size={18} strokeWidth={1.75} />
+                      {draftExists && !isActive && (
+                        <span className="absolute top-0.5 right-0.5 w-2 h-2 bg-primary rounded-full" />
+                      )}
+                    </button>
+                  );
+                })()}
+                {currentProject?.rootPath && !disabledBuiltinPanels.includes('file-viewer') && (
+                  <button
+                    onClick={() => {
+                      if (fileViewerOpen && bottomPanelTab === 'file-viewer') {
+                        useFileViewerStore.getState().close();
+                      } else if (fileViewerOpen) {
+                        setBottomPanelTab('file-viewer');
+                      } else {
+                        const store = useFileViewerStore.getState();
+                        store.togglePanel();
+                        store.setSearchOpen(true);
+                        setBottomPanelTab('file-viewer');
+                      }
+                    }}
+                    className={`h-9 w-9 flex-shrink-0 flex items-center justify-center rounded-full transition-colors ${fileViewerOpen && bottomPanelTab === 'file-viewer' ? 'text-primary' : 'text-muted-foreground hover:text-foreground'}`}
+                    title={fileViewerOpen && bottomPanelTab === 'file-viewer' ? 'Close file viewer' : 'Open file viewer'}
+                  >
+                    <FileText size={18} strokeWidth={1.75} />
+                  </button>
+                )}
+                {!disabledBuiltinPanels.includes('terminal') && useServerStore.getState().activeServerSupports('remoteTerminal') && currentSession?.projectId && (() => {
+                  const pid = currentSession.projectId;
+                  const isOpen = !!drawerOpen[pid];
+                  return (
+                    <button
+                      onClick={() => {
+                        if (isOpen && bottomPanelTab === 'terminal') {
+                          setDrawerOpen(pid, false);
+                        } else if (isOpen) {
+                          setBottomPanelTab('terminal');
+                        } else {
+                          const store = useTerminalStore.getState();
+                          if (!store.terminals[pid]) {
+                            store.openTerminal(pid);
+                          }
+                          setDrawerOpen(pid, true);
+                          setBottomPanelTab('terminal');
+                        }
+                      }}
+                      className={`h-9 w-9 flex-shrink-0 flex items-center justify-center rounded-full transition-colors ${isOpen && bottomPanelTab === 'terminal' ? 'text-primary' : 'text-muted-foreground hover:text-foreground'}`}
+                      title={isOpen && bottomPanelTab === 'terminal' ? 'Hide terminal' : 'Open terminal'}
+                    >
+                      <TerminalIcon size={18} strokeWidth={1.75} />
+                    </button>
+                  );
+                })()}
+              </>
+            ) : undefined}
             placeholder={
               !isConnected
                 ? 'Connecting...'

@@ -485,6 +485,34 @@ describe('handleServerMessage', () => {
       }));
     });
 
+    it('preserves existing pid fields when update omits them', () => {
+      mockBackgroundTaskStore.tasks = {
+        t1: {
+          id: 't1',
+          sessionId: 's1',
+          description: 'Working...',
+          startedAt: 1,
+          cliPid: 123,
+          taskRootPid: 456,
+          taskCommand: 'npm test',
+        },
+      };
+
+      handleServerMessage({
+        type: 'task_notification',
+        sessionId: 's1',
+        taskId: 't1',
+        status: 'in_progress',
+        message: 'Still working...',
+      }, makeCtx());
+
+      expect(mockBackgroundTaskStore.updateTask).toHaveBeenCalledWith('t1', expect.objectContaining({
+        cliPid: 123,
+        taskRootPid: 456,
+        taskCommand: 'npm test',
+      }));
+    });
+
     it('skips if missing sessionId or taskId', () => {
       handleServerMessage({ type: 'task_notification' }, makeCtx());
       expect(mockBackgroundTaskStore.addTask).not.toHaveBeenCalled();

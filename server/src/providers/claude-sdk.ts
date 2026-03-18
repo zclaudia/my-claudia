@@ -344,15 +344,27 @@ export async function* runClaude(
 
   // Intercept subprocess spawn to capture PID
   sdkOptions.spawnClaudeCodeProcess = (spawnOpts: { command: string; args: string[]; cwd?: string; env: Record<string, string | undefined>; signal: AbortSignal }) => {
+    console.log(`[Claude SDK] spawnClaudeCodeProcess called: command=${spawnOpts.command} args=${spawnOpts.args.join(' ')} cwd=${spawnOpts.cwd}`);
     const child = nodeSpawn(spawnOpts.command, spawnOpts.args, {
       cwd: spawnOpts.cwd,
       env: spawnOpts.env as NodeJS.ProcessEnv,
       stdio: ['pipe', 'pipe', 'pipe'],
     });
-    if (child.pid && options.queryHandle) {
-      options.queryHandle.pid = child.pid;
-      console.log(`[Claude SDK] CLI subprocess PID: ${child.pid}`);
+    if (child.pid) {
+      console.log(`[Claude SDK] CLI subprocess spawned: PID=${child.pid}`);
+      if (options.queryHandle) {
+        options.queryHandle.pid = child.pid;
+      }
+    } else {
+      console.error(`[Claude SDK] CLI subprocess spawned but PID is undefined — spawn may have failed`);
     }
+    // Log spawn errors
+    child.on('error', (err) => {
+      console.error(`[Claude SDK] CLI subprocess error:`, err);
+    });
+    child.on('exit', (code, signal) => {
+      console.log(`[Claude SDK] CLI subprocess exited: PID=${child.pid} code=${code} signal=${signal}`);
+    });
     // Forward abort signal to child process
     if (spawnOpts.signal) {
       spawnOpts.signal.addEventListener('abort', () => {

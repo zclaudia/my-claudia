@@ -120,7 +120,15 @@ vi.mock('../../supervision/TaskCardStrip', () => ({
 vi.mock('../../BackgroundTaskPanel', () => ({
   BackgroundTaskPanel: (props: any) => (
     <div data-testid="bg-task-panel" data-session-id={props.sessionId}>
-      <button data-testid="bg-task-stop" onClick={() => props.onStopTask?.('task-123')} />
+      <button
+        data-testid="bg-task-stop"
+        onClick={() => props.onStopTask?.({
+          id: 'task-123',
+          cliPid: 456,
+          taskRootPid: 789,
+          taskCommand: 'sleep 30 && echo hello',
+        })}
+      />
     </div>
   ),
 }));
@@ -1265,6 +1273,9 @@ describe('ChatInterface', () => {
       type: 'stop_background_task',
       sessionId: 'sess-1',
       taskId: 'task-123',
+      cliPid: 456,
+      taskRootPid: 789,
+      taskCommand: 'sleep 30 && echo hello',
     });
   });
 
