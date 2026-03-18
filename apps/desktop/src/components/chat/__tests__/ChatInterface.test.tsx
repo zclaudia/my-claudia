@@ -196,6 +196,7 @@ function setDefaultStores(overrides?: {
     projects: [{ id: 'proj-1', name: 'Test Project', rootPath: '/test' }],
     sessions: [{ id: 'sess-1', projectId: 'proj-1', name: 'Test Session' }],
     providers: [],
+    dataServerId: 'local',
     providerCommands: {},
     providerCapabilities: {},
     setProviderCapabilities: vi.fn(),
@@ -1301,7 +1302,7 @@ describe('ChatInterface', () => {
   it('fetches default provider type commands when no providerId', async () => {
     render(<ChatInterface sessionId="sess-1" />);
     await waitFor(() => {
-      expect(api.getProviderTypeCommands).toHaveBeenCalledWith('claude', '/test');
+      expect(api.getProviderTypeCommands).toHaveBeenCalledWith('claude', '/test', expect.any(Object));
     });
   });
 
@@ -1314,7 +1315,7 @@ describe('ChatInterface', () => {
     });
     render(<ChatInterface sessionId="sess-1" />);
     await waitFor(() => {
-      expect(api.getProviderCommands).toHaveBeenCalledWith('prov-1', '/test');
+      expect(api.getProviderCommands).toHaveBeenCalledWith('prov-1', '/test', expect.any(Object));
     });
   });
 
@@ -1517,7 +1518,7 @@ describe('ChatInterface', () => {
   it('fetches provider capabilities on mount', async () => {
     render(<ChatInterface sessionId="sess-1" />);
     await waitFor(() => {
-      expect(api.getProviderTypeCapabilities).toHaveBeenCalledWith('claude');
+      expect(api.getProviderTypeCapabilities).toHaveBeenCalledWith('claude', expect.any(Object));
     });
   });
 
@@ -1530,7 +1531,7 @@ describe('ChatInterface', () => {
     });
     render(<ChatInterface sessionId="sess-1" />);
     await waitFor(() => {
-      expect(api.getProviderCapabilities).toHaveBeenCalledWith('prov-1');
+      expect(api.getProviderCapabilities).toHaveBeenCalledWith('prov-1', expect.any(Object));
     });
   });
 

@@ -15,6 +15,7 @@ interface ProjectState {
   projects: Project[];
   sessions: Session[];
   providers: ProviderConfig[];
+  dataServerId: string | null;
   selectedProjectId: string | null;
   selectedSessionId: string | null;
   dashboardViews: Record<string, ProjectDashboardView>;
@@ -35,6 +36,7 @@ interface ProjectState {
   setSessionActive: (sessionId: string, isActive: boolean) => void;
 
   setProviders: (providers: ProviderConfig[]) => void;
+  setDataServerId: (serverId: string | null) => void;
 
   selectProject: (id: string | null) => void;
   selectSession: (id: string | null) => void;
@@ -48,6 +50,7 @@ export const useProjectStore = create<ProjectState>((set) => ({
   projects: [],
   sessions: [],
   providers: [],
+  dataServerId: null,
   selectedProjectId: null,
   selectedSessionId: null,
   dashboardViews: {},
@@ -138,6 +141,8 @@ export const useProjectStore = create<ProjectState>((set) => ({
     })),
 
   setProviders: (providers) => set({ providers }),
+
+  setDataServerId: (serverId) => set({ dataServerId: serverId }),
 
   selectProject: (id) => set({ selectedProjectId: id }),
 

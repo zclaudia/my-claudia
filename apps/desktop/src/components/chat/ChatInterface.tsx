@@ -130,7 +130,15 @@ export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar }:
   const modelOverride = getModelOverride(sessionId);
   const permissionOverride = useChatStore((s) => s.getPermissionOverride(sessionId));
   const setPermissionOverride = useChatStore((s) => s.setPermissionOverride);
-  const { projects, sessions, providers, providerCommands, providerCapabilities, setProviderCapabilities } = useProjectStore();
+  const {
+    projects,
+    sessions,
+    providers,
+    providerCommands,
+    providerCapabilities,
+    setProviderCapabilities,
+    dataServerId,
+  } = useProjectStore();
   const activeServerId = useServerStore((s) => s.activeServerId);
   const { setDrawerOpen, drawerOpen } = useTerminalStore();
   const { activeTab: bottomPanelTab, setActiveTab: setBottomPanelTab } = useBottomPanelStore();
@@ -466,7 +474,7 @@ export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar }:
   }, []);
 
   // Load messages with pagination (all via HTTP)
-  const loadMessages = useCallback(async (before?: number) => {
+  const loadMessages = useCallback(async (before?: number, signal?: AbortSignal) => {
     try {
       if (before) {
         // Load more (older messages)
@@ -474,7 +482,8 @@ export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar }:
 
         const result = await api.getSessionMessages(sessionId, {
           limit: MESSAGES_PER_PAGE,
-          before
+          before,
+          signal,
         });
 
         const restoredOlder = restoreToolCalls(result.messages);
@@ -494,8 +503,8 @@ export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar }:
         const result = await api.getSessionMessages(
           sessionId,
           pendingMessageJump?.sessionId === sessionId
-            ? { limit: MESSAGES_PER_PAGE, aroundMessageId: pendingMessageJump.messageId }
-            : { limit: MESSAGES_PER_PAGE }
+            ? { limit: MESSAGES_PER_PAGE, aroundMessageId: pendingMessageJump.messageId, signal }
+            : { limit: MESSAGES_PER_PAGE, signal }
         );
 
         const restoredMessages = restoreToolCalls(result.messages);
@@ -520,6 +529,9 @@ export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar }:
         }, 0);
       }
     } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') {
+        return;
+      }
       console.error('Failed to load messages:', error);
       setLoadingMore(sessionId, false);
       // On error, set empty messages to prevent undefined
@@ -543,7 +555,9 @@ export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar }:
   // Load initial messages when session changes
   useEffect(() => {
     setInitialLoadDone(false);
-    loadMessages();
+    const controller = new AbortController();
+    loadMessages(undefined, controller.signal);
+    return () => controller.abort();
   }, [sessionId, loadMessages]);
 
   useEffect(() => {
@@ -708,6 +722,7 @@ export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar }:
 
   // Derive provider ID and fetch capabilities when it changes
   const providerId = currentSession?.providerId || currentProject?.providerId;
+  const isBackendDataReady = dataServerId != null && dataServerId === activeServerId;
   // Scope provider caches by active server/backend to avoid cross-backend contamination.
   const providerScopeKey = activeServerId || 'local';
   // Cache key: use providerId if set, otherwise '_default' for Claude defaults
@@ -717,40 +732,46 @@ export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar }:
   // Fetch commands when provider or project changes (via HTTP)
   useEffect(() => {
     const projectRoot = currentProject?.rootPath;
+    const controller = new AbortController();
 
-    if (!isConnected) {
-      return;
+    if (!isConnected || !isBackendDataReady) {
+      return () => controller.abort();
     }
 
     if (providerId) {
       // Load commands for the specific provider
-      api.getProviderCommands(providerId, projectRoot || undefined)
+      api.getProviderCommands(providerId, projectRoot || undefined, { signal: controller.signal })
         .then(commands => {
           useProjectStore.getState().setProviderCommands(commandsCacheKey, commands);
         })
         .catch(err => {
+          if (err instanceof Error && err.name === 'AbortError') return;
           console.error('Failed to load provider commands:', err);
         });
     } else {
       // No provider configured — load default commands by type
-      api.getProviderTypeCommands('claude', projectRoot || undefined)
+      api.getProviderTypeCommands('claude', projectRoot || undefined, { signal: controller.signal })
         .then(commands => {
           useProjectStore.getState().setProviderCommands(commandsCacheKey, commands);
         })
         .catch(err => {
+          if (err instanceof Error && err.name === 'AbortError') return;
           console.error('Failed to load default commands:', err);
         });
     }
-  }, [currentSession?.providerId, currentProject?.providerId, currentProject?.rootPath, isConnected, commandsCacheKey]);
+
+    return () => controller.abort();
+  }, [currentSession?.providerId, currentProject?.providerId, currentProject?.rootPath, isConnected, isBackendDataReady, commandsCacheKey]);
 
   useEffect(() => {
-    if (!isConnected) return;
+    const controller = new AbortController();
+    if (!isConnected || !isBackendDataReady) return () => controller.abort();
     // Skip if already cached
-    if (providerCapabilities[capsCacheKey]) return;
+    if (providerCapabilities[capsCacheKey]) return () => controller.abort();
 
     const fetchCaps = providerId
-      ? api.getProviderCapabilities(providerId)
-      : api.getProviderTypeCapabilities('claude');
+      ? api.getProviderCapabilities(providerId, { signal: controller.signal })
+      : api.getProviderTypeCapabilities('claude', { signal: controller.signal });
 
     fetchCaps
       .then(caps => {
@@ -761,9 +782,11 @@ export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar }:
         }
       })
       .catch(err => {
+        if (err instanceof Error && err.name === 'AbortError') return;
         console.error('Failed to load provider capabilities:', err);
       });
-  }, [capsCacheKey, providerId, isConnected, providerCapabilities, setProviderCapabilities]);
+    return () => controller.abort();
+  }, [capsCacheKey, providerId, isConnected, isBackendDataReady, providerCapabilities, setProviderCapabilities, sessionId]);
 
   const capabilities: ProviderCapabilities | null = providerCapabilities[capsCacheKey] || null;
 

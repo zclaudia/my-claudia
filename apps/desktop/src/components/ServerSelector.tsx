@@ -5,6 +5,11 @@ import { useConnection } from '../contexts/ConnectionContext';
 import { useIsMobile } from '../hooks/useMediaQuery';
 import type { BackendServer, GatewayBackendInfo } from '@my-claudia/shared';
 
+function formatLatency(latencyMs?: number | null): string | null {
+  if (latencyMs == null) return null;
+  return `${latencyMs}ms`;
+}
+
 export function ServerSelector() {
   const {
     servers,
@@ -154,6 +159,7 @@ export function ServerSelector() {
                     backend={backend}
                     isActive={activeServerId === toGatewayServerId(backend.backendId)}
                     isSubscribed={isBackendSubscribed(backend.backendId)}
+                    latencyMs={connections[toGatewayServerId(backend.backendId)]?.latencyMs}
                     onClick={() => handleBackendClick(backend)}
                     onToggleSubscription={() => toggleBackendSubscription(backend.backendId)}
                   />
@@ -187,12 +193,14 @@ function GatewayBackendItem({
   backend,
   isActive,
   isSubscribed,
+  latencyMs,
   onClick,
   onToggleSubscription
 }: {
   backend: GatewayBackendInfo;
   isActive: boolean;
   isSubscribed: boolean;
+  latencyMs?: number | null;
   onClick: () => void;
   onToggleSubscription: () => void;
 }) {
@@ -206,6 +214,11 @@ function GatewayBackendItem({
       <div className="flex items-center gap-2">
         <span className={`w-2 h-2 rounded-full flex-shrink-0 ${statusColor}`} />
         <span className="text-sm truncate flex-1 min-w-0">{backend.name}</span>
+        {formatLatency(latencyMs) && (
+          <span className="text-[10px] text-muted-foreground flex-shrink-0">
+            {formatLatency(latencyMs)}
+          </span>
+        )}
         {isActive && (
           <span className="px-1.5 py-0.5 bg-primary/20 text-primary text-xs rounded flex-shrink-0">
             Active
@@ -270,6 +283,11 @@ function ServerItem({
       <div className="flex items-center gap-2">
         <span className={`w-2 h-2 rounded-full flex-shrink-0 ${getConnectionStatusColor()}`} />
         <span className="text-sm font-medium truncate flex-1 min-w-0">{server.name}</span>
+        {formatLatency(connection?.latencyMs) && (
+          <span className="text-[10px] text-muted-foreground flex-shrink-0">
+            {formatLatency(connection?.latencyMs)}
+          </span>
+        )}
         {server.isDefault && (
           <span className="px-1.5 py-0.5 bg-primary/20 text-primary text-xs rounded flex-shrink-0">
             Default

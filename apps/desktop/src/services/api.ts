@@ -151,8 +151,8 @@ export async function fetchLocalApi<T>(
 // Projects API — routes to active server
 // ============================================
 
-export async function getProjects(): Promise<Project[]> {
-  const result = await fetchApi<Project[]>('/api/projects');
+export async function getProjects(options?: RequestInit): Promise<Project[]> {
+  const result = await fetchApi<Project[]>('/api/projects', options);
   if (!result.success || !result.data) {
     throw new Error(result.error?.message || 'Failed to fetch projects');
   }
@@ -201,9 +201,9 @@ export async function deleteProject(id: string): Promise<void> {
 // Sessions API — routes to active server
 // ============================================
 
-export async function getSessions(projectId?: string): Promise<Session[]> {
+export async function getSessions(projectId?: string, options?: RequestInit): Promise<Session[]> {
   const query = projectId ? `?projectId=${projectId}` : '';
-  const result = await fetchApi<Session[]>(`/api/sessions${query}`);
+  const result = await fetchApi<Session[]>(`/api/sessions${query}`, options);
   if (!result.success || !result.data) {
     throw new Error(result.error?.message || 'Failed to fetch sessions');
   }
@@ -438,6 +438,7 @@ export async function getSessionMessages(
     after?: number;
     afterOffset?: number;
     aroundMessageId?: string;
+    signal?: AbortSignal;
   }
 ): Promise<MessagesResponse> {
   const params = new URLSearchParams();
@@ -448,7 +449,9 @@ export async function getSessionMessages(
   if (options?.aroundMessageId) params.set('aroundMessageId', options.aroundMessageId);
 
   const query = params.toString() ? `?${params.toString()}` : '';
-  const result = await fetchApi<MessagesResponse>(`/api/sessions/${sessionId}/messages${query}`);
+  const result = await fetchApi<MessagesResponse>(`/api/sessions/${sessionId}/messages${query}`, {
+    signal: options?.signal,
+  });
 
   if (!result.success || !result.data) {
     throw new Error(result.error?.message || 'Failed to fetch messages');
@@ -565,8 +568,8 @@ export async function getSearchSuggestions(prefix: string, userId?: string, limi
 // Providers API
 // ============================================
 
-export async function getProviders(): Promise<ProviderConfig[]> {
-  const result = await fetchApi<ProviderConfig[]>('/api/providers');
+export async function getProviders(options?: RequestInit): Promise<ProviderConfig[]> {
+  const result = await fetchApi<ProviderConfig[]>('/api/providers', options);
   if (!result.success || !result.data) {
     throw new Error(result.error?.message || 'Failed to fetch providers');
   }
@@ -627,11 +630,12 @@ export async function setDefaultProvider(id: string): Promise<void> {
 
 export async function getProviderCommands(
   providerId: string,
-  projectRoot?: string
+  projectRoot?: string,
+  options?: RequestInit
 ): Promise<SlashCommand[]> {
   const query = projectRoot ? `?projectRoot=${encodeURIComponent(projectRoot)}` : '';
   if (activeServerSupports('providerCommands')) {
-    const result = await fetchApi<SlashCommand[]>(`/api/providers/${providerId}/commands${query}`);
+    const result = await fetchApi<SlashCommand[]>(`/api/providers/${providerId}/commands${query}`, options);
     if (result.success && result.data) return result.data;
   }
   // Degrade: query local server for default commands
@@ -644,11 +648,12 @@ export async function getProviderCommands(
 
 export async function getProviderTypeCommands(
   providerType: string,
-  projectRoot?: string
+  projectRoot?: string,
+  options?: RequestInit
 ): Promise<SlashCommand[]> {
   const query = projectRoot ? `?projectRoot=${encodeURIComponent(projectRoot)}` : '';
   if (activeServerSupports('providerCommands')) {
-    const result = await fetchApi<SlashCommand[]>(`/api/providers/type/${providerType}/commands${query}`);
+    const result = await fetchApi<SlashCommand[]>(`/api/providers/type/${providerType}/commands${query}`, options);
     if (result.success && result.data) return result.data;
   }
   const localResult = await fetchLocalApi<SlashCommand[]>(`/api/providers/type/${providerType}/commands${query}`);
@@ -659,10 +664,11 @@ export async function getProviderTypeCommands(
 }
 
 export async function getProviderCapabilities(
-  providerId: string
+  providerId: string,
+  options?: RequestInit
 ): Promise<ProviderCapabilities> {
   if (activeServerSupports('providerCapabilities')) {
-    const result = await fetchApi<ProviderCapabilities>(`/api/providers/${providerId}/capabilities`);
+    const result = await fetchApi<ProviderCapabilities>(`/api/providers/${providerId}/capabilities`, options);
     if (result.success && result.data) return result.data;
   }
   // Degrade: query local server for default capabilities
@@ -674,10 +680,11 @@ export async function getProviderCapabilities(
 }
 
 export async function getProviderTypeCapabilities(
-  providerType: string
+  providerType: string,
+  options?: RequestInit
 ): Promise<ProviderCapabilities> {
   if (activeServerSupports('providerCapabilities')) {
-    const result = await fetchApi<ProviderCapabilities>(`/api/providers/type/${providerType}/capabilities`);
+    const result = await fetchApi<ProviderCapabilities>(`/api/providers/type/${providerType}/capabilities`, options);
     if (result.success && result.data) return result.data;
   }
   const localResult = await fetchLocalApi<ProviderCapabilities>(`/api/providers/type/${providerType}/capabilities`);
@@ -775,6 +782,40 @@ export async function getServerInfo(address: string): Promise<ServerInfo> {
     throw new Error(result.error?.message || 'Failed to get server info');
   }
   return result.data;
+}
+
+function resolveProbeBaseUrl(serverId: string): string | null {
+  if (isGatewayTarget(serverId)) {
+    const backendId = parseBackendId(serverId);
+    return resolveGatewayBackendUrl(backendId);
+  }
+
+  const server = useServerStore.getState().servers.find((item) => item.id === serverId);
+  if (!server) return null;
+  return server.address.includes('://') ? server.address : `http://${server.address}`;
+}
+
+export async function probeServerLatency(serverId: string, timeoutMs = 5000): Promise<number | null> {
+  const baseUrl = resolveProbeBaseUrl(serverId);
+  if (!baseUrl) return null;
+
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
+  const startedAt = performance.now();
+
+  try {
+    const response = await fetch(`${baseUrl}/health`, {
+      method: 'GET',
+      cache: 'no-store',
+      signal: controller.signal,
+    });
+    if (!response.ok) return null;
+    return Math.round(performance.now() - startedAt);
+  } catch {
+    return null;
+  } finally {
+    window.clearTimeout(timeout);
+  }
 }
 
 // ============================================

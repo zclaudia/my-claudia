@@ -32,6 +32,7 @@ import { usePluginStore } from './stores/pluginStore';
 import { xtermRegistry } from './utils/xtermRegistry';
 import { initBuiltinPanels } from './plugins/builtinPanels';
 import { useAutoUpdate } from './hooks/useAutoUpdate';
+import { useServerLatencyMonitor } from './hooks/useServerLatencyMonitor';
 import { UpdateBanner } from './components/UpdateBanner';
 import { BrandMark } from './components/BrandMark';
 
@@ -74,6 +75,7 @@ function AppContent() {
 
   // Auto-update check (desktop only, silent)
   useAutoUpdate();
+  useServerLatencyMonitor();
 
   // Load data from server
   useDataLoader();

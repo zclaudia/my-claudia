@@ -6,8 +6,9 @@ import * as api from '../services/api';
 
 export function useDataLoader() {
   const { connectionStatus, activeServerId } = useServerStore();
+  const setDataServerId = useProjectStore((s) => s.setDataServerId);
 
-  const loadData = useCallback(async () => {
+  const loadData = useCallback(async (signal?: AbortSignal) => {
     if (connectionStatus !== 'connected') return;
 
     console.log(`[DataLoader] Loading data for server: ${activeServerId}`);
@@ -19,9 +20,9 @@ export function useDataLoader() {
     try {
       const [servers, projects, sessions, providers] = await Promise.all([
         isGateway ? Promise.resolve([]) : api.getServers(),
-        api.getProjects(),
-        api.getSessions(),
-        api.getProviders()
+        api.getProjects({ signal }),
+        api.getSessions(undefined, { signal }),
+        api.getProviders({ signal })
       ]);
       if (!isGateway) {
         useServerStore.getState().setServers(servers);
@@ -30,6 +31,7 @@ export function useDataLoader() {
       store.setProjects(projects);
       store.mergeSessions(sessions);
       store.setProviders(providers);
+      store.setDataServerId(activeServerId);
 
       // If current selectedSessionId doesn't exist in the new sessions, auto-select
       const { selectedSessionId } = store;
@@ -41,6 +43,9 @@ export function useDataLoader() {
         useProjectStore.getState().selectSession(latest?.id ?? null);
       }
     } catch (err) {
+      if (err instanceof Error && err.name === 'AbortError') {
+        return;
+      }
       console.error('[DataLoader] Error loading data:', err);
     }
   }, [connectionStatus, activeServerId]);
@@ -48,12 +53,17 @@ export function useDataLoader() {
   // Load data when connected or server changes
   useEffect(() => {
     if (connectionStatus === 'connected') {
+      const controller = new AbortController();
+      setDataServerId(null);
       const timer = setTimeout(() => {
-        loadData();
+        loadData(controller.signal);
       }, 100);
-      return () => clearTimeout(timer);
+      return () => {
+        clearTimeout(timer);
+        controller.abort();
+      };
     }
-  }, [loadData, activeServerId, connectionStatus]);
+  }, [loadData, activeServerId, connectionStatus, setDataServerId]);
 
   // Note: Session messages are loaded by ChatInterface with pagination support
 

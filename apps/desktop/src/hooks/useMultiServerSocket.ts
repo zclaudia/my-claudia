@@ -81,7 +81,9 @@ export function useMultiServerSocket() {
             state.reconnectAttempts = 0;
           }
           updateLastConnected(serverId);
-          startSessionSync(serverId);
+          startSessionSync(serverId, {
+            skipInitialFullSync: useServerStore.getState().activeServerId === serverId,
+          });
         } else {
           console.error(`[Socket:${serverId}] Authentication failed:`, message.error);
           setServerConnectionStatus(serverId, 'error', message.error);

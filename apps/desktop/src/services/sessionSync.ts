@@ -348,14 +348,21 @@ export function eagerSyncAllBackends(): void {
 /**
  * Start periodic session synchronization for a specific backend
  */
-export function startSessionSync(backendId: string): void {
+export function startSessionSync(
+  backendId: string,
+  options?: { skipInitialFullSync?: boolean }
+): void {
   // Stop any existing sync for this backend first
   stopSessionSync(backendId);
 
   console.log(`[SessionSync] Starting sync for backend ${backendId}`);
 
-  // Perform immediate full sync to initialize
-  fullSync(backendId);
+  // Initial full sync overlaps with useDataLoader() for the currently active backend.
+  // Allow callers to skip it to avoid a redundant `/sessions` + `/sessions/sync?since=0`
+  // burst during server switching.
+  if (!options?.skipInitialFullSync) {
+    fullSync(backendId);
+  }
 
   // Schedule incremental sync every 30 seconds
   const incrementalInterval = setInterval(() => {

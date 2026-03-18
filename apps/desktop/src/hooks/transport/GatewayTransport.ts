@@ -19,6 +19,7 @@ import type {
 } from '@my-claudia/shared';
 import { useSessionsStore } from '../../stores/sessionsStore';
 import { useGatewayStore } from '../../stores/gatewayStore';
+import { useServerStore } from '../../stores/serverStore';
 import { eagerSyncSessionUpdate, startSessionSync, stopSessionSync } from '../../services/sessionSync';
 
 export interface GatewayTransportConfig {
@@ -232,7 +233,10 @@ export class GatewayTransport {
           this.authenticatedBackends.add(message.backendId);
           // Start periodic sync for every backend (including local backend via gateway),
           // so ActiveSessionsPanel has a consistent cross-backend session snapshot.
-          startSessionSync(message.backendId);
+          startSessionSync(message.backendId, {
+            skipInitialFullSync:
+              useServerStore.getState().activeServerId === `gw:${message.backendId}`,
+          });
         } else {
           console.error('[GatewayTransport] Backend auth failed:', message.backendId, message.error);
           this.authenticatedBackends.delete(message.backendId);
