@@ -647,6 +647,17 @@ export async function* runKimi(
   sanitizeInheritedProviderEnv(baseEnv);
   const { KIMI_INTERACTIVE, ...env } = baseEnv as Record<string, string>;
 
+  // Emit init with systemInfo so the server sends system_info to the client
+  const initMsg: ClaudeMessage = {
+    type: 'init',
+    systemInfo: {
+      model: options.model || 'default',
+      cwd: options.cwd,
+    },
+  } as ClaudeMessage;
+  trace.log('provider_raw', 'synthetic_init', initMsg, 'synthetic init with systemInfo');
+  yield initMsg;
+
   let proc: ChildProcess;
   try {
     proc = spawn(binary, args, {
@@ -661,12 +672,10 @@ export async function* runKimi(
     return;
   }
 
-  // Store for abort
   const processKey = `kimi-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   activeProcesses.set(processKey, proc);
   bindSessionToProcess(options.sessionId, processKey);
 
-  // Capture spawn errors
   let spawnError: Error | null = null;
   proc.on('error', (err) => {
     spawnError = err;
@@ -690,7 +699,6 @@ export async function* runKimi(
 
   const rl = createInterface({ input: proc.stdout, crlfDelay: Infinity });
 
-  // Log stderr for debugging
   if (proc.stderr) {
     proc.stderr.on('data', (chunk: Buffer) => {
       const text = chunk.toString().trim();
@@ -704,17 +712,6 @@ export async function* runKimi(
   let inThinkBlock = false;
   let yieldedResult = false;
 
-  // Emit init with systemInfo so the server sends system_info to the client
-  const initMsg: ClaudeMessage = {
-    type: 'init',
-    systemInfo: {
-      model: options.model || 'default',
-      cwd: options.cwd,
-    },
-  } as ClaudeMessage;
-  trace.log('provider_raw', 'synthetic_init', initMsg, 'synthetic init with systemInfo');
-  yield initMsg;
-
   try {
     for await (const line of rl) {
       if (!line.trim()) continue;
@@ -724,7 +721,6 @@ export async function* runKimi(
       try {
         event = JSON.parse(line);
       } catch {
-        // Not JSON - treat as plain text output
         const fallbackMsg = { type: 'assistant', content: line } as ClaudeMessage;
         trace.log('provider_raw', 'non_json_output', fallbackMsg, summarizeProviderMessage(fallbackMsg as { type: string; [key: string]: unknown }));
         yield fallbackMsg;
@@ -745,22 +741,18 @@ export async function* runKimi(
       }
     }
 
-    // Close any dangling think block
     if (inThinkBlock) {
       const closeThink = { type: 'assistant', content: '</think>' } as ClaudeMessage;
       trace.log('provider_raw', 'close_think_block', closeThink, 'close dangling think block');
       yield closeThink;
     }
 
-    // Emit the session ID so the server persists it for future runs.
     if (kimiSessionId !== options.sessionId) {
       const sessionInitMsg = { type: 'init', sessionId: kimiSessionId } as ClaudeMessage;
       trace.log('provider_raw', 'session_persist', sessionInitMsg, `persist kimi session ${kimiSessionId}`);
       yield sessionInitMsg;
     }
 
-    // Always yield a result message so the server sends run_completed.
-    // Kimi CLI does not include is_complete in its output events.
     if (!yieldedResult) {
       const resultMsg = { type: 'result', isComplete: true } as ClaudeMessage;
       trace.log('provider_raw', 'synthetic_result', resultMsg, 'synthetic result (kimi lacks is_complete)');
@@ -768,7 +760,6 @@ export async function* runKimi(
       yieldedResult = true;
     }
 
-    // Check for spawn error after readline closes
     if (spawnError) {
       const err = spawnError as NodeJS.ErrnoException;
       if (err.code === 'ENOENT') {

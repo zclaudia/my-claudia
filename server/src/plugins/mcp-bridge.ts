@@ -1,43 +1,18 @@
 #!/usr/bin/env node
 /**
- * MCP Bridge - Stdio MCP server that proxies plugin tools from the main server.
+ * MCP bridge using standard stdio framing.
  *
- * This script implements the Model Context Protocol (MCP) over stdio,
- * acting as a bridge between the Claude Code SDK and the main server's
- * tool registry. It is spawned as a child process by the Claude SDK.
- *
- * Environment variables:
- *   CLAUDIA_BRIDGE_URL - Base URL of the main server (e.g., http://127.0.0.1:3100)
+ * Kimi expects official MCP stdio transport framing (`Content-Length` headers),
+ * not newline-delimited JSON. This bridge keeps the existing JSON-RPC handler
+ * but wraps input/output with proper MCP message framing.
  */
 
-import * as readline from 'readline';
 import * as http from 'http';
 import { readFileSync } from 'fs';
 
 const SERVER_URL = process.env.CLAUDIA_BRIDGE_URL || 'http://127.0.0.1:3100';
 const STATIC_SESSION_ID = process.env.CLAUDIA_SESSION_ID || '';
 const SESSION_ID_FILE = process.env.CLAUDIA_SESSION_ID_FILE || '';
-
-/**
- * Get current session ID.
- * If SESSION_ID_FILE is set, read from file each time (for persistent bridge processes
- * where session changes between runs, e.g. OpenCode).
- * Otherwise use the static env value (for ephemeral bridge processes, e.g. Claude/Codex).
- */
-function getSessionId(): string {
-  if (SESSION_ID_FILE) {
-    try {
-      return readFileSync(SESSION_ID_FILE, 'utf-8').trim();
-    } catch {
-      return STATIC_SESSION_ID;
-    }
-  }
-  return STATIC_SESSION_ID;
-}
-
-// ============================================
-// JSON-RPC Types
-// ============================================
 
 interface JsonRpcRequest {
   jsonrpc: '2.0';
@@ -62,6 +37,18 @@ interface McpTool {
 let inFlightRequests = 0;
 let shuttingDown = false;
 let shutdownCode = 0;
+let readBuffer = Buffer.alloc(0);
+
+function getSessionId(): string {
+  if (SESSION_ID_FILE) {
+    try {
+      return readFileSync(SESSION_ID_FILE, 'utf-8').trim();
+    } catch {
+      return STATIC_SESSION_ID;
+    }
+  }
+  return STATIC_SESSION_ID;
+}
 
 function log(message: string, extra?: unknown): void {
   if (extra !== undefined) {
@@ -82,9 +69,102 @@ function requestShutdown(reason: string, code = 0): void {
   }
 }
 
-// ============================================
-// HTTP Helpers
-// ============================================
+function isBrokenPipe(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false;
+  const code = (error as { code?: unknown }).code;
+  return code === 'EPIPE' || code === 'ECONNRESET';
+}
+
+function writeMessage(message: JsonRpcResponse | { jsonrpc: '2.0'; method: string; params?: Record<string, unknown> }): void {
+  const body = Buffer.from(JSON.stringify(message), 'utf-8');
+  const header = Buffer.from(`Content-Length: ${body.length}\r\n\r\n`, 'utf-8');
+  try {
+    process.stdout.write(Buffer.concat([header, body]));
+  } catch (error) {
+    if (isBrokenPipe(error)) {
+      requestShutdown(`stdout broken pipe during write (${String((error as { code?: unknown }).code || 'unknown')})`);
+      return;
+    }
+    log('stdout write failed', error);
+    requestShutdown('stdout write failure', 1);
+  }
+}
+
+function send(response: JsonRpcResponse): void {
+  writeMessage(response);
+}
+
+function sendNotification(method: string, params?: Record<string, unknown>): void {
+  writeMessage({ jsonrpc: '2.0', method, params });
+}
+
+function parseNextMessage(): string | null {
+  const separator = Buffer.from('\r\n\r\n');
+  const headerEnd = readBuffer.indexOf(separator);
+  if (headerEnd === -1) return null;
+
+  const headerText = readBuffer.subarray(0, headerEnd).toString('utf-8');
+  const contentLengthLine = headerText
+    .split('\r\n')
+    .find((line) => line.toLowerCase().startsWith('content-length:'));
+
+  if (!contentLengthLine) {
+    throw new Error('Missing Content-Length header');
+  }
+
+  const contentLength = Number.parseInt(contentLengthLine.split(':')[1]?.trim() || '', 10);
+  if (!Number.isFinite(contentLength) || contentLength < 0) {
+    throw new Error(`Invalid Content-Length header: ${contentLengthLine}`);
+  }
+
+  const messageStart = headerEnd + separator.length;
+  const messageEnd = messageStart + contentLength;
+  if (readBuffer.length < messageEnd) return null;
+
+  const body = readBuffer.subarray(messageStart, messageEnd).toString('utf-8');
+  readBuffer = readBuffer.subarray(messageEnd);
+  return body;
+}
+
+function pumpMessages(): void {
+  while (!shuttingDown) {
+    let raw: string | null;
+    try {
+      raw = parseNextMessage();
+    } catch (error) {
+      log('frame parse error', error);
+      send({
+        jsonrpc: '2.0',
+        id: null,
+        error: { code: -32700, message: 'Parse error' },
+      });
+      readBuffer = Buffer.alloc(0);
+      return;
+    }
+
+    if (raw === null) return;
+
+    inFlightRequests += 1;
+    void (async () => {
+      try {
+        const request = JSON.parse(raw!) as JsonRpcRequest;
+        await handleRequest(request);
+      } catch (error) {
+        send({
+          jsonrpc: '2.0',
+          id: null,
+          error: { code: -32700, message: 'Parse error' },
+        });
+        log('json parse error', error);
+      } finally {
+        inFlightRequests -= 1;
+        if (shuttingDown && inFlightRequests === 0) {
+          process.exit(shutdownCode);
+        }
+      }
+    })();
+  }
+}
 
 function httpGet(urlPath: string): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -125,10 +205,6 @@ function httpPost(urlPath: string, body: unknown): Promise<string> {
   });
 }
 
-// ============================================
-// Tool Operations
-// ============================================
-
 async function listTools(): Promise<McpTool[]> {
   try {
     log(`tools/list start session=${getSessionId() || 'none'}`);
@@ -158,43 +234,10 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<st
   }
 }
 
-// ============================================
-// JSON-RPC Handler
-// ============================================
-
-function send(response: JsonRpcResponse): void {
-  writeLine(JSON.stringify(response));
-}
-
-function sendNotification(method: string, params?: Record<string, unknown>): void {
-  writeLine(JSON.stringify({ jsonrpc: '2.0', method, params }));
-}
-
-function isBrokenPipe(error: unknown): boolean {
-  if (!error || typeof error !== 'object') return false;
-  const code = (error as { code?: unknown }).code;
-  return code === 'EPIPE' || code === 'ECONNRESET';
-}
-
-function writeLine(line: string): void {
-  try {
-    process.stdout.write(line + '\n');
-  } catch (error) {
-    if (isBrokenPipe(error)) {
-      requestShutdown(`stdout broken pipe during write (${String((error as { code?: unknown }).code || 'unknown')})`);
-      return;
-    }
-    log('stdout write failed', error);
-    requestShutdown('stdout write failure', 1);
-  }
-}
-
 async function handleRequest(request: JsonRpcRequest): Promise<void> {
-  // Notifications (no id) don't get responses
   if (request.id === undefined || request.id === null) {
-    // Handle notification methods
     if (request.method === 'notifications/initialized') {
-      // Client confirmed initialization — nothing to do
+      return;
     }
     return;
   }
@@ -265,15 +308,6 @@ async function handleRequest(request: JsonRpcRequest): Promise<void> {
   }
 }
 
-// ============================================
-// Main Loop
-// ============================================
-
-const rl = readline.createInterface({
-  input: process.stdin,
-  terminal: false,
-});
-
 process.stdout.on('error', (error) => {
   if (isBrokenPipe(error)) {
     requestShutdown(`stdout error ${(error as { code?: unknown }).code || 'unknown'}`);
@@ -292,39 +326,15 @@ process.stdin.on('error', (error) => {
   requestShutdown('stdin stream error', 1);
 });
 
-rl.on('line', async (line: string) => {
-  if (!line.trim()) return;
-  if (shuttingDown) {
-    log('ignoring request after shutdown started');
-    return;
-  }
-
-  inFlightRequests += 1;
-
-  try {
-    const request = JSON.parse(line) as JsonRpcRequest;
-    await handleRequest(request);
-  } catch (error) {
-    // Parse error
-    writeLine(
-      JSON.stringify({
-        jsonrpc: '2.0',
-        id: null,
-        error: { code: -32700, message: 'Parse error' },
-      })
-    );
-    log('parse error', error);
-  } finally {
-    inFlightRequests -= 1;
-    if (shuttingDown && inFlightRequests === 0) {
-      process.exit(shutdownCode);
-    }
-  }
+process.stdin.on('data', (chunk: Buffer) => {
+  if (shuttingDown) return;
+  readBuffer = Buffer.concat([readBuffer, chunk]);
+  pumpMessages();
 });
 
-rl.on('close', () => {
-  requestShutdown('stdin closed');
+process.stdin.on('end', () => {
+  requestShutdown('stdin ended');
 });
 
-// Keep the process alive
 process.stdin.resume();
+log('ready');

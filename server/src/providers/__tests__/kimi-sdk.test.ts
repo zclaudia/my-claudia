@@ -4,9 +4,13 @@ import { EventEmitter } from 'events';
 import { Readable } from 'stream';
 import { runKimi, abortKimiSession, createKimiAdapter } from '../kimi-sdk.js';
 
-vi.mock('child_process', () => ({
-  spawn: vi.fn(),
-}));
+vi.mock('child_process', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('child_process')>();
+  return {
+    ...actual,
+    spawn: vi.fn(),
+  };
+});
 
 // Mock attachment-utils
 vi.mock('../attachment-utils.js', () => ({
@@ -48,6 +52,7 @@ async function consumeInitMessage(gen: AsyncGenerator<any>) {
 describe('kimi-sdk', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(spawn).mockReset();
   });
 
   afterEach(() => {
@@ -286,7 +291,8 @@ describe('kimi-sdk', () => {
       messages.push(msg);
     }
 
-    expect(messages[0].type).toBe('error');
+    expect(messages[0].type).toBe('init');
+    expect(messages[1].type).toBe('error');
   });
 
   it('yields error when spawn throws', async () => {
@@ -299,8 +305,9 @@ describe('kimi-sdk', () => {
       messages.push(msg);
     }
 
-    expect(messages[0].type).toBe('error');
-    expect(messages[0].error).toContain('Failed to start kimi');
+    expect(messages[0].type).toBe('init');
+    expect(messages[1].type).toBe('error');
+    expect(messages[1].error).toContain('Failed to start kimi');
   });
 
   it('yields assistant message event', async () => {
