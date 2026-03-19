@@ -5,11 +5,10 @@ import { tmpdir } from 'os';
 import type { PermissionRequest, MessageInput } from '@my-claudia/shared';
 import type { ClaudeMessage, SystemInfo, PermissionDecision, PermissionCallback } from './claude-sdk.js';
 import { fileStore } from '../storage/fileStore.js';
-import { toolRegistry } from '../plugins/tool-registry.js';
 import { buildNonImageAttachmentNotes } from './attachment-utils.js';
 import { sanitizeInheritedProviderEnv } from '../utils/startup-env.js';
 import { createTraceRecorder, type TraceRecorder, summarizeProviderMessage } from '../utils/provider-trace.js';
-import { resolveMcpBridgeLaunchConfig } from '../utils/mcp-bridge-launch.js';
+import { buildMcpBridgeEntry } from '../utils/mcp-bridge-launch.js';
 
 // ── OpenCode prompt part types ─────────────────────────────────
 type OCTextPart = { type: 'text'; text: string };
@@ -285,11 +284,6 @@ const mcpBridgeInjected = new Set<string>(); // keyed by server baseUrl
 async function injectMcpBridge(server: OpenCodeServer, options: OpenCodeRunOptions): Promise<void> {
   if (mcpBridgeInjected.has(server.baseUrl)) return;
 
-  const bridgeTools = toolRegistry.getAll().filter((t: { source: string }) => t.source === 'plugin' || t.source === 'interaction');
-  if (bridgeTools.length === 0) return;
-
-  const bridgeLaunch = resolveMcpBridgeLaunchConfig();
-
   // Create session ID file for dynamic session tracking
   const configDir = path.join(tmpdir(), 'my-claudia-mcp');
   mkdirSync(configDir, { recursive: true });
@@ -299,17 +293,17 @@ async function injectMcpBridge(server: OpenCodeServer, options: OpenCodeRunOptio
   }
   (server as OpenCodeServerWithBridge).sessionIdFile = sessionIdFile;
 
+  const bridgeEntry = buildMcpBridgeEntry(options.serverPort!, undefined, sessionIdFile);
+  if (!bridgeEntry) return;
+
   try {
     const result = await server.client.mcp.add({
       body: {
         name: 'claudia-plugins',
         config: {
           type: 'local',
-          command: [bridgeLaunch.command, ...bridgeLaunch.args],
-          environment: {
-            CLAUDIA_BRIDGE_URL: `http://127.0.0.1:${options.serverPort}`,
-            CLAUDIA_SESSION_ID_FILE: sessionIdFile,
-          },
+          command: [bridgeEntry.command, ...bridgeEntry.args],
+          environment: bridgeEntry.env,
           enabled: true,
           timeout: 15000,
         },
@@ -339,7 +333,7 @@ async function injectMcpBridge(server: OpenCodeServer, options: OpenCodeRunOptio
     }
 
     mcpBridgeInjected.add(server.baseUrl);
-    console.log(`[OpenCode] Injected MCP bridge with ${bridgeTools.length} tool(s) on ${server.baseUrl}`);
+    console.log(`[OpenCode] Injected MCP bridge on ${server.baseUrl}`);
   } catch (err) {
     console.warn(`[OpenCode] Failed to inject MCP bridge: ${err instanceof Error ? err.message : String(err)}`);
   }

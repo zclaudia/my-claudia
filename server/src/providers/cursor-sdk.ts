@@ -5,10 +5,10 @@ import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'fs';
 import { tmpdir } from 'os';
 import type { MessageInput } from '@my-claudia/shared';
 import type { ClaudeMessage, SystemInfo, PermissionCallback } from './claude-sdk.js';
-import { toolRegistry } from '../plugins/tool-registry.js';
 import { buildNonImageAttachmentNotes } from './attachment-utils.js';
 import { sanitizeInheritedProviderEnv } from '../utils/startup-env.js';
-import { resolveMcpBridgeLaunchConfig } from '../utils/mcp-bridge-launch.js';
+import { buildMcpBridgeEntry } from '../utils/mcp-bridge-launch.js';
+import { fileStore } from '../storage/fileStore.js';
 
 // ── Types ─────────────────────────────────────────────────────
 
@@ -71,11 +71,6 @@ function extractToolCall(toolCallObj: Record<string, unknown>): ToolCallInfo | n
 // ── MCP Bridge injection ─────────────────────────────────────
 
 function injectCursorMcpBridge(options: CursorRunOptions): void {
-  const bridgeTools = toolRegistry.getAll().filter((t: { source: string }) => t.source === 'plugin' || t.source === 'interaction');
-  if (bridgeTools.length === 0) return;
-
-  const bridgeLaunch = resolveMcpBridgeLaunchConfig();
-
   // Session ID file for dynamic session tracking (cursor-agent loads MCP once at startup,
   // but bridge reads session ID from file on each tool call)
   const configDir = path.join(tmpdir(), 'my-claudia-mcp');
@@ -85,14 +80,8 @@ function injectCursorMcpBridge(options: CursorRunOptions): void {
     writeFileSync(sessionIdFile, options.claudiaSessionId);
   }
 
-  const bridgeEntry = {
-    command: bridgeLaunch.command,
-    args: bridgeLaunch.args,
-    env: {
-      CLAUDIA_BRIDGE_URL: `http://127.0.0.1:${options.serverPort}`,
-      CLAUDIA_SESSION_ID_FILE: sessionIdFile,
-    },
-  };
+  const bridgeEntry = buildMcpBridgeEntry(options.serverPort!, undefined, sessionIdFile);
+  if (!bridgeEntry) return;
 
   // Read existing .cursor/mcp.json (merge, don't overwrite)
   const mcpJsonPath = path.join(options.cwd, '.cursor', 'mcp.json');
@@ -109,7 +98,7 @@ function injectCursorMcpBridge(options: CursorRunOptions): void {
 
   mkdirSync(path.join(options.cwd, '.cursor'), { recursive: true });
   writeFileSync(mcpJsonPath, JSON.stringify(config, null, 2) + '\n');
-  console.log(`[Cursor SDK] Injected MCP bridge into ${mcpJsonPath} (${bridgeTools.length} tool(s))`);
+  console.log(`[Cursor SDK] Injected MCP bridge into ${mcpJsonPath}`);
 }
 
 // ── Active processes (for abort) ──────────────────────────────
@@ -131,12 +120,28 @@ function prepareCursorInput(input: string): string {
 
   let text = messageInput.text || input;
 
-  // Log unsupported attachments (image support can be added later)
   if (messageInput.attachments && messageInput.attachments.length > 0) {
-    const imageCount = messageInput.attachments.filter(a => a.type === 'image').length;
-    if (imageCount > 0) {
-      console.warn(`[Cursor SDK] ${imageCount} image attachment(s) not yet supported, sending text only`);
+    const imageRefs: string[] = [];
+
+    for (const attachment of messageInput.attachments) {
+      if (attachment.type !== 'image') continue;
+
+      const filePath = fileStore.getFilePath(attachment.fileId);
+      if (filePath) {
+        imageRefs.push(filePath);
+        console.log(`[Cursor SDK] Referencing image ${attachment.name} → ${filePath}`);
+      } else {
+        console.warn(`[Cursor SDK] Could not locate image ${attachment.fileId}, skipping`);
+      }
     }
+
+    if (imageRefs.length > 0) {
+      const refs = imageRefs
+        .map((filePath) => `[Attached image: ${filePath}]`)
+        .join('\n');
+      text = `${refs}\n\n${text}`;
+    }
+
     const nonImageNotes = buildNonImageAttachmentNotes(messageInput.attachments);
     if (nonImageNotes.length > 0) {
       text = `${nonImageNotes.join('\n\n')}\n\n${text}`;

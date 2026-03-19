@@ -718,6 +718,28 @@ export function handleServerMessage(
         installedAt: now,
         updatedAt: now,
       })));
+
+      // Register panels from active plugins (so panels survive reconnects)
+      for (const p of msg.plugins as any[]) {
+        if (p.status === 'active' && p.panels?.length > 0) {
+          for (const panel of p.panels) {
+            // Only register if not already registered (avoid overwriting visibility)
+            const existing = pluginStore.panels.find((ep: any) => ep.id === panel.id);
+            if (!existing) {
+              pluginStore.registerPanel({
+                id: panel.id,
+                pluginId: p.id,
+                type: 'panel',
+                label: panel.label,
+                icon: panel.icon,
+                iframeUrl: panel.iframeUrl,
+                order: panel.order,
+                visible: false,
+              });
+            }
+          }
+        }
+      }
       break;
     }
 

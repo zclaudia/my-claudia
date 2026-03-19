@@ -26,6 +26,14 @@ vi.mock('../../storage/fileStore.js', () => ({
   },
 }));
 
+vi.mock('../../utils/mcp-config.js', () => ({
+  loadMcpServersFromDb: vi.fn().mockReturnValue({}),
+}));
+
+vi.mock('../../utils/mcp-bridge-launch.js', () => ({
+  buildMcpBridgeEntry: vi.fn().mockReturnValue(null),
+}));
+
 describe('codex-sdk', () => {
   beforeEach(async () => {
     vi.clearAllMocks();
@@ -140,6 +148,90 @@ describe('codex-sdk', () => {
       expect(mockCodexConstructor.mock.calls[0]?.[0]?.env?.ANTHROPIC_MODEL).toBeUndefined();
 
       delete process.env.ANTHROPIC_MODEL;
+    });
+  });
+
+  describe('MCP 注入', () => {
+    it('为 Codex 注入数据库中的用户 MCP servers', async () => {
+      const { runCodex } = await import('../codex-sdk');
+      const { loadMcpServersFromDb } = await import('../../utils/mcp-config.js');
+
+      vi.mocked(loadMcpServersFromDb).mockReturnValue({
+        DevHelper: { command: '/Applications/DevHelper.app/Contents/Resources/devhelper-mcp' },
+      } as any);
+
+      const mockEvents = {
+        [Symbol.asyncIterator]: async function* () {
+          yield { type: 'thread.started', thread_id: 'test-1' };
+        },
+      };
+      mockRunStreamed.mockResolvedValue({ events: mockEvents });
+
+      const gen = runCodex('test', { cwd: '/test', db: {} as any }, vi.fn());
+      await gen.next();
+
+      expect(loadMcpServersFromDb).toHaveBeenCalledWith(expect.anything(), 'codex');
+      expect(mockCodexConstructor).toHaveBeenCalledWith(
+        expect.objectContaining({
+          config: {
+            mcp_servers: {
+              DevHelper: { command: '/Applications/DevHelper.app/Contents/Resources/devhelper-mcp' },
+            },
+          },
+        })
+      );
+    });
+
+    it('会合并用户 MCP servers 与 claudia-plugins bridge', async () => {
+      const { runCodex } = await import('../codex-sdk');
+      const { loadMcpServersFromDb } = await import('../../utils/mcp-config.js');
+      const { buildMcpBridgeEntry } = await import('../../utils/mcp-bridge-launch.js');
+
+      vi.mocked(loadMcpServersFromDb).mockReturnValue({
+        DevHelper: { command: 'devhelper' },
+      } as any);
+      vi.mocked(buildMcpBridgeEntry).mockReturnValue({
+        command: 'node',
+        args: ['/mock/mcp-bridge.js'],
+        env: {
+          CLAUDIA_BRIDGE_URL: 'http://127.0.0.1:3100',
+          CLAUDIA_SESSION_ID: 'session-123',
+        },
+      });
+
+      const mockEvents = {
+        [Symbol.asyncIterator]: async function* () {
+          yield { type: 'thread.started', thread_id: 'test-2' };
+        },
+      };
+      mockRunStreamed.mockResolvedValue({ events: mockEvents });
+
+      const gen = runCodex('test', {
+        cwd: '/test',
+        db: {} as any,
+        serverPort: 3100,
+        claudiaSessionId: 'session-123',
+      }, vi.fn());
+      await gen.next();
+
+      expect(buildMcpBridgeEntry).toHaveBeenCalledWith(3100, 'session-123');
+      expect(mockCodexConstructor).toHaveBeenCalledWith(
+        expect.objectContaining({
+          config: {
+            mcp_servers: {
+              DevHelper: { command: 'devhelper' },
+              'claudia-plugins': {
+                command: 'node',
+                args: ['/mock/mcp-bridge.js'],
+                env: {
+                  CLAUDIA_BRIDGE_URL: 'http://127.0.0.1:3100',
+                  CLAUDIA_SESSION_ID: 'session-123',
+                },
+              },
+            },
+          },
+        })
+      );
     });
   });
 

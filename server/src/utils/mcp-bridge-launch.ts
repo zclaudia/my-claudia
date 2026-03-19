@@ -1,10 +1,50 @@
 import { existsSync } from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { toolRegistry } from '../plugins/tool-registry.js';
 
 export interface McpBridgeLaunchConfig {
   command: string;
   args: string[];
+}
+
+export interface McpBridgeServerEntry {
+  command: string;
+  args: string[];
+  env: Record<string, string>;
+}
+
+/**
+ * Build the standard 'claudia-plugins' MCP bridge server entry.
+ * Returns null if no bridge tools are registered.
+ *
+ * @param serverPort - Local server port for the bridge URL
+ * @param sessionId - Session ID (direct env var) or undefined
+ * @param sessionIdFile - Session ID file path (for providers that load MCP once at startup)
+ */
+export function buildMcpBridgeEntry(
+  serverPort: number,
+  sessionId?: string,
+  sessionIdFile?: string,
+): McpBridgeServerEntry | null {
+  const bridgeTools = toolRegistry.getBridgeTools();
+  if (bridgeTools.length === 0) return null;
+
+  const launch = resolveMcpBridgeLaunchConfig();
+  const env: Record<string, string> = {
+    CLAUDIA_BRIDGE_URL: `http://127.0.0.1:${serverPort}`,
+  };
+  if (sessionIdFile) {
+    env.CLAUDIA_SESSION_ID_FILE = sessionIdFile;
+  } else {
+    env.CLAUDIA_SESSION_ID = sessionId || '';
+  }
+
+  return {
+    command: launch.command,
+    args: launch.args,
+    env,
+  };
 }
 
 function createLaunchConfig(

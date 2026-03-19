@@ -2,6 +2,10 @@ import { Router, Request, Response } from 'express';
 import * as os from 'os';
 import * as fs from 'fs';
 import * as path from 'path';
+import { execFile } from 'child_process';
+import { promisify } from 'util';
+
+const execFileAsync = promisify(execFile);
 
 export function createSystemStatsRoutes(): Router {
   const router = Router();
@@ -66,6 +70,48 @@ export function createSystemStatsRoutes(): Router {
       res.json({ success: true, data: JSON.parse(content) });
     } catch {
       res.status(500).json({ success: false, error: { code: 'READ_ERROR', message: 'Failed to read plugin storage' } });
+    }
+  });
+
+  // GET /api/system/process-info/:pid - Get process info by PID
+  router.get('/process-info/:pid', async (req: Request, res: Response) => {
+    const pid = Number(req.params.pid);
+    if (!Number.isInteger(pid) || pid <= 0) {
+      res.status(400).json({ success: false, error: { code: 'INVALID_PID', message: 'Invalid PID' } });
+      return;
+    }
+
+    try {
+      const { stdout } = await execFileAsync('ps', [
+        '-p', String(pid), '-o', 'pid=,ppid=,etimes=,comm=,args=',
+      ]);
+
+      const trimmed = stdout.trim();
+      if (!trimmed) {
+        res.json({ success: true, data: { alive: false, pid } });
+        return;
+      }
+
+      const match = trimmed.match(/^\s*(\d+)\s+(\d+)\s+(\d+)\s+(\S+)\s+(.*)/);
+      if (!match) {
+        res.json({ success: true, data: { alive: false, pid } });
+        return;
+      }
+
+      res.json({
+        success: true,
+        data: {
+          alive: true,
+          pid: Number(match[1]),
+          ppid: Number(match[2]),
+          elapsedSeconds: Number(match[3]),
+          command: match[4],
+          args: match[5],
+        },
+      });
+    } catch {
+      // ps returns non-zero if PID doesn't exist
+      res.json({ success: true, data: { alive: false, pid } });
     }
   });
 

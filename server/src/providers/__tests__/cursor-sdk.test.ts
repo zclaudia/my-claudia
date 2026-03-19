@@ -14,6 +14,12 @@ vi.mock('child_process', async () => {
   };
 });
 
+vi.mock('../../storage/fileStore.js', () => ({
+  fileStore: {
+    getFilePath: vi.fn().mockReturnValue('/tmp/test-image.png'),
+  },
+}));
+
 describe('cursor-sdk', () => {
   let mockProcess: EventEmitter & { stdout: Readable; stderr: Readable; kill: any };
   let stdout: Readable;
@@ -247,13 +253,11 @@ describe('cursor-sdk', () => {
       );
     });
 
-    it('应该警告不支持的图片附件', async () => {
-      const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-
+    it('应该将图片附件作为路径引用传给 cursor-agent', async () => {
       const messageInput = JSON.stringify({
         text: 'Check this image',
         attachments: [
-          { type: 'image', data: 'base64data' },
+          { type: 'image', fileId: 'img-1', name: 'test.png', mimeType: 'image/png' },
         ],
       });
 
@@ -271,11 +275,13 @@ describe('cursor-sdk', () => {
 
       await promise;
 
-      expect(consoleSpy).toHaveBeenCalledWith(
-        expect.stringContaining('image attachment(s) not yet supported')
+      expect(spawn).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.arrayContaining([
+          expect.stringContaining('[Attached image: /tmp/test-image.png]'),
+        ]),
+        expect.any(Object)
       );
-
-      consoleSpy.mockRestore();
     });
   });
 

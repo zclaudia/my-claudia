@@ -55,6 +55,7 @@ import { useAskUserQuestionStore } from '../stores/askUserQuestionStore';
 import { useChatStore } from '../stores/chatStore';
 import { useSwipeBack } from '../hooks/useSwipeBack';
 import { useUIStore } from '../stores/uiStore';
+
 import { ProjectSettings } from './ProjectSettings';
 import { SettingsPanel } from './SettingsPanel';
 import { SearchFilters } from './SearchFilters';
@@ -1517,7 +1518,7 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
       </div>
 
       {/* Settings */}
-      <div className="border-t border-border p-2">
+      <div className="border-t border-border p-2 space-y-0.5">
         <button
           onClick={() => setShowSettings(true)}
           data-testid="settings-button"

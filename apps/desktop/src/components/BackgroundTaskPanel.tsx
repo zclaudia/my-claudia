@@ -1,5 +1,6 @@
-import { useState } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { useBackgroundTaskStore, type BackgroundTask } from '../stores/backgroundTaskStore';
+import { getProcessInfo } from '../services/api';
 import { CheckCircle2, XCircle, Loader2, X, ChevronDown, ChevronRight, PauseCircle, StopCircle } from 'lucide-react';
 
 function formatTimeAgo(ts: number): string {
@@ -9,6 +10,43 @@ function formatTimeAgo(ts: number): string {
   if (minutes < 60) return `${minutes}m ago`;
   const hours = Math.floor(minutes / 60);
   return `${hours}h ago`;
+}
+
+function PidBadge({ pid, cliPid }: { pid: number; cliPid?: number }) {
+  const [tooltip, setTooltip] = useState<string>(`PID: ${pid}${cliPid ? ` (CLI: ${cliPid})` : ''}\nHover to query process info...`);
+  const fetchedRef = useRef(false);
+
+  const handleMouseEnter = useCallback(() => {
+    if (fetchedRef.current) return;
+    fetchedRef.current = true;
+
+    const pidsToQuery = cliPid ? [pid, cliPid] : [pid];
+    Promise.all(pidsToQuery.map(p => getProcessInfo(p))).then((results) => {
+      const lines: string[] = [];
+      for (const info of results) {
+        if (info.alive) {
+          const cmd = info.args || info.command || 'unknown';
+          const elapsed = info.elapsedSeconds != null ? `${info.elapsedSeconds}s` : '?';
+          lines.push(`PID ${info.pid}: ${cmd} (uptime: ${elapsed})`);
+        } else {
+          lines.push(`PID ${info.pid}: not running`);
+        }
+      }
+      setTooltip(lines.join('\n'));
+    }).catch(() => {
+      setTooltip(`PID ${pid}: query failed`);
+    });
+  }, [pid, cliPid]);
+
+  return (
+    <span
+      className="text-muted-foreground/40 font-mono flex-shrink-0 cursor-default"
+      title={tooltip}
+      onMouseEnter={handleMouseEnter}
+    >
+      [{pid}]
+    </span>
+  );
 }
 
 function TaskItem({ task, onRemove, onStop }: { task: BackgroundTask; onRemove: () => void; onStop?: (task: BackgroundTask) => void }) {
@@ -42,12 +80,7 @@ function TaskItem({ task, onRemove, onStop }: { task: BackgroundTask; onRemove: 
           {task.description || 'Background Task'}
         </span>
         {task.taskRootPid && (
-          <span
-            className="text-muted-foreground/40 font-mono flex-shrink-0"
-            title={`Task PID: ${task.taskRootPid}${task.cliPid ? ` (CLI: ${task.cliPid})` : ''}`}
-          >
-            [{task.taskRootPid}]
-          </span>
+          <PidBadge pid={task.taskRootPid} cliPid={task.cliPid} />
         )}
         <span className="text-muted-foreground/60 flex-shrink-0">
           {formatTimeAgo(task.startedAt)}

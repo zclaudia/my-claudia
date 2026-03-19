@@ -10,13 +10,14 @@ import {
   type Usage as CodexUsage,
 } from '@openai/codex-sdk';
 import type { MessageInput, PermissionRequest } from '@my-claudia/shared';
+import type Database from 'better-sqlite3';
 import type { ClaudeMessage, SystemInfo, PermissionDecision, PermissionCallback } from './claude-sdk.js';
 import { fileStore } from '../storage/fileStore.js';
-import { toolRegistry } from '../plugins/tool-registry.js';
 import { extractRetryDelayMsFromError } from '../utils/retry-window.js';
 import { buildNonImageAttachmentNotes } from './attachment-utils.js';
 import { sanitizeInheritedProviderEnv } from '../utils/startup-env.js';
-import { resolveMcpBridgeLaunchConfig } from '../utils/mcp-bridge-launch.js';
+import { buildMcpBridgeEntry } from '../utils/mcp-bridge-launch.js';
+import { loadMcpServersFromDb } from '../utils/mcp-config.js';
 
 
 // ── Types ─────────────────────────────────────────────────────
@@ -31,6 +32,7 @@ export interface CodexRunOptions {
   systemPrompt?: string;
   serverPort?: number;        // For MCP bridge injection
   claudiaSessionId?: string;  // Session context for interaction tools
+  db?: Database.Database;
 }
 
 const MAX_AUTO_RETRIES = 3;
@@ -281,35 +283,35 @@ interface CodexConfigValue {
   [key: string]: string | string[] | CodexConfigValue;
 }
 
-function buildMcpBridgeConfig(options: CodexRunOptions): CodexConfigValue | null {
-  if (!options.serverPort) return null;
+function buildCodexMcpConfig(options: CodexRunOptions): CodexConfigValue | null {
+  const mcpServers: Record<string, CodexConfigValue> = {};
 
-  const bridgeTools = toolRegistry.getAll().filter((t: { source: string }) => t.source === 'plugin' || t.source === 'interaction');
-  if (bridgeTools.length === 0) return null;
+  if (options.db) {
+    Object.assign(mcpServers, loadMcpServersFromDb(options.db, 'codex'));
+  }
 
-  const bridgeLaunch = resolveMcpBridgeLaunchConfig();
+  if (options.serverPort) {
+    const bridgeEntry = buildMcpBridgeEntry(options.serverPort, options.claudiaSessionId);
+    if (bridgeEntry) {
+      mcpServers['claudia-plugins'] = bridgeEntry as unknown as CodexConfigValue;
+    }
+  }
+
+  if (Object.keys(mcpServers).length === 0) return null;
+
   return {
-    mcp_servers: {
-      'claudia-plugins': {
-        command: bridgeLaunch.command,
-        args: bridgeLaunch.args,
-        env: {
-          CLAUDIA_BRIDGE_URL: `http://127.0.0.1:${options.serverPort}`,
-          CLAUDIA_SESSION_ID: options.claudiaSessionId || '',
-        },
-      },
-    },
+    mcp_servers: mcpServers,
   };
 }
 
 function getCodexInstance(options: CodexRunOptions): Codex {
   const mergedEnv = buildCodexEnv(options);
 
-  // If MCP bridge is needed, create a non-cached instance per run
-  // because claudiaSessionId differs each time
-  const mcpConfig = buildMcpBridgeConfig(options);
+  // If MCP is configured, create a non-cached instance per run.
+  // This avoids stale DB-backed server lists and preserves session-scoped bridge env.
+  const mcpConfig = buildCodexMcpConfig(options);
   if (mcpConfig) {
-    console.log(`[Codex SDK] Creating instance with MCP bridge (session: ${options.claudiaSessionId || 'none'})`);
+    console.log(`[Codex SDK] Creating instance with MCP config (session: ${options.claudiaSessionId || 'none'})`);
     return new Codex({
       codexPathOverride: options.cliPath,
       env: mergedEnv,

@@ -13,6 +13,7 @@ import { ImportDialog } from './ImportDialog';
 import { ImportOpenCodeDialog } from './ImportOpenCodeDialog';
 import { PluginSettings } from './PluginSettings';
 import { McpServerSettings } from './McpServerSettings';
+import { WorkspaceSkillsSettings } from './WorkspaceSkillsSettings';
 import { usePluginStore, selectPluginSettingsTabs } from '../stores/pluginStore';
 import { useProcessMonitorStore } from '../stores/processMonitorStore';
 import * as api from '../services/api';
@@ -34,7 +35,7 @@ const TRUST_LEVELS: Array<{ id: AgentPermissionPolicy['trustLevel']; label: stri
   { id: 'full_trust', label: 'Full Trust', description: 'Auto-approve everything except dangerous bash' },
 ];
 
-type SettingsTab = 'general' | 'client-ai' | 'connections' | 'providers' | 'notifications' | 'gateway' | 'import' | 'plugins' | 'mcp-servers' | `plugin:${string}`;
+type SettingsTab = 'general' | 'client-ai' | 'connections' | 'providers' | 'notifications' | 'gateway' | 'import' | 'plugins' | 'mcp-servers' | 'workspace' | 'debug' | `plugin:${string}`;
 
 interface SettingsPanelProps {
   isOpen: boolean;
@@ -275,6 +276,15 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
         </svg>
       )
     }]),
+    {
+      id: 'debug' as SettingsTab,
+      label: 'Debug',
+      icon: (
+        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+        </svg>
+      )
+    },
   ];
 
   const serverTabs: { id: SettingsTab; label: string; icon: JSX.Element }[] = [
@@ -293,6 +303,15 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
       icon: (
         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4" />
+        </svg>
+      )
+    },
+    {
+      id: 'workspace' as SettingsTab,
+      label: 'Skills',
+      icon: (
+        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
         </svg>
       )
     },
@@ -745,91 +764,6 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
                   </div>
                 </div>
 
-                {/* Diagnostics */}
-                <div>
-                  <h3 className="text-sm font-medium mb-3">Diagnostics</h3>
-                  <div className="space-y-3">
-                    <div className="p-3 bg-secondary/50 rounded-lg space-y-2">
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <div className="text-sm">Client Logs</div>
-                          <div className="text-xs text-muted-foreground">{getLogCount()} entries in buffer</div>
-                        </div>
-                        <div className="flex gap-2">
-                          <button
-                            onClick={() => { clearLogs(); }}
-                            className="px-2 py-1 text-xs bg-secondary hover:bg-secondary/80 text-secondary-foreground rounded-md transition-colors"
-                          >
-                            Clear
-                          </button>
-                          <button
-                            onClick={async () => {
-                              try {
-                                const logs = exportLogs();
-                                const ts = new Date().toISOString().replace(/[:.]/g, '-');
-                                const fileName = `my-claudia-logs-${ts}.json`;
-                                const blob = new Blob([logs], { type: 'application/json' });
-
-                                if ('__TAURI_INTERNALS__' in window) {
-                                  const { downloadDir } = await import('@tauri-apps/api/path');
-                                  const { writeFile } = await import('@tauri-apps/plugin-fs');
-                                  const dir = await downloadDir();
-                                  const filePath = `${dir}/${fileName}`;
-                                  await writeFile(filePath, new Uint8Array(await blob.arrayBuffer()));
-                                  // Open folder in file manager (desktop only, skip on Android)
-                                  if (!navigator.userAgent.includes('Android')) {
-                                    const { open } = await import('@tauri-apps/plugin-shell');
-                                    await open(dir);
-                                  }
-                                } else {
-                                  // Web fallback
-                                  const url = URL.createObjectURL(blob);
-                                  const a = document.createElement('a');
-                                  a.href = url;
-                                  a.download = fileName;
-                                  a.click();
-                                  URL.revokeObjectURL(url);
-                                }
-                              } catch (err) {
-                                console.error('[Settings] Failed to export logs:', err);
-                              }
-                            }}
-                            className="px-3 py-1 text-xs bg-primary hover:bg-primary/90 text-primary-foreground rounded-lg font-medium transition-colors"
-                          >
-                            Export Logs
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="p-3 bg-secondary/50 rounded-lg space-y-3">
-                      <div>
-                        <div className="text-sm">Leaked Process Cleanup</div>
-                        <div className="text-xs text-muted-foreground mt-0.5">
-                          Trigger an immediate server-side scan for orphaned provider child processes and terminate any matches.
-                        </div>
-                      </div>
-                      <div className="flex items-center justify-between gap-3">
-                        <div className="text-xs text-muted-foreground">
-                          {isConnected ? 'Connected to active server' : 'Server disconnected'}
-                        </div>
-                        <button
-                          onClick={handleLeakCleanup}
-                          disabled={leakCleanupRunning || !isConnected}
-                          className="px-3 py-1 text-xs bg-destructive hover:bg-destructive/90 disabled:bg-muted disabled:text-muted-foreground text-destructive-foreground rounded-lg font-medium transition-colors"
-                        >
-                          {leakCleanupRunning ? 'Cleaning…' : 'Clean Leaked Processes'}
-                        </button>
-                      </div>
-                      {leakCleanupResult && (
-                        <div className={`text-xs ${leakCleanupResult.ok ? 'text-success' : 'text-destructive'}`}>
-                          {leakCleanupResult.message}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-
               </div>
             )}
 
@@ -954,6 +888,104 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
                   Manage MCP (Model Context Protocol) servers. These servers provide additional tools to AI providers.
                 </p>
                 <McpServerSettings />
+              </div>
+            )}
+
+            {activeTab === 'workspace' && (
+              <div className="space-y-4">
+                <h3 className="text-lg font-semibold">Skills</h3>
+                <p className="text-sm text-muted-foreground">
+                  Manage workspace skills and external skill directories. Skills are lazy-loaded tools available to all AI providers.
+                </p>
+                <WorkspaceSkillsSettings />
+              </div>
+            )}
+
+            {activeTab === 'debug' && (
+              <div className="space-y-4">
+                <h3 className="text-lg font-semibold">Debug</h3>
+                <p className="text-sm text-muted-foreground">
+                  Diagnostics and troubleshooting tools.
+                </p>
+
+                <div className="space-y-3">
+                  <div className="p-3 bg-secondary/50 rounded-lg space-y-2">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <div className="text-sm">Client Logs</div>
+                        <div className="text-xs text-muted-foreground">{getLogCount()} entries in buffer</div>
+                      </div>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => { clearLogs(); }}
+                          className="px-2 py-1 text-xs bg-secondary hover:bg-secondary/80 text-secondary-foreground rounded-md transition-colors"
+                        >
+                          Clear
+                        </button>
+                        <button
+                          onClick={async () => {
+                            try {
+                              const logs = exportLogs();
+                              const ts = new Date().toISOString().replace(/[:.]/g, '-');
+                              const fileName = `my-claudia-logs-${ts}.json`;
+                              const blob = new Blob([logs], { type: 'application/json' });
+
+                              if ('__TAURI_INTERNALS__' in window) {
+                                const { downloadDir } = await import('@tauri-apps/api/path');
+                                const { writeFile } = await import('@tauri-apps/plugin-fs');
+                                const dir = await downloadDir();
+                                const filePath = `${dir}/${fileName}`;
+                                await writeFile(filePath, new Uint8Array(await blob.arrayBuffer()));
+                                if (!navigator.userAgent.includes('Android')) {
+                                  const { open } = await import('@tauri-apps/plugin-shell');
+                                  await open(dir);
+                                }
+                              } else {
+                                const url = URL.createObjectURL(blob);
+                                const a = document.createElement('a');
+                                a.href = url;
+                                a.download = fileName;
+                                a.click();
+                                URL.revokeObjectURL(url);
+                              }
+                            } catch (err) {
+                              console.error('[Settings] Failed to export logs:', err);
+                            }
+                          }}
+                          className="px-3 py-1 text-xs bg-primary hover:bg-primary/90 text-primary-foreground rounded-lg font-medium transition-colors"
+                        >
+                          Export Logs
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="p-3 bg-secondary/50 rounded-lg space-y-3">
+                    <div>
+                      <div className="text-sm">Leaked Process Cleanup</div>
+                      <div className="text-xs text-muted-foreground mt-0.5">
+                        Trigger an immediate server-side scan for orphaned provider child processes and terminate any matches.
+                      </div>
+                    </div>
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="text-xs text-muted-foreground">
+                        {isConnected ? 'Connected to active server' : 'Server disconnected'}
+                      </div>
+                      <button
+                        onClick={handleLeakCleanup}
+                        disabled={leakCleanupRunning || !isConnected}
+                        className="px-3 py-1 text-xs bg-destructive hover:bg-destructive/90 disabled:bg-muted disabled:text-muted-foreground text-destructive-foreground rounded-lg font-medium transition-colors"
+                      >
+                        {leakCleanupRunning ? 'Cleaning…' : 'Clean Leaked Processes'}
+                      </button>
+                    </div>
+                    {leakCleanupResult && (
+                      <div className={`text-xs ${leakCleanupResult.ok ? 'text-success' : 'text-destructive'}`}>
+                        {leakCleanupResult.message}
+                      </div>
+                    )}
+                  </div>
+                </div>
               </div>
             )}
 

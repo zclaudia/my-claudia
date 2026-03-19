@@ -13,7 +13,7 @@ import * as crypto from 'crypto';
 import { spawn as nodeSpawn } from 'child_process';
 import { extractRetryDelayMsFromError } from '../utils/retry-window.js';
 import { sanitizeInheritedProviderEnv } from '../utils/startup-env.js';
-import { resolveMcpBridgeLaunchConfig } from '../utils/mcp-bridge-launch.js';
+import { buildMcpBridgeEntry } from '../utils/mcp-bridge-launch.js';
 
 /** Mutable handle exposed by runClaude so the adapter can call query methods (stopTask, etc.) */
 export interface ClaudeQueryHandle {
@@ -324,21 +324,12 @@ export async function* runClaude(
 
   // Inject MCP bridge for plugin tools (if any plugin tools are registered)
   if (options.serverPort) {
-    const { toolRegistry } = await import('../plugins/tool-registry.js');
-    const bridgeTools = toolRegistry.getAll().filter(t => t.source === 'plugin' || t.source === 'interaction');
-    if (bridgeTools.length > 0) {
-      const bridgeLaunch = resolveMcpBridgeLaunchConfig();
+    const bridgeEntry = buildMcpBridgeEntry(options.serverPort, options.claudiaSessionId);
+    if (bridgeEntry) {
       const mcpServers = (sdkOptions.mcpServers || {}) as Record<string, unknown>;
-      mcpServers['claudia-plugins'] = {
-        command: bridgeLaunch.command,
-        args: bridgeLaunch.args,
-        env: {
-          CLAUDIA_BRIDGE_URL: `http://127.0.0.1:${options.serverPort}`,
-          CLAUDIA_SESSION_ID: options.claudiaSessionId || '',
-        },
-      };
+      mcpServers['claudia-plugins'] = bridgeEntry;
       sdkOptions.mcpServers = mcpServers;
-      console.log(`[Claude SDK] Injected MCP bridge with ${bridgeTools.length} bridge tool(s)`);
+      console.log(`[Claude SDK] Injected MCP bridge`);
     }
   }
 

@@ -361,6 +361,14 @@ async function main() {
       console.log('   No plugins found');
     }
 
+    // Register workspace + external skills as MCP bridge tools
+    const { setDatabase: setSkillDb, registerSkillTools } = await import('./plugins/skill-tools.js');
+    setSkillDb(serverContext.db);
+    const skillCount = await registerSkillTools();
+    if (skillCount > 0) {
+      console.log(`   Registered ${skillCount} skill tool(s)`);
+    }
+
     server.listen(PORT, HOST, async () => {
       actualPort = (server.address() as import('net').AddressInfo).port;
       serverContext!.setServerPort(actualPort);

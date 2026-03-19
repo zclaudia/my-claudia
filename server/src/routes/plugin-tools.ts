@@ -17,7 +17,7 @@ export function createPluginToolsRoutes(): Router {
    * List all plugin tools in MCP-compatible format.
    */
   router.get('/tools', (_req: Request, res: Response) => {
-    const pluginTools = toolRegistry.getAll().filter(t => t.source === 'plugin' || t.source === 'interaction');
+    const pluginTools = toolRegistry.getBridgeTools();
     const tools = pluginTools.map(t => ({
       name: t.definition.function.name,
       description: t.definition.function.description,

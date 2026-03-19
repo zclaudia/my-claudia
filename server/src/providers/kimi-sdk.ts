@@ -8,8 +8,7 @@ import type { ClaudeMessage, SystemInfo, PermissionCallback } from './claude-sdk
 import { buildNonImageAttachmentNotes } from './attachment-utils.js';
 import { sanitizeInheritedProviderEnv } from '../utils/startup-env.js';
 import { createTraceRecorder, summarizeProviderMessage } from '../utils/provider-trace.js';
-import { resolveMcpBridgeLaunchConfig } from '../utils/mcp-bridge-launch.js';
-import { toolRegistry } from '../plugins/tool-registry.js';
+import { buildMcpBridgeEntry } from '../utils/mcp-bridge-launch.js';
 
 
 // ── Types ─────────────────────────────────────────────────────
@@ -617,19 +616,11 @@ export async function* runKimi(
 
   // Inject MCP bridge for interaction tools
   if (options.serverPort) {
-    const bridgeTools = toolRegistry.getAll().filter((t: { source: string }) => t.source === 'plugin' || t.source === 'interaction');
-    if (bridgeTools.length > 0) {
-      const bridgeLaunch = resolveMcpBridgeLaunchConfig();
+    const bridgeEntry = buildMcpBridgeEntry(options.serverPort, options.claudiaSessionId);
+    if (bridgeEntry) {
       const mcpConfig = {
         mcpServers: {
-          'claudia-plugins': {
-            command: bridgeLaunch.command,
-            args: bridgeLaunch.args,
-            env: {
-              CLAUDIA_BRIDGE_URL: `http://127.0.0.1:${options.serverPort}`,
-              CLAUDIA_SESSION_ID: options.claudiaSessionId || '',
-            },
-          },
+          'claudia-plugins': bridgeEntry,
         },
       };
       // Write to temp file to avoid shell escaping issues with inline JSON
@@ -638,7 +629,7 @@ export async function* runKimi(
       const configFile = path.join(configDir, `kimi-mcp-${Date.now()}.json`);
       writeFileSync(configFile, JSON.stringify(mcpConfig, null, 2));
       args.push('--mcp-config-file', configFile);
-      console.log(`[Kimi SDK] Injected MCP bridge with ${bridgeTools.length} tool(s) via ${configFile}`);
+      console.log(`[Kimi SDK] Injected MCP bridge via ${configFile}`);
     }
   }
 

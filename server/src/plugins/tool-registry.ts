@@ -18,7 +18,7 @@ export type ToolHandler = (
   context?: Record<string, unknown>
 ) => Promise<string> | string;
 
-export type ToolSource = 'builtin' | 'plugin' | 'interaction';
+export type ToolSource = 'builtin' | 'plugin' | 'interaction' | 'skill';
 
 export type ToolScope = 'agent-assistant' | 'main-session' | 'command-palette';
 
@@ -191,6 +191,29 @@ class ToolRegistry {
       }
     }
     return count;
+  }
+
+  /**
+   * Clear all tools with the given source.
+   */
+  removeBySource(source: ToolSource): number {
+    let count = 0;
+    for (const [id, tool] of this.tools) {
+      if (tool.source === source) {
+        this.tools.delete(id);
+        count++;
+      }
+    }
+    return count;
+  }
+
+  /**
+   * Get all tools exposed through the MCP bridge (plugin + interaction + skill).
+   */
+  getBridgeTools(): ToolMeta[] {
+    return Array.from(this.tools.values()).filter(
+      t => t.source === 'plugin' || t.source === 'interaction' || t.source === 'skill',
+    );
   }
 
   /**

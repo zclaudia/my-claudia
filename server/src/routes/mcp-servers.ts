@@ -10,6 +10,7 @@ import { v4 as uuidv4 } from 'uuid';
 import type Database from 'better-sqlite3';
 import type { McpServerConfig, ApiResponse } from '@my-claudia/shared';
 import { loadMcpServers } from '../utils/claude-config.js';
+import { mcpClientManager } from '../utils/mcp-client-manager.js';
 
 // ── DB row type ──────────────────────────────────────────────
 
@@ -310,6 +311,120 @@ export function createMcpServerRoutes(db: Database.Database): Router {
       res.status(500).json({
         success: false,
         error: { code: 'IMPORT_ERROR', message: 'Failed to import MCP servers' },
+      });
+    }
+  });
+
+  /**
+   * POST /api/mcp-servers/:name/call-tool
+   * Call a tool on a named MCP server.
+   *
+   * Body: { tool: string, arguments?: Record<string, unknown> }
+   * Returns the MCP tool result.
+   */
+  router.post('/:name/call-tool', async (req: Request, res: Response) => {
+    const { name } = req.params;
+    const { tool, arguments: toolArgs } = req.body as {
+      tool?: string;
+      arguments?: Record<string, unknown>;
+    };
+
+    if (!tool) {
+      res.status(400).json({
+        success: false,
+        error: { code: 'INVALID_INPUT', message: 'tool name is required' },
+      });
+      return;
+    }
+
+    try {
+      // Look up MCP server config by name
+      const row = db.prepare(
+        'SELECT id, name, command, args, env, enabled FROM mcp_servers WHERE name = ?',
+      ).get(name) as McpServerRow | undefined;
+
+      if (!row) {
+        res.status(404).json({
+          success: false,
+          error: { code: 'NOT_FOUND', message: `MCP server "${name}" not found` },
+        });
+        return;
+      }
+
+      if (!row.enabled) {
+        res.status(400).json({
+          success: false,
+          error: { code: 'DISABLED', message: `MCP server "${name}" is disabled` },
+        });
+        return;
+      }
+
+      const config = {
+        command: row.command,
+        args: row.args ? JSON.parse(row.args) as string[] : [],
+        env: row.env ? JSON.parse(row.env) as Record<string, string> : undefined,
+      };
+
+      const result = await mcpClientManager.callTool(name, config, tool, toolArgs || {});
+
+      res.json({ success: true, data: { result } });
+    } catch (error) {
+      console.error(`[MCP Servers] Error calling tool "${tool}" on "${name}":`, error);
+      res.status(502).json({
+        success: false,
+        error: {
+          code: 'TOOL_CALL_FAILED',
+          message: error instanceof Error ? error.message : String(error),
+        },
+      });
+    }
+  });
+
+  /**
+   * GET /api/mcp-servers/:name/tools
+   * List available tools on a named MCP server.
+   */
+  router.get('/:name/tools', async (req: Request, res: Response) => {
+    const { name } = req.params;
+
+    try {
+      const row = db.prepare(
+        'SELECT id, name, command, args, env, enabled FROM mcp_servers WHERE name = ?',
+      ).get(name) as McpServerRow | undefined;
+
+      if (!row) {
+        res.status(404).json({
+          success: false,
+          error: { code: 'NOT_FOUND', message: `MCP server "${name}" not found` },
+        });
+        return;
+      }
+
+      if (!row.enabled) {
+        res.status(400).json({
+          success: false,
+          error: { code: 'DISABLED', message: `MCP server "${name}" is disabled` },
+        });
+        return;
+      }
+
+      const config = {
+        command: row.command,
+        args: row.args ? JSON.parse(row.args) as string[] : [],
+        env: row.env ? JSON.parse(row.env) as Record<string, string> : undefined,
+      };
+
+      const tools = await mcpClientManager.listTools(name, config);
+
+      res.json({ success: true, data: { tools } });
+    } catch (error) {
+      console.error(`[MCP Servers] Error listing tools on "${name}":`, error);
+      res.status(502).json({
+        success: false,
+        error: {
+          code: 'LIST_TOOLS_FAILED',
+          message: error instanceof Error ? error.message : String(error),
+        },
       });
     }
   });

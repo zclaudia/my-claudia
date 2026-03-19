@@ -77,6 +77,7 @@ import { getGatewayClient, getGatewayClientMode } from './gateway-instance.js';
 import { generateToolSignature, detectLoop } from './loop-detection.js';
 import { pluginEvents } from './events/index.js';
 import { pluginLoader } from './plugins/loader.js';
+import { buildSkillDirectoryHint } from './plugins/skill-tools.js';
 import { permissionManager as pluginPermissionManager } from './plugins/permissions.js';
 import { toolRegistry as pluginToolRegistry } from './plugins/tool-registry.js';
 import { commandRegistry as pluginCommandRegistry } from './commands/registry.js';
@@ -1399,21 +1400,34 @@ function broadcastHeartbeat(): void {
 
 /** Build a PluginStateMessage with current plugin states. */
 function buildPluginStateMessage(): import('@my-claudia/shared').PluginStateMessage {
-  const plugins = pluginLoader.getPlugins().map(p => ({
-    id: p.manifest.id,
-    name: p.manifest.name,
-    version: p.manifest.version,
-    description: p.manifest.description,
-    status: (p.isActive ? 'active' : p.error ? 'error' : 'inactive') as 'active' | 'inactive' | 'error',
-    enabled: p.isActive,
-    error: p.error,
-    permissions: p.manifest.permissions || [],
-    grantedPermissions: pluginPermissionManager.getGrantedPermissions(p.manifest.id),
-    tools: pluginToolRegistry.getByPlugin(p.manifest.id).map(t => t.definition.function.name),
-    commands: pluginCommandRegistry.getByPlugin(p.manifest.id).map(c => c.command),
-    path: p.path,
-    platform: resolvePluginPlatform(p.manifest),
-  }));
+  const plugins = pluginLoader.getPlugins().map(p => {
+    const contributes = p.manifest.contributes || {};
+    const panels = (contributes.panels || []).map((panel: any) => ({
+      id: panel.id,
+      label: panel.label,
+      icon: panel.icon,
+      order: panel.order,
+      iframeUrl: panel.frontend
+        ? `/api/plugins/${p.manifest.id}/frontend/${panel.frontend}`
+        : undefined,
+    }));
+    return {
+      id: p.manifest.id,
+      name: p.manifest.name,
+      version: p.manifest.version,
+      description: p.manifest.description,
+      status: (p.isActive ? 'active' : p.error ? 'error' : 'inactive') as 'active' | 'inactive' | 'error',
+      enabled: p.isActive,
+      error: p.error,
+      permissions: p.manifest.permissions || [],
+      grantedPermissions: pluginPermissionManager.getGrantedPermissions(p.manifest.id),
+      tools: pluginToolRegistry.getByPlugin(p.manifest.id).map(t => t.definition.function.name),
+      commands: pluginCommandRegistry.getByPlugin(p.manifest.id).map(c => c.command),
+      path: p.path,
+      platform: resolvePluginPlatform(p.manifest),
+      panels,
+    };
+  });
   return { type: 'plugin_state', plugins };
 }
 
@@ -2443,6 +2457,9 @@ Use push_file instead of curl to send files to the user — it is more reliable 
       skills: [], // TODO: Load from project.agentConfig.skills when database schema is updated
     });
 
+    // Skill directory hint — lightweight listing of available skill tools
+    const skillDirectoryHint = buildSkillDirectoryHint();
+
     const runOptions = {
       cwd,
       sessionId: sdkSessionId,
@@ -2450,7 +2467,7 @@ Use push_file instead of curl to send files to the user — it is more reliable 
       env: { ...(providerConfig?.env || {}), ...filePushEnv },
       mode: modeValue,
       model: message.model,
-      systemPrompt: [workspacePrompt, message.systemContext, nonNativePlanPrompt, planDocumentPrompt, filePushContext, interactionToolPrompt, session.system_prompt].filter(Boolean).join('\n\n') || undefined,
+      systemPrompt: [workspacePrompt, skillDirectoryHint, message.systemContext, nonNativePlanPrompt, planDocumentPrompt, filePushContext, interactionToolPrompt, session.system_prompt].filter(Boolean).join('\n\n') || undefined,
       sessionTitle: session.name || undefined,
       serverPort: serverPort || undefined,
       claudiaSessionId: message.sessionId,

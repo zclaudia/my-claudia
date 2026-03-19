@@ -1,5 +1,5 @@
-import { useEffect, useState, useRef } from 'react';
-import { Bot, ChevronsRight, ChevronsLeft } from 'lucide-react';
+import { useEffect, useState, useRef, useMemo } from 'react';
+import { Bot, ChevronsRight, ChevronsLeft, MessageSquare, Activity, Clock, Cloud, Gauge, StickyNote, Puzzle, type LucideIcon } from 'lucide-react';
 import { Sidebar } from './components/Sidebar';
 import { ChatInterface } from './components/chat/ChatInterface';
 import { ServerSelector } from './components/ServerSelector';
@@ -12,6 +12,7 @@ import { WorkflowEditorWindow } from './components/workflows/WorkflowEditorWindo
 import { SessionChatWindow } from './components/chat/SessionChatWindow';
 import { TerminalWindow } from './components/terminal/TerminalWindow';
 import { DraftWindow } from './components/draft/DraftWindow';
+import { PluginWindow } from './components/PluginWindow';
 import { ProjectDashboard } from './components/dashboard/ProjectDashboard';
 import { ThemeProvider } from './contexts/ThemeContext';
 import { ConnectionProvider, useConnection } from './contexts/ConnectionContext';
@@ -29,7 +30,7 @@ import { eagerSyncAllBackends } from './services/sessionSync';
 import { useFileViewerStore } from './stores/fileViewerStore';
 import { useUIStore } from './stores/uiStore';
 import { useTerminalStore } from './stores/terminalStore';
-import { usePluginStore } from './stores/pluginStore';
+import { usePluginStore, selectPluginPanels } from './stores/pluginStore';
 import { useDraftEditorStore } from './stores/draftEditorStore';
 import { xtermRegistry } from './utils/xtermRegistry';
 import { initBuiltinPanels } from './plugins/builtinPanels';
@@ -37,6 +38,95 @@ import { useAutoUpdate } from './hooks/useAutoUpdate';
 import { useServerLatencyMonitor } from './hooks/useServerLatencyMonitor';
 import { UpdateBanner } from './components/UpdateBanner';
 import { BrandMark } from './components/BrandMark';
+
+const isDesktopTauri = typeof window !== 'undefined'
+  && '__TAURI_INTERNALS__' in window
+  && !navigator.userAgent.includes('Android');
+
+// ── Plugin Dock ─────────────────────────────────────────────────
+// Icon name → Lucide component mapping for plugin-declared icons.
+// Plugins can also use image files (icon.svg / icon.png) in their ui/ directory.
+const PLUGIN_ICON_MAP: Record<string, LucideIcon> = {
+  MessageSquare, Activity, Clock, Cloud, Gauge, StickyNote, Puzzle, Bot,
+};
+
+function PluginIcon({ name, pluginId, size = 16 }: { name?: string; pluginId?: string; size?: number }) {
+  // Image file: icon value contains a file extension (e.g. "icon.svg", "logo.png")
+  const activeServer = useServerStore(s => s.getActiveServer?.());
+  if (name && pluginId && /\.\w+$/.test(name)) {
+    const address = activeServer?.address || 'localhost:3100';
+    const baseUrl = address.includes('://') ? address : `http://${address}`;
+    const src = `${baseUrl}/api/plugins/${encodeURIComponent(pluginId)}/frontend/${name}`;
+    return <img src={src} alt="" style={{ width: size, height: size }} className="object-contain" />;
+  }
+  // Lucide icon name
+  const Icon = name ? PLUGIN_ICON_MAP[name] : undefined;
+  if (Icon) return <Icon size={size} />;
+  return <Puzzle size={size} />;
+}
+
+/**
+ * Selector: returns panels from active plugins that have an iframe frontend.
+ * Uses a stable reference to avoid unnecessary re-renders.
+ */
+function useActivePluginPanels() {
+  const allPanels = usePluginStore(selectPluginPanels);
+  const activeIds = usePluginStore(
+    (s) => s.plugins.filter(p => p.status === 'active').map(p => p.manifest.id),
+  );
+  // Use JSON.stringify for stable dependency comparison
+  const activeIdsKey = useMemo(() => JSON.stringify(activeIds), [activeIds]);
+  const activeSet = useMemo(() => new Set(JSON.parse(activeIdsKey)), [activeIdsKey]);
+  return useMemo(
+    () => allPanels.filter(p => p.iframeUrl && p.pluginId && activeSet.has(p.pluginId)),
+    [allPanels, activeSet],
+  );
+}
+
+/** Plugin Dock — fixed area in header for third-party plugin windows (max 5, scrollable). */
+function PluginWindowButtons() {
+  const pluginPanels = useActivePluginPanels();
+
+  if (pluginPanels.length === 0 || !isDesktopTauri) return null;
+
+  const openWindow = async (panel: typeof pluginPanels[0]) => {
+    try {
+      const { openPluginWindow } = await import('./utils/pluginWindow');
+      await openPluginWindow({
+        pluginId: panel.pluginId,
+        panelId: panel.id,
+        title: panel.label || 'Plugin',
+        width: 900,
+        height: 650,
+        iframeUrl: panel.iframeUrl,
+      });
+    } catch (err) {
+      console.error('Failed to open plugin window:', err);
+    }
+  };
+
+  return (
+    <div className="flex items-center mr-1.5">
+      <div className="w-px h-4 bg-border mr-1.5" />
+
+      <div
+        className="flex items-center gap-0.5 overflow-x-auto scrollbar-none"
+        style={{ maxWidth: 5 * 32 }}
+      >
+        {pluginPanels.map(panel => (
+          <button
+            key={panel.id}
+            onClick={() => openWindow(panel)}
+            className="flex-shrink-0 w-7 h-7 flex items-center justify-center rounded-md hover:bg-secondary text-muted-foreground hover:text-foreground transition-all"
+            title={panel.label}
+          >
+            <PluginIcon name={panel.icon} pluginId={panel.pluginId} size={16} />
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 function AppContent() {
   const { connectServer, embeddedServerStatus, embeddedServerError } = useConnection();
@@ -300,6 +390,9 @@ function AppContent() {
           )}
         </div>
 
+        {/* Plugin window buttons */}
+        <PluginWindowButtons />
+
         {/* Agent toggle button */}
         {isAgentConfigured && (
           <button
@@ -531,6 +624,16 @@ function App() {
           gatewayUrl={gatewayUrl}
           gatewaySecret={gatewaySecret}
         />
+      </ThemeProvider>
+    );
+  }
+
+  // Check if this window is a standalone plugin window
+  const pluginWindowId = params.get('pluginWindow');
+  if (pluginWindowId) {
+    return (
+      <ThemeProvider defaultTheme="dark-neutral">
+        <PluginWindow pluginId={pluginWindowId} params={params} />
       </ThemeProvider>
     );
   }

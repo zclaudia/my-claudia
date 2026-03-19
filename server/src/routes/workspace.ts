@@ -10,6 +10,7 @@
 
 import { Router, type Request, type Response } from 'express';
 import { workspaceService } from '../services/workspace.js';
+import { refreshSkillTools, getExternalSkillDirs, saveExternalSkillDirs } from '../plugins/skill-tools.js';
 import path from 'path';
 import fs from 'fs/promises';
 
@@ -156,8 +157,9 @@ router.post('/skills/:skillId', async (req: Request, res: Response) => {
     await fs.mkdir(skillDir, { recursive: true });
     await fs.writeFile(path.join(skillDir, 'SKILL.md'), content, 'utf-8');
 
-    // Clear cache for this skill
+    // Clear cache for this skill and refresh tool registry
     workspaceService.clearCache();
+    await refreshSkillTools();
 
     res.json({
       success: true,
@@ -201,8 +203,9 @@ router.delete('/skills/:skillId', async (req: Request, res: Response) => {
       }
     }
 
-    // Clear cache
+    // Clear cache and refresh tool registry
     workspaceService.clearCache();
+    await refreshSkillTools();
 
     res.json({
       success: true,
@@ -213,6 +216,52 @@ router.delete('/skills/:skillId', async (req: Request, res: Response) => {
     res.status(500).json({
       success: false,
       error: error instanceof Error ? error.message : 'Failed to delete skill',
+    });
+  }
+});
+
+/**
+ * GET /api/workspace/skill-dirs
+ * Get configured external skill directories
+ */
+router.get('/skill-dirs', (req: Request, res: Response) => {
+  try {
+    const dirs = getExternalSkillDirs();
+    res.json({ success: true, data: dirs });
+  } catch (error) {
+    console.error('[Workspace API] Error getting skill dirs:', error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to get skill dirs',
+    });
+  }
+});
+
+/**
+ * PUT /api/workspace/skill-dirs
+ * Update external skill directories
+ * Body: { dirs: string[] }
+ */
+router.put('/skill-dirs', async (req: Request, res: Response) => {
+  try {
+    const { dirs } = req.body;
+    if (!Array.isArray(dirs) || !dirs.every((d: unknown) => typeof d === 'string')) {
+      res.status(400).json({ success: false, error: 'dirs must be an array of strings' });
+      return;
+    }
+
+    saveExternalSkillDirs(dirs);
+    const count = await refreshSkillTools();
+
+    res.json({
+      success: true,
+      message: `Skill dirs updated, ${count} skill(s) registered`,
+    });
+  } catch (error) {
+    console.error('[Workspace API] Error updating skill dirs:', error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to update skill dirs',
     });
   }
 });
