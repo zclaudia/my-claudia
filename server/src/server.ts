@@ -68,7 +68,6 @@ import { PermissionEvaluator, getAgentPermissionPolicy, getProjectPermissionOver
 import type { PermissionDecision, SystemInfo } from './providers/claude-sdk.js';
 import { openCodeServerManager } from './providers/opencode-sdk.js';
 import { providerRegistry } from './providers/registry.js';
-import { safeCompare } from './auth.js';
 import { extractAndIndexMetadata, removeIndexedMetadata } from './storage/metadata-extractor.js';
 import { TerminalManager } from './terminal-manager.js';
 import { generateKeyPair, getPublicKeyPem, decryptCredential } from './utils/crypto.js';
@@ -92,6 +91,9 @@ import { ProcessMonitor } from './utils/process-monitor.js';
 import { createRouter } from './router/index.js';
 import { loggingMiddleware as routerLoggingMiddleware } from './middleware/logging.js';
 import { errorHandlingMiddleware as routerErrorMiddleware } from './middleware/error.js';
+import { isLocalhost, localOnlyMiddleware } from './middleware/local-only.js';
+import { createExpressAuthMiddleware } from './middleware/express-auth.js';
+import { expressErrorHandler } from './middleware/express-error.js';
 
 // Default permission policy base (used when only project override exists, no global policy)
 const DEFAULT_PERMISSION_POLICY: AgentPermissionPolicy = {
@@ -391,27 +393,6 @@ let notificationService: NotificationService;
 // Module-level server port (set after listen, used by handleRunStart for file push injection)
 let serverPort: number | null = null;
 
-// Check if request is from localhost
-function isLocalhost(req: Request | IncomingMessage): boolean {
-  let ip: string | undefined;
-  if ('socket' in req && req.socket) {
-    ip = req.socket.remoteAddress;
-  }
-  return ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1';
-}
-
-// Local-only middleware (for admin endpoints like import, gateway config)
-function localOnlyMiddleware(req: Request, res: Response, next: NextFunction): void {
-  if (!isLocalhost(req)) {
-    res.status(403).json({
-      success: false,
-      error: { code: 'LOCAL_ONLY', message: 'This endpoint is only accessible from localhost' }
-    });
-    return;
-  }
-  next();
-}
-
 
 
 // Export types for Gateway integration
@@ -574,32 +555,7 @@ export async function createServer(): Promise<ServerContext> {
     }
   };
 
-  // Authentication middleware for REST API
-  // Local requests are always allowed. Remote requests require gateway secret.
-  const authMiddleware = (req: Request, res: Response, next: NextFunction): void => {
-    // Local connections are always trusted
-    if (isLocalhost(req)) {
-      next();
-      return;
-    }
-
-    // Remote connections: require gateway secret as Bearer token
-    const authHeader = req.headers.authorization;
-    if (authHeader?.startsWith('Bearer ') && gatewayStatus.gatewaySecret) {
-      const token = authHeader.slice(7);
-      // Support both plain gatewaySecret and legacy gatewaySecret:apiKey format
-      const secretPart = token.includes(':') ? token.split(':')[0] : token;
-      if (safeCompare(secretPart, gatewayStatus.gatewaySecret)) {
-        next();
-        return;
-      }
-    }
-
-    res.status(401).json({
-      success: false,
-      error: { code: 'UNAUTHORIZED', message: 'Authentication required' }
-    });
-  };
+  const authMiddleware = createExpressAuthMiddleware(() => gatewayStatus.gatewaySecret);
 
   // API routes (protected by auth middleware)
   app.use('/api/projects', authMiddleware, createProjectRoutes(db));
@@ -801,16 +757,7 @@ export async function createServer(): Promise<ServerContext> {
   });
 
   // Error handling middleware
-  app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
-    console.error('Server error:', err);
-    res.status(500).json({
-      success: false,
-      error: {
-        code: 'INTERNAL_ERROR',
-        message: err.message || 'Internal server error'
-      }
-    });
-  });
+  app.use(expressErrorHandler);
 
   // Create HTTP server
   const server = createHttpServer(app);

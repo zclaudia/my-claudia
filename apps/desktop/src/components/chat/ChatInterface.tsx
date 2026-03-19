@@ -1,18 +1,13 @@
 import { useRef, useEffect, useCallback, useState, useMemo } from 'react';
-import { Loader2, AlertTriangle, ClipboardList, ArrowDown, ArrowLeft, X, FileText, FileEdit, Terminal as TerminalIcon, ChevronDown, ChevronUp, Lock, Unlock, Archive, RotateCcw, Download, MoreHorizontal, ExternalLink } from 'lucide-react';
+import { Loader2, AlertTriangle, ClipboardList, ArrowDown, X, ExternalLink } from 'lucide-react';
 import { MessageList } from './MessageList';
-import { MessageInput, type Attachment } from './MessageInput';
+import { type Attachment } from './MessageInput';
 import { ToolCallList } from './ToolCallItem';
 import { LoadingIndicator } from './LoadingIndicator';
 import { InlinePermissionRequest } from './InlinePermissionRequest';
 import { InlineAskUserQuestion } from './InlineAskUserQuestion';
-import { useFilePushStore } from '../../stores/filePushStore';
-import { ModeSelector } from './ModeSelector';
-import { SystemInfoButton } from './SystemInfoButton';
-import { ModelSelector } from './ModelSelector';
-import { PermissionSelector } from './PermissionSelector';
-import { WorktreeSelector } from './WorktreeSelector';
-import { TokenUsageDisplay } from './TokenUsageDisplay';
+import { SessionHeader } from './SessionHeader';
+import { ChatInputArea } from './ChatInputArea';
 import { BottomPanel } from '../BottomPanel';
 import { useChatStore } from '../../stores/chatStore';
 import { useProjectStore } from '../../stores/projectStore';
@@ -20,52 +15,24 @@ import { useServerStore } from '../../stores/serverStore';
 import { useTerminalStore } from '../../stores/terminalStore';
 import { useBottomPanelStore } from '../../stores/bottomPanelStore';
 import { useUIStore } from '../../stores/uiStore';
-import { isGatewayTarget, useGatewayStore } from '../../stores/gatewayStore';
 import { useFileViewerStore } from '../../stores/fileViewerStore';
 import { usePluginStore } from '../../stores/pluginStore';
 import { usePermissionStore } from '../../stores/permissionStore';
 import { useAskUserQuestionStore } from '../../stores/askUserQuestionStore';
-import { useSupervisionStore } from '../../stores/supervisionStore';
 import { useConnection } from '../../contexts/ConnectionContext';
 import { useIsMobile } from '../../hooks/useMediaQuery';
+import { useCommandHandler } from '../../hooks/chat/useCommandHandler';
+import { useMessagePagination } from '../../hooks/chat/useMessagePagination';
+import { useSessionActions } from '../../hooks/chat/useSessionActions';
+import { usePlanStatus } from '../../hooks/chat/usePlanStatus';
 import * as api from '../../services/api';
-import { getBaseUrl, getAuthHeaders } from '../../services/api';
 import { uploadFile } from '../../services/fileUpload';
 import { TaskCardStrip } from '../supervision/TaskCardStrip';
 import { BackgroundTaskPanel } from '../BackgroundTaskPanel';
 import { DraftLockPrompt } from '../draft/DraftLockPrompt';
 import { useDraftEditorStore } from '../../stores/draftEditorStore';
-import type { AgentPermissionPolicy, CommandExecuteResponse, Message, MessageAttachment, MessageInput as MessageInputData, ProviderCapabilities, SlashCommand } from '@my-claudia/shared';
+import type { AgentPermissionPolicy, MessageAttachment, MessageInput as MessageInputData, ProviderCapabilities, SlashCommand } from '@my-claudia/shared';
 import type { MessageWithToolCalls } from '../../stores/chatStore';
-
-const isDesktopTauri = typeof window !== 'undefined'
-  && '__TAURI_INTERNALS__' in window
-  && !navigator.userAgent.includes('Android');
-
-// True when this window was opened as a standalone session window (no pop-out needed)
-const isStandaloneSessionWindow = typeof window !== 'undefined'
-  && new URLSearchParams(window.location.search).has('sessionWindow');
-
-// Restore tool calls and content blocks from persisted metadata when loading messages from the server
-function restoreToolCalls(messages: Message[]): MessageWithToolCalls[] {
-  return messages.map(msg => {
-    const result: MessageWithToolCalls = { ...msg };
-    if (msg.metadata?.toolCalls && msg.metadata.toolCalls.length > 0) {
-      result.toolCalls = msg.metadata.toolCalls.map((tc, i) => ({
-        id: tc.toolUseId || `persisted-${msg.id}-${i}`,
-        toolName: tc.name,
-        toolInput: tc.input,
-        status: tc.isError ? 'error' as const : 'completed' as const,
-        result: tc.output,
-        isError: tc.isError,
-      }));
-    }
-    if (msg.metadata?.contentBlocks && msg.metadata.contentBlocks.length > 0) {
-      result.contentBlocks = msg.metadata.contentBlocks;
-    }
-    return result;
-  });
-}
 
 interface ChatInterfaceProps {
   sessionId: string;
@@ -73,10 +40,6 @@ interface ChatInterfaceProps {
   onOpenSidebar?: () => void;
 }
 
-const MESSAGES_PER_PAGE = 50;
-const BOTTOM_REFRESH_LIMIT = 12;
-const BOTTOM_REFRESH_COOLDOWN_MS = 2500;
-const SUPPRESS_LOAD_MORE_MS = 1200;
 const EMPTY_MESSAGES: MessageWithToolCalls[] = [];
 const EMPTY_TOOL_CALLS: import('../../stores/chatStore').ToolCallState[] = [];
 const EMPTY_CONTENT_BLOCKS: import('@my-claudia/shared').ContentBlock[] = [];
@@ -84,7 +47,6 @@ const ATTACHMENT_PLACEHOLDER = '[Attachments]';
 
 export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar }: ChatInterfaceProps) {
   const messages = useChatStore((s) => s.messages);
-  const pagination = useChatStore((s) => s.pagination);
   const activeRuns = useChatStore((s) => s.activeRuns);
   const backgroundRunIds = useChatStore((s) => s.backgroundRunIds);
   const runHealth = useChatStore((s) => s.runHealth);
@@ -92,11 +54,7 @@ export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar }:
   const runContentBlocks = useChatStore((s) => s.runContentBlocks);
   const toolCallsHistory = useChatStore((s) => s.toolCallsHistory);
   const addMessage = useChatStore((s) => s.addMessage);
-  const setMessages = useChatStore((s) => s.setMessages);
-  const prependMessages = useChatStore((s) => s.prependMessages);
-  const appendMessages = useChatStore((s) => s.appendMessages);
   const clearMessages = useChatStore((s) => s.clearMessages);
-  const setLoadingMore = useChatStore((s) => s.setLoadingMore);
   const setMode = useChatStore((s) => s.setMode);
   const getMode = useChatStore((s) => s.getMode);
   const getSystemInfo = useChatStore((s) => s.getSystemInfo);
@@ -140,21 +98,12 @@ export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar }:
     dataServerId,
   } = useProjectStore();
   const activeServerId = useServerStore((s) => s.activeServerId);
-  const { setDrawerOpen, drawerOpen } = useTerminalStore();
-  const { activeTab: bottomPanelTab, setActiveTab: setBottomPanelTab } = useBottomPanelStore();
-  const disabledBuiltinPanels = usePluginStore((s) => s.disabledBuiltinPanels);
+  const { setDrawerOpen } = useTerminalStore();
+  const { setActiveTab: setBottomPanelTab } = useBottomPanelStore();
   const {
     advancedInput,
-    setAdvancedInput,
-    forceScrollToBottomSessionId,
-    consumeForceScrollToBottom,
-    pendingMessageJump,
-    clearMessageJump,
     poppedOutSessions,
-    addPoppedOutSession,
-    removePoppedOutSession,
   } = useUIStore();
-  const { isOpen: fileViewerOpen } = useFileViewerStore();
   const { sendMessage: wsSendMessage, isConnected, handlePermissionDecision, handleAskUserAnswer } = useConnection();
   const isMobile = useIsMobile();
   const [showSessionMenu, setShowSessionMenu] = useState(false);
@@ -162,9 +111,7 @@ export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar }:
   // Draft editor state
   const draftShowLockPrompt = useDraftEditorStore((s) => s.showLockPrompt);
   const draftExists = useDraftEditorStore((s) => s.draftExists[sessionId] ?? false);
-  const openDraftEditor = useDraftEditorStore((s) => s.openEditor);
   const checkDraftExists = useDraftEditorStore((s) => s.checkDraftExists);
-  const setSendCallback = useDraftEditorStore((s) => s.setSendCallback);
 
   // Check draft existence when entering session
   useEffect(() => {
@@ -223,30 +170,34 @@ export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar }:
   const permissionRequests = usePermissionStore(state => state.pendingRequests.filter(r => r.sessionId === sessionId || !r.sessionId));
   const askUserRequests = useAskUserQuestionStore(state => state.pendingRequests.filter(r => r.sessionId === sessionId || !r.sessionId));
   const chatRootRef = useRef<HTMLDivElement>(null);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
-  const messagesContainerRef = useRef<HTMLDivElement>(null);
-  const bottomRefreshRef = useRef<{ lastAt: number; inFlight: boolean }>({ lastAt: 0, inFlight: false });
-  const lastScrollTopRef = useRef(0);
-  const suppressLoadMoreUntilRef = useRef<number>(0);
-  const messageJumpTimeoutRef = useRef<number | null>(null);
-  const [initialLoadDone, setInitialLoadDone] = useState(false);
-  const [showScrollToBottom, setShowScrollToBottom] = useState(false);
-  const [scrollMetrics, setScrollMetrics] = useState({ scrollTop: 0, viewportHeight: 0 });
   const [initialDraft, setInitialDraft] = useState<string | undefined>(undefined);
+
+  // Message pagination & scroll management
+  const {
+    messagesEndRef,
+    messagesContainerRef,
+    initialLoadDone,
+    showScrollToBottom,
+    scrollMetrics,
+    highlightedMessageId,
+    loadError,
+    sessionPagination,
+    scrollToBottom,
+    jumpToBottomInstant,
+    loadMoreMessages,
+    handleScroll,
+    handleMessageWheel,
+    retryLoad,
+    resetRefs: resetPaginationRefs,
+  } = useMessagePagination({ sessionId, isConnected, isMobile });
 
   // State for restoring message after cancel
   const [lastSentMessage, setLastSentMessage] = useState<{ content: string; attachments?: Attachment[] } | null>(null);
   const [restoreMessage, setRestoreMessage] = useState<{ content: string; attachments?: Attachment[] } | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
-  const [loadError, setLoadError] = useState<string | null>(null);
   const [resendChecking, setResendChecking] = useState(false);
-  const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null);
   // Queued message: when user sends while a run is active, queue it for auto-send
   const [queuedMessage, setQueuedMessage] = useState<{ content: string; attachments?: Attachment[] } | null>(null);
-  const [taskPlanStatus, setTaskPlanStatus] = useState<api.TaskPlanStatus | null>(null);
-  const [planStatusLoading, setPlanStatusLoading] = useState(false);
-  const [submitPlanLoading, setSubmitPlanLoading] = useState(false);
-  const [discardPlanLoading, setDiscardPlanLoading] = useState(false);
 
   // Session action bar state
   const [isRenamingSession, setIsRenamingSession] = useState(false);
@@ -281,7 +232,6 @@ export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar }:
     ? projects.find(p => p.id === currentSession.projectId)
     : null;
   const isForcedPlanSession = currentSession?.projectRole === 'task' && currentSession?.planStatus === 'planning';
-  const sessionPagination = pagination[sessionId];
   const hasSessionSnapshot = !!sessionPagination;
   const isInitialMessageLoading = !loadError && (!initialLoadDone || !hasSessionSnapshot);
   const currentSystemInfo = getSystemInfo(sessionId);
@@ -299,20 +249,13 @@ export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar }:
     setLastSentMessage(null);
     setRestoreMessage(null);
     setUploadError(null);
-    setLoadError(null);
     setResendChecking(false);
     setQueuedMessage(null);
-    setScrollMetrics({ scrollTop: 0, viewportHeight: 0 });
     setInitialDraft(useChatStore.getState().drafts[sessionId]);
-    bottomRefreshRef.current = { lastAt: 0, inFlight: false };
-    lastScrollTopRef.current = 0;
-    if (messageJumpTimeoutRef.current != null) {
-      window.clearTimeout(messageJumpTimeoutRef.current);
-      messageJumpTimeoutRef.current = null;
-    }
+    resetPaginationRefs();
     setIsRenamingSession(false);
     setRenameValue('');
-  }, [sessionId]);
+  }, [sessionId, resetPaginationRefs]);
 
   // Task planning sessions are hard-locked to Plan mode.
   useEffect(() => {
@@ -320,30 +263,6 @@ export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar }:
       setMode(sessionId, 'plan');
     }
   }, [isForcedPlanSession, mode, sessionId, setMode]);
-
-  // Auto-check plan document completeness during task planning.
-  useEffect(() => {
-    const taskId = currentSession?.taskId;
-    if (!isConnected || !isForcedPlanSession || !taskId) {
-      setTaskPlanStatus(null);
-      return;
-    }
-
-    let cancelled = false;
-    setPlanStatusLoading(true);
-    api.getTaskPlanStatus(taskId)
-      .then((status) => {
-        if (!cancelled) setTaskPlanStatus(status);
-      })
-      .catch(() => {
-        if (!cancelled) setTaskPlanStatus(null);
-      })
-      .finally(() => {
-        if (!cancelled) setPlanStatusLoading(false);
-      });
-
-    return () => { cancelled = true; };
-  }, [isConnected, isForcedPlanSession, currentSession?.taskId, sessionMessages.length]);
 
   // Auto-send queued message when the current run finishes
   const queuedMessageRef = useRef(queuedMessage);
@@ -399,325 +318,6 @@ export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar }:
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
   }, [currentProject?.rootPath]);
-
-  const scrollToBottom = useCallback((instant = false) => {
-    const container = messagesContainerRef.current;
-    if (container) {
-      container.scrollTo({
-        top: container.scrollHeight,
-        behavior: instant || isMobile ? 'auto' : 'smooth',
-      });
-      return;
-    }
-
-    messagesEndRef.current?.scrollIntoView({ behavior: instant || isMobile ? 'auto' : 'smooth' });
-  }, [isMobile]);
-
-  const jumpToBottomInstant = useCallback(() => {
-    suppressLoadMoreUntilRef.current = Date.now() + SUPPRESS_LOAD_MORE_MS;
-    scrollToBottom(true);
-  }, [scrollToBottom]);
-
-  const scrollToMessage = useCallback((messageId: string) => {
-    const escapedId = typeof CSS !== 'undefined' && CSS.escape ? CSS.escape(messageId) : messageId;
-    const target = document.querySelector(`[data-message-id="${escapedId}"]`);
-    if (!(target instanceof HTMLElement)) return false;
-
-    target.scrollIntoView({ block: 'center', behavior: isMobile ? 'auto' : 'smooth' });
-    setHighlightedMessageId(messageId);
-    window.setTimeout(() => {
-      setHighlightedMessageId((current) => (current === messageId ? null : current));
-    }, 2500);
-    return true;
-  }, [isMobile]);
-
-  const positionViewportForMessageJump = useCallback((messageId: string) => {
-    const container = messagesContainerRef.current;
-    if (!container || sessionMessages.length === 0) return false;
-
-    const messageIndex = sessionMessages.findIndex((message) => message.id === messageId);
-    if (messageIndex === -1) return false;
-
-    // Virtualized lists may not have mounted the target row yet. Move the viewport
-    // close to the target first so the next retry can resolve the DOM node.
-    const progress = sessionMessages.length <= 1
-      ? 0
-      : messageIndex / (sessionMessages.length - 1);
-    const targetTop = Math.max(
-      0,
-      (container.scrollHeight * progress) - (container.clientHeight / 2),
-    );
-
-    suppressLoadMoreUntilRef.current = Date.now() + SUPPRESS_LOAD_MORE_MS;
-    container.scrollTo({ top: targetTop, behavior: 'auto' });
-    return true;
-  }, [sessionMessages]);
-
-  // Sync filePush metadata from loaded messages into filePushStore for download tracking
-  const syncFilePushMessages = useCallback((msgs: MessageWithToolCalls[]) => {
-    const fpStore = useFilePushStore.getState();
-    for (const msg of msgs) {
-      if (msg.metadata?.filePush) {
-        const fp = msg.metadata.filePush;
-        fpStore.addItem({
-          fileId: fp.fileId,
-          fileName: fp.fileName,
-          mimeType: fp.mimeType,
-          fileSize: fp.fileSize,
-          sessionId: msg.sessionId,
-          description: fp.description,
-          autoDownload: false, // Don't auto-download for history messages
-        });
-      }
-    }
-  }, []);
-
-  // Load messages with pagination (all via HTTP)
-  const loadMessages = useCallback(async (before?: number, signal?: AbortSignal) => {
-    try {
-      if (before) {
-        // Load more (older messages)
-        setLoadingMore(sessionId, true);
-
-        const result = await api.getSessionMessages(sessionId, {
-          limit: MESSAGES_PER_PAGE,
-          before,
-          signal,
-        });
-
-        const restoredOlder = restoreToolCalls(result.messages);
-        prependMessages(sessionId, restoredOlder, result.pagination);
-        // Sync filePush messages to filePushStore for download state tracking
-        syncFilePushMessages(restoredOlder);
-      } else {
-        // Initial load via HTTP
-        if (!isConnected) {
-          console.warn('Cannot load messages: not connected');
-          setMessages(sessionId, [], { total: 0, hasMore: false });
-          setInitialLoadDone(true);
-          return;
-        }
-
-        setLoadError(null);
-        const result = await api.getSessionMessages(
-          sessionId,
-          pendingMessageJump?.sessionId === sessionId
-            ? { limit: MESSAGES_PER_PAGE, aroundMessageId: pendingMessageJump.messageId, signal }
-            : { limit: MESSAGES_PER_PAGE, signal }
-        );
-
-        const restoredMessages = restoreToolCalls(result.messages);
-        setMessages(sessionId, restoredMessages, result.pagination);
-        // Sync filePush messages to filePushStore for download state tracking
-        syncFilePushMessages(restoredMessages);
-
-        // Restore active run state (fixes loading state lost after page refresh)
-        if (result.activeRun) {
-          const chatState = useChatStore.getState();
-          if (!chatState.activeRuns[result.activeRun.runId]) {
-            chatState.startRun(result.activeRun.runId, sessionId);
-          }
-        }
-
-        setInitialLoadDone(true);
-        setTimeout(() => {
-          if (pendingMessageJump?.sessionId === sessionId) {
-            return;
-          }
-          scrollToBottom(true);
-        }, 0);
-      }
-    } catch (error) {
-      if (error instanceof Error && error.name === 'AbortError') {
-        return;
-      }
-      console.error('Failed to load messages:', error);
-      setLoadingMore(sessionId, false);
-      // On error, set empty messages to prevent undefined
-      if (!before) {
-        const errMsg = error instanceof Error ? error.message : 'Unknown error';
-        // Detect common error patterns for user-friendly messages
-        const isTimeout = errMsg.includes('timed out') || errMsg.includes('timeout') || errMsg.includes('TIMEOUT');
-        const isOffline = errMsg.includes('BACKEND_OFFLINE') || errMsg.includes('502') || errMsg.includes('Failed to fetch');
-        const friendlyMsg = isOffline
-          ? 'Backend is offline. This session may belong to a server that is currently unreachable.'
-          : isTimeout
-          ? 'Request timed out. The backend server may be unresponsive.'
-          : `Failed to load messages: ${errMsg}`;
-        setLoadError(friendlyMsg);
-        setMessages(sessionId, [], { total: 0, hasMore: false });
-        setInitialLoadDone(true);
-      }
-    }
-  }, [sessionId, setLoadingMore, prependMessages, setMessages, scrollToBottom, isConnected, syncFilePushMessages, pendingMessageJump, clearMessageJump, scrollToMessage]);
-
-  // Load initial messages when session changes
-  useEffect(() => {
-    setInitialLoadDone(false);
-    const controller = new AbortController();
-    loadMessages(undefined, controller.signal);
-    return () => controller.abort();
-  }, [sessionId, loadMessages]);
-
-  useEffect(() => {
-    if (pendingMessageJump?.sessionId !== sessionId) return;
-    if (!initialLoadDone) return;
-
-    const { messageId } = pendingMessageJump;
-    if (messageJumpTimeoutRef.current != null) {
-      window.clearTimeout(messageJumpTimeoutRef.current);
-      messageJumpTimeoutRef.current = null;
-    }
-
-    let cancelled = false;
-    let attempts = 0;
-
-    const tryJump = () => {
-      if (cancelled) return;
-      if (scrollToMessage(messageId)) {
-        clearMessageJump(sessionId, messageId);
-        messageJumpTimeoutRef.current = null;
-        return;
-      }
-
-      if (attempts === 0) {
-        positionViewportForMessageJump(messageId);
-      }
-
-      attempts += 1;
-      if (attempts >= 4) {
-        clearMessageJump(sessionId, messageId);
-        messageJumpTimeoutRef.current = null;
-        return;
-      }
-
-      messageJumpTimeoutRef.current = window.setTimeout(tryJump, 80);
-    };
-
-    tryJump();
-
-    return () => {
-      cancelled = true;
-      if (messageJumpTimeoutRef.current != null) {
-        window.clearTimeout(messageJumpTimeoutRef.current);
-        messageJumpTimeoutRef.current = null;
-      }
-    };
-  }, [pendingMessageJump, sessionId, initialLoadDone, clearMessageJump, scrollToMessage, positionViewportForMessageJump]);
-
-  // One-shot jump: when entering from Active Sessions, force scroll to latest content.
-  useEffect(() => {
-    if (forceScrollToBottomSessionId !== sessionId || !initialLoadDone) return;
-    scrollToBottom(true);
-    const timer = setTimeout(() => scrollToBottom(true), 120);
-    consumeForceScrollToBottom(sessionId);
-    return () => clearTimeout(timer);
-  }, [forceScrollToBottomSessionId, sessionId, initialLoadDone, scrollToBottom, consumeForceScrollToBottom]);
-
-  // Load more messages (older)
-  const loadMoreMessages = useCallback(async () => {
-    if (!sessionPagination?.hasMore || sessionPagination?.isLoadingMore) {
-      console.debug(`[ChatInterface] loadMoreMessages skipped: hasMore=${sessionPagination?.hasMore}, isLoadingMore=${sessionPagination?.isLoadingMore}`);
-      return;
-    }
-
-    const oldestTimestamp = sessionPagination?.oldestTimestamp;
-    if (!oldestTimestamp) {
-      console.debug('[ChatInterface] loadMoreMessages skipped: no oldestTimestamp');
-      return;
-    }
-    console.debug(`[ChatInterface] loadMoreMessages: loading before=${oldestTimestamp}`);
-
-    // Save scroll position before loading
-    const container = messagesContainerRef.current;
-    const scrollHeightBefore = container?.scrollHeight || 0;
-
-    await loadMessages(oldestTimestamp);
-
-    // Restore scroll position after loading
-    if (container) {
-      const scrollHeightAfter = container.scrollHeight;
-      container.scrollTop = scrollHeightAfter - scrollHeightBefore;
-    }
-  }, [loadMessages, sessionPagination]);
-
-  // Fallback sync: when user is already at bottom and keeps scrolling down,
-  // fetch a small latest window to recover from delayed/missed push updates.
-  const refreshLatestMessagesFromBottom = useCallback(async () => {
-    if (!isConnected || !initialLoadDone) return;
-    const state = bottomRefreshRef.current;
-    const now = Date.now();
-    if (state.inFlight || now - state.lastAt < BOTTOM_REFRESH_COOLDOWN_MS) return;
-
-    state.inFlight = true;
-    state.lastAt = now;
-    try {
-      const result = await api.getSessionMessages(sessionId, { limit: BOTTOM_REFRESH_LIMIT });
-      const restored = restoreToolCalls(result.messages);
-      appendMessages(sessionId, restored, result.pagination);
-      syncFilePushMessages(restored);
-    } catch (error) {
-      console.debug('[ChatInterface] bottom refresh failed:', error);
-    } finally {
-      state.inFlight = false;
-    }
-  }, [appendMessages, initialLoadDone, isConnected, sessionId, syncFilePushMessages]);
-
-  const handleMessageWheel = useCallback((deltaY: number) => {
-    if (deltaY <= 0) return;
-    const container = messagesContainerRef.current;
-    if (!container) return;
-
-    const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
-    if (distanceFromBottom <= 24) {
-      void refreshLatestMessagesFromBottom();
-    }
-  }, [refreshLatestMessagesFromBottom]);
-
-  // Handle scroll to detect when user scrolls near top or away from bottom
-  const handleScroll = useCallback(() => {
-    const container = messagesContainerRef.current;
-    if (!container) return;
-    const currentScrollTop = container.scrollTop;
-    const wasScrollingDown = currentScrollTop > lastScrollTopRef.current;
-    lastScrollTopRef.current = currentScrollTop;
-
-    setScrollMetrics({
-      scrollTop: currentScrollTop,
-      viewportHeight: container.clientHeight,
-    });
-
-    // If scrolled near top (within 100px), load more messages.
-    // During jump-to-bottom, suppress this to avoid fighting the programmatic scroll.
-    const suppressLoadMore = Date.now() < suppressLoadMoreUntilRef.current;
-    if (!suppressLoadMore && currentScrollTop < 100 && sessionPagination?.hasMore && !sessionPagination?.isLoadingMore) {
-      loadMoreMessages();
-    }
-
-    // Show scroll-to-bottom button when not near the bottom
-    const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
-    setShowScrollToBottom(distanceFromBottom > 300);
-    // Mobile-safe fallback: touch scrolling won't fire wheel events.
-    if (wasScrollingDown && distanceFromBottom <= 24) {
-      void refreshLatestMessagesFromBottom();
-    }
-  }, [loadMoreMessages, refreshLatestMessagesFromBottom, sessionPagination]);
-
-  useEffect(() => {
-    const container = messagesContainerRef.current;
-    if (!container) return;
-
-    const updateMetrics = () => {
-      setScrollMetrics({
-        scrollTop: container.scrollTop,
-        viewportHeight: container.clientHeight,
-      });
-    };
-
-    updateMetrics();
-    window.addEventListener('resize', updateMetrics);
-    return () => window.removeEventListener('resize', updateMetrics);
-  }, [sessionId, initialLoadDone]);
 
   // Derive provider ID and fetch capabilities when it changes
   const providerId = currentSession?.providerId || currentProject?.providerId;
@@ -974,210 +574,6 @@ export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar }:
     }
   }, [resendText, sessionId, addMessage, wsSendMessage, mode, modelOverride, permissionOverride, currentSession, scrollToBottom]);
 
-  // Handle built-in command response
-  const handleBuiltInCommand = useCallback((result: CommandExecuteResponse) => {
-    const { action, data, command: cmdName } = result;
-
-    switch (action) {
-      case 'clear':
-        clearMessages(sessionId);
-        addMessage(sessionId, {
-          id: crypto.randomUUID(),
-          sessionId,
-          role: 'system',
-          content: (data?.message as string) || 'Chat history cleared.',
-          createdAt: Date.now(),
-        });
-        break;
-
-      case 'help':
-        addMessage(sessionId, {
-          id: crypto.randomUUID(),
-          sessionId,
-          role: 'system',
-          content: (data?.content as string) || 'No help available.',
-          createdAt: Date.now(),
-        });
-        break;
-
-      case 'status': {
-        let statusText = '**System Status:**\n\n';
-        if (data?.version) statusText += `- **Version:** ${data.version}\n`;
-        if (data?.uptime) statusText += `- **Server Uptime:** ${data.uptime}\n`;
-        if (data?.model) statusText += `- **Model:** ${data.model}\n`;
-        if (data?.provider) statusText += `- **Provider:** ${data.provider}\n`;
-        if (data?.nodeVersion) statusText += `- **Node.js:** ${data.nodeVersion}\n`;
-        if (data?.platform) statusText += `- **Platform:** ${data.platform}\n`;
-        if (data?.projectPath) statusText += `- **Project:** ${data.projectPath}\n`;
-
-        addMessage(sessionId, {
-          id: crypto.randomUUID(),
-          sessionId,
-          role: 'system',
-          content: statusText,
-          createdAt: Date.now(),
-        });
-        break;
-      }
-
-      case 'cost': {
-        const usage = data?.tokenUsage as { used: number; total: number; percentage: string } | undefined;
-        let costText = '**Token Usage:**\n\n';
-        if (usage) {
-          costText += `- **Used:** ${usage.used.toLocaleString()} tokens\n`;
-          costText += `- **Total:** ${usage.total.toLocaleString()} tokens\n`;
-          costText += `- **Usage:** ${usage.percentage}%\n`;
-        }
-        if (data?.model) {
-          costText += `- **Model:** ${data.model}\n`;
-        }
-
-        addMessage(sessionId, {
-          id: crypto.randomUUID(),
-          sessionId,
-          role: 'system',
-          content: costText,
-          createdAt: Date.now(),
-        });
-        break;
-      }
-
-      case 'memory': {
-        const memoryData = data as { path?: string; exists?: boolean; message?: string; error?: boolean } | undefined;
-        addMessage(sessionId, {
-          id: crypto.randomUUID(),
-          sessionId,
-          role: 'system',
-          content: memoryData?.message || 'CLAUDE.md information not available.',
-          createdAt: Date.now(),
-        });
-        break;
-      }
-
-      case 'model': {
-        addMessage(sessionId, {
-          id: crypto.randomUUID(),
-          sessionId,
-          role: 'system',
-          content: (data?.message as string) || `Model: ${data?.model || 'unknown'}\nProvider: ${data?.provider || 'unknown'}`,
-          createdAt: Date.now(),
-        });
-        break;
-      }
-
-      case 'config':
-        // TODO: Open settings modal
-        addMessage(sessionId, {
-          id: crypto.randomUUID(),
-          sessionId,
-          role: 'system',
-          content: (data?.message as string) || 'Opening settings...',
-          createdAt: Date.now(),
-        });
-        break;
-
-      case 'new-session':
-        // TODO: Create new session
-        addMessage(sessionId, {
-          id: crypto.randomUUID(),
-          sessionId,
-          role: 'system',
-          content: (data?.message as string) || 'Creating new session...',
-          createdAt: Date.now(),
-        });
-        break;
-
-      case 'reload':
-        // Re-fetch commands from server (cache already cleared server-side)
-        (providerId
-          ? api.getProviderCommands(providerId, currentProject?.rootPath || undefined)
-          : api.getProviderTypeCommands('claude', currentProject?.rootPath || undefined)
-        )
-          .then(cmds => {
-            useProjectStore.getState().setProviderCommands(commandsCacheKey, cmds);
-            addMessage(sessionId, {
-              id: crypto.randomUUID(),
-              sessionId,
-              role: 'system',
-              content: `Commands reloaded (${cmds.length} commands)`,
-              createdAt: Date.now(),
-            });
-            setTimeout(() => scrollToBottom(), 100);
-          })
-          .catch(err => {
-            addMessage(sessionId, {
-              id: crypto.randomUUID(),
-              sessionId,
-              role: 'system',
-              content: `Failed to reload commands: ${err.message}`,
-              createdAt: Date.now(),
-            });
-          });
-        return; // Skip the scrollToBottom below since we handle it in the .then
-
-      case 'show_panel': {
-        // Plugin command: open the panel in the bottom drawer
-        const panelId = data?.panelId as string | undefined;
-        if (panelId && currentProject?.id) {
-          setDrawerOpen(currentProject.id, true);
-          setBottomPanelTab(panelId);
-        }
-        break;
-      }
-
-      default:
-        addMessage(sessionId, {
-          id: crypto.randomUUID(),
-          sessionId,
-          role: 'system',
-          content: `Command ${cmdName} executed.`,
-          createdAt: Date.now(),
-        });
-    }
-
-    // Scroll to bottom after command output
-    setTimeout(() => scrollToBottom(), 100);
-  }, [sessionId, clearMessages, addMessage, scrollToBottom, providerId, currentProject?.rootPath, commandsCacheKey, currentProject?.id, setDrawerOpen, setBottomPanelTab]);
-
-  const handleWorktreeChange = useCallback(async (worktreePath: string) => {
-    if (isForcedPlanSession) {
-      throw new Error('Worktree switching is locked during Supervisor planning mode.');
-    }
-    // 乐观更新 projectStore（立即反映在 UI）
-    useProjectStore.getState().updateSession(sessionId, {
-      workingDirectory: worktreePath || undefined,
-    });
-    // 持久化到 DB
-    try {
-      await api.updateSessionWorkingDirectory(sessionId, worktreePath);
-    } catch (err) {
-      console.error('[Worktree] Failed to persist working directory:', err);
-    }
-  }, [isForcedPlanSession, sessionId]);
-
-  const handleResetProviderSession = useCallback(async () => {
-    try {
-      await api.resetSessionSdkSession(sessionId);
-      addMessage(sessionId, {
-        id: crypto.randomUUID(),
-        sessionId,
-        role: 'system',
-        content: 'Underlying CLI session reset. The next message will start a new provider-side session.',
-        createdAt: Date.now(),
-      });
-      setTimeout(() => scrollToBottom(), 100);
-    } catch (err) {
-      addMessage(sessionId, {
-        id: crypto.randomUUID(),
-        sessionId,
-        role: 'system',
-        content: `Failed to reset CLI session: ${(err as Error).message}`,
-        createdAt: Date.now(),
-      });
-      setTimeout(() => scrollToBottom(), 100);
-    }
-  }, [addMessage, scrollToBottom, sessionId]);
-
   const clearInterruptedStatus = useCallback(async () => {
     if (currentSession?.lastRunStatus !== 'interrupted') return;
 
@@ -1205,365 +601,43 @@ export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar }:
     wsSendMessage(runStartMsg);
   }, [clearInterruptedStatus, wsSendMessage]);
 
-  const handleCommand = useCallback(async (command: string, args: string) => {
-    // Find the command definition to check its source
-    const commandDef = commands.find(c => c.command === command);
+  const { handleCommand, handleResetProviderSession, handleWorktreeChange } = useCommandHandler({
+    sessionId,
+    commands,
+    currentSession,
+    currentProject,
+    isForcedPlanSession,
+    mode,
+    modelOverride,
+    addMessage,
+    clearMessages,
+    scrollToBottom,
+    startRun,
+    providerId,
+    commandsCacheKey,
+    setDrawerOpen,
+    setBottomPanelTab,
+  });
 
-    // Handle /help locally with dynamic command list
-    if (command === '/help') {
-      const grouped: Record<string, typeof commands> = {};
-      for (const cmd of commands) {
-        const label = cmd.source === 'local' ? 'Built-in Commands'
-          : cmd.source === 'provider' ? 'Provider Commands'
-          : cmd.source === 'custom' ? 'Custom Commands'
-          : cmd.source === 'plugin' ? 'Plugin Commands'
-          : 'Other Commands';
-        (grouped[label] ||= []).push(cmd);
-      }
-      const sections = Object.entries(grouped)
-        .map(([label, cmds]) =>
-          `**${label}:**\n\n${cmds.map(c => `- \`${c.command}\` — ${c.description}`).join('\n')}`
-        )
-        .join('\n\n');
-      addMessage(sessionId, {
-        id: crypto.randomUUID(),
-        sessionId,
-        role: 'system',
-        content: sections,
-        createdAt: Date.now(),
-      });
-      return;
-    }
-
-    // Handle /worktree locally — view or switch
-    if (command === '/worktree') {
-      if (isForcedPlanSession) {
-        addMessage(sessionId, {
-          id: crypto.randomUUID(),
-          sessionId,
-          role: 'system',
-          content: 'Worktree is locked during Supervisor planning mode.',
-          createdAt: Date.now(),
-        });
-        setTimeout(() => scrollToBottom(), 100);
-        return;
-      }
-      const trimmedArgs = args.trim();
-      if (!trimmedArgs) {
-        const current = currentSession?.workingDirectory || currentProject?.rootPath || '(unknown)';
-        addMessage(sessionId, {
-          id: crypto.randomUUID(),
-          sessionId,
-          role: 'system',
-          content: `Current worktree: \`${current}\`\n\n**Usage:**\n- \`/worktree <path>\` — switch to an existing worktree path\n- \`/worktree reset\` — reset to project root\n- \`/create-worktree [branch] [path]\` — create a new worktree`,
-          createdAt: Date.now(),
-        });
-      } else if (trimmedArgs === 'reset') {
-        await handleWorktreeChange('');
-        addMessage(sessionId, {
-          id: crypto.randomUUID(),
-          sessionId,
-          role: 'system',
-          content: 'Worktree reset to project root.',
-          createdAt: Date.now(),
-        });
-      } else {
-        try {
-          await handleWorktreeChange(trimmedArgs);
-          addMessage(sessionId, {
-            id: crypto.randomUUID(),
-            sessionId,
-            role: 'system',
-            content: `Worktree set to: \`${trimmedArgs}\``,
-            createdAt: Date.now(),
-          });
-        } catch (err) {
-          addMessage(sessionId, {
-            id: crypto.randomUUID(),
-            sessionId,
-            role: 'system',
-            content: `Failed to set worktree: ${(err as Error).message}`,
-            createdAt: Date.now(),
-          });
-        }
-      }
-      setTimeout(() => scrollToBottom(), 100);
-      return;
-    }
-
-    // Handle /new-cli-session (alias /reset-cli-session) locally.
-    // Keeps app session/messages, but forces next run to start a fresh provider-side SDK/CLI session.
-    if (command === '/new-cli-session' || command === '/reset-cli-session') {
-      try {
-        await api.resetSessionSdkSession(sessionId);
-        addMessage(sessionId, {
-          id: crypto.randomUUID(),
-          sessionId,
-          role: 'system',
-          content: 'Underlying CLI session reset. The next message will start a new provider-side session.',
-          createdAt: Date.now(),
-        });
-      } catch (err) {
-        addMessage(sessionId, {
-          id: crypto.randomUUID(),
-          sessionId,
-          role: 'system',
-          content: `Failed to reset CLI session: ${(err as Error).message}`,
-          createdAt: Date.now(),
-        });
-      }
-      setTimeout(() => scrollToBottom(), 100);
-      return;
-    }
-
-    // ── Supervisor commands (only in main supervisor session) ──
-    if (currentSession?.projectRole === 'main' && currentProject?.id) {
-      if (command === '/create-task') {
-        const title = args.trim();
-        if (!title) {
-          addMessage(sessionId, {
-            id: crypto.randomUUID(), sessionId, role: 'system',
-            content: 'Usage: `/create-task <title>` — create a new supervision task',
-            createdAt: Date.now(),
-          });
-          setTimeout(() => scrollToBottom(), 100);
-          return;
-        }
-        try {
-          const task = await api.createSupervisionTask(currentProject.id, {
-            title,
-            description: '',
-          });
-          addMessage(sessionId, {
-            id: crypto.randomUUID(), sessionId, role: 'system',
-            content: `Task created: **${task.title}** (${task.status})`,
-            createdAt: Date.now(),
-          });
-          // Refresh task list in the card strip (no session created yet)
-          useSupervisionStore.getState().upsertTask(currentProject.id, task);
-        } catch (err) {
-          addMessage(sessionId, {
-            id: crypto.randomUUID(), sessionId, role: 'system',
-            content: `Failed to create task: ${(err as Error).message}`,
-            createdAt: Date.now(),
-          });
-        }
-        setTimeout(() => scrollToBottom(), 100);
-        return;
-      }
-
-      if (command === '/status') {
-        try {
-          const tasks = await api.getSupervisionTasks(currentProject.id);
-          const agentData = await api.getSupervisionAgent(currentProject.id);
-          const lines: string[] = [];
-          lines.push(`**Agent**: ${agentData?.phase ?? 'unknown'} | Trust: ${agentData?.config.trustLevel ?? '?'} | Concurrent: ${agentData?.config.maxConcurrentTasks ?? '?'}`);
-          if (tasks.length === 0) {
-            lines.push('\nNo tasks yet. Use `/create-task <title>` to add one.');
-          } else {
-            const grouped: Record<string, typeof tasks> = {};
-            for (const t of tasks) {
-              (grouped[t.status] ??= []).push(t);
-            }
-            for (const [status, items] of Object.entries(grouped)) {
-              lines.push(`\n**${status}** (${items.length})`);
-              for (const t of items) {
-                lines.push(`- ${t.title}${t.priority > 0 ? ` [P${t.priority}]` : ''}`);
-              }
-            }
-          }
-          addMessage(sessionId, {
-            id: crypto.randomUUID(), sessionId, role: 'system',
-            content: lines.join('\n'),
-            createdAt: Date.now(),
-          });
-        } catch (err) {
-          addMessage(sessionId, {
-            id: crypto.randomUUID(), sessionId, role: 'system',
-            content: `Failed to get status: ${(err as Error).message}`,
-            createdAt: Date.now(),
-          });
-        }
-        setTimeout(() => scrollToBottom(), 100);
-        return;
-      }
-
-      if (command === '/pause') {
-        try {
-          await api.updateSupervisionAgentAction(currentProject.id, 'pause');
-          addMessage(sessionId, {
-            id: crypto.randomUUID(), sessionId, role: 'system',
-            content: 'Supervision agent paused.',
-            createdAt: Date.now(),
-          });
-        } catch (err) {
-          addMessage(sessionId, {
-            id: crypto.randomUUID(), sessionId, role: 'system',
-            content: `Failed to pause: ${(err as Error).message}`,
-            createdAt: Date.now(),
-          });
-        }
-        setTimeout(() => scrollToBottom(), 100);
-        return;
-      }
-
-      if (command === '/resume') {
-        try {
-          await api.updateSupervisionAgentAction(currentProject.id, 'resume');
-          addMessage(sessionId, {
-            id: crypto.randomUUID(), sessionId, role: 'system',
-            content: 'Supervision agent resumed.',
-            createdAt: Date.now(),
-          });
-        } catch (err) {
-          addMessage(sessionId, {
-            id: crypto.randomUUID(), sessionId, role: 'system',
-            content: `Failed to resume: ${(err as Error).message}`,
-            createdAt: Date.now(),
-          });
-        }
-        setTimeout(() => scrollToBottom(), 100);
-        return;
-      }
-    }
-
-    // Handle /create-worktree locally — create a new worktree and switch to it
-    if (command === '/create-worktree') {
-      if (isForcedPlanSession) {
-        addMessage(sessionId, {
-          id: crypto.randomUUID(),
-          sessionId,
-          role: 'system',
-          content: 'Worktree is locked during Supervisor planning mode.',
-          createdAt: Date.now(),
-        });
-        setTimeout(() => scrollToBottom(), 100);
-        return;
-      }
-      if (!currentProject?.id) {
-        addMessage(sessionId, {
-          id: crypto.randomUUID(),
-          sessionId,
-          role: 'system',
-          content: 'No project associated with this session.',
-          createdAt: Date.now(),
-        });
-        setTimeout(() => scrollToBottom(), 100);
-        return;
-      }
-      const parts = args.trim().split(/\s+/).filter(Boolean);
-      const branch = parts[0]; // optional — auto-generated if omitted
-      const wtPath = parts[1]; // optional
-      try {
-        const wt = await api.createProjectWorktree(currentProject.id, branch || '', wtPath);
-        await handleWorktreeChange(wt.path);
-        addMessage(sessionId, {
-          id: crypto.randomUUID(),
-          sessionId,
-          role: 'system',
-          content: `Worktree created and activated:\n- **Branch:** \`${wt.branch}\`\n- **Path:** \`${wt.path}\``,
-          createdAt: Date.now(),
-        });
-      } catch (err) {
-        addMessage(sessionId, {
-          id: crypto.randomUUID(),
-          sessionId,
-          role: 'system',
-          content: `Failed to create worktree: ${(err as Error).message}`,
-          createdAt: Date.now(),
-        });
-      }
-      setTimeout(() => scrollToBottom(), 100);
-      return;
-    }
-
-    // Provider commands should be passed directly to Claude SDK (they are Claude CLI built-ins).
-    // Also treat all unrecognized commands (no matching commandDef) as pass-through to Claude,
-    // since the input may not be an actual command (e.g. a path like /some/file/path).
-    // Plugin commands (source === 'plugin') fall through to api.executeCommand() instead.
-    if (commandDef?.source === 'provider' || !commandDef) {
-      const commandText = args ? `${command} ${args}` : command;
-      const clientMessageId = crypto.randomUUID();
-      addMessage(sessionId, {
-        id: clientMessageId,
-        clientMessageId,
-        sessionId,
-        role: 'user',
-        content: commandText,
-        createdAt: Date.now(),
-      });
-
-      await startRun({
-        type: 'run_start',
-        clientRequestId: clientMessageId,
-        sessionId,
-        input: commandText,
-        mode: mode || undefined,
-        model: modelOverride || undefined,
-        workingDirectory: currentSession?.workingDirectory || undefined,
-      });
-      return;
-    }
-
-    // Parse args into array
-    const argsArray = args.trim() ? args.trim().split(/\s+/) : [];
-
-    // Build context for command execution
-    const context = {
-      projectPath: currentProject?.rootPath,
-      projectName: currentProject?.name,
-      sessionId,
-      provider: currentSession?.providerId || currentProject?.providerId || 'claude',
-      model: modelOverride || 'default'
-    };
-
-    try {
-      // First, try to execute via the commands API
-      const result = await api.executeCommand({
-        commandName: command,
-        commandPath: commandDef?.filePath,
-        args: argsArray,
-        context,
-      });
-
-      if (result.type === 'builtin') {
-        // Handle built-in command locally
-        handleBuiltInCommand(result);
-      } else if (result.type === 'custom' && result.content) {
-        // Custom command - send processed content to Claude
-        const clientMessageId = crypto.randomUUID();
-        addMessage(sessionId, {
-          id: clientMessageId,
-          clientMessageId,
-          sessionId,
-          role: 'user',
-          content: `${command} ${args}`.trim(),
-          createdAt: Date.now(),
-        });
-
-        await startRun({
-          type: 'run_start',
-          clientRequestId: clientMessageId,
-          sessionId,
-          input: result.content,
-          mode: mode || undefined,
-          model: modelOverride || undefined,
-          workingDirectory: currentSession?.workingDirectory || undefined,
-        });
-      }
-    } catch (error) {
-      console.error('Command execution error:', error);
-
-      // Unknown command error
-      addMessage(sessionId, {
-        id: crypto.randomUUID(),
-        sessionId,
-        role: 'system',
-        content: `Failed to execute command: ${error instanceof Error ? error.message : 'Unknown error'}`,
-        createdAt: Date.now(),
-      });
-    }
-  }, [sessionId, addMessage, commands, currentSession, currentProject, handleBuiltInCommand, handleWorktreeChange, scrollToBottom, mode, modelOverride, isForcedPlanSession, startRun]);
+  const {
+    taskPlanStatus,
+    planStatusLoading,
+    submitPlanLoading,
+    discardPlanLoading,
+    handleRestorePlan,
+    handleDiscardPlan,
+    handleSubmitPlan,
+  } = usePlanStatus({
+    sessionId,
+    isConnected,
+    isForcedPlanSession,
+    currentSession,
+    currentProjectId: currentProject?.id,
+    messagesLength: sessionMessages.length,
+    addMessage,
+    scrollToBottom,
+    handleSendMessage,
+  });
 
   const handleCancelRun = () => {
     // Restore last sent message to input
@@ -1602,128 +676,22 @@ export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar }:
   };
 
   // Session action bar handlers
-  const handleSessionRename = async () => {
-    const newName = renameValue.trim();
-    setIsRenamingSession(false);
-    if (!newName || !isConnected) return;
-    try {
-      await api.updateSession(sessionId, { name: newName });
-      useProjectStore.getState().updateSession(sessionId, { name: newName });
-    } catch (error) {
-      console.error('Failed to rename session:', error);
-    }
-  };
-
-  const handleExportSession = async () => {
-    try {
-      const { markdown, sessionName } = await api.exportSession(sessionId);
-      const blob = new Blob([markdown], { type: 'text/markdown' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `${sessionName.replace(/[^a-zA-Z0-9\u4e00-\u9fa5]/g, '_')}.md`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-    } catch (error) {
-      console.error('Failed to export session:', error);
-    }
-  };
-
-  const handleArchiveSession = async () => {
-    if (!isConnected) return;
-    try {
-      await api.archiveSessions([sessionId]);
-      useProjectStore.getState().deleteSession(sessionId);
-    } catch (error) {
-      console.error('Failed to archive session:', error);
-    }
-  };
-
-  const handlePopOut = async () => {
-    if (!isDesktopTauri) return;
-    try {
-      const { WebviewWindow } = await import('@tauri-apps/api/webviewWindow');
-
-      const label = `session-chat-${Date.now()}`;
-      const serverUrl = getBaseUrl();
-      const authToken = (getAuthHeaders() as Record<string, string>)['Authorization'] || '';
-
-      const activeServer = useServerStore.getState().getActiveServer();
-      const serverName = activeServer?.name || '';
-      const gatewayState = useGatewayStore.getState();
-
-      const urlParams = new URLSearchParams({
-        sessionWindow: sessionId,
-        projectId: currentSession?.projectId || '',
-        serverUrl,
-        authToken,
-        ...(activeServerId ? { serverId: activeServerId } : {}),
-        ...(serverName ? { serverName } : {}),
-      });
-      if (isGatewayTarget(activeServerId) && gatewayState.gatewayUrl && gatewayState.gatewaySecret) {
-        urlParams.set('gatewayUrl', gatewayState.gatewayUrl);
-        urlParams.set('gatewaySecret', gatewayState.gatewaySecret);
-      }
-
-      const winUrl = `${window.location.origin}${window.location.pathname}?${urlParams}`;
-
-      // Build descriptive title: "SessionName — ServerName · ProjectName"
-      const sessionName = currentSession?.name || 'Session';
-      const projectName = currentProject?.name || '';
-      const titleParts = [sessionName];
-      const contextParts = [serverName, projectName].filter(Boolean);
-      if (contextParts.length > 0) titleParts.push(contextParts.join(' · '));
-      const title = titleParts.join(' — ');
-
-      new WebviewWindow(label, {
-        url: winUrl,
-        title,
-        width: 900,
-        height: 700,
-        center: true,
-        dragDropEnabled: false,
-      });
-
-      addPoppedOutSession(sessionId, label);
-
-      // When the standalone window closes, remove the popped-out state
-      const win = await WebviewWindow.getByLabel(label);
-      if (win) {
-        const unlisten = await win.onCloseRequested(() => {
-          removePoppedOutSession(sessionId);
-          unlisten();
-        });
-      }
-    } catch (err) {
-      console.error('[ChatInterface] Pop out failed:', err);
-    }
-  };
-
-  const handleFocusPoppedOutWindow = async (windowLabel: string) => {
-    if (!isDesktopTauri) return;
-    try {
-      const { invoke } = await import('@tauri-apps/api/core');
-      await invoke('focus_window', { label: windowLabel });
-    } catch (err) {
-      console.error('[ChatInterface] Focus popped-out window failed:', err);
-    }
-  };
-
-  const handleBringBackHere = async (windowLabel: string) => {
-    if (!isDesktopTauri) {
-      removePoppedOutSession(sessionId);
-      return;
-    }
-    try {
-      const { invoke } = await import('@tauri-apps/api/core');
-      await invoke('close_window', { label: windowLabel });
-    } catch (err) {
-      console.error('[ChatInterface] Close popped-out window failed:', err);
-    }
-    removePoppedOutSession(sessionId);
-  };
+  const {
+    handleSessionRename,
+    handleExportSession,
+    handleArchiveSession,
+    handlePopOut,
+    handleFocusPoppedOutWindow,
+    handleBringBackHere,
+  } = useSessionActions({
+    sessionId,
+    isConnected,
+    currentSession,
+    currentProject,
+    activeServerId,
+    renameValue,
+    setIsRenamingSession,
+  });
 
   const poppedOutLabel = poppedOutSessions.get(sessionId);
 
@@ -1797,161 +765,27 @@ export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar }:
 
       {/* Session action bar */}
       {currentSession && (
-        <div className="flex min-h-[48px] items-center gap-2.5 px-3 py-0 sm:min-h-[36px] sm:px-3.5 sm:py-0 border-b border-border bg-card safe-top-pad">
-          {/* Mobile: hamburger menu */}
-          {isMobile && onOpenSidebar && (
-            <button
-              onClick={onOpenSidebar}
-              className="flex h-8 w-8 -ml-1 items-center justify-center rounded hover:bg-secondary text-muted-foreground hover:text-foreground flex-shrink-0"
-              aria-label="Open menu"
-            >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
-              </svg>
-            </button>
-          )}
-          {/* Back button for background sessions */}
-          {currentSession.type === 'background' && onReturnToDashboard && currentSession.projectId && (
-            <button
-              onClick={() => onReturnToDashboard(currentSession.projectId)}
-              className="flex h-8 w-8 items-center justify-center rounded hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors shrink-0"
-              title="Back to dashboard"
-            >
-              <ArrowLeft size={14} />
-            </button>
-          )}
-          {/* Session name — click to rename (disabled for background sessions) */}
-          {currentSession.type === 'background' ? (
-            <div className="flex flex-1 min-w-0 items-center self-stretch">
-              <span className="flex min-w-0 items-center truncate text-[13px] font-semibold leading-none text-foreground">
-                {currentSession.name || 'Untitled Session'}
-              </span>
-            </div>
-          ) : isRenamingSession ? (
-            <input
-              autoFocus
-              type="text"
-              value={renameValue}
-              onChange={(e) => setRenameValue(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') handleSessionRename();
-                if (e.key === 'Escape') setIsRenamingSession(false);
-              }}
-              onBlur={handleSessionRename}
-              className="flex-1 min-w-0 px-2 py-0 text-[13px] font-semibold leading-none bg-muted/60 border-0 rounded-lg shadow-apple-sm focus:ring-1 focus:ring-primary/50 focus:outline-none text-foreground"
-            />
-          ) : (
-            <div className="flex flex-1 min-w-0 items-center self-stretch">
-              <button
-                onClick={() => {
-                  setRenameValue(currentSession.name || '');
-                  setIsRenamingSession(true);
-                }}
-                className="flex h-full w-full min-w-0 items-center truncate text-left text-[13px] font-semibold leading-none text-foreground hover:text-primary transition-colors"
-                title="Click to rename"
-              >
-                {currentSession.name || 'Untitled Session'}
-              </button>
-            </div>
-          )}
-          <div className="hidden sm:flex min-w-0 shrink-0 items-center gap-1.5 text-[9px] leading-none text-muted-foreground">
-            <span className="uppercase leading-none tracking-[0.16em] text-muted-foreground/70">Session</span>
-            {(() => {
-              const pid = currentSession.providerId || currentProject?.providerId;
-              const prov = pid ? providers.find(p => p.id === pid) : undefined;
-              const name = prov?.name || prov?.type || 'Claude';
-              return (
-                <span className="inline-flex h-4 items-center rounded-full border border-border/70 bg-muted/45 px-1.5 text-[9px] font-medium leading-none text-muted-foreground">
-                  {name}
-                </span>
-              );
-            })()}
-          </div>
-          {/* Actions (hidden for background sessions) */}
-          {currentSession.type !== 'background' && (
-            <>
-              {/* Desktop: show all buttons inline */}
-              {!isMobile && (
-                <div className="flex items-center gap-1.5 shrink-0">
-                  <div className="flex items-center gap-0.5 rounded-xl border border-border/70 bg-background/85 p-px shadow-sm">
-                    <button
-                      onClick={handleResetProviderSession}
-                      disabled={isLoading}
-                      className={`p-0.5 rounded-md transition-colors ${isLoading ? 'opacity-50 cursor-not-allowed text-muted-foreground' : 'hover:bg-secondary text-muted-foreground hover:text-foreground'}`}
-                      title="Reset underlying provider session"
-                    >
-                      <RotateCcw size={12} />
-                    </button>
-                    <button
-                      onClick={handleExportSession}
-                      className="p-0.5 rounded-md hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors"
-                      title="Export as Markdown"
-                    >
-                      <Download size={12} />
-                    </button>
-                    {isDesktopTauri && !isStandaloneSessionWindow && (
-                      <button
-                        onClick={handlePopOut}
-                        className="p-0.5 rounded-md hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors"
-                        title="Open in new window"
-                      >
-                        <ExternalLink size={12} />
-                      </button>
-                    )}
-                  </div>
-                  <button
-                    onClick={handleArchiveSession}
-                    className="p-0.5 rounded-lg border border-transparent text-muted-foreground transition-colors hover:bg-destructive/8 hover:text-destructive"
-                    title="Archive session"
-                  >
-                    <Archive size={12} />
-                  </button>
-                </div>
-              )}
-              {/* Mobile: collapse actions into "..." dropdown */}
-              {isMobile && (
-                <div className="relative shrink-0">
-                  <button
-                    onClick={() => setShowSessionMenu(!showSessionMenu)}
-                    className="flex h-8 w-8 items-center justify-center rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
-                    title="Session actions"
-                  >
-                    <MoreHorizontal size={16} strokeWidth={1.75} />
-                  </button>
-                  {showSessionMenu && (
-                    <>
-                      <div className="fixed inset-0 z-[70]" onClick={() => setShowSessionMenu(false)} />
-                      <div className="fixed right-3 top-[calc(env(safe-area-inset-top,0px)+42px)] z-[80] min-w-[180px] overflow-hidden rounded-xl border border-border/80 bg-card shadow-2xl">
-                        <button
-                          onClick={() => { handleResetProviderSession(); setShowSessionMenu(false); }}
-                          disabled={isLoading}
-                          className="w-full text-left px-3 py-2 text-sm flex items-center gap-2 text-foreground hover:bg-muted disabled:opacity-50"
-                        >
-                          <RotateCcw size={14} />
-                          Reset Session
-                        </button>
-                        <button
-                          onClick={() => { handleExportSession(); setShowSessionMenu(false); }}
-                          className="w-full text-left px-3 py-2 text-sm flex items-center gap-2 text-foreground hover:bg-muted"
-                        >
-                          <Download size={14} />
-                          Export Markdown
-                        </button>
-                        <button
-                          onClick={() => { handleArchiveSession(); setShowSessionMenu(false); }}
-                          className="w-full text-left px-3 py-2 text-sm flex items-center gap-2 text-foreground hover:bg-muted"
-                        >
-                          <Archive size={14} />
-                          Archive
-                        </button>
-                      </div>
-                    </>
-                  )}
-                </div>
-              )}
-            </>
-          )}
-        </div>
+        <SessionHeader
+          currentSession={currentSession}
+          currentProject={currentProject}
+          providers={providers}
+          isMobile={isMobile}
+          isLoading={isLoading}
+          isRenamingSession={isRenamingSession}
+          renameValue={renameValue}
+          showSessionMenu={showSessionMenu}
+          onOpenSidebar={onOpenSidebar}
+          onReturnToDashboard={onReturnToDashboard}
+          onRenameStart={(name) => { setRenameValue(name); setIsRenamingSession(true); }}
+          onRenameChange={setRenameValue}
+          onRenameConfirm={handleSessionRename}
+          onRenameCancel={() => setIsRenamingSession(false)}
+          onResetProviderSession={handleResetProviderSession}
+          onExport={handleExportSession}
+          onArchive={handleArchiveSession}
+          onPopOut={handlePopOut}
+          onToggleSessionMenu={() => setShowSessionMenu(!showSessionMenu)}
+        />
       )}
 
       {/* Plan status indicator for task sessions (session-level, shown above messages) */}
@@ -1975,93 +809,21 @@ export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar }:
               {/* Restore Plan: re-read existing plan file after app restart */}
               {taskPlanStatus?.exists && !isLoading && (
                 <button
-                  onClick={() => {
-                    const taskId = currentSession?.taskId;
-                    if (!taskId) return;
-                    handleSendMessage(`Please read the existing plan document at \`.supervision/plans/task-${taskId}.plan.md\` and summarize it. Then ask me whether I'd like to:\n1. Submit the plan and start implementation\n2. Continue refining the plan`);
-                  }}
+                  onClick={handleRestorePlan}
                   className="px-3 py-1.5 rounded-md text-xs border border-blue-500/40 text-blue-500 hover:bg-blue-500/10 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   Restore Plan
                 </button>
               )}
               <button
-                onClick={async () => {
-                  const taskId = currentSession?.taskId;
-                  if (!taskId || discardPlanLoading) return;
-                  const ok = window.confirm('Discard current plan and cancel this task?');
-                  if (!ok) return;
-                  try {
-                    setDiscardPlanLoading(true);
-                    const task = await api.cancelTask(taskId);
-                    if (currentProject?.id) {
-                      useSupervisionStore.getState().upsertTask(currentProject.id, task);
-                    }
-                    useProjectStore.getState().updateSession(sessionId, {
-                      isReadOnly: false,
-                      planStatus: undefined,
-                    });
-                    addMessage(sessionId, {
-                      id: crypto.randomUUID(),
-                      sessionId,
-                      role: 'system',
-                      content: 'Plan discarded. Task has been cancelled.',
-                      createdAt: Date.now(),
-                    });
-                    setTimeout(() => scrollToBottom(), 100);
-                  } catch (err) {
-                    addMessage(sessionId, {
-                      id: crypto.randomUUID(),
-                      sessionId,
-                      role: 'system',
-                      content: `Failed to discard plan: ${(err as Error).message}`,
-                      createdAt: Date.now(),
-                    });
-                    setTimeout(() => scrollToBottom(), 100);
-                  } finally {
-                    setDiscardPlanLoading(false);
-                  }
-                }}
+                onClick={handleDiscardPlan}
                 disabled={discardPlanLoading || submitPlanLoading || isLoading}
                 className="px-3 py-1.5 rounded-md text-xs border border-destructive/40 text-destructive hover:bg-destructive/10 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {discardPlanLoading ? 'Discarding...' : 'Discard Plan'}
               </button>
               <button
-                onClick={async () => {
-                  const taskId = currentSession?.taskId;
-                  if (!taskId || submitPlanLoading) return;
-                  try {
-                    setSubmitPlanLoading(true);
-                    const result = await api.submitTaskPlan(taskId);
-                    useProjectStore.getState().updateSession(sessionId, {
-                      isReadOnly: true,
-                      planStatus: 'planned',
-                    });
-                    if (currentProject?.id) {
-                      useSupervisionStore.getState().upsertTask(currentProject.id, result.task);
-                    }
-                    addMessage(sessionId, {
-                      id: crypto.randomUUID(),
-                      sessionId,
-                      role: 'system',
-                      content: 'Plan submitted to Supervisor. Waiting for execution.',
-                      createdAt: Date.now(),
-                    });
-                    setTimeout(() => scrollToBottom(), 100);
-                  } catch (err) {
-                    addMessage(sessionId, {
-                      id: crypto.randomUUID(),
-                      sessionId,
-                      role: 'system',
-                      content: `Failed to submit plan: ${(err as Error).message}`,
-                      createdAt: Date.now(),
-                    });
-                    setTimeout(() => scrollToBottom(), 100);
-                  } finally {
-                    setSubmitPlanLoading(false);
-                  }
-                }}
+                onClick={handleSubmitPlan}
                 disabled={!taskPlanStatus?.ready || submitPlanLoading || discardPlanLoading || isLoading}
                 className="px-3 py-1.5 rounded-md text-xs bg-primary text-primary-foreground disabled:bg-muted disabled:text-muted-foreground disabled:cursor-not-allowed"
               >
@@ -2116,7 +878,7 @@ export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar }:
             <AlertTriangle size={40} strokeWidth={1.5} className="text-muted-foreground/40 mb-3" />
             <p className="text-sm text-muted-foreground mb-1">{loadError}</p>
             <button
-              onClick={() => { setLoadError(null); setInitialLoadDone(false); loadMessages(); }}
+              onClick={retryLoad}
               className="mt-2 px-3 py-1.5 text-xs font-medium text-primary hover:text-primary/80 bg-primary/10 hover:bg-primary/15 rounded transition-colors"
             >
               Retry
@@ -2247,292 +1009,38 @@ export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar }:
         </div>
       )}
 
-      {/* Input — read-only mode for task sessions or normal input */}
-      {currentSession?.isReadOnly ? (
-        <div className="border-t border-border p-3 md:p-4 safe-bottom-pad flex-shrink-0">
-          <div className="flex items-center justify-between gap-3 px-3 py-2.5 bg-secondary/50 border border-border rounded-lg">
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <Lock size={14} />
-              <span>
-                {currentSession.type === 'background'
-                  ? 'Background session — read-only'
-                  : currentSession.planStatus === 'planned'
-                  ? 'Plan submitted — waiting for Supervisor to execute'
-                  : currentSession.planStatus === 'executing'
-                  ? 'Task executing — controlled by Supervisor'
-                  : 'This session is read-only'}
-              </span>
-            </div>
-            {currentSession.type === 'background' ? (
-              isLoading && sessionRunId ? (
-                <button
-                  onClick={handleCancelRun}
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-destructive/10 text-destructive hover:bg-destructive/20 rounded-md transition-colors"
-                >
-                  <X size={14} />
-                  Cancel
-                </button>
-              ) : null
-            ) : (
-              <button
-                onClick={async () => {
-                  try {
-                    const updated = await api.unlockSession(sessionId);
-                    useProjectStore.getState().updateSession(sessionId, {
-                      isReadOnly: updated.isReadOnly,
-                      planStatus: updated.planStatus,
-                    });
-                  } catch (err) {
-                    console.error('Failed to unlock session:', err);
-                  }
-                }}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-primary/10 text-primary hover:bg-primary/20 rounded-md transition-colors"
-              >
-                <Unlock size={14} />
-                Unlock
-              </button>
-            )}
-          </div>
-        </div>
-      ) : (
-        <div className="border-t border-border p-2 pb-3 md:p-4 safe-bottom-pad overflow-visible flex-shrink-0">
-          {/* Toolbar */}
-          <div className="mb-1.5 md:mb-2 flex items-center gap-1 md:gap-2">
-            <ModeSelector
-              capabilities={capabilities}
-              value={isForcedPlanSession ? 'plan' : mode}
-              onChange={(modeId: string) => {
-                if (isForcedPlanSession) return;
-                setMode(sessionId, modeId);
-              }}
-              disabled={isLoading}
-              locked={isForcedPlanSession}
-              lockReason={isForcedPlanSession ? 'Locked by Supervisor planning mode' : undefined}
-            />
-            <ModelSelector
-              capabilities={capabilities}
-              value={modelOverride}
-              onChange={(model: string) => setModelOverride(sessionId, model)}
-              disabled={isLoading}
-            />
-            <PermissionSelector
-              value={permissionOverride}
-              onChange={(policy) => setPermissionOverride(sessionId, policy)}
-              projectPolicy={(currentProject?.agentPermissionOverride as AgentPermissionPolicy) ?? null}
-              disabled={isLoading}
-            />
-            {currentProject?.id && currentProject?.rootPath && (
-              <WorktreeSelector
-                projectId={currentProject.id}
-                projectRootPath={currentProject.rootPath}
-                currentWorktree={currentSession?.workingDirectory || ''}
-                onChange={handleWorktreeChange}
-                disabled={isLoading}
-                locked={isForcedPlanSession}
-                lockReason={isForcedPlanSession ? 'Locked by Supervisor planning mode' : undefined}
-              />
-            )}
-            {/* Hidden on mobile - can tap to view details */}
-            <div className="hidden md:block">
-              <TokenUsageDisplay
-                latestInputTokens={currentUsage.latestInputTokens}
-                latestOutputTokens={currentUsage.latestOutputTokens}
-                inputTokens={currentUsage.inputTokens}
-                outputTokens={currentUsage.outputTokens}
-                contextWindow={currentUsage.contextWindow}
-              />
-            </div>
-            <div className="flex-1 min-w-[8px]" />
-            {/* Desktop: Draft button */}
-            {!isMobile && !disabledBuiltinPanels.includes('draft') && (() => {
-              const isActive = bottomPanelTab === 'draft';
-              return (
-                <button
-                  onClick={() => {
-                    if (isActive) {
-                      useDraftEditorStore.getState().closeEditor();
-                    } else {
-                      setSendCallback((content: string) => handleSendMessage(content));
-                      openDraftEditor(sessionId);
-                    }
-                  }}
-                  className={`p-1.5 rounded hover:bg-secondary relative ${isActive ? 'text-primary' : 'text-muted-foreground hover:text-foreground'}`}
-                  title={isActive ? 'Close draft editor' : 'Open draft editor'}
-                >
-                  <FileEdit size={16} strokeWidth={1.75} />
-                  {draftExists && !isActive && (
-                    <span className="absolute top-0 right-0 w-2 h-2 bg-primary rounded-full" />
-                  )}
-                </button>
-              );
-            })()}
-            {/* Desktop: show buttons directly */}
-            {!isMobile && currentProject?.rootPath && !disabledBuiltinPanels.includes('file-viewer') && (
-              <button
-                onClick={() => {
-                  if (fileViewerOpen && bottomPanelTab === 'file-viewer') {
-                    useFileViewerStore.getState().close();
-                  } else if (fileViewerOpen) {
-                    setBottomPanelTab('file-viewer');
-                  } else {
-                    const store = useFileViewerStore.getState();
-                    store.togglePanel();
-                    store.setSearchOpen(true);
-                    setBottomPanelTab('file-viewer');
-                  }
-                }}
-                className={`p-1.5 rounded hover:bg-secondary ${fileViewerOpen && bottomPanelTab === 'file-viewer' ? 'text-primary' : 'text-muted-foreground hover:text-foreground'}`}
-                title={fileViewerOpen && bottomPanelTab === 'file-viewer' ? 'Close file viewer' : 'Open file viewer (Cmd+P)'}
-              >
-                <FileText size={16} strokeWidth={1.75} />
-              </button>
-            )}
-            {!isMobile && !disabledBuiltinPanels.includes('terminal') && useServerStore.getState().activeServerSupports('remoteTerminal') && currentSession?.projectId && (() => {
-              const pid = currentSession.projectId;
-              const isOpen = !!drawerOpen[pid];
-              return (
-                <button
-                  onClick={() => {
-                    if (isOpen && bottomPanelTab === 'terminal') {
-                      setDrawerOpen(pid, false);
-                    } else if (isOpen) {
-                      setBottomPanelTab('terminal');
-                    } else {
-                      const store = useTerminalStore.getState();
-                      if (!store.terminals[pid]) {
-                        store.openTerminal(pid);
-                      }
-                      setDrawerOpen(pid, true);
-                      setBottomPanelTab('terminal');
-                    }
-                  }}
-                  className={`p-1.5 rounded hover:bg-secondary ${isOpen && bottomPanelTab === 'terminal' ? 'text-primary' : 'text-muted-foreground hover:text-foreground'}`}
-                  title={isOpen && bottomPanelTab === 'terminal' ? 'Hide terminal (Ctrl+`)' : 'Open terminal (Ctrl+`)'}
-                >
-                  <TerminalIcon size={16} strokeWidth={1.75} />
-                </button>
-              );
-            })()}
-
-
-            {!isMobile && (
-              <button
-                onClick={() => setAdvancedInput(!advancedInput)}
-                className={`p-1.5 rounded hover:bg-secondary ${advancedInput ? 'text-primary' : 'text-muted-foreground hover:text-foreground'}`}
-                title={advancedInput ? 'Normal input' : 'Advanced input (Enter to newline)'}
-              >
-                {advancedInput ? <ChevronDown size={16} strokeWidth={2} /> : <ChevronUp size={16} strokeWidth={2} />}
-              </button>
-            )}
-            <SystemInfoButton
-              systemInfo={currentSystemInfo}
-              sessionInfo={currentSession ? {
-                id: currentSession.id,
-                name: currentSession.name || undefined,
-                projectName: currentProject?.name || undefined,
-              } : null}
-            />
-          </div>
-          <MessageInput
-            key={sessionId}
-            sessionId={sessionId}
-            onSend={handleSendMessage}
-            onCancel={handleCancelRun}
-            onCommand={handleCommand}
-            commands={commands}
-            projectRoot={fileReferenceRoot}
-            disabled={!isConnected}
-            isLoading={isLoading}
-            initialValue={restoreMessage?.content ?? initialDraft}
-            initialAttachments={restoreMessage?.attachments}
-            advancedMode={advancedInput}
-            mobileToolbarSlot={isMobile ? (
-              <>
-                {!disabledBuiltinPanels.includes('draft') && (() => {
-                  const isActive = bottomPanelTab === 'draft';
-                  return (
-                    <button
-                      onClick={() => {
-                        if (isActive) {
-                          useDraftEditorStore.getState().closeEditor();
-                        } else {
-                          setSendCallback((content: string) => handleSendMessage(content));
-                          openDraftEditor(sessionId);
-                        }
-                      }}
-                      className={`h-9 w-9 flex-shrink-0 flex items-center justify-center rounded-full transition-colors relative ${isActive ? 'text-primary' : 'text-muted-foreground hover:text-foreground'}`}
-                      title={isActive ? 'Close draft editor' : 'Open draft editor'}
-                    >
-                      <FileEdit size={18} strokeWidth={1.75} />
-                      {draftExists && !isActive && (
-                        <span className="absolute top-0.5 right-0.5 w-2 h-2 bg-primary rounded-full" />
-                      )}
-                    </button>
-                  );
-                })()}
-                {currentProject?.rootPath && !disabledBuiltinPanels.includes('file-viewer') && (
-                  <button
-                    onClick={() => {
-                      if (fileViewerOpen && bottomPanelTab === 'file-viewer') {
-                        useFileViewerStore.getState().close();
-                      } else if (fileViewerOpen) {
-                        setBottomPanelTab('file-viewer');
-                      } else {
-                        const store = useFileViewerStore.getState();
-                        store.togglePanel();
-                        store.setSearchOpen(true);
-                        setBottomPanelTab('file-viewer');
-                      }
-                    }}
-                    className={`h-9 w-9 flex-shrink-0 flex items-center justify-center rounded-full transition-colors ${fileViewerOpen && bottomPanelTab === 'file-viewer' ? 'text-primary' : 'text-muted-foreground hover:text-foreground'}`}
-                    title={fileViewerOpen && bottomPanelTab === 'file-viewer' ? 'Close file viewer' : 'Open file viewer'}
-                  >
-                    <FileText size={18} strokeWidth={1.75} />
-                  </button>
-                )}
-                {!disabledBuiltinPanels.includes('terminal') && useServerStore.getState().activeServerSupports('remoteTerminal') && currentSession?.projectId && (() => {
-                  const pid = currentSession.projectId;
-                  const isOpen = !!drawerOpen[pid];
-                  return (
-                    <button
-                      onClick={() => {
-                        if (isOpen && bottomPanelTab === 'terminal') {
-                          setDrawerOpen(pid, false);
-                        } else if (isOpen) {
-                          setBottomPanelTab('terminal');
-                        } else {
-                          const store = useTerminalStore.getState();
-                          if (!store.terminals[pid]) {
-                            store.openTerminal(pid);
-                          }
-                          setDrawerOpen(pid, true);
-                          setBottomPanelTab('terminal');
-                        }
-                      }}
-                      className={`h-9 w-9 flex-shrink-0 flex items-center justify-center rounded-full transition-colors ${isOpen && bottomPanelTab === 'terminal' ? 'text-primary' : 'text-muted-foreground hover:text-foreground'}`}
-                      title={isOpen && bottomPanelTab === 'terminal' ? 'Hide terminal' : 'Open terminal'}
-                    >
-                      <TerminalIcon size={18} strokeWidth={1.75} />
-                    </button>
-                  );
-                })()}
-              </>
-            ) : undefined}
-            placeholder={
-              !isConnected
-                ? 'Connecting...'
-                : isLoading && queuedMessage
-                ? 'Message queued — waiting for response...'
-                : isLoading
-                ? 'Type next message to queue...'
-                : mode === 'plan'
-                ? 'Plan Mode: Analyze and plan (no code changes)...'
-                : advancedInput
-                ? 'Type a message... (Cmd+Enter to send)'
-                : 'Type a message... (Enter to send)'
-            }
-          />
-        </div>
+      {/* Input area */}
+      {currentSession && (
+        <ChatInputArea
+          sessionId={sessionId}
+          currentSession={currentSession}
+          currentProject={currentProject}
+          isMobile={isMobile}
+          isLoading={isLoading}
+          isConnected={isConnected}
+          isForcedPlanSession={isForcedPlanSession}
+          mode={mode}
+          modelOverride={modelOverride}
+          permissionOverride={permissionOverride}
+          capabilities={capabilities}
+          commands={commands}
+          fileReferenceRoot={fileReferenceRoot}
+          sessionRunId={sessionRunId}
+          currentUsage={currentUsage}
+          currentSystemInfo={currentSystemInfo}
+          advancedInput={advancedInput}
+          restoreMessage={restoreMessage}
+          initialDraft={initialDraft}
+          queuedMessage={queuedMessage}
+          draftExists={draftExists}
+          onSetMode={setMode}
+          onSetModelOverride={setModelOverride}
+          onSetPermissionOverride={setPermissionOverride}
+          onWorktreeChange={handleWorktreeChange}
+          onSendMessage={handleSendMessage}
+          onCancelRun={handleCancelRun}
+          onCommand={handleCommand}
+        />
       )}
       </>}
 
