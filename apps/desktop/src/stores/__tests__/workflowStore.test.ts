@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { useWorkflowStore } from '../workflowStore';
 
-vi.mock('../../services/api', () => ({
+vi.mock('../../features/workflows/api', () => ({
   listWorkflows: vi.fn(),
   createWorkflow: vi.fn(),
   updateWorkflow: vi.fn(),
@@ -31,7 +31,7 @@ import {
   approveWorkflowStep,
   rejectWorkflowStep,
   listWorkflowStepTypes,
-} from '../../services/api';
+} from '../../features/workflows/api';
 
 const mockWorkflow = (id: string, projectId = 'proj-1') => ({
   id,

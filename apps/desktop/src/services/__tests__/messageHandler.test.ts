@@ -49,28 +49,10 @@ const mockAskUserQuestionStore = {
   hasRequest: vi.fn(() => false),
 };
 
-const mockSupervisionStore = {
-  upsertTask: vi.fn(),
-  setAgent: vi.fn(),
-  setCheckpointSummary: vi.fn(),
-};
-
-const mockLocalPRStore = {
-  upsertPR: vi.fn(),
-  removePR: vi.fn(),
-};
-
-const mockScheduledTaskStore = {
-  upsertTask: vi.fn(),
-  removeTask: vi.fn(),
-};
-
-const mockWorkflowStore = {
-  upsertWorkflow: vi.fn(),
-  removeWorkflow: vi.fn(),
-  upsertRun: vi.fn(),
-  loadStepTypes: vi.fn(),
-};
+const mockHandleLocalPRMessage = vi.fn().mockReturnValue(true);
+const mockHandleWorkflowMessage = vi.fn().mockReturnValue(true);
+const mockHandleScheduledTaskMessage = vi.fn().mockReturnValue(true);
+const mockHandleSupervisionMessage = vi.fn().mockReturnValue(true);
 
 const mockSessionsStore = {
   setSessionActiveFlag: vi.fn(),
@@ -127,17 +109,17 @@ vi.mock('../../stores/permissionStore', () => ({
 vi.mock('../../stores/askUserQuestionStore', () => ({
   useAskUserQuestionStore: { getState: () => mockAskUserQuestionStore },
 }));
-vi.mock('../../stores/supervisionStore', () => ({
-  useSupervisionStore: { getState: () => mockSupervisionStore },
+vi.mock('../../features/local-pr/handlers', () => ({
+  handleLocalPRMessage: (...args: any[]) => mockHandleLocalPRMessage(...args),
 }));
-vi.mock('../../stores/localPRStore', () => ({
-  useLocalPRStore: { getState: () => mockLocalPRStore },
+vi.mock('../../features/workflows/handlers', () => ({
+  handleWorkflowMessage: (...args: any[]) => mockHandleWorkflowMessage(...args),
 }));
-vi.mock('../../stores/scheduledTaskStore', () => ({
-  useScheduledTaskStore: { getState: () => mockScheduledTaskStore },
+vi.mock('../../features/scheduled-tasks/handlers', () => ({
+  handleScheduledTaskMessage: (...args: any[]) => mockHandleScheduledTaskMessage(...args),
 }));
-vi.mock('../../stores/workflowStore', () => ({
-  useWorkflowStore: { getState: () => mockWorkflowStore },
+vi.mock('../../features/supervision/handlers', () => ({
+  handleSupervisionMessage: (...args: any[]) => mockHandleSupervisionMessage(...args),
 }));
 vi.mock('../../stores/sessionsStore', () => ({
   useSessionsStore: { getState: () => mockSessionsStore },
@@ -541,24 +523,21 @@ describe('handleServerMessage', () => {
   });
 
   it('handles supervision_task_update', () => {
-    handleServerMessage({
-      type: 'supervision_task_update', projectId: 'p1', task: { id: 'task1' },
-    }, makeCtx());
-    expect(mockSupervisionStore.upsertTask).toHaveBeenCalledWith('p1', { id: 'task1' });
+    const msg = { type: 'supervision_task_update', projectId: 'p1', task: { id: 'task1' } };
+    handleServerMessage(msg, makeCtx());
+    expect(mockHandleSupervisionMessage).toHaveBeenCalledWith(msg);
   });
 
   it('handles supervision_agent_update', () => {
-    handleServerMessage({
-      type: 'supervision_agent_update', projectId: 'p1', agent: { id: 'a1' },
-    }, makeCtx());
-    expect(mockSupervisionStore.setAgent).toHaveBeenCalledWith('p1', { id: 'a1' });
+    const msg = { type: 'supervision_agent_update', projectId: 'p1', agent: { id: 'a1' } };
+    handleServerMessage(msg, makeCtx());
+    expect(mockHandleSupervisionMessage).toHaveBeenCalledWith(msg);
   });
 
   it('handles supervision_checkpoint', () => {
-    handleServerMessage({
-      type: 'supervision_checkpoint', projectId: 'p1', summary: 'All good',
-    }, makeCtx());
-    expect(mockSupervisionStore.setCheckpointSummary).toHaveBeenCalledWith('p1', 'All good');
+    const msg = { type: 'supervision_checkpoint', projectId: 'p1', summary: 'All good' };
+    handleServerMessage(msg, makeCtx());
+    expect(mockHandleSupervisionMessage).toHaveBeenCalledWith(msg);
   });
 
   describe('sessions_created', () => {
@@ -587,45 +566,51 @@ describe('handleServerMessage', () => {
   });
 
   it('handles local_pr_update', () => {
-    handleServerMessage({ type: 'local_pr_update', projectId: 'p1', pr: { id: 'pr1' } }, makeCtx());
-    expect(mockLocalPRStore.upsertPR).toHaveBeenCalledWith('p1', { id: 'pr1' });
+    const msg = { type: 'local_pr_update', projectId: 'p1', pr: { id: 'pr1' } };
+    handleServerMessage(msg, makeCtx());
+    expect(mockHandleLocalPRMessage).toHaveBeenCalledWith(msg);
   });
 
   it('handles local_pr_deleted', () => {
-    handleServerMessage({ type: 'local_pr_deleted', projectId: 'p1', prId: 'pr1' }, makeCtx());
-    expect(mockLocalPRStore.removePR).toHaveBeenCalledWith('p1', 'pr1');
+    const msg = { type: 'local_pr_deleted', projectId: 'p1', prId: 'pr1' };
+    handleServerMessage(msg, makeCtx());
+    expect(mockHandleLocalPRMessage).toHaveBeenCalledWith(msg);
   });
 
   it('handles scheduled_task_update', () => {
-    handleServerMessage({ type: 'scheduled_task_update', projectId: 'p1', task: { id: 'st1' } }, makeCtx());
-    expect(mockScheduledTaskStore.upsertTask).toHaveBeenCalledWith('p1', { id: 'st1' });
+    const msg = { type: 'scheduled_task_update', projectId: 'p1', task: { id: 'st1' } };
+    handleServerMessage(msg, makeCtx());
+    expect(mockHandleScheduledTaskMessage).toHaveBeenCalledWith(msg);
   });
 
   it('handles scheduled_task_deleted', () => {
-    handleServerMessage({ type: 'scheduled_task_deleted', projectId: 'p1', taskId: 'st1' }, makeCtx());
-    expect(mockScheduledTaskStore.removeTask).toHaveBeenCalledWith('p1', 'st1');
+    const msg = { type: 'scheduled_task_deleted', projectId: 'p1', taskId: 'st1' };
+    handleServerMessage(msg, makeCtx());
+    expect(mockHandleScheduledTaskMessage).toHaveBeenCalledWith(msg);
   });
 
   it('handles workflow_update', () => {
-    handleServerMessage({ type: 'workflow_update', projectId: 'p1', workflow: { id: 'w1' } }, makeCtx());
-    expect(mockWorkflowStore.upsertWorkflow).toHaveBeenCalledWith('p1', { id: 'w1' });
+    const msg = { type: 'workflow_update', projectId: 'p1', workflow: { id: 'w1' } };
+    handleServerMessage(msg, makeCtx());
+    expect(mockHandleWorkflowMessage).toHaveBeenCalledWith(msg);
   });
 
   it('handles workflow_deleted', () => {
-    handleServerMessage({ type: 'workflow_deleted', projectId: 'p1', workflowId: 'w1' }, makeCtx());
-    expect(mockWorkflowStore.removeWorkflow).toHaveBeenCalledWith('p1', 'w1');
+    const msg = { type: 'workflow_deleted', projectId: 'p1', workflowId: 'w1' };
+    handleServerMessage(msg, makeCtx());
+    expect(mockHandleWorkflowMessage).toHaveBeenCalledWith(msg);
   });
 
   it('handles workflow_run_update', () => {
-    handleServerMessage({
-      type: 'workflow_run_update', projectId: 'p1', run: { id: 'wr1' }, stepRuns: [],
-    }, makeCtx());
-    expect(mockWorkflowStore.upsertRun).toHaveBeenCalledWith('p1', { id: 'wr1' }, []);
+    const msg = { type: 'workflow_run_update', projectId: 'p1', run: { id: 'wr1' }, stepRuns: [] };
+    handleServerMessage(msg, makeCtx());
+    expect(mockHandleWorkflowMessage).toHaveBeenCalledWith(msg);
   });
 
   it('handles workflow_step_types_changed', () => {
-    handleServerMessage({ type: 'workflow_step_types_changed' }, makeCtx());
-    expect(mockWorkflowStore.loadStepTypes).toHaveBeenCalled();
+    const msg = { type: 'workflow_step_types_changed' };
+    handleServerMessage(msg, makeCtx());
+    expect(mockHandleWorkflowMessage).toHaveBeenCalledWith(msg);
   });
 
   describe('state_heartbeat', () => {

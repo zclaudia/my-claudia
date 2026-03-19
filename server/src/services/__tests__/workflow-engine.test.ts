@@ -18,10 +18,10 @@ const mockSessionRepo = {
   create: vi.fn().mockReturnValue({ id: 'sess1' }),
 };
 
-vi.mock('../../repositories/workflow-run.js', () => ({
+vi.mock('../../domains/workflows/workflow-run-repository.js', () => ({
   WorkflowRunRepository: class { constructor() { Object.assign(this, mockRunRepo); } },
 }));
-vi.mock('../../repositories/workflow-step-run.js', () => ({
+vi.mock('../../domains/workflows/workflow-step-run-repository.js', () => ({
   WorkflowStepRunRepository: class { constructor() { Object.assign(this, mockStepRunRepo); } },
 }));
 vi.mock('../../repositories/project.js', () => ({

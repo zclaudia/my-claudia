@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-vi.mock('../../services/api', () => ({
+vi.mock('../../features/scheduled-tasks/api', () => ({
   listScheduledTasks: vi.fn(),
   listGlobalScheduledTasks: vi.fn(),
   createScheduledTask: vi.fn(),
@@ -21,7 +21,7 @@ import {
   triggerScheduledTask,
   listScheduledTaskTemplates,
   enableTemplateTask,
-} from '../../services/api';
+} from '../../features/scheduled-tasks/api';
 
 const makeTask = (id: string, name = 'Task') => ({
   id,

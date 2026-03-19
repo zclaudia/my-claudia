@@ -28,6 +28,7 @@ export default defineConfig({
       'src/hooks/**/*.test.ts',
       'src/services/**/*.test.ts',
       'src/plugins/**/*.test.ts',
+      'src/features/**/*.test.tsx',
     ],
     exclude: [
       '**/node_modules/**',
@@ -35,6 +36,10 @@ export default defineConfig({
       '**/ImportDialog.test.tsx',
       '**/ImportOpenCodeDialog.test.tsx',
       '**/LocalPRsPanel.test.tsx',
+      // Superseded by feature module tests in src/features/
+      'src/components/workflows/__tests__/**',
+      'src/components/scheduled-tasks/__tests__/**',
+      'src/components/supervision/__tests__/**',
     ],
     pool: 'forks',
     testTimeout: 10000,

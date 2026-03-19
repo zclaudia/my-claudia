@@ -8,7 +8,7 @@ import { WindowsSetup } from './components/WindowsSetup';
 import { AgentPanel } from './components/agent/AgentPanel';
 import { AgentSidePanel } from './components/agent/AgentSidePanel';
 import { FileViewerWindow } from './components/fileviewer/FileViewerWindow';
-import { WorkflowEditorWindow } from './components/workflows/WorkflowEditorWindow';
+import { WorkflowEditorWindow } from './features/workflows/components/WorkflowEditorWindow';
 import { SessionChatWindow } from './components/chat/SessionChatWindow';
 import { TerminalWindow } from './components/terminal/TerminalWindow';
 import { DraftWindow } from './components/draft/DraftWindow';

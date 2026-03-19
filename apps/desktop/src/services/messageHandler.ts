@@ -14,12 +14,12 @@ import { useProjectStore } from '../stores/projectStore';
 import { useServerStore } from '../stores/serverStore';
 import { usePermissionStore } from '../stores/permissionStore';
 import { useAskUserQuestionStore } from '../stores/askUserQuestionStore';
-import { useSupervisionStore } from '../stores/supervisionStore';
-import { useLocalPRStore } from '../stores/localPRStore';
-import { useScheduledTaskStore } from '../stores/scheduledTaskStore';
+import { handleLocalPRMessage } from '../features/local-pr/handlers';
+import { handleWorkflowMessage } from '../features/workflows/handlers';
+import { handleScheduledTaskMessage } from '../features/scheduled-tasks/handlers';
+import { handleSupervisionMessage } from '../features/supervision/handlers';
 import { useSystemTaskStore } from '../stores/systemTaskStore';
 import { useInteractionStore } from '../stores/interactionStore';
-import { useWorkflowStore } from '../stores/workflowStore';
 import { useSessionsStore } from '../stores/sessionsStore';
 import { LOCAL_BACKEND_KEY } from '../stores/sessionsStore';
 import { useTerminalStore } from '../stores/terminalStore';
@@ -415,26 +415,11 @@ export function handleServerMessage(
       break;
     }
 
-    case 'supervision_task_update': {
-      const v2Store = useSupervisionStore.getState();
-      const { task, projectId } = msg as any;
-      v2Store.upsertTask(projectId, task);
+    case 'supervision_task_update':
+    case 'supervision_agent_update':
+    case 'supervision_checkpoint':
+      handleSupervisionMessage(msg);
       break;
-    }
-
-    case 'supervision_agent_update': {
-      const v2Store = useSupervisionStore.getState();
-      const { projectId, agent } = msg as any;
-      v2Store.setAgent(projectId, agent);
-      break;
-    }
-
-    case 'supervision_checkpoint': {
-      const v2Store = useSupervisionStore.getState();
-      const { projectId, summary } = msg as any;
-      v2Store.setCheckpointSummary(projectId, summary);
-      break;
-    }
 
     case 'sessions_created': {
       const { session } = msg as any;
@@ -451,29 +436,15 @@ export function handleServerMessage(
       break;
     }
 
-    case 'local_pr_update': {
-      const { projectId, pr } = msg as any;
-      useLocalPRStore.getState().upsertPR(projectId, pr);
+    case 'local_pr_update':
+    case 'local_pr_deleted':
+      handleLocalPRMessage(msg);
       break;
-    }
 
-    case 'local_pr_deleted': {
-      const { projectId, prId } = msg as any;
-      useLocalPRStore.getState().removePR(projectId, prId);
+    case 'scheduled_task_update':
+    case 'scheduled_task_deleted':
+      handleScheduledTaskMessage(msg);
       break;
-    }
-
-    case 'scheduled_task_update': {
-      const { projectId, task } = msg as any;
-      useScheduledTaskStore.getState().upsertTask(projectId, task);
-      break;
-    }
-
-    case 'scheduled_task_deleted': {
-      const { projectId, taskId } = msg as any;
-      useScheduledTaskStore.getState().removeTask(projectId, taskId);
-      break;
-    }
 
     case 'system_task_update': {
       const { task } = msg as any;
@@ -481,28 +452,12 @@ export function handleServerMessage(
       break;
     }
 
-    case 'workflow_update': {
-      const { projectId, workflow } = msg as any;
-      useWorkflowStore.getState().upsertWorkflow(projectId, workflow);
+    case 'workflow_update':
+    case 'workflow_deleted':
+    case 'workflow_run_update':
+    case 'workflow_step_types_changed':
+      handleWorkflowMessage(msg);
       break;
-    }
-
-    case 'workflow_deleted': {
-      const { projectId, workflowId } = msg as any;
-      useWorkflowStore.getState().removeWorkflow(projectId, workflowId);
-      break;
-    }
-
-    case 'workflow_run_update': {
-      const { projectId, run, stepRuns } = msg as any;
-      useWorkflowStore.getState().upsertRun(projectId, run, stepRuns);
-      break;
-    }
-
-    case 'workflow_step_types_changed': {
-      useWorkflowStore.getState().loadStepTypes();
-      break;
-    }
 
     case 'state_heartbeat': {
       const heartbeat = msg as StateHeartbeatMessage;

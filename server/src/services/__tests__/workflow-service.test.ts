@@ -31,19 +31,19 @@ const mockEngine = {
   isRunning: vi.fn().mockReturnValue(false),
 };
 
-vi.mock('../../repositories/workflow.js', () => ({
+vi.mock('../../domains/workflows/repository.js', () => ({
   WorkflowRepository: class { constructor() { Object.assign(this, mockWorkflowRepo); } },
 }));
-vi.mock('../../repositories/workflow-run.js', () => ({
+vi.mock('../../domains/workflows/workflow-run-repository.js', () => ({
   WorkflowRunRepository: class { constructor() { Object.assign(this, mockRunRepo); } },
 }));
-vi.mock('../../repositories/workflow-step-run.js', () => ({
+vi.mock('../../domains/workflows/workflow-step-run-repository.js', () => ({
   WorkflowStepRunRepository: class { constructor() { Object.assign(this, mockStepRunRepo); } },
 }));
-vi.mock('../../repositories/workflow-schedule.js', () => ({
+vi.mock('../../domains/workflows/workflow-schedule-repository.js', () => ({
   WorkflowScheduleRepository: class { constructor() { Object.assign(this, mockScheduleRepo); } },
 }));
-vi.mock('../workflow-engine.js', () => ({
+vi.mock('../../domains/workflows/engine.js', () => ({
   WorkflowEngine: class { constructor() { Object.assign(this, mockEngine); } },
 }));
 vi.mock('../../utils/cron.js', () => ({
@@ -52,7 +52,7 @@ vi.mock('../../utils/cron.js', () => ({
 vi.mock('../../events/index.js', () => ({
   pluginEvents: { on: vi.fn().mockReturnValue(() => {}), emit: vi.fn() },
 }));
-vi.mock('../../workflow-templates.js', () => ({
+vi.mock('../../domains/workflows/templates.js', () => ({
   BUILTIN_WORKFLOW_TEMPLATES: [
     { id: 'tpl1', name: 'Template 1', description: 'desc', definition: { triggers: [], steps: [] } },
   ],

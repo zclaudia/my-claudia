@@ -15,10 +15,10 @@ const mockTaskRunRepo = {
   pruneOldRuns: vi.fn(),
 };
 
-vi.mock('../../repositories/scheduled-task.js', () => ({
+vi.mock('../../domains/scheduled-tasks/repository.js', () => ({
   ScheduledTaskRepository: class { constructor() { Object.assign(this, mockRepo); } },
 }));
-vi.mock('../../repositories/task-run.js', () => ({
+vi.mock('../../domains/scheduled-tasks/task-run-repository.js', () => ({
   TaskRunRepository: class { constructor() { Object.assign(this, mockTaskRunRepo); } },
 }));
 vi.mock('../../repositories/project.js', () => ({

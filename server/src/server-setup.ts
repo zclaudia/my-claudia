@@ -27,32 +27,21 @@ import { createServerRoutes } from './routes/servers.js';
 import { createImportRoutes } from './routes/import.js';
 import { createOpenCodeImportRoutes } from './routes/import-opencode.js';
 import { createAgentRoutes } from './routes/agent.js';
-import { createSupervisionRoutes } from './routes/supervision.js';
 import { createNotificationRoutes } from './routes/notifications.js';
 import { createPluginToolsRoutes } from './routes/plugin-tools.js';
 import { createPluginRoutes } from './routes/plugins.js';
 import { createMcpServerRoutes } from './routes/mcp-servers.js';
 import { createSystemStatsRoutes } from './routes/system-stats.js';
-import { createLocalPRRoutes } from './routes/local-prs.js';
-import { createScheduledTaskRoutes } from './routes/scheduled-tasks.js';
-import { createSystemTaskRoutes } from './routes/system-tasks.js';
+import { registerLocalPRDomain } from './domains/local-pr/register.js';
+import { registerSupervisionDomain } from './domains/supervision/register.js';
+import { registerScheduledTaskDomain } from './domains/scheduled-tasks/register.js';
 import { createWorkspaceRoutes } from './routes/workspace.js';
-import { LocalPRService } from './services/local-pr-service.js';
-import { ScheduledTaskService } from './services/scheduled-task-service.js';
-import { WorkflowService } from './services/workflow-service.js';
-import { WorkflowGeneratorService } from './services/workflow-generator.js';
-import { createWorkflowRoutes } from './routes/workflows.js';
-import { SupervisorService } from './services/supervision/supervisor-service.js';
-import { StateRecovery } from './services/supervision/state-recovery.js';
-import { CheckpointEngine } from './services/supervision/checkpoint-engine.js';
-import { ContextManager } from './services/supervision/context-manager.js';
-import { SupervisionTaskRepository } from './repositories/supervision-task.js';
-import { ProjectRepository } from './repositories/project.js';
-import { SessionRepository } from './repositories/session.js';
+import type { LocalPRService } from './domains/local-pr/service.js';
+import { registerWorkflowDomain } from './domains/workflows/register.js';
+import type { SupervisorService } from './services/supervision/supervisor-service.js';
 import { NotificationService } from './services/notification-service.js';
 import { registerInteractionTools } from './interactions/interaction-tools.js';
 import { interactionDispatcher } from './interactions/interaction-dispatcher.js';
-import { systemTaskRegistry } from './services/system-task-registry.js';
 import { pluginEvents } from './events/index.js';
 import { pluginLoader } from './plugins/loader.js';
 import { permissionManager as pluginPermissionManager } from './plugins/permissions.js';
@@ -65,7 +54,6 @@ import { ProcessMonitor } from './utils/process-monitor.js';
 import { sendMessage, broadcastToOtherAuthenticatedClients, buildPluginStateMessage } from './ws/broadcast.js';
 import { getNextOffset } from './ws/run-lifecycle.js';
 import type { ConnectedClient, ActiveRun } from './ws/types.js';
-import { createVirtualClient } from './ws/types.js';
 import type { createRouter } from './router/index.js';
 
 export interface SetupDependencies {
@@ -213,58 +201,35 @@ export function setupRoutesAndServices(deps: SetupDependencies): SetupResult {
   app.use('/api/import', localOnlyMiddleware, createImportRoutes(db));
   app.use('/api/import', localOnlyMiddleware, createOpenCodeImportRoutes(db));
 
-  // Supervision v2 routes + service
-  const taskRepo = new SupervisionTaskRepository(db);
-  const projectRepo = new ProjectRepository(db);
-  const sessionRepo = new SessionRepository(db);
-  const supervisorService = new SupervisorService(
-    db, taskRepo, projectRepo, sessionRepo,
-    (msg) => {
-      clients.forEach((client) => {
-        if (client.authenticated) {
-          sendMessage(client.ws, msg);
-        }
-      });
-    }
-  );
-  app.use('/api', authMiddleware, createSupervisionRoutes(supervisorService));
-  app.use('/api/supervision', authMiddleware, createSupervisionRoutes(supervisorService));
-
-  // Local PR workflow service + routes
-  const localPRService = new LocalPRService(db, (projectId, message) => {
-    clients.forEach((client) => {
-      if (client.authenticated) sendMessage(client.ws, message);
-    });
-  }, (projectId) => {
-    const pool = supervisorService.getWorktreePoolIfExists(projectId);
-    if (!pool) return true;
-    return pool.getStatus().available > 0;
+  // Supervision domain
+  const { supervisorService } = registerSupervisionDomain({
+    db, app, authMiddleware, clients, activeRuns, handleRunStart,
   });
-  app.use('/api', authMiddleware, createLocalPRRoutes(localPRService, db));
 
-  // Scheduled task service + routes
-  const scheduledTaskService = new ScheduledTaskService(db, (message) => {
-    clients.forEach((client) => {
-      if (client.authenticated) sendMessage(client.ws, message);
-    });
+  // Local PR domain
+  const { localPRService } = registerLocalPRDomain({
+    db, app, authMiddleware, clients,
+    isWorktreeAvailable: (projectId) => {
+      const pool = supervisorService.getWorktreePoolIfExists(projectId);
+      if (!pool) return true;
+      return pool.getStatus().available > 0;
+    },
   });
-  app.use('/api', authMiddleware, createScheduledTaskRoutes(scheduledTaskService));
-  app.use('/api', authMiddleware, createSystemTaskRoutes(scheduledTaskService.getTaskRunRepo()));
+
+  // Scheduled tasks domain
+  registerScheduledTaskDomain({
+    db, app, authMiddleware, clients,
+  });
 
   // Notification routes + service
   const notificationService = new NotificationService(db);
   setNotificationService(notificationService);
   app.use('/api/notifications', authMiddleware, createNotificationRoutes(notificationService));
 
-  // Workflow service + routes
-  const workflowService = new WorkflowService(db, (projectId, message) => {
-    clients.forEach((client) => {
-      if (client.authenticated) sendMessage(client.ws, message);
-    });
-  }, notificationService);
-  workflowService.initialize();
-  const workflowGeneratorService = new WorkflowGeneratorService(db);
-  app.use('/api', authMiddleware, createWorkflowRoutes(workflowService, workflowGeneratorService));
+  // Workflow domain
+  registerWorkflowDomain({
+    db, app, authMiddleware, clients, notificationService,
+  });
 
   // Plugin routes
   app.use('/api/plugins', authMiddleware, createPluginRoutes());
@@ -379,47 +344,6 @@ export function setupRoutesAndServices(deps: SetupDependencies): SetupResult {
     }
   });
 
-  // State recovery — re-hydrate stuck tasks before starting polling
-  const stateRecovery = new StateRecovery(
-    db, taskRepo, sessionRepo, projectRepo, supervisorService, activeRuns,
-  );
-  const recoveryReport = stateRecovery.recover();
-  if (recoveryReport.actions.length > 0) {
-    console.log(`[StateRecovery] Recovered ${recoveryReport.actions.length} items on startup`);
-  }
-
-  // CheckpointEngine
-  const checkpointEngine = new CheckpointEngine(
-    db, taskRepo, projectRepo, sessionRepo,
-    (projectId: string) => {
-      const project = projectRepo.findById(projectId);
-      if (!project?.rootPath) throw new Error(`Project ${projectId} has no rootPath`);
-      return new ContextManager(project.rootPath);
-    },
-    (msg) => {
-      clients.forEach((client) => {
-        if (client.authenticated) {
-          sendMessage(client.ws, msg);
-        }
-      });
-    },
-    (projectId, event, detail, taskIdArg) => {
-      const id = crypto.randomUUID();
-      try {
-        db.prepare(
-          `INSERT INTO supervision_logs (id, project_id, task_id, event, detail, created_at) VALUES (?, ?, ?, ?, ?, ?)`
-        ).run(id, projectId, taskIdArg ?? null, event, detail ? JSON.stringify(detail) : null, Date.now());
-      } catch { /* best effort */ }
-    },
-    (projectId, data) => supervisorService.createTask(projectId, data),
-    createVirtualClient,
-    handleRunStart as any,
-  );
-  supervisorService.setCheckpointEngine(checkpointEngine);
-
-  // Start supervision v2 polling
-  supervisorService.start(5000);
-
   // Wire plugin loader broadcast for UI notifications
   pluginLoader.setBroadcast((msg: ServerMessage) => {
     clients.forEach((client) => {
@@ -450,79 +374,6 @@ export function setupRoutesAndServices(deps: SetupDependencies): SetupResult {
   pluginEvents.on('plugin.activated', () => broadcastPluginState());
   pluginEvents.on('plugin.deactivated', () => broadcastPluginState());
   pluginEvents.on('plugin.error', () => broadcastPluginState());
-
-  // Auto-trigger Local PR when a regular session with a working directory completes
-  pluginEvents.on('run.completed', async (data) => {
-    try {
-      const sessionId = data.sessionId as string | undefined;
-      if (!sessionId) return;
-      const sessionRow = db
-        .prepare('SELECT project_id, type, working_directory FROM sessions WHERE id = ?')
-        .get(sessionId) as { project_id: string; type: string; working_directory?: string } | undefined;
-      if (!sessionRow?.working_directory || sessionRow.type !== 'regular') return;
-      await localPRService.maybeAutoCreatePR(sessionRow.project_id, sessionRow.working_directory);
-    } catch (err) {
-      console.error('[LocalPR] Auto-trigger error:', err);
-    }
-  });
-
-  // Register and start system tasks
-  systemTaskRegistry.register({
-    id: 'system:local_pr_scheduler',
-    name: 'Local PR Scheduler',
-    description: 'Processes pending local PR reviews and merges',
-    category: 'scheduling',
-    intervalMs: 10000,
-  });
-  setInterval(async () => {
-    systemTaskRegistry.markRunStart('system:local_pr_scheduler');
-    const start = Date.now();
-    try {
-      await localPRService.tick();
-      systemTaskRegistry.markRunComplete('system:local_pr_scheduler', Date.now() - start);
-    } catch (err) {
-      systemTaskRegistry.markRunComplete('system:local_pr_scheduler', Date.now() - start, String(err));
-      console.error('[LocalPR] Tick error:', err);
-    }
-  }, 10000);
-
-  systemTaskRegistry.register({
-    id: 'system:scheduled_task_engine',
-    name: 'Scheduled Task Engine',
-    description: 'Checks for due tasks and executes them',
-    category: 'scheduling',
-    intervalMs: 10000,
-  });
-  setInterval(async () => {
-    systemTaskRegistry.markRunStart('system:scheduled_task_engine');
-    const start = Date.now();
-    try {
-      await scheduledTaskService.tick();
-      systemTaskRegistry.markRunComplete('system:scheduled_task_engine', Date.now() - start);
-    } catch (err) {
-      systemTaskRegistry.markRunComplete('system:scheduled_task_engine', Date.now() - start, String(err));
-      console.error('[ScheduledTasks] Tick error:', err);
-    }
-  }, 10000);
-
-  systemTaskRegistry.register({
-    id: 'system:workflow_scheduler',
-    name: 'Workflow Scheduler',
-    description: 'Checks for due workflow schedules and starts runs',
-    category: 'scheduling',
-    intervalMs: 10000,
-  });
-  setInterval(async () => {
-    systemTaskRegistry.markRunStart('system:workflow_scheduler');
-    const start = Date.now();
-    try {
-      await workflowService.tick();
-      systemTaskRegistry.markRunComplete('system:workflow_scheduler', Date.now() - start);
-    } catch (err) {
-      systemTaskRegistry.markRunComplete('system:workflow_scheduler', Date.now() - start, String(err));
-      console.error('[Workflow] Tick error:', err);
-    }
-  }, 10000);
 
   // Forward permission requests to connected frontends
   pluginPermissionManager.onRequest((request) => {

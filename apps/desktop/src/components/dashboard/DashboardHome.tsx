@@ -1,10 +1,10 @@
 import { useEffect } from 'react';
 import { Bot, ClipboardList, GitPullRequest, Calendar, Workflow, ChevronRight } from 'lucide-react';
 import { useProjectStore } from '../../stores/projectStore';
-import { useSupervisionStore } from '../../stores/supervisionStore';
-import { useLocalPRStore } from '../../stores/localPRStore';
-import { useScheduledTaskStore } from '../../stores/scheduledTaskStore';
-import { useWorkflowStore } from '../../stores/workflowStore';
+import { useSupervisionStore } from '../../features/supervision/store';
+import { useLocalPRStore } from '../../features/local-pr/store';
+import { useScheduledTaskStore } from '../../features/scheduled-tasks/store';
+import { useWorkflowStore } from '../../features/workflows/store';
 import type { DashboardView } from './ProjectDashboard';
 
 interface DashboardHomeProps {

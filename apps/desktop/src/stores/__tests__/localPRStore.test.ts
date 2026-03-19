@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { useLocalPRStore } from '../localPRStore';
 
-vi.mock('../../services/api', () => ({
+vi.mock('../../features/local-pr/api', () => ({
   listLocalPRs: vi.fn(),
   createLocalPR: vi.fn(),
   closeLocalPR: vi.fn(),
@@ -12,6 +12,9 @@ vi.mock('../../services/api', () => ({
   resolveLocalPRConflict: vi.fn(),
   reopenLocalPR: vi.fn(),
   revertLocalPRMerge: vi.fn(),
+}));
+
+vi.mock('../../services/api', () => ({
   setProjectReviewProvider: vi.fn(),
 }));
 
@@ -26,8 +29,8 @@ import {
   resolveLocalPRConflict,
   reopenLocalPR,
   revertLocalPRMerge,
-  setProjectReviewProvider,
-} from '../../services/api';
+} from '../../features/local-pr/api';
+import { setProjectReviewProvider } from '../../services/api';
 
 const mockPR = (id: string, status = 'open') => ({
   id,

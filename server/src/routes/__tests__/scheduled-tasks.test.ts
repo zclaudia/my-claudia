@@ -9,7 +9,7 @@ vi.mock('../../utils/cron.js', () => ({
 }));
 
 // Mock templates
-vi.mock('../../scheduled-task-templates.js', () => ({
+vi.mock('../../domains/scheduled-tasks/templates.js', () => ({
   BUILTIN_TEMPLATES: [
     {
       id: 'tmpl-1',

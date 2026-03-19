@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, fireEvent } from '@testing-library/react';
 import { ProjectDashboard } from '../ProjectDashboard';
-import { useSupervisionStore } from '../../../stores/supervisionStore';
+import { useSupervisionStore } from '../../../features/supervision/store';
 import { useProjectStore } from '../../../stores/projectStore';
 
 vi.mock('../../../services/api', () => ({
@@ -21,19 +21,19 @@ vi.mock('../DashboardHome', () => ({
   ),
 }));
 
-vi.mock('../../supervision/AgentStatusBar', () => ({
+vi.mock('../../../features/supervision/components/AgentStatusBar', () => ({
   AgentStatusBar: (props: any) => <div data-testid="agent-status-bar" />,
 }));
 
-vi.mock('../../supervision/TaskBoard', () => ({
+vi.mock('../../../features/supervision/components/TaskBoard', () => ({
   TaskBoard: () => <div data-testid="task-board" />,
 }));
 
-vi.mock('../../supervision/ContextBrowser', () => ({
+vi.mock('../../../features/supervision/components/ContextBrowser', () => ({
   ContextBrowser: () => <div data-testid="context-browser" />,
 }));
 
-vi.mock('../../supervision/CheckpointFeed', () => ({
+vi.mock('../../../features/supervision/components/CheckpointFeed', () => ({
   CheckpointFeed: () => <div data-testid="checkpoint-feed" />,
 }));
 
@@ -41,15 +41,15 @@ vi.mock('../../chat/ChatInterface', () => ({
   ChatInterface: (props: any) => <div data-testid="chat-interface">{props.sessionId}</div>,
 }));
 
-vi.mock('../../local-prs/LocalPRsPanel', () => ({
+vi.mock('../../../features/local-pr/components/LocalPRsPanel', () => ({
   LocalPRsPanel: () => <div data-testid="local-prs-panel" />,
 }));
 
-vi.mock('../../scheduled-tasks/ScheduledTasksPanel', () => ({
+vi.mock('../../../features/scheduled-tasks/components/ScheduledTasksPanel', () => ({
   ScheduledTasksPanel: () => <div data-testid="scheduled-tasks-panel" />,
 }));
 
-vi.mock('../../workflows/WorkflowsPanel', () => ({
+vi.mock('../../../features/workflows/components/WorkflowsPanel', () => ({
   WorkflowsPanel: () => <div data-testid="workflows-panel" />,
 }));
 
