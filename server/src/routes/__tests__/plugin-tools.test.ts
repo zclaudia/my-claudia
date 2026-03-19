@@ -4,7 +4,7 @@ import request from 'supertest';
 
 vi.mock('../../plugins/tool-registry.js', () => ({
   toolRegistry: {
-    getAll: vi.fn().mockReturnValue([]),
+    getBridgeTools: vi.fn().mockReturnValue([]),
     execute: vi.fn(),
   },
 }));
@@ -24,21 +24,17 @@ describe('plugin-tools routes', () => {
 
   describe('GET /api/plugins/tools', () => {
     it('returns empty array when no plugin tools', async () => {
-      vi.mocked(toolRegistry.getAll).mockReturnValue([]);
+      vi.mocked(toolRegistry.getBridgeTools).mockReturnValue([]);
       const res = await request(app).get('/api/plugins/tools');
       expect(res.status).toBe(200);
       expect(res.body.tools).toEqual([]);
     });
 
     it('returns only plugin tools in MCP format', async () => {
-      vi.mocked(toolRegistry.getAll).mockReturnValue([
+      vi.mocked(toolRegistry.getBridgeTools).mockReturnValue([
         {
           source: 'plugin',
           definition: { function: { name: 'tool1', description: 'desc1', parameters: { type: 'object' } } },
-        },
-        {
-          source: 'builtin',
-          definition: { function: { name: 'tool2', description: 'desc2', parameters: {} } },
         },
       ] as any);
 

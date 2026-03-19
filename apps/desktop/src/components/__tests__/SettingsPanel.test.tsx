@@ -476,13 +476,23 @@ describe('SettingsPanel', () => {
 
   it('shows Diagnostics section with log count', () => {
     const { container } = render(<SettingsPanel isOpen={true} onClose={vi.fn()} />);
-    expect(container.textContent).toContain('Diagnostics');
+    // Click Debug tab to access Diagnostics
+    const debugTab = container.querySelector('[data-testid="debug-tab"]');
+    expect(debugTab).toBeTruthy();
+    fireEvent.click(debugTab!);
+
+    expect(container.textContent).toContain('Debug');
     expect(container.textContent).toContain('Client Logs');
     expect(container.textContent).toContain('42 entries in buffer');
   });
 
   it('clears logs when Clear button is clicked', () => {
     const { container } = render(<SettingsPanel isOpen={true} onClose={vi.fn()} />);
+    // Click Debug tab to access Diagnostics
+    const debugTab = container.querySelector('[data-testid="debug-tab"]');
+    expect(debugTab).toBeTruthy();
+    fireEvent.click(debugTab!);
+
     // Find Clear button in diagnostics (not the search history clear)
     const clearButtons = Array.from(container.querySelectorAll('button')).filter(b =>
       b.textContent === 'Clear'
@@ -495,6 +505,11 @@ describe('SettingsPanel', () => {
 
   it('exports logs when Export Logs button is clicked', async () => {
     const { container } = render(<SettingsPanel isOpen={true} onClose={vi.fn()} />);
+    // Click Debug tab to access Diagnostics
+    const debugTab = container.querySelector('[data-testid="debug-tab"]');
+    expect(debugTab).toBeTruthy();
+    fireEvent.click(debugTab!);
+
     const exportBtn = Array.from(container.querySelectorAll('button')).find(b =>
       b.textContent === 'Export Logs'
     );
@@ -508,6 +523,11 @@ describe('SettingsPanel', () => {
 
   it('triggers leaked process cleanup from diagnostics', () => {
     const { container } = render(<SettingsPanel isOpen={true} onClose={vi.fn()} />);
+    // Click Debug tab to access Diagnostics
+    const debugTab = container.querySelector('[data-testid="debug-tab"]');
+    expect(debugTab).toBeTruthy();
+    fireEvent.click(debugTab!);
+
     const cleanupBtn = Array.from(container.querySelectorAll('button')).find(b =>
       b.textContent === 'Clean Leaked Processes'
     );
@@ -520,6 +540,10 @@ describe('SettingsPanel', () => {
 
   it('renders server cleanup results from the process monitor store', async () => {
     const { container } = render(<SettingsPanel isOpen={true} onClose={vi.fn()} />);
+    // Click Debug tab to access Diagnostics
+    const debugTab = container.querySelector('[data-testid="debug-tab"]');
+    expect(debugTab).toBeTruthy();
+    fireEvent.click(debugTab!);
 
     act(() => {
       useProcessMonitorStore.getState().setCleanupResult({

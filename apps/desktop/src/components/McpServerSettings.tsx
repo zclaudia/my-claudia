@@ -245,6 +245,7 @@ export function McpServerSettings() {
               type="button"
               onClick={() => setFormEnvPairs(formEnvPairs.filter((_, j) => j !== i))}
               className="p-0.5 rounded hover:bg-red-500/20 text-muted-foreground hover:text-red-400 transition-colors"
+              aria-label="Remove environment variable"
             >
               <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />

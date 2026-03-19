@@ -327,15 +327,17 @@ describe('McpServerSettings', () => {
     render(<McpServerSettings />);
     fireEvent.click(screen.getByText('+ Add'));
 
-    // Click "+ Add" for env vars
-    const addEnvBtn = screen.getByText('+ Add', { selector: '.text-primary' });
-    fireEvent.click(addEnvBtn);
+    // Click "+ Add" for env vars (the one in the form, after "Environment Variables" label)
+    const envVarsLabel = screen.getByText('Environment Variables');
+    const addEnvBtn = envVarsLabel.closest('div')?.querySelector('button');
+    expect(addEnvBtn).toBeTruthy();
+    fireEvent.click(addEnvBtn!);
 
     expect(screen.getByPlaceholderText('KEY')).toBeTruthy();
     expect(screen.getByPlaceholderText('value')).toBeTruthy();
 
-    // Remove env var
-    fireEvent.click(screen.getByText('x'));
+    // Remove env var using aria-label
+    fireEvent.click(screen.getByLabelText('Remove environment variable'));
     expect(screen.queryByPlaceholderText('KEY')).toBeNull();
   });
 
@@ -584,7 +586,7 @@ describe('McpServerSettings', () => {
       target: { value: 'nonexistent' },
     });
 
-    expect(screen.getByText('No servers match your search.')).toBeTruthy();
+    expect(screen.getByText('No servers match your search')).toBeTruthy();
   });
 
   it('searches by command as well', () => {
