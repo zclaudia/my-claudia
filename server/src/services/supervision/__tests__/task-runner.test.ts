@@ -13,7 +13,7 @@ vi.mock('child_process', () => ({
   execSync: mockExecSync,
 }));
 
-vi.mock('../../server.js', () => ({
+vi.mock('../../../server.js', () => ({
   createVirtualClient: vi.fn(),
   handleRunStart: vi.fn(),
   activeRuns: new Map(),
@@ -21,8 +21,8 @@ vi.mock('../../server.js', () => ({
 }));
 
 import { TaskRunner } from '../task-runner.js';
-import { SupervisionTaskRepository } from '../../repositories/supervision-task.js';
-import { ProjectRepository } from '../../repositories/project.js';
+import { SupervisionTaskRepository } from '../../../repositories/supervision-task.js';
+import { ProjectRepository } from '../../../repositories/project.js';
 import type { ContextManager, WorkflowAction } from '../context-manager.js';
 import type { SupervisionTask, SupervisionLogEvent } from '@my-claudia/shared';
 

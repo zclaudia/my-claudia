@@ -1,8 +1,8 @@
 import type { Database } from 'better-sqlite3';
 import type { TaskStatus } from '@my-claudia/shared';
-import { SupervisionTaskRepository } from '../repositories/supervision-task.js';
-import { SessionRepository } from '../repositories/session.js';
-import { ProjectRepository } from '../repositories/project.js';
+import { SupervisionTaskRepository } from '../../repositories/supervision-task.js';
+import { SessionRepository } from '../../repositories/session.js';
+import { ProjectRepository } from '../../repositories/project.js';
 import type { SupervisorService } from './supervisor-service.js';
 
 export interface RecoveryAction {

@@ -2,9 +2,9 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach, vi, afterEach } 
 import Database from 'better-sqlite3';
 import { v4 as uuidv4 } from 'uuid';
 import { CheckpointEngine, type CheckpointResult } from '../checkpoint-engine.js';
-import { SupervisionTaskRepository } from '../../repositories/supervision-task.js';
-import { ProjectRepository } from '../../repositories/project.js';
-import { SessionRepository } from '../../repositories/session.js';
+import { SupervisionTaskRepository } from '../../../repositories/supervision-task.js';
+import { ProjectRepository } from '../../../repositories/project.js';
+import { SessionRepository } from '../../../repositories/session.js';
 import type { ProjectAgent, ServerMessage, SupervisionLogEvent, SupervisionTask } from '@my-claudia/shared';
 
 function createTestDb(): Database.Database {

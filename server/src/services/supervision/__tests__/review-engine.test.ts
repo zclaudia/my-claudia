@@ -16,7 +16,7 @@ const { mockActiveRuns, mockCreateVirtualClient, mockHandleRunStart } = vi.hoist
   mockHandleRunStart: vi.fn(),
 }));
 
-vi.mock('../../server.js', () => ({
+vi.mock('../../../server.js', () => ({
   createVirtualClient: mockCreateVirtualClient,
   handleRunStart: mockHandleRunStart,
   activeRuns: mockActiveRuns,
@@ -51,9 +51,9 @@ vi.mock('../context-manager.js', () => {
 });
 
 import { ReviewEngine } from '../review-engine.js';
-import { SupervisionTaskRepository } from '../../repositories/supervision-task.js';
-import { ProjectRepository } from '../../repositories/project.js';
-import { SessionRepository } from '../../repositories/session.js';
+import { SupervisionTaskRepository } from '../../../repositories/supervision-task.js';
+import { ProjectRepository } from '../../../repositories/project.js';
+import { SessionRepository } from '../../../repositories/session.js';
 import { ContextManager } from '../context-manager.js';
 import type { ProjectAgent, SupervisionTask, TaskResult, ReviewVerdict, MergeResult } from '@my-claudia/shared';
 

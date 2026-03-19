@@ -1,5 +1,5 @@
 import { execSync } from 'child_process';
-import { systemTaskRegistry } from './system-task-registry.js';
+import { systemTaskRegistry } from '../system-task-registry.js';
 import { v4 as uuidv4 } from 'uuid';
 import type { Database } from 'better-sqlite3';
 import type {
@@ -14,16 +14,16 @@ import type {
   ServerMessage,
   SupervisionLogEvent,
 } from '@my-claudia/shared';
-import { SupervisionTaskRepository } from '../repositories/supervision-task.js';
-import { ProjectRepository } from '../repositories/project.js';
-import { SessionRepository } from '../repositories/session.js';
+import { SupervisionTaskRepository } from '../../repositories/supervision-task.js';
+import { ProjectRepository } from '../../repositories/project.js';
+import { SessionRepository } from '../../repositories/session.js';
 import { ContextManager, type ContextDocument } from './context-manager.js';
 import { TaskRunner } from './task-runner.js';
 import { ReviewEngine } from './review-engine.js';
 import { WorktreePool } from './worktree-pool.js';
 import type { CheckpointEngine } from './checkpoint-engine.js';
-import { createVirtualClient, handleRunStart, activeRuns } from '../server.js';
-import { computeNextCronRun } from '../utils/cron.js';
+import { createVirtualClient, handleRunStart, activeRuns } from '../../server.js';
+import { computeNextCronRun } from '../../utils/cron.js';
 import { validatePlanFile, type PlanValidationResult } from './plan-validator.js';
 
 export class SupervisorService {

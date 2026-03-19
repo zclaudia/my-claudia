@@ -15,7 +15,7 @@ vi.mock('child_process', () => ({
   execSync: mockExecSync,
 }));
 
-vi.mock('../../server.js', () => ({
+vi.mock('../../../server.js', () => ({
   createVirtualClient: vi.fn((clientId: string, opts: any) => ({
     id: clientId,
     ws: { send: vi.fn() },
@@ -85,7 +85,7 @@ vi.mock('../plan-validator.js', () => ({
   validatePlanFile: mockValidatePlanFile,
 }));
 
-vi.mock('../../utils/cron.js', () => ({
+vi.mock('../../../utils/cron.js', () => ({
   computeNextCronRun: mockComputeNextCronRun,
 }));
 
@@ -104,9 +104,9 @@ vi.mock('../worktree-pool.js', () => {
 });
 
 import { SupervisorService } from '../supervisor-service.js';
-import { SupervisionTaskRepository } from '../../repositories/supervision-task.js';
-import { ProjectRepository } from '../../repositories/project.js';
-import { SessionRepository } from '../../repositories/session.js';
+import { SupervisionTaskRepository } from '../../../repositories/supervision-task.js';
+import { ProjectRepository } from '../../../repositories/project.js';
+import { SessionRepository } from '../../../repositories/session.js';
 import type { ProjectAgent, SupervisorConfig } from '@my-claudia/shared';
 
 function createTestDb(): Database.Database {

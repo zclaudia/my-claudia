@@ -6,9 +6,9 @@ import type {
   SupervisionLogEvent,
   ServerMessage,
 } from '@my-claudia/shared';
-import { SupervisionTaskRepository } from '../repositories/supervision-task.js';
-import { ProjectRepository } from '../repositories/project.js';
-import { SessionRepository } from '../repositories/session.js';
+import { SupervisionTaskRepository } from '../../repositories/supervision-task.js';
+import { ProjectRepository } from '../../repositories/project.js';
+import { SessionRepository } from '../../repositories/session.js';
 import type { ContextManager, CheckpointTrigger } from './context-manager.js';
 
 export interface CheckpointResult {
