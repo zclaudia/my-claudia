@@ -27,12 +27,22 @@ describe('useAutoUpdate helpers', () => {
     await expect(hasDesktopUpdateCandidate('0.1.280-dev.macos.20260314093015')).resolves.toBe(false);
   });
 
-  it('keeps desktop update prompts for newer numeric releases over a dev build', async () => {
+  it('suppresses desktop update prompts for dev builds even when remote is newer', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => ({
       ok: true,
       json: async () => ({ version: '0.1.281' }),
     })) as typeof fetch);
 
-    await expect(hasDesktopUpdateCandidate('0.1.280-dev.macos.20260314093015')).resolves.toBe(true);
+    // Dev builds never auto-update, regardless of remote version
+    await expect(hasDesktopUpdateCandidate('0.1.280-dev.macos.20260314093015')).resolves.toBe(false);
+  });
+
+  it('keeps desktop update prompts for newer numeric releases over a release build', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true,
+      json: async () => ({ version: '0.1.281' }),
+    })) as typeof fetch);
+
+    await expect(hasDesktopUpdateCandidate('0.1.280')).resolves.toBe(true);
   });
 });

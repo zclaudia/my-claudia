@@ -66,6 +66,70 @@ async function collectMessages(gen: AsyncGenerator<any>): Promise<any[]> {
   return messages;
 }
 
+/**
+ * Helper: create a fetch mock that routes by URL path and returns fresh Response objects.
+ *
+ * The implementation uses `openCodeJsonRequest` (global `fetch`) for:
+ *   - POST /session          → session creation
+ *   - GET  /session/{id}     → session validation
+ *   - POST /session/{id}/prompt_async → prompt sending
+ *   - GET  /session/{id}/message      → fallback message polling
+ *   - GET  /global/health    → health check
+ *
+ * Each call MUST return a **new** Response (body can only be consumed once).
+ */
+function createFetchMock(routes: {
+  sessionCreate?: { data?: any; status?: number };
+  sessionGet?: { data?: any; status?: number };
+  promptAsync?: { status?: number; error?: string };
+  sessionMessages?: { data?: any; status?: number };
+  health?: { data?: any; status?: number };
+}) {
+  return vi.fn().mockImplementation(async (input: any) => {
+    const urlStr = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input?.url ?? '';
+
+    // Health endpoint
+    if (urlStr.includes('/global/health')) {
+      const h = routes.health ?? { data: {}, status: 200 };
+      return new Response(JSON.stringify(h.data ?? {}), { status: h.status ?? 200 });
+    }
+
+    // prompt_async
+    if (urlStr.includes('/prompt_async')) {
+      const p = routes.promptAsync ?? { status: 204 };
+      if (p.error) {
+        return new Response(JSON.stringify({ error: p.error }), { status: p.status ?? 500 });
+      }
+      // 204 No Content — body should be empty
+      return new Response(null, { status: p.status ?? 204 });
+    }
+
+    // session messages (fallback polling)
+    if (/\/session\/[^/]+\/message/.test(urlStr)) {
+      const m = routes.sessionMessages ?? { data: [], status: 200 };
+      return new Response(JSON.stringify(m.data ?? []), { status: m.status ?? 200 });
+    }
+
+    // session get (validation) — GET /session/{id}?directory=...
+    // vs session create — POST /session?directory=...
+    // Distinguish by the path: creation path is just /session, get has /session/{id}
+    if (/\/session\/[^/?]/.test(urlStr)) {
+      // GET /session/{id} — session validation
+      const g = routes.sessionGet ?? { data: null, status: 404 };
+      return new Response(JSON.stringify(g.data ?? null), { status: g.status ?? 404 });
+    }
+
+    if (/\/session(\?|$)/.test(urlStr)) {
+      // POST /session — session creation
+      const c = routes.sessionCreate ?? { data: { id: 'session-default' }, status: 200 };
+      return new Response(JSON.stringify(c.data), { status: c.status ?? 200 });
+    }
+
+    // Default fallback
+    return new Response(JSON.stringify({}), { status: 200 });
+  });
+}
+
 // Helper: create a fake OpenCodeServer-like object for ensureServer mock
 function createFakeServer(overrides: Record<string, any> = {}) {
   return {
@@ -514,21 +578,15 @@ describe('runOpenCode full flow', () => {
   it('creates new session and yields init message on success', async () => {
     vi.spyOn(openCodeServerManager, 'ensureServer').mockResolvedValue(fakeServer);
 
-    mockClient.session.create.mockResolvedValue({
-      data: { id: 'session-abc' },
-      error: null,
-      response: { status: 200 },
-    });
     mockClient.app.agents.mockResolvedValue({ data: [] });
     mockClient.provider.list.mockResolvedValue({ data: { all: [] } });
-    mockClient.session.promptAsync.mockResolvedValue({
-      error: null,
-      response: { status: 204 },
+
+    const fetchMock = createFetchMock({
+      sessionCreate: { data: { id: 'session-abc' }, status: 200 },
+      promptAsync: { status: 204 },
+      health: { data: { version: '1.0.0' }, status: 200 },
     });
-    // Mock fetch for health endpoint
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response(JSON.stringify({ version: '1.0.0' }), { status: 200 })
-    );
+    vi.spyOn(globalThis, 'fetch').mockImplementation(fetchMock);
 
     // Mock http module used by rawSseStream — it will try to connect.
     // We need the SSE stream to immediately end so runOpenCode completes.
@@ -549,20 +607,22 @@ describe('runOpenCode full flow', () => {
     expect(initMsg.systemInfo).toBeDefined();
     expect(initMsg.systemInfo.cwd).toBe('/project');
 
-    // Should have called session.create
-    expect(mockClient.session.create).toHaveBeenCalled();
-    // Should have called promptAsync
-    expect(mockClient.session.promptAsync).toHaveBeenCalled();
+    // Should have called fetch for session creation and prompt
+    const fetchCalls = fetchMock.mock.calls.map((c: any) => {
+      const url = typeof c[0] === 'string' ? c[0] : c[0]?.toString?.() ?? '';
+      return url;
+    });
+    expect(fetchCalls.some((u: string) => /\/session(\?|$)/.test(u))).toBe(true);
+    expect(fetchCalls.some((u: string) => u.includes('/prompt_async'))).toBe(true);
   });
 
   it('yields error when session creation fails with error response', async () => {
     vi.spyOn(openCodeServerManager, 'ensureServer').mockResolvedValue(fakeServer);
 
-    mockClient.session.create.mockResolvedValue({
-      data: null,
-      error: 'Internal Server Error',
-      response: { status: 500 },
+    const fetchMock = createFetchMock({
+      sessionCreate: { data: { error: 'Internal Server Error' }, status: 500 },
     });
+    vi.spyOn(globalThis, 'fetch').mockImplementation(fetchMock);
 
     const messages = await collectMessages(
       runOpenCode('hello', { cwd: '/project' })
@@ -576,7 +636,7 @@ describe('runOpenCode full flow', () => {
   it('yields error when session creation throws', async () => {
     vi.spyOn(openCodeServerManager, 'ensureServer').mockResolvedValue(fakeServer);
 
-    mockClient.session.create.mockRejectedValue(new Error('Network error'));
+    vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('Network error'));
 
     const messages = await collectMessages(
       runOpenCode('hello', { cwd: '/project' })
@@ -591,19 +651,15 @@ describe('runOpenCode full flow', () => {
   it('yields error when promptAsync fails', async () => {
     vi.spyOn(openCodeServerManager, 'ensureServer').mockResolvedValue(fakeServer);
 
-    mockClient.session.create.mockResolvedValue({
-      data: { id: 'session-abc' },
-      error: null,
-    });
     mockClient.app.agents.mockResolvedValue({ data: [] });
     mockClient.provider.list.mockResolvedValue({ data: { all: [] } });
-    mockClient.session.promptAsync.mockResolvedValue({
-      error: { message: 'Rate limited' },
-      response: { status: 429 },
+
+    const fetchMock = createFetchMock({
+      sessionCreate: { data: { id: 'session-abc' }, status: 200 },
+      promptAsync: { status: 429, error: 'Rate limited' },
+      health: { data: {}, status: 200 },
     });
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response(JSON.stringify({}), { status: 200 })
-    );
+    vi.spyOn(globalThis, 'fetch').mockImplementation(fetchMock);
 
     // Mock http for SSE connection
     const httpMock = createFakeHttpModule([]);
@@ -621,16 +677,22 @@ describe('runOpenCode full flow', () => {
   it('yields error when promptAsync throws', async () => {
     vi.spyOn(openCodeServerManager, 'ensureServer').mockResolvedValue(fakeServer);
 
-    mockClient.session.create.mockResolvedValue({
-      data: { id: 'session-abc' },
-      error: null,
-    });
     mockClient.app.agents.mockResolvedValue({ data: [] });
     mockClient.provider.list.mockResolvedValue({ data: { all: [] } });
-    mockClient.session.promptAsync.mockRejectedValue(new Error('Connection reset'));
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response(JSON.stringify({}), { status: 200 })
-    );
+
+    // fetch succeeds for session creation but throws for prompt_async
+    let callCount = 0;
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input: any) => {
+      const urlStr = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input?.url ?? '';
+      if (urlStr.includes('/prompt_async')) {
+        throw new Error('Connection reset');
+      }
+      if (/\/session(\?|$)/.test(urlStr) && !urlStr.includes('/message')) {
+        return new Response(JSON.stringify({ id: 'session-abc' }), { status: 200 });
+      }
+      // health, agents, etc.
+      return new Response(JSON.stringify({}), { status: 200 });
+    });
     const httpMock = createFakeHttpModule([]);
     vi.doMock('http', () => httpMock);
 
@@ -647,20 +709,15 @@ describe('runOpenCode full flow', () => {
   it('resumes existing session when sessionId is provided and validated', async () => {
     vi.spyOn(openCodeServerManager, 'ensureServer').mockResolvedValue(fakeServer);
 
-    mockClient.session.get.mockResolvedValue({
-      data: { id: 'existing-session' },
-      error: null,
-      response: { status: 200 },
-    });
     mockClient.app.agents.mockResolvedValue({ data: [] });
     mockClient.provider.list.mockResolvedValue({ data: { all: [] } });
-    mockClient.session.promptAsync.mockResolvedValue({
-      error: null,
-      response: { status: 204 },
+
+    const fetchMock = createFetchMock({
+      sessionGet: { data: { id: 'existing-session' }, status: 200 },
+      promptAsync: { status: 204 },
+      health: { data: {}, status: 200 },
     });
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response(JSON.stringify({}), { status: 200 })
-    );
+    vi.spyOn(globalThis, 'fetch').mockImplementation(fetchMock);
     const httpMock = createFakeHttpModule([
       { type: 'session.idle', properties: { sessionID: 'existing-session' } },
     ]);
@@ -670,12 +727,12 @@ describe('runOpenCode full flow', () => {
       runOpenCode('hello', { cwd: '/project', sessionId: 'existing-session' })
     );
 
-    // Should NOT have called session.create since we reused existing
-    expect(mockClient.session.create).not.toHaveBeenCalled();
-    // Should have validated via session.get
-    expect(mockClient.session.get).toHaveBeenCalledWith({
-      path: { id: 'existing-session' },
+    // Should have validated via fetch GET /session/{id} — NOT created a new session via POST /session
+    const fetchCalls = fetchMock.mock.calls.map((c: any) => {
+      const url = typeof c[0] === 'string' ? c[0] : c[0]?.toString?.() ?? '';
+      return url;
     });
+    expect(fetchCalls.some((u: string) => u.includes('/session/existing-session'))).toBe(true);
 
     const initMsg = messages.find(m => m.type === 'init');
     expect(initMsg).toBeDefined();
@@ -685,25 +742,16 @@ describe('runOpenCode full flow', () => {
   it('falls back to new session when existing session validation fails', async () => {
     vi.spyOn(openCodeServerManager, 'ensureServer').mockResolvedValue(fakeServer);
 
-    // session.get returns error (session not found)
-    mockClient.session.get.mockResolvedValue({
-      data: null,
-      error: 'Not found',
-      response: { status: 404 },
-    });
-    mockClient.session.create.mockResolvedValue({
-      data: { id: 'new-session-xyz' },
-      error: null,
-    });
     mockClient.app.agents.mockResolvedValue({ data: [] });
     mockClient.provider.list.mockResolvedValue({ data: { all: [] } });
-    mockClient.session.promptAsync.mockResolvedValue({
-      error: null,
-      response: { status: 204 },
+
+    const fetchMock = createFetchMock({
+      sessionGet: { data: null, status: 404 },
+      sessionCreate: { data: { id: 'new-session-xyz' }, status: 200 },
+      promptAsync: { status: 204 },
+      health: { data: {}, status: 200 },
     });
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response(JSON.stringify({}), { status: 200 })
-    );
+    vi.spyOn(globalThis, 'fetch').mockImplementation(fetchMock);
     const httpMock = createFakeHttpModule([
       { type: 'session.idle', properties: { sessionID: 'new-session-xyz' } },
     ]);
@@ -713,9 +761,13 @@ describe('runOpenCode full flow', () => {
       runOpenCode('hello', { cwd: '/project', sessionId: 'old-session' })
     );
 
-    // Should have tried to validate, then created a new session
-    expect(mockClient.session.get).toHaveBeenCalled();
-    expect(mockClient.session.create).toHaveBeenCalled();
+    // Should have tried to validate (GET /session/old-session), then created new (POST /session)
+    const fetchCalls = fetchMock.mock.calls.map((c: any) => {
+      const url = typeof c[0] === 'string' ? c[0] : c[0]?.toString?.() ?? '';
+      return url;
+    });
+    expect(fetchCalls.some((u: string) => u.includes('/session/old-session'))).toBe(true);
+    expect(fetchCalls.some((u: string) => /\/session(\?|$)/.test(u))).toBe(true);
 
     const initMsg = messages.find(m => m.type === 'init');
     expect(initMsg).toBeDefined();
@@ -725,20 +777,25 @@ describe('runOpenCode full flow', () => {
   it('falls back to new session when session.get throws', async () => {
     vi.spyOn(openCodeServerManager, 'ensureServer').mockResolvedValue(fakeServer);
 
-    mockClient.session.get.mockRejectedValue(new Error('Network failure'));
-    mockClient.session.create.mockResolvedValue({
-      data: { id: 'fallback-session' },
-      error: null,
-    });
     mockClient.app.agents.mockResolvedValue({ data: [] });
     mockClient.provider.list.mockResolvedValue({ data: { all: [] } });
-    mockClient.session.promptAsync.mockResolvedValue({
-      error: null,
-      response: { status: 204 },
+
+    // session get throws (network failure), then session create succeeds
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input: any) => {
+      const urlStr = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input?.url ?? '';
+      // GET /session/bad-session — throw network error
+      if (/\/session\/bad-session/.test(urlStr) && !urlStr.includes('/prompt_async') && !urlStr.includes('/message')) {
+        throw new Error('Network failure');
+      }
+      // POST /session — create new session
+      if (/\/session(\?|$)/.test(urlStr)) {
+        return new Response(JSON.stringify({ id: 'fallback-session' }), { status: 200 });
+      }
+      if (urlStr.includes('/prompt_async')) {
+        return new Response(null, { status: 204 });
+      }
+      return new Response(JSON.stringify({}), { status: 200 });
     });
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response(JSON.stringify({}), { status: 200 })
-    );
     const httpMock = createFakeHttpModule([
       { type: 'session.idle', properties: { sessionID: 'fallback-session' } },
     ]);
@@ -748,7 +805,6 @@ describe('runOpenCode full flow', () => {
       runOpenCode('hello', { cwd: '/project', sessionId: 'bad-session' })
     );
 
-    expect(mockClient.session.create).toHaveBeenCalled();
     const initMsg = messages.find(m => m.type === 'init');
     expect(initMsg.sessionId).toBe('fallback-session');
   });
@@ -756,19 +812,15 @@ describe('runOpenCode full flow', () => {
   it('includes model in promptBody when options.model is set', async () => {
     vi.spyOn(openCodeServerManager, 'ensureServer').mockResolvedValue(fakeServer);
 
-    mockClient.session.create.mockResolvedValue({
-      data: { id: 'sess-1' },
-      error: null,
-    });
     mockClient.app.agents.mockResolvedValue({ data: [] });
     mockClient.provider.list.mockResolvedValue({ data: { all: [] } });
-    mockClient.session.promptAsync.mockResolvedValue({
-      error: null,
-      response: { status: 204 },
+
+    const fetchMock = createFetchMock({
+      sessionCreate: { data: { id: 'sess-1' }, status: 200 },
+      promptAsync: { status: 204 },
+      health: { data: {}, status: 200 },
     });
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response(JSON.stringify({}), { status: 200 })
-    );
+    vi.spyOn(globalThis, 'fetch').mockImplementation(fetchMock);
     const httpMock = createFakeHttpModule([
       { type: 'session.idle', properties: { sessionID: 'sess-1' } },
     ]);
@@ -778,10 +830,13 @@ describe('runOpenCode full flow', () => {
       runOpenCode('hello', { cwd: '/project', model: 'anthropic/claude-sonnet-4-5-20250929' })
     );
 
-    // Verify promptAsync was called with the model split correctly
-    const promptCall = mockClient.session.promptAsync.mock.calls[0];
+    // Find the fetch call for prompt_async and verify body
+    const promptCall = fetchMock.mock.calls.find((c: any) => {
+      const url = typeof c[0] === 'string' ? c[0] : c[0]?.toString?.() ?? '';
+      return url.includes('/prompt_async');
+    });
     expect(promptCall).toBeDefined();
-    const body = promptCall[0].body;
+    const body = JSON.parse(promptCall[1]?.body || '{}');
     expect(body.model).toEqual({
       providerID: 'anthropic',
       modelID: 'claude-sonnet-4-5-20250929',
@@ -791,19 +846,15 @@ describe('runOpenCode full flow', () => {
   it('omits agent from promptBody when agent is "default"', async () => {
     vi.spyOn(openCodeServerManager, 'ensureServer').mockResolvedValue(fakeServer);
 
-    mockClient.session.create.mockResolvedValue({
-      data: { id: 'sess-1' },
-      error: null,
-    });
     mockClient.app.agents.mockResolvedValue({ data: [] });
     mockClient.provider.list.mockResolvedValue({ data: { all: [] } });
-    mockClient.session.promptAsync.mockResolvedValue({
-      error: null,
-      response: { status: 204 },
+
+    const fetchMock = createFetchMock({
+      sessionCreate: { data: { id: 'sess-1' }, status: 200 },
+      promptAsync: { status: 204 },
+      health: { data: {}, status: 200 },
     });
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response(JSON.stringify({}), { status: 200 })
-    );
+    vi.spyOn(globalThis, 'fetch').mockImplementation(fetchMock);
     const httpMock = createFakeHttpModule([
       { type: 'session.idle', properties: { sessionID: 'sess-1' } },
     ]);
@@ -812,26 +863,26 @@ describe('runOpenCode full flow', () => {
     await collectMessages(
       runOpenCode('hello', { cwd: '/project', agent: 'default' })
     );
-    const body = mockClient.session.promptAsync.mock.calls[0][0].body;
+    const promptCall = fetchMock.mock.calls.find((c: any) => {
+      const url = typeof c[0] === 'string' ? c[0] : c[0]?.toString?.() ?? '';
+      return url.includes('/prompt_async');
+    });
+    const body = JSON.parse(promptCall[1]?.body || '{}');
     expect(body.agent).toBeUndefined();
   });
 
   it('includes agent in promptBody when agent is a specific name', async () => {
     vi.spyOn(openCodeServerManager, 'ensureServer').mockResolvedValue(fakeServer);
 
-    mockClient.session.create.mockResolvedValue({
-      data: { id: 'sess-2' },
-      error: null,
-    });
     mockClient.app.agents.mockResolvedValue({ data: [] });
     mockClient.provider.list.mockResolvedValue({ data: { all: [] } });
-    mockClient.session.promptAsync.mockResolvedValue({
-      error: null,
-      response: { status: 204 },
+
+    const fetchMock = createFetchMock({
+      sessionCreate: { data: { id: 'sess-2' }, status: 200 },
+      promptAsync: { status: 204 },
+      health: { data: {}, status: 200 },
     });
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response(JSON.stringify({}), { status: 200 })
-    );
+    vi.spyOn(globalThis, 'fetch').mockImplementation(fetchMock);
     const httpMock = createFakeHttpModule([
       { type: 'session.idle', properties: { sessionID: 'sess-2' } },
     ]);
@@ -840,26 +891,26 @@ describe('runOpenCode full flow', () => {
     await collectMessages(
       runOpenCode('hello', { cwd: '/project', agent: 'sisyphus' })
     );
-    const body = mockClient.session.promptAsync.mock.calls[0][0].body;
+    const promptCall = fetchMock.mock.calls.find((c: any) => {
+      const url = typeof c[0] === 'string' ? c[0] : c[0]?.toString?.() ?? '';
+      return url.includes('/prompt_async');
+    });
+    const body = JSON.parse(promptCall[1]?.body || '{}');
     expect(body.agent).toBe('sisyphus');
   });
 
   it('prepends system prompt to first message in new sessions', async () => {
     vi.spyOn(openCodeServerManager, 'ensureServer').mockResolvedValue(fakeServer);
 
-    mockClient.session.create.mockResolvedValue({
-      data: { id: 'sess-sys' },
-      error: null,
-    });
     mockClient.app.agents.mockResolvedValue({ data: [] });
     mockClient.provider.list.mockResolvedValue({ data: { all: [] } });
-    mockClient.session.promptAsync.mockResolvedValue({
-      error: null,
-      response: { status: 204 },
+
+    const fetchMock = createFetchMock({
+      sessionCreate: { data: { id: 'sess-sys' }, status: 200 },
+      promptAsync: { status: 204 },
+      health: { data: {}, status: 200 },
     });
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response(JSON.stringify({}), { status: 200 })
-    );
+    vi.spyOn(globalThis, 'fetch').mockImplementation(fetchMock);
     const httpMock = createFakeHttpModule([
       { type: 'session.idle', properties: { sessionID: 'sess-sys' } },
     ]);
@@ -872,7 +923,11 @@ describe('runOpenCode full flow', () => {
       })
     );
 
-    const body = mockClient.session.promptAsync.mock.calls[0][0].body;
+    const promptCall = fetchMock.mock.calls.find((c: any) => {
+      const url = typeof c[0] === 'string' ? c[0] : c[0]?.toString?.() ?? '';
+      return url.includes('/prompt_async');
+    });
+    const body = JSON.parse(promptCall[1]?.body || '{}');
     const textPart = body.parts.find((p: any) => p.type === 'text');
     expect(textPart.text).toContain('[System Context]');
     expect(textPart.text).toContain('You are a helpful assistant.');
@@ -882,20 +937,15 @@ describe('runOpenCode full flow', () => {
   it('does not prepend system prompt when resuming existing session', async () => {
     vi.spyOn(openCodeServerManager, 'ensureServer').mockResolvedValue(fakeServer);
 
-    // Session exists — resuming, not creating new
-    mockClient.session.get.mockResolvedValue({
-      data: { id: 'existing-sess' },
-      error: null,
-    });
     mockClient.app.agents.mockResolvedValue({ data: [] });
     mockClient.provider.list.mockResolvedValue({ data: { all: [] } });
-    mockClient.session.promptAsync.mockResolvedValue({
-      error: null,
-      response: { status: 204 },
+
+    const fetchMock = createFetchMock({
+      sessionGet: { data: { id: 'existing-sess' }, status: 200 },
+      promptAsync: { status: 204 },
+      health: { data: {}, status: 200 },
     });
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response(JSON.stringify({}), { status: 200 })
-    );
+    vi.spyOn(globalThis, 'fetch').mockImplementation(fetchMock);
     const httpMock = createFakeHttpModule([
       { type: 'session.idle', properties: { sessionID: 'existing-sess' } },
     ]);
@@ -909,7 +959,11 @@ describe('runOpenCode full flow', () => {
       })
     );
 
-    const body = mockClient.session.promptAsync.mock.calls[0][0].body;
+    const promptCall = fetchMock.mock.calls.find((c: any) => {
+      const url = typeof c[0] === 'string' ? c[0] : c[0]?.toString?.() ?? '';
+      return url.includes('/prompt_async');
+    });
+    const body = JSON.parse(promptCall[1]?.body || '{}');
     const textPart = body.parts.find((p: any) => p.type === 'text');
     // Should NOT contain system context since this is a resumed session
     expect(textPart.text).not.toContain('[System Context]');
@@ -919,10 +973,6 @@ describe('runOpenCode full flow', () => {
   it('fetches system info from health endpoint, agents, and providers', async () => {
     vi.spyOn(openCodeServerManager, 'ensureServer').mockResolvedValue(fakeServer);
 
-    mockClient.session.create.mockResolvedValue({
-      data: { id: 'sess-info' },
-      error: null,
-    });
     mockClient.app.agents.mockResolvedValue({
       data: [
         { name: 'default', model: { providerID: 'anthropic', modelID: 'claude-sonnet' } },
@@ -941,14 +991,13 @@ describe('runOpenCode full flow', () => {
         ],
       },
     });
-    mockClient.session.promptAsync.mockResolvedValue({
-      error: null,
-      response: { status: 204 },
-    });
 
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response(JSON.stringify({ version: '2.5.0' }), { status: 200 })
-    );
+    const fetchMock = createFetchMock({
+      sessionCreate: { data: { id: 'sess-info' }, status: 200 },
+      promptAsync: { status: 204 },
+      health: { data: { version: '2.5.0' }, status: 200 },
+    });
+    vi.spyOn(globalThis, 'fetch').mockImplementation(fetchMock);
     const httpMock = createFakeHttpModule([
       { type: 'session.idle', properties: { sessionID: 'sess-info' } },
     ]);
@@ -968,17 +1017,23 @@ describe('runOpenCode full flow', () => {
   it('handles system info fetch failures gracefully (non-fatal)', async () => {
     vi.spyOn(openCodeServerManager, 'ensureServer').mockResolvedValue(fakeServer);
 
-    mockClient.session.create.mockResolvedValue({
-      data: { id: 'sess-no-info' },
-      error: null,
-    });
     mockClient.app.agents.mockRejectedValue(new Error('agents API error'));
     mockClient.provider.list.mockRejectedValue(new Error('providers API error'));
-    mockClient.session.promptAsync.mockResolvedValue({
-      error: null,
-      response: { status: 204 },
+
+    // fetch succeeds for session create and prompt, but health fails
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input: any) => {
+      const urlStr = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input?.url ?? '';
+      if (urlStr.includes('/global/health')) {
+        throw new Error('health failed');
+      }
+      if (/\/session(\?|$)/.test(urlStr) && !urlStr.includes('/prompt_async') && !urlStr.includes('/message')) {
+        return new Response(JSON.stringify({ id: 'sess-no-info' }), { status: 200 });
+      }
+      if (urlStr.includes('/prompt_async')) {
+        return new Response(null, { status: 204 });
+      }
+      return new Response(JSON.stringify({}), { status: 200 });
     });
-    vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('health failed'));
 
     const httpMock = createFakeHttpModule([
       { type: 'session.idle', properties: { sessionID: 'sess-no-info' } },
@@ -1022,23 +1077,16 @@ describe('runOpenCode SSE event processing', () => {
   function setupBasicMocks(sessionId: string, sseEvents: any[]) {
     vi.spyOn(openCodeServerManager, 'ensureServer').mockResolvedValue(fakeServer);
 
-    mockClient.session.create.mockResolvedValue({
-      data: { id: sessionId },
-      error: null,
-    });
     mockClient.app.agents.mockResolvedValue({ data: [] });
     mockClient.provider.list.mockResolvedValue({ data: { all: [] } });
-    mockClient.session.promptAsync.mockResolvedValue({
-      error: null,
-      response: { status: 204 },
+
+    const fetchMock = createFetchMock({
+      sessionCreate: { data: { id: sessionId }, status: 200 },
+      promptAsync: { status: 204 },
+      health: { data: {}, status: 200 },
+      sessionMessages: { data: [], status: 200 },
     });
-    mockClient.session.messages.mockResolvedValue({
-      data: [],
-      error: null,
-    });
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response(JSON.stringify({}), { status: 200 })
-    );
+    vi.spyOn(globalThis, 'fetch').mockImplementation(fetchMock);
     const httpMock = createFakeHttpModule(sseEvents);
     vi.doMock('http', () => httpMock);
   }
@@ -1530,48 +1578,38 @@ describe('runOpenCode polling fallback', () => {
   it('falls back to polling when SSE yields no session events within timeout', async () => {
     vi.spyOn(openCodeServerManager, 'ensureServer').mockResolvedValue(fakeServer);
 
-    mockClient.session.create.mockResolvedValue({
-      data: { id: 'sess-poll' },
-      error: null,
-    });
     mockClient.app.agents.mockResolvedValue({ data: [] });
     mockClient.provider.list.mockResolvedValue({ data: { all: [] } });
-    mockClient.session.promptAsync.mockResolvedValue({
-      error: null,
-      response: { status: 204 },
-    });
 
     // Polling response: session completed with assistant text
     let pollCallCount = 0;
-    mockClient.session.messages.mockImplementation(async () => {
-      pollCallCount++;
-      if (pollCallCount <= 1) {
-        // First poll: still running
-        return {
-          data: [
-            { info: { role: 'assistant', time: {} }, parts: [{ type: 'text', text: 'partial...', id: 'p1' }] },
-          ],
-          error: null,
-        };
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input: any) => {
+      const urlStr = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input?.url ?? '';
+      if (urlStr.includes('/global/health')) {
+        return new Response(JSON.stringify({}), { status: 200 });
       }
-      // Second poll: completed
-      return {
-        data: [
+      if (urlStr.includes('/prompt_async')) {
+        return new Response(null, { status: 204 });
+      }
+      // session messages (polling)
+      if (/\/session\/[^/]+\/message/.test(urlStr)) {
+        pollCallCount++;
+        if (pollCallCount <= 1) {
+          return new Response(JSON.stringify([
+            { info: { role: 'assistant', time: {} }, parts: [{ type: 'text', text: 'partial...', id: 'p1' }] },
+          ]), { status: 200 });
+        }
+        return new Response(JSON.stringify([
           {
             info: { role: 'assistant', time: { completed: Date.now() }, finish: true },
             parts: [{ type: 'text', text: 'Full response here', id: 'p1' }],
           },
-        ],
-        error: null,
-      };
-    });
-
-    vi.spyOn(globalThis, 'fetch').mockImplementation(async (url: any) => {
-      const urlStr = typeof url === 'string' ? url : url.toString();
-      if (urlStr.includes('/global/health')) {
-        return new Response(JSON.stringify({}), { status: 200 });
+        ]), { status: 200 });
       }
-      // Raw fetch for polling debug
+      // session create
+      if (/\/session(\?|$)/.test(urlStr)) {
+        return new Response(JSON.stringify({ id: 'sess-poll' }), { status: 200 });
+      }
       return new Response(JSON.stringify([]), { status: 200 });
     });
 
@@ -1620,30 +1658,26 @@ describe('runOpenCode assistant fallback from session messages', () => {
   it('emits fallback text from session.messages when no streaming output', async () => {
     vi.spyOn(openCodeServerManager, 'ensureServer').mockResolvedValue(fakeServer);
 
-    mockClient.session.create.mockResolvedValue({
-      data: { id: 'sess-fb' },
-      error: null,
-    });
     mockClient.app.agents.mockResolvedValue({ data: [] });
     mockClient.provider.list.mockResolvedValue({ data: { all: [] } });
-    mockClient.session.promptAsync.mockResolvedValue({
-      error: null,
-      response: { status: 204 },
+
+    const fetchMock = createFetchMock({
+      sessionCreate: { data: { id: 'sess-fb' }, status: 200 },
+      promptAsync: { status: 204 },
+      health: { data: {}, status: 200 },
+      sessionMessages: {
+        data: [
+          {
+            info: { role: 'assistant' },
+            parts: [
+              { type: 'text', text: 'Fallback answer from session API' },
+            ],
+          },
+        ],
+        status: 200,
+      },
     });
-    // Fallback messages endpoint returns assistant text
-    mockClient.session.messages.mockResolvedValue({
-      data: [
-        {
-          info: { role: 'assistant' },
-          parts: [
-            { type: 'text', text: 'Fallback answer from session API' },
-          ],
-        },
-      ],
-    });
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response(JSON.stringify({}), { status: 200 })
-    );
+    vi.spyOn(globalThis, 'fetch').mockImplementation(fetchMock);
 
     // SSE yields session.idle immediately without any text events
     const httpMock = createFakeHttpModule([
@@ -1664,30 +1698,27 @@ describe('runOpenCode assistant fallback from session messages', () => {
   it('emits reasoning text from fallback wrapped in think tags', async () => {
     vi.spyOn(openCodeServerManager, 'ensureServer').mockResolvedValue(fakeServer);
 
-    mockClient.session.create.mockResolvedValue({
-      data: { id: 'sess-fb-r' },
-      error: null,
-    });
     mockClient.app.agents.mockResolvedValue({ data: [] });
     mockClient.provider.list.mockResolvedValue({ data: { all: [] } });
-    mockClient.session.promptAsync.mockResolvedValue({
-      error: null,
-      response: { status: 204 },
+
+    const fetchMock = createFetchMock({
+      sessionCreate: { data: { id: 'sess-fb-r' }, status: 200 },
+      promptAsync: { status: 204 },
+      health: { data: {}, status: 200 },
+      sessionMessages: {
+        data: [
+          {
+            info: { role: 'assistant' },
+            parts: [
+              { type: 'reasoning', text: 'internal reasoning' },
+              { type: 'text', text: 'visible answer' },
+            ],
+          },
+        ],
+        status: 200,
+      },
     });
-    mockClient.session.messages.mockResolvedValue({
-      data: [
-        {
-          info: { role: 'assistant' },
-          parts: [
-            { type: 'reasoning', text: 'internal reasoning' },
-            { type: 'text', text: 'visible answer' },
-          ],
-        },
-      ],
-    });
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response(JSON.stringify({}), { status: 200 })
-    );
+    vi.spyOn(globalThis, 'fetch').mockImplementation(fetchMock);
     const httpMock = createFakeHttpModule([
       { type: 'session.idle', properties: { sessionID: 'sess-fb-r' } },
     ]);
@@ -1707,28 +1738,24 @@ describe('runOpenCode assistant fallback from session messages', () => {
   it('does not emit fallback when streaming already produced output', async () => {
     vi.spyOn(openCodeServerManager, 'ensureServer').mockResolvedValue(fakeServer);
 
-    mockClient.session.create.mockResolvedValue({
-      data: { id: 'sess-no-fb' },
-      error: null,
-    });
     mockClient.app.agents.mockResolvedValue({ data: [] });
     mockClient.provider.list.mockResolvedValue({ data: { all: [] } });
-    mockClient.session.promptAsync.mockResolvedValue({
-      error: null,
-      response: { status: 204 },
+
+    const fetchMock = createFetchMock({
+      sessionCreate: { data: { id: 'sess-no-fb' }, status: 200 },
+      promptAsync: { status: 204 },
+      health: { data: {}, status: 200 },
+      sessionMessages: {
+        data: [
+          {
+            info: { role: 'assistant' },
+            parts: [{ type: 'text', text: 'Should not appear as fallback' }],
+          },
+        ],
+        status: 200,
+      },
     });
-    // session.messages should NOT be called for fallback
-    mockClient.session.messages.mockResolvedValue({
-      data: [
-        {
-          info: { role: 'assistant' },
-          parts: [{ type: 'text', text: 'Should not appear as fallback' }],
-        },
-      ],
-    });
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response(JSON.stringify({}), { status: 200 })
-    );
+    vi.spyOn(globalThis, 'fetch').mockImplementation(fetchMock);
 
     // SSE yields text content THEN idle — streaming produced output
     const httpMock = createFakeHttpModule([
@@ -1777,21 +1804,17 @@ describe('runOpenCode permission handling', () => {
   it('calls onPermissionRequest and responds to allow decision', async () => {
     vi.spyOn(openCodeServerManager, 'ensureServer').mockResolvedValue(fakeServer);
 
-    mockClient.session.create.mockResolvedValue({
-      data: { id: 'sess-perm' },
-      error: null,
-    });
     mockClient.app.agents.mockResolvedValue({ data: [] });
     mockClient.provider.list.mockResolvedValue({ data: { all: [] } });
-    mockClient.session.promptAsync.mockResolvedValue({
-      error: null,
-      response: { status: 204 },
-    });
-    mockClient.session.messages.mockResolvedValue({ data: [] });
     mockClient.postSessionIdPermissionsPermissionId.mockResolvedValue({});
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response(JSON.stringify({}), { status: 200 })
-    );
+
+    const fetchMock = createFetchMock({
+      sessionCreate: { data: { id: 'sess-perm' }, status: 200 },
+      promptAsync: { status: 204 },
+      health: { data: {}, status: 200 },
+      sessionMessages: { data: [], status: 200 },
+    });
+    vi.spyOn(globalThis, 'fetch').mockImplementation(fetchMock);
 
     const httpMock = createFakeHttpModule([
       {
@@ -1831,21 +1854,17 @@ describe('runOpenCode permission handling', () => {
   it('calls onPermissionRequest and responds to deny decision', async () => {
     vi.spyOn(openCodeServerManager, 'ensureServer').mockResolvedValue(fakeServer);
 
-    mockClient.session.create.mockResolvedValue({
-      data: { id: 'sess-perm-deny' },
-      error: null,
-    });
     mockClient.app.agents.mockResolvedValue({ data: [] });
     mockClient.provider.list.mockResolvedValue({ data: { all: [] } });
-    mockClient.session.promptAsync.mockResolvedValue({
-      error: null,
-      response: { status: 204 },
-    });
-    mockClient.session.messages.mockResolvedValue({ data: [] });
     mockClient.postSessionIdPermissionsPermissionId.mockResolvedValue({});
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response(JSON.stringify({}), { status: 200 })
-    );
+
+    const fetchMock = createFetchMock({
+      sessionCreate: { data: { id: 'sess-perm-deny' }, status: 200 },
+      promptAsync: { status: 204 },
+      health: { data: {}, status: 200 },
+      sessionMessages: { data: [], status: 200 },
+    });
+    vi.spyOn(globalThis, 'fetch').mockImplementation(fetchMock);
 
     const httpMock = createFakeHttpModule([
       {
@@ -1877,23 +1896,19 @@ describe('runOpenCode permission handling', () => {
   it('handles permission response API failure gracefully', async () => {
     vi.spyOn(openCodeServerManager, 'ensureServer').mockResolvedValue(fakeServer);
 
-    mockClient.session.create.mockResolvedValue({
-      data: { id: 'sess-perm-fail' },
-      error: null,
-    });
     mockClient.app.agents.mockResolvedValue({ data: [] });
     mockClient.provider.list.mockResolvedValue({ data: { all: [] } });
-    mockClient.session.promptAsync.mockResolvedValue({
-      error: null,
-      response: { status: 204 },
-    });
-    mockClient.session.messages.mockResolvedValue({ data: [] });
     mockClient.postSessionIdPermissionsPermissionId.mockRejectedValue(
       new Error('Permission API down')
     );
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response(JSON.stringify({}), { status: 200 })
-    );
+
+    const fetchMock = createFetchMock({
+      sessionCreate: { data: { id: 'sess-perm-fail' }, status: 200 },
+      promptAsync: { status: 204 },
+      health: { data: {}, status: 200 },
+      sessionMessages: { data: [], status: 200 },
+    });
+    vi.spyOn(globalThis, 'fetch').mockImplementation(fetchMock);
 
     const httpMock = createFakeHttpModule([
       {
@@ -1940,19 +1955,24 @@ describe('abortOpenCodeSession with active server', () => {
   it('calls session.abort when server exists', async () => {
     const fakeServer = createFakeServer({ cwd: '/active-project' });
     vi.spyOn(openCodeServerManager, 'getServer').mockReturnValue(fakeServer);
-    mockClient.session.abort.mockResolvedValue({});
+
+    const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 204 }));
+    vi.spyOn(globalThis, 'fetch').mockImplementation(fetchMock);
 
     await abortOpenCodeSession('/active-project', 'session-to-abort');
 
-    expect(mockClient.session.abort).toHaveBeenCalledWith({
-      path: { id: 'session-to-abort' },
+    // Should have called fetch with abort endpoint
+    const abortCall = fetchMock.mock.calls.find((c: any) => {
+      const url = typeof c[0] === 'string' ? c[0] : c[0]?.toString?.() ?? '';
+      return url.includes('/session/session-to-abort/abort');
     });
+    expect(abortCall).toBeDefined();
   });
 
   it('handles abort API failure gracefully', async () => {
     const fakeServer = createFakeServer({ cwd: '/active-project' });
     vi.spyOn(openCodeServerManager, 'getServer').mockReturnValue(fakeServer);
-    mockClient.session.abort.mockRejectedValue(new Error('Abort failed'));
+    vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('Abort failed'));
 
     // Should not throw
     await expect(

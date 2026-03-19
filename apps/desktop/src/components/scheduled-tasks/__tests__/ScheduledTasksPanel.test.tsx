@@ -7,6 +7,20 @@ vi.mock('../../../hooks/useMediaQuery', () => ({
   useIsMobile: () => false,
 }));
 
+const mockLoadSystemTasks = vi.fn().mockResolvedValue(undefined);
+
+vi.mock('../../../stores/systemTaskStore', () => {
+  const store = vi.fn((selector?: (s: any) => any) => {
+    const state = {
+      tasks: [],
+      loadTasks: mockLoadSystemTasks,
+    };
+    return selector ? selector(state) : state;
+  });
+  (store as any).getState = () => ({ tasks: [] });
+  return { useSystemTaskStore: store };
+});
+
 vi.mock('../CreateScheduledTaskDialog', () => ({
   CreateScheduledTaskDialog: (props: any) => (
     <div data-testid="create-task-dialog">
@@ -71,7 +85,7 @@ function createTask(overrides: Partial<ScheduledTask> = {}): ScheduledTask {
 describe('ScheduledTasksPanel', () => {
   it('renders the header with title', () => {
     render(<ScheduledTasksPanel projectId="proj-1" />);
-    expect(screen.getByText('Scheduled Tasks')).toBeInTheDocument();
+    expect(screen.getByText('Task Manager')).toBeInTheDocument();
   });
 
   it('renders New button', () => {

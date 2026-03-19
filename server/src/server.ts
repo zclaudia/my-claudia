@@ -1281,19 +1281,39 @@ function buildTaskCommandNeedles(taskCommand?: string): string[] {
   return [...needles];
 }
 
-async function findProcessPidsByTaskCommand(taskCommand?: string): Promise<number[]> {
+async function findProcessPidsByTaskCommand(taskCommand?: string, excludedPids: number[] = []): Promise<number[]> {
   const needles = buildTaskCommandNeedles(taskCommand);
   if (needles.length === 0) return [];
 
   try {
-    const { stdout } = await execFileAsync('ps', ['-e', '-o', 'pid=,args=']);
+    const { stdout } = await execFileAsync('ps', ['-e', '-o', 'pid=,comm=,args=']);
+    const excluded = new Set<number>([process.pid, ...excludedPids]);
     return stdout
       .trim()
       .split('\n')
       .map(line => line.trim())
-      .filter(line => needles.some(needle => line.includes(needle)))
-      .map(line => Number(line.match(/^(\d+)/)?.[1]))
-      .filter((pid): pid is number => Number.isFinite(pid) && pid !== process.pid);
+      .map(line => {
+        const match = line.match(/^(\d+)\s+(\S+)\s+(.*)$/);
+        if (!match) return null;
+        return {
+          pid: Number(match[1]),
+          args: match[3],
+        };
+      })
+      .filter((proc): proc is { pid: number; args: string } => proc !== null)
+      .filter(proc => !excluded.has(proc.pid))
+      .filter(proc => needles.some(needle => proc.args.includes(needle)))
+      .filter(proc => {
+        const args = proc.args.toLowerCase();
+        if (args.includes('/opt/homebrew/bin/claude ') || args.includes(' claude --output-format stream-json')) {
+          return false;
+        }
+        if (args.includes('mcp-bridge.js') || args.includes('claudia-plugins')) {
+          return false;
+        }
+        return true;
+      })
+      .map(proc => proc.pid);
   } catch (err) {
     console.warn('[Task PID] Failed to scan processes by command:', err);
     return [];
@@ -1649,7 +1669,7 @@ async function handleClientMessage(
         break;
       }
 
-      const matchedPids = await findProcessPidsByTaskCommand(taskCommand);
+      const matchedPids = await findProcessPidsByTaskCommand(taskCommand, [cliPid, taskRootPid].filter((pid): pid is number => typeof pid === 'number'));
       if (matchedPids.length > 0) {
         console.log(`[StopTask] Command-matched stop for task ${taskId}: pids=[${matchedPids.join(',')}]`);
         const killResults = await Promise.all(matchedPids.map(pid => killProcessTree(pid)));
@@ -2857,7 +2877,10 @@ Use push_file instead of curl to send files to the user — it is more reliable 
               let resolvedRootPid = refreshed.taskProcInfo?.rootPid;
 
               if (!resolvedRootPid && refreshed.event.taskCommand) {
-                const matchedPids = await findProcessPidsByTaskCommand(refreshed.event.taskCommand);
+                const matchedPids = await findProcessPidsByTaskCommand(
+                  refreshed.event.taskCommand,
+                  [refreshed.event.cliPid, refreshed.event.taskRootPid].filter((pid): pid is number => typeof pid === 'number'),
+                );
                 resolvedRootPid = matchedPids[0];
               }
 

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render } from '@testing-library/react';
+import { fireEvent, render } from '@testing-library/react';
 import { useTerminalStore } from '../../../stores/terminalStore';
 
 // Polyfill ResizeObserver for jsdom
@@ -31,6 +31,7 @@ vi.mock('@xterm/xterm', () => {
     onData = vi.fn(() => ({ dispose: vi.fn() }));
     onResize = vi.fn(() => ({ dispose: vi.fn() }));
     write = vi.fn();
+    focus = vi.fn();
     loadAddon = vi.fn();
     options: any = {};
     cols = 80;
@@ -124,6 +125,7 @@ describe('XTerminal', () => {
       onData: vi.fn(() => ({ dispose: vi.fn() })),
       onResize: vi.fn(() => ({ dispose: vi.fn() })),
       write: vi.fn(),
+      focus: vi.fn(),
       loadAddon: vi.fn(),
       options: {},
       cols: 80,
@@ -158,5 +160,36 @@ describe('XTerminal', () => {
     // Simulate theme change by re-rendering
     rerender(<XTerminal terminalId="term-1" projectId="proj-1" />);
     expect(true).toBe(true); // Component should handle theme changes
+  });
+
+  it('focuses an existing terminal when the user taps the terminal area', async () => {
+    const { xtermRegistry } = await import('../../../utils/xtermRegistry');
+    const mockTerminal = {
+      open: vi.fn(),
+      dispose: vi.fn(),
+      onData: vi.fn(() => ({ dispose: vi.fn() })),
+      onResize: vi.fn(() => ({ dispose: vi.fn() })),
+      write: vi.fn(),
+      focus: vi.fn(),
+      loadAddon: vi.fn(),
+      options: {},
+      cols: 80,
+      rows: 24,
+    };
+    const mockFitAddon = { fit: vi.fn() };
+    (xtermRegistry.get as any).mockReturnValue({
+      terminal: mockTerminal,
+      fitAddon: mockFitAddon,
+      serverOpened: true,
+    });
+
+    const { container } = render(
+      <XTerminal terminalId="term-1" projectId="proj-1" />
+    );
+
+    fireEvent.pointerDown(container.firstElementChild as HTMLElement);
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+
+    expect(mockTerminal.focus).toHaveBeenCalled();
   });
 });

@@ -24,22 +24,14 @@ export default defineConfig({
     include: [
       'src/stores/**/*.test.ts',
       'src/utils/**/*.test.ts',
-      'src/hooks/**/*.test.ts',
-      'src/components/**/*.test.{ts,tsx}',
+      'src/config/**/*.test.ts',
+      'src/components/**/*.test.ts',
     ],
     exclude: [
       '**/node_modules/**',
       '**/src-tauri/**',
     ],
-    cache: {
-      dir: './node_modules/.vitest-cache-unit',
-    },
     pool: 'forks',
-    poolOptions: {
-      forks: {
-        singleFork: false,
-      },
-    },
     coverage: {
       provider: 'istanbul',
       reporter: ['text', 'text-summary'],

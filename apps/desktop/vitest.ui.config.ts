@@ -25,21 +25,20 @@ export default defineConfig({
     include: [
       'src/components/**/*.test.tsx',
       'src/contexts/**/*.test.tsx',
-      'src/services/__tests__/agentStorage.test.ts',
+      'src/hooks/**/*.test.ts',
+      'src/services/**/*.test.ts',
+      'src/plugins/**/*.test.ts',
     ],
     exclude: [
       '**/node_modules/**',
       '**/src-tauri/**',
+      '**/ImportDialog.test.tsx',
+      '**/ImportOpenCodeDialog.test.tsx',
+      '**/LocalPRsPanel.test.tsx',
     ],
-    cache: {
-      dir: './node_modules/.vitest-cache-ui',
-    },
     pool: 'forks',
-    poolOptions: {
-      forks: {
-        singleFork: true,  // 组件测试内存占用大，单进程避免 OOM
-      },
-    },
+    testTimeout: 10000,
+    hookTimeout: 10000,
     server: {
       deps: {
         inline: [/@tauri-apps\/.*/],

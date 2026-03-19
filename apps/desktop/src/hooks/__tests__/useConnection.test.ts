@@ -1,6 +1,10 @@
 import { describe, it, expect, vi } from 'vitest';
 import { renderHook } from '@testing-library/react';
 import React from 'react';
+
+// Undo the global mock from setup.ts so we test the real implementation
+vi.unmock('@/contexts/ConnectionContext');
+
 import { useConnection } from '../useConnection';
 import { ConnectionContext } from '../../contexts/ConnectionContext';
 

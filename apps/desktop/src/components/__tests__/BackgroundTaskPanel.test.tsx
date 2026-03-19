@@ -61,6 +61,8 @@ describe('BackgroundTaskPanel', () => {
 
     expect(queryAllByTitle('Stop this task')).toHaveLength(1);
     fireEvent.click(getByTitle('Stop this task'));
-    expect(onStopTask).toHaveBeenCalledWith('sdk-task');
+    expect(onStopTask).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'sdk-task', source: 'sdk_task', stoppable: true })
+    );
   });
 });

@@ -76,6 +76,8 @@ function DraftWindowContent({ sessionId }: { sessionId: string }) {
   const [loaded, setLoaded] = useState(false);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  const hasDraftContent = useCallback((value: string) => !!value.trim(), []);
+
   // Load draft and acquire lock on connect
   useEffect(() => {
     if (!isConnected) return;
@@ -128,13 +130,19 @@ function DraftWindowContent({ sessionId }: { sessionId: string }) {
   const saveDraft = useCallback(async (value: string) => {
     setIsSaving(true);
     try {
+      if (!hasDraftContent(value)) {
+        await api.deleteSessionDraft(sessionId);
+        setLastSavedAt(null);
+        return;
+      }
       const draft = await api.upsertSessionDraft(sessionId, value, CLIENT_DEVICE_ID);
       if (draft) setLastSavedAt(draft.updatedAt);
     } catch (error) {
       console.error('[DraftWindow] Failed to save:', error);
+    } finally {
+      setIsSaving(false);
     }
-    setIsSaving(false);
-  }, [sessionId]);
+  }, [hasDraftContent, sessionId]);
 
   const handleChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const value = e.target.value;
@@ -157,7 +165,7 @@ function DraftWindowContent({ sessionId }: { sessionId: string }) {
 
   const handleClose = useCallback(async () => {
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-    if (content && !isReadOnly) {
+    if (!isReadOnly) {
       await saveDraft(content);
     }
     const { getCurrentWindow } = await import('@tauri-apps/api/window');

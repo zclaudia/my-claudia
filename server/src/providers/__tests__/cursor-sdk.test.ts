@@ -5,10 +5,14 @@ import { Readable } from 'stream';
 import { runCursor, abortCursorSession } from '../cursor-sdk';
 import type { ClaudeMessage } from '../claude-sdk';
 
-// Mock child_process
-vi.mock('child_process', () => ({
-  spawn: vi.fn(),
-}));
+// Mock child_process - preserve all original exports, only override spawn
+vi.mock('child_process', async () => {
+  const actual = await vi.importActual<typeof import('child_process')>('child_process');
+  return {
+    ...actual,
+    spawn: vi.fn(),
+  };
+});
 
 describe('cursor-sdk', () => {
   let mockProcess: EventEmitter & { stdout: Readable; stderr: Readable; kill: any };

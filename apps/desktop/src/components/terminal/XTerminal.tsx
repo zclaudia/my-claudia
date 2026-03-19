@@ -71,6 +71,21 @@ export function XTerminal({ terminalId, projectId, workingDirectory, mode = 'ope
   const resizeObserverRef = useRef<ResizeObserver | null>(null);
   const clearNeedsReattach = useTerminalStore((s) => s.clearNeedsReattach);
 
+  const focusTerminal = (requireVisible = true) => {
+    const terminal = terminalRef.current;
+    const container = containerRef.current;
+    if (!terminal || !container) return;
+    if (requireVisible && (container.clientHeight === 0 || container.clientWidth === 0)) return;
+
+    requestAnimationFrame(() => {
+      try {
+        terminal.focus();
+      } catch {
+        // Ignore transient focus failures from mobile WebViews.
+      }
+    });
+  };
+
   // Update terminal theme when app theme changes
   useEffect(() => {
     const terminal = terminalRef.current;
@@ -169,6 +184,8 @@ export function XTerminal({ terminalId, projectId, workingDirectory, mode = 'ope
           });
         });
       }
+
+      focusTerminal();
       return true;
     };
 
@@ -206,6 +223,7 @@ export function XTerminal({ terminalId, projectId, workingDirectory, mode = 'ope
       ref={containerRef}
       className="w-full h-full"
       style={{ backgroundColor: 'hsl(var(--terminal-bg))' }}
+      onPointerDown={() => focusTerminal(false)}
     />
   );
 }

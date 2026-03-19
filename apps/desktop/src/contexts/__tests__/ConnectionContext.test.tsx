@@ -1,6 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, renderHook, act, cleanup } from '@testing-library/react';
 import type { ReactNode } from 'react';
+
+// Undo the global mock from setup.ts so we test the real implementation
+vi.unmock('@/contexts/ConnectionContext');
+
 import { ConnectionProvider, useConnection, ConnectionContext } from '../ConnectionContext';
 
 // Mock useEmbeddedServer

@@ -52,6 +52,10 @@ interface DraftEditorState {
 
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
 
+function hasDraftContent(content: string | null | undefined): boolean {
+  return !!content?.trim();
+}
+
 async function saveDraftToServer(sessionId: string, content: string): Promise<SessionDraft | null> {
   try {
     const draft = await api.upsertSessionDraft(sessionId, content, CLIENT_DEVICE_ID);
@@ -110,7 +114,7 @@ export const useDraftEditorStore = create<DraftEditorState>((set, get) => ({
         set({
           localContent: result.draft?.content || '',
           lastSavedAt: result.draft?.updatedAt || null,
-          draftExists: { ...get().draftExists, [sessionId]: true },
+          draftExists: { ...get().draftExists, [sessionId]: hasDraftContent(result.draft?.content) },
         });
       } else {
         // Lock held by another device
@@ -151,9 +155,14 @@ export const useDraftEditorStore = create<DraftEditorState>((set, get) => ({
 
     // Save and release lock in background (don't block UI)
     if (activeSessionId && !isReadOnly) {
-      if (localContent) {
+      if (hasDraftContent(localContent)) {
         saveDraftToServer(activeSessionId, localContent).catch((err) =>
           console.error('[DraftEditor] Background save failed:', err)
+        );
+      } else {
+        set({ draftExists: { ...get().draftExists, [activeSessionId]: false } });
+        api.deleteSessionDraft(activeSessionId).catch((err) =>
+          console.error('[DraftEditor] Failed to delete empty draft:', err)
         );
       }
       api.unlockSessionDraft(activeSessionId, CLIENT_DEVICE_ID).catch((err) =>
@@ -174,7 +183,7 @@ export const useDraftEditorStore = create<DraftEditorState>((set, get) => ({
         showLockPrompt: false,
         lastSavedAt: result.draft?.updatedAt || null,
         sessionArchived: false,
-        draftExists: { ...get().draftExists, [sessionId]: true },
+        draftExists: { ...get().draftExists, [sessionId]: hasDraftContent(result.draft?.content) },
       });
       showDraftPanel();
     } catch (error) {
@@ -203,6 +212,21 @@ export const useDraftEditorStore = create<DraftEditorState>((set, get) => ({
     if (saveTimer) clearTimeout(saveTimer);
     saveTimer = setTimeout(async () => {
       set({ isSaving: true });
+      if (!hasDraftContent(content)) {
+        try {
+          await api.deleteSessionDraft(activeSessionId);
+          set({
+            isSaving: false,
+            lastSavedAt: null,
+            draftExists: { ...get().draftExists, [activeSessionId]: false },
+          });
+        } catch (error) {
+          console.error('[DraftEditor] Failed to delete empty draft:', error);
+          set({ isSaving: false });
+        }
+        return;
+      }
+
       const draft = await saveDraftToServer(activeSessionId, content);
       if (draft) {
         set({
@@ -219,7 +243,7 @@ export const useDraftEditorStore = create<DraftEditorState>((set, get) => ({
   checkDraftExists: async (sessionId: string) => {
     try {
       const draft = await api.getSessionDraft(sessionId);
-      const exists = draft !== null;
+      const exists = hasDraftContent(draft?.content);
       set({ draftExists: { ...get().draftExists, [sessionId]: exists } });
       return exists;
     } catch {

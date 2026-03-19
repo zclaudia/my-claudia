@@ -1,5 +1,9 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen, act } from '@testing-library/react';
+
+// Undo the global mock from setup.ts so we test the real implementation
+vi.unmock('@/contexts/ThemeContext');
+
 import { ThemeProvider, useTheme, isDarkTheme } from '../ThemeContext';
 
 // Test component that exposes theme context

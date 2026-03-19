@@ -53,7 +53,7 @@ vi.mock('@tauri-apps/api/path', () => ({
   resolveResource: vi.fn(() => Promise.resolve('/app/resources/server.js')),
 }));
 
-const mockInvoke = vi.fn();
+const mockInvoke = vi.fn().mockResolvedValue({});
 vi.mock('@tauri-apps/api/core', () => ({
   invoke: (...args: any[]) => mockInvoke(...args),
 }));

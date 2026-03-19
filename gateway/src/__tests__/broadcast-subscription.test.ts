@@ -44,7 +44,7 @@ class MessageCollector {
   }
 
   /** Wait for and consume a message of the given type */
-  waitFor(type: string, timeoutMs = 5000): Promise<any> {
+  waitFor(type: string, timeoutMs = 1000): Promise<any> {
     // Check if already in unconsumed queue
     const idx = this.unconsumed.findIndex(m => m.type === type);
     if (idx !== -1) {

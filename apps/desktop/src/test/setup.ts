@@ -1,4 +1,5 @@
 import '@testing-library/jest-dom';
+import React from 'react';
 import { vi } from 'vitest';
 
 // Mock WebSocket
@@ -173,6 +174,31 @@ vi.stubGlobal('fetch', mockFetch);
 // Mock scrollIntoView for DOM elements
 Element.prototype.scrollTo = vi.fn();
 Element.prototype.scrollIntoView = vi.fn();
+
+// Mock ThemeContext — needed by components that use useTheme (e.g. BrandMark → LoadingIndicator)
+vi.mock('@/contexts/ThemeContext', () => ({
+  useTheme: vi.fn(() => ({
+    theme: 'dark',
+    resolvedTheme: 'dark',
+    setTheme: vi.fn(),
+    toggleTheme: vi.fn(),
+  })),
+  ThemeProvider: ({ children }: { children: React.ReactNode }) => children,
+  isDarkTheme: vi.fn(() => true),
+}));
+
+// Mock ConnectionContext — needed by components using useConnection (e.g. ServerSelector → Sidebar)
+vi.mock('@/contexts/ConnectionContext', () => ({
+  useConnection: vi.fn(() => ({
+    isConnected: true,
+    serverUrl: 'http://localhost:3100',
+    socket: null,
+    sendMessage: vi.fn(),
+    connect: vi.fn(),
+    disconnect: vi.fn(),
+  })),
+  ConnectionProvider: ({ children }: { children: React.ReactNode }) => children,
+}));
 
 // Helper to reset mocks between tests
 vi.stubGlobal('__resetDesktopMocks__', () => {

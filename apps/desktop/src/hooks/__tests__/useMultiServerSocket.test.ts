@@ -567,7 +567,7 @@ describe('hooks/useMultiServerSocket', () => {
         });
       });
 
-      expect(mockStartSessionSync).toHaveBeenCalledWith('server-1');
+      expect(mockStartSessionSync).toHaveBeenCalledWith('server-1', { skipInitialFullSync: true });
     });
 
     it('does not start session sync on failed auth', () => {
@@ -651,7 +651,7 @@ describe('hooks/useMultiServerSocket', () => {
       expect(mockServerStoreState.setServerConnectionStatus).toHaveBeenCalledWith('server-1', 'connected');
       expect(mockServerStoreState.setServerFeatures).toHaveBeenCalledWith('server-1', ['f1']);
       expect(mockServerStoreState.setServerPublicKey).toHaveBeenCalledWith('server-1', 'pk1');
-      expect(mockStartSessionSync).toHaveBeenCalledWith('server-1');
+      expect(mockStartSessionSync).toHaveBeenCalledWith('server-1', { skipInitialFullSync: true });
     });
 
     it('passes raw envelope to handleServerMessage for non-auth messages', () => {

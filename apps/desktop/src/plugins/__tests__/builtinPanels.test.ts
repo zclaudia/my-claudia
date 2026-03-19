@@ -8,7 +8,7 @@ describe('initBuiltinPanels', () => {
     } as any);
   });
 
-  it('registers system-monitor and notes-board panels', async () => {
+  it('registers terminal, file-viewer, and draft panels', async () => {
     const registerSpy = vi.fn();
     usePluginStore.setState({ registerPanel: registerSpy } as any);
 
@@ -16,12 +16,15 @@ describe('initBuiltinPanels', () => {
     const { initBuiltinPanels } = await import('../builtinPanels');
     initBuiltinPanels();
 
-    expect(registerSpy).toHaveBeenCalledTimes(2);
+    expect(registerSpy).toHaveBeenCalledTimes(3);
     expect(registerSpy).toHaveBeenCalledWith(
-      expect.objectContaining({ id: 'system-monitor', pluginId: 'com.claudia.system-monitor' })
+      expect.objectContaining({ id: 'terminal', pluginId: 'com.claudia.terminal' })
     );
     expect(registerSpy).toHaveBeenCalledWith(
-      expect.objectContaining({ id: 'notes-board', pluginId: 'com.claudia.notes-board' })
+      expect.objectContaining({ id: 'file-viewer', pluginId: 'com.claudia.file-viewer' })
+    );
+    expect(registerSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'draft', pluginId: 'com.claudia.draft' })
     );
   });
 });
