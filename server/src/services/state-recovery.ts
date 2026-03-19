@@ -3,7 +3,7 @@ import type { TaskStatus } from '@my-claudia/shared';
 import { SupervisionTaskRepository } from '../repositories/supervision-task.js';
 import { SessionRepository } from '../repositories/session.js';
 import { ProjectRepository } from '../repositories/project.js';
-import type { SupervisorV2Service } from './supervisor-v2-service.js';
+import type { SupervisorService } from './supervisor-service.js';
 
 export interface RecoveryAction {
   type: 'task_requeued' | 'task_failed' | 'worktree_released' | 'session_archived' | 'agent_idle' | 'run_interrupted';
@@ -22,7 +22,7 @@ export class StateRecovery {
     private taskRepo: SupervisionTaskRepository,
     private sessionRepo: SessionRepository,
     private projectRepo: ProjectRepository,
-    private supervisorService: SupervisorV2Service,
+    private supervisorService: SupervisorService,
     private activeRuns: Map<string, unknown>,
   ) {}
 
@@ -89,7 +89,7 @@ export class StateRecovery {
       const runningTasks = this.taskRepo.findByStatus(project.id, 'running');
       for (const task of runningTasks) {
         // Check if there's an active run for this task
-        const clientId = `supervisor_v2_task_${task.id}`;
+        const clientId = `supervisor_task_${task.id}`;
         if (!this.activeRuns.has(clientId)) {
           // No active run — task is stuck
           const newAttempt = task.attempt + 1;

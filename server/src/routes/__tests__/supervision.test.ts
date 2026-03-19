@@ -1,8 +1,8 @@
 import { describe, it, expect, beforeAll, beforeEach, vi } from 'vitest';
 import express from 'express';
 import request from 'supertest';
-import { createSupervisionV2Routes } from '../supervision-v2.js';
-import type { SupervisorV2Service } from '../../services/supervisor-v2-service.js';
+import { createSupervisionRoutes } from '../supervision.js';
+import type { SupervisorService } from '../../services/supervisor-service.js';
 import type { ProjectAgent, SupervisionTask } from '@my-claudia/shared';
 
 function makeMockAgent(overrides: Partial<ProjectAgent> = {}): ProjectAgent {
@@ -67,7 +67,7 @@ describe('Supervision V2 Routes', () => {
 
     app = express();
     app.use(express.json());
-    app.use('/api/v2', createSupervisionV2Routes(mockService as unknown as SupervisorV2Service));
+    app.use('/api', createSupervisionRoutes(mockService as unknown as SupervisorService));
   });
 
   beforeEach(() => {
@@ -84,7 +84,7 @@ describe('Supervision V2 Routes', () => {
       mockService.initAgent.mockReturnValue(agent);
 
       const res = await request(app)
-        .post('/api/v2/projects/proj-1/agent/init')
+        .post('/api/projects/proj-1/agent/init')
         .send({ config: { trustLevel: 'high' } })
         .expect(200);
 
@@ -99,7 +99,7 @@ describe('Supervision V2 Routes', () => {
       });
 
       const res = await request(app)
-        .post('/api/v2/projects/proj-bad/agent/init')
+        .post('/api/projects/proj-bad/agent/init')
         .send({})
         .expect(400);
 
@@ -115,7 +115,7 @@ describe('Supervision V2 Routes', () => {
   describe('POST /projects/:projectId/agent/action', () => {
     it('validates action param — rejects invalid action', async () => {
       const res = await request(app)
-        .post('/api/v2/projects/proj-1/agent/action')
+        .post('/api/projects/proj-1/agent/action')
         .send({ action: 'invalid_action' })
         .expect(400);
 
@@ -126,7 +126,7 @@ describe('Supervision V2 Routes', () => {
 
     it('validates action param — rejects missing action', async () => {
       const res = await request(app)
-        .post('/api/v2/projects/proj-1/agent/action')
+        .post('/api/projects/proj-1/agent/action')
         .send({})
         .expect(400);
 
@@ -139,7 +139,7 @@ describe('Supervision V2 Routes', () => {
       mockService.updateAgentPhase.mockReturnValue(agent);
 
       const res = await request(app)
-        .post('/api/v2/projects/proj-1/agent/action')
+        .post('/api/projects/proj-1/agent/action')
         .send({ action: 'pause' })
         .expect(200);
 
@@ -152,7 +152,7 @@ describe('Supervision V2 Routes', () => {
       mockService.updateAgentPhase.mockReturnValue(agent);
 
       const res = await request(app)
-        .post('/api/v2/projects/proj-1/agent/action')
+        .post('/api/projects/proj-1/agent/action')
         .send({ action: 'resume' })
         .expect(200);
 
@@ -164,7 +164,7 @@ describe('Supervision V2 Routes', () => {
       mockService.updateAgentPhase.mockReturnValue(agent);
 
       const res = await request(app)
-        .post('/api/v2/projects/proj-1/agent/action')
+        .post('/api/projects/proj-1/agent/action')
         .send({ action: 'archive' })
         .expect(200);
 
@@ -176,7 +176,7 @@ describe('Supervision V2 Routes', () => {
       mockService.updateAgentPhase.mockReturnValue(agent);
 
       const res = await request(app)
-        .post('/api/v2/projects/proj-1/agent/action')
+        .post('/api/projects/proj-1/agent/action')
         .send({ action: 'approve_setup' })
         .expect(200);
 
@@ -194,7 +194,7 @@ describe('Supervision V2 Routes', () => {
       mockService.getAgent.mockReturnValue(agent);
 
       const res = await request(app)
-        .get('/api/v2/projects/proj-1/agent')
+        .get('/api/projects/proj-1/agent')
         .expect(200);
 
       expect(res.body.success).toBe(true);
@@ -205,7 +205,7 @@ describe('Supervision V2 Routes', () => {
       mockService.getAgent.mockReturnValue(undefined);
 
       const res = await request(app)
-        .get('/api/v2/projects/proj-1/agent')
+        .get('/api/projects/proj-1/agent')
         .expect(404);
 
       expect(res.body.success).toBe(false);
@@ -223,7 +223,7 @@ describe('Supervision V2 Routes', () => {
       mockService.getTasks.mockReturnValue(tasks);
 
       const res = await request(app)
-        .get('/api/v2/projects/proj-1/tasks')
+        .get('/api/projects/proj-1/tasks')
         .expect(200);
 
       expect(res.body.success).toBe(true);
@@ -235,7 +235,7 @@ describe('Supervision V2 Routes', () => {
       mockService.getTasks.mockReturnValue([]);
 
       const res = await request(app)
-        .get('/api/v2/projects/proj-1/tasks')
+        .get('/api/projects/proj-1/tasks')
         .expect(200);
 
       expect(res.body.success).toBe(true);
@@ -250,7 +250,7 @@ describe('Supervision V2 Routes', () => {
   describe('POST /projects/:projectId/tasks', () => {
     it('validates title and description required', async () => {
       const res = await request(app)
-        .post('/api/v2/projects/proj-1/tasks')
+        .post('/api/projects/proj-1/tasks')
         .send({})
         .expect(400);
 
@@ -261,7 +261,7 @@ describe('Supervision V2 Routes', () => {
 
     it('validates title required', async () => {
       const res = await request(app)
-        .post('/api/v2/projects/proj-1/tasks')
+        .post('/api/projects/proj-1/tasks')
         .send({ description: 'Has desc but no title' })
         .expect(400);
 
@@ -270,7 +270,7 @@ describe('Supervision V2 Routes', () => {
 
     it('validates description required', async () => {
       const res = await request(app)
-        .post('/api/v2/projects/proj-1/tasks')
+        .post('/api/projects/proj-1/tasks')
         .send({ title: 'Has title but no desc' })
         .expect(400);
 
@@ -282,7 +282,7 @@ describe('Supervision V2 Routes', () => {
       mockService.createTask.mockReturnValue(task);
 
       const res = await request(app)
-        .post('/api/v2/projects/proj-1/tasks')
+        .post('/api/projects/proj-1/tasks')
         .send({ title: 'New task', description: 'Do something' })
         .expect(200);
 
@@ -300,7 +300,7 @@ describe('Supervision V2 Routes', () => {
       });
 
       const res = await request(app)
-        .post('/api/v2/projects/proj-1/tasks')
+        .post('/api/projects/proj-1/tasks')
         .send({ title: 'Over budget', description: 'd' })
         .expect(409);
 
@@ -313,7 +313,7 @@ describe('Supervision V2 Routes', () => {
       });
 
       const res = await request(app)
-        .post('/api/v2/projects/proj-1/tasks')
+        .post('/api/projects/proj-1/tasks')
         .send({ title: 'No agent', description: 'd' })
         .expect(400);
 
@@ -331,7 +331,7 @@ describe('Supervision V2 Routes', () => {
       mockService.approveTask.mockReturnValue(task);
 
       const res = await request(app)
-        .post('/api/v2/tasks/task-1/approve')
+        .post('/api/tasks/task-1/approve')
         .expect(200);
 
       expect(res.body.success).toBe(true);
@@ -344,7 +344,7 @@ describe('Supervision V2 Routes', () => {
       });
 
       const res = await request(app)
-        .post('/api/v2/tasks/task-1/approve')
+        .post('/api/tasks/task-1/approve')
         .expect(400);
 
       expect(res.body.success).toBe(false);
@@ -362,7 +362,7 @@ describe('Supervision V2 Routes', () => {
       mockService.rejectTask.mockReturnValue(task);
 
       const res = await request(app)
-        .post('/api/v2/tasks/task-1/reject')
+        .post('/api/tasks/task-1/reject')
         .expect(200);
 
       expect(res.body.success).toBe(true);
@@ -375,7 +375,7 @@ describe('Supervision V2 Routes', () => {
       });
 
       const res = await request(app)
-        .post('/api/v2/tasks/task-bad/reject')
+        .post('/api/tasks/task-bad/reject')
         .expect(400);
 
       expect(res.body.success).toBe(false);
@@ -392,7 +392,7 @@ describe('Supervision V2 Routes', () => {
       mockService.approveTaskResult.mockReturnValue(task);
 
       const res = await request(app)
-        .post('/api/v2/tasks/task-1/review/approve')
+        .post('/api/tasks/task-1/review/approve')
         .expect(200);
 
       expect(res.body.success).toBe(true);
@@ -405,7 +405,7 @@ describe('Supervision V2 Routes', () => {
       });
 
       const res = await request(app)
-        .post('/api/v2/tasks/task-1/review/approve')
+        .post('/api/tasks/task-1/review/approve')
         .expect(400);
 
       expect(res.body.success).toBe(false);
@@ -419,7 +419,7 @@ describe('Supervision V2 Routes', () => {
   describe('POST /tasks/:taskId/review/reject', () => {
     it('validates notes required', async () => {
       const res = await request(app)
-        .post('/api/v2/tasks/task-1/review/reject')
+        .post('/api/tasks/task-1/review/reject')
         .send({})
         .expect(400);
 
@@ -433,7 +433,7 @@ describe('Supervision V2 Routes', () => {
       mockService.rejectTaskResult.mockReturnValue(task);
 
       const res = await request(app)
-        .post('/api/v2/tasks/task-1/review/reject')
+        .post('/api/tasks/task-1/review/reject')
         .send({ notes: 'Needs more work on error handling' })
         .expect(200);
 
@@ -450,7 +450,7 @@ describe('Supervision V2 Routes', () => {
       });
 
       const res = await request(app)
-        .post('/api/v2/tasks/task-1/review/reject')
+        .post('/api/tasks/task-1/review/reject')
         .send({ notes: 'Some notes' })
         .expect(400);
 
@@ -467,7 +467,7 @@ describe('Supervision V2 Routes', () => {
       mockService.reloadContext.mockReturnValue(undefined);
 
       const res = await request(app)
-        .post('/api/v2/projects/proj-1/context/reload')
+        .post('/api/projects/proj-1/context/reload')
         .expect(200);
 
       expect(res.body.success).toBe(true);
@@ -480,7 +480,7 @@ describe('Supervision V2 Routes', () => {
       });
 
       const res = await request(app)
-        .post('/api/v2/projects/proj-bad/context/reload')
+        .post('/api/projects/proj-bad/context/reload')
         .expect(500);
 
       expect(res.body.success).toBe(false);
@@ -500,7 +500,7 @@ describe('Supervision V2 Routes', () => {
       mockService.getContextDocuments.mockReturnValue(docs);
 
       const res = await request(app)
-        .get('/api/v2/projects/proj-1/context')
+        .get('/api/projects/proj-1/context')
         .expect(200);
 
       expect(res.body.success).toBe(true);
@@ -519,7 +519,7 @@ describe('Supervision V2 Routes', () => {
       mockService.updateTask.mockReturnValue(task);
 
       const res = await request(app)
-        .put('/api/v2/tasks/task-1')
+        .put('/api/tasks/task-1')
         .send({ title: 'Updated' })
         .expect(200);
 
@@ -531,7 +531,7 @@ describe('Supervision V2 Routes', () => {
       mockService.updateTask.mockReturnValue(undefined);
 
       const res = await request(app)
-        .put('/api/v2/tasks/nonexistent')
+        .put('/api/tasks/nonexistent')
         .send({ title: 'Nope' })
         .expect(404);
 
@@ -557,7 +557,7 @@ describe('Supervision V2 Routes', () => {
       }));
 
       const res = await request(app)
-        .get('/api/v2/projects/proj-1/budget')
+        .get('/api/projects/proj-1/budget')
         .expect(200);
 
       expect(res.body.success).toBe(true);
@@ -571,7 +571,7 @@ describe('Supervision V2 Routes', () => {
       mockService.getAgent.mockReturnValue(makeMockAgent());
 
       const res = await request(app)
-        .get('/api/v2/projects/proj-1/budget')
+        .get('/api/projects/proj-1/budget')
         .expect(200);
 
       expect(res.body.data.usage).toBe(300);
@@ -593,7 +593,7 @@ describe('Supervision V2 Routes', () => {
       mockService.getLogs.mockReturnValue(mockLogs);
 
       const res = await request(app)
-        .get('/api/v2/projects/proj-1/logs')
+        .get('/api/projects/proj-1/logs')
         .expect(200);
 
       expect(res.body.success).toBe(true);
@@ -605,7 +605,7 @@ describe('Supervision V2 Routes', () => {
       mockService.getLogs.mockReturnValue([]);
 
       await request(app)
-        .get('/api/v2/projects/proj-1/logs?limit=50')
+        .get('/api/projects/proj-1/logs?limit=50')
         .expect(200);
 
       expect(mockService.getLogs).toHaveBeenCalledWith('proj-1', 50);
@@ -617,7 +617,7 @@ describe('Supervision V2 Routes', () => {
       });
 
       const res = await request(app)
-        .get('/api/v2/projects/proj-1/logs')
+        .get('/api/projects/proj-1/logs')
         .expect(500);
 
       expect(res.body.success).toBe(false);
@@ -635,7 +635,7 @@ describe('Supervision V2 Routes', () => {
       mockService.resolveConflict.mockReturnValue(task);
 
       const res = await request(app)
-        .post('/api/v2/tasks/task-1/resolve-conflict')
+        .post('/api/tasks/task-1/resolve-conflict')
         .expect(200);
 
       expect(res.body.success).toBe(true);
@@ -648,7 +648,7 @@ describe('Supervision V2 Routes', () => {
       });
 
       const res = await request(app)
-        .post('/api/v2/tasks/task-1/resolve-conflict')
+        .post('/api/tasks/task-1/resolve-conflict')
         .expect(400);
 
       expect(res.body.success).toBe(false);
@@ -661,7 +661,7 @@ describe('Supervision V2 Routes', () => {
       });
 
       const res = await request(app)
-        .post('/api/v2/tasks/task-1/resolve-conflict')
+        .post('/api/tasks/task-1/resolve-conflict')
         .expect(500);
 
       expect(res.body.success).toBe(false);
@@ -680,7 +680,7 @@ describe('Supervision V2 Routes', () => {
       });
 
       const res = await request(app)
-        .post('/api/v2/projects/proj-1/agent/action')
+        .post('/api/projects/proj-1/agent/action')
         .send({ action: 'pause' })
         .expect(400);
 
@@ -694,7 +694,7 @@ describe('Supervision V2 Routes', () => {
       });
 
       const res = await request(app)
-        .post('/api/v2/projects/proj-1/agent/action')
+        .post('/api/projects/proj-1/agent/action')
         .send({ action: 'resume' })
         .expect(500);
 
@@ -714,7 +714,7 @@ describe('Supervision V2 Routes', () => {
       });
 
       const res = await request(app)
-        .get('/api/v2/projects/proj-1/agent')
+        .get('/api/projects/proj-1/agent')
         .expect(500);
 
       expect(res.body.success).toBe(false);
@@ -727,7 +727,7 @@ describe('Supervision V2 Routes', () => {
       });
 
       const res = await request(app)
-        .get('/api/v2/projects/proj-1/tasks')
+        .get('/api/projects/proj-1/tasks')
         .expect(500);
 
       expect(res.body.success).toBe(false);
@@ -740,7 +740,7 @@ describe('Supervision V2 Routes', () => {
       });
 
       const res = await request(app)
-        .get('/api/v2/projects/proj-1/budget')
+        .get('/api/projects/proj-1/budget')
         .expect(500);
 
       expect(res.body.success).toBe(false);
@@ -753,7 +753,7 @@ describe('Supervision V2 Routes', () => {
       });
 
       const res = await request(app)
-        .get('/api/v2/projects/proj-1/context')
+        .get('/api/projects/proj-1/context')
         .expect(500);
 
       expect(res.body.success).toBe(false);
@@ -771,7 +771,7 @@ describe('Supervision V2 Routes', () => {
       mockService.createTask.mockReturnValue(task);
 
       await request(app)
-        .post('/api/v2/projects/proj-1/tasks')
+        .post('/api/projects/proj-1/tasks')
         .send({
           title: 'Full task',
           description: 'With all options',
@@ -802,7 +802,7 @@ describe('Supervision V2 Routes', () => {
       });
 
       const res = await request(app)
-        .post('/api/v2/projects/proj-1/tasks')
+        .post('/api/projects/proj-1/tasks')
         .send({ title: 'Fail', description: 'd' })
         .expect(500);
 
@@ -822,7 +822,7 @@ describe('Supervision V2 Routes', () => {
       });
 
       const res = await request(app)
-        .put('/api/v2/tasks/task-1')
+        .put('/api/tasks/task-1')
         .send({ title: 'Crash' })
         .expect(500);
 
@@ -840,7 +840,7 @@ describe('Supervision V2 Routes', () => {
       mockService.retryTask.mockReturnValue(task);
 
       const res = await request(app)
-        .post('/api/v2/tasks/task-1/retry')
+        .post('/api/tasks/task-1/retry')
         .expect(200);
 
       expect(res.body.success).toBe(true);
@@ -853,7 +853,7 @@ describe('Supervision V2 Routes', () => {
       });
 
       const res = await request(app)
-        .post('/api/v2/tasks/nonexistent/retry')
+        .post('/api/tasks/nonexistent/retry')
         .expect(404);
 
       expect(res.body.error.code).toBe('NOT_FOUND');
@@ -865,7 +865,7 @@ describe('Supervision V2 Routes', () => {
       });
 
       const res = await request(app)
-        .post('/api/v2/tasks/task-1/retry')
+        .post('/api/tasks/task-1/retry')
         .expect(400);
 
       expect(res.body.error.code).toBe('INVALID_STATE');
@@ -881,7 +881,7 @@ describe('Supervision V2 Routes', () => {
       mockService.cancelTask.mockReturnValue(task);
 
       const res = await request(app)
-        .post('/api/v2/tasks/task-1/cancel')
+        .post('/api/tasks/task-1/cancel')
         .expect(200);
 
       expect(res.body.success).toBe(true);
@@ -894,7 +894,7 @@ describe('Supervision V2 Routes', () => {
       });
 
       const res = await request(app)
-        .post('/api/v2/tasks/nonexistent/cancel')
+        .post('/api/tasks/nonexistent/cancel')
         .expect(404);
 
       expect(res.body.error.code).toBe('NOT_FOUND');
@@ -906,7 +906,7 @@ describe('Supervision V2 Routes', () => {
       });
 
       const res = await request(app)
-        .post('/api/v2/tasks/task-1/cancel')
+        .post('/api/tasks/task-1/cancel')
         .expect(400);
 
       expect(res.body.error.code).toBe('INVALID_STATE');
@@ -922,7 +922,7 @@ describe('Supervision V2 Routes', () => {
       mockService.runTaskNow.mockReturnValue(task);
 
       const res = await request(app)
-        .post('/api/v2/tasks/task-1/run-now')
+        .post('/api/tasks/task-1/run-now')
         .expect(200);
 
       expect(res.body.success).toBe(true);
@@ -935,7 +935,7 @@ describe('Supervision V2 Routes', () => {
       });
 
       const res = await request(app)
-        .post('/api/v2/tasks/nonexistent/run-now')
+        .post('/api/tasks/nonexistent/run-now')
         .expect(404);
 
       expect(res.body.error.code).toBe('NOT_FOUND');
@@ -947,7 +947,7 @@ describe('Supervision V2 Routes', () => {
       });
 
       const res = await request(app)
-        .post('/api/v2/tasks/task-1/run-now')
+        .post('/api/tasks/task-1/run-now')
         .expect(400);
 
       expect(res.body.error.code).toBe('INVALID_STATE');
@@ -963,7 +963,7 @@ describe('Supervision V2 Routes', () => {
       mockService.getContextDocuments.mockReturnValue(docs);
 
       const res = await request(app)
-        .get('/api/v2/projects/proj-1/context')
+        .get('/api/projects/proj-1/context')
         .expect(200);
 
       expect(res.body.success).toBe(true);
@@ -976,7 +976,7 @@ describe('Supervision V2 Routes', () => {
       });
 
       const res = await request(app)
-        .get('/api/v2/projects/proj-1/context')
+        .get('/api/projects/proj-1/context')
         .expect(500);
 
       expect(res.body.error.code).toBe('INTERNAL_ERROR');

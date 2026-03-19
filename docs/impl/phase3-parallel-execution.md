@@ -206,7 +206,7 @@ Worktrees are created under `{projectRoot}/.worktrees/supervision/slot-{N}`. Thi
 
 ## 3. Scheduler Upgrade
 
-### Modified `tick()` in SupervisorV2Service
+### Modified `tick()` in SupervisorService
 
 ```typescript
 tick(projectId: string): void {
@@ -354,7 +354,7 @@ When a task enters `merge_conflict`:
 New API endpoint:
 
 ```
-POST /api/v2/supervision/tasks/:taskId/resolve-conflict
+POST /api/supervision/tasks/:taskId/resolve-conflict
 ```
 
 Implementation:
@@ -507,10 +507,10 @@ isGitProject(rootPath?: string): boolean {
 
 | File | Changes |
 |------|---------|
-| `server/src/services/supervisor-v2-service.ts` | Parallel scheduler, worktree acquisition, pool management |
+| `server/src/services/supervisor-service.ts` | Parallel scheduler, worktree acquisition, pool management |
 | `server/src/services/review-engine.ts` | Worktree-aware evidence collection, merge flow on approval |
 | `server/src/services/task-runner.ts` | Worktree-aware auto-commit, pnpm install |
-| `server/src/routes/supervision-v2.ts` | Add `resolve-conflict` endpoint |
+| `server/src/routes/supervision.ts` | Add `resolve-conflict` endpoint |
 
 ### New Dependencies
 

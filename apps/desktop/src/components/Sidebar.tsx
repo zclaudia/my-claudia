@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
+import { useState, useCallback, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { Bot, FileText, Wrench } from 'lucide-react';
 
@@ -66,9 +66,9 @@ import { SessionItem } from './sidebar/SessionItem';
 import { WorktreeGroupItem } from './sidebar/WorktreeGroupItem';
 import { SupervisorGroupItem } from './sidebar/SupervisorGroupItem';
 import { groupSessionsByWorktree } from './sidebar/worktreeGrouping';
+import { useSearchSidebar } from './sidebar/useSearchSidebar';
 import * as api from '../services/api';
 import { getBaseUrl, getAuthHeaders } from '../services/api';
-import type { SearchResult, SearchHistoryEntry, SearchFilters as Filters } from '../services/api';
 import type { GitWorktree } from '@my-claudia/shared';
 
 interface SidebarProps {
@@ -153,22 +153,17 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
   const [contextMenuPos, setContextMenuPos] = useState<{ top: number; left: number } | null>(null);
   const [settingsProjectId, setSettingsProjectId] = useState<string | null>(null);
   const [showSettings, setShowSettings] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
-  const [isSearching, setIsSearching] = useState(false);
-  const [searchHistory, setSearchHistory] = useState<SearchHistoryEntry[]>([]);
-  const [showSearchHistory, setShowSearchHistory] = useState(false);
-  const [showFilters, setShowFilters] = useState(false);
-  const [searchFilters, setSearchFilters] = useState<Filters>({});
-  const [searchOffset, setSearchOffset] = useState(0);
-  const [hasMoreResults, setHasMoreResults] = useState(false);
-  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const search = useSearchSidebar();
+  const {
+    searchQuery, setSearchQuery, searchResults, setSearchResults, isSearching,
+    searchHistory, showSearchHistory, showFilters, setShowFilters, searchFilters,
+    hasMoreResults, isLoadingMore, searchInputRef, searchResultsContainerRef,
+    handleSearch, handleLoadMore, handleSelectHistoryItem, handleSearchFocus,
+    handleSearchBlur, handleClearHistory, handleFiltersChange,
+  } = search;
   const [expandedWorktrees, setExpandedWorktrees] = useState<Set<string>>(new Set());
   const [regularSessionsCollapsed, setRegularSessionsCollapsed] = useState<Set<string>>(new Set());
   const [worktreesByProject, setWorktreesByProject] = useState<Map<string, GitWorktree[]>>(new Map());
-  const searchTimerRef = useRef<number | null>(null);
-  const searchInputRef = useRef<HTMLInputElement | null>(null);
-  const searchResultsContainerRef = useRef<HTMLDivElement | null>(null);
 
   const settingsProject = settingsProjectId ? projects?.find(p => p.id === settingsProjectId) || null : null;
 
@@ -373,115 +368,6 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
     }
   };
 
-
-  // Load search history on mount
-  useEffect(() => {
-    const loadSearchHistory = async () => {
-      try {
-        const history = await api.getSearchHistory();
-        setSearchHistory(history);
-      } catch (error) {
-        console.error('Failed to load search history:', error);
-      }
-    };
-    loadSearchHistory();
-  }, []);
-
-  const handleSearch = useCallback((query: string, filters?: Filters) => {
-    setSearchQuery(query);
-    setShowSearchHistory(false); // Hide history when typing
-    setSearchOffset(0); // Reset offset for new search
-    if (searchTimerRef.current) {
-      clearTimeout(searchTimerRef.current);
-    }
-    if (!query.trim()) {
-      setSearchResults([]);
-      setIsSearching(false);
-      setHasMoreResults(false);
-      return;
-    }
-    setIsSearching(true);
-    searchTimerRef.current = window.setTimeout(async () => {
-      try {
-        const filtersToUse = filters || searchFilters;
-        const pageSize = 50;
-        const results = await api.searchMessages(query.trim(), { ...filtersToUse, limit: pageSize, offset: 0 });
-        setSearchResults(results);
-        setHasMoreResults(results.length === pageSize); // If we got full page, there might be more
-        // Reload search history after search
-        const history = await api.getSearchHistory();
-        setSearchHistory(history);
-      } catch (error) {
-        console.error('Search failed:', error);
-        setSearchResults([]);
-        setHasMoreResults(false);
-      } finally {
-        setIsSearching(false);
-      }
-    }, 300);
-  }, [searchFilters]);
-
-  const handleLoadMore = useCallback(async () => {
-    if (!searchQuery.trim() || isLoadingMore) return;
-
-    setIsLoadingMore(true);
-    try {
-      const pageSize = 50;
-      const newOffset = searchOffset + pageSize;
-      const results = await api.searchMessages(searchQuery.trim(), {
-        ...searchFilters,
-        limit: pageSize,
-        offset: newOffset
-      });
-
-      setSearchResults(prev => [...prev, ...results]);
-      setSearchOffset(newOffset);
-      setHasMoreResults(results.length === pageSize);
-    } catch (error) {
-      console.error('Load more failed:', error);
-    } finally {
-      setIsLoadingMore(false);
-    }
-  }, [searchQuery, searchFilters, searchOffset, isLoadingMore]);
-
-  const handleSelectHistoryItem = useCallback((query: string) => {
-    handleSearch(query);
-    setShowSearchHistory(false);
-  }, [handleSearch]);
-
-  const handleSearchFocus = useCallback(() => {
-    if (!searchQuery.trim() && searchHistory.length > 0) {
-      setShowSearchHistory(true);
-    }
-  }, [searchQuery, searchHistory.length]);
-
-  const handleSearchBlur = useCallback(() => {
-    // Delay hiding to allow clicking on history items
-    setTimeout(() => setShowSearchHistory(false), 200);
-  }, []);
-
-  const handleClearHistory = useCallback(async () => {
-    try {
-      await api.clearSearchHistory();
-      setSearchHistory([]);
-      setShowSearchHistory(false);
-    } catch (error) {
-      console.error('Failed to clear search history:', error);
-    }
-  }, []);
-
-  const handleFiltersChange = useCallback((filters: Filters) => {
-    setSearchFilters(filters);
-    // Re-run search with new filters if there's a query
-    if (searchQuery.trim()) {
-      handleSearch(searchQuery, filters);
-    }
-  }, [searchQuery, handleSearch]);
-
-  useEffect(() => {
-    if (searchOffset !== 0 || isLoadingMore) return;
-    searchResultsContainerRef.current?.scrollTo({ top: 0, behavior: 'auto' });
-  }, [searchQuery, searchOffset, isLoadingMore, searchResults.length]);
 
   const sidebarSwipeRef = useSwipeBack({
     onSwipe: () => onClose?.(),

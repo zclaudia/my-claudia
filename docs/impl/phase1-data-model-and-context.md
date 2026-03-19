@@ -97,7 +97,7 @@ export interface SupervisionTask {
   completedAt?: number;
 }
 
-export type SupervisionV2LogEvent =
+export type SupervisionLogEvent =
   | 'agent_initialized'
   | 'phase_changed'
   | 'task_created'
@@ -107,11 +107,11 @@ export type SupervisionV2LogEvent =
   | 'context_updated'
   | 'context_sync_error';
 
-export interface SupervisionV2Log {
+export interface SupervisionLog {
   id: string;
   projectId: string;
   taskId?: string;
-  event: SupervisionV2LogEvent;
+  event: SupervisionLogEvent;
   detail?: Record<string, unknown>;
   createdAt: number;
 }
@@ -600,7 +600,7 @@ pnpm add --filter server -D @types/js-yaml
 
 ---
 
-## 5. SupervisorService v2 (`server/src/services/supervisor-v2-service.ts`)
+## 5. SupervisorService v2 (`server/src/services/supervisor-service.ts`)
 
 New file. **Does not replace v1** in Phase 1 — coexists. v1 is deprecated but functional.
 
@@ -616,7 +616,7 @@ New file. **Does not replace v1** in Phase 1 — coexists. v1 is deprecated but 
 ### Public API
 
 ```typescript
-export class SupervisorV2Service {
+export class SupervisorService {
   constructor(
     private db: Database.Database,
     private taskRepo: SupervisionTaskRepository,
@@ -745,9 +745,9 @@ private areDependenciesMet(task: SupervisionTask): boolean {
 
 ---
 
-## 6. API Routes (`server/src/routes/supervision-v2.ts`)
+## 6. API Routes (`server/src/routes/supervision.ts`)
 
-New Express router, mounted at `/api/v2/supervision`.
+New Express router, mounted at `/api/supervision`.
 
 ### Endpoints
 
@@ -858,9 +858,9 @@ When complete, output your results in this format:
 | File | Description |
 |------|-------------|
 | `server/src/services/context-manager.ts` | `.supervision/` file I/O |
-| `server/src/services/supervisor-v2-service.ts` | Supervisor v2 orchestrator |
+| `server/src/services/supervisor-service.ts` | Supervisor v2 orchestrator |
 | `server/src/repositories/supervision-task.ts` | Task CRUD repository |
-| `server/src/routes/supervision-v2.ts` | REST API routes |
+| `server/src/routes/supervision.ts` | REST API routes |
 
 ### Modified Files
 
@@ -891,7 +891,7 @@ When complete, output your results in this format:
 |-----------|--------|
 | `server/src/repositories/__tests__/supervision-task.test.ts` | CRUD, status transitions, filtering |
 | `server/src/services/__tests__/context-manager.test.ts` | Scaffold, load, parse, write, error handling |
-| `server/src/services/__tests__/supervisor-v2-service.test.ts` | Agent lifecycle, task creation rules, scheduler tick, dependency resolution |
+| `server/src/services/__tests__/supervisor-service.test.ts` | Agent lifecycle, task creation rules, scheduler tick, dependency resolution |
 
 ### Key Test Scenarios
 

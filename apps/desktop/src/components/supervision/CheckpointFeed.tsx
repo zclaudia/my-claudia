@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Clock } from 'lucide-react';
-import type { SupervisionV2Log } from '@my-claudia/shared';
+import type { SupervisionLog } from '@my-claudia/shared';
 import * as api from '../../services/api';
 import { useSupervisionStore } from '../../stores/supervisionStore';
 
@@ -9,14 +9,14 @@ interface CheckpointFeedProps {
 }
 
 export function CheckpointFeed({ projectId }: CheckpointFeedProps) {
-  const [logs, setLogs] = useState<SupervisionV2Log[]>([]);
+  const [logs, setLogs] = useState<SupervisionLog[]>([]);
   const [loading, setLoading] = useState(false);
   const lastCheckpoint = useSupervisionStore((s) => s.lastCheckpoint[projectId]);
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    api.getSupervisionV2Logs(projectId, 50)
+    api.getSupervisionLogs(projectId, 50)
       .then((data) => {
         if (!cancelled) {
           // Filter for checkpoint-related events

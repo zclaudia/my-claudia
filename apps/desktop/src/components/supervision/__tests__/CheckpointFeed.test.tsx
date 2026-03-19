@@ -1,11 +1,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor, cleanup } from '@testing-library/react';
 
-const mockGetSupervisionV2Logs = vi.fn();
+const mockGetSupervisionLogs = vi.fn();
 let mockLastCheckpoint: Record<string, string> = {};
 
 vi.mock('../../../services/api', () => ({
-  getSupervisionV2Logs: (...args: unknown[]) => mockGetSupervisionV2Logs(...args),
+  getSupervisionLogs: (...args: unknown[]) => mockGetSupervisionLogs(...args),
 }));
 
 vi.mock('../../../stores/supervisionStore', () => ({
@@ -28,7 +28,7 @@ describe('CheckpointFeed', () => {
   });
 
   it('shows "No checkpoint activity yet" when no logs', async () => {
-    mockGetSupervisionV2Logs.mockResolvedValue([]);
+    mockGetSupervisionLogs.mockResolvedValue([]);
 
     render(<CheckpointFeed projectId="proj-1" />);
 
@@ -38,14 +38,14 @@ describe('CheckpointFeed', () => {
   });
 
   it('renders checkpoint header', () => {
-    mockGetSupervisionV2Logs.mockResolvedValue([]);
+    mockGetSupervisionLogs.mockResolvedValue([]);
 
     render(<CheckpointFeed projectId="proj-1" />);
     expect(screen.getByText('Checkpoints')).toBeInTheDocument();
   });
 
   it('shows last checkpoint summary when available', async () => {
-    mockGetSupervisionV2Logs.mockResolvedValue([]);
+    mockGetSupervisionLogs.mockResolvedValue([]);
     mockLastCheckpoint = { 'proj-1': 'Completed 3 tasks successfully' };
 
     render(<CheckpointFeed projectId="proj-1" />);
@@ -56,7 +56,7 @@ describe('CheckpointFeed', () => {
   });
 
   it('renders checkpoint log entries', async () => {
-    mockGetSupervisionV2Logs.mockResolvedValue([
+    mockGetSupervisionLogs.mockResolvedValue([
       {
         id: 'log-1',
         projectId: 'proj-1',
@@ -82,7 +82,7 @@ describe('CheckpointFeed', () => {
   });
 
   it('filters logs to only checkpoint-related events', async () => {
-    mockGetSupervisionV2Logs.mockResolvedValue([
+    mockGetSupervisionLogs.mockResolvedValue([
       { id: 'log-1', projectId: 'proj-1', event: 'checkpoint_completed', createdAt: Date.now() },
       { id: 'log-2', projectId: 'proj-1', event: 'agent_initialized', createdAt: Date.now() },
       { id: 'log-3', projectId: 'proj-1', event: 'context_updated', createdAt: Date.now() },
@@ -100,7 +100,7 @@ describe('CheckpointFeed', () => {
   });
 
   it('renders log detail when available', async () => {
-    mockGetSupervisionV2Logs.mockResolvedValue([
+    mockGetSupervisionLogs.mockResolvedValue([
       {
         id: 'log-1',
         projectId: 'proj-1',
@@ -117,11 +117,11 @@ describe('CheckpointFeed', () => {
     });
   });
 
-  it('calls getSupervisionV2Logs with correct project and limit', () => {
-    mockGetSupervisionV2Logs.mockResolvedValue([]);
+  it('calls getSupervisionLogs with correct project and limit', () => {
+    mockGetSupervisionLogs.mockResolvedValue([]);
 
     render(<CheckpointFeed projectId="proj-1" />);
 
-    expect(mockGetSupervisionV2Logs).toHaveBeenCalledWith('proj-1', 50);
+    expect(mockGetSupervisionLogs).toHaveBeenCalledWith('proj-1', 50);
   });
 });

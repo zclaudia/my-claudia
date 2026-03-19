@@ -1,285 +1,328 @@
 /**
- * Supervision E2E Tests
+ * Supervision E2E Tests (API-level)
  *
- * Tests for the session supervision feature:
- * creating, pausing, resuming, and cancelling supervisions.
+ * Tests the complete Supervision API contract:
+ * agent lifecycle, task CRUD, review, context, budget, and logs.
+ *
+ * Requires the server to be running on localhost:3100.
  */
-
-import { describe, test, expect, beforeEach, afterEach } from 'vitest';
-import { createBrowser, type BrowserAdapter } from '../helpers/browser-adapter';
+import { describe, test, expect, beforeEach } from 'vitest';
 import { setupCleanDB, createApiClient, readApiKey } from '../helpers/setup';
-import '../helpers/custom-matchers';
+import type { ApiClient } from '../helpers/setup';
 
 describe('Supervision', () => {
-  let browser: BrowserAdapter;
+  let client: ApiClient;
+  let projectId: string;
 
   beforeEach(async () => {
     await setupCleanDB();
-    browser = await createBrowser({ headless: true });
-    await browser.goto('/');
-    await browser.waitForLoadState('networkidle');
-    await browser.waitForTimeout(1000);
-  }, 30000);
 
-  afterEach(async () => {
-    await browser?.close();
-  });
-
-  // Helper: create project + session via API and navigate to it
-  async function setupProjectAndSession() {
     const apiKey = readApiKey();
-    const client = createApiClient(apiKey);
+    client = createApiClient(apiKey);
 
-    // Create project
+    // Create a test project
     const projRes = await client.fetch('/api/projects', {
       method: 'POST',
-      body: JSON.stringify({ name: 'test-supervision', type: 'code' }),
+      body: JSON.stringify({ name: 'test-supervision-project', type: 'code' }),
     });
     const projData = await projRes.json();
-    const projectId = projData.data.id;
+    expect(projData.success).toBe(true);
+    projectId = projData.data.id;
+  }, 15000);
 
-    // Create session
-    const sessRes = await client.fetch('/api/sessions', {
-      method: 'POST',
-      body: JSON.stringify({ projectId, name: 'Test Session' }),
+  // SV-1: Agent lifecycle
+  describe('Agent Lifecycle', () => {
+    test('init → pause → resume → archive', async () => {
+      // Init
+      const initRes = await client.fetch(`/api/projects/${projectId}/agent/init`, {
+        method: 'POST',
+        body: JSON.stringify({
+          config: { maxConcurrentTasks: 2, trustLevel: 'medium', autoDiscoverTasks: false },
+        }),
+      });
+      const initData = await initRes.json();
+      expect(initRes.status).toBe(200);
+      expect(initData.success).toBe(true);
+      expect(initData.data.phase).toBe('initializing');
+      expect(initData.data.config.trustLevel).toBe('medium');
+
+      // Get agent
+      const getRes = await client.fetch(`/api/projects/${projectId}/agent`);
+      const getData = await getRes.json();
+      expect(getRes.status).toBe(200);
+      expect(getData.data.phase).toBe('initializing');
+
+      // Pause
+      const pauseRes = await client.fetch(`/api/projects/${projectId}/agent/action`, {
+        method: 'POST',
+        body: JSON.stringify({ action: 'pause' }),
+      });
+      const pauseData = await pauseRes.json();
+      expect(pauseRes.status).toBe(200);
+      expect(pauseData.data.phase).toBe('paused');
+
+      // Resume
+      const resumeRes = await client.fetch(`/api/projects/${projectId}/agent/action`, {
+        method: 'POST',
+        body: JSON.stringify({ action: 'resume' }),
+      });
+      const resumeData = await resumeRes.json();
+      expect(resumeRes.status).toBe(200);
+      // Resumes back to a non-paused phase
+      expect(resumeData.data.phase).not.toBe('paused');
+
+      // Archive
+      const archiveRes = await client.fetch(`/api/projects/${projectId}/agent/action`, {
+        method: 'POST',
+        body: JSON.stringify({ action: 'archive' }),
+      });
+      const archiveData = await archiveRes.json();
+      expect(archiveRes.status).toBe(200);
+      expect(archiveData.data.phase).toBe('archived');
+    }, 30000);
+
+    test('returns 404 for project without agent', async () => {
+      const res = await client.fetch(`/api/projects/${projectId}/agent`);
+      expect(res.status).toBe(404);
     });
-    const sessData = await sessRes.json();
-    const sessionId = sessData.data.id;
+  });
 
-    // Refresh the page to pick up new data
-    await browser.goto('/');
-    await browser.waitForLoadState('networkidle');
-    await browser.waitForTimeout(1000);
-
-    return { projectId, sessionId };
-  }
-
-  // Helper: open context menu on a session
-  async function openSessionContextMenu(sessionName: string) {
-    const sessionBtn = browser.locator(`text=${sessionName}`).first();
-    await sessionBtn.click({ button: 'right' });
-    await browser.waitForTimeout(300);
-  }
-
-  // ─────────────────────────────────────────────
-  // S1: Create Supervision via dialog
-  // ─────────────────────────────────────────────
-  test('S1: create supervision via dialog', async () => {
-    console.log('Test S1: Create supervision via dialog');
-
-    const { sessionId } = await setupProjectAndSession();
-
-    // Expand project to show sessions
-    const projectBtn = browser.locator('text=test-supervision').first();
-    if (await projectBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
-      await projectBtn.click();
-      await browser.waitForTimeout(500);
-    }
-
-    // Right-click on session to open context menu
-    await openSessionContextMenu('Test Session');
-
-    // Click "Supervise" in context menu
-    const superviseBtn = browser.locator('button:has-text("Supervise")').first();
-    if (await superviseBtn.isVisible({ timeout: 2000 }).catch(() => false)) {
-      await superviseBtn.click();
-      await browser.waitForTimeout(500);
-    }
-
-    // Verify supervision dialog opened
-    const dialogHeader = browser.locator('text=Supervise Session').first();
-    expect(await dialogHeader.isVisible({ timeout: 3000 })).toBe(true);
-
-    // Fill in goal
-    const goalTextarea = browser.locator('textarea').first();
-    await goalTextarea.fill('Run all unit tests and fix any failures');
-    await browser.waitForTimeout(200);
-
-    // Verify Start button is enabled
-    const startBtn = browser.locator('button:has-text("Start Supervision")').first();
-    expect(await startBtn.isEnabled()).toBe(true);
-
-    // Click Start Supervision
-    await startBtn.click();
-    await browser.waitForTimeout(1000);
-
-    // Dialog should close
-    expect(await dialogHeader.isVisible({ timeout: 1000 }).catch(() => false)).toBe(false);
-  }, 30000);
-
-  // ─────────────────────────────────────────────
-  // S2: SuperviseDialog UI interaction
-  // ─────────────────────────────────────────────
-  test('S2: supervision dialog UI — subtasks and settings', async () => {
-    console.log('Test S2: Supervision dialog UI');
-
-    await setupProjectAndSession();
-
-    // Expand project
-    const projectBtn = browser.locator('text=test-supervision').first();
-    if (await projectBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
-      await projectBtn.click();
-      await browser.waitForTimeout(500);
-    }
-
-    // Open context menu and click Supervise
-    await openSessionContextMenu('Test Session');
-    const superviseBtn = browser.locator('button:has-text("Supervise")').first();
-    if (await superviseBtn.isVisible({ timeout: 2000 }).catch(() => false)) {
-      await superviseBtn.click();
-      await browser.waitForTimeout(500);
-    }
-
-    // Verify dialog is open
-    const dialogHeader = browser.locator('text=Supervise Session').first();
-    expect(await dialogHeader.isVisible({ timeout: 3000 })).toBe(true);
-
-    // Fill in goal
-    const goalTextarea = browser.locator('textarea').first();
-    await goalTextarea.fill('Implement feature X');
-
-    // Add subtask
-    const subtaskInput = browser.locator('input[placeholder*="Add a subtask"]').first();
-    await subtaskInput.fill('Write unit tests');
-    const addBtn = browser.locator('button:has-text("Add")').first();
-    await addBtn.click();
-    await browser.waitForTimeout(200);
-
-    // Verify subtask appears
-    const subtaskText = browser.locator('text=Write unit tests').first();
-    expect(await subtaskText.isVisible()).toBe(true);
-
-    // Add another subtask
-    await subtaskInput.fill('Update documentation');
-    await addBtn.click();
-    await browser.waitForTimeout(200);
-
-    const subtaskText2 = browser.locator('text=Update documentation').first();
-    expect(await subtaskText2.isVisible()).toBe(true);
-
-    // Toggle Settings
-    const settingsBtn = browser.locator('text=Settings').first();
-    await settingsBtn.click();
-    await browser.waitForTimeout(300);
-
-    // Verify settings fields are visible
-    const maxIterLabel = browser.locator('text=Max iterations').first();
-    expect(await maxIterLabel.isVisible({ timeout: 2000 })).toBe(true);
-
-    const cooldownLabel = browser.locator('text=Cooldown').first();
-    expect(await cooldownLabel.isVisible()).toBe(true);
-
-    // Cancel should close the dialog
-    const cancelBtn = browser.locator('button:has-text("Cancel")').first();
-    await cancelBtn.click();
-    await browser.waitForTimeout(300);
-
-    expect(await dialogHeader.isVisible({ timeout: 1000 }).catch(() => false)).toBe(false);
-  }, 30000);
-
-  // ─────────────────────────────────────────────
-  // S3: Supervision lifecycle — pause and cancel via API
-  // ─────────────────────────────────────────────
-  test('S3: supervision lifecycle — create and cancel via API', async () => {
-    console.log('Test S3: Supervision lifecycle via API');
-
-    const apiKey = readApiKey();
-    const client = createApiClient(apiKey);
-
-    const { sessionId } = await setupProjectAndSession();
-
-    // Create supervision via API
-    const createRes = await client.fetch('/api/supervisions', {
-      method: 'POST',
-      body: JSON.stringify({
-        sessionId,
-        goal: 'Test supervision lifecycle',
-        maxIterations: 5,
-        cooldownSeconds: 10,
-      }),
-    });
-    const createData = await createRes.json();
-    expect(createData.success).toBe(true);
-    const supervisionId = createData.data.id;
-    expect(createData.data.status).toBe('active');
-
-    // Pause supervision
-    const pauseRes = await client.fetch(`/api/supervisions/${supervisionId}/pause`, {
-      method: 'POST',
-    });
-    const pauseData = await pauseRes.json();
-    expect(pauseData.success).toBe(true);
-    expect(pauseData.data.status).toBe('paused');
-
-    // Resume supervision
-    const resumeRes = await client.fetch(`/api/supervisions/${supervisionId}/resume`, {
-      method: 'POST',
-      body: JSON.stringify({}),
-    });
-    const resumeData = await resumeRes.json();
-    expect(resumeData.success).toBe(true);
-    expect(resumeData.data.status).toBe('active');
-
-    // Cancel supervision
-    const cancelRes = await client.fetch(`/api/supervisions/${supervisionId}/cancel`, {
-      method: 'POST',
-    });
-    const cancelData = await cancelRes.json();
-    expect(cancelData.success).toBe(true);
-    expect(cancelData.data.status).toBe('cancelled');
-  }, 30000);
-
-  // ─────────────────────────────────────────────
-  // S4: Supervision badge visibility in sidebar
-  // ─────────────────────────────────────────────
-  test('S4: supervision badge appears in sidebar', async () => {
-    console.log('Test S4: Supervision badge in sidebar');
-
-    const apiKey = readApiKey();
-    const client = createApiClient(apiKey);
-
-    const { sessionId } = await setupProjectAndSession();
-
-    // Expand project
-    const projectBtn = browser.locator('text=test-supervision').first();
-    if (await projectBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
-      await projectBtn.click();
-      await browser.waitForTimeout(500);
-    }
-
-    // Create supervision via API
-    await client.fetch('/api/supervisions', {
-      method: 'POST',
-      body: JSON.stringify({
-        sessionId,
-        goal: 'Badge visibility test',
-        maxIterations: 3,
-      }),
+  // SV-2: Task lifecycle
+  describe('Task Lifecycle', () => {
+    beforeEach(async () => {
+      // Init agent for task tests
+      await client.fetch(`/api/projects/${projectId}/agent/init`, {
+        method: 'POST',
+        body: JSON.stringify({
+          config: { maxConcurrentTasks: 1, trustLevel: 'medium', autoDiscoverTasks: false },
+        }),
+      });
     });
 
-    // Wait for UI to update via WebSocket
-    await browser.waitForTimeout(2000);
+    test('create → query → update task', async () => {
+      // Create
+      const createRes = await client.fetch(`/api/projects/${projectId}/tasks`, {
+        method: 'POST',
+        body: JSON.stringify({
+          title: 'Test Task',
+          description: 'A test task for E2E',
+          priority: 1,
+          acceptanceCriteria: ['Tests pass', 'No regressions'],
+        }),
+      });
+      const createData = await createRes.json();
+      expect(createRes.status).toBe(200);
+      expect(createData.success).toBe(true);
+      expect(createData.data.title).toBe('Test Task');
+      expect(createData.data.status).toBe('pending'); // user-created → pending
+      expect(createData.data.source).toBe('user');
 
-    // Reload to ensure fresh state
-    await browser.goto('/');
-    await browser.waitForLoadState('networkidle');
-    await browser.waitForTimeout(1500);
+      const taskId = createData.data.id;
 
-    // Expand project again
-    const projectBtn2 = browser.locator('text=test-supervision').first();
-    if (await projectBtn2.isVisible({ timeout: 3000 }).catch(() => false)) {
-      await projectBtn2.click();
-      await browser.waitForTimeout(500);
-    }
+      // Query all tasks
+      const listRes = await client.fetch(`/api/projects/${projectId}/tasks`);
+      const listData = await listRes.json();
+      expect(listRes.status).toBe(200);
+      expect(listData.data).toHaveLength(1);
+      expect(listData.data[0].id).toBe(taskId);
 
-    // Check for the green pulse badge (animate-pulse class on a span inside session button)
-    const sessionItem = browser.locator('text=Test Session').first();
-    expect(await sessionItem.isVisible({ timeout: 3000 })).toBe(true);
+      // Update
+      const updateRes = await client.fetch(`/api/tasks/${taskId}`, {
+        method: 'PUT',
+        body: JSON.stringify({ title: 'Updated Task', priority: 5 }),
+      });
+      const updateData = await updateRes.json();
+      expect(updateRes.status).toBe(200);
+      expect(updateData.data.title).toBe('Updated Task');
+      expect(updateData.data.priority).toBe(5);
+    }, 15000);
 
-    // The badge is a span with animate-pulse class near the session name
-    const badge = browser.locator('.animate-pulse').first();
-    const badgeVisible = await badge.isVisible({ timeout: 3000 }).catch(() => false);
-    // Badge may or may not appear depending on WS sync timing
-    console.log('Badge visible:', badgeVisible);
-  }, 30000);
+    test('create multiple tasks with dependencies', async () => {
+      // Create task A
+      const aRes = await client.fetch(`/api/projects/${projectId}/tasks`, {
+        method: 'POST',
+        body: JSON.stringify({
+          title: 'Task A',
+          description: 'First task',
+          acceptanceCriteria: ['Done'],
+        }),
+      });
+      const aData = await aRes.json();
+      const taskAId = aData.data.id;
+
+      // Create task B depending on A
+      const bRes = await client.fetch(`/api/projects/${projectId}/tasks`, {
+        method: 'POST',
+        body: JSON.stringify({
+          title: 'Task B',
+          description: 'Depends on A',
+          dependencies: [taskAId],
+          dependencyMode: 'all',
+          acceptanceCriteria: ['Done'],
+        }),
+      });
+      const bData = await bRes.json();
+      expect(bData.data.dependencies).toContain(taskAId);
+      expect(bData.data.dependencyMode).toBe('all');
+    }, 15000);
+  });
+
+  // SV-3: Task approval/rejection
+  describe('Task Approval', () => {
+    beforeEach(async () => {
+      await client.fetch(`/api/projects/${projectId}/agent/init`, {
+        method: 'POST',
+        body: JSON.stringify({
+          config: { maxConcurrentTasks: 1, trustLevel: 'medium', autoDiscoverTasks: false },
+        }),
+      });
+    });
+
+    test('approve a pending task', async () => {
+      const createRes = await client.fetch(`/api/projects/${projectId}/tasks`, {
+        method: 'POST',
+        body: JSON.stringify({
+          title: 'Task to approve',
+          description: 'Test approval',
+          acceptanceCriteria: ['Approved'],
+        }),
+      });
+      const createData = await createRes.json();
+      const taskId = createData.data.id;
+
+      const approveRes = await client.fetch(`/api/tasks/${taskId}/approve`, {
+        method: 'POST',
+      });
+      expect(approveRes.status).toBe(200);
+      const approveData = await approveRes.json();
+      // User-created task approval should transition it
+      expect(approveData.success).toBe(true);
+    }, 15000);
+
+    test('reject a pending task', async () => {
+      const createRes = await client.fetch(`/api/projects/${projectId}/tasks`, {
+        method: 'POST',
+        body: JSON.stringify({
+          title: 'Task to reject',
+          description: 'Test rejection',
+          acceptanceCriteria: ['Rejected'],
+        }),
+      });
+      const createData = await createRes.json();
+      const taskId = createData.data.id;
+
+      const rejectRes = await client.fetch(`/api/tasks/${taskId}/reject`, {
+        method: 'POST',
+      });
+      expect(rejectRes.status).toBe(200);
+      const rejectData = await rejectRes.json();
+      expect(rejectData.success).toBe(true);
+    }, 15000);
+  });
+
+  // SV-4: Review flow (API contract only — no real AI execution)
+  describe('Review API Contract', () => {
+    beforeEach(async () => {
+      await client.fetch(`/api/projects/${projectId}/agent/init`, {
+        method: 'POST',
+        body: JSON.stringify({
+          config: { maxConcurrentTasks: 1, trustLevel: 'low', autoDiscoverTasks: false },
+        }),
+      });
+    });
+
+    test('review approve/reject returns proper errors for non-reviewing tasks', async () => {
+      const createRes = await client.fetch(`/api/projects/${projectId}/tasks`, {
+        method: 'POST',
+        body: JSON.stringify({
+          title: 'Not reviewing',
+          description: 'Task not in reviewing state',
+          acceptanceCriteria: ['N/A'],
+        }),
+      });
+      const createData = await createRes.json();
+      const taskId = createData.data.id;
+
+      // Try to approve result on a non-reviewing task
+      const approveRes = await client.fetch(`/api/tasks/${taskId}/review/approve`, {
+        method: 'POST',
+      });
+      // Should fail because task is not in 'reviewing' state
+      expect(approveRes.status).toBeGreaterThanOrEqual(400);
+
+      // Try to reject result on a non-reviewing task
+      const rejectRes = await client.fetch(`/api/tasks/${taskId}/review/reject`, {
+        method: 'POST',
+        body: JSON.stringify({ notes: 'Not valid' }),
+      });
+      expect(rejectRes.status).toBeGreaterThanOrEqual(400);
+    }, 15000);
+  });
+
+  // SV-5: Context management
+  describe('Context Management', () => {
+    beforeEach(async () => {
+      await client.fetch(`/api/projects/${projectId}/agent/init`, {
+        method: 'POST',
+        body: JSON.stringify({
+          config: { maxConcurrentTasks: 1, trustLevel: 'medium', autoDiscoverTasks: false },
+        }),
+      });
+    });
+
+    test('list and reload context documents', async () => {
+      // List context
+      const listRes = await client.fetch(`/api/projects/${projectId}/context`);
+      expect(listRes.status).toBe(200);
+      const listData = await listRes.json();
+      expect(listData.success).toBe(true);
+      expect(Array.isArray(listData.data)).toBe(true);
+
+      // Reload context
+      const reloadRes = await client.fetch(`/api/projects/${projectId}/context/reload`, {
+        method: 'POST',
+      });
+      expect(reloadRes.status).toBe(200);
+    }, 15000);
+  });
+
+  // SV-6: Budget and logs
+  describe('Budget and Logs', () => {
+    beforeEach(async () => {
+      await client.fetch(`/api/projects/${projectId}/agent/init`, {
+        method: 'POST',
+        body: JSON.stringify({
+          config: { maxConcurrentTasks: 1, trustLevel: 'medium', autoDiscoverTasks: false },
+        }),
+      });
+    });
+
+    test('budget endpoint returns usage data', async () => {
+      const res = await client.fetch(`/api/projects/${projectId}/budget`);
+      expect(res.status).toBe(200);
+      const data = await res.json();
+      expect(data.success).toBe(true);
+      expect(typeof data.data.usage).toBe('number');
+      expect(data.data.usage).toBeGreaterThanOrEqual(0);
+    }, 15000);
+
+    test('logs endpoint returns event history', async () => {
+      const res = await client.fetch(`/api/projects/${projectId}/logs`);
+      expect(res.status).toBe(200);
+      const data = await res.json();
+      expect(data.success).toBe(true);
+      expect(Array.isArray(data.data)).toBe(true);
+      // Should have at least the 'agent_initialized' event from init
+      expect(data.data.length).toBeGreaterThanOrEqual(1);
+      expect(data.data.some((l: any) => l.event === 'agent_initialized')).toBe(true);
+    }, 15000);
+
+    test('logs with limit parameter', async () => {
+      const res = await client.fetch(`/api/projects/${projectId}/logs?limit=5`);
+      expect(res.status).toBe(200);
+      const data = await res.json();
+      expect(data.success).toBe(true);
+      expect(data.data.length).toBeLessThanOrEqual(5);
+    }, 15000);
+  });
 });

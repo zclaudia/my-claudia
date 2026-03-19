@@ -402,7 +402,8 @@ describe('storage/db', () => {
         '031_scheduled_tasks', '032_local_pr_auto_review', '033_worktree_configs',
         '034_session_run_status', '035_workflows',
         '036_local_pr_status_message', '037_local_pr_merge_commit_sha',
-        '038_local_pr_execution_state',
+        '038_local_pr_execution_state', '039_task_runs', '040_session_drafts',
+        '041_app_config', '042_rename_supervision_logs',
       ];
 
       mockDb.prepare.mockImplementation((sql: string) => {

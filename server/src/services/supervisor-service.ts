@@ -12,7 +12,7 @@ import type {
   TaskStatus,
   TaskResult,
   ServerMessage,
-  SupervisionV2LogEvent,
+  SupervisionLogEvent,
 } from '@my-claudia/shared';
 import { SupervisionTaskRepository } from '../repositories/supervision-task.js';
 import { ProjectRepository } from '../repositories/project.js';
@@ -26,7 +26,7 @@ import { createVirtualClient, handleRunStart, activeRuns } from '../server.js';
 import { computeNextCronRun } from '../utils/cron.js';
 import { validatePlanFile, type PlanValidationResult } from './plan-validator.js';
 
-export class SupervisorV2Service {
+export class SupervisorService {
   private pollInterval: NodeJS.Timeout | null = null;
   private contextManagers = new Map<string, ContextManager>();
   private virtualClients = new Map<string, any>(); // taskId → virtualClient
@@ -53,7 +53,7 @@ export class SupervisorV2Service {
 
     const logFn = (
       projectId: string,
-      event: SupervisionV2LogEvent,
+      event: SupervisionLogEvent,
       detail?: Record<string, unknown>,
       taskId?: string,
     ) => this.log(projectId, event, detail, taskId);
@@ -104,7 +104,7 @@ export class SupervisorV2Service {
         systemTaskRegistry.markRunComplete('system:supervisor_polling', Date.now() - start, String(err));
       }
     }, intervalMs);
-    console.log('[SupervisorV2] Started polling');
+    console.log('[Supervisor] Started polling');
   }
 
   stop(): void {
@@ -118,7 +118,7 @@ export class SupervisorV2Service {
       pool.destroy().catch(() => {});
     }
     this.worktreePools.clear();
-    console.log('[SupervisorV2] Stopped');
+    console.log('[Supervisor] Stopped');
   }
 
   setCheckpointEngine(engine: CheckpointEngine): void {
@@ -226,7 +226,7 @@ export class SupervisorV2Service {
         agent.pausedReason = undefined;
         agent.pausedAt = undefined;
         this.cleanupPool(projectId).catch((err) => {
-          console.error(`[SupervisorV2] Failed to cleanup pool for ${projectId}:`, err);
+          console.error(`[Supervisor] Failed to cleanup pool for ${projectId}:`, err);
         });
         break;
       }
@@ -684,7 +684,7 @@ export class SupervisorV2Service {
       this.projectRepo.update(projectId, { contextSyncStatus: 'synced' as any });
     } catch (err) {
       // Parse error — mark as error and pause agent
-      console.error(`[SupervisorV2] Context reload failed for project ${projectId}:`, err);
+      console.error(`[Supervisor] Context reload failed for project ${projectId}:`, err);
       this.projectRepo.update(projectId, { contextSyncStatus: 'error' });
       if (project.agent) {
         this.pauseAgent(projectId, 'sync_error');
@@ -709,11 +709,11 @@ export class SupervisorV2Service {
         try {
           this.tickProject(project.id);
         } catch (err) {
-          console.error(`[SupervisorV2] Error ticking project ${project.id}:`, err);
+          console.error(`[Supervisor] Error ticking project ${project.id}:`, err);
         }
       }
     } catch (err) {
-      console.error('[SupervisorV2] Error in tick:', err);
+      console.error('[Supervisor] Error in tick:', err);
     }
   }
 
@@ -788,11 +788,11 @@ export class SupervisorV2Service {
       for (const task of toStart) {
         if (isLite) {
           this.startLiteTask(task).catch((err) => {
-            console.error(`[SupervisorV2] Failed to start lite task ${task.id}:`, err);
+            console.error(`[Supervisor] Failed to start lite task ${task.id}:`, err);
           });
         } else {
           this.startTask(task).catch((err) => {
-            console.error(`[SupervisorV2] Failed to start task ${task.id}:`, err);
+            console.error(`[Supervisor] Failed to start task ${task.id}:`, err);
           });
         }
       }
@@ -812,7 +812,7 @@ export class SupervisorV2Service {
       // Trigger checkpoint on idle if configured (full mode only)
       if (!isLite && this.checkpointEngine?.shouldTrigger(projectId, 'idle')) {
         this.checkpointEngine.runCheckpoint(projectId).catch((err) => {
-          console.error(`[SupervisorV2] Idle checkpoint failed for ${projectId}:`, err);
+          console.error(`[Supervisor] Idle checkpoint failed for ${projectId}:`, err);
         });
       }
     }
@@ -886,7 +886,7 @@ export class SupervisorV2Service {
   private async startTask(task: SupervisionTask): Promise<void> {
     const project = this.projectRepo.findById(task.projectId);
     if (!project?.rootPath) {
-      console.error(`[SupervisorV2] Cannot start task ${task.id}: project has no rootPath`);
+      console.error(`[Supervisor] Cannot start task ${task.id}: project has no rootPath`);
       return;
     }
 
@@ -907,7 +907,7 @@ export class SupervisorV2Service {
           taskId: task.id, worktreePath: workingDirectory,
         }, task.id);
       } catch (err) {
-        console.error(`[SupervisorV2] Failed to acquire worktree for task ${task.id}:`, err);
+        console.error(`[Supervisor] Failed to acquire worktree for task ${task.id}:`, err);
         return; // Don't start the task if we can't get a worktree
       }
     }
@@ -987,7 +987,7 @@ export class SupervisorV2Service {
       const systemPrompt = this.buildTaskPrompt(task, project.name, contextInjection);
 
       // 5. Create virtual client and trigger run
-      const clientId = `supervisor_v2_task_${task.id}`;
+      const clientId = `supervisor_task_${task.id}`;
       const virtualClient = createVirtualClient(clientId, {
         send: (msg: ServerMessage) => {
           this.handleTaskRunMessage(task.id, task.projectId, msg);
@@ -1012,7 +1012,7 @@ export class SupervisorV2Service {
         this.db as any,
       );
     } catch (err) {
-      console.error(`[SupervisorV2] Failed to initialize task ${task.id}:`, err);
+      console.error(`[Supervisor] Failed to initialize task ${task.id}:`, err);
       if (acquiredFromPool && !taskMarkedRunning) {
         const pool = this.worktreePools.get(task.projectId);
         pool?.release(workingDirectory);
@@ -1036,7 +1036,7 @@ export class SupervisorV2Service {
 
       // Delegate to TaskRunner (handles parsing, workflow, auto-commit, review trigger)
       this.taskRunner.onTaskComplete(taskId, projectId).catch((err) => {
-        console.error(`[SupervisorV2] TaskRunner.onTaskComplete failed for ${taskId}:`, err);
+        console.error(`[Supervisor] TaskRunner.onTaskComplete failed for ${taskId}:`, err);
         // Fallback: mark as reviewing without review (can be manually reviewed)
         this.taskRepo.updateStatus(taskId, 'reviewing', {
           result: { summary: 'Task completed but review pipeline failed', filesChanged: [] },
@@ -1048,7 +1048,7 @@ export class SupervisorV2Service {
       // Trigger checkpoint if configured
       if (this.checkpointEngine?.shouldTrigger(projectId, 'task_complete')) {
         this.checkpointEngine.runCheckpoint(projectId).catch((err) => {
-          console.error(`[SupervisorV2] Checkpoint failed after task ${taskId}:`, err);
+          console.error(`[Supervisor] Checkpoint failed after task ${taskId}:`, err);
         });
       }
       return;
@@ -1077,7 +1077,7 @@ export class SupervisorV2Service {
           this.releaseTaskWorktree(failedTask);
         }
       } catch (err) {
-        console.error(`[SupervisorV2] Error handling run_failed for task ${taskId}:`, err);
+        console.error(`[Supervisor] Error handling run_failed for task ${taskId}:`, err);
       } finally {
         this.virtualClients.delete(taskId);
       }
@@ -1097,7 +1097,7 @@ export class SupervisorV2Service {
         } as Partial<Omit<Session, 'id' | 'createdAt' | 'updatedAt'>>);
       }
     } catch (err) {
-      console.error(`[SupervisorV2] Failed to clear read-only for task ${taskId}:`, err);
+      console.error(`[Supervisor] Failed to clear read-only for task ${taskId}:`, err);
     }
   }
 
@@ -1108,7 +1108,7 @@ export class SupervisorV2Service {
   private async startLiteTask(task: SupervisionTask): Promise<void> {
     const project = this.projectRepo.findById(task.projectId);
     if (!project?.rootPath) {
-      console.error(`[SupervisorV2] Cannot start lite task ${task.id}: project has no rootPath`);
+      console.error(`[Supervisor] Cannot start lite task ${task.id}: project has no rootPath`);
       return;
     }
 
@@ -1221,7 +1221,7 @@ export class SupervisorV2Service {
 
         this.broadcastTaskUpdate(taskId, projectId);
       } catch (err) {
-        console.error(`[SupervisorV2] Error handling lite run_failed for task ${taskId}:`, err);
+        console.error(`[Supervisor] Error handling lite run_failed for task ${taskId}:`, err);
       } finally {
         this.virtualClients.delete(taskId);
       }
@@ -1449,7 +1449,7 @@ Complete the task described above. When finished, output your results in this ex
 
   private log(
     projectId: string,
-    event: SupervisionV2LogEvent,
+    event: SupervisionLogEvent,
     detail?: Record<string, unknown>,
     taskId?: string,
   ): void {
@@ -1459,12 +1459,12 @@ Complete the task described above. When finished, output your results in this ex
     try {
       this.db
         .prepare(
-          `INSERT INTO supervision_v2_logs (id, project_id, task_id, event, detail, created_at)
+          `INSERT INTO supervision_logs (id, project_id, task_id, event, detail, created_at)
          VALUES (?, ?, ?, ?, ?, ?)`,
         )
         .run(id, projectId, taskId ?? null, event, detail ? JSON.stringify(detail) : null, now);
     } catch (err) {
-      console.error(`[SupervisorV2] Failed to write log:`, err);
+      console.error(`[Supervisor] Failed to write log:`, err);
     }
   }
 
@@ -1476,13 +1476,13 @@ Complete the task described above. When finished, output your results in this ex
     id: string;
     projectId: string;
     taskId?: string;
-    event: SupervisionV2LogEvent;
+    event: SupervisionLogEvent;
     detail?: Record<string, unknown>;
     createdAt: number;
   }> {
     const rows = this.db.prepare(`
       SELECT id, project_id, task_id, event, detail, created_at
-      FROM supervision_v2_logs
+      FROM supervision_logs
       WHERE project_id = ?
       ORDER BY created_at DESC
       LIMIT ?
@@ -1492,7 +1492,7 @@ Complete the task described above. When finished, output your results in this ex
       id: row.id,
       projectId: row.project_id,
       taskId: row.task_id || undefined,
-      event: row.event as SupervisionV2LogEvent,
+      event: row.event as SupervisionLogEvent,
       detail: row.detail ? JSON.parse(row.detail) : undefined,
       createdAt: row.created_at,
     }));

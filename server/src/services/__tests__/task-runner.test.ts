@@ -24,7 +24,7 @@ import { TaskRunner } from '../task-runner.js';
 import { SupervisionTaskRepository } from '../../repositories/supervision-task.js';
 import { ProjectRepository } from '../../repositories/project.js';
 import type { ContextManager, WorkflowAction } from '../context-manager.js';
-import type { SupervisionTask, SupervisionV2LogEvent } from '@my-claudia/shared';
+import type { SupervisionTask, SupervisionLogEvent } from '@my-claudia/shared';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -114,7 +114,7 @@ function createTestDb(): Database.Database {
     CREATE INDEX idx_supervision_tasks_status ON supervision_tasks(status);
     CREATE INDEX idx_supervision_tasks_session ON supervision_tasks(session_id);
 
-    CREATE TABLE supervision_v2_logs (
+    CREATE TABLE supervision_logs (
       id TEXT PRIMARY KEY,
       project_id TEXT NOT NULL,
       task_id TEXT,
@@ -124,8 +124,8 @@ function createTestDb(): Database.Database {
       FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
     );
 
-    CREATE INDEX idx_sv2_logs_project ON supervision_v2_logs(project_id);
-    CREATE INDEX idx_sv2_logs_task ON supervision_v2_logs(task_id);
+    CREATE INDEX idx_supervision_logs_project ON supervision_logs(project_id);
+    CREATE INDEX idx_supervision_logs_task ON supervision_logs(task_id);
   `);
 
   return db;
@@ -284,7 +284,7 @@ describe('TaskRunner', () => {
   });
 
   beforeEach(() => {
-    db.exec('DELETE FROM supervision_v2_logs');
+    db.exec('DELETE FROM supervision_logs');
     db.exec('DELETE FROM supervision_tasks');
     db.exec('DELETE FROM messages');
     db.exec('DELETE FROM sessions');

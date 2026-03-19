@@ -48,8 +48,8 @@ export async function setupCleanDB(): Promise<void> {
     if (tableNames.includes('supervision_tasks')) {
       db.exec(`DELETE FROM supervision_tasks WHERE project_id LIKE 'test-%'`);
     }
-    if (tableNames.includes('supervision_v2_logs')) {
-      db.exec(`DELETE FROM supervision_v2_logs WHERE project_id LIKE 'test-%'`);
+    if (tableNames.includes('supervision_logs')) {
+      db.exec(`DELETE FROM supervision_logs WHERE project_id LIKE 'test-%'`);
     }
 
     db.close();

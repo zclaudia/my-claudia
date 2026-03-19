@@ -5,7 +5,7 @@ import type {
   SupervisionTask,
   TaskResult,
   ServerMessage,
-  SupervisionV2LogEvent,
+  SupervisionLogEvent,
 } from '@my-claudia/shared';
 import { SupervisionTaskRepository } from '../repositories/supervision-task.js';
 import { ProjectRepository } from '../repositories/project.js';
@@ -23,7 +23,7 @@ export class TaskRunner {
     private broadcastTaskUpdate: (taskId: string, projectId: string) => void,
     private logFn: (
       projectId: string,
-      event: SupervisionV2LogEvent,
+      event: SupervisionLogEvent,
       detail?: Record<string, unknown>,
       taskId?: string,
     ) => void,

@@ -1,5 +1,5 @@
 import { useRef, useEffect, useCallback, useState, useMemo } from 'react';
-import { Loader2, AlertTriangle, ClipboardList, ArrowDown, X, ExternalLink } from 'lucide-react';
+import { Loader2, AlertTriangle, ArrowDown } from 'lucide-react';
 import { MessageList } from './MessageList';
 import { type Attachment } from './MessageInput';
 import { ToolCallList } from './ToolCallItem';
@@ -8,6 +8,10 @@ import { InlinePermissionRequest } from './InlinePermissionRequest';
 import { InlineAskUserQuestion } from './InlineAskUserQuestion';
 import { SessionHeader } from './SessionHeader';
 import { ChatInputArea } from './ChatInputArea';
+import { PoppedOutPlaceholder } from './PoppedOutPlaceholder';
+import { InterruptedBanner } from './InterruptedBanner';
+import { PlanStatusBar } from './PlanStatusBar';
+import { QueuedMessageBanner } from './QueuedMessageBanner';
 import { BottomPanel } from '../BottomPanel';
 import { useChatStore } from '../../stores/chatStore';
 import { useProjectStore } from '../../stores/projectStore';
@@ -15,8 +19,6 @@ import { useServerStore } from '../../stores/serverStore';
 import { useTerminalStore } from '../../stores/terminalStore';
 import { useBottomPanelStore } from '../../stores/bottomPanelStore';
 import { useUIStore } from '../../stores/uiStore';
-import { useFileViewerStore } from '../../stores/fileViewerStore';
-import { usePluginStore } from '../../stores/pluginStore';
 import { usePermissionStore } from '../../stores/permissionStore';
 import { useAskUserQuestionStore } from '../../stores/askUserQuestionStore';
 import { useConnection } from '../../contexts/ConnectionContext';
@@ -25,13 +27,16 @@ import { useCommandHandler } from '../../hooks/chat/useCommandHandler';
 import { useMessagePagination } from '../../hooks/chat/useMessagePagination';
 import { useSessionActions } from '../../hooks/chat/useSessionActions';
 import { usePlanStatus } from '../../hooks/chat/usePlanStatus';
+import { useProviderCapabilities } from '../../hooks/chat/useProviderCapabilities';
+import { useKeyboardShortcuts } from '../../hooks/chat/useKeyboardShortcuts';
+import { useMobileViewport } from '../../hooks/chat/useMobileViewport';
 import * as api from '../../services/api';
 import { uploadFile } from '../../services/fileUpload';
 import { TaskCardStrip } from '../supervision/TaskCardStrip';
 import { BackgroundTaskPanel } from '../BackgroundTaskPanel';
 import { DraftLockPrompt } from '../draft/DraftLockPrompt';
 import { useDraftEditorStore } from '../../stores/draftEditorStore';
-import type { AgentPermissionPolicy, MessageAttachment, MessageInput as MessageInputData, ProviderCapabilities, SlashCommand } from '@my-claudia/shared';
+import type { AgentPermissionPolicy, MessageAttachment, MessageInput as MessageInputData } from '@my-claudia/shared';
 import type { MessageWithToolCalls } from '../../stores/chatStore';
 
 interface ChatInterfaceProps {
@@ -71,7 +76,6 @@ export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar }:
     () => Object.values(activeRuns).some((sid) => sid === sessionId),
     [activeRuns, sessionId]
   );
-  // Only show loading/toolCalls for THIS session's active run
   const isLoading = useMemo(
     () => Object.entries(activeRuns).some(([runId, sid]) => sid === sessionId && !backgroundRunIds.has(runId)),
     [activeRuns, backgroundRunIds, sessionId]
@@ -92,10 +96,6 @@ export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar }:
     projects,
     sessions,
     providers,
-    providerCommands,
-    providerCapabilities,
-    setProviderCapabilities,
-    dataServerId,
   } = useProjectStore();
   const activeServerId = useServerStore((s) => s.activeServerId);
   const { setDrawerOpen } = useTerminalStore();
@@ -113,63 +113,17 @@ export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar }:
   const draftExists = useDraftEditorStore((s) => s.draftExists[sessionId] ?? false);
   const checkDraftExists = useDraftEditorStore((s) => s.checkDraftExists);
 
-  // Check draft existence when entering session
   useEffect(() => {
     checkDraftExists(sessionId);
   }, [sessionId, checkDraftExists]);
 
-  // Mobile: keep chat pinned to the visible viewport when soft keyboard opens.
-  // Android Tauri WebView uses adjustResize, so window.innerHeight already shrinks.
-  // We only constrain height here. Applying visualViewport.offsetTop as `top`
-  // adds unwanted blank space above the header on some Android keyboards.
-  useEffect(() => {
-    if (!isMobile) return;
-    const vv = window.visualViewport;
-    if (!vv) return;
-
-    const sync = () => {
-      const el = chatRootRef.current;
-      if (!el) return;
-      // Use the smaller of innerHeight and visualViewport to avoid double-shrink
-      const h = Math.min(window.innerHeight, vv.height);
-      if (h < window.innerHeight) {
-        // Fixed mode: pin to the top and only shrink height to the visible viewport.
-        el.style.position = 'fixed';
-        el.style.top = '0';
-        el.style.left = '0';
-        el.style.right = '0';
-        el.style.height = `${h}px`;
-      } else {
-        el.style.position = '';
-        el.style.top = '';
-        el.style.left = '';
-        el.style.right = '';
-        el.style.height = '';
-      }
-    };
-
-    sync();
-    vv.addEventListener('resize', sync);
-    vv.addEventListener('scroll', sync);
-    return () => {
-      vv.removeEventListener('resize', sync);
-      vv.removeEventListener('scroll', sync);
-      const el = chatRootRef.current;
-      if (el) {
-        el.style.position = '';
-        el.style.top = '';
-        el.style.left = '';
-        el.style.right = '';
-        el.style.height = '';
-      }
-    };
-  }, [isMobile]);
+  // Mobile viewport management
+  const chatRootRef = useRef<HTMLDivElement>(null);
+  useMobileViewport(chatRootRef, isMobile);
 
   // Per-session pending permission/question requests
-  // Also include requests without sessionId (backward compat with servers that haven't been updated)
   const permissionRequests = usePermissionStore(state => state.pendingRequests.filter(r => r.sessionId === sessionId || !r.sessionId));
   const askUserRequests = useAskUserQuestionStore(state => state.pendingRequests.filter(r => r.sessionId === sessionId || !r.sessionId));
-  const chatRootRef = useRef<HTMLDivElement>(null);
   const [initialDraft, setInitialDraft] = useState<string | undefined>(undefined);
 
   // Message pagination & scroll management
@@ -196,7 +150,6 @@ export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar }:
   const [restoreMessage, setRestoreMessage] = useState<{ content: string; attachments?: Attachment[] } | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [resendChecking, setResendChecking] = useState(false);
-  // Queued message: when user sends while a run is active, queue it for auto-send
   const [queuedMessage, setQueuedMessage] = useState<{ content: string; attachments?: Attachment[] } | null>(null);
 
   // Session action bar state
@@ -226,7 +179,7 @@ export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar }:
     }
     return raw;
   }, [resendTargetMessage]);
-  // Get current session and project to determine provider
+
   const currentSession = sessions.find(s => s.id === sessionId);
   const currentProject = currentSession
     ? projects.find(p => p.id === currentSession.projectId)
@@ -243,6 +196,12 @@ export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar }:
     contextWindow: undefined
   };
   const fileReferenceRoot = currentSession?.workingDirectory || currentProject?.rootPath;
+
+  // Provider capabilities & commands
+  const { providerId, capabilities, commands, commandsCacheKey } = useProviderCapabilities({ sessionId, isConnected });
+
+  // Keyboard shortcuts
+  useKeyboardShortcuts({ projectId: currentSession?.projectId, projectRoot: currentProject?.rootPath });
 
   // Reset per-session ephemeral state when switching sessions
   useEffect(() => {
@@ -271,156 +230,15 @@ export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar }:
     if (!isLoading && isConnected && queuedMessageRef.current) {
       const { content, attachments } = queuedMessageRef.current;
       setQueuedMessage(null);
-      // Use setTimeout to avoid calling handleSendMessage during render
       setTimeout(() => handleSendMessage(content, attachments), 0);
     }
   }, [isLoading, isConnected]);
-
-
-  // Ctrl+` keyboard shortcut to toggle terminal
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (e.ctrlKey && e.key === '`' && currentSession?.projectId && !usePluginStore.getState().disabledBuiltinPanels.includes('terminal')) {
-        e.preventDefault();
-        const store = useTerminalStore.getState();
-        const bpStore = useBottomPanelStore.getState();
-        const pid = currentSession.projectId;
-        if (store.isDrawerOpen(pid) && bpStore.activeTab === 'terminal') {
-          store.setDrawerOpen(pid, false);
-        } else if (store.isDrawerOpen(pid)) {
-          bpStore.setActiveTab('terminal');
-        } else {
-          if (!store.terminals[pid]) {
-            store.openTerminal(pid);
-          }
-          store.setDrawerOpen(pid, true);
-          bpStore.setActiveTab('terminal');
-        }
-      }
-    };
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
-  }, [currentSession?.projectId]);
-
-  // Cmd+P / Ctrl+P keyboard shortcut to open file search
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === 'p' && currentProject?.rootPath && !usePluginStore.getState().disabledBuiltinPanels.includes('file-viewer')) {
-        e.preventDefault();
-        const store = useFileViewerStore.getState();
-        if (!store.isOpen) {
-          store.togglePanel();
-        }
-        store.setSearchOpen(true);
-        useBottomPanelStore.getState().setActiveTab('file-viewer');
-      }
-    };
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
-  }, [currentProject?.rootPath]);
-
-  // Derive provider ID and fetch capabilities when it changes
-  const providerId = currentSession?.providerId || currentProject?.providerId;
-  const isBackendDataReady = dataServerId != null && dataServerId === activeServerId;
-  // Scope provider caches by active server/backend to avoid cross-backend contamination.
-  const providerScopeKey = activeServerId || 'local';
-  // Cache key: use providerId if set, otherwise '_default' for Claude defaults
-  const capsCacheKey = `${providerScopeKey}:${providerId || '_default'}`;
-  const commandsCacheKey = `${providerScopeKey}:${providerId || '_default'}`;
-
-  // Fetch commands when provider or project changes (via HTTP)
-  useEffect(() => {
-    const projectRoot = currentProject?.rootPath;
-    const controller = new AbortController();
-
-    if (!isConnected || !isBackendDataReady) {
-      return () => controller.abort();
-    }
-
-    if (providerId) {
-      // Load commands for the specific provider
-      api.getProviderCommands(providerId, projectRoot || undefined, { signal: controller.signal })
-        .then(commands => {
-          useProjectStore.getState().setProviderCommands(commandsCacheKey, commands);
-        })
-        .catch(err => {
-          if (err instanceof Error && err.name === 'AbortError') return;
-          console.error('Failed to load provider commands:', err);
-        });
-    } else {
-      // No provider configured — load default commands by type
-      api.getProviderTypeCommands('claude', projectRoot || undefined, { signal: controller.signal })
-        .then(commands => {
-          useProjectStore.getState().setProviderCommands(commandsCacheKey, commands);
-        })
-        .catch(err => {
-          if (err instanceof Error && err.name === 'AbortError') return;
-          console.error('Failed to load default commands:', err);
-        });
-    }
-
-    return () => controller.abort();
-  }, [currentSession?.providerId, currentProject?.providerId, currentProject?.rootPath, isConnected, isBackendDataReady, commandsCacheKey]);
-
-  useEffect(() => {
-    const controller = new AbortController();
-    if (!isConnected || !isBackendDataReady) return () => controller.abort();
-    // Skip if already cached
-    if (providerCapabilities[capsCacheKey]) return () => controller.abort();
-
-    const fetchCaps = providerId
-      ? api.getProviderCapabilities(providerId, { signal: controller.signal })
-      : api.getProviderTypeCapabilities('claude', { signal: controller.signal });
-
-    fetchCaps
-      .then(caps => {
-        setProviderCapabilities(capsCacheKey, caps);
-        // Set default mode for this session if not already set
-        if (caps.defaultModeId && !useChatStore.getState().getMode(sessionId)) {
-          useChatStore.getState().setMode(sessionId, caps.defaultModeId);
-        }
-      })
-      .catch(err => {
-        if (err instanceof Error && err.name === 'AbortError') return;
-        console.error('Failed to load provider capabilities:', err);
-      });
-    return () => controller.abort();
-  }, [capsCacheKey, providerId, isConnected, isBackendDataReady, providerCapabilities, setProviderCapabilities, sessionId]);
-
-  const capabilities: ProviderCapabilities | null = providerCapabilities[capsCacheKey] || null;
-
-  // Get commands for current provider within current server/backend scope,
-  // and append local-only helper commands that are handled in ChatInterface.
-  const commands = useMemo<SlashCommand[]>(() => {
-    const base = providerCommands[commandsCacheKey] || [];
-    const extras: SlashCommand[] = [
-      {
-        command: '/new-cli-session',
-        description: 'Reset underlying provider session (next message starts a fresh CLI session)',
-        source: 'local',
-      },
-      {
-        command: '/reset-cli-session',
-        description: 'Alias of /new-cli-session',
-        source: 'local',
-      },
-    ];
-
-    const seen = new Set(base.map((c) => c.command));
-    const merged = [...base];
-    for (const cmd of extras) {
-      if (!seen.has(cmd.command)) merged.push(cmd);
-    }
-    return merged;
-  }, [providerCommands, commandsCacheKey]);
 
   // Scroll to bottom when new messages arrive (but not when loading history)
   useEffect(() => {
     if (initialLoadDone && sessionMessages.length > 0) {
       const container = messagesContainerRef.current;
       if (!container) return;
-
-      // Only auto-scroll if user is near the bottom
       const isNearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 200;
       if (isNearBottom) {
         scrollToBottom();
@@ -433,8 +251,6 @@ export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar }:
     if (initialLoadDone && sessionToolCalls.length > 0) {
       const container = messagesContainerRef.current;
       if (!container) return;
-
-      // Only auto-scroll if user is near the bottom
       const isNearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 200;
       if (isNearBottom) {
         scrollToBottom();
@@ -445,36 +261,27 @@ export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar }:
   const handleSendMessage = async (content: string, attachments?: Attachment[]) => {
     if (!content.trim() && !attachments?.length) return;
 
-    // Cold-start / reconnect: queue first message and auto-send once connected.
     if (!isConnected) {
       setQueuedMessage({ content, attachments });
       return;
     }
 
-    // If a run is active, queue the message for auto-send after the run finishes
     if (isLoading) {
       setQueuedMessage({ content, attachments });
       return;
     }
 
-    // Save the message for potential restore after cancel
     setLastSentMessage({ content, attachments });
-    // Clear any previous restore/error state
     setRestoreMessage(null);
     setUploadError(null);
 
-    // Upload files first and get fileIds
     let uploadedAttachments: MessageAttachment[] = [];
 
     if (attachments && attachments.length > 0) {
       try {
-        // Upload all attachments
         for (const attachment of attachments) {
-          // Convert data URL to Blob
           const blob = await (await fetch(attachment.data)).blob();
           const file = new File([blob], attachment.name, { type: attachment.mimeType });
-
-          // Upload and get fileId
           const uploaded = await uploadFile(file);
           uploadedAttachments.push({
             fileId: uploaded.fileId,
@@ -490,19 +297,14 @@ export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar }:
       }
     }
 
-    // Build structured message input
     const messageInput: MessageInputData = {
       text: content,
       attachments: uploadedAttachments.length > 0 ? uploadedAttachments : undefined
     };
 
-    // Serialize for transmission
     const fullContent = JSON.stringify(messageInput);
-
-    // Use a single ID for both local message and server request (dual dedup)
     const clientMessageId = crypto.randomUUID();
 
-    // Add user message to local state
     addMessage(sessionId, {
       id: clientMessageId,
       clientMessageId,
@@ -512,7 +314,6 @@ export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar }:
       createdAt: Date.now(),
     });
 
-    // Send to server via WebSocket (clientRequestId = clientMessageId for correlation)
     const runStartMsg = {
       type: 'run_start' as const,
       clientRequestId: clientMessageId,
@@ -526,7 +327,6 @@ export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar }:
     console.log('[ChatInterface] run_start:', { sessionId, mode: runStartMsg.mode, model: runStartMsg.model, workingDirectory: runStartMsg.workingDirectory });
     await startRun(runStartMsg);
 
-    // Scroll to bottom after sending
     setTimeout(() => scrollToBottom(), 100);
   };
 
@@ -545,8 +345,6 @@ export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar }:
         });
         return;
       }
-      // Resend: reuse the existing user message — just start a new run with resend flag
-      // so the server skips inserting a duplicate user message
       const messageInput: MessageInputData = { text: resendText };
       await startRun({
         type: 'run_start',
@@ -576,9 +374,7 @@ export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar }:
 
   const clearInterruptedStatus = useCallback(async () => {
     if (currentSession?.lastRunStatus !== 'interrupted') return;
-
     useProjectStore.getState().updateSession(sessionId, { lastRunStatus: null });
-
     try {
       await api.dismissInterrupted(sessionId);
     } catch (error) {
@@ -640,33 +436,23 @@ export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar }:
   });
 
   const handleCancelRun = () => {
-    // Restore last sent message to input
     if (lastSentMessage) {
       setRestoreMessage(lastSentMessage);
       setLastSentMessage(null);
     }
-
     if (!sessionRunId) {
       console.warn('[ChatInterface] No active run for this session');
       return;
     }
-
-    wsSendMessage({
-      type: 'run_cancel',
-      runId: sessionRunId,
-    });
+    wsSendMessage({ type: 'run_cancel', runId: sessionRunId });
   };
 
-  // Cancel current run and send queued message (triggered by "Send Now" button)
   const handleSendNow = () => {
     if (!sessionRunId) return;
-    // Don't restore lastSentMessage — queued message takes priority
     setLastSentMessage(null);
     wsSendMessage({ type: 'run_cancel', runId: sessionRunId });
-    // queuedMessage stays in state; useEffect will auto-send when isLoading→false
   };
 
-  // Dismiss queued message and restore text to input
   const handleDismissQueue = () => {
     const msg = queuedMessage;
     setQueuedMessage(null);
@@ -675,7 +461,6 @@ export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar }:
     }
   };
 
-  // Session action bar handlers
   const {
     handleSessionRename,
     handleExportSession,
@@ -697,30 +482,13 @@ export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar }:
 
   return (
     <div ref={chatRootRef} className="flex flex-col h-full bg-background">
-      {/* Popped-out placeholder: session is open in a standalone window */}
+      {/* Popped-out placeholder */}
       {poppedOutLabel && (
-        <div className="flex flex-col items-center justify-center flex-1 gap-4 text-muted-foreground">
-          <ExternalLink size={32} className="opacity-40" />
-          <p className="text-sm">This session is open in a separate window</p>
-          <div className="flex gap-2">
-            <button
-              onClick={async () => {
-                await handleFocusPoppedOutWindow(poppedOutLabel);
-              }}
-              className="px-3 py-1.5 text-xs rounded-md border border-border hover:bg-secondary transition-colors"
-            >
-              Focus window
-            </button>
-            <button
-              onClick={async () => {
-                await handleBringBackHere(poppedOutLabel);
-              }}
-              className="px-3 py-1.5 text-xs rounded-md text-muted-foreground hover:bg-muted transition-colors"
-            >
-              Bring back here
-            </button>
-          </div>
-        </div>
+        <PoppedOutPlaceholder
+          label={poppedOutLabel}
+          onFocus={handleFocusPoppedOutWindow}
+          onBringBack={handleBringBackHere}
+        />
       )}
       {!poppedOutLabel && <>
       {/* Task card strip for supervisor main session */}
@@ -730,37 +498,21 @@ export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar }:
 
       {/* Interrupted session banner */}
       {currentSession?.lastRunStatus === 'interrupted' && (
-        <div className="fixed inset-x-3 bottom-[calc(env(safe-area-inset-bottom,0px)+76px)] z-20 flex items-center gap-3 rounded-xl border border-red-500/20 bg-background/95 px-4 py-3 shadow-lg backdrop-blur-sm sm:static sm:inset-auto sm:bottom-auto sm:z-auto sm:rounded-none sm:border-x-0 sm:border-t-0 sm:bg-red-500/10 sm:px-4 sm:py-2 sm:shadow-none sm:backdrop-blur-0">
-          <AlertTriangle className="w-4 h-4 text-red-400 shrink-0" />
-          <span className="text-sm text-red-400">Session was interrupted by app restart.</span>
-          <div className="ml-auto flex gap-2">
-            <button
-              onClick={async () => {
-                await startRun({
-                  type: 'run_start',
-                  clientRequestId: crypto.randomUUID(),
-                  sessionId,
-                  input: 'continue',
-                  mode: mode || undefined,
-                  workingDirectory: currentSession?.workingDirectory || undefined,
-                });
-              }}
-              className="text-xs px-3 py-1 rounded-md bg-primary/20 text-primary hover:bg-primary/30 transition-colors"
-            >
-              Resume
-            </button>
-            <button
-              onClick={async () => {
-                try {
-                  await clearInterruptedStatus();
-                } catch {}
-              }}
-              className="text-xs px-3 py-1 rounded-md text-muted-foreground hover:bg-muted transition-colors"
-            >
-              Dismiss
-            </button>
-          </div>
-        </div>
+        <InterruptedBanner
+          onResume={async () => {
+            await startRun({
+              type: 'run_start',
+              clientRequestId: crypto.randomUUID(),
+              sessionId,
+              input: 'continue',
+              mode: mode || undefined,
+              workingDirectory: currentSession?.workingDirectory || undefined,
+            });
+          }}
+          onDismiss={async () => {
+            try { await clearInterruptedStatus(); } catch {}
+          }}
+        />
       )}
 
       {/* Session action bar */}
@@ -788,50 +540,18 @@ export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar }:
         />
       )}
 
-      {/* Plan status indicator for task sessions (session-level, shown above messages) */}
+      {/* Plan status indicator */}
       {currentSession?.projectRole === 'task' && currentSession.planStatus === 'planning' && (
-        <div className="px-2 md:px-4 pt-2 md:pt-3">
-          <div className="px-3 py-2 bg-blue-500/10 border border-blue-500/20 rounded-lg flex items-center gap-3 text-sm text-blue-500">
-            <ClipboardList size={14} className="flex-shrink-0" />
-            <div className="flex-1 min-w-0">
-              <div className="font-medium">Planning mode — iterate with Start/Continue Plan.</div>
-              <div className="text-xs text-blue-500/90 mt-0.5">
-                {planStatusLoading
-                  ? 'Checking plan document status...'
-                  : taskPlanStatus?.ready
-                    ? `Plan ready to submit (score ${taskPlanStatus.score}).`
-                    : taskPlanStatus?.exists
-                      ? `Plan not ready: missing ${taskPlanStatus.missing.join(', ')}`
-                      : 'No plan document found yet. Create .supervision/plans/task-<taskId>.plan.md'}
-              </div>
-            </div>
-            <div className="flex items-center gap-2">
-              {/* Restore Plan: re-read existing plan file after app restart */}
-              {taskPlanStatus?.exists && !isLoading && (
-                <button
-                  onClick={handleRestorePlan}
-                  className="px-3 py-1.5 rounded-md text-xs border border-blue-500/40 text-blue-500 hover:bg-blue-500/10 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  Restore Plan
-                </button>
-              )}
-              <button
-                onClick={handleDiscardPlan}
-                disabled={discardPlanLoading || submitPlanLoading || isLoading}
-                className="px-3 py-1.5 rounded-md text-xs border border-destructive/40 text-destructive hover:bg-destructive/10 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {discardPlanLoading ? 'Discarding...' : 'Discard Plan'}
-              </button>
-              <button
-                onClick={handleSubmitPlan}
-                disabled={!taskPlanStatus?.ready || submitPlanLoading || discardPlanLoading || isLoading}
-                className="px-3 py-1.5 rounded-md text-xs bg-primary text-primary-foreground disabled:bg-muted disabled:text-muted-foreground disabled:cursor-not-allowed"
-              >
-                {submitPlanLoading ? 'Submitting...' : 'Submit Plan'}
-              </button>
-            </div>
-          </div>
-        </div>
+        <PlanStatusBar
+          taskPlanStatus={taskPlanStatus}
+          planStatusLoading={planStatusLoading}
+          submitPlanLoading={submitPlanLoading}
+          discardPlanLoading={discardPlanLoading}
+          isLoading={isLoading}
+          onRestorePlan={handleRestorePlan}
+          onDiscardPlan={handleDiscardPlan}
+          onSubmitPlan={handleSubmitPlan}
+        />
       )}
 
       {/* Messages */}
@@ -857,7 +577,7 @@ export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar }:
           </div>
         )}
 
-        {/* Initial load placeholder (also covers first switch with no local snapshot yet) */}
+        {/* Initial load placeholder */}
         {isInitialMessageLoading && (
           <div className="py-8 px-2 md:px-4">
             <div className="flex items-center gap-2 text-sm text-muted-foreground mb-4">
@@ -886,7 +606,6 @@ export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar }:
           </div>
         )}
 
-
         <MessageList
           messages={sessionMessages}
           streamingContentBlocks={useStreamingSegmented ? sessionContentBlocks : undefined}
@@ -899,7 +618,6 @@ export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar }:
           onResendTarget={handleResendLastMessage}
         />
 
-        {/* Loading indicator (shown while waiting for response) */}
         <LoadingIndicator
           isLoading={isLoading}
           health={sessionHealth?.health}
@@ -909,14 +627,14 @@ export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar }:
           onCancel={handleCancelRun}
         />
 
-        {/* Active tool calls (shown during streaming — hidden when inline in segmented view) */}
+        {/* Active tool calls */}
         {!useStreamingSegmented && sessionToolCalls.length > 0 && (
           <div className="mt-4 max-w-full md:max-w-3xl lg:max-w-4xl xl:max-w-5xl">
             <ToolCallList toolCalls={sessionToolCalls} />
           </div>
         )}
 
-        {/* Inline permission requests for this session */}
+        {/* Inline permission requests */}
         {permissionRequests.length > 0 && (
           <div className="mt-4 space-y-3 max-w-full md:max-w-3xl lg:max-w-4xl xl:max-w-5xl">
             {permissionRequests.map(req => (
@@ -929,7 +647,7 @@ export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar }:
           </div>
         )}
 
-        {/* Inline ask-user-question requests for this session */}
+        {/* Inline ask-user-question requests */}
         {askUserRequests.length > 0 && (
           <div className="mt-4 space-y-3 max-w-full md:max-w-3xl lg:max-w-4xl xl:max-w-5xl">
             {askUserRequests.map(req => (
@@ -944,7 +662,6 @@ export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar }:
 
         <div ref={messagesEndRef} />
 
-        {/* Scroll to bottom button — sticky inside scroll container */}
         {showScrollToBottom && (
           <button
             onClick={jumpToBottomInstant}
@@ -956,10 +673,8 @@ export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar }:
         )}
       </div>
 
-      {/* Background Tasks Panel - shows above bottom panel when there are tasks */}
+      {/* Background Tasks Panel */}
       <BackgroundTaskPanel sessionId={sessionId} onStopTask={(task) => {
-        // Send targeted stop — server will use SDK stopTask() if run is active,
-        // or fall back to process cleanup if the run has already ended
         wsSendMessage({
           type: 'stop_background_task',
           sessionId,
@@ -970,7 +685,7 @@ export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar }:
         });
       }} />
 
-      {/* Bottom panel (file viewer + terminal with tab switching) */}
+      {/* Bottom panel */}
       <BottomPanel
         projectId={currentSession?.projectId}
         projectRoot={fileReferenceRoot}
@@ -979,25 +694,11 @@ export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar }:
 
       {/* Queued message banner */}
       {queuedMessage && (
-        <div className="mx-2 md:mx-4 mt-2 px-3 py-2 rounded-lg bg-primary/10 border border-primary/30 text-sm flex items-center gap-2">
-          <span className="text-primary font-medium flex-shrink-0">Queued</span>
-          <span className="text-foreground truncate flex-1 text-xs">
-            {queuedMessage.content.slice(0, 80)}{queuedMessage.content.length > 80 ? '...' : ''}
-          </span>
-          <button
-            onClick={handleSendNow}
-            className="text-xs font-medium text-primary hover:text-primary/80 px-2 py-1 bg-primary/10 rounded flex-shrink-0"
-          >
-            Send Now
-          </button>
-          <button
-            onClick={handleDismissQueue}
-            className="text-muted-foreground hover:text-foreground flex-shrink-0 p-0.5"
-            title="Dismiss queued message"
-          >
-            <X size={14} strokeWidth={2} />
-          </button>
-        </div>
+        <QueuedMessageBanner
+          content={queuedMessage.content}
+          onSendNow={handleSendNow}
+          onDismiss={handleDismissQueue}
+        />
       )}
 
       {/* Upload error banner */}

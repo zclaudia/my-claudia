@@ -102,7 +102,7 @@ export interface SupervisionTask {
   retryDelayMs?: number;
 }
 
-export type SupervisionV2LogEvent =
+export type SupervisionLogEvent =
   | 'agent_initialized'
   | 'phase_changed'
   | 'task_created'
@@ -126,11 +126,11 @@ export type SupervisionV2LogEvent =
   | 'task_session_opened'
   | 'task_plan_submitted';
 
-export interface SupervisionV2Log {
+export interface SupervisionLog {
   id: string;
   projectId: string;
   taskId?: string;
-  event: SupervisionV2LogEvent;
+  event: SupervisionLogEvent;
   detail?: Record<string, unknown>;
   createdAt: number;
 }

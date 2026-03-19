@@ -4,7 +4,7 @@ import type {
   ReviewVerdict,
   TaskResult,
   ServerMessage,
-  SupervisionV2LogEvent,
+  SupervisionLogEvent,
   TrustLevel,
   Session,
 } from '@my-claudia/shared';
@@ -29,7 +29,7 @@ export class ReviewEngine {
     private broadcastTaskUpdate: (taskId: string, projectId: string) => void,
     private logFn: (
       projectId: string,
-      event: SupervisionV2LogEvent,
+      event: SupervisionLogEvent,
       detail?: Record<string, unknown>,
       taskId?: string,
     ) => void,
@@ -75,7 +75,7 @@ export class ReviewEngine {
     const reviewPrompt = this.buildReviewPrompt(task, project.name, evidence);
 
     // 4. Create virtual client and trigger run
-    const clientId = `supervisor_v2_review_${task.id}`;
+    const clientId = `supervisor_review_${task.id}`;
     const virtualClient = createVirtualClient(clientId, {
       send: (msg: ServerMessage) => {
         this.handleReviewRunMessage(task.id, task.projectId, session.id, msg);

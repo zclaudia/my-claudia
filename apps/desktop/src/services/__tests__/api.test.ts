@@ -110,7 +110,7 @@ import {
   reloadSupervisionContext,
   getSupervisionContext,
   getSupervisionBudget,
-  getSupervisionV2Logs,
+  getSupervisionLogs,
   // Local PR additional
   precheckLocalPRCreation,
   retryLocalPRReview,
@@ -1156,10 +1156,10 @@ describe('api', () => {
       expect(result).toEqual(budget);
     });
 
-    it('getSupervisionV2Logs returns logs', async () => {
+    it('getSupervisionLogs returns logs', async () => {
       const logs = { logs: [{ id: 'l1' }], totalCount: 1, hasMore: false };
       mockResponse(logs);
-      const result = await getSupervisionV2Logs('p1');
+      const result = await getSupervisionLogs('p1');
       expect(result).toEqual(logs);
     });
   });

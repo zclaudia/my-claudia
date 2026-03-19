@@ -95,7 +95,7 @@
   - `ProjectAgent`
   - `SupervisionTask`
   - `TaskResult`
-- `server/src/services/supervisor-v2-service.ts`
+- `server/src/services/supervisor-service.ts`
   - 项目级 agent 生命周期
   - 任务轮询与调度入口
 - `server/src/services/task-runner.ts`
@@ -203,7 +203,7 @@ export interface AgentCard {
 
 推荐放在：
 
-- `SupervisorV2Service` 上层继续做项目调度
+- `SupervisorService` 上层继续做项目调度
 - 新增 `AgentOrchestratorService` 处理单任务内的多 agent 协作
 
 建议新增核心接口：
@@ -696,7 +696,7 @@ export interface TaskResult {
 建议第一版的一条完整链路如下：
 
 1. 用户创建 `SupervisionTask`
-2. `SupervisorV2Service` 选择策略 `plan-execute-review`
+2. `SupervisorService` 选择策略 `plan-execute-review`
 3. `AgentOrchestratorService` 创建 `OrchestrationRun`，开始写 trace
 4. Input guard 校验 task_brief
 5. Planner agent 生成 `plan` artifact
@@ -758,7 +758,7 @@ export interface TaskResult {
 这版草图和现有实现兼容，原因是：
 
 - `SupervisionTask` 已经是任务中心对象
-- `SupervisorV2Service` 已经是调度入口
+- `SupervisorService` 已经是调度入口
 - `TaskRunner` 已经承担执行后处理
 - `WorkflowEngine` 已经提供 DAG 式执行思路
 - 桌面端已有任务看板与 agent 状态展示入口

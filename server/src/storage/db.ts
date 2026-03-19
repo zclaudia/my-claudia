@@ -593,7 +593,7 @@ function runMigrations(db: Database.Database): void {
         CREATE INDEX IF NOT EXISTS idx_supervision_tasks_status ON supervision_tasks(status);
         CREATE INDEX IF NOT EXISTS idx_supervision_tasks_session ON supervision_tasks(session_id);
 
-        -- supervision_v2_logs: structured event log
+        -- supervision logs (renamed to supervision_logs in migration 042)
         CREATE TABLE IF NOT EXISTS supervision_v2_logs (
           id TEXT PRIMARY KEY,
           project_id TEXT NOT NULL,
@@ -883,6 +883,16 @@ function runMigrations(db: Database.Database): void {
           key TEXT PRIMARY KEY,
           value TEXT NOT NULL
         );
+      `
+    },
+    {
+      name: '042_rename_supervision_logs',
+      sql: `
+        ALTER TABLE supervision_v2_logs RENAME TO supervision_logs;
+        DROP INDEX IF EXISTS idx_sv2_logs_project;
+        DROP INDEX IF EXISTS idx_sv2_logs_task;
+        CREATE INDEX IF NOT EXISTS idx_supervision_logs_project ON supervision_logs(project_id);
+        CREATE INDEX IF NOT EXISTS idx_supervision_logs_task ON supervision_logs(task_id);
       `
     }
   ];

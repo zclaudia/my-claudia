@@ -103,7 +103,7 @@ vi.mock('../worktree-pool.js', () => {
   return { WorktreePool: MockWorktreePool };
 });
 
-import { SupervisorV2Service } from '../supervisor-v2-service.js';
+import { SupervisorService } from '../supervisor-service.js';
 import { SupervisionTaskRepository } from '../../repositories/supervision-task.js';
 import { ProjectRepository } from '../../repositories/project.js';
 import { SessionRepository } from '../../repositories/session.js';
@@ -196,7 +196,7 @@ function createTestDb(): Database.Database {
     CREATE INDEX idx_supervision_tasks_status ON supervision_tasks(status);
     CREATE INDEX idx_supervision_tasks_session ON supervision_tasks(session_id);
 
-    CREATE TABLE supervision_v2_logs (
+    CREATE TABLE supervision_logs (
       id TEXT PRIMARY KEY,
       project_id TEXT NOT NULL,
       task_id TEXT,
@@ -206,8 +206,8 @@ function createTestDb(): Database.Database {
       FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
     );
 
-    CREATE INDEX idx_sv2_logs_project ON supervision_v2_logs(project_id);
-    CREATE INDEX idx_sv2_logs_task ON supervision_v2_logs(task_id);
+    CREATE INDEX idx_supervision_logs_project ON supervision_logs(project_id);
+    CREATE INDEX idx_supervision_logs_task ON supervision_logs(task_id);
   `);
 
   return db;
@@ -248,12 +248,12 @@ function makeAgent(overrides: Partial<ProjectAgent> = {}): ProjectAgent {
   };
 }
 
-describe('SupervisorV2Service', () => {
+describe('SupervisorService', () => {
   let db: Database.Database;
   let taskRepo: SupervisionTaskRepository;
   let projectRepo: ProjectRepository;
   let sessionRepo: SessionRepository;
-  let service: SupervisorV2Service;
+  let service: SupervisorService;
   let broadcastFn: ReturnType<typeof vi.fn>;
 
   beforeAll(() => {
@@ -262,7 +262,7 @@ describe('SupervisorV2Service', () => {
     projectRepo = new ProjectRepository(db);
     sessionRepo = new SessionRepository(db);
     broadcastFn = vi.fn();
-    service = new SupervisorV2Service(db, taskRepo, projectRepo, sessionRepo, broadcastFn);
+    service = new SupervisorService(db, taskRepo, projectRepo, sessionRepo, broadcastFn);
   });
 
   afterAll(() => {
@@ -271,7 +271,7 @@ describe('SupervisorV2Service', () => {
   });
 
   beforeEach(() => {
-    db.exec('DELETE FROM supervision_v2_logs');
+    db.exec('DELETE FROM supervision_logs');
     db.exec('DELETE FROM supervision_tasks');
     db.exec('DELETE FROM messages');
     db.exec('DELETE FROM sessions');
@@ -1080,7 +1080,7 @@ describe('SupervisorV2Service', () => {
       service.initAgent(projectId);
 
       const logs = db
-        .prepare('SELECT * FROM supervision_v2_logs WHERE project_id = ?')
+        .prepare('SELECT * FROM supervision_logs WHERE project_id = ?')
         .all(projectId) as any[];
 
       expect(logs.length).toBeGreaterThan(0);
@@ -1094,7 +1094,7 @@ describe('SupervisorV2Service', () => {
       service.createTask(projectId, { title: 'Logged task', description: 'd' });
 
       const logs = db
-        .prepare("SELECT * FROM supervision_v2_logs WHERE project_id = ? AND event = 'task_created'")
+        .prepare("SELECT * FROM supervision_logs WHERE project_id = ? AND event = 'task_created'")
         .all(projectId) as any[];
 
       expect(logs.length).toBe(1);
@@ -1626,11 +1626,11 @@ describe('SupervisorV2Service', () => {
 
       // Insert some logs manually
       db.prepare(
-        `INSERT INTO supervision_v2_logs (id, project_id, task_id, event, detail, created_at)
+        `INSERT INTO supervision_logs (id, project_id, task_id, event, detail, created_at)
          VALUES (?, ?, NULL, 'task_created', '{"taskId":"t1"}', ?)`
       ).run('log-1', projectId, 1000);
       db.prepare(
-        `INSERT INTO supervision_v2_logs (id, project_id, task_id, event, detail, created_at)
+        `INSERT INTO supervision_logs (id, project_id, task_id, event, detail, created_at)
          VALUES (?, ?, 't1', 'task_status_changed', '{"from":"pending","to":"queued"}', ?)`
       ).run('log-2', projectId, 2000);
 
@@ -1645,7 +1645,7 @@ describe('SupervisorV2Service', () => {
 
       for (let i = 0; i < 5; i++) {
         db.prepare(
-          `INSERT INTO supervision_v2_logs (id, project_id, event, created_at)
+          `INSERT INTO supervision_logs (id, project_id, event, created_at)
            VALUES (?, ?, 'task_created', ?)`
         ).run(`log-${i}`, projectId, i * 1000);
       }
@@ -1657,7 +1657,7 @@ describe('SupervisorV2Service', () => {
     it('parses detail JSON correctly', () => {
       const projectId = seedProject(db, { agent: makeAgent() });
       db.prepare(
-        `INSERT INTO supervision_v2_logs (id, project_id, event, detail, created_at)
+        `INSERT INTO supervision_logs (id, project_id, event, detail, created_at)
          VALUES (?, ?, 'budget_paused', ?, ?)`
       ).run('log-x', projectId, JSON.stringify({ reason: 'token_budget_exceeded', usage: 500 }), Date.now());
 
@@ -2099,7 +2099,7 @@ describe('SupervisorV2Service', () => {
       service.reloadContext(projectId);
 
       const logs = db
-        .prepare("SELECT * FROM supervision_v2_logs WHERE project_id = ? AND event = 'context_sync_error'")
+        .prepare("SELECT * FROM supervision_logs WHERE project_id = ? AND event = 'context_sync_error'")
         .all(projectId) as any[];
 
       expect(logs.length).toBe(1);
@@ -3104,14 +3104,14 @@ describe('SupervisorV2Service', () => {
   describe('lifecycle start/stop', () => {
     it('start() is idempotent — calling twice does not create duplicate intervals', () => {
       // Use a separate service to avoid interfering with the shared one
-      const svc = new SupervisorV2Service(db, taskRepo, projectRepo, sessionRepo, vi.fn());
+      const svc = new SupervisorService(db, taskRepo, projectRepo, sessionRepo, vi.fn());
       svc.start(60000); // Long interval to avoid actual ticks
       svc.start(60000); // Should be no-op
       svc.stop();
     });
 
     it('stop() clears interval and destroys worktree pools', () => {
-      const svc = new SupervisorV2Service(db, taskRepo, projectRepo, sessionRepo, vi.fn());
+      const svc = new SupervisorService(db, taskRepo, projectRepo, sessionRepo, vi.fn());
       svc.start(60000);
 
       // Force a pool creation
@@ -3125,7 +3125,7 @@ describe('SupervisorV2Service', () => {
     });
 
     it('stop() without start() does not throw', () => {
-      const svc = new SupervisorV2Service(db, taskRepo, projectRepo, sessionRepo, vi.fn());
+      const svc = new SupervisorService(db, taskRepo, projectRepo, sessionRepo, vi.fn());
       svc.stop(); // Should not throw
     });
   });

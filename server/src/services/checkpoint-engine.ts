@@ -3,7 +3,7 @@ import type {
   Session,
   ProjectAgent,
   SupervisionTask,
-  SupervisionV2LogEvent,
+  SupervisionLogEvent,
   ServerMessage,
 } from '@my-claudia/shared';
 import { SupervisionTaskRepository } from '../repositories/supervision-task.js';
@@ -32,7 +32,7 @@ export class CheckpointEngine {
     private broadcastFn: (msg: ServerMessage) => void,
     private logFn: (
       projectId: string,
-      event: SupervisionV2LogEvent,
+      event: SupervisionLogEvent,
       detail?: Record<string, unknown>,
       taskId?: string,
     ) => void,

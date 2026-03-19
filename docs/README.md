@@ -57,7 +57,7 @@ docs/
 
 | 文件 | 描述 |
 |------|------|
-| [supervision-v2-design.md](./archive/supervision-v2-design.md) | Supervision v2 设计 |
+| [supervision-design.md](./archive/supervision-design.md) | Supervision v2 设计 |
 | [content-blocks-design.md](./archive/content-blocks-design.md) | 消息分段渲染设计 |
 | [server-deployment.md](./archive/server-deployment.md) | Server 独立部署指南 |
 | [gateway-connection-guide.md](./archive/gateway-connection-guide.md) | Gateway 连接指南 |

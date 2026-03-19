@@ -5,7 +5,7 @@ import { CheckpointEngine, type CheckpointResult } from '../checkpoint-engine.js
 import { SupervisionTaskRepository } from '../../repositories/supervision-task.js';
 import { ProjectRepository } from '../../repositories/project.js';
 import { SessionRepository } from '../../repositories/session.js';
-import type { ProjectAgent, ServerMessage, SupervisionV2LogEvent, SupervisionTask } from '@my-claudia/shared';
+import type { ProjectAgent, ServerMessage, SupervisionLogEvent, SupervisionTask } from '@my-claudia/shared';
 
 function createTestDb(): Database.Database {
   const db = new Database(':memory:');
@@ -84,7 +84,7 @@ function createTestDb(): Database.Database {
       FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
       FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE SET NULL
     );
-    CREATE TABLE supervision_v2_logs (
+    CREATE TABLE supervision_logs (
       id TEXT PRIMARY KEY,
       project_id TEXT NOT NULL,
       task_id TEXT,
@@ -144,7 +144,7 @@ describe('CheckpointEngine', () => {
   afterAll(() => db.close());
 
   beforeEach(() => {
-    db.exec('DELETE FROM supervision_v2_logs');
+    db.exec('DELETE FROM supervision_logs');
     db.exec('DELETE FROM supervision_tasks');
     db.exec('DELETE FROM messages');
     db.exec('DELETE FROM sessions');

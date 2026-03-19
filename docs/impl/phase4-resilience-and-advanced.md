@@ -32,7 +32,7 @@ New file. Implements periodic or event-driven project evaluation.
 export class CheckpointEngine {
   constructor(
     private db: Database.Database,
-    private supervisorService: SupervisorV2Service,
+    private supervisorService: SupervisorService,
     private contextManager: ContextManager,
     private sessionRepo: SessionRepository,
     private taskRepo: SupervisionTaskRepository,
@@ -212,7 +212,7 @@ New file. Re-hydrates supervision state on service startup.
 export class StateRecovery {
   constructor(
     private db: Database.Database,
-    private supervisorService: SupervisorV2Service,
+    private supervisorService: SupervisorService,
     private taskRepo: SupervisionTaskRepository,
     private sessionRepo: SessionRepository,
     private projectRepo: ProjectRepository,
@@ -323,7 +323,7 @@ if (report.tasksRecovered > 0 || report.worktreesReleased > 0) {
 
 ### Token Budget Tracking
 
-Add cumulative token tracking to `SupervisorV2Service`:
+Add cumulative token tracking to `SupervisorService`:
 
 ```typescript
 private getTokenUsage(projectId: string): number {
@@ -571,7 +571,7 @@ case 'supervision_checkpoint':
 
 | File | Changes |
 |------|---------|
-| `server/src/services/supervisor-v2-service.ts` | Budget check, main session rotation, task discovery integration |
+| `server/src/services/supervisor-service.ts` | Budget check, main session rotation, task discovery integration |
 | `server/src/services/review-engine.ts` | Trigger checkpoint after successful review |
 | `server/src/storage/db.ts` | Add migration `026_deprecate_supervision_v1` |
 | `server/src/index.ts` | Wire StateRecovery, CheckpointEngine startup |

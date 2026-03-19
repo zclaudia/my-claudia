@@ -161,7 +161,7 @@ suggested_changes:
 
 ## 4. TaskRunner Enhancement (`server/src/services/task-runner.ts`)
 
-Extracted from `supervisor-v2-service.ts` in Phase 1, or added as new methods.
+Extracted from `supervisor-service.ts` in Phase 1, or added as new methods.
 
 ### `onTaskComplete(task, sessionId)`
 
@@ -359,7 +359,7 @@ Archived sessions are retained in DB for audit but hidden from active session li
 
 ---
 
-## 8. Changes to SupervisorV2Service
+## 8. Changes to SupervisorService
 
 ### Modified Methods
 
@@ -368,7 +368,7 @@ Archived sessions are retained in DB for audit but hidden from active session li
 **Listen for run completion** — register a callback in `handleRunMessage` for task sessions:
 
 ```typescript
-// In server.ts or supervisor-v2-service.ts
+// In server.ts or supervisor-service.ts
 onRunCompleted(sessionId: string): void {
   const session = this.sessionRepo.findById(sessionId);
   if (!session?.taskId || session.projectRole !== 'task') return;
@@ -419,7 +419,7 @@ For `low` trust: after AI review verdict is parsed, task moves to a `reviewing` 
 
 | File | Changes |
 |------|---------|
-| `server/src/services/supervisor-v2-service.ts` | Wire ReviewEngine, listen for run completion, TrustLevel routing |
+| `server/src/services/supervisor-service.ts` | Wire ReviewEngine, listen for run completion, TrustLevel routing |
 | `server/src/services/context-manager.ts` | Add `writeTaskResult`, `writeReviewResult` |
 | `server/src/server.ts` | Add run_completed/run_failed hooks for task sessions |
 

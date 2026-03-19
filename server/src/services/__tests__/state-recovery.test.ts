@@ -75,7 +75,7 @@ function createTestDb(): Database.Database {
       FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
       FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE SET NULL
     );
-    CREATE TABLE supervision_v2_logs (
+    CREATE TABLE supervision_logs (
       id TEXT PRIMARY KEY,
       project_id TEXT NOT NULL,
       task_id TEXT,
@@ -130,7 +130,7 @@ describe('StateRecovery', () => {
   afterAll(() => db.close());
 
   beforeEach(() => {
-    db.exec('DELETE FROM supervision_v2_logs');
+    db.exec('DELETE FROM supervision_logs');
     db.exec('DELETE FROM supervision_tasks');
     db.exec('DELETE FROM sessions');
     db.exec('DELETE FROM projects');
@@ -191,7 +191,7 @@ describe('StateRecovery', () => {
         projectId, title: 'Active', description: 'd', source: 'user', status: 'running',
       });
 
-      activeRuns.set(`supervisor_v2_task_${task.id}`, { runId: 'r1' });
+      activeRuns.set(`supervisor_task_${task.id}`, { runId: 'r1' });
 
       const recovery = createRecovery();
       const report = recovery.recover();
@@ -250,7 +250,7 @@ describe('StateRecovery', () => {
       const task = taskRepo.create({
         projectId, title: 'Running', description: 'd', source: 'user', status: 'running',
       });
-      activeRuns.set(`supervisor_v2_task_${task.id}`, {});
+      activeRuns.set(`supervisor_task_${task.id}`, {});
 
       const mockPool = {
         getStatus: vi.fn().mockReturnValue({
