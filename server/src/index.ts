@@ -222,6 +222,9 @@ async function connectToGateway(config: GatewayConfig): Promise<void> {
   // Sync gateway status periodically as fallback (backendId + discoveredBackends)
   const syncGatewayStatus = setInterval(() => {
     if (gatewayClient && serverContext) {
+      const connected = gatewayClient.isGatewayConnected() || gatewayClientMode?.isConnected() === true;
+      serverContext.updateGatewayConnected(connected);
+
       const backendId = gatewayClient.getBackendId();
       if (backendId) {
         serverContext.updateGatewayBackendId(backendId);
@@ -246,6 +249,7 @@ async function disconnectFromGateway(): Promise<void> {
     setGatewayClient(null);
     virtualClients.clear();
     if (serverContext) {
+      serverContext.updateGatewayConnected(false);
       serverContext.updateGatewayBackendId(null);
       serverContext.updateDiscoveredBackends([]);
     }

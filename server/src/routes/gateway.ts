@@ -95,8 +95,28 @@ export function createGatewayRouter(
     try {
       const { enabled, gatewayUrl, gatewaySecret, backendName, registerAsBackend, proxyUrl, proxyUsername, proxyPassword } = req.body;
 
+      const existingRow = db.prepare(`
+        SELECT id, enabled, gateway_url, gateway_secret, backend_name, backend_id,
+               register_as_backend,
+               proxy_url, proxy_username, proxy_password,
+               created_at, updated_at
+        FROM gateway_config
+        WHERE id = 1
+      `).get() as any;
+
+      if (!existingRow) {
+        return res.json({
+          success: false,
+          error: { code: 'NOT_FOUND', message: 'Gateway config not found' }
+        });
+      }
+
+      const resolvedEnabled = typeof enabled === 'boolean' ? enabled : existingRow.enabled === 1;
+      const resolvedGatewayUrl = gatewayUrl !== undefined ? gatewayUrl : existingRow.gateway_url;
+      const resolvedGatewaySecret = gatewaySecret !== undefined ? gatewaySecret : existingRow.gateway_secret;
+
       // Validate required fields if enabling
-      if (enabled && (!gatewayUrl || !gatewaySecret)) {
+      if (resolvedEnabled && (!resolvedGatewayUrl || !resolvedGatewaySecret)) {
         return res.json({
           success: false,
           error: {

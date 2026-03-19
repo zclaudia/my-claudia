@@ -76,6 +76,7 @@ export interface SetupResult {
   getGatewayStatus: () => GatewayStatus;
   connectGateway: (config: GatewayConfig) => Promise<void>;
   disconnectGateway: () => Promise<void>;
+  updateGatewayConnected: (connected: boolean) => void;
   updateGatewayBackendId: (backendId: string | null) => void;
   updateDiscoveredBackends: (backends: import('@my-claudia/shared').GatewayBackendInfo[]) => void;
   setGatewayConnector: (connector: (config: GatewayConfig) => Promise<void>) => void;
@@ -172,6 +173,10 @@ export function setupRoutesAndServices(deps: SetupDependencies): SetupResult {
         UPDATE gateway_config SET backend_id = ?, updated_at = ? WHERE id = 1
       `).run(backendId, Date.now());
     }
+  };
+
+  const updateGatewayConnected = (connected: boolean) => {
+    gatewayStatus.connected = connected;
   };
 
   const authMiddleware = createExpressAuthMiddleware(() => gatewayStatus.gatewaySecret);
@@ -434,6 +439,7 @@ export function setupRoutesAndServices(deps: SetupDependencies): SetupResult {
     getGatewayStatus,
     connectGateway,
     disconnectGateway,
+    updateGatewayConnected,
     updateGatewayBackendId,
     updateDiscoveredBackends: (backends: import('@my-claudia/shared').GatewayBackendInfo[]) => {
       gatewayStatus.discoveredBackends = backends;

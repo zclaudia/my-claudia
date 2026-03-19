@@ -111,6 +111,7 @@ export interface ServerContext {
   getStateHeartbeat: () => StateHeartbeatMessage;
   connectGateway: (config: GatewayConfig) => Promise<void>;
   disconnectGateway: () => Promise<void>;
+  updateGatewayConnected: (connected: boolean) => void;
   updateGatewayBackendId: (backendId: string | null) => void;
   updateDiscoveredBackends: (backends: import('@my-claudia/shared').GatewayBackendInfo[]) => void;
   setGatewayConnector: (connector: (config: GatewayConfig) => Promise<void>) => void;
@@ -359,9 +360,9 @@ export async function createServer(): Promise<ServerContext> {
     setGatewayDisconnector: setup.setGatewayDisconnector,
     connectGateway: setup.connectGateway,
     disconnectGateway: setup.disconnectGateway,
+    updateGatewayConnected: setup.updateGatewayConnected,
     updateGatewayBackendId: (backendId: string | null) => {
       setup.gatewayStatus.backendId = backendId;
-      setup.gatewayStatus.connected = backendId !== null;
       if (backendId) {
         db.prepare(`
           UPDATE gateway_config SET backend_id = ?, updated_at = ? WHERE id = 1
