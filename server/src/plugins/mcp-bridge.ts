@@ -253,8 +253,12 @@ function httpPost(urlPath: string, body: unknown): Promise<string> {
 
 async function listTools(): Promise<McpTool[]> {
   try {
-    log(`tools/list start session=${getSessionId() || 'none'}`);
-    const raw = await httpGet('/api/plugins/tools');
+    const sessionId = getSessionId();
+    const toolListPath = sessionId
+      ? `/api/plugins/tools?sessionId=${encodeURIComponent(sessionId)}`
+      : '/api/plugins/tools';
+    log(`tools/list start session=${sessionId || 'none'}`);
+    const raw = await httpGet(toolListPath);
     const data = JSON.parse(raw);
     const tools = data.tools || [];
     log(`tools/list ok count=${Array.isArray(tools) ? tools.length : 0}`);

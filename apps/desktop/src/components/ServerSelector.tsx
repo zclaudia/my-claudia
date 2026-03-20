@@ -152,18 +152,36 @@ export function ServerSelector() {
                 {isMobile ? 'Gateway not configured' : 'Configure in Settings > Gateway'}
               </div>
             ) : isGatewayConnected && remoteBackends.length > 0 ? (
-              <div className="max-h-40 overflow-y-auto">
-                {remoteBackends.map((backend) => (
-                  <GatewayBackendItem
-                    key={backend.backendId}
-                    backend={backend}
-                    isActive={activeServerId === toGatewayServerId(backend.backendId)}
-                    isSubscribed={isBackendSubscribed(backend.backendId)}
-                    latencyMs={connections[toGatewayServerId(backend.backendId)]?.latencyMs}
-                    onClick={() => handleBackendClick(backend)}
-                    onToggleSubscription={() => toggleBackendSubscription(backend.backendId)}
-                  />
-                ))}
+              <div className="max-h-48 overflow-y-auto">
+                {(() => {
+                  const sameDevice = remoteBackends.filter(b => b.isThisDevice);
+                  const remote = remoteBackends.filter(b => !b.isThisDevice);
+                  const renderItem = (backend: GatewayBackendInfo) => (
+                    <GatewayBackendItem
+                      key={backend.backendId}
+                      backend={backend}
+                      isActive={activeServerId === toGatewayServerId(backend.backendId)}
+                      isSubscribed={isBackendSubscribed(backend.backendId)}
+                      latencyMs={connections[toGatewayServerId(backend.backendId)]?.latencyMs}
+                      onClick={() => handleBackendClick(backend)}
+                      onToggleSubscription={() => toggleBackendSubscription(backend.backendId)}
+                    />
+                  );
+                  // Only show group headers when there are items in both groups
+                  const showGroups = sameDevice.length > 0 && remote.length > 0;
+                  return (
+                    <>
+                      {showGroups && sameDevice.length > 0 && (
+                        <div className="px-3 py-1 text-[10px] font-medium text-muted-foreground/70 uppercase tracking-wider">This Device</div>
+                      )}
+                      {sameDevice.map(renderItem)}
+                      {showGroups && remote.length > 0 && (
+                        <div className="px-3 py-1 text-[10px] font-medium text-muted-foreground/70 uppercase tracking-wider">Remote</div>
+                      )}
+                      {remote.map(renderItem)}
+                    </>
+                  );
+                })()}
               </div>
             ) : isGatewayConnected ? (
               <div className="px-3 py-2 text-xs text-muted-foreground text-center">
@@ -205,6 +223,7 @@ function GatewayBackendItem({
   onToggleSubscription: () => void;
 }) {
   const statusColor = backend.online ? 'bg-success' : 'bg-muted-foreground';
+  const isNonProdChannel = backend.channel && backend.channel !== 'prod';
 
   return (
     <div
@@ -214,6 +233,11 @@ function GatewayBackendItem({
       <div className="flex items-center gap-2">
         <span className={`w-2 h-2 rounded-full flex-shrink-0 ${statusColor}`} />
         <span className="text-sm truncate flex-1 min-w-0">{backend.name}</span>
+        {isNonProdChannel && (
+          <span className="px-1 py-0 text-[10px] rounded border border-amber-500/30 text-amber-600 dark:text-amber-400 bg-amber-500/5 flex-shrink-0">
+            {backend.channel!.charAt(0).toUpperCase() + backend.channel!.slice(1)}
+          </span>
+        )}
         {formatLatency(latencyMs) && (
           <span className="text-[10px] text-muted-foreground flex-shrink-0">
             {formatLatency(latencyMs)}

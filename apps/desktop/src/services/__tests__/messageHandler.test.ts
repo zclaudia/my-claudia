@@ -267,6 +267,18 @@ describe('handleServerMessage', () => {
       );
       expect(mockChatStore.clearSystemInfo).not.toHaveBeenCalled();
     });
+
+    it('does not add a duplicate assistant placeholder for metadata-only reruns', () => {
+      mockChatStore.activeRuns = { r1: 's1' };
+
+      handleServerMessage({
+        type: 'run_started',
+        runId: 'r1',
+        sessionId: 's1',
+      }, makeCtx());
+
+      expect(mockChatStore.addMessage).not.toHaveBeenCalled();
+    });
   });
 
   describe('run_completed', () => {

@@ -9,6 +9,7 @@ interface GatewayState {
   gatewayUrl: string | null;
   gatewaySecret: string | null;
   isConnected: boolean;
+  backendRegistered: boolean;  // Whether this instance registered as backend on gateway
   localBackendId: string | null;  // This server's own backendId (for isLocal filtering)
   currentInstanceId: string | null;  // This server's instanceId
   currentDeviceId: string | null;    // This server's deviceId
@@ -109,6 +110,7 @@ export const useGatewayStore = create<GatewayState>()(
       gatewayUrl: null,
       gatewaySecret: null,
       isConnected: false,
+      backendRegistered: false,
       localBackendId: null,
       currentInstanceId: null,
       currentDeviceId: null,
@@ -138,6 +140,7 @@ export const useGatewayStore = create<GatewayState>()(
           gatewayUrl: url,
           gatewaySecret: secret,
           localBackendId: localId,
+          backendRegistered: !!localId,
           ...(instanceId !== undefined ? { currentInstanceId: instanceId } : {}),
           ...(deviceId !== undefined ? { currentDeviceId: deviceId } : {}),
           ...(hasRegistry
@@ -172,6 +175,7 @@ export const useGatewayStore = create<GatewayState>()(
           gatewayUrl: null,
           gatewaySecret: null,
           isConnected: false,
+          backendRegistered: false,
           localBackendId: null,
           currentInstanceId: null,
           currentDeviceId: null,

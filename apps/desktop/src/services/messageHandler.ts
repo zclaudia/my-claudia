@@ -166,18 +166,21 @@ export function handleServerMessage(
       const chat = useChatStore.getState();
 
       if (targetSessionId) {
+        const alreadyTrackingRun = chat.activeRuns[msg.runId] === targetSessionId;
         chat.startRun(msg.runId, targetSessionId, isBackground);
         if (serverId === activeServerId) {
           chat.clearSystemInfo(targetSessionId);
         }
         if (userMsgId && clientReqId) chat.updateMessageIdByClientMessageId(targetSessionId, clientReqId, userMsgId);
-        chat.addMessage(targetSessionId, {
-          id: assistantMsgId,
-          sessionId: targetSessionId,
-          role: 'assistant',
-          content: '',
-          createdAt: Date.now(),
-        });
+        if (msg.assistantMessageId || !alreadyTrackingRun) {
+          chat.addMessage(targetSessionId, {
+            id: assistantMsgId,
+            sessionId: targetSessionId,
+            role: 'assistant',
+            content: '',
+            createdAt: Date.now(),
+          });
+        }
 
         if (!isBackground) {
           // Track run-to-server mapping (only for foreground runs; background cleanup
