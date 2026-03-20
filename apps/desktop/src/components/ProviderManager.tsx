@@ -6,6 +6,52 @@ import { useProjectStore } from '../stores/projectStore';
 import * as api from '../services/api';
 import { useAndroidBack } from '../hooks/useAndroidBack';
 
+/** Lightweight PCP capability summary for UI display (mirrors server manifests) */
+type CapLevel = 'strict' | 'best_effort' | 'none';
+interface CapabilitySummary {
+  stream: CapLevel;
+  tools: CapLevel;
+  interactions: CapLevel;
+  backgroundTask: CapLevel;
+}
+const PROVIDER_CAPABILITIES: Record<string, CapabilitySummary> = {
+  claude:   { stream: 'strict', tools: 'strict', interactions: 'strict', backgroundTask: 'best_effort' },
+  opencode: { stream: 'strict', tools: 'strict', interactions: 'best_effort', backgroundTask: 'none' },
+  codex:    { stream: 'strict', tools: 'strict', interactions: 'best_effort', backgroundTask: 'none' },
+  cursor:   { stream: 'best_effort', tools: 'best_effort', interactions: 'best_effort', backgroundTask: 'none' },
+  kimi:     { stream: 'best_effort', tools: 'best_effort', interactions: 'best_effort', backgroundTask: 'none' },
+};
+
+function CapabilityTags({ providerType }: { providerType: string }) {
+  const caps = PROVIDER_CAPABILITIES[providerType];
+  if (!caps) return null;
+
+  const tags: Array<{ label: string; level: CapLevel }> = [
+    { label: 'Stream', level: caps.stream },
+    { label: 'Tools', level: caps.tools },
+    { label: 'Interactions', level: caps.interactions },
+    ...(caps.backgroundTask !== 'none' ? [{ label: 'Background', level: caps.backgroundTask }] : []),
+  ];
+
+  return (
+    <div className="flex items-center gap-1 mt-1 flex-wrap">
+      {tags.map(({ label, level }) => (
+        <span
+          key={label}
+          className={`inline-flex items-center gap-0.5 px-1.5 py-0 text-[10px] rounded-full border ${
+            level === 'strict'
+              ? 'border-emerald-500/30 text-emerald-600 dark:text-emerald-400 bg-emerald-500/5'
+              : 'border-amber-500/30 text-amber-600 dark:text-amber-400 bg-amber-500/5'
+          }`}
+        >
+          <span className={`inline-block w-1 h-1 rounded-full ${level === 'strict' ? 'bg-emerald-500' : 'bg-amber-500'}`} />
+          {label}
+        </span>
+      ))}
+    </div>
+  );
+}
+
 interface ProviderManagerProps {
   isOpen: boolean;
   onClose: () => void;
@@ -275,6 +321,7 @@ export function ProviderManager({ isOpen, onClose, inline = false }: ProviderMan
                   {provider.cliPath}
                 </div>
               )}
+              <CapabilityTags providerType={provider.type || 'claude'} />
             </div>
             <div className="flex items-center gap-1 ml-2">
               {!provider.isDefault && (

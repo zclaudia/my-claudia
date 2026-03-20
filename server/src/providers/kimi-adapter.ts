@@ -1,8 +1,10 @@
 import type { ProviderAdapter, RunOptions, ClaudeMessage, PermissionCallback } from './types.js';
 import { runKimi, abortKimiSession } from './kimi-sdk.js';
+import { KIMI_MANIFEST } from './manifests.js';
 
 export class KimiAdapter implements ProviderAdapter {
   readonly type = 'kimi';
+  readonly manifest = KIMI_MANIFEST;
 
   async *run(
     input: string,

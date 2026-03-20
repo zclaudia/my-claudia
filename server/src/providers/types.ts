@@ -1,4 +1,4 @@
-import type { PermissionRequest } from '@my-claudia/shared';
+import type { PermissionRequest, PCPProviderManifest } from '@my-claudia/shared';
 import type Database from 'better-sqlite3';
 
 // Re-export types from claude-sdk that are shared across providers
@@ -22,6 +22,9 @@ export interface RunOptions {
 /** Provider adapter interface */
 export interface ProviderAdapter {
   readonly type: string;
+
+  /** PCP manifest — static capability declaration */
+  readonly manifest?: PCPProviderManifest;
 
   /** Start a run, returns async generator of messages */
   run(

@@ -1,8 +1,10 @@
 import type { ProviderAdapter, RunOptions, ClaudeMessage, PermissionCallback } from './types.js';
 import { runCodex, abortCodexSession } from './codex-sdk.js';
+import { CODEX_MANIFEST } from './manifests.js';
 
 export class CodexAdapter implements ProviderAdapter {
   readonly type = 'codex';
+  readonly manifest = CODEX_MANIFEST;
 
   async *run(
     input: string,

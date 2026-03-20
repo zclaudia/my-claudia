@@ -418,6 +418,8 @@ export interface RunStartedMessage {
   sessionType?: 'regular' | 'background';
   /** Monotonically increasing event sequence number within this run (starts at 1) */
   seq?: number;
+  /** PCP effective provider profile for this run */
+  effectiveProfile?: import('../core/pcp.js').PCPEffectiveProfile;
 }
 
 export interface SessionCreatedMessage {

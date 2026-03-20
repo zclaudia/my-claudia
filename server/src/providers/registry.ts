@@ -1,3 +1,4 @@
+import type { PCPProviderManifest } from '@my-claudia/shared';
 import type { ProviderAdapter } from './types.js';
 import { ClaudeAdapter } from './claude-adapter.js';
 import { OpenCodeAdapter } from './opencode-adapter.js';
@@ -27,6 +28,18 @@ class ProviderRegistry {
 
   getOrDefault(type: string): ProviderAdapter {
     return this.adapters.get(type) || this.adapters.get(this.defaultType)!;
+  }
+
+  /** Get PCP manifest for a provider */
+  getManifest(type: string): PCPProviderManifest | undefined {
+    return this.adapters.get(type)?.manifest;
+  }
+
+  /** Get all registered PCP manifests */
+  getAllManifests(): PCPProviderManifest[] {
+    return Array.from(this.adapters.values())
+      .map(a => a.manifest)
+      .filter((m): m is PCPProviderManifest => !!m);
   }
 }
 

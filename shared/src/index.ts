@@ -10,6 +10,7 @@ export * from './core/message.js';
 export * from './core/project.js';
 export * from './core/api.js';
 export * from './core/mcp.js';
+export * from './core/pcp.js';
 
 // Feature types
 export * from './features/commands.js';

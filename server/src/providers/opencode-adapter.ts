@@ -1,8 +1,10 @@
 import type { ProviderAdapter, RunOptions, ClaudeMessage, PermissionCallback } from './types.js';
 import { runOpenCode, abortOpenCodeSession } from './opencode-sdk.js';
+import { OPENCODE_MANIFEST } from './manifests.js';
 
 export class OpenCodeAdapter implements ProviderAdapter {
   readonly type = 'opencode';
+  readonly manifest = OPENCODE_MANIFEST;
 
   async *run(
     input: string,

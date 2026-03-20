@@ -1492,7 +1492,129 @@ export interface ProviderAdapter {
 
 ---
 
-## 29. Summary
+## 29. Protocol Positioning & Evolution
+
+### 29.1 PCP 的本质定位
+
+PCP 是 **workflow 中 AI provider 节点的能力标准协议**。
+
+它不是 agent-to-agent 通信协议，也不是编辑器接口标准。它定义的是：当人类编排多个 AI provider 协作完成任务时，每个 provider 节点的能力契约。
+
+核心问题：
+
+- 这个 provider **能做什么** → Capability Taxonomy
+- **做得多可靠** → ReliabilityTier (strict / best_effort / display_only)
+- **怎么接入的** → CapabilityMode (native / bridged / emulated)
+- **做不到怎么办** → DegradationPolicy
+- **当前真正能做什么** → EffectiveProviderProfile（运行期协商）
+
+Workflow 层不需要关心"这是 Claude 还是 Codex"，只需要声明"我要一个 `chat.stream` + `tool.call` strict 的节点"，PCP 负责匹配和保障。
+
+### 29.2 在协议生态中的位置
+
+AI agent 生态中目前有多个协议在不同层级解决不同问题：
+
+| 协议 | 解决的问题 | 控制权 | 层级 |
+|------|-----------|--------|------|
+| **MCP** (Anthropic) | Agent-to-Tool | Agent 调用工具 | 工具层 |
+| **A2A** (Google) | Agent-to-Agent | Agent 自主协作 | 网络层 |
+| **ACP-IBM** (Linux Foundation) | Agent-to-Agent | Agent 自主互操作 | 网络层 |
+| **ACP-Zed** (Zed Industries) | Editor-to-Agent | 编辑器驱动 | 接口层 |
+| **PCP** (MyClaudia) | **Workflow-to-Provider** | **人类编排** | 能力层 |
+
+关键区分 — **编排主导权**：
+
+- **A2A / ACP-IBM**：agent 自主决定协作对象和方式，编排权在 agent
+- **PCP**：人类定义 workflow，provider 是执行节点，编排权在人类
+
+这意味着 PCP 和 A2A 不在同一层级竞争。PCP 管的是"workflow 节点能做什么"，A2A 管的是"agent 之间怎么通信"。MyClaudia 的多 provider 编排（Claude 写代码 → Codex review → Kimi 写文档）是 hub-and-spoke 模型，由 server 集中调度，provider 之间互不可见，不需要 A2A。
+
+### 29.3 与 ACP 的核心差异
+
+市面上 "ACP" 实际上是两个不同协议：
+
+**ACP-IBM（Agent Communication Protocol）**：
+- 定位：跨框架 Agent-to-Agent 通信标准
+- 传输：HTTP REST + JSON-RPC，支持异步长任务
+- 参与者：对等 peers
+- 类比：agent 世界的 HTTP
+
+**ACP-Zed（Agent Client Protocol）**：
+- 定位：Editor-to-Agent 通信��准（LSP 的 AI 版）
+- 传输：JSON-RPC over stdio
+- 已接入：Claude Code、Gemini CLI、Codex、JetBrains、Neovim
+- 类比：标准化编辑器与 agent 的接口
+
+**PCP 与两者的差异：**
+
+| 维度 | ACP-IBM / A2A | ACP-Zed | PCP |
+|------|--------------|---------|-----|
+| 本质 | Agent network protocol | Editor interface | Workflow provider contract |
+| 编排权 | Agent 自主 | 编辑器驱动 | 人类定义 workflow |
+| 核心问题 | 互操作 | 接口标准化 | 能力协商 + 降级 |
+| 参与者 | 对等 peers | Client-Server | Orchestrator-Provider |
+| 能力模型 | Agent Card（静态） | 无 | Manifest + EffectiveProfile（动态协商） |
+| 降级策略 | 无 | 无 | 显式降级（reject / fallback / emulate） |
+| 可靠性分级 | 无 | 无 | strict / best_effort / display_only |
+| 事务边界 | 无 | 无 | 事务型 vs 展示型显式区分 |
+
+PCP 的核心创新在于：
+
+1. **运行期能力协商** — 不只是静态声明，根据模型、版本、桥接状态动态计算有效能力
+2. **显式降级协议** — 不支持就明确怎么降级，而不是静默失败
+3. **可靠性分层** — 同一能力在不同 provider/模式下有不同可靠性等级
+4. **事务性边界** — 把"看起来支持"和"真正可靠"区分开
+
+### 29.4 演进方向
+
+PCP 的终态是 **capability-aware workflow runtime 的 provider contract layer**。
+
+```
+v1 (当前)     v1.x              v2
+  │             │                 │
+  │ 内部协议    │ MCP 整合 +     │ Provider Plugin 生态
+  │ 成熟        │ 工具桥接自动化  │ + Capability Composition
+  │             │                 │ + Fallback Chain
+  │             │                 │
+  ▼             ▼                 ▼
+[声明+协商] → [工具桥接] → [插件生态+能力组合+自动降级]
+```
+
+#### v1.x — 内部协议成熟 + MCP 整合
+
+- 完成 capability 声明 + 协商层
+- 在 Claude / OpenCode 上跑通交互工具链路
+- 前端完全切到统一事件消费
+- PCP 的 `tool.define` 契约直接包装为 MCP tool registration
+- provider plugin 通过 PCP manifest 声明工具能力，server 自动桥接为 MCP tools
+
+#### v2 — Provider Plugin 生态 + Capability Composition
+
+PCP 的"能力协商 + 降级"核心优势的自然延伸：
+
+- **Provider Plugin 生态**：PCP manifest 标准化后，第三方可以编写 provider plugin，不再需要内建每个 adapter
+- **Capability Composition**：组合多个 provider 的能力（provider A 做 chat，provider B 做 code review），PCP 协商层天然支持按 capability 路由
+- **Provider Fallback Chain**：基于 capability + reliability 的自动降级链（Claude 不可用时自动切到 OpenCode 的同等能力）
+- **运行期能力再协商**：session 中途 provider 状态变化时，动态更新 EffectiveProviderProfile
+
+### 29.5 不做什么
+
+以下方向经过评估，明确不在 PCP 演进路线内：
+
+- **A2A / ACP-IBM agent 互操作**：MyClaudia 没有对外暴露 agent 的需求。多 provider 编排是人类主导的 hub-and-spoke 模型，不需要 agent 自主发现和通信。
+- **ACP-Zed editor 接口**：MyClaudia 不是编辑器，其架构是 spawn CLI agent 并消费输出，而非作为 host 向 agent 提供编辑器能力。ACP-Zed 的 Editor-to-Agent 模型与 PCP 的方向相反。
+- **通用开放标准**：PCP 服务于 MyClaudia 的内部需求，不追求成为跨应用标准。
+
+### 29.6 与 MCP 的互补关系
+
+PCP 与 MCP 处于不同层级，协同工作：
+
+- **MCP 在下**：PCP 通过 MCP 实现 tool injection（把交互工具注入 provider）
+- **PCP 在上**：定义 provider 能力契约，决定哪些工具该注入、provider 是否能可靠消费
+
+---
+
+## 30. Summary
 
 PCP v1 的目标不是重新发明 provider SDK 接入方式，而是建立一条稳定边界：
 

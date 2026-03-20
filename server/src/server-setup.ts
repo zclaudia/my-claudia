@@ -239,7 +239,16 @@ export function setupRoutesAndServices(deps: SetupDependencies): SetupResult {
 
   // Plugin routes
   app.use('/api/plugins', authMiddleware, createPluginRoutes());
-  app.use('/api/plugins', localOnlyMiddleware, createPluginToolsRoutes());
+  app.use('/api/plugins', localOnlyMiddleware, createPluginToolsRoutes({
+    getActiveProfile: (sessionId) => {
+      for (const run of activeRuns.values()) {
+        if (run.sessionId === sessionId && !run.completed) {
+          return run.effectiveProfile;
+        }
+      }
+      return undefined;
+    },
+  }));
 
   // MCP server management routes
   app.use('/api/mcp-servers', authMiddleware, createMcpServerRoutes(db));

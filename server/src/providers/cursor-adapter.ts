@@ -1,8 +1,10 @@
 import type { ProviderAdapter, RunOptions, ClaudeMessage, PermissionCallback } from './types.js';
 import { runCursor, abortCursorSession } from './cursor-sdk.js';
+import { CURSOR_MANIFEST } from './manifests.js';
 
 export class CursorAdapter implements ProviderAdapter {
   readonly type = 'cursor';
+  readonly manifest = CURSOR_MANIFEST;
 
   async *run(
     input: string,

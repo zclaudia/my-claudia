@@ -42,6 +42,8 @@ import {
 } from '../agent/permission-evaluator.js';
 import type { PermissionDecision, SystemInfo } from '../providers/claude-sdk.js';
 import { providerRegistry } from '../providers/registry.js';
+import { negotiateProfile } from '../providers/pcp-negotiator.js';
+import { mapPermissionMode } from '../providers/pcp-permission.js';
 import { interactionDispatcher } from '../interactions/interaction-dispatcher.js';
 import { normalizeFromToolUse, normalizeFromAskUser } from '../interactions/interaction-normalizer.js';
 import { pluginEvents } from '../events/index.js';
@@ -251,34 +253,6 @@ export async function handleRunStart(
     sendMessage(client.ws, event);
     if (clients) broadcastToOtherAuthenticatedClients(clients, client.id, event);
   };
-
-  sendRunEvent({
-    type: 'run_started',
-    runId,
-    sessionId: message.sessionId,
-    clientRequestId: message.clientRequestId,
-    userMessageId,
-    assistantMessageId: activeRun.assistantMessageId,
-    sessionType,
-  });
-
-  // Emit plugin event
-  pluginEvents.emit('run.started', {
-    runId,
-    sessionId: message.sessionId,
-    input: message.input,
-    providerId,
-    providerType: providerConfig?.type,
-  }).catch(() => {});
-
-  // Notify background task started
-  if (sessionType === 'background') {
-    sendMessage(client.ws, {
-      type: 'background_task_update',
-      sessionId: message.sessionId,
-      status: 'running',
-    } as import('@my-claudia/shared').BackgroundTaskUpdateMessage);
-  }
 
   let sdkSessionId = session.sdk_session_id || undefined;
   let persistedWorkingDirectory = normalizeSessionWorkingDirectory(session.working_directory, session.root_path);
@@ -613,7 +587,51 @@ export async function handleRunStart(
     // All sessions (including agent) go through the unified permission strategy chain.
     const adapter = providerRegistry.getOrDefault(providerType);
 
+    // PCP: negotiate effective profile before emitting run_started
+    if (adapter.manifest) {
+      activeRun.effectiveProfile = negotiateProfile(adapter.manifest, {
+        model: message.model,
+        mode: modeValue,
+        hasMcpBridge: !!serverPort,
+        serverPort,
+      });
+      activeRun.effectiveProfile.sessionId = message.sessionId;
+      trace.log('server_norm', 'profile_negotiated', {
+        providerId: activeRun.effectiveProfile.providerId,
+        capabilities: activeRun.effectiveProfile.capabilities
+          .filter(c => c.enabled)
+          .map(c => `${c.id}:${c.mode}/${c.reliability}`),
+      }, 'PCP profile negotiated');
+    }
 
+    sendRunEvent({
+      type: 'run_started',
+      runId,
+      sessionId: message.sessionId,
+      clientRequestId: message.clientRequestId,
+      userMessageId,
+      assistantMessageId: activeRun.assistantMessageId,
+      sessionType,
+      effectiveProfile: activeRun.effectiveProfile,
+    });
+
+    // Emit plugin event
+    pluginEvents.emit('run.started', {
+      runId,
+      sessionId: message.sessionId,
+      input: message.input,
+      providerId,
+      providerType: providerConfig?.type,
+    }).catch(() => {});
+
+    // Notify background task started
+    if (sessionType === 'background') {
+      sendMessage(client.ws, {
+        type: 'background_task_update',
+        sessionId: message.sessionId,
+        status: 'running',
+      } as import('@my-claudia/shared').BackgroundTaskUpdateMessage);
+    }
 
     // Inject file push context (env vars + system prompt) so AI agents can push files to user's device
     // When interaction tools are available, push_file tool replaces the curl-based prompt
@@ -662,12 +680,17 @@ Use push_file instead of curl to send files to the user — it is more reliable 
     // Skill directory hint — lightweight listing of available skill tools
     const skillDirectoryHint = buildSkillDirectoryHint();
 
+    // PCP: map permission mode to provider-native mode
+    const nativeMode = adapter.manifest
+      ? mapPermissionMode(adapter.manifest, modeValue)
+      : modeValue;
+
     const runOptions = {
       cwd,
       sessionId: sdkSessionId,
       cliPath: providerConfig?.cliPath,
       env: { ...(providerConfig?.env || {}), ...filePushEnv },
-      mode: modeValue,
+      mode: nativeMode,
       model: message.model,
       systemPrompt: [workspacePrompt, skillDirectoryHint, message.systemContext, nonNativePlanPrompt, planDocumentPrompt, filePushContext, interactionToolPrompt, session.system_prompt].filter(Boolean).join('\n\n') || undefined,
       sessionTitle: session.name || undefined,
