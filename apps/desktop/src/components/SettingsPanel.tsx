@@ -64,7 +64,7 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
   const {
     isConnected: isGatewayConnected,
     discoveredBackends,
-    localBackendId,
+    currentInstanceId,
     showLocalBackend,
   } = useGatewayStore();
   const { sendMessage, connectServer, embeddedServerStatus, embeddedServerError, embeddedServerPort } = useConnection();
@@ -77,7 +77,7 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
   const activeServer = getActiveServer();
   const isLocalServer = activeServerId === 'local';
   const directServers = servers.filter(s => s.connectionMode !== 'gateway');
-  const visibleGatewayBackends = discoveredBackends.filter(b => shouldShowBackend(b, localBackendId, showLocalBackend));
+  const visibleGatewayBackends = discoveredBackends.filter(b => shouldShowBackend(b, currentInstanceId, showLocalBackend));
 
   // SDK version check
   const [sdkVersions, setSdkVersions] = useState<SdkVersionReport | null>(null);

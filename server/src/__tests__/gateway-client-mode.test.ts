@@ -153,7 +153,7 @@ describe('gateway-client-mode', () => {
       expect(WebSocket).toHaveBeenCalledTimes(2);
     });
 
-    it('sends gateway_auth on open', () => {
+    it('sends peer_hello on open', () => {
       const client = new GatewayClientMode({
         gatewayUrl: 'http://gateway.example.com',
         gatewaySecret: 'my-secret',
@@ -165,12 +165,18 @@ describe('gateway-client-mode', () => {
       // Trigger open event
       ws._trigger('open');
 
-      expect(ws.send).toHaveBeenCalledWith(
-        JSON.stringify({
-          type: 'gateway_auth',
-          gatewaySecret: 'my-secret',
-        })
-      );
+      expect(JSON.parse(ws.send.mock.calls[0][0])).toEqual({
+        type: 'peer_hello',
+        gatewaySecret: 'my-secret',
+        capabilities: {
+          client: true,
+          backend: false,
+        },
+        identity: {
+          deviceId: '',
+          instanceId: '',
+        },
+      });
     });
   });
 
@@ -298,9 +304,11 @@ describe('gateway-client-mode', () => {
       // Simulate successful auth
       ws._trigger('open');
       ws._trigger('message', Buffer.from(JSON.stringify({
-        type: 'gateway_auth_result',
+        type: 'peer_hello_result',
         success: true,
-        backends: [],
+        peerId: 'peer-1',
+        clientConnected: true,
+        backendRegistered: false,
       })));
 
       // Manually add to authenticated backends (simulating successful backend auth)
@@ -340,9 +348,11 @@ describe('gateway-client-mode', () => {
       // Simulate successful gateway auth
       ws._trigger('open');
       ws._trigger('message', Buffer.from(JSON.stringify({
-        type: 'gateway_auth_result',
+        type: 'peer_hello_result',
         success: true,
-        backends: [],
+        peerId: 'peer-1',
+        clientConnected: true,
+        backendRegistered: false,
       })));
 
       const result = client.sendToBackend('backend-1', { type: 'test' } as any);
@@ -468,7 +478,7 @@ describe('gateway-client-mode', () => {
   });
 
   describe('message handling', () => {
-    it('handles gateway_auth_result success', () => {
+    it('handles peer_hello_result success', () => {
       const client = new GatewayClientMode({
         gatewayUrl: 'http://gateway.example.com',
         gatewaySecret: 'secret',
@@ -479,18 +489,38 @@ describe('gateway-client-mode', () => {
 
       ws._trigger('open');
       ws._trigger('message', Buffer.from(JSON.stringify({
-        type: 'gateway_auth_result',
+        type: 'peer_hello_result',
         success: true,
-        backends: [{ id: 'backend-1', name: 'Backend 1' }],
+        peerId: 'peer-1',
+        clientConnected: true,
+        backendRegistered: false,
+        registrySnapshot: [{
+          backendId: 'backend-1',
+          name: 'Backend 1',
+          visible: true,
+          online: true,
+          instanceId: 'inst-1',
+          deviceId: 'dev-1',
+          channel: 'prod',
+          registeredAt: 1,
+          updatedAt: 1,
+        }],
       })));
 
       expect(client.isConnected()).toBe(true);
       expect(client.getDiscoveredBackends()).toEqual([
-        { id: 'backend-1', name: 'Backend 1' },
+        {
+          backendId: 'backend-1',
+          name: 'Backend 1',
+          online: true,
+          instanceId: 'inst-1',
+          deviceId: 'dev-1',
+          channel: 'prod',
+        },
       ]);
     });
 
-    it('handles gateway_auth_result failure', () => {
+    it('handles peer_hello_result failure', () => {
       const client = new GatewayClientMode({
         gatewayUrl: 'http://gateway.example.com',
         gatewaySecret: 'wrong-secret',
@@ -501,8 +531,11 @@ describe('gateway-client-mode', () => {
 
       ws._trigger('open');
       ws._trigger('message', Buffer.from(JSON.stringify({
-        type: 'gateway_auth_result',
+        type: 'peer_hello_result',
         success: false,
+        peerId: '',
+        clientConnected: false,
+        backendRegistered: false,
         error: 'Invalid secret',
       })));
 
@@ -538,9 +571,11 @@ describe('gateway-client-mode', () => {
       // Auth first
       ws._trigger('open');
       ws._trigger('message', Buffer.from(JSON.stringify({
-        type: 'gateway_auth_result',
+        type: 'peer_hello_result',
         success: true,
-        backends: [],
+        peerId: 'peer-1',
+        clientConnected: true,
+        backendRegistered: false,
       })));
 
       // Receive backends list
@@ -566,8 +601,11 @@ describe('gateway-client-mode', () => {
 
       ws._trigger('open');
       ws._trigger('message', Buffer.from(JSON.stringify({
-        type: 'gateway_auth_result',
+        type: 'peer_hello_result',
         success: true,
+        peerId: 'peer-1',
+        clientConnected: true,
+        backendRegistered: false,
       })));
 
       ws._trigger('message', Buffer.from(JSON.stringify({
@@ -593,8 +631,11 @@ describe('gateway-client-mode', () => {
 
       ws._trigger('open');
       ws._trigger('message', Buffer.from(JSON.stringify({
-        type: 'gateway_auth_result',
+        type: 'peer_hello_result',
         success: true,
+        peerId: 'peer-1',
+        clientConnected: true,
+        backendRegistered: false,
       })));
 
       ws._trigger('message', Buffer.from(JSON.stringify({
@@ -623,8 +664,11 @@ describe('gateway-client-mode', () => {
 
       ws._trigger('open');
       ws._trigger('message', Buffer.from(JSON.stringify({
-        type: 'gateway_auth_result',
+        type: 'peer_hello_result',
         success: true,
+        peerId: 'peer-1',
+        clientConnected: true,
+        backendRegistered: false,
       })));
 
       // Authenticate backend first
@@ -660,8 +704,11 @@ describe('gateway-client-mode', () => {
 
       ws._trigger('open');
       ws._trigger('message', Buffer.from(JSON.stringify({
-        type: 'gateway_auth_result',
+        type: 'peer_hello_result',
         success: true,
+        peerId: 'peer-1',
+        clientConnected: true,
+        backendRegistered: false,
       })));
 
       ws._trigger('message', Buffer.from(JSON.stringify({
@@ -696,7 +743,7 @@ describe('gateway-client-mode', () => {
       );
     });
 
-    it('handles gateway_auth_result success without backends', () => {
+    it('handles peer_hello_result success without registry snapshot', () => {
       const client = new GatewayClientMode({
         gatewayUrl: 'http://gateway.example.com',
         gatewaySecret: 'secret',
@@ -707,9 +754,11 @@ describe('gateway-client-mode', () => {
 
       ws._trigger('open');
       ws._trigger('message', Buffer.from(JSON.stringify({
-        type: 'gateway_auth_result',
+        type: 'peer_hello_result',
         success: true,
-        // No backends field
+        peerId: 'peer-1',
+        clientConnected: true,
+        backendRegistered: false,
       })));
 
       expect(client.isConnected()).toBe(true);
@@ -730,8 +779,11 @@ describe('gateway-client-mode', () => {
       // Auth gateway
       ws._trigger('open');
       ws._trigger('message', Buffer.from(JSON.stringify({
-        type: 'gateway_auth_result',
+        type: 'peer_hello_result',
         success: true,
+        peerId: 'peer-1',
+        clientConnected: true,
+        backendRegistered: false,
       })));
 
       // Auth backend
@@ -764,8 +816,11 @@ describe('gateway-client-mode', () => {
       // Auth gateway
       ws._trigger('open');
       ws._trigger('message', Buffer.from(JSON.stringify({
-        type: 'gateway_auth_result',
+        type: 'peer_hello_result',
         success: true,
+        peerId: 'peer-1',
+        clientConnected: true,
+        backendRegistered: false,
       })));
 
       const listPromise = client.listBackends();
@@ -791,8 +846,15 @@ describe('gateway-client-mode', () => {
 
       ws._trigger('open');
       ws._trigger('message', Buffer.from(JSON.stringify({
-        type: 'gateway_auth_result',
+        type: 'peer_hello_result',
         success: true,
+        peerId: 'peer-1',
+        clientConnected: true,
+        backendRegistered: false,
+      })));
+
+      ws._trigger('message', Buffer.from(JSON.stringify({
+        type: 'backends_list',
         backends: [{ id: 'cached', name: 'Cached' }],
       })));
 
@@ -816,8 +878,11 @@ describe('gateway-client-mode', () => {
 
       ws._trigger('open');
       ws._trigger('message', Buffer.from(JSON.stringify({
-        type: 'gateway_auth_result',
+        type: 'peer_hello_result',
         success: true,
+        peerId: 'peer-1',
+        clientConnected: true,
+        backendRegistered: false,
       })));
 
       const connectPromise = client.connectBackend('b1');
@@ -844,8 +909,11 @@ describe('gateway-client-mode', () => {
 
       ws._trigger('open');
       ws._trigger('message', Buffer.from(JSON.stringify({
-        type: 'gateway_auth_result',
+        type: 'peer_hello_result',
         success: true,
+        peerId: 'peer-1',
+        clientConnected: true,
+        backendRegistered: false,
       })));
 
       const connectPromise = client.connectBackend('b1');
@@ -866,8 +934,11 @@ describe('gateway-client-mode', () => {
 
       ws._trigger('open');
       ws._trigger('message', Buffer.from(JSON.stringify({
-        type: 'gateway_auth_result',
+        type: 'peer_hello_result',
         success: true,
+        peerId: 'peer-1',
+        clientConnected: true,
+        backendRegistered: false,
       })));
 
       const connectPromise = client.connectBackend('b1');
@@ -944,8 +1015,11 @@ describe('gateway-client-mode', () => {
 
       ws._trigger('open');
       ws._trigger('message', Buffer.from(JSON.stringify({
-        type: 'gateway_auth_result',
+        type: 'peer_hello_result',
         success: true,
+        peerId: 'peer-1',
+        clientConnected: true,
+        backendRegistered: false,
       })));
 
       const connectPromise = client.connectBackend('b1');
@@ -968,8 +1042,11 @@ describe('gateway-client-mode', () => {
 
       ws._trigger('open');
       ws._trigger('message', Buffer.from(JSON.stringify({
-        type: 'gateway_auth_result',
+        type: 'peer_hello_result',
         success: true,
+        peerId: 'peer-1',
+        clientConnected: true,
+        backendRegistered: false,
       })));
 
       const listPromise = client.listBackends();

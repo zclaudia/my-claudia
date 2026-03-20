@@ -104,13 +104,13 @@ describe('Gateway broadcast_to_subscribers', () => {
     await waitForOpen(backendWs);
     backendCollector = new MessageCollector(backendWs);
     backendWs.send(JSON.stringify({
-      type: 'register',
+      type: 'peer_hello',
       gatewaySecret: GATEWAY_SECRET,
-      deviceId: 'test-device-broadcast',
-      name: 'Test Backend',
-      visible: true
+      capabilities: { client: false, backend: true },
+      identity: { deviceId: 'test-device-broadcast', instanceId: 'inst-test-device-broadcast', name: 'Test Backend' },
+      backend: { visible: true }
     }));
-    const regResult = await backendCollector.waitFor('register_result');
+    const regResult = await backendCollector.waitFor('peer_hello_result');
     expect(regResult.success).toBe(true);
     backendId = regResult.backendId;
   });
@@ -130,10 +130,12 @@ describe('Gateway broadcast_to_subscribers', () => {
 
     // Authenticate with gateway
     clientWs.send(JSON.stringify({
-      type: 'gateway_auth',
+      type: 'peer_hello',
       gatewaySecret: GATEWAY_SECRET,
+      capabilities: { client: true, backend: false },
+      identity: { deviceId: '', instanceId: '' }
     }));
-    const authResult = await collector.waitFor('gateway_auth_result');
+    const authResult = await collector.waitFor('peer_hello_result');
     expect(authResult.success).toBe(true);
     // Request backends list (gateway doesn't auto-send it)
     clientWs.send(JSON.stringify({ type: 'list_backends' }));
@@ -280,13 +282,13 @@ describe('Gateway update_subscriptions', () => {
     await waitForOpen(backendWsA);
     backendCollectorA = new MessageCollector(backendWsA);
     backendWsA.send(JSON.stringify({
-      type: 'register',
+      type: 'peer_hello',
       gatewaySecret: GATEWAY_SECRET,
-      deviceId: 'device-sub-a',
-      name: 'Backend A',
-      visible: true
+      capabilities: { client: false, backend: true },
+      identity: { deviceId: 'device-sub-a', instanceId: 'inst-device-sub-a', name: 'Backend A' },
+      backend: { visible: true }
     }));
-    const regA = await backendCollectorA.waitFor('register_result');
+    const regA = await backendCollectorA.waitFor('peer_hello_result');
     backendIdA = regA.backendId;
 
     // Register backend B
@@ -294,13 +296,13 @@ describe('Gateway update_subscriptions', () => {
     await waitForOpen(backendWsB);
     backendCollectorB = new MessageCollector(backendWsB);
     backendWsB.send(JSON.stringify({
-      type: 'register',
+      type: 'peer_hello',
       gatewaySecret: GATEWAY_SECRET,
-      deviceId: 'device-sub-b',
-      name: 'Backend B',
-      visible: true
+      capabilities: { client: false, backend: true },
+      identity: { deviceId: 'device-sub-b', instanceId: 'inst-device-sub-b', name: 'Backend B' },
+      backend: { visible: true }
     }));
-    const regB = await backendCollectorB.waitFor('register_result');
+    const regB = await backendCollectorB.waitFor('peer_hello_result');
     backendIdB = regB.backendId;
   });
 
@@ -319,10 +321,12 @@ describe('Gateway update_subscriptions', () => {
     const collector = new MessageCollector(clientWs);
 
     clientWs.send(JSON.stringify({
-      type: 'gateway_auth',
+      type: 'peer_hello',
       gatewaySecret: GATEWAY_SECRET,
+      capabilities: { client: true, backend: false },
+      identity: { deviceId: '', instanceId: '' }
     }));
-    await collector.waitFor('gateway_auth_result');
+    await collector.waitFor('peer_hello_result');
     // Request backends list (gateway doesn't auto-send it)
     clientWs.send(JSON.stringify({ type: 'list_backends' }));
     await collector.waitFor('backends_list');
@@ -435,10 +439,12 @@ describe('Gateway update_subscriptions', () => {
     const collector = new MessageCollector(clientWs);
 
     clientWs.send(JSON.stringify({
-      type: 'gateway_auth',
+      type: 'peer_hello',
       gatewaySecret: GATEWAY_SECRET,
+      capabilities: { client: true, backend: false },
+      identity: { deviceId: '', instanceId: '' }
     }));
-    await collector.waitFor('gateway_auth_result');
+    await collector.waitFor('peer_hello_result');
     // Request backends list (gateway doesn't auto-send it)
     clientWs.send(JSON.stringify({ type: 'list_backends' }));
     await collector.waitFor('backends_list');

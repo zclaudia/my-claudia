@@ -66,13 +66,14 @@ describe('Gateway Authentication', () => {
       await waitForOpen(ws);
 
       ws.send(JSON.stringify({
-        type: 'register',
+        type: 'peer_hello',
         gatewaySecret: 'wrong-secret',
-        deviceId: 'test-device',
-        name: 'Test Backend'
+        capabilities: { client: false, backend: true },
+        identity: { deviceId: 'test-device', instanceId: 'inst-test-device', name: 'Test Backend' },
+        backend: { visible: true }
       }));
 
-      const result = await waitForMessage(ws, 'register_result');
+      const result = await waitForMessage(ws, 'peer_hello_result');
       expect(result.success).toBe(false);
       expect(result.error).toContain('Invalid');
 
@@ -84,13 +85,14 @@ describe('Gateway Authentication', () => {
       await waitForOpen(ws);
 
       ws.send(JSON.stringify({
-        type: 'register',
+        type: 'peer_hello',
         gatewaySecret: GATEWAY_SECRET,
-        deviceId: 'test-device-valid',
-        name: 'Test Backend'
+        capabilities: { client: false, backend: true },
+        identity: { deviceId: 'test-device-valid', instanceId: 'inst-test-device-valid', name: 'Test Backend' },
+        backend: { visible: true }
       }));
 
-      const result = await waitForMessage(ws, 'register_result');
+      const result = await waitForMessage(ws, 'peer_hello_result');
       expect(result.success).toBe(true);
       expect(result.backendId).toMatch(/^[a-f0-9]{8}$/);
 
@@ -102,28 +104,30 @@ describe('Gateway Authentication', () => {
       await waitForOpen(ws1);
 
       ws1.send(JSON.stringify({
-        type: 'register',
+        type: 'peer_hello',
         gatewaySecret: GATEWAY_SECRET,
-        deviceId: 'test-device-reconnect',
-        name: 'Test Backend'
+        capabilities: { client: false, backend: true },
+        identity: { deviceId: 'test-device-reconnect', instanceId: 'inst-test-device-reconnect', name: 'Test Backend' },
+        backend: { visible: true }
       }));
 
-      const result1 = await waitForMessage(ws1, 'register_result');
+      const result1 = await waitForMessage(ws1, 'peer_hello_result');
       expect(result1.success).toBe(true);
       const backendId = result1.backendId;
 
-      // Connect second WebSocket with same deviceId
+      // Connect second WebSocket with same instanceId
       const ws2 = new WebSocket(WS_URL);
       await waitForOpen(ws2);
 
       ws2.send(JSON.stringify({
-        type: 'register',
+        type: 'peer_hello',
         gatewaySecret: GATEWAY_SECRET,
-        deviceId: 'test-device-reconnect',
-        name: 'Test Backend'
+        capabilities: { client: false, backend: true },
+        identity: { deviceId: 'test-device-reconnect', instanceId: 'inst-test-device-reconnect', name: 'Test Backend' },
+        backend: { visible: true }
       }));
 
-      const result2 = await waitForMessage(ws2, 'register_result');
+      const result2 = await waitForMessage(ws2, 'peer_hello_result');
       expect(result2.success).toBe(true);
       expect(result2.backendId).toBe(backendId);
 
@@ -139,15 +143,16 @@ describe('Gateway Authentication', () => {
       const ws = new WebSocket(WS_URL);
       await waitForOpen(ws);
 
-      // Send registration with null secret (will be parsed as string "null" in JSON)
+      // Send peer_hello with null secret
       ws.send(JSON.stringify({
-        type: 'register',
+        type: 'peer_hello',
         gatewaySecret: null,
-        deviceId: 'test-device-null',
-        name: 'Test Backend'
+        capabilities: { client: false, backend: true },
+        identity: { deviceId: 'test-device-null', instanceId: 'inst-test-device-null', name: 'Test Backend' },
+        backend: { visible: true }
       }));
 
-      const result = await waitForMessage(ws, 'register_result');
+      const result = await waitForMessage(ws, 'peer_hello_result');
       expect(result.success).toBe(false);
 
       await closeWs(ws);
@@ -160,11 +165,13 @@ describe('Gateway Authentication', () => {
       await waitForOpen(ws);
 
       ws.send(JSON.stringify({
-        type: 'gateway_auth',
-        gatewaySecret: 'wrong-secret'
+        type: 'peer_hello',
+        gatewaySecret: 'wrong-secret',
+        capabilities: { client: true, backend: false },
+        identity: { deviceId: '', instanceId: '' }
       }));
 
-      const result = await waitForMessage(ws, 'gateway_auth_result');
+      const result = await waitForMessage(ws, 'peer_hello_result');
       expect(result.success).toBe(false);
       expect(result.error).toContain('Invalid');
 
@@ -176,13 +183,15 @@ describe('Gateway Authentication', () => {
       await waitForOpen(ws);
 
       ws.send(JSON.stringify({
-        type: 'gateway_auth',
-        gatewaySecret: GATEWAY_SECRET
+        type: 'peer_hello',
+        gatewaySecret: GATEWAY_SECRET,
+        capabilities: { client: true, backend: false },
+        identity: { deviceId: '', instanceId: '' }
       }));
 
-      const result = await waitForMessage(ws, 'gateway_auth_result');
+      const result = await waitForMessage(ws, 'peer_hello_result');
       expect(result.success).toBe(true);
-      expect(result.backends).toBeDefined();
+      expect(result.registrySnapshot).toBeDefined();
 
       await closeWs(ws);
     });
@@ -221,12 +230,13 @@ describe('Gateway Authentication', () => {
       const backendWs = new WebSocket(WS_URL);
       await waitForOpen(backendWs);
       backendWs.send(JSON.stringify({
-        type: 'register',
+        type: 'peer_hello',
         gatewaySecret: GATEWAY_SECRET,
-        deviceId: 'http-test-device',
-        name: 'HTTP Test Backend'
+        capabilities: { client: false, backend: true },
+        identity: { deviceId: 'http-test-device', instanceId: 'inst-http-test-device', name: 'HTTP Test Backend' },
+        backend: { visible: true }
       }));
-      const regResult = await waitForMessage(backendWs, 'register_result');
+      const regResult = await waitForMessage(backendWs, 'peer_hello_result');
       const backendId = regResult.backendId;
 
       // Handle proxy request - respond immediately

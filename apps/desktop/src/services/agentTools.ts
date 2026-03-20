@@ -52,9 +52,9 @@ function resolveBackend(backendId: string): { baseUrl: string; headers: Record<s
   return { baseUrl: url, headers: getGatewayAuthHeaders() as Record<string, string> };
 }
 
-function findFirstBackendId(gwState: { discoveredBackends: Array<{ backendId: string; online: boolean; isLocal?: boolean }> }): string | null {
-  const local = gwState.discoveredBackends.find(b => b.isLocal && b.online);
-  if (local) return local.backendId;
+function findFirstBackendId(gwState: { discoveredBackends: Array<{ backendId: string; online: boolean; isThisInstance?: boolean }> }): string | null {
+  const thisInstance = gwState.discoveredBackends.find(b => b.isThisInstance && b.online);
+  if (thisInstance) return thisInstance.backendId;
   const first = gwState.discoveredBackends.find(b => b.online);
   return first?.backendId ?? null;
 }
@@ -90,19 +90,19 @@ function executeListBackends(): string {
   const { servers } = useServerStore.getState();
   const isMobileMode = gwState.hasDirectConfig();
 
-  const backends: Array<{ id: string; name: string; online: boolean; isLocal: boolean }> = [];
+  const backends: Array<{ id: string; name: string; online: boolean; isThisInstance: boolean }> = [];
 
   if (!isMobileMode) {
     for (const server of servers) {
       if (server.id.startsWith('gw:')) continue;
-      backends.push({ id: 'local', name: server.name || 'Local Backend', online: true, isLocal: true });
+      backends.push({ id: 'local', name: server.name || 'Local Backend', online: true, isThisInstance: true });
     }
   }
 
   for (const backend of gwState.discoveredBackends) {
-    if (!isMobileMode && backend.isLocal) continue;
+    if (!isMobileMode && backend.isThisInstance) continue;
     if (!backend.online) continue;
-    backends.push({ id: backend.backendId, name: backend.name || backend.backendId, online: true, isLocal: false });
+    backends.push({ id: backend.backendId, name: backend.name || backend.backendId, online: true, isThisInstance: false });
   }
 
   return JSON.stringify({ backends }, null, 2);

@@ -19,6 +19,10 @@ export class SystemTaskRegistry {
     });
   }
 
+  unregister(id: string): boolean {
+    return this.tasks.delete(id);
+  }
+
   markRunStart(id: string): void {
     const task = this.tasks.get(id);
     if (task) {

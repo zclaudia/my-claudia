@@ -13,7 +13,9 @@ import type {
   GatewayBackendInfo,
   BackendRegistryEntry,
   ClientToGatewayMessage,
-  GatewayToClientMessage,
+  GatewayToPeerMessage,
+  PeerHelloMessage,
+  PeerHelloResultMessage,
   GatewayRegistrySnapshotMessage,
   GatewayRegistryUpsertMessage,
   GatewayRegistryRemoveMessage,
@@ -168,14 +170,22 @@ export class GatewayTransport {
 
   private setupWebSocket(ws: WebSocket): void {
     ws.onopen = () => {
-      console.log('[GatewayTransport] Connected to Gateway, authenticating...');
+      console.log('[GatewayTransport] Connected to Gateway, sending peer_hello...');
 
-      // Authenticate with Gateway
-      const authMsg: ClientToGatewayMessage = {
-        type: 'gateway_auth',
-        gatewaySecret: this.config.gatewaySecret
+      // Send peer_hello with client-only capability
+      const peerHello: PeerHelloMessage = {
+        type: 'peer_hello',
+        gatewaySecret: this.config.gatewaySecret,
+        capabilities: {
+          client: true,
+          backend: false,
+        },
+        identity: {
+          deviceId: `client-${crypto.randomUUID().slice(0, 8)}`,
+          instanceId: `client-${crypto.randomUUID().slice(0, 8)}`,
+        },
       };
-      ws.send(JSON.stringify(authMsg));
+      ws.send(JSON.stringify(peerHello));
     };
 
     ws.onclose = () => {
@@ -201,7 +211,7 @@ export class GatewayTransport {
 
     ws.onmessage = (event: MessageEvent) => {
       try {
-        const message: GatewayToClientMessage = JSON.parse(event.data);
+        const message: GatewayToPeerMessage = JSON.parse(event.data);
         this.handleGatewayMessage(message);
       } catch (error) {
         console.error('[GatewayTransport] Failed to parse message:', error);
@@ -209,25 +219,39 @@ export class GatewayTransport {
     };
   }
 
-  private handleGatewayMessage(message: GatewayToClientMessage): void {
+  private handleGatewayMessage(message: GatewayToPeerMessage): void {
     switch (message.type) {
-      case 'gateway_auth_result':
-        if (message.success) {
-          console.log('[GatewayTransport] Gateway authentication successful');
+      case 'peer_hello_result': {
+        const result = message as PeerHelloResultMessage;
+        if (result.success) {
+          console.log('[GatewayTransport] Peer hello successful, peerId:', result.peerId);
           this.gatewayAuthenticated = true;
           this.config.onConnected();
-          // Use backends from auth result if available, otherwise request separately
-          if (message.backends && message.backends.length > 0) {
-            console.log('[GatewayTransport] Backends from auth result:', message.backends.length);
-            this.config.onBackendsUpdated(message.backends);
+          // Process registry snapshot from peer_hello_result
+          if (result.registrySnapshot) {
+            console.log('[GatewayTransport] Registry from peer_hello:', result.registrySnapshot.length, 'entries');
+            this.config.onRegistrySnapshot?.(result.registrySnapshot);
+            // Derive backends list for legacy consumers
+            const backends: GatewayBackendInfo[] = result.registrySnapshot
+              .filter(e => e.visible)
+              .map(e => ({
+                backendId: e.backendId,
+                name: e.name,
+                online: e.online,
+                instanceId: e.instanceId,
+                deviceId: e.deviceId,
+                channel: e.channel,
+              }));
+            this.config.onBackendsUpdated(backends);
           } else {
             this.requestBackendsList();
           }
         } else {
-          console.error('[GatewayTransport] Gateway auth failed:', message.error);
-          this.config.onError(message.error || 'Gateway authentication failed');
+          console.error('[GatewayTransport] Peer hello failed:', result.error);
+          this.config.onError(result.error || 'Peer hello failed');
         }
         break;
+      }
 
       case 'backends_list':
         console.log('[GatewayTransport] Backends discovered:', message.backends.length);

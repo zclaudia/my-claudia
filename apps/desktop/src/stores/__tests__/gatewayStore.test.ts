@@ -56,7 +56,8 @@ describe('gatewayStore', () => {
       const state = useGatewayStore.getState();
       expect(state.gatewayUrl).toBe('https://gw.example.com');
       expect(state.gatewaySecret).toBe('secret-123');
-      expect(state.discoveredBackends).toEqual(backends);
+      expect(state.discoveredBackends).toHaveLength(1);
+      expect(state.discoveredBackends[0].backendId).toBe('backend-1');
     });
 
     it('can set url and secret to null', () => {
@@ -73,15 +74,15 @@ describe('gatewayStore', () => {
       expect(useGatewayStore.getState().localBackendId).toBe('local-id');
     });
 
-    it('marks isLocal on backends', () => {
+    it('marks isThisInstance on backends using instanceId', () => {
       const backends = [
-        createBackend({ backendId: 'b1' }),
-        createBackend({ backendId: 'local-id' }),
+        createBackend({ backendId: 'b1', instanceId: 'inst-1' }),
+        createBackend({ backendId: 'b2', instanceId: 'inst-local' }),
       ];
-      useGatewayStore.getState().syncFromServer('url', 'sec', backends, 'local-id');
+      useGatewayStore.getState().syncFromServer('url', 'sec', backends, null, undefined, 'inst-local');
       const bk = useGatewayStore.getState().discoveredBackends;
-      expect(bk[0].isLocal).toBeFalsy();
-      expect(bk[1].isLocal).toBe(true);
+      expect(bk[0].isThisInstance).toBeFalsy();
+      expect(bk[1].isThisInstance).toBe(true);
     });
 
     it('sets connected flag when provided', () => {
@@ -95,16 +96,16 @@ describe('gatewayStore', () => {
       expect(useGatewayStore.getState().localBackendId).toBe('existing');
     });
 
-    it('recomputes isLocal from registry when local backend id arrives later', () => {
+    it('recomputes isThisInstance from registry when instanceId arrives later', () => {
       useGatewayStore.getState().setRegistrySnapshot([
         createRegistryEntry({ backendId: 'remote-1', instanceId: 'instance-remote' }),
         createRegistryEntry({ backendId: 'local-1', instanceId: 'instance-local' }),
       ]);
 
-      useGatewayStore.getState().syncFromServer('url', 'sec', [], 'local-1');
+      useGatewayStore.getState().syncFromServer('url', 'sec', [], 'local-1', undefined, 'instance-local');
 
       const local = useGatewayStore.getState().discoveredBackends.find((b) => b.backendId === 'local-1');
-      expect(local?.isLocal).toBe(true);
+      expect(local?.isThisInstance).toBe(true);
     });
   });
 
@@ -131,14 +132,18 @@ describe('gatewayStore', () => {
   });
 
   describe('setDiscoveredBackends', () => {
-    it('sets discovered backends', () => {
+    it('sets discovered backends with identity flags', () => {
+      useGatewayStore.setState({ currentInstanceId: 'inst-1' });
       const backends = [
-        createBackend({ backendId: 'b1' }),
-        createBackend({ backendId: 'b2', online: false }),
+        createBackend({ backendId: 'b1', instanceId: 'inst-1' }),
+        createBackend({ backendId: 'b2', instanceId: 'inst-2', online: false }),
       ];
       useGatewayStore.getState().setDiscoveredBackends(backends);
 
-      expect(useGatewayStore.getState().discoveredBackends).toEqual(backends);
+      const result = useGatewayStore.getState().discoveredBackends;
+      expect(result).toHaveLength(2);
+      expect(result[0].isThisInstance).toBe(true);
+      expect(result[1].isThisInstance).toBeFalsy();
     });
 
     it('replaces existing backends', () => {
@@ -230,18 +235,19 @@ describe('gatewayStore', () => {
   });
 
   describe('registry actions', () => {
-    it('derives discovered backends from registry snapshot', () => {
-      useGatewayStore.setState({ localBackendId: 'backend-2' });
+    it('derives discovered backends from registry snapshot with identity flags', () => {
+      useGatewayStore.setState({ currentInstanceId: 'instance-1' });
 
       useGatewayStore.getState().setRegistrySnapshot([
-        createRegistryEntry({ backendId: 'backend-1', visible: true }),
-        createRegistryEntry({ backendId: 'backend-2', visible: true }),
+        createRegistryEntry({ backendId: 'backend-1', instanceId: 'instance-1', visible: true }),
+        createRegistryEntry({ backendId: 'backend-2', instanceId: 'instance-2', visible: true }),
         createRegistryEntry({ backendId: 'backend-3', visible: false }),
       ]);
 
       const discovered = useGatewayStore.getState().discoveredBackends;
       expect(discovered.map((b) => b.backendId)).toEqual(['backend-1', 'backend-2']);
-      expect(discovered.find((b) => b.backendId === 'backend-2')?.isLocal).toBe(true);
+      expect(discovered.find((b) => b.backendId === 'backend-1')?.isThisInstance).toBe(true);
+      expect(discovered.find((b) => b.backendId === 'backend-2')?.isThisInstance).toBeFalsy();
     });
 
     it('keeps existing registry entries when upserting a new backend', () => {
@@ -319,16 +325,16 @@ describe('gatewayStore', () => {
     });
   });
 
-  describe('setDiscoveredBackends with localBackendId', () => {
-    it('marks isLocal based on stored localBackendId', () => {
-      useGatewayStore.setState({ localBackendId: 'b1' });
+  describe('setDiscoveredBackends with currentInstanceId', () => {
+    it('marks isThisInstance based on stored currentInstanceId', () => {
+      useGatewayStore.setState({ currentInstanceId: 'inst-b1' });
       useGatewayStore.getState().setDiscoveredBackends([
-        createBackend({ backendId: 'b1' }),
-        createBackend({ backendId: 'b2' }),
+        createBackend({ backendId: 'b1', instanceId: 'inst-b1' }),
+        createBackend({ backendId: 'b2', instanceId: 'inst-b2' }),
       ]);
       const bk = useGatewayStore.getState().discoveredBackends;
-      expect(bk[0].isLocal).toBe(true);
-      expect(bk[1].isLocal).toBeFalsy();
+      expect(bk[0].isThisInstance).toBe(true);
+      expect(bk[1].isThisInstance).toBeFalsy();
     });
   });
 
@@ -355,19 +361,19 @@ describe('gatewayStore', () => {
 
   describe('utility functions', () => {
     describe('shouldShowBackend', () => {
-      it('shows local-marked backend when localBackendId is unknown', () => {
-        const backend = createBackend({ isLocal: true });
+      it('shows backend when currentInstanceId is unknown', () => {
+        const backend = createBackend({ isThisInstance: true });
         expect(shouldShowBackend(backend, null, false)).toBe(true);
       });
 
-      it('hides local-marked backend when localBackendId exists', () => {
-        const backend = createBackend({ isLocal: true });
-        expect(shouldShowBackend(backend, 'backend-1', false)).toBe(false);
+      it('hides this-instance backend when currentInstanceId is known', () => {
+        const backend = createBackend({ isThisInstance: true, instanceId: 'inst-1' });
+        expect(shouldShowBackend(backend, 'inst-1', false)).toBe(false);
       });
 
-      it('shows local backend when debug toggle is enabled', () => {
-        const backend = createBackend({ isLocal: true });
-        expect(shouldShowBackend(backend, 'backend-1', true)).toBe(true);
+      it('shows this-instance backend when debug toggle is enabled', () => {
+        const backend = createBackend({ isThisInstance: true, instanceId: 'inst-1' });
+        expect(shouldShowBackend(backend, 'inst-1', true)).toBe(true);
       });
     });
 

@@ -76,12 +76,13 @@ describe('Gateway HTTP Endpoints', () => {
       const backendWs = new WebSocket(WS_URL);
       await waitForOpen(backendWs);
       backendWs.send(JSON.stringify({
-        type: 'register',
+        type: 'peer_hello',
         gatewaySecret: GATEWAY_SECRET,
-        deviceId: 'health-test-device',
-        name: 'Health Test Backend'
+        capabilities: { client: false, backend: true },
+        identity: { deviceId: 'health-test-device', instanceId: 'inst-health-test-device', name: 'Health Test Backend' },
+        backend: { visible: true }
       }));
-      await waitForMessage(backendWs, 'register_result');
+      await waitForMessage(backendWs, 'peer_hello_result');
 
       // Check health
       const response = await fetch(`${HTTP_URL}/health`);
@@ -175,12 +176,13 @@ describe('Gateway HTTP Endpoints', () => {
       const backendWs = new WebSocket(WS_URL);
       await waitForOpen(backendWs);
       backendWs.send(JSON.stringify({
-        type: 'register',
+        type: 'peer_hello',
         gatewaySecret: GATEWAY_SECRET,
-        deviceId: 'proxy-get-device',
-        name: 'Proxy GET Backend'
+        capabilities: { client: false, backend: true },
+        identity: { deviceId: 'proxy-get-device', instanceId: 'inst-proxy-get-device', name: 'Proxy GET Backend' },
+        backend: { visible: true }
       }));
-      const regResult = await waitForMessage(backendWs, 'register_result');
+      const regResult = await waitForMessage(backendWs, 'peer_hello_result');
       const backendId = regResult.backendId;
 
       // Listen for http_proxy_request
@@ -226,12 +228,13 @@ describe('Gateway HTTP Endpoints', () => {
       const backendWs = new WebSocket(WS_URL);
       await waitForOpen(backendWs);
       backendWs.send(JSON.stringify({
-        type: 'register',
+        type: 'peer_hello',
         gatewaySecret: GATEWAY_SECRET,
-        deviceId: 'proxy-post-device',
-        name: 'Proxy POST Backend'
+        capabilities: { client: false, backend: true },
+        identity: { deviceId: 'proxy-post-device', instanceId: 'inst-proxy-post-device', name: 'Proxy POST Backend' },
+        backend: { visible: true }
       }));
-      const regResult = await waitForMessage(backendWs, 'register_result');
+      const regResult = await waitForMessage(backendWs, 'peer_hello_result');
       const backendId = regResult.backendId;
 
       // Listen for http_proxy_request
@@ -281,12 +284,13 @@ describe('Gateway HTTP Endpoints', () => {
       const backendWs = new WebSocket(WS_URL);
       await waitForOpen(backendWs);
       backendWs.send(JSON.stringify({
-        type: 'register',
+        type: 'peer_hello',
         gatewaySecret: GATEWAY_SECRET,
-        deviceId: 'proxy-stream-device',
-        name: 'Proxy Stream Backend'
+        capabilities: { client: false, backend: true },
+        identity: { deviceId: 'proxy-stream-device', instanceId: 'inst-proxy-stream-device', name: 'Proxy Stream Backend' },
+        backend: { visible: true }
       }));
-      const regResult = await waitForMessage(backendWs, 'register_result');
+      const regResult = await waitForMessage(backendWs, 'peer_hello_result');
       const backendId = regResult.backendId;
 
       // Listen for http_proxy_request and send streaming response
@@ -347,12 +351,13 @@ describe('Gateway HTTP Endpoints', () => {
       const backendWs = new WebSocket(WS_URL);
       await waitForOpen(backendWs);
       backendWs.send(JSON.stringify({
-        type: 'register',
+        type: 'peer_hello',
         gatewaySecret: GATEWAY_SECRET,
-        deviceId: 'proxy-methods-device',
-        name: 'Proxy Methods Backend'
+        capabilities: { client: false, backend: true },
+        identity: { deviceId: 'proxy-methods-device', instanceId: 'inst-proxy-methods-device', name: 'Proxy Methods Backend' },
+        backend: { visible: true }
       }));
-      const regResult = await waitForMessage(backendWs, 'register_result');
+      const regResult = await waitForMessage(backendWs, 'peer_hello_result');
       const backendId = regResult.backendId;
 
       const methods = ['PUT', 'PATCH', 'DELETE'];
@@ -400,12 +405,13 @@ describe('Gateway HTTP Endpoints', () => {
       const backendWs = new WebSocket(WS_URL);
       await waitForOpen(backendWs);
       backendWs.send(JSON.stringify({
-        type: 'register',
+        type: 'peer_hello',
         gatewaySecret: GATEWAY_SECRET,
-        deviceId: 'json-limit-device',
-        name: 'JSON Limit Backend'
+        capabilities: { client: false, backend: true },
+        identity: { deviceId: 'json-limit-device', instanceId: 'inst-json-limit-device', name: 'JSON Limit Backend' },
+        backend: { visible: true }
       }));
-      const regResult = await waitForMessage(backendWs, 'register_result');
+      const regResult = await waitForMessage(backendWs, 'peer_hello_result');
       const backendId = regResult.backendId;
 
       // Test with normal JSON body

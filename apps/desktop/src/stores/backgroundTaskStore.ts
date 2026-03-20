@@ -3,6 +3,7 @@ import { getProcessInfo } from '../services/api';
 
 export interface BackgroundTask {
   id: string;                    // taskId from SDK
+  serverId?: string;             // owning server/backend for heartbeat reconciliation
   toolUseId?: string;            // tool_use_id that triggered this background task
   sessionId: string;             // parent session ID
   description: string;           // task description

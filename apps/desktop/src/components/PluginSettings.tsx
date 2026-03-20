@@ -12,13 +12,13 @@ import { getBaseUrl } from '../services/api';
 
 const BUILTIN_PLUGIN_PREFIX = 'com.claudia.';
 
-// Status badge colors
+// Status badge colors — using semantic theme tokens
 const statusColors: Record<PluginStatus, string> = {
-  idle: 'bg-gray-500/20 text-gray-400',
-  loading: 'bg-blue-500/20 text-blue-400',
-  active: 'bg-green-500/20 text-green-400',
-  error: 'bg-red-500/20 text-red-400',
-  disabled: 'bg-gray-500/20 text-gray-500',
+  idle: 'bg-muted-foreground/20 text-muted-foreground',
+  loading: 'bg-primary/20 text-primary',
+  active: 'bg-success/20 text-success',
+  error: 'bg-destructive/20 text-destructive',
+  disabled: 'bg-muted-foreground/20 text-muted-foreground',
 };
 
 const statusLabels: Record<PluginStatus, string> = {
@@ -107,11 +107,11 @@ export function PluginSettings({ onOpenPluginSettings }: PluginSettingsProps) {
 
   if (error) {
     return (
-      <div className="p-4 bg-red-500/10 border border-red-500/20 rounded-lg">
-        <p className="text-red-400 text-sm">{error}</p>
+      <div className="p-4 bg-destructive/10 border border-destructive/20 rounded-lg">
+        <p className="text-destructive text-sm">{error}</p>
         <button
           onClick={() => setError(null)}
-          className="mt-2 text-xs text-red-400 hover:text-red-300"
+          className="mt-2 text-xs text-destructive hover:text-destructive/80 transition-colors"
         >
           Dismiss
         </button>
@@ -141,7 +141,7 @@ export function PluginSettings({ onOpenPluginSettings }: PluginSettingsProps) {
           placeholder="Search plugins..."
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
-          className="w-full pl-10 pr-4 py-2 bg-secondary/50 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
+          className="w-full pl-10 pr-4 py-2 bg-input border border-border rounded-lg text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
         />
       </div>
 
@@ -152,7 +152,7 @@ export function PluginSettings({ onOpenPluginSettings }: PluginSettingsProps) {
           <div className="text-xs text-muted-foreground">Total</div>
         </div>
         <div className="p-3 bg-secondary/30 rounded-lg">
-          <div className="text-2xl font-bold text-green-400">{activePlugins.length}</div>
+          <div className="text-2xl font-bold text-success">{activePlugins.length}</div>
           <div className="text-xs text-muted-foreground">Active</div>
         </div>
         <div className="p-3 bg-secondary/30 rounded-lg">
@@ -292,7 +292,7 @@ function PluginCard({ plugin, onToggle, onRemove, onReload, onOpenSettings }: Pl
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
             <span className="font-medium text-sm truncate">{plugin.manifest.name}</span>
-            <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${statusColors[plugin.status]}`}>
+            <span className={`px-1.5 py-0.5 rounded-md text-xs font-medium ${statusColors[plugin.status]}`}>
               {statusLabels[plugin.status]}
             </span>
           </div>
@@ -300,10 +300,10 @@ function PluginCard({ plugin, onToggle, onRemove, onReload, onOpenSettings }: Pl
             {plugin.manifest.description}
           </p>
           <div className="flex items-center gap-2 mt-1">
-            <span className="text-[10px] text-muted-foreground/70 font-mono">
+            <span className="text-xs text-muted-foreground/70 font-mono">
               {plugin.manifest.id}
             </span>
-            <span className="text-[10px] text-muted-foreground/70">v{plugin.manifest.version}</span>
+            <span className="text-xs text-muted-foreground/70">v{plugin.manifest.version}</span>
           </div>
         </div>
 
@@ -327,7 +327,7 @@ function PluginCard({ plugin, onToggle, onRemove, onReload, onOpenSettings }: Pl
           {plugin.manifest.contributes?.settings && (
             <button
               onClick={() => onOpenSettings?.(plugin.manifest.id)}
-              className="p-1.5 rounded hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors"
+              className="p-1.5 rounded-lg hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors"
               title="Plugin settings"
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -346,7 +346,7 @@ function PluginCard({ plugin, onToggle, onRemove, onReload, onOpenSettings }: Pl
           <button
             onClick={handleReload}
             disabled={reloading}
-            className="p-1.5 rounded hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
+            className="p-1.5 rounded-lg hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
             title="Reload plugin"
           >
             <svg className={`w-4 h-4 ${reloading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -362,10 +362,10 @@ function PluginCard({ plugin, onToggle, onRemove, onReload, onOpenSettings }: Pl
           {/* Remove Button */}
           <button
             onClick={handleRemove}
-            className={`p-1.5 rounded transition-colors ${
+            className={`p-1.5 rounded-lg transition-colors ${
               showConfirm
-                ? 'bg-red-500/20 text-red-400 hover:bg-red-500/30'
-                : 'hover:bg-secondary text-muted-foreground hover:text-red-400'
+                ? 'bg-destructive/20 text-destructive hover:bg-destructive/30'
+                : 'hover:bg-secondary text-muted-foreground hover:text-destructive'
             }`}
             title={showConfirm ? 'Click again to confirm' : 'Remove plugin'}
           >
@@ -387,7 +387,7 @@ function PluginCard({ plugin, onToggle, onRemove, onReload, onOpenSettings }: Pl
           {plugin.manifest.permissions.map((perm) => (
             <span
               key={perm}
-              className="px-1.5 py-0.5 rounded text-[10px] bg-yellow-500/10 text-yellow-500/80 font-mono"
+              className="px-1.5 py-0.5 rounded-md text-xs bg-warning/10 text-warning font-mono"
             >
               {perm}
             </span>
@@ -397,7 +397,7 @@ function PluginCard({ plugin, onToggle, onRemove, onReload, onOpenSettings }: Pl
 
       {/* Error Message */}
       {plugin.error && (
-        <div className="mt-2 p-2 bg-red-500/10 rounded text-xs text-red-400">
+        <div className="mt-2 p-2 bg-destructive/10 rounded-lg text-xs text-destructive">
           {plugin.error}
         </div>
       )}
@@ -419,8 +419,8 @@ function BuiltinPanelCard({ panel, disabled, onToggle }: BuiltinPanelCardProps) 
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
             <span className="font-medium text-sm">{panel.label}</span>
-            <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
-              disabled ? 'bg-gray-500/20 text-gray-500' : 'bg-green-500/20 text-green-400'
+            <span className={`px-1.5 py-0.5 rounded-md text-xs font-medium ${
+              disabled ? 'bg-muted-foreground/20 text-muted-foreground' : 'bg-success/20 text-success'
             }`}>
               {disabled ? 'Disabled' : 'Active'}
             </span>
@@ -508,11 +508,13 @@ function PluginDirsManager() {
 
   if (loading) return null;
 
+  const defaultDirs = allDirs.filter(d => !extraDirs.includes(d));
+
   return (
     <div>
       <button
         onClick={() => setCollapsed(!collapsed)}
-        className="flex items-center gap-1 text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2 hover:text-foreground transition-colors"
+        className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2 hover:text-foreground transition-colors"
       >
         <svg
           className={`w-3 h-3 transition-transform ${collapsed ? '' : 'rotate-90'}`}
@@ -525,29 +527,32 @@ function PluginDirsManager() {
 
       {!collapsed && (
         <div className="space-y-2">
-          {/* Default dirs (read-only) */}
-          {allDirs.filter(d => !extraDirs.includes(d)).map(dir => (
-            <div key={dir} className="flex items-center gap-2 px-3 py-1.5 bg-secondary/30 rounded text-xs font-mono text-muted-foreground">
-              <span className="flex-1 truncate">{dir}</span>
-              <span className="text-[10px] text-muted-foreground/50 shrink-0">default</span>
-            </div>
-          ))}
+          {/* Directory list */}
+          <div className="bg-muted rounded-lg p-2 space-y-1">
+            {/* Default dirs (read-only) */}
+            {defaultDirs.map(dir => (
+              <div key={dir} className="flex items-center gap-2 px-3 py-2 rounded-md text-xs font-mono text-muted-foreground">
+                <span className="flex-1 truncate">{dir}</span>
+                <span className="text-xs text-muted-foreground/50 shrink-0">default</span>
+              </div>
+            ))}
 
-          {/* Extra dirs (removable) */}
-          {extraDirs.map(dir => (
-            <div key={dir} className="flex items-center gap-2 px-3 py-1.5 bg-secondary/50 rounded text-xs font-mono">
-              <span className="flex-1 truncate">{dir}</span>
-              <button
-                onClick={() => handleRemove(dir)}
-                className="p-0.5 rounded hover:bg-red-500/20 text-muted-foreground hover:text-red-400 transition-colors shrink-0"
-                title="Remove directory"
-              >
-                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            </div>
-          ))}
+            {/* Extra dirs (removable) */}
+            {extraDirs.map(dir => (
+              <div key={dir} className="flex items-center gap-2 px-3 py-2 rounded-md text-xs font-mono text-foreground bg-secondary/50">
+                <span className="flex-1 truncate">{dir}</span>
+                <button
+                  onClick={() => handleRemove(dir)}
+                  className="p-1 rounded-md hover:bg-destructive/20 text-muted-foreground hover:text-destructive transition-colors shrink-0"
+                  title="Remove directory"
+                >
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+            ))}
+          </div>
 
           {/* Add new */}
           <div className="flex gap-2">
@@ -557,22 +562,22 @@ function PluginDirsManager() {
               value={newDir}
               onChange={(e) => setNewDir(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
-              className="flex-1 px-3 py-1.5 bg-secondary/50 border border-border rounded text-xs font-mono focus:outline-none focus:ring-1 focus:ring-primary/50"
+              className="flex-1 px-3 py-2 bg-input border border-border rounded-lg text-sm font-mono placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
             />
             <button
               onClick={handleAdd}
               disabled={!newDir.trim()}
-              className="px-3 py-1.5 bg-primary/20 text-primary text-xs rounded hover:bg-primary/30 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              className="px-4 py-2 bg-primary hover:bg-primary/90 text-primary-foreground text-sm rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
               Add
             </button>
           </div>
 
           {error && (
-            <p className="text-xs text-red-400">{error}</p>
+            <p className="text-xs text-destructive">{error}</p>
           )}
 
-          <p className="text-[10px] text-muted-foreground/50">
+          <p className="text-xs text-muted-foreground">
             After adding a directory, use Discover to scan for new plugins.
           </p>
         </div>

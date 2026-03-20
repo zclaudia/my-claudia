@@ -35,7 +35,7 @@ function waitForMessage(ws: WebSocket, type: string, timeoutMs = 1000): Promise<
     const timer = setTimeout(() => {
       reject(new Error(`Timeout waiting for message type: ${type}`));
     }, timeoutMs);
-    
+
     const handler = (data: WebSocket.Data) => {
       const msg = JSON.parse(data.toString());
       if (msg.type === type) {
@@ -105,7 +105,7 @@ describe('Gateway Error Handling', () => {
   describe('WebSocket Connection Limits', () => {
     test('should enforce per-IP connection limit', async () => {
       const connections: WebSocket[] = [];
-      
+
       try {
         // Try to open 11 connections (limit is 10)
         for (let i = 0; i < 11; i++) {
@@ -116,7 +116,7 @@ describe('Gateway Error Handling', () => {
 
         // All 11 should connect initially
         expect(connections.every(ws => ws.readyState === WebSocket.OPEN)).toBe(true);
-        
+
         // Close all
         await Promise.all(connections.map(ws => closeWs(ws)));
       } catch (err) {
@@ -132,13 +132,14 @@ describe('Gateway Error Handling', () => {
       const backendWs = new WebSocket(WS_URL);
       await waitForOpen(backendWs);
       backendWs.send(JSON.stringify({
-        type: 'register',
+        type: 'peer_hello',
         gatewaySecret: GATEWAY_SECRET,
-        deviceId: 'proxy-error-device',
-        name: 'Proxy Error Backend'
+        capabilities: { client: false, backend: true },
+        identity: { deviceId: 'proxy-error-device', instanceId: 'inst-proxy-error-device', name: 'Proxy Error Backend' },
+        backend: { visible: true }
       }));
-      
-      const regResult = await waitForMessage(backendWs, 'register_result');
+
+      const regResult = await waitForMessage(backendWs, 'peer_hello_result');
       const backendId = regResult.backendId;
 
       // Listen for proxy request
@@ -169,13 +170,14 @@ describe('Gateway Error Handling', () => {
       const backendWs = new WebSocket(WS_URL);
       await waitForOpen(backendWs);
       backendWs.send(JSON.stringify({
-        type: 'register',
+        type: 'peer_hello',
         gatewaySecret: GATEWAY_SECRET,
-        deviceId: 'stream-error-device',
-        name: 'Stream Error Backend'
+        capabilities: { client: false, backend: true },
+        identity: { deviceId: 'stream-error-device', instanceId: 'inst-stream-error-device', name: 'Stream Error Backend' },
+        backend: { visible: true }
       }));
-      
-      const regResult = await waitForMessage(backendWs, 'register_result');
+
+      const regResult = await waitForMessage(backendWs, 'peer_hello_result');
       const backendId = regResult.backendId;
 
       // Send chunk for non-existent request
@@ -196,13 +198,14 @@ describe('Gateway Error Handling', () => {
       const backendWs = new WebSocket(WS_URL);
       await waitForOpen(backendWs);
       backendWs.send(JSON.stringify({
-        type: 'register',
+        type: 'peer_hello',
         gatewaySecret: GATEWAY_SECRET,
-        deviceId: 'stream-end-device',
-        name: 'Stream End Backend'
+        capabilities: { client: false, backend: true },
+        identity: { deviceId: 'stream-end-device', instanceId: 'inst-stream-end-device', name: 'Stream End Backend' },
+        backend: { visible: true }
       }));
-      
-      await waitForMessage(backendWs, 'register_result');
+
+      await waitForMessage(backendWs, 'peer_hello_result');
 
       // Send end for non-existent request
       backendWs.send(JSON.stringify({
@@ -221,13 +224,14 @@ describe('Gateway Error Handling', () => {
       const backendWs = new WebSocket(WS_URL);
       await waitForOpen(backendWs);
       backendWs.send(JSON.stringify({
-        type: 'register',
+        type: 'peer_hello',
         gatewaySecret: GATEWAY_SECRET,
-        deviceId: 'stream-start-device',
-        name: 'Stream Start Backend'
+        capabilities: { client: false, backend: true },
+        identity: { deviceId: 'stream-start-device', instanceId: 'inst-stream-start-device', name: 'Stream Start Backend' },
+        backend: { visible: true }
       }));
-      
-      await waitForMessage(backendWs, 'register_result');
+
+      await waitForMessage(backendWs, 'peer_hello_result');
 
       // Send start for non-existent request
       backendWs.send(JSON.stringify({
@@ -249,13 +253,14 @@ describe('Gateway Error Handling', () => {
       const backendWs = new WebSocket(WS_URL);
       await waitForOpen(backendWs);
       backendWs.send(JSON.stringify({
-        type: 'register',
+        type: 'peer_hello',
         gatewaySecret: GATEWAY_SECRET,
-        deviceId: 'invalid-msg-device',
-        name: 'Invalid Msg Backend'
+        capabilities: { client: false, backend: true },
+        identity: { deviceId: 'invalid-msg-device', instanceId: 'inst-invalid-msg-device', name: 'Invalid Msg Backend' },
+        backend: { visible: true }
       }));
-      
-      await waitForMessage(backendWs, 'register_result');
+
+      await waitForMessage(backendWs, 'peer_hello_result');
 
       // Send response to non-existent client
       backendWs.send(JSON.stringify({
@@ -274,13 +279,14 @@ describe('Gateway Error Handling', () => {
       const backendWs = new WebSocket(WS_URL);
       await waitForOpen(backendWs);
       backendWs.send(JSON.stringify({
-        type: 'register',
+        type: 'peer_hello',
         gatewaySecret: GATEWAY_SECRET,
-        deviceId: 'auth-result-device',
-        name: 'Auth Result Backend'
+        capabilities: { client: false, backend: true },
+        identity: { deviceId: 'auth-result-device', instanceId: 'inst-auth-result-device', name: 'Auth Result Backend' },
+        backend: { visible: true }
       }));
-      
-      await waitForMessage(backendWs, 'register_result');
+
+      await waitForMessage(backendWs, 'peer_hello_result');
 
       // Send auth result for non-existent client
       backendWs.send(JSON.stringify({
@@ -301,13 +307,14 @@ describe('Gateway Error Handling', () => {
       const backendWs = new WebSocket(WS_URL);
       await waitForOpen(backendWs);
       backendWs.send(JSON.stringify({
-        type: 'register',
+        type: 'peer_hello',
         gatewaySecret: GATEWAY_SECRET,
-        deviceId: 'no-type-device',
-        name: 'No Type Backend'
+        capabilities: { client: false, backend: true },
+        identity: { deviceId: 'no-type-device', instanceId: 'inst-no-type-device', name: 'No Type Backend' },
+        backend: { visible: true }
       }));
-      
-      await waitForMessage(backendWs, 'register_result');
+
+      await waitForMessage(backendWs, 'peer_hello_result');
 
       // Send message without type
       backendWs.send(JSON.stringify({ data: 'no type' }));
@@ -326,12 +333,13 @@ describe('Gateway Error Handling', () => {
         const ws = new WebSocket(WS_URL);
         await waitForOpen(ws);
         ws.send(JSON.stringify({
-          type: 'register',
+          type: 'peer_hello',
           gatewaySecret: GATEWAY_SECRET,
-          deviceId: `rapid-device-${i}`,
-          name: `Rapid Backend ${i}`
+          capabilities: { client: false, backend: true },
+          identity: { deviceId: `rapid-device-${i}`, instanceId: `inst-rapid-device-${i}`, name: `Rapid Backend ${i}` },
+          backend: { visible: true }
         }));
-        await waitForMessage(ws, 'register_result');
+        await waitForMessage(ws, 'peer_hello_result');
         ws.close();
       }
 
@@ -349,10 +357,11 @@ describe('Gateway Error Handling', () => {
 
       // Start auth but don't wait for response
       ws.send(JSON.stringify({
-        type: 'register',
+        type: 'peer_hello',
         gatewaySecret: GATEWAY_SECRET,
-        deviceId: 'early-disconnect-device',
-        name: 'Early Disconnect'
+        capabilities: { client: false, backend: true },
+        identity: { deviceId: 'early-disconnect-device', instanceId: 'inst-early-disconnect-device', name: 'Early Disconnect' },
+        backend: { visible: true }
       }));
 
       // Disconnect immediately
@@ -368,13 +377,14 @@ describe('Gateway Error Handling', () => {
       const backendWs = new WebSocket(WS_URL);
       await waitForOpen(backendWs);
       backendWs.send(JSON.stringify({
-        type: 'register',
+        type: 'peer_hello',
         gatewaySecret: GATEWAY_SECRET,
-        deviceId: 'large-body-device',
-        name: 'Large Body Backend'
+        capabilities: { client: false, backend: true },
+        identity: { deviceId: 'large-body-device', instanceId: 'inst-large-body-device', name: 'Large Body Backend' },
+        backend: { visible: true }
       }));
-      
-      const regResult = await waitForMessage(backendWs, 'register_result');
+
+      const regResult = await waitForMessage(backendWs, 'peer_hello_result');
       const backendId = regResult.backendId;
 
       // Create a large payload (but under 15MB)
@@ -414,14 +424,15 @@ describe('Gateway Error Handling', () => {
       await waitForOpen(ws);
 
       ws.send(JSON.stringify({
-        type: 'register',
+        type: 'peer_hello',
         gatewaySecret: null,
-        deviceId: 'null-test-device',
-        name: null
+        capabilities: { client: false, backend: true },
+        identity: { deviceId: 'null-test-device', instanceId: 'inst-null-test-device', name: null },
+        backend: { visible: true }
       }));
 
       // Should be rejected
-      const result = await waitForMessage(ws, 'register_result');
+      const result = await waitForMessage(ws, 'peer_hello_result');
       expect(result.success).toBe(false);
 
       await closeWs(ws);
@@ -432,14 +443,15 @@ describe('Gateway Error Handling', () => {
       await waitForOpen(ws);
 
       ws.send(JSON.stringify({
-        type: 'register',
+        type: 'peer_hello',
         gatewaySecret: '',
-        deviceId: '',
-        name: ''
+        capabilities: { client: false, backend: true },
+        identity: { deviceId: '', instanceId: '', name: '' },
+        backend: { visible: true }
       }));
 
       // Should be rejected
-      const result = await waitForMessage(ws, 'register_result');
+      const result = await waitForMessage(ws, 'peer_hello_result');
       expect(result.success).toBe(false);
 
       await closeWs(ws);
@@ -450,13 +462,14 @@ describe('Gateway Error Handling', () => {
       const backendWs = new WebSocket(WS_URL);
       await waitForOpen(backendWs);
       backendWs.send(JSON.stringify({
-        type: 'register',
+        type: 'peer_hello',
         gatewaySecret: GATEWAY_SECRET,
-        deviceId: 'concurrent-device',
-        name: 'Concurrent Backend'
+        capabilities: { client: false, backend: true },
+        identity: { deviceId: 'concurrent-device', instanceId: 'inst-concurrent-device', name: 'Concurrent Backend' },
+        backend: { visible: true }
       }));
-      
-      const regResult = await waitForMessage(backendWs, 'register_result');
+
+      const regResult = await waitForMessage(backendWs, 'peer_hello_result');
       const backendId = regResult.backendId;
 
       const requests: string[] = [];

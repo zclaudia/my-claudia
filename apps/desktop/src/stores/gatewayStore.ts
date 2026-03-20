@@ -56,18 +56,19 @@ interface GatewayState {
   hasDirectConfig: () => boolean;
 }
 
-/** Mark isLocal on backends by comparing with the local server's backendId */
-function markIsLocal(backends: GatewayBackendInfo[], localBackendId: string | null): GatewayBackendInfo[] {
-  if (!localBackendId) return backends;
+/** Mark identity flags on backends using instanceId/deviceId */
+function markIdentity(backends: GatewayBackendInfo[], currentInstanceId: string | null, currentDeviceId: string | null): GatewayBackendInfo[] {
   return backends.map(b => ({
     ...b,
-    isLocal: b.backendId === localBackendId,
+    isThisInstance: !!(currentInstanceId && b.instanceId === currentInstanceId),
+    isThisDevice: !!(currentDeviceId && b.deviceId === currentDeviceId),
   }));
 }
 
 function deriveBackendsFromRegistry(
   registry: Record<string, BackendRegistryEntry>,
-  localBackendId: string | null
+  currentInstanceId: string | null,
+  currentDeviceId: string | null,
 ): GatewayBackendInfo[] {
   return Object.values(registry)
     .filter(entry => entry.visible)
@@ -75,7 +76,8 @@ function deriveBackendsFromRegistry(
       backendId: entry.backendId,
       name: entry.name,
       online: entry.online,
-      isLocal: entry.backendId === localBackendId,
+      isThisInstance: !!(currentInstanceId && entry.instanceId === currentInstanceId),
+      isThisDevice: !!(currentDeviceId && entry.deviceId === currentDeviceId),
       instanceId: entry.instanceId,
       deviceId: entry.deviceId,
       channel: entry.channel,
@@ -84,16 +86,20 @@ function deriveBackendsFromRegistry(
 
 /**
  * Whether a backend should be shown in UI lists.
- * Hide local backend only when we know the current runtime local backend id.
+ * Hide "this instance" (the embedded server) unless showLocalBackend is on.
  */
 export function shouldShowBackend(
   backend: GatewayBackendInfo,
-  localBackendId: string | null,
+  currentInstanceId: string | null,
   showLocalBackend: boolean
 ): boolean {
   if (showLocalBackend) return true;
-  if (!localBackendId) return true;
-  return !backend.isLocal;
+  if (!currentInstanceId) return true;
+  // Use direct instanceId comparison as primary check, fall back to pre-computed flag
+  const isThisInstance = backend.instanceId
+    ? backend.instanceId === currentInstanceId
+    : !!backend.isThisInstance;
+  return !isThisInstance;
 }
 
 export const useGatewayStore = create<GatewayState>()(
@@ -124,6 +130,8 @@ export const useGatewayStore = create<GatewayState>()(
 
       syncFromServer: (url: string | null, secret: string | null, backends: GatewayBackendInfo[], backendId?: string | null, connected?: boolean, instanceId?: string | null, deviceId?: string | null) => {
         const localId = backendId !== undefined ? backendId : get().localBackendId;
+        const curInstanceId = instanceId !== undefined ? instanceId : get().currentInstanceId;
+        const curDeviceId = deviceId !== undefined ? deviceId : get().currentDeviceId;
         const { registry } = get();
         const hasRegistry = Object.keys(registry).length > 0;
         set({
@@ -133,8 +141,8 @@ export const useGatewayStore = create<GatewayState>()(
           ...(instanceId !== undefined ? { currentInstanceId: instanceId } : {}),
           ...(deviceId !== undefined ? { currentDeviceId: deviceId } : {}),
           ...(hasRegistry
-            ? { discoveredBackends: deriveBackendsFromRegistry(registry, localId) }
-            : { discoveredBackends: markIsLocal(backends, localId) }),
+            ? { discoveredBackends: deriveBackendsFromRegistry(registry, curInstanceId, curDeviceId) }
+            : { discoveredBackends: markIdentity(backends, curInstanceId, curDeviceId) }),
           // Sync server-side gateway connected status when available
           ...(connected !== undefined ? { isConnected: connected } : {}),
         });
@@ -149,7 +157,8 @@ export const useGatewayStore = create<GatewayState>()(
       },
 
       setDiscoveredBackends: (backends) => {
-        set({ discoveredBackends: markIsLocal(backends, get().localBackendId) });
+        const { currentInstanceId, currentDeviceId } = get();
+        set({ discoveredBackends: markIdentity(backends, currentInstanceId, currentDeviceId) });
       },
 
       setBackendAuthStatus: (backendId, status) => {
@@ -178,10 +187,10 @@ export const useGatewayStore = create<GatewayState>()(
         for (const entry of entries) {
           registry[entry.backendId] = entry;
         }
-        const localId = get().localBackendId;
+        const { currentInstanceId, currentDeviceId } = get();
         set({
           registry,
-          discoveredBackends: deriveBackendsFromRegistry(registry, localId),
+          discoveredBackends: deriveBackendsFromRegistry(registry, currentInstanceId, currentDeviceId),
         });
       },
 
@@ -190,7 +199,7 @@ export const useGatewayStore = create<GatewayState>()(
           const registry = { ...state.registry, [entry.backendId]: entry };
           return {
             registry,
-            discoveredBackends: deriveBackendsFromRegistry(registry, state.localBackendId),
+            discoveredBackends: deriveBackendsFromRegistry(registry, state.currentInstanceId, state.currentDeviceId),
           };
         });
       },
@@ -200,7 +209,7 @@ export const useGatewayStore = create<GatewayState>()(
           const { [backendId]: _, ...registry } = state.registry;
           return {
             registry,
-            discoveredBackends: deriveBackendsFromRegistry(registry, state.localBackendId),
+            discoveredBackends: deriveBackendsFromRegistry(registry, state.currentInstanceId, state.currentDeviceId),
           };
         });
       },

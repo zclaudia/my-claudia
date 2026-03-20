@@ -49,6 +49,7 @@ const EMPTY_MESSAGES: MessageWithToolCalls[] = [];
 const EMPTY_TOOL_CALLS: import('../../stores/chatStore').ToolCallState[] = [];
 const EMPTY_CONTENT_BLOCKS: import('@my-claudia/shared').ContentBlock[] = [];
 const ATTACHMENT_PLACEHOLDER = '[Attachments]';
+const AUTO_STICK_BOTTOM_THRESHOLD_PX = 200;
 
 export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar }: ChatInterfaceProps) {
   const messages = useChatStore((s) => s.messages);
@@ -151,6 +152,7 @@ export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar }:
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [resendChecking, setResendChecking] = useState(false);
   const [queuedMessage, setQueuedMessage] = useState<{ content: string; attachments?: Attachment[] } | null>(null);
+  const shouldStickToBottomRef = useRef(true);
 
   // Session action bar state
   const [isRenamingSession, setIsRenamingSession] = useState(false);
@@ -158,6 +160,12 @@ export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar }:
 
   const sessionMessages = messages[sessionId] || EMPTY_MESSAGES;
   const lastSessionMessage = sessionMessages.length > 0 ? sessionMessages[sessionMessages.length - 1] : null;
+  const lastStreamingBlock = sessionContentBlocks.length > 0
+    ? sessionContentBlocks[sessionContentBlocks.length - 1]
+    : null;
+  const streamingContentSignature = lastStreamingBlock
+    ? `${lastStreamingBlock.type}:${lastStreamingBlock.type === 'text' ? lastStreamingBlock.content : 'toolUseId' in lastStreamingBlock ? lastStreamingBlock.toolUseId : ''}`
+    : '';
   const resendTargetMessage = useMemo(() => {
     if (!lastSessionMessage || lastSessionMessage.role !== 'user' || isSessionRunning) {
       return null;
@@ -210,6 +218,7 @@ export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar }:
     setUploadError(null);
     setResendChecking(false);
     setQueuedMessage(null);
+    shouldStickToBottomRef.current = true;
     setInitialDraft(useChatStore.getState().drafts[sessionId]);
     resetPaginationRefs();
     setIsRenamingSession(false);
@@ -226,37 +235,57 @@ export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar }:
   // Auto-send queued message when the current run finishes
   const queuedMessageRef = useRef(queuedMessage);
   queuedMessageRef.current = queuedMessage;
-  useEffect(() => {
-    if (!isLoading && isConnected && queuedMessageRef.current) {
-      const { content, attachments } = queuedMessageRef.current;
-      setQueuedMessage(null);
-      setTimeout(() => handleSendMessage(content, attachments), 0);
-    }
-  }, [isLoading, isConnected]);
+  const handleSendMessageRef = useRef<((content: string, attachments?: Attachment[]) => void) | null>(null);
+
+  const updateStickToBottom = useCallback(() => {
+    const container = messagesContainerRef.current;
+    if (!container) return;
+    const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
+    shouldStickToBottomRef.current = distanceFromBottom < AUTO_STICK_BOTTOM_THRESHOLD_PX;
+  }, [messagesContainerRef]);
+
+  const scrollToBottomIfSticky = useCallback((instant = false) => {
+    if (!shouldStickToBottomRef.current) return;
+    scrollToBottom(instant);
+  }, [scrollToBottom]);
+
+  const handleMessagesScroll = useCallback(() => {
+    updateStickToBottom();
+    handleScroll();
+  }, [handleScroll, updateStickToBottom]);
+
+  const handleJumpToBottom = useCallback(() => {
+    shouldStickToBottomRef.current = true;
+    jumpToBottomInstant();
+  }, [jumpToBottomInstant]);
 
   // Scroll to bottom when new messages arrive (but not when loading history)
   useEffect(() => {
     if (initialLoadDone && sessionMessages.length > 0) {
-      const container = messagesContainerRef.current;
-      if (!container) return;
-      const isNearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 200;
-      if (isNearBottom) {
-        scrollToBottom();
-      }
+      scrollToBottomIfSticky();
     }
-  }, [sessionMessages.length, initialLoadDone]);
+  }, [sessionMessages.length, initialLoadDone, scrollToBottomIfSticky]);
+
+  // Keep the viewport pinned when the last message keeps growing during streaming.
+  useEffect(() => {
+    if (!initialLoadDone) return;
+    if (!lastSessionMessage && !lastStreamingBlock) return;
+    scrollToBottomIfSticky();
+  }, [
+    initialLoadDone,
+    lastSessionMessage?.id,
+    lastSessionMessage?.content,
+    lastStreamingBlock?.type,
+    streamingContentSignature,
+    scrollToBottomIfSticky,
+  ]);
 
   // Scroll to bottom when tool calls are updated (during streaming)
   useEffect(() => {
     if (initialLoadDone && sessionToolCalls.length > 0) {
-      const container = messagesContainerRef.current;
-      if (!container) return;
-      const isNearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 200;
-      if (isNearBottom) {
-        scrollToBottom();
-      }
+      scrollToBottomIfSticky();
     }
-  }, [sessionToolCalls, initialLoadDone, scrollToBottom]);
+  }, [sessionToolCalls, initialLoadDone, scrollToBottomIfSticky]);
 
   const handleSendMessage = async (content: string, attachments?: Attachment[]) => {
     if (!content.trim() && !attachments?.length) return;
@@ -329,6 +358,16 @@ export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar }:
 
     setTimeout(() => scrollToBottom(), 100);
   };
+
+  // Keep ref in sync and auto-send queued message when the current run finishes
+  handleSendMessageRef.current = handleSendMessage;
+  useEffect(() => {
+    if (!isLoading && isConnected && queuedMessageRef.current) {
+      const { content, attachments } = queuedMessageRef.current;
+      setQueuedMessage(null);
+      setTimeout(() => handleSendMessageRef.current?.(content, attachments), 0);
+    }
+  }, [isLoading, isConnected]);
 
   const handleResendLastMessage = useCallback(async () => {
     if (!resendText) return;
@@ -558,7 +597,7 @@ export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar }:
       <div
         ref={messagesContainerRef}
         className="flex-1 overflow-y-auto overflow-x-hidden pl-2 pr-3 py-2 md:p-4 relative min-h-0"
-        onScroll={handleScroll}
+        onScroll={handleMessagesScroll}
         onWheel={(e) => handleMessageWheel(e.deltaY)}
       >
         {/* Load more indicator */}
@@ -664,7 +703,7 @@ export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar }:
 
         {showScrollToBottom && (
           <button
-            onClick={jumpToBottomInstant}
+            onClick={handleJumpToBottom}
             className="sticky bottom-4 float-right mr-2 z-10 w-9 h-9 rounded-full bg-muted/90 border border-border shadow-md flex items-center justify-center hover:bg-muted transition-colors"
             aria-label="Scroll to bottom"
           >

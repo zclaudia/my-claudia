@@ -1,15 +1,20 @@
 import WebSocket from 'ws';
 import { SocksProxyAgent } from 'socks-proxy-agent';
 import type {
-  ClientToGatewayMessage,
-  GatewayToClientMessage,
+  PeerToGatewayMessage,
+  GatewayToPeerMessage,
   GatewayBackendInfo,
-  GatewayAuthResultMessage,
   GatewayBackendAuthResultMessage,
   GatewayBackendsListMessage,
   GatewayBackendMessageMessage,
   GatewayBackendDisconnectedMessage,
   GatewayErrorMessage,
+  PeerHelloMessage,
+  PeerHelloResultMessage,
+  BackendRegistryEntry,
+  GatewayRegistrySnapshotMessage,
+  GatewayRegistryUpsertMessage,
+  GatewayRegistryRemoveMessage,
   ClientMessage,
   ServerMessage,
 } from '@my-claudia/shared';
@@ -18,7 +23,7 @@ import type {
  * Gateway connection in CLIENT role.
  *
  * The existing GatewayClient connects as a BACKEND (register message).
- * This class connects as a CLIENT (gateway_auth message) and relays
+ * This class connects as a client-only PEER and relays
  * messages between the local desktop frontend and remote backends
  * through the gateway, using SOCKS5 proxy when configured.
  */
@@ -40,8 +45,12 @@ export class GatewayClientMode {
   private ws: WebSocket | null = null;
   private config: GatewayClientModeConfig;
   private authenticated = false;
+  private peerId: string | null = null;
   private authenticatedBackends = new Set<string>();
   private discoveredBackends: GatewayBackendInfo[] = [];
+  private registryEntries = new Map<string, BackendRegistryEntry>();
+  private clientDeviceId = '';
+  private clientInstanceId = '';
 
   // Reconnection
   private reconnectAttempts = 0;
@@ -120,15 +129,18 @@ export class GatewayClientMode {
     }
 
     this.ws = new WebSocket(`${wsUrl}/ws`, wsOptions);
+    const currentWs = this.ws;
 
     this.ws.on('open', () => {
-      console.log('[GatewayClientMode] Connected, authenticating...');
-      this.sendGatewayAuth();
+      if (this.ws !== currentWs) return;
+      console.log('[GatewayClientMode] Connected, sending peer_hello...');
+      this.sendPeerHello();
     });
 
     this.ws.on('message', (data: Buffer) => {
+      if (this.ws !== currentWs) return;
       try {
-        const message: GatewayToClientMessage = JSON.parse(data.toString());
+        const message: GatewayToPeerMessage = JSON.parse(data.toString());
         this.handleMessage(message);
       } catch (error) {
         console.error('[GatewayClientMode] Failed to parse message:', error);
@@ -136,15 +148,18 @@ export class GatewayClientMode {
     });
 
     this.ws.on('close', () => {
+      if (this.ws !== currentWs) return;
       console.log('[GatewayClientMode] Disconnected');
       this.authenticated = false;
       this.authenticatedBackends.clear();
       this.discoveredBackends = [];
+      this.registryEntries.clear();
       this.rejectAllPending();
       this.scheduleReconnect();
     });
 
     this.ws.on('error', (error) => {
+      if (this.ws !== currentWs) return;
       console.error('[GatewayClientMode] Connection error:', error);
     });
   }
@@ -161,8 +176,10 @@ export class GatewayClientMode {
       this.ws = null;
     }
     this.authenticated = false;
+    this.peerId = null;
     this.authenticatedBackends.clear();
     this.discoveredBackends = [];
+    this.registryEntries.clear();
     this.rejectAllPending();
   }
 
@@ -281,23 +298,38 @@ export class GatewayClientMode {
 
   // --- Private methods ---
 
-  private sendGatewayAuth(): void {
+  private sendPeerHello(): void {
+    // Use stable random identity for client-only peers to avoid empty-string collisions
+    if (!this.clientDeviceId) {
+      const rand = Math.random().toString(36).slice(2, 10);
+      this.clientDeviceId = `gwclient-${rand}`;
+      this.clientInstanceId = `gwclient-${rand}`;
+    }
     this.send({
-      type: 'gateway_auth',
+      type: 'peer_hello',
       gatewaySecret: this.config.gatewaySecret,
+      peerId: this.peerId || undefined,
+      capabilities: {
+        client: true,
+        backend: false,
+      },
+      identity: {
+        deviceId: this.clientDeviceId,
+        instanceId: this.clientInstanceId,
+      },
     });
   }
 
-  private send(message: ClientToGatewayMessage): void {
+  private send(message: PeerToGatewayMessage): void {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify(message));
     }
   }
 
-  private handleMessage(message: GatewayToClientMessage): void {
+  private handleMessage(message: GatewayToPeerMessage): void {
     switch (message.type) {
-      case 'gateway_auth_result':
-        this.handleAuthResult(message as GatewayAuthResultMessage);
+      case 'peer_hello_result':
+        this.handlePeerHelloResult(message as PeerHelloResultMessage);
         break;
 
       case 'backends_list':
@@ -319,19 +351,40 @@ export class GatewayClientMode {
       case 'gateway_error':
         this.handleGatewayError(message as GatewayErrorMessage);
         break;
+
+      case 'registry_snapshot':
+        this.handleRegistrySnapshot(message as GatewayRegistrySnapshotMessage);
+        break;
+
+      case 'registry_upsert':
+        this.handleRegistryUpsert(message as GatewayRegistryUpsertMessage);
+        break;
+
+      case 'registry_remove':
+        this.handleRegistryRemove(message as GatewayRegistryRemoveMessage);
+        break;
     }
   }
 
-  private handleAuthResult(message: GatewayAuthResultMessage): void {
+  private handlePeerHelloResult(message: PeerHelloResultMessage): void {
     if (message.success) {
       this.authenticated = true;
+      this.peerId = message.peerId;
       this.reconnectAttempts = 0;
-      if (message.backends) {
-        this.discoveredBackends = message.backends;
+
+      if (message.registrySnapshot) {
+        this.registryEntries.clear();
+        for (const entry of message.registrySnapshot) {
+          this.registryEntries.set(entry.backendId, entry);
+        }
+        this.deriveDiscoveredBackendsFromRegistry();
+      } else {
+        this.requestListBackends();
       }
-      console.log(`[GatewayClientMode] Authenticated. ${this.discoveredBackends.length} backends discovered.`);
+
+      console.log(`[GatewayClientMode] Peer authenticated. ${this.discoveredBackends.length} backends discovered.`);
     } else {
-      console.error(`[GatewayClientMode] Auth failed: ${message.error}`);
+      console.error(`[GatewayClientMode] Peer hello failed: ${message.error}`);
       this.ws?.close();
     }
   }
@@ -390,6 +443,41 @@ export class GatewayClientMode {
 
   private handleGatewayError(message: GatewayErrorMessage): void {
     console.error(`[GatewayClientMode] Gateway error: ${message.code} - ${message.message}`);
+  }
+
+  private handleRegistrySnapshot(message: GatewayRegistrySnapshotMessage): void {
+    this.registryEntries.clear();
+    for (const entry of message.registry) {
+      this.registryEntries.set(entry.backendId, entry);
+    }
+    this.deriveDiscoveredBackendsFromRegistry();
+  }
+
+  private handleRegistryUpsert(message: GatewayRegistryUpsertMessage): void {
+    this.registryEntries.set(message.entry.backendId, message.entry);
+    this.deriveDiscoveredBackendsFromRegistry();
+  }
+
+  private handleRegistryRemove(message: GatewayRegistryRemoveMessage): void {
+    this.registryEntries.delete(message.backendId);
+    this.deriveDiscoveredBackendsFromRegistry();
+  }
+
+  private deriveDiscoveredBackendsFromRegistry(): void {
+    this.discoveredBackends = Array.from(this.registryEntries.values())
+      .filter((entry) => entry.visible)
+      .map((entry) => ({
+        backendId: entry.backendId,
+        name: entry.name,
+        online: entry.online,
+        instanceId: entry.instanceId,
+        deviceId: entry.deviceId,
+        channel: entry.channel,
+      }));
+  }
+
+  private requestListBackends(): void {
+    this.send({ type: 'list_backends' });
   }
 
   private rejectAllPending(): void {

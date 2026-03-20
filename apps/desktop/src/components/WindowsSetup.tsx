@@ -30,7 +30,7 @@ export function WindowsSetup() {
     isConnected: isGatewayConnected,
     discoveredBackends,
     backendAuthStatus,
-    localBackendId,
+    currentInstanceId,
     setDirectGatewayConfig,
     setLastActiveBackend,
     showLocalBackend,
@@ -153,7 +153,7 @@ export function WindowsSetup() {
 
   const runningDistros = distros.filter(d => d.state === 'Running');
   const onlineBackends = discoveredBackends.filter(
-    b => b.online && shouldShowBackend(b, localBackendId, showLocalBackend)
+    b => b.online && shouldShowBackend(b, currentInstanceId, showLocalBackend)
   );
 
   // --- Layout wrapper ---

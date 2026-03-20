@@ -439,6 +439,9 @@ async function main() {
         gatewayClientMode.disconnect();
       }
 
+      // Deactivate all plugins (cleanup schedulers, event listeners, etc.)
+      await pluginLoader.deactivateAll();
+
       // Stop all managed OpenCode server processes
       await openCodeServerManager.stopAll();
 

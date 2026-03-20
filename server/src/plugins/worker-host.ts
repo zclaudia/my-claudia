@@ -14,6 +14,7 @@ import { commandRegistry } from '../commands/registry.js';
 import { toolRegistry } from './tool-registry.js';
 import { permissionManager } from './permissions.js';
 import { pluginStorageManager } from './storage.js';
+import { pluginScheduler } from './scheduler.js';
 import type { Permission } from '@my-claudia/shared';
 
 // ============================================
@@ -129,6 +130,7 @@ export class WorkerHost {
       if (code !== 0) {
         console.error(`[WorkerHost] Worker for ${pluginId} exited with code ${code}`);
       }
+      pluginScheduler.clearByPlugin(pluginId);
       this.workers.delete(pluginId);
     });
 
@@ -182,6 +184,7 @@ export class WorkerHost {
     commandRegistry.clearByPlugin(pluginId);
     toolRegistry.clearByPlugin(pluginId);
     pluginEvents.clearByPlugin(pluginId);
+    pluginScheduler.clearByPlugin(pluginId);
 
     console.log(`[WorkerHost] Plugin ${pluginId} worker stopped`);
   }
@@ -451,6 +454,36 @@ export class WorkerHost {
         return undefined;
       }
 
+      // Scheduler
+      case 'scheduler.register': {
+        if (!permissionManager.hasPermission(pluginId, 'timer' as Permission))
+          throw new Error('Permission denied: timer');
+        const taskId = args[0] as string;
+        const taskName = args[1] as string;
+        const intervalMs = args[2] as number;
+        const immediate = args[3] !== false;
+
+        // Register on host; when handler fires, forward to worker
+        pluginScheduler.register(pluginId, taskId, taskName, intervalMs, async () => {
+          await this.forwardSchedulerTick(entry, taskId);
+        }, immediate);
+        return undefined;
+      }
+      case 'scheduler.unregister': {
+        if (!permissionManager.hasPermission(pluginId, 'timer' as Permission))
+          throw new Error('Permission denied: timer');
+        const taskId = args[0] as string;
+        pluginScheduler.unregister(`plugin:${pluginId}/${taskId}`);
+        return undefined;
+      }
+      case 'scheduler.trigger': {
+        if (!permissionManager.hasPermission(pluginId, 'timer' as Permission))
+          throw new Error('Permission denied: timer');
+        const taskId = args[0] as string;
+        await pluginScheduler.trigger(`plugin:${pluginId}/${taskId}`);
+        return undefined;
+      }
+
       // Plugin inter-communication
       case 'exports':
         // Workers can't meaningfully export APIs (serialization boundary)
@@ -522,6 +555,40 @@ export class WorkerHost {
         id: callId,
         command,
         args,
+      });
+    });
+  }
+
+  /**
+   * Forward a scheduler tick to the worker and wait for completion.
+   */
+  private forwardSchedulerTick(entry: WorkerEntry, taskId: string): Promise<void> {
+    return new Promise((resolve) => {
+      const callId = `st_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+
+      const onMessage = (msg: any) => {
+        if (msg.type === 'scheduler_tick_result' && msg.id === callId) {
+          clearTimeout(timeout);
+          entry.worker.off('message', onMessage);
+          if (msg.error) {
+            console.error(`[WorkerHost] Scheduler tick ${taskId} error:`, msg.error);
+          }
+          resolve();
+        }
+      };
+
+      entry.worker.on('message', onMessage);
+
+      const timeout = setTimeout(() => {
+        entry.worker.off('message', onMessage);
+        console.error(`[WorkerHost] Scheduler tick ${taskId} timed out`);
+        resolve();
+      }, 60_000);
+
+      entry.worker.postMessage({
+        type: 'scheduler_tick',
+        id: callId,
+        taskId,
       });
     });
   }

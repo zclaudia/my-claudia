@@ -10,7 +10,7 @@ export function MobileSetup() {
     isConnected: isGatewayConnected,
     discoveredBackends,
     backendAuthStatus,
-    localBackendId,
+    currentInstanceId,
     setDirectGatewayConfig,
     setLastActiveBackend,
   } = useGatewayStore();
@@ -69,7 +69,7 @@ export function MobileSetup() {
 
   const { showLocalBackend } = useGatewayStore();
   const onlineBackends = discoveredBackends.filter(
-    b => b.online && shouldShowBackend(b, localBackendId, showLocalBackend)
+    b => b.online && shouldShowBackend(b, currentInstanceId, showLocalBackend)
   );
 
   // Phase 2: Gateway connected — show backend selection

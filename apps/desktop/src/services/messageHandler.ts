@@ -99,6 +99,33 @@ function upsertBackgroundTask(taskId: string, task: import('../stores/background
   backgroundTaskStore.addTask(task);
 }
 
+function reconcileStaleBackgroundRunTasks(
+  serverId: string,
+  activeBackgroundSessionIds: Set<string>,
+): void {
+  const backgroundTaskStore = useBackgroundTaskStore.getState();
+  const now = Date.now();
+
+  for (const task of Object.values(backgroundTaskStore.tasks)) {
+    if (task.source !== 'background_run') continue;
+    // Skip tasks belonging to a different server; include tasks with no serverId (legacy)
+    if (task.serverId && task.serverId !== serverId) continue;
+    if (task.status !== 'started' && task.status !== 'in_progress' && task.status !== 'paused') continue;
+    if (!task.id.startsWith('background:')) continue;
+
+    const backgroundSessionId = task.id.slice('background:'.length);
+    if (activeBackgroundSessionIds.has(backgroundSessionId)) continue;
+
+    backgroundTaskStore.updateTask(task.id, {
+      status: 'stopped',
+      summary: task.summary
+        ? `${task.summary}\nBackground task no longer active after reconnect`
+        : 'Background task no longer active after reconnect',
+      completedAt: now,
+    });
+  }
+}
+
 /**
  * Process a server message through the unified handler.
  * Handles all message types except `auth_result` (transport-specific).
@@ -343,6 +370,7 @@ export function handleServerMessage(
 
       upsertBackgroundTask(taskId, {
         id: taskId,
+        serverId,
         sessionId: targetSessionId,
         description: msg.name || 'Background Task',
         source: 'background_run',
@@ -361,6 +389,7 @@ export function handleServerMessage(
       if (msg.sessionId && msg.taskId) {
         upsertBackgroundTask(msg.taskId, {
           id: msg.taskId,
+          serverId,
           sessionId: msg.sessionId,
           description: msg.message || 'Background Task',
           source: 'sdk_task',
@@ -384,6 +413,7 @@ export function handleServerMessage(
     case 'task_progress': {
       upsertBackgroundTask(msg.taskId, {
         id: msg.taskId,
+        serverId,
         toolUseId: msg.toolUseId,
         sessionId: msg.sessionId,
         description: msg.description || 'Background Task',
@@ -400,6 +430,7 @@ export function handleServerMessage(
     case 'task_status_notification': {
       upsertBackgroundTask(msg.taskId, {
         id: msg.taskId,
+        serverId,
         toolUseId: msg.toolUseId,
         sessionId: msg.sessionId,
         description: msg.summary || 'Background Task',
@@ -465,6 +496,11 @@ export function handleServerMessage(
       const chatState = useChatStore.getState();
 
       const serverActiveRunIds = new Set(heartbeat.activeRuns.map(r => r.runId));
+      const activeBackgroundSessionIds = new Set(
+        heartbeat.activeRuns
+          .filter(r => r.sessionType === 'background')
+          .map(r => r.sessionId)
+      );
 
       // Add missing runs (server has active run, client doesn't know about it)
       for (const run of heartbeat.activeRuns) {
@@ -516,6 +552,8 @@ export function handleServerMessage(
           loopPattern: run.loopPattern,
         });
       }
+
+      reconcileStaleBackgroundRunTasks(serverId, activeBackgroundSessionIds);
 
       // Reconcile permissions — always clear stale (fixes direct connections not cleaning up)
       const validPermIds = new Set<string>(heartbeat.pendingPermissions.map(p => p.requestId));

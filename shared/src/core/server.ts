@@ -67,7 +67,8 @@ export interface GatewayBackendInfo {
   backendId: string;
   name: string;
   online: boolean;
-  isLocal?: boolean;
+  isThisInstance?: boolean;  // true if instanceId matches current instance
+  isThisDevice?: boolean;    // true if deviceId matches current device
   instanceId?: string;
   deviceId?: string;
   channel?: string;

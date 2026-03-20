@@ -81,13 +81,14 @@ describe('Gateway Backend Message Handling', () => {
     backendCollector = createMessageCollector(backendWs);
     
     backendWs.send(JSON.stringify({
-      type: 'register',
+      type: 'peer_hello',
       gatewaySecret: GATEWAY_SECRET,
-      deviceId: 'test-backend-device',
-      name: 'Test Backend'
+      capabilities: { client: false, backend: true },
+      identity: { deviceId: 'test-backend-device', instanceId: 'inst-test-backend-device', name: 'Test Backend' },
+      backend: { visible: true }
     }));
-    
-    const regResult = await waitForMessage(backendWs, 'register_result');
+
+    const regResult = await waitForMessage(backendWs, 'peer_hello_result');
     backendId = regResult.backendId;
   });
 
@@ -106,10 +107,12 @@ describe('Gateway Backend Message Handling', () => {
 
     // Authenticate with gateway
     clientWs.send(JSON.stringify({
-      type: 'gateway_auth',
+      type: 'peer_hello',
       gatewaySecret: GATEWAY_SECRET,
+      capabilities: { client: true, backend: false },
+      identity: { deviceId: '', instanceId: '' }
     }));
-    await waitForMessage(clientWs, 'gateway_auth_result');
+    await waitForMessage(clientWs, 'peer_hello_result');
 
     // Connect to each backend
     for (const bid of backendIds) {
@@ -134,11 +137,11 @@ describe('Gateway Backend Message Handling', () => {
   }
 
   describe('Backend Registration', () => {
-    test('should receive backends_list after registration', async () => {
-      // backends_list is sent after registration
-      const backendsList = backendCollector.find(m => m.type === 'backends_list');
-      expect(backendsList).toBeDefined();
-      expect(backendsList.backends).toBeInstanceOf(Array);
+    test('should receive registry_snapshot after registration', async () => {
+      // peer_hello_result includes registrySnapshot
+      const helloResult = backendCollector.find(m => m.type === 'peer_hello_result');
+      expect(helloResult).toBeDefined();
+      expect(helloResult.registrySnapshot).toBeInstanceOf(Array);
     });
 
     test('should generate unique backendId for each device', async () => {
@@ -147,13 +150,14 @@ describe('Gateway Backend Message Handling', () => {
       await waitForOpen(backendWs2);
       
       backendWs2.send(JSON.stringify({
-        type: 'register',
+        type: 'peer_hello',
         gatewaySecret: GATEWAY_SECRET,
-        deviceId: 'different-device',
-        name: 'Second Backend'
+        capabilities: { client: false, backend: true },
+        identity: { deviceId: 'different-device', instanceId: 'inst-different-device', name: 'Second Backend' },
+        backend: { visible: true }
       }));
-      
-      const regResult = await waitForMessage(backendWs2, 'register_result');
+
+      const regResult = await waitForMessage(backendWs2, 'peer_hello_result');
       expect(regResult.backendId).not.toBe(backendId);
       expect(regResult.backendId).toMatch(/^[a-f0-9]{8}$/);
 
@@ -166,22 +170,23 @@ describe('Gateway Backend Message Handling', () => {
       const collector = createMessageCollector(hiddenBackendWs);
       
       hiddenBackendWs.send(JSON.stringify({
-        type: 'register',
+        type: 'peer_hello',
         gatewaySecret: GATEWAY_SECRET,
-        deviceId: 'hidden-device',
-        name: 'Hidden Backend',
-        visible: false
+        capabilities: { client: false, backend: true },
+        identity: { deviceId: 'hidden-device', instanceId: 'inst-hidden-device', name: 'Hidden Backend' },
+        backend: { visible: false }
       }));
-      
-      const regResult = await waitForMessage(hiddenBackendWs, 'register_result');
+
+      const regResult = await waitForMessage(hiddenBackendWs, 'peer_hello_result');
       expect(regResult.success).toBe(true);
 
-      // The hidden backend should still receive backends_list
-      const backendsList = collector.find(m => m.type === 'backends_list');
-      expect(backendsList).toBeDefined();
-      // Hidden backend should not appear in the list
-      const hiddenInList = backendsList.backends.find((b: any) => b.backendId === regResult.backendId);
-      expect(hiddenInList).toBeUndefined();
+      // The hidden backend should still receive registrySnapshot in peer_hello_result
+      const helloResult = collector.find(m => m.type === 'peer_hello_result');
+      expect(helloResult).toBeDefined();
+      // Hidden backend should appear in registry but with visible: false
+      const hiddenInRegistry = helloResult.registrySnapshot.find((b: any) => b.backendId === regResult.backendId);
+      expect(hiddenInRegistry).toBeDefined();
+      expect(hiddenInRegistry.visible).toBe(false);
 
       await closeWs(hiddenBackendWs);
     });
@@ -191,12 +196,14 @@ describe('Gateway Backend Message Handling', () => {
       await waitForOpen(noNameBackendWs);
       
       noNameBackendWs.send(JSON.stringify({
-        type: 'register',
+        type: 'peer_hello',
         gatewaySecret: GATEWAY_SECRET,
-        deviceId: 'no-name-device'
+        capabilities: { client: false, backend: true },
+        identity: { deviceId: 'no-name-device', instanceId: 'inst-no-name-device' },
+        backend: { visible: true }
       }));
-      
-      const regResult = await waitForMessage(noNameBackendWs, 'register_result');
+
+      const regResult = await waitForMessage(noNameBackendWs, 'peer_hello_result');
       expect(regResult.success).toBe(true);
       expect(regResult.backendId).toBeDefined();
 
@@ -244,13 +251,15 @@ describe('Gateway Backend Message Handling', () => {
       const clientWs = new WebSocket(WS_URL);
       await waitForOpen(clientWs);
       openClients.push(clientWs);
-      
+
       // Authenticate with gateway
       clientWs.send(JSON.stringify({
-        type: 'gateway_auth',
+        type: 'peer_hello',
         gatewaySecret: GATEWAY_SECRET,
+        capabilities: { client: true, backend: false },
+        identity: { deviceId: '', instanceId: '' }
       }));
-      await waitForMessage(clientWs, 'gateway_auth_result');
+      await waitForMessage(clientWs, 'peer_hello_result');
 
       // Connect to backend
       clientWs.send(JSON.stringify({
@@ -277,12 +286,14 @@ describe('Gateway Backend Message Handling', () => {
       const clientWs = new WebSocket(WS_URL);
       await waitForOpen(clientWs);
       openClients.push(clientWs);
-      
+
       clientWs.send(JSON.stringify({
-        type: 'gateway_auth',
+        type: 'peer_hello',
         gatewaySecret: GATEWAY_SECRET,
+        capabilities: { client: true, backend: false },
+        identity: { deviceId: '', instanceId: '' }
       }));
-      await waitForMessage(clientWs, 'gateway_auth_result');
+      await waitForMessage(clientWs, 'peer_hello_result');
 
       clientWs.send(JSON.stringify({
         type: 'connect_backend',
@@ -401,13 +412,14 @@ describe('Gateway Backend Message Handling', () => {
       await waitForOpen(lonelyBackendWs);
       
       lonelyBackendWs.send(JSON.stringify({
-        type: 'register',
+        type: 'peer_hello',
         gatewaySecret: GATEWAY_SECRET,
-        deviceId: 'lonely-device',
-        name: 'Lonely Backend'
+        capabilities: { client: false, backend: true },
+        identity: { deviceId: 'lonely-device', instanceId: 'inst-lonely-device', name: 'Lonely Backend' },
+        backend: { visible: true }
       }));
-      
-      await waitForMessage(lonelyBackendWs, 'register_result');
+
+      await waitForMessage(lonelyBackendWs, 'peer_hello_result');
 
       // Try to broadcast - should not throw
       lonelyBackendWs.send(JSON.stringify({
@@ -482,12 +494,13 @@ describe('Gateway Backend Message Handling', () => {
       const backendWs2 = new WebSocket(WS_URL);
       await waitForOpen(backendWs2);
       backendWs2.send(JSON.stringify({
-        type: 'register',
+        type: 'peer_hello',
         gatewaySecret: GATEWAY_SECRET,
-        deviceId: 'second-device',
-        name: 'Second Backend'
+        capabilities: { client: false, backend: true },
+        identity: { deviceId: 'second-device', instanceId: 'inst-second-device', name: 'Second Backend' },
+        backend: { visible: true }
       }));
-      const regResult = await waitForMessage(backendWs2, 'register_result');
+      const regResult = await waitForMessage(backendWs2, 'peer_hello_result');
       const backendId2 = regResult.backendId;
 
       // Clear collector

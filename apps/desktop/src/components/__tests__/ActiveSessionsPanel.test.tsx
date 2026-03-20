@@ -40,7 +40,7 @@ describe('ActiveSessionsPanel', () => {
       });
       useGatewayStore.setState({
         discoveredBackends: [
-          { backendId, name: 'Test Backend', online: true, isLocal: false } as any,
+          { backendId, name: 'Test Backend', online: true, isThisInstance: false } as any,
         ],
         gatewayUrl: 'ws://gateway.test',
         gatewaySecret: 'secret',
@@ -95,7 +95,7 @@ describe('ActiveSessionsPanel', () => {
       useGatewayStore.setState({
         localBackendId,
         discoveredBackends: [
-          { backendId: localBackendId, name: 'My Local Backend', online: true, isLocal: true } as any,
+          { backendId: localBackendId, name: 'My Local Backend', online: true, isThisInstance: true } as any,
         ],
       });
       useProjectStore.setState({ sessions: [] }); // stale: no local active session
@@ -178,7 +178,7 @@ describe('ActiveSessionsPanel', () => {
       });
       useGatewayStore.setState({
         discoveredBackends: [
-          { backendId, name: 'My Backend', online: true, isLocal: false } as any,
+          { backendId, name: 'My Backend', online: true, isThisInstance: false } as any,
         ],
         gatewayUrl: 'ws://gateway.test',
         gatewaySecret: 'secret',
@@ -207,7 +207,7 @@ describe('ActiveSessionsPanel', () => {
       });
       useGatewayStore.setState({
         discoveredBackends: [
-          { backendId, name: 'Mac Mini Agent', online: true, isLocal: false } as any,
+          { backendId, name: 'Mac Mini Agent', online: true, isThisInstance: false } as any,
         ],
       });
 

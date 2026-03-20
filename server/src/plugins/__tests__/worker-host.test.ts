@@ -16,6 +16,7 @@ const {
   mockToolRegistry,
   mockCommandRegistry,
   mockPermissionManager,
+  mockPluginScheduler,
   mockStorage,
   mockFsPromises,
 } = vi.hoisted(() => {
@@ -54,6 +55,12 @@ const {
       hasPermission: vi.fn(() => false),
       hasAllPermissions: vi.fn(() => false),
       getGrantedPermissions: vi.fn(() => []),
+    },
+    mockPluginScheduler: {
+      register: vi.fn(),
+      unregister: vi.fn(),
+      trigger: vi.fn().mockResolvedValue(undefined),
+      clearByPlugin: vi.fn(),
     },
     mockStorage: {
       get: vi.fn().mockReturnValue('value1'),
@@ -151,6 +158,10 @@ vi.mock('../../commands/registry.js', () => ({
 
 vi.mock('../permissions.js', () => ({
   permissionManager: mockPermissionManager,
+}));
+
+vi.mock('../scheduler.js', () => ({
+  pluginScheduler: mockPluginScheduler,
 }));
 
 vi.mock('../storage.js', () => ({
@@ -284,6 +295,7 @@ describe('WorkerHost', () => {
       expect(errorSpy).toHaveBeenCalledWith(
         expect.stringContaining('exited with code 1'),
       );
+      expect(mockPluginScheduler.clearByPlugin).toHaveBeenCalledWith('test.plugin');
       expect(host.hasWorker('test.plugin')).toBe(false);
       errorSpy.mockRestore();
     });
@@ -298,6 +310,7 @@ describe('WorkerHost', () => {
       expect(errorSpy).not.toHaveBeenCalledWith(
         expect.stringContaining('exited with code'),
       );
+      expect(mockPluginScheduler.clearByPlugin).toHaveBeenCalledWith('test.plugin');
       errorSpy.mockRestore();
     });
   });
@@ -319,6 +332,7 @@ describe('WorkerHost', () => {
       expect(mockCommandRegistry.clearByPlugin).toHaveBeenCalledWith('test.plugin');
       expect(mockToolRegistry.clearByPlugin).toHaveBeenCalledWith('test.plugin');
       expect(mockPluginEvents.clearByPlugin).toHaveBeenCalledWith('test.plugin');
+      expect(mockPluginScheduler.clearByPlugin).toHaveBeenCalledWith('test.plugin');
       logSpy.mockRestore();
     });
 
@@ -460,6 +474,27 @@ describe('WorkerHost', () => {
       const resp = await sendRPC(host, 'storage.clear', []);
       expect(mockStorage.clear).toHaveBeenCalled();
       expect(resp.error).toBeUndefined();
+    });
+
+    it('should reject scheduler.unregister without timer permission', async () => {
+      mockPermissionManager.hasPermission.mockReturnValue(false);
+      const resp = await sendRPC(host, 'scheduler.unregister', ['poll']);
+      expect(resp.error).toContain('Permission denied: timer');
+      expect(mockPluginScheduler.unregister).not.toHaveBeenCalled();
+    });
+
+    it('should reject scheduler.trigger without timer permission', async () => {
+      mockPermissionManager.hasPermission.mockReturnValue(false);
+      const resp = await sendRPC(host, 'scheduler.trigger', ['poll']);
+      expect(resp.error).toContain('Permission denied: timer');
+      expect(mockPluginScheduler.trigger).not.toHaveBeenCalled();
+    });
+
+    it('should forward scheduler trigger when timer permission is granted', async () => {
+      mockPermissionManager.hasPermission.mockReturnValue(true);
+      const resp = await sendRPC(host, 'scheduler.trigger', ['poll']);
+      expect(resp.error).toBeUndefined();
+      expect(mockPluginScheduler.trigger).toHaveBeenCalledWith('plugin:test.plugin/poll');
     });
 
     // --- Events RPC ---

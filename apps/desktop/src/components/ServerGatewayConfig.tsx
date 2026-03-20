@@ -28,7 +28,7 @@ export function ServerGatewayConfig() {
 
   const { showLocalBackend, setShowLocalBackend } = useGatewayStore();
   const visibleDiscoveredBackends = (status?.discoveredBackends || []).filter((b) =>
-    shouldShowBackend(b, status?.backendId || null, showLocalBackend)
+    shouldShowBackend(b, status?.instanceId || null, showLocalBackend)
   );
 
   // Load config on mount
@@ -55,6 +55,19 @@ export function ServerGatewayConfig() {
       setConfig(configData);
       setStatus(statusData);
 
+      // Sync to gateway store on initial load
+      if (statusData.enabled && statusData.gatewayUrl && statusData.gatewaySecret) {
+        useGatewayStore.getState().syncFromServer(
+          statusData.gatewayUrl,
+          statusData.gatewaySecret,
+          statusData.discoveredBackends,
+          statusData.backendId,
+          statusData.connected,
+          statusData.instanceId ?? null,
+          statusData.currentDeviceId ?? null
+        );
+      }
+
       // Update form state
       setEnabled(configData.enabled);
       setGatewayUrl(configData.gatewayUrl || '');
@@ -76,6 +89,20 @@ export function ServerGatewayConfig() {
     try {
       const statusData = await getServerGatewayStatus();
       setStatus(statusData);
+
+      // Sync to gateway store so ServerSelector updates promptly
+      // (instead of waiting for its own 30s poll interval)
+      if (statusData.enabled && statusData.gatewayUrl && statusData.gatewaySecret) {
+        useGatewayStore.getState().syncFromServer(
+          statusData.gatewayUrl,
+          statusData.gatewaySecret,
+          statusData.discoveredBackends,
+          statusData.backendId,
+          statusData.connected,
+          statusData.instanceId ?? null,
+          statusData.currentDeviceId ?? null
+        );
+      }
     } catch (err) {
       console.error('Failed to load status:', err);
     }
@@ -218,6 +245,9 @@ export function ServerGatewayConfig() {
               <div className="flex items-center gap-2">
                 <span className={`w-1.5 h-1.5 rounded-full ${b.online ? 'bg-success' : 'bg-muted-foreground'}`} />
                 <span className="text-foreground">{b.name}</span>
+                {b.backendId === status?.backendId && (
+                  <span className="px-1.5 py-0.5 bg-primary/20 text-primary text-xs rounded">Local</span>
+                )}
               </div>
               <span className="text-xs text-muted-foreground font-mono">{b.backendId}</span>
             </div>

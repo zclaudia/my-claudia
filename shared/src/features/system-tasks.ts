@@ -1,6 +1,6 @@
 // System Task Types
 
-export type SystemTaskCategory = 'scheduling' | 'sync' | 'maintenance' | 'supervision';
+export type SystemTaskCategory = 'scheduling' | 'sync' | 'maintenance' | 'supervision' | 'plugin';
 
 export interface SystemTaskInfo {
   id: string;

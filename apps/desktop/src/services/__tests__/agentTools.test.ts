@@ -157,15 +157,15 @@ describe('executeToolCall', () => {
       });
       mockGatewayState.mockReturnValue(desktopGw({
         discoveredBackends: [
-          { backendId: 'remote-1', name: 'Remote Box', online: true, isLocal: false },
+          { backendId: 'remote-1', name: 'Remote Box', online: true, isThisInstance: false },
         ],
       }));
 
       const result = await executeToolCall(makeToolCall('list_backends'));
       const parsed = JSON.parse(result);
       expect(parsed.backends).toHaveLength(2);
-      expect(parsed.backends[0]).toMatchObject({ id: 'local', isLocal: true, online: true });
-      expect(parsed.backends[1]).toMatchObject({ id: 'remote-1', isLocal: false, online: true });
+      expect(parsed.backends[0]).toMatchObject({ id: 'local', isThisInstance: true, online: true });
+      expect(parsed.backends[1]).toMatchObject({ id: 'remote-1', isThisInstance: false, online: true });
     });
 
     it('skips gateway-prefixed servers from local list', async () => {
@@ -181,11 +181,11 @@ describe('executeToolCall', () => {
       expect(parsed.backends).toHaveLength(0);
     });
 
-    it('skips isLocal backends from gateway list (desktop)', async () => {
+    it('skips isThisInstance backends from gateway list (desktop)', async () => {
       mockServerState.mockReturnValue({ servers: [] });
       mockGatewayState.mockReturnValue(desktopGw({
         discoveredBackends: [
-          { backendId: 'local-gw', name: 'Local via GW', online: true, isLocal: true },
+          { backendId: 'local-gw', name: 'Local via GW', online: true, isThisInstance: true },
         ],
       }));
 
@@ -202,7 +202,7 @@ describe('executeToolCall', () => {
       });
       mockGatewayState.mockReturnValue(mobileGw({
         discoveredBackends: [
-          { backendId: 'coder-server', name: 'Coder Server', online: true, isLocal: false },
+          { backendId: 'coder-server', name: 'Coder Server', online: true, isThisInstance: false },
         ],
       }));
 
@@ -212,13 +212,13 @@ describe('executeToolCall', () => {
       expect(parsed.backends[0]).toMatchObject({ id: 'coder-server', name: 'Coder Server' });
     });
 
-    it('includes isLocal gateway backend on mobile', async () => {
+    it('includes isThisInstance gateway backend on mobile', async () => {
       mockServerState.mockReturnValue({
         servers: [{ id: 'local', name: 'Local Server', address: 'localhost:3100' }],
       });
       mockGatewayState.mockReturnValue(mobileGw({
         discoveredBackends: [
-          { backendId: 'my-backend', name: 'My Backend', online: true, isLocal: true },
+          { backendId: 'my-backend', name: 'My Backend', online: true, isThisInstance: true },
         ],
       }));
 
@@ -879,7 +879,7 @@ describe('executeToolCall', () => {
       });
       mockGatewayState.mockReturnValue(mobileGw({
         discoveredBackends: [
-          { backendId: 'my-backend', name: 'My Backend', online: true, isLocal: true },
+          { backendId: 'my-backend', name: 'My Backend', online: true, isThisInstance: true },
         ],
       }));
       (resolveGatewayBackendUrl as ReturnType<typeof vi.fn>).mockReturnValue('https://gw.example.com/api/proxy/my-backend');

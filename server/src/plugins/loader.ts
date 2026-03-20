@@ -38,6 +38,7 @@ import { pluginStorageManager } from './storage.js';
 import { createProviderAPI } from './provider-api.js';
 import { workerHost } from './worker-host.js';
 import { workflowStepRegistry } from './workflow-step-registry.js';
+import { pluginScheduler } from './scheduler.js';
 
 // ============================================
 // Types
@@ -600,6 +601,9 @@ export class PluginLoader {
     // Clear event listeners
     pluginEvents.clearByPlugin(pluginId);
 
+    // Clear scheduled tasks
+    pluginScheduler.clearByPlugin(pluginId);
+
     // Notify frontend to unregister panels
     this.broadcastFn?.({ type: 'plugin_panel_unregistered', pluginId });
   }
@@ -941,6 +945,31 @@ export class PluginLoader {
                 throw new Error('Permission denied: notification');
               pluginEvents.emit('plugin.notification', { pluginId, title, body }).catch(() => {});
               this.broadcastFn?.({ type: 'plugin_notification', pluginId, title, body });
+            },
+          }
+        : undefined,
+
+      // Scheduler API (requires timer permission)
+      scheduler: permissionManager.hasPermission(pluginId, 'timer' as Permission)
+        ? {
+            register: (
+              task: { id: string; name: string; intervalMs: number; immediate?: boolean },
+              handler: () => Promise<void> | void,
+            ) => {
+              return pluginScheduler.register(
+                pluginId,
+                task.id,
+                task.name,
+                task.intervalMs,
+                handler,
+                task.immediate !== false,
+              );
+            },
+            unregister: (taskId: string) => {
+              pluginScheduler.unregister(`plugin:${pluginId}/${taskId}`);
+            },
+            trigger: async (taskId: string) => {
+              await pluginScheduler.trigger(`plugin:${pluginId}/${taskId}`);
             },
           }
         : undefined,

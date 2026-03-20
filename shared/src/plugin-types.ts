@@ -384,6 +384,7 @@ export interface PluginContext {
   notification?: NotificationAPI;
   clipboard?: ClipboardAPI;
   shell?: ShellAPI;
+  scheduler?: PluginSchedulerAPI;
 
   // 应用 API
   session?: SessionAPI;
@@ -570,4 +571,28 @@ export function resolvePluginPlatform(manifest: PluginManifest): PluginPlatform 
     || !!manifest.frontend;
 
   return hasUI ? 'desktop' : 'universal';
+}
+
+// ============================================
+// Plugin Scheduler Types
+// ============================================
+
+export interface PluginSchedulerTask {
+  /** Unique task ID (scoped to plugin, e.g. 'poll-messages') */
+  id: string;
+  /** Human-readable name */
+  name: string;
+  /** Interval in milliseconds */
+  intervalMs: number;
+  /** Whether to run immediately on register (default: true) */
+  immediate?: boolean;
+}
+
+export interface PluginSchedulerAPI {
+  /** Register a periodic task. Returns a dispose function. */
+  register(task: PluginSchedulerTask, handler: () => Promise<void> | void): () => void;
+  /** Unregister a task by ID. */
+  unregister(taskId: string): void;
+  /** Trigger a task immediately (outside its schedule). */
+  trigger(taskId: string): Promise<void>;
 }

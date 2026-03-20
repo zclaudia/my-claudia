@@ -5,26 +5,23 @@ import crypto from 'crypto';
 import express, { Request, Response } from 'express';
 import type {
   GatewayBackendInfo,
-  GatewayRegisterMessage,
-  GatewayAuthMessage,
-  GatewayListBackendsMessage,
   GatewayConnectBackendMessage,
   GatewaySendToBackendMessage,
   GatewayUpdateSubscriptionsMessage,
-  GatewayToBackendMessage,
-  GatewayToClientMessage,
+  GatewayToPeerMessage,
   BackendToGatewayMessage,
+  PeerHelloMessage,
+  PeerHelloResultMessage,
   GatewayHttpProxyRequest,
   GatewayHttpProxyResponse,
   GatewayHttpProxyResponseStart,
   GatewayHttpProxyResponseChunk,
   GatewayHttpProxyResponseEnd,
   BackendRegistryEntry,
+  BackendSessionEventMessage,
   GatewayRegistrySnapshotMessage,
   GatewayRegistryUpsertMessage,
   GatewayRegistryRemoveMessage,
-  ClientMessage,
-  ServerMessage
 } from '@my-claudia/shared';
 import { GatewayStorage } from './storage.js';
 
@@ -41,7 +38,6 @@ interface ConnectedBackend {
   channel: string;      // 'prod' | 'dev' | string
   name: string;         // Display name
   ws: WebSocket;
-  isAlive: boolean;
   visible: boolean;     // Whether this backend appears in backends_list for others
   registeredAt: number; // Timestamp when first registered
 }
@@ -50,10 +46,23 @@ interface ConnectedBackend {
 interface ConnectedClient {
   id: string;           // clientId
   ws: WebSocket;
-  isAlive: boolean;
   authenticated: boolean;  // Gateway auth status
   backendAuths: Set<string>;  // backendIds this client is authenticated to
   explicitSubscriptions: Set<string> | null;  // null = subscribe to all, Set = explicit list
+  peerId?: string;      // If this client belongs to a peer connection
+}
+
+// Connected peer (single connection with both client + backend capabilities)
+interface ConnectedPeer {
+  peerId: string;
+  ws: WebSocket;
+  isAlive: boolean;
+  capabilities: {
+    client: boolean;
+    backend: boolean;
+  };
+  backendId?: string;   // Set if peer has backend capability
+  clientId?: string;    // Set if peer has client capability
 }
 
 /** Timing-safe string comparison to prevent timing attacks */
@@ -75,6 +84,7 @@ export function createGatewayServer(config: GatewayConfig): Server {
   const clients = new Map<string, ConnectedClient>();    // clientId -> client
   const backendConnections = new Map<WebSocket, ConnectedBackend>();  // ws -> backend (for lookup)
   const backendSubscriptions = new Map<string, Set<string>>();  // backendId -> Set<clientId> (subscription tracking)
+  const peers = new Map<string, ConnectedPeer>();  // peerId -> peer (Phase 3: single connection)
 
   // Pending HTTP proxy requests: requestId -> { resolve, reject, timeout, res }
   const pendingHttpRequests = new Map<string, {
@@ -314,25 +324,14 @@ export function createGatewayServer(config: GatewayConfig): Server {
 
   // Ping interval for connection health
   const pingInterval = setInterval(() => {
-    backends.forEach((backend, backendId) => {
-      if (!backend.isAlive) {
-        console.log(`Backend ${backendId} disconnected (ping timeout)`);
-        handleBackendDisconnect(backendId);
+    peers.forEach((peer, peerId) => {
+      if (!peer.isAlive) {
+        console.log(`Peer ${peerId} disconnected (ping timeout)`);
+        handlePeerDisconnect(peerId);
         return;
       }
-      backend.isAlive = false;
-      backend.ws.ping();
-    });
-
-    clients.forEach((client, clientId) => {
-      if (!client.isAlive) {
-        console.log(`Client ${clientId} disconnected (ping timeout)`);
-        client.ws.terminate();
-        clients.delete(clientId);
-        return;
-      }
-      client.isAlive = false;
-      client.ws.ping();
+      peer.isAlive = false;
+      peer.ws.ping();
     });
   }, 30000);
 
@@ -347,9 +346,8 @@ export function createGatewayServer(config: GatewayConfig): Server {
     }
     wsConnectionsPerIp.set(ip, currentCount + 1);
 
-    // We don't know yet if this is a backend or client
-    // Wait for the first message to determine
-    let connectionType: 'backend' | 'client' | null = null;
+    // Wait for peer_hello to determine connection capabilities
+    let connectionType: 'peer' | null = null;
     let connectionId: string | null = null;
 
     // Close unauthenticated connections after 10 seconds
@@ -360,12 +358,9 @@ export function createGatewayServer(config: GatewayConfig): Server {
     }, 10_000);
 
     ws.on('pong', () => {
-      if (connectionType === 'backend' && connectionId) {
-        const backend = backends.get(connectionId);
-        if (backend) backend.isAlive = true;
-      } else if (connectionType === 'client' && connectionId) {
-        const client = clients.get(connectionId);
-        if (client) client.isAlive = true;
+      if (connectionType === 'peer' && connectionId) {
+        const peer = peers.get(connectionId);
+        if (peer) peer.isAlive = true;
       }
     });
 
@@ -373,34 +368,26 @@ export function createGatewayServer(config: GatewayConfig): Server {
       try {
         const message = JSON.parse(data.toString());
 
-        // First message determines connection type
+        // First message must be peer_hello
         if (!connectionType) {
           clearTimeout(authTimeout);
-          if (message.type === 'register') {
-            // This is a backend
-            connectionType = 'backend';
-            connectionId = handleBackendRegister(ws, message as GatewayRegisterMessage);
-          } else if (message.type === 'gateway_auth') {
-            // This is a client
-            connectionType = 'client';
-            connectionId = handleClientAuth(ws, message as GatewayAuthMessage);
+          if (message.type === 'peer_hello') {
+            connectionType = 'peer';
+            connectionId = handlePeerHello(ws, message as PeerHelloMessage);
           } else {
-            // Unknown first message - reject
             sendToWs(ws, {
               type: 'gateway_error',
               code: 'INVALID_FIRST_MESSAGE',
-              message: 'First message must be register (for backends) or gateway_auth (for clients)'
+              message: 'First message must be peer_hello'
             });
             ws.close();
           }
           return;
         }
 
-        // Handle subsequent messages based on connection type
-        if (connectionType === 'backend' && connectionId) {
-          handleBackendMessage(connectionId, message as BackendToGatewayMessage);
-        } else if (connectionType === 'client' && connectionId) {
-          handleClientMessage(connectionId, message);
+        // Handle subsequent messages
+        if (connectionType === 'peer' && connectionId) {
+          handlePeerMessage(connectionId, message);
         }
       } catch (error) {
         console.error('Error handling message:', error);
@@ -422,17 +409,8 @@ export function createGatewayServer(config: GatewayConfig): Server {
         wsConnectionsPerIp.set(ip, count - 1);
       }
 
-      if (connectionType === 'backend' && connectionId) {
-        // Only disconnect if this ws is still the registered one (not replaced by a reconnect)
-        const current = backends.get(connectionId);
-        if (current && current.ws === ws) {
-          handleBackendDisconnect(connectionId);
-        } else {
-          // Old connection closed after being replaced — just clean up the mapping
-          backendConnections.delete(ws);
-        }
-      } else if (connectionType === 'client' && connectionId) {
-        handleClientDisconnect(connectionId);
+      if (connectionType === 'peer' && connectionId) {
+        handlePeerDisconnect(connectionId);
       }
     });
 
@@ -448,87 +426,6 @@ export function createGatewayServer(config: GatewayConfig): Server {
   });
 
   // --- Backend handlers ---
-
-  function handleBackendRegister(ws: WebSocket, message: GatewayRegisterMessage): string | null {
-    // Validate gateway secret (timing-safe)
-    if (!safeCompare(message.gatewaySecret, config.gatewaySecret)) {
-      sendToWs(ws, {
-        type: 'register_result',
-        success: false,
-        error: 'Invalid gateway secret'
-      });
-      ws.close();
-      return null;
-    }
-
-    // Resolve instanceId and backendId
-    const channel = message.channel || 'prod';
-    let instanceId: string;
-    let backendId: string;
-
-    if (message.instanceId) {
-      // New protocol: instanceId provided by client
-      instanceId = message.instanceId;
-      backendId = storage.getOrCreateBackendIdByInstance(instanceId, message.deviceId, channel, message.name);
-    } else {
-      // Legacy protocol: compute instanceId from deviceId + default channel
-      instanceId = crypto.createHash('sha256')
-        .update(message.deviceId + ':prod')
-        .digest('hex')
-        .slice(0, 16);
-      backendId = storage.getOrCreateBackendId(message.deviceId, message.name);
-    }
-
-    const name = message.name || `Backend ${backendId}`;
-
-    // Check if this backendId is already connected (reconnection)
-    const existingBackend = backends.get(backendId);
-    if (existingBackend) {
-      console.log(`Backend ${backendId} (instance=${instanceId}) reconnecting, closing old connection`);
-      existingBackend.ws.close(4000, 'Replaced by new connection');
-      backends.delete(backendId);
-      backendConnections.delete(existingBackend.ws);
-    }
-
-    const visible = message.visible !== false; // Default true
-
-    const backend: ConnectedBackend = {
-      id: uuidv4(),
-      backendId,
-      deviceId: message.deviceId,
-      instanceId,
-      channel,
-      name,
-      ws,
-      isAlive: true,
-      visible,
-      registeredAt: Date.now()
-    };
-
-    backends.set(backendId, backend);
-    backendConnections.set(ws, backend);
-
-    console.log(`Backend registered: ${backendId} (${name}) instance=${instanceId} channel=${channel}${visible ? '' : ' [hidden]'}`);
-
-    sendToWs(ws, {
-      type: 'register_result',
-      success: true,
-      backendId,
-      instanceId
-    });
-
-    // Send full registry to the registering backend so subsequent incremental
-    // updates do not replace its discovered list with partial state.
-    sendRegistrySnapshot(ws);
-
-    // Broadcast updated backends list to all connected backends (legacy)
-    broadcastBackendsListToBackends();
-
-    // Broadcast registry upsert to all peers (Phase 2)
-    broadcastRegistryUpsert(backend);
-
-    return backendId;
-  }
 
   function handleBackendMessage(backendId: string, message: BackendToGatewayMessage): void {
     const backend = backends.get(backendId);
@@ -673,11 +570,11 @@ export function createGatewayServer(config: GatewayConfig): Server {
         }
 
         // Forward event to all subscribed clients
-        const sessionEventMsg = {
-          type: 'backend_session_event' as const,
+        const sessionEventMsg: BackendSessionEventMessage = {
+          type: 'backend_session_event',
           backendId,
           eventType: message.eventType,
-          session: message.session
+          session: message.session,
         };
         subscribers.forEach((clientId) => {
           const client = clients.get(clientId);
@@ -686,7 +583,7 @@ export function createGatewayServer(config: GatewayConfig): Server {
               type: 'backend_message',
               backendId,
               message: sessionEventMsg
-            } as any);
+            });
           }
         });
 
@@ -714,9 +611,13 @@ export function createGatewayServer(config: GatewayConfig): Server {
     }
   }
 
-  function handleBackendDisconnect(backendId: string): void {
+  /**
+   * Clean up backend state without terminating the WebSocket.
+   * Returns the instanceId for registry broadcast, or null if backend not found.
+   */
+  function cleanupBackend(backendId: string): string | null {
     const backend = backends.get(backendId);
-    if (!backend) return;
+    if (!backend) return null;
 
     const { instanceId } = backend;
     console.log(`Backend disconnected: ${backendId} (instance=${instanceId})`);
@@ -734,13 +635,18 @@ export function createGatewayServer(config: GatewayConfig): Server {
 
     backendConnections.delete(backend.ws);
     backends.delete(backendId);
-    backend.ws.terminate();
-
-    // Broadcast updated backends list to remaining backends (legacy)
-    broadcastBackendsListToBackends();
 
     // Broadcast registry remove to all peers
     broadcastRegistryRemove(backendId, instanceId);
+
+    return instanceId;
+  }
+
+  function handleBackendDisconnect(backendId: string): void {
+    const backend = backends.get(backendId);
+    if (!backend) return;
+    cleanupBackend(backendId);
+    backend.ws.terminate();
   }
 
   /** Build a GatewayBackendInfo from a ConnectedBackend (includes identity fields) */
@@ -779,22 +685,6 @@ export function createGatewayServer(config: GatewayConfig): Server {
     return entries;
   }
 
-  /**
-   * Broadcast current backends list to all connected backends (legacy).
-   * Only visible backends are included in the list, but ALL backends receive it.
-   */
-  function broadcastBackendsListToBackends(): void {
-    const backendList: GatewayBackendInfo[] = [];
-    backends.forEach((backend) => {
-      if (backend.visible) {
-        backendList.push(buildBackendInfo(backend));
-      }
-    });
-    backends.forEach((backend) => {
-      sendToWs(backend.ws, { type: 'backends_list', backends: backendList });
-    });
-  }
-
   /** Broadcast registry upsert to all authenticated peers */
   function broadcastRegistryUpsert(backend: ConnectedBackend): void {
     const msg: GatewayRegistryUpsertMessage = {
@@ -830,53 +720,6 @@ export function createGatewayServer(config: GatewayConfig): Server {
   }
 
   // --- Client handlers ---
-
-  function handleClientAuth(ws: WebSocket, message: GatewayAuthMessage): string | null {
-    const clientId = uuidv4();
-
-    // Validate gateway secret (timing-safe)
-    if (!safeCompare(message.gatewaySecret, config.gatewaySecret)) {
-      sendToWs(ws, {
-        type: 'gateway_auth_result',
-        success: false,
-        error: 'Invalid credentials'
-      });
-      ws.close();
-      return null;
-    }
-
-    const client: ConnectedClient = {
-      id: clientId,
-      ws,
-      isAlive: true,
-      authenticated: true,
-      backendAuths: new Set(),
-      explicitSubscriptions: null  // null = subscribe to all backends
-    };
-
-    clients.set(clientId, client);
-
-    console.log(`Client authenticated: ${clientId}`);
-
-    // Build backends list to include in auth result (legacy, with identity fields)
-    const backendList: GatewayBackendInfo[] = [];
-    backends.forEach((backend) => {
-      if (backend.visible) {
-        backendList.push(buildBackendInfo(backend));
-      }
-    });
-
-    sendToWs(ws, {
-      type: 'gateway_auth_result',
-      success: true,
-      backends: backendList
-    });
-
-    // Send full registry snapshot (Phase 2)
-    sendRegistrySnapshot(ws);
-
-    return clientId;
-  }
 
   function handleClientMessage(clientId: string, message: unknown): void {
     const client = clients.get(clientId);
@@ -1058,9 +901,232 @@ export function createGatewayServer(config: GatewayConfig): Server {
     clients.delete(clientId);
   }
 
+  // --- Peer capability helpers ---
+
+  function registerBackendCapability(
+    peerId: string,
+    peer: ConnectedPeer,
+    message: PeerHelloMessage,
+    identity: PeerHelloMessage['identity'],
+    channel: string,
+    ws: WebSocket
+  ): string {
+    const visible = message.backend?.visible !== false;
+    const instanceId = identity.instanceId;
+    const backendId = storage.getOrCreateBackendIdByInstance(instanceId, identity.deviceId, channel, identity.name);
+
+    // Check for existing backend with same backendId (e.g. legacy connection being replaced)
+    const existingBackend = backends.get(backendId);
+    if (existingBackend) {
+      console.log(`Peer ${peerId} replacing existing backend ${backendId}`);
+      const existingPeer = peers.get(existingBackend.id);
+      if (existingPeer) {
+        handlePeerDisconnect(existingPeer.peerId);
+      } else {
+        handleBackendDisconnect(backendId);
+      }
+    }
+
+    const backend: ConnectedBackend = {
+      id: peerId,
+      backendId,
+      deviceId: identity.deviceId,
+      instanceId,
+      channel,
+      name: identity.name || `Backend ${backendId}`,
+      ws,
+      visible,
+      registeredAt: Date.now(),
+    };
+
+    backends.set(backendId, backend);
+    backendConnections.set(ws, backend);
+    peer.backendId = backendId;
+
+    console.log(`Peer ${peerId} registered as backend: ${backendId} (instance=${instanceId} channel=${channel}${visible ? '' : ' [hidden]'})`);
+
+    // Broadcast registry upsert to all peers
+    broadcastRegistryUpsert(backend);
+
+    return backendId;
+  }
+
+  function registerClientCapability(
+    peerId: string,
+    peer: ConnectedPeer,
+    ws: WebSocket
+  ): string {
+    const clientId = uuidv4();
+    const client: ConnectedClient = {
+      id: clientId,
+      ws,
+      authenticated: true,
+      backendAuths: new Set(),
+      explicitSubscriptions: null,
+      peerId,
+    };
+
+    clients.set(clientId, client);
+    peer.clientId = clientId;
+
+    console.log(`Peer ${peerId} registered as client: ${clientId}`);
+
+    return clientId;
+  }
+
+  // --- Peer handlers (Phase 3: Single Connection) ---
+
+  function handlePeerHello(ws: WebSocket, message: PeerHelloMessage): string | null {
+    // Validate gateway secret
+    if (!safeCompare(message.gatewaySecret, config.gatewaySecret)) {
+      sendToWs(ws, {
+        type: 'peer_hello_result',
+        success: false,
+        peerId: '',
+        clientConnected: false,
+        backendRegistered: false,
+        error: 'Invalid gateway secret'
+      } satisfies PeerHelloResultMessage);
+      ws.close();
+      return null;
+    }
+
+    const peerId = message.peerId || uuidv4();
+    const { capabilities, identity } = message;
+    const channel = identity.channel || 'prod';
+
+    const peer: ConnectedPeer = {
+      peerId,
+      ws,
+      isAlive: true,
+      capabilities,
+    };
+
+    // Handle existing peer reconnection
+    const existingPeer = peers.get(peerId);
+    if (existingPeer) {
+      console.log(`Peer ${peerId} reconnecting, replacing old connection`);
+      // Delete from peers FIRST to prevent the close event from triggering handlePeerDisconnect
+      peers.delete(peerId);
+      // Clean up old peer's backend/client entries (without terminating ws — we do it below)
+      if (existingPeer.backendId) {
+        cleanupBackend(existingPeer.backendId);
+      }
+      if (existingPeer.clientId) {
+        handleClientDisconnect(existingPeer.clientId);
+      }
+      existingPeer.ws.terminate();
+    }
+
+    let backendId: string | undefined;
+    let clientId: string | undefined;
+
+    // Register backend capability
+    if (capabilities.backend) {
+      backendId = registerBackendCapability(peerId, peer, message, identity, channel, ws);
+    }
+
+    // Register client capability
+    if (capabilities.client) {
+      clientId = registerClientCapability(peerId, peer, ws);
+    }
+
+    peers.set(peerId, peer);
+
+    // Build and send peer_hello_result
+    const registrySnapshot = (capabilities.client || capabilities.backend) ? buildRegistrySnapshot() : undefined;
+
+    sendToWs(ws, {
+      type: 'peer_hello_result',
+      success: true,
+      peerId,
+      clientConnected: capabilities.client,
+      backendRegistered: capabilities.backend,
+      backendId,
+      registrySnapshot,
+    } satisfies PeerHelloResultMessage);
+
+    console.log(`Peer ${peerId} connected (client=${capabilities.client}, backend=${capabilities.backend})`);
+    return peerId;
+  }
+
+  function handlePeerMessage(peerId: string, message: any): void {
+    const peer = peers.get(peerId);
+    if (!peer) return;
+
+    // Route message based on type to appropriate handler
+    switch (message.type) {
+      // Backend capability messages
+      case 'client_auth_result':
+      case 'backend_response':
+      case 'http_proxy_response':
+      case 'http_proxy_response_start':
+      case 'http_proxy_response_chunk':
+      case 'http_proxy_response_end':
+      case 'broadcast_session_event':
+      case 'broadcast_to_subscribers':
+        if (peer.backendId) {
+          handleBackendMessage(peer.backendId, message as BackendToGatewayMessage);
+        } else {
+          sendToWs(peer.ws, {
+            type: 'gateway_error',
+            code: 'NO_BACKEND_CAPABILITY',
+            message: `Message type '${message.type}' requires backend capability`
+          });
+        }
+        break;
+
+      // Client capability messages
+      case 'list_backends':
+      case 'connect_backend':
+      case 'send_to_backend':
+      case 'update_subscriptions':
+        if (peer.clientId) {
+          handleClientMessage(peer.clientId, message);
+        } else {
+          sendToWs(peer.ws, {
+            type: 'gateway_error',
+            code: 'NO_CLIENT_CAPABILITY',
+            message: `Message type '${message.type}' requires client capability`
+          });
+        }
+        break;
+
+      default:
+        sendToWs(peer.ws, {
+          type: 'gateway_error',
+          code: 'UNKNOWN_MESSAGE_TYPE',
+          message: `Unknown message type: ${message.type}`
+        });
+    }
+  }
+
+  function handlePeerDisconnect(peerId: string): void {
+    const peer = peers.get(peerId);
+    if (!peer) return;
+
+    console.log(`Peer ${peerId} disconnected`);
+
+    // Clean up backend capability (without terminating ws — peer owns the lifecycle)
+    if (peer.backendId) {
+      const current = backends.get(peer.backendId);
+      if (current && current.ws === peer.ws) {
+        cleanupBackend(peer.backendId);
+      }
+    }
+
+    // Clean up client capability
+    if (peer.clientId) {
+      handleClientDisconnect(peer.clientId);
+    }
+
+    peer.ws.terminate();
+    peers.delete(peerId);
+  }
+
   // --- Helpers ---
 
-  function sendToWs(ws: WebSocket, message: GatewayToClientMessage | GatewayToBackendMessage): void {
+  function sendToWs(ws: WebSocket, message: GatewayToPeerMessage): void {
     if (ws.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify(message));
     }

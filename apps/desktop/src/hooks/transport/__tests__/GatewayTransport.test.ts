@@ -231,14 +231,15 @@ describe('GatewayTransport', () => {
   });
 
   describe('WebSocket event handlers', () => {
-    it('sends gateway_auth on open', async () => {
+    it('sends peer_hello on open', async () => {
       transport.connect();
       const mockWs = (transport as any).ws;
       mockWs.onopen();
 
       const sentMessage = JSON.parse(mockWs.send.mock.calls[0][0]);
-      expect(sentMessage.type).toBe('gateway_auth');
+      expect(sentMessage.type).toBe('peer_hello');
       expect(sentMessage.gatewaySecret).toBe('test-secret');
+      expect(sentMessage.capabilities).toEqual({ client: true, backend: false });
     });
 
     it('calls onDisconnected on close', async () => {
@@ -264,14 +265,17 @@ describe('GatewayTransport', () => {
       transport.connect();
     });
 
-    it('handles gateway_auth_result success', async () => {
+    it('handles peer_hello_result success', async () => {
       const mockWs = (transport as any).ws;
       mockWs.readyState = WebSocket.OPEN;
 
-      const message: GatewayToClientMessage = {
-        type: 'gateway_auth_result',
+      const message = {
+        type: 'peer_hello_result',
         success: true,
-        backends: []
+        peerId: 'peer-1',
+        clientConnected: true,
+        backendRegistered: false,
+        registrySnapshot: []
       };
 
       mockWs.onmessage({ data: JSON.stringify(message) } as MessageEvent);
@@ -280,12 +284,15 @@ describe('GatewayTransport', () => {
       expect(mockConfig.onConnected).toHaveBeenCalled();
     });
 
-    it('handles gateway_auth_result failure', async () => {
+    it('handles peer_hello_result failure', async () => {
       const mockWs = (transport as any).ws;
 
-      const message: GatewayToClientMessage = {
-        type: 'gateway_auth_result',
+      const message = {
+        type: 'peer_hello_result',
         success: false,
+        peerId: '',
+        clientConnected: false,
+        backendRegistered: false,
         error: 'Invalid secret'
       };
 

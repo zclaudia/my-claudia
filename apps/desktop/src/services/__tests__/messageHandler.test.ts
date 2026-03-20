@@ -513,6 +513,7 @@ describe('handleServerMessage', () => {
       expect(mockBackgroundTaskStore.addTask).toHaveBeenCalledWith(
         expect.objectContaining({
           id: 'background:background-session',
+          serverId: 'server-1',
           sessionId: 's1',
           source: 'background_run',
           stoppable: false,
@@ -706,6 +707,50 @@ describe('handleServerMessage', () => {
         }],
       }), makeCtx());
       expect(mockChatStore.setSystemInfo).toHaveBeenCalledWith('s1', { version: '2.0' });
+    });
+
+    it('marks stale background-run tasks as stopped after reconnect', () => {
+      mockBackgroundTaskStore.tasks = {
+        'background:bg-1': {
+          id: 'background:bg-1',
+          serverId: 'server-1',
+          sessionId: 'parent-1',
+          source: 'background_run',
+          status: 'in_progress',
+          summary: 'Still working',
+        },
+      };
+
+      handleServerMessage(makeHeartbeat({ activeRuns: [] }), makeCtx());
+
+      expect(mockBackgroundTaskStore.updateTask).toHaveBeenCalledWith(
+        'background:bg-1',
+        expect.objectContaining({
+          status: 'stopped',
+          completedAt: expect.any(Number),
+        })
+      );
+    });
+
+    it('does not touch active background-run tasks from heartbeat', () => {
+      mockBackgroundTaskStore.tasks = {
+        'background:bg-1': {
+          id: 'background:bg-1',
+          serverId: 'server-1',
+          sessionId: 'parent-1',
+          source: 'background_run',
+          status: 'in_progress',
+        },
+      };
+
+      handleServerMessage(makeHeartbeat({
+        activeRuns: [{ runId: 'r-bg', sessionId: 'bg-1', sessionType: 'background' }],
+      }), makeCtx());
+
+      expect(mockBackgroundTaskStore.updateTask).not.toHaveBeenCalledWith(
+        'background:bg-1',
+        expect.objectContaining({ status: 'stopped' })
+      );
     });
   });
 

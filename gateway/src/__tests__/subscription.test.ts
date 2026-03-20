@@ -85,22 +85,25 @@ describe('Gateway Session Subscription', () => {
       ws.on('message', (data) => {
         const message = JSON.parse(data.toString());
 
-        // Backend registration
-        if (message.type === 'register') {
+        // Backend registration via peer_hello
+        if (message.type === 'peer_hello' && message.capabilities?.backend) {
           ws.send(JSON.stringify({
-            type: 'register_result',
+            type: 'peer_hello_result',
             success: true,
+            peerId: 'peer-backend-1',
+            backendRegistered: true,
+            clientConnected: false,
             backendId
           }));
         }
 
-        // Client auth
-        if (message.type === 'gateway_auth') {
+        // Client auth via peer_hello
+        if (message.type === 'peer_hello' && message.capabilities?.client) {
           // Forward to backend
           const authMsg: GatewayClientAuthMessage = {
             type: 'client_auth',
-            clientId: message.clientId,
-            apiKey: message.apiKey
+            clientId: message.identity?.clientId || clientId,
+            apiKey: message.identity?.apiKey
           };
 
           // Mock backend auth response
@@ -120,10 +123,11 @@ describe('Gateway Session Subscription', () => {
     backendWs = new WebSocket(`ws://localhost:${GATEWAY_PORT}/ws`);
     backendWs.on('open', () => {
       backendWs!.send(JSON.stringify({
-        type: 'register',
+        type: 'peer_hello',
         gatewaySecret: GATEWAY_SECRET,
-        deviceId: 'device-1',
-        visible: true
+        capabilities: { client: false, backend: true },
+        identity: { deviceId: 'device-1', instanceId: 'inst-device-1' },
+        backend: { visible: true }
       }));
     });
 
@@ -143,10 +147,10 @@ describe('Gateway Session Subscription', () => {
       clientWsA = new WebSocket(`ws://localhost:${GATEWAY_PORT}/ws`);
       clientWsA.on('open', () => {
         clientWsA!.send(JSON.stringify({
-          type: 'gateway_auth',
-          clientId,
-          backendId,
-          apiKey: 'test-key'
+          type: 'peer_hello',
+          gatewaySecret: GATEWAY_SECRET,
+          capabilities: { client: true, backend: false },
+          identity: { deviceId: '', instanceId: '', clientId, backendId, apiKey: 'test-key' }
         }));
       });
     }, 100);
@@ -177,29 +181,32 @@ describe('Gateway Session Subscription', () => {
       ws.on('message', (data) => {
         const message = JSON.parse(data.toString());
 
-        // Backend registration
-        if (message.type === 'register') {
+        // Backend registration via peer_hello
+        if (message.type === 'peer_hello' && message.capabilities?.backend) {
           connectedBackendId = backendId;
           ws.send(JSON.stringify({
-            type: 'register_result',
+            type: 'peer_hello_result',
             success: true,
+            peerId: 'peer-backend-2',
+            backendRegistered: true,
+            clientConnected: false,
             backendId
           }));
         }
 
-        // Client auth
-        if (message.type === 'gateway_auth') {
-          connectedClientId = message.clientId;
+        // Client auth via peer_hello
+        if (message.type === 'peer_hello' && message.capabilities?.client) {
+          connectedClientId = message.identity?.clientId;
 
           // Add to subscriptions
           if (!subscriptions.has(backendId)) {
             subscriptions.set(backendId, new Set());
           }
-          subscriptions.get(backendId)!.add(message.clientId);
+          subscriptions.get(backendId)!.add(message.identity?.clientId);
 
           ws.send(JSON.stringify({
             type: 'client_auth_result',
-            clientId: message.clientId,
+            clientId: message.identity?.clientId,
             success: true,
             features: []
           }));
@@ -231,10 +238,11 @@ describe('Gateway Session Subscription', () => {
     backendWs = new WebSocket(`ws://localhost:${GATEWAY_PORT}/ws`);
     backendWs.on('open', () => {
       backendWs!.send(JSON.stringify({
-        type: 'register',
+        type: 'peer_hello',
         gatewaySecret: GATEWAY_SECRET,
-        deviceId: 'device-2',
-        visible: true
+        capabilities: { client: false, backend: true },
+        identity: { deviceId: 'device-2', instanceId: 'inst-device-2' },
+        backend: { visible: true }
       }));
 
       // Connect clients after backend
@@ -243,10 +251,10 @@ describe('Gateway Session Subscription', () => {
         clientWsA = new WebSocket(`ws://localhost:${GATEWAY_PORT}/ws`);
         clientWsA.on('open', () => {
           clientWsA!.send(JSON.stringify({
-            type: 'gateway_auth',
-            clientId: clientIdA,
-            backendId,
-            apiKey: 'test-key'
+            type: 'peer_hello',
+            gatewaySecret: GATEWAY_SECRET,
+            capabilities: { client: true, backend: false },
+            identity: { deviceId: '', instanceId: '', clientId: clientIdA, backendId, apiKey: 'test-key' }
           }));
         });
         clientWsA.on('message', (data) => {
@@ -262,10 +270,10 @@ describe('Gateway Session Subscription', () => {
         clientWsB = new WebSocket(`ws://localhost:${GATEWAY_PORT}/ws`);
         clientWsB.on('open', () => {
           clientWsB!.send(JSON.stringify({
-            type: 'gateway_auth',
-            clientId: clientIdB,
-            backendId,
-            apiKey: 'test-key'
+            type: 'peer_hello',
+            gatewaySecret: GATEWAY_SECRET,
+            capabilities: { client: true, backend: false },
+            identity: { deviceId: '', instanceId: '', clientId: clientIdB, backendId, apiKey: 'test-key' }
           }));
         });
         clientWsB.on('message', (data) => {
@@ -298,23 +306,26 @@ describe('Gateway Session Subscription', () => {
       ws.on('message', (data) => {
         const message = JSON.parse(data.toString());
 
-        if (message.type === 'register') {
+        if (message.type === 'peer_hello' && message.capabilities?.backend) {
           ws.send(JSON.stringify({
-            type: 'register_result',
+            type: 'peer_hello_result',
             success: true,
+            peerId: 'peer-backend-3',
+            backendRegistered: true,
+            clientConnected: false,
             backendId
           }));
         }
 
-        if (message.type === 'gateway_auth') {
+        if (message.type === 'peer_hello' && message.capabilities?.client) {
           if (!subscriptions.has(backendId)) {
             subscriptions.set(backendId, new Set());
           }
-          subscriptions.get(backendId)!.add(message.clientId);
+          subscriptions.get(backendId)!.add(message.identity?.clientId);
 
           ws.send(JSON.stringify({
             type: 'client_auth_result',
-            clientId: message.clientId,
+            clientId: message.identity?.clientId,
             success: true,
             features: []
           }));
@@ -338,10 +349,11 @@ describe('Gateway Session Subscription', () => {
     backendWs = new WebSocket(`ws://localhost:${GATEWAY_PORT}/ws`);
     backendWs.on('open', () => {
       backendWs!.send(JSON.stringify({
-        type: 'register',
+        type: 'peer_hello',
         gatewaySecret: GATEWAY_SECRET,
-        deviceId: 'device-3',
-        visible: true
+        capabilities: { client: false, backend: true },
+        identity: { deviceId: 'device-3', instanceId: 'inst-device-3' },
+        backend: { visible: true }
       }));
 
       setTimeout(() => {
@@ -349,10 +361,10 @@ describe('Gateway Session Subscription', () => {
         clientWsA = new WebSocket(`ws://localhost:${GATEWAY_PORT}/ws`);
         clientWsA.on('open', () => {
           clientWsA!.send(JSON.stringify({
-            type: 'gateway_auth',
-            clientId,
-            backendId,
-            apiKey: 'test-key'
+            type: 'peer_hello',
+            gatewaySecret: GATEWAY_SECRET,
+            capabilities: { client: true, backend: false },
+            identity: { deviceId: '', instanceId: '', clientId, backendId, apiKey: 'test-key' }
           }));
 
           // Verify subscription exists

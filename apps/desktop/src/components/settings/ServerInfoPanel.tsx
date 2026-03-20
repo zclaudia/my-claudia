@@ -6,7 +6,7 @@ export function ServerInfoPanel() {
   const {
     isConnected: isGatewayConnected,
     discoveredBackends,
-    localBackendId,
+    currentInstanceId,
     showLocalBackend,
   } = useGatewayStore();
 
@@ -25,7 +25,7 @@ export function ServerInfoPanel() {
 
   // Filter out legacy gateway-mode servers (these are now handled via gateway discovery)
   const directServers = servers.filter(s => s.connectionMode !== 'gateway');
-  const visibleGatewayBackends = discoveredBackends.filter(b => shouldShowBackend(b, localBackendId, showLocalBackend));
+  const visibleGatewayBackends = discoveredBackends.filter(b => shouldShowBackend(b, currentInstanceId, showLocalBackend));
 
   return (
     <div className="space-y-3">

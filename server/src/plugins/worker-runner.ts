@@ -33,10 +33,11 @@ interface RPCResponse {
 }
 
 interface HostMessage {
-  type: 'deactivate' | 'tool_call' | 'command_call' | 'event_forward';
+  type: 'deactivate' | 'tool_call' | 'command_call' | 'event_forward' | 'scheduler_tick';
   id?: string;
   toolId?: string;
   command?: string;
+  taskId?: string;
   args?: unknown;
   event?: string;
   data?: unknown;
@@ -86,6 +87,7 @@ class RPCClient {
 const toolHandlers = new Map<string, (args: Record<string, unknown>) => Promise<string> | string>();
 const commandHandlers = new Map<string, (args: string[], ctx?: any) => any>();
 const eventHandlers = new Map<string, Set<(data: unknown) => void | Promise<void>>>();
+const schedulerHandlers = new Map<string, () => Promise<void> | void>();
 
 function createProxyContext(pluginId: string, rpc: RPCClient): any {
   return {
@@ -203,6 +205,26 @@ function createProxyContext(pluginId: string, rpc: RPCClient): any {
     // Notification API (proxied)
     notification: {
       show: (title: string, body: string) => rpc.call('notification.show', title, body),
+    },
+
+    // Scheduler API (proxied — handler runs locally, registration on host)
+    scheduler: {
+      register: (
+        task: { id: string; name: string; intervalMs: number; immediate?: boolean },
+        handler: () => Promise<void> | void,
+      ) => {
+        schedulerHandlers.set(task.id, handler);
+        rpc.call('scheduler.register', task.id, task.name, task.intervalMs, task.immediate).catch(() => {});
+        return () => {
+          schedulerHandlers.delete(task.id);
+          rpc.call('scheduler.unregister', task.id).catch(() => {});
+        };
+      },
+      unregister: (taskId: string) => {
+        schedulerHandlers.delete(taskId);
+        rpc.call('scheduler.unregister', taskId).catch(() => {});
+      },
+      trigger: (taskId: string) => rpc.call('scheduler.trigger', taskId),
     },
 
     // Plugin inter-communication (proxied)
@@ -335,6 +357,28 @@ async function main() {
                   console.error(`[Worker:${pluginId}] Event handler error for ${msg.event}:`, error);
                 }
               }
+            }
+          }
+          break;
+
+        case 'scheduler_tick':
+          // Execute scheduler handler stored locally in this worker
+          if (msg.id && msg.taskId) {
+            try {
+              const handler = schedulerHandlers.get(msg.taskId);
+              if (handler) {
+                await handler();
+              }
+              parentPort!.postMessage({
+                type: 'scheduler_tick_result',
+                id: msg.id,
+              });
+            } catch (error) {
+              parentPort!.postMessage({
+                type: 'scheduler_tick_result',
+                id: msg.id,
+                error: error instanceof Error ? error.message : String(error),
+              });
             }
           }
           break;

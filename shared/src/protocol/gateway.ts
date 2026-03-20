@@ -227,6 +227,38 @@ export interface GatewayRegistryRemoveMessage {
   instanceId: string;
 }
 
+// --- Peer Hello Protocol (Phase 3: Single Peer Connection) ---
+
+export interface PeerHelloMessage {
+  type: 'peer_hello';
+  gatewaySecret: string;
+  peerId?: string;          // Optional: resume a previous peer session
+  capabilities: {
+    client: boolean;
+    backend: boolean;
+  };
+  identity: {
+    deviceId: string;
+    instanceId: string;
+    channel?: string;       // 'prod' | 'dev' | string — defaults to 'prod'
+    name?: string;
+  };
+  backend?: {
+    visible: boolean;       // Whether this backend appears in backends_list
+  };
+}
+
+export interface PeerHelloResultMessage {
+  type: 'peer_hello_result';
+  success: boolean;
+  peerId: string;
+  clientConnected: boolean;
+  backendRegistered: boolean;
+  backendId?: string;
+  registrySnapshot?: BackendRegistryEntry[];
+  error?: string;
+}
+
 // --- Gateway HTTP Proxy Protocol ---
 // Used when clients connect through Gateway and need to make REST API calls
 // to a backend that may be behind NAT.
@@ -271,6 +303,45 @@ export interface GatewayHttpProxyResponseEnd {
 }
 
 // Union types for Gateway messages
+// Peer messages: sent/received by peers with peer_hello protocol
+export type PeerToGatewayMessage =
+  | PeerHelloMessage
+  // Client capability messages
+  | GatewayListBackendsMessage
+  | GatewayConnectBackendMessage
+  | GatewaySendToBackendMessage
+  | GatewayUpdateSubscriptionsMessage
+  // Backend capability messages
+  | GatewayClientAuthResultMessage
+  | GatewayBackendResponseMessage
+  | GatewayBroadcastSessionEventMessage
+  | GatewayBroadcastToSubscribersMessage
+  | GatewayHttpProxyResponse
+  | GatewayHttpProxyResponseStart
+  | GatewayHttpProxyResponseChunk
+  | GatewayHttpProxyResponseEnd;
+
+export type GatewayToPeerMessage =
+  | PeerHelloResultMessage
+  // Client capability messages
+  | GatewayBackendsListMessage
+  | GatewayBackendAuthResultMessage
+  | GatewayBackendDisconnectedMessage
+  | GatewayBackendMessageMessage
+  | GatewayErrorMessage
+  | GatewaySubscriptionAckMessage
+  // Backend capability messages
+  | GatewayClientAuthMessage
+  | GatewayForwardedMessage
+  | GatewayClientConnectedMessage
+  | GatewayClientDisconnectedMessage
+  | GatewayClientSubscribedMessage
+  | GatewayHttpProxyRequest
+  // Shared
+  | GatewayRegistrySnapshotMessage
+  | GatewayRegistryUpsertMessage
+  | GatewayRegistryRemoveMessage;
+
 export type GatewayToBackendMessage =
   | GatewayRegisterResultMessage
   | GatewayBackendsListMessage

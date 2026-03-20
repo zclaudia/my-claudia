@@ -415,33 +415,53 @@ describe('GatewayClient', () => {
       client.connect();
     });
 
-    it('handles register_result success message', () => {
+    it('handles peer_hello_result success message', () => {
       const mockWs = (client as any).ws;
       const message = {
-        type: 'register_result',
+        type: 'peer_hello_result',
         success: true,
-        backendId: 'backend-123'
+        peerId: 'peer-abc',
+        clientConnected: true,
+        backendRegistered: true,
+        backendId: 'backend-123',
+        registrySnapshot: [
+          {
+            backendId: 'backend-123',
+            instanceId: 'inst-1',
+            deviceId: 'dev-1',
+            channel: 'prod',
+            name: 'Backend 1',
+            visible: true,
+            online: true,
+            registeredAt: 1,
+            updatedAt: 1,
+          },
+        ],
       };
 
-      // Simulate receiving message
-      const openHandler = mockWs.on.mock.calls.find(
+      const messageHandler = mockWs.on.mock.calls.find(
         (call: any[]) => call[0] === 'message'
       )?.[1];
-      if (openHandler) {
-        openHandler(Buffer.from(JSON.stringify(message)));
+      if (messageHandler) {
+        messageHandler(Buffer.from(JSON.stringify(message)));
       }
 
       expect((client as any).isConnected).toBe(true);
+      expect((client as any).peerId).toBe('peer-abc');
       expect((client as any).backendId).toBe('backend-123');
       expect((client as any).reconnectAttempts).toBe(0);
+      expect(client.getDiscoveredBackends()).toHaveLength(1);
     });
 
-    it('handles register_result failure message', () => {
+    it('handles peer_hello_result failure message', () => {
       const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
       const mockWs = (client as any).ws;
       const message = {
-        type: 'register_result',
+        type: 'peer_hello_result',
         success: false,
+        peerId: '',
+        clientConnected: false,
+        backendRegistered: false,
         error: 'Invalid secret'
       };
 
@@ -454,31 +474,6 @@ describe('GatewayClient', () => {
 
       expect(consoleErrorSpy).toHaveBeenCalled();
       consoleErrorSpy.mockRestore();
-    });
-
-    it('handles backends_list message', () => {
-      const mockWs = (client as any).ws;
-      const message = {
-        type: 'backends_list',
-        backends: [
-          { backendId: 'backend-1', name: 'Backend 1' },
-          { backendId: 'backend-2', name: 'Backend 2' }
-        ]
-      };
-
-      (client as any).backendId = 'backend-1';
-
-      const messageHandler = mockWs.on.mock.calls.find(
-        (call: any[]) => call[0] === 'message'
-      )?.[1];
-      if (messageHandler) {
-        messageHandler(Buffer.from(JSON.stringify(message)));
-      }
-
-      const backends = client.getDiscoveredBackends();
-      expect(backends).toHaveLength(2);
-      expect(backends[0].isLocal).toBe(true);
-      expect(backends[1].isLocal).toBe(false);
     });
 
     it('hydrates registry from snapshot before applying incremental updates', () => {

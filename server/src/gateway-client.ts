@@ -5,9 +5,10 @@ import * as path from 'path';
 import * as os from 'os';
 import * as crypto from 'crypto';
 import type {
-  GatewayRegisterMessage,
-  GatewayToBackendMessage,
-  BackendToGatewayMessage,
+  GatewayToPeerMessage,
+  PeerToGatewayMessage,
+  PeerHelloMessage,
+  PeerHelloResultMessage,
   GatewayClientAuthMessage,
   GatewayForwardedMessage,
   GatewayClientConnectedMessage,
@@ -17,7 +18,6 @@ import type {
   GatewayHttpProxyResponseStart,
   GatewayHttpProxyResponseChunk,
   GatewayHttpProxyResponseEnd,
-  GatewayBackendsListMessage,
   GatewayBackendInfo,
   BackendRegistryEntry,
   GatewayRegistrySnapshotMessage,
@@ -98,6 +98,7 @@ export class GatewayClient {
   private deviceId: string;
   private instanceId: string;
   private channel: string;
+  private peerId: string | null = null;
   private backendId: string | null = null;
   private reconnectAttempts = 0;
   private reconnectBaseInterval = 5000;
@@ -206,15 +207,18 @@ export class GatewayClient {
     }
 
     this.ws = new WebSocket(`${wsUrl}/ws`, wsOptions);
+    const currentWs = this.ws;
 
     this.ws.on('open', () => {
-      console.log('[Gateway] Connected, registering...');
-      this.register();
+      if (this.ws !== currentWs) return;
+      console.log('[Gateway] Connected, sending peer_hello...');
+      this.sendPeerHello();
     });
 
     this.ws.on('message', (data: Buffer) => {
+      if (this.ws !== currentWs) return;
       try {
-        const message: GatewayToBackendMessage = JSON.parse(data.toString());
+        const message: GatewayToPeerMessage = JSON.parse(data.toString());
         this.handleMessage(message);
       } catch (error) {
         console.error('[Gateway] Failed to parse message:', error);
@@ -222,6 +226,7 @@ export class GatewayClient {
     });
 
     this.ws.on('close', (code: number) => {
+      if (this.ws !== currentWs) return;
       console.log(`[Gateway] Disconnected (code: ${code})`);
       this.isConnected = false;
       this.backendId = null;
@@ -232,11 +237,12 @@ export class GatewayClient {
         console.log('[Gateway] Replaced by new connection, skipping reconnect');
         return;
       }
-      // Keep discoveredBackends across reconnects — will be refreshed on re-register
+      // Keep discoveredBackends across reconnects — will be refreshed on reconnect
       this.scheduleReconnect();
     });
 
     this.ws.on('error', (error) => {
+      if (this.ws !== currentWs) return;
       console.error('[Gateway] Connection error:', error);
     });
   }
@@ -257,6 +263,7 @@ export class GatewayClient {
     }
     this.isConnected = false;
     this.backendId = null;
+    this.peerId = null;
     this.discoveredBackends = [];
     this.registryEntries.clear();
   }
@@ -270,7 +277,7 @@ export class GatewayClient {
       return;
     }
 
-    const response: BackendToGatewayMessage = {
+    const response: PeerToGatewayMessage = {
       type: 'backend_response',
       clientId,
       message
@@ -288,7 +295,7 @@ export class GatewayClient {
       return;
     }
 
-    const msg: BackendToGatewayMessage = {
+    const msg: PeerToGatewayMessage = {
       type: 'broadcast_to_subscribers',
       message
     };
@@ -339,61 +346,68 @@ export class GatewayClient {
         backendId: entry.backendId,
         name: entry.name,
         online: entry.online,
-        isLocal: entry.backendId === this.backendId,
+        isThisInstance: entry.instanceId === this.instanceId,
+        isThisDevice: entry.deviceId === this.deviceId,
         instanceId: entry.instanceId,
         deviceId: entry.deviceId,
         channel: entry.channel,
       }));
   }
 
-  private register(): void {
+  private sendPeerHello(): void {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
 
-    const registerMessage: GatewayRegisterMessage = {
-      type: 'register',
+    const peerHello: PeerHelloMessage = {
+      type: 'peer_hello',
       gatewaySecret: this.config.gatewaySecret,
-      deviceId: this.deviceId,
-      instanceId: this.instanceId,
-      channel: this.channel,
-      name: this.config.name,
-      visible: this.config.visible !== false
+      peerId: this.peerId || undefined,
+      capabilities: {
+        client: true,
+        backend: true,
+      },
+      identity: {
+        deviceId: this.deviceId,
+        instanceId: this.instanceId,
+        channel: this.channel,
+        name: this.config.name,
+      },
+      backend: {
+        visible: this.config.visible !== false,
+      },
     };
 
-    this.ws.send(JSON.stringify(registerMessage));
+    this.ws.send(JSON.stringify(peerHello));
   }
 
-  private handleMessage(message: GatewayToBackendMessage): void {
+  private handleMessage(message: GatewayToPeerMessage): void {
     switch (message.type) {
-      case 'register_result':
-        if (message.success && message.backendId) {
+      case 'peer_hello_result': {
+        const result = message as PeerHelloResultMessage;
+        if (result.success) {
           this.isConnected = true;
-          this.backendId = message.backendId;
-          if (message.instanceId) {
-            this.instanceId = message.instanceId;
-          }
+          this.peerId = result.peerId;
+          this.backendId = result.backendId || null;
           this.reconnectAttempts = 0;
-          console.log(`[Gateway] Registered as backend: ${this.backendId} (instance=${this.instanceId})`);
-        } else {
-          console.error('[Gateway] Registration failed:', message.error);
-          this.ws?.close();
-        }
-        break;
+          console.log(`[Gateway] Peer connected: peerId=${this.peerId} backendId=${this.backendId} (instance=${this.instanceId})`);
 
-      case 'backends_list': {
-        // Legacy backends list — only use if we haven't received a registry_snapshot yet
-        if (this.registryEntries.size === 0) {
-          const backendsMsg = message as GatewayBackendsListMessage;
-          this.discoveredBackends = backendsMsg.backends.map(b => ({
-            ...b,
-            isLocal: b.backendId === this.backendId
-          }));
-          console.log(`[Gateway] Discovered backends (legacy): ${backendsMsg.backends.length}`);
+          // Process registry snapshot if included
+          if (result.registrySnapshot) {
+            this.registryEntries.clear();
+            for (const entry of result.registrySnapshot) {
+              this.registryEntries.set(entry.backendId, entry);
+            }
+            this.deriveDiscoveredBackendsFromRegistry();
+            console.log(`[Gateway] Registry snapshot: ${result.registrySnapshot.length} entries`);
+          }
+        } else {
+          console.error('[Gateway] Peer hello failed:', result.error);
+          this.ws?.close();
         }
         break;
       }
 
       case 'registry_snapshot': {
-        const snapshotMsg = message as unknown as GatewayRegistrySnapshotMessage;
+        const snapshotMsg = message as GatewayRegistrySnapshotMessage;
         this.registryEntries.clear();
         for (const entry of snapshotMsg.registry) {
           this.registryEntries.set(entry.backendId, entry);
@@ -404,7 +418,7 @@ export class GatewayClient {
       }
 
       case 'registry_upsert': {
-        const upsertMsg = message as unknown as GatewayRegistryUpsertMessage;
+        const upsertMsg = message as GatewayRegistryUpsertMessage;
         this.registryEntries.set(upsertMsg.entry.backendId, upsertMsg.entry);
         this.deriveDiscoveredBackendsFromRegistry();
         console.log(`[Gateway] Registry upsert: ${upsertMsg.entry.backendId} (${upsertMsg.entry.name})`);
@@ -412,7 +426,7 @@ export class GatewayClient {
       }
 
       case 'registry_remove': {
-        const removeMsg = message as unknown as GatewayRegistryRemoveMessage;
+        const removeMsg = message as GatewayRegistryRemoveMessage;
         this.registryEntries.delete(removeMsg.backendId);
         this.deriveDiscoveredBackendsFromRegistry();
         console.log(`[Gateway] Registry remove: ${removeMsg.backendId}`);
@@ -472,7 +486,7 @@ export class GatewayClient {
     return true;
   }
 
-  private sendWs(data: BackendToGatewayMessage): void {
+  private sendWs(data: PeerToGatewayMessage): void {
     this.ws?.send(JSON.stringify(data));
   }
 
@@ -566,7 +580,7 @@ export class GatewayClient {
     this.authenticatedClients.add(message.clientId);
     console.log(`[Gateway] Client ${message.clientId} authenticated (trusted via gateway)`);
 
-    const response: BackendToGatewayMessage = {
+    const response: PeerToGatewayMessage = {
       type: 'client_auth_result',
       clientId: message.clientId,
       success: true,
@@ -714,7 +728,7 @@ export class GatewayClient {
       }
     }
 
-    const message: BackendToGatewayMessage = {
+    const message: PeerToGatewayMessage = {
       type: 'broadcast_session_event',
       eventType,
       session: sessionWithOffset
