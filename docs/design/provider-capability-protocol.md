@@ -15,21 +15,22 @@ MyClaudia 当前已经有多 provider 架构，也已经开始有统一交互协
 
 - provider 运行入口目前由 `server/src/providers/*` 和 `server/src/providers/registry.ts` 管理
 - 插件平台基础类型已经定义在 `shared/src/plugin-types.ts`
-- 统一交互方向已经在 `docs/design/unified-provider-interaction-protocol.md` 中明确
+- 前端已经开始被 provider 差异拖着走，例如 `AskUserQuestion`、`TodoWrite`、permission 事件、工具参数结构不一致
 
 但当前 provider 集成仍然存在几个结构性问题：
 
-1. provider 的“能力边界”没有显式建模
+1. provider 的"能力边界"没有显式建模
 2. 适配层以 provider type 为中心，而不是以 capability 为中心
 3. 前后端仍然容易被 provider 私有事件、工具名、字段结构拖着走
 4. 很难把 provider 从内建适配器演进为可动态加载插件
 5. 同一个 provider 在不同模型、CLI 版本、桥接模式下的有效能力不同，但当前没有运行期协商模型
+6. 不同 provider 对交互能力的支持差异很大，展示上"看起来支持"的交互实际上缺乏稳定的回填事务路径
 
 本设计将这些问题收敛为一套协议：
 
 - **PCP = Provider Capability Protocol**
 
-PCP 的核心思想不是定义“怎么接某个厂商 SDK”，而是定义：
+PCP 的核心思想不是定义"怎么接某个厂商 SDK"，而是定义：
 
 - provider 如何声明自己是谁
 - provider 支持哪些标准能力
@@ -47,11 +48,12 @@ PCP 的核心思想不是定义“怎么接某个厂商 SDK”，而是定义：
 - 为 provider 插件化提供稳定协议边界
 - 让 server 能基于 capability 做路由、校验、降级和观测
 - 让前端只消费 MyClaudia 统一事件，不直接依赖 provider 原始事件
-- 让“能力支持”从静态概念变成可协商、可观测、可降级的运行期事实
+- 让"能力支持"从静态概念变成可协商、可观测、可降级的运行期事实
+- 让交互能力通过"内部工具注入"实现，而不是等待上游 provider 能力统一
 
 ### 2.2 Secondary Goals
 
-- 让 provider 接入成本降低到“实现一组能力接口 + 提供 manifest”
+- 让 provider 接入成本降低到"实现一组能力接口 + 提供 manifest"
 - 让新增 provider 不再要求前端新增特判
 - 为后续 provider marketplace / provider plugin system 做准备
 - 为测试矩阵提供正式维度：按 capability 测，而不是按 provider 名字测
@@ -63,6 +65,7 @@ PCP 的核心思想不是定义“怎么接某个厂商 SDK”，而是定义：
 - 不试图统一上游厂商内部 SDK 语义
 - 不在 v1 里定义跨应用、跨厂商的开放标准
 - 不在 v1 里直接替换现有全部 `tool_use` / `tool_result` 事件链路
+- 不在第一阶段引入 ACP、A2A 或新的跨 agent 标准协议
 
 ---
 
@@ -70,7 +73,7 @@ PCP 的核心思想不是定义“怎么接某个厂商 SDK”，而是定义：
 
 ### 3.1 Capability-first, Not Provider-first
 
-上层系统关注的是“能做什么”，不是“它是谁”。  
+上层系统关注的是"能做什么"，不是"它是谁"。
 例如：
 
 - 是否能流式输出
@@ -98,17 +101,17 @@ provider 只负责产出原始能力结果，server 负责：
 
 ### 3.3 Explicit Capability Negotiation
 
-manifest 里的能力声明只是“理论支持”。  
+manifest 里的能力声明只是"理论支持"。
 真正用于一次 run 的，是运行期协商得到的 **Effective Provider Profile**。
 
 ### 3.4 Explicit Degradation
 
-不支持某能力时，必须有明确降级策略。  
-不能静默地把事务型能力退化成自然语言文本，再假装系统“支持”。
+不支持某能力时，必须有明确降级策略。
+不能静默地把事务型能力退化成自然语言文本，再假装系统"支持"。
 
 ### 3.5 Contract Per Capability
 
-每个 capability 必须有独立的输入输出契约。  
+每个 capability 必须有独立的输入输出契约。
 避免继续膨胀一个万能的 `ProviderAdapter` 接口。
 
 ### 3.6 Stable Internal Semantics
@@ -121,13 +124,17 @@ manifest 里的能力声明只是“理论支持”。
 - errors
 - capability availability
 
+### 3.7 Transactional vs Display Boundary
+
+展示型交互和事务型交互必须区分处理。事务型交互不能依赖文本推断，必须来自明确工具调用或原生结构化事件。所有工具输入必须 server 侧做 schema 校验，不能信任模型。
+
 ---
 
 ## 4. Key Concepts
 
 ### 4.1 Provider
 
-一个可被 MyClaudia 加载并参与 run 的 AI 后端实现。  
+一个可被 MyClaudia 加载并参与 run 的 AI 后端实现。
 provider 可以基于：
 
 - CLI
@@ -138,7 +145,7 @@ provider 可以基于：
 
 ### 4.2 Capability
 
-provider 可声明的一项标准能力。  
+provider 可声明的一项标准能力。
 能力是协议级单元，不是实现细节。
 
 ### 4.3 Capability Contract
@@ -168,15 +175,62 @@ provider 插件的静态元信息，包括：
 
 这个区分很重要，因为相同 capability 在三种模式下可靠性、交互性、事务性都不同。
 
+### 4.7 Internal Interaction Tools
+
+MyClaudia 自己定义的产品交互工具，不等于 provider 原生工具。通过注入到 provider 的方式实现统一交互能力：
+
+- `ask_user_form` — 结构化问答 / 表单
+- `request_approval` — 审批 / 确认
+- `update_todo_list` — todo / plan 状态更新
+
+后续可扩展：
+
+- `submit_plan_for_review`
+- `notify_user`
+- `select_session_target`
+
 ---
 
-## 5. Architecture Positioning
+## 5. Architecture
 
-PCP 位于三层之间：
+PCP 位于四层之间：
 
-1. provider implementation layer
-2. server runtime / normalization layer
-3. frontend unified interaction / run UI layer
+### Layer 1: Provider Raw Event Layer
+
+保留 provider 产生的原始运行事件。不暴露给前端，只在 server 内部使用。
+
+示例：
+
+- `assistant text`
+- `tool_use`
+- `tool_result`
+- `permission request`
+- `task_notification`
+- provider-private lifecycle event
+
+### Layer 2: Interaction Tool Layer
+
+定义 MyClaudia 自己的内部交互工具。这些工具通过 MCP bridge / plugin 机制注入到 provider，模型调用时由 server 拦截并转为统一事件。
+
+工具的输出不进入普通 tool result 区域，而是由 server 直接转为统一交互事件。
+
+### Layer 3: PCP Normalization Layer
+
+把两类输入统一映射成一套协议：
+
+- provider 原生结构化交互
+- 内部交互工具调用
+
+输出是统一的 PCP 事件和 `NormalizedInteractionEvent`。
+
+### Layer 4: Frontend Interaction Layer
+
+前端只消费统一事件，不感知：
+
+- provider 类型
+- 原始 tool name
+- provider 私有字段
+- provider 私有 permission 结构
 
 数据流：
 
@@ -190,25 +244,65 @@ PCP 位于三层之间：
 
 ---
 
-## 6. Capability Taxonomy
+## 6. Provider Support Snapshot
+
+以下判断基于当前仓库实现，不是官方产品能力总表。
+
+### Claude
+
+- 当前支持度：强
+- 已有能力：原生结构化工具事件、`AskUserQuestion` 专门走 permission callback 交互路径、已有 plugin MCP bridge 注入能力
+- 结论：最适合作为统一交互协议的第一落地点，可同时支持"原生结构化事���映射"和"内部工具注入"
+
+### OpenCode
+
+- 当前支持度：中
+- 已有能力：稳定 `tool_use`、有 `permission.updated` 等结构化 permission 事件
+- 缺口：当前仓库还没有像 Claude 一样的自定义交互工具桥接
+- 结论：第二阶段适合接入
+
+### Codex
+
+- 当前支持度：中偏弱
+- 已有能力：结构化 `tool_use`、能识别 `mcp_tool_call`
+- 缺口：现有接入中没有真正挂载自定义工具桥
+- 结论：有希望接入统一交互工具，但需要额外桥接层
+
+### Cursor
+
+- 当前支持度：弱
+- 已有能力：`tool_call` 能映射成 `tool_use`
+- 缺口：目前更像 CLI 输出映射，不是我们控制工具注册表，没有现成的交互工具桥
+- 结论：短期适合消费统一事件，不适合优先做工具注入
+
+### Kimi
+
+- 当前支持度：弱
+- 已有能力：可解析 `tool_use`
+- 缺口：当前实现主要是 CLI `stream-json` 适配，没有现成交互工具桥
+- 结论：适合文本降级和基础事件统一，不适合第一批复杂交互注入
+
+---
+
+## 7. Capability Taxonomy
 
 v1 建议把能力拆成以下 8 类。
 
-### 6.1 Core Chat
+### 7.1 Core Chat
 
 - `chat.generate`
   - 非流式生成
 - `chat.stream`
   - 流式生成
 
-### 6.2 Tooling
+### 7.2 Tooling
 
 - `tool.define`
   - 在 provider 运行前动态注册工具 schema
 - `tool.call`
   - provider 发起结构化工具调用
 
-### 6.3 Structured Interaction
+### 7.3 Structured Interaction
 
 - `interaction.form`
   - 结构化问答 / 表单
@@ -217,16 +311,16 @@ v1 建议把能力拆成以下 8 类。
 - `interaction.todo`
   - todo / plan 状态更新
 
-### 6.4 Session Control
+### 7.4 Session Control
 
 - `session.control`
   - abort / stop task / resume / checkpoint / background task control
 
 ---
 
-## 7. Capability Definitions
+## 8. Capability Definitions
 
-### 7.1 `chat.generate`
+### 8.1 `chat.generate`
 
 表示 provider 支持基于统一消息输入生成完整回复。
 
@@ -243,7 +337,7 @@ v1 建议把能力拆成以下 8 类。
 - 返回完整内容和可选 usage
 - 明确返回 model identity
 
-### 7.2 `chat.stream`
+### 8.2 `chat.stream`
 
 表示 provider 支持流式输出事件。
 
@@ -254,7 +348,7 @@ v1 建议把能力拆成以下 8 类。
 - 错误不可吞掉，必须显式发出
 - 如可提供 usage，则在终态或中途发出
 
-### 7.3 `tool.define`
+### 8.3 `tool.define`
 
 表示 provider 支持在 run 启动前接收一组工具 schema，并在模型侧以结构化方式暴露。
 
@@ -264,7 +358,7 @@ v1 建议把能力拆成以下 8 类。
 - 返回注册结果或注册失败原因
 - 如 provider 不支持运行中动态增量注册，则需要在限制中声明
 
-### 7.4 `tool.call`
+### 8.4 `tool.call`
 
 表示 provider 可以发起结构化工具调用事件。
 
@@ -274,31 +368,34 @@ v1 建议把能力拆成以下 8 类。
 - 参数必须是结构化 JSON，不接受只靠文本解析
 - 必须支持 tool result 回填或明确声明不支持回填
 
-### 7.5 `interaction.form`
+### 8.5 `interaction.form`
 
 表示 provider 可以可靠地产生或消费结构化用户表单交互。
 
 在 MyClaudia 内部应映射到：
 
-- `ask_user_form`
+- 内部工具 `ask_user_form`
+- 统一事件 `interaction.ask_user`
 
-### 7.6 `interaction.approval`
+### 8.6 `interaction.approval`
 
 表示 provider 可以可靠地产生或消费结构化审批交互。
 
 在 MyClaudia 内部应映射到：
 
-- `request_approval`
+- 内部工具 `request_approval`
+- 统一事件 `interaction.approval`
 
-### 7.7 `interaction.todo`
+### 8.7 `interaction.todo`
 
 表示 provider 可以可靠地产生结构化 todo / plan 更新。
 
 在 MyClaudia 内部应映射到：
 
-- `update_todo_list`
+- 内部工具 `update_todo_list`
+- 统一事件 `interaction.todo_update`
 
-### 7.8 `session.control`
+### 8.8 `session.control`
 
 表示 provider 支持会话级控制操作。
 
@@ -313,9 +410,9 @@ v1 不要求所有子能力都支持，但必须在限制中明确声明。
 
 ---
 
-## 8. Capability Reliability Model
+## 9. Capability Reliability Model
 
-仅仅知道“支持/不支持”还不够，PCP 还需要表达可靠性级别。
+仅仅知道"支持/不支持"还不够，PCP 还需要表达可靠性级别。
 
 ```ts
 type CapabilityMode = 'native' | 'bridged' | 'emulated';
@@ -341,7 +438,7 @@ type ReliabilityTier = 'strict' | 'best_effort' | 'display_only';
 
 ---
 
-## 9. Manifest Schema
+## 10. Manifest Schema
 
 PCP v1 建议定义如下 manifest。
 
@@ -401,16 +498,16 @@ export interface ProviderModelDescriptor {
 }
 ```
 
-### 9.1 Manifest Rules
+### 10.1 Manifest Rules
 
 - `capabilities` 里只能声明 PCP 已知 capability id
 - `supported = false` 的 capability 可以省略，但推荐显式声明关键缺失能力
 - `models[].capabilities` 用于描述模型级覆盖，不替代 provider 级声明
 - `configSchema` 只描述配置结构，不描述运行期状态
 
-### 9.2 Why Manifest Is Not Enough
+### 10.2 Why Manifest Is Not Enough
 
-manifest 只是 provider 插件发布时的“静态宣称”。  
+manifest 只是 provider 插件发布时的"静态宣称"。
 实际能力还会受这些因素影响：
 
 - 当前配置是否合法
@@ -423,9 +520,9 @@ manifest 只是 provider 插件发布时的“静态宣称”。
 
 ---
 
-## 10. Runtime Negotiation
+## 11. Runtime Negotiation
 
-### 10.1 Effective Provider Profile
+### 11.1 Effective Provider Profile
 
 ```ts
 export interface EffectiveProviderProfile {
@@ -450,7 +547,7 @@ export interface EffectiveCapability {
 }
 ```
 
-### 10.2 Negotiation Inputs
+### 11.2 Negotiation Inputs
 
 协商时应至少考虑：
 
@@ -462,7 +559,7 @@ export interface EffectiveCapability {
 - 当前 run mode / permission mode
 - 当前是否是本地 server / 远程 gateway
 
-### 10.3 Negotiation Timing
+### 11.3 Negotiation Timing
 
 建议两阶段：
 
@@ -471,7 +568,7 @@ export interface EffectiveCapability {
 2. **Run-time negotiation**
    - run 启动时，生成本次 run 的 `EffectiveProviderProfile`
 
-### 10.4 Why This Matters
+### 11.4 Why This Matters
 
 同一个 provider 在不同上下文下可能有完全不同的有效能力：
 
@@ -481,7 +578,7 @@ export interface EffectiveCapability {
 
 ---
 
-## 11. Degradation Policy
+## 12. Degradation Policy
 
 降级策略必须成为协议一部分，而不是实现细节。
 
@@ -493,7 +590,7 @@ export type DegradationPolicy =
   | 'server_emulation';
 ```
 
-### 11.1 Policy Semantics
+### 12.1 Policy Semantics
 
 - `reject`
   - 明确拒绝能力调用，调用方必须处理错误
@@ -504,7 +601,7 @@ export type DegradationPolicy =
 - `server_emulation`
   - 由 server 在 provider 之外模拟实现
 
-### 11.2 Recommended Defaults
+### 12.2 Recommended Defaults
 
 - `chat.generate`
   - `reject`
@@ -523,7 +620,65 @@ export type DegradationPolicy =
 - `session.control`
   - `reject`
 
-### 11.3 Strict Rule For Transactional Interactions
+### 12.3 Provider Integration Strategies
+
+根据 provider 能力不同，降级走三条路径：
+
+#### Path A: Native Structured Interaction
+
+适用于 Claude 这类已经有较强结构化交互能力的 provider。
+
+- 保留 provider 原生结构化能力
+- 在 normalization 层映射为统一事件
+- 需要时也允许它调用内部交互工具
+- 优点：保真度高，交互结果更可靠
+
+#### Path B: Internal Tool Injection
+
+适用于支持工具调用、但没有现成结构化交互能力的 provider。
+
+- 把内部交互工具注入 provider
+- 模型调用这些工具时，server 直接发统一事件给前端
+- 前提：provider 工具调用足够稳定，我们能控制工具注册
+- 优点：不依赖 provider 原生交互模型，统一程度高
+
+#### Path C: Text Degradation
+
+适用于弱工具能力 provider，或当前暂时无法桥接的 provider。
+
+- 能识别的展示型交互，映射为 `interaction.notice` 或只读 `interaction.todo_update`
+- 无法可靠识别或需要事务回填的交互，一律降级为普通 assistant text
+- 原则：不能因为想统一体验，就对事务型交互做不可靠推断
+
+### 12.4 Transactional vs Display Interactions
+
+这是降级策略中最重要的边界。
+
+#### Display Interactions
+
+包括 todo 列表展示、plan 预览、notice / warning。
+
+可以接受：
+
+- 文本推断（`text_inferred` source）
+- 不完全结构化
+- 降级渲染
+
+#### Transactional Interactions
+
+包括用户表单回答、审批 / 拒绝、权限确认、需要把结果回写给 run 的交互。
+
+必须满足：
+
+- 来自 provider 原生结构化事件，或
+- 来自内部工具明确调用
+
+不能只从文本中猜，否则会出现：
+
+- UI 看起来可以交互
+- 但系统没有稳定的回填事务路径
+
+### 12.5 Strict Rule For Transactional Capabilities
 
 以下能力默认视为事务型能力：
 
@@ -532,15 +687,15 @@ export type DegradationPolicy =
 - `interaction.approval`
 - `session.control`
 
-这些能力不得静默降级为自然语言文本后继续假装系统“支持”。
+这些能力不得静默降级为自然语言文本后继续假装系统"支持"。
 
 ---
 
-## 12. Capability Contracts
+## 13. Capability Contracts
 
 下面给出 v1 建议 contract。
 
-### 12.1 Shared Message Types
+### 13.1 Shared Message Types
 
 ```ts
 export interface PCPMessage {
@@ -561,7 +716,7 @@ export interface PCPGenerationOptions {
 }
 ```
 
-### 12.2 `chat.generate`
+### 13.2 `chat.generate`
 
 ```ts
 export interface GenerateInput {
@@ -580,7 +735,7 @@ export interface GenerateOutput {
 }
 ```
 
-### 12.3 `chat.stream`
+### 13.3 `chat.stream`
 
 ```ts
 export type StreamEvent =
@@ -595,7 +750,7 @@ export type StreamEvent =
   | { type: 'run.failed'; error: PCPError };
 ```
 
-### 12.4 `tool.define`
+### 13.4 `tool.define`
 
 ```ts
 export interface ToolSchema {
@@ -616,7 +771,7 @@ export interface RegisterToolsResult {
 }
 ```
 
-### 12.5 `tool.call`
+### 13.5 `tool.call`
 
 ```ts
 export interface PCPToolCall {
@@ -635,17 +790,19 @@ export interface PCPToolResult {
 }
 ```
 
-### 12.6 Structured Interactions
+### 13.6 Structured Interactions
 
 ```ts
 export type PCPInteraction =
   | PCPFormInteraction
   | PCPApprovalInteraction
-  | PCPTodoInteraction;
+  | PCPTodoInteraction
+  | PCPPlanReviewInteraction
+  | PCPNoticeInteraction;
 
 export interface PCPInteractionBase {
   id: string;
-  source: 'provider_native' | 'tool_call' | 'server_emulated';
+  source: 'provider_native' | 'tool_call' | 'server_emulated' | 'text_inferred';
   createdAt: number;
 }
 
@@ -668,6 +825,8 @@ export interface PCPApprovalInteraction extends PCPInteractionBase {
   type: 'interaction.approval';
   title: string;
   message: string;
+  approveLabel?: string;
+  rejectLabel?: string;
   payload?: Record<string, unknown>;
 }
 
@@ -678,9 +837,73 @@ export interface PCPTodoInteraction extends PCPInteractionBase {
     status: 'pending' | 'in_progress' | 'completed';
   }>;
 }
+
+export interface PCPPlanReviewInteraction extends PCPInteractionBase {
+  type: 'interaction.plan_review';
+  title?: string;
+  content: string;
+}
+
+export interface PCPNoticeInteraction extends PCPInteractionBase {
+  type: 'interaction.notice';
+  level: 'info' | 'warning' | 'error';
+  message: string;
+}
 ```
 
-### 12.7 `session.control`
+**`source` 字段语义：**
+
+- `provider_native` — 来自 provider 原生结构化事件
+- `tool_call` — 来自内部交互工具明确调用
+- `server_emulated` — 由 server 模拟生成
+- `text_inferred` — 从文本推断，**只允许用于展示型事件**，不允许用于事务型回填
+
+### 13.7 Internal Interaction Tool Contracts
+
+内部交互工具 schema 固定，不允许 provider 各自定义变体。
+
+#### `ask_user_form`
+
+```ts
+{
+  questions: Array<{
+    id: string;
+    header: string;
+    question: string;
+    options?: Array<{
+      value: string;
+      label: string;
+      description?: string;
+    }>;
+    multiSelect?: boolean;
+  }>;
+}
+```
+
+#### `request_approval`
+
+```ts
+{
+  title: string;
+  message: string;
+  approveLabel?: string;
+  rejectLabel?: string;
+  payload?: Record<string, unknown>;
+}
+```
+
+#### `update_todo_list`
+
+```ts
+{
+  todos: Array<{
+    content: string;
+    status: 'pending' | 'in_progress' | 'completed';
+  }>;
+}
+```
+
+### 13.8 `session.control`
 
 ```ts
 export interface SessionControlAPI {
@@ -693,9 +916,9 @@ export interface SessionControlAPI {
 
 ---
 
-## 13. Provider Module Interface
+## 14. Provider Module Interface
 
-当前代码里的 provider 入口是偏单体的 `ProviderAdapter`。  
+当前代码里的 provider 入口是偏单体的 `ProviderAdapter`。
 PCP v1 建议逐步演进为 capability-composed 模式。
 
 ```ts
@@ -744,7 +967,7 @@ export interface ProviderInstance {
 }
 ```
 
-### 13.1 Capability Interfaces
+### 14.1 Capability Interfaces
 
 ```ts
 export interface ChatGenerateCapability {
@@ -778,9 +1001,9 @@ export interface InteractionTodoCapability {
 export interface SessionControlCapability extends SessionControlAPI {}
 ```
 
-### 13.2 Why Marker Capabilities Exist
+### 14.2 Why Marker Capabilities Exist
 
-对于 `tool.call` 和 `interaction.*`，v1 的主要事件出口是 stream。  
+对于 `tool.call` 和 `interaction.*`，v1 的主要事件出口是 stream。
 因此这些 capability 在接口层可能是 marker，但它们仍然必须：
 
 - 在 manifest 中显式声明
@@ -789,44 +1012,89 @@ export interface SessionControlCapability extends SessionControlAPI {}
 
 ---
 
-## 14. Mapping To Existing MyClaudia Architecture
+## 15. Server-Side Modules
 
-### 14.1 Current State
+### 15.1 `interaction-tool-registry.ts`
 
-当前大致是：
+职责：
 
-- provider 由 `server/src/providers/registry.ts` 直接注册
-- 运行接口集中在 `server/src/providers/types.ts` 的 `ProviderAdapter`
-- plugins 通过 `shared/src/plugin-types.ts` 访问 `ProviderAPI`
+- 定义内部交互工具 schema
+- 提供工具元数据
+- 管理工具注册生命周期
 
-### 14.2 Proposed Alignment
+### 15.2 `interaction-normalizer.ts`
 
-#### Provider Runtime
+职责：
 
-- 短期保留现有 `ProviderAdapter`
-- 在 server 层新增 PCP wrapper / profile negotiation
-- 中期让内建 provider 也转成 `ProviderModule`
+- 把 provider 原始事件映射成统一 PCP 事件
+- 把内部工具调用映射成统一事件
+- 统一字段名和状态值
+- schema 校验
 
-#### Plugin API
+### 15.3 `interaction-dispatcher.ts`
 
-当前 `ProviderAPI` 可以继续保留为上层“消费接口”，但其底层实现应改为基于 PCP：
+职责：
 
-- `call()` -> 走 `chat.generate`
-- `callStream()` -> 走 `chat.stream`
-- `list()` / `get()` -> 额外返回 capability/profile 概览
-
-#### Unified Interaction
-
-`interaction.form` / `interaction.approval` / `interaction.todo`
-应直接接到统一交互层，而不是让前端识别 provider 私有工具名。
+- 把统一交互事件发给 websocket client
+- 处理用户提交结果
+- 关联 session / run / request lifecycle
 
 ---
 
-## 15. Event Normalization Rules
+## 16. Prompt Strategy
+
+如果要让不同 provider 主动调用内部交互工具，system prompt 必须明确约束。
+
+建议加入统一规则：
+
+- 需要用户在多个选项中做结构化选择时，必须调用 `ask_user_form`
+- 需要用户审批时，必须调用 `request_approval`
+- 更新任务列表时，必须调用 `update_todo_list`
+- 不允许只用自然语言模拟这些交互，除非 provider 不支持工具且当前处于降级路径
+
+这个 prompt 规则应由 server 注入，而不是散落在前端或 provider 特例里。
+
+---
+
+## 17. Frontend Changes
+
+前端目标是从"认 provider"改成"认 interaction type"。
+
+### 17.1 New Modules
+
+建议新增：
+
+- `interactionStore` — 管理交互状态
+- `InteractionRenderer` — 统一渲染交互 UI
+- `InteractionResultDispatcher` — 处理用户交互结果回传
+
+### 17.2 Consumed Events
+
+前端只处理：
+
+- `interaction.ask_user`
+- `interaction.approval`
+- `interaction.todo_update`
+- `interaction.plan_review`
+- `interaction.notice`
+
+### 17.3 Migration From ToolCallItem
+
+现有 `ToolCallItem` 里与交互强绑定的部分，长期应从工具渲染里剥离出去，迁到 interaction renderer。
+
+短期策略：
+
+- 先把事务型交互迁到 interaction 层
+- 展示型工具暂时保留在 tool call UI
+- 等稳定后再逐步收缩 `ToolCallItem` 特例
+
+---
+
+## 18. Event Normalization Rules
 
 server 必须负责把 provider 原始事件规范化为内部事件。
 
-### 15.1 Raw Event Layer
+### 18.1 Raw Event Layer
 
 provider 可能输出：
 
@@ -836,7 +1104,7 @@ provider 可能输出：
 - permission request
 - provider-private lifecycle event
 
-### 15.2 Normalized PCP Event Layer
+### 18.2 Normalized PCP Event Layer
 
 server 将其映射为：
 
@@ -849,7 +1117,7 @@ server 将其映射为：
 - `run.completed`
 - `run.failed`
 
-### 15.3 Frontend Event Layer
+### 18.3 Frontend Event Layer
 
 frontend 最终只消费 MyClaudia 自己的协议消息，例如：
 
@@ -862,9 +1130,9 @@ PCP 不直接暴露给前端；PCP 是 server runtime 的内部标准边界。
 
 ---
 
-## 16. Error Model
+## 19. Error Model
 
-PCP 需要统一错误分类，避免“任意字符串错误”。
+PCP 需要统一错误分类，避免"任意字符串错误"。
 
 ```ts
 export interface PCPError {
@@ -886,7 +1154,7 @@ export interface PCPError {
 }
 ```
 
-### 16.1 Rules
+### 19.1 Rules
 
 - 不支持某能力时，优先返回 `CAPABILITY_NOT_SUPPORTED`
 - 协商后被禁用时，返回 `CAPABILITY_NEGOTIATION_FAILED`
@@ -895,11 +1163,11 @@ export interface PCPError {
 
 ---
 
-## 17. Observability
+## 20. Observability
 
 PCP 必须可观测，否则后续多 provider 调试会继续困难。
 
-### 17.1 Recommended Telemetry Fields
+### 20.1 Recommended Telemetry Fields
 
 - `providerId`
 - `providerType`
@@ -914,7 +1182,7 @@ PCP 必须可观测，否则后续多 provider 调试会继续困难。
 - `latencyMs`
 - `success`
 
-### 17.2 Trace Layers
+### 20.2 Trace Layers
 
 建议把 trace 拆成三层：
 
@@ -926,9 +1194,9 @@ PCP 必须可观测，否则后续多 provider 调试会继续困难。
 
 ---
 
-## 18. Security and Validation
+## 21. Security and Validation
 
-### 18.1 Manifest Validation
+### 21.1 Manifest Validation
 
 provider manifest 加载时必须验证：
 
@@ -938,7 +1206,7 @@ provider manifest 加载时必须验证：
 - `configSchema` 是否为对象
 - provider id 是否符合规范
 
-### 18.2 Capability Validation
+### 21.2 Capability Validation
 
 如果 provider 声明支持某能力，则必须满足对应最小 contract。
 
@@ -949,23 +1217,23 @@ provider manifest 加载时必须验证：
 - 声明支持 `interaction.approval`，但输出 payload 不是结构化对象
   - 视为协议违规
 
-### 18.3 Tool Schema Validation
+### 21.3 Tool Schema Validation
 
-所有 provider 注册和调用的工具 schema 都必须由 server 校验。  
+所有 provider 注册和调用的工具 schema 都必须由 server 校验。
 不要信任模型，也不要信任 provider 插件返回的任意结构。
 
-### 18.4 Transactional Boundary
+### 21.4 Transactional Boundary
 
-审批、用户表单、会话控制必须由 server 控制提交和回填边界。  
+审批、用户表单、会话控制必须由 server 控制提交和回填边界。
 provider 不能绕过 server 直接驱动前端事务状态。
 
 ---
 
-## 19. Testing Strategy
+## 22. Testing Strategy
 
-测试维度应从“按 provider 文件测”扩展为“按 capability 合同测”。
+测试维度应从"按 provider 文件测"扩展为"按 capability 合同测"。
 
-### 19.1 Contract Tests
+### 22.1 Contract Tests
 
 为每个 capability 定义 contract tests：
 
@@ -978,7 +1246,7 @@ provider 不能绕过 server 直接驱动前端事务状态。
 - `interaction.todo` contract
 - `session.control` contract
 
-### 19.2 Provider Capability Matrix Tests
+### 22.2 Provider Capability Matrix Tests
 
 每个 provider 跑一张 capability matrix：
 
@@ -987,7 +1255,7 @@ provider 不能绕过 server 直接驱动前端事务状态。
 - 实际 contract 结果
 - 降级行为是否符合协议
 
-### 19.3 Regression Tests
+### 22.3 Regression Tests
 
 重点覆盖：
 
@@ -998,34 +1266,104 @@ provider 不能绕过 server 直接驱动前端事务状态。
 
 ---
 
-## 20. Migration Plan
+## 23. Mapping To Existing MyClaudia Architecture
+
+### 23.1 Current State
+
+当前大致是：
+
+- provider 由 `server/src/providers/registry.ts` 直接注册
+- 运行接口集中在 `server/src/providers/types.ts` 的 `ProviderAdapter`
+- plugins 通过 `shared/src/plugin-types.ts` 访问 `ProviderAPI`
+
+### 23.2 Proposed Alignment
+
+#### Provider Runtime
+
+- 短期保留现有 `ProviderAdapter`
+- 在 server 层新增 PCP wrapper / profile negotiation
+- 中期让内建 provider 也转成 `ProviderModule`
+
+#### Plugin API
+
+当前 `ProviderAPI` 可以继续保留为上层"消费接口"，但其底层实现应改为基于 PCP：
+
+- `call()` -> 走 `chat.generate`
+- `callStream()` -> 走 `chat.stream`
+- `list()` / `get()` -> 额外返回 capability/profile 概览
+
+#### Unified Interaction
+
+`interaction.form` / `interaction.approval` / `interaction.todo`
+应直接接到统一交互层，而不是让前端识别 provider 私有工具名。
+
+---
+
+## 24. Migration Plan
 
 ### Phase 0: Documentation and Type Draft
 
-- 新增 PCP 设计文档
+- 新增 PCP 设计文档（本文档）
 - 在 shared/server 中引入 PCP 基础类型
 - 不改现有 provider 行为
 
-### Phase 1: PCP Wrapper Over Existing `ProviderAdapter`
+### Phase 1: Normalize Existing Interactions + PCP Wrapper
 
-- 保留 `ProviderAdapter`
+目标：统一已有结构化交互出口，加入 capability 协商层。
+
+工作项：
+
 - 新增 `ProviderManifest`、`EffectiveProviderProfile`
 - 在现有 registry 上加一层 capability registry / profile negotiation
 - 先让内建 provider 输出静态 manifest
+- 定义 `NormalizedInteractionEvent`
+- 新增 `interaction-normalizer` + `interaction-dispatcher`
+- 把 Claude `AskUserQuestion` 映射到 `interaction.ask_user`
+- 把现有 `TodoWrite` 全部统一为 `interaction.todo_update`
+- 前端新增 interaction renderer，但保留旧 tool UI 兼容
 
-### Phase 2: Stream Event Normalization
+产出：
 
+- 前端不再直接依赖 provider-specific 交互事件
+- 每个 provider 有静态 capability 声明
+
+### Phase 2: Internal Tool MVP on Claude + Stream Event Normalization
+
+目标：在 Claude 路径先跑通内部交互工具，统一 stream 事件。
+
+工作项：
+
+- 定义 `ask_user_form` / `request_approval` / `update_todo_list`
+- 通过现有 MCP bridge / plugin tool 注入机制接到 Claude
+- server 将工具调用转换成统一事件
 - 把 provider 输出统一映射为 PCP stream event
-- 把 `interaction.*` 与统一交互层对齐
 - 前端继续只消费 MyClaudia 自己的统一事件
 
-### Phase 3: Tool Registration and Interaction Bridge
+产出：
 
+- 第一条完整"内部交互工具 -> 统一事件 -> 前端 -> 回填"链路
+
+### Phase 3: Expand to OpenCode + Codex
+
+目标：把内部交互工具能力接到 OpenCode 和 Codex。
+
+工作项：
+
+- 增加 OpenCode 工具桥接
+- 处理 permission / tool_use 的统一映射
+- 对齐事务回填路径
 - 为 Claude / OpenCode / Codex 接入 `tool.define`
-- 让 `interaction.form` / `interaction.approval` / `interaction.todo` 能通过桥接工具稳定产生
+- 让 `interaction.*` 能通过桥接工具稳定产生
 
-### Phase 4: Provider Plugins
+### Phase 4: Cursor / Kimi Degradation + Provider Plugins
 
+目标：明确弱 provider 边界，支持动态加载。
+
+工作项：
+
+- Cursor / Kimi 只做只读展示型事件统一
+- 事务型交互明确降级
+- 保留普通文本 fallback
 - provider 不再只靠内建 registry 注册
 - 支持从 provider plugin manifest 动态发现
 - 内建 provider 也逐步迁移成同构 provider module
@@ -1037,9 +1375,9 @@ provider 不能绕过 server 直接驱动前端事务状态。
 
 ---
 
-## 21. Compatibility With Existing Types
+## 25. Compatibility With Existing Types
 
-### 21.1 `ProviderAdapter`
+### 25.1 `ProviderAdapter`
 
 当前接口：
 
@@ -1060,7 +1398,7 @@ export interface ProviderAdapter {
 - 中期：把 `run()` 的语义压缩为 PCP stream contract
 - 长期：让 provider module 直接实现 PCP
 
-### 21.2 `ProviderAPI`
+### 25.2 `ProviderAPI`
 
 当前 `shared/src/plugin-types.ts` 中的 `ProviderAPI` 可以保留，但建议后续补充：
 
@@ -1071,9 +1409,9 @@ export interface ProviderAdapter {
 
 ---
 
-## 22. Example Manifests
+## 26. Example Manifests
 
-### 22.1 Claude-like Provider
+### 26.1 Claude-like Provider
 
 ```json
 {
@@ -1097,7 +1435,7 @@ export interface ProviderAdapter {
 }
 ```
 
-### 22.2 Cursor-like Provider
+### 26.2 Cursor-like Provider
 
 ```json
 {
@@ -1119,33 +1457,42 @@ export interface ProviderAdapter {
 
 ---
 
-## 23. Open Questions
+## 27. Risks
+
+### 工具调用稳定性风险
+
+不同 provider 对工具调用的稳定性差异很大。即使支持 tools，也可能出现不调用、乱调用、参数缺失、参数结构漂移。
+
+缓解方式：server schema 校验、必填字段 fail-fast、provider 级 capability gating。
+
+### 前端与工具 UI 双轨并存风险
+
+短期内现有 `ToolCallItem` 和新 `InteractionRenderer` 会共存。
+
+缓解方式：先把事务型交互迁到 interaction 层，展示型工具暂时保留在 tool call UI，等稳定后再逐步收缩 `ToolCallItem` 特例。
+
+### 文本推断误判风险
+
+如果把事务型交互建立在文本推断上，会造成假交互。
+
+缓解方式：只允许展示型交互使用 `text_inferred`，事务型交互必须来自明确结构化来源。
+
+---
+
+## 28. Open Questions
 
 以下问题可在 v1 文档通过后单独决策：
 
 1. provider manifest 是否复用现有 plugin manifest，还是独立文件类型
 2. provider plugin 是否允许第三方执行任意 shell / network 行为，还是必须跑在受限 worker
 3. `session.control` 是否要在 v1 就拆成更细的 capability
-4. `tool.define` 是否需要区分“启动前注册”和“运行中动态注册”
+4. `tool.define` 是否需要区分"启动前注册"和"运行中动态注册"
 5. `interaction.form` 的回填协议是否直接复用现有 `ask_user_answer`
 6. `EffectiveProviderProfile` 是否要暴露给前端，还是只暴露精简视图
 
 ---
 
-## 24. Recommended Next Steps
-
-按当前仓库情况，建议落地顺序是：
-
-1. 在 `shared` 中新增 PCP 基础类型
-2. 在 `server` 中新增 `ProviderManifest` 和 `EffectiveProviderProfile` 协商层
-3. 给现有内建 provider 补静态 capability 声明
-4. 在统一交互层接入 `interaction.form` / `interaction.todo` / `interaction.approval`
-5. 将 `ProviderAPI` 底层实现切到 PCP
-6. 最后再做 provider 动态插件加载
-
----
-
-## 25. Summary
+## 29. Summary
 
 PCP v1 的目标不是重新发明 provider SDK 接入方式，而是建立一条稳定边界：
 
@@ -1157,3 +1504,13 @@ PCP v1 的目标不是重新发明 provider SDK 接入方式，而是建立一�
 一句话定义：
 
 > **Provider Capability Protocol 是 MyClaudia 用来声明、协商、调用和降级 provider 标准能力的内部协议。**
+
+最可行的落地路径是：
+
+1. 先统一现有结构化交互出口 + 加入 capability 声明
+2. 再把交互能力做成内部工具，在 Claude 上跑通
+3. 逐步扩到 OpenCode / Codex
+4. 对 Cursor / Kimi 明确采用降级策略
+5. 最后做 provider 动态插件加载
+
+这条路线既能保留当前多 provider 架构，也能避免前端继续堆 provider 特例。

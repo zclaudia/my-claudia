@@ -1,4 +1,5 @@
-import { Lock, Unlock, X, FileText, FileEdit, Terminal as TerminalIcon, ChevronDown, ChevronUp } from 'lucide-react';
+import { useState, useRef, useEffect, useCallback } from 'react';
+import { Lock, Unlock, X, FileText, FileEdit, Terminal as TerminalIcon, ChevronDown, ChevronUp, Plus } from 'lucide-react';
 import { ModeSelector } from './ModeSelector';
 import { SystemInfoButton } from './SystemInfoButton';
 import { ModelSelector } from './ModelSelector';
@@ -91,6 +92,28 @@ export function ChatInputArea({
   const { setAdvancedInput } = useUIStore();
   const openDraftEditor = useDraftEditorStore((s) => s.openEditor);
   const setSendCallback = useDraftEditorStore((s) => s.setSendCallback);
+
+  // Mobile toolbar popover state
+  const [mobileToolsOpen, setMobileToolsOpen] = useState(false);
+  const mobileToolsRef = useRef<HTMLDivElement>(null);
+
+  // Close popover on outside tap
+  useEffect(() => {
+    if (!mobileToolsOpen) return;
+    const handler = (e: MouseEvent | TouchEvent) => {
+      if (mobileToolsRef.current && !mobileToolsRef.current.contains(e.target as Node)) {
+        setMobileToolsOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    document.addEventListener('touchstart', handler);
+    return () => {
+      document.removeEventListener('mousedown', handler);
+      document.removeEventListener('touchstart', handler);
+    };
+  }, [mobileToolsOpen]);
+
+  const closeMobileTools = useCallback(() => setMobileToolsOpen(false), []);
 
   // Read-only mode
   if (currentSession.isReadOnly) {
@@ -296,78 +319,118 @@ export function ChatInputArea({
         initialValue={restoreMessage?.content ?? initialDraft}
         initialAttachments={restoreMessage?.attachments}
         advancedMode={advancedInput}
-        mobileToolbarSlot={isMobile ? (
-          <>
-            {!disabledBuiltinPanels.includes('draft') && (() => {
-              const isActive = bottomPanelTab === 'draft';
-              return (
-                <button
-                  onClick={() => {
-                    if (isActive) {
-                      useDraftEditorStore.getState().closeEditor();
-                    } else {
-                      setSendCallback((content: string) => onSendMessage(content));
-                      openDraftEditor(sessionId);
-                    }
-                  }}
-                  className={`h-9 w-9 flex-shrink-0 flex items-center justify-center rounded-full transition-colors relative ${isActive ? 'text-primary' : 'text-muted-foreground hover:text-foreground'}`}
-                  title={isActive ? 'Close draft editor' : 'Open draft editor'}
-                >
-                  <FileEdit size={18} strokeWidth={1.75} />
-                  {draftExists && !isActive && (
-                    <span className="absolute top-0.5 right-0.5 w-2 h-2 bg-primary rounded-full" />
-                  )}
-                </button>
-              );
-            })()}
-            {currentProject?.rootPath && !disabledBuiltinPanels.includes('file-viewer') && (
-              <button
-                onClick={() => {
-                  if (fileViewerOpen && bottomPanelTab === 'file-viewer') {
-                    useFileViewerStore.getState().close();
-                  } else if (fileViewerOpen) {
-                    setBottomPanelTab('file-viewer');
-                  } else {
-                    const store = useFileViewerStore.getState();
-                    store.togglePanel();
-                    store.setSearchOpen(true);
-                    setBottomPanelTab('file-viewer');
+        mobileToolbarSlot={isMobile ? (() => {
+          const toolItems: Array<{ key: string; icon: React.ReactNode; label: string; isActive: boolean; hasBadge?: boolean; onClick: () => void }> = [];
+
+          if (!disabledBuiltinPanels.includes('draft')) {
+            const isActive = bottomPanelTab === 'draft';
+            toolItems.push({
+              key: 'draft',
+              icon: <FileEdit size={18} strokeWidth={1.75} />,
+              label: isActive ? 'Close Draft' : 'Draft Editor',
+              isActive,
+              hasBadge: draftExists && !isActive,
+              onClick: () => {
+                if (isActive) {
+                  useDraftEditorStore.getState().closeEditor();
+                } else {
+                  setSendCallback((content: string) => onSendMessage(content));
+                  openDraftEditor(sessionId);
+                }
+                closeMobileTools();
+              },
+            });
+          }
+
+          if (currentProject?.rootPath && !disabledBuiltinPanels.includes('file-viewer')) {
+            const isActive = fileViewerOpen && bottomPanelTab === 'file-viewer';
+            toolItems.push({
+              key: 'file-viewer',
+              icon: <FileText size={18} strokeWidth={1.75} />,
+              label: isActive ? 'Close Files' : 'File Viewer',
+              isActive,
+              onClick: () => {
+                if (fileViewerOpen && bottomPanelTab === 'file-viewer') {
+                  useFileViewerStore.getState().close();
+                } else if (fileViewerOpen) {
+                  setBottomPanelTab('file-viewer');
+                } else {
+                  const store = useFileViewerStore.getState();
+                  store.togglePanel();
+                  store.setSearchOpen(true);
+                  setBottomPanelTab('file-viewer');
+                }
+                closeMobileTools();
+              },
+            });
+          }
+
+          if (!disabledBuiltinPanels.includes('terminal') && useServerStore.getState().activeServerSupports('remoteTerminal') && currentSession?.projectId) {
+            const pid = currentSession.projectId;
+            const isOpen = !!drawerOpen[pid];
+            const isActive = isOpen && bottomPanelTab === 'terminal';
+            toolItems.push({
+              key: 'terminal',
+              icon: <TerminalIcon size={18} strokeWidth={1.75} />,
+              label: isActive ? 'Hide Terminal' : 'Terminal',
+              isActive,
+              onClick: () => {
+                if (isOpen && bottomPanelTab === 'terminal') {
+                  setDrawerOpen(pid, false);
+                } else if (isOpen) {
+                  setBottomPanelTab('terminal');
+                } else {
+                  const store = useTerminalStore.getState();
+                  if (!store.terminals[pid]) {
+                    store.openTerminal(pid);
                   }
-                }}
-                className={`h-9 w-9 flex-shrink-0 flex items-center justify-center rounded-full transition-colors ${fileViewerOpen && bottomPanelTab === 'file-viewer' ? 'text-primary' : 'text-muted-foreground hover:text-foreground'}`}
-                title={fileViewerOpen && bottomPanelTab === 'file-viewer' ? 'Close file viewer' : 'Open file viewer'}
+                  setDrawerOpen(pid, true);
+                  setBottomPanelTab('terminal');
+                }
+                closeMobileTools();
+              },
+            });
+          }
+
+          if (toolItems.length === 0) return undefined;
+
+          const hasActiveItem = toolItems.some(t => t.isActive);
+          const hasBadge = toolItems.some(t => t.hasBadge);
+
+          return (
+            <div className="relative" ref={mobileToolsRef}>
+              <button
+                onClick={() => setMobileToolsOpen(v => !v)}
+                className={`h-10 w-10 flex-shrink-0 flex items-center justify-center rounded-full transition-colors relative ${hasActiveItem ? 'text-primary' : 'text-muted-foreground hover:text-foreground'}`}
+                title="More tools"
               >
-                <FileText size={18} strokeWidth={1.75} />
+                <Plus size={20} strokeWidth={1.75} className={`transition-transform duration-200 ${mobileToolsOpen ? 'rotate-45' : ''}`} />
+                {hasBadge && (
+                  <span className="absolute top-1 right-1 w-2 h-2 bg-primary rounded-full" />
+                )}
               </button>
-            )}
-            {!disabledBuiltinPanels.includes('terminal') && useServerStore.getState().activeServerSupports('remoteTerminal') && currentSession?.projectId && (() => {
-              const pid = currentSession.projectId;
-              const isOpen = !!drawerOpen[pid];
-              return (
-                <button
-                  onClick={() => {
-                    if (isOpen && bottomPanelTab === 'terminal') {
-                      setDrawerOpen(pid, false);
-                    } else if (isOpen) {
-                      setBottomPanelTab('terminal');
-                    } else {
-                      const store = useTerminalStore.getState();
-                      if (!store.terminals[pid]) {
-                        store.openTerminal(pid);
-                      }
-                      setDrawerOpen(pid, true);
-                      setBottomPanelTab('terminal');
-                    }
-                  }}
-                  className={`h-9 w-9 flex-shrink-0 flex items-center justify-center rounded-full transition-colors ${isOpen && bottomPanelTab === 'terminal' ? 'text-primary' : 'text-muted-foreground hover:text-foreground'}`}
-                  title={isOpen && bottomPanelTab === 'terminal' ? 'Hide terminal' : 'Open terminal'}
-                >
-                  <TerminalIcon size={18} strokeWidth={1.75} />
-                </button>
-              );
-            })()}
-          </>
-        ) : undefined}
+              {mobileToolsOpen && (
+                <div className="absolute bottom-full left-0 mb-2 py-1 bg-popover border border-border rounded-lg shadow-lg min-w-[160px] z-50">
+                  {toolItems.map((item) => (
+                    <button
+                      key={item.key}
+                      onClick={item.onClick}
+                      className={`w-full flex items-center gap-3 px-4 py-3 text-sm transition-colors ${item.isActive ? 'text-primary bg-primary/5' : 'text-foreground hover:bg-muted'}`}
+                    >
+                      <span className="relative flex-shrink-0">
+                        {item.icon}
+                        {item.hasBadge && (
+                          <span className="absolute -top-1 -right-1 w-2 h-2 bg-primary rounded-full" />
+                        )}
+                      </span>
+                      {item.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })() : undefined}
         placeholder={
           !isConnected
             ? 'Connecting...'

@@ -786,15 +786,15 @@ export function MessageInput({
             className="w-full bg-transparent text-foreground placeholder-muted-foreground focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed resize-none min-h-[1.5rem] overflow-y-auto"
             style={{ fontSize: 'var(--chat-font-input, 0.875rem)', maxHeight: `${Math.max(120, availableViewportHeight * 0.3)}px` }}
           />
-          <div className="flex items-center gap-1 mt-2">
+          <div className="flex items-center gap-2 mt-2">
             {/* Attachment button */}
             <button
               onClick={() => fileInputRef.current?.click()}
               disabled={disabled}
-              className="h-9 w-9 flex-shrink-0 flex items-center justify-center text-muted-foreground hover:text-foreground rounded-full transition-colors disabled:opacity-50"
+              className="h-10 w-10 flex-shrink-0 flex items-center justify-center text-muted-foreground hover:text-foreground rounded-full transition-colors disabled:opacity-50"
               title="Add attachment"
             >
-              <Paperclip size={18} strokeWidth={1.75} />
+              <Paperclip size={20} strokeWidth={1.75} />
             </button>
             <input
               ref={fileInputRef}
@@ -810,20 +810,20 @@ export function MessageInput({
             {isLoading && onCancel ? (
               <button
                 onClick={onCancel}
-                className="h-9 w-9 flex-shrink-0 flex items-center justify-center bg-destructive text-destructive-foreground hover:bg-destructive/90 rounded-full transition-colors"
+                className="h-10 w-10 flex-shrink-0 flex items-center justify-center bg-destructive text-destructive-foreground hover:bg-destructive/90 rounded-full transition-colors"
                 title="Cancel (Esc)"
               >
-                <X size={18} strokeWidth={2} />
+                <X size={20} strokeWidth={2} />
               </button>
             ) : (
               <button
                 onClick={handleSend}
                 disabled={disabled || (!value.trim() && attachments.length === 0)}
-                className="h-9 w-9 flex-shrink-0 flex items-center justify-center bg-primary text-primary-foreground hover:bg-primary/90 disabled:bg-muted disabled:text-muted-foreground disabled:cursor-not-allowed rounded-full transition-colors"
+                className="h-10 w-10 flex-shrink-0 flex items-center justify-center bg-primary text-primary-foreground hover:bg-primary/90 disabled:bg-muted disabled:text-muted-foreground disabled:cursor-not-allowed rounded-full transition-colors"
                 title="Send message (Enter)"
                 data-testid="send-button"
               >
-                <Send size={18} strokeWidth={1.75} />
+                <Send size={20} strokeWidth={1.75} />
               </button>
             )}
           </div>
