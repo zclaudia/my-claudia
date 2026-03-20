@@ -136,6 +136,26 @@ describe('ProjectSettings', () => {
     expect(rootPathInput.value).toBe('/new/path');
   });
 
+  it('does not reset rootPath while editing when only agent changes', () => {
+    const { rerender } = render(
+      <ProjectSettings project={mockProject as any} isOpen={true} onClose={() => {}} />
+    );
+    const rootPathInput = screen.getByDisplayValue('/home/user/test') as HTMLInputElement;
+
+    fireEvent.change(rootPathInput, { target: { value: '/editing/path' } });
+    expect(rootPathInput.value).toBe('/editing/path');
+
+    rerender(
+      <ProjectSettings
+        project={{ ...mockProject, agent: { id: 'agent-1', phase: 'active' } } as any}
+        isOpen={true}
+        onClose={() => {}}
+      />
+    );
+
+    expect(rootPathInput.value).toBe('/editing/path');
+  });
+
   it('updates system prompt textarea', () => {
     render(<ProjectSettings project={mockProject as any} isOpen={true} onClose={() => {}} />);
     const textarea = screen.getByDisplayValue('Be helpful') as HTMLTextAreaElement;
@@ -157,7 +177,22 @@ describe('ProjectSettings', () => {
         expect.objectContaining({ name: 'Test Project' })
       );
     });
-    expect(onClose).toHaveBeenCalled();
+    expect(screen.getByText('Project settings saved.')).toBeTruthy();
+    await waitFor(() => {
+      expect(onClose).toHaveBeenCalled();
+    });
+  });
+
+  it('shows error message when save fails', async () => {
+    const api = await import('../../services/api');
+    vi.mocked(api.updateProject).mockRejectedValueOnce(new Error('Save failed'));
+
+    render(<ProjectSettings project={mockProject as any} isOpen={true} onClose={() => {}} />);
+    fireEvent.click(screen.getByText('Save'));
+
+    await waitFor(() => {
+      expect(screen.getByText('Save failed')).toBeTruthy();
+    });
   });
 
   it('does not call api when name is empty', async () => {

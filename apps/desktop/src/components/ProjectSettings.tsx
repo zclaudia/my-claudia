@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import type { Project, ProviderConfig, AgentPermissionPolicy } from '@my-claudia/shared';
 import { useServerStore } from '../stores/serverStore';
 import { useProjectStore } from '../stores/projectStore';
@@ -33,6 +33,8 @@ export function ProjectSettings({ project, isOpen, onClose }: ProjectSettingsPro
   const storeProviders = useProjectStore((s) => s.providers);
   const [providers, setProviders] = useState<ProviderConfig[]>(storeProviders);
   const [saving, setSaving] = useState(false);
+  const [saveFeedback, setSaveFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const closeTimeoutRef = useRef<number | null>(null);
 
   // Form state
   const [name, setName] = useState('');
@@ -61,29 +63,56 @@ export function ProjectSettings({ project, isOpen, onClose }: ProjectSettingsPro
 
   // Load providers and populate form when project changes
   useEffect(() => {
+    if (!isOpen) {
+      if (closeTimeoutRef.current !== null) {
+        window.clearTimeout(closeTimeoutRef.current);
+        closeTimeoutRef.current = null;
+      }
+      setSaveFeedback(null);
+      return;
+    }
+
     if (isOpen && isConnected) {
       loadProviders();
     }
-    if (project) {
-      setName(project.name);
-      setRootPath(project.rootPath || '');
-      setProviderId(project.providerId || '');
-      setReviewProviderId(project.reviewProviderId || '');
-      setSystemPrompt(project.systemPrompt || '');
-      // Permission override
-      if (project.agentPermissionOverride) {
-        setHasOverride(true);
-        setPermOverride(project.agentPermissionOverride);
-      } else {
-        setHasOverride(false);
-        setPermOverride({});
+  }, [isOpen, isConnected]);
+
+  useEffect(() => {
+    return () => {
+      if (closeTimeoutRef.current !== null) {
+        window.clearTimeout(closeTimeoutRef.current);
       }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!project) return;
+
+    setName(project.name);
+    setRootPath(project.rootPath || '');
+    setProviderId(project.providerId || '');
+    setReviewProviderId(project.reviewProviderId || '');
+    setSystemPrompt(project.systemPrompt || '');
+    if (project.agentPermissionOverride) {
+      setHasOverride(true);
+      setPermOverride(project.agentPermissionOverride);
+    } else {
+      setHasOverride(false);
+      setPermOverride({});
     }
-  }, [isOpen, project, isConnected]);
+  }, [
+    project?.id,
+    project?.name,
+    project?.rootPath,
+    project?.providerId,
+    project?.reviewProviderId,
+    project?.systemPrompt,
+    project?.agentPermissionOverride,
+  ]);
 
   // Keep supervisor toggle state consistent with backend source of truth.
   useEffect(() => {
-    if (!isOpen || !project || !isConnected) return;
+    if (!isOpen || !project?.id || !isConnected) return;
 
     let cancelled = false;
     (async () => {
@@ -106,7 +135,7 @@ export function ProjectSettings({ project, isOpen, onClose }: ProjectSettingsPro
     return () => {
       cancelled = true;
     };
-  }, [isOpen, project, isConnected, setAgent, removeAgent, updateProject]);
+  }, [isOpen, project?.id, isConnected, setAgent, removeAgent, updateProject]);
 
   const loadProviders = async () => {
     // Use store providers immediately if available
@@ -127,6 +156,7 @@ export function ProjectSettings({ project, isOpen, onClose }: ProjectSettingsPro
     if (!project || !name.trim()) return;
 
     setSaving(true);
+    setSaveFeedback(null);
     try {
       const updates: Partial<Project> = {
         name: name.trim(),
@@ -139,10 +169,17 @@ export function ProjectSettings({ project, isOpen, onClose }: ProjectSettingsPro
 
       await api.updateProject(project.id, updates);
       updateProject(project.id, updates);
-
-      onClose();
+      setSaveFeedback({ type: 'success', message: 'Project settings saved.' });
+      closeTimeoutRef.current = window.setTimeout(() => {
+        closeTimeoutRef.current = null;
+        onClose();
+      }, 800);
     } catch (error) {
       console.error('Failed to update project:', error);
+      setSaveFeedback({
+        type: 'error',
+        message: error instanceof Error ? error.message : 'Failed to save project settings',
+      });
     } finally {
       setSaving(false);
     }
@@ -423,6 +460,15 @@ export function ProjectSettings({ project, isOpen, onClose }: ProjectSettingsPro
 
         {/* Footer */}
         <div className="flex justify-end gap-2 px-4 py-3 border-t border-border">
+          {saveFeedback && (
+            <div
+              className={`mr-auto self-center text-xs ${
+                saveFeedback.type === 'error' ? 'text-destructive' : 'text-emerald-600'
+              }`}
+            >
+              {saveFeedback.message}
+            </div>
+          )}
           <button
             onClick={onClose}
             className="px-4 py-2 bg-secondary hover:bg-secondary/80 text-secondary-foreground rounded-lg text-sm font-medium"
