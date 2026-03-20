@@ -6,7 +6,7 @@ import {
   parseBackendId,
   shouldShowBackend,
 } from '../gatewayStore';
-import type { GatewayBackendInfo } from '@my-claudia/shared';
+import type { GatewayBackendInfo, BackendRegistryEntry } from '@my-claudia/shared';
 
 describe('gatewayStore', () => {
   beforeEach(() => {
@@ -15,8 +15,11 @@ describe('gatewayStore', () => {
       gatewaySecret: null,
       isConnected: false,
       localBackendId: null,
+      currentInstanceId: null,
+      currentDeviceId: null,
       discoveredBackends: [],
       backendAuthStatus: {},
+      registry: {},
       directGatewayUrl: null,
       directGatewaySecret: null,
       lastActiveBackendId: null,
@@ -29,6 +32,19 @@ describe('gatewayStore', () => {
     backendId: 'backend-1',
     name: 'Test Backend',
     online: true,
+    ...overrides,
+  });
+
+  const createRegistryEntry = (overrides: Partial<BackendRegistryEntry> = {}): BackendRegistryEntry => ({
+    backendId: 'backend-1',
+    instanceId: 'instance-1',
+    deviceId: 'device-1',
+    channel: 'prod',
+    name: 'Test Backend',
+    visible: true,
+    online: true,
+    registeredAt: 1,
+    updatedAt: 1,
     ...overrides,
   });
 
@@ -77,6 +93,18 @@ describe('gatewayStore', () => {
       useGatewayStore.setState({ localBackendId: 'existing' });
       useGatewayStore.getState().syncFromServer('url', 'sec', []);
       expect(useGatewayStore.getState().localBackendId).toBe('existing');
+    });
+
+    it('recomputes isLocal from registry when local backend id arrives later', () => {
+      useGatewayStore.getState().setRegistrySnapshot([
+        createRegistryEntry({ backendId: 'remote-1', instanceId: 'instance-remote' }),
+        createRegistryEntry({ backendId: 'local-1', instanceId: 'instance-local' }),
+      ]);
+
+      useGatewayStore.getState().syncFromServer('url', 'sec', [], 'local-1');
+
+      const local = useGatewayStore.getState().discoveredBackends.find((b) => b.backendId === 'local-1');
+      expect(local?.isLocal).toBe(true);
     });
   });
 
@@ -198,6 +226,39 @@ describe('gatewayStore', () => {
       expect(s.gatewayUrl).toBeNull();
       expect(s.isConnected).toBe(false);
       expect(s.discoveredBackends).toHaveLength(0);
+    });
+  });
+
+  describe('registry actions', () => {
+    it('derives discovered backends from registry snapshot', () => {
+      useGatewayStore.setState({ localBackendId: 'backend-2' });
+
+      useGatewayStore.getState().setRegistrySnapshot([
+        createRegistryEntry({ backendId: 'backend-1', visible: true }),
+        createRegistryEntry({ backendId: 'backend-2', visible: true }),
+        createRegistryEntry({ backendId: 'backend-3', visible: false }),
+      ]);
+
+      const discovered = useGatewayStore.getState().discoveredBackends;
+      expect(discovered.map((b) => b.backendId)).toEqual(['backend-1', 'backend-2']);
+      expect(discovered.find((b) => b.backendId === 'backend-2')?.isLocal).toBe(true);
+    });
+
+    it('keeps existing registry entries when upserting a new backend', () => {
+      useGatewayStore.getState().setRegistrySnapshot([
+        createRegistryEntry({ backendId: 'backend-1', instanceId: 'instance-1' }),
+        createRegistryEntry({ backendId: 'backend-2', instanceId: 'instance-2' }),
+      ]);
+
+      useGatewayStore.getState().upsertRegistryEntry(
+        createRegistryEntry({ backendId: 'backend-3', instanceId: 'instance-3', channel: 'dev' })
+      );
+
+      expect(useGatewayStore.getState().discoveredBackends.map((b) => b.backendId)).toEqual([
+        'backend-1',
+        'backend-2',
+        'backend-3',
+      ]);
     });
   });
 

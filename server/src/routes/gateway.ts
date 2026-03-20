@@ -26,6 +26,8 @@ export interface GatewayStatus {
   backendName: string | null;
   registerAsBackend: boolean;
   discoveredBackends: GatewayBackendInfo[];
+  instanceId?: string;
+  currentDeviceId?: string;
 }
 
 export function createGatewayRouter(

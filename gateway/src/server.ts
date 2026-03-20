@@ -19,6 +19,10 @@ import type {
   GatewayHttpProxyResponseStart,
   GatewayHttpProxyResponseChunk,
   GatewayHttpProxyResponseEnd,
+  BackendRegistryEntry,
+  GatewayRegistrySnapshotMessage,
+  GatewayRegistryUpsertMessage,
+  GatewayRegistryRemoveMessage,
   ClientMessage,
   ServerMessage
 } from '@my-claudia/shared';
@@ -33,10 +37,13 @@ interface ConnectedBackend {
   id: string;           // Internal connection ID
   backendId: string;    // Public backendId for routing
   deviceId: string;     // Device ID from registration
+  instanceId: string;   // Instance ID (distinguishes prod/dev on same device)
+  channel: string;      // 'prod' | 'dev' | string
   name: string;         // Display name
   ws: WebSocket;
   isAlive: boolean;
   visible: boolean;     // Whether this backend appears in backends_list for others
+  registeredAt: number; // Timestamp when first registered
 }
 
 // Connected client
@@ -454,14 +461,30 @@ export function createGatewayServer(config: GatewayConfig): Server {
       return null;
     }
 
-    // Get or create backendId for this device
-    const backendId = storage.getOrCreateBackendId(message.deviceId, message.name);
+    // Resolve instanceId and backendId
+    const channel = message.channel || 'prod';
+    let instanceId: string;
+    let backendId: string;
+
+    if (message.instanceId) {
+      // New protocol: instanceId provided by client
+      instanceId = message.instanceId;
+      backendId = storage.getOrCreateBackendIdByInstance(instanceId, message.deviceId, channel, message.name);
+    } else {
+      // Legacy protocol: compute instanceId from deviceId + default channel
+      instanceId = crypto.createHash('sha256')
+        .update(message.deviceId + ':prod')
+        .digest('hex')
+        .slice(0, 16);
+      backendId = storage.getOrCreateBackendId(message.deviceId, message.name);
+    }
+
     const name = message.name || `Backend ${backendId}`;
 
-    // Check if this backendId is already connected
+    // Check if this backendId is already connected (reconnection)
     const existingBackend = backends.get(backendId);
     if (existingBackend) {
-      console.log(`Backend ${backendId} reconnecting, closing old connection`);
+      console.log(`Backend ${backendId} (instance=${instanceId}) reconnecting, closing old connection`);
       existingBackend.ws.close(4000, 'Replaced by new connection');
       backends.delete(backendId);
       backendConnections.delete(existingBackend.ws);
@@ -473,25 +496,36 @@ export function createGatewayServer(config: GatewayConfig): Server {
       id: uuidv4(),
       backendId,
       deviceId: message.deviceId,
+      instanceId,
+      channel,
       name,
       ws,
       isAlive: true,
-      visible
+      visible,
+      registeredAt: Date.now()
     };
 
     backends.set(backendId, backend);
     backendConnections.set(ws, backend);
 
-    console.log(`Backend registered: ${backendId} (${name})${visible ? '' : ' [hidden]'}`);
+    console.log(`Backend registered: ${backendId} (${name}) instance=${instanceId} channel=${channel}${visible ? '' : ' [hidden]'}`);
 
     sendToWs(ws, {
       type: 'register_result',
       success: true,
-      backendId
+      backendId,
+      instanceId
     });
 
-    // Broadcast updated backends list to all connected backends
+    // Send full registry to the registering backend so subsequent incremental
+    // updates do not replace its discovered list with partial state.
+    sendRegistrySnapshot(ws);
+
+    // Broadcast updated backends list to all connected backends (legacy)
     broadcastBackendsListToBackends();
+
+    // Broadcast registry upsert to all peers (Phase 2)
+    broadcastRegistryUpsert(backend);
 
     return backendId;
   }
@@ -684,7 +718,8 @@ export function createGatewayServer(config: GatewayConfig): Server {
     const backend = backends.get(backendId);
     if (!backend) return;
 
-    console.log(`Backend disconnected: ${backendId}`);
+    const { instanceId } = backend;
+    console.log(`Backend disconnected: ${backendId} (instance=${instanceId})`);
 
     // Notify all clients that were connected to this backend
     clients.forEach((client) => {
@@ -701,28 +736,97 @@ export function createGatewayServer(config: GatewayConfig): Server {
     backends.delete(backendId);
     backend.ws.terminate();
 
-    // Broadcast updated backends list to remaining backends
+    // Broadcast updated backends list to remaining backends (legacy)
     broadcastBackendsListToBackends();
+
+    // Broadcast registry remove to all peers
+    broadcastRegistryRemove(backendId, instanceId);
+  }
+
+  /** Build a GatewayBackendInfo from a ConnectedBackend (includes identity fields) */
+  function buildBackendInfo(backend: ConnectedBackend): GatewayBackendInfo {
+    return {
+      backendId: backend.backendId,
+      name: backend.name,
+      online: true,
+      instanceId: backend.instanceId,
+      deviceId: backend.deviceId,
+      channel: backend.channel,
+    };
+  }
+
+  /** Build a BackendRegistryEntry from a ConnectedBackend */
+  function buildRegistryEntry(backend: ConnectedBackend): BackendRegistryEntry {
+    return {
+      backendId: backend.backendId,
+      instanceId: backend.instanceId,
+      deviceId: backend.deviceId,
+      channel: backend.channel,
+      name: backend.name,
+      visible: backend.visible,
+      online: true,
+      registeredAt: backend.registeredAt,
+      updatedAt: Date.now(),
+    };
+  }
+
+  /** Build full registry snapshot from all connected backends */
+  function buildRegistrySnapshot(): BackendRegistryEntry[] {
+    const entries: BackendRegistryEntry[] = [];
+    backends.forEach((backend) => {
+      entries.push(buildRegistryEntry(backend));
+    });
+    return entries;
   }
 
   /**
-   * Broadcast current backends list to all connected backends.
+   * Broadcast current backends list to all connected backends (legacy).
    * Only visible backends are included in the list, but ALL backends receive it.
    */
   function broadcastBackendsListToBackends(): void {
     const backendList: GatewayBackendInfo[] = [];
     backends.forEach((backend) => {
       if (backend.visible) {
-        backendList.push({
-          backendId: backend.backendId,
-          name: backend.name,
-          online: true
-        });
+        backendList.push(buildBackendInfo(backend));
       }
     });
     backends.forEach((backend) => {
       sendToWs(backend.ws, { type: 'backends_list', backends: backendList });
     });
+  }
+
+  /** Broadcast registry upsert to all authenticated peers */
+  function broadcastRegistryUpsert(backend: ConnectedBackend): void {
+    const msg: GatewayRegistryUpsertMessage = {
+      type: 'registry_upsert',
+      entry: buildRegistryEntry(backend),
+    };
+    backends.forEach((b) => sendToWs(b.ws, msg));
+    clients.forEach((c) => {
+      if (c.authenticated) sendToWs(c.ws, msg);
+    });
+  }
+
+  /** Broadcast registry remove to all authenticated peers */
+  function broadcastRegistryRemove(backendId: string, instanceId: string): void {
+    const msg: GatewayRegistryRemoveMessage = {
+      type: 'registry_remove',
+      backendId,
+      instanceId,
+    };
+    backends.forEach((b) => sendToWs(b.ws, msg));
+    clients.forEach((c) => {
+      if (c.authenticated) sendToWs(c.ws, msg);
+    });
+  }
+
+  /** Send full registry snapshot to a specific WebSocket */
+  function sendRegistrySnapshot(ws: WebSocket): void {
+    const msg: GatewayRegistrySnapshotMessage = {
+      type: 'registry_snapshot',
+      registry: buildRegistrySnapshot(),
+    };
+    sendToWs(ws, msg);
   }
 
   // --- Client handlers ---
@@ -754,15 +858,11 @@ export function createGatewayServer(config: GatewayConfig): Server {
 
     console.log(`Client authenticated: ${clientId}`);
 
-    // Build backends list to include in auth result
+    // Build backends list to include in auth result (legacy, with identity fields)
     const backendList: GatewayBackendInfo[] = [];
     backends.forEach((backend) => {
       if (backend.visible) {
-        backendList.push({
-          backendId: backend.backendId,
-          name: backend.name,
-          online: true
-        });
+        backendList.push(buildBackendInfo(backend));
       }
     });
 
@@ -771,6 +871,9 @@ export function createGatewayServer(config: GatewayConfig): Server {
       success: true,
       backends: backendList
     });
+
+    // Send full registry snapshot (Phase 2)
+    sendRegistrySnapshot(ws);
 
     return clientId;
   }
@@ -786,11 +889,7 @@ export function createGatewayServer(config: GatewayConfig): Server {
         const backendList: GatewayBackendInfo[] = [];
         backends.forEach((backend) => {
           if (backend.visible) {
-            backendList.push({
-              backendId: backend.backendId,
-              name: backend.name,
-              online: true
-            });
+            backendList.push(buildBackendInfo(backend));
           }
         });
         sendToWs(client.ws, {

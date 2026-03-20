@@ -11,8 +11,12 @@ import type {
   ServerMessage,
   ServerFeature,
   GatewayBackendInfo,
+  BackendRegistryEntry,
   ClientToGatewayMessage,
   GatewayToClientMessage,
+  GatewayRegistrySnapshotMessage,
+  GatewayRegistryUpsertMessage,
+  GatewayRegistryRemoveMessage,
   BackendSessionsListMessage,
   BackendSessionEventMessage,
   GatewayUpdateSubscriptionsMessage
@@ -33,6 +37,10 @@ export interface GatewayTransportConfig {
   onBackendMessage: (backendId: string, message: ServerMessage) => void;
   onBackendDisconnected: (backendId: string) => void;
   onSubscriptionAck?: (subscribedBackendIds: string[]) => void;
+  // Registry callbacks (Phase 2)
+  onRegistrySnapshot?: (entries: BackendRegistryEntry[]) => void;
+  onRegistryUpsert?: (entry: BackendRegistryEntry) => void;
+  onRegistryRemove?: (backendId: string, instanceId: string) => void;
 }
 
 export class GatewayTransport {
@@ -285,6 +293,28 @@ export class GatewayTransport {
         console.error('[GatewayTransport] Gateway error:', message.message);
         this.config.onError(message.message);
         break;
+
+      // Registry messages (Phase 2)
+      case 'registry_snapshot': {
+        const snapshotMsg = message as GatewayRegistrySnapshotMessage;
+        console.log(`[GatewayTransport] Registry snapshot: ${snapshotMsg.registry.length} entries`);
+        this.config.onRegistrySnapshot?.(snapshotMsg.registry);
+        break;
+      }
+
+      case 'registry_upsert': {
+        const upsertMsg = message as GatewayRegistryUpsertMessage;
+        console.log(`[GatewayTransport] Registry upsert: ${upsertMsg.entry.backendId} (${upsertMsg.entry.name})`);
+        this.config.onRegistryUpsert?.(upsertMsg.entry);
+        break;
+      }
+
+      case 'registry_remove': {
+        const removeMsg = message as GatewayRegistryRemoveMessage;
+        console.log(`[GatewayTransport] Registry remove: ${removeMsg.backendId}`);
+        this.config.onRegistryRemove?.(removeMsg.backendId, removeMsg.instanceId);
+        break;
+      }
 
       default:
         console.warn('[GatewayTransport] Unknown message type:', (message as any).type);

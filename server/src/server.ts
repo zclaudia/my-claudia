@@ -113,6 +113,7 @@ export interface ServerContext {
   disconnectGateway: () => Promise<void>;
   updateGatewayConnected: (connected: boolean) => void;
   updateGatewayBackendId: (backendId: string | null) => void;
+  updateGatewayIdentity: (instanceId: string, deviceId: string) => void;
   updateDiscoveredBackends: (backends: import('@my-claudia/shared').GatewayBackendInfo[]) => void;
   setGatewayConnector: (connector: (config: GatewayConfig) => Promise<void>) => void;
   setGatewayDisconnector: (disconnector: () => Promise<void>) => void;
@@ -361,6 +362,7 @@ export async function createServer(): Promise<ServerContext> {
     connectGateway: setup.connectGateway,
     disconnectGateway: setup.disconnectGateway,
     updateGatewayConnected: setup.updateGatewayConnected,
+    updateGatewayIdentity: setup.updateGatewayIdentity,
     updateGatewayBackendId: (backendId: string | null) => {
       setup.gatewayStatus.backendId = backendId;
       if (backendId) {

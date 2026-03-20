@@ -29,9 +29,13 @@ vi.mock('fs', () => ({
 }));
 
 // Mock crypto
-vi.mock('crypto', () => ({
-  randomUUID: vi.fn().mockReturnValue('test-uuid-123')
-}));
+vi.mock('crypto', async (importOriginal) => {
+  const actual = await importOriginal() as any;
+  return {
+    ...actual,
+    randomUUID: vi.fn().mockReturnValue('test-uuid-123')
+  };
+});
 
 describe('GatewayClient', () => {
   let client: GatewayClient;
@@ -219,12 +223,24 @@ describe('GatewayClient', () => {
       (client as any).isConnected = true;
       (client as any).backendId = 'test-backend';
       (client as any).discoveredBackends = [{ id: 'test' }];
+      (client as any).registryEntries.set('backend-1', {
+        backendId: 'backend-1',
+        instanceId: 'instance-1',
+        deviceId: 'device-1',
+        channel: 'prod',
+        name: 'Backend 1',
+        visible: true,
+        online: true,
+        registeredAt: 1,
+        updatedAt: 1,
+      });
 
       client.disconnect();
 
       expect((client as any).isConnected).toBe(false);
       expect((client as any).backendId).toBeNull();
       expect((client as any).discoveredBackends).toEqual([]);
+      expect((client as any).registryEntries.size).toBe(0);
     });
   });
 
@@ -463,6 +479,87 @@ describe('GatewayClient', () => {
       expect(backends).toHaveLength(2);
       expect(backends[0].isLocal).toBe(true);
       expect(backends[1].isLocal).toBe(false);
+    });
+
+    it('hydrates registry from snapshot before applying incremental updates', () => {
+      const mockWs = (client as any).ws;
+      (client as any).backendId = 'backend-1';
+
+      const messageHandler = mockWs.on.mock.calls.find(
+        (call: any[]) => call[0] === 'message'
+      )?.[1];
+
+      messageHandler?.(Buffer.from(JSON.stringify({
+        type: 'registry_snapshot',
+        registry: [
+          {
+            backendId: 'backend-1',
+            instanceId: 'instance-1',
+            deviceId: 'device-1',
+            channel: 'prod',
+            name: 'Backend 1',
+            visible: true,
+            online: true,
+            registeredAt: 1,
+            updatedAt: 1,
+          },
+          {
+            backendId: 'backend-2',
+            instanceId: 'instance-2',
+            deviceId: 'device-2',
+            channel: 'prod',
+            name: 'Backend 2',
+            visible: true,
+            online: true,
+            registeredAt: 2,
+            updatedAt: 2,
+          }
+        ]
+      })));
+
+      messageHandler?.(Buffer.from(JSON.stringify({
+        type: 'registry_upsert',
+        entry: {
+          backendId: 'backend-3',
+          instanceId: 'instance-3',
+          deviceId: 'device-3',
+          channel: 'dev',
+          name: 'Backend 3',
+          visible: true,
+          online: true,
+          registeredAt: 3,
+          updatedAt: 3,
+        }
+      })));
+
+      expect(client.getDiscoveredBackends().map((b) => b.backendId)).toEqual([
+        'backend-1',
+        'backend-2',
+        'backend-3',
+      ]);
+    });
+
+    it('clears registry cache when websocket closes', () => {
+      const mockWs = (client as any).ws;
+      (client as any).registryEntries.set('backend-1', {
+        backendId: 'backend-1',
+        instanceId: 'instance-1',
+        deviceId: 'device-1',
+        channel: 'prod',
+        name: 'Backend 1',
+        visible: true,
+        online: true,
+        registeredAt: 1,
+        updatedAt: 1,
+      });
+
+      const closeHandler = mockWs.on.mock.calls.find(
+        (call: any[]) => call[0] === 'close'
+      )?.[1];
+
+      closeHandler?.(1006);
+
+      expect((client as any).registryEntries.size).toBe(0);
     });
 
     it('handles client_connected message', () => {

@@ -10,6 +10,8 @@ export interface GatewayRegisterMessage {
   type: 'register';
   gatewaySecret: string;
   deviceId: string;
+  instanceId?: string;   // sha256(deviceId + ':' + channel).slice(0, 16) — distinguishes prod/dev on same device
+  channel?: string;      // 'prod' | 'dev' | string — defaults to 'prod'
   name?: string;
   visible?: boolean;  // Default true. If false, connects to gateway but is not listed as available backend
 }
@@ -18,6 +20,7 @@ export interface GatewayRegisterResultMessage {
   type: 'register_result';
   success: boolean;
   backendId?: string;
+  instanceId?: string;   // Echo back the resolved instanceId
   error?: string;
 }
 
@@ -194,6 +197,36 @@ export interface GatewaySubscriptionAckMessage {
   subscribedBackendIds: string[];
 }
 
+// --- Backend Registry (Phase 2: Registry Unification) ---
+
+export interface BackendRegistryEntry {
+  backendId: string;
+  instanceId: string;
+  deviceId: string;
+  channel: string;
+  name: string;
+  visible: boolean;
+  online: boolean;
+  registeredAt: number;
+  updatedAt: number;
+}
+
+export interface GatewayRegistrySnapshotMessage {
+  type: 'registry_snapshot';
+  registry: BackendRegistryEntry[];
+}
+
+export interface GatewayRegistryUpsertMessage {
+  type: 'registry_upsert';
+  entry: BackendRegistryEntry;
+}
+
+export interface GatewayRegistryRemoveMessage {
+  type: 'registry_remove';
+  backendId: string;
+  instanceId: string;
+}
+
 // --- Gateway HTTP Proxy Protocol ---
 // Used when clients connect through Gateway and need to make REST API calls
 // to a backend that may be behind NAT.
@@ -246,7 +279,10 @@ export type GatewayToBackendMessage =
   | GatewayClientConnectedMessage
   | GatewayClientDisconnectedMessage
   | GatewayClientSubscribedMessage
-  | GatewayHttpProxyRequest;
+  | GatewayHttpProxyRequest
+  | GatewayRegistrySnapshotMessage
+  | GatewayRegistryUpsertMessage
+  | GatewayRegistryRemoveMessage;
 
 export type BackendToGatewayMessage =
   | GatewayRegisterMessage
@@ -273,4 +309,7 @@ export type GatewayToClientMessage =
   | GatewayBackendDisconnectedMessage
   | GatewayBackendMessageMessage
   | GatewayErrorMessage
-  | GatewaySubscriptionAckMessage;
+  | GatewaySubscriptionAckMessage
+  | GatewayRegistrySnapshotMessage
+  | GatewayRegistryUpsertMessage
+  | GatewayRegistryRemoveMessage;

@@ -123,6 +123,7 @@ async function connectToGateway(config: GatewayConfig): Promise<void> {
     gatewayUrl: config.gatewayUrl,
     gatewaySecret: config.gatewaySecret,
     name: config.backendName || `Backend on ${os.hostname()}`,
+    channel: process.env.MY_CLAUDIA_CHANNEL || 'prod',
     serverPort: actualPort,
     visible: config.registerAsBackend !== false
   };
@@ -218,6 +219,11 @@ async function connectToGateway(config: GatewayConfig): Promise<void> {
   gatewayClientMode = new GatewayClientMode(clientModeConfig);
   setGatewayClientMode(gatewayClientMode);
   gatewayClientMode.connect();
+
+  // Set identity immediately (available before connection)
+  if (serverContext) {
+    serverContext.updateGatewayIdentity(gatewayClient.getInstanceId(), gatewayClient.getDeviceId());
+  }
 
   // Sync gateway status periodically as fallback (backendId + discoveredBackends)
   const syncGatewayStatus = setInterval(() => {

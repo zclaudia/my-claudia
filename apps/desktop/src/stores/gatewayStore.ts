@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { GatewayBackendInfo } from '@my-claudia/shared';
+import type { GatewayBackendInfo, BackendRegistryEntry } from '@my-claudia/shared';
 
 export type BackendAuthStatus = 'authenticated' | 'pending' | 'failed';
 
@@ -10,8 +10,13 @@ interface GatewayState {
   gatewaySecret: string | null;
   isConnected: boolean;
   localBackendId: string | null;  // This server's own backendId (for isLocal filtering)
+  currentInstanceId: string | null;  // This server's instanceId
+  currentDeviceId: string | null;    // This server's deviceId
   discoveredBackends: GatewayBackendInfo[];
   backendAuthStatus: Record<string, BackendAuthStatus>;
+
+  // Registry from gateway (Phase 2) — keyed by backendId
+  registry: Record<string, BackendRegistryEntry>;
 
   // Direct gateway config — for mobile clients (persisted)
   directGatewayUrl: string | null;
@@ -22,11 +27,16 @@ interface GatewayState {
   subscribedBackendIds: string[];
 
   // Actions
-  syncFromServer: (url: string | null, secret: string | null, backends: GatewayBackendInfo[], backendId?: string | null, connected?: boolean) => void;
+  syncFromServer: (url: string | null, secret: string | null, backends: GatewayBackendInfo[], backendId?: string | null, connected?: boolean, instanceId?: string | null, deviceId?: string | null) => void;
   setConnected: (connected: boolean) => void;
   setDiscoveredBackends: (backends: GatewayBackendInfo[]) => void;
   setBackendAuthStatus: (backendId: string, status: BackendAuthStatus) => void;
   clearGateway: () => void;
+
+  // Registry actions (Phase 2)
+  setRegistrySnapshot: (entries: BackendRegistryEntry[]) => void;
+  upsertRegistryEntry: (entry: BackendRegistryEntry) => void;
+  removeRegistryEntry: (backendId: string) => void;
 
   // Mobile direct config actions
   setDirectGatewayConfig: (url: string, secret: string) => void;
@@ -55,6 +65,23 @@ function markIsLocal(backends: GatewayBackendInfo[], localBackendId: string | nu
   }));
 }
 
+function deriveBackendsFromRegistry(
+  registry: Record<string, BackendRegistryEntry>,
+  localBackendId: string | null
+): GatewayBackendInfo[] {
+  return Object.values(registry)
+    .filter(entry => entry.visible)
+    .map(entry => ({
+      backendId: entry.backendId,
+      name: entry.name,
+      online: entry.online,
+      isLocal: entry.backendId === localBackendId,
+      instanceId: entry.instanceId,
+      deviceId: entry.deviceId,
+      channel: entry.channel,
+    }));
+}
+
 /**
  * Whether a backend should be shown in UI lists.
  * Hide local backend only when we know the current runtime local backend id.
@@ -77,8 +104,11 @@ export const useGatewayStore = create<GatewayState>()(
       gatewaySecret: null,
       isConnected: false,
       localBackendId: null,
+      currentInstanceId: null,
+      currentDeviceId: null,
       discoveredBackends: [],
       backendAuthStatus: {},
+      registry: {},
 
       // Mobile direct config (persisted)
       directGatewayUrl: null,
@@ -92,13 +122,19 @@ export const useGatewayStore = create<GatewayState>()(
       showLocalBackend: false,
       setShowLocalBackend: (show) => set({ showLocalBackend: show }),
 
-      syncFromServer: (url: string | null, secret: string | null, backends: GatewayBackendInfo[], backendId?: string | null, connected?: boolean) => {
+      syncFromServer: (url: string | null, secret: string | null, backends: GatewayBackendInfo[], backendId?: string | null, connected?: boolean, instanceId?: string | null, deviceId?: string | null) => {
         const localId = backendId !== undefined ? backendId : get().localBackendId;
+        const { registry } = get();
+        const hasRegistry = Object.keys(registry).length > 0;
         set({
           gatewayUrl: url,
           gatewaySecret: secret,
           localBackendId: localId,
-          discoveredBackends: markIsLocal(backends, localId),
+          ...(instanceId !== undefined ? { currentInstanceId: instanceId } : {}),
+          ...(deviceId !== undefined ? { currentDeviceId: deviceId } : {}),
+          ...(hasRegistry
+            ? { discoveredBackends: deriveBackendsFromRegistry(registry, localId) }
+            : { discoveredBackends: markIsLocal(backends, localId) }),
           // Sync server-side gateway connected status when available
           ...(connected !== undefined ? { isConnected: connected } : {}),
         });
@@ -128,8 +164,44 @@ export const useGatewayStore = create<GatewayState>()(
           gatewaySecret: null,
           isConnected: false,
           localBackendId: null,
+          currentInstanceId: null,
+          currentDeviceId: null,
           discoveredBackends: [],
-          backendAuthStatus: {}
+          backendAuthStatus: {},
+          registry: {},
+        });
+      },
+
+      // Registry actions (Phase 2)
+      setRegistrySnapshot: (entries) => {
+        const registry: Record<string, BackendRegistryEntry> = {};
+        for (const entry of entries) {
+          registry[entry.backendId] = entry;
+        }
+        const localId = get().localBackendId;
+        set({
+          registry,
+          discoveredBackends: deriveBackendsFromRegistry(registry, localId),
+        });
+      },
+
+      upsertRegistryEntry: (entry) => {
+        set((state) => {
+          const registry = { ...state.registry, [entry.backendId]: entry };
+          return {
+            registry,
+            discoveredBackends: deriveBackendsFromRegistry(registry, state.localBackendId),
+          };
+        });
+      },
+
+      removeRegistryEntry: (backendId) => {
+        set((state) => {
+          const { [backendId]: _, ...registry } = state.registry;
+          return {
+            registry,
+            discoveredBackends: deriveBackendsFromRegistry(registry, state.localBackendId),
+          };
         });
       },
 

@@ -72,7 +72,9 @@ export function useGatewayConnection() {
             status.gatewaySecret,
             status.discoveredBackends,
             status.backendId,
-            status.connected
+            status.connected,
+            status.instanceId ?? null,
+            status.currentDeviceId ?? null
           );
         } else {
           useGatewayStore.getState().syncFromServer(null, null, [], null, false);
@@ -83,7 +85,8 @@ export function useGatewayConnection() {
     };
 
     syncFromServer();
-    const interval = setInterval(syncFromServer, 10000);
+    // Poll at 30s interval (reduced from 10s) — registry push handles real-time updates
+    const interval = setInterval(syncFromServer, 30000);
 
     return () => { mounted = false; clearInterval(interval); };
   }, []);
@@ -206,7 +209,17 @@ export function useGatewayConnection() {
         setBackendAuthStatus(backendId, 'failed');
         const serverId = toGatewayServerId(backendId);
         setServerConnectionStatus(serverId, 'disconnected');
-      }
+      },
+      // Registry callbacks (Phase 2)
+      onRegistrySnapshot: (entries) => {
+        useGatewayStore.getState().setRegistrySnapshot(entries);
+      },
+      onRegistryUpsert: (entry) => {
+        useGatewayStore.getState().upsertRegistryEntry(entry);
+      },
+      onRegistryRemove: (backendId) => {
+        useGatewayStore.getState().removeRegistryEntry(backendId);
+      },
     });
 
     return transport;

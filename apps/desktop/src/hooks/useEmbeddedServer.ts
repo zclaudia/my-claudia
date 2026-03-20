@@ -164,6 +164,7 @@ export function useEmbeddedServer(options?: { disabled?: boolean }): EmbeddedSer
           PORT: '3100',
           SERVER_HOST: '127.0.0.1',
           MY_CLAUDIA_DATA_DIR: dataDir,
+          MY_CLAUDIA_CHANNEL: 'dev',
           ...shellNetworkEnv,
         },
       });

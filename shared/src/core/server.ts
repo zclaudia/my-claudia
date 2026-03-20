@@ -68,6 +68,9 @@ export interface GatewayBackendInfo {
   name: string;
   online: boolean;
   isLocal?: boolean;
+  instanceId?: string;
+  deviceId?: string;
+  channel?: string;
 }
 
 // Server Gateway Configuration Types
@@ -96,4 +99,6 @@ export interface ServerGatewayStatus {
   backendName: string | null;
   registerAsBackend: boolean;
   discoveredBackends: GatewayBackendInfo[];
+  instanceId?: string;
+  currentDeviceId?: string;
 }

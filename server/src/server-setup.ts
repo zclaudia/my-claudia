@@ -78,6 +78,7 @@ export interface SetupResult {
   disconnectGateway: () => Promise<void>;
   updateGatewayConnected: (connected: boolean) => void;
   updateGatewayBackendId: (backendId: string | null) => void;
+  updateGatewayIdentity: (instanceId: string, deviceId: string) => void;
   updateDiscoveredBackends: (backends: import('@my-claudia/shared').GatewayBackendInfo[]) => void;
   setGatewayConnector: (connector: (config: GatewayConfig) => Promise<void>) => void;
   setGatewayDisconnector: (disconnector: () => Promise<void>) => void;
@@ -441,6 +442,10 @@ export function setupRoutesAndServices(deps: SetupDependencies): SetupResult {
     disconnectGateway,
     updateGatewayConnected,
     updateGatewayBackendId,
+    updateGatewayIdentity: (instanceId: string, deviceId: string) => {
+      gatewayStatus.instanceId = instanceId;
+      gatewayStatus.currentDeviceId = deviceId;
+    },
     updateDiscoveredBackends: (backends: import('@my-claudia/shared').GatewayBackendInfo[]) => {
       gatewayStatus.discoveredBackends = backends;
     },

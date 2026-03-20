@@ -19,6 +19,10 @@ import type {
   GatewayHttpProxyResponseEnd,
   GatewayBackendsListMessage,
   GatewayBackendInfo,
+  BackendRegistryEntry,
+  GatewayRegistrySnapshotMessage,
+  GatewayRegistryUpsertMessage,
+  GatewayRegistryRemoveMessage,
   ClientMessage,
   ServerMessage,
 } from '@my-claudia/shared';
@@ -40,6 +44,7 @@ interface GatewayClientConfig {
   gatewayUrl: string;
   gatewaySecret: string;
   name?: string;
+  channel?: string;     // 'prod' | 'dev' | string — defaults to 'prod'
   serverPort?: number;  // Local server port for HTTP proxy requests
   visible?: boolean;    // Whether to register as visible backend (default true)
   proxyUrl?: string;
@@ -91,6 +96,8 @@ export class GatewayClient {
   private ws: WebSocket | null = null;
   private config: GatewayClientConfig;
   private deviceId: string;
+  private instanceId: string;
+  private channel: string;
   private backendId: string | null = null;
   private reconnectAttempts = 0;
   private reconnectBaseInterval = 5000;
@@ -106,6 +113,8 @@ export class GatewayClient {
   private authenticatedClients = new Set<string>();
   // Discovered backends from gateway
   private discoveredBackends: GatewayBackendInfo[] = [];
+  // Registry entries from gateway (Phase 2)
+  private registryEntries = new Map<string, BackendRegistryEntry>();
   // Flag to prevent reconnection after intentional disconnect
   private intentionalDisconnect = false;
 
@@ -116,8 +125,14 @@ export class GatewayClient {
   constructor(config: GatewayClientConfig, db?: Database, activeRuns?: ActiveRunsMap) {
     this.config = config;
     this.deviceId = getOrCreateDeviceId();
+    this.channel = config.channel || 'prod';
+    this.instanceId = crypto.createHash('sha256')
+      .update(this.deviceId + ':' + this.channel)
+      .digest('hex')
+      .slice(0, 16);
     this.db = db || null;
     this.activeRuns = activeRuns || null;
+    console.log(`[Gateway] Instance ID: ${this.instanceId} (channel=${this.channel})`);
   }
 
   /**
@@ -210,6 +225,7 @@ export class GatewayClient {
       console.log(`[Gateway] Disconnected (code: ${code})`);
       this.isConnected = false;
       this.backendId = null;
+      this.registryEntries.clear();
       // Code 4000 = "Replaced by new connection" — our own connect() already
       // created a new WS, so reconnecting would create a duplicate.
       if (code === 4000) {
@@ -242,6 +258,7 @@ export class GatewayClient {
     this.isConnected = false;
     this.backendId = null;
     this.discoveredBackends = [];
+    this.registryEntries.clear();
   }
 
   /**
@@ -300,6 +317,35 @@ export class GatewayClient {
     return this.isConnected;
   }
 
+  /**
+   * Get this instance's instanceId
+   */
+  getInstanceId(): string {
+    return this.instanceId;
+  }
+
+  /**
+   * Get this device's deviceId
+   */
+  getDeviceId(): string {
+    return this.deviceId;
+  }
+
+  /** Derive discoveredBackends from registry entries */
+  private deriveDiscoveredBackendsFromRegistry(): void {
+    this.discoveredBackends = Array.from(this.registryEntries.values())
+      .filter(entry => entry.visible)
+      .map(entry => ({
+        backendId: entry.backendId,
+        name: entry.name,
+        online: entry.online,
+        isLocal: entry.backendId === this.backendId,
+        instanceId: entry.instanceId,
+        deviceId: entry.deviceId,
+        channel: entry.channel,
+      }));
+  }
+
   private register(): void {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
 
@@ -307,6 +353,8 @@ export class GatewayClient {
       type: 'register',
       gatewaySecret: this.config.gatewaySecret,
       deviceId: this.deviceId,
+      instanceId: this.instanceId,
+      channel: this.channel,
       name: this.config.name,
       visible: this.config.visible !== false
     };
@@ -320,8 +368,11 @@ export class GatewayClient {
         if (message.success && message.backendId) {
           this.isConnected = true;
           this.backendId = message.backendId;
+          if (message.instanceId) {
+            this.instanceId = message.instanceId;
+          }
           this.reconnectAttempts = 0;
-          console.log(`[Gateway] Registered as backend: ${this.backendId}`);
+          console.log(`[Gateway] Registered as backend: ${this.backendId} (instance=${this.instanceId})`);
         } else {
           console.error('[Gateway] Registration failed:', message.error);
           this.ws?.close();
@@ -329,12 +380,42 @@ export class GatewayClient {
         break;
 
       case 'backends_list': {
-        const backendsMsg = message as GatewayBackendsListMessage;
-        this.discoveredBackends = backendsMsg.backends.map(b => ({
-          ...b,
-          isLocal: b.backendId === this.backendId
-        }));
-        console.log(`[Gateway] Discovered backends: ${backendsMsg.backends.length}`);
+        // Legacy backends list — only use if we haven't received a registry_snapshot yet
+        if (this.registryEntries.size === 0) {
+          const backendsMsg = message as GatewayBackendsListMessage;
+          this.discoveredBackends = backendsMsg.backends.map(b => ({
+            ...b,
+            isLocal: b.backendId === this.backendId
+          }));
+          console.log(`[Gateway] Discovered backends (legacy): ${backendsMsg.backends.length}`);
+        }
+        break;
+      }
+
+      case 'registry_snapshot': {
+        const snapshotMsg = message as unknown as GatewayRegistrySnapshotMessage;
+        this.registryEntries.clear();
+        for (const entry of snapshotMsg.registry) {
+          this.registryEntries.set(entry.backendId, entry);
+        }
+        this.deriveDiscoveredBackendsFromRegistry();
+        console.log(`[Gateway] Registry snapshot: ${snapshotMsg.registry.length} entries`);
+        break;
+      }
+
+      case 'registry_upsert': {
+        const upsertMsg = message as unknown as GatewayRegistryUpsertMessage;
+        this.registryEntries.set(upsertMsg.entry.backendId, upsertMsg.entry);
+        this.deriveDiscoveredBackendsFromRegistry();
+        console.log(`[Gateway] Registry upsert: ${upsertMsg.entry.backendId} (${upsertMsg.entry.name})`);
+        break;
+      }
+
+      case 'registry_remove': {
+        const removeMsg = message as unknown as GatewayRegistryRemoveMessage;
+        this.registryEntries.delete(removeMsg.backendId);
+        this.deriveDiscoveredBackendsFromRegistry();
+        console.log(`[Gateway] Registry remove: ${removeMsg.backendId}`);
         break;
       }
 
