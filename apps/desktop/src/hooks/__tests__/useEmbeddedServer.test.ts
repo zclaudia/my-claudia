@@ -89,7 +89,6 @@ describe('hooks/useEmbeddedServer', () => {
 
     // Reset window state
     removeTauriInternals();
-
     // Mock navigator.userAgent for desktop
     Object.defineProperty(navigator, 'userAgent', {
       value: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)',
@@ -244,13 +243,34 @@ describe('hooks/useEmbeddedServer', () => {
         await vi.runAllTimersAsync();
       });
 
-      // sidecar is called but spawn should not be called since we returned early
-      expect(mockSpawnFn).not.toHaveBeenCalled();
+      const { Command } = await import('@tauri-apps/plugin-shell');
+      expect(mockFetch).toHaveBeenCalledWith('http://127.0.0.1:3100/health');
+      expect(Command.sidecar).not.toHaveBeenCalled();
+    });
+
+    it('reuses existing server when health check succeeds after retries', async () => {
+      mockTauriInternals();
+      mockFetch
+        .mockRejectedValueOnce(new Error('Connection refused'))
+        .mockRejectedValueOnce(new Error('Connection refused'))
+        .mockResolvedValueOnce({ ok: true });
+
+      const { result } = renderHook(() => useEmbeddedServer());
+
+      await act(async () => {
+        await vi.runAllTimersAsync();
+      });
+
+      expect(result.current.status).toBe('ready');
+      expect(result.current.port).toBe(3100);
+      const { Command } = await import('@tauri-apps/plugin-shell');
+      expect(Command.sidecar).not.toHaveBeenCalled();
+      expect(mockFetch).toHaveBeenCalledTimes(3);
     });
 
     it('spawns new process when health check fails', async () => {
       mockTauriInternals();
-      mockFetch.mockRejectedValueOnce(new Error('Connection refused'));
+      mockFetch.mockRejectedValue(new Error('Connection refused'));
 
       renderHook(() => useEmbeddedServer());
 
@@ -263,7 +283,7 @@ describe('hooks/useEmbeddedServer', () => {
 
     it('spawns new process when health check returns non-ok', async () => {
       mockTauriInternals();
-      mockFetch.mockResolvedValueOnce({ ok: false, status: 500 });
+      mockFetch.mockResolvedValue({ ok: false, status: 500 });
 
       renderHook(() => useEmbeddedServer());
 

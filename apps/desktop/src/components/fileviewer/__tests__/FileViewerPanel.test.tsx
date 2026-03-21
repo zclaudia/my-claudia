@@ -21,6 +21,12 @@ vi.mock('../FileSearchInput', () => ({
   FileSearchInput: (props: any) => <div data-testid="file-search">FileSearchInput</div>,
 }));
 
+vi.mock('react-markdown', () => ({
+  default: ({ children }: { children: string }) => <div data-testid="markdown">{children}</div>,
+}));
+
+vi.mock('remark-gfm', () => ({ default: () => {} }));
+
 vi.mock('react-syntax-highlighter', () => ({
   Prism: (props: any) => <pre data-testid="syntax-highlighter">{props.children}</pre>,
 }));
@@ -93,6 +99,14 @@ describe('FileViewerPanel', () => {
     render(<FileViewerPanel projectRoot="/project" />);
     expect(screen.getByTestId('syntax-highlighter')).toBeInTheDocument();
     expect(screen.getByText('const x = 1;')).toBeInTheDocument();
+  });
+
+  it('renders markdown viewer for markdown files', () => {
+    mockFileViewerState.filePath = 'docs/readme.md';
+    mockFileViewerState.content = '| A |\n| - |\n| B |';
+    render(<FileViewerPanel projectRoot="/project" />);
+    expect(screen.getByTestId('markdown')).toBeInTheDocument();
+    expect(screen.queryByTestId('syntax-highlighter')).not.toBeInTheDocument();
   });
 
   it('shows empty state prompt when no file and not loading', () => {

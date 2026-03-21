@@ -900,6 +900,10 @@ function runMigrations(db: Database.Database): void {
       sql: `
         -- SQLite doesn't support ALTER CHECK constraint, so recreate the table
         -- with the updated CHECK that includes 'agent' type.
+        -- Disable FK enforcement during table rebuild to prevent SQLITE_LOCKED
+        PRAGMA foreign_keys = OFF;
+        -- Drop residual temp table from prior failed migration attempts
+        DROP TABLE IF EXISTS sessions_new;
         CREATE TABLE sessions_new AS SELECT * FROM sessions;
         DROP TABLE sessions;
         CREATE TABLE sessions (
@@ -920,10 +924,12 @@ function runMigrations(db: Database.Database): void {
           updated_at INTEGER NOT NULL,
           archived_at INTEGER
         );
-        INSERT INTO sessions SELECT * FROM sessions_new;
+        INSERT INTO sessions (id, project_id, name, provider_id, sdk_session_id, type, parent_session_id, working_directory, project_role, task_id, plan_status, is_read_only, last_run_status, created_at, updated_at, archived_at)
+          SELECT id, project_id, name, provider_id, sdk_session_id, COALESCE(type, 'regular'), parent_session_id, working_directory, project_role, task_id, plan_status, is_read_only, last_run_status, created_at, updated_at, archived_at FROM sessions_new;
         DROP TABLE sessions_new;
         CREATE INDEX IF NOT EXISTS idx_sessions_project ON sessions(project_id);
         CREATE INDEX IF NOT EXISTS idx_sessions_archived ON sessions(archived_at);
+        PRAGMA foreign_keys = ON;
       `
     },
     {

@@ -8,6 +8,7 @@ import { useIsMobile } from '../../hooks/useMediaQuery';
 import * as api from '../../services/api';
 import { getBaseUrl, getAuthHeaders } from '../../services/api';
 import { FileSearchInput } from './FileSearchInput';
+import { MarkdownFileContent } from './MarkdownFileContent';
 
 const EXT_TO_LANG: Record<string, string> = {
   ts: 'typescript', tsx: 'tsx', js: 'javascript', jsx: 'jsx',
@@ -184,6 +185,7 @@ export function FileViewerPanel({ projectRoot }: FileViewerPanelProps) {
 
   const lang = filePath ? detectLanguage(filePath) : 'text';
   const codeStyle = isDarkTheme(resolvedTheme) ? oneDark : oneLight;
+  const isMarkdown = lang === 'markdown';
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
@@ -219,28 +221,32 @@ export function FileViewerPanel({ projectRoot }: FileViewerPanelProps) {
           </div>
         )}
         {content && !loading && (
-          <SyntaxHighlighter
-            style={codeStyle}
-            language={lang}
-            showLineNumbers
-            PreTag="div"
-            customStyle={{
-              margin: 0,
-              borderRadius: 0,
-              padding: '0.5rem 0',
-              fontSize: '0.75rem',
-              lineHeight: '1.25rem',
-            }}
-            lineNumberStyle={{
-              minWidth: '3em',
-              paddingRight: '1em',
-              textAlign: 'right',
-              userSelect: 'none',
-              opacity: 0.5,
-            }}
-          >
-            {content}
-          </SyntaxHighlighter>
+          isMarkdown ? (
+            <MarkdownFileContent content={content} />
+          ) : (
+            <SyntaxHighlighter
+              style={codeStyle}
+              language={lang}
+              showLineNumbers
+              PreTag="div"
+              customStyle={{
+                margin: 0,
+                borderRadius: 0,
+                padding: '0.5rem 0',
+                fontSize: '0.75rem',
+                lineHeight: '1.25rem',
+              }}
+              lineNumberStyle={{
+                minWidth: '3em',
+                paddingRight: '1em',
+                textAlign: 'right',
+                userSelect: 'none',
+                opacity: 0.5,
+              }}
+            >
+              {content}
+            </SyntaxHighlighter>
+          )
         )}
         {!filePath && !loading && !searchOpen && (
           <div className="flex flex-col items-center justify-center h-full text-muted-foreground text-sm gap-2">

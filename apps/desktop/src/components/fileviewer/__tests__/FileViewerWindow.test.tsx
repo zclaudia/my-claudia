@@ -11,6 +11,12 @@ vi.mock('../../../services/api', () => ({
   getFileContent: vi.fn().mockResolvedValue({ content: 'mock file content' }),
 }));
 
+vi.mock('react-markdown', () => ({
+  default: ({ children }: { children: string }) => <div data-testid="markdown">{children}</div>,
+}));
+
+vi.mock('remark-gfm', () => ({ default: () => {} }));
+
 vi.mock('react-syntax-highlighter', () => ({
   Prism: (props: any) => <pre data-testid="syntax-highlighter">{props.children}</pre>,
 }));
@@ -41,6 +47,14 @@ describe('FileViewerWindow', () => {
       expect(screen.getByTestId('syntax-highlighter')).toBeInTheDocument();
     });
     expect(screen.getByText('mock file content')).toBeInTheDocument();
+  });
+
+  it('renders markdown viewer for markdown files', async () => {
+    render(<FileViewerWindow filePath="docs/readme.md" projectRoot="/project" />);
+    await waitFor(() => {
+      expect(screen.getByTestId('markdown')).toBeInTheDocument();
+    });
+    expect(screen.queryByTestId('syntax-highlighter')).not.toBeInTheDocument();
   });
 
   it('renders close button when onClose is provided', () => {

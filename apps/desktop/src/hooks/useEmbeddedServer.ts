@@ -25,6 +25,13 @@ type ProbeWindow = typeof window & {
   __MY_CLAUDIA_PROBE_ENDPOINT__?: (baseUrl: string) => Promise<OpenCodeEndpointProbeResult | null>;
 };
 
+const DEV_HEALTHCHECK_URL = 'http://127.0.0.1:3100/health';
+const DEV_HEALTHCHECK_RETRY_DELAYS_MS = [150, 300, 500, 750, 1000, 1500];
+
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => window.setTimeout(resolve, ms));
+}
+
 /**
  * Detect if we're running inside a Tauri desktop app (not Android/mobile/Windows).
  * On mobile, the shell spawn capability isn't available.
@@ -140,16 +147,24 @@ export function useEmbeddedServer(options?: { disabled?: boolean }): EmbeddedSer
       void runOpencodeEndpointProbe();
       const shellNetworkEnv = await invoke<Record<string, string>>('get_shell_network_env').catch(() => ({}));
 
-      // If server is already running on port 3100 (e.g. after HMR remount), reuse it
-      try {
-        const resp = await fetch('http://127.0.0.1:3100/health');
-        if (resp.ok) {
-          console.log('[EmbeddedServer] Server already running on port 3100, reusing');
-          setState({ port: 3100, status: 'ready', error: null });
-          return;
+      // In tauri dev, beforeDevCommand starts the workspace server on port 3100 in parallel.
+      // Vite may become ready first, so give the existing dev server a short window to finish booting
+      // before falling back to spawning a sidecar on the same fixed port.
+      for (let attempt = 0; attempt <= DEV_HEALTHCHECK_RETRY_DELAYS_MS.length; attempt++) {
+        try {
+          const resp = await fetch(DEV_HEALTHCHECK_URL);
+          if (resp.ok) {
+            console.log('[EmbeddedServer] Server already running on port 3100, reusing');
+            setState({ port: 3100, status: 'ready', error: null });
+            return;
+          }
+        } catch {
+          // Not ready yet, retry below.
         }
-      } catch {
-        // Not running, proceed to spawn
+
+        if (attempt < DEV_HEALTHCHECK_RETRY_DELAYS_MS.length) {
+          await sleep(DEV_HEALTHCHECK_RETRY_DELAYS_MS[attempt]);
+        }
       }
 
       // Use /tmp to avoid space issues in env vars with sidecar
@@ -198,7 +213,7 @@ export function useEmbeddedServer(options?: { disabled?: boolean }): EmbeddedSer
         if (!mountedRef.current) return;
         // Before marking as error, check if server is still reachable
         // (handles React StrictMode double-mount: old process dies but new one is running)
-        fetch('http://127.0.0.1:3100/health').then(resp => {
+        fetch(DEV_HEALTHCHECK_URL).then(resp => {
           if (resp.ok && mountedRef.current) {
             console.log('[EmbeddedServer] Process exited but server still reachable, recovering');
             setState({ port: 3100, status: 'ready', error: null });

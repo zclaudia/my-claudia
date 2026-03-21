@@ -4,6 +4,7 @@ import { oneDark, oneLight } from 'react-syntax-highlighter/dist/esm/styles/pris
 import { useTheme, isDarkTheme } from '../../contexts/ThemeContext';
 import { WindowContextBar } from '../chat/SessionChatWindow';
 import * as api from '../../services/api';
+import { MarkdownFileContent } from './MarkdownFileContent';
 
 const EXT_TO_LANG: Record<string, string> = {
   ts: 'typescript', tsx: 'tsx', js: 'javascript', jsx: 'jsx',
@@ -84,6 +85,7 @@ export function FileViewerWindow({ filePath, projectRoot, onClose, serverUrl, au
 
   const lang = detectLanguage(filePath);
   const codeStyle = isDarkTheme(resolvedTheme) ? oneDark : oneLight;
+  const isMarkdown = lang === 'markdown';
 
   const projectName = projectRoot.split('/').pop() || projectRoot;
 
@@ -125,28 +127,32 @@ export function FileViewerWindow({ filePath, projectRoot, onClose, serverUrl, au
           </div>
         )}
         {content && !loading && (
-          <SyntaxHighlighter
-            style={codeStyle}
-            language={lang}
-            showLineNumbers
-            PreTag="div"
-            customStyle={{
-              margin: 0,
-              borderRadius: 0,
-              padding: '0.5rem 0',
-              fontSize: '0.8rem',
-              lineHeight: '1.4rem',
-            }}
-            lineNumberStyle={{
-              minWidth: '3.5em',
-              paddingRight: '1em',
-              textAlign: 'right',
-              userSelect: 'none',
-              opacity: 0.5,
-            }}
-          >
-            {content}
-          </SyntaxHighlighter>
+          isMarkdown ? (
+            <MarkdownFileContent content={content} />
+          ) : (
+            <SyntaxHighlighter
+              style={codeStyle}
+              language={lang}
+              showLineNumbers
+              PreTag="div"
+              customStyle={{
+                margin: 0,
+                borderRadius: 0,
+                padding: '0.5rem 0',
+                fontSize: '0.8rem',
+                lineHeight: '1.4rem',
+              }}
+              lineNumberStyle={{
+                minWidth: '3.5em',
+                paddingRight: '1em',
+                textAlign: 'right',
+                userSelect: 'none',
+                opacity: 0.5,
+              }}
+            >
+              {content}
+            </SyntaxHighlighter>
+          )
         )}
       </div>
     </div>
