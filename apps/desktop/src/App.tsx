@@ -7,6 +7,7 @@ import { MobileSetup } from './components/MobileSetup';
 import { WindowsSetup } from './components/WindowsSetup';
 import { AgentPanel } from './components/agent/AgentPanel';
 import { AgentSidePanel } from './components/agent/AgentSidePanel';
+import { AgentFeedPanel } from './components/agent-feed/AgentFeedPanel';
 import { FileViewerWindow } from './components/fileviewer/FileViewerWindow';
 import { WorkflowEditorWindow } from './features/workflows/components/WorkflowEditorWindow';
 import { SessionChatWindow } from './components/chat/SessionChatWindow';
@@ -21,6 +22,7 @@ import { useServerStore } from './stores/serverStore';
 import { useGatewayStore, isGatewayTarget } from './stores/gatewayStore';
 import { useProjectStore } from './stores/projectStore';
 import { useAgentStore } from './stores/agentStore';
+import { useAgentFeedStore } from './stores/agentFeedStore';
 import { useIsMobile } from './hooks/useMediaQuery';
 import { useAndroidBack } from './hooks/useAndroidBack';
 import { eagerSyncAllBackends } from './services/sessionSync';
@@ -132,6 +134,8 @@ function AppContent() {
   const [dashboardProjectId, setDashboardProjectId] = useState<string | null>(null);
   const { directGatewayUrl, lastActiveBackendId, isConnected: isGatewayConnected, discoveredBackends } = useGatewayStore();
   const { isExpanded: isAgentExpanded, hasUnread: hasAgentUnread, setExpanded: setAgentExpanded } = useAgentStore();
+  const feedUnreadCount = useAgentFeedStore((s) => s.unreadCount);
+  const [isFeedOpen, setFeedOpen] = useState(false);
   const fileViewerFullscreen = useFileViewerStore((s) => s.fullscreen);
   const fileViewerFilePath = useFileViewerStore((s) => s.filePath);
   const fileViewerProjectRoot = useFileViewerStore((s) => s.projectRoot);
@@ -376,6 +380,24 @@ function AppContent() {
         {/* Plugin window buttons */}
         <PluginWindowButtons />
 
+        {/* Feed toggle button */}
+        <button
+          onClick={() => setFeedOpen(!isFeedOpen)}
+          className={`relative p-1.5 rounded hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors ${
+            isFeedOpen ? 'bg-secondary text-foreground' : ''
+          }`}
+          title={isFeedOpen ? 'Close Feed' : 'Open Feed'}
+        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+          </svg>
+          {feedUnreadCount > 0 && (
+            <span className="absolute -top-0.5 -right-0.5 min-w-[14px] h-[14px] flex items-center justify-center bg-primary text-primary-foreground text-[9px] font-medium rounded-full px-0.5">
+              {feedUnreadCount > 99 ? '99+' : feedUnreadCount}
+            </span>
+          )}
+        </button>
+
         {/* Agent toggle button */}
         <button
           onClick={() => setAgentExpanded(!isAgentExpanded)}
@@ -468,6 +490,16 @@ function AppContent() {
           </div>
 
         </main>
+
+        {/* Desktop: Feed Panel (slide-over from right) */}
+        {!isMobile && isFeedOpen && (
+          <>
+            <div className="fixed inset-0 z-30" onClick={() => setFeedOpen(false)} />
+            <div className="fixed right-0 top-0 bottom-0 w-[380px] z-40 bg-card border-l border-border shadow-lg flex flex-col">
+              <AgentFeedPanel />
+            </div>
+          </>
+        )}
 
         {/* Desktop: Agent Side Panel (always mounted to preserve conversation state) */}
         {!isMobile && (

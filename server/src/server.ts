@@ -63,7 +63,9 @@ function broadcastPluginState(): void {
   _broadcastPluginState(connectedClients);
 }
 function buildStateHeartbeat(): StateHeartbeatMessage {
-  return _buildStateHeartbeat(activeRuns);
+  const heartbeat = _buildStateHeartbeat(activeRuns);
+  heartbeat.unreadFeedCount = agentFeedService?.getUnreadCount() ?? 0;
+  return heartbeat;
 }
 
 const activeRuns = new Map<string, ActiveRun>();

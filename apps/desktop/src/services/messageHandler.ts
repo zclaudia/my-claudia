@@ -641,6 +641,18 @@ export function handleServerMessage(
         );
         useSessionsStore.getState().setActiveSessionsForBackend(LOCAL_BACKEND_KEY, activeSessionIds);
       }
+
+      // Sync feed unread count from heartbeat (covers offline/reconnect scenario)
+      if (heartbeat.unreadFeedCount !== undefined) {
+        import('../stores/agentFeedStore').then(m => {
+          const store = m.useAgentFeedStore.getState();
+          // Only update if we haven't loaded the full feed yet (items empty = first connect)
+          if (store.items.length === 0 && heartbeat.unreadFeedCount! > 0) {
+            // Will be corrected when full feed loads; for now show badge
+            m.useAgentFeedStore.setState({ unreadCount: heartbeat.unreadFeedCount! });
+          }
+        });
+      }
       break;
     }
 

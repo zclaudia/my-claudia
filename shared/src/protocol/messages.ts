@@ -984,6 +984,8 @@ export interface StateHeartbeatMessage {
     sessionId: string;
     questions: AskUserQuestionItem[];
   }>;
+  /** Unread Agent Feed item count — for badge display on reconnect */
+  unreadFeedCount?: number;
 }
 
 // Workflow messages (Server → Client)

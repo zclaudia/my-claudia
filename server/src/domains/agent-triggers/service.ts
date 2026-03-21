@@ -72,19 +72,20 @@ export class AgentTriggerService {
       });
     };
 
-    const unsubscribe = trigger.eventPattern.includes('*') && this.deps.pluginEvents.onPattern
-      ? this.deps.pluginEvents.onPattern(trigger.eventPattern, handler)
-      : this.deps.pluginEvents.on(trigger.eventPattern, handler);
+    const pattern = trigger.eventPattern!;
+    const unsubscribe = pattern.includes('*') && this.deps.pluginEvents.onPattern
+      ? this.deps.pluginEvents.onPattern(pattern, handler)
+      : this.deps.pluginEvents.on(pattern, handler);
 
     this.activeListeners.set(trigger.id, () => {
       if (typeof unsubscribe === 'function') {
         unsubscribe();
         return;
       }
-      if (trigger.eventPattern.includes('*')) {
-        this.deps.pluginEvents.offPattern?.(trigger.eventPattern, handler);
+      if (pattern.includes('*')) {
+        this.deps.pluginEvents.offPattern?.(pattern, handler);
       } else {
-        this.deps.pluginEvents.off(trigger.eventPattern, handler);
+        this.deps.pluginEvents.off(pattern, handler);
       }
     });
   }
