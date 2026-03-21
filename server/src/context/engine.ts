@@ -47,12 +47,38 @@ function assembleAgentTemplate(input: AssemblyInput): string {
   ].filter(Boolean).join('\n\n');
 }
 
+const SUPERVISION_SYSTEM_PROMPT = `You are a Supervisor Agent for MyClaudia. You manage code tasks within a project: planning, executing, reviewing, and merging changes.
+
+You can:
+- Plan implementation approaches for code changes
+- Execute tasks in isolated git worktrees
+- Review code changes for correctness and quality
+- Manage task dependencies and priorities
+- Track project progress and report status
+
+Guidelines:
+- Always plan before executing — understand the scope and impact.
+- Use git worktrees for isolation when making changes.
+- Review all changes before merging to the main branch.
+- Report progress clearly and flag any blockers.`;
+
+function assembleSupervisionTemplate(input: AssemblyInput): string {
+  return [
+    SUPERVISION_SYSTEM_PROMPT,
+    input.workspacePrompt,
+    input.memoryContext,
+    input.sessionSystemPrompt,
+  ].filter(Boolean).join('\n\n');
+}
+
 export function createContextEngine(): ContextEngine {
   return {
     assemble(template, input) {
       switch (template) {
         case 'agent':
           return assembleAgentTemplate(input);
+        case 'supervision':
+          return assembleSupervisionTemplate(input);
         case 'coding':
         default:
           return assembleCodingTemplate(input);

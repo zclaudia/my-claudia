@@ -25,7 +25,7 @@ export interface AssemblyInput {
   sessionSystemPrompt?: string;
 }
 
-export type ContextTemplate = 'coding' | 'agent';
+export type ContextTemplate = 'coding' | 'agent' | 'supervision';
 
 export interface ContextEngine {
   assemble(template: ContextTemplate, input: AssemblyInput): string;

@@ -42,6 +42,8 @@ import type { SupervisorService } from './services/supervision/supervisor-servic
 import { NotificationService } from './services/notification-service.js';
 import { registerInteractionTools } from './interactions/interaction-tools.js';
 import { registerAgentTools } from './agent-tools/index.js';
+import { registerTaskTools } from './agent-tools/task-tools.js';
+import { createTaskOrchestrator } from './orchestration/task-orchestrator.js';
 import { interactionDispatcher } from './interactions/interaction-dispatcher.js';
 import { pluginEvents } from './events/index.js';
 import { pluginLoader } from './plugins/loader.js';
@@ -382,6 +384,22 @@ export function setupRoutesAndServices(deps: SetupDependencies): SetupResult {
   registerAgentTools({
     getDb: () => db,
   });
+
+  // TaskOrchestrator — unified task orchestration (Phase 2: agent tasks only)
+  const orchestrator = createTaskOrchestrator({
+    db,
+    handleRunStart,
+    getClients: () => clients,
+    serverPort: getServerPort(),
+  });
+  // Expose db reference for task tools (avoids circular import)
+  (globalThis as any).__orchestratorDb = db;
+
+  // Register task orchestration tools (spawn_task, steer_task, etc.)
+  registerTaskTools(orchestrator);
+
+  // Start orchestrator ticker (10s, agent tasks only)
+  orchestrator.start(10000);
 
   // Record activity log on run completion (Layer 1 — session-level summaries)
   pluginEvents.on('run.completed', (event: any) => {
