@@ -13,18 +13,19 @@ export function useDataLoader() {
 
     console.log(`[DataLoader] Loading data for server: ${activeServerId}`);
 
-    // On gateway connections (mobile), skip getServers — it uses fetchLocalApi
-    // which targets localhost:3100 and will fail since there's no local server
+    // Skip getServers for gateway (no local server) and embedded server (address is dynamic via SERVER_READY)
     const isGateway = isGatewayTarget(activeServerId);
+    const isEmbedded = activeServerId === 'local';
+    const skipServerLoad = isGateway || isEmbedded;
 
     try {
       const [servers, projects, sessions, providers] = await Promise.all([
-        isGateway ? Promise.resolve([]) : api.getServers(),
+        skipServerLoad ? Promise.resolve([]) : api.getServers(),
         api.getProjects({ signal }),
         api.getSessions(undefined, { signal }),
         api.getProviders({ signal })
       ]);
-      if (!isGateway) {
+      if (!skipServerLoad) {
         useServerStore.getState().setServers(servers);
       }
       const store = useProjectStore.getState();
