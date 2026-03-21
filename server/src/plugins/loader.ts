@@ -563,6 +563,45 @@ export class PluginLoader {
       this.broadcastFn?.({ type: 'workflow_step_types_changed' });
     }
 
+    // Register plugin-contributed skills
+    if (contributes.skills) {
+      const pluginInfo = this.plugins.get(manifest.id);
+      if (pluginInfo) {
+        for (const skill of contributes.skills) {
+          const skillDir = path.join(pluginInfo.path, path.dirname(skill.path));
+          const skillMdPath = path.join(pluginInfo.path, skill.path);
+          if (fs.existsSync(skillMdPath)) {
+            try {
+              const content = fs.readFileSync(skillMdPath, 'utf-8');
+              // Extract name from first heading or filename
+              const nameMatch = content.replace(/^---[\s\S]*?---\s*\n?/, '').match(/^#\s*(.+)/m);
+              const skillId = `${manifest.id}_${path.basename(skillDir)}`;
+              const skillName = nameMatch?.[1] || path.basename(skillDir);
+
+              toolRegistry.register({
+                id: `skill__${skillId}`,
+                definition: {
+                  type: 'function',
+                  function: {
+                    name: `skill__${skillId}`,
+                    description: `[Skill] ${skillName} (from plugin: ${manifest.name})`,
+                    parameters: { type: 'object', properties: {} },
+                  },
+                },
+                source: 'skill',
+                handler: async () => {
+                  return fs.readFileSync(skillMdPath, 'utf-8');
+                },
+              });
+              console.log(`[PluginLoader] Registered skill "${skillId}" from plugin "${manifest.id}"`);
+            } catch (err) {
+              console.warn(`[PluginLoader] Failed to load skill from ${skillMdPath}:`, err);
+            }
+          }
+        }
+      }
+    }
+
     // Broadcast panel registrations to connected frontends
     if (contributes.panels) {
       for (const panel of contributes.panels) {

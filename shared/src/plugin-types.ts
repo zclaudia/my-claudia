@@ -149,6 +149,11 @@ export type WorkflowStepHandler = (
   },
 ) => Promise<{ status: 'completed' | 'failed'; output: Record<string, unknown>; error?: string }>;
 
+export interface SkillContribution {
+  /** Relative path to SKILL.md inside the plugin directory */
+  path: string;
+}
+
 export interface PluginContributes {
   commands?: CommandContribution[];
   tools?: ToolContribution[];
@@ -159,6 +164,7 @@ export interface PluginContributes {
   menus?: MenuContribution[];
   keybindings?: KeybindingContribution[];
   workflowSteps?: WorkflowStepContribution[];
+  skills?: SkillContribution[];
 }
 
 export type ExecutionMode = 'main' | 'worker' | 'sandbox';
