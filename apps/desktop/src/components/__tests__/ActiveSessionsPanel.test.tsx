@@ -224,6 +224,40 @@ describe('ActiveSessionsPanel', () => {
       expect(screen.queryByText(/Backend 0e3a5d2b/i)).toBeNull();
       expect(serverId).toBe(`gw:${backendId}`);
     });
+
+    it('hides gateway sessions for this instance when showLocalBackend is off', () => {
+      const backendId = 'self-backend-1';
+
+      useGatewayStore.setState({
+        currentInstanceId: 'inst-1',
+        showLocalBackend: false,
+        discoveredBackends: [
+          { backendId, name: 'HomeMac', online: true, isThisInstance: true, instanceId: 'inst-1' } as any,
+        ],
+      });
+
+      const remoteSessions = new Map();
+      remoteSessions.set(backendId, [
+        { id: 'sess-1', name: 'Self Session', projectId: 'proj-1', isActive: true, createdAt: Date.now(), updatedAt: Date.now() },
+      ]);
+      useSessionsStore.setState({
+        remoteSessions,
+        recentlyCompletedSessions: [
+          {
+            session: { id: 'done-1', name: 'Self Completed', projectId: 'proj-1', createdAt: Date.now(), updatedAt: Date.now() } as any,
+            backendId,
+            completedAt: Date.now(),
+          },
+        ],
+      });
+      useSessionsStore.getState().setActiveSessionsForBackend(backendId, new Set(['sess-1']));
+
+      render(<ActiveSessionsPanel />);
+
+      expect(screen.queryByText('HomeMac')).toBeNull();
+      expect(screen.queryByText('Self Session')).toBeNull();
+      expect(screen.queryByText('Self Completed')).toBeNull();
+    });
   });
 
   describe('UI interactions', () => {
@@ -289,7 +323,7 @@ describe('ActiveSessionsPanel', () => {
       useSessionsStore.getState().setActiveSessionsForBackend(LOCAL_BACKEND_KEY, new Set(['s1']));
 
       render(<ActiveSessionsPanel />);
-      expect(screen.getByText('My Project')).toBeDefined();
+      expect(screen.getAllByText('My Project').length).toBeGreaterThan(0);
     });
 
     it('renders recently completed sessions', () => {

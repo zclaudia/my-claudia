@@ -53,7 +53,9 @@ describe('useDataLoader', () => {
     await act(async () => {
       await result.current.loadData();
     });
-    expect(api.getServers).toHaveBeenCalled();
+    // getServers is skipped for embedded server (activeServerId='local')
     expect(api.getProjects).toHaveBeenCalled();
+    expect(api.getSessions).toHaveBeenCalled();
+    expect(api.getProviders).toHaveBeenCalled();
   });
 });

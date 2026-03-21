@@ -1,53 +1,11 @@
-import type { BackendServer, ServerInfo, ApiResponse } from '@my-claudia/shared';
-import { fetchLocalApi } from './base';
+import type { ServerInfo, ApiResponse } from '@my-claudia/shared';
 import { isGatewayTarget, parseBackendId } from '../../stores/gatewayStore';
 import { resolveGatewayBackendUrl } from '../gatewayProxy';
 import { useServerStore } from '../../stores/serverStore';
 
-export async function getServers(): Promise<BackendServer[]> {
-  const result = await fetchLocalApi<BackendServer[]>('/api/servers');
-  if (!result.success || !result.data) {
-    throw new Error(result.error?.message || 'Failed to fetch servers');
-  }
-  return result.data;
-}
-
-export async function createServer(data: Omit<BackendServer, 'id' | 'createdAt' | 'lastConnected'>): Promise<BackendServer> {
-  const result = await fetchLocalApi<BackendServer>('/api/servers', {
-    method: 'POST',
-    body: JSON.stringify(data)
-  });
-  if (!result.success || !result.data) {
-    throw new Error(result.error?.message || 'Failed to create server');
-  }
-  return result.data;
-}
-
-export async function updateServer(
-  id: string,
-  data: Partial<Omit<BackendServer, 'id' | 'createdAt'>>
-): Promise<void> {
-  const result = await fetchLocalApi<void>(`/api/servers/${id}`, {
-    method: 'PUT',
-    body: JSON.stringify(data)
-  });
-  if (!result.success) {
-    throw new Error(result.error?.message || 'Failed to update server');
-  }
-}
-
-export async function deleteServer(id: string): Promise<void> {
-  const result = await fetchLocalApi<void>(`/api/servers/${id}`, {
-    method: 'DELETE'
-  });
-  if (!result.success) {
-    throw new Error(result.error?.message || 'Failed to delete server');
-  }
-}
-
 /**
- * Get server info (including whether authentication is required)
- * This endpoint doesn't require authentication
+ * Get server info (including whether authentication is required).
+ * This endpoint doesn't require authentication.
  */
 export async function getServerInfo(address: string): Promise<ServerInfo> {
   const url = address.includes('://') ? address : `http://${address}`;

@@ -12,7 +12,6 @@ import { initDatabase } from '../storage/db.js';
 import { createRouter } from '../router/index.js';
 import { ProjectRepository } from '../repositories/project.js';
 import { SessionRepository } from '../repositories/session.js';
-import { ServerRepository } from '../repositories/server.js';
 import { ProviderRepository } from '../repositories/provider.js';
 import { authMiddleware } from '../middleware/auth.js';
 import { loggingMiddleware } from '../middleware/logging.js';
@@ -41,7 +40,6 @@ async function testRouterCrud() {
   const router = createRouter(db);
   const projectRepo = new ProjectRepository(db);
   const sessionRepo = new SessionRepository(db);
-  const serverRepo = new ServerRepository(db);
   const providerRepo = new ProviderRepository(db);
 
   // Apply middleware (without auth for testing)
@@ -50,7 +48,6 @@ async function testRouterCrud() {
   // Register all CRUD routes
   router.crud('projects', projectRepo);
   router.crud('sessions', sessionRepo);
-  router.crud('servers', serverRepo);
   router.crud('providers', providerRepo);
 
   // Verify routes are registered

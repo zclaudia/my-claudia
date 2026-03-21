@@ -23,7 +23,6 @@ import { createProviderRoutes } from './routes/providers.js';
 import { createFilesRoutes } from './routes/files.js';
 import { createCommandsRoutes } from './routes/commands.js';
 import { createGatewayRouter, type GatewayConfig, type GatewayStatus } from './routes/gateway.js';
-import { createServerRoutes } from './routes/servers.js';
 import { createImportRoutes } from './routes/import.js';
 import { createOpenCodeImportRoutes } from './routes/import-opencode.js';
 import { createAgentRoutes } from './routes/agent.js';
@@ -190,7 +189,6 @@ export function setupRoutesAndServices(deps: SetupDependencies): SetupResult {
   app.use('/api/sessions', authMiddleware, createSessionRoutes(db, activeRuns));
   app.use('/api/sessions', authMiddleware, createSessionDraftRoutes(db));
   app.use('/api/providers', authMiddleware, createProviderRoutes(db));
-  app.use('/api/servers', authMiddleware, createServerRoutes(db));
   app.use('/api/files', authMiddleware, createFilesRoutes({
     sendMessage,
     getAuthenticatedClients: () => {

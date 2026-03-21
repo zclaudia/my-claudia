@@ -1,7 +1,6 @@
 import { useEffect, useCallback } from 'react';
 import { useServerStore } from '../stores/serverStore';
 import { useProjectStore } from '../stores/projectStore';
-import { isGatewayTarget } from '../stores/gatewayStore';
 import * as api from '../services/api';
 
 export function useDataLoader() {
@@ -13,21 +12,12 @@ export function useDataLoader() {
 
     console.log(`[DataLoader] Loading data for server: ${activeServerId}`);
 
-    // Skip getServers for gateway (no local server) and embedded server (address is dynamic via SERVER_READY)
-    const isGateway = isGatewayTarget(activeServerId);
-    const isEmbedded = activeServerId === 'local';
-    const skipServerLoad = isGateway || isEmbedded;
-
     try {
-      const [servers, projects, sessions, providers] = await Promise.all([
-        skipServerLoad ? Promise.resolve([]) : api.getServers(),
+      const [projects, sessions, providers] = await Promise.all([
         api.getProjects({ signal }),
         api.getSessions(undefined, { signal }),
         api.getProviders({ signal })
       ]);
-      if (!skipServerLoad) {
-        useServerStore.getState().setServers(servers);
-      }
       const store = useProjectStore.getState();
       store.setProjects(projects);
       store.mergeSessions(sessions);
@@ -37,7 +27,6 @@ export function useDataLoader() {
       // If current selectedSessionId doesn't exist in the new sessions, auto-select
       const { selectedSessionId } = store;
       if (selectedSessionId && !sessions.find(s => s.id === selectedSessionId)) {
-        // Pick the most recently updated session, or null
         const latest = sessions.length > 0
           ? sessions.reduce((a, b) => (b.updatedAt > a.updatedAt ? b : a))
           : null;

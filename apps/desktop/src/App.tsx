@@ -17,14 +17,12 @@ import { ProjectDashboard } from './components/dashboard/ProjectDashboard';
 import { ThemeProvider } from './contexts/ThemeContext';
 import { ConnectionProvider, useConnection } from './contexts/ConnectionContext';
 import { useDataLoader } from './hooks/useDataLoader';
-import { useServerManager } from './hooks/useServerManager';
 import { useServerStore } from './stores/serverStore';
 import { useGatewayStore, isGatewayTarget } from './stores/gatewayStore';
 import { useProjectStore } from './stores/projectStore';
 import { useAgentStore } from './stores/agentStore';
 import { useIsMobile } from './hooks/useMediaQuery';
 import { useAndroidBack } from './hooks/useAndroidBack';
-import { migrateServersFromLocalStorage, needsMigration } from './utils/migrateServers';
 import { eagerSyncAllBackends } from './services/sessionSync';
 import { useFileViewerStore } from './stores/fileViewerStore';
 import { useUIStore } from './stores/uiStore';
@@ -129,7 +127,6 @@ function PluginWindowButtons() {
 
 function AppContent() {
   const { connectServer, embeddedServerStatus, embeddedServerError } = useConnection();
-  const { addServer } = useServerManager();
   const { connectionStatus } = useServerStore();
   const { selectedSessionId, projects, selectProject, selectSession, setDashboardView } = useProjectStore();
   const [dashboardProjectId, setDashboardProjectId] = useState<string | null>(null);
@@ -151,7 +148,7 @@ function AppContent() {
     prevSessionRef.current = selectedSessionId;
   }, [selectedSessionId]);
   const isMobile = useIsMobile();
-  const migrationDone = useRef(false);
+
   const mobileInitDone = useRef(false);
   const hasConnected = useRef(false);
 
@@ -212,18 +209,6 @@ function AppContent() {
     useServerStore.getState().setActiveServer(lastActiveBackendId);
     connectServer(lastActiveBackendId);
   }, [isMobile, lastActiveBackendId, isGatewayConnected, discoveredBackends, connectServer]);
-
-  // One-time migration from localStorage to database
-  useEffect(() => {
-    if (connectionStatus === 'connected' && !migrationDone.current && needsMigration()) {
-      migrationDone.current = true;
-      migrateServersFromLocalStorage(addServer).then(count => {
-        if (count > 0) {
-          console.log(`[App] Successfully migrated ${count} servers from localStorage to database`);
-        }
-      });
-    }
-  }, [connectionStatus, addServer]);
 
   // Eager sync when app comes back to foreground (e.g. returning to Mac after using mobile)
   useEffect(() => {

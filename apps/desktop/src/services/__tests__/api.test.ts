@@ -43,10 +43,6 @@ import {
   getServerGatewayStatus,
   connectServerToGateway,
   disconnectServerFromGateway,
-  getServers,
-  createServer,
-  updateServer,
-  deleteServer as deleteServerFn,
   ensureAgent,
   getAgentConfig,
   updateAgentConfig,
@@ -639,35 +635,6 @@ describe('api', () => {
       expect(result.message).toBe('disconnected');
     });
 
-    it('getServers', async () => {
-      mockResponse([{ id: 's1' }]);
-      const result = await getServers();
-      expect(result).toHaveLength(1);
-    });
-
-    it('createServer', async () => {
-      mockResponse({ id: 's1', name: 'New' });
-      const result = await createServer({ name: 'New', address: 'localhost:3100' } as any);
-      expect(result.id).toBe('s1');
-    });
-
-    it('updateServer', async () => {
-      mockResponse(undefined);
-      await updateServer('s1', { name: 'Updated' } as any);
-      expect(mockFetch).toHaveBeenCalledWith(
-        expect.stringContaining('/api/servers/s1'),
-        expect.objectContaining({ method: 'PUT' })
-      );
-    });
-
-    it('deleteServer', async () => {
-      mockResponse(undefined);
-      await deleteServerFn('s1');
-      expect(mockFetch).toHaveBeenCalledWith(
-        expect.stringContaining('/api/servers/s1'),
-        expect.objectContaining({ method: 'DELETE' })
-      );
-    });
   });
 
   describe('Agent API', () => {

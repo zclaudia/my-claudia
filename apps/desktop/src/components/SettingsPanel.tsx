@@ -23,7 +23,7 @@ import { AgentSettings } from './settings/AgentSettings';
 import { PermissionSettings } from './settings/PermissionSettings';
 import { NotificationSettingsInline } from './settings/NotificationSettings';
 import { MobileGatewayConfig } from './settings/MobileGatewayConfig';
-import { ServerInfoPanel } from './settings/ServerInfoPanel';
+
 
 /** Detect macOS desktop (Tauri + Mac, not Android) */
 const isMacOS = typeof window !== 'undefined'
@@ -31,7 +31,7 @@ const isMacOS = typeof window !== 'undefined'
   && !navigator.userAgent.includes('Android')
   && navigator.platform.includes('Mac');
 
-type SettingsTab = 'general' | 'agent' | 'permissions' | 'connections' | 'providers' | 'notifications' | 'gateway' | 'import' | 'plugins' | 'mcp-servers' | 'workspace' | 'debug' | `plugin:${string}`;
+type SettingsTab = 'general' | 'agent' | 'permissions' | 'providers' | 'notifications' | 'gateway' | 'import' | 'plugins' | 'mcp-servers' | 'workspace' | 'debug' | `plugin:${string}`;
 
 interface SettingsPanelProps {
   isOpen: boolean;
@@ -232,15 +232,7 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9" />
         </svg>
       )
-    }] : [{
-      id: 'connections' as SettingsTab,
-      label: 'Connections',
-      icon: (
-        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01" />
-        </svg>
-      )
-    }]),
+    }] : []),
     {
       id: 'debug' as SettingsTab,
       label: 'Debug',
@@ -674,15 +666,6 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
 
             {activeTab === 'permissions' && (
               <PermissionSettings />
-            )}
-
-            {activeTab === 'connections' && (
-              <div className="space-y-4">
-                <p className="text-sm text-muted-foreground">
-                  View your backend server connections. Local server connects directly; gateway backends are discovered automatically.
-                </p>
-                <ServerInfoPanel />
-              </div>
             )}
 
             {activeTab === 'providers' && (

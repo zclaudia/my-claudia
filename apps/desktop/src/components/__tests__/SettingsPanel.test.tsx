@@ -194,10 +194,6 @@ describe('SettingsPanel', () => {
     expect(container.textContent).toContain('Notifications');
   });
 
-  it('shows Connections tab on desktop (not mobile)', () => {
-    const { container } = render(<SettingsPanel isOpen={true} onClose={vi.fn()} />);
-    expect(container.textContent).toContain('Connections');
-  });
 
   it('shows Gateway tab for local server', () => {
     const { container } = render(<SettingsPanel isOpen={true} onClose={vi.fn()} />);
@@ -278,14 +274,6 @@ describe('SettingsPanel', () => {
     expect(container.textContent).toContain('Import Data');
     expect(container.textContent).toContain('Claude CLI Sessions');
     expect(container.textContent).toContain('OpenCode Sessions');
-  });
-
-  it('switches to Connections tab', () => {
-    const { container } = render(<SettingsPanel isOpen={true} onClose={vi.fn()} />);
-    const connTab = container.querySelector('[data-testid="connections-tab"]');
-    expect(connTab).toBeTruthy();
-    fireEvent.click(connTab!);
-    expect(container.textContent).toContain('View your backend server connections');
   });
 
   it('switches to Agent tab', () => {
@@ -632,39 +620,6 @@ describe('SettingsPanel', () => {
       b.textContent === 'Send Test'
     );
     expect(testBtn).toBeTruthy();
-  });
-
-  // ---- Connections tab (ServerInfoPanel) ----
-
-  it('shows server info in connections tab', () => {
-    const { container } = render(<SettingsPanel isOpen={true} onClose={vi.fn()} />);
-    const connTab = container.querySelector('[data-testid="connections-tab"]');
-    fireEvent.click(connTab!);
-
-    expect(container.textContent).toContain('Local');
-    expect(container.textContent).toContain('localhost:3100');
-    expect(container.textContent).toContain('Connected');
-  });
-
-  it('shows gateway backends in connections tab when connected', () => {
-    setupStores({
-      gatewayStore: {
-        isConnected: true,
-        discoveredBackends: [
-          { backendId: 'gw-1', name: 'Gateway Backend', online: true },
-        ],
-        localBackendId: null,
-        showLocalBackend: true,
-      },
-    });
-
-    const { container } = render(<SettingsPanel isOpen={true} onClose={vi.fn()} />);
-    const connTab = container.querySelector('[data-testid="connections-tab"]');
-    fireEvent.click(connTab!);
-
-    expect(container.textContent).toContain('Via Gateway');
-    expect(container.textContent).toContain('Gateway Backend');
-    expect(container.textContent).toContain('Online');
   });
 
   // ---- Server picker ----
