@@ -392,11 +392,8 @@ export function setupRoutesAndServices(deps: SetupDependencies): SetupResult {
     getClients: () => clients,
     serverPort: getServerPort(),
   });
-  // Expose db reference for task tools (avoids circular import)
-  (globalThis as any).__orchestratorDb = db;
-
   // Register task orchestration tools (spawn_task, steer_task, etc.)
-  registerTaskTools(orchestrator);
+  registerTaskTools(orchestrator, () => db);
 
   // Start orchestrator ticker (10s, agent tasks only)
   orchestrator.start(10000);

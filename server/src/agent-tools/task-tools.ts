@@ -3,10 +3,11 @@
  * Registered to toolRegistry with scope 'agent-assistant'.
  */
 
+import type Database from 'better-sqlite3';
 import { toolRegistry } from '../plugins/tool-registry.js';
 import type { TaskOrchestrator } from '../orchestration/types.js';
 
-export function registerTaskTools(orchestrator: TaskOrchestrator): void {
+export function registerTaskTools(orchestrator: TaskOrchestrator, getDb: () => Database.Database): void {
   // ============================================
   // spawn_task — create a sub-task
   // ============================================
@@ -34,12 +35,9 @@ export function registerTaskTools(orchestrator: TaskOrchestrator): void {
       const sessionId = context?.sessionId as string | undefined;
       let projectId: string | undefined;
       if (sessionId) {
-        // Resolve project from session — imported dynamically to avoid circular deps
-        const db = (globalThis as any).__orchestratorDb;
-        if (db) {
-          const row = db.prepare('SELECT project_id FROM sessions WHERE id = ?').get(sessionId) as { project_id: string } | undefined;
-          projectId = row?.project_id;
-        }
+        const db = getDb();
+        const row = db.prepare('SELECT project_id FROM sessions WHERE id = ?').get(sessionId) as { project_id: string } | undefined;
+        projectId = row?.project_id;
       }
 
       const taskId = await orchestrator.spawnTask(null, {
