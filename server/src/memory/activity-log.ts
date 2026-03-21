@@ -52,13 +52,19 @@ export function getRecentActivity(
     metadata: string | null;
     created_at: number;
   }>;
-  return rows.map(r => ({
-    id: r.id,
-    projectId: r.project_id,
-    sessionId: r.session_id,
-    type: r.type,
-    summary: r.summary,
-    metadata: r.metadata ? JSON.parse(r.metadata) : undefined,
-    createdAt: r.created_at,
-  }));
+  return rows.map(r => {
+    let metadata: Record<string, unknown> | undefined;
+    if (r.metadata) {
+      try { metadata = JSON.parse(r.metadata); } catch { /* corrupted metadata, skip */ }
+    }
+    return {
+      id: r.id,
+      projectId: r.project_id,
+      sessionId: r.session_id,
+      type: r.type,
+      summary: r.summary,
+      metadata,
+      createdAt: r.created_at,
+    };
+  });
 }

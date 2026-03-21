@@ -20,18 +20,20 @@ export interface MemoryEntry {
 export class MemoryStore {
   constructor(private db: Database.Database) {}
 
+  private projectIdClause = `(project_id = ? OR (project_id IS NULL AND ? IS NULL))`;
+
   get(projectId: string | null, namespace: string, key: string): string | undefined {
     const row = this.db.prepare(
-      `SELECT value FROM agent_memory WHERE project_id IS ? AND namespace = ? AND key = ?`
-    ).get(projectId, namespace, key) as { value: string } | undefined;
+      `SELECT value FROM agent_memory WHERE ${this.projectIdClause} AND namespace = ? AND key = ?`
+    ).get(projectId, projectId, namespace, key) as { value: string } | undefined;
     return row?.value;
   }
 
   set(projectId: string | null, namespace: string, key: string, value: string, authorScope = 'project'): void {
     const now = Date.now();
     const existing = this.db.prepare(
-      `SELECT id FROM agent_memory WHERE project_id IS ? AND namespace = ? AND key = ?`
-    ).get(projectId, namespace, key) as { id: string } | undefined;
+      `SELECT id FROM agent_memory WHERE ${this.projectIdClause} AND namespace = ? AND key = ?`
+    ).get(projectId, projectId, namespace, key) as { id: string } | undefined;
 
     if (existing) {
       this.db.prepare(
@@ -47,16 +49,16 @@ export class MemoryStore {
 
   delete(projectId: string | null, namespace: string, key: string): boolean {
     const result = this.db.prepare(
-      `DELETE FROM agent_memory WHERE project_id IS ? AND namespace = ? AND key = ?`
-    ).run(projectId, namespace, key);
+      `DELETE FROM agent_memory WHERE ${this.projectIdClause} AND namespace = ? AND key = ?`
+    ).run(projectId, projectId, namespace, key);
     return result.changes > 0;
   }
 
   list(projectId: string | null, namespace?: string): MemoryEntry[] {
     const query = namespace
-      ? `SELECT * FROM agent_memory WHERE project_id IS ? AND namespace = ? ORDER BY updated_at DESC`
-      : `SELECT * FROM agent_memory WHERE project_id IS ? ORDER BY updated_at DESC`;
-    const params = namespace ? [projectId, namespace] : [projectId];
+      ? `SELECT * FROM agent_memory WHERE ${this.projectIdClause} AND namespace = ? ORDER BY updated_at DESC`
+      : `SELECT * FROM agent_memory WHERE ${this.projectIdClause} ORDER BY updated_at DESC`;
+    const params = namespace ? [projectId, projectId, namespace] : [projectId, projectId];
     return this.parseRows(this.db.prepare(query).all(...params));
   }
 

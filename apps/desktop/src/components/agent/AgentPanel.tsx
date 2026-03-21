@@ -23,7 +23,7 @@ interface AgentPanelProps {
 export function AgentPanel({ isMobile = false, showHeader = true }: AgentPanelProps) {
   const { setExpanded, clearRequestId } = useAgentStore();
   const { sendMessage: wsSendMessage, isConnected } = useConnection();
-  const { selectedSessionId, sessions, projects } = useProjectStore();
+  const { selectedSessionId, sessions, projects, addSession, updateSession } = useProjectStore();
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
 
@@ -84,11 +84,31 @@ export function AgentPanel({ isMobile = false, showHeader = true }: AgentPanelPr
   // Listen for clear requests from header
   useEffect(() => {
     if (clearRequestId > 0 && agentSessionId) {
-      useChatStore.getState().clearMessages(agentSessionId);
-      // Archive old session, create fresh one
+      const previousSessionId = agentSessionId;
+      setInitializing(true);
       setAgentSessionId(null);
+
+      (async () => {
+        try {
+          await api.archiveSessions([previousSessionId]);
+          updateSession(previousSessionId, { archivedAt: Date.now() });
+          useChatStore.getState().clearMessages(previousSessionId);
+
+          if (!currentProject) return;
+
+          const session = await api.createSession({
+            projectId: currentProject.id,
+            name: 'Agent Assistant',
+            type: 'agent',
+          });
+          addSession(session);
+          setAgentSessionId(session.id);
+        } finally {
+          setInitializing(false);
+        }
+      })();
     }
-  }, [clearRequestId, agentSessionId]);
+  }, [clearRequestId, agentSessionId, currentProject, addSession, updateSession]);
 
   // Auto-scroll on new messages
   useEffect(() => {

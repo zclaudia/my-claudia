@@ -11,6 +11,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
+import matter from 'gray-matter';
 import { toolRegistry } from './tool-registry.js';
 import { workspaceService } from '../services/workspace.js';
 import type Database from 'better-sqlite3';
@@ -85,122 +86,79 @@ interface ParsedFrontmatter {
   priority?: number;
 }
 
-/**
- * Parse YAML frontmatter with support for one-level nesting.
- *
- * Supports:
- *   name: value
- *   priority: 10
- *   keywords: [a, b, c]        # inline array
- *   triggers:                   # nested object
- *     keywords: [review, PR]    #   sub-key with inline array
- *     projectType:              #   sub-key with list
- *       - code
- *   requires:
- *     binaries:
- *       - git
- */
-function parseFrontmatter(content: string): ParsedFrontmatter {
-  const match = content.match(/^---\s*\n([\s\S]*?)\n---/);
-  if (!match) return {};
-
-  const flat: Record<string, any> = {};
-  let parentKey: string | null = null;
-  let parentObj: Record<string, any> | null = null;
-  let listKey: string | null = null; // which key is currently collecting list items
-  let listTarget: Record<string, any> | null = null; // where to store the list
-
-  function flushList() {
-    // no-op: lists are stored inline as they're collected
-  }
-
-  for (const line of match[1].split('\n')) {
-    const indent = line.search(/\S/);
-    if (indent === -1) continue; // blank line
-
-    // List item: "  - value" or "    - value"
-    const listMatch = line.match(/^(\s+)-\s+(.*)/);
-    if (listMatch && listKey) {
-      const val = listMatch[2].replace(/^["']|["']$/g, '').trim();
-      if (val) {
-        const target = listTarget || flat;
-        if (!Array.isArray(target[listKey])) target[listKey] = [];
-        target[listKey].push(val);
-      }
-      continue;
-    }
-
-    // Key-value line
-    const colonIdx = line.indexOf(':');
-    if (colonIdx === -1) continue;
-    const key = line.slice(0, colonIdx).trim();
-    const rawValue = line.slice(colonIdx + 1).trim();
-    if (!key) continue;
-
-    listKey = null; // reset list collector
-
-    if (indent === 0) {
-      // Top-level key
-      parentKey = null;
-      parentObj = null;
-
-      if (rawValue) {
-        flat[key] = parseInlineValue(rawValue);
-      } else {
-        // Section header — next indented lines are children
-        parentKey = key;
-        parentObj = {};
-        flat[key] = parentObj;
-      }
-    } else if (parentKey && parentObj) {
-      // Indented key under a parent section
-      if (rawValue) {
-        parentObj[key] = parseInlineValue(rawValue);
-      } else {
-        // Sub-key expecting list items
-        listKey = key;
-        listTarget = parentObj;
-        parentObj[key] = [];
-      }
-    }
-  }
-
-  const parsed: ParsedFrontmatter = {
-    name: typeof flat.name === 'string' ? flat.name : undefined,
-    description: typeof flat.description === 'string' ? flat.description : undefined,
-    priority: typeof flat.priority === 'number' ? flat.priority : undefined,
-  };
-
-  // triggers
-  if (flat.triggers && typeof flat.triggers === 'object' && !Array.isArray(flat.triggers)) {
-    const t = flat.triggers;
-    const triggers: SkillTriggers = {};
-    if (t.keywords) triggers.keywords = Array.isArray(t.keywords) ? t.keywords : [t.keywords];
-    if (t.projectType) triggers.projectType = Array.isArray(t.projectType) ? t.projectType : [t.projectType];
-    if (triggers.keywords || triggers.projectType) parsed.triggers = triggers;
-  }
-
-  // requires
-  if (flat.requires && typeof flat.requires === 'object' && !Array.isArray(flat.requires)) {
-    const r = flat.requires;
-    const requires: SkillRequires = {};
-    if (r.os) requires.os = Array.isArray(r.os) ? r.os : [r.os];
-    if (r.binaries) requires.binaries = Array.isArray(r.binaries) ? r.binaries : [r.binaries];
-    if (r.env) requires.env = Array.isArray(r.env) ? r.env : [r.env];
-    if (requires.os || requires.binaries || requires.env) parsed.requires = requires;
-  }
-
-  return parsed;
+interface ParsedSkillFile {
+  frontmatter: ParsedFrontmatter;
+  body: string;
 }
 
-function parseInlineValue(raw: string): string | number | string[] {
-  if (raw.startsWith('[') && raw.endsWith(']')) {
-    return raw.slice(1, -1).split(',').map(s => s.replace(/^["'\s]+|["'\s]+$/g, ''));
+function toRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return null;
   }
-  if (/^\d+$/.test(raw)) {
-    return parseInt(raw, 10);
+  return value as Record<string, unknown>;
+}
+
+function toStringArray(value: unknown): string[] | undefined {
+  if (typeof value === 'string') {
+    return [value];
   }
-  return raw.replace(/^["']|["']$/g, '');
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+
+  const values = value.filter((item): item is string => typeof item === 'string');
+  return values.length > 0 ? values : undefined;
+}
+
+export function parseSkillFile(content: string): ParsedSkillFile {
+  try {
+    const parsed = matter(content);
+    const data = toRecord(parsed.data) ?? {};
+
+    const frontmatter: ParsedFrontmatter = {
+      name: typeof data.name === 'string' ? data.name : undefined,
+      description: typeof data.description === 'string' ? data.description : undefined,
+      priority: typeof data.priority === 'number' && Number.isFinite(data.priority)
+        ? data.priority
+        : undefined,
+    };
+
+    const triggerData = toRecord(data.triggers);
+    if (triggerData) {
+      const triggers: SkillTriggers = {};
+      const keywords = toStringArray(triggerData.keywords);
+      const projectType = toStringArray(triggerData.projectType);
+      if (keywords) triggers.keywords = keywords;
+      if (projectType) triggers.projectType = projectType;
+      if (triggers.keywords || triggers.projectType) {
+        frontmatter.triggers = triggers;
+      }
+    }
+
+    const requiresData = toRecord(data.requires);
+    if (requiresData) {
+      const requires: SkillRequires = {};
+      const os = toStringArray(requiresData.os);
+      const binaries = toStringArray(requiresData.binaries);
+      const env = toStringArray(requiresData.env);
+      if (os) requires.os = os;
+      if (binaries) requires.binaries = binaries;
+      if (env) requires.env = env;
+      if (requires.os || requires.binaries || requires.env) {
+        frontmatter.requires = requires;
+      }
+    }
+
+    return {
+      frontmatter,
+      body: parsed.content,
+    };
+  } catch {
+    return {
+      frontmatter: {},
+      body: content,
+    };
+  }
 }
 
 // ============================================
@@ -244,9 +202,10 @@ function discoverSkillsInDir(
       // This is a skill directory
       try {
         const content = fs.readFileSync(skillMdPath, 'utf-8');
-        const fm = parseFrontmatter(content);
+        const parsed = parseSkillFile(content);
+        const fm = parsed.frontmatter;
         // Fallback: extract name from first heading, description from second line
-        const lines = content.replace(/^---[\s\S]*?---\s*\n?/, '').split('\n').filter(l => l.trim());
+        const lines = parsed.body.split('\n').filter(l => l.trim());
         const name = fm.name || lines[0]?.replace(/^#\s*/, '') || entry.name;
         const description = fm.description || lines[1]?.replace(/^>\s*/, '') || '';
 

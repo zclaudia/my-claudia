@@ -4,7 +4,7 @@
  */
 
 import { toolRegistry } from '../plugins/tool-registry.js';
-import { isPrivateAddress } from './network-guard.js';
+import { isBlockedHostname } from './network-guard.js';
 
 /** Simple HTML to text conversion (strip tags, decode entities) */
 function htmlToText(html: string): string {
@@ -55,7 +55,7 @@ export function registerBrowserTool(): void {
 
       try {
         const parsed = new URL(urlStr);
-        if (isPrivateAddress(parsed.hostname)) {
+        if (await isBlockedHostname(parsed.hostname)) {
           return JSON.stringify({ error: 'Requests to private/internal addresses are blocked' });
         }
 
@@ -64,6 +64,7 @@ export function registerBrowserTool(): void {
             'User-Agent': 'MyClaudia-Agent/1.0',
             'Accept': 'text/html, application/json, text/plain, */*',
           },
+          redirect: 'error',
           signal: AbortSignal.timeout(15000),
         });
 

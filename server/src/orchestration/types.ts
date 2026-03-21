@@ -54,7 +54,7 @@ export interface SpawnTaskConfig {
 
 export interface TaskResult {
   taskId: string;
-  status: 'completed' | 'failed';
+  status: TaskStatus;
   summary?: string;
   artifact?: string;
   error?: string;

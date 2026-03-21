@@ -19,6 +19,7 @@ import { TaskRepository } from './repository.js';
 
 const MAX_CONCURRENT_AGENT_TASKS = 3;
 const DEFAULT_WAIT_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
+const MAX_WAITING_AGE_MS = 60 * 60 * 1000; // 1 hour — tasks waiting longer than this are failed
 
 export interface TaskOrchestratorDeps {
   db: Database.Database;
@@ -37,7 +38,7 @@ export function createTaskOrchestrator(deps: TaskOrchestratorDeps): TaskOrchestr
     if (!taskWaiters) return;
     const result: TaskResult = {
       taskId: task.id,
-      status: task.status === 'completed' ? 'completed' : 'failed',
+      status: task.status,
       summary: task.resultSummary,
       error: task.errorSummary,
     };
@@ -70,6 +71,13 @@ export function createTaskOrchestrator(deps: TaskOrchestratorDeps): TaskOrchestr
 
     repo.updateStatus(task.id, 'running', { startedAt: now, sessionId });
 
+    const clientId = `orchestrator-${task.id}`;
+    const clients = deps.getClients();
+
+    function cleanupVirtualClient() {
+      clients.delete(clientId);
+    }
+
     // Build a virtual client that captures run completion
     const virtualWs = {
       readyState: 1,
@@ -77,8 +85,12 @@ export function createTaskOrchestrator(deps: TaskOrchestratorDeps): TaskOrchestr
         try {
           const msg = JSON.parse(data);
           if (msg.type === 'run_completed') {
-            settleTask(task.id, 'completed', { resultSummary: 'Task completed successfully' });
+            cleanupVirtualClient();
+            // Extract summary from run_completed message if available
+            const summary = msg.summary || msg.result?.summary || 'Task completed successfully';
+            settleTask(task.id, 'completed', { resultSummary: summary });
           } else if (msg.type === 'run_failed') {
+            cleanupVirtualClient();
             const errorMsg = msg.error || 'Task failed';
             // Retry logic
             if (task.retryCount < task.maxRetries) {
@@ -92,12 +104,15 @@ export function createTaskOrchestrator(deps: TaskOrchestratorDeps): TaskOrchestr
       },
     };
     const virtualClient = {
-      id: `orchestrator-${task.id}`,
+      id: clientId,
       ws: virtualWs,
       isAlive: true,
       isLocal: true,
       authenticated: true,
     };
+
+    // Register virtual client so handleRunStart can find it
+    clients.set(clientId, virtualClient);
 
     // Fire-and-forget: handleRunStart runs the provider asynchronously,
     // completion is detected via virtualWs.send() callback above.
@@ -114,8 +129,9 @@ export function createTaskOrchestrator(deps: TaskOrchestratorDeps): TaskOrchestr
       },
       deps.db,
       {},
-      deps.getClients(),
+      clients,
     ).catch((err: any) => {
+      cleanupVirtualClient();
       settleTask(task.id, 'failed', { errorSummary: err.message || 'Failed to start task' });
     });
   }
@@ -128,6 +144,25 @@ export function createTaskOrchestrator(deps: TaskOrchestratorDeps): TaskOrchestr
         : id;
 
       const hasUnmetDeps = config.dependsOn && config.dependsOn.length > 0;
+
+      // Circular dependency detection
+      if (hasUnmetDeps) {
+        const visited = new Set<string>();
+        const stack = [...config.dependsOn!];
+        while (stack.length > 0) {
+          const depId = stack.pop()!;
+          if (depId === id) {
+            throw new Error(`Circular dependency detected: task ${id} depends on itself (directly or transitively)`);
+          }
+          if (visited.has(depId)) continue;
+          visited.add(depId);
+          const dep = repo.findById(depId);
+          if (dep?.dependsOn) {
+            stack.push(...dep.dependsOn);
+          }
+        }
+      }
+
       const status: TaskStatus = hasUnmetDeps ? 'waiting' : 'queued';
 
       repo.create({
@@ -148,16 +183,7 @@ export function createTaskOrchestrator(deps: TaskOrchestratorDeps): TaskOrchestr
         id,
       });
 
-      // If no deps and no schedule, try to execute immediately (non-blocking)
-      if (status === 'queued' && !config.schedule) {
-        const runningCount = repo.findByStatus('running')
-          .filter(t => t.kind === 'agent').length;
-        if (runningCount < MAX_CONCURRENT_AGENT_TASKS) {
-          const task = repo.findById(id)!;
-          executeAgentTask(task); // fire-and-forget, does not await
-        }
-      }
-
+      // Let tick() handle execution — avoids race between creation and immediate execution
       return id;
     },
 
@@ -187,14 +213,14 @@ export function createTaskOrchestrator(deps: TaskOrchestratorDeps): TaskOrchestr
       if (task.status === 'queued' || task.status === 'waiting' || task.status === 'running') {
         return {
           taskId: task.id,
-          status: 'failed' as const, // Use 'failed' in the result type but with a clear summary
+          status: task.status,
           summary: `Task is still ${task.status} — use waitForTask() or get_task_result(wait=true) to block until completion`,
         };
       }
 
       return {
         taskId: task.id,
-        status: task.status === 'completed' ? 'completed' as const : 'failed' as const,
+        status: task.status,
         summary: task.resultSummary,
         error: task.errorSummary,
       };
@@ -208,7 +234,7 @@ export function createTaskOrchestrator(deps: TaskOrchestratorDeps): TaskOrchestr
       if (task.status === 'completed' || task.status === 'failed' || task.status === 'cancelled') {
         return {
           taskId: task.id,
-          status: task.status === 'completed' ? 'completed' as const : 'failed' as const,
+          status: task.status,
           summary: task.resultSummary,
           error: task.errorSummary,
         };
@@ -218,8 +244,11 @@ export function createTaskOrchestrator(deps: TaskOrchestratorDeps): TaskOrchestr
       return new Promise<TaskResult>((resolve) => {
         if (!waiters.has(taskId)) waiters.set(taskId, new Set());
         const waiterSet = waiters.get(taskId)!;
+        let settled = false;
 
         const timeout = setTimeout(() => {
+          if (settled) return;
+          settled = true;
           waiterSet.delete(resolveWaiter);
           if (waiterSet.size === 0) waiters.delete(taskId);
           resolve({
@@ -230,6 +259,8 @@ export function createTaskOrchestrator(deps: TaskOrchestratorDeps): TaskOrchestr
         }, timeoutMs);
 
         const resolveWaiter = (result: TaskResult) => {
+          if (settled) return;
+          settled = true;
           clearTimeout(timeout);
           resolve(result);
         };
@@ -277,9 +308,17 @@ export function createTaskOrchestrator(deps: TaskOrchestratorDeps): TaskOrchestr
     },
 
     async tick() {
+      const now = Date.now();
+
       // 1. Promote waiting → queued (dependency resolution)
       const waitingTasks = repo.findByStatus('waiting').filter(t => t.kind === 'agent');
       for (const task of waitingTasks) {
+        // Timeout stale waiting tasks
+        if (now - task.createdAt > MAX_WAITING_AGE_MS) {
+          settleTask(task.id, 'failed', { errorSummary: `Waiting timeout: dependencies not resolved within ${MAX_WAITING_AGE_MS / 1000}s` });
+          continue;
+        }
+
         if (!task.dependsOn || task.dependsOn.length === 0) {
           repo.updateStatus(task.id, 'queued');
           continue;

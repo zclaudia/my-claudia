@@ -26,14 +26,25 @@ function isBinaryAvailable(name: string): boolean {
   }
 }
 
+/** Normalize OS names: allow both platform names (darwin) and common aliases (macos) */
+const OS_ALIASES: Record<string, string> = {
+  macos: 'darwin',
+  mac: 'darwin',
+  windows: 'win32',
+  linux: 'linux',
+  darwin: 'darwin',
+  win32: 'win32',
+};
+
 function meetsRequirements(skill: SkillMeta, ctx: SkillSelectorContext): boolean {
   const req = skill.requires;
   if (!req) return true;
 
-  // OS check
+  // OS check (supports aliases: "macos" → "darwin", "windows" → "win32")
   if (req.os && req.os.length > 0) {
     const currentOs = ctx.os || process.platform;
-    if (!req.os.includes(currentOs)) return false;
+    const normalizedRequired = req.os.map(o => OS_ALIASES[o.toLowerCase()] || o.toLowerCase());
+    if (!normalizedRequired.includes(currentOs)) return false;
   }
 
   // Binary check

@@ -42,7 +42,11 @@ function extractBashCommand(toolInput: unknown, detail: string): string | null {
 
 function isBashLikeTool(toolName: string): boolean {
   const lower = toolName.toLowerCase();
-  return lower === 'bash' || lower === 'execute_command' || lower === 'run_terminal_cmd' || lower === 'terminal';
+  return lower === 'bash'
+    || lower === 'execute_command'
+    || lower === 'run_terminal_cmd'
+    || lower === 'terminal'
+    || lower === 'agent_shell';
 }
 
 /**

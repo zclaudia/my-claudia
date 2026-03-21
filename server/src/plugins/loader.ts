@@ -61,6 +61,7 @@ export class PluginLoader {
   private db: import('better-sqlite3').Database | null = null;
   private pluginAPIs = new Map<string, unknown>();
   private broadcastFn: ((msg: any) => void) | null = null;
+  private skillContentCache = new Map<string, { content: string; mtime: number }>();
 
   constructor(options: PluginLoaderOptions = {}) {
     // Default plugin directory: $MY_CLAUDIA_DATA_DIR/plugins (same base as database).
@@ -568,16 +569,34 @@ export class PluginLoader {
       const pluginInfo = this.plugins.get(manifest.id);
       if (pluginInfo) {
         for (const skill of contributes.skills) {
-          const skillDir = path.join(pluginInfo.path, path.dirname(skill.path));
-          const skillMdPath = path.join(pluginInfo.path, skill.path);
+          const skillDir = path.resolve(pluginInfo.path, path.dirname(skill.path));
+          const skillMdPath = path.resolve(pluginInfo.path, skill.path);
+          // Validate path stays within plugin directory (prevent path traversal)
+          const resolvedPluginDir = path.resolve(pluginInfo.path);
+          if (!skillMdPath.startsWith(resolvedPluginDir + path.sep) && skillMdPath !== resolvedPluginDir) {
+            console.warn(`[PluginLoader] Skill path escapes plugin directory: ${skill.path} in plugin "${manifest.id}"`);
+            continue;
+          }
           if (fs.existsSync(skillMdPath)) {
             try {
-              const content = fs.readFileSync(skillMdPath, 'utf-8');
+              // Verify real path at load time (reject symlinks pointing outside plugin dir)
+              const realSkillPath = fs.realpathSync(skillMdPath);
+              if (!realSkillPath.startsWith(resolvedPluginDir + path.sep)) {
+                console.warn(`[PluginLoader] Skill symlink escapes plugin directory: ${skillMdPath} → ${realSkillPath}`);
+                continue;
+              }
+              const content = fs.readFileSync(realSkillPath, 'utf-8');
+              const mtime = fs.statSync(realSkillPath).mtimeMs;
               // Extract name from first heading or filename
               const nameMatch = content.replace(/^---[\s\S]*?---\s*\n?/, '').match(/^#\s*(.+)/m);
               const skillId = `${manifest.id}_${path.basename(skillDir)}`;
               const skillName = nameMatch?.[1] || path.basename(skillDir);
 
+              // Cache skill content with mtime for cache invalidation
+              this.skillContentCache.set(skillMdPath, { content, mtime });
+
+              // Capture pluginDir for handler-time re-validation
+              const boundPluginDir = resolvedPluginDir;
               toolRegistry.register({
                 id: `skill__${skillId}`,
                 definition: {
@@ -590,7 +609,20 @@ export class PluginLoader {
                 },
                 source: 'skill',
                 handler: async () => {
-                  return fs.readFileSync(skillMdPath, 'utf-8');
+                  // Check cache and revalidate with mtime
+                  const cached = this.skillContentCache.get(skillMdPath);
+                  // Re-verify realpath on every read to prevent TOCTOU symlink swap
+                  const currentRealPath = fs.realpathSync(skillMdPath);
+                  if (!currentRealPath.startsWith(boundPluginDir + path.sep)) {
+                    return '[Error] Skill file path has been tampered with';
+                  }
+                  const currentMtime = fs.statSync(currentRealPath).mtimeMs;
+                  if (cached && cached.mtime === currentMtime) {
+                    return cached.content;
+                  }
+                  const freshContent = fs.readFileSync(currentRealPath, 'utf-8');
+                  this.skillContentCache.set(skillMdPath, { content: freshContent, mtime: currentMtime });
+                  return freshContent;
                 },
               });
               console.log(`[PluginLoader] Registered skill "${skillId}" from plugin "${manifest.id}"`);

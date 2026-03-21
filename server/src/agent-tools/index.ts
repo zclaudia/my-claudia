@@ -8,7 +8,7 @@
 import * as path from 'path';
 import { toolRegistry } from '../plugins/tool-registry.js';
 import { MemoryStore } from '../memory/memory-store.js';
-import { isPrivateAddress } from './network-guard.js';
+import { isBlockedHostname } from './network-guard.js';
 import type Database from 'better-sqlite3';
 
 /** Resolve the project working directory for a session */
@@ -23,18 +23,56 @@ function resolveProjectCwd(db: Database.Database, sessionId?: string): string | 
   return row?.cwd ?? null;
 }
 
-/** Check if a path is within the allowed base directory */
-function isPathSafe(filePath: string, baseDir: string): boolean {
-  const resolved = path.resolve(baseDir, filePath);
-  return resolved.startsWith(path.resolve(baseDir));
+/** Find the nearest existing ancestor path for a given path */
+async function findExistingAncestor(filePath: string): Promise<string> {
+  const { stat } = await import('fs/promises');
+  let current = filePath;
+  while (true) {
+    try {
+      await stat(current);
+      return current;
+    } catch {
+      const parent = path.dirname(current);
+      if (parent === current) return current; // Reached root
+      current = parent;
+    }
+  }
 }
 
-/** Resolve and validate a file path against the project directory */
-function safePath(filePath: string, baseDir: string): string | null {
+/** Check if a real path stays within the base directory (after symlink resolution) */
+async function isRealPathWithinBase(realPath: string, realBase: string): Promise<boolean> {
+  return realPath.startsWith(realBase + path.sep) || realPath === realBase;
+}
+
+/** Resolve and validate a file path against the project directory.
+ *  Also checks the real path (after symlink resolution) to prevent symlink traversal. */
+async function safePath(filePath: string, baseDir: string): Promise<string | null> {
   const resolved = path.resolve(baseDir, filePath);
-  if (!resolved.startsWith(path.resolve(baseDir))) return null;
+  const resolvedBase = path.resolve(baseDir);
+
+  // Basic path containment check
+  if (!resolved.startsWith(resolvedBase + path.sep) && resolved !== resolvedBase) {
+    return null;
+  }
+
+  try {
+    const { realpath } = await import('fs/promises');
+    const realBase = await realpath(resolvedBase);
+    const existingPath = await findExistingAncestor(resolved);
+    const realExistingPath = await realpath(existingPath);
+
+    if (!await isRealPathWithinBase(realExistingPath, realBase)) {
+      return null;
+    }
+  } catch {
+    return null;
+  }
+
   return resolved;
 }
+
+const MAX_CONCURRENT_SHELLS = 5;
+let activeShells = 0;
 
 export function registerAgentTools(config: { getDb: () => Database.Database }): void {
   // ============================================
@@ -65,9 +103,14 @@ export function registerAgentTools(config: { getDb: () => Database.Database }): 
         return JSON.stringify({ error: 'Cannot resolve project directory for this session' });
       }
 
+      if (activeShells >= MAX_CONCURRENT_SHELLS) {
+        return JSON.stringify({ error: `Too many concurrent shell commands (limit: ${MAX_CONCURRENT_SHELLS})` });
+      }
+
       const { execFile } = await import('child_process');
       const { promisify } = await import('util');
       const execFileAsync = promisify(execFile);
+      activeShells++;
       try {
         const { stdout, stderr } = await execFileAsync('/bin/sh', ['-c', args.command as string], {
           cwd,
@@ -81,6 +124,8 @@ export function registerAgentTools(config: { getDb: () => Database.Database }): 
           stderr: (err.stderr || err.message || '').slice(0, 1000),
           exitCode: err.code ?? 1,
         });
+      } finally {
+        activeShells--;
       }
     },
   });
@@ -115,7 +160,7 @@ export function registerAgentTools(config: { getDb: () => Database.Database }): 
         return JSON.stringify({ error: 'Cannot resolve project directory for this session' });
       }
 
-      const filePath = safePath(args.path as string, projectCwd);
+      const filePath = await safePath(args.path as string, projectCwd);
       if (!filePath) {
         return JSON.stringify({ error: 'Path is outside the project directory' });
       }
@@ -123,8 +168,10 @@ export function registerAgentTools(config: { getDb: () => Database.Database }): 
       const fs = await import('fs/promises');
       try {
         switch (args.operation) {
-          case 'read':
-            return await fs.readFile(filePath, 'utf-8');
+          case 'read': {
+            const content = await fs.readFile(filePath, 'utf-8');
+            return JSON.stringify({ content, path: path.relative(projectCwd, filePath) });
+          }
           case 'write':
             await fs.mkdir(path.dirname(filePath), { recursive: true });
             await fs.writeFile(filePath, args.content as string, 'utf-8');
@@ -173,20 +220,46 @@ export function registerAgentTools(config: { getDb: () => Database.Database }): 
       const urlStr = args.url as string;
       try {
         const parsed = new URL(urlStr);
-        if (isPrivateAddress(parsed.hostname)) {
+        if (await isBlockedHostname(parsed.hostname)) {
           return JSON.stringify({ error: 'Requests to private/internal addresses are blocked' });
         }
 
+        const MAX_RESPONSE_BYTES = 16 * 1024; // 16 KB
+        const controller = new AbortController();
         const response = await fetch(urlStr, {
           method: (args.method as string) || 'GET',
           headers: (args.headers as Record<string, string>) || {},
           body: args.body as string | undefined,
+          redirect: 'error',
+          signal: controller.signal,
         });
-        const text = await response.text();
+
+        // Stream-read up to MAX_RESPONSE_BYTES to avoid OOM on large responses
+        const reader = response.body?.getReader();
+        let truncated = false;
+        let bodyText = '';
+        if (reader) {
+          const decoder = new TextDecoder();
+          let bytesRead = 0;
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            bytesRead += value.byteLength;
+            if (bytesRead > MAX_RESPONSE_BYTES) {
+              bodyText += decoder.decode(value.slice(0, MAX_RESPONSE_BYTES - (bytesRead - value.byteLength)), { stream: false });
+              truncated = true;
+              controller.abort();
+              break;
+            }
+            bodyText += decoder.decode(value, { stream: true });
+          }
+        }
+
         return JSON.stringify({
           status: response.status,
           headers: Object.fromEntries(response.headers.entries()),
-          body: text.slice(0, 8000),
+          body: bodyText.slice(0, 8000),
+          truncated,
         });
       } catch (err: any) {
         return JSON.stringify({ error: err.message });

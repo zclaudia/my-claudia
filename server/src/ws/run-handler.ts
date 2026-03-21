@@ -18,6 +18,8 @@ import {
   PERIODIC_SAVE_INTERVAL_MS,
 } from './types.js';
 import { getNextOffset, upsertAssistantMessage, findProcessPidsByTaskCommand } from './run-lifecycle.js';
+import { getDiscoveredSkills, loadSkillContent } from '../plugins/skill-tools.js';
+import { selectSkills } from '../plugins/skill-selector.js';
 import {
   normalizeSessionWorkingDirectory,
   isSlashCommand,
@@ -698,14 +700,11 @@ Use push_file instead of curl to send files to the user — it is more reliable 
         let activeSkillsContent: string | undefined;
         if (sessionType === 'agent') {
           try {
-            const { getDiscoveredSkills } = require('../plugins/skill-tools.js');
-            const { selectSkills } = require('../plugins/skill-selector.js');
-            const { loadSkillContent } = require('../plugins/skill-tools.js');
             const allSkills = getDiscoveredSkills();
             const matched = selectSkills(allSkills, { userInput: message.input, os: process.platform });
             if (matched.length > 0) {
               activeSkillsContent = matched
-                .map((s: any) => loadSkillContent(s.dirPath))
+                .map((s) => loadSkillContent(s.dirPath))
                 .filter(Boolean)
                 .join('\n\n---\n\n');
             }
