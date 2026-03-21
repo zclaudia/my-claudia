@@ -4,16 +4,19 @@ import * as path from 'path';
 import * as os from 'os';
 import * as fs from 'fs';
 
-const DATA_DIR = process.env.MY_CLAUDIA_DATA_DIR
-  ? path.resolve(process.env.MY_CLAUDIA_DATA_DIR, 'gateway')
-  : path.join(os.homedir(), '.my-claudia', 'gateway');
-
-// Ensure data directory exists
-if (!fs.existsSync(DATA_DIR)) {
-  fs.mkdirSync(DATA_DIR, { recursive: true });
+function getDataDir(): string {
+  return process.env.MY_CLAUDIA_DATA_DIR
+    ? path.resolve(process.env.MY_CLAUDIA_DATA_DIR, 'gateway')
+    : path.join(os.homedir(), '.my-claudia', 'gateway');
 }
 
-const DB_PATH = path.join(DATA_DIR, 'gateway.db');
+function getDbPath(): string {
+  const dataDir = getDataDir();
+  if (!fs.existsSync(dataDir)) {
+    fs.mkdirSync(dataDir, { recursive: true });
+  }
+  return path.join(dataDir, 'gateway.db');
+}
 
 export interface DeviceMapping {
   deviceId: string;
@@ -33,8 +36,8 @@ export interface InstanceMapping {
   updatedAt: number;
 }
 
-export function initDatabase(): Database.Database {
-  const db = new Database(DB_PATH);
+export function initDatabase(dbPath: string = getDbPath()): Database.Database {
+  const db = new Database(dbPath);
 
   // Create tables
   db.exec(`
@@ -68,8 +71,8 @@ export function initDatabase(): Database.Database {
 export class GatewayStorage {
   private db: Database.Database;
 
-  constructor() {
-    this.db = initDatabase();
+  constructor(dbPath?: string) {
+    this.db = initDatabase(dbPath);
   }
 
   /**

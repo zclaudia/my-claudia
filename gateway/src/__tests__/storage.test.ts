@@ -32,7 +32,7 @@ describe('GatewayStorage', () => {
   });
 
   test('should generate 8-character hex backendId', () => {
-    storage = new GatewayStorage();
+    storage = new GatewayStorage(dbPath);
     const deviceId = 'test-device-1';
     const backendId = storage.getOrCreateBackendId(deviceId);
     
@@ -40,7 +40,7 @@ describe('GatewayStorage', () => {
   });
 
   test('should return same backendId for same deviceId', () => {
-    storage = new GatewayStorage();
+    storage = new GatewayStorage(dbPath);
     const deviceId = 'test-device-2';
     
     const backendId1 = storage.getOrCreateBackendId(deviceId);
@@ -50,7 +50,7 @@ describe('GatewayStorage', () => {
   });
 
   test('should generate different backendId for different deviceId', () => {
-    storage = new GatewayStorage();
+    storage = new GatewayStorage(dbPath);
     const deviceId1 = 'test-device-3';
     const deviceId2 = 'test-device-4';
     
@@ -61,7 +61,7 @@ describe('GatewayStorage', () => {
   });
 
   test('should store and retrieve device name', () => {
-    storage = new GatewayStorage();
+    storage = new GatewayStorage(dbPath);
     const deviceId = 'test-device-5';
     const name = 'Test Backend Name';
     
@@ -76,7 +76,7 @@ describe('GatewayStorage', () => {
   });
 
   test('should update name if different', () => {
-    storage = new GatewayStorage();
+    storage = new GatewayStorage(dbPath);
     const deviceId = 'test-device-6';
     const initialName = 'Initial Name';
     const updatedName = 'Updated Name';
@@ -91,7 +91,7 @@ describe('GatewayStorage', () => {
   });
 
   test('should keep existing name if name not provided', () => {
-    storage = new GatewayStorage();
+    storage = new GatewayStorage(dbPath);
     const deviceId = 'test-device-7';
     const initialName = 'Initial Name';
     
@@ -105,7 +105,7 @@ describe('GatewayStorage', () => {
   });
 
   test('should return undefined for unknown backendId', () => {
-    storage = new GatewayStorage();
+    storage = new GatewayStorage(dbPath);
     
     const deviceInfo = storage.getDeviceByBackendId('unknown-id');
     
@@ -113,7 +113,7 @@ describe('GatewayStorage', () => {
   });
 
   test('should have timestamps', () => {
-    storage = new GatewayStorage();
+    storage = new GatewayStorage(dbPath);
     const deviceId = 'test-device-8';
     
     const backendId = storage.getOrCreateBackendId(deviceId, 'Test');
@@ -128,7 +128,7 @@ describe('GatewayStorage', () => {
   });
 
   test('should update updatedAt when name changes', async () => {
-    storage = new GatewayStorage();
+    storage = new GatewayStorage(dbPath);
     const deviceId = 'test-device-9';
     
     storage.getOrCreateBackendId(deviceId, 'Initial');

@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import type { ComponentProps } from 'react';
+import { act, render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { useAgentStore } from '../../../stores/agentStore';
 import { useProjectStore } from '../../../stores/projectStore';
 import { useChatStore } from '../../../stores/chatStore';
@@ -29,11 +30,18 @@ vi.mock('../../chat/LoadingIndicator', () => ({
 }));
 
 // Mock API
-const mockCreateSession = vi.fn().mockResolvedValue({ id: 'agent-session-1' });
+const mockCreateSession = vi.fn().mockResolvedValue({
+  id: 'agent-session-1',
+  projectId: 'proj-1',
+  type: 'agent',
+  name: 'Agent Assistant',
+});
 const mockGetSessionMessages = vi.fn().mockResolvedValue({ messages: [], pagination: {} });
+const mockArchiveSessions = vi.fn().mockResolvedValue(undefined);
 vi.mock('../../../services/api', () => ({
   createSession: (...args: any[]) => mockCreateSession(...args),
   getSessionMessages: (...args: any[]) => mockGetSessionMessages(...args),
+  archiveSessions: (...args: any[]) => mockArchiveSessions(...args),
 }));
 
 // Mock ConnectionContext
@@ -54,6 +62,16 @@ const setExpandedMock = vi.fn();
 
 // jsdom doesn't implement scrollIntoView
 Element.prototype.scrollIntoView = vi.fn();
+
+async function renderAgentPanel(props?: ComponentProps<typeof AgentPanel>) {
+  let view: ReturnType<typeof render>;
+  await act(async () => {
+    view = render(<AgentPanel {...props} />);
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  return view!;
+}
 
 describe('AgentPanel', () => {
   beforeEach(() => {
@@ -76,52 +94,52 @@ describe('AgentPanel', () => {
     } as any);
   });
 
-  it('renders without crashing', () => {
-    const { container } = render(<AgentPanel />);
+  it('renders without crashing', async () => {
+    const { container } = await renderAgentPanel();
     expect(container).toBeTruthy();
   });
 
-  it('renders message input', () => {
-    const { container } = render(<AgentPanel />);
+  it('renders message input', async () => {
+    const { container } = await renderAgentPanel();
     expect(container.querySelector('[data-testid="message-input"]')).toBeTruthy();
   });
 
-  it('renders message list', () => {
-    const { container } = render(<AgentPanel />);
+  it('renders message list', async () => {
+    const { container } = await renderAgentPanel();
     expect(container.querySelector('[data-testid="message-list"]')).toBeTruthy();
   });
 
-  it('renders Agent header with label', () => {
-    render(<AgentPanel />);
+  it('renders Agent header with label', async () => {
+    await renderAgentPanel();
     expect(screen.getByText('Agent')).toBeTruthy();
   });
 
-  it('renders "Server-side" label in header', () => {
-    render(<AgentPanel />);
+  it('renders "Server-side" label in header', async () => {
+    await renderAgentPanel();
     expect(screen.getByText('Server-side')).toBeTruthy();
   });
 
-  it('calls setExpanded(false) when close button is clicked', () => {
-    render(<AgentPanel />);
+  it('calls setExpanded(false) when close button is clicked', async () => {
+    await renderAgentPanel();
     const closeBtn = screen.getByTitle('Close');
     fireEvent.click(closeBtn);
     expect(setExpandedMock).toHaveBeenCalledWith(false);
   });
 
-  it('does not render header when showHeader=false', () => {
-    render(<AgentPanel showHeader={false} />);
+  it('does not render header when showHeader=false', async () => {
+    await renderAgentPanel({ showHeader: false });
     expect(screen.queryByText('Agent')).toBeNull();
   });
 
   it('shows Agent Assistant greeting when no messages', async () => {
-    render(<AgentPanel />);
+    await renderAgentPanel();
     await waitFor(() => {
       expect(screen.queryByText(/Agent Assistant/)).toBeTruthy();
     });
   });
 
   it('renders quick action buttons', async () => {
-    render(<AgentPanel />);
+    await renderAgentPanel();
     await waitFor(() => {
       expect(screen.queryByText('Search messages')).toBeTruthy();
       expect(screen.queryByText('List sessions')).toBeTruthy();
@@ -129,7 +147,7 @@ describe('AgentPanel', () => {
   });
 
   it('shows context line when project and session are selected', async () => {
-    render(<AgentPanel />);
+    await renderAgentPanel();
     await waitFor(() => {
       expect(screen.queryByText(/Context:/)).toBeTruthy();
     });
@@ -142,21 +160,21 @@ describe('AgentPanel', () => {
       projects: [],
     } as any);
 
-    render(<AgentPanel />);
+    await renderAgentPanel();
     await waitFor(() => {
       expect(screen.queryByText(/Context:/)).toBeNull();
     });
   });
 
   it('shows "Ask me anything..." placeholder after session is created', async () => {
-    render(<AgentPanel />);
+    await renderAgentPanel();
     await waitFor(() => {
       expect(screen.getByPlaceholderText('Ask me anything...')).toBeTruthy();
     });
   });
 
   it('creates agent session on mount when none exists', async () => {
-    render(<AgentPanel />);
+    await renderAgentPanel();
     await waitFor(() => {
       expect(mockCreateSession).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -168,8 +186,61 @@ describe('AgentPanel', () => {
     });
   });
 
-  it('renders with isMobile=true', () => {
-    const { container } = render(<AgentPanel isMobile={true} />);
+  it('renders with isMobile=true', async () => {
+    const { container } = await renderAgentPanel({ isMobile: true });
     expect(container).toBeTruthy();
+  });
+
+  it('archives the old agent session and creates a fresh one on clear request', async () => {
+    useProjectStore.setState({
+      selectedSessionId: 'sess-1',
+      sessions: [
+        { id: 'sess-1', projectId: 'proj-1', name: 'Test Session', type: 'regular' },
+        { id: 'agent-old', projectId: 'proj-1', name: 'Agent Assistant', type: 'agent' },
+      ],
+      projects: [{ id: 'proj-1', name: 'Test Project' }],
+    } as any);
+    useChatStore.setState({
+      messages: {
+        'agent-old': [{
+          id: 'msg-1',
+          sessionId: 'agent-old',
+          role: 'assistant',
+          content: 'existing',
+          createdAt: Date.now(),
+        }],
+      },
+      activeRuns: {},
+    } as any);
+    mockCreateSession.mockResolvedValueOnce({
+      id: 'agent-new',
+      projectId: 'proj-1',
+      type: 'agent',
+      name: 'Agent Assistant',
+    });
+
+    await renderAgentPanel();
+
+    await waitFor(() => {
+      expect(mockGetSessionMessages).toHaveBeenCalledWith('agent-old');
+    });
+
+    act(() => {
+      useAgentStore.setState({ clearRequestId: 1 } as any);
+    });
+
+    await waitFor(() => {
+      expect(mockArchiveSessions).toHaveBeenCalledWith(['agent-old']);
+      expect(mockCreateSession).toHaveBeenCalledWith({
+        projectId: 'proj-1',
+        name: 'Agent Assistant',
+        type: 'agent',
+      });
+    });
+
+    const sessions = useProjectStore.getState().sessions;
+    expect(sessions.find((session) => session.id === 'agent-old')?.archivedAt).toEqual(expect.any(Number));
+    expect(sessions.some((session) => session.id === 'agent-new')).toBe(true);
+    expect(useChatStore.getState().messages['agent-old']).toEqual([]);
   });
 });

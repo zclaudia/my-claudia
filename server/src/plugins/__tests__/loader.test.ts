@@ -825,6 +825,119 @@ describe('PluginLoader', () => {
       expect(broadcastFn).toHaveBeenCalledWith({ type: 'workflow_step_types_changed' });
     });
 
+    it('should register plugin-contributed skills and refresh cached content when mtime changes', async () => {
+      const pluginPath = path.join(mockPluginDir, 'test-plugin');
+      const skillPath = path.join(pluginPath, 'skills', 'review', 'SKILL.md');
+      const manifest = makeManifest({
+        contributes: {
+          skills: [
+            { path: 'skills/review/SKILL.md' },
+          ],
+        },
+      });
+
+      setupSinglePlugin(mockPluginDir, 'test-plugin', manifest);
+      vi.mocked(fs.existsSync).mockImplementation((p) => {
+        if (p === mockPluginDir) return true;
+        if (p === pluginPath) return true;
+        if (p === path.join(pluginPath, 'plugin.json')) return true;
+        if (p === skillPath) return true;
+        return false;
+      });
+      vi.mocked(fs.readFileSync).mockImplementation((p) => {
+        if (p === skillPath) {
+          return '# Review Skill\n\nInitial content';
+        }
+        return JSON.stringify(manifest);
+      });
+
+      const realpathSpy = vi.spyOn(fs, 'realpathSync').mockImplementation((p) => String(p));
+      const statSpy = vi.spyOn(fs, 'statSync')
+        .mockReturnValueOnce({ mtimeMs: 100 } as fs.Stats)
+        .mockReturnValueOnce({ mtimeMs: 100 } as fs.Stats)
+        .mockReturnValueOnce({ mtimeMs: 200 } as fs.Stats);
+
+      await loader.discover();
+      await loader.activate('com.test.plugin');
+
+      const tool = toolRegistry.get('skill__com.test.plugin_review');
+      expect(tool).toBeDefined();
+
+      expect(await tool!.handler({})).toBe('# Review Skill\n\nInitial content');
+
+      vi.mocked(fs.readFileSync).mockImplementation((p) => {
+        if (p === skillPath) {
+          return '# Review Skill\n\nUpdated content';
+        }
+        return JSON.stringify(manifest);
+      });
+
+      expect(await tool!.handler({})).toBe('# Review Skill\n\nUpdated content');
+      expect(realpathSpy).toHaveBeenCalledWith(skillPath);
+      expect(statSpy).toHaveBeenCalledTimes(3);
+    });
+
+    it('should skip plugin-contributed skills when the declared path escapes the plugin directory', async () => {
+      const pluginPath = path.join(mockPluginDir, 'test-plugin');
+      const manifest = makeManifest({
+        contributes: {
+          skills: [
+            { path: '../outside/SKILL.md' },
+          ],
+        },
+      });
+
+      setupSinglePlugin(mockPluginDir, 'test-plugin', manifest);
+      vi.mocked(fs.existsSync).mockImplementation((p) => {
+        if (p === mockPluginDir) return true;
+        if (p === pluginPath) return true;
+        if (p === path.join(pluginPath, 'plugin.json')) return true;
+        return false;
+      });
+
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+      await loader.discover();
+      await loader.activate('com.test.plugin');
+
+      expect(toolRegistry.getAll().filter(tool => tool.source === 'skill')).toEqual([]);
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('Skill path escapes plugin directory')
+      );
+    });
+
+    it('should reject plugin-contributed skills whose symlink resolves outside the plugin directory', async () => {
+      const pluginPath = path.join(mockPluginDir, 'test-plugin');
+      const skillPath = path.join(pluginPath, 'skills', 'review', 'SKILL.md');
+      const manifest = makeManifest({
+        contributes: {
+          skills: [
+            { path: 'skills/review/SKILL.md' },
+          ],
+        },
+      });
+
+      setupSinglePlugin(mockPluginDir, 'test-plugin', manifest);
+      vi.mocked(fs.existsSync).mockImplementation((p) => {
+        if (p === mockPluginDir) return true;
+        if (p === pluginPath) return true;
+        if (p === path.join(pluginPath, 'plugin.json')) return true;
+        if (p === skillPath) return true;
+        return false;
+      });
+      vi.spyOn(fs, 'realpathSync').mockReturnValue('/tmp/outside-skill.md');
+
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+      await loader.discover();
+      await loader.activate('com.test.plugin');
+
+      expect(toolRegistry.getAll().filter(tool => tool.source === 'skill')).toEqual([]);
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('Skill symlink escapes plugin directory'),
+      );
+    });
+
     it('should broadcast panel registrations from contributes', async () => {
       const manifest = makeManifest({
         contributes: {
