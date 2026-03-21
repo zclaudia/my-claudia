@@ -4,6 +4,7 @@
  */
 
 import { toolRegistry } from '../plugins/tool-registry.js';
+import { isPrivateAddress } from './network-guard.js';
 
 /** Simple HTML to text conversion (strip tags, decode entities) */
 function htmlToText(html: string): string {
@@ -54,10 +55,7 @@ export function registerBrowserTool(): void {
 
       try {
         const parsed = new URL(urlStr);
-        // Block private addresses (same as http-request tool)
-        const blockedHosts = ['localhost', '127.0.0.1', '0.0.0.0', '[::1]'];
-        if (blockedHosts.includes(parsed.hostname) || parsed.hostname.startsWith('10.') ||
-            parsed.hostname.startsWith('172.') || parsed.hostname.startsWith('192.168.')) {
+        if (isPrivateAddress(parsed.hostname)) {
           return JSON.stringify({ error: 'Requests to private/internal addresses are blocked' });
         }
 
