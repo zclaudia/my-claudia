@@ -14,6 +14,7 @@ import { permissionManager as pluginPermissionManager } from '../plugins/permiss
 import { sendMessage, broadcastToOtherAuthenticatedClients } from './broadcast.js';
 import { handlePermissionDecision, handleAskUserAnswer } from './permission-handler.js';
 import type { ConnectedClient, ActiveRun } from './types.js';
+import type { AgentFeedService } from '../domains/agent-feed/service.js';
 
 /** Context object bundling module-level dependencies for handleClientMessage. */
 export interface MessageHandlerContext {
@@ -24,6 +25,7 @@ export interface MessageHandlerContext {
   cancelRun: (runId: string) => void;
   broadcastPluginState: () => void;
   findProcessPidsByTaskCommand: (taskCommand?: string, excludedPids?: number[]) => Promise<number[]>;
+  agentFeedService?: AgentFeedService;
 }
 
 export async function handleClientMessage(
@@ -72,6 +74,28 @@ export async function handleClientMessage(
       }
       break;
     }
+
+    case 'get_agent_feed':
+      if (ctx.agentFeedService) {
+        const result = ctx.agentFeedService.listItems({
+          limit: message.limit,
+          before: message.before,
+          unreadOnly: message.unreadOnly,
+        });
+        sendMessage(client.ws, {
+          type: 'agent_feed_list',
+          items: result.items,
+          hasMore: result.hasMore,
+          unreadCount: result.unreadCount,
+        } as import('@my-claudia/shared').AgentFeedListMessage);
+      }
+      break;
+
+    case 'mark_feed_read':
+      if (ctx.agentFeedService && Array.isArray(message.itemIds)) {
+        ctx.agentFeedService.markRead(message.itemIds);
+      }
+      break;
 
     case 'run_cancel':
       ctx.cancelRun(message.runId);

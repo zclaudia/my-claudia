@@ -73,6 +73,7 @@ let processMonitor: ProcessMonitor | null = null;
 let connectedClients = new Map<string, ConnectedClient>();
 let notificationService: NotificationService;
 let serverPort: number | null = null;
+let agentFeedService: import('./domains/agent-feed/service.js').AgentFeedService | undefined;
 
 // Re-exports for backward compatibility
 export type { ConnectedClient, MessageSender };
@@ -88,6 +89,7 @@ function getMessageHandlerContext(): MessageHandlerContext {
     cancelRun,
     broadcastPluginState,
     findProcessPidsByTaskCommand,
+    agentFeedService,
   };
 }
 
@@ -162,6 +164,7 @@ export async function createServer(): Promise<ServerContext> {
     setNotificationService: (ns) => { notificationService = ns; },
     setProcessMonitor: (pm) => { processMonitor = pm; },
   });
+  agentFeedService = setup.agentFeedService;
 
   // Error handling middleware (must be after routes)
   app.use(expressErrorHandler);

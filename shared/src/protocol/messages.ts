@@ -62,7 +62,10 @@ export type ClientMessage =
   | InteractionResponseMessage
   // Agent Assistant
   | AgentStartMessage
-  | AgentCancelMessage;
+  | AgentCancelMessage
+  // Agent Feed
+  | GetAgentFeedMessage
+  | MarkFeedReadMessage;
 
 // Authentication message (sent after WebSocket connection)
 export interface AuthMessage {
@@ -394,7 +397,10 @@ export type ServerMessage =
   | TodoUpdateInteractionMessage
   | AskUserFormInteractionMessage
   | ApprovalInteractionMessage
-  | InteractionResolvedMessage;
+  | InteractionResolvedMessage
+  // Agent Feed
+  | AgentFeedUpdateMessage
+  | AgentFeedListMessage;
 
 // Authentication result message
 export interface AuthResultMessage {
@@ -1018,4 +1024,32 @@ export interface AgentStartMessage {
 export interface AgentCancelMessage {
   type: 'agent_cancel';
   sessionId: string;
+}
+
+// ============================================
+// Agent Feed messages
+// ============================================
+
+export interface GetAgentFeedMessage {
+  type: 'get_agent_feed';
+  limit?: number;
+  before?: number;
+  unreadOnly?: boolean;
+}
+
+export interface MarkFeedReadMessage {
+  type: 'mark_feed_read';
+  itemIds: string[];
+}
+
+export interface AgentFeedUpdateMessage {
+  type: 'agent_feed_update';
+  item: import('../features/agent-feed.js').AgentFeedItem;
+}
+
+export interface AgentFeedListMessage {
+  type: 'agent_feed_list';
+  items: import('../features/agent-feed.js').AgentFeedItem[];
+  hasMore: boolean;
+  unreadCount: number;
 }

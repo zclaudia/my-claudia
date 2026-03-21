@@ -493,6 +493,21 @@ export function handleServerMessage(
       handleWorkflowMessage(msg);
       break;
 
+    case 'agent_feed_update': {
+      const { item } = msg as import('@my-claudia/shared').AgentFeedUpdateMessage;
+      import('../stores/agentFeedStore').then(m => m.useAgentFeedStore.getState().upsertItem(item));
+      break;
+    }
+
+    case 'agent_feed_list': {
+      const feedMsg = msg as import('@my-claudia/shared').AgentFeedListMessage;
+      import('../stores/agentFeedStore').then(m => {
+        m.useAgentFeedStore.getState().setFeedList(feedMsg.items, feedMsg.hasMore, feedMsg.unreadCount);
+        m.useAgentFeedStore.getState().setLoading(false);
+      });
+      break;
+    }
+
     case 'state_heartbeat': {
       const heartbeat = msg as StateHeartbeatMessage;
       const backendName = ctx.resolveBackendName();

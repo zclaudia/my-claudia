@@ -19,6 +19,7 @@ export * from './features/local-pr.js';
 export * from './features/scheduled-tasks.js';
 export * from './features/system-tasks.js';
 export * from './features/workflows.js';
+export * from './features/agent-feed.js';
 
 // Interaction types
 export * from './interaction/permissions.js';

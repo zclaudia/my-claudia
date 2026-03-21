@@ -1,7 +1,7 @@
 // Scheduled Task Types
 
 export type ScheduleType = 'cron' | 'interval' | 'once';
-export type ScheduledActionType = 'prompt' | 'command' | 'shell' | 'webhook' | 'plugin_event';
+export type ScheduledActionType = 'prompt' | 'command' | 'shell' | 'webhook' | 'plugin_event' | 'agent_task';
 export type ScheduledTaskStatus = 'idle' | 'running' | 'error';
 
 export interface PromptActionConfig {
@@ -32,12 +32,21 @@ export interface PluginEventActionConfig {
   data?: Record<string, unknown>;
 }
 
+export interface AgentTaskActionConfig {
+  promptTemplate: string;
+  providerId?: string;
+  contextTemplate?: string;
+  feedDelivery?: boolean;
+  notifyDelivery?: boolean;
+}
+
 export type ActionConfig =
   | PromptActionConfig
   | CommandActionConfig
   | ShellActionConfig
   | WebhookActionConfig
-  | PluginEventActionConfig;
+  | PluginEventActionConfig
+  | AgentTaskActionConfig;
 
 export interface ScheduledTask {
   id: string;

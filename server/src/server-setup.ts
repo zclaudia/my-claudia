@@ -26,6 +26,8 @@ import { createGatewayRouter, type GatewayConfig, type GatewayStatus } from './r
 import { createImportRoutes } from './routes/import.js';
 import { createOpenCodeImportRoutes } from './routes/import-opencode.js';
 import { createAgentRoutes } from './routes/agent.js';
+import { createAgentFeedRoutes } from './routes/agent-feed.js';
+import { AgentFeedService } from './domains/agent-feed/service.js';
 import { createNotificationRoutes } from './routes/notifications.js';
 import { createPluginToolsRoutes } from './routes/plugin-tools.js';
 import { createPluginRoutes } from './routes/plugins.js';
@@ -86,6 +88,7 @@ export interface SetupResult {
   setGatewayDisconnector: (disconnector: () => Promise<void>) => void;
   notificationService: NotificationService;
   supervisorService: SupervisorService;
+  agentFeedService: AgentFeedService;
   /** Cleanup function: call when WebSocket server closes */
   onWssClose: () => void;
 }
@@ -205,6 +208,17 @@ export function setupRoutesAndServices(deps: SetupDependencies): SetupResult {
   }));
   app.use('/api/commands', authMiddleware, createCommandsRoutes());
   app.use('/api/agent', authMiddleware, createAgentRoutes(db));
+
+  // Agent Feed Service
+  const agentFeedService = new AgentFeedService({
+    db,
+    broadcastFn: (msg) => {
+      for (const client of clients.values()) {
+        if (client.authenticated) sendMessage(client.ws, msg);
+      }
+    },
+  });
+  app.use('/api/agent-feed', authMiddleware, createAgentFeedRoutes(agentFeedService));
   app.use('/api/import', localOnlyMiddleware, createImportRoutes(db));
   app.use('/api/import', localOnlyMiddleware, createOpenCodeImportRoutes(db));
 
@@ -509,6 +523,7 @@ export function setupRoutesAndServices(deps: SetupDependencies): SetupResult {
     },
     notificationService,
     supervisorService,
+    agentFeedService,
     onWssClose,
   };
 }
