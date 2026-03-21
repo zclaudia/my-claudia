@@ -165,7 +165,8 @@ describe('gateway-client-mode', () => {
       // Trigger open event
       ws._trigger('open');
 
-      expect(JSON.parse(ws.send.mock.calls[0][0])).toEqual({
+      const sent = JSON.parse(ws.send.mock.calls[0][0]);
+      expect(sent).toEqual({
         type: 'peer_hello',
         gatewaySecret: 'my-secret',
         capabilities: {
@@ -173,10 +174,12 @@ describe('gateway-client-mode', () => {
           backend: false,
         },
         identity: {
-          deviceId: '',
-          instanceId: '',
+          deviceId: expect.stringMatching(/^gwclient-[a-z0-9]+$/),
+          instanceId: expect.stringMatching(/^gwclient-[a-z0-9]+$/),
         },
       });
+      // deviceId and instanceId should be the same for client-only peers
+      expect(sent.identity.deviceId).toBe(sent.identity.instanceId);
     });
   });
 

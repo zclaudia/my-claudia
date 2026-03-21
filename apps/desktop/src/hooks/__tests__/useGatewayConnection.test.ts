@@ -389,6 +389,8 @@ describe('hooks/useGatewayConnection', () => {
       [{ backendId: 'b1', name: 'B1', online: true }],
       'local-1',
       true,
+      null,
+      null,
     );
   });
 
@@ -412,7 +414,7 @@ describe('hooks/useGatewayConnection', () => {
     expect(mockGatewayStoreState.syncFromServer).toHaveBeenCalledWith(null, null, [], null, false);
   });
 
-  it('polls server gateway status on 10s interval', async () => {
+  it('polls server gateway status on 30s interval', async () => {
     const mockGetStatus = vi.mocked(getServerGatewayStatus);
     mockGetStatus.mockResolvedValue({
       enabled: false,
@@ -432,9 +434,9 @@ describe('hooks/useGatewayConnection', () => {
 
     expect(mockGetStatus).toHaveBeenCalledTimes(1);
 
-    // Advance 10s for the interval
+    // Advance 30s for the interval (was 10s, changed to 30s when registry push was added)
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(10000);
+      await vi.advanceTimersByTimeAsync(30000);
     });
 
     expect(mockGetStatus).toHaveBeenCalledTimes(2);
