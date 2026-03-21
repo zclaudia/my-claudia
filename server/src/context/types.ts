@@ -14,6 +14,9 @@ export interface AssemblyInput {
   // Memory context (from Layer 2, for agent mode)
   memoryContext?: string;
 
+  // Active skills content (from Skill Selector, for agent mode)
+  activeSkillsContent?: string;
+
   // Prompt fragments from run-handler (coding mode)
   workspacePrompt?: string;
   skillDirectoryHint?: string;
@@ -25,7 +28,7 @@ export interface AssemblyInput {
   sessionSystemPrompt?: string;
 }
 
-export type ContextTemplate = 'coding' | 'agent' | 'supervision';
+export type ContextTemplate = 'coding' | 'agent' | 'supervision' | 'review' | 'debug';
 
 export interface ContextEngine {
   assemble(template: ContextTemplate, input: AssemblyInput): string;

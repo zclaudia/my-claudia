@@ -19,6 +19,17 @@ import type Database from 'better-sqlite3';
 // Types
 // ============================================
 
+interface SkillTriggers {
+  keywords?: string[];
+  projectType?: string[];
+}
+
+interface SkillRequires {
+  os?: string[];
+  binaries?: string[];
+  env?: string[];
+}
+
 interface SkillMeta {
   id: string;
   name: string;
@@ -26,7 +37,13 @@ interface SkillMeta {
   /** Absolute path to the skill directory (containing SKILL.md) */
   dirPath: string;
   source: 'workspace' | 'external';
+  // Phase 3 fields
+  triggers?: SkillTriggers;
+  requires?: SkillRequires;
+  priority: number;  // lower = higher priority, default 100
 }
+
+export type { SkillMeta };
 
 // ============================================
 // Constants
@@ -41,9 +58,15 @@ const TOOL_PREFIX = 'skill__';
 // ============================================
 
 let _db: Database.Database | null = null;
+let _discoveredSkills: SkillMeta[] = [];
 
 export function setDatabase(db: Database.Database): void {
   _db = db;
+}
+
+/** Get all currently discovered skills (for Skill Selector) */
+export function getDiscoveredSkills(): SkillMeta[] {
+  return _discoveredSkills;
 }
 
 // ============================================
@@ -54,22 +77,95 @@ export function setDatabase(db: Database.Database): void {
  * Parse YAML frontmatter from SKILL.md content.
  * Expects: ---\nname: ...\ndescription: ...\n---\n
  */
-function parseFrontmatter(content: string): { name?: string; description?: string } {
+interface ParsedFrontmatter {
+  name?: string;
+  description?: string;
+  triggers?: SkillTriggers;
+  requires?: SkillRequires;
+  priority?: number;
+}
+
+function parseFrontmatter(content: string): ParsedFrontmatter {
   const match = content.match(/^---\s*\n([\s\S]*?)\n---/);
   if (!match) return {};
 
-  const result: Record<string, string> = {};
+  // Simple YAML parser for flat and one-level nested fields
+  const result: Record<string, any> = {};
+  let currentKey: string | null = null;
+  let currentList: string[] | null = null;
+
   for (const line of match[1].split('\n')) {
+    // List item (indented with -)
+    if (/^\s+-\s/.test(line) && currentKey) {
+      const val = line.replace(/^\s+-\s*/, '').replace(/^["']|["']$/g, '').trim();
+      if (val && currentList) currentList.push(val);
+      continue;
+    }
+
+    // Key-value or section header
     const colonIdx = line.indexOf(':');
     if (colonIdx === -1) continue;
     const key = line.slice(0, colonIdx).trim();
-    const value = line.slice(colonIdx + 1).trim();
-    if (key && value) {
-      result[key] = value;
+    const rawValue = line.slice(colonIdx + 1).trim();
+
+    if (!key) continue;
+
+    // Flush previous list
+    if (currentKey && currentList) {
+      result[currentKey] = currentList;
+      currentList = null;
+      currentKey = null;
+    }
+
+    if (rawValue) {
+      // Inline value — could be a simple string, number, or inline array
+      if (rawValue.startsWith('[') && rawValue.endsWith(']')) {
+        result[key] = rawValue.slice(1, -1).split(',').map(s => s.replace(/^["'\s]+|["'\s]+$/g, ''));
+      } else if (/^\d+$/.test(rawValue)) {
+        result[key] = parseInt(rawValue, 10);
+      } else {
+        result[key] = rawValue.replace(/^["']|["']$/g, '');
+      }
+    } else {
+      // Section header — next lines may be list items or sub-keys
+      currentKey = key;
+      currentList = [];
     }
   }
 
-  return { name: result.name, description: result.description };
+  // Flush last list
+  if (currentKey && currentList) {
+    result[currentKey] = currentList;
+  }
+
+  const parsed: ParsedFrontmatter = {
+    name: result.name as string | undefined,
+    description: result.description as string | undefined,
+    priority: typeof result.priority === 'number' ? result.priority : undefined,
+  };
+
+  // Parse triggers (can be nested object or flat)
+  if (result.triggers && typeof result.triggers === 'object') {
+    parsed.triggers = result.triggers as SkillTriggers;
+  } else {
+    const triggers: SkillTriggers = {};
+    if (result.keywords) triggers.keywords = Array.isArray(result.keywords) ? result.keywords : [result.keywords];
+    if (result.projectType) triggers.projectType = Array.isArray(result.projectType) ? result.projectType : [result.projectType];
+    if (triggers.keywords || triggers.projectType) parsed.triggers = triggers;
+  }
+
+  // Parse requires
+  if (result.requires && typeof result.requires === 'object') {
+    parsed.requires = result.requires as SkillRequires;
+  } else {
+    const requires: SkillRequires = {};
+    if (result.os) requires.os = Array.isArray(result.os) ? result.os : [result.os];
+    if (result.binaries) requires.binaries = Array.isArray(result.binaries) ? result.binaries : [result.binaries];
+    if (result.env) requires.env = Array.isArray(result.env) ? result.env : [result.env];
+    if (requires.os || requires.binaries || requires.env) parsed.requires = requires;
+  }
+
+  return parsed;
 }
 
 // ============================================
@@ -125,6 +221,9 @@ function discoverSkillsInDir(
           description,
           dirPath: subdir,
           source,
+          triggers: fm.triggers,
+          requires: fm.requires,
+          priority: fm.priority ?? 100,
         });
       } catch {
         // Skip unreadable skills
@@ -262,6 +361,8 @@ export async function registerSkillTools(): Promise<number> {
       },
     });
   }
+
+  _discoveredSkills = allSkills;
 
   if (allSkills.length > 0) {
     console.log(`[SkillTools] Registered ${allSkills.length} skill(s): ${allSkills.map(s => s.id).join(', ')}`);

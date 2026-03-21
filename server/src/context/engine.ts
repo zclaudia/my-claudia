@@ -40,6 +40,7 @@ function assembleAgentTemplate(input: AssemblyInput): string {
     AGENT_SYSTEM_PROMPT,
     input.workspacePrompt,
     input.skillDirectoryHint,
+    input.activeSkillsContent,
     input.memoryContext,
     input.filePushContext,
     input.interactionToolPrompt,
@@ -71,6 +72,44 @@ function assembleSupervisionTemplate(input: AssemblyInput): string {
   ].filter(Boolean).join('\n\n');
 }
 
+const REVIEW_SYSTEM_PROMPT = `You are a Code Review Agent for MyClaudia. You review code changes for correctness, security, performance, and maintainability.
+
+Guidelines:
+- Focus on logic errors, security issues, and performance problems first.
+- Check for proper error handling and edge cases.
+- Verify that changes match the stated intent.
+- Be specific: reference file names, line numbers, and concrete suggestions.
+- Distinguish between blocking issues and minor suggestions.`;
+
+const DEBUG_SYSTEM_PROMPT = `You are a Debugging Agent for MyClaudia. You help diagnose and fix bugs, errors, and unexpected behavior.
+
+Guidelines:
+- Start by understanding the expected vs actual behavior.
+- Read error messages and stack traces carefully.
+- Check recent changes that might have introduced the issue.
+- Form hypotheses and verify them systematically.
+- Suggest minimal, targeted fixes rather than large refactors.`;
+
+function assembleReviewTemplate(input: AssemblyInput): string {
+  return [
+    REVIEW_SYSTEM_PROMPT,
+    input.workspacePrompt,
+    input.activeSkillsContent,
+    input.memoryContext,
+    input.sessionSystemPrompt,
+  ].filter(Boolean).join('\n\n');
+}
+
+function assembleDebugTemplate(input: AssemblyInput): string {
+  return [
+    DEBUG_SYSTEM_PROMPT,
+    input.workspacePrompt,
+    input.activeSkillsContent,
+    input.memoryContext,
+    input.sessionSystemPrompt,
+  ].filter(Boolean).join('\n\n');
+}
+
 export function createContextEngine(): ContextEngine {
   return {
     assemble(template, input) {
@@ -79,6 +118,10 @@ export function createContextEngine(): ContextEngine {
           return assembleAgentTemplate(input);
         case 'supervision':
           return assembleSupervisionTemplate(input);
+        case 'review':
+          return assembleReviewTemplate(input);
+        case 'debug':
+          return assembleDebugTemplate(input);
         case 'coding':
         default:
           return assembleCodingTemplate(input);

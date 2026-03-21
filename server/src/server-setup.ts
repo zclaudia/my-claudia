@@ -385,6 +385,9 @@ export function setupRoutesAndServices(deps: SetupDependencies): SetupResult {
     getDb: () => db,
   });
 
+  // Register browser tool (lightweight URL fetcher)
+  import('./agent-tools/browser.js').then(m => m.registerBrowserTool());
+
   // TaskOrchestrator — unified task orchestration (Phase 2: agent tasks only)
   const orchestrator = createTaskOrchestrator({
     db,
