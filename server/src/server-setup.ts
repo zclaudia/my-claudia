@@ -30,6 +30,7 @@ import { createAgentFeedRoutes } from './routes/agent-feed.js';
 import { createAgentTriggerRoutes } from './routes/agent-triggers.js';
 import { AgentFeedService } from './domains/agent-feed/service.js';
 import { AgentTriggerService } from './domains/agent-triggers/service.js';
+import { createDelegationRoutes } from './routes/delegation.js';
 import { createNotificationRoutes } from './routes/notifications.js';
 import { createPluginToolsRoutes } from './routes/plugin-tools.js';
 import { createPluginRoutes } from './routes/plugins.js';
@@ -210,6 +211,7 @@ export function setupRoutesAndServices(deps: SetupDependencies): SetupResult {
   }));
   app.use('/api/commands', authMiddleware, createCommandsRoutes());
   app.use('/api/agent', authMiddleware, createAgentRoutes(db));
+  app.use('/api/delegation', authMiddleware, createDelegationRoutes(db));
 
   let notificationService: NotificationService | null = null;
 
@@ -251,7 +253,7 @@ export function setupRoutesAndServices(deps: SetupDependencies): SetupResult {
   });
 
   // Scheduled tasks domain
-  registerScheduledTaskDomain({
+  const { scheduledTaskService } = registerScheduledTaskDomain({
     db, app, authMiddleware, clients,
   });
 
@@ -434,6 +436,7 @@ export function setupRoutesAndServices(deps: SetupDependencies): SetupResult {
     feedService: agentFeedService,
     pluginEvents,
   });
+  scheduledTaskService.setAgentTriggerService(agentTriggerService);
   agentTriggerService.start();
   app.use('/api/agent-triggers', authMiddleware, createAgentTriggerRoutes(agentTriggerService));
   pluginLoader.agentTriggerService = agentTriggerService;

@@ -29,6 +29,7 @@ export interface TaskOrchestratorDeps {
   serverPort: number | null;
   agentFeedService?: {
     postItem: (item: {
+      triggerId?: string;
       taskId?: string;
       sessionId?: string;
       projectId?: string;
@@ -50,15 +51,20 @@ export interface TaskOrchestratorDeps {
 export function createTaskOrchestrator(deps: TaskOrchestratorDeps): TaskOrchestrator {
   const repo = new TaskRepository(deps.db);
   const waiters = new Map<string, Set<(result: TaskResult) => void>>();
+  const feedOverrides = new Map<string, { triggerId?: string; source: FeedItemSource; title: string }>();
   let interval: NodeJS.Timeout | null = null;
 
   function getFeedSource(task: OrchestratorTask): FeedItemSource {
+    const override = feedOverrides.get(task.id);
+    if (override) return override.source;
     if (task.parentTaskId) return 'delegation';
     if (task.scheduleType) return 'scheduled';
     return 'manual';
   }
 
   function getFeedTitle(task: OrchestratorTask): string {
+    const override = feedOverrides.get(task.id);
+    if (override) return override.title;
     const snippet = task.task.trim().replace(/\s+/g, ' ').slice(0, 80);
     return snippet ? `Agent Task: ${snippet}` : 'Agent Task';
   }
@@ -80,6 +86,7 @@ export function createTaskOrchestrator(deps: TaskOrchestratorDeps): TaskOrchestr
     }
 
     deps.agentFeedService.postItem({
+      triggerId: feedOverrides.get(task.id)?.triggerId,
       taskId: task.id,
       sessionId: task.sessionId ?? undefined,
       projectId: task.projectId ?? undefined,
@@ -118,6 +125,7 @@ export function createTaskOrchestrator(deps: TaskOrchestratorDeps): TaskOrchestr
     const task = repo.findById(taskId);
     if (task) {
       syncFeedStatus(task, status, extra);
+      feedOverrides.delete(task.id);
       resolveWaiters(task);
     }
   }
@@ -133,15 +141,21 @@ export function createTaskOrchestrator(deps: TaskOrchestratorDeps): TaskOrchestr
 
     repo.updateStatus(task.id, 'running', { startedAt: now, sessionId });
 
-    deps.agentFeedService?.postItem({
-      taskId: task.id,
-      sessionId,
-      projectId: task.projectId ?? undefined,
-      source: getFeedSource(task),
-      title: getFeedTitle(task),
-      summary: task.task,
-      status: 'running',
-    });
+    if (deps.agentFeedService) {
+      const existing = deps.agentFeedService.findByTaskId(task.id);
+      if (!existing) {
+        deps.agentFeedService.postItem({
+          triggerId: feedOverrides.get(task.id)?.triggerId,
+          taskId: task.id,
+          sessionId,
+          projectId: task.projectId ?? undefined,
+          source: getFeedSource(task),
+          title: getFeedTitle(task),
+          summary: task.task,
+          status: 'running',
+        });
+      }
+    }
 
     const clientId = `orchestrator-${task.id}`;
     const clients = deps.getClients();
@@ -254,6 +268,10 @@ export function createTaskOrchestrator(deps: TaskOrchestratorDeps): TaskOrchestr
         scheduleConfig: config.schedule ? JSON.stringify(config.schedule) : undefined,
         id,
       });
+
+      if (config.feed) {
+        feedOverrides.set(id, config.feed);
+      }
 
       // Let tick() handle execution — avoids race between creation and immediate execution
       return id;

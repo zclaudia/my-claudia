@@ -52,6 +52,16 @@ describe('PluginEventEmitter', () => {
 
       expect(listener).toHaveBeenCalledWith({ sessionId: '123' }, 'other.plugin');
     });
+
+    it('should support wildcard pattern listeners', () => {
+      const listener = vi.fn();
+      pluginEvents.onPattern('run.*', listener);
+
+      pluginEvents.emitSync('run.completed', { sessionId: '123' });
+
+      expect(listener).toHaveBeenCalledTimes(1);
+      expect(listener).toHaveBeenCalledWith({ sessionId: '123' }, undefined);
+    });
   });
 
   describe('once', () => {
@@ -97,6 +107,16 @@ describe('PluginEventEmitter', () => {
       pluginEvents.off('run.started', listener);
 
       pluginEvents.emitSync('run.started', { sessionId: '123' });
+
+      expect(listener).not.toHaveBeenCalled();
+    });
+
+    it('should unsubscribe pattern listeners', () => {
+      const listener = vi.fn();
+      pluginEvents.onPattern('plugin.*', listener);
+      pluginEvents.offPattern('plugin.*', listener);
+
+      pluginEvents.emitSync('plugin.activated', { pluginId: 'p1' });
 
       expect(listener).not.toHaveBeenCalled();
     });

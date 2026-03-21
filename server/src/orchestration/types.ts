@@ -39,6 +39,11 @@ export interface SpawnTaskConfig {
   projectId?: string;
   providerId?: string;
   contextTemplate?: string;
+  feed?: {
+    triggerId?: string;
+    source: import('@my-claudia/shared').FeedItemSource;
+    title: string;
+  };
   tools?: string[];
   worktree?: boolean;
   checkpoint?: boolean;

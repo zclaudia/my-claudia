@@ -685,6 +685,9 @@ export class PluginLoader {
     // Clear event listeners
     pluginEvents.clearByPlugin(pluginId);
 
+    // Clear plugin-contributed agent triggers
+    this.agentTriggerService?.unregisterPluginTriggers(pluginId);
+
     // Clear scheduled tasks
     pluginScheduler.clearByPlugin(pluginId);
 

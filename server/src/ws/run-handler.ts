@@ -41,7 +41,9 @@ import {
   mergePolicy,
   normalizePolicy,
   buildRememberKey,
+  classify,
 } from '../agent/permission-evaluator.js';
+import { getDelegationConfig } from '../agent/delegation-evaluator.js';
 import type { PermissionDecision, SystemInfo } from '../providers/claude-sdk.js';
 import { providerRegistry } from '../providers/registry.js';
 import { negotiateProfile } from '../providers/pcp-negotiator.js';
@@ -455,6 +457,36 @@ export async function handleRunStart(
           // 'escalate' → fall through to user UI flow
         }
         // --- End strategy chain ---
+
+        // --- Delegation mode: rule-based fast path for escalated requests ---
+        if (effectivePolicy?.enabled) {
+          const delegationConfig = getDelegationConfig(db);
+          if (delegationConfig.enabled) {
+            const category = classify(request.toolName, request.toolInput, request.detail);
+
+            // Check: tool not in neverDelegate, category in allowedCategories
+            if (!delegationConfig.neverDelegate.includes(request.toolName) &&
+                delegationConfig.allowedCategories.includes(category)) {
+              const profile = effectivePolicy.profiles[sessionType] || effectivePolicy.profiles.regular;
+              const action = profile[category];
+
+              // Fast path: category already auto-approve → delegate with confidence=1.0
+              if (action === 'auto-approve') {
+                sendMessage(client.ws, {
+                  type: 'agent_permission_intercepted',
+                  toolName: request.toolName,
+                  decision: 'approve',
+                  reason: `Delegation: "${category}" auto-approve for ${sessionType} (confidence: 100%)`,
+                  sessionId: message.sessionId,
+                  runId,
+                } as import('@my-claudia/shared').AgentPermissionInterceptedMessage);
+                resolve({ behavior: 'allow', updatedInput: request.toolInput });
+                return;
+              }
+              // TODO: LLM slow path for 'ask' categories (requires async provider call)
+            }
+          }
+        }
 
         // For background sessions, escalate sends a notification instead of blocking UI
         if (sessionType === 'background') {

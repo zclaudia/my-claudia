@@ -1044,6 +1044,27 @@ function runMigrations(db: Database.Database): void {
         );
         CREATE INDEX IF NOT EXISTS idx_agent_triggers_enabled ON agent_triggers(enabled);
       `
+    },
+    {
+      name: '047_delegation_config',
+      sql: `
+        CREATE TABLE IF NOT EXISTS delegation_config (
+          id INTEGER PRIMARY KEY CHECK(id = 1),
+          config TEXT NOT NULL,
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL
+        );
+        INSERT OR IGNORE INTO delegation_config (id, config, created_at, updated_at)
+        VALUES (1, '{"enabled":false,"confidenceThreshold":0.8,"maxAutoApprovalsPerMinute":10,"allowedCategories":["fileRead","fileWrite","shellSafe"],"neverDelegate":["AskUserQuestion","ExitPlanMode"]}', ${Date.now()}, ${Date.now()});
+      `
+    },
+    {
+      name: '048_agent_trigger_schedule_fields',
+      sql: `
+        ALTER TABLE agent_triggers ADD COLUMN schedule_type TEXT;
+        ALTER TABLE agent_triggers ADD COLUMN schedule_cron TEXT;
+        ALTER TABLE agent_triggers ADD COLUMN schedule_interval_minutes INTEGER;
+      `
     }
   ];
 
@@ -1060,10 +1081,14 @@ function runMigrations(db: Database.Database): void {
         const message = error instanceof Error ? error.message : String(error);
         const isDuplicateColumnError =
           message.includes('duplicate column name: status_message') ||
-          message.includes('duplicate column name: merged_commit_sha');
+          message.includes('duplicate column name: merged_commit_sha') ||
+          message.includes('duplicate column name: schedule_type') ||
+          message.includes('duplicate column name: schedule_cron') ||
+          message.includes('duplicate column name: schedule_interval_minutes');
         const isKnownLocalPrColumnMigration =
           migration.name === '036_local_pr_status_message' ||
-          migration.name === '037_local_pr_merge_commit_sha';
+          migration.name === '037_local_pr_merge_commit_sha' ||
+          migration.name === '048_agent_trigger_schedule_fields';
 
         if (!(isKnownLocalPrColumnMigration && isDuplicateColumnError)) {
           throw error;

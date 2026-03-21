@@ -9,8 +9,10 @@ export interface AgentTriggerServiceDeps {
   orchestrator: TaskOrchestrator;
   feedService: AgentFeedService;
   pluginEvents: {
-    on: (event: string, handler: (...args: any[]) => void) => void;
+    on: (event: string, handler: (...args: any[]) => void) => (() => void) | void;
     off: (event: string, handler: (...args: any[]) => void) => void;
+    onPattern?: (pattern: string, handler: (...args: any[]) => void) => (() => void) | void;
+    offPattern?: (pattern: string, handler: (...args: any[]) => void) => void;
   };
 }
 
@@ -31,18 +33,10 @@ function renderTemplate(template: string, data: Record<string, unknown>): string
 }
 
 /** Check if event name matches a trigger's pattern (simple glob: * matches any segment) */
-function matchesEventPattern(eventName: string, pattern: string): boolean {
-  if (pattern === '*') return true;
-  if (pattern === eventName) return true;
-  // Simple glob: convert * to regex .*
-  const regex = new RegExp('^' + pattern.replace(/\./g, '\\.').replace(/\*/g, '.*') + '$');
-  return regex.test(eventName);
-}
-
 export class AgentTriggerService {
   private repo: AgentTriggerRepository;
   private deps: AgentTriggerServiceDeps;
-  private activeListeners = new Map<string, { event: string; handler: (...args: any[]) => void }>();
+  private activeListeners = new Map<string, () => void>();
 
   constructor(deps: AgentTriggerServiceDeps) {
     this.deps = deps;
@@ -62,8 +56,8 @@ export class AgentTriggerService {
 
   /** Unsubscribe all event listeners */
   stop(): void {
-    for (const [, { event, handler }] of this.activeListeners) {
-      this.deps.pluginEvents.off(event, handler);
+    for (const [, unsubscribe] of this.activeListeners) {
+      unsubscribe();
     }
     this.activeListeners.clear();
     console.log('[AgentTriggerService] Stopped');
@@ -71,15 +65,28 @@ export class AgentTriggerService {
 
   /** Subscribe to a plugin event for a trigger */
   private subscribeToEvent(trigger: AgentTrigger): void {
+    if (!trigger.eventPattern) return;
     const handler = (eventData: unknown) => {
       this.handleEvent(trigger, eventData).catch(err => {
         console.error(`[AgentTriggerService] Error handling event for trigger "${trigger.name}":`, err);
       });
     };
-    // Subscribe to a broad event category; filter in handler
-    const event = trigger.eventPattern!.split('*')[0].replace(/\.$/, '') || '*';
-    this.deps.pluginEvents.on(event, handler);
-    this.activeListeners.set(trigger.id, { event, handler });
+
+    const unsubscribe = trigger.eventPattern.includes('*') && this.deps.pluginEvents.onPattern
+      ? this.deps.pluginEvents.onPattern(trigger.eventPattern, handler)
+      : this.deps.pluginEvents.on(trigger.eventPattern, handler);
+
+    this.activeListeners.set(trigger.id, () => {
+      if (typeof unsubscribe === 'function') {
+        unsubscribe();
+        return;
+      }
+      if (trigger.eventPattern.includes('*')) {
+        this.deps.pluginEvents.offPattern?.(trigger.eventPattern, handler);
+      } else {
+        this.deps.pluginEvents.off(trigger.eventPattern, handler);
+      }
+    });
   }
 
   /** Handle an incoming event against a trigger */
@@ -99,53 +106,29 @@ export class AgentTriggerService {
   async executeAgentPrompt(trigger: AgentTrigger, context: Record<string, unknown> = {}): Promise<void> {
     const prompt = renderTemplate(trigger.promptTemplate, context);
 
-    // Post "running" feed item
-    const feedItem = trigger.feedDelivery
-      ? this.deps.feedService.postItem({
-          triggerId: trigger.id,
-          source: trigger.triggerType === 'schedule' ? 'scheduled' : 'trigger',
-          title: trigger.name,
-          status: 'running',
-          projectId: trigger.projectId ?? undefined,
-        })
-      : null;
-
     try {
-      const taskId = await this.deps.orchestrator.spawnTask(null, {
+      await this.deps.orchestrator.spawnTask(null, {
         task: prompt,
         projectId: trigger.projectId,
         providerId: trigger.providerId,
         contextTemplate: trigger.contextTemplate || 'agent',
-      });
-
-      // Update feed item with task ID
-      if (feedItem) {
-        this.deps.feedService.updateItemStatus(feedItem.id, 'running');
-      }
-
-      // Wait for task completion (fire-and-forget, update feed on completion)
-      this.deps.orchestrator.waitForTask(taskId).then(result => {
-        if (feedItem) {
-          this.deps.feedService.updateItemStatus(
-            feedItem.id,
-            result.status === 'completed' ? 'completed' : 'failed',
-            {
-              summary: result.summary,
-              error: result.error,
+        feed: trigger.feedDelivery
+          ? {
+              triggerId: trigger.id,
+              source: trigger.triggerType === 'schedule' ? 'scheduled' : 'trigger',
+              title: trigger.name,
             }
-          );
-        }
-      }).catch(err => {
-        if (feedItem) {
-          this.deps.feedService.updateItemStatus(feedItem.id, 'failed', {
-            error: err.message || 'Task execution failed',
-          });
-        }
+          : undefined,
       });
     } catch (err: unknown) {
-      if (feedItem) {
-        this.deps.feedService.updateItemStatus(feedItem.id, 'failed', {
+      if (trigger.feedDelivery) {
+        this.deps.feedService.postItem({
+          triggerId: trigger.id,
+          source: trigger.triggerType === 'schedule' ? 'scheduled' : 'trigger',
+          title: trigger.name,
+          status: 'failed',
           error: err instanceof Error ? err.message : 'Failed to spawn agent task',
+          projectId: trigger.projectId ?? undefined,
         });
       }
     }
@@ -172,9 +155,9 @@ export class AgentTriggerService {
   unregisterPluginTriggers(pluginId: string): void {
     const triggers = this.repo.findByPluginId(pluginId);
     for (const trigger of triggers) {
-      const listener = this.activeListeners.get(trigger.id);
-      if (listener) {
-        this.deps.pluginEvents.off(listener.event, listener.handler);
+      const unsubscribe = this.activeListeners.get(trigger.id);
+      if (unsubscribe) {
+        unsubscribe();
         this.activeListeners.delete(trigger.id);
       }
     }
@@ -200,9 +183,9 @@ export class AgentTriggerService {
     this.reload(); // Simplest approach: reload all listeners on any change
   }
   deleteTrigger(id: string): boolean {
-    const listener = this.activeListeners.get(id);
-    if (listener) {
-      this.deps.pluginEvents.off(listener.event, listener.handler);
+    const unsubscribe = this.activeListeners.get(id);
+    if (unsubscribe) {
+      unsubscribe();
       this.activeListeners.delete(id);
     }
     return this.repo.delete(id);

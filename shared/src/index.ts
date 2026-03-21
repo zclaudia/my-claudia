@@ -21,6 +21,7 @@ export * from './features/system-tasks.js';
 export * from './features/workflows.js';
 export * from './features/agent-feed.js';
 export * from './features/agent-triggers.js';
+export * from './features/delegation.js';
 
 // Interaction types
 export * from './interaction/permissions.js';

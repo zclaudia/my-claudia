@@ -10,6 +10,9 @@ interface TriggerRow {
   trigger_type: string;
   event_pattern: string | null;
   event_filter: string | null;
+  schedule_type: string | null;
+  schedule_cron: string | null;
+  schedule_interval_minutes: number | null;
   prompt_template: string;
   provider_id: string | null;
   project_id: string | null;
@@ -30,6 +33,9 @@ function rowToTrigger(row: TriggerRow): AgentTrigger {
     triggerType: row.trigger_type as AgentTrigger['triggerType'],
     eventPattern: row.event_pattern ?? undefined,
     eventFilter: row.event_filter ? JSON.parse(row.event_filter) : undefined,
+    scheduleType: row.schedule_type as AgentTrigger['scheduleType'] | undefined,
+    scheduleCron: row.schedule_cron ?? undefined,
+    scheduleIntervalMinutes: row.schedule_interval_minutes ?? undefined,
     promptTemplate: row.prompt_template,
     providerId: row.provider_id ?? undefined,
     projectId: row.project_id ?? undefined,
@@ -49,13 +55,16 @@ export class AgentTriggerRepository {
     const id = uuidv4();
     const now = Date.now();
     this.db.prepare(`
-      INSERT INTO agent_triggers (id, name, description, enabled, trigger_type, event_pattern, event_filter, prompt_template, provider_id, project_id, context_template, feed_delivery, notify_delivery, source_plugin_id, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO agent_triggers (id, name, description, enabled, trigger_type, event_pattern, event_filter, schedule_type, schedule_cron, schedule_interval_minutes, prompt_template, provider_id, project_id, context_template, feed_delivery, notify_delivery, source_plugin_id, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       id, trigger.name, trigger.description ?? null,
       trigger.enabled ? 1 : 0, trigger.triggerType,
       trigger.eventPattern ?? null,
       trigger.eventFilter ? JSON.stringify(trigger.eventFilter) : null,
+      trigger.scheduleType ?? null,
+      trigger.scheduleCron ?? null,
+      trigger.scheduleIntervalMinutes ?? null,
       trigger.promptTemplate,
       trigger.providerId ?? null, trigger.projectId ?? null,
       trigger.contextTemplate ?? 'agent',
@@ -89,8 +98,14 @@ export class AgentTriggerRepository {
     if (updates.description !== undefined) { fields.push('description = ?'); values.push(updates.description); }
     if (updates.enabled !== undefined) { fields.push('enabled = ?'); values.push(updates.enabled ? 1 : 0); }
     if (updates.eventPattern !== undefined) { fields.push('event_pattern = ?'); values.push(updates.eventPattern); }
+    if (updates.eventFilter !== undefined) { fields.push('event_filter = ?'); values.push(updates.eventFilter ? JSON.stringify(updates.eventFilter) : null); }
+    if (updates.scheduleType !== undefined) { fields.push('schedule_type = ?'); values.push(updates.scheduleType); }
+    if (updates.scheduleCron !== undefined) { fields.push('schedule_cron = ?'); values.push(updates.scheduleCron); }
+    if (updates.scheduleIntervalMinutes !== undefined) { fields.push('schedule_interval_minutes = ?'); values.push(updates.scheduleIntervalMinutes); }
     if (updates.promptTemplate !== undefined) { fields.push('prompt_template = ?'); values.push(updates.promptTemplate); }
     if (updates.providerId !== undefined) { fields.push('provider_id = ?'); values.push(updates.providerId); }
+    if (updates.projectId !== undefined) { fields.push('project_id = ?'); values.push(updates.projectId); }
+    if (updates.contextTemplate !== undefined) { fields.push('context_template = ?'); values.push(updates.contextTemplate); }
     if (updates.feedDelivery !== undefined) { fields.push('feed_delivery = ?'); values.push(updates.feedDelivery ? 1 : 0); }
     if (updates.notifyDelivery !== undefined) { fields.push('notify_delivery = ?'); values.push(updates.notifyDelivery ? 1 : 0); }
 

@@ -73,6 +73,13 @@ export interface Subscription {
   pluginId?: string;
 }
 
+function matchesEventPattern(event: string, pattern: string): boolean {
+  if (pattern === '*') return true;
+  if (pattern === event) return true;
+  const regex = new RegExp(`^${pattern.replace(/\./g, '\\.').replace(/\*/g, '.*')}$`);
+  return regex.test(event);
+}
+
 // ============================================
 // Plugin Event Emitter
 // ============================================
@@ -80,6 +87,8 @@ export interface Subscription {
 class PluginEventEmitter {
   private listeners = new Map<PluginEvent, Set<Subscription>>();
   private onceListeners = new Map<PluginEvent, Set<Subscription>>();
+  private patternListeners = new Map<string, Set<Subscription>>();
+  private oncePatternListeners = new Map<string, Set<Subscription>>();
 
   /**
    * Subscribe to an event.
@@ -102,6 +111,19 @@ class PluginEventEmitter {
     };
   }
 
+  onPattern(pattern: string, listener: EventListener, pluginId?: string): () => void {
+    if (!this.patternListeners.has(pattern)) {
+      this.patternListeners.set(pattern, new Set());
+    }
+
+    const subscription: Subscription = { event: pattern, listener, pluginId };
+    this.patternListeners.get(pattern)!.add(subscription);
+
+    return () => {
+      this.patternListeners.get(pattern)?.delete(subscription);
+    };
+  }
+
   /**
    * Subscribe to an event for a single occurrence.
    * @param event - The event name to subscribe to
@@ -115,6 +137,15 @@ class PluginEventEmitter {
 
     const subscription: Subscription = { event, listener, pluginId };
     this.onceListeners.get(event)!.add(subscription);
+  }
+
+  oncePattern(pattern: string, listener: EventListener, pluginId?: string): void {
+    if (!this.oncePatternListeners.has(pattern)) {
+      this.oncePatternListeners.set(pattern, new Set());
+    }
+
+    const subscription: Subscription = { event: pattern, listener, pluginId };
+    this.oncePatternListeners.get(pattern)!.add(subscription);
   }
 
   /**
@@ -134,6 +165,28 @@ class PluginEventEmitter {
     }
 
     const onceListeners = this.onceListeners.get(event);
+    if (onceListeners) {
+      for (const sub of onceListeners) {
+        if (sub.listener === listener) {
+          onceListeners.delete(sub);
+          break;
+        }
+      }
+    }
+  }
+
+  offPattern(pattern: string, listener: EventListener): void {
+    const listeners = this.patternListeners.get(pattern);
+    if (listeners) {
+      for (const sub of listeners) {
+        if (sub.listener === listener) {
+          listeners.delete(sub);
+          break;
+        }
+      }
+    }
+
+    const onceListeners = this.oncePatternListeners.get(pattern);
     if (onceListeners) {
       for (const sub of onceListeners) {
         if (sub.listener === listener) {
@@ -179,6 +232,30 @@ class PluginEventEmitter {
       }
     }
 
+    for (const [pattern, subscriptions] of this.patternListeners) {
+      if (!matchesEventPattern(event, pattern)) continue;
+      for (const sub of subscriptions) {
+        try {
+          const result = sub.listener(data, sourcePluginId);
+          if (result instanceof Promise) {
+            promises.push(
+              result.catch((error) => {
+                console.error(
+                  `[PluginEvents] Error in async pattern listener for "${event}" (${pattern}):`,
+                  error instanceof Error ? error.message : String(error)
+                );
+              })
+            );
+          }
+        } catch (error) {
+          console.error(
+            `[PluginEvents] Error in pattern listener for "${event}" (${pattern}):`,
+            error instanceof Error ? error.message : String(error)
+          );
+        }
+      }
+    }
+
     // Get once listeners
     const onceListeners = this.onceListeners.get(event);
     if (onceListeners) {
@@ -202,6 +279,33 @@ class PluginEventEmitter {
         } catch (error) {
           console.error(
             `[PluginEvents] Error in once listener for "${event}":`,
+            error instanceof Error ? error.message : String(error)
+          );
+        }
+      }
+    }
+
+    for (const [pattern, subscriptions] of this.oncePatternListeners) {
+      if (!matchesEventPattern(event, pattern)) continue;
+      const toRemove = Array.from(subscriptions);
+      subscriptions.clear();
+
+      for (const sub of toRemove) {
+        try {
+          const result = sub.listener(data, sourcePluginId);
+          if (result instanceof Promise) {
+            promises.push(
+              result.catch((error) => {
+                console.error(
+                  `[PluginEvents] Error in async once pattern listener for "${event}" (${pattern}):`,
+                  error instanceof Error ? error.message : String(error)
+                );
+              })
+            );
+          }
+        } catch (error) {
+          console.error(
+            `[PluginEvents] Error in once pattern listener for "${event}" (${pattern}):`,
             error instanceof Error ? error.message : String(error)
           );
         }
@@ -233,6 +337,20 @@ class PluginEventEmitter {
       }
     }
 
+    for (const [pattern, subscriptions] of this.patternListeners) {
+      if (!matchesEventPattern(event, pattern)) continue;
+      for (const sub of subscriptions) {
+        try {
+          sub.listener(data, sourcePluginId);
+        } catch (error) {
+          console.error(
+            `[PluginEvents] Error in pattern listener for "${event}" (${pattern}):`,
+            error instanceof Error ? error.message : String(error)
+          );
+        }
+      }
+    }
+
     const onceListeners = this.onceListeners.get(event);
     if (onceListeners) {
       const toRemove = Array.from(onceListeners);
@@ -244,6 +362,23 @@ class PluginEventEmitter {
         } catch (error) {
           console.error(
             `[PluginEvents] Error in once listener for "${event}":`,
+            error instanceof Error ? error.message : String(error)
+          );
+        }
+      }
+    }
+
+    for (const [pattern, subscriptions] of this.oncePatternListeners) {
+      if (!matchesEventPattern(event, pattern)) continue;
+      const toRemove = Array.from(subscriptions);
+      subscriptions.clear();
+
+      for (const sub of toRemove) {
+        try {
+          sub.listener(data, sourcePluginId);
+        } catch (error) {
+          console.error(
+            `[PluginEvents] Error in once pattern listener for "${event}" (${pattern}):`,
             error instanceof Error ? error.message : String(error)
           );
         }
@@ -277,6 +412,24 @@ class PluginEventEmitter {
       }
     }
 
+    for (const [, subscriptions] of this.patternListeners) {
+      for (const sub of Array.from(subscriptions)) {
+        if (sub.pluginId === pluginId) {
+          subscriptions.delete(sub);
+          count++;
+        }
+      }
+    }
+
+    for (const [, subscriptions] of this.oncePatternListeners) {
+      for (const sub of Array.from(subscriptions)) {
+        if (sub.pluginId === pluginId) {
+          subscriptions.delete(sub);
+          count++;
+        }
+      }
+    }
+
     return count;
   }
 
@@ -300,6 +453,12 @@ class PluginEventEmitter {
     for (const [, subs] of this.onceListeners) {
       count += subs.size;
     }
+    for (const [, subs] of this.patternListeners) {
+      count += subs.size;
+    }
+    for (const [, subs] of this.oncePatternListeners) {
+      count += subs.size;
+    }
     return count;
   }
 
@@ -309,6 +468,8 @@ class PluginEventEmitter {
   clear(): void {
     this.listeners.clear();
     this.onceListeners.clear();
+    this.patternListeners.clear();
+    this.oncePatternListeners.clear();
   }
 }
 
