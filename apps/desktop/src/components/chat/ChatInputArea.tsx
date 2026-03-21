@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { Lock, Unlock, X, FileText, FileEdit, Terminal as TerminalIcon, ChevronDown, ChevronUp, Plus } from 'lucide-react';
+import { Lock, Unlock, X, FileText, FileEdit, Terminal as TerminalIcon, ChevronDown, ChevronUp, Plus, Activity } from 'lucide-react';
 import { ModeSelector } from './ModeSelector';
 import { SystemInfoButton } from './SystemInfoButton';
 import { ModelSelector } from './ModelSelector';
@@ -15,6 +15,7 @@ import { usePluginStore } from '../../stores/pluginStore';
 import { useProjectStore } from '../../stores/projectStore';
 import { useDraftEditorStore } from '../../stores/draftEditorStore';
 import { useUIStore } from '../../stores/uiStore';
+import { useAgentFeedStore } from '../../stores/agentFeedStore';
 import * as api from '../../services/api';
 import type { AgentPermissionPolicy, ProviderCapabilities, SlashCommand, Session, Project, SystemInfo } from '@my-claudia/shared';
 
@@ -92,6 +93,7 @@ export function ChatInputArea({
   const { setAdvancedInput } = useUIStore();
   const openDraftEditor = useDraftEditorStore((s) => s.openEditor);
   const setSendCallback = useDraftEditorStore((s) => s.setSendCallback);
+  const unreadFeedCount = useAgentFeedStore((s) => s.unreadCount);
 
   // Mobile toolbar popover state
   const [mobileToolsOpen, setMobileToolsOpen] = useState(false);
@@ -114,6 +116,21 @@ export function ChatInputArea({
   }, [mobileToolsOpen]);
 
   const closeMobileTools = useCallback(() => setMobileToolsOpen(false), []);
+
+  const toggleAgentFeedPanel = useCallback(() => {
+    const pluginStore = usePluginStore.getState();
+    const isActive = bottomPanelTab === 'agent-feed';
+    const panel = pluginStore.panels.find((item) => item.id === 'agent-feed');
+    const isVisible = !!panel?.visible;
+
+    if (isVisible && isActive) {
+      pluginStore.updatePanelVisibility('agent-feed', false);
+      return;
+    }
+
+    pluginStore.updatePanelVisibility('agent-feed', true);
+    setBottomPanelTab('agent-feed');
+  }, [bottomPanelTab, setBottomPanelTab]);
 
   // Read-only mode
   if (currentSession.isReadOnly) {
@@ -287,6 +304,20 @@ export function ChatInputArea({
             </button>
           );
         })()}
+        {!isMobile && !disabledBuiltinPanels.includes('agent-feed') && (
+          <button
+            onClick={toggleAgentFeedPanel}
+            className={`p-1.5 rounded hover:bg-secondary relative ${bottomPanelTab === 'agent-feed' ? 'text-primary' : 'text-muted-foreground hover:text-foreground'}`}
+            title={bottomPanelTab === 'agent-feed' ? 'Hide agent feed' : 'Open agent feed'}
+          >
+            <Activity size={16} strokeWidth={1.75} />
+            {unreadFeedCount > 0 && bottomPanelTab !== 'agent-feed' && (
+              <span className="absolute -top-0.5 -right-0.5 min-w-[16px] h-4 px-1 rounded-full bg-primary text-primary-foreground text-[10px] font-medium flex items-center justify-center">
+                {unreadFeedCount > 99 ? '99+' : unreadFeedCount}
+              </span>
+            )}
+          </button>
+        )}
 
         {!isMobile && (
           <button
@@ -387,6 +418,21 @@ export function ChatInputArea({
                   setDrawerOpen(pid, true);
                   setBottomPanelTab('terminal');
                 }
+                closeMobileTools();
+              },
+            });
+          }
+
+          if (!disabledBuiltinPanels.includes('agent-feed')) {
+            const isActive = bottomPanelTab === 'agent-feed';
+            toolItems.push({
+              key: 'agent-feed',
+              icon: <Activity size={18} strokeWidth={1.75} />,
+              label: isActive ? 'Hide Feed' : 'Agent Feed',
+              isActive,
+              hasBadge: unreadFeedCount > 0 && !isActive,
+              onClick: () => {
+                toggleAgentFeedPanel();
                 closeMobileTools();
               },
             });

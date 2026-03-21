@@ -11,9 +11,11 @@ import { usePluginStore } from '../stores/pluginStore';
 import { TerminalPanel, TerminalActions } from '../components/terminal/TerminalPanel';
 import { FileViewerPanel, FileViewerActions } from '../components/fileviewer/FileViewerPanel';
 import { DraftPanel, DraftActions } from '../components/draft/DraftPanel';
+import { AgentFeedPanel } from '../components/agent-feed/AgentFeedPanel';
 import { useTerminalStore } from '../stores/terminalStore';
 import { useFileViewerStore } from '../stores/fileViewerStore';
 import { useDraftEditorStore } from '../stores/draftEditorStore';
+import { usePluginStore as pluginStore } from '../stores/pluginStore';
 
 export function initBuiltinPanels() {
   const { registerPanel } = usePluginStore.getState();
@@ -76,6 +78,22 @@ export function initBuiltinPanels() {
     visible: false,
     onClose: () => {
       useDraftEditorStore.getState().closeEditor();
+    },
+  });
+
+  registerPanel({
+    id: 'agent-feed',
+    pluginId: 'com.claudia.agent-feed',
+    type: 'panel',
+    label: 'Agent Feed',
+    icon: 'Activity',
+    component: AgentFeedPanel,
+    order: 3,
+    platforms: ['desktop', 'mobile'],
+    alwaysMount: false,
+    visible: false,
+    onClose: () => {
+      pluginStore.getState().updatePanelVisibility('agent-feed', false);
     },
   });
 

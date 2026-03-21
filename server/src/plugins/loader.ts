@@ -62,6 +62,7 @@ export class PluginLoader {
   private pluginAPIs = new Map<string, unknown>();
   private broadcastFn: ((msg: any) => void) | null = null;
   private skillContentCache = new Map<string, { content: string; mtime: number }>();
+  agentTriggerService?: import('../domains/agent-triggers/service.js').AgentTriggerService;
 
   constructor(options: PluginLoaderOptions = {}) {
     // Default plugin directory: $MY_CLAUDIA_DATA_DIR/plugins (same base as database).
@@ -630,6 +631,18 @@ export class PluginLoader {
               console.warn(`[PluginLoader] Failed to load skill from ${skillMdPath}:`, err);
             }
           }
+        }
+      }
+    }
+
+    // Register plugin-contributed agent triggers
+    if (contributes.agentTriggers && this.agentTriggerService) {
+      for (const triggerContrib of contributes.agentTriggers) {
+        try {
+          this.agentTriggerService.registerPluginTrigger(manifest.id, triggerContrib);
+          console.log(`[PluginLoader] Registered agent trigger "${triggerContrib.name}" from plugin "${manifest.id}"`);
+        } catch (err) {
+          console.warn(`[PluginLoader] Failed to register agent trigger from ${manifest.id}:`, err);
         }
       }
     }

@@ -87,6 +87,7 @@ export async function handleClientMessage(
           items: result.items,
           hasMore: result.hasMore,
           unreadCount: result.unreadCount,
+          append: typeof message.before === 'number',
         } as import('@my-claudia/shared').AgentFeedListMessage);
       }
       break;

@@ -94,13 +94,14 @@ export class AgentFeedRepository {
     return rows.map(rowToItem);
   }
 
-  markRead(ids: string[]): void {
-    if (ids.length === 0) return;
+  markRead(ids: string[]): number | undefined {
+    if (ids.length === 0) return undefined;
     const now = Date.now();
     const placeholders = ids.map(() => '?').join(',');
     this.db.prepare(
       `UPDATE agent_feed SET read_at = ? WHERE id IN (${placeholders}) AND read_at IS NULL`
     ).run(now, ...ids);
+    return now;
   }
 
   unreadCount(): number {

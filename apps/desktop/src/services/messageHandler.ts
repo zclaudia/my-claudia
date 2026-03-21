@@ -502,8 +502,25 @@ export function handleServerMessage(
     case 'agent_feed_list': {
       const feedMsg = msg as import('@my-claudia/shared').AgentFeedListMessage;
       import('../stores/agentFeedStore').then(m => {
-        m.useAgentFeedStore.getState().setFeedList(feedMsg.items, feedMsg.hasMore, feedMsg.unreadCount);
+        m.useAgentFeedStore.getState().setFeedList(
+          feedMsg.items,
+          feedMsg.hasMore,
+          feedMsg.unreadCount,
+          feedMsg.append,
+        );
         m.useAgentFeedStore.getState().setLoading(false);
+      });
+      break;
+    }
+
+    case 'agent_feed_read': {
+      const readMsg = msg as import('@my-claudia/shared').AgentFeedReadMessage;
+      import('../stores/agentFeedStore').then(m => {
+        m.useAgentFeedStore.getState().markRead(
+          readMsg.itemIds,
+          readMsg.unreadCount,
+          readMsg.readAt,
+        );
       });
       break;
     }

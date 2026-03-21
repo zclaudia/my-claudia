@@ -27,7 +27,9 @@ import { createImportRoutes } from './routes/import.js';
 import { createOpenCodeImportRoutes } from './routes/import-opencode.js';
 import { createAgentRoutes } from './routes/agent.js';
 import { createAgentFeedRoutes } from './routes/agent-feed.js';
+import { createAgentTriggerRoutes } from './routes/agent-triggers.js';
 import { AgentFeedService } from './domains/agent-feed/service.js';
+import { AgentTriggerService } from './domains/agent-triggers/service.js';
 import { createNotificationRoutes } from './routes/notifications.js';
 import { createPluginToolsRoutes } from './routes/plugin-tools.js';
 import { createPluginRoutes } from './routes/plugins.js';
@@ -209,6 +211,8 @@ export function setupRoutesAndServices(deps: SetupDependencies): SetupResult {
   app.use('/api/commands', authMiddleware, createCommandsRoutes());
   app.use('/api/agent', authMiddleware, createAgentRoutes(db));
 
+  let notificationService: NotificationService | null = null;
+
   // Agent Feed Service
   const agentFeedService = new AgentFeedService({
     db,
@@ -216,6 +220,15 @@ export function setupRoutesAndServices(deps: SetupDependencies): SetupResult {
       for (const client of clients.values()) {
         if (client.authenticated) sendMessage(client.ws, msg);
       }
+    },
+    notifyFn: (item) => {
+      if (!notificationService) return;
+      void notificationService.notify({
+        type: item.status === 'failed' ? 'run_failed' : 'run_completed',
+        title: item.title,
+        body: item.summary || item.error || '',
+        tags: ['agent', 'feed'],
+      });
     },
   });
   app.use('/api/agent-feed', authMiddleware, createAgentFeedRoutes(agentFeedService));
@@ -243,7 +256,7 @@ export function setupRoutesAndServices(deps: SetupDependencies): SetupResult {
   });
 
   // Notification routes + service
-  const notificationService = new NotificationService(db);
+  notificationService = new NotificationService(db);
   setNotificationService(notificationService);
   app.use('/api/notifications', authMiddleware, createNotificationRoutes(notificationService));
 
@@ -406,12 +419,24 @@ export function setupRoutesAndServices(deps: SetupDependencies): SetupResult {
     handleRunStart,
     getClients: () => clients,
     serverPort: getServerPort(),
+    agentFeedService,
   });
   // Register task orchestration tools (spawn_task, steer_task, etc.)
   registerTaskTools(orchestrator, () => db);
 
   // Start orchestrator ticker (10s, agent tasks only)
   orchestrator.start(10000);
+
+  // Agent Trigger Service — bridges events and schedules to agent tasks
+  const agentTriggerService = new AgentTriggerService({
+    db,
+    orchestrator,
+    feedService: agentFeedService,
+    pluginEvents,
+  });
+  agentTriggerService.start();
+  app.use('/api/agent-triggers', authMiddleware, createAgentTriggerRoutes(agentTriggerService));
+  pluginLoader.agentTriggerService = agentTriggerService;
 
   // Record activity log on run completion (Layer 1 — session-level summaries)
   pluginEvents.on('run.completed', (event: any) => {
@@ -499,6 +524,7 @@ export function setupRoutesAndServices(deps: SetupDependencies): SetupResult {
     clearInterval(heartbeatInterval);
     processMonitor.stop();
     supervisorService.stop();
+    agentTriggerService.stop();
   };
 
   return {

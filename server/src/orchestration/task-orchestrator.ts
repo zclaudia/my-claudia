@@ -7,6 +7,7 @@
 
 import { v4 as uuidv4 } from 'uuid';
 import type Database from 'better-sqlite3';
+import type { FeedItemSource } from '@my-claudia/shared';
 import type {
   TaskOrchestrator,
   SpawnTaskConfig,
@@ -26,12 +27,70 @@ export interface TaskOrchestratorDeps {
   handleRunStart: (client: any, message: any, db: any, options: any, clients: any) => Promise<void>;
   getClients: () => Map<string, any>;
   serverPort: number | null;
+  agentFeedService?: {
+    postItem: (item: {
+      taskId?: string;
+      sessionId?: string;
+      projectId?: string;
+      source: FeedItemSource;
+      title: string;
+      summary?: string;
+      status: 'running' | 'completed' | 'failed';
+      error?: string;
+      completedAt?: number;
+    }) => { id: string };
+    updateItemStatus: (id: string, status: 'running' | 'completed' | 'failed', extra?: {
+      summary?: string;
+      error?: string;
+    }) => void;
+    findByTaskId: (taskId: string) => { id: string } | undefined;
+  };
 }
 
 export function createTaskOrchestrator(deps: TaskOrchestratorDeps): TaskOrchestrator {
   const repo = new TaskRepository(deps.db);
   const waiters = new Map<string, Set<(result: TaskResult) => void>>();
   let interval: NodeJS.Timeout | null = null;
+
+  function getFeedSource(task: OrchestratorTask): FeedItemSource {
+    if (task.parentTaskId) return 'delegation';
+    if (task.scheduleType) return 'scheduled';
+    return 'manual';
+  }
+
+  function getFeedTitle(task: OrchestratorTask): string {
+    const snippet = task.task.trim().replace(/\s+/g, ' ').slice(0, 80);
+    return snippet ? `Agent Task: ${snippet}` : 'Agent Task';
+  }
+
+  function syncFeedStatus(
+    task: OrchestratorTask,
+    status: 'completed' | 'failed' | 'cancelled',
+    extra?: { resultSummary?: string; errorSummary?: string },
+  ): void {
+    if (!deps.agentFeedService) return;
+    const mappedStatus = status === 'completed' ? 'completed' : 'failed';
+    const summary = extra?.resultSummary ?? task.resultSummary ?? undefined;
+    const error = extra?.errorSummary ?? task.errorSummary ?? undefined;
+    const existing = deps.agentFeedService.findByTaskId(task.id);
+
+    if (existing) {
+      deps.agentFeedService.updateItemStatus(existing.id, mappedStatus, { summary, error });
+      return;
+    }
+
+    deps.agentFeedService.postItem({
+      taskId: task.id,
+      sessionId: task.sessionId ?? undefined,
+      projectId: task.projectId ?? undefined,
+      source: getFeedSource(task),
+      title: getFeedTitle(task),
+      summary,
+      status: mappedStatus,
+      error,
+      completedAt: Date.now(),
+    });
+  }
 
   function resolveWaiters(task: OrchestratorTask): void {
     const taskWaiters = waiters.get(task.id);
@@ -57,7 +116,10 @@ export function createTaskOrchestrator(deps: TaskOrchestratorDeps): TaskOrchestr
       ...extra,
     });
     const task = repo.findById(taskId);
-    if (task) resolveWaiters(task);
+    if (task) {
+      syncFeedStatus(task, status, extra);
+      resolveWaiters(task);
+    }
   }
 
   function executeAgentTask(task: OrchestratorTask): void {
@@ -70,6 +132,16 @@ export function createTaskOrchestrator(deps: TaskOrchestratorDeps): TaskOrchestr
     `).run(sessionId, task.projectId, `Agent Task: ${task.task.slice(0, 50)}`, now, now);
 
     repo.updateStatus(task.id, 'running', { startedAt: now, sessionId });
+
+    deps.agentFeedService?.postItem({
+      taskId: task.id,
+      sessionId,
+      projectId: task.projectId ?? undefined,
+      source: getFeedSource(task),
+      title: getFeedTitle(task),
+      summary: task.task,
+      status: 'running',
+    });
 
     const clientId = `orchestrator-${task.id}`;
     const clients = deps.getClients();

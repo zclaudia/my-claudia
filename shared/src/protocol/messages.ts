@@ -400,7 +400,8 @@ export type ServerMessage =
   | InteractionResolvedMessage
   // Agent Feed
   | AgentFeedUpdateMessage
-  | AgentFeedListMessage;
+  | AgentFeedListMessage
+  | AgentFeedReadMessage;
 
 // Authentication result message
 export interface AuthResultMessage {
@@ -1051,5 +1052,13 @@ export interface AgentFeedListMessage {
   type: 'agent_feed_list';
   items: import('../features/agent-feed.js').AgentFeedItem[];
   hasMore: boolean;
+  unreadCount: number;
+  append?: boolean;
+}
+
+export interface AgentFeedReadMessage {
+  type: 'agent_feed_read';
+  itemIds: string[];
+  readAt: number;
   unreadCount: number;
 }

@@ -1,17 +1,23 @@
 import type Database from 'better-sqlite3';
-import type { AgentFeedItem, FeedItemStatus, AgentFeedUpdateMessage, ServerMessage } from '@my-claudia/shared';
+import type {
+  AgentFeedItem,
+  FeedItemStatus,
+  AgentFeedReadMessage,
+  AgentFeedUpdateMessage,
+  ServerMessage,
+} from '@my-claudia/shared';
 import { AgentFeedRepository } from './repository.js';
 
 export interface AgentFeedServiceDeps {
   db: Database.Database;
   broadcastFn: (message: ServerMessage) => void;
-  notifyFn?: (event: string, data: Record<string, unknown>) => void;
+  notifyFn?: (item: AgentFeedItem) => void | Promise<void>;
 }
 
 export class AgentFeedService {
   private repo: AgentFeedRepository;
   private broadcastFn: (message: ServerMessage) => void;
-  private notifyFn?: (event: string, data: Record<string, unknown>) => void;
+  private notifyFn?: (item: AgentFeedItem) => void | Promise<void>;
 
   constructor(deps: AgentFeedServiceDeps) {
     this.repo = new AgentFeedRepository(deps.db);
@@ -31,11 +37,7 @@ export class AgentFeedService {
 
     // Push notification for completed items
     if (created.status === 'completed' || created.status === 'failed') {
-      this.notifyFn?.('agent_feed', {
-        title: created.title,
-        summary: created.summary || created.error || '',
-        status: created.status,
-      });
+      void this.notifyFn?.(created);
     }
 
     return created;
@@ -56,11 +58,7 @@ export class AgentFeedService {
       } as AgentFeedUpdateMessage);
 
       if (status === 'completed' || status === 'failed') {
-        this.notifyFn?.('agent_feed', {
-          title: updated.title,
-          summary: updated.summary || updated.error || '',
-          status: updated.status,
-        });
+        void this.notifyFn?.(updated);
       }
     }
   }
@@ -84,8 +82,19 @@ export class AgentFeedService {
   }
 
   /** Mark items as read */
-  markRead(ids: string[]): void {
-    this.repo.markRead(ids);
+  markRead(ids: string[]): number {
+    if (ids.length === 0) {
+      return this.repo.unreadCount();
+    }
+    const readAt = this.repo.markRead(ids);
+    const unreadCount = this.repo.unreadCount();
+    this.broadcastFn({
+      type: 'agent_feed_read',
+      itemIds: ids,
+      readAt: readAt ?? Date.now(),
+      unreadCount,
+    } as AgentFeedReadMessage);
+    return unreadCount;
   }
 
   /** Get unread count */

@@ -165,6 +165,14 @@ export interface PluginContributes {
   keybindings?: KeybindingContribution[];
   workflowSteps?: WorkflowStepContribution[];
   skills?: SkillContribution[];
+  agentTriggers?: AgentTriggerContribution[];
+}
+
+export interface AgentTriggerContribution {
+  event: string;
+  promptTemplate: string;
+  name: string;
+  description?: string;
 }
 
 export type ExecutionMode = 'main' | 'worker' | 'sandbox';
