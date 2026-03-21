@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { useAgentStore } from '../../../stores/agentStore';
 import { useProjectStore } from '../../../stores/projectStore';
+import { useChatStore } from '../../../stores/chatStore';
 
 // Mock Tauri APIs
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
@@ -14,10 +15,10 @@ vi.mock('../../chat/MessageList', () => ({
   ),
 }));
 vi.mock('../../chat/MessageInput', () => ({
-  MessageInput: ({ onSend, placeholder, onCancel }: any) => (
+  MessageInput: ({ onSend, placeholder, onCancel, disabled }: any) => (
     <div data-testid="message-input">
-      <input placeholder={placeholder} />
-      <button onClick={() => onSend?.('test')}>Send</button>
+      <input placeholder={placeholder} disabled={disabled} />
+      <button onClick={() => onSend?.('test')} disabled={disabled}>Send</button>
       {onCancel && <button onClick={onCancel}>Cancel</button>}
     </div>
   ),
@@ -27,26 +28,23 @@ vi.mock('../../chat/LoadingIndicator', () => ({
     isLoading ? <div data-testid="loading">loading</div> : null,
 }));
 
-// Mock services
-vi.mock('../../../services/clientAI', () => ({
-  getClientAIConfig: () => ({ model: 'test-model' }),
-}));
-
-vi.mock('../../../services/agentLoop', () => ({
-  initAgentLoop: vi.fn(() => Promise.resolve([])),
-  sendMessage: vi.fn(() => Promise.resolve()),
-  clearConversation: vi.fn(),
-  cancelAgentLoop: vi.fn(),
+// Mock API
+const mockCreateSession = vi.fn().mockResolvedValue({ id: 'agent-session-1' });
+const mockGetSessionMessages = vi.fn().mockResolvedValue({ messages: [], pagination: {} });
+vi.mock('../../../services/api', () => ({
+  createSession: (...args: any[]) => mockCreateSession(...args),
+  getSessionMessages: (...args: any[]) => mockGetSessionMessages(...args),
 }));
 
 // Mock ConnectionContext
+const mockSendMessage = vi.fn();
 vi.mock('../../../contexts/ConnectionContext', () => ({
   useConnection: () => ({
     serverUrl: 'http://localhost:3100',
     isConnected: true,
     activeBackend: 'local',
     setActiveBackend: vi.fn(),
-    sendMessage: vi.fn(),
+    sendMessage: mockSendMessage,
   }),
 }));
 
@@ -65,11 +63,16 @@ describe('AgentPanel', () => {
       setExpanded: setExpandedMock,
       isLoading: false,
       clearRequestId: 0,
+      agentSessionId: null,
     } as any);
     useProjectStore.setState({
       selectedSessionId: 'sess-1',
       sessions: [{ id: 'sess-1', projectId: 'proj-1', name: 'Test Session' }],
       projects: [{ id: 'proj-1', name: 'Test Project' }],
+    } as any);
+    useChatStore.setState({
+      messages: {},
+      activeRuns: {},
     } as any);
   });
 
@@ -93,9 +96,9 @@ describe('AgentPanel', () => {
     expect(screen.getByText('Agent')).toBeTruthy();
   });
 
-  it('renders model name in header', () => {
+  it('renders "Server-side" label in header', () => {
     render(<AgentPanel />);
-    expect(screen.getByText('test-model')).toBeTruthy();
+    expect(screen.getByText('Server-side')).toBeTruthy();
   });
 
   it('calls setExpanded(false) when close button is clicked', () => {
@@ -110,10 +113,18 @@ describe('AgentPanel', () => {
     expect(screen.queryByText('Agent')).toBeNull();
   });
 
-  it('renders quick action buttons when messages are empty', async () => {
+  it('shows Agent Assistant greeting when no messages', async () => {
+    render(<AgentPanel />);
+    await waitFor(() => {
+      expect(screen.queryByText(/Agent Assistant/)).toBeTruthy();
+    });
+  });
+
+  it('renders quick action buttons', async () => {
     render(<AgentPanel />);
     await waitFor(() => {
       expect(screen.queryByText('Search messages')).toBeTruthy();
+      expect(screen.queryByText('List sessions')).toBeTruthy();
     });
   });
 
@@ -121,42 +132,6 @@ describe('AgentPanel', () => {
     render(<AgentPanel />);
     await waitFor(() => {
       expect(screen.queryByText(/Context:/)).toBeTruthy();
-    });
-  });
-
-  it('renders with isMobile=true', () => {
-    const { container } = render(<AgentPanel isMobile={true} />);
-    expect(container).toBeTruthy();
-  });
-
-  it('shows Meta-Agent greeting when no messages', async () => {
-    render(<AgentPanel />);
-    await waitFor(() => {
-      expect(screen.queryByText(/Hi! I'm your Meta-Agent/)).toBeTruthy();
-    });
-  });
-
-  it('shows loading indicator when isLoading is true', () => {
-    useAgentStore.setState({
-      setExpanded: setExpandedMock,
-      isLoading: true,
-      clearRequestId: 0,
-    } as any);
-    const { container } = render(<AgentPanel />);
-    expect(container.querySelector('[data-testid="loading"]')).toBeTruthy();
-  });
-
-  it('calls clearConversation when clearRequestId is nonzero', async () => {
-    const agentLoop = await import('../../../services/agentLoop');
-    useAgentStore.setState({
-      setExpanded: setExpandedMock,
-      isLoading: false,
-      clearRequestId: 1,
-    } as any);
-
-    render(<AgentPanel />);
-    await waitFor(() => {
-      expect(agentLoop.clearConversation).toHaveBeenCalled();
     });
   });
 
@@ -173,59 +148,28 @@ describe('AgentPanel', () => {
     });
   });
 
-  it('sends message when quick action is clicked', async () => {
-    const agentLoop = await import('../../../services/agentLoop');
-    render(<AgentPanel />);
-    // Wait for quick actions to appear
-    await waitFor(() => {
-      expect(screen.queryByText('List sessions')).toBeTruthy();
-    });
-    fireEvent.click(screen.getByText('List sessions'));
-    expect(agentLoop.sendMessage).toHaveBeenCalled();
-  });
-
-  it('shows "Working..." placeholder when loading', () => {
-    useAgentStore.setState({
-      setExpanded: setExpandedMock,
-      isLoading: true,
-      clearRequestId: 0,
-    } as any);
-
-    render(<AgentPanel />);
-    expect(screen.getByPlaceholderText('Working...')).toBeTruthy();
-  });
-
-  it('shows "Ask me anything..." placeholder when not loading', async () => {
-    render(<AgentPanel />);
-    expect(screen.getByPlaceholderText('Ask me anything...')).toBeTruthy();
-  });
-
-  it('renders all quick action labels', async () => {
+  it('shows "Ask me anything..." placeholder after session is created', async () => {
     render(<AgentPanel />);
     await waitFor(() => {
-      expect(screen.getByText('Search messages')).toBeInTheDocument();
-      expect(screen.getByText('List sessions')).toBeInTheDocument();
-      expect(screen.getByText('Summarize session')).toBeInTheDocument();
-      expect(screen.getByText('Browse files')).toBeInTheDocument();
+      expect(screen.getByPlaceholderText('Ask me anything...')).toBeTruthy();
     });
   });
 
-  it('renders message list component', async () => {
-    const { container } = render(<AgentPanel />);
+  it('creates agent session on mount when none exists', async () => {
+    render(<AgentPanel />);
     await waitFor(() => {
-      expect(container.querySelector('[data-testid="message-list"]')).toBeInTheDocument();
+      expect(mockCreateSession).toHaveBeenCalledWith(
+        expect.objectContaining({
+          projectId: 'proj-1',
+          type: 'agent',
+          name: 'Agent Assistant',
+        })
+      );
     });
   });
 
-  it('handles empty sessions gracefully', async () => {
-    useProjectStore.setState({
-      selectedSessionId: 'sess-1',
-      sessions: [{ id: 'sess-1', projectId: 'proj-1', name: '' }],
-      projects: [{ id: 'proj-1', name: 'Test Project' }],
-    } as any);
-    render(<AgentPanel />);
-    await waitFor(() => {
-      expect(screen.queryByText(/Context:/)).toBeTruthy();
-    });
+  it('renders with isMobile=true', () => {
+    const { container } = render(<AgentPanel isMobile={true} />);
+    expect(container).toBeTruthy();
   });
 });

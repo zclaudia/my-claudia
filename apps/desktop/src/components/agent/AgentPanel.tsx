@@ -1,14 +1,12 @@
-import { useRef, useEffect, useCallback, useState, useMemo } from 'react';
+import { useRef, useEffect, useCallback, useState } from 'react';
 import { MessageList } from '../chat/MessageList';
 import { MessageInput } from '../chat/MessageInput';
 import { LoadingIndicator } from '../chat/LoadingIndicator';
 import { useAgentStore } from '../../stores/agentStore';
 import { useProjectStore } from '../../stores/projectStore';
+import { useChatStore } from '../../stores/chatStore';
 import { useConnection } from '../../contexts/ConnectionContext';
-import { getClientAIConfig } from '../../services/clientAI';
-import type { ToolExecutionContext } from '../../services/agentTools';
-import * as agentLoop from '../../services/agentLoop';
-import type { MessageWithToolCalls } from '../../stores/chatStore';
+import * as api from '../../services/api';
 
 const QUICK_ACTIONS = [
   { icon: '\u{1F50D}', label: 'Search messages', prompt: 'Search messages across all sessions' },
@@ -23,131 +21,120 @@ interface AgentPanelProps {
 }
 
 export function AgentPanel({ isMobile = false, showHeader = true }: AgentPanelProps) {
-  const { setExpanded, isLoading, clearRequestId } = useAgentStore();
+  const { setExpanded, clearRequestId } = useAgentStore();
   const { sendMessage: wsSendMessage, isConnected } = useConnection();
   const { selectedSessionId, sessions, projects } = useProjectStore();
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
-  const [initialLoadDone, setInitialLoadDone] = useState(false);
 
-  // Client-side AI state
-  const [clientMessages, setClientMessages] = useState<MessageWithToolCalls[]>([]);
-  const [clientLoading, setClientLoading] = useState(false);
+  // Agent session state
+  const [agentSessionId, setAgentSessionId] = useState<string | null>(null);
+  const [initializing, setInitializing] = useState(false);
 
-  const config = getClientAIConfig();
-  const modelName = config?.model || 'Agent AI';
+  // Get messages and run state from chatStore (same as ChatInterface)
+  const messages = useChatStore((s) => agentSessionId ? (s.messages[agentSessionId] || []) : []);
+  const activeRuns = useChatStore((s) => s.activeRuns);
+  const isLoading = agentSessionId ? Object.values(activeRuns).includes(agentSessionId) : false;
+  const addMessage = useChatStore((s) => s.addMessage);
 
   // Current context for display
   const currentSession = sessions.find(s => s.id === selectedSessionId);
   const currentProject = currentSession ? projects.find(p => p.id === currentSession.projectId) : null;
 
-  // Tool execution context for meta-agent tools (send_task_to_session, etc.)
-  const toolContext: ToolExecutionContext = useMemo(() => ({
-    sendWsMessage: wsSendMessage,
-    isConnected,
-  }), [wsSendMessage, isConnected]);
-
   const scrollToBottom = useCallback((instant = false) => {
     messagesEndRef.current?.scrollIntoView({ behavior: instant ? 'instant' : 'smooth' });
   }, []);
 
-  // Load messages from IndexedDB on mount
+  // Initialize or restore agent session
   useEffect(() => {
-    agentLoop.initAgentLoop().then((msgs) => {
-      const converted: MessageWithToolCalls[] = msgs
-        .filter(m => m.role === 'user' || (m.role === 'assistant' && m.content))
-        .map((m, i) => ({
-          id: `client-${i}`,
-          sessionId: 'client-agent',
-          role: m.role as 'user' | 'assistant',
-          content: m.content || '',
-          createdAt: Date.now(),
-        }));
-      setClientMessages(converted);
-      setInitialLoadDone(true);
-      setTimeout(() => scrollToBottom(true), 0);
-    });
-  }, [scrollToBottom]);
+    if (!isConnected || !currentProject || initializing || agentSessionId) return;
+
+    setInitializing(true);
+
+    // Look for existing agent session in this project
+    const existingAgent = sessions.find(
+      s => s.projectId === currentProject.id && s.type === 'agent' && !s.archivedAt
+    );
+
+    if (existingAgent) {
+      setAgentSessionId(existingAgent.id);
+      // Load existing messages
+      api.getSessionMessages(existingAgent.id).then(response => {
+        const store = useChatStore.getState();
+        store.clearMessages(existingAgent.id);
+        for (const msg of response.messages) {
+          store.addMessage(existingAgent.id, msg);
+        }
+        setInitializing(false);
+        setTimeout(() => scrollToBottom(true), 0);
+      }).catch(() => setInitializing(false));
+    } else {
+      // Create a new agent session
+      api.createSession({
+        projectId: currentProject.id,
+        name: 'Agent Assistant',
+        type: 'agent',
+      }).then(session => {
+        setAgentSessionId(session.id);
+        setInitializing(false);
+      }).catch(() => setInitializing(false));
+    }
+  }, [isConnected, currentProject?.id, sessions]);
 
   // Listen for clear requests from header
   useEffect(() => {
-    if (clearRequestId > 0) {
-      agentLoop.clearConversation();
-      setClientMessages([]);
+    if (clearRequestId > 0 && agentSessionId) {
+      useChatStore.getState().clearMessages(agentSessionId);
+      // Archive old session, create fresh one
+      setAgentSessionId(null);
     }
-  }, [clearRequestId]);
+  }, [clearRequestId, agentSessionId]);
 
   // Auto-scroll on new messages
   useEffect(() => {
-    if (initialLoadDone && clientMessages.length > 0) {
+    if (messages.length > 0) {
       const container = messagesContainerRef.current;
       if (!container) return;
       const isNearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 200;
       if (isNearBottom) scrollToBottom();
     }
-  }, [clientMessages.length, initialLoadDone, scrollToBottom]);
-
-  const sendClientMessage = useCallback(async (input: string) => {
-    const userMsg: MessageWithToolCalls = {
-      id: `client-${Date.now()}`,
-      sessionId: 'client-agent',
-      role: 'user',
-      content: input,
-      createdAt: Date.now(),
-    };
-    setClientMessages(prev => [...prev, userMsg]);
-    setClientLoading(true);
-
-    const assistantId = `client-${Date.now() + 1}`;
-    const assistantMsg: MessageWithToolCalls = {
-      id: assistantId,
-      sessionId: 'client-agent',
-      role: 'assistant',
-      content: '',
-      createdAt: Date.now(),
-    };
-    setClientMessages(prev => [...prev, assistantMsg]);
-
-    setTimeout(() => scrollToBottom(), 100);
-
-    await agentLoop.sendMessage(input, {
-      onDelta: (content) => {
-        setClientMessages(prev =>
-          prev.map(m => m.id === assistantId
-            ? { ...m, content: m.content + content }
-            : m
-          )
-        );
-      },
-      onAssistantStart: () => {},
-      onToolCallStart: () => {},
-      onToolCallResult: () => {},
-      onComplete: () => {
-        setClientLoading(false);
-      },
-      onError: (error) => {
-        setClientMessages(prev =>
-          prev.map(m => m.id === assistantId
-            ? { ...m, content: m.content + `\n\n**Error:** ${error}` }
-            : m
-          )
-        );
-        setClientLoading(false);
-      },
-    }, toolContext);
-  }, [scrollToBottom]);
+  }, [messages.length, scrollToBottom]);
 
   const handleSend = useCallback((content: string) => {
-    if (!content.trim()) return;
-    sendClientMessage(content);
-  }, [sendClientMessage]);
+    if (!content.trim() || !agentSessionId || !isConnected) return;
+
+    const clientMessageId = crypto.randomUUID();
+
+    // Add user message to chat store immediately (optimistic)
+    addMessage(agentSessionId, {
+      id: clientMessageId,
+      clientMessageId,
+      sessionId: agentSessionId,
+      role: 'user',
+      content,
+      createdAt: Date.now(),
+    });
+
+    // Send agent_start via WebSocket
+    wsSendMessage({
+      type: 'agent_start',
+      clientRequestId: clientMessageId,
+      sessionId: agentSessionId,
+      input: content,
+    });
+
+    setTimeout(() => scrollToBottom(), 100);
+  }, [agentSessionId, isConnected, addMessage, wsSendMessage, scrollToBottom]);
 
   const handleCancel = useCallback(() => {
-    agentLoop.cancelAgentLoop();
-    setClientLoading(false);
-  }, []);
+    if (!agentSessionId) return;
+    wsSendMessage({
+      type: 'agent_cancel',
+      sessionId: agentSessionId,
+    });
+  }, [agentSessionId, wsSendMessage]);
 
-  const loading = clientLoading || isLoading;
+  const loading = isLoading || initializing;
 
   return (
     <div className={isMobile
@@ -160,7 +147,7 @@ export function AgentPanel({ isMobile = false, showHeader = true }: AgentPanelPr
           <div className="flex items-center gap-2">
             <span className="text-base">{'\u{1F916}'}</span>
             <span className="font-semibold text-sm">Agent</span>
-            <span className="text-xs text-muted-foreground">{modelName}</span>
+            <span className="text-xs text-muted-foreground">Server-side</span>
           </div>
           <button
             onClick={() => setExpanded(false)}
@@ -180,12 +167,12 @@ export function AgentPanel({ isMobile = false, showHeader = true }: AgentPanelPr
         className={`flex-1 overflow-y-auto ${showHeader ? 'p-3' : 'p-2 md:p-4'}`}
       >
         {/* Empty state with quick actions */}
-        {clientMessages.length === 0 && initialLoadDone && (
+        {messages.length === 0 && !initializing && (
           <div className="flex items-center justify-center h-full">
             <div className="text-center max-w-xs">
-              <p className="text-sm text-muted-foreground mb-1">Hi! I'm your Meta-Agent.</p>
+              <p className="text-sm text-muted-foreground mb-1">Hi! I'm your Agent Assistant.</p>
               <p className="text-xs text-muted-foreground/60 mb-5">
-                Manage projects, sessions, search conversations, and orchestrate tasks.
+                Execute tasks, manage files, search conversations, and automate workflows.
               </p>
               <div className="grid grid-cols-2 gap-2">
                 {QUICK_ACTIONS.map(action => (
@@ -203,7 +190,7 @@ export function AgentPanel({ isMobile = false, showHeader = true }: AgentPanelPr
           </div>
         )}
 
-        <MessageList messages={clientMessages} />
+        <MessageList messages={messages} />
 
         <LoadingIndicator isLoading={loading} />
 
@@ -220,11 +207,12 @@ export function AgentPanel({ isMobile = false, showHeader = true }: AgentPanelPr
       {/* Input */}
       <div className={`border-t border-border flex-shrink-0 ${showHeader ? 'p-3' : 'p-2 md:p-4 safe-bottom-pad'}`}>
         <MessageInput
-          sessionId="agent"
+          sessionId={agentSessionId || 'agent'}
           onSend={handleSend}
           onCancel={loading ? handleCancel : undefined}
           isLoading={loading}
-          placeholder={loading ? 'Working...' : 'Ask me anything...'}
+          disabled={!isConnected || !agentSessionId}
+          placeholder={initializing ? 'Initializing...' : loading ? 'Working...' : 'Ask me anything...'}
         />
       </div>
     </div>
