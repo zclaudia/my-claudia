@@ -48,6 +48,10 @@ export interface ActiveRun {
   saveInterval?: NodeJS.Timeout;
   completed?: boolean;  // True after run_completed/run_failed sent; hides from heartbeat while for-await drains
   sessionType: 'regular' | 'background' | 'agent';  // Session type for this run
+  /** Per-run remembered permission decisions (populated when user checks "Remember").
+   *  Key: toolName for non-bash, `Bash:normalizedCmd` for bash (e.g. `Bash:git push`).
+   *  Cleared automatically when run ends (not persisted to DB). */
+  rememberedDecisions: Map<string, 'allow' | 'deny'>;
   /** True when AI called EnterPlanMode during a non-plan-mode run (not user-initiated). */
   aiInitiatedPlanMode?: boolean;
   // Stuck/loop detection

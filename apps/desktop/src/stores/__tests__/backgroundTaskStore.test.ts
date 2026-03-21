@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { useBackgroundTaskStore, type BackgroundTask } from '../backgroundTaskStore';
 
 const makeTask = (id: string, sessionId = 'sess-1', status: BackgroundTask['status'] = 'started'): BackgroundTask => ({
@@ -11,7 +11,14 @@ const makeTask = (id: string, sessionId = 'sess-1', status: BackgroundTask['stat
 
 describe('backgroundTaskStore', () => {
   beforeEach(() => {
+    vi.useFakeTimers();
     useBackgroundTaskStore.setState({ tasks: {} });
+  });
+
+  afterEach(() => {
+    useBackgroundTaskStore.getState().clearTasks();
+    vi.runOnlyPendingTimers();
+    vi.useRealTimers();
   });
 
   it('addTask adds a task', () => {
@@ -27,6 +34,23 @@ describe('backgroundTaskStore', () => {
     const updated = useBackgroundTaskStore.getState().tasks['t1'];
     expect(updated.status).toBe('completed');
     expect(updated.summary).toBe('Done');
+  });
+
+  it('auto-removes terminal task added directly', () => {
+    useBackgroundTaskStore.getState().addTask(makeTask('t1', 'sess-1', 'completed'));
+
+    vi.advanceTimersByTime(15_000);
+
+    expect(useBackgroundTaskStore.getState().tasks['t1']).toBeUndefined();
+  });
+
+  it('auto-removes task after update to terminal status', () => {
+    useBackgroundTaskStore.getState().addTask(makeTask('t1'));
+    useBackgroundTaskStore.getState().updateTask('t1', { status: 'completed' });
+
+    vi.advanceTimersByTime(15_000);
+
+    expect(useBackgroundTaskStore.getState().tasks['t1']).toBeUndefined();
   });
 
   it('removeTask removes a task', () => {

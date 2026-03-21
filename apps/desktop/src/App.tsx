@@ -22,7 +22,6 @@ import { useServerStore } from './stores/serverStore';
 import { useGatewayStore, isGatewayTarget } from './stores/gatewayStore';
 import { useProjectStore } from './stores/projectStore';
 import { useAgentStore } from './stores/agentStore';
-import { isClientAIConfigured } from './services/clientAI';
 import { useIsMobile } from './hooks/useMediaQuery';
 import { useAndroidBack } from './hooks/useAndroidBack';
 import { migrateServersFromLocalStorage, needsMigration } from './utils/migrateServers';
@@ -136,7 +135,6 @@ function AppContent() {
   const [dashboardProjectId, setDashboardProjectId] = useState<string | null>(null);
   const { directGatewayUrl, lastActiveBackendId, isConnected: isGatewayConnected, discoveredBackends } = useGatewayStore();
   const { isExpanded: isAgentExpanded, hasUnread: hasAgentUnread, setExpanded: setAgentExpanded } = useAgentStore();
-  const isAgentConfigured = isClientAIConfigured();
   const fileViewerFullscreen = useFileViewerStore((s) => s.fullscreen);
   const fileViewerFilePath = useFileViewerStore((s) => s.filePath);
   const fileViewerProjectRoot = useFileViewerStore((s) => s.projectRoot);
@@ -394,22 +392,20 @@ function AppContent() {
         <PluginWindowButtons />
 
         {/* Agent toggle button */}
-        {isAgentConfigured && (
-          <button
-            onClick={() => setAgentExpanded(!isAgentExpanded)}
-            className={`relative p-1.5 rounded hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors mr-2 ${
-              isAgentExpanded ? 'bg-secondary text-foreground' : ''
-            }`}
-            title={isAgentExpanded ? 'Close Agent' : 'Open Agent'}
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-            </svg>
-            {hasAgentUnread && !isAgentExpanded && (
-              <span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-primary rounded-full animate-pulse" />
-            )}
-          </button>
-        )}
+        <button
+          onClick={() => setAgentExpanded(!isAgentExpanded)}
+          className={`relative p-1.5 rounded hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors mr-2 ${
+            isAgentExpanded ? 'bg-secondary text-foreground' : ''
+          }`}
+          title={isAgentExpanded ? 'Close Agent' : 'Open Agent'}
+        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+          </svg>
+          {hasAgentUnread && !isAgentExpanded && (
+            <span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-primary rounded-full animate-pulse" />
+          )}
+        </button>
       </header>
 
       {/* Update notification banner (VS Code style) */}
@@ -438,7 +434,7 @@ function AppContent() {
           {/* Chat Area */}
           <div className="flex-1 overflow-hidden relative">
             {/* Mobile agent panel (full-screen overlay, always mounted to preserve state) */}
-            {isMobile && isAgentConfigured && (
+            {isMobile && (
               <div className={`absolute inset-0 z-20 bg-background ${isAgentExpanded ? '' : 'hidden'}`}>
                 <button
                   onClick={() => setAgentExpanded(false)}
@@ -489,7 +485,7 @@ function AppContent() {
         </main>
 
         {/* Desktop: Agent Side Panel (always mounted to preserve conversation state) */}
-        {!isMobile && isAgentConfigured && (
+        {!isMobile && (
           <div className={isAgentExpanded ? 'contents' : 'hidden'}>
             <AgentSidePanel />
           </div>

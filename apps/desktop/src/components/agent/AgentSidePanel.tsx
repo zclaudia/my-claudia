@@ -1,8 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AgentPanel } from './AgentPanel';
 import { useAgentStore } from '../../stores/agentStore';
-import { getClientAIConfig } from '../../services/clientAI';
-
 const MIN_WIDTH = 300;
 const MAX_WIDTH_RATIO = 0.5; // max 50% of viewport
 const DEFAULT_WIDTH = 400;
@@ -16,9 +14,6 @@ export function AgentSidePanel() {
   });
   const isDragging = useRef(false);
   const panelRef = useRef<HTMLDivElement>(null);
-
-  const config = getClientAIConfig();
-  const modelName = config?.model || 'Agent AI';
 
   // Persist width
   useEffect(() => {
@@ -72,7 +67,7 @@ export function AgentSidePanel() {
         <div className="flex items-center gap-2">
           <span className="text-base">{'\u{1F916}'}</span>
           <span className="font-semibold text-sm">Agent</span>
-          <span className="text-[10px] text-muted-foreground/50" title={modelName}>{modelName}</span>
+          <span className="text-[10px] text-muted-foreground/50">Agent</span>
         </div>
         <div className="flex items-center gap-1">
           {/* Clear conversation */}

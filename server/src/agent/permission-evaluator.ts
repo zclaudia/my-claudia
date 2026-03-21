@@ -1,5 +1,18 @@
-import type { AgentPermissionPolicy, EvaluationContext } from '@my-claudia/shared';
-import { DEFAULT_SENSITIVE_PATTERNS } from '@my-claudia/shared';
+import type {
+  AgentPermissionPolicy,
+  AgentPermissionRule,
+  CategoryPermissionPolicy,
+  CategoryAction,
+  CategoryProfile,
+  PermissionCategory,
+  EvaluationContext,
+} from '@my-claudia/shared';
+import {
+  DEFAULT_SENSITIVE_PATTERNS,
+  DEFAULT_CATEGORY_POLICY,
+  DEFAULT_CATEGORY_PROFILES,
+  DEFAULT_GLOBAL_GUARDS,
+} from '@my-claudia/shared';
 import * as path from 'path';
 import { minimatch } from 'minimatch';
 
@@ -23,9 +36,8 @@ function extractFilePath(toolInput: unknown): string | null {
 }
 
 /** Extract Bash command from toolInput or detail */
-function extractBashCommand(toolInput: unknown, detail: string): string | null {
+export function extractBashCommand(toolInput: unknown, detail: string): string | null {
   const normalizeCommandText = (value: string): string => {
-    // Normalize Unicode dash variants to ASCII '-', then normalize whitespace.
     return value
       .replace(/[\u2010\u2011\u2012\u2013\u2014\u2015\u2212]/g, '-')
       .replace(/\s+/g, ' ')
@@ -40,7 +52,7 @@ function extractBashCommand(toolInput: unknown, detail: string): string | null {
   return null;
 }
 
-function isBashLikeTool(toolName: string): boolean {
+export function isBashLikeTool(toolName: string): boolean {
   const lower = toolName.toLowerCase();
   return lower === 'bash'
     || lower === 'execute_command'
@@ -49,10 +61,6 @@ function isBashLikeTool(toolName: string): boolean {
     || lower === 'agent_shell';
 }
 
-/**
- * Extract all file paths referenced in a Bash command.
- * Simple heuristic: looks for absolute paths (/...) in the command string.
- */
 function extractPathsFromCommand(command: string): string[] {
   const paths: string[] = [];
   const matches = command.match(/(?:^|\s)(\/[^\s;|&>]+)/g);
@@ -64,7 +72,6 @@ function extractPathsFromCommand(command: string): string[] {
   return paths;
 }
 
-/** Check if a path is within an allowed directory */
 function isPathWithinRoot(filePath: string, rootPath: string): boolean {
   const resolved = path.resolve(filePath);
   const resolvedRoot = path.resolve(rootPath);
@@ -75,13 +82,10 @@ function isPathWithinRoot(filePath: string, rootPath: string): boolean {
 // Tool Categories
 // ============================================
 
-// Read-only tools that are generally safe
 const READONLY_TOOLS = ['Read', 'Glob', 'Grep', 'WebFetch', 'WebSearch', 'TodoWrite'];
 
-// Edit tools that modify files but are non-destructive
 const EDIT_TOOLS = ['Write', 'Edit', 'NotebookEdit'];
 
-// Dangerous bash patterns that should always be escalated
 const DANGEROUS_BASH_PATTERNS = [
   /\brm\s+(-[a-z]*f|-[a-z]*r|--force|--recursive)\b/i,
   /\brm\s+-rf\b/i,
@@ -94,12 +98,11 @@ const DANGEROUS_BASH_PATTERNS = [
   /\bgit\s+reset\s+--hard\b/,
   /\bchmod\s+777\b/,
   /\bchown\b.*-R\b/,
-  />\s*\/dev\/sd[a-z]/,           // write to raw device
-  /\bcurl\b.*\|\s*(ba)?sh\b/,    // curl | bash
-  /\bwget\b.*\|\s*(ba)?sh\b/,    // wget | bash
+  />\s*\/dev\/sd[a-z]/,
+  /\bcurl\b.*\|\s*(ba)?sh\b/,
+  /\bwget\b.*\|\s*(ba)?sh\b/,
 ];
 
-// Network-related bash patterns
 const NETWORK_BASH_PATTERNS = [
   /\bcurl\b/,
   /\bwget\b/,
@@ -122,19 +125,15 @@ const NETWORK_BASH_PATTERNS = [
 // Internal Guard Checks
 // ============================================
 
-/** Check if a file path targets a sensitive file */
 function isSensitiveFile(filePath: string): boolean {
   const basename = path.basename(filePath);
   return DEFAULT_SENSITIVE_PATTERNS.some(p => minimatch(basename, p, { dot: true }));
 }
 
-/** Check if a tool operation targets a sensitive file */
 function targetsSensitiveFile(toolName: string, toolInput: unknown, detail: string): boolean {
-  // Check file_path from tool input
   const filePath = extractFilePath(toolInput);
   if (filePath && isSensitiveFile(filePath)) return true;
 
-  // For Bash commands, check paths in the command
   if (isBashLikeTool(toolName)) {
     const command = extractBashCommand(toolInput, detail);
     if (command) {
@@ -144,7 +143,6 @@ function targetsSensitiveFile(toolName: string, toolInput: unknown, detail: stri
   return false;
 }
 
-/** Check if a tool operation targets a path outside workspace */
 function targetsOutsideWorkspace(toolName: string, toolInput: unknown, detail: string, rootPath: string): boolean {
   if (!rootPath) return false;
 
@@ -160,18 +158,63 @@ function targetsOutsideWorkspace(toolName: string, toolInput: unknown, detail: s
   return false;
 }
 
-/** Check if a Bash command involves network access */
 function isNetworkCommand(toolInput: unknown, detail: string): boolean {
   const command = extractBashCommand(toolInput, detail);
   if (!command) return false;
   return NETWORK_BASH_PATTERNS.some(p => p.test(command));
 }
 
-/** Check if a Bash command matches dangerous patterns */
 function isDangerousCommand(toolInput: unknown, detail: string): boolean {
   const command = extractBashCommand(toolInput, detail);
   if (!command) return true; // No command = can't verify safety = escalate
   return DANGEROUS_BASH_PATTERNS.some(p => p.test(command));
+}
+
+// ============================================
+// Tool Classification
+// ============================================
+
+/** Classify a tool call into a permission category */
+export function classify(toolName: string, toolInput: unknown, detail: string): PermissionCategory {
+  if (toolName === 'AskUserQuestion') return 'userQuestions';
+  if (READONLY_TOOLS.includes(toolName)) return 'fileRead';
+  if (EDIT_TOOLS.includes(toolName)) return 'fileWrite';
+
+  if (isBashLikeTool(toolName)) {
+    if (isDangerousCommand(toolInput, detail)) return 'destructiveOps';
+    if (isNetworkCommand(toolInput, detail)) return 'networkOps';
+    return 'shellSafe';
+  }
+
+  // Task tool and other unknown tools → shellSafe (custom rules can override)
+  return 'shellSafe';
+}
+
+/** Map a CategoryAction to an EvaluationResult */
+function actionToResult(action: CategoryAction): EvaluationResult {
+  switch (action) {
+    case 'auto-approve': return 'approve';
+    case 'ask': return 'escalate';
+    case 'block': return 'deny';
+  }
+}
+
+// ============================================
+// Remember Key Builder
+// ============================================
+
+/** Build a key for the per-session remember cache */
+export function buildRememberKey(toolName: string, toolInput: unknown, detail: string): string {
+  if (isBashLikeTool(toolName)) {
+    const cmd = extractBashCommand(toolInput, detail);
+    if (cmd) {
+      // Normalize: keep first two tokens (e.g. "git push", "npm install", "curl")
+      const parts = cmd.split(/\s+/);
+      const base = parts.slice(0, Math.min(2, parts.length)).join(' ');
+      return `Bash:${base}`;
+    }
+  }
+  return toolName;
 }
 
 // ============================================
@@ -180,8 +223,8 @@ function isDangerousCommand(toolInput: unknown, detail: string): boolean {
 
 type CustomRuleResult = 'approve' | 'deny' | 'escalate' | 'continue';
 
-function evaluateCustomRules(toolName: string, detail: string, policy: AgentPermissionPolicy): CustomRuleResult {
-  for (const rule of policy.customRules || []) {
+function evaluateCustomRules(toolName: string, detail: string, rules: AgentPermissionRule[]): CustomRuleResult {
+  for (const rule of rules) {
     if (rule.toolName === '*' || rule.toolName === toolName) {
       if (rule.pattern) {
         try {
@@ -199,34 +242,30 @@ function evaluateCustomRules(toolName: string, detail: string, policy: AgentPerm
 }
 
 // ============================================
-// Trust Level Evaluator (with built-in guards)
+// Category-Based Permission Evaluator
 // ============================================
 
 /**
- * Permission evaluator with trust levels that have built-in strategy guards.
- *
- * Trust levels:
- *   conservative — Read-only tools + sensitive file protection
- *   moderate     — + file edits + workspace scope protection
- *   aggressive   — + safe bash + network command protection
- *   full_trust   — Everything except dangerous bash (rm -rf, sudo, etc.)
+ * Permission evaluator with category-based profiles per session type.
  *
  * Evaluation order:
- *   1. escalateAlways list (always escalate certain tools)
- *   2. Custom rules (user-defined, first match wins)
- *   3. Trust level evaluation (with built-in guards)
+ *   1. escalateAlways list
+ *   2. Custom rules (first match wins)
+ *   3. Global guards (sensitive files / outside workspace → escalate)
+ *   4. Classify tool → category → look up profile for session type → action
  */
 export class PermissionEvaluator {
   evaluate(
     toolName: string,
     toolInput: unknown,
     detail: string,
-    policy: AgentPermissionPolicy,
+    policy: CategoryPermissionPolicy,
     context?: EvaluationContext
   ): EvaluationResult {
     if (!policy.enabled) return 'escalate';
 
     const rootPath = context?.rootPath || process.cwd();
+    const sessionType = context?.sessionType || 'regular';
 
     // 1. escalateAlways
     if (policy.escalateAlways?.includes(toolName)) {
@@ -234,81 +273,25 @@ export class PermissionEvaluator {
     }
 
     // 2. Custom rules (first match wins)
-    const customResult = evaluateCustomRules(toolName, detail, policy);
+    const customResult = evaluateCustomRules(toolName, detail, policy.customRules || []);
     if (customResult !== 'continue') {
-      console.log(`[Permission] Custom rule returned '${customResult}' for ${toolName}`);
       return customResult;
     }
 
-    // 3. Trust level with built-in guards
-    const result = this.evaluateTrustLevel(toolName, toolInput, detail, policy.trustLevel, rootPath);
-    console.log(`[Permission] Trust level '${policy.trustLevel}' returned '${result}' for ${toolName}`);
-    return result;
-  }
-
-  private evaluateTrustLevel(
-    toolName: string,
-    toolInput: unknown,
-    detail: string,
-    trustLevel: AgentPermissionPolicy['trustLevel'],
-    rootPath: string
-  ): EvaluationResult {
-    // AskUserQuestion always escalates regardless of trust level
-    if (toolName === 'AskUserQuestion') return 'escalate';
-
-    switch (trustLevel) {
-      // ── Conservative: read-only + sensitive file guard ──
-      case 'conservative': {
-        if (!READONLY_TOOLS.includes(toolName)) return 'escalate';
-        // Guard: protect sensitive files even for reads
-        if (targetsSensitiveFile(toolName, toolInput, detail)) return 'escalate';
-        return 'approve';
-      }
-
-      // ── Moderate: + file edits + workspace scope guard ──
-      case 'moderate': {
-        if (toolName === 'Task') return 'approve';
-        if (!READONLY_TOOLS.includes(toolName) && !EDIT_TOOLS.includes(toolName)) return 'escalate';
-        // Guards: sensitive files + workspace scope
-        if (targetsSensitiveFile(toolName, toolInput, detail)) return 'escalate';
-        if (targetsOutsideWorkspace(toolName, toolInput, detail, rootPath)) return 'escalate';
-        return 'approve';
-      }
-
-      // ── Aggressive: + safe bash + network command guard ──
-      case 'aggressive': {
-        if (toolName === 'Task') return 'approve';
-        if (READONLY_TOOLS.includes(toolName) || EDIT_TOOLS.includes(toolName)) {
-          // Guards: sensitive files + workspace scope
-          if (targetsSensitiveFile(toolName, toolInput, detail)) return 'escalate';
-          if (targetsOutsideWorkspace(toolName, toolInput, detail, rootPath)) return 'escalate';
-          return 'approve';
-        }
-        if (isBashLikeTool(toolName)) {
-          if (isDangerousCommand(toolInput, detail)) return 'escalate';
-          if (isNetworkCommand(toolInput, detail)) return 'escalate';
-          // Guards for bash: sensitive files + workspace scope
-          if (targetsSensitiveFile(toolName, toolInput, detail)) return 'escalate';
-          if (targetsOutsideWorkspace(toolName, toolInput, detail, rootPath)) return 'escalate';
-          return 'approve';
-        }
-        return 'escalate';
-      }
-
-      // ── Full Trust: everything except dangerous bash ──
-      case 'full_trust': {
-        if (toolName === 'Task') return 'approve';
-        if (READONLY_TOOLS.includes(toolName) || EDIT_TOOLS.includes(toolName)) return 'approve';
-        if (isBashLikeTool(toolName)) {
-          if (isDangerousCommand(toolInput, detail)) return 'escalate';
-          return 'approve';
-        }
-        return 'approve';
-      }
-
-      default:
-        return 'escalate';
+    // 3. Global guards → escalate (user can override)
+    if (policy.globalGuards.blockSensitiveFiles && targetsSensitiveFile(toolName, toolInput, detail)) {
+      return 'escalate';
     }
+    if (policy.globalGuards.blockOutsideWorkspace && targetsOutsideWorkspace(toolName, toolInput, detail, rootPath)) {
+      return 'escalate';
+    }
+
+    // 4. Category-based evaluation
+    const category = classify(toolName, toolInput, detail);
+    const profile = policy.profiles[sessionType] || policy.profiles.regular;
+    const action = profile[category];
+
+    return actionToResult(action);
   }
 }
 
@@ -317,18 +300,107 @@ export class PermissionEvaluator {
 // ============================================
 
 /**
+ * Detect whether a raw policy object is the old trustLevel format or new category format.
+ */
+function isLegacyPolicy(raw: unknown): raw is AgentPermissionPolicy {
+  return raw !== null && typeof raw === 'object' && 'trustLevel' in (raw as Record<string, unknown>);
+}
+
+/**
+ * Convert a legacy trustLevel to category profiles.
+ */
+function trustLevelToProfiles(trustLevel: string): CategoryPermissionPolicy['profiles'] {
+  switch (trustLevel) {
+    case 'conservative':
+      return {
+        regular:    { fileRead: 'auto-approve', fileWrite: 'ask', shellSafe: 'ask', networkOps: 'ask', destructiveOps: 'block', userQuestions: 'ask' },
+        background: { fileRead: 'auto-approve', fileWrite: 'ask', shellSafe: 'ask', networkOps: 'ask', destructiveOps: 'block', userQuestions: 'ask' },
+        agent:      { fileRead: 'ask', fileWrite: 'ask', shellSafe: 'ask', networkOps: 'ask', destructiveOps: 'block', userQuestions: 'ask' },
+      };
+    case 'moderate':
+      return {
+        regular:    { fileRead: 'auto-approve', fileWrite: 'auto-approve', shellSafe: 'ask', networkOps: 'ask', destructiveOps: 'block', userQuestions: 'ask' },
+        background: { fileRead: 'auto-approve', fileWrite: 'auto-approve', shellSafe: 'ask', networkOps: 'ask', destructiveOps: 'block', userQuestions: 'ask' },
+        agent:      { fileRead: 'auto-approve', fileWrite: 'ask', shellSafe: 'ask', networkOps: 'ask', destructiveOps: 'block', userQuestions: 'ask' },
+      };
+    case 'aggressive':
+      return {
+        regular:    { fileRead: 'auto-approve', fileWrite: 'auto-approve', shellSafe: 'auto-approve', networkOps: 'ask', destructiveOps: 'block', userQuestions: 'ask' },
+        background: { fileRead: 'auto-approve', fileWrite: 'auto-approve', shellSafe: 'auto-approve', networkOps: 'block', destructiveOps: 'block', userQuestions: 'ask' },
+        agent:      { fileRead: 'auto-approve', fileWrite: 'ask', shellSafe: 'ask', networkOps: 'ask', destructiveOps: 'block', userQuestions: 'ask' },
+      };
+    case 'full_trust':
+      return {
+        regular:    { fileRead: 'auto-approve', fileWrite: 'auto-approve', shellSafe: 'auto-approve', networkOps: 'auto-approve', destructiveOps: 'block', userQuestions: 'ask' },
+        background: { fileRead: 'auto-approve', fileWrite: 'auto-approve', shellSafe: 'auto-approve', networkOps: 'block', destructiveOps: 'block', userQuestions: 'ask' },
+        agent:      DEFAULT_CATEGORY_PROFILES.agent,
+      };
+    default:
+      return DEFAULT_CATEGORY_PROFILES;
+  }
+}
+
+/**
+ * Normalize a policy from the database — handles both old trustLevel and new category format.
+ */
+export function normalizePolicy(raw: unknown): CategoryPermissionPolicy {
+  if (!raw || typeof raw !== 'object') return DEFAULT_CATEGORY_POLICY;
+
+  // New format: has `profiles` key
+  if ('profiles' in (raw as Record<string, unknown>)) {
+    const policy = raw as CategoryPermissionPolicy;
+    const escalateAlways = [...(policy.escalateAlways || ['AskUserQuestion'])];
+    if (!escalateAlways.includes('ExitPlanMode')) escalateAlways.push('ExitPlanMode');
+    return {
+      enabled: policy.enabled ?? true,
+      profiles: {
+        regular: { ...DEFAULT_CATEGORY_PROFILES.regular, ...policy.profiles?.regular },
+        background: { ...DEFAULT_CATEGORY_PROFILES.background, ...policy.profiles?.background },
+        agent: { ...DEFAULT_CATEGORY_PROFILES.agent, ...policy.profiles?.agent },
+      },
+      globalGuards: { ...DEFAULT_GLOBAL_GUARDS, ...policy.globalGuards },
+      customRules: policy.customRules || [],
+      escalateAlways,
+    };
+  }
+
+  // Old format: trustLevel-based
+  if (isLegacyPolicy(raw)) {
+    const escalateAlways = [...(raw.escalateAlways || ['AskUserQuestion'])];
+    if (!escalateAlways.includes('ExitPlanMode')) escalateAlways.push('ExitPlanMode');
+    return {
+      enabled: raw.enabled ?? false,
+      profiles: trustLevelToProfiles(raw.trustLevel),
+      globalGuards: DEFAULT_GLOBAL_GUARDS,
+      customRules: raw.customRules || [],
+      escalateAlways,
+    };
+  }
+
+  return DEFAULT_CATEGORY_POLICY;
+}
+
+/**
  * Merge a project-level override into the global policy.
+ * Project overrides can only affect regular and background profiles (agent is global-only).
  */
 export function mergePolicy(
-  globalPolicy: AgentPermissionPolicy,
-  projectOverride?: Partial<AgentPermissionPolicy> | null
-): AgentPermissionPolicy {
+  globalPolicy: CategoryPermissionPolicy,
+  projectOverride?: Partial<CategoryPermissionPolicy> | null
+): CategoryPermissionPolicy {
   if (!projectOverride) return globalPolicy;
 
-  const merged: AgentPermissionPolicy = { ...globalPolicy };
+  const merged: CategoryPermissionPolicy = {
+    ...globalPolicy,
+    profiles: {
+      regular: { ...globalPolicy.profiles.regular, ...projectOverride.profiles?.regular },
+      background: { ...globalPolicy.profiles.background, ...projectOverride.profiles?.background },
+      agent: globalPolicy.profiles.agent, // Agent profile is NOT overridden by project
+    },
+    globalGuards: { ...globalPolicy.globalGuards, ...projectOverride.globalGuards },
+  };
 
   if (projectOverride.enabled !== undefined) merged.enabled = projectOverride.enabled;
-  if (projectOverride.trustLevel !== undefined) merged.trustLevel = projectOverride.trustLevel;
   if (projectOverride.customRules !== undefined) merged.customRules = projectOverride.customRules;
   if (projectOverride.escalateAlways !== undefined) merged.escalateAlways = projectOverride.escalateAlways;
 
@@ -336,30 +408,11 @@ export function mergePolicy(
 }
 
 /**
- * Normalize a policy from the database (backward compat).
- * Strips deprecated strategies field.
- */
-export function normalizePolicy(policy: AgentPermissionPolicy): AgentPermissionPolicy {
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const { strategies: _deprecated, ...clean } = policy;
-  const escalateAlways = clean.escalateAlways || ['AskUserQuestion'];
-  // ExitPlanMode must always escalate — plan approval requires human review
-  if (!escalateAlways.includes('ExitPlanMode')) {
-    escalateAlways.push('ExitPlanMode');
-  }
-  return {
-    ...clean,
-    customRules: clean.customRules || [],
-    escalateAlways,
-  };
-}
-
-/**
- * Read agent permission policy from database.
+ * Read agent permission policy from database (handles both old and new format).
  */
 export function getAgentPermissionPolicy(
   db: { prepare: (sql: string) => { get: (...args: any[]) => any } }
-): AgentPermissionPolicy | null {
+): CategoryPermissionPolicy | null {
   try {
     const row = db.prepare(
       'SELECT permission_policy FROM agent_config WHERE id = 1'
@@ -367,8 +420,8 @@ export function getAgentPermissionPolicy(
 
     if (!row?.permission_policy) return null;
 
-    const policy = JSON.parse(row.permission_policy) as AgentPermissionPolicy;
-    return normalizePolicy(policy);
+    const raw = JSON.parse(row.permission_policy);
+    return normalizePolicy(raw);
   } catch {
     return null;
   }
@@ -380,7 +433,7 @@ export function getAgentPermissionPolicy(
 export function getProjectPermissionOverride(
   db: { prepare: (sql: string) => { get: (...args: any[]) => any } },
   projectId: string
-): Partial<AgentPermissionPolicy> | null {
+): Partial<CategoryPermissionPolicy> | null {
   try {
     const row = db.prepare(
       'SELECT agent_permission_override FROM projects WHERE id = ?'
@@ -388,7 +441,13 @@ export function getProjectPermissionOverride(
 
     if (!row?.agent_permission_override) return null;
 
-    return JSON.parse(row.agent_permission_override) as Partial<AgentPermissionPolicy>;
+    const raw = JSON.parse(row.agent_permission_override);
+    // If legacy format, convert first then extract as partial
+    if (isLegacyPolicy(raw)) {
+      const converted = normalizePolicy(raw);
+      return { profiles: { regular: converted.profiles.regular, background: converted.profiles.background } } as Partial<CategoryPermissionPolicy>;
+    }
+    return raw as Partial<CategoryPermissionPolicy>;
   } catch {
     return null;
   }

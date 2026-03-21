@@ -1,6 +1,7 @@
 import type { PermissionDecision } from '../providers/claude-sdk.js';
 import { decryptCredential } from '../utils/crypto.js';
 import { rewriteSudoCommand } from '../helpers/server-utils.js';
+import { buildRememberKey } from '../agent/permission-evaluator.js';
 import { sendMessage, broadcastToOtherAuthenticatedClients } from './broadcast.js';
 import type { ConnectedClient, ActiveRun } from './types.js';
 import type { ServerMessage } from '@my-claudia/shared';
@@ -52,6 +53,17 @@ export function handlePermissionDecision(
           pending.resolve({ behavior: 'deny', message: 'Failed to decrypt credential' });
           return;
         }
+      }
+
+      // Store remembered decision if requested
+      if (message.remember && pending.originalRequest) {
+        const key = buildRememberKey(
+          pending.originalRequest.toolName,
+          pending.originalToolInput,
+          pending.originalRequest.detail
+        );
+        run.rememberedDecisions.set(key, message.allow ? 'allow' : 'deny');
+        console.log(`[Permission] Remembered ${message.allow ? 'allow' : 'deny'} for key "${key}"`);
       }
 
       const decision: PermissionDecision = {

@@ -15,11 +15,6 @@ vi.mock('../AgentPanel', () => ({
   ),
 }));
 
-// Mock services
-vi.mock('../../../services/clientAI', () => ({
-  getClientAIConfig: () => ({ model: 'test-model' }),
-}));
-
 import { AgentSidePanel } from '../AgentSidePanel';
 
 describe('AgentSidePanel', () => {
@@ -86,9 +81,9 @@ describe('AgentSidePanel', () => {
     expect(mockSetExpanded).toHaveBeenCalledWith(false);
   });
 
-  it('renders model name in header', () => {
+  it('renders Agent label in header', () => {
     const { container } = render(<AgentSidePanel />);
-    expect(container.textContent).toContain('test-model');
+    expect(container.textContent).toContain('Agent');
   });
 
   it('has drag handle', () => {

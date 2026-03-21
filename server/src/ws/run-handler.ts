@@ -12,7 +12,6 @@ import type {
 import { sendMessage, broadcastToOtherAuthenticatedClients } from './broadcast.js';
 import type { ConnectedClient, ActiveRun } from './types.js';
 import {
-  DEFAULT_PERMISSION_POLICY,
   PERMISSION_TIMEOUT_POLICIES,
   MAX_SESSION_RESET_RETRIES,
   PERIODIC_SAVE_INTERVAL_MS,
@@ -41,6 +40,7 @@ import {
   getProjectPermissionOverride,
   mergePolicy,
   normalizePolicy,
+  buildRememberKey,
 } from '../agent/permission-evaluator.js';
 import type { PermissionDecision, SystemInfo } from '../providers/claude-sdk.js';
 import { providerRegistry } from '../providers/registry.js';
@@ -221,6 +221,7 @@ export async function handleRunStart(
     recentToolCalls: [],
     loopHeartbeatStreak: 0,
     sessionType,
+    rememberedDecisions: new Map(),
     aiInitiatedPlanMode: false,
     eventSeq: 0,
   };
@@ -385,28 +386,41 @@ export async function handleRunStart(
           }
         }
 
+        // --- Check remembered decisions cache ---
+        const rememberKey = buildRememberKey(request.toolName, request.toolInput, request.detail);
+        const remembered = activeRun.rememberedDecisions.get(rememberKey);
+        if (remembered) {
+          sendMessage(client.ws, {
+            type: 'agent_permission_intercepted',
+            toolName: request.toolName,
+            decision: remembered === 'allow' ? 'approve' : 'deny',
+            reason: `Remembered decision (${remembered})`,
+            sessionId: message.sessionId,
+            runId,
+          } as import('@my-claudia/shared').AgentPermissionInterceptedMessage);
+          resolve({ behavior: remembered, message: remembered === 'deny' ? 'Denied (remembered)' : undefined });
+          return;
+        }
+
         // --- Unified permission strategy chain ---
-        // Check global, project-level, and session-level policies.
-        // Session override has highest priority.
         const globalPolicy = getAgentPermissionPolicy(db);
         const projectOverride = getProjectPermissionOverride(db, session.project_id);
 
         // Merge: global → project �� session
         let effectivePolicy = globalPolicy
           ? mergePolicy(globalPolicy, projectOverride)
-          : projectOverride?.enabled
-            ? normalizePolicy({ ...DEFAULT_PERMISSION_POLICY, ...projectOverride } as AgentPermissionPolicy)
+          : projectOverride
+            ? normalizePolicy(projectOverride)
             : null;
 
-        // Apply session-level override if present
         if (effectivePolicy && sessionPermissionOverride) {
           effectivePolicy = mergePolicy(effectivePolicy, sessionPermissionOverride);
-        } else if (!effectivePolicy && sessionPermissionOverride?.enabled) {
-          effectivePolicy = normalizePolicy({ ...DEFAULT_PERMISSION_POLICY, ...sessionPermissionOverride } as AgentPermissionPolicy);
+        } else if (!effectivePolicy && sessionPermissionOverride) {
+          effectivePolicy = normalizePolicy(sessionPermissionOverride);
         }
 
-        const _cmdPreview = request.toolName === 'Bash' ? ` | cmd=${JSON.stringify((request.toolInput as any)?.command || request.detail).slice(0, 120)}` : '';
-        console.log(`[Permission] Tool=${request.toolName}${_cmdPreview} | globalPolicy=${globalPolicy?.enabled ? 'enabled/' + globalPolicy.trustLevel : 'null/disabled'} | projectOverride=${projectOverride?.enabled ? 'enabled/' + projectOverride.trustLevel : 'null/disabled'} | sessionOverride=${sessionPermissionOverride?.enabled ? 'enabled/' + sessionPermissionOverride.trustLevel : 'null/disabled'} | effective=${effectivePolicy?.enabled ? 'enabled/' + effectivePolicy.trustLevel : 'null/disabled'} | project_id=${session.project_id}`);
+        const _cmdPreview = isBashLikeTool(request.toolName) ? ` | cmd=${JSON.stringify((request.toolInput as any)?.command || request.detail).slice(0, 120)}` : '';
+        console.log(`[Permission] Tool=${request.toolName}${_cmdPreview} | effective=${effectivePolicy?.enabled ? 'enabled' : 'null/disabled'} | sessionType=${sessionType}`);
         if (effectivePolicy?.enabled) {
           const evaluator = new PermissionEvaluator();
           const decision = evaluator.evaluate(
@@ -414,14 +428,12 @@ export async function handleRunStart(
             effectivePolicy,
             { rootPath: cwd, sessionType }
           );
-          console.log(`[Permission] Decision=${decision} for ${request.toolName} (trustLevel=${effectivePolicy.trustLevel})`);
           if (decision === 'approve') {
-            console.log(`[Permission] Auto-approved ${request.toolName} for run ${runId} (${effectivePolicy.trustLevel})`);
             sendMessage(client.ws, {
               type: 'agent_permission_intercepted',
               toolName: request.toolName,
               decision: 'approve',
-              reason: `Auto-approved by policy (${effectivePolicy.trustLevel})`,
+              reason: 'Auto-approved by category policy',
               sessionId: message.sessionId,
               runId,
             } as import('@my-claudia/shared').AgentPermissionInterceptedMessage);
@@ -429,12 +441,11 @@ export async function handleRunStart(
             return;
           }
           if (decision === 'deny') {
-            console.log(`[Permission] Auto-denied ${request.toolName} for run ${runId} (${effectivePolicy.trustLevel})`);
             sendMessage(client.ws, {
               type: 'agent_permission_intercepted',
               toolName: request.toolName,
               decision: 'deny',
-              reason: `Auto-denied by policy (${effectivePolicy.trustLevel})`,
+              reason: 'Blocked by category policy',
               sessionId: message.sessionId,
               runId,
             } as import('@my-claudia/shared').AgentPermissionInterceptedMessage);

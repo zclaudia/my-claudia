@@ -1,6 +1,9 @@
 import { Router, Request, Response } from 'express';
 import type Database from 'better-sqlite3';
 import type { ApiResponse } from '@my-claudia/shared';
+import { toolRegistry } from '../plugins/tool-registry.js';
+import { getDiscoveredSkills } from '../plugins/skill-tools.js';
+import { CONTEXT_TEMPLATES } from '../context/types.js';
 
 interface AgentConfig {
   id: number;
@@ -39,6 +42,45 @@ function rowToConfig(row: AgentConfigRow): AgentConfig {
 
 export function createAgentRoutes(db: Database.Database): Router {
   const router = Router();
+
+  // GET /api/agent/capabilities — Agent tools, skills, and runtime info
+  router.get('/capabilities', (_req: Request, res: Response) => {
+    try {
+      const agentTools = toolRegistry.getAll()
+        .filter(t => t.scope?.includes('agent-assistant'))
+        .map(t => ({
+          id: t.id,
+          name: t.definition.function.name,
+          description: t.definition.function.description || '',
+          scope: t.scope || [],
+        }));
+
+      let skills: Array<{ id: string; name: string; description: string }> = [];
+      try {
+        skills = getDiscoveredSkills().map(s => ({
+          id: s.id,
+          name: s.name,
+          description: s.description || '',
+        }));
+      } catch { /* skills may not be initialized yet */ }
+
+      res.json({
+        success: true,
+        data: {
+          tools: agentTools,
+          skills,
+          contextTemplates: CONTEXT_TEMPLATES,
+          maxConcurrentTasks: 3,
+        },
+      } as ApiResponse<unknown>);
+    } catch (error) {
+      console.error('Error fetching agent capabilities:', error);
+      res.status(500).json({
+        success: false,
+        error: { code: 'INTERNAL_ERROR', message: 'Failed to fetch agent capabilities' },
+      });
+    }
+  });
 
   // GET /api/agent/config — Get agent configuration
   router.get('/config', (_req: Request, res: Response) => {

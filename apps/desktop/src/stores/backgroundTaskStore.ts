@@ -41,9 +41,31 @@ interface BackgroundTaskState {
 }
 
 const PID_CHECK_INTERVAL_MS = 10_000; // Check every 10 seconds
+const AUTO_REMOVE_DELAY_MS = 15_000;
 
 // Module-level state managed within the store's closure
 let pidMonitorInterval: ReturnType<typeof setInterval> | null = null;
+const autoRemoveTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+function isTerminalStatus(status: BackgroundTask['status']): boolean {
+  return status === 'completed' || status === 'failed' || status === 'stopped';
+}
+
+function clearAutoRemoveTimer(taskId: string): void {
+  const timer = autoRemoveTimers.get(taskId);
+  if (timer) {
+    clearTimeout(timer);
+    autoRemoveTimers.delete(taskId);
+  }
+}
+
+function scheduleAutoRemove(taskId: string, get: () => BackgroundTaskState): void {
+  clearAutoRemoveTimer(taskId);
+  autoRemoveTimers.set(taskId, setTimeout(() => {
+    autoRemoveTimers.delete(taskId);
+    get().removeTask(taskId);
+  }, AUTO_REMOVE_DELAY_MS));
+}
 
 export const useBackgroundTaskStore = create<BackgroundTaskState>((set, get) => ({
   tasks: {},
@@ -56,6 +78,11 @@ export const useBackgroundTaskStore = create<BackgroundTaskState>((set, get) => 
     if (task.taskRootPid || task.cliPid) {
       get().startPidMonitor();
     }
+    if (isTerminalStatus(task.status)) {
+      scheduleAutoRemove(task.id, get);
+    } else {
+      clearAutoRemoveTimer(task.id);
+    }
   },
 
   updateTask: (taskId, updates) => {
@@ -65,20 +92,32 @@ export const useBackgroundTaskStore = create<BackgroundTaskState>((set, get) => 
         [taskId]: { ...state.tasks[taskId], ...updates }
       }
     }));
-    // Auto-remove completed/failed/stopped tasks after 15 seconds
     const status = updates.status || get().tasks[taskId]?.status;
-    if (status === 'completed' || status === 'failed' || status === 'stopped') {
-      setTimeout(() => get().removeTask(taskId), 15_000);
+    if (status && isTerminalStatus(status)) {
+      scheduleAutoRemove(taskId, get);
+    } else {
+      clearAutoRemoveTimer(taskId);
     }
   },
 
   removeTask: (taskId) => set((state) => {
+    clearAutoRemoveTimer(taskId);
     const { [taskId]: _, ...rest } = state.tasks;
     return { tasks: rest };
   }),
 
   clearTasks: (sessionId) => set((state) => {
-    if (!sessionId) return { tasks: {} };
+    if (!sessionId) {
+      for (const taskId of Object.keys(state.tasks)) {
+        clearAutoRemoveTimer(taskId);
+      }
+      return { tasks: {} };
+    }
+    for (const [taskId, task] of Object.entries(state.tasks)) {
+      if (task.sessionId === sessionId) {
+        clearAutoRemoveTimer(taskId);
+      }
+    }
     const filteredTasks = Object.fromEntries(
       Object.entries(state.tasks).filter(([_, task]) => task.sessionId !== sessionId)
     );
@@ -136,10 +175,18 @@ export const useBackgroundTaskStore = create<BackgroundTaskState>((set, get) => 
 if (import.meta.hot) {
   import.meta.hot.dispose(() => {
     useBackgroundTaskStore.getState().stopPidMonitor();
+    for (const timer of autoRemoveTimers.values()) {
+      clearTimeout(timer);
+    }
+    autoRemoveTimers.clear();
   });
 }
 if (typeof window !== 'undefined') {
   window.addEventListener('beforeunload', () => {
     useBackgroundTaskStore.getState().stopPidMonitor();
+    for (const timer of autoRemoveTimers.values()) {
+      clearTimeout(timer);
+    }
+    autoRemoveTimers.clear();
   });
 }

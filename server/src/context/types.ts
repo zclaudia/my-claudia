@@ -30,6 +30,8 @@ export interface AssemblyInput {
 
 export type ContextTemplate = 'coding' | 'agent' | 'supervision' | 'review' | 'debug';
 
+export const CONTEXT_TEMPLATES: ContextTemplate[] = ['coding', 'agent', 'supervision', 'review', 'debug'];
+
 export interface ContextEngine {
   assemble(template: ContextTemplate, input: AssemblyInput): string;
 }
