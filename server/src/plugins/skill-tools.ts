@@ -85,87 +85,122 @@ interface ParsedFrontmatter {
   priority?: number;
 }
 
+/**
+ * Parse YAML frontmatter with support for one-level nesting.
+ *
+ * Supports:
+ *   name: value
+ *   priority: 10
+ *   keywords: [a, b, c]        # inline array
+ *   triggers:                   # nested object
+ *     keywords: [review, PR]    #   sub-key with inline array
+ *     projectType:              #   sub-key with list
+ *       - code
+ *   requires:
+ *     binaries:
+ *       - git
+ */
 function parseFrontmatter(content: string): ParsedFrontmatter {
   const match = content.match(/^---\s*\n([\s\S]*?)\n---/);
   if (!match) return {};
 
-  // Simple YAML parser for flat and one-level nested fields
-  const result: Record<string, any> = {};
-  let currentKey: string | null = null;
-  let currentList: string[] | null = null;
+  const flat: Record<string, any> = {};
+  let parentKey: string | null = null;
+  let parentObj: Record<string, any> | null = null;
+  let listKey: string | null = null; // which key is currently collecting list items
+  let listTarget: Record<string, any> | null = null; // where to store the list
+
+  function flushList() {
+    // no-op: lists are stored inline as they're collected
+  }
 
   for (const line of match[1].split('\n')) {
-    // List item (indented with -)
-    if (/^\s+-\s/.test(line) && currentKey) {
-      const val = line.replace(/^\s+-\s*/, '').replace(/^["']|["']$/g, '').trim();
-      if (val && currentList) currentList.push(val);
+    const indent = line.search(/\S/);
+    if (indent === -1) continue; // blank line
+
+    // List item: "  - value" or "    - value"
+    const listMatch = line.match(/^(\s+)-\s+(.*)/);
+    if (listMatch && listKey) {
+      const val = listMatch[2].replace(/^["']|["']$/g, '').trim();
+      if (val) {
+        const target = listTarget || flat;
+        if (!Array.isArray(target[listKey])) target[listKey] = [];
+        target[listKey].push(val);
+      }
       continue;
     }
 
-    // Key-value or section header
+    // Key-value line
     const colonIdx = line.indexOf(':');
     if (colonIdx === -1) continue;
     const key = line.slice(0, colonIdx).trim();
     const rawValue = line.slice(colonIdx + 1).trim();
-
     if (!key) continue;
 
-    // Flush previous list
-    if (currentKey && currentList) {
-      result[currentKey] = currentList;
-      currentList = null;
-      currentKey = null;
-    }
+    listKey = null; // reset list collector
 
-    if (rawValue) {
-      // Inline value — could be a simple string, number, or inline array
-      if (rawValue.startsWith('[') && rawValue.endsWith(']')) {
-        result[key] = rawValue.slice(1, -1).split(',').map(s => s.replace(/^["'\s]+|["'\s]+$/g, ''));
-      } else if (/^\d+$/.test(rawValue)) {
-        result[key] = parseInt(rawValue, 10);
+    if (indent === 0) {
+      // Top-level key
+      parentKey = null;
+      parentObj = null;
+
+      if (rawValue) {
+        flat[key] = parseInlineValue(rawValue);
       } else {
-        result[key] = rawValue.replace(/^["']|["']$/g, '');
+        // Section header — next indented lines are children
+        parentKey = key;
+        parentObj = {};
+        flat[key] = parentObj;
       }
-    } else {
-      // Section header — next lines may be list items or sub-keys
-      currentKey = key;
-      currentList = [];
+    } else if (parentKey && parentObj) {
+      // Indented key under a parent section
+      if (rawValue) {
+        parentObj[key] = parseInlineValue(rawValue);
+      } else {
+        // Sub-key expecting list items
+        listKey = key;
+        listTarget = parentObj;
+        parentObj[key] = [];
+      }
     }
-  }
-
-  // Flush last list
-  if (currentKey && currentList) {
-    result[currentKey] = currentList;
   }
 
   const parsed: ParsedFrontmatter = {
-    name: result.name as string | undefined,
-    description: result.description as string | undefined,
-    priority: typeof result.priority === 'number' ? result.priority : undefined,
+    name: typeof flat.name === 'string' ? flat.name : undefined,
+    description: typeof flat.description === 'string' ? flat.description : undefined,
+    priority: typeof flat.priority === 'number' ? flat.priority : undefined,
   };
 
-  // Parse triggers (can be nested object or flat)
-  if (result.triggers && typeof result.triggers === 'object') {
-    parsed.triggers = result.triggers as SkillTriggers;
-  } else {
+  // triggers
+  if (flat.triggers && typeof flat.triggers === 'object' && !Array.isArray(flat.triggers)) {
+    const t = flat.triggers;
     const triggers: SkillTriggers = {};
-    if (result.keywords) triggers.keywords = Array.isArray(result.keywords) ? result.keywords : [result.keywords];
-    if (result.projectType) triggers.projectType = Array.isArray(result.projectType) ? result.projectType : [result.projectType];
+    if (t.keywords) triggers.keywords = Array.isArray(t.keywords) ? t.keywords : [t.keywords];
+    if (t.projectType) triggers.projectType = Array.isArray(t.projectType) ? t.projectType : [t.projectType];
     if (triggers.keywords || triggers.projectType) parsed.triggers = triggers;
   }
 
-  // Parse requires
-  if (result.requires && typeof result.requires === 'object') {
-    parsed.requires = result.requires as SkillRequires;
-  } else {
+  // requires
+  if (flat.requires && typeof flat.requires === 'object' && !Array.isArray(flat.requires)) {
+    const r = flat.requires;
     const requires: SkillRequires = {};
-    if (result.os) requires.os = Array.isArray(result.os) ? result.os : [result.os];
-    if (result.binaries) requires.binaries = Array.isArray(result.binaries) ? result.binaries : [result.binaries];
-    if (result.env) requires.env = Array.isArray(result.env) ? result.env : [result.env];
+    if (r.os) requires.os = Array.isArray(r.os) ? r.os : [r.os];
+    if (r.binaries) requires.binaries = Array.isArray(r.binaries) ? r.binaries : [r.binaries];
+    if (r.env) requires.env = Array.isArray(r.env) ? r.env : [r.env];
     if (requires.os || requires.binaries || requires.env) parsed.requires = requires;
   }
 
   return parsed;
+}
+
+function parseInlineValue(raw: string): string | number | string[] {
+  if (raw.startsWith('[') && raw.endsWith(']')) {
+    return raw.slice(1, -1).split(',').map(s => s.replace(/^["'\s]+|["'\s]+$/g, ''));
+  }
+  if (/^\d+$/.test(raw)) {
+    return parseInt(raw, 10);
+  }
+  return raw.replace(/^["']|["']$/g, '');
 }
 
 // ============================================
@@ -241,7 +276,7 @@ function discoverSkillsInDir(
  * Load full skill content: SKILL.md + all files under references/.
  * Truncates to MAX_SKILL_CONTENT_SIZE.
  */
-function loadSkillContent(dirPath: string): string {
+export function loadSkillContent(dirPath: string): string {
   const parts: string[] = [];
 
   // Main SKILL.md

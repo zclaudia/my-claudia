@@ -693,19 +693,41 @@ Use push_file instead of curl to send files to the user — it is more reliable 
       env: { ...(providerConfig?.env || {}), ...filePushEnv },
       mode: nativeMode,
       model: message.model,
-      systemPrompt: createContextEngine().assemble(sessionType === 'agent' ? 'agent' : 'coding', {
-        sessionId: message.sessionId,
-        projectId: session.project_id,
-        cwd,
-        workspacePrompt,
-        skillDirectoryHint,
-        systemContext: message.systemContext,
-        nonNativePlanPrompt,
-        planDocumentPrompt,
-        filePushContext,
-        interactionToolPrompt,
-        sessionSystemPrompt: session.system_prompt || undefined,
-      }) || undefined,
+      systemPrompt: (() => {
+        // For agent sessions, auto-inject matching skills content
+        let activeSkillsContent: string | undefined;
+        if (sessionType === 'agent') {
+          try {
+            const { getDiscoveredSkills } = require('../plugins/skill-tools.js');
+            const { selectSkills } = require('../plugins/skill-selector.js');
+            const { loadSkillContent } = require('../plugins/skill-tools.js');
+            const allSkills = getDiscoveredSkills();
+            const matched = selectSkills(allSkills, { userInput: message.input, os: process.platform });
+            if (matched.length > 0) {
+              activeSkillsContent = matched
+                .map((s: any) => loadSkillContent(s.dirPath))
+                .filter(Boolean)
+                .join('\n\n---\n\n');
+            }
+          } catch { /* skill selector is best-effort */ }
+        }
+        // Use explicit contextTemplate if provided (from TaskOrchestrator), otherwise infer from session type
+        const template = (message as any)._contextTemplate || (sessionType === 'agent' ? 'agent' : 'coding');
+        return createContextEngine().assemble(template, {
+          sessionId: message.sessionId,
+          projectId: session.project_id,
+          cwd,
+          workspacePrompt,
+          skillDirectoryHint,
+          systemContext: message.systemContext,
+          activeSkillsContent,
+          nonNativePlanPrompt,
+          planDocumentPrompt,
+          filePushContext,
+          interactionToolPrompt,
+          sessionSystemPrompt: session.system_prompt || undefined,
+        }) || undefined;
+      })(),
       sessionTitle: session.name || undefined,
       serverPort: serverPort || undefined,
       claudiaSessionId: message.sessionId,

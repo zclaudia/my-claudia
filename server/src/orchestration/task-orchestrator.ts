@@ -16,8 +16,6 @@ import type {
   TaskStatus,
 } from './types.js';
 import { TaskRepository } from './repository.js';
-import { createContextEngine } from '../context/engine.js';
-import type { ContextTemplate } from '../context/types.js';
 
 const MAX_CONCURRENT_AGENT_TASKS = 3;
 const DEFAULT_WAIT_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
@@ -101,15 +99,9 @@ export function createTaskOrchestrator(deps: TaskOrchestratorDeps): TaskOrchestr
       authenticated: true,
     };
 
-    const contextEngine = createContextEngine();
-    const template = (task.contextTemplate || 'agent') as ContextTemplate;
-    const systemPrompt = contextEngine.assemble(template, {
-      sessionId,
-      projectId: task.projectId ?? undefined,
-    });
-
     // Fire-and-forget: handleRunStart runs the provider asynchronously,
     // completion is detected via virtualWs.send() callback above.
+    // Pass contextTemplate via _contextTemplate so run-handler uses the right template.
     deps.handleRunStart(
       virtualClient,
       {
@@ -118,7 +110,7 @@ export function createTaskOrchestrator(deps: TaskOrchestratorDeps): TaskOrchestr
         sessionId,
         input: task.task,
         providerId: task.providerId,
-        systemContext: systemPrompt || undefined,
+        _contextTemplate: task.contextTemplate || 'agent',
       },
       deps.db,
       {},
