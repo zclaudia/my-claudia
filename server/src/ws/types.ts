@@ -47,7 +47,7 @@ export interface ActiveRun {
   contentBlocks: ContentBlock[];
   saveInterval?: NodeJS.Timeout;
   completed?: boolean;  // True after run_completed/run_failed sent; hides from heartbeat while for-await drains
-  sessionType: 'regular' | 'background';  // Whether this is a background task run
+  sessionType: 'regular' | 'background' | 'agent';  // Session type for this run
   /** True when AI called EnterPlanMode during a non-plan-mode run (not user-initiated). */
   aiInitiatedPlanMode?: boolean;
   // Stuck/loop detection

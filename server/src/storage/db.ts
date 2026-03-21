@@ -894,6 +894,71 @@ function runMigrations(db: Database.Database): void {
         CREATE INDEX IF NOT EXISTS idx_supervision_logs_project ON supervision_logs(project_id);
         CREATE INDEX IF NOT EXISTS idx_supervision_logs_task ON supervision_logs(task_id);
       `
+    },
+    {
+      name: '043_session_type_agent',
+      sql: `
+        -- SQLite doesn't support ALTER CHECK constraint, so recreate the table
+        -- with the updated CHECK that includes 'agent' type.
+        CREATE TABLE sessions_new AS SELECT * FROM sessions;
+        DROP TABLE sessions;
+        CREATE TABLE sessions (
+          id TEXT PRIMARY KEY,
+          project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+          name TEXT,
+          provider_id TEXT,
+          sdk_session_id TEXT,
+          type TEXT CHECK(type IN ('regular', 'background', 'agent')) DEFAULT 'regular',
+          parent_session_id TEXT REFERENCES sessions(id) ON DELETE SET NULL,
+          working_directory TEXT,
+          project_role TEXT,
+          task_id TEXT,
+          plan_status TEXT,
+          is_read_only INTEGER DEFAULT 0,
+          last_run_status TEXT,
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL,
+          archived_at INTEGER
+        );
+        INSERT INTO sessions SELECT * FROM sessions_new;
+        DROP TABLE sessions_new;
+        CREATE INDEX IF NOT EXISTS idx_sessions_project ON sessions(project_id);
+        CREATE INDEX IF NOT EXISTS idx_sessions_archived ON sessions(archived_at);
+      `
+    },
+    {
+      name: '044_agent_assistant_memory',
+      sql: `
+        -- Layer 1: Activity log (append-only journal of agent actions)
+        CREATE TABLE IF NOT EXISTS agent_activity_log (
+          id TEXT PRIMARY KEY,
+          project_id TEXT REFERENCES projects(id) ON DELETE CASCADE,
+          session_id TEXT REFERENCES sessions(id) ON DELETE CASCADE,
+          type TEXT NOT NULL,
+          summary TEXT NOT NULL,
+          metadata TEXT,
+          created_at INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_agent_activity_log_project ON agent_activity_log(project_id);
+        CREATE INDEX IF NOT EXISTS idx_agent_activity_log_created ON agent_activity_log(created_at);
+
+        -- Layer 2: Derived knowledge (project-scoped + global)
+        CREATE TABLE IF NOT EXISTS agent_memory (
+          id TEXT PRIMARY KEY,
+          project_id TEXT REFERENCES projects(id) ON DELETE CASCADE,
+          namespace TEXT NOT NULL DEFAULT 'default',
+          key TEXT NOT NULL,
+          value TEXT NOT NULL,
+          source_task_id TEXT,
+          source_session_id TEXT REFERENCES sessions(id) ON DELETE SET NULL,
+          author_scope TEXT NOT NULL DEFAULT 'project',
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL,
+          UNIQUE(project_id, namespace, key)
+        );
+        CREATE INDEX IF NOT EXISTS idx_agent_memory_project ON agent_memory(project_id);
+        CREATE INDEX IF NOT EXISTS idx_agent_memory_namespace ON agent_memory(namespace);
+      `
     }
   ];
 

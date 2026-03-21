@@ -1,6 +1,6 @@
 // Session Types
 
-export type SessionType = 'regular' | 'background';
+export type SessionType = 'regular' | 'background' | 'agent';
 
 export interface Session {
   id: string;

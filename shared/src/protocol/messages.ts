@@ -59,7 +59,10 @@ export type ClientMessage =
   | InitSupervisionAgentMessage
   | UpdateSupervisionAgentMessage
   | ReloadSupervisionContextMessage
-  | InteractionResponseMessage;
+  | InteractionResponseMessage
+  // Agent Assistant
+  | AgentStartMessage
+  | AgentCancelMessage;
 
 // Authentication message (sent after WebSocket connection)
 export interface AuthMessage {
@@ -415,7 +418,7 @@ export interface RunStartedMessage {
   /** Real DB message ID for the assistant message (for client-side dedup) */
   assistantMessageId?: string;
   /** Session type — background runs should not affect the session's loading state */
-  sessionType?: 'regular' | 'background';
+  sessionType?: SessionType;
   /** Monotonically increasing event sequence number within this run (starts at 1) */
   seq?: number;
   /** PCP effective provider profile for this run */
@@ -953,7 +956,7 @@ export interface StateHeartbeatMessage {
     health: RunHealthStatus;
     loopPattern?: string;
     /** Session type — background runs should not affect the session's loading state */
-    sessionType?: 'regular' | 'background';
+    sessionType?: SessionType;
     /** Latest init/system metadata for this run (if available). */
     systemInfo?: SystemInfo;
     /** Last event sequence number for this run (for gap detection). */
@@ -998,4 +1001,21 @@ export interface WorkflowDeletedMessage {
 
 export interface WorkflowStepTypesChangedMessage {
   type: 'workflow_step_types_changed';
+}
+
+// Agent Assistant messages
+
+export interface AgentStartMessage {
+  type: 'agent_start';
+  clientRequestId: string;
+  sessionId: string;
+  input: string;
+  providerId?: string;
+  model?: string;
+  tools?: string[];
+}
+
+export interface AgentCancelMessage {
+  type: 'agent_cancel';
+  sessionId: string;
 }

@@ -44,6 +44,7 @@ import type { PermissionDecision, SystemInfo } from '../providers/claude-sdk.js'
 import { providerRegistry } from '../providers/registry.js';
 import { negotiateProfile } from '../providers/pcp-negotiator.js';
 import { mapPermissionMode } from '../providers/pcp-permission.js';
+import { createContextEngine } from '../context/engine.js';
 import { interactionDispatcher } from '../interactions/interaction-dispatcher.js';
 import { normalizeFromToolUse, normalizeFromAskUser } from '../interactions/interaction-normalizer.js';
 import { pluginEvents } from '../events/index.js';
@@ -122,7 +123,7 @@ export async function handleRunStart(
     project_id: string;
     name: string | null;
     sdk_session_id: string | null;
-    session_type: 'regular' | 'background' | null;
+    session_type: 'regular' | 'background' | 'agent' | null;
     working_directory: string | null;
     project_role: string | null;
     plan_status: string | null;
@@ -198,8 +199,8 @@ export async function handleRunStart(
     }
   }
 
-  // Session type: 'regular' or 'background'
-  const sessionType = (session.session_type || 'regular') as 'regular' | 'background';
+  // Session type
+  const sessionType = (session.session_type || 'regular') as 'regular' | 'background' | 'agent';
 
   // Create active run tracking (includes streaming state for message persistence)
   const activeRun: ActiveRun = {
@@ -692,7 +693,19 @@ Use push_file instead of curl to send files to the user — it is more reliable 
       env: { ...(providerConfig?.env || {}), ...filePushEnv },
       mode: nativeMode,
       model: message.model,
-      systemPrompt: [workspacePrompt, skillDirectoryHint, message.systemContext, nonNativePlanPrompt, planDocumentPrompt, filePushContext, interactionToolPrompt, session.system_prompt].filter(Boolean).join('\n\n') || undefined,
+      systemPrompt: createContextEngine().assemble(sessionType === 'agent' ? 'agent' : 'coding', {
+        sessionId: message.sessionId,
+        projectId: session.project_id,
+        cwd,
+        workspacePrompt,
+        skillDirectoryHint,
+        systemContext: message.systemContext,
+        nonNativePlanPrompt,
+        planDocumentPrompt,
+        filePushContext,
+        interactionToolPrompt,
+        sessionSystemPrompt: session.system_prompt || undefined,
+      }) || undefined,
       sessionTitle: session.name || undefined,
       serverPort: serverPort || undefined,
       claudiaSessionId: message.sessionId,

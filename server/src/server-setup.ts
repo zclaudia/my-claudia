@@ -41,6 +41,7 @@ import { registerWorkflowDomain } from './domains/workflows/register.js';
 import type { SupervisorService } from './services/supervision/supervisor-service.js';
 import { NotificationService } from './services/notification-service.js';
 import { registerInteractionTools } from './interactions/interaction-tools.js';
+import { registerAgentTools } from './agent-tools/index.js';
 import { interactionDispatcher } from './interactions/interaction-dispatcher.js';
 import { pluginEvents } from './events/index.js';
 import { pluginLoader } from './plugins/loader.js';
@@ -248,6 +249,10 @@ export function setupRoutesAndServices(deps: SetupDependencies): SetupResult {
       }
       return undefined;
     },
+    getSessionType: (sessionId) => {
+      const row = db.prepare('SELECT type FROM sessions WHERE id = ?').get(sessionId) as { type: string } | undefined;
+      return row?.type;
+    },
   }));
 
   // MCP server management routes
@@ -371,6 +376,28 @@ export function setupRoutesAndServices(deps: SetupDependencies): SetupResult {
   // Register internal interaction tools
   registerInteractionTools({
     getServerPort,
+  });
+
+  // Register agent assistant tools (scope: agent-assistant)
+  registerAgentTools({
+    getDb: () => db,
+  });
+
+  // Record activity log on run completion (Layer 1 — session-level summaries)
+  pluginEvents.on('run.completed', (event: any) => {
+    try {
+      const { recordActivity } = require('./memory/activity-log.js');
+      const session = db.prepare('SELECT project_id FROM sessions WHERE id = ?').get(event.sessionId) as { project_id: string } | undefined;
+      recordActivity(db, {
+        projectId: session?.project_id ?? null,
+        sessionId: event.sessionId,
+        type: 'run_completed',
+        summary: `Run completed (${event.usage?.outputTokens ?? 0} output tokens)`,
+        metadata: { runId: event.runId, usage: event.usage },
+      });
+    } catch {
+      // Activity log is best-effort, don't break run completion
+    }
   });
 
   // Wire interaction dispatcher to send events via WS

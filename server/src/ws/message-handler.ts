@@ -48,6 +48,31 @@ export async function handleClientMessage(
       await ctx.handleRunStart(client, message, db, {}, clients);
       break;
 
+    case 'agent_start':
+      // Agent start → reuse run_start with agent session type
+      // The session should already be type='agent'; Context Engine + tool visibility
+      // handle the differences via sessionType detection in run-handler.
+      await ctx.handleRunStart(client, {
+        type: 'run_start',
+        clientRequestId: message.clientRequestId,
+        sessionId: message.sessionId,
+        input: message.input,
+        providerId: message.providerId,
+        model: message.model,
+      }, db, {}, clients);
+      break;
+
+    case 'agent_cancel': {
+      // Find and cancel the active run for this agent session
+      for (const [runId, run] of ctx.activeRuns.entries()) {
+        if (run.sessionId === message.sessionId && !run.completed) {
+          ctx.cancelRun(runId);
+          break;
+        }
+      }
+      break;
+    }
+
     case 'run_cancel':
       ctx.cancelRun(message.runId);
       break;

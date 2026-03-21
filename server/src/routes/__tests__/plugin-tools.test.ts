@@ -6,6 +6,7 @@ vi.mock('../../plugins/tool-registry.js', () => ({
   toolRegistry: {
     getBridgeTools: vi.fn().mockReturnValue([]),
     execute: vi.fn(),
+    get: vi.fn().mockReturnValue(undefined),
   },
 }));
 

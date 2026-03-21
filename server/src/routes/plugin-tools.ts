@@ -14,6 +14,8 @@ import { shouldExposeInteractionTool } from '../providers/pcp-capability.js';
 export interface PluginToolsRoutesDeps {
   /** Resolve the active PCP profile for a session (if a run is active) */
   getActiveProfile?: (sessionId: string) => PCPEffectiveProfile | undefined;
+  /** Resolve the session type for scope-based tool filtering */
+  getSessionType?: (sessionId: string) => string | undefined;
 }
 
 export function createPluginToolsRoutes(deps?: PluginToolsRoutesDeps): Router {
@@ -28,9 +30,16 @@ export function createPluginToolsRoutes(deps?: PluginToolsRoutesDeps): Router {
     const sessionId = req.query.sessionId as string | undefined;
     const profile = sessionId ? deps?.getActiveProfile?.(sessionId) : undefined;
 
+    const sessionType = sessionId ? deps?.getSessionType?.(sessionId) : undefined;
     const pluginTools = toolRegistry.getBridgeTools();
     const tools = pluginTools
-      .filter(t => shouldExposeInteractionTool(t.definition.function.name, profile))
+      .filter(t => {
+        // Filter agent-assistant scoped tools: only expose in agent sessions
+        if (t.scope?.includes('agent-assistant') && !t.scope?.includes('main-session')) {
+          if (sessionType !== 'agent') return false;
+        }
+        return shouldExposeInteractionTool(t.definition.function.name, profile);
+      })
       .map(t => ({
         name: t.definition.function.name,
         description: t.definition.function.description,
@@ -50,8 +59,19 @@ export function createPluginToolsRoutes(deps?: PluginToolsRoutesDeps): Router {
     const context = { sessionId: req.body.sessionId as string | undefined };
     const sessionTag = context.sessionId || 'none';
 
-    // PCP capability check: reject if tool shouldn't be exposed for this provider
+    // Scope check: reject agent-only tools in non-agent sessions
     if (context.sessionId) {
+      const tool = toolRegistry.get(name);
+      if (tool?.scope?.includes('agent-assistant') && !tool.scope?.includes('main-session')) {
+        const sType = deps?.getSessionType?.(context.sessionId);
+        if (sType !== 'agent') {
+          console.warn(`[PluginTools] rejected name=${name} session=${sessionTag} — agent-only tool in ${sType || 'unknown'} session`);
+          res.json({ result: JSON.stringify({ error: `Tool "${name}" is only available in agent sessions` }) });
+          return;
+        }
+      }
+
+      // PCP capability check
       const profile = deps?.getActiveProfile?.(context.sessionId);
       if (profile && !shouldExposeInteractionTool(name, profile)) {
         console.warn(`[PluginTools] rejected name=${name} session=${sessionTag} — capability not supported by ${profile.providerId}`);

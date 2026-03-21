@@ -22,7 +22,7 @@ export async function createSession(data: {
   projectId: string;
   name?: string;
   providerId?: string;
-  type?: 'regular' | 'background';
+  type?: import('@my-claudia/shared').SessionType;
   parentSessionId?: string;
   workingDirectory?: string;
 }): Promise<Session> {

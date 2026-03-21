@@ -322,7 +322,8 @@ export function createSessionRoutes(db: Database.Database, activeRuns: ActiveRun
         return;
       }
 
-      const sessionType = type === 'background' ? 'background' : 'regular';
+      const validTypes = ['regular', 'background', 'agent'] as const;
+      const sessionType = validTypes.includes(type as any) ? type : 'regular';
 
       const id = uuidv4();
       const now = Date.now();
