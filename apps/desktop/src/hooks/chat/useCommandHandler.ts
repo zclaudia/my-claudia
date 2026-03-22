@@ -1,6 +1,7 @@
 import { useCallback } from 'react';
 import { useProjectStore } from '../../stores/projectStore';
 import { useSupervisionStore } from '../../stores/supervisionStore';
+import { useChatStore } from '../../stores/chatStore';
 import * as api from '../../services/api';
 import type { CommandExecuteResponse, SlashCommand, Session, Project, MessageRole } from '@my-claudia/shared';
 
@@ -230,6 +231,7 @@ export function useCommandHandler({
   const handleResetProviderSession = useCallback(async () => {
     try {
       await api.resetSessionSdkSession(sessionId);
+      useChatStore.getState().clearSessionUsage(sessionId);
       addMessage(sessionId, {
         id: crypto.randomUUID(),
         sessionId,
@@ -340,6 +342,7 @@ export function useCommandHandler({
     if (command === '/new-cli-session' || command === '/reset-cli-session') {
       try {
         await api.resetSessionSdkSession(sessionId);
+        useChatStore.getState().clearSessionUsage(sessionId);
         addMessage(sessionId, {
           id: crypto.randomUUID(),
           sessionId,

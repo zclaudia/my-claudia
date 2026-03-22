@@ -5,7 +5,8 @@ import { ChatInterface } from './components/chat/ChatInterface';
 import { ServerSelector } from './components/ServerSelector';
 import { MobileSetup } from './components/MobileSetup';
 import { WindowsSetup } from './components/WindowsSetup';
-import { ClaudiaSidePanel } from './components/claudia/ClaudiaSidePanel';
+import { ClaudiaBallWindow } from './components/claudia/ClaudiaBallWindow';
+import { ClaudiaChatWindow } from './components/claudia/ClaudiaChatWindow';
 import { ClaudiaChat } from './components/claudia/ClaudiaChat';
 import { AgentFeedPanel } from './components/agent-feed/AgentFeedPanel';
 import { useAgentFeedStore } from './stores/agentFeedStore';
@@ -166,6 +167,67 @@ function AppContent() {
 
   // Register builtin plugin panel components (once at startup)
   useEffect(() => { initBuiltinPanels(); }, []);
+
+  // Launch Claudia floating ball (desktop only, once)
+  useEffect(() => {
+    if (!isDesktopTauri || isMobile) return;
+    (async () => {
+      try {
+        const { WebviewWindow } = await import('@tauri-apps/api/webviewWindow');
+        const { invoke } = await import('@tauri-apps/api/core');
+        const existing = await WebviewWindow.getByLabel('claudia-ball');
+        const { getCurrentWindow } = await import('@tauri-apps/api/window');
+        // Claudia always connects to the local backend (it operates on local files/CLI)
+        const localServer = useServerStore.getState().getDefaultServer();
+        const localAddress = localServer?.address || 'localhost:3100';
+        const serverUrl = localAddress.includes('://') ? localAddress : `http://${localAddress}`;
+        const authToken = ''; // Local server trusts localhost connections
+        const serverId = 'local';
+        const serverName = localServer?.name || 'Local Server';
+        const hostWindow = getCurrentWindow();
+        const scale = typeof window.devicePixelRatio === 'number' && window.devicePixelRatio > 0
+          ? window.devicePixelRatio
+          : 1;
+        const hostPos = await hostWindow.outerPosition().catch(() => null);
+        const hostSize = await hostWindow.outerSize().catch(() => null);
+        const hostX = hostPos ? hostPos.x / scale : window.screenX;
+        const hostY = hostPos ? hostPos.y / scale : window.screenY;
+        const hostWidth = hostSize ? hostSize.width / scale : window.outerWidth;
+        const hostHeight = hostSize ? hostSize.height / scale : window.outerHeight;
+
+        const ballParams = new URLSearchParams({
+          claudiaBall: 'true',
+          serverUrl,
+          authToken,
+          serverId,
+          serverName,
+        });
+        // Local backend — no gateway needed
+
+        const chatParams = new URLSearchParams({ claudiaChat: 'true' });
+        for (const key of ['serverUrl', 'authToken', 'serverId', 'serverName', 'gatewayUrl', 'gatewaySecret'] as const) {
+          const val = ballParams.get(key);
+          if (val) chatParams.set(key, val);
+        }
+
+        if (!existing) {
+          await invoke('create_claudia_ball', {
+            ballUrl: `${window.location.origin}${window.location.pathname}?${ballParams}`,
+            x: Math.max(16, Math.floor(hostX + hostWidth - 72)),
+            y: Math.max(16, Math.floor(hostY + hostHeight - 96)),
+          });
+        }
+
+        void invoke('preload_claudia_chat', {
+          chatUrl: `${window.location.origin}${window.location.pathname}?${chatParams}`,
+        }).catch((preloadErr) => {
+          console.warn('[App] Failed to preload Claudia chat window:', preloadErr);
+        });
+      } catch (err) {
+        console.warn('[App] Failed to create Claudia floating ball:', err);
+      }
+    })();
+  }, [isMobile]);
 
   // Auto-update check (desktop only, silent)
   useAutoUpdate();
@@ -406,21 +468,23 @@ function AppContent() {
         {/* Plugin window buttons */}
         <PluginWindowButtons />
 
-        {/* Agent toggle button */}
-        <button
-          onClick={() => setAgentExpanded(!isAgentExpanded)}
-          className={`relative p-1.5 rounded hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors mr-2 ${
-            isAgentExpanded ? 'bg-secondary text-foreground' : ''
-          }`}
-          title={isAgentExpanded ? 'Close Claudia' : 'Open Claudia'}
-        >
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-          </svg>
-          {hasClaudiaUnread && (
-            <span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-primary rounded-full animate-pulse" />
-          )}
-        </button>
+        {/* Agent toggle button — mobile only (desktop uses floating ball) */}
+        {isMobile && (
+          <button
+            onClick={() => setAgentExpanded(!isAgentExpanded)}
+            className={`relative p-1.5 rounded hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors mr-2 ${
+              isAgentExpanded ? 'bg-secondary text-foreground' : ''
+            }`}
+            title={isAgentExpanded ? 'Close Claudia' : 'Open Claudia'}
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+            </svg>
+            {hasClaudiaUnread && (
+              <span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-primary rounded-full animate-pulse" />
+            )}
+          </button>
+        )}
       </header>
 
       {/* Update notification banner (VS Code style) */}
@@ -531,12 +595,7 @@ function AppContent() {
           </>
         )}
 
-        {/* Desktop: Claudia Side Panel (always mounted to preserve state) */}
-        {!isMobile && (
-          <div className={isAgentExpanded ? 'contents' : 'hidden'}>
-            <ClaudiaSidePanel />
-          </div>
-        )}
+        {/* Desktop: Claudia is now a floating ball window — no side panel */}
       </div>
 
       {/* Toast notifications */}
@@ -671,6 +730,25 @@ function App() {
           gatewaySecret={gatewaySecret}
         />
       </ThemeProvider>
+    );
+  }
+
+  // Check if this window is the Claudia floating ball
+  if (params.get('claudiaBall')) {
+    return <ClaudiaBallWindow />;
+  }
+
+  // Check if this window is the standalone Claudia chat
+  if (params.get('claudiaChat')) {
+    return (
+      <ClaudiaChatWindow
+        serverUrl={params.get('serverUrl') || ''}
+        authToken={params.get('authToken') || ''}
+        serverId={params.get('serverId') || undefined}
+        serverName={params.get('serverName') || undefined}
+        gatewayUrl={params.get('gatewayUrl') || undefined}
+        gatewaySecret={params.get('gatewaySecret') || undefined}
+      />
     );
   }
 

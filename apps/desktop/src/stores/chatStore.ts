@@ -113,6 +113,7 @@ interface ChatState {
 
   // Usage tracking
   addSessionUsage: (sessionId: string, usage: UsageInfo) => void;
+  clearSessionUsage: (sessionId: string) => void;
 
   // Model override (per session)
   setModelOverride: (sessionId: string, model: string) => void;
@@ -519,6 +520,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
           },
         },
       };
+    }),
+  clearSessionUsage: (sessionId) =>
+    set((state) => {
+      const { [sessionId]: _, ...rest } = state.sessionUsage;
+      return { sessionUsage: rest };
     }),
 
   // Model override (per session)

@@ -225,6 +225,19 @@ body {
   color: hsl(var(--foreground));
 }
 
+html.claudia-chat-window,
+body.claudia-chat-window,
+html.claudia-chat-window #root {
+  width: 100%;
+  height: 100%;
+  background: transparent !important;
+}
+
+body.claudia-chat-window {
+  min-height: 100%;
+  overflow: hidden;
+}
+
 /* Custom scrollbar */
 ::-webkit-scrollbar {
   width: 8px;

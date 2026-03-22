@@ -298,6 +298,21 @@ describe('chatStore', () => {
         latestOutputTokens: 75,
       });
     });
+
+    it('clearSessionUsage removes only the reset session usage', () => {
+      useChatStore.getState().addSessionUsage('session-1', { inputTokens: 100, outputTokens: 50 });
+      useChatStore.getState().addSessionUsage('session-2', { inputTokens: 200, outputTokens: 75 });
+
+      useChatStore.getState().clearSessionUsage('session-1');
+
+      expect(useChatStore.getState().sessionUsage['session-1']).toBeUndefined();
+      expect(useChatStore.getState().sessionUsage['session-2']).toEqual({
+        inputTokens: 200,
+        outputTokens: 75,
+        latestInputTokens: 200,
+        latestOutputTokens: 75,
+      });
+    });
   });
 
   describe('modelOverride (per-session)', () => {

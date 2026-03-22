@@ -293,19 +293,20 @@ export function handleServerMessage(
       break;
 
     case 'permission_request': {
+      const permMsg = msg as import('@my-claudia/shared').PermissionRequestMessage;
       const backendName = ctx.resolveBackendName();
       usePermissionStore.getState().setPendingRequest({
-        requestId: msg.requestId,
-        sessionId: msg.sessionId,
+        requestId: permMsg.requestId,
+        sessionId: permMsg.sessionId,
         serverId,
         backendName,
-        toolName: msg.toolName,
-        detail: msg.detail,
-        matchedRule: msg.matchedRule,
-        timeoutSec: msg.timeoutSeconds,
-        requiresCredential: msg.requiresCredential,
-        credentialHint: msg.credentialHint,
-        aiInitiated: msg.aiInitiated,
+        toolName: permMsg.toolName,
+        detail: permMsg.detail,
+        matchedRule: permMsg.matchedRule,
+        timeoutSec: permMsg.timeoutSeconds,
+        requiresCredential: permMsg.requiresCredential,
+        credentialHint: permMsg.credentialHint,
+        aiInitiated: permMsg.aiInitiated,
       });
       break;
     }

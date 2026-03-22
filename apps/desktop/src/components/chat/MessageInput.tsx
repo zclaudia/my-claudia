@@ -878,7 +878,7 @@ export function MessageInput({
               autoCapitalize="off"
               autoComplete="off"
               rows={1}
-              className={`w-full bg-input border border-border rounded-xl px-4 py-3 text-foreground placeholder-muted-foreground focus:outline-none focus:border-primary/50 focus:shadow-apple-md disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-200 ${
+              className={`w-full bg-input border border-border rounded-xl px-4 py-3 text-foreground placeholder-muted-foreground/60 focus:outline-none focus:border-primary/60 focus:shadow-apple-md disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-200 ${
                 advancedMode
                   ? 'resize-y min-h-[160px] max-h-[40vh] overflow-auto'
                   : 'resize-y min-h-12'
