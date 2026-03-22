@@ -542,6 +542,12 @@ export function handleServerMessage(
       break;
     }
 
+    case 'claudia_message_failed': {
+      const inlineFailed = msg as import('@my-claudia/shared').ClaudiaMessageFailedMessage;
+      useClaudiaStore.getState().failInline(inlineFailed.clientRequestId, inlineFailed.error);
+      break;
+    }
+
     case 'claudia_message_promoted': {
       const inlinePromoted = msg as import('@my-claudia/shared').ClaudiaMessagePromotedMessage;
       const claudiaForPromotion = useClaudiaStore.getState();

@@ -33,8 +33,9 @@ export interface InlineResponse {
   clientRequestId: string;
   input: string;
   streamingText: string;
-  status: 'streaming' | 'completed' | 'promoted';
+  status: 'streaming' | 'completed' | 'failed' | 'promoted';
   responseText?: string;
+  error?: string;
   promotedTaskId?: string;
   createdAt: number;
 }
@@ -74,6 +75,7 @@ interface ClaudiaState {
   startInline: (clientRequestId: string, input: string) => void;
   appendInlineDelta: (clientRequestId: string, content: string) => void;
   completeInline: (clientRequestId: string, responseText: string) => void;
+  failInline: (clientRequestId: string, error: string) => void;
   promoteInline: (clientRequestId: string, taskId: string) => void;
 
   setContinueTaskId: (id: string | null) => void;
@@ -186,6 +188,14 @@ export const useClaudiaStore = create<ClaudiaState>((set) => ({
     inlineResponses: s.inlineResponses.map((r) =>
       r.clientRequestId === clientRequestId
         ? { ...r, status: 'completed' as const, responseText }
+        : r
+    ),
+  })),
+
+  failInline: (clientRequestId, error) => set((s) => ({
+    inlineResponses: s.inlineResponses.map((r) =>
+      r.clientRequestId === clientRequestId
+        ? { ...r, status: 'failed' as const, error }
         : r
     ),
   })),

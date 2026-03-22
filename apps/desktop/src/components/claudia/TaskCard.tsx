@@ -1,11 +1,13 @@
 import { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import { useClaudiaStore } from '../../stores/claudiaStore';
+import { extractThinking } from '../chat/MessageList';
 import type { ClaudiaTask } from '../../stores/claudiaStore';
 import type { ClaudiaTaskStatus } from '@my-claudia/shared';
 
 interface TaskCardProps {
   task: ClaudiaTask;
+  collapsed?: boolean;
   onViewDetails?: (task: ClaudiaTask) => void;
   onContinue?: (task: ClaudiaTask) => void;
   onCancel?: (task: ClaudiaTask) => void;
@@ -30,27 +32,52 @@ function timeAgo(ts: number): string {
   return `${Math.floor(diff / 86_400_000)}d ago`;
 }
 
-export function TaskCard({ task, onViewDetails, onContinue, onCancel }: TaskCardProps) {
+export function TaskCard({ task, collapsed, onViewDetails, onContinue, onCancel }: TaskCardProps) {
   const config = STATUS_CONFIG[task.status];
   const isTerminal = task.status === 'completed' || task.status === 'failed' || task.status === 'cancelled';
   const streamingText = useClaudiaStore((s) => s.streamingText[task.id]);
-  const [expanded, setExpanded] = useState(false);
+  const [manualExpand, setManualExpand] = useState(false);
 
-  // Determine what text to show
-  const displayText = task.responseText || streamingText || null;
+  // Determine what text to show, strip <think> blocks
+  const rawText = task.responseText || streamingText || null;
+  const displayText = rawText ? extractThinking(rawText).content.trim() : null;
+
+  // Collapsed mode: one-line summary
+  if (collapsed && !manualExpand) {
+    const snippet = displayText?.replace(/\n/g, ' ').slice(0, 80) || task.error || '';
+    return (
+      <div
+        className="rounded-lg border border-border bg-card/50 px-3 py-2 flex items-center gap-2 cursor-pointer hover:bg-secondary/30 transition-colors"
+        onClick={() => setManualExpand(true)}
+      >
+        <span className={`w-2 h-2 rounded-full flex-shrink-0 ${config.dot}`} />
+        <span className="text-xs text-muted-foreground truncate flex-1">
+          {snippet || config.label}
+        </span>
+        <span className="text-[10px] text-muted-foreground/50 flex-shrink-0">{timeAgo(task.createdAt)}</span>
+      </div>
+    );
+  }
+
   const isLong = displayText ? displayText.length > COLLAPSE_THRESHOLD : false;
-  const showText = displayText && (expanded || !isLong) ? displayText : displayText?.slice(0, COLLAPSE_THRESHOLD);
+  const showText = displayText && (!isLong || manualExpand) ? displayText : displayText?.slice(0, COLLAPSE_THRESHOLD);
 
   return (
     <div className="rounded-lg border border-border bg-card/50 p-3 space-y-2">
-      {/* Header: status dot + label + time */}
+      {/* Header: status dot + title + label + time */}
       <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
         <span className={`w-2 h-2 rounded-full flex-shrink-0 ${config.dot}`} />
+        {!displayText && <span className="text-foreground text-xs font-medium truncate flex-1">{task.title}</span>}
         <span>{config.label}</span>
         <span>·</span>
         <span>{timeAgo(task.createdAt)}</span>
+        {collapsed && (
+          <button onClick={() => setManualExpand(false)} className="ml-auto text-[10px] text-primary hover:underline">
+            Collapse
+          </button>
+        )}
         {task.toolCount != null && task.toolCount > 0 && (
-          <span className="ml-auto text-[10px] bg-secondary px-1.5 py-0.5 rounded">
+          <span className={`${collapsed ? '' : 'ml-auto'} text-[10px] bg-secondary px-1.5 py-0.5 rounded`}>
             {task.toolCount} tool{task.toolCount > 1 ? 's' : ''}
           </span>
         )}
@@ -69,10 +96,10 @@ export function TaskCard({ task, onViewDetails, onContinue, onCancel }: TaskCard
       {/* Expand/collapse for long responses */}
       {isLong && (
         <button
-          onClick={() => setExpanded(!expanded)}
+          onClick={() => setManualExpand(!manualExpand)}
           className="text-[11px] text-primary hover:underline"
         >
-          {expanded ? 'Show less' : 'Show more...'}
+          {manualExpand ? 'Show less' : 'Show more...'}
         </button>
       )}
 

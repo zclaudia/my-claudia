@@ -410,6 +410,7 @@ export type ServerMessage =
   // Claudia inline messages
   | ClaudiaMessageDeltaMessage
   | ClaudiaMessageCompletedMessage
+  | ClaudiaMessageFailedMessage
   | ClaudiaMessagePromotedMessage
   // Agent Feed
   | AgentFeedUpdateMessage
@@ -1145,6 +1146,13 @@ export interface ClaudiaMessageCompletedMessage {
   type: 'claudia_message_completed';
   clientRequestId: string;
   responseText: string;
+}
+
+// Server → Client: inline response failed before promotion
+export interface ClaudiaMessageFailedMessage {
+  type: 'claudia_message_failed';
+  clientRequestId: string;
+  error: string;
 }
 
 // Server → Client: inline response promoted to background task

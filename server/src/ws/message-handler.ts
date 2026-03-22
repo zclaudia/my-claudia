@@ -103,15 +103,38 @@ export async function handleClientMessage(
     case 'claudia_message': {
       // Inline-first Claudia message: run in foreground, promote to background on tool_use or timeout
       const inlineMsg = message as import('@my-claudia/shared').ClaudiaMessageMessage;
+      const clientReqId = inlineMsg.clientRequestId;
       const inlineInput = inlineMsg.input?.trim();
-      if (!inlineInput || !ctx.orchestrator) break;
+      if (!inlineInput) break;
+      if (!ctx.orchestrator) {
+        sendMessage(client.ws, {
+          type: 'claudia_message_failed',
+          clientRequestId: clientReqId,
+          error: 'Task orchestrator not available',
+        } as import('@my-claudia/shared').ClaudiaMessageFailedMessage);
+        break;
+      }
       if (inlineInput.length > 100_000) {
-        sendMessage(client.ws, { type: 'error', code: 'INPUT_TOO_LARGE', message: 'Input exceeds 100KB limit' } as ErrorMessage);
+        sendMessage(client.ws, {
+          type: 'claudia_message_failed',
+          clientRequestId: clientReqId,
+          error: 'Input exceeds 100KB limit',
+        } as import('@my-claudia/shared').ClaudiaMessageFailedMessage);
         break;
       }
 
-      const clientReqId = inlineMsg.clientRequestId;
       const inlineProjectId = inlineMsg.projectId;
+      const projectRow = inlineProjectId
+        ? db.prepare('SELECT id FROM projects WHERE id = ?').get(inlineProjectId) as { id: string } | undefined
+        : undefined;
+      if (inlineProjectId && !projectRow) {
+        sendMessage(client.ws, {
+          type: 'claudia_message_failed',
+          clientRequestId: clientReqId,
+          error: `Project not found: ${inlineProjectId}`,
+        } as import('@my-claudia/shared').ClaudiaMessageFailedMessage);
+        break;
+      }
       const sessionId = uuidv4();
       const now = Date.now();
 
@@ -254,12 +277,20 @@ export async function handleClientMessage(
               completed = true;
               clearTimeout(promoteTimer);
               clients.delete(wrapperClientId);
+              const errorMsg = evt.error || 'Task failed';
+              if (!promoted) {
+                sendMessage(client.ws, {
+                  type: 'claudia_message_failed',
+                  clientRequestId: clientReqId,
+                  error: errorMsg,
+                } as import('@my-claudia/shared').ClaudiaMessageFailedMessage);
+                return;
+              }
               if (promoted) {
                 const taskRow = db.prepare(
                   'SELECT id FROM orchestrator_tasks WHERE session_id = ? AND initiator = ? ORDER BY created_at DESC LIMIT 1'
                 ).get(sessionId, 'claudia') as { id: string } | undefined;
                 if (taskRow) {
-                  const errorMsg = evt.error || 'Task failed';
                   db.prepare(
                     'UPDATE orchestrator_tasks SET status = ?, error_summary = ?, completed_at = ?, updated_at = ? WHERE id = ?'
                   ).run('failed', errorMsg, Date.now(), Date.now(), taskRow.id);
@@ -272,6 +303,10 @@ export async function handleClientMessage(
                       error: errorMsg,
                       updatedAt: Date.now(),
                     } as import('@my-claudia/shared').ClaudiaTaskUpdateMessage);
+                  }
+                  if (ctx.agentFeedService) {
+                    const feedItem = ctx.agentFeedService.findByTaskId(taskRow.id);
+                    if (feedItem) ctx.agentFeedService.updateItemStatus(feedItem.id, 'failed', { error: errorMsg });
                   }
                 }
               }
@@ -303,10 +338,10 @@ export async function handleClientMessage(
         clearTimeout(promoteTimer);
         clients.delete(wrapperClientId);
         sendMessage(client.ws, {
-          type: 'error',
-          code: 'INLINE_RUN_FAILED',
-          message: err instanceof Error ? err.message : 'Failed to start inline run',
-        } as ErrorMessage);
+          type: 'claudia_message_failed',
+          clientRequestId: clientReqId,
+          error: err instanceof Error ? err.message : 'Failed to start inline run',
+        } as import('@my-claudia/shared').ClaudiaMessageFailedMessage);
       });
 
       break;

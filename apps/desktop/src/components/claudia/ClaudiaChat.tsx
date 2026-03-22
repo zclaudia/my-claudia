@@ -20,11 +20,13 @@ interface UserBubble {
 interface TaskEntry {
   kind: 'task';
   task: ClaudiaTask;
+  createdAt: number;
 }
 
 interface InlineEntry {
   kind: 'inline';
   response: InlineResponseType;
+  createdAt: number;
 }
 
 type FeedItem = UserBubble | TaskEntry | InlineEntry;
@@ -80,15 +82,17 @@ export function ClaudiaChat({ isMobile = false }: ClaudiaChatProps) {
   // Add tasks (oldest first for chronological display)
   for (const task of [...tasks].reverse()) {
     feedItems.push({ kind: 'user', id: `input-${task.id}`, text: task.input, createdAt: task.createdAt });
-    feedItems.push({ kind: 'task', task });
+    feedItems.push({ kind: 'task', task, createdAt: task.createdAt });
   }
 
   // Add inline responses (that haven't been promoted — promoted ones become tasks)
   for (const response of inlineResponses) {
     if (response.status === 'promoted') continue; // TaskCard handles promoted
     feedItems.push({ kind: 'user', id: `input-${response.clientRequestId}`, text: response.input, createdAt: response.createdAt });
-    feedItems.push({ kind: 'inline', response });
+    feedItems.push({ kind: 'inline', response, createdAt: response.createdAt });
   }
+
+  feedItems.sort((a, b) => a.createdAt - b.createdAt);
 
   const scrollToBottom = useCallback(() => {
     endRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -220,29 +224,47 @@ export function ClaudiaChat({ isMobile = false }: ClaudiaChatProps) {
           </div>
         )}
 
-        {feedItems.map((item) => {
-          if (item.kind === 'user') {
-            return (
-              <div key={item.id} className="flex justify-end">
-                <div className="max-w-[85%] rounded-lg bg-primary/10 px-3 py-2">
-                  <p className="text-sm whitespace-pre-wrap">{item.text}</p>
+        {(() => {
+          // Find last response item index — only the latest conversation pair is expanded
+          const lastResponseIdx = feedItems.reduce((acc, item, idx) =>
+            item.kind !== 'user' ? idx : acc, -1);
+
+          return feedItems.map((item, idx) => {
+            // A response and its preceding user bubble are "latest" if the response is the last one
+            const isLatest = idx >= lastResponseIdx - 1;
+            const shouldCollapse = !isLatest && feedItems.length > 3;
+
+            if (item.kind === 'user') {
+              if (shouldCollapse) {
+                return (
+                  <div key={item.id} className="flex justify-end">
+                    <p className="text-[11px] text-muted-foreground/60 truncate max-w-[85%]">{item.text}</p>
+                  </div>
+                );
+              }
+              return (
+                <div key={item.id} className="flex justify-end">
+                  <div className="max-w-[85%] rounded-lg bg-primary/10 px-3 py-2">
+                    <p className="text-sm whitespace-pre-wrap">{item.text}</p>
+                  </div>
                 </div>
-              </div>
+              );
+            }
+            if (item.kind === 'inline') {
+              return <InlineResponse key={item.response.clientRequestId} response={item.response} collapsed={shouldCollapse} />;
+            }
+            return (
+              <TaskCard
+                key={item.task.id}
+                task={item.task}
+                collapsed={shouldCollapse}
+                onViewDetails={handleViewDetails}
+                onContinue={handleContinue}
+                onCancel={handleCancel}
+              />
             );
-          }
-          if (item.kind === 'inline') {
-            return <InlineResponse key={item.response.clientRequestId} response={item.response} />;
-          }
-          return (
-            <TaskCard
-              key={item.task.id}
-              task={item.task}
-              onViewDetails={handleViewDetails}
-              onContinue={handleContinue}
-              onCancel={handleCancel}
-            />
-          );
-        })}
+          });
+        })()}
 
         <div ref={endRef} />
       </div>
