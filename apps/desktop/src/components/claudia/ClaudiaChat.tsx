@@ -44,17 +44,23 @@ export function ClaudiaChat({ isMobile = false }: ClaudiaChatProps) {
   // Hydrate tasks from server on mount / project change
   const hydratedProjectRef = useRef<string | null>(null);
   useEffect(() => {
+    if (!isConnected) {
+      hydratedProjectRef.current = null;
+      return;
+    }
     if (!isConnected || !currentProject) return;
     if (hydratedProjectRef.current === currentProject.id) return;
-    hydratedProjectRef.current = currentProject.id;
 
     fetchApi<{ tasks: ClaudiaTask[] }>(`/api/claudia/tasks?projectId=${encodeURIComponent(currentProject.id)}`)
       .then((res) => {
         if (res.success && res.data?.tasks) {
+          hydratedProjectRef.current = currentProject.id;
           setTasks(res.data.tasks);
         }
       })
-      .catch(() => { /* hydration is best-effort */ });
+      .catch(() => {
+        hydratedProjectRef.current = null;
+      });
   }, [isConnected, currentProject?.id, setTasks]);
 
   // Build feed items — tasks are already newest-first in store

@@ -4,15 +4,15 @@ import { useConnection } from '../../contexts/ConnectionContext';
 import { FeedItem } from './FeedItem';
 
 export function AgentFeedPanel() {
-  const { items, hasMore, loading, unreadCount, setLoading } = useAgentFeedStore();
+  const { items, hasMore, loading, unreadCount, hydrated, setLoading } = useAgentFeedStore();
   const { sendMessage } = useConnection();
 
-  // Load feed on mount — skip if store already has data (from WS push)
+  // Load feed on first mount unless we already hydrated from a list response.
   useEffect(() => {
-    if (useAgentFeedStore.getState().items.length > 0) return;
+    if (hydrated) return;
     setLoading(true);
     sendMessage({ type: 'get_agent_feed', limit: 50 });
-  }, [sendMessage, setLoading]);
+  }, [hydrated, sendMessage, setLoading]);
 
   const loadMore = useCallback(() => {
     if (!hasMore || loading) return;

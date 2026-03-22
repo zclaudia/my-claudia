@@ -62,9 +62,8 @@ export async function handleClientMessage(
       break;
 
     case 'agent_start':
-      // Agent start → reuse run_start with agent session type
-      // The session should already be type='agent'; Context Engine + tool visibility
-      // handle the differences via sessionType detection in run-handler.
+      // Legacy alias — kept for backward compatibility with older clients.
+      // New clients should use claudia_task_submit instead.
       await ctx.handleRunStart(client, {
         type: 'run_start',
         clientRequestId: message.clientRequestId,

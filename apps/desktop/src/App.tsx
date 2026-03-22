@@ -23,7 +23,6 @@ import { useDataLoader } from './hooks/useDataLoader';
 import { useServerStore } from './stores/serverStore';
 import { useGatewayStore, isGatewayTarget } from './stores/gatewayStore';
 import { useProjectStore } from './stores/projectStore';
-import { useAgentStore } from './stores/agentStore';
 import { useClaudiaStore } from './stores/claudiaStore';
 import { useIsMobile } from './hooks/useMediaQuery';
 import { useAndroidBack } from './hooks/useAndroidBack';
@@ -136,7 +135,6 @@ function AppContent() {
   const [dashboardProjectId, setDashboardProjectId] = useState<string | null>(null);
   const { directGatewayUrl, lastActiveBackendId, isConnected: isGatewayConnected, discoveredBackends } = useGatewayStore();
   const { isExpanded: isAgentExpanded, setExpanded: setAgentExpanded } = useClaudiaStore();
-  const hasAgentUnread = useAgentStore((s) => s.hasUnread);
   const disabledBuiltinPanels = usePluginStore((s) => s.disabledBuiltinPanels);
   const feedUnreadCount = useAgentFeedStore((s) => s.unreadCount);
   const [isFeedOpen, setFeedOpen] = useState(false);
@@ -415,7 +413,7 @@ function AppContent() {
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
           </svg>
-          {hasAgentUnread && !isAgentExpanded && (
+          {useClaudiaStore((s) => s.tasks.some(t => t.status === 'running')) && !isAgentExpanded && (
             <span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-primary rounded-full animate-pulse" />
           )}
         </button>

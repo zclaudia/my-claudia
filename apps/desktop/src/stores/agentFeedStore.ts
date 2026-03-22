@@ -6,6 +6,7 @@ interface AgentFeedState {
   unreadCount: number;
   hasMore: boolean;
   loading: boolean;
+  hydrated: boolean;
 
   // Actions
   setFeedList: (items: AgentFeedItem[], hasMore: boolean, unreadCount: number, append?: boolean) => void;
@@ -19,10 +20,11 @@ export const useAgentFeedStore = create<AgentFeedState>((set) => ({
   unreadCount: 0,
   hasMore: false,
   loading: false,
+  hydrated: false,
 
   setFeedList: (items, hasMore, unreadCount, append = false) => set((state) => {
     if (!append) {
-      return { items, hasMore, unreadCount };
+      return { items, hasMore, unreadCount, hydrated: true };
     }
 
     const merged = [...state.items];
@@ -33,7 +35,7 @@ export const useAgentFeedStore = create<AgentFeedState>((set) => ({
       }
     }
 
-    return { items: merged, hasMore, unreadCount };
+    return { items: merged, hasMore, unreadCount, hydrated: true };
   }),
 
   upsertItem: (item) => set((state) => {

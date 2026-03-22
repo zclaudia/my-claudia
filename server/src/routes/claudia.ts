@@ -41,11 +41,12 @@ export function createClaudiaRoutes(db: Database.Database): Router {
       const limit = req.query.limit ? parseInt(req.query.limit as string, 10) : 50;
 
       const rows = db.prepare(
-        `SELECT id, parent_task_id, project_id, session_id, status, task,
-                result_summary, error_summary, created_at, completed_at
-         FROM orchestrator_tasks
-         WHERE project_id = ? AND kind = 'agent'
-         ORDER BY created_at DESC
+        `SELECT t.id, t.parent_task_id, t.project_id, t.session_id, t.status, t.task,
+                t.result_summary, t.error_summary, t.created_at, t.completed_at
+         FROM orchestrator_tasks t
+         INNER JOIN agent_feed af ON af.task_id = t.id
+         WHERE t.project_id = ? AND t.kind = 'agent' AND af.source = 'manual'
+         ORDER BY t.created_at DESC
          LIMIT ?`
       ).all(projectId, limit) as TaskRow[];
 
