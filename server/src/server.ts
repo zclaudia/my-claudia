@@ -70,8 +70,7 @@ function buildStateHeartbeat(): StateHeartbeatMessage {
 
 function buildClaudiaTaskSnapshot(): import('@my-claudia/shared').ClaudiaTaskSnapshotMessage | null {
   const orch = taskOrchestrator;
-  const feed = agentFeedService;
-  if (!orch || !feed) return null;
+  if (!orch) return null;
 
   const collectTasks = (parentId?: string): import('./orchestration/types.js').OrchestratorTask[] => {
     const direct = orch.listTasks(parentId);
@@ -84,7 +83,7 @@ function buildClaudiaTaskSnapshot(): import('@my-claudia/shared').ClaudiaTaskSna
       id: task.id,
       sessionId: task.sessionId,
       input: task.task,
-      title: feed.findByTaskId(task.id)?.title || task.task.trim().replace(/\s+/g, ' ').slice(0, 80) || 'Claudia Task',
+      title: task.task.trim().replace(/\s+/g, ' ').slice(0, 80) || 'Claudia Task',
       status: task.status as import('@my-claudia/shared').ClaudiaTaskStatus,
       summary: task.resultSummary,
       error: task.errorSummary,

@@ -86,6 +86,7 @@ export interface ExternalTaskSync {
 
 export interface TaskOrchestrator {
   // Core operations (agent tasks)
+  getTask(taskId: string): OrchestratorTask | undefined;
   spawnTask(parentId: string | null, config: SpawnTaskConfig): Promise<string>;
   steerTask(taskId: string, instruction: string): Promise<void>;
   killTask(taskId: string): Promise<void>;

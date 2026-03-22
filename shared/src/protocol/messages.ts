@@ -1040,7 +1040,7 @@ export interface AgentCancelMessage {
 // Claudia Task messages
 // ============================================
 
-export type ClaudiaTaskStatus = 'queued' | 'running' | 'completed' | 'failed' | 'cancelled';
+export type ClaudiaTaskStatus = 'queued' | 'running' | 'waiting' | 'completed' | 'failed' | 'cancelled';
 
 // Client → Server: submit a new Claudia task
 export interface ClaudiaTaskSubmitMessage {

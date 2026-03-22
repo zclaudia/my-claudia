@@ -127,8 +127,7 @@ export function ClaudiaChat({ isMobile = false }: ClaudiaChatProps) {
       });
     }
 
-    setTimeout(scrollToBottom, 100);
-  }, [addTask, currentProject, continueTask, isConnected, scrollToBottom, setContinueTaskId, wsSendMessage]);
+  }, [addTask, currentProject, continueTask, isConnected, setContinueTaskId, wsSendMessage]);
 
   const handleViewDetails = useCallback((task: ClaudiaTask) => {
     if (!task.sessionId) return;

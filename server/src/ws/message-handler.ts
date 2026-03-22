@@ -38,15 +38,6 @@ export async function handleClientMessage(
   ctx: MessageHandlerContext,
   termMgr?: TerminalManager,
 ): Promise<void> {
-  const collectOrchestratorTasks = (): import('../orchestration/types.js').OrchestratorTask[] => {
-    if (!ctx.orchestrator) return [];
-    const collect = (parentId?: string): import('../orchestration/types.js').OrchestratorTask[] => {
-      const direct = ctx.orchestrator!.listTasks(parentId);
-      return direct.flatMap((task) => [task, ...collect(task.id)]);
-    };
-    return collect();
-  };
-
   switch (message.type) {
     case 'auth':
       // Auth is handled in the ws.on('message') handler before this function
@@ -115,6 +106,19 @@ export async function handleClientMessage(
       }
       const taskInput = message.input?.trim();
       if (!taskInput) break;
+      // Input length limit: 100KB
+      if (taskInput.length > 100_000) {
+        sendMessage(client.ws, { type: 'error', code: 'INPUT_TOO_LARGE', message: 'Task input exceeds 100KB limit' } as ErrorMessage);
+        break;
+      }
+      // Validate projectId exists
+      const projectRow = message.projectId
+        ? db.prepare('SELECT id FROM projects WHERE id = ?').get(message.projectId) as { id: string } | undefined
+        : undefined;
+      if (message.projectId && !projectRow) {
+        sendMessage(client.ws, { type: 'error', code: 'PROJECT_NOT_FOUND', message: `Project not found: ${message.projectId}` } as ErrorMessage);
+        break;
+      }
       const title = taskInput.replace(/\s+/g, ' ').slice(0, 80);
       try {
         const taskId = await ctx.orchestrator.spawnTask(null, {
@@ -125,8 +129,7 @@ export async function handleClientMessage(
           feed: { source: 'manual', title },
         });
         // Look up the spawned task to get its sessionId
-        const tasks = collectOrchestratorTasks();
-        const spawnedTask = tasks.find(t => t.id === taskId);
+        const spawnedTask = ctx.orchestrator.getTask(taskId);
         sendMessage(client.ws, {
           type: 'claudia_task_created',
           clientRequestId: message.clientRequestId,
@@ -154,7 +157,7 @@ export async function handleClientMessage(
       const continueInput = message.input?.trim();
       if (!continueInput) break;
 
-      const parentTask = collectOrchestratorTasks().find((task) => task.id === message.taskId);
+      const parentTask = ctx.orchestrator.getTask(message.taskId);
       if (!parentTask) {
         sendMessage(client.ws, {
           type: 'error',
@@ -173,7 +176,7 @@ export async function handleClientMessage(
           initiator: 'claudia',
           feed: { source: 'manual', title },
         });
-        const spawnedTask = collectOrchestratorTasks().find((task) => task.id === taskId);
+        const spawnedTask = ctx.orchestrator.getTask(taskId);
         sendMessage(client.ws, {
           type: 'claudia_task_created',
           clientRequestId: message.clientRequestId,

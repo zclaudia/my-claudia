@@ -44,7 +44,7 @@ export interface TaskOrchestratorDeps {
       summary?: string;
       error?: string;
     }) => void;
-    findByTaskId: (taskId: string) => { id: string } | undefined;
+    findByTaskId: (taskId: string) => { id: string; title: string; source: string } | undefined;
   };
   /** Called when a task transitions status — used to broadcast claudia_task_update */
   onTaskStatusChange?: (task: OrchestratorTask) => void;
@@ -166,10 +166,24 @@ export function createTaskOrchestrator(deps: TaskOrchestratorDeps): TaskOrchestr
 
     const clientId = `orchestrator-${task.id}`;
     const clients = deps.getClients();
+    let settled = false;
 
     function cleanupVirtualClient() {
+      if (settled) return;
+      settled = true;
+      clearTimeout(safetyTimer);
       clients.delete(clientId);
     }
+
+    // Safety timeout: fail the task if it hangs for 30 minutes
+    const VIRTUAL_CLIENT_TIMEOUT_MS = 30 * 60 * 1000;
+    const safetyTimer = setTimeout(() => {
+      if (!settled) {
+        console.warn(`[TaskOrchestrator] Virtual client timeout for task ${task.id}`);
+        cleanupVirtualClient();
+        settleTask(task.id, 'failed', { errorSummary: 'Task timed out (30 minutes)' });
+      }
+    }, VIRTUAL_CLIENT_TIMEOUT_MS);
 
     // Build a virtual client that captures run completion
     const virtualWs = {
@@ -365,6 +379,10 @@ export function createTaskOrchestrator(deps: TaskOrchestratorDeps): TaskOrchestr
 
         waiterSet.add(resolveWaiter);
       });
+    },
+
+    getTask(taskId) {
+      return repo.findById(taskId);
     },
 
     listTasks(parentId) {

@@ -28,6 +28,7 @@ import { usePluginStore } from '../stores/pluginStore';
 import { useFilePushStore } from '../stores/filePushStore';
 import { useBackgroundTaskStore } from '../stores/backgroundTaskStore';
 import { useProcessMonitorStore } from '../stores/processMonitorStore';
+import { useClaudiaStore } from '../stores/claudiaStore';
 import { downloadPushedFile } from './fileDownload';
 import { xtermRegistry } from '../utils/xtermRegistry';
 
@@ -495,76 +496,68 @@ export function handleServerMessage(
 
     case 'claudia_task_created': {
       const taskMsg = msg as import('@my-claudia/shared').ClaudiaTaskCreatedMessage;
-      import('../stores/claudiaStore').then(m => {
-        const store = m.useClaudiaStore.getState();
-        // Reconcile optimistic task (created with clientRequestId as temporary ID)
-        const optimistic = store.tasks.find(t => t.id === taskMsg.clientRequestId);
-        if (optimistic) {
-          // Replace temporary ID with real task ID
-          store.removeTask(taskMsg.clientRequestId);
-          store.addTask({
-            ...optimistic,
-            id: taskMsg.taskId,
-            sessionId: taskMsg.sessionId || null,
-            title: taskMsg.title,
-            status: taskMsg.status,
-            updatedAt: Date.now(),
-          });
-        } else {
-          store.addTask({
-            id: taskMsg.taskId,
-            sessionId: taskMsg.sessionId || null,
-            input: '',
-            title: taskMsg.title,
-            status: taskMsg.status,
-            createdAt: Date.now(),
-            updatedAt: Date.now(),
-          });
-        }
-      });
+      const claudiaStore = useClaudiaStore.getState();
+      const optimistic = claudiaStore.tasks.find(t => t.id === taskMsg.clientRequestId);
+      if (optimistic) {
+        claudiaStore.removeTask(taskMsg.clientRequestId);
+        claudiaStore.addTask({
+          ...optimistic,
+          id: taskMsg.taskId,
+          sessionId: taskMsg.sessionId || null,
+          title: taskMsg.title,
+          status: taskMsg.status,
+          updatedAt: Date.now(),
+        });
+      } else {
+        claudiaStore.addTask({
+          id: taskMsg.taskId,
+          sessionId: taskMsg.sessionId || null,
+          input: '',
+          title: taskMsg.title,
+          status: taskMsg.status,
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+        });
+      }
       break;
     }
 
     case 'claudia_task_snapshot': {
       const snapshotMsg = msg as import('@my-claudia/shared').ClaudiaTaskSnapshotMessage;
-      import('../stores/claudiaStore').then(m => {
-        m.useClaudiaStore.getState().setTasks(
-          [...snapshotMsg.tasks].sort((a, b) => b.createdAt - a.createdAt)
-        );
-      });
+      useClaudiaStore.getState().setTasks(
+        [...snapshotMsg.tasks].sort((a, b) => b.createdAt - a.createdAt)
+      );
       break;
     }
 
     case 'claudia_task_update': {
       const updateMsg = msg as import('@my-claudia/shared').ClaudiaTaskUpdateMessage;
-      import('../stores/claudiaStore').then(m => {
-        const store = m.useClaudiaStore.getState();
-        const existing = store.tasks.find((t) => t.id === updateMsg.taskId);
-        if (!existing) {
-          store.addTask({
-            id: updateMsg.taskId,
-            sessionId: updateMsg.sessionId || null,
-            input: updateMsg.input || '',
-            title: updateMsg.title || updateMsg.input || 'Claudia Task',
-            status: updateMsg.status,
-            createdAt: updateMsg.createdAt || Date.now(),
-            updatedAt: updateMsg.updatedAt || Date.now(),
-            ...(updateMsg.summary ? { summary: updateMsg.summary } : {}),
-            ...(updateMsg.error ? { error: updateMsg.error } : {}),
-          });
-          return;
-        }
-
-        store.updateTask(updateMsg.taskId, {
+      const claudiaStoreForUpdate = useClaudiaStore.getState();
+      const existing = claudiaStoreForUpdate.tasks.find((t) => t.id === updateMsg.taskId);
+      if (!existing) {
+        claudiaStoreForUpdate.addTask({
+          id: updateMsg.taskId,
+          sessionId: updateMsg.sessionId || null,
+          input: updateMsg.input || '',
+          title: updateMsg.title || updateMsg.input || 'Claudia Task',
           status: updateMsg.status,
-          ...(updateMsg.sessionId ? { sessionId: updateMsg.sessionId } : {}),
-          ...(updateMsg.input ? { input: updateMsg.input } : {}),
-          ...(updateMsg.title ? { title: updateMsg.title } : {}),
-          ...(updateMsg.createdAt ? { createdAt: updateMsg.createdAt } : {}),
-          ...(updateMsg.updatedAt ? { updatedAt: updateMsg.updatedAt } : {}),
+          createdAt: updateMsg.createdAt || Date.now(),
+          updatedAt: updateMsg.updatedAt || Date.now(),
           ...(updateMsg.summary ? { summary: updateMsg.summary } : {}),
           ...(updateMsg.error ? { error: updateMsg.error } : {}),
         });
+        break;
+      }
+
+      claudiaStoreForUpdate.updateTask(updateMsg.taskId, {
+        status: updateMsg.status,
+        ...(updateMsg.sessionId ? { sessionId: updateMsg.sessionId } : {}),
+        ...(updateMsg.input ? { input: updateMsg.input } : {}),
+        ...(updateMsg.title ? { title: updateMsg.title } : {}),
+        ...(updateMsg.createdAt ? { createdAt: updateMsg.createdAt } : {}),
+        ...(updateMsg.updatedAt ? { updatedAt: updateMsg.updatedAt } : {}),
+        ...(updateMsg.summary ? { summary: updateMsg.summary } : {}),
+        ...(updateMsg.error ? { error: updateMsg.error } : {}),
       });
       break;
     }

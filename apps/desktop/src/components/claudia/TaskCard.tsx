@@ -11,6 +11,7 @@ interface TaskCardProps {
 const STATUS_CONFIG: Record<ClaudiaTaskStatus, { dot: string; label: string }> = {
   queued: { dot: 'bg-muted-foreground', label: 'Queued' },
   running: { dot: 'bg-amber-500 animate-pulse', label: 'Running' },
+  waiting: { dot: 'bg-blue-400 animate-pulse', label: 'Waiting' },
   completed: { dot: 'bg-green-500', label: 'Completed' },
   failed: { dot: 'bg-red-500', label: 'Failed' },
   cancelled: { dot: 'bg-muted-foreground', label: 'Cancelled' },
