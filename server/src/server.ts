@@ -55,6 +55,8 @@ import {
 } from './ws/run-handler.js';
 import { setupRoutesAndServices } from './server-setup.js';
 
+let database: ReturnType<typeof initDatabase> | null = null;
+
 // Thin wrappers for broadcast functions that close over module-level state
 function broadcastHeartbeat(): void {
   _broadcastHeartbeat(connectedClients, activeRuns);
@@ -70,7 +72,18 @@ function buildStateHeartbeat(): StateHeartbeatMessage {
 
 function buildClaudiaTaskSnapshot(): import('@my-claudia/shared').ClaudiaTaskSnapshotMessage | null {
   const orch = taskOrchestrator;
-  if (!orch) return null;
+  if (!orch || !database) return null;
+
+  const getLastAssistantMessage = database.prepare(
+    `SELECT content FROM messages
+     WHERE session_id = ? AND role = 'assistant'
+     ORDER BY created_at DESC LIMIT 1`
+  );
+  const getToolCount = database.prepare(
+    `SELECT COUNT(*) as count
+     FROM tool_call_records
+     WHERE session_id = ?`
+  );
 
   const collectTasks = (parentId?: string): import('./orchestration/types.js').OrchestratorTask[] => {
     const direct = orch.listTasks(parentId);
@@ -79,17 +92,35 @@ function buildClaudiaTaskSnapshot(): import('@my-claudia/shared').ClaudiaTaskSna
 
   const tasks = collectTasks()
     .filter((task) => task.initiator === 'claudia')
-    .map((task) => ({
-      id: task.id,
-      sessionId: task.sessionId,
-      input: task.task,
-      title: task.task.trim().replace(/\s+/g, ' ').slice(0, 80) || 'Claudia Task',
-      status: task.status as import('@my-claudia/shared').ClaudiaTaskStatus,
-      summary: task.resultSummary,
-      error: task.errorSummary,
-      createdAt: task.createdAt,
-      updatedAt: task.updatedAt,
-    }))
+    .map((task) => {
+      let responseText: string | undefined;
+      let toolCount: number | undefined;
+      if (task.sessionId) {
+        const toolCountRow = getToolCount.get(task.sessionId) as { count: number } | undefined;
+        if (toolCountRow && toolCountRow.count > 0) {
+          toolCount = toolCountRow.count;
+        }
+        if (task.status === 'completed' || task.status === 'failed') {
+          const msgRow = getLastAssistantMessage.get(task.sessionId) as { content: string } | undefined;
+          if (msgRow?.content) {
+            responseText = msgRow.content;
+          }
+        }
+      }
+      return {
+        id: task.id,
+        sessionId: task.sessionId,
+        input: task.task,
+        title: task.task.trim().replace(/\s+/g, ' ').slice(0, 80) || 'Claudia Task',
+        status: task.status as import('@my-claudia/shared').ClaudiaTaskStatus,
+        summary: task.resultSummary,
+        error: task.errorSummary,
+        responseText,
+        toolCount,
+        createdAt: task.createdAt,
+        updatedAt: task.updatedAt,
+      };
+    })
     .sort((a, b) => b.createdAt - a.createdAt);
 
   return {
@@ -159,6 +190,7 @@ export interface ServerContext {
 export async function createServer(): Promise<ServerContext> {
   // Initialize database
   const db = initDatabase();
+  database = db;
 
   // Initialize file store (DB + disk persistence)
   initFileStore(db);

@@ -530,6 +530,12 @@ export function handleServerMessage(
       break;
     }
 
+    case 'claudia_task_delta': {
+      const deltaMsg = msg as import('@my-claudia/shared').ClaudiaTaskDeltaMessage;
+      useClaudiaStore.getState().appendStreamingText(deltaMsg.taskId, deltaMsg.content);
+      break;
+    }
+
     case 'claudia_task_update': {
       const updateMsg = msg as import('@my-claudia/shared').ClaudiaTaskUpdateMessage;
       const claudiaStoreForUpdate = useClaudiaStore.getState();
@@ -545,7 +551,12 @@ export function handleServerMessage(
           updatedAt: updateMsg.updatedAt || Date.now(),
           ...(updateMsg.summary ? { summary: updateMsg.summary } : {}),
           ...(updateMsg.error ? { error: updateMsg.error } : {}),
+          ...(updateMsg.responseText !== undefined ? { responseText: updateMsg.responseText } : {}),
+          ...(updateMsg.toolCount != null ? { toolCount: updateMsg.toolCount } : {}),
         });
+        if (updateMsg.status === 'completed' || updateMsg.status === 'failed' || updateMsg.status === 'cancelled') {
+          claudiaStoreForUpdate.clearStreamingText(updateMsg.taskId);
+        }
         break;
       }
 
@@ -558,7 +569,13 @@ export function handleServerMessage(
         ...(updateMsg.updatedAt ? { updatedAt: updateMsg.updatedAt } : {}),
         ...(updateMsg.summary ? { summary: updateMsg.summary } : {}),
         ...(updateMsg.error ? { error: updateMsg.error } : {}),
+        ...(updateMsg.responseText !== undefined ? { responseText: updateMsg.responseText } : {}),
+        ...(updateMsg.toolCount != null ? { toolCount: updateMsg.toolCount } : {}),
       });
+      // Clear streaming text on completion
+      if (updateMsg.status === 'completed' || updateMsg.status === 'failed' || updateMsg.status === 'cancelled') {
+        claudiaStoreForUpdate.clearStreamingText(updateMsg.taskId);
+      }
       break;
     }
 

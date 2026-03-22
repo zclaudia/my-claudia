@@ -24,12 +24,26 @@ interface ClaudiaTaskResponse {
   status: ClaudiaTaskStatus;
   summary?: string;
   error?: string;
+  responseText?: string;
+  toolCount?: number;
   createdAt: number;
   updatedAt: number;
 }
 
 export function createClaudiaRoutes(db: Database.Database): Router {
   const router = Router();
+
+  // Prepared statement for fetching last assistant message per session
+  const getLastAssistantMessage = db.prepare(
+    `SELECT content FROM messages
+     WHERE session_id = ? AND role = 'assistant'
+     ORDER BY created_at DESC LIMIT 1`
+  );
+  const getToolCount = db.prepare(
+    `SELECT COUNT(*) as count
+     FROM tool_call_records
+     WHERE session_id = ?`
+  );
 
   // GET /api/claudia/tasks?projectId=xxx&limit=50
   router.get('/tasks', (req: Request, res: Response) => {
@@ -53,6 +67,23 @@ export function createClaudiaRoutes(db: Database.Database): Router {
 
       const tasks: ClaudiaTaskResponse[] = rows.map((row) => {
         const snippet = row.task.trim().replace(/\s+/g, ' ').slice(0, 80);
+
+        // For completed tasks with a session, fetch the actual assistant response
+        let responseText: string | undefined;
+        let toolCount: number | undefined;
+        if (row.session_id) {
+          const toolCountRow = getToolCount.get(row.session_id) as { count: number } | undefined;
+          if (toolCountRow && toolCountRow.count > 0) {
+            toolCount = toolCountRow.count;
+          }
+        }
+        if (row.session_id && (row.status === 'completed' || row.status === 'failed')) {
+          const msgRow = getLastAssistantMessage.get(row.session_id) as { content: string } | undefined;
+          if (msgRow?.content) {
+            responseText = msgRow.content;
+          }
+        }
+
         return {
           id: row.id,
           sessionId: row.session_id,
@@ -61,6 +92,8 @@ export function createClaudiaRoutes(db: Database.Database): Router {
           status: row.status as ClaudiaTaskStatus,
           summary: row.result_summary ?? undefined,
           error: row.error_summary ?? undefined,
+          responseText,
+          toolCount,
           createdAt: row.created_at,
           updatedAt: row.updated_at,
         };

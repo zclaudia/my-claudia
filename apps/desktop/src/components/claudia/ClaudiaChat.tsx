@@ -29,7 +29,7 @@ interface ClaudiaChatProps {
 
 export function ClaudiaChat({ isMobile = false }: ClaudiaChatProps) {
   const { sendMessage: wsSendMessage, isConnected } = useConnection();
-  const { selectedSessionId, sessions, projects } = useProjectStore();
+  const { selectedSessionId, selectedProjectId, sessions, projects } = useProjectStore();
   const tasks = useClaudiaStore((s) => s.tasks);
   const addTask = useClaudiaStore((s) => s.addTask);
   const continueTaskId = useClaudiaStore((s) => s.continueTaskId);
@@ -39,7 +39,10 @@ export function ClaudiaChat({ isMobile = false }: ClaudiaChatProps) {
 
   const setTasks = useClaudiaStore((s) => s.setTasks);
   const currentSession = sessions.find((s) => s.id === selectedSessionId);
-  const currentProject = currentSession ? projects.find((p) => p.id === currentSession.projectId) : null;
+  // Resolve project: prefer session's project, fall back to selected project
+  const currentProject = (currentSession ? projects.find((p) => p.id === currentSession.projectId) : null)
+    ?? (selectedProjectId ? projects.find((p) => p.id === selectedProjectId) : null)
+    ?? projects[0] ?? null;
 
   // Hydrate tasks from server on mount / project change
   const hydratedProjectRef = useRef<string | null>(null);

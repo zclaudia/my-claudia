@@ -1,3 +1,6 @@
+import { useState } from 'react';
+import ReactMarkdown from 'react-markdown';
+import { useClaudiaStore } from '../../stores/claudiaStore';
 import type { ClaudiaTask } from '../../stores/claudiaStore';
 import type { ClaudiaTaskStatus } from '@my-claudia/shared';
 
@@ -17,6 +20,8 @@ const STATUS_CONFIG: Record<ClaudiaTaskStatus, { dot: string; label: string }> =
   cancelled: { dot: 'bg-muted-foreground', label: 'Cancelled' },
 };
 
+const COLLAPSE_THRESHOLD = 300;
+
 function timeAgo(ts: number): string {
   const diff = Date.now() - ts;
   if (diff < 60_000) return 'just now';
@@ -28,28 +33,61 @@ function timeAgo(ts: number): string {
 export function TaskCard({ task, onViewDetails, onContinue, onCancel }: TaskCardProps) {
   const config = STATUS_CONFIG[task.status];
   const isTerminal = task.status === 'completed' || task.status === 'failed' || task.status === 'cancelled';
+  const streamingText = useClaudiaStore((s) => s.streamingText[task.id]);
+  const [expanded, setExpanded] = useState(false);
+
+  // Determine what text to show
+  const displayText = task.responseText || streamingText || null;
+  const isLong = displayText ? displayText.length > COLLAPSE_THRESHOLD : false;
+  const showText = displayText && (expanded || !isLong) ? displayText : displayText?.slice(0, COLLAPSE_THRESHOLD);
 
   return (
     <div className="rounded-lg border border-border bg-card/50 p-3 space-y-2">
-      {/* Header: status dot + title + time */}
-      <div className="flex items-start gap-2">
-        <span className={`mt-1.5 w-2 h-2 rounded-full flex-shrink-0 ${config.dot}`} />
-        <div className="flex-1 min-w-0">
-          <p className="text-sm font-medium truncate">{task.title}</p>
-          <p className="text-[10px] text-muted-foreground">{timeAgo(task.createdAt)}</p>
-        </div>
+      {/* Header: status dot + label + time */}
+      <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
+        <span className={`w-2 h-2 rounded-full flex-shrink-0 ${config.dot}`} />
+        <span>{config.label}</span>
+        <span>·</span>
+        <span>{timeAgo(task.createdAt)}</span>
+        {task.toolCount != null && task.toolCount > 0 && (
+          <span className="ml-auto text-[10px] bg-secondary px-1.5 py-0.5 rounded">
+            {task.toolCount} tool{task.toolCount > 1 ? 's' : ''}
+          </span>
+        )}
       </div>
 
-      {/* Summary or error */}
-      {task.summary && (
-        <p className="text-xs text-muted-foreground line-clamp-2 pl-4">{task.summary}</p>
+      {/* Response content */}
+      {showText && (
+        <div className="text-sm prose prose-sm dark:prose-invert max-w-none prose-p:my-1 prose-pre:my-1">
+          <ReactMarkdown>{showText}</ReactMarkdown>
+          {task.status === 'running' && streamingText && (
+            <span className="inline-block w-1.5 h-4 bg-foreground/60 animate-pulse ml-0.5 align-text-bottom" />
+          )}
+        </div>
       )}
+
+      {/* Expand/collapse for long responses */}
+      {isLong && (
+        <button
+          onClick={() => setExpanded(!expanded)}
+          className="text-[11px] text-primary hover:underline"
+        >
+          {expanded ? 'Show less' : 'Show more...'}
+        </button>
+      )}
+
+      {/* Error display */}
       {task.error && (
-        <p className="text-xs text-red-400 line-clamp-2 pl-4">{task.error}</p>
+        <p className="text-xs text-red-400 line-clamp-3">{task.error}</p>
+      )}
+
+      {/* Queued state — no content yet */}
+      {task.status === 'queued' && !displayText && (
+        <p className="text-xs text-muted-foreground/60 italic">Waiting to start...</p>
       )}
 
       {/* Actions */}
-      <div className="flex items-center gap-2 pl-4">
+      <div className="flex items-center gap-2">
         {task.sessionId && (
           <button
             onClick={() => onViewDetails?.(task)}

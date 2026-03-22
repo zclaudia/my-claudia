@@ -47,7 +47,9 @@ export interface TaskOrchestratorDeps {
     findByTaskId: (taskId: string) => { id: string; title: string; source: string } | undefined;
   };
   /** Called when a task transitions status — used to broadcast claudia_task_update */
-  onTaskStatusChange?: (task: OrchestratorTask) => void;
+  onTaskStatusChange?: (task: OrchestratorTask, extra?: { responseText?: string; toolCount?: number }) => void;
+  /** Called when a running task emits streamed text */
+  onTaskDelta?: (taskId: string, content: string) => void;
 }
 
 export function createTaskOrchestrator(deps: TaskOrchestratorDeps): TaskOrchestrator {
@@ -119,17 +121,23 @@ export function createTaskOrchestrator(deps: TaskOrchestratorDeps): TaskOrchestr
   function settleTask(taskId: string, status: 'completed' | 'failed' | 'cancelled', extra?: {
     resultSummary?: string;
     errorSummary?: string;
+    responseText?: string;
+    toolCount?: number;
   }): void {
     repo.updateStatus(taskId, status, {
       completedAt: Date.now(),
-      ...extra,
+      resultSummary: extra?.resultSummary,
+      errorSummary: extra?.errorSummary,
     });
     const task = repo.findById(taskId);
     if (task) {
       syncFeedStatus(task, status, extra);
       feedOverrides.delete(task.id);
       resolveWaiters(task);
-      deps.onTaskStatusChange?.(task);
+      deps.onTaskStatusChange?.(task, {
+        responseText: extra?.responseText,
+        toolCount: extra?.toolCount,
+      });
     }
   }
 
@@ -185,17 +193,29 @@ export function createTaskOrchestrator(deps: TaskOrchestratorDeps): TaskOrchestr
       }
     }, VIRTUAL_CLIENT_TIMEOUT_MS);
 
-    // Build a virtual client that captures run completion
+    // Build a virtual client that captures run completion + streaming content
+    let fullContent = '';
+    let toolCount = 0;
+
     const virtualWs = {
       readyState: 1,
       send: (data: string) => {
         try {
           const msg = JSON.parse(data);
-          if (msg.type === 'run_completed') {
+          if (msg.type === 'delta') {
+            const text = msg.content || '';
+            fullContent += text;
+            deps.onTaskDelta?.(task.id, text);
+          } else if (msg.type === 'tool_use') {
+            toolCount++;
+          } else if (msg.type === 'run_completed') {
             cleanupVirtualClient();
-            // Extract summary from run_completed message if available
-            const summary = msg.summary || msg.result?.summary || 'Task completed successfully';
-            settleTask(task.id, 'completed', { resultSummary: summary });
+            const summary = fullContent.slice(0, 200) || 'Task completed';
+            settleTask(task.id, 'completed', {
+              resultSummary: summary,
+              responseText: fullContent,
+              toolCount,
+            });
           } else if (msg.type === 'run_failed') {
             cleanupVirtualClient();
             const errorMsg = msg.error || 'Task failed';

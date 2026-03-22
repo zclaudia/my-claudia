@@ -23,6 +23,8 @@ export interface ClaudiaTask {
   status: ClaudiaTaskStatus;
   summary?: string;
   error?: string;
+  responseText?: string;   // Full assistant response
+  toolCount?: number;
   createdAt: number;
   updatedAt: number;
 }
@@ -35,6 +37,9 @@ interface ClaudiaState {
 
   // Tasks
   tasks: ClaudiaTask[];
+
+  // Streaming text for running tasks
+  streamingText: Record<string, string>;
 
   // Continue mode
   continueTaskId: string | null;
@@ -50,6 +55,8 @@ interface ClaudiaState {
   updateTask: (taskId: string, updates: Partial<ClaudiaTask>) => void;
   removeTask: (taskId: string) => void;
 
+  appendStreamingText: (taskId: string, content: string) => void;
+  clearStreamingText: (taskId: string) => void;
   setContinueTaskId: (id: string | null) => void;
   clearTasks: () => void;
   reset: () => void;
@@ -60,6 +67,7 @@ export const useClaudiaStore = create<ClaudiaState>((set) => ({
   claudiaSessionId: null,
   lastViewedAt: loadLastViewedAt(),
   tasks: [],
+  streamingText: {},
   continueTaskId: null,
 
   toggleExpanded: () => set((s) => {
@@ -92,7 +100,14 @@ export const useClaudiaStore = create<ClaudiaState>((set) => ({
   }),
 
   setTasks: (tasks) => set((s) => {
-    const normalizedTasks = tasks.map((task) => ({ ...task, updatedAt: task.updatedAt || task.createdAt }));
+    const normalizedTasks = tasks.map((task) => {
+      const existing = s.tasks.find((current) => current.id === task.id);
+      return {
+        ...existing,
+        ...task,
+        updatedAt: task.updatedAt || task.createdAt,
+      };
+    });
     if (!s.isExpanded) return { tasks: normalizedTasks, continueTaskId: null };
     const latestUpdate = normalizedTasks.reduce((max, task) => Math.max(max, task.updatedAt), s.lastViewedAt);
     persistLastViewedAt(latestUpdate);
@@ -120,6 +135,15 @@ export const useClaudiaStore = create<ClaudiaState>((set) => ({
     tasks: s.tasks.filter((t) => t.id !== taskId),
   })),
 
+  appendStreamingText: (taskId, content) => set((s) => ({
+    streamingText: { ...s.streamingText, [taskId]: (s.streamingText[taskId] || '') + content },
+  })),
+
+  clearStreamingText: (taskId) => set((s) => {
+    const { [taskId]: _, ...rest } = s.streamingText;
+    return { streamingText: rest };
+  }),
+
   setContinueTaskId: (id) => set({ continueTaskId: id }),
 
   clearTasks: () => set((s) => ({
@@ -134,6 +158,7 @@ export const useClaudiaStore = create<ClaudiaState>((set) => ({
     claudiaSessionId: null,
     lastViewedAt: loadLastViewedAt(),
     tasks: [],
+    streamingText: {},
     continueTaskId: null,
   }),
 }));

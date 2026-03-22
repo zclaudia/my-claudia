@@ -405,6 +405,7 @@ export type ServerMessage =
   | ClaudiaTaskCreatedMessage
   | ClaudiaTaskSnapshotMessage
   | ClaudiaTaskUpdateMessage
+  | ClaudiaTaskDeltaMessage
   // Agent Feed
   | AgentFeedUpdateMessage
   | AgentFeedListMessage
@@ -1079,6 +1080,8 @@ export interface ClaudiaTaskSnapshotTask {
   status: ClaudiaTaskStatus;
   summary?: string;
   error?: string;
+  responseText?: string;
+  toolCount?: number;
   createdAt: number;
   updatedAt: number;
 }
@@ -1101,6 +1104,15 @@ export interface ClaudiaTaskUpdateMessage {
   updatedAt?: number;
   summary?: string;
   error?: string;
+  responseText?: string;   // Full assistant response (on completion)
+  toolCount?: number;      // Number of tool calls made
+}
+
+// Server → Client: streaming text for a running task
+export interface ClaudiaTaskDeltaMessage {
+  type: 'claudia_task_delta';
+  taskId: string;
+  content: string;
 }
 
 // ============================================
