@@ -79,7 +79,7 @@ function buildClaudiaTaskSnapshot(): import('@my-claudia/shared').ClaudiaTaskSna
   };
 
   const tasks = collectTasks()
-    .filter((task) => feed.findByTaskId(task.id)?.source === 'manual')
+    .filter((task) => task.initiator === 'claudia')
     .map((task) => ({
       id: task.id,
       sessionId: task.sessionId,
@@ -89,6 +89,7 @@ function buildClaudiaTaskSnapshot(): import('@my-claudia/shared').ClaudiaTaskSna
       summary: task.resultSummary,
       error: task.errorSummary,
       createdAt: task.createdAt,
+      updatedAt: task.updatedAt,
     }))
     .sort((a, b) => b.createdAt - a.createdAt);
 

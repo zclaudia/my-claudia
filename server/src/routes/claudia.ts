@@ -12,6 +12,7 @@ interface TaskRow {
   result_summary: string | null;
   error_summary: string | null;
   created_at: number;
+  updated_at: number;
   completed_at: number | null;
 }
 
@@ -24,6 +25,7 @@ interface ClaudiaTaskResponse {
   summary?: string;
   error?: string;
   createdAt: number;
+  updatedAt: number;
 }
 
 export function createClaudiaRoutes(db: Database.Database): Router {
@@ -42,10 +44,9 @@ export function createClaudiaRoutes(db: Database.Database): Router {
 
       const rows = db.prepare(
         `SELECT t.id, t.parent_task_id, t.project_id, t.session_id, t.status, t.task,
-                t.result_summary, t.error_summary, t.created_at, t.completed_at
+                t.result_summary, t.error_summary, t.created_at, t.updated_at, t.completed_at
          FROM orchestrator_tasks t
-         INNER JOIN agent_feed af ON af.task_id = t.id
-         WHERE t.project_id = ? AND t.kind = 'agent' AND af.source = 'manual'
+         WHERE t.project_id = ? AND t.kind = 'agent' AND t.initiator = 'claudia'
          ORDER BY t.created_at DESC
          LIMIT ?`
       ).all(projectId, limit) as TaskRow[];
@@ -61,6 +62,7 @@ export function createClaudiaRoutes(db: Database.Database): Router {
           summary: row.result_summary ?? undefined,
           error: row.error_summary ?? undefined,
           createdAt: row.created_at,
+          updatedAt: row.updated_at,
         };
       });
 

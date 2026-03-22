@@ -426,6 +426,7 @@ export function setupRoutesAndServices(deps: SetupDependencies): SetupResult {
     serverPort: getServerPort(),
     agentFeedService,
     onTaskStatusChange: (task) => {
+      if (task.initiator !== 'claudia') return;
       // Broadcast claudia_task_update to all authenticated clients
       const update: import('@my-claudia/shared').ClaudiaTaskUpdateMessage = {
         type: 'claudia_task_update',
@@ -435,6 +436,7 @@ export function setupRoutesAndServices(deps: SetupDependencies): SetupResult {
         input: task.task,
         title: task.task.trim().replace(/\s+/g, ' ').slice(0, 80) || 'Claudia Task',
         createdAt: task.createdAt,
+        updatedAt: task.updatedAt,
         summary: task.resultSummary,
         error: task.errorSummary,
       };

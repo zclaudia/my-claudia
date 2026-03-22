@@ -121,6 +121,7 @@ export async function handleClientMessage(
           task: taskInput,
           projectId: message.projectId,
           providerId: message.providerId,
+          initiator: 'claudia',
           feed: { source: 'manual', title },
         });
         // Look up the spawned task to get its sessionId
@@ -169,6 +170,7 @@ export async function handleClientMessage(
           task: continueInput,
           projectId: parentTask.projectId ?? undefined,
           providerId: parentTask.providerId,
+          initiator: 'claudia',
           feed: { source: 'manual', title },
         });
         const spawnedTask = collectOrchestratorTasks().find((task) => task.id === taskId);

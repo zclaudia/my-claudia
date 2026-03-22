@@ -1080,6 +1080,7 @@ export interface ClaudiaTaskSnapshotTask {
   summary?: string;
   error?: string;
   createdAt: number;
+  updatedAt: number;
 }
 
 // Server → Client: full/partial Claudia task snapshot for state recovery
@@ -1097,6 +1098,7 @@ export interface ClaudiaTaskUpdateMessage {
   input?: string;
   title?: string;
   createdAt?: number;
+  updatedAt?: number;
   summary?: string;
   error?: string;
 }

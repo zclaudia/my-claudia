@@ -1065,6 +1065,25 @@ function runMigrations(db: Database.Database): void {
         ALTER TABLE agent_triggers ADD COLUMN schedule_cron TEXT;
         ALTER TABLE agent_triggers ADD COLUMN schedule_interval_minutes INTEGER;
       `
+    },
+    {
+      name: '049_orchestrator_task_initiator',
+      sql: `
+        ALTER TABLE orchestrator_tasks ADD COLUMN initiator TEXT NOT NULL DEFAULT 'system';
+        UPDATE orchestrator_tasks
+        SET initiator = 'claudia'
+        WHERE id IN (
+          SELECT task_id
+          FROM agent_feed
+          WHERE source = 'manual' AND task_id IS NOT NULL
+        )
+        OR root_task_id IN (
+          SELECT task_id
+          FROM agent_feed
+          WHERE source = 'manual' AND task_id IS NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_orch_tasks_initiator ON orchestrator_tasks(initiator);
+      `
     }
   ];
 
@@ -1084,11 +1103,13 @@ function runMigrations(db: Database.Database): void {
           message.includes('duplicate column name: merged_commit_sha') ||
           message.includes('duplicate column name: schedule_type') ||
           message.includes('duplicate column name: schedule_cron') ||
-          message.includes('duplicate column name: schedule_interval_minutes');
+          message.includes('duplicate column name: schedule_interval_minutes') ||
+          message.includes('duplicate column name: initiator');
         const isKnownLocalPrColumnMigration =
           migration.name === '036_local_pr_status_message' ||
           migration.name === '037_local_pr_merge_commit_sha' ||
-          migration.name === '048_agent_trigger_schedule_fields';
+          migration.name === '048_agent_trigger_schedule_fields' ||
+          migration.name === '049_orchestrator_task_initiator';
 
         if (!(isKnownLocalPrColumnMigration && isDuplicateColumnError)) {
           throw error;

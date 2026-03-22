@@ -95,6 +95,7 @@ export function ClaudiaChat({ isMobile = false }: ClaudiaChatProps) {
         title,
         status: 'queued',
         createdAt: Date.now(),
+        updatedAt: Date.now(),
       });
       wsSendMessage({
         type: 'claudia_task_continue',
@@ -114,6 +115,7 @@ export function ClaudiaChat({ isMobile = false }: ClaudiaChatProps) {
         title,
         status: 'queued',
         createdAt: Date.now(),
+        updatedAt: Date.now(),
       });
 
       wsSendMessage({

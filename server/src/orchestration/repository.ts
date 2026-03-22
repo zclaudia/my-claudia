@@ -4,7 +4,7 @@
 
 import { v4 as uuidv4 } from 'uuid';
 import type Database from 'better-sqlite3';
-import type { OrchestratorTask, TaskStatus, TaskKind } from './types.js';
+import type { OrchestratorTask, TaskStatus, TaskKind, TaskInitiator } from './types.js';
 
 interface TaskRow {
   id: string;
@@ -17,6 +17,7 @@ interface TaskRow {
   status: string;
   task: string;
   external_id: string | null;
+  initiator: string;
   schedule_type: string | null;
   schedule_config: string | null;
   depends_on: string | null;
@@ -43,6 +44,7 @@ function rowToTask(row: TaskRow): OrchestratorTask {
     status: row.status as TaskStatus,
     task: row.task,
     externalId: row.external_id,
+    initiator: row.initiator as TaskInitiator,
     scheduleType: row.schedule_type ?? undefined,
     scheduleConfig: row.schedule_config ?? undefined,
     dependsOn: row.depends_on ? JSON.parse(row.depends_on) : undefined,
@@ -67,14 +69,14 @@ export class TaskRepository {
     this.db.prepare(`
       INSERT INTO orchestrator_tasks (
         id, parent_task_id, root_task_id, project_id, session_id,
-        kind, context_template, status, task, external_id,
+        kind, context_template, status, task, external_id, initiator,
         schedule_type, schedule_config, depends_on, provider_id,
         retry_count, max_retries, result_summary, error_summary,
         created_at, started_at, completed_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       id, task.parentTaskId, task.rootTaskId, task.projectId, task.sessionId,
-      task.kind, task.contextTemplate, task.status, task.task, task.externalId ?? null,
+      task.kind, task.contextTemplate, task.status, task.task, task.externalId ?? null, task.initiator,
       task.scheduleType ?? null, task.scheduleConfig ?? null,
       task.dependsOn ? JSON.stringify(task.dependsOn) : null, task.providerId ?? null,
       0, task.maxRetries ?? 0, task.resultSummary ?? null, task.errorSummary ?? null,

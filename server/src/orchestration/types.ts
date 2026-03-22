@@ -8,6 +8,7 @@
 
 export type TaskKind = 'agent' | 'supervision' | 'workflow' | 'scheduled';
 export type TaskStatus = 'queued' | 'running' | 'waiting' | 'completed' | 'failed' | 'cancelled';
+export type TaskInitiator = 'system' | 'claudia';
 
 export interface OrchestratorTask {
   id: string;
@@ -20,6 +21,7 @@ export interface OrchestratorTask {
   status: TaskStatus;
   task: string;
   externalId: string | null;
+  initiator: TaskInitiator;
   scheduleType?: string;
   scheduleConfig?: string;
   dependsOn?: string[];
@@ -39,6 +41,7 @@ export interface SpawnTaskConfig {
   projectId?: string;
   providerId?: string;
   contextTemplate?: string;
+  initiator?: TaskInitiator;
   feed?: {
     triggerId?: string;
     source: import('@my-claudia/shared').FeedItemSource;

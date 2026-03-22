@@ -508,6 +508,7 @@ export function handleServerMessage(
             sessionId: taskMsg.sessionId || null,
             title: taskMsg.title,
             status: taskMsg.status,
+            updatedAt: Date.now(),
           });
         } else {
           store.addTask({
@@ -517,6 +518,7 @@ export function handleServerMessage(
             title: taskMsg.title,
             status: taskMsg.status,
             createdAt: Date.now(),
+            updatedAt: Date.now(),
           });
         }
       });
@@ -546,6 +548,7 @@ export function handleServerMessage(
             title: updateMsg.title || updateMsg.input || 'Claudia Task',
             status: updateMsg.status,
             createdAt: updateMsg.createdAt || Date.now(),
+            updatedAt: updateMsg.updatedAt || Date.now(),
             ...(updateMsg.summary ? { summary: updateMsg.summary } : {}),
             ...(updateMsg.error ? { error: updateMsg.error } : {}),
           });
@@ -558,6 +561,7 @@ export function handleServerMessage(
           ...(updateMsg.input ? { input: updateMsg.input } : {}),
           ...(updateMsg.title ? { title: updateMsg.title } : {}),
           ...(updateMsg.createdAt ? { createdAt: updateMsg.createdAt } : {}),
+          ...(updateMsg.updatedAt ? { updatedAt: updateMsg.updatedAt } : {}),
           ...(updateMsg.summary ? { summary: updateMsg.summary } : {}),
           ...(updateMsg.error ? { error: updateMsg.error } : {}),
         });

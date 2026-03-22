@@ -16,6 +16,7 @@ function createTestDb(): Database.Database {
       status TEXT NOT NULL,
       task TEXT NOT NULL,
       external_id TEXT,
+      initiator TEXT NOT NULL DEFAULT 'system',
       schedule_type TEXT,
       schedule_config TEXT,
       depends_on TEXT,
