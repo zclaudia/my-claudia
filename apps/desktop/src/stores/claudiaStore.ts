@@ -29,17 +29,30 @@ export interface ClaudiaTask {
   updatedAt: number;
 }
 
+export interface InlineResponse {
+  clientRequestId: string;
+  input: string;
+  streamingText: string;
+  status: 'streaming' | 'completed' | 'promoted';
+  responseText?: string;
+  promotedTaskId?: string;
+  createdAt: number;
+}
+
 interface ClaudiaState {
   // UI state
   isExpanded: boolean;
-  claudiaSessionId: string | null; // hub session for Claudia chat history
+  claudiaSessionId: string | null;
   lastViewedAt: number;
 
-  // Tasks
+  // Tasks (background)
   tasks: ClaudiaTask[];
 
   // Streaming text for running tasks
   streamingText: Record<string, string>;
+
+  // Inline responses
+  inlineResponses: InlineResponse[];
 
   // Continue mode
   continueTaskId: string | null;
@@ -57,6 +70,12 @@ interface ClaudiaState {
 
   appendStreamingText: (taskId: string, content: string) => void;
   clearStreamingText: (taskId: string) => void;
+
+  startInline: (clientRequestId: string, input: string) => void;
+  appendInlineDelta: (clientRequestId: string, content: string) => void;
+  completeInline: (clientRequestId: string, responseText: string) => void;
+  promoteInline: (clientRequestId: string, taskId: string) => void;
+
   setContinueTaskId: (id: string | null) => void;
   clearTasks: () => void;
   reset: () => void;
@@ -68,6 +87,7 @@ export const useClaudiaStore = create<ClaudiaState>((set) => ({
   lastViewedAt: loadLastViewedAt(),
   tasks: [],
   streamingText: {},
+  inlineResponses: [],
   continueTaskId: null,
 
   toggleExpanded: () => set((s) => {
@@ -144,6 +164,40 @@ export const useClaudiaStore = create<ClaudiaState>((set) => ({
     return { streamingText: rest };
   }),
 
+  startInline: (clientRequestId, input) => set((s) => ({
+    inlineResponses: [...s.inlineResponses, {
+      clientRequestId,
+      input,
+      streamingText: '',
+      status: 'streaming' as const,
+      createdAt: Date.now(),
+    }],
+  })),
+
+  appendInlineDelta: (clientRequestId, content) => set((s) => ({
+    inlineResponses: s.inlineResponses.map((r) =>
+      r.clientRequestId === clientRequestId
+        ? { ...r, streamingText: r.streamingText + content }
+        : r
+    ),
+  })),
+
+  completeInline: (clientRequestId, responseText) => set((s) => ({
+    inlineResponses: s.inlineResponses.map((r) =>
+      r.clientRequestId === clientRequestId
+        ? { ...r, status: 'completed' as const, responseText }
+        : r
+    ),
+  })),
+
+  promoteInline: (clientRequestId, taskId) => set((s) => ({
+    inlineResponses: s.inlineResponses.map((r) =>
+      r.clientRequestId === clientRequestId
+        ? { ...r, status: 'promoted' as const, promotedTaskId: taskId }
+        : r
+    ),
+  })),
+
   setContinueTaskId: (id) => set({ continueTaskId: id }),
 
   clearTasks: () => set((s) => ({
@@ -159,6 +213,7 @@ export const useClaudiaStore = create<ClaudiaState>((set) => ({
     lastViewedAt: loadLastViewedAt(),
     tasks: [],
     streamingText: {},
+    inlineResponses: [],
     continueTaskId: null,
   }),
 }));

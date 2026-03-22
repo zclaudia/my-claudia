@@ -7,7 +7,8 @@ import { fetchApi, getBaseUrl, getAuthHeaders } from '../../services/api';
 import { useServerStore } from '../../stores/serverStore';
 import { useGatewayStore, isGatewayTarget } from '../../stores/gatewayStore';
 import { TaskCard } from './TaskCard';
-import type { ClaudiaTask } from '../../stores/claudiaStore';
+import { InlineResponse } from './InlineResponse';
+import type { ClaudiaTask, InlineResponse as InlineResponseType } from '../../stores/claudiaStore';
 
 interface UserBubble {
   kind: 'user';
@@ -21,7 +22,12 @@ interface TaskEntry {
   task: ClaudiaTask;
 }
 
-type FeedItem = UserBubble | TaskEntry;
+interface InlineEntry {
+  kind: 'inline';
+  response: InlineResponseType;
+}
+
+type FeedItem = UserBubble | TaskEntry | InlineEntry;
 
 interface ClaudiaChatProps {
   isMobile?: boolean;
@@ -32,6 +38,8 @@ export function ClaudiaChat({ isMobile = false }: ClaudiaChatProps) {
   const { selectedSessionId, selectedProjectId, sessions, projects } = useProjectStore();
   const tasks = useClaudiaStore((s) => s.tasks);
   const addTask = useClaudiaStore((s) => s.addTask);
+  const inlineResponses = useClaudiaStore((s) => s.inlineResponses);
+  const startInline = useClaudiaStore((s) => s.startInline);
   const continueTaskId = useClaudiaStore((s) => s.continueTaskId);
   const setContinueTaskId = useClaudiaStore((s) => s.setContinueTaskId);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -66,11 +74,20 @@ export function ClaudiaChat({ isMobile = false }: ClaudiaChatProps) {
       });
   }, [isConnected, currentProject?.id, setTasks]);
 
-  // Build feed items — tasks are already newest-first in store
+  // Build feed items — merge tasks + inline responses sorted by createdAt
   const feedItems: FeedItem[] = [];
+
+  // Add tasks (oldest first for chronological display)
   for (const task of [...tasks].reverse()) {
     feedItems.push({ kind: 'user', id: `input-${task.id}`, text: task.input, createdAt: task.createdAt });
     feedItems.push({ kind: 'task', task });
+  }
+
+  // Add inline responses (that haven't been promoted — promoted ones become tasks)
+  for (const response of inlineResponses) {
+    if (response.status === 'promoted') continue; // TaskCard handles promoted
+    feedItems.push({ kind: 'user', id: `input-${response.clientRequestId}`, text: response.input, createdAt: response.createdAt });
+    feedItems.push({ kind: 'inline', response });
   }
 
   const scrollToBottom = useCallback(() => {
@@ -78,8 +95,8 @@ export function ClaudiaChat({ isMobile = false }: ClaudiaChatProps) {
   }, []);
 
   useEffect(() => {
-    if (tasks.length > 0) scrollToBottom();
-  }, [tasks.length, scrollToBottom]);
+    if (feedItems.length > 0) scrollToBottom();
+  }, [feedItems.length, scrollToBottom]);
 
   const continueTask = continueTaskId ? tasks.find((t) => t.id === continueTaskId) : null;
 
@@ -109,28 +126,18 @@ export function ClaudiaChat({ isMobile = false }: ClaudiaChatProps) {
       });
       setContinueTaskId(null);
     } else {
-      // Optimistically add task (will be reconciled by claudia_task_created)
-      const title = content.replace(/\s+/g, ' ').trim().slice(0, 80);
-      addTask({
-        id: clientRequestId, // temporary — server will send real ID
-        sessionId: null,
-        input: content,
-        title,
-        status: 'queued',
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-      });
+      // Start inline — may auto-promote to background task
+      startInline(clientRequestId, content);
 
       wsSendMessage({
-        type: 'claudia_task_submit',
+        type: 'claudia_message',
         clientRequestId,
-        sessionId: '',
         input: content,
         projectId: currentProject.id,
       });
     }
 
-  }, [addTask, currentProject, continueTask, isConnected, setContinueTaskId, wsSendMessage]);
+  }, [addTask, startInline, currentProject, continueTask, isConnected, setContinueTaskId, wsSendMessage]);
 
   const handleViewDetails = useCallback((task: ClaudiaTask) => {
     if (!task.sessionId) return;
@@ -186,11 +193,12 @@ export function ClaudiaChat({ isMobile = false }: ClaudiaChatProps) {
   }, [wsSendMessage]);
 
   const hasRunningTask = tasks.some((t) => t.status === 'running');
+  const hasStreaming = inlineResponses.some((r) => r.status === 'streaming');
 
   const placeholder = continueTask
     ? `Continue: ${continueTask.title}...`
-    : hasRunningTask
-      ? 'Task running... send a new one or continue'
+    : hasRunningTask || hasStreaming
+      ? 'Working... send another request'
       : 'Ask Claudia...';
 
   return (
@@ -221,6 +229,9 @@ export function ClaudiaChat({ isMobile = false }: ClaudiaChatProps) {
                 </div>
               </div>
             );
+          }
+          if (item.kind === 'inline') {
+            return <InlineResponse key={item.response.clientRequestId} response={item.response} />;
           }
           return (
             <TaskCard

@@ -530,6 +530,40 @@ export function handleServerMessage(
       break;
     }
 
+    case 'claudia_message_delta': {
+      const inlineDelta = msg as import('@my-claudia/shared').ClaudiaMessageDeltaMessage;
+      useClaudiaStore.getState().appendInlineDelta(inlineDelta.clientRequestId, inlineDelta.content);
+      break;
+    }
+
+    case 'claudia_message_completed': {
+      const inlineCompleted = msg as import('@my-claudia/shared').ClaudiaMessageCompletedMessage;
+      useClaudiaStore.getState().completeInline(inlineCompleted.clientRequestId, inlineCompleted.responseText);
+      break;
+    }
+
+    case 'claudia_message_promoted': {
+      const inlinePromoted = msg as import('@my-claudia/shared').ClaudiaMessagePromotedMessage;
+      const claudiaForPromotion = useClaudiaStore.getState();
+      const inline = claudiaForPromotion.inlineResponses.find((r) => r.clientRequestId === inlinePromoted.clientRequestId);
+      claudiaForPromotion.promoteInline(inlinePromoted.clientRequestId, inlinePromoted.taskId);
+      // Create a task entry with the accumulated streaming text
+      claudiaForPromotion.addTask({
+        id: inlinePromoted.taskId,
+        sessionId: inlinePromoted.sessionId,
+        input: inline?.input || '',
+        title: (inline?.input || '').replace(/\s+/g, ' ').trim().slice(0, 80),
+        status: 'running',
+        createdAt: inline?.createdAt || Date.now(),
+        updatedAt: Date.now(),
+      });
+      // Transfer accumulated text to streaming
+      if (inline?.streamingText) {
+        claudiaForPromotion.appendStreamingText(inlinePromoted.taskId, inline.streamingText);
+      }
+      break;
+    }
+
     case 'claudia_task_delta': {
       const deltaMsg = msg as import('@my-claudia/shared').ClaudiaTaskDeltaMessage;
       useClaudiaStore.getState().appendStreamingText(deltaMsg.taskId, deltaMsg.content);

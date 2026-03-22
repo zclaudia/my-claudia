@@ -66,6 +66,7 @@ export type ClientMessage =
   // Claudia Tasks
   | ClaudiaTaskSubmitMessage
   | ClaudiaTaskContinueMessage
+  | ClaudiaMessageMessage
   // Agent Feed
   | GetAgentFeedMessage
   | MarkFeedReadMessage;
@@ -406,6 +407,10 @@ export type ServerMessage =
   | ClaudiaTaskSnapshotMessage
   | ClaudiaTaskUpdateMessage
   | ClaudiaTaskDeltaMessage
+  // Claudia inline messages
+  | ClaudiaMessageDeltaMessage
+  | ClaudiaMessageCompletedMessage
+  | ClaudiaMessagePromotedMessage
   // Agent Feed
   | AgentFeedUpdateMessage
   | AgentFeedListMessage
@@ -1113,6 +1118,41 @@ export interface ClaudiaTaskDeltaMessage {
   type: 'claudia_task_delta';
   taskId: string;
   content: string;
+}
+
+// ============================================
+// Claudia inline message flow
+// ============================================
+
+// Client → Server: send a message to Claudia (inline first, may promote to task)
+export interface ClaudiaMessageMessage {
+  type: 'claudia_message';
+  clientRequestId: string;
+  input: string;
+  projectId: string;
+  providerId?: string;
+}
+
+// Server → Client: streaming text for inline response
+export interface ClaudiaMessageDeltaMessage {
+  type: 'claudia_message_delta';
+  clientRequestId: string;
+  content: string;
+}
+
+// Server → Client: inline response completed (no tool use, fast)
+export interface ClaudiaMessageCompletedMessage {
+  type: 'claudia_message_completed';
+  clientRequestId: string;
+  responseText: string;
+}
+
+// Server → Client: inline response promoted to background task
+export interface ClaudiaMessagePromotedMessage {
+  type: 'claudia_message_promoted';
+  clientRequestId: string;
+  taskId: string;
+  sessionId: string;
 }
 
 // ============================================

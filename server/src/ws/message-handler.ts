@@ -1,3 +1,4 @@
+import { v4 as uuidv4 } from 'uuid';
 import type {
   ClientMessage,
   ServerMessage,
@@ -98,6 +99,218 @@ export async function handleClientMessage(
         ctx.agentFeedService.markRead(message.itemIds);
       }
       break;
+
+    case 'claudia_message': {
+      // Inline-first Claudia message: run in foreground, promote to background on tool_use or timeout
+      const inlineMsg = message as import('@my-claudia/shared').ClaudiaMessageMessage;
+      const inlineInput = inlineMsg.input?.trim();
+      if (!inlineInput || !ctx.orchestrator) break;
+      if (inlineInput.length > 100_000) {
+        sendMessage(client.ws, { type: 'error', code: 'INPUT_TOO_LARGE', message: 'Input exceeds 100KB limit' } as ErrorMessage);
+        break;
+      }
+
+      const clientReqId = inlineMsg.clientRequestId;
+      const inlineProjectId = inlineMsg.projectId;
+      const sessionId = uuidv4();
+      const now = Date.now();
+
+      // Create ephemeral agent session
+      db.prepare(`
+        INSERT INTO sessions (id, project_id, name, type, parent_session_id, created_at, updated_at)
+        VALUES (?, ?, ?, 'agent', NULL, ?, ?)
+      `).run(sessionId, inlineProjectId, `Claudia: ${inlineInput.slice(0, 50)}`, now, now);
+
+      let fullContent = '';
+      let promoted = false;
+      let completed = false;
+      const PROMOTE_TIMEOUT_MS = 5_000;
+
+      // Timeout: promote if not completed within 5s
+      const promoteTimer = setTimeout(() => {
+        if (!completed && !promoted) promote();
+      }, PROMOTE_TIMEOUT_MS);
+
+      function promote() {
+        if (promoted || completed) return;
+        promoted = true;
+        clearTimeout(promoteTimer);
+
+        // Create orchestrator task for the already-running session
+        const title = inlineInput.replace(/\s+/g, ' ').slice(0, 80);
+        const taskId = uuidv4();
+        const taskNow = Date.now();
+
+        // Insert task record directly — session already exists and run is active
+        db.prepare(`
+          INSERT INTO orchestrator_tasks (
+            id, parent_task_id, root_task_id, project_id, session_id,
+            kind, context_template, status, task, external_id, initiator,
+            retry_count, max_retries, created_at, started_at, updated_at
+          ) VALUES (?, NULL, ?, ?, ?, 'agent', 'agent', 'running', ?, NULL, 'claudia', 0, 0, ?, ?, ?)
+        `).run(taskId, taskId, inlineProjectId, sessionId, inlineInput, taskNow, taskNow, taskNow);
+
+        // Notify feed service
+        if (ctx.agentFeedService) {
+          ctx.agentFeedService.postItem({
+            taskId,
+            sessionId,
+            projectId: inlineProjectId,
+            source: 'manual',
+            title,
+            summary: inlineInput,
+            status: 'running',
+          });
+        }
+
+        // Send promotion notice to client
+        sendMessage(client.ws, {
+          type: 'claudia_message_promoted',
+          clientRequestId: clientReqId,
+          taskId,
+          sessionId,
+        } as import('@my-claudia/shared').ClaudiaMessagePromotedMessage);
+
+        // From now on, deltas go as claudia_task_delta
+        // Completion will be handled by the wrapper's run_completed handler below
+      }
+
+      // Build intercepting wrapper client
+      const wrapperWs = {
+        readyState: 1,
+        send: (data: string) => {
+          try {
+            const evt = JSON.parse(data);
+            if (evt.type === 'delta') {
+              const text = evt.content || '';
+              fullContent += text;
+              if (!promoted) {
+                sendMessage(client.ws, {
+                  type: 'claudia_message_delta',
+                  clientRequestId: clientReqId,
+                  content: text,
+                } as import('@my-claudia/shared').ClaudiaMessageDeltaMessage);
+              } else {
+                // After promotion, use task delta channel
+                // Find the task ID from the DB
+                const taskRow = db.prepare(
+                  'SELECT id FROM orchestrator_tasks WHERE session_id = ? AND initiator = ? ORDER BY created_at DESC LIMIT 1'
+                ).get(sessionId, 'claudia') as { id: string } | undefined;
+                if (taskRow) {
+                  for (const [, c] of ctx.connectedClients) {
+                    if (c.authenticated) sendMessage(c.ws, {
+                      type: 'claudia_task_delta',
+                      taskId: taskRow.id,
+                      content: text,
+                    } as import('@my-claudia/shared').ClaudiaTaskDeltaMessage);
+                  }
+                }
+              }
+            } else if (evt.type === 'tool_use') {
+              // Tool use detected — promote immediately
+              if (!promoted) promote();
+            } else if (evt.type === 'run_completed') {
+              completed = true;
+              clearTimeout(promoteTimer);
+              if (!promoted) {
+                // Fast inline completion
+                sendMessage(client.ws, {
+                  type: 'claudia_message_completed',
+                  clientRequestId: clientReqId,
+                  responseText: fullContent,
+                } as import('@my-claudia/shared').ClaudiaMessageCompletedMessage);
+              } else {
+                // Promoted task completed — update via orchestrator
+                const taskRow = db.prepare(
+                  'SELECT id FROM orchestrator_tasks WHERE session_id = ? AND initiator = ? ORDER BY created_at DESC LIMIT 1'
+                ).get(sessionId, 'claudia') as { id: string } | undefined;
+                if (taskRow) {
+                  const summary = fullContent.slice(0, 200) || 'Task completed';
+                  db.prepare(
+                    'UPDATE orchestrator_tasks SET status = ?, result_summary = ?, completed_at = ?, updated_at = ? WHERE id = ?'
+                  ).run('completed', summary, Date.now(), Date.now(), taskRow.id);
+                  // Broadcast update
+                  const title = inlineInput.replace(/\s+/g, ' ').slice(0, 80);
+                  for (const [, c] of ctx.connectedClients) {
+                    if (c.authenticated) sendMessage(c.ws, {
+                      type: 'claudia_task_update',
+                      taskId: taskRow.id,
+                      status: 'completed',
+                      sessionId,
+                      title,
+                      responseText: fullContent,
+                      updatedAt: Date.now(),
+                    } as import('@my-claudia/shared').ClaudiaTaskUpdateMessage);
+                  }
+                  // Update feed
+                  if (ctx.agentFeedService) {
+                    const feedItem = ctx.agentFeedService.findByTaskId(taskRow.id);
+                    if (feedItem) ctx.agentFeedService.updateItemStatus(feedItem.id, 'completed', { summary });
+                  }
+                }
+              }
+              clients.delete(wrapperClientId);
+            } else if (evt.type === 'run_failed') {
+              completed = true;
+              clearTimeout(promoteTimer);
+              clients.delete(wrapperClientId);
+              if (promoted) {
+                const taskRow = db.prepare(
+                  'SELECT id FROM orchestrator_tasks WHERE session_id = ? AND initiator = ? ORDER BY created_at DESC LIMIT 1'
+                ).get(sessionId, 'claudia') as { id: string } | undefined;
+                if (taskRow) {
+                  const errorMsg = evt.error || 'Task failed';
+                  db.prepare(
+                    'UPDATE orchestrator_tasks SET status = ?, error_summary = ?, completed_at = ?, updated_at = ? WHERE id = ?'
+                  ).run('failed', errorMsg, Date.now(), Date.now(), taskRow.id);
+                  for (const [, c] of ctx.connectedClients) {
+                    if (c.authenticated) sendMessage(c.ws, {
+                      type: 'claudia_task_update',
+                      taskId: taskRow.id,
+                      status: 'failed',
+                      sessionId,
+                      error: errorMsg,
+                      updatedAt: Date.now(),
+                    } as import('@my-claudia/shared').ClaudiaTaskUpdateMessage);
+                  }
+                }
+              }
+            }
+          } catch { /* ignore */ }
+        },
+      };
+
+      const wrapperClientId = `claudia-inline-${clientReqId}`;
+      const wrapperClient = {
+        id: wrapperClientId,
+        ws: wrapperWs as any,
+        isAlive: true,
+        isLocal: true,
+        authenticated: true,
+      } as ConnectedClient;
+      clients.set(wrapperClientId, wrapperClient);
+
+      // Start the run
+      ctx.handleRunStart(wrapperClient, {
+        type: 'run_start',
+        clientRequestId: clientReqId,
+        sessionId,
+        input: inlineInput,
+        providerId: inlineMsg.providerId,
+        _contextTemplate: 'agent',
+      }, db, {}, clients).catch((err) => {
+        completed = true;
+        clearTimeout(promoteTimer);
+        clients.delete(wrapperClientId);
+        sendMessage(client.ws, {
+          type: 'error',
+          code: 'INLINE_RUN_FAILED',
+          message: err instanceof Error ? err.message : 'Failed to start inline run',
+        } as ErrorMessage);
+      });
+
+      break;
+    }
 
     case 'claudia_task_submit': {
       if (!ctx.orchestrator) {
