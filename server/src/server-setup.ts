@@ -27,6 +27,7 @@ import { createImportRoutes } from './routes/import.js';
 import { createOpenCodeImportRoutes } from './routes/import-opencode.js';
 import { createAgentRoutes } from './routes/agent.js';
 import { createAgentFeedRoutes } from './routes/agent-feed.js';
+import { createClaudiaRoutes } from './routes/claudia.js';
 import { createAgentTriggerRoutes } from './routes/agent-triggers.js';
 import { AgentFeedService } from './domains/agent-feed/service.js';
 import { AgentTriggerService } from './domains/agent-triggers/service.js';
@@ -235,6 +236,7 @@ export function setupRoutesAndServices(deps: SetupDependencies): SetupResult {
     },
   });
   app.use('/api/agent-feed', authMiddleware, createAgentFeedRoutes(agentFeedService));
+  app.use('/api/claudia', authMiddleware, createClaudiaRoutes(db));
   app.use('/api/import', localOnlyMiddleware, createImportRoutes(db));
   app.use('/api/import', localOnlyMiddleware, createOpenCodeImportRoutes(db));
 

@@ -3,6 +3,9 @@ import { MessageInput } from '../chat/MessageInput';
 import { useClaudiaStore } from '../../stores/claudiaStore';
 import { useProjectStore } from '../../stores/projectStore';
 import { useConnection } from '../../contexts/ConnectionContext';
+import { fetchApi, getBaseUrl, getAuthHeaders } from '../../services/api';
+import { useServerStore } from '../../stores/serverStore';
+import { useGatewayStore, isGatewayTarget } from '../../stores/gatewayStore';
 import { TaskCard } from './TaskCard';
 import type { ClaudiaTask } from '../../stores/claudiaStore';
 
@@ -34,8 +37,25 @@ export function ClaudiaChat({ isMobile = false }: ClaudiaChatProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const endRef = useRef<HTMLDivElement>(null);
 
+  const setTasks = useClaudiaStore((s) => s.setTasks);
   const currentSession = sessions.find((s) => s.id === selectedSessionId);
   const currentProject = currentSession ? projects.find((p) => p.id === currentSession.projectId) : null;
+
+  // Hydrate tasks from server on mount / project change
+  const hydratedProjectRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!isConnected || !currentProject) return;
+    if (hydratedProjectRef.current === currentProject.id) return;
+    hydratedProjectRef.current = currentProject.id;
+
+    fetchApi<{ tasks: ClaudiaTask[] }>(`/api/claudia/tasks?projectId=${encodeURIComponent(currentProject.id)}`)
+      .then((res) => {
+        if (res.success && res.data?.tasks) {
+          setTasks(res.data.tasks);
+        }
+      })
+      .catch(() => { /* hydration is best-effort */ });
+  }, [isConnected, currentProject?.id, setTasks]);
 
   // Build feed items — tasks are already newest-first in store
   const feedItems: FeedItem[] = [];
@@ -104,12 +124,30 @@ export function ClaudiaChat({ isMobile = false }: ClaudiaChatProps) {
 
   const handleViewDetails = useCallback((task: ClaudiaTask) => {
     if (!task.sessionId) return;
-    // Pop out session in a new window (desktop only)
     (async () => {
       try {
         const { WebviewWindow } = await import('@tauri-apps/api/webviewWindow');
         const label = `claudia-task-${Date.now()}`;
-        const urlParams = new URLSearchParams({ sessionWindow: task.sessionId! });
+        const serverUrl = getBaseUrl();
+        const authToken = (getAuthHeaders() as Record<string, string>)['Authorization'] || '';
+        const activeServerId = useServerStore.getState().activeServerId;
+        const activeServer = useServerStore.getState().getActiveServer();
+        const serverName = activeServer?.name || '';
+        const gatewayState = useGatewayStore.getState();
+
+        const urlParams = new URLSearchParams({
+          sessionWindow: task.sessionId!,
+          projectId: currentProject?.id || '',
+          serverUrl,
+          authToken,
+          ...(activeServerId ? { serverId: activeServerId } : {}),
+          ...(serverName ? { serverName } : {}),
+        });
+        if (isGatewayTarget(activeServerId) && gatewayState.gatewayUrl && gatewayState.gatewaySecret) {
+          urlParams.set('gatewayUrl', gatewayState.gatewayUrl);
+          urlParams.set('gatewaySecret', gatewayState.gatewaySecret);
+        }
+
         const winUrl = `${window.location.origin}${window.location.pathname}?${urlParams}`;
         new WebviewWindow(label, {
           url: winUrl,
@@ -120,10 +158,10 @@ export function ClaudiaChat({ isMobile = false }: ClaudiaChatProps) {
           dragDropEnabled: false,
         });
       } catch {
-        // Not on desktop Tauri — could open in-app
+        // Not on desktop Tauri — ignore
       }
     })();
-  }, []);
+  }, [currentProject?.id]);
 
   const handleContinue = useCallback((task: ClaudiaTask) => {
     setContinueTaskId(task.id);
