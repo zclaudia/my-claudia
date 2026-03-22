@@ -6,9 +6,10 @@ import type { InlineResponse as InlineResponseType } from '../../stores/claudiaS
 interface InlineResponseProps {
   response: InlineResponseType;
   collapsed?: boolean;
+  onDismiss?: (clientRequestId: string) => void;
 }
 
-export function InlineResponse({ response, collapsed }: InlineResponseProps) {
+export function InlineResponse({ response, collapsed, onDismiss }: InlineResponseProps) {
   const rawText = response.status === 'completed'
     ? response.responseText || ''
     : response.streamingText;
@@ -64,6 +65,16 @@ export function InlineResponse({ response, collapsed }: InlineResponseProps) {
       </div>
       {response.status === 'failed' && response.error && (
         <p className="mt-2 text-xs text-red-400">{response.error}</p>
+      )}
+      {(response.status === 'completed' || response.status === 'failed') && onDismiss && (
+        <div className="mt-1.5 flex justify-end">
+          <button
+            onClick={() => onDismiss(response.clientRequestId)}
+            className="text-[11px] text-muted-foreground hover:text-foreground"
+          >
+            Dismiss
+          </button>
+        </div>
       )}
     </div>
   );

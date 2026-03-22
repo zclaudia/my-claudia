@@ -13,6 +13,7 @@ import {
   DEFAULT_CATEGORY_PROFILES,
   DEFAULT_GLOBAL_GUARDS,
 } from '@my-claudia/shared';
+import * as fs from 'fs';
 import * as path from 'path';
 import { minimatch } from 'minimatch';
 
@@ -21,6 +22,18 @@ import { minimatch } from 'minimatch';
 // ============================================
 
 export type EvaluationResult = 'approve' | 'deny' | 'escalate';
+export type RememberedDecision = 'allow' | 'deny';
+export type MatchedPermissionRule =
+  | 'Always escalate'
+  | 'Custom rule'
+  | 'Sensitive file access'
+  | 'Outside workspace access'
+  | 'Category: fileRead'
+  | 'Category: fileWrite'
+  | 'Category: shellSafe'
+  | 'Category: networkOps'
+  | 'Category: destructiveOps'
+  | 'Category: userQuestions';
 
 // ============================================
 // Shared Utilities
@@ -76,6 +89,71 @@ function isPathWithinRoot(filePath: string, rootPath: string): boolean {
   const resolved = path.resolve(filePath);
   const resolvedRoot = path.resolve(rootPath);
   return resolved.startsWith(resolvedRoot + path.sep) || resolved === resolvedRoot;
+}
+
+function normalizeExternalRoot(filePath: string): string {
+  const resolved = path.resolve(filePath);
+  try {
+    const stat = fs.statSync(resolved);
+    return stat.isDirectory() ? resolved : path.dirname(resolved);
+  } catch {
+    if (filePath.endsWith(path.sep)) return resolved.replace(new RegExp(`${path.sep}+$`), '');
+    return path.dirname(resolved);
+  }
+}
+
+export function getOutsideWorkspacePaths(
+  toolName: string,
+  toolInput: unknown,
+  detail: string,
+  rootPath: string
+): string[] {
+  if (!rootPath) return [];
+
+  const paths: string[] = [];
+  const filePath = extractFilePath(toolInput);
+  if (filePath && !isPathWithinRoot(filePath, rootPath)) {
+    paths.push(path.resolve(filePath));
+  }
+
+  if (isBashLikeTool(toolName)) {
+    const command = extractBashCommand(toolInput, detail);
+    if (command) {
+      for (const p of extractPathsFromCommand(command)) {
+        if (!isPathWithinRoot(p, rootPath)) {
+          paths.push(path.resolve(p));
+        }
+      }
+    }
+  }
+
+  return [...new Set(paths)];
+}
+
+export function getOutsideWorkspaceRootsToRemember(
+  toolName: string,
+  toolInput: unknown,
+  detail: string,
+  rootPath: string
+): string[] {
+  return getOutsideWorkspacePaths(toolName, toolInput, detail, rootPath)
+    .map((filePath) => normalizeExternalRoot(filePath))
+    .filter((dir, index, arr) => arr.indexOf(dir) === index);
+}
+
+export function isOutsideWorkspacePathAllowed(
+  toolName: string,
+  toolInput: unknown,
+  detail: string,
+  rootPath: string,
+  allowedRoots: Iterable<string>
+): boolean {
+  const outsidePaths = getOutsideWorkspacePaths(toolName, toolInput, detail, rootPath);
+  if (outsidePaths.length === 0) return false;
+  const roots = [...allowedRoots].map((root) => path.resolve(root));
+  return outsidePaths.every((outsidePath) => (
+    roots.some((root) => isPathWithinRoot(outsidePath, root))
+  ));
 }
 
 // ============================================
@@ -203,18 +281,607 @@ function actionToResult(action: CategoryAction): EvaluationResult {
 // Remember Key Builder
 // ============================================
 
-/** Build a key for the per-session remember cache */
-export function buildRememberKey(toolName: string, toolInput: unknown, detail: string): string {
-  if (isBashLikeTool(toolName)) {
-    const cmd = extractBashCommand(toolInput, detail);
-    if (cmd) {
-      // Normalize: keep first two tokens (e.g. "git push", "npm install", "curl")
-      const parts = cmd.split(/\s+/);
-      const base = parts.slice(0, Math.min(2, parts.length)).join(' ');
-      return `Bash:${base}`;
+function splitCompoundCommand(command: string): string[] {
+  const segments: string[] = [];
+  let current = '';
+  let inSingle = false;
+  let inDouble = false;
+  let escaped = false;
+  let commandSubstitutionDepth = 0;
+  let backtickSubstitution = false;
+  let groupDepth = 0;
+  let braceDepth = 0;
+  let parameterExpansionDepth = 0;
+
+  for (let i = 0; i < command.length; i += 1) {
+    const ch = command[i];
+    const next = command[i + 1];
+
+    if (escaped) {
+      current += ch;
+      escaped = false;
+      continue;
+    }
+
+    if (ch === '\\') {
+      current += ch;
+      escaped = true;
+      continue;
+    }
+
+    if (!inSingle && ch === '$' && next === '(') {
+      current += '$(';
+      commandSubstitutionDepth += 1;
+      i += 1;
+      continue;
+    }
+
+    if (!inSingle && ch === '$' && next === '{') {
+      current += '${';
+      parameterExpansionDepth += 1;
+      i += 1;
+      continue;
+    }
+
+    if (!inSingle && ch === '`') {
+      current += ch;
+      backtickSubstitution = !backtickSubstitution;
+      continue;
+    }
+
+    if (!inSingle && !inDouble && !backtickSubstitution && commandSubstitutionDepth === 0 && ch === '(') {
+      current += ch;
+      groupDepth += 1;
+      continue;
+    }
+
+    if (!inSingle && !inDouble && !backtickSubstitution && commandSubstitutionDepth === 0 && ch === ')' && groupDepth > 0) {
+      current += ch;
+      groupDepth -= 1;
+      continue;
+    }
+
+    if (!inSingle && !inDouble && !backtickSubstitution && commandSubstitutionDepth === 0 && ch === '{' && command[i - 1] !== '$') {
+      current += ch;
+      braceDepth += 1;
+      continue;
+    }
+
+    if (!inSingle && !inDouble && parameterExpansionDepth > 0 && ch === '}') {
+      current += ch;
+      parameterExpansionDepth -= 1;
+      continue;
+    }
+
+    if (!inSingle && !inDouble && !backtickSubstitution && commandSubstitutionDepth === 0 && parameterExpansionDepth === 0 && ch === '}' && braceDepth > 0) {
+      current += ch;
+      braceDepth -= 1;
+      continue;
+    }
+
+    if (!inSingle && !inDouble && commandSubstitutionDepth > 0 && ch === '(') {
+      current += ch;
+      commandSubstitutionDepth += 1;
+      continue;
+    }
+
+    if (!inSingle && !inDouble && commandSubstitutionDepth > 0 && ch === ')') {
+      current += ch;
+      commandSubstitutionDepth -= 1;
+      continue;
+    }
+
+    if (ch === "'" && !inDouble) {
+      inSingle = !inSingle;
+      current += ch;
+      continue;
+    }
+
+    if (ch === '"' && !inSingle) {
+      inDouble = !inDouble;
+      current += ch;
+      continue;
+    }
+
+    if (!inSingle && !inDouble && !backtickSubstitution && commandSubstitutionDepth === 0 && groupDepth === 0 && braceDepth === 0) {
+      const tripleSep = `${ch}${next || ''}${command[i + 2] || ''}`;
+      const doubleSep = `${ch}${next || ''}`;
+      if (tripleSep === ';;&') {
+        const normalized = current.trim();
+        if (normalized) segments.push(normalized);
+        current = '';
+        i += 2;
+        continue;
+      }
+      if (doubleSep === '&&' || doubleSep === '||' || doubleSep === ';;' || doubleSep === ';&') {
+        const normalized = current.trim();
+        if (normalized) segments.push(normalized);
+        current = '';
+        i += 1;
+        continue;
+      }
+      if (ch === ';' || ch === '|') {
+        const normalized = current.trim();
+        if (normalized) segments.push(normalized);
+        current = '';
+        continue;
+      }
+    }
+
+    current += ch;
+  }
+
+  const tail = current.trim();
+  if (tail) segments.push(tail);
+  return segments;
+}
+
+function extractCommandSubstitutions(command: string): string[] {
+  const substitutions: string[] = [];
+  let inSingle = false;
+  let inDouble = false;
+  let escaped = false;
+
+  for (let i = 0; i < command.length; i += 1) {
+    const ch = command[i];
+    const next = command[i + 1];
+
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+
+    if (ch === '\\') {
+      escaped = true;
+      continue;
+    }
+
+    if (ch === "'" && !inDouble) {
+      inSingle = !inSingle;
+      continue;
+    }
+
+    if (ch === '"' && !inSingle) {
+      inDouble = !inDouble;
+      continue;
+    }
+
+    if (!inSingle && ch === '`') {
+      let inner = '';
+      i += 1;
+      for (; i < command.length; i += 1) {
+        const innerChar = command[i];
+        if (innerChar === '\\') {
+          if (i + 1 < command.length) {
+            inner += innerChar + command[i + 1];
+            i += 1;
+          }
+          continue;
+        }
+        if (innerChar === '`') {
+          break;
+        }
+        inner += innerChar;
+      }
+      const normalizedBacktick = inner.trim();
+      if (normalizedBacktick) {
+        substitutions.push(normalizedBacktick);
+        substitutions.push(...extractCommandSubstitutions(normalizedBacktick));
+      }
+      continue;
+    }
+
+    if (inSingle || (ch !== '$' || next !== '(')) {
+      continue;
+    }
+
+    let depth = 1;
+    let inner = '';
+    i += 2;
+
+    for (; i < command.length; i += 1) {
+      const innerChar = command[i];
+      const innerNext = command[i + 1];
+      inner += innerChar;
+
+      if (innerChar === '\\') {
+        if (i + 1 < command.length) {
+          inner += command[i + 1];
+          i += 1;
+        }
+        continue;
+      }
+
+      if (innerChar === "'" && !inDouble) {
+        inSingle = !inSingle;
+        continue;
+      }
+
+      if (innerChar === '"' && !inSingle) {
+        inDouble = !inDouble;
+        continue;
+      }
+
+      if (inSingle) {
+        continue;
+      }
+
+      if (innerChar === '$' && innerNext === '(') {
+        depth += 1;
+        inner += innerNext;
+        i += 1;
+        continue;
+      }
+
+      if (innerChar === ')') {
+        depth -= 1;
+        if (depth === 0) {
+          inner = inner.slice(0, -1);
+          break;
+        }
+      }
+    }
+
+    const normalized = inner.trim();
+    if (normalized) {
+      substitutions.push(normalized);
+      substitutions.push(...extractCommandSubstitutions(normalized));
     }
   }
-  return toolName;
+
+  return substitutions;
+}
+
+const LEADING_CONTROL_KEYWORDS = /^(?:(?:do|then|else|elif|if|while|until|time)\s+)+/;
+const TRAILING_CONTROL_KEYWORDS = /\s*(?:fi|done|esac)\s*$/;
+const CASE_PREFIX = /^case\b[\s\S]*?\bin\b\s*/;
+const CASE_ARM_PREFIX = /^[^()\s][^()]*\)\s*/;
+const STRUCTURAL_PREFIXES = [
+  /^for\b/,
+  /^while\b/,
+  /^until\b/,
+  /^case\b/,
+  /^select\b/,
+  /^function\b/,
+  /^[A-Za-z_][A-Za-z0-9_]*\s+in\b/,
+];
+
+function normalizeRememberableShellFragment(fragment: string): string | null {
+  const normalized = fragment
+    .trim()
+    .replace(CASE_PREFIX, '')
+    .replace(CASE_ARM_PREFIX, '')
+    .replace(LEADING_CONTROL_KEYWORDS, '')
+    .replace(TRAILING_CONTROL_KEYWORDS, '')
+    .trim();
+
+  if (!normalized) return null;
+  if (STRUCTURAL_PREFIXES.some((pattern) => pattern.test(normalized))) {
+    return null;
+  }
+  return normalized;
+}
+
+function unwrapGroupedFragment(fragment: string): string | null {
+  const normalized = fragment.trim();
+  if (normalized.length < 2) return null;
+
+  const pairs: Array<[string, string]> = [['(', ')'], ['{', '}']];
+  for (const [open, close] of pairs) {
+    if (!normalized.startsWith(open) || !normalized.endsWith(close)) continue;
+
+    let inSingle = false;
+    let inDouble = false;
+    let escaped = false;
+    let depth = 0;
+
+    for (let i = 0; i < normalized.length; i += 1) {
+      const ch = normalized[i];
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+      if (ch === '\\') {
+        escaped = true;
+        continue;
+      }
+      if (ch === "'" && !inDouble) {
+        inSingle = !inSingle;
+        continue;
+      }
+      if (ch === '"' && !inSingle) {
+        inDouble = !inDouble;
+        continue;
+      }
+      if (inSingle || inDouble) continue;
+
+      if (ch === open) depth += 1;
+      if (ch === close) {
+        depth -= 1;
+        if (depth === 0 && i !== normalized.length - 1) {
+          return null;
+        }
+      }
+    }
+
+    if (depth === 0) {
+      return normalized.slice(1, -1).trim();
+    }
+  }
+
+  return null;
+}
+
+function extractFindExecCommands(fragment: string): string[] {
+  const matches = fragment.matchAll(/(?:^|\s)-exec\s+(.+?)(?:\s+(?:\\;|;|\+)|$)/g);
+  return [...matches]
+    .map((match) => match[1]?.trim())
+    .filter((value): value is string => !!value);
+}
+
+function extractXargsCommands(fragment: string): string[] {
+  const tokens = fragment.trim().split(/\s+/);
+  const xargsIndex = tokens.findIndex((token) => token === 'xargs');
+  if (xargsIndex === -1) return [];
+
+  const optionsWithValues = new Set(['-E', '-I', '-L', '-n', '-P', '-d']);
+  let index = xargsIndex + 1;
+
+  while (index < tokens.length) {
+    const token = tokens[index];
+    if (!token.startsWith('-')) break;
+
+    if (token === '-I' || token === '-E' || token === '-L' || token === '-n' || token === '-P' || token === '-d') {
+      index += 2;
+      continue;
+    }
+
+    if ([...optionsWithValues].some((flag) => token.startsWith(flag) && token !== flag)) {
+      index += 1;
+      continue;
+    }
+
+    index += 1;
+  }
+
+  const command = tokens.slice(index).join(' ').trim();
+  return command ? [command] : [];
+}
+
+function extractShellWrapperCommands(fragment: string): string[] {
+  const patterns = [
+    /^(?:nohup\s+)?(?:sudo\s+)?(?:command\s+)?(?:env\s+(?:[A-Za-z_][A-Za-z0-9_]*=(?:'[^']*'|"[^"]*"|\S+)\s+)*)?(?:sh|bash|zsh)\b(?:\s+-[A-Za-z]+)*\s+-[A-Za-z]*c[A-Za-z]*\s+(['"])([\s\S]+)\1/,
+    /\b(?:docker|podman)\s+exec\b(?:\s+\S+)*\s+(?:sh|bash|zsh)\b(?:\s+-[A-Za-z]+)*\s+-c\s+(['"])([\s\S]+)\1/,
+    /^(?:sudo\s+)?ssh\b(?:\s+\S+)*\s+(['"])([\s\S]+)\1/,
+    /\b(?:tmux|screen)\b(?:\s+\S+)*\s+(?:sh|bash|zsh)\b(?:\s+-[A-Za-z]+)*\s+-c\s+(['"])([\s\S]+)\1/,
+    /\btmux\b(?:\s+\S+)*\s+(['"])([\s\S]+)\1/,
+  ];
+
+  for (const pattern of patterns) {
+    const match = fragment.match(pattern);
+    if (match?.[2]) {
+      return [match[2].trim()];
+    }
+  }
+
+  return [];
+}
+
+function extractHeredocCommands(fragment: string): string[] {
+  const match = fragment.match(/^(.*?)(?:\s*<<-?\s*['"]?[A-Za-z_][A-Za-z0-9_]*['"]?)/);
+  if (!match?.[1]) return [];
+  const prefix = match[1].trim();
+  return prefix ? [prefix] : [];
+}
+
+function extractParallelCommands(fragment: string): string[] {
+  const match = fragment.match(/\bparallel\b(?:\s+\S+)*\s+(['"])([\s\S]+?)\1\s+::/);
+  if (!match?.[2]) return [];
+  return [match[2].trim()];
+}
+
+function extractRememberableShellCommands(command: string): string[] {
+  const extracted: string[] = [];
+  for (const fragment of splitCompoundCommand(command)) {
+    for (const substitution of extractCommandSubstitutions(fragment)) {
+      extracted.push(...extractRememberableShellCommands(substitution));
+    }
+    for (const execCommand of extractFindExecCommands(fragment)) {
+      extracted.push(...extractRememberableShellCommands(execCommand));
+    }
+    for (const xargsCommand of extractXargsCommands(fragment)) {
+      extracted.push(...extractRememberableShellCommands(xargsCommand));
+    }
+    for (const wrappedCommand of extractShellWrapperCommands(fragment)) {
+      extracted.push(...extractRememberableShellCommands(wrappedCommand));
+    }
+    for (const heredocCommand of extractHeredocCommands(fragment)) {
+      extracted.push(...extractRememberableShellCommands(heredocCommand));
+    }
+    for (const parallelCommand of extractParallelCommands(fragment)) {
+      extracted.push(...extractRememberableShellCommands(parallelCommand));
+    }
+    const normalized = normalizeRememberableShellFragment(fragment);
+    if (normalized) {
+      const unwrapped = unwrapGroupedFragment(normalized);
+      if (unwrapped) {
+        extracted.push(...extractRememberableShellCommands(unwrapped));
+      } else {
+        extracted.push(normalized);
+      }
+    }
+  }
+  return [...new Set(extracted)];
+}
+
+/** Build stable remember keys for a tool call. */
+export function buildRememberKeys(toolName: string, toolInput: unknown, detail: string): string[] {
+  if (!isBashLikeTool(toolName)) {
+    return [toolName];
+  }
+
+  const cmd = extractBashCommand(toolInput, detail);
+  if (!cmd) {
+    return ['Bash'];
+  }
+
+  const normalized = cmd.trim();
+  const keys = [`Bash:${normalized}`];
+  for (const segment of extractRememberableShellCommands(normalized)) {
+    keys.push(`Bash:${segment}`);
+  }
+
+  return [...new Set(keys)];
+}
+
+/** Backward-compatible single remember key accessor. */
+export function buildRememberKey(toolName: string, toolInput: unknown, detail: string): string {
+  return buildRememberKeys(toolName, toolInput, detail)[0];
+}
+
+export function resolveRememberedDecision(
+  lookup: Pick<Map<string, RememberedDecision>, 'get'>,
+  toolName: string,
+  toolInput: unknown,
+  detail: string
+): RememberedDecision | null {
+  const keys = buildRememberKeys(toolName, toolInput, detail);
+  const exact = lookup.get(keys[0]);
+  if (exact) return exact;
+
+  const segmentKeys = keys.slice(1);
+  if (segmentKeys.length === 0) return null;
+
+  const decisions = segmentKeys
+    .map((key) => lookup.get(key))
+    .filter((decision): decision is RememberedDecision => !!decision);
+
+  if (decisions.length !== segmentKeys.length) {
+    return null;
+  }
+
+  if (decisions.every((decision) => decision === 'allow')) {
+    return 'allow';
+  }
+
+  if (decisions.some((decision) => decision === 'deny')) {
+    return 'deny';
+  }
+
+  return null;
+}
+
+interface PermissionMemoryRow {
+  remember_key: string;
+  decision: RememberedDecision;
+}
+
+interface PermissionMemoryDb {
+  prepare: (sql: string) => {
+    all: (...args: any[]) => any[];
+    run: (...args: any[]) => unknown;
+  };
+}
+
+interface OutsideWorkspaceMemoryRow {
+  allowed_root: string;
+}
+
+export function loadSessionRememberedDecisions(
+  db: PermissionMemoryDb,
+  sessionId: string
+): Map<string, RememberedDecision> {
+  const rows = db.prepare(
+    'SELECT remember_key, decision FROM permission_memories WHERE session_id = ?'
+  ).all(sessionId);
+  return new Map(rows.map((row) => [row.remember_key, row.decision]));
+}
+
+export function persistSessionRememberedDecision(
+  db: PermissionMemoryDb,
+  sessionId: string,
+  toolName: string,
+  toolInput: unknown,
+  detail: string,
+  decision: RememberedDecision
+): void {
+  const now = Date.now();
+  const stmt = db.prepare(`
+    INSERT INTO permission_memories (session_id, remember_key, decision, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?)
+    ON CONFLICT(session_id, remember_key)
+    DO UPDATE SET decision = excluded.decision, updated_at = excluded.updated_at
+  `);
+
+  for (const key of buildRememberKeys(toolName, toolInput, detail)) {
+    stmt.run(sessionId, key, decision, now, now);
+  }
+}
+
+export function loadProjectAllowedOutsideWorkspaceRoots(
+  db: PermissionMemoryDb,
+  projectId: string
+): Set<string> {
+  const rows = db.prepare(
+    'SELECT allowed_root FROM permission_outside_workspace_roots WHERE project_id = ?'
+  ).all(projectId) as OutsideWorkspaceMemoryRow[];
+  return new Set(rows.map((row) => row.allowed_root));
+}
+
+export function persistProjectAllowedOutsideWorkspaceRoots(
+  db: PermissionMemoryDb,
+  projectId: string,
+  roots: string[]
+): void {
+  if (roots.length === 0) return;
+  const now = Date.now();
+  const stmt = db.prepare(`
+    INSERT INTO permission_outside_workspace_roots (project_id, allowed_root, created_at, updated_at)
+    VALUES (?, ?, ?, ?)
+    ON CONFLICT(project_id, allowed_root)
+    DO UPDATE SET updated_at = excluded.updated_at
+  `);
+  for (const root of roots) {
+    stmt.run(projectId, root, now, now);
+  }
+}
+
+export function getMatchedPermissionRule(
+  toolName: string,
+  toolInput: unknown,
+  detail: string,
+  policy: CategoryPermissionPolicy,
+  context?: EvaluationContext
+): MatchedPermissionRule | null {
+  if (!policy.enabled) return null;
+
+  const rootPath = context?.rootPath || process.cwd();
+  const sessionType = context?.sessionType || 'regular';
+
+  if (policy.escalateAlways?.includes(toolName)) {
+    return 'Always escalate';
+  }
+
+  const customResult = evaluateCustomRules(toolName, detail, policy.customRules || []);
+  if (customResult === 'escalate') {
+    return 'Custom rule';
+  }
+
+  if (policy.globalGuards.blockSensitiveFiles && targetsSensitiveFile(toolName, toolInput, detail)) {
+    return 'Sensitive file access';
+  }
+
+  if (policy.globalGuards.blockOutsideWorkspace && targetsOutsideWorkspace(toolName, toolInput, detail, rootPath)) {
+    return 'Outside workspace access';
+  }
+
+  const category = classify(toolName, toolInput, detail);
+  const profile = policy.profiles[sessionType] || policy.profiles.regular;
+  if (profile[category] === 'ask') {
+    return `Category: ${category}`;
+  }
+
+  return null;
 }
 
 // ============================================

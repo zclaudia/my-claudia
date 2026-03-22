@@ -11,6 +11,7 @@ interface TaskCardProps {
   onViewDetails?: (task: ClaudiaTask) => void;
   onContinue?: (task: ClaudiaTask) => void;
   onCancel?: (task: ClaudiaTask) => void;
+  onDismiss?: (task: ClaudiaTask) => void;
 }
 
 const STATUS_CONFIG: Record<ClaudiaTaskStatus, { dot: string; label: string }> = {
@@ -32,7 +33,7 @@ function timeAgo(ts: number): string {
   return `${Math.floor(diff / 86_400_000)}d ago`;
 }
 
-export function TaskCard({ task, collapsed, onViewDetails, onContinue, onCancel }: TaskCardProps) {
+export function TaskCard({ task, collapsed, onViewDetails, onContinue, onCancel, onDismiss }: TaskCardProps) {
   const config = STATUS_CONFIG[task.status];
   const isTerminal = task.status === 'completed' || task.status === 'failed' || task.status === 'cancelled';
   const streamingText = useClaudiaStore((s) => s.streamingText[task.id]);
@@ -137,6 +138,14 @@ export function TaskCard({ task, collapsed, onViewDetails, onContinue, onCancel 
             className="text-[11px] text-red-400 hover:underline"
           >
             Cancel
+          </button>
+        )}
+        {isTerminal && onDismiss && (
+          <button
+            onClick={() => onDismiss(task)}
+            className="text-[11px] text-muted-foreground hover:text-foreground ml-auto"
+          >
+            Dismiss
           </button>
         )}
       </div>

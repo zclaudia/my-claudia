@@ -301,6 +301,7 @@ export function handleServerMessage(
         backendName,
         toolName: msg.toolName,
         detail: msg.detail,
+        matchedRule: msg.matchedRule,
         timeoutSec: msg.timeoutSeconds,
         requiresCredential: msg.requiresCredential,
         credentialHint: msg.credentialHint,
@@ -927,9 +928,25 @@ export function handleServerMessage(
       break;
     }
 
-    case 'plugin_notification':
-      console.log(`[${logTag}] Plugin notification:`, msg.title, msg.body);
+    case 'plugin_notification': {
+      const pluginMsg = msg as import('@my-claudia/shared').PluginNotificationMessage;
+      import('../stores/agentFeedStore').then(m => m.useAgentFeedStore.getState().upsertItem({
+        id: `plugin-${pluginMsg.pluginId}-${Date.now()}`,
+        source: 'trigger',
+        title: pluginMsg.title,
+        summary: pluginMsg.body,
+        status: 'completed',
+        createdAt: Date.now(),
+      }));
+      import('../stores/toastStore').then(m => {
+        m.useToastStore.getState().add({
+          title: pluginMsg.title,
+          message: pluginMsg.body,
+          type: 'info',
+        });
+      });
       break;
+    }
 
     case 'plugin_show_panel':
     case 'plugin_panel_registered':

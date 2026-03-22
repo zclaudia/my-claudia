@@ -75,11 +75,12 @@ export function buildStateHeartbeat(activeRuns: Map<string, ActiveRun>): StateHe
           sessionId: pending.originalRequest.sessionId || run.sessionId,
           toolName: pending.originalRequest.toolName,
           detail: pending.originalRequest.detail,
+          matchedRule: pending.originalRequest.matchedRule,
           timeoutSeconds: pending.originalRequest.timeoutSeconds,
           requiresCredential: pending.originalRequest.requiresCredential,
           credentialHint: pending.originalRequest.credentialHint,
           aiInitiated: pending.originalRequest.aiInitiated,
-        });
+        } as StateHeartbeatMessage['pendingPermissions'][number]);
       }
     }
   }

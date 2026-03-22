@@ -368,40 +368,43 @@ function AppContent() {
           )}
         </div>
 
-        {/* Center section: Server selector or Agent title */}
-        <div className="flex-1 flex items-center justify-start ml-2 md:ml-4 min-w-0">
+        {/* Center section: Server selector + Feed */}
+        <div className="flex-1 flex items-center justify-start ml-2 md:ml-4 min-w-0 gap-2">
           {isMobile && isAgentExpanded ? (
             <div className="flex items-center gap-2">
               <Bot size={16} strokeWidth={1.75} className="text-primary" />
               <span className="font-semibold text-sm text-foreground">Agent</span>
             </div>
           ) : isMobile ? null : (
-            <ServerSelector />
+            <>
+              <ServerSelector />
+              {/* Feed toggle + inline dropdown */}
+              {!disabledBuiltinPanels.includes('agent-feed') && (
+                <div className="relative">
+                  <button
+                    onClick={() => setFeedOpen(!isFeedOpen)}
+                    className={`relative p-1.5 rounded hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors ${
+                      isFeedOpen ? 'bg-secondary text-foreground' : ''
+                    }`}
+                    title={isFeedOpen ? 'Close Notifications' : 'Notifications'}
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+                    </svg>
+                    {feedUnreadCount > 0 && (
+                      <span className="absolute -top-0.5 -right-0.5 min-w-[14px] h-[14px] flex items-center justify-center bg-primary text-primary-foreground text-[9px] font-medium rounded-full px-0.5">
+                        {feedUnreadCount > 99 ? '99+' : feedUnreadCount}
+                      </span>
+                    )}
+                  </button>
+                </div>
+              )}
+            </>
           )}
         </div>
 
         {/* Plugin window buttons */}
         <PluginWindowButtons />
-
-        {/* Feed toggle button */}
-        {!disabledBuiltinPanels.includes('agent-feed') && (
-          <button
-            onClick={() => setFeedOpen(!isFeedOpen)}
-            className={`relative p-1.5 rounded hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors ${
-              isFeedOpen ? 'bg-secondary text-foreground' : ''
-            }`}
-            title={isFeedOpen ? 'Close Feed' : 'Open Feed'}
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
-            </svg>
-            {feedUnreadCount > 0 && (
-              <span className="absolute -top-0.5 -right-0.5 min-w-[14px] h-[14px] flex items-center justify-center bg-primary text-primary-foreground text-[9px] font-medium rounded-full px-0.5">
-                {feedUnreadCount > 99 ? '99+' : feedUnreadCount}
-              </span>
-            )}
-          </button>
-        )}
 
         {/* Agent toggle button */}
         <button
@@ -518,11 +521,11 @@ function AppContent() {
 
         </main>
 
-        {/* Desktop: Feed Panel (slide-over from right) */}
+        {/* Desktop: Feed dropdown panel (anchored below header) */}
         {!isMobile && isFeedOpen && (
           <>
             <div className="fixed inset-0 z-30" onClick={() => setFeedOpen(false)} />
-            <div className="fixed right-0 top-0 bottom-0 w-[380px] z-40 bg-card border-l border-border shadow-lg flex flex-col">
+            <div className="fixed left-1/2 -translate-x-1/2 top-[3.5rem] w-[420px] max-h-[60vh] z-40 bg-card border border-border rounded-lg shadow-lg flex flex-col overflow-hidden">
               <AgentFeedPanel />
             </div>
           </>

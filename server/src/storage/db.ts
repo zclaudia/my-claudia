@@ -1084,6 +1084,36 @@ function runMigrations(db: Database.Database): void {
         );
         CREATE INDEX IF NOT EXISTS idx_orch_tasks_initiator ON orchestrator_tasks(initiator);
       `
+    },
+    {
+      name: '050_permission_memories',
+      sql: `
+        CREATE TABLE IF NOT EXISTS permission_memories (
+          session_id TEXT NOT NULL,
+          remember_key TEXT NOT NULL,
+          decision TEXT CHECK(decision IN ('allow', 'deny')) NOT NULL,
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL,
+          PRIMARY KEY (session_id, remember_key),
+          FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_permission_memories_session_id ON permission_memories(session_id);
+      `
+    },
+    {
+      name: '051_permission_outside_workspace_roots',
+      sql: `
+        CREATE TABLE IF NOT EXISTS permission_outside_workspace_roots (
+          project_id TEXT NOT NULL,
+          allowed_root TEXT NOT NULL,
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL,
+          PRIMARY KEY (project_id, allowed_root),
+          FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_permission_outside_workspace_roots_project_id
+          ON permission_outside_workspace_roots(project_id);
+      `
     }
   ];
 

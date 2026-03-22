@@ -35,12 +35,17 @@ import {
   buildFilePushContext,
 } from '../helpers/server-utils.js';
 import {
+  getMatchedPermissionRule,
   PermissionEvaluator,
   getAgentPermissionPolicy,
   getProjectPermissionOverride,
+  isOutsideWorkspacePathAllowed,
+  loadProjectAllowedOutsideWorkspaceRoots,
   mergePolicy,
   normalizePolicy,
   buildRememberKey,
+  loadSessionRememberedDecisions,
+  resolveRememberedDecision,
 } from '../agent/permission-evaluator.js';
 import { evaluateDelegation, getDelegationConfig } from '../agent/delegation-evaluator.js';
 import type { PermissionDecision, SystemInfo } from '../providers/claude-sdk.js';
@@ -204,6 +209,18 @@ export async function handleRunStart(
 
   // Session type
   const sessionType = (session.session_type || 'regular') as 'regular' | 'background' | 'agent';
+  const projectId = session.project_id || message.sessionId;
+  const requestedCwd = message.workingDirectory
+    || session.working_directory
+    || session.root_path
+    || process.cwd();
+  const cwd = resolveProviderCwd({
+    providerType: providerConfig?.type || 'claude',
+    sdkSessionId: session.sdk_session_id || undefined,
+    requestedCwd,
+    sessionRootPath: session.root_path,
+    persistedWorkingDirectory: session.working_directory,
+  });
 
   // Create active run tracking (includes streaming state for message persistence)
   const activeRun: ActiveRun = {
@@ -213,6 +230,7 @@ export async function handleRunStart(
     pendingPermissions: new Map(),
     db,
     sessionId: message.sessionId,
+    projectId,
     assistantMessageId: uuidv4(),
     fullContent: '',
     collectedToolCalls: [],
@@ -222,7 +240,9 @@ export async function handleRunStart(
     recentToolCalls: [],
     loopHeartbeatStreak: 0,
     sessionType,
-    rememberedDecisions: new Map(),
+    workspaceRoot: cwd,
+    rememberedDecisions: loadSessionRememberedDecisions(db, message.sessionId),
+    allowedOutsideWorkspaceRoots: loadProjectAllowedOutsideWorkspaceRoots(db, projectId),
     aiInitiatedPlanMode: false,
     eventSeq: 0,
   };
@@ -309,18 +329,6 @@ export async function handleRunStart(
     // session ID under a different directory creates a fresh empty context,
     // which makes follow-up turns look "interrupted". Keep resumed Kimi runs
     // pinned to the session root directory.
-    const requestedCwd = message.workingDirectory
-      || session.working_directory
-      || session.root_path
-      || process.cwd();
-    const cwd = resolveProviderCwd({
-      providerType,
-      sdkSessionId,
-      requestedCwd,
-      sessionRootPath: session.root_path,
-      persistedWorkingDirectory: session.working_directory,
-    });
-
     // Validate cwd exists — spawn() fails with cryptic ENOENT if cwd is invalid
     if (!fs.existsSync(cwd)) {
       console.warn(`[Run] cwd does not exist: ${cwd}`);
@@ -440,17 +448,41 @@ export async function handleRunStart(
 
         // --- Check remembered decisions cache ---
         const rememberKey = buildRememberKey(request.toolName, request.toolInput, request.detail);
-        const remembered = activeRun.rememberedDecisions.get(rememberKey);
+        const remembered = resolveRememberedDecision(
+          activeRun.rememberedDecisions,
+          request.toolName,
+          request.toolInput,
+          request.detail
+        );
         if (remembered) {
           sendMessage(client.ws, {
             type: 'agent_permission_intercepted',
             toolName: request.toolName,
             decision: remembered === 'allow' ? 'approve' : 'deny',
-            reason: `Remembered decision (${remembered})`,
+            reason: `Remembered decision (${remembered}) for "${rememberKey}"`,
             sessionId: message.sessionId,
             runId,
           } as import('@my-claudia/shared').AgentPermissionInterceptedMessage);
           resolve({ behavior: remembered, message: remembered === 'deny' ? 'Denied (remembered)' : undefined });
+          return;
+        }
+
+        if (isOutsideWorkspacePathAllowed(
+          request.toolName,
+          request.toolInput,
+          request.detail,
+          activeRun.workspaceRoot,
+          activeRun.allowedOutsideWorkspaceRoots
+        )) {
+          sendMessage(client.ws, {
+            type: 'agent_permission_intercepted',
+            toolName: request.toolName,
+            decision: 'approve',
+            reason: 'Auto-approved for remembered outside-workspace directory',
+            sessionId: message.sessionId,
+            runId,
+          } as import('@my-claudia/shared').AgentPermissionInterceptedMessage);
+          resolve({ behavior: 'allow', updatedInput: request.toolInput });
           return;
         }
 
@@ -507,6 +539,16 @@ export async function handleRunStart(
           // 'escalate' → fall through to user UI flow
         }
         // --- End strategy chain ---
+
+        const matchedRule = effectivePolicy?.enabled
+          ? getMatchedPermissionRule(
+            request.toolName,
+            request.toolInput,
+            request.detail,
+            effectivePolicy,
+            { rootPath: cwd, sessionType }
+          ) || undefined
+          : undefined;
 
         const continueWithUserFlow = () => {
           // For background sessions, escalate sends a notification instead of blocking UI
@@ -578,6 +620,7 @@ export async function handleRunStart(
             originalRequest: {
               toolName: request.toolName,
               detail: request.detail,
+              ...(matchedRule && { matchedRule }),
               timeoutSeconds: effectiveTimeoutSeconds,
               sessionId: message.sessionId,
               ...(requiresCredential && { requiresCredential: true, credentialHint: 'sudo_password' }),
@@ -628,6 +671,7 @@ export async function handleRunStart(
                 sessionId: message.sessionId,
                 toolName: request.toolName,
                 detail: request.detail,
+                ...(matchedRule && { matchedRule }),
                 timeoutSeconds: effectiveTimeoutSeconds,
                 ...(requiresCredential && {
                   requiresCredential: true,
@@ -639,7 +683,7 @@ export async function handleRunStart(
               notificationService.notify({
                 type: 'permission_request',
                 title: 'Permission Required',
-                body: `${request.toolName}: ${request.detail.slice(0, 200)}`,
+                body: `${matchedRule ? `[${matchedRule}] ` : ''}${request.toolName}: ${request.detail.slice(0, 200)}`,
                 priority: 'urgent',
                 tags: ['warning'],
               });

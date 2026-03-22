@@ -210,7 +210,9 @@ export function createTaskOrchestrator(deps: TaskOrchestratorDeps): TaskOrchestr
             toolCount++;
           } else if (msg.type === 'run_completed') {
             cleanupVirtualClient();
-            const summary = fullContent.slice(0, 200) || 'Task completed';
+            // Strip <think> tags from summary before persisting
+            const stripped = fullContent.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+            const summary = stripped.slice(0, 200) || 'Task completed';
             settleTask(task.id, 'completed', {
               resultSummary: summary,
               responseText: fullContent,

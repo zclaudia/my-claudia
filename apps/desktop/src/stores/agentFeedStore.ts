@@ -12,6 +12,8 @@ interface AgentFeedState {
   setFeedList: (items: AgentFeedItem[], hasMore: boolean, unreadCount: number, append?: boolean) => void;
   upsertItem: (item: AgentFeedItem) => void;
   markRead: (ids: string[], unreadCount?: number, readAt?: number) => void;
+  removeItem: (id: string) => void;
+  clearRead: () => void;
   setLoading: (loading: boolean) => void;
 }
 
@@ -71,6 +73,19 @@ export const useAgentFeedStore = create<AgentFeedState>((set) => ({
     const nextUnreadCount = unreadCount ?? Math.max(0, state.unreadCount - markedKnownUnread);
     return { items: newItems, unreadCount: nextUnreadCount };
   }),
+
+  removeItem: (id) => set((state) => {
+    const item = state.items.find((i) => i.id === id);
+    const unreadDelta = item && !item.readAt ? -1 : 0;
+    return {
+      items: state.items.filter((i) => i.id !== id),
+      unreadCount: Math.max(0, state.unreadCount + unreadDelta),
+    };
+  }),
+
+  clearRead: () => set((state) => ({
+    items: state.items.filter((i) => !i.readAt),
+  })),
 
   setLoading: (loading) => set({ loading }),
 }));

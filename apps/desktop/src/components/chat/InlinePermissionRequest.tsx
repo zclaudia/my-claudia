@@ -144,6 +144,11 @@ export function InlinePermissionRequest({ request, onDecision }: InlinePermissio
         <span className="px-1.5 py-0.5 bg-muted rounded text-xs font-mono text-foreground">
           {request.toolName}
         </span>
+        {request.matchedRule && (
+          <span className="px-1.5 py-0.5 bg-amber-500/10 rounded text-[11px] text-amber-700 dark:text-amber-400">
+            {request.matchedRule}
+          </span>
+        )}
         {request.backendName && (
           <span className="ml-auto text-xs text-muted-foreground flex items-center gap-1">
             <span className="w-1.5 h-1.5 rounded-full bg-blue-500" />

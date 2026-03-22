@@ -30,6 +30,7 @@ export interface ActiveRun {
     originalRequest?: {
       toolName: string;
       detail: string;
+      matchedRule?: string;
       timeoutSeconds: number;
       sessionId?: string;
       requiresCredential?: boolean;
@@ -41,6 +42,7 @@ export interface ActiveRun {
   // Streaming state for message persistence (allows cancelRun to save partial content)
   db: ReturnType<typeof initDatabase>;
   sessionId: string;
+  projectId: string;
   assistantMessageId: string;
   fullContent: string;
   collectedToolCalls: (ToolCall & { toolUseId: string })[];
@@ -48,10 +50,12 @@ export interface ActiveRun {
   saveInterval?: NodeJS.Timeout;
   completed?: boolean;  // True after run_completed/run_failed sent; hides from heartbeat while for-await drains
   sessionType: 'regular' | 'background' | 'agent';  // Session type for this run
-  /** Per-run remembered permission decisions (populated when user checks "Remember").
-   *  Key: toolName for non-bash, `Bash:normalizedCmd` for bash (e.g. `Bash:git push`).
-   *  Cleared automatically when run ends (not persisted to DB). */
+  workspaceRoot: string;
+  /** Session-scoped remembered permission decisions, hydrated into each run from DB.
+   *  Key: toolName for non-bash, `Bash:<normalized-command>` for bash commands/subcommands. */
   rememberedDecisions: Map<string, 'allow' | 'deny'>;
+  /** Project-scoped allowlist for paths outside workspace that the user explicitly remembered. */
+  allowedOutsideWorkspaceRoots: Set<string>;
   /** True when AI called EnterPlanMode during a non-plan-mode run (not user-initiated). */
   aiInitiatedPlanMode?: boolean;
   // Stuck/loop detection

@@ -4,10 +4,9 @@ import { useConnection } from '../../contexts/ConnectionContext';
 import { FeedItem } from './FeedItem';
 
 export function AgentFeedPanel() {
-  const { items, hasMore, loading, unreadCount, hydrated, setLoading } = useAgentFeedStore();
+  const { items, hasMore, loading, unreadCount, hydrated, setLoading, clearRead, removeItem } = useAgentFeedStore();
   const { sendMessage } = useConnection();
 
-  // Load feed on first mount unless we already hydrated from a list response.
   useEffect(() => {
     if (hydrated) return;
     setLoading(true);
@@ -31,40 +30,52 @@ export function AgentFeedPanel() {
     }
   }, [items, sendMessage]);
 
+  const hasReadItems = items.some((i) => i.readAt);
+
   return (
     <div className="h-full flex flex-col">
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-border flex-shrink-0">
+      <div className="flex items-center justify-between px-4 py-2.5 border-b border-border flex-shrink-0">
         <div className="flex items-center gap-2">
-          <span className="font-semibold text-sm">Agent Feed</span>
+          <span className="font-semibold text-sm">Notifications</span>
           {unreadCount > 0 && (
             <span className="px-1.5 py-0.5 text-[10px] font-medium bg-primary text-primary-foreground rounded-full">
               {unreadCount}
             </span>
           )}
         </div>
-        {unreadCount > 0 && (
-          <button
-            onClick={markAllRead}
-            className="text-xs text-muted-foreground hover:text-foreground transition-colors"
-          >
-            Mark all read
-          </button>
-        )}
+        <div className="flex items-center gap-2">
+          {hasReadItems && (
+            <button
+              onClick={clearRead}
+              className="text-[11px] text-muted-foreground hover:text-foreground transition-colors"
+            >
+              Clear read
+            </button>
+          )}
+          {unreadCount > 0 && (
+            <button
+              onClick={markAllRead}
+              className="text-[11px] text-muted-foreground hover:text-foreground transition-colors"
+            >
+              Mark all read
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Feed list */}
       <div className="flex-1 overflow-y-auto">
         {items.length === 0 && !loading && (
           <div className="p-8 text-center text-muted-foreground text-sm">
-            <p>No agent activity yet.</p>
-            <p className="text-xs mt-1">Scheduled tasks and triggered events will appear here.</p>
+            <p>No notifications yet.</p>
+            <p className="text-xs mt-1">Task results, scheduled events, and plugin notifications appear here.</p>
           </div>
         )}
 
-        <div className="divide-y divide-border">
+        <div className="divide-y divide-border/50">
           {items.map((item) => (
-            <FeedItem key={item.id} item={item} />
+            <FeedItem key={item.id} item={item} onDismiss={removeItem} />
           ))}
         </div>
 

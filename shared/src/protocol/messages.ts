@@ -540,6 +540,7 @@ export interface PermissionRequestMessage {
   sessionId: string;
   toolName: string;
   detail: string;
+  matchedRule?: string;
   timeoutSeconds: number;
   /** When true, the UI should show a password input for credential (e.g. sudo). */
   requiresCredential?: boolean;
@@ -988,6 +989,7 @@ export interface StateHeartbeatMessage {
     sessionId: string;
     toolName: string;
     detail: string;
+    matchedRule?: string;
     timeoutSeconds: number;
     requiresCredential?: boolean;
     credentialHint?: string;

@@ -77,6 +77,7 @@ interface ClaudiaState {
   completeInline: (clientRequestId: string, responseText: string) => void;
   failInline: (clientRequestId: string, error: string) => void;
   promoteInline: (clientRequestId: string, taskId: string) => void;
+  removeInline: (clientRequestId: string) => void;
 
   setContinueTaskId: (id: string | null) => void;
   clearTasks: () => void;
@@ -208,13 +209,16 @@ export const useClaudiaStore = create<ClaudiaState>((set) => ({
     ),
   })),
 
+  removeInline: (clientRequestId) => set((s) => ({
+    inlineResponses: s.inlineResponses.filter((r) => r.clientRequestId !== clientRequestId),
+  })),
+
   setContinueTaskId: (id) => set({ continueTaskId: id }),
 
   clearTasks: () => set((s) => ({
     tasks: s.tasks.filter((t) => t.status === 'running' || t.status === 'queued'),
-    continueTaskId: s.continueTaskId && s.tasks.some((t) => t.id === s.continueTaskId && (t.status === 'running' || t.status === 'queued'))
-      ? s.continueTaskId
-      : null,
+    inlineResponses: s.inlineResponses.filter((r) => r.status === 'streaming'),
+    continueTaskId: null,
   })),
 
   reset: () => set({

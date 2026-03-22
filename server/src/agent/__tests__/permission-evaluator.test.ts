@@ -10,10 +10,18 @@ import {
   PermissionEvaluator,
   classify,
   buildRememberKey,
+  buildRememberKeys,
   mergePolicy,
   normalizePolicy,
   getAgentPermissionPolicy,
   getProjectPermissionOverride,
+  persistSessionRememberedDecision,
+  loadSessionRememberedDecisions,
+  resolveRememberedDecision,
+  getOutsideWorkspaceRootsToRemember,
+  isOutsideWorkspacePathAllowed,
+  loadProjectAllowedOutsideWorkspaceRoots,
+  persistProjectAllowedOutsideWorkspaceRoots,
 } from '../permission-evaluator';
 
 // ============================================
@@ -61,6 +69,30 @@ function makeMockDb(rows: Record<string, unknown> = {}) {
       get: (..._args: unknown[]) => {
         if (sql.includes('agent_config')) return rows['agent_config'] ?? undefined;
         if (sql.includes('projects')) return rows['projects'] ?? undefined;
+        return undefined;
+      },
+      all: (..._args: unknown[]) => {
+        if (sql.includes('permission_memories')) return (rows['permission_memories'] as any[]) ?? [];
+        if (sql.includes('permission_outside_workspace_roots')) return (rows['permission_outside_workspace_roots'] as any[]) ?? [];
+        return [];
+      },
+      run: (...args: unknown[]) => {
+        if (sql.includes('permission_memories')) {
+          const list = ((rows['permission_memories'] as any[]) ??= []);
+          const [sessionId, rememberKey, decision] = args;
+          const idx = list.findIndex((row) => row.session_id === sessionId && row.remember_key === rememberKey);
+          const row = { session_id: sessionId, remember_key: rememberKey, decision };
+          if (idx >= 0) list[idx] = row;
+          else list.push(row);
+        }
+        if (sql.includes('permission_outside_workspace_roots')) {
+          const list = ((rows['permission_outside_workspace_roots'] as any[]) ??= []);
+          const [projectId, allowedRoot] = args;
+          const idx = list.findIndex((row) => row.project_id === projectId && row.allowed_root === allowedRoot);
+          const row = { project_id: projectId, allowed_root: allowedRoot };
+          if (idx >= 0) list[idx] = row;
+          else list.push(row);
+        }
         return undefined;
       },
     }),
@@ -507,9 +539,9 @@ describe('buildRememberKey', () => {
     expect(buildRememberKey('Glob', {}, '')).toBe('Glob');
   });
 
-  it('should normalize bash to first 2 tokens', () => {
-    expect(buildRememberKey('Bash', { command: 'git push origin main' }, '')).toBe('Bash:git push');
-    expect(buildRememberKey('Bash', { command: 'npm install express lodash' }, '')).toBe('Bash:npm install');
+  it('should use the fully normalized bash command as primary key', () => {
+    expect(buildRememberKey('Bash', { command: 'git push origin main' }, '')).toBe('Bash:git push origin main');
+    expect(buildRememberKey('Bash', { command: 'npm install express lodash' }, '')).toBe('Bash:npm install express lodash');
   });
 
   it('should handle single-token bash command', () => {
@@ -522,6 +554,248 @@ describe('buildRememberKey', () => {
 
   it('should return toolName when bash has no command and no detail', () => {
     expect(buildRememberKey('Bash', {}, '')).toBe('Bash');
+  });
+});
+
+describe('buildRememberKeys', () => {
+  it('should include split keys for compound bash commands', () => {
+    expect(buildRememberKeys('Bash', { command: 'curl http://localhost:1420 | grep 200 && tail -30 /tmp/x.log' }, '')).toEqual([
+      'Bash:curl http://localhost:1420 | grep 200 && tail -30 /tmp/x.log',
+      'Bash:curl http://localhost:1420',
+      'Bash:grep 200',
+      'Bash:tail -30 /tmp/x.log',
+    ]);
+  });
+
+  it('should extract executable commands from for/if shell blocks', () => {
+    expect(buildRememberKeys('Bash', {
+      command: 'for i in $(seq 1 30); do if curl -s http://localhost:1420 | grep -q 200; then echo READY; exit 0; fi; sleep 1; done; echo TIMEOUT; tail -30 /tmp/out.log',
+    }, '')).toEqual([
+      'Bash:for i in $(seq 1 30); do if curl -s http://localhost:1420 | grep -q 200; then echo READY; exit 0; fi; sleep 1; done; echo TIMEOUT; tail -30 /tmp/out.log',
+      'Bash:seq 1 30',
+      'Bash:curl -s http://localhost:1420',
+      'Bash:grep -q 200',
+      'Bash:echo READY',
+      'Bash:exit 0',
+      'Bash:sleep 1',
+      'Bash:echo TIMEOUT',
+      'Bash:tail -30 /tmp/out.log',
+    ]);
+  });
+
+  it('should extract commands from while blocks and backtick substitutions', () => {
+    expect(buildRememberKeys('Bash', {
+      command: 'while git status >/dev/null; do echo `date +%s`; sleep 1; done',
+    }, '')).toEqual([
+      'Bash:while git status >/dev/null; do echo `date +%s`; sleep 1; done',
+      'Bash:git status >/dev/null',
+      'Bash:date +%s',
+      'Bash:echo `date +%s`',
+      'Bash:sleep 1',
+    ]);
+  });
+
+  it('should extract commands from case branches', () => {
+    expect(buildRememberKeys('Bash', {
+      command: 'case "$mode" in start) echo start ;; stop) tail -30 /tmp/app.log ;; esac',
+    }, '')).toEqual([
+      'Bash:case "$mode" in start) echo start ;; stop) tail -30 /tmp/app.log ;; esac',
+      'Bash:echo start',
+      'Bash:tail -30 /tmp/app.log',
+    ]);
+  });
+
+  it('should extract commands from subshell and brace groups', () => {
+    expect(buildRememberKeys('Bash', {
+      command: '(cd /tmp && ls) | grep app && { echo ${USER}; tail -30 /tmp/app.log; }',
+    }, '')).toEqual([
+      'Bash:(cd /tmp && ls) | grep app && { echo ${USER}; tail -30 /tmp/app.log; }',
+      'Bash:cd /tmp',
+      'Bash:ls',
+      'Bash:grep app',
+      'Bash:echo ${USER}',
+      'Bash:tail -30 /tmp/app.log',
+    ]);
+  });
+
+  it('should recursively extract compound commands inside command substitutions', () => {
+    expect(buildRememberKeys('Bash', {
+      command: 'echo $(cd /tmp && ls | grep app)',
+    }, '')).toEqual([
+      'Bash:echo $(cd /tmp && ls | grep app)',
+      'Bash:cd /tmp',
+      'Bash:ls',
+      'Bash:grep app',
+    ]);
+  });
+
+  it('should extract underlying commands from find -exec and xargs', () => {
+    expect(buildRememberKeys('Bash', {
+      command: 'find . -name "*.log" -exec tail -30 {} \\; | xargs -I{} rm {}',
+    }, '')).toEqual([
+      'Bash:find . -name "*.log" -exec tail -30 {} \\; | xargs -I{} rm {}',
+      'Bash:tail -30 {}',
+      'Bash:find . -name "*.log" -exec tail -30 {} \\;',
+      'Bash:rm {}',
+      'Bash:xargs -I{} rm {}',
+    ]);
+  });
+
+  it('should extract commands from sh -c style wrappers', () => {
+    expect(buildRememberKeys('Bash', {
+      command: 'bash -lc "cd /tmp && ls | grep app"',
+    }, '')).toEqual([
+      'Bash:bash -lc "cd /tmp && ls | grep app"',
+      'Bash:cd /tmp',
+      'Bash:ls',
+      'Bash:grep app',
+    ]);
+  });
+
+  it('should extract the executable prefix of heredoc commands', () => {
+    expect(buildRememberKeys('Bash', {
+      command: 'cat >/tmp/demo.txt <<EOF echo hello EOF',
+    }, '')).toEqual([
+      'Bash:cat >/tmp/demo.txt <<EOF echo hello EOF',
+      'Bash:cat >/tmp/demo.txt',
+    ]);
+  });
+
+  it('should extract commands from sudo env shell wrappers', () => {
+    expect(buildRememberKeys('Bash', {
+      command: 'sudo env FOO=bar BAR="baz qux" bash -lc "cd /srv && ls && tail -30 /tmp/app.log"',
+    }, '')).toEqual([
+      'Bash:sudo env FOO=bar BAR="baz qux" bash -lc "cd /srv && ls && tail -30 /tmp/app.log"',
+      'Bash:cd /srv',
+      'Bash:ls',
+      'Bash:tail -30 /tmp/app.log',
+    ]);
+  });
+
+  it('should extract commands from docker exec shell wrappers', () => {
+    expect(buildRememberKeys('Bash', {
+      command: 'docker exec -it app sh -c "cd /app && grep error /tmp/app.log"',
+    }, '')).toEqual([
+      'Bash:docker exec -it app sh -c "cd /app && grep error /tmp/app.log"',
+      'Bash:cd /app',
+      'Bash:grep error /tmp/app.log',
+    ]);
+  });
+
+  it('should extract commands from ssh remote shell wrappers', () => {
+    expect(buildRememberKeys('Bash', {
+      command: 'ssh user@host "cd /srv && ls && tail -30 /tmp/app.log"',
+    }, '')).toEqual([
+      'Bash:ssh user@host "cd /srv && ls && tail -30 /tmp/app.log"',
+      'Bash:cd /srv',
+      'Bash:ls',
+      'Bash:tail -30 /tmp/app.log',
+    ]);
+  });
+
+  it('should extract commands from tmux shell wrappers', () => {
+    expect(buildRememberKeys('Bash', {
+      command: 'tmux new-session -d "cd /app && grep error /tmp/app.log"',
+    }, '')).toEqual([
+      'Bash:tmux new-session -d "cd /app && grep error /tmp/app.log"',
+      'Bash:cd /app',
+      'Bash:grep error /tmp/app.log',
+    ]);
+  });
+
+  it('should extract commands from nohup shell wrappers', () => {
+    expect(buildRememberKeys('Bash', {
+      command: 'nohup bash -lc "cd /srv && ls && tail -30 /tmp/app.log"',
+    }, '')).toEqual([
+      'Bash:nohup bash -lc "cd /srv && ls && tail -30 /tmp/app.log"',
+      'Bash:cd /srv',
+      'Bash:ls',
+      'Bash:tail -30 /tmp/app.log',
+    ]);
+  });
+
+  it('should extract commands from gnu parallel payloads', () => {
+    expect(buildRememberKeys('Bash', {
+      command: 'parallel "grep error {} && tail -30 {}" ::: /tmp/a.log /tmp/b.log',
+    }, '')).toEqual([
+      'Bash:parallel "grep error {} && tail -30 {}" ::: /tmp/a.log /tmp/b.log',
+      'Bash:grep error {}',
+      'Bash:tail -30 {}',
+    ]);
+  });
+});
+
+describe('resolveRememberedDecision', () => {
+  it('should match an exact remembered command first', () => {
+    const remembered = new Map([
+      ['Bash:git status', 'allow' as const],
+    ]);
+    expect(resolveRememberedDecision(remembered, 'Bash', { command: 'git status' }, '')).toBe('allow');
+  });
+
+  it('should allow a compound command when all subcommands are remembered as allow', () => {
+    const remembered = new Map([
+      ['Bash:curl http://localhost:1420', 'allow' as const],
+      ['Bash:grep 200', 'allow' as const],
+    ]);
+    expect(resolveRememberedDecision(remembered, 'Bash', { command: 'curl http://localhost:1420 | grep 200' }, '')).toBe('allow');
+  });
+
+  it('should deny a compound command when a remembered subcommand is deny', () => {
+    const remembered = new Map([
+      ['Bash:curl http://localhost:1420', 'allow' as const],
+      ['Bash:tail -30 /tmp/x.log', 'deny' as const],
+    ]);
+    expect(resolveRememberedDecision(remembered, 'Bash', { command: 'curl http://localhost:1420 && tail -30 /tmp/x.log' }, '')).toBe('deny');
+  });
+});
+
+describe('session remembered decisions', () => {
+  it('persists and reloads remembered keys at session scope', () => {
+    const db = makeMockDb();
+    persistSessionRememberedDecision(
+      db as any,
+      'session-1',
+      'Bash',
+      { command: 'curl http://localhost:1420 | grep 200' },
+      '',
+      'allow'
+    );
+
+    const remembered = loadSessionRememberedDecisions(db as any, 'session-1');
+    expect(remembered.get('Bash:curl http://localhost:1420 | grep 200')).toBe('allow');
+    expect(remembered.get('Bash:curl http://localhost:1420')).toBe('allow');
+    expect(remembered.get('Bash:grep 200')).toBe('allow');
+  });
+});
+
+describe('outside workspace allowlist', () => {
+  it('derives rememberable outside-workspace roots', () => {
+    expect(getOutsideWorkspaceRootsToRemember(
+      'Bash',
+      { command: 'tail -30 /private/tmp/app/output.log' },
+      '',
+      '/Users/zhvala/SourceCode/my-claudia'
+    )).toEqual([
+      '/private/tmp/app',
+    ]);
+  });
+
+  it('auto-approves when all outside-workspace paths are inside remembered roots', () => {
+    expect(isOutsideWorkspacePathAllowed(
+      'Bash',
+      { command: 'tail -30 /private/tmp/app/output.log' },
+      '',
+      '/Users/zhvala/SourceCode/my-claudia',
+      new Set(['/private/tmp/app'])
+    )).toBe(true);
+  });
+
+  it('persists and reloads remembered outside-workspace roots', () => {
+    const db = makeMockDb();
+    persistProjectAllowedOutsideWorkspaceRoots(db as any, 'project-1', ['/private/tmp/app']);
+    const allowedRoots = loadProjectAllowedOutsideWorkspaceRoots(db as any, 'project-1');
+    expect([...allowedRoots]).toEqual(['/private/tmp/app']);
   });
 });
 

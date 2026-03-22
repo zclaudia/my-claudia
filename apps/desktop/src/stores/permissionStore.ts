@@ -10,6 +10,7 @@ export interface PermissionRequest {
   backendName?: string;
   toolName: string;
   detail: string;
+  matchedRule?: string;
   timeoutSec: number;
   /** When true, the UI should show a password input for credential (e.g. sudo). */
   requiresCredential?: boolean;

@@ -40,8 +40,10 @@ export function ClaudiaChat({ isMobile = false }: ClaudiaChatProps) {
   const { selectedSessionId, selectedProjectId, sessions, projects } = useProjectStore();
   const tasks = useClaudiaStore((s) => s.tasks);
   const addTask = useClaudiaStore((s) => s.addTask);
+  const removeTask = useClaudiaStore((s) => s.removeTask);
   const inlineResponses = useClaudiaStore((s) => s.inlineResponses);
   const startInline = useClaudiaStore((s) => s.startInline);
+  const removeInline = useClaudiaStore((s) => s.removeInline);
   const continueTaskId = useClaudiaStore((s) => s.continueTaskId);
   const setContinueTaskId = useClaudiaStore((s) => s.setContinueTaskId);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -196,6 +198,14 @@ export function ClaudiaChat({ isMobile = false }: ClaudiaChatProps) {
     });
   }, [wsSendMessage]);
 
+  const handleDismissTask = useCallback((task: ClaudiaTask) => {
+    removeTask(task.id);
+  }, [removeTask]);
+
+  const handleDismissInline = useCallback((clientRequestId: string) => {
+    removeInline(clientRequestId);
+  }, [removeInline]);
+
   const hasRunningTask = tasks.some((t) => t.status === 'running');
   const hasStreaming = inlineResponses.some((r) => r.status === 'streaming');
 
@@ -251,7 +261,7 @@ export function ClaudiaChat({ isMobile = false }: ClaudiaChatProps) {
               );
             }
             if (item.kind === 'inline') {
-              return <InlineResponse key={item.response.clientRequestId} response={item.response} collapsed={shouldCollapse} />;
+              return <InlineResponse key={item.response.clientRequestId} response={item.response} collapsed={shouldCollapse} onDismiss={handleDismissInline} />;
             }
             return (
               <TaskCard
@@ -261,6 +271,7 @@ export function ClaudiaChat({ isMobile = false }: ClaudiaChatProps) {
                 onViewDetails={handleViewDetails}
                 onContinue={handleContinue}
                 onCancel={handleCancel}
+                onDismiss={handleDismissTask}
               />
             );
           });
