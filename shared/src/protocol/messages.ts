@@ -63,6 +63,9 @@ export type ClientMessage =
   // Agent Assistant
   | AgentStartMessage
   | AgentCancelMessage
+  // Claudia Tasks
+  | ClaudiaTaskSubmitMessage
+  | ClaudiaTaskContinueMessage
   // Agent Feed
   | GetAgentFeedMessage
   | MarkFeedReadMessage;
@@ -398,6 +401,10 @@ export type ServerMessage =
   | AskUserFormInteractionMessage
   | ApprovalInteractionMessage
   | InteractionResolvedMessage
+  // Claudia Tasks
+  | ClaudiaTaskCreatedMessage
+  | ClaudiaTaskSnapshotMessage
+  | ClaudiaTaskUpdateMessage
   // Agent Feed
   | AgentFeedUpdateMessage
   | AgentFeedListMessage
@@ -1027,6 +1034,71 @@ export interface AgentStartMessage {
 export interface AgentCancelMessage {
   type: 'agent_cancel';
   sessionId: string;
+}
+
+// ============================================
+// Claudia Task messages
+// ============================================
+
+export type ClaudiaTaskStatus = 'queued' | 'running' | 'completed' | 'failed' | 'cancelled';
+
+// Client → Server: submit a new Claudia task
+export interface ClaudiaTaskSubmitMessage {
+  type: 'claudia_task_submit';
+  clientRequestId: string;
+  sessionId: string;     // Claudia hub session
+  input: string;
+  projectId: string;
+  providerId?: string;
+}
+
+// Client → Server: continue an existing task
+export interface ClaudiaTaskContinueMessage {
+  type: 'claudia_task_continue';
+  clientRequestId: string;
+  taskId: string;          // Original task ID
+  sessionId: string;       // Original task's backend session
+  input: string;           // Follow-up instruction
+}
+
+// Server → Client: task created confirmation
+export interface ClaudiaTaskCreatedMessage {
+  type: 'claudia_task_created';
+  clientRequestId: string;
+  taskId: string;
+  sessionId: string;       // Backend task session
+  title: string;
+  status: 'queued';
+}
+
+export interface ClaudiaTaskSnapshotTask {
+  id: string;
+  sessionId: string | null;
+  input: string;
+  title: string;
+  status: ClaudiaTaskStatus;
+  summary?: string;
+  error?: string;
+  createdAt: number;
+}
+
+// Server → Client: full/partial Claudia task snapshot for state recovery
+export interface ClaudiaTaskSnapshotMessage {
+  type: 'claudia_task_snapshot';
+  tasks: ClaudiaTaskSnapshotTask[];
+}
+
+// Server → Client: task status update
+export interface ClaudiaTaskUpdateMessage {
+  type: 'claudia_task_update';
+  taskId: string;
+  status: ClaudiaTaskStatus;
+  sessionId?: string;
+  input?: string;
+  title?: string;
+  createdAt?: number;
+  summary?: string;
+  error?: string;
 }
 
 // ============================================

@@ -92,6 +92,7 @@ export interface SetupResult {
   notificationService: NotificationService;
   supervisorService: SupervisorService;
   agentFeedService: AgentFeedService;
+  orchestrator: import('./orchestration/types.js').TaskOrchestrator;
   /** Cleanup function: call when WebSocket server closes */
   onWssClose: () => void;
 }
@@ -422,6 +423,23 @@ export function setupRoutesAndServices(deps: SetupDependencies): SetupResult {
     getClients: () => clients,
     serverPort: getServerPort(),
     agentFeedService,
+    onTaskStatusChange: (task) => {
+      // Broadcast claudia_task_update to all authenticated clients
+      const update: import('@my-claudia/shared').ClaudiaTaskUpdateMessage = {
+        type: 'claudia_task_update',
+        taskId: task.id,
+        status: task.status as import('@my-claudia/shared').ClaudiaTaskStatus,
+        sessionId: task.sessionId ?? undefined,
+        input: task.task,
+        title: task.task.trim().replace(/\s+/g, ' ').slice(0, 80) || 'Claudia Task',
+        createdAt: task.createdAt,
+        summary: task.resultSummary,
+        error: task.errorSummary,
+      };
+      for (const [, client] of clients) {
+        if (client.authenticated) sendMessage(client.ws, update);
+      }
+    },
   });
   // Register task orchestration tools (spawn_task, steer_task, etc.)
   registerTaskTools(orchestrator, () => db);
@@ -553,6 +571,7 @@ export function setupRoutesAndServices(deps: SetupDependencies): SetupResult {
     notificationService,
     supervisorService,
     agentFeedService,
+    orchestrator,
     onWssClose,
   };
 }

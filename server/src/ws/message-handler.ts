@@ -15,6 +15,7 @@ import { sendMessage, broadcastToOtherAuthenticatedClients } from './broadcast.j
 import { handlePermissionDecision, handleAskUserAnswer } from './permission-handler.js';
 import type { ConnectedClient, ActiveRun } from './types.js';
 import type { AgentFeedService } from '../domains/agent-feed/service.js';
+import type { TaskOrchestrator } from '../orchestration/types.js';
 
 /** Context object bundling module-level dependencies for handleClientMessage. */
 export interface MessageHandlerContext {
@@ -26,6 +27,7 @@ export interface MessageHandlerContext {
   broadcastPluginState: () => void;
   findProcessPidsByTaskCommand: (taskCommand?: string, excludedPids?: number[]) => Promise<number[]>;
   agentFeedService?: AgentFeedService;
+  orchestrator?: TaskOrchestrator;
 }
 
 export async function handleClientMessage(
@@ -36,6 +38,15 @@ export async function handleClientMessage(
   ctx: MessageHandlerContext,
   termMgr?: TerminalManager,
 ): Promise<void> {
+  const collectOrchestratorTasks = (): import('../orchestration/types.js').OrchestratorTask[] => {
+    if (!ctx.orchestrator) return [];
+    const collect = (parentId?: string): import('../orchestration/types.js').OrchestratorTask[] => {
+      const direct = ctx.orchestrator!.listTasks(parentId);
+      return direct.flatMap((task) => [task, ...collect(task.id)]);
+    };
+    return collect();
+  };
+
   switch (message.type) {
     case 'auth':
       // Auth is handled in the ws.on('message') handler before this function
@@ -97,6 +108,88 @@ export async function handleClientMessage(
         ctx.agentFeedService.markRead(message.itemIds);
       }
       break;
+
+    case 'claudia_task_submit': {
+      if (!ctx.orchestrator) {
+        sendMessage(client.ws, { type: 'error', code: 'NO_ORCHESTRATOR', message: 'Task orchestrator not available' } as ErrorMessage);
+        break;
+      }
+      const taskInput = message.input?.trim();
+      if (!taskInput) break;
+      const title = taskInput.replace(/\s+/g, ' ').slice(0, 80);
+      try {
+        const taskId = await ctx.orchestrator.spawnTask(null, {
+          task: taskInput,
+          projectId: message.projectId,
+          providerId: message.providerId,
+          feed: { source: 'manual', title },
+        });
+        // Look up the spawned task to get its sessionId
+        const tasks = collectOrchestratorTasks();
+        const spawnedTask = tasks.find(t => t.id === taskId);
+        sendMessage(client.ws, {
+          type: 'claudia_task_created',
+          clientRequestId: message.clientRequestId,
+          taskId,
+          sessionId: spawnedTask?.sessionId ?? '',
+          title,
+          status: 'queued',
+        } as import('@my-claudia/shared').ClaudiaTaskCreatedMessage);
+      } catch (err) {
+        sendMessage(client.ws, {
+          type: 'error',
+          code: 'TASK_SPAWN_FAILED',
+          message: err instanceof Error ? err.message : 'Failed to spawn task',
+        } as ErrorMessage);
+      }
+      break;
+    }
+
+    case 'claudia_task_continue': {
+      if (!ctx.orchestrator) {
+        sendMessage(client.ws, { type: 'error', code: 'NO_ORCHESTRATOR', message: 'Task orchestrator not available' } as ErrorMessage);
+        break;
+      }
+
+      const continueInput = message.input?.trim();
+      if (!continueInput) break;
+
+      const parentTask = collectOrchestratorTasks().find((task) => task.id === message.taskId);
+      if (!parentTask) {
+        sendMessage(client.ws, {
+          type: 'error',
+          code: 'TASK_NOT_FOUND',
+          message: `Task not found: ${message.taskId}`,
+        } as ErrorMessage);
+        break;
+      }
+
+      const title = continueInput.replace(/\s+/g, ' ').slice(0, 80);
+      try {
+        const taskId = await ctx.orchestrator.spawnTask(message.taskId, {
+          task: continueInput,
+          projectId: parentTask.projectId ?? undefined,
+          providerId: parentTask.providerId,
+          feed: { source: 'manual', title },
+        });
+        const spawnedTask = collectOrchestratorTasks().find((task) => task.id === taskId);
+        sendMessage(client.ws, {
+          type: 'claudia_task_created',
+          clientRequestId: message.clientRequestId,
+          taskId,
+          sessionId: spawnedTask?.sessionId ?? '',
+          title,
+          status: 'queued',
+        } as import('@my-claudia/shared').ClaudiaTaskCreatedMessage);
+      } catch (err) {
+        sendMessage(client.ws, {
+          type: 'error',
+          code: 'TASK_CONTINUE_FAILED',
+          message: err instanceof Error ? err.message : 'Failed to continue task',
+        } as ErrorMessage);
+      }
+      break;
+    }
 
     case 'run_cancel':
       ctx.cancelRun(message.runId);

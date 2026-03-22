@@ -493,6 +493,78 @@ export function handleServerMessage(
       handleWorkflowMessage(msg);
       break;
 
+    case 'claudia_task_created': {
+      const taskMsg = msg as import('@my-claudia/shared').ClaudiaTaskCreatedMessage;
+      import('../stores/claudiaStore').then(m => {
+        const store = m.useClaudiaStore.getState();
+        // Reconcile optimistic task (created with clientRequestId as temporary ID)
+        const optimistic = store.tasks.find(t => t.id === taskMsg.clientRequestId);
+        if (optimistic) {
+          // Replace temporary ID with real task ID
+          store.removeTask(taskMsg.clientRequestId);
+          store.addTask({
+            ...optimistic,
+            id: taskMsg.taskId,
+            sessionId: taskMsg.sessionId || null,
+            title: taskMsg.title,
+            status: taskMsg.status,
+          });
+        } else {
+          store.addTask({
+            id: taskMsg.taskId,
+            sessionId: taskMsg.sessionId || null,
+            input: '',
+            title: taskMsg.title,
+            status: taskMsg.status,
+            createdAt: Date.now(),
+          });
+        }
+      });
+      break;
+    }
+
+    case 'claudia_task_snapshot': {
+      const snapshotMsg = msg as import('@my-claudia/shared').ClaudiaTaskSnapshotMessage;
+      import('../stores/claudiaStore').then(m => {
+        m.useClaudiaStore.getState().setTasks(
+          [...snapshotMsg.tasks].sort((a, b) => b.createdAt - a.createdAt)
+        );
+      });
+      break;
+    }
+
+    case 'claudia_task_update': {
+      const updateMsg = msg as import('@my-claudia/shared').ClaudiaTaskUpdateMessage;
+      import('../stores/claudiaStore').then(m => {
+        const store = m.useClaudiaStore.getState();
+        const existing = store.tasks.find((t) => t.id === updateMsg.taskId);
+        if (!existing) {
+          store.addTask({
+            id: updateMsg.taskId,
+            sessionId: updateMsg.sessionId || null,
+            input: updateMsg.input || '',
+            title: updateMsg.title || updateMsg.input || 'Claudia Task',
+            status: updateMsg.status,
+            createdAt: updateMsg.createdAt || Date.now(),
+            ...(updateMsg.summary ? { summary: updateMsg.summary } : {}),
+            ...(updateMsg.error ? { error: updateMsg.error } : {}),
+          });
+          return;
+        }
+
+        store.updateTask(updateMsg.taskId, {
+          status: updateMsg.status,
+          ...(updateMsg.sessionId ? { sessionId: updateMsg.sessionId } : {}),
+          ...(updateMsg.input ? { input: updateMsg.input } : {}),
+          ...(updateMsg.title ? { title: updateMsg.title } : {}),
+          ...(updateMsg.createdAt ? { createdAt: updateMsg.createdAt } : {}),
+          ...(updateMsg.summary ? { summary: updateMsg.summary } : {}),
+          ...(updateMsg.error ? { error: updateMsg.error } : {}),
+        });
+      });
+      break;
+    }
+
     case 'agent_feed_update': {
       const { item } = msg as import('@my-claudia/shared').AgentFeedUpdateMessage;
       import('../stores/agentFeedStore').then(m => m.useAgentFeedStore.getState().upsertItem(item));

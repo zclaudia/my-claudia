@@ -46,6 +46,8 @@ export interface TaskOrchestratorDeps {
     }) => void;
     findByTaskId: (taskId: string) => { id: string } | undefined;
   };
+  /** Called when a task transitions status — used to broadcast claudia_task_update */
+  onTaskStatusChange?: (task: OrchestratorTask) => void;
 }
 
 export function createTaskOrchestrator(deps: TaskOrchestratorDeps): TaskOrchestrator {
@@ -127,6 +129,7 @@ export function createTaskOrchestrator(deps: TaskOrchestratorDeps): TaskOrchestr
       syncFeedStatus(task, status, extra);
       feedOverrides.delete(task.id);
       resolveWaiters(task);
+      deps.onTaskStatusChange?.(task);
     }
   }
 
@@ -140,6 +143,10 @@ export function createTaskOrchestrator(deps: TaskOrchestratorDeps): TaskOrchestr
     `).run(sessionId, task.projectId, `Agent Task: ${task.task.slice(0, 50)}`, now, now);
 
     repo.updateStatus(task.id, 'running', { startedAt: now, sessionId });
+
+    // Notify clients that the task is now running (with sessionId)
+    const runningTask = repo.findById(task.id);
+    if (runningTask) deps.onTaskStatusChange?.(runningTask);
 
     if (deps.agentFeedService) {
       const existing = deps.agentFeedService.findByTaskId(task.id);

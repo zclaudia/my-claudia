@@ -68,6 +68,34 @@ function buildStateHeartbeat(): StateHeartbeatMessage {
   return heartbeat;
 }
 
+function buildClaudiaTaskSnapshot(): import('@my-claudia/shared').ClaudiaTaskSnapshotMessage | null {
+  if (!taskOrchestrator || !agentFeedService) return null;
+
+  const collectTasks = (parentId?: string): import('./orchestration/types.js').OrchestratorTask[] => {
+    const direct = taskOrchestrator.listTasks(parentId);
+    return direct.flatMap((task) => [task, ...collectTasks(task.id)]);
+  };
+
+  const tasks = collectTasks()
+    .filter((task) => agentFeedService.findByTaskId(task.id)?.source === 'manual')
+    .map((task) => ({
+      id: task.id,
+      sessionId: task.sessionId,
+      input: task.task,
+      title: agentFeedService.findByTaskId(task.id)?.title || task.task.trim().replace(/\s+/g, ' ').slice(0, 80) || 'Claudia Task',
+      status: task.status as import('@my-claudia/shared').ClaudiaTaskStatus,
+      summary: task.resultSummary,
+      error: task.errorSummary,
+      createdAt: task.createdAt,
+    }))
+    .sort((a, b) => b.createdAt - a.createdAt);
+
+  return {
+    type: 'claudia_task_snapshot',
+    tasks,
+  };
+}
+
 const activeRuns = new Map<string, ActiveRun>();
 
 // Module-level shared state (initialized in createServer)
@@ -76,6 +104,7 @@ let connectedClients = new Map<string, ConnectedClient>();
 let notificationService: NotificationService;
 let serverPort: number | null = null;
 let agentFeedService: import('./domains/agent-feed/service.js').AgentFeedService | undefined;
+let taskOrchestrator: import('./orchestration/types.js').TaskOrchestrator | undefined;
 
 // Re-exports for backward compatibility
 export type { ConnectedClient, MessageSender };
@@ -92,6 +121,7 @@ function getMessageHandlerContext(): MessageHandlerContext {
     broadcastPluginState,
     findProcessPidsByTaskCommand,
     agentFeedService,
+    orchestrator: taskOrchestrator,
   };
 }
 
@@ -167,6 +197,7 @@ export async function createServer(): Promise<ServerContext> {
     setProcessMonitor: (pm) => { processMonitor = pm; },
   });
   agentFeedService = setup.agentFeedService;
+  taskOrchestrator = setup.orchestrator;
 
   // Error handling middleware (must be after routes)
   app.use(expressErrorHandler);
@@ -263,6 +294,10 @@ export async function createServer(): Promise<ServerContext> {
             });
 
             sendMessage(ws, buildStateHeartbeat());
+            const claudiaSnapshot = buildClaudiaTaskSnapshot();
+            if (claudiaSnapshot) {
+              sendMessage(ws, claudiaSnapshot);
+            }
 
             if (pluginLoader.getPlugins().length > 0) {
               const pluginState = buildPluginStateMessage();
