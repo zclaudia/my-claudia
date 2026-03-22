@@ -65,7 +65,18 @@ export function createAgentTriggerRoutes(triggerService: AgentTriggerService): R
   // PUT /api/agent-triggers/:id — Update trigger
   router.put('/:id', (req: Request, res: Response) => {
     try {
-      triggerService.updateTrigger(req.params.id, req.body);
+      // Only pick user-updatable fields to prevent overwriting id/createdAt/sourcePluginId
+      const allowedFields = [
+        'name', 'description', 'enabled', 'triggerType', 'eventPattern', 'eventFilter',
+        'scheduleType', 'scheduleCron', 'scheduleIntervalMinutes',
+        'promptTemplate', 'providerId', 'projectId', 'contextTemplate',
+        'feedDelivery', 'notifyDelivery',
+      ] as const;
+      const updates: Record<string, unknown> = {};
+      for (const key of allowedFields) {
+        if (req.body[key] !== undefined) updates[key] = req.body[key];
+      }
+      triggerService.updateTrigger(req.params.id, updates);
       const updated = triggerService.getTrigger(req.params.id);
       res.json({ success: true, data: updated });
     } catch (error) {

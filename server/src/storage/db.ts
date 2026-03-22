@@ -1055,7 +1055,7 @@ function runMigrations(db: Database.Database): void {
           updated_at INTEGER NOT NULL
         );
         INSERT OR IGNORE INTO delegation_config (id, config, created_at, updated_at)
-        VALUES (1, '{"enabled":false,"confidenceThreshold":0.8,"maxAutoApprovalsPerMinute":10,"allowedCategories":["fileRead","fileWrite","shellSafe"],"neverDelegate":["AskUserQuestion","ExitPlanMode"]}', ${Date.now()}, ${Date.now()});
+        VALUES (1, '{"enabled":false,"confidenceThreshold":0.8,"maxAutoApprovalsPerMinute":10,"allowedCategories":["fileRead","fileWrite","shellSafe"],"neverDelegate":["AskUserQuestion","ExitPlanMode"]}', strftime('%s','now') * 1000, strftime('%s','now') * 1000);
       `
     },
     {

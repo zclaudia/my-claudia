@@ -73,10 +73,23 @@ export interface Subscription {
   pluginId?: string;
 }
 
+const patternRegexCache = new Map<string, RegExp>();
+
 function matchesEventPattern(event: string, pattern: string): boolean {
   if (pattern === '*') return true;
   if (pattern === event) return true;
-  const regex = new RegExp(`^${pattern.replace(/\./g, '\\.').replace(/\*/g, '.*')}$`);
+  let regex = patternRegexCache.get(pattern);
+  if (!regex) {
+    // * matches a single segment (no dots), ** matches any number of segments
+    // Use placeholders to avoid escaping conflicts
+    let src = pattern.replace(/\*\*/g, '\0MULTI\0');
+    src = src.replace(/\*/g, '\0SINGLE\0');
+    src = src.replace(/\./g, '\\.');
+    src = src.replace(/\0MULTI\0/g, '.*');
+    src = src.replace(/\0SINGLE\0/g, '[^.]*');
+    regex = new RegExp(`^${src}$`);
+    patternRegexCache.set(pattern, regex);
+  }
   return regex.test(event);
 }
 

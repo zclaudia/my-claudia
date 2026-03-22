@@ -496,6 +496,16 @@ export function handleServerMessage(
     case 'agent_feed_update': {
       const { item } = msg as import('@my-claudia/shared').AgentFeedUpdateMessage;
       import('../stores/agentFeedStore').then(m => m.useAgentFeedStore.getState().upsertItem(item));
+      // Toast notification for completed/failed feed items
+      if (item.status === 'completed' || item.status === 'failed') {
+        import('../stores/toastStore').then(m => {
+          m.useToastStore.getState().add({
+            title: item.title,
+            message: item.status === 'completed' ? (item.summary?.slice(0, 100) || 'Task completed') : (item.error?.slice(0, 100) || 'Task failed'),
+            type: item.status === 'completed' ? 'success' : 'error',
+          });
+        });
+      }
       break;
     }
 

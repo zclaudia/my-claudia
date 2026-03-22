@@ -7,8 +7,9 @@ export function AgentFeedPanel() {
   const { items, hasMore, loading, unreadCount, setLoading } = useAgentFeedStore();
   const { sendMessage } = useConnection();
 
-  // Load feed on mount
+  // Load feed on mount — skip if store already has data (from WS push)
   useEffect(() => {
+    if (useAgentFeedStore.getState().items.length > 0) return;
     setLoading(true);
     sendMessage({ type: 'get_agent_feed', limit: 50 });
   }, [sendMessage, setLoading]);

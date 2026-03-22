@@ -15,7 +15,7 @@ import { AgentFeedPanel } from '../components/agent-feed/AgentFeedPanel';
 import { useTerminalStore } from '../stores/terminalStore';
 import { useFileViewerStore } from '../stores/fileViewerStore';
 import { useDraftEditorStore } from '../stores/draftEditorStore';
-import { usePluginStore as pluginStore } from '../stores/pluginStore';
+
 
 export function initBuiltinPanels() {
   const { registerPanel } = usePluginStore.getState();
@@ -93,7 +93,7 @@ export function initBuiltinPanels() {
     alwaysMount: false,
     visible: false,
     onClose: () => {
-      pluginStore.getState().updatePanelVisibility('agent-feed', false);
+      usePluginStore.getState().updatePanelVisibility('agent-feed', false);
     },
   });
 

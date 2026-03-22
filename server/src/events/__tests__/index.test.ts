@@ -53,14 +53,26 @@ describe('PluginEventEmitter', () => {
       expect(listener).toHaveBeenCalledWith({ sessionId: '123' }, 'other.plugin');
     });
 
-    it('should support wildcard pattern listeners', () => {
+    it('should support wildcard pattern listeners (* = single segment)', () => {
       const listener = vi.fn();
       pluginEvents.onPattern('run.*', listener);
 
       pluginEvents.emitSync('run.completed', { sessionId: '123' });
+      pluginEvents.emitSync('run.sub.event', { sessionId: '456' });
 
+      // * matches single segment only — run.sub.event should NOT match
       expect(listener).toHaveBeenCalledTimes(1);
       expect(listener).toHaveBeenCalledWith({ sessionId: '123' }, undefined);
+    });
+
+    it('should support ** pattern for multi-segment matching', () => {
+      const listener = vi.fn();
+      pluginEvents.onPattern('run.**', listener);
+
+      pluginEvents.emitSync('run.completed', { a: 1 });
+      pluginEvents.emitSync('run.sub.event', { b: 2 });
+
+      expect(listener).toHaveBeenCalledTimes(2);
     });
   });
 

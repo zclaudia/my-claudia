@@ -21,7 +21,17 @@ export function createDelegationRoutes(db: Database.Database): Router {
   router.put('/config', (req: Request, res: Response) => {
     try {
       const current = getDelegationConfig(db);
-      const updated = { ...current, ...req.body };
+      // Only pick known fields to prevent prototype pollution
+      const body = req.body ?? {};
+      const updated = {
+        ...current,
+        ...(body.enabled !== undefined && { enabled: body.enabled }),
+        ...(body.confidenceThreshold !== undefined && { confidenceThreshold: body.confidenceThreshold }),
+        ...(body.maxAutoApprovalsPerMinute !== undefined && { maxAutoApprovalsPerMinute: body.maxAutoApprovalsPerMinute }),
+        ...(body.allowedCategories !== undefined && { allowedCategories: body.allowedCategories }),
+        ...(body.neverDelegate !== undefined && { neverDelegate: body.neverDelegate }),
+        ...(body.analysisProviderId !== undefined && { analysisProviderId: body.analysisProviderId }),
+      };
       // Validate
       if (typeof updated.enabled !== 'boolean') updated.enabled = DEFAULT_DELEGATION_CONFIG.enabled;
       if (typeof updated.confidenceThreshold !== 'number' || updated.confidenceThreshold < 0 || updated.confidenceThreshold > 1) {
