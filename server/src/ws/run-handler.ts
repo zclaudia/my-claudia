@@ -41,9 +41,8 @@ import {
   mergePolicy,
   normalizePolicy,
   buildRememberKey,
-  classify,
 } from '../agent/permission-evaluator.js';
-import { getDelegationConfig } from '../agent/delegation-evaluator.js';
+import { evaluateDelegation, getDelegationConfig } from '../agent/delegation-evaluator.js';
 import type { PermissionDecision, SystemInfo } from '../providers/claude-sdk.js';
 import { providerRegistry } from '../providers/registry.js';
 import { negotiateProfile } from '../providers/pcp-negotiator.js';
@@ -304,6 +303,7 @@ export async function handleRunStart(
 
   try {
     const providerType = providerConfig?.type || 'claude';
+    const adapter = providerRegistry.getOrDefault(providerType);
 
     // Kimi stores session state under the work_dir scope. Resuming the same
     // session ID under a different directory creates a fresh empty context,
@@ -358,6 +358,56 @@ export async function handleRunStart(
     if (forcedPlanBySession && modeValue !== (message.mode || message.permissionMode || 'default')) {
       console.log(`[Mode] Forced plan mode for task planning session ${message.sessionId}`);
     }
+
+    const createDelegationAnalysisProvider = (analysisProviderId?: string) => {
+      const resolvedProviderId = analysisProviderId || providerId;
+      if (!resolvedProviderId) return undefined;
+
+      const providerRow = db.prepare(`
+        SELECT id, type, cli_path as cliPath, env
+        FROM providers
+        WHERE id = ?
+      `).get(resolvedProviderId) as {
+        id: string;
+        type: string;
+        cliPath: string | null;
+        env: string | null;
+      } | undefined;
+
+      const resolvedType = providerRow?.type || providerConfig?.type;
+      if (!resolvedType) return undefined;
+
+      const analysisAdapter = providerRegistry.get(resolvedType);
+      if (!analysisAdapter) return undefined;
+
+      return {
+        runPrompt: async (prompt: string): Promise<string> => {
+          const collectedMessages: string[] = [];
+          for await (const responseMessage of analysisAdapter.run(prompt, {
+            cwd,
+            cliPath: providerRow?.cliPath || providerConfig?.cliPath,
+            env: {
+              ...(providerConfig?.env || {}),
+              ...(providerRow?.env ? JSON.parse(providerRow.env) : {}),
+            },
+            model: message.model,
+          }, async () => ({ decision: 'allow', behavior: 'allow' } as any))) {
+            const msg = responseMessage as {
+              type: string;
+              content?: string;
+              result?: string;
+            };
+            if (msg.type === 'assistant' && msg.content) {
+              collectedMessages.push(msg.content);
+            } else if (msg.type === 'result' && msg.result) {
+              collectedMessages.push(msg.result);
+            }
+          }
+
+          return collectedMessages.join('\n').trim();
+        },
+      };
+    };
 
     // Permission request callback (shared by claude and opencode)
     // Unified: ALL sessions (including agent sessions) go through the strategy chain.
@@ -458,180 +508,193 @@ export async function handleRunStart(
         }
         // --- End strategy chain ---
 
-        // --- Delegation mode: rule-based fast path for escalated requests ---
-        if (effectivePolicy?.enabled) {
-          const delegationConfig = getDelegationConfig(db);
-          if (delegationConfig.enabled) {
-            const category = classify(request.toolName, request.toolInput, request.detail);
+        const continueWithUserFlow = () => {
+          // For background sessions, escalate sends a notification instead of blocking UI
+          if (sessionType === 'background') {
+            sendMessage(client.ws, {
+              type: 'background_permission_pending',
+              sessionId: message.sessionId,
+              requestId: request.requestId,
+              toolName: request.toolName,
+              detail: request.detail,
+              timeoutSeconds: request.timeoutSeconds,
+            } as import('@my-claudia/shared').BackgroundPermissionPendingMessage);
 
-            // Check: tool not in neverDelegate, category in allowedCategories
-            if (!delegationConfig.neverDelegate.includes(request.toolName) &&
-                delegationConfig.allowedCategories.includes(category)) {
-              const profile = effectivePolicy.profiles[sessionType] || effectivePolicy.profiles.regular;
-              const action = profile[category];
+            sendMessage(client.ws, {
+              type: 'background_task_update',
+              sessionId: message.sessionId,
+              status: 'paused',
+              reason: `Permission needed: ${request.toolName}`,
+            } as import('@my-claudia/shared').BackgroundTaskUpdateMessage);
 
-              // Fast path: category already auto-approve → delegate with confidence=1.0
-              if (action === 'auto-approve') {
+            notificationService.notify({
+              type: 'background_permission',
+              title: 'Background task needs attention',
+              body: `${request.toolName}: ${request.detail.slice(0, 200)}`,
+              priority: 'urgent',
+              tags: ['rotating_light'],
+            });
+          }
+
+          // Determine effective timeout behavior from policy table
+          const timeoutPolicy = PERMISSION_TIMEOUT_POLICIES.get(request.toolName);
+          const policyApplies = timeoutPolicy && (!timeoutPolicy.condition || timeoutPolicy.condition(activeRun));
+          const effectiveTimeoutBehavior: 'approve' | 'deny' =
+            policyApplies ? timeoutPolicy!.behavior : (request.timeoutBehavior || 'deny');
+          let effectiveTimeoutSeconds = request.timeoutSeconds;
+          if (policyApplies && effectiveTimeoutSeconds === 0 && timeoutPolicy!.timeoutSeconds) {
+            effectiveTimeoutSeconds = timeoutPolicy!.timeoutSeconds;
+          }
+          const aiInitiated = policyApplies && timeoutPolicy!.behavior === 'approve';
+
+          let timeout: ReturnType<typeof setTimeout> | null = null;
+          if (effectiveTimeoutSeconds > 0) {
+            const timeoutMs = effectiveTimeoutSeconds * 1000;
+            timeout = setTimeout(() => {
+              activeRun.pendingPermissions.delete(request.requestId);
+              sendMessage(client.ws, {
+                type: 'permission_auto_resolved',
+                requestId: request.requestId,
+                sessionId: message.sessionId,
+                behavior: effectiveTimeoutBehavior,
+              } as import('@my-claudia/shared').PermissionAutoResolvedMessage);
+              if (effectiveTimeoutBehavior === 'approve') {
+                console.log(`[Permission] Auto-approved ${request.requestId} (${request.toolName}) on timeout`);
+                resolve({ behavior: 'allow', updatedInput: request.toolInput });
+              } else {
+                console.log(`[Permission] Auto-denied ${request.requestId} (${request.toolName}) on timeout`);
+                resolve({ behavior: 'deny', message: 'Permission request timed out' });
+              }
+            }, timeoutMs);
+          }
+
+          const isAskUserQuestion = request.toolName === 'AskUserQuestion';
+          const toolInput = request.toolInput as any;
+          const requiresCredential = !isAskUserQuestion && isSudoCommand(request.toolName, request.toolInput);
+          activeRun.pendingPermissions.set(request.requestId, {
+            resolve,
+            timeout,
+            originalToolInput: request.toolInput,
+            originalRequest: {
+              toolName: request.toolName,
+              detail: request.detail,
+              timeoutSeconds: effectiveTimeoutSeconds,
+              sessionId: message.sessionId,
+              ...(requiresCredential && { requiresCredential: true, credentialHint: 'sudo_password' }),
+              ...(isAskUserQuestion && { questions: toolInput.questions || [] }),
+              ...(aiInitiated && { aiInitiated: true }),
+            }
+          });
+          console.log(`[Permission] Stored pending permission ${request.requestId} in run ${runId} (timeout: ${effectiveTimeoutSeconds > 0 ? effectiveTimeoutSeconds + 's' : 'none'}, behavior: ${effectiveTimeoutBehavior}, aiInitiated: ${aiInitiated}, session: ${sessionType})`);
+
+          // Persist waiting status for crash recovery
+          db.prepare('UPDATE sessions SET last_run_status = ?, updated_at = ? WHERE id = ?')
+            .run('waiting', Date.now(), activeRun.sessionId);
+
+          // For regular sessions: send UI prompts as before
+          if (sessionType !== 'background') {
+            if (request.toolName === 'AskUserQuestion') {
+              const toolInput = request.toolInput as { questions?: Array<any> };
+              sendMessage(client.ws, {
+                type: 'ask_user_question',
+                requestId: request.requestId,
+                sessionId: message.sessionId,
+                questions: toolInput.questions || [],
+              } as import('@my-claudia/shared').AskUserQuestionMessage);
+              console.log(`[Permission] Sent ask_user_question ${request.requestId} to client (${(toolInput.questions || []).length} questions)`);
+              // Phase 1: Emit parallel interaction_ask_user event
+              const askUserInteraction = normalizeFromAskUser({
+                requestId: request.requestId,
+                sessionId: message.sessionId,
+                runId,
+                providerType,
+                questions: toolInput.questions || [],
+              });
+              sendRunEvent(askUserInteraction);
+              const firstQuestion = (toolInput.questions || [])[0];
+              notificationService.notify({
+                type: 'ask_user_question',
+                title: 'Claude has a question',
+                body: firstQuestion?.question?.slice(0, 200) || 'Interactive question',
+                priority: 'high',
+                tags: ['question'],
+              });
+            } else {
+              // Detect sudo commands and flag for credential input
+              const requiresCredential = isSudoCommand(request.toolName, request.toolInput);
+              sendMessage(client.ws, {
+                type: 'permission_request',
+                requestId: request.requestId,
+                sessionId: message.sessionId,
+                toolName: request.toolName,
+                detail: request.detail,
+                timeoutSeconds: effectiveTimeoutSeconds,
+                ...(requiresCredential && {
+                  requiresCredential: true,
+                  credentialHint: 'sudo_password',
+                }),
+                ...(aiInitiated && { aiInitiated: true }),
+              });
+              console.log(`[Permission] Sent permission request ${request.requestId} to client${requiresCredential ? ' (requires sudo credential)' : ''}${aiInitiated ? ' (ai-initiated, auto-approve on timeout)' : ''}`);
+              notificationService.notify({
+                type: 'permission_request',
+                title: 'Permission Required',
+                body: `${request.toolName}: ${request.detail.slice(0, 200)}`,
+                priority: 'urgent',
+                tags: ['warning'],
+              });
+            }
+          }
+        };
+
+        void (async () => {
+          if (effectivePolicy?.enabled) {
+            const delegationConfig = getDelegationConfig(db);
+            if (delegationConfig.enabled) {
+              const delegationDecision = await evaluateDelegation(delegationConfig, {
+                toolName: request.toolName,
+                toolInput: request.toolInput,
+                detail: request.detail,
+                sessionType,
+                policy: effectivePolicy,
+                analysisProvider: createDelegationAnalysisProvider(delegationConfig.analysisProviderId),
+              });
+
+              if (delegationDecision.decision === 'approve') {
                 sendMessage(client.ws, {
                   type: 'agent_permission_intercepted',
                   toolName: request.toolName,
                   decision: 'approve',
-                  reason: `Delegation: "${category}" auto-approve for ${sessionType} (confidence: 100%)`,
+                  reason: `Delegation (${delegationDecision.source}): ${delegationDecision.reasoning} (confidence: ${Math.round(delegationDecision.confidence * 100)}%)`,
                   sessionId: message.sessionId,
                   runId,
                 } as import('@my-claudia/shared').AgentPermissionInterceptedMessage);
                 resolve({ behavior: 'allow', updatedInput: request.toolInput });
                 return;
               }
-              // TODO: LLM slow path for 'ask' categories (requires async provider call)
+
+              if (delegationDecision.decision === 'deny') {
+                sendMessage(client.ws, {
+                  type: 'agent_permission_intercepted',
+                  toolName: request.toolName,
+                  decision: 'deny',
+                  reason: `Delegation (${delegationDecision.source}): ${delegationDecision.reasoning} (confidence: ${Math.round(delegationDecision.confidence * 100)}%)`,
+                  sessionId: message.sessionId,
+                  runId,
+                } as import('@my-claudia/shared').AgentPermissionInterceptedMessage);
+                resolve({ behavior: 'deny', message: delegationDecision.reasoning });
+                return;
+              }
             }
           }
-        }
 
-        // For background sessions, escalate sends a notification instead of blocking UI
-        if (sessionType === 'background') {
-          sendMessage(client.ws, {
-            type: 'background_permission_pending',
-            sessionId: message.sessionId,
-            requestId: request.requestId,
-            toolName: request.toolName,
-            detail: request.detail,
-            timeoutSeconds: request.timeoutSeconds,
-          } as import('@my-claudia/shared').BackgroundPermissionPendingMessage);
-
-          sendMessage(client.ws, {
-            type: 'background_task_update',
-            sessionId: message.sessionId,
-            status: 'paused',
-            reason: `Permission needed: ${request.toolName}`,
-          } as import('@my-claudia/shared').BackgroundTaskUpdateMessage);
-
-          notificationService.notify({
-            type: 'background_permission',
-            title: 'Background task needs attention',
-            body: `${request.toolName}: ${request.detail.slice(0, 200)}`,
-            priority: 'urgent',
-            tags: ['rotating_light'],
-          });
-        }
-
-        // Determine effective timeout behavior from policy table
-        const timeoutPolicy = PERMISSION_TIMEOUT_POLICIES.get(request.toolName);
-        const policyApplies = timeoutPolicy && (!timeoutPolicy.condition || timeoutPolicy.condition(activeRun));
-        const effectiveTimeoutBehavior: 'approve' | 'deny' =
-          policyApplies ? timeoutPolicy!.behavior : (request.timeoutBehavior || 'deny');
-        let effectiveTimeoutSeconds = request.timeoutSeconds;
-        if (policyApplies && effectiveTimeoutSeconds === 0 && timeoutPolicy!.timeoutSeconds) {
-          effectiveTimeoutSeconds = timeoutPolicy!.timeoutSeconds;
-        }
-        const aiInitiated = policyApplies && timeoutPolicy!.behavior === 'approve';
-
-        let timeout: ReturnType<typeof setTimeout> | null = null;
-        if (effectiveTimeoutSeconds > 0) {
-          const timeoutMs = effectiveTimeoutSeconds * 1000;
-          timeout = setTimeout(() => {
-            activeRun.pendingPermissions.delete(request.requestId);
-            sendMessage(client.ws, {
-              type: 'permission_auto_resolved',
-              requestId: request.requestId,
-              sessionId: message.sessionId,
-              behavior: effectiveTimeoutBehavior,
-            } as import('@my-claudia/shared').PermissionAutoResolvedMessage);
-            if (effectiveTimeoutBehavior === 'approve') {
-              console.log(`[Permission] Auto-approved ${request.requestId} (${request.toolName}) on timeout`);
-              resolve({ behavior: 'allow', updatedInput: request.toolInput });
-            } else {
-              console.log(`[Permission] Auto-denied ${request.requestId} (${request.toolName}) on timeout`);
-              resolve({ behavior: 'deny', message: 'Permission request timed out' });
-            }
-          }, timeoutMs);
-        }
-
-        const isAskUserQuestion = request.toolName === 'AskUserQuestion';
-        const toolInput = request.toolInput as any;
-        const requiresCredential = !isAskUserQuestion && isSudoCommand(request.toolName, request.toolInput);
-        activeRun.pendingPermissions.set(request.requestId, {
-          resolve,
-          timeout,
-          originalToolInput: request.toolInput,
-          originalRequest: {
-            toolName: request.toolName,
-            detail: request.detail,
-            timeoutSeconds: effectiveTimeoutSeconds,
-            sessionId: message.sessionId,
-            ...(requiresCredential && { requiresCredential: true, credentialHint: 'sudo_password' }),
-            ...(isAskUserQuestion && { questions: toolInput.questions || [] }),
-            ...(aiInitiated && { aiInitiated: true }),
-          }
+          continueWithUserFlow();
+        })().catch((error) => {
+          console.error('[Delegation] Failed to evaluate permission:', error);
+          continueWithUserFlow();
         });
-        console.log(`[Permission] Stored pending permission ${request.requestId} in run ${runId} (timeout: ${effectiveTimeoutSeconds > 0 ? effectiveTimeoutSeconds + 's' : 'none'}, behavior: ${effectiveTimeoutBehavior}, aiInitiated: ${aiInitiated}, session: ${sessionType})`);
-
-        // Persist waiting status for crash recovery
-        db.prepare('UPDATE sessions SET last_run_status = ?, updated_at = ? WHERE id = ?')
-          .run('waiting', Date.now(), activeRun.sessionId);
-
-        // For regular sessions: send UI prompts as before
-        if (sessionType !== 'background') {
-          if (request.toolName === 'AskUserQuestion') {
-            const toolInput = request.toolInput as { questions?: Array<any> };
-            sendMessage(client.ws, {
-              type: 'ask_user_question',
-              requestId: request.requestId,
-              sessionId: message.sessionId,
-              questions: toolInput.questions || [],
-            } as import('@my-claudia/shared').AskUserQuestionMessage);
-            console.log(`[Permission] Sent ask_user_question ${request.requestId} to client (${(toolInput.questions || []).length} questions)`);
-            // Phase 1: Emit parallel interaction_ask_user event
-            const askUserInteraction = normalizeFromAskUser({
-              requestId: request.requestId,
-              sessionId: message.sessionId,
-              runId,
-              providerType,
-              questions: toolInput.questions || [],
-            });
-            sendRunEvent(askUserInteraction);
-            const firstQuestion = (toolInput.questions || [])[0];
-            notificationService.notify({
-              type: 'ask_user_question',
-              title: 'Claude has a question',
-              body: firstQuestion?.question?.slice(0, 200) || 'Interactive question',
-              priority: 'high',
-              tags: ['question'],
-            });
-          } else {
-            // Detect sudo commands and flag for credential input
-            const requiresCredential = isSudoCommand(request.toolName, request.toolInput);
-            sendMessage(client.ws, {
-              type: 'permission_request',
-              requestId: request.requestId,
-              sessionId: message.sessionId,
-              toolName: request.toolName,
-              detail: request.detail,
-              timeoutSeconds: effectiveTimeoutSeconds,
-              ...(requiresCredential && {
-                requiresCredential: true,
-                credentialHint: 'sudo_password',
-              }),
-              ...(aiInitiated && { aiInitiated: true }),
-            });
-            console.log(`[Permission] Sent permission request ${request.requestId} to client${requiresCredential ? ' (requires sudo credential)' : ''}${aiInitiated ? ' (ai-initiated, auto-approve on timeout)' : ''}`);
-            notificationService.notify({
-              type: 'permission_request',
-              title: 'Permission Required',
-              body: `${request.toolName}: ${request.detail.slice(0, 200)}`,
-              priority: 'urgent',
-              tags: ['warning'],
-            });
-          }
-        }
       });
     };
-
-    // Select provider runner via registry
-
-    // Note: Agent sessions no longer force bypassPermissions.
-    // All sessions (including agent) go through the unified permission strategy chain.
-    const adapter = providerRegistry.getOrDefault(providerType);
 
     // PCP: negotiate effective profile before emitting run_started
     if (adapter.manifest) {

@@ -27,8 +27,17 @@ export function createDelegationRoutes(db: Database.Database): Router {
       if (typeof updated.confidenceThreshold !== 'number' || updated.confidenceThreshold < 0 || updated.confidenceThreshold > 1) {
         updated.confidenceThreshold = DEFAULT_DELEGATION_CONFIG.confidenceThreshold;
       }
+      if (!Number.isInteger(updated.maxAutoApprovalsPerMinute) || updated.maxAutoApprovalsPerMinute < 1) {
+        updated.maxAutoApprovalsPerMinute = DEFAULT_DELEGATION_CONFIG.maxAutoApprovalsPerMinute;
+      }
       if (!Array.isArray(updated.allowedCategories)) updated.allowedCategories = DEFAULT_DELEGATION_CONFIG.allowedCategories;
       if (!Array.isArray(updated.neverDelegate)) updated.neverDelegate = DEFAULT_DELEGATION_CONFIG.neverDelegate;
+      if (updated.analysisProviderId !== undefined && typeof updated.analysisProviderId !== 'string') {
+        updated.analysisProviderId = DEFAULT_DELEGATION_CONFIG.analysisProviderId;
+      }
+      if (typeof updated.analysisProviderId === 'string' && updated.analysisProviderId.trim() === '') {
+        updated.analysisProviderId = undefined;
+      }
 
       saveDelegationConfig(db, updated);
       res.json({ success: true, data: updated });

@@ -646,9 +646,7 @@ export function handleServerMessage(
       if (heartbeat.unreadFeedCount !== undefined) {
         import('../stores/agentFeedStore').then(m => {
           const store = m.useAgentFeedStore.getState();
-          // Only update if we haven't loaded the full feed yet (items empty = first connect)
-          if (store.items.length === 0 && heartbeat.unreadFeedCount! > 0) {
-            // Will be corrected when full feed loads; for now show badge
+          if (store.unreadCount !== heartbeat.unreadFeedCount) {
             m.useAgentFeedStore.setState({ unreadCount: heartbeat.unreadFeedCount! });
           }
         });
