@@ -183,7 +183,7 @@ describe('SettingsPanel', () => {
   it('shows all app tabs', () => {
     const { container } = render(<SettingsPanel isOpen={true} onClose={vi.fn()} />);
     expect(container.textContent).toContain('General');
-    expect(container.textContent).toContain('Agent');
+    expect(container.textContent).toContain('Claudia');
     expect(container.textContent).toContain('Plugins');
   });
 

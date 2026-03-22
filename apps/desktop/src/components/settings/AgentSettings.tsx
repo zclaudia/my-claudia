@@ -96,9 +96,9 @@ export function AgentSettings() {
           {/* Enable toggle */}
           <div className="flex items-center justify-between">
             <div>
-              <span className="text-sm">Agent Assistant</span>
+              <span className="text-sm">Claudia</span>
               <p className="text-xs text-muted-foreground mt-0.5">
-                Server-side agent with tools, skills, and task orchestration
+                Personal assistant with tools, skills, and task orchestration
               </p>
             </div>
             <button

@@ -35,9 +35,9 @@ describe('AgentSidePanel', () => {
     expect(container).toBeTruthy();
   });
 
-  it('renders the header with Agent label', () => {
+  it('renders the header with Claudia label', () => {
     const { container } = render(<AgentSidePanel />);
-    expect(container.textContent).toContain('Agent');
+    expect(container.textContent).toContain('Claudia');
   });
 
   it('renders AgentPanel with showHeader=false', () => {
@@ -76,14 +76,14 @@ describe('AgentSidePanel', () => {
 
   it('calls setExpanded(false) when close button is clicked', () => {
     const { container } = render(<AgentSidePanel />);
-    const closeBtn = container.querySelector('button[title="Close Agent Panel"]');
+    const closeBtn = container.querySelector('button[title="Close Claudia"]');
     if (closeBtn) fireEvent.click(closeBtn);
     expect(mockSetExpanded).toHaveBeenCalledWith(false);
   });
 
-  it('renders Agent label in header', () => {
+  it('renders Claudia label in header', () => {
     const { container } = render(<AgentSidePanel />);
-    expect(container.textContent).toContain('Agent');
+    expect(container.textContent).toContain('Claudia');
   });
 
   it('has drag handle', () => {
