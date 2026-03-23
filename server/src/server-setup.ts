@@ -432,14 +432,17 @@ export function setupRoutesAndServices(deps: SetupDependencies): SetupResult {
         taskId: task.id,
         status: task.status as import('@my-claudia/shared').ClaudiaTaskStatus,
         sessionId: task.sessionId ?? undefined,
+        branchId: task.branchId ?? undefined,
+        branchAction: task.branchAction,
+        contextReset: task.contextReset,
         input: task.task,
         title: task.task.trim().replace(/\s+/g, ' ').slice(0, 80) || 'Claudia Task',
         createdAt: task.createdAt,
         updatedAt: task.updatedAt,
         summary: task.resultSummary,
         error: task.errorSummary,
-        responseText: extra?.responseText,
-        toolCount: extra?.toolCount,
+        responseText: extra?.responseText ?? task.responseText,
+        toolCount: extra?.toolCount ?? task.toolCount,
       };
       for (const [, client] of clients) {
         if (client.authenticated) sendMessage(client.ws, update);

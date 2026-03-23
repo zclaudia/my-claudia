@@ -520,6 +520,9 @@ export function handleServerMessage(
           ...optimistic,
           id: taskMsg.taskId,
           sessionId: taskMsg.sessionId || null,
+          branchId: taskMsg.branchId || null,
+          branchAction: taskMsg.branchAction,
+          contextReset: taskMsg.contextReset,
           title: taskMsg.title,
           status: taskMsg.status,
           updatedAt: Date.now(),
@@ -528,6 +531,9 @@ export function handleServerMessage(
         claudiaStore.addTask({
           id: taskMsg.taskId,
           sessionId: taskMsg.sessionId || null,
+          branchId: taskMsg.branchId || null,
+          branchAction: taskMsg.branchAction,
+          contextReset: taskMsg.contextReset,
           input: '',
           title: taskMsg.title,
           status: taskMsg.status,
@@ -535,13 +541,22 @@ export function handleServerMessage(
           updatedAt: Date.now(),
         });
       }
+      // Update active branch: only switch on reuse/create, not on fork (parallel tasks stay background)
+      if (taskMsg.branchAction !== 'forked') {
+        claudiaStore.setActiveBranchId(taskMsg.projectId, taskMsg.branchId);
+      }
       break;
     }
 
     case 'claudia_task_snapshot': {
       const snapshotMsg = msg as import('@my-claudia/shared').ClaudiaTaskSnapshotMessage;
-      useClaudiaStore.getState().setTasks(
-        [...snapshotMsg.tasks].sort((a, b) => b.createdAt - a.createdAt)
+      const snapshotStore = useClaudiaStore.getState();
+      const snapshotTasks = [...snapshotMsg.tasks]
+        .sort((a, b) => b.createdAt - a.createdAt)
+        .map(t => ({ ...t, branchId: t.branchId ?? null }));
+      snapshotStore.setTasks(snapshotTasks);
+      snapshotStore.setActiveBranchIds(
+        Object.fromEntries(snapshotMsg.activeBranches.map((state) => [state.projectId, state.branchId]))
       );
       break;
     }
@@ -573,12 +588,19 @@ export function handleServerMessage(
       claudiaForPromotion.addTask({
         id: inlinePromoted.taskId,
         sessionId: inlinePromoted.sessionId,
+        branchId: inlinePromoted.branchId || null,
+        branchAction: inlinePromoted.branchAction,
+        contextReset: inlinePromoted.contextReset,
         input: inline?.input || '',
         title: (inline?.input || '').replace(/\s+/g, ' ').trim().slice(0, 80),
         status: 'running',
         createdAt: inline?.createdAt || Date.now(),
         updatedAt: Date.now(),
       });
+      // Update active branch (promoted inline tasks are always on the active branch)
+      if (inlinePromoted.branchId && inlinePromoted.branchAction !== 'forked') {
+        claudiaForPromotion.setActiveBranchId(inlinePromoted.projectId, inlinePromoted.branchId);
+      }
       // Transfer accumulated text to streaming
       if (inline?.streamingText) {
         claudiaForPromotion.appendStreamingText(inlinePromoted.taskId, inline.streamingText);
@@ -600,6 +622,9 @@ export function handleServerMessage(
         claudiaStoreForUpdate.addTask({
           id: updateMsg.taskId,
           sessionId: updateMsg.sessionId || null,
+          branchId: updateMsg.branchId || null,
+          branchAction: updateMsg.branchAction,
+          contextReset: updateMsg.contextReset,
           input: updateMsg.input || '',
           title: updateMsg.title || updateMsg.input || 'Claudia Task',
           status: updateMsg.status,
@@ -619,6 +644,9 @@ export function handleServerMessage(
       claudiaStoreForUpdate.updateTask(updateMsg.taskId, {
         status: updateMsg.status,
         ...(updateMsg.sessionId ? { sessionId: updateMsg.sessionId } : {}),
+        ...(updateMsg.branchId ? { branchId: updateMsg.branchId } : {}),
+        ...(updateMsg.branchAction ? { branchAction: updateMsg.branchAction } : {}),
+        ...(updateMsg.contextReset !== undefined ? { contextReset: updateMsg.contextReset } : {}),
         ...(updateMsg.input ? { input: updateMsg.input } : {}),
         ...(updateMsg.title ? { title: updateMsg.title } : {}),
         ...(updateMsg.createdAt ? { createdAt: updateMsg.createdAt } : {}),

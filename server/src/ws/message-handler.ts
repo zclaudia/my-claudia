@@ -17,6 +17,8 @@ import { handlePermissionDecision, handleAskUserAnswer } from './permission-hand
 import type { ConnectedClient, ActiveRun } from './types.js';
 import type { AgentFeedService } from '../domains/agent-feed/service.js';
 import type { TaskOrchestrator } from '../orchestration/types.js';
+import { ClaudiaBranchService } from '../services/claudia-branch-service.js';
+import type { BranchAction } from '@my-claudia/shared';
 
 /** Context object bundling module-level dependencies for handleClientMessage. */
 export interface MessageHandlerContext {
@@ -211,15 +213,37 @@ export async function handleClientMessage(
             'Use the primary attached project as the active workspace for file and shell operations unless the user says otherwise.',
           ].join('\n')
         : undefined;
-      const sessionId = uuidv4();
       const now = Date.now();
       const inlineTitle = inlineInput.replace(/\s+/g, ' ').slice(0, 80);
 
-      // Create ephemeral agent session
-      db.prepare(`
-        INSERT INTO sessions (id, project_id, name, type, parent_session_id, working_directory, created_at, updated_at)
-        VALUES (?, ?, ?, 'agent', NULL, ?, ?, ?)
-      `).run(sessionId, inlineProjectId, `Claudia: ${inlineInput.slice(0, 50)}`, sessionWorkingDirectory, now, now);
+      // Branch allocation: decide reuse vs fork
+      const branchService = new ClaudiaBranchService(db);
+      const freshSessionId = uuidv4();
+      const allocation = branchService.allocateBranch({
+        hostProjectId: inlineProjectId,
+        activeBranchId: inlineMsg.activeBranchId,
+        forceNew: inlineMsg.forceNewBranch,
+        title: inlineTitle,
+        sessionId: freshSessionId,
+      });
+
+      const sessionId = allocation.sessionId;
+      const branchId = allocation.branchId;
+      const branchAction: BranchAction = allocation.action;
+      const contextReset = allocation.contextReset;
+      const isSessionReuse = allocation.action === 'reused' && sessionId !== freshSessionId;
+      if (branchAction !== 'forked') {
+        branchService.setActiveBranchId(inlineProjectId, branchId);
+      }
+
+      // Create new session only if not reusing an existing one
+      if (!isSessionReuse) {
+        db.prepare(`
+          INSERT INTO sessions (id, project_id, name, type, parent_session_id, working_directory, created_at, updated_at)
+          VALUES (?, ?, ?, 'agent', NULL, ?, ?, ?)
+        `).run(sessionId, inlineProjectId, `Claudia: ${inlineInput.slice(0, 50)}`, sessionWorkingDirectory, now, now);
+        branchService.attachSession(branchId, sessionId);
+      }
 
       let fullContent = '';
       let promoted = false;
@@ -233,33 +257,42 @@ export async function handleClientMessage(
 
       function persistInlineHistory(status: 'completed' | 'failed', extra?: { summary?: string; error?: string; updatedAt?: number }) {
         const existing = db.prepare(
-          'SELECT id FROM orchestrator_tasks WHERE session_id = ? AND initiator = ? ORDER BY created_at DESC LIMIT 1'
-        ).get(sessionId, 'claudia') as { id: string } | undefined;
+          'SELECT id FROM orchestrator_tasks WHERE external_id = ? AND initiator = ? LIMIT 1'
+        ).get(clientReqId, 'claudia') as { id: string } | undefined;
         if (existing) return existing.id;
 
         const taskId = uuidv4();
         const updatedAt = extra?.updatedAt ?? Date.now();
         db.prepare(`
           INSERT INTO orchestrator_tasks (
-            id, parent_task_id, root_task_id, project_id, session_id,
+            id, parent_task_id, root_task_id, project_id, session_id, branch_id, branch_action, context_reset,
             kind, context_template, status, task, external_id, initiator,
             retry_count, max_retries, result_summary, error_summary,
+            response_text, tool_count,
             created_at, started_at, completed_at, updated_at
-          ) VALUES (?, NULL, ?, ?, ?, 'agent', 'agent', ?, ?, NULL, 'claudia', 0, 0, ?, ?, ?, ?, ?, ?)
+          ) VALUES (?, NULL, ?, ?, ?, ?, ?, ?, 'agent', 'agent', ?, ?, ?, 'claudia', 0, 0, ?, ?, ?, ?, ?, ?, ?)
         `).run(
           taskId,
           taskId,
           inlineProjectId,
           sessionId,
+          branchId,
+          branchAction,
+          contextReset ? 1 : 0,
           status,
           inlineInput,
+          clientReqId,
           extra?.summary ?? null,
           extra?.error ?? null,
+          status === 'completed' ? fullContent : null,
+          null,
           now,
           now,
           updatedAt,
           updatedAt,
         );
+        // Update branch metadata
+        branchService.updateBranchTask(branchId, taskId, sessionId);
         return taskId;
       }
 
@@ -275,11 +308,29 @@ export async function handleClientMessage(
         // Insert task record directly — session already exists and run is active
         db.prepare(`
           INSERT INTO orchestrator_tasks (
-            id, parent_task_id, root_task_id, project_id, session_id,
+            id, parent_task_id, root_task_id, project_id, session_id, branch_id, branch_action, context_reset,
             kind, context_template, status, task, external_id, initiator,
-            retry_count, max_retries, created_at, started_at, updated_at
-          ) VALUES (?, NULL, ?, ?, ?, 'agent', 'agent', 'running', ?, NULL, 'claudia', 0, 0, ?, ?, ?)
-        `).run(taskId, taskId, inlineProjectId, sessionId, inlineInput, taskNow, taskNow, taskNow);
+            retry_count, max_retries, response_text, tool_count, created_at, started_at, updated_at
+          ) VALUES (?, NULL, ?, ?, ?, ?, ?, ?, 'agent', 'agent', 'running', ?, ?, 'claudia', 0, 0, ?, ?, ?, ?, ?)
+        `).run(
+          taskId,
+          taskId,
+          inlineProjectId,
+          sessionId,
+          branchId,
+          branchAction,
+          contextReset ? 1 : 0,
+          inlineInput,
+          clientReqId,
+          null,
+          null,
+          taskNow,
+          taskNow,
+          taskNow,
+        );
+
+        // Update branch metadata
+        branchService.updateBranchTask(branchId, taskId, sessionId);
 
         // Notify feed service
         if (ctx.agentFeedService) {
@@ -299,7 +350,11 @@ export async function handleClientMessage(
           type: 'claudia_message_promoted',
           clientRequestId: clientReqId,
           taskId,
+          projectId: inlineProjectId,
           sessionId,
+          branchId,
+          branchAction,
+          contextReset,
         } as import('@my-claudia/shared').ClaudiaMessagePromotedMessage);
 
         // From now on, deltas go as claudia_task_delta
@@ -307,6 +362,7 @@ export async function handleClientMessage(
       }
 
       // Build intercepting wrapper client
+      let toolCount = 0;
       const wrapperWs = {
         readyState: 1,
         send: (data: string) => {
@@ -325,8 +381,8 @@ export async function handleClientMessage(
                 // After promotion, use task delta channel
                 // Find the task ID from the DB
                 const taskRow = db.prepare(
-                  'SELECT id FROM orchestrator_tasks WHERE session_id = ? AND initiator = ? ORDER BY created_at DESC LIMIT 1'
-                ).get(sessionId, 'claudia') as { id: string } | undefined;
+                  'SELECT id FROM orchestrator_tasks WHERE external_id = ? AND initiator = ? LIMIT 1'
+                ).get(clientReqId, 'claudia') as { id: string } | undefined;
                 if (taskRow) {
                   for (const [, c] of ctx.connectedClients) {
                     if (c.authenticated) sendMessage(c.ws, {
@@ -338,6 +394,7 @@ export async function handleClientMessage(
                 }
               }
             } else if (evt.type === 'tool_use') {
+              toolCount++;
               // Tool use detected — promote immediately
               if (!promoted) promote();
             } else if (evt.type === 'run_completed') {
@@ -357,13 +414,13 @@ export async function handleClientMessage(
               } else {
                 // Promoted task completed — update via orchestrator
                 const taskRow = db.prepare(
-                  'SELECT id FROM orchestrator_tasks WHERE session_id = ? AND initiator = ? ORDER BY created_at DESC LIMIT 1'
-                ).get(sessionId, 'claudia') as { id: string } | undefined;
+                  'SELECT id FROM orchestrator_tasks WHERE external_id = ? AND initiator = ? LIMIT 1'
+                ).get(clientReqId, 'claudia') as { id: string } | undefined;
                 if (taskRow) {
                   const summary = fullContent.slice(0, 200) || 'Task completed';
                   db.prepare(
-                    'UPDATE orchestrator_tasks SET status = ?, result_summary = ?, completed_at = ?, updated_at = ? WHERE id = ?'
-                  ).run('completed', summary, Date.now(), Date.now(), taskRow.id);
+                    'UPDATE orchestrator_tasks SET status = ?, result_summary = ?, response_text = ?, tool_count = ?, completed_at = ?, updated_at = ? WHERE id = ?'
+                  ).run('completed', summary, fullContent, toolCount, Date.now(), Date.now(), taskRow.id);
                   // Broadcast update
                   for (const [, c] of ctx.connectedClients) {
                     if (c.authenticated) sendMessage(c.ws, {
@@ -371,8 +428,12 @@ export async function handleClientMessage(
                       taskId: taskRow.id,
                       status: 'completed',
                       sessionId,
+                      branchId,
+                      branchAction,
+                      contextReset,
                       title: inlineTitle,
                       responseText: fullContent,
+                      toolCount,
                       updatedAt: Date.now(),
                     } as import('@my-claudia/shared').ClaudiaTaskUpdateMessage);
                   }
@@ -400,19 +461,24 @@ export async function handleClientMessage(
               }
               if (promoted) {
                 const taskRow = db.prepare(
-                  'SELECT id FROM orchestrator_tasks WHERE session_id = ? AND initiator = ? ORDER BY created_at DESC LIMIT 1'
-                ).get(sessionId, 'claudia') as { id: string } | undefined;
+                  'SELECT id FROM orchestrator_tasks WHERE external_id = ? AND initiator = ? LIMIT 1'
+                ).get(clientReqId, 'claudia') as { id: string } | undefined;
                 if (taskRow) {
                   db.prepare(
-                    'UPDATE orchestrator_tasks SET status = ?, error_summary = ?, completed_at = ?, updated_at = ? WHERE id = ?'
-                  ).run('failed', errorMsg, Date.now(), Date.now(), taskRow.id);
+                    'UPDATE orchestrator_tasks SET status = ?, error_summary = ?, response_text = ?, tool_count = ?, completed_at = ?, updated_at = ? WHERE id = ?'
+                  ).run('failed', errorMsg, fullContent || null, toolCount, Date.now(), Date.now(), taskRow.id);
                   for (const [, c] of ctx.connectedClients) {
                     if (c.authenticated) sendMessage(c.ws, {
                       type: 'claudia_task_update',
                       taskId: taskRow.id,
                       status: 'failed',
                       sessionId,
+                      branchId,
+                      branchAction,
+                      contextReset,
                       error: errorMsg,
+                      responseText: fullContent || undefined,
+                      toolCount,
                       updatedAt: Date.now(),
                     } as import('@my-claudia/shared').ClaudiaTaskUpdateMessage);
                   }
@@ -482,20 +548,42 @@ export async function handleClientMessage(
       }
       const title = taskInput.replace(/\s+/g, ' ').slice(0, 80);
       try {
+        // Branch allocation for task submit
+        const submitBranchService = new ClaudiaBranchService(db);
+        const submitSessionId = uuidv4();
+        const submitAllocation = submitBranchService.allocateBranch({
+          hostProjectId: message.projectId,
+          activeBranchId: message.activeBranchId,
+          forceNew: message.forceNewBranch,
+          title,
+          sessionId: submitSessionId,
+        });
+        if (submitAllocation.action !== 'forked') {
+          submitBranchService.setActiveBranchId(message.projectId, submitAllocation.branchId);
+        }
+
         const taskId = await ctx.orchestrator.spawnTask(null, {
           task: taskInput,
           projectId: message.projectId,
           providerId: message.providerId,
           initiator: 'claudia',
+          branchId: submitAllocation.branchId,
+          branchAction: submitAllocation.action,
+          contextReset: submitAllocation.contextReset,
           feed: { source: 'manual', title },
         });
-        // Look up the spawned task to get its sessionId
+        // Update branch metadata
+        submitBranchService.updateBranchTask(submitAllocation.branchId, taskId);
+
         const spawnedTask = ctx.orchestrator.getTask(taskId);
         sendMessage(client.ws, {
           type: 'claudia_task_created',
           clientRequestId: message.clientRequestId,
           taskId,
+          projectId: message.projectId,
           sessionId: spawnedTask?.sessionId ?? '',
+          branchId: submitAllocation.branchId,
+          branchAction: submitAllocation.action,
           title,
           status: 'queued',
         } as import('@my-claudia/shared').ClaudiaTaskCreatedMessage);
@@ -530,21 +618,44 @@ export async function handleClientMessage(
 
       const title = continueInput.replace(/\s+/g, ' ').slice(0, 80);
       try {
+        // Branch allocation: prefer parent task's branch
+        const continueBranchService = new ClaudiaBranchService(db);
+        const continueSessionId = uuidv4();
+        const continueAllocation = continueBranchService.allocateForContinue({
+          taskBranchId: parentTask.branchId,
+          hostProjectId: parentTask.projectId ?? '',
+          title,
+          sessionId: continueSessionId,
+        });
+        if (continueAllocation.action !== 'forked' && parentTask.projectId) {
+          continueBranchService.setActiveBranchId(parentTask.projectId, continueAllocation.branchId);
+        }
+
         const taskId = await ctx.orchestrator.spawnTask(message.taskId, {
           task: continueInput,
           projectId: parentTask.projectId ?? undefined,
           providerId: parentTask.providerId,
           initiator: 'claudia',
+          branchId: continueAllocation.branchId,
+          branchAction: continueAllocation.action,
+          contextReset: continueAllocation.contextReset,
           feed: { source: 'manual', title },
         });
+        // Update branch metadata
+        continueBranchService.updateBranchTask(continueAllocation.branchId, taskId);
+
         const spawnedTask = ctx.orchestrator.getTask(taskId);
         sendMessage(client.ws, {
           type: 'claudia_task_created',
           clientRequestId: message.clientRequestId,
           taskId,
+          projectId: parentTask.projectId ?? '',
           sessionId: spawnedTask?.sessionId ?? '',
+          branchId: continueAllocation.branchId,
+          branchAction: continueAllocation.action,
           title,
           status: 'queued',
+          contextReset: continueAllocation.contextReset,
         } as import('@my-claudia/shared').ClaudiaTaskCreatedMessage);
       } catch (err) {
         sendMessage(client.ws, {

@@ -21,6 +21,7 @@ import { generateKeyPair, getPublicKeyPem } from './utils/crypto.js';
 import { pluginLoader } from './plugins/loader.js';
 import type { ProcessMonitor } from './utils/process-monitor.js';
 import type { NotificationService } from './services/notification-service.js';
+import { ClaudiaBranchService } from './services/claudia-branch-service.js';
 
 // Phase 2: Router architecture
 import { createRouter } from './router/index.js';
@@ -73,7 +74,7 @@ function buildStateHeartbeat(): StateHeartbeatMessage {
 function buildClaudiaTaskSnapshot(): import('@my-claudia/shared').ClaudiaTaskSnapshotMessage | null {
   const orch = taskOrchestrator;
   if (!orch || !database) return null;
-
+  const branchService = new ClaudiaBranchService(database);
   const getLastAssistantMessage = database.prepare(
     `SELECT content FROM messages
      WHERE session_id = ? AND role = 'assistant'
@@ -93,30 +94,29 @@ function buildClaudiaTaskSnapshot(): import('@my-claudia/shared').ClaudiaTaskSna
   const tasks = collectTasks()
     .filter((task) => task.initiator === 'claudia')
     .map((task) => {
-      let responseText: string | undefined;
-      let toolCount: number | undefined;
-      if (task.sessionId) {
-        const toolCountRow = getToolCount.get(task.sessionId) as { count: number } | undefined;
-        if (toolCountRow && toolCountRow.count > 0) {
-          toolCount = toolCountRow.count;
-        }
-        if (task.status === 'completed' || task.status === 'failed') {
-          const msgRow = getLastAssistantMessage.get(task.sessionId) as { content: string } | undefined;
-          if (msgRow?.content) {
-            responseText = msgRow.content;
-          }
-        }
-      }
+      const responseText = task.responseText ?? (
+        task.sessionId && (task.status === 'completed' || task.status === 'failed')
+          ? (getLastAssistantMessage.get(task.sessionId) as { content: string } | undefined)?.content
+          : undefined
+      );
+      const toolCount = task.toolCount ?? (
+        task.sessionId
+          ? (getToolCount.get(task.sessionId) as { count: number } | undefined)?.count
+          : undefined
+      );
       return {
         id: task.id,
         sessionId: task.sessionId,
+        branchId: task.branchId,
+        branchAction: task.branchAction,
+        contextReset: task.contextReset,
         input: task.task,
         title: task.task.trim().replace(/\s+/g, ' ').slice(0, 80) || 'Claudia Task',
         status: task.status as import('@my-claudia/shared').ClaudiaTaskStatus,
         summary: task.resultSummary,
         error: task.errorSummary,
         responseText,
-        toolCount,
+        toolCount: toolCount && toolCount > 0 ? toolCount : undefined,
         createdAt: task.createdAt,
         updatedAt: task.updatedAt,
       };
@@ -126,6 +126,7 @@ function buildClaudiaTaskSnapshot(): import('@my-claudia/shared').ClaudiaTaskSna
   return {
     type: 'claudia_task_snapshot',
     tasks,
+    activeBranches: branchService.listActiveBranches(),
   };
 }
 

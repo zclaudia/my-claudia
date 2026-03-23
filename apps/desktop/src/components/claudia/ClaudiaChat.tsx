@@ -61,6 +61,7 @@ export function ClaudiaChat({ isMobile = false, hostProjectId, contextProjectId 
   const removeInline = useClaudiaStore((s) => s.removeInline);
   const continueTaskId = useClaudiaStore((s) => s.continueTaskId);
   const setContinueTaskId = useClaudiaStore((s) => s.setContinueTaskId);
+  const activeBranchIds = useClaudiaStore((s) => s.activeBranchIds);
   const scrollRef = useRef<HTMLDivElement>(null);
   const endRef = useRef<HTMLDivElement>(null);
 
@@ -100,6 +101,7 @@ export function ClaudiaChat({ isMobile = false, hostProjectId, contextProjectId 
     ?? latestSessionProject
     ?? (projects[0] ?? null)
     ?? null;
+  const activeBranchId = currentProject ? activeBranchIds[currentProject.id] ?? null : null;
 
   useEffect(() => {
     if (hostProjectId && projects.some((project) => project.id === hostProjectId)) {
@@ -190,6 +192,7 @@ export function ClaudiaChat({ isMobile = false, hostProjectId, contextProjectId 
       addTask({
         id: clientRequestId, // temporary — server will send real ID
         sessionId: null,
+        branchId: continueTask.branchId ?? null,
         input: content,
         title,
         status: 'queued',
@@ -215,11 +218,12 @@ export function ClaudiaChat({ isMobile = false, hostProjectId, contextProjectId 
         projectId: currentProject.id,
         contextProjectIds: attachedProject ? [attachedProject.id] : undefined,
         primaryContextProjectId: attachedProject?.id,
+        activeBranchId: activeBranchId ?? undefined,
       };
       wsSendMessage(message);
     }
 
-  }, [addTask, attachedProject, startInline, currentProject, continueTask, isConnected, setContinueTaskId, wsSendMessage]);
+  }, [addTask, activeBranchId, attachedProject, startInline, currentProject, continueTask, isConnected, setContinueTaskId, wsSendMessage]);
 
   const handleViewDetails = useCallback((task: ClaudiaTask) => {
     if (!task.sessionId) return;

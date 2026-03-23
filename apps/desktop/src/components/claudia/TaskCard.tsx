@@ -3,7 +3,13 @@ import ReactMarkdown from 'react-markdown';
 import { useClaudiaStore } from '../../stores/claudiaStore';
 import { extractThinking } from '../chat/MessageList';
 import type { ClaudiaTask } from '../../stores/claudiaStore';
-import type { ClaudiaTaskStatus } from '@my-claudia/shared';
+import type { ClaudiaTaskStatus, BranchAction } from '@my-claudia/shared';
+
+const BRANCH_LABELS: Record<BranchAction, string> = {
+  reused: 'Continued',
+  forked: 'New context',
+  created: '',
+};
 
 interface TaskCardProps {
   task: ClaudiaTask;
@@ -71,13 +77,18 @@ export function TaskCard({ task, collapsed, permissionRequired = false, interrup
 
   return (
     <div className="rounded-lg border border-border bg-card/50 p-3 space-y-2">
-      {/* Header: status dot + title + label + time */}
+      {/* Header: status dot + title + label + time + branch context */}
       <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
         <span className={`w-2 h-2 rounded-full flex-shrink-0 ${config.dot}`} />
         {!displayText && <span className="text-foreground text-xs font-medium truncate flex-1">{task.title}</span>}
         <span>{config.label}</span>
         <span>·</span>
         <span>{timeAgo(task.createdAt)}</span>
+        {task.branchAction && BRANCH_LABELS[task.branchAction] && (
+          <span className="text-[10px] bg-secondary/80 px-1.5 py-0.5 rounded">
+            {BRANCH_LABELS[task.branchAction]}
+          </span>
+        )}
         {collapsed && (
           <button onClick={() => setManualExpand(false)} className="ml-auto text-[10px] text-primary hover:underline">
             Collapse
@@ -108,6 +119,11 @@ export function TaskCard({ task, collapsed, permissionRequired = false, interrup
         >
           {manualExpand ? 'Show less' : 'Show more...'}
         </button>
+      )}
+
+      {/* Context reset notice */}
+      {task.contextReset && (
+        <p className="text-xs text-amber-500/90">Context was reset — original conversation was still running.</p>
       )}
 
       {/* Error display */}

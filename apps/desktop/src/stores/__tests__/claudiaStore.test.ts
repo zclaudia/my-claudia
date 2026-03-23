@@ -13,6 +13,7 @@ describe('claudiaStore', () => {
       isExpanded: false,
       claudiaSessionId: null,
       lastViewedAt: 0,
+      activeBranchIds: {},
       tasks: [],
       streamingText: {},
       inlineResponses: [],
@@ -48,5 +49,18 @@ describe('claudiaStore', () => {
     expect(localStorage.getItem('claudia-last-viewed-at')).toBe(String(now));
 
     vi.useRealTimers();
+  });
+
+  it('tracks activeBranchId per project in memory', () => {
+    useClaudiaStore.getState().setActiveBranchId('project-1', 'branch-1');
+
+    expect(useClaudiaStore.getState().activeBranchIds).toEqual({ 'project-1': 'branch-1' });
+  });
+
+  it('clears activeBranchIds on reset', () => {
+    useClaudiaStore.getState().setActiveBranchId('project-2', 'branch-2');
+    useClaudiaStore.getState().reset();
+
+    expect(useClaudiaStore.getState().activeBranchIds).toEqual({});
   });
 });

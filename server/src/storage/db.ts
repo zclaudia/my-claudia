@@ -941,6 +941,9 @@ function runMigrations(db: Database.Database): void {
           root_task_id TEXT REFERENCES orchestrator_tasks(id) ON DELETE SET NULL,
           project_id TEXT REFERENCES projects(id) ON DELETE CASCADE,
           session_id TEXT REFERENCES sessions(id) ON DELETE SET NULL,
+          branch_id TEXT REFERENCES claudia_branches(id) ON DELETE SET NULL,
+          branch_action TEXT,
+          context_reset INTEGER NOT NULL DEFAULT 0,
           kind TEXT NOT NULL,
           context_template TEXT NOT NULL DEFAULT 'coding',
           status TEXT NOT NULL DEFAULT 'queued',
@@ -954,6 +957,8 @@ function runMigrations(db: Database.Database): void {
           max_retries INTEGER NOT NULL DEFAULT 0,
           result_summary TEXT,
           error_summary TEXT,
+          response_text TEXT,
+          tool_count INTEGER,
           created_at INTEGER NOT NULL,
           started_at INTEGER,
           completed_at INTEGER,
@@ -1131,6 +1136,43 @@ function runMigrations(db: Database.Database): void {
         WHERE project_id = (SELECT project_id FROM agent_config WHERE id = 1 AND project_id IS NOT NULL)
           AND name = 'Agent Chat';
       `
+    },
+    {
+      name: '053_claudia_branches',
+      sql: `
+        CREATE TABLE IF NOT EXISTS claudia_branches (
+          id TEXT PRIMARY KEY,
+          host_project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+          active_session_id TEXT REFERENCES sessions(id) ON DELETE SET NULL,
+          title TEXT,
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL,
+          last_task_id TEXT REFERENCES orchestrator_tasks(id) ON DELETE SET NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_claudia_branches_project ON claudia_branches(host_project_id);
+
+        ALTER TABLE orchestrator_tasks ADD COLUMN branch_id TEXT REFERENCES claudia_branches(id) ON DELETE SET NULL;
+        CREATE INDEX IF NOT EXISTS idx_orch_tasks_branch ON orchestrator_tasks(branch_id);
+      `
+    },
+    {
+      name: '054_claudia_project_state',
+      sql: `
+        CREATE TABLE IF NOT EXISTS claudia_project_state (
+          host_project_id TEXT PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,
+          active_branch_id TEXT REFERENCES claudia_branches(id) ON DELETE SET NULL,
+          updated_at INTEGER NOT NULL
+        );
+      `
+    },
+    {
+      name: '055_claudia_task_metadata',
+      sql: `
+        ALTER TABLE orchestrator_tasks ADD COLUMN branch_action TEXT;
+        ALTER TABLE orchestrator_tasks ADD COLUMN context_reset INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE orchestrator_tasks ADD COLUMN response_text TEXT;
+        ALTER TABLE orchestrator_tasks ADD COLUMN tool_count INTEGER;
+      `
     }
   ];
 
@@ -1151,12 +1193,19 @@ function runMigrations(db: Database.Database): void {
           message.includes('duplicate column name: schedule_type') ||
           message.includes('duplicate column name: schedule_cron') ||
           message.includes('duplicate column name: schedule_interval_minutes') ||
-          message.includes('duplicate column name: initiator');
+          message.includes('duplicate column name: initiator') ||
+          message.includes('duplicate column name: branch_id') ||
+          message.includes('duplicate column name: branch_action') ||
+          message.includes('duplicate column name: context_reset') ||
+          message.includes('duplicate column name: response_text') ||
+          message.includes('duplicate column name: tool_count');
         const isKnownLocalPrColumnMigration =
           migration.name === '036_local_pr_status_message' ||
           migration.name === '037_local_pr_merge_commit_sha' ||
           migration.name === '048_agent_trigger_schedule_fields' ||
-          migration.name === '049_orchestrator_task_initiator';
+          migration.name === '049_orchestrator_task_initiator' ||
+          migration.name === '053_claudia_branches' ||
+          migration.name === '055_claudia_task_metadata';
 
         if (!(isKnownLocalPrColumnMigration && isDuplicateColumnError)) {
           throw error;

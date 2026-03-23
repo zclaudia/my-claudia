@@ -11,6 +11,9 @@ function createTestDb(): Database.Database {
       root_task_id TEXT,
       project_id TEXT,
       session_id TEXT,
+      branch_id TEXT,
+      branch_action TEXT,
+      context_reset INTEGER NOT NULL DEFAULT 0,
       kind TEXT NOT NULL,
       context_template TEXT NOT NULL,
       status TEXT NOT NULL,
@@ -25,6 +28,8 @@ function createTestDb(): Database.Database {
       max_retries INTEGER NOT NULL DEFAULT 0,
       result_summary TEXT,
       error_summary TEXT,
+      response_text TEXT,
+      tool_count INTEGER,
       created_at INTEGER NOT NULL,
       started_at INTEGER,
       completed_at INTEGER,
@@ -39,6 +44,16 @@ function createTestDb(): Database.Database {
       parent_session_id TEXT,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
+    );
+
+    CREATE TABLE claudia_branches (
+      id TEXT PRIMARY KEY,
+      host_project_id TEXT NOT NULL,
+      active_session_id TEXT,
+      title TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      last_task_id TEXT
     );
   `);
   return db;
@@ -146,5 +161,39 @@ describe('orchestration/task-orchestrator', () => {
       status: 'waiting',
       summary: expect.stringContaining('still waiting'),
     });
+  });
+
+  it('creates a fresh session when branch.active_session_id points to a missing session', async () => {
+    const staleSessionId = 'missing-session';
+    db.prepare(`
+      INSERT INTO claudia_branches (id, host_project_id, active_session_id, title, created_at, updated_at, last_task_id)
+      VALUES (?, ?, ?, ?, ?, ?, NULL)
+    `).run('branch-1', 'project-1', staleSessionId, 'Branch', 1, 1);
+
+    const orchestrator = createTaskOrchestrator({
+      db,
+      handleRunStart: vi.fn(async () => {}),
+      getClients: () => new Map(),
+      serverPort: null,
+    });
+
+    const taskId = await orchestrator.spawnTask(null, {
+      task: 'Run on branch',
+      projectId: 'project-1',
+      branchId: 'branch-1',
+    });
+
+    await orchestrator.tick();
+
+    const task = db.prepare('SELECT session_id FROM orchestrator_tasks WHERE id = ?').get(taskId) as { session_id: string | null };
+    const session = task.session_id
+      ? db.prepare('SELECT id FROM sessions WHERE id = ?').get(task.session_id) as { id: string } | undefined
+      : undefined;
+    const branch = db.prepare('SELECT active_session_id FROM claudia_branches WHERE id = ?').get('branch-1') as { active_session_id: string | null };
+
+    expect(task.session_id).toBeTruthy();
+    expect(task.session_id).not.toBe(staleSessionId);
+    expect(session?.id).toBe(task.session_id);
+    expect(branch.active_session_id).toBe(task.session_id);
   });
 });

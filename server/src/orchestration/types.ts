@@ -16,6 +16,9 @@ export interface OrchestratorTask {
   rootTaskId: string | null;
   projectId: string | null;
   sessionId: string | null;
+  branchId: string | null;
+  branchAction?: import('@my-claudia/shared').BranchAction;
+  contextReset?: boolean;
   kind: TaskKind;
   contextTemplate: string;
   status: TaskStatus;
@@ -30,6 +33,8 @@ export interface OrchestratorTask {
   maxRetries: number;
   resultSummary?: string;
   errorSummary?: string;
+  responseText?: string;
+  toolCount?: number;
   createdAt: number;
   startedAt?: number;
   completedAt?: number;
@@ -42,6 +47,9 @@ export interface SpawnTaskConfig {
   providerId?: string;
   contextTemplate?: string;
   initiator?: TaskInitiator;
+  branchId?: string;
+  branchAction?: import('@my-claudia/shared').BranchAction;
+  contextReset?: boolean;
   feed?: {
     triggerId?: string;
     source: import('@my-claudia/shared').FeedItemSource;

@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { ClaudiaTaskStatus } from '@my-claudia/shared';
+import type { ClaudiaTaskStatus, BranchAction } from '@my-claudia/shared';
 
 const LAST_VIEWED_KEY = 'claudia-last-viewed-at';
 
@@ -25,6 +25,9 @@ function maybeUpdateLastViewedAt(isExpanded: boolean, current: number, candidate
 export interface ClaudiaTask {
   id: string;              // orchestrator task ID
   sessionId: string | null; // backend agent session
+  branchId: string | null;  // branch this task belongs to
+  branchAction?: BranchAction; // how branch was allocated
+  contextReset?: boolean;  // true if session resume failed
   input: string;
   title: string;
   status: ClaudiaTaskStatus;
@@ -54,6 +57,9 @@ interface ClaudiaState {
   claudiaSessionId: string | null;
   lastViewedAt: number;
 
+  // Branch tracking
+  activeBranchIds: Record<string, string>;
+
   // Tasks (background)
   tasks: ClaudiaTask[];
 
@@ -70,6 +76,8 @@ interface ClaudiaState {
   toggleExpanded: () => void;
   setExpanded: (v: boolean) => void;
   setClaudiaSessionId: (id: string | null) => void;
+  setActiveBranchId: (projectId: string, branchId: string | null) => void;
+  setActiveBranchIds: (branchIds: Record<string, string>) => void;
   markViewed: () => void;
 
   addTask: (task: ClaudiaTask) => void;
@@ -96,6 +104,7 @@ export const useClaudiaStore = create<ClaudiaState>((set) => ({
   isExpanded: false,
   claudiaSessionId: null,
   lastViewedAt: loadLastViewedAt(),
+  activeBranchIds: {},
   tasks: [],
   streamingText: {},
   inlineResponses: [],
@@ -115,6 +124,20 @@ export const useClaudiaStore = create<ClaudiaState>((set) => ({
     return { isExpanded: true, lastViewedAt: Math.max(s.lastViewedAt, lastViewedAt) };
   }),
   setClaudiaSessionId: (id) => set({ claudiaSessionId: id }),
+  setActiveBranchId: (projectId, branchId) => set((s) => {
+    if (!branchId) {
+      const nextBranchIds = { ...s.activeBranchIds };
+      delete nextBranchIds[projectId];
+      return { activeBranchIds: nextBranchIds };
+    }
+    return {
+      activeBranchIds: {
+        ...s.activeBranchIds,
+        [projectId]: branchId,
+      },
+    };
+  }),
+  setActiveBranchIds: (branchIds) => set({ activeBranchIds: branchIds }),
   markViewed: () => set((s) => {
     const lastViewedAt = Date.now();
     persistLastViewedAt(lastViewedAt);
@@ -259,6 +282,7 @@ export const useClaudiaStore = create<ClaudiaState>((set) => ({
     isExpanded: false,
     claudiaSessionId: null,
     lastViewedAt: loadLastViewedAt(),
+    activeBranchIds: {},
     tasks: [],
     streamingText: {},
     inlineResponses: [],

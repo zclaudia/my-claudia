@@ -128,6 +128,8 @@ export function createTaskOrchestrator(deps: TaskOrchestratorDeps): TaskOrchestr
       completedAt: Date.now(),
       resultSummary: extra?.resultSummary,
       errorSummary: extra?.errorSummary,
+      responseText: extra?.responseText,
+      toolCount: extra?.toolCount,
     });
     const task = repo.findById(taskId);
     if (task) {
@@ -142,13 +144,38 @@ export function createTaskOrchestrator(deps: TaskOrchestratorDeps): TaskOrchestr
   }
 
   function executeAgentTask(task: OrchestratorTask): void {
-    // Create an agent session for this task (type='agent' so agent tools are visible)
-    const sessionId = uuidv4();
     const now = Date.now();
-    deps.db.prepare(`
-      INSERT INTO sessions (id, project_id, name, type, parent_session_id, created_at, updated_at)
-      VALUES (?, ?, ?, 'agent', NULL, ?, ?)
-    `).run(sessionId, task.projectId, `Agent Task: ${task.task.slice(0, 50)}`, now, now);
+    let sessionId: string;
+
+    // If task has a branch with an existing session, try to reuse it
+    if (task.branchId) {
+      const branch = deps.db.prepare(
+        'SELECT active_session_id FROM claudia_branches WHERE id = ?'
+      ).get(task.branchId) as { active_session_id: string | null } | undefined;
+      const existingSession = branch?.active_session_id
+        ? deps.db.prepare('SELECT 1 FROM sessions WHERE id = ?').get(branch.active_session_id)
+        : null;
+      if (branch?.active_session_id && existingSession) {
+        sessionId = branch.active_session_id;
+      } else {
+        // Branch exists but no session — create new
+        sessionId = uuidv4();
+        deps.db.prepare(`
+          INSERT INTO sessions (id, project_id, name, type, parent_session_id, created_at, updated_at)
+          VALUES (?, ?, ?, 'agent', NULL, ?, ?)
+        `).run(sessionId, task.projectId, `Agent Task: ${task.task.slice(0, 50)}`, now, now);
+        deps.db.prepare(
+          'UPDATE claudia_branches SET active_session_id = ?, updated_at = ? WHERE id = ?'
+        ).run(sessionId, now, task.branchId);
+      }
+    } else {
+      // No branch — create new session as before
+      sessionId = uuidv4();
+      deps.db.prepare(`
+        INSERT INTO sessions (id, project_id, name, type, parent_session_id, created_at, updated_at)
+        VALUES (?, ?, ?, 'agent', NULL, ?, ?)
+      `).run(sessionId, task.projectId, `Agent Task: ${task.task.slice(0, 50)}`, now, now);
+    }
 
     repo.updateStatus(task.id, 'running', { startedAt: now, sessionId });
 
@@ -299,6 +326,9 @@ export function createTaskOrchestrator(deps: TaskOrchestratorDeps): TaskOrchestr
         rootTaskId: rootId === id ? null : rootId,
         projectId: config.projectId ?? null,
         sessionId: null,
+        branchId: config.branchId ?? null,
+        branchAction: config.branchAction,
+        contextReset: config.contextReset,
         kind: 'agent',
         contextTemplate: config.contextTemplate || 'agent',
         status,
@@ -431,6 +461,7 @@ export function createTaskOrchestrator(deps: TaskOrchestratorDeps): TaskOrchestr
           rootTaskId: ext.rootTaskId ?? null,
           projectId: ext.projectId,
           sessionId: ext.sessionId ?? null,
+          branchId: null,
           kind: ext.kind,
           contextTemplate: 'coding',
           status: ext.status,

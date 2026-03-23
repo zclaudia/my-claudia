@@ -1057,6 +1057,7 @@ export interface AgentCancelMessage {
 // ============================================
 
 export type ClaudiaTaskStatus = 'queued' | 'running' | 'waiting' | 'completed' | 'failed' | 'cancelled';
+export type BranchAction = 'reused' | 'forked' | 'created';
 
 // Client → Server: submit a new Claudia task
 export interface ClaudiaTaskSubmitMessage {
@@ -1066,6 +1067,8 @@ export interface ClaudiaTaskSubmitMessage {
   input: string;
   projectId: string;
   providerId?: string;
+  activeBranchId?: string;
+  forceNewBranch?: boolean;
 }
 
 // Client → Server: continue an existing task
@@ -1088,14 +1091,21 @@ export interface ClaudiaTaskCreatedMessage {
   type: 'claudia_task_created';
   clientRequestId: string;
   taskId: string;
+  projectId: string;
   sessionId: string;       // Backend task session
+  branchId: string;        // Branch this task belongs to
+  branchAction: BranchAction; // Whether branch was reused/forked/created
   title: string;
   status: 'queued';
+  contextReset?: boolean;  // True if session resume failed (context lost)
 }
 
 export interface ClaudiaTaskSnapshotTask {
   id: string;
   sessionId: string | null;
+  branchId: string | null;
+  branchAction?: BranchAction;
+  contextReset?: boolean;
   input: string;
   title: string;
   status: ClaudiaTaskStatus;
@@ -1107,10 +1117,16 @@ export interface ClaudiaTaskSnapshotTask {
   updatedAt: number;
 }
 
+export interface ClaudiaActiveBranchState {
+  projectId: string;
+  branchId: string;
+}
+
 // Server → Client: full/partial Claudia task snapshot for state recovery
 export interface ClaudiaTaskSnapshotMessage {
   type: 'claudia_task_snapshot';
   tasks: ClaudiaTaskSnapshotTask[];
+  activeBranches: ClaudiaActiveBranchState[];
 }
 
 // Server → Client: task status update
@@ -1119,6 +1135,9 @@ export interface ClaudiaTaskUpdateMessage {
   taskId: string;
   status: ClaudiaTaskStatus;
   sessionId?: string;
+  branchId?: string;
+  branchAction?: BranchAction;
+  contextReset?: boolean;
   input?: string;
   title?: string;
   createdAt?: number;
@@ -1149,6 +1168,8 @@ export interface ClaudiaMessageMessage {
   contextProjectIds?: string[];
   primaryContextProjectId?: string;
   providerId?: string;
+  activeBranchId?: string;  // Current active branch for reuse/fork decision
+  forceNewBranch?: boolean; // Force create new branch (new conversation)
 }
 
 // Server → Client: streaming text for inline response
@@ -1177,7 +1198,11 @@ export interface ClaudiaMessagePromotedMessage {
   type: 'claudia_message_promoted';
   clientRequestId: string;
   taskId: string;
+  projectId: string;
   sessionId: string;
+  branchId: string;
+  branchAction: BranchAction;
+  contextReset?: boolean;
 }
 
 // ============================================

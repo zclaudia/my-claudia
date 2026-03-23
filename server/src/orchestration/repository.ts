@@ -5,6 +5,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import type Database from 'better-sqlite3';
 import type { OrchestratorTask, TaskStatus, TaskKind, TaskInitiator } from './types.js';
+import type { BranchAction } from '@my-claudia/shared';
 
 interface TaskRow {
   id: string;
@@ -12,6 +13,9 @@ interface TaskRow {
   root_task_id: string | null;
   project_id: string | null;
   session_id: string | null;
+  branch_id: string | null;
+  branch_action: string | null;
+  context_reset: number | null;
   kind: string;
   context_template: string;
   status: string;
@@ -26,6 +30,8 @@ interface TaskRow {
   max_retries: number;
   result_summary: string | null;
   error_summary: string | null;
+  response_text: string | null;
+  tool_count: number | null;
   created_at: number;
   started_at: number | null;
   completed_at: number | null;
@@ -39,6 +45,9 @@ function rowToTask(row: TaskRow): OrchestratorTask {
     rootTaskId: row.root_task_id,
     projectId: row.project_id,
     sessionId: row.session_id,
+    branchId: row.branch_id,
+    branchAction: (row.branch_action ?? undefined) as BranchAction | undefined,
+    contextReset: Boolean(row.context_reset),
     kind: row.kind as TaskKind,
     contextTemplate: row.context_template,
     status: row.status as TaskStatus,
@@ -53,6 +62,8 @@ function rowToTask(row: TaskRow): OrchestratorTask {
     maxRetries: row.max_retries,
     resultSummary: row.result_summary ?? undefined,
     errorSummary: row.error_summary ?? undefined,
+    responseText: row.response_text ?? undefined,
+    toolCount: row.tool_count ?? undefined,
     createdAt: row.created_at,
     startedAt: row.started_at ?? undefined,
     completedAt: row.completed_at ?? undefined,
@@ -68,18 +79,21 @@ export class TaskRepository {
     const now = Date.now();
     this.db.prepare(`
       INSERT INTO orchestrator_tasks (
-        id, parent_task_id, root_task_id, project_id, session_id,
+        id, parent_task_id, root_task_id, project_id, session_id, branch_id, branch_action, context_reset,
         kind, context_template, status, task, external_id, initiator,
         schedule_type, schedule_config, depends_on, provider_id,
         retry_count, max_retries, result_summary, error_summary,
+        response_text, tool_count,
         created_at, started_at, completed_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
-      id, task.parentTaskId, task.rootTaskId, task.projectId, task.sessionId,
+      id, task.parentTaskId, task.rootTaskId, task.projectId, task.sessionId, task.branchId,
+      task.branchAction ?? null, task.contextReset ? 1 : 0,
       task.kind, task.contextTemplate, task.status, task.task, task.externalId ?? null, task.initiator,
       task.scheduleType ?? null, task.scheduleConfig ?? null,
       task.dependsOn ? JSON.stringify(task.dependsOn) : null, task.providerId ?? null,
       0, task.maxRetries ?? 0, task.resultSummary ?? null, task.errorSummary ?? null,
+      task.responseText ?? null, task.toolCount ?? null,
       now, task.startedAt ?? null, task.completedAt ?? null, now,
     );
     return this.findById(id)!;
@@ -125,6 +139,8 @@ export class TaskRepository {
     resultSummary?: string;
     errorSummary?: string;
     sessionId?: string;
+    responseText?: string;
+    toolCount?: number;
   }): void {
     const now = Date.now();
     const sets = ['status = ?', 'updated_at = ?'];
@@ -135,6 +151,8 @@ export class TaskRepository {
     if (extra?.resultSummary !== undefined) { sets.push('result_summary = ?'); params.push(extra.resultSummary); }
     if (extra?.errorSummary !== undefined) { sets.push('error_summary = ?'); params.push(extra.errorSummary); }
     if (extra?.sessionId !== undefined) { sets.push('session_id = ?'); params.push(extra.sessionId); }
+    if (extra?.responseText !== undefined) { sets.push('response_text = ?'); params.push(extra.responseText); }
+    if (extra?.toolCount !== undefined) { sets.push('tool_count = ?'); params.push(extra.toolCount); }
 
     params.push(id);
     this.db.prepare(`UPDATE orchestrator_tasks SET ${sets.join(', ')} WHERE id = ?`).run(...params);
