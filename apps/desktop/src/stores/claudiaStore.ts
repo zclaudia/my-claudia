@@ -15,6 +15,13 @@ function persistLastViewedAt(value: number): void {
   window.localStorage.setItem(LAST_VIEWED_KEY, String(value));
 }
 
+function maybeUpdateLastViewedAt(isExpanded: boolean, current: number, candidate: number): number | undefined {
+  if (!isExpanded) return undefined;
+  const nextValue = Math.max(current, candidate);
+  persistLastViewedAt(nextValue);
+  return nextValue;
+}
+
 export interface ClaudiaTask {
   id: string;              // orchestrator task ID
   sessionId: string | null; // backend agent session
@@ -38,6 +45,7 @@ export interface InlineResponse {
   error?: string;
   promotedTaskId?: string;
   createdAt: number;
+  updatedAt: number;
 }
 
 interface ClaudiaState {
@@ -167,47 +175,73 @@ export const useClaudiaStore = create<ClaudiaState>((set) => ({
     return { streamingText: rest };
   }),
 
-  startInline: (clientRequestId, input) => set((s) => ({
-    inlineResponses: [...s.inlineResponses, {
-      clientRequestId,
-      input,
-      streamingText: '',
-      status: 'streaming' as const,
-      createdAt: Date.now(),
-    }],
-  })),
+  startInline: (clientRequestId, input) => set((s) => {
+    const now = Date.now();
+    const lastViewedAt = maybeUpdateLastViewedAt(s.isExpanded, s.lastViewedAt, now);
+    return {
+      inlineResponses: [...s.inlineResponses, {
+        clientRequestId,
+        input,
+        streamingText: '',
+        status: 'streaming' as const,
+        createdAt: now,
+        updatedAt: now,
+      }],
+      ...(lastViewedAt !== undefined ? { lastViewedAt } : {}),
+    };
+  }),
 
-  appendInlineDelta: (clientRequestId, content) => set((s) => ({
-    inlineResponses: s.inlineResponses.map((r) =>
-      r.clientRequestId === clientRequestId
-        ? { ...r, streamingText: r.streamingText + content }
-        : r
-    ),
-  })),
+  appendInlineDelta: (clientRequestId, content) => set((s) => {
+    const now = Date.now();
+    const lastViewedAt = maybeUpdateLastViewedAt(s.isExpanded, s.lastViewedAt, now);
+    return {
+      inlineResponses: s.inlineResponses.map((r) =>
+        r.clientRequestId === clientRequestId
+          ? { ...r, streamingText: r.streamingText + content, updatedAt: now }
+          : r
+      ),
+      ...(lastViewedAt !== undefined ? { lastViewedAt } : {}),
+    };
+  }),
 
-  completeInline: (clientRequestId, responseText) => set((s) => ({
-    inlineResponses: s.inlineResponses.map((r) =>
-      r.clientRequestId === clientRequestId
-        ? { ...r, status: 'completed' as const, responseText }
-        : r
-    ),
-  })),
+  completeInline: (clientRequestId, responseText) => set((s) => {
+    const now = Date.now();
+    const lastViewedAt = maybeUpdateLastViewedAt(s.isExpanded, s.lastViewedAt, now);
+    return {
+      inlineResponses: s.inlineResponses.map((r) =>
+        r.clientRequestId === clientRequestId
+          ? { ...r, status: 'completed' as const, responseText, updatedAt: now }
+          : r
+      ),
+      ...(lastViewedAt !== undefined ? { lastViewedAt } : {}),
+    };
+  }),
 
-  failInline: (clientRequestId, error) => set((s) => ({
-    inlineResponses: s.inlineResponses.map((r) =>
-      r.clientRequestId === clientRequestId
-        ? { ...r, status: 'failed' as const, error }
-        : r
-    ),
-  })),
+  failInline: (clientRequestId, error) => set((s) => {
+    const now = Date.now();
+    const lastViewedAt = maybeUpdateLastViewedAt(s.isExpanded, s.lastViewedAt, now);
+    return {
+      inlineResponses: s.inlineResponses.map((r) =>
+        r.clientRequestId === clientRequestId
+          ? { ...r, status: 'failed' as const, error, updatedAt: now }
+          : r
+      ),
+      ...(lastViewedAt !== undefined ? { lastViewedAt } : {}),
+    };
+  }),
 
-  promoteInline: (clientRequestId, taskId) => set((s) => ({
-    inlineResponses: s.inlineResponses.map((r) =>
-      r.clientRequestId === clientRequestId
-        ? { ...r, status: 'promoted' as const, promotedTaskId: taskId }
-        : r
-    ),
-  })),
+  promoteInline: (clientRequestId, taskId) => set((s) => {
+    const now = Date.now();
+    const lastViewedAt = maybeUpdateLastViewedAt(s.isExpanded, s.lastViewedAt, now);
+    return {
+      inlineResponses: s.inlineResponses.map((r) =>
+        r.clientRequestId === clientRequestId
+          ? { ...r, status: 'promoted' as const, promotedTaskId: taskId, updatedAt: now }
+          : r
+      ),
+      ...(lastViewedAt !== undefined ? { lastViewedAt } : {}),
+    };
+  }),
 
   removeInline: (clientRequestId) => set((s) => ({
     inlineResponses: s.inlineResponses.filter((r) => r.clientRequestId !== clientRequestId),

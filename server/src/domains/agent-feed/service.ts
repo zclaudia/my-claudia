@@ -97,6 +97,14 @@ export class AgentFeedService {
     return unreadCount;
   }
 
+  dismissItems(ids: string[]): number {
+    return this.repo.deleteByIds(ids);
+  }
+
+  clearRead(): number {
+    return this.repo.deleteRead();
+  }
+
   /** Get unread count */
   getUnreadCount(): number {
     return this.repo.unreadCount();

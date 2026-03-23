@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { ThemeProvider, useTheme, isDarkTheme } from '../../contexts/ThemeContext';
 import { ConnectionProvider } from '../../contexts/ConnectionContext';
 import { ClaudiaChat } from './ClaudiaChat';
@@ -11,6 +11,17 @@ interface ClaudiaChatWindowProps {
   serverName?: string;
   gatewayUrl?: string;
   gatewaySecret?: string;
+  projectId?: string;
+}
+
+interface ClaudiaWindowContext {
+  serverUrl?: string;
+  authToken?: string;
+  serverId?: string;
+  serverName?: string;
+  gatewayUrl?: string;
+  gatewaySecret?: string;
+  projectId?: string | null;
 }
 
 /**
@@ -19,10 +30,11 @@ interface ClaudiaChatWindowProps {
  */
 function ClaudiaChatWindowContent({
   isMobile = false,
-}: { isMobile?: boolean }) {
+  preferredProjectId,
+}: { isMobile?: boolean; preferredProjectId?: string }) {
   useDataLoader();
 
-  return <ClaudiaChat isMobile={isMobile} />;
+  return <ClaudiaChat isMobile={isMobile} preferredProjectId={preferredProjectId} />;
 }
 
 /** Header with theme-aware logo */
@@ -59,30 +71,47 @@ function ClaudiaHeader({ onClose }: { onClose: () => void }) {
 
 export function ClaudiaChatWindow({
   serverUrl,
+  authToken,
   serverId,
   serverName,
   gatewayUrl,
   gatewaySecret,
+  projectId,
 }: ClaudiaChatWindowProps) {
+  const [context, setContext] = useState<Required<Pick<ClaudiaWindowContext, 'serverUrl' | 'authToken'>> & ClaudiaWindowContext>(() => ({
+    serverUrl,
+    authToken,
+    serverId,
+    serverName,
+    gatewayUrl,
+    gatewaySecret,
+    projectId,
+  }));
+
   // Custom title bar drag + close
   useEffect(() => {
-    let cleanup: (() => void) | undefined;
+    let cleanupClose: (() => void) | undefined;
+    let cleanupContext: (() => void) | undefined;
     document.documentElement.classList.add('claudia-chat-window');
     document.body.classList.add('claudia-chat-window');
 
     (async () => {
       const { getCurrentWindow } = await import('@tauri-apps/api/window');
+      const { listen } = await import('@tauri-apps/api/event');
       const win = getCurrentWindow();
       // Hide instead of destroying so reopen is instant.
-      const unlisten = await win.onCloseRequested(async (e) => {
+      cleanupClose = await win.onCloseRequested(async (e) => {
         e.preventDefault();
         const { invoke } = await import('@tauri-apps/api/core');
         await invoke('hide_claudia_chat');
       });
-      cleanup = unlisten;
+      cleanupContext = await listen<ClaudiaWindowContext>('claudia:context', (event) => {
+        setContext((prev) => ({ ...prev, ...event.payload }));
+      });
     })();
     return () => {
-      cleanup?.();
+      cleanupClose?.();
+      cleanupContext?.();
       document.documentElement.classList.remove('claudia-chat-window');
       document.body.classList.remove('claudia-chat-window');
     };
@@ -107,13 +136,13 @@ export function ClaudiaChatWindow({
           {/* Chat content with its own connection */}
           <div className="flex-1 min-h-0">
             <ConnectionProvider
-              standaloneServerUrl={serverUrl}
-              standaloneServerId={serverId}
-              standaloneServerName={serverName}
-              standaloneGatewayUrl={gatewayUrl}
-              standaloneGatewaySecret={gatewaySecret}
+              standaloneServerUrl={context.serverUrl}
+              standaloneServerId={context.serverId}
+              standaloneServerName={context.serverName}
+              standaloneGatewayUrl={context.gatewayUrl}
+              standaloneGatewaySecret={context.gatewaySecret}
             >
-              <ClaudiaChatWindowContent />
+              <ClaudiaChatWindowContent preferredProjectId={context.projectId ?? undefined} />
             </ConnectionProvider>
           </div>
         </div>

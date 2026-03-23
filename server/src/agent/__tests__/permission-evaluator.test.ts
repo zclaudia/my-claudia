@@ -733,25 +733,25 @@ describe('resolveRememberedDecision', () => {
     expect(resolveRememberedDecision(remembered, 'Bash', { command: 'git status' }, '')).toBe('allow');
   });
 
-  it('should allow a compound command when all subcommands are remembered as allow', () => {
+  it('should not synthesize an allow from remembered subcommands', () => {
     const remembered = new Map([
       ['Bash:curl http://localhost:1420', 'allow' as const],
       ['Bash:grep 200', 'allow' as const],
     ]);
-    expect(resolveRememberedDecision(remembered, 'Bash', { command: 'curl http://localhost:1420 | grep 200' }, '')).toBe('allow');
+    expect(resolveRememberedDecision(remembered, 'Bash', { command: 'curl http://localhost:1420 | grep 200' }, '')).toBeNull();
   });
 
-  it('should deny a compound command when a remembered subcommand is deny', () => {
+  it('should not synthesize a deny from remembered subcommands', () => {
     const remembered = new Map([
       ['Bash:curl http://localhost:1420', 'allow' as const],
       ['Bash:tail -30 /tmp/x.log', 'deny' as const],
     ]);
-    expect(resolveRememberedDecision(remembered, 'Bash', { command: 'curl http://localhost:1420 && tail -30 /tmp/x.log' }, '')).toBe('deny');
+    expect(resolveRememberedDecision(remembered, 'Bash', { command: 'curl http://localhost:1420 && tail -30 /tmp/x.log' }, '')).toBeNull();
   });
 });
 
 describe('session remembered decisions', () => {
-  it('persists and reloads remembered keys at session scope', () => {
+  it('persists and reloads only the exact remembered key at session scope', () => {
     const db = makeMockDb();
     persistSessionRememberedDecision(
       db as any,
@@ -764,8 +764,8 @@ describe('session remembered decisions', () => {
 
     const remembered = loadSessionRememberedDecisions(db as any, 'session-1');
     expect(remembered.get('Bash:curl http://localhost:1420 | grep 200')).toBe('allow');
-    expect(remembered.get('Bash:curl http://localhost:1420')).toBe('allow');
-    expect(remembered.get('Bash:grep 200')).toBe('allow');
+    expect(remembered.get('Bash:curl http://localhost:1420')).toBeUndefined();
+    expect(remembered.get('Bash:grep 200')).toBeUndefined();
   });
 });
 

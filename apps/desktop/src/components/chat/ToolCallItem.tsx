@@ -29,6 +29,31 @@ function normalizeToolInput(input: unknown): unknown {
   return input;
 }
 
+// Check if tool is a todo-list tool (built-in TodoWrite or MCP update_todo_list)
+function isTodoTool(toolName: string): boolean {
+  return toolName === 'TodoWrite' || toolName.endsWith('update_todo_list');
+}
+
+// Check if tool is an ask_user_form tool (MCP)
+function isAskUserFormTool(toolName: string): boolean {
+  return toolName.endsWith('ask_user_form');
+}
+
+// Check if tool is a request_approval tool (MCP)
+function isApprovalTool(toolName: string): boolean {
+  return toolName.endsWith('request_approval');
+}
+
+// Check if tool is a push_file tool (MCP)
+function isPushFileTool(toolName: string): boolean {
+  return toolName.endsWith('push_file');
+}
+
+// Check if tool is any MCP interaction tool
+function isInteractionTool(toolName: string): boolean {
+  return isTodoTool(toolName) || isAskUserFormTool(toolName) || isApprovalTool(toolName) || isPushFileTool(toolName);
+}
+
 type TodoItem = {
   content: string;
   status: string;
@@ -70,6 +95,21 @@ function formatToolInput(toolName: string, input: unknown): string {
   }
 
   const obj = input as Record<string, unknown>;
+
+  // Handle MCP interaction tools before switch
+  if (isTodoTool(toolName)) {
+    return 'Update task list';
+  }
+  if (isAskUserFormTool(toolName)) {
+    return obj.title as string || 'Form';
+  }
+  if (isApprovalTool(toolName)) {
+    return obj.title as string || 'Approval required';
+  }
+  if (isPushFileTool(toolName)) {
+    const filePath = obj.filePath as string || '';
+    return filePath ? filePath.split('/').pop()! : 'Push file';
+  }
 
   switch (toolName) {
     case 'Read':
@@ -115,8 +155,6 @@ function formatToolInput(toolName: string, input: unknown): string {
     }
     case 'EnterPlanMode':
       return 'Entering plan mode';
-    case 'TodoWrite':
-      return 'Update task list';
     default:
       return JSON.stringify(input, null, 2);
   }
@@ -488,9 +526,10 @@ function ToolExpandedContent({ toolName, toolInput, status, result, isError }: {
     );
   }
 
-  // TodoWrite: show task list
-  if (toolName === 'TodoWrite' && input?.todos) {
-    const todos = normalizeTodoItems(input.todos);
+  // TodoWrite / MCP update_todo_list: show task list
+  if (isTodoTool(toolName)) {
+    const todoSource = input?.todos || input;
+    const todos = normalizeTodoItems(todoSource);
     return (
       <div className="px-3 pb-3 border-t border-border/50">
         <div className="mt-2 space-y-1">
@@ -508,6 +547,81 @@ function ToolExpandedContent({ toolName, toolInput, status, result, isError }: {
             </div>
           ))}
         </div>
+      </div>
+    );
+  }
+
+  // MCP ask_user_form: show form fields summary
+  if (isAskUserFormTool(toolName) && input) {
+    const title = input.title as string || 'Form';
+    const description = input.description as string | undefined;
+    const fields = (input.fields as Array<{ id: string; label: string; type: string; required?: boolean }>) || [];
+    return (
+      <div className="px-3 pb-3 border-t border-border/50">
+        <div className="mt-2">
+          <div className="text-xs font-medium text-foreground mb-1">{title}</div>
+          {description && <div className="text-xs text-muted-foreground mb-2">{description}</div>}
+          <div className="space-y-1">
+            {fields.map((field, idx) => (
+              <div key={idx} className="flex items-center gap-2 text-xs">
+                <span className="text-muted-foreground">{field.type === 'confirm' ? '☐' : '•'}</span>
+                <span className="text-foreground">{field.label}</span>
+                {field.required && <span className="text-destructive text-[10px]">*</span>}
+                <span className="text-muted-foreground text-[10px]">({field.type})</span>
+              </div>
+            ))}
+          </div>
+        </div>
+        {status !== 'running' && result !== undefined && (
+          <div className="mt-2">
+            <div className="text-xs text-muted-foreground mb-1">Response:</div>
+            <pre className={`text-xs rounded p-2 overflow-x-auto touch-pan-x [-webkit-overflow-scrolling:touch] whitespace-pre ${isError ? 'bg-destructive/20 text-destructive' : 'bg-primary/10 text-foreground'}`}>
+              {formatToolResult(result)}
+            </pre>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // MCP request_approval: show approval details
+  if (isApprovalTool(toolName) && input) {
+    const title = input.title as string || 'Approval Required';
+    const message = input.message as string || '';
+    return (
+      <div className="px-3 pb-3 border-t border-border/50">
+        <div className="mt-2">
+          <div className="text-xs font-medium text-foreground mb-1">{title}</div>
+          {message && <div className="text-xs text-muted-foreground whitespace-pre-wrap">{message}</div>}
+        </div>
+        {status !== 'running' && result !== undefined && (
+          <div className="mt-2">
+            <pre className={`text-xs rounded p-2 overflow-x-auto touch-pan-x [-webkit-overflow-scrolling:touch] whitespace-pre ${isError ? 'bg-destructive/20 text-destructive' : 'bg-primary/10 text-foreground'}`}>
+              {formatToolResult(result)}
+            </pre>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // MCP push_file: show file info
+  if (isPushFileTool(toolName) && input) {
+    const filePath = input.filePath as string || '';
+    const description = input.description as string | undefined;
+    return (
+      <div className="px-3 pb-3 border-t border-border/50">
+        <div className="mt-2">
+          {filePath && <div className="text-xs font-mono text-foreground">{filePath}</div>}
+          {description && <div className="text-xs text-muted-foreground mt-1">{description}</div>}
+        </div>
+        {status !== 'running' && result !== undefined && (
+          <div className="mt-2">
+            <pre className={`text-xs rounded p-2 overflow-x-auto touch-pan-x [-webkit-overflow-scrolling:touch] whitespace-pre ${isError ? 'bg-destructive/20 text-destructive' : 'bg-primary/10 text-foreground'}`}>
+              {formatToolResult(result)}
+            </pre>
+          </div>
+        )}
       </div>
     );
   }
@@ -549,13 +663,23 @@ export const ToolCallItem = memo(function ToolCallItem({ toolCall }: ToolCallIte
   const [isExpanded, setIsExpanded] = useState(false);
   const { toolName, toolInput, status, result, isError, activity } = toolCall;
 
-  // Phase 1 dedup: render InteractionItem instead of TodoWrite when interaction store has it
+  // Phase 1 dedup: render InteractionItem instead of interaction tool when interaction store has it
   const interaction = useInteractionStore((s) => s.interactions[toolCall.id]);
-  if (toolName === 'TodoWrite' && interaction?.type === 'interaction_todo_update' && interaction.todos.length > 0) {
-    return <InteractionItem interaction={interaction} />;
+  if (interaction && isInteractionTool(toolName)) {
+    if (interaction.type === 'interaction_todo_update' && interaction.todos.length > 0) {
+      return <InteractionItem interaction={interaction} />;
+    }
+    if (interaction.type === 'interaction_ask_user_form' || interaction.type === 'interaction_approval') {
+      return <InteractionItem interaction={interaction} />;
+    }
   }
 
   const icon = getToolIcon(toolName);
+  const displayName = isTodoTool(toolName) ? 'TodoWrite'
+    : isAskUserFormTool(toolName) ? 'AskUserForm'
+    : isApprovalTool(toolName) ? 'RequestApproval'
+    : isPushFileTool(toolName) ? 'PushFile'
+    : toolName;
   const summary = formatToolInput(toolName, toolInput);
 
   // AskUserQuestion: user answers come back as "deny" (isError=true), but that's expected behavior
@@ -588,7 +712,7 @@ export const ToolCallItem = memo(function ToolCallItem({ toolCall }: ToolCallIte
 
         {/* Tool icon and name */}
         <Icon icon={icon} size={14} className="text-muted-foreground" />
-        <span className="text-xs font-medium text-foreground" data-testid="tool-name">{toolName}</span>
+        <span className="text-xs font-medium text-foreground" data-testid="tool-name">{displayName}</span>
 
         {/* Summary */}
         <span className="flex-1 text-xs text-muted-foreground truncate ml-2">
@@ -634,6 +758,21 @@ function getToolCallSummary(tc: ToolCallState): string {
   const input = normalizeToolInput(tc.toolInput) as Record<string, unknown> | undefined;
   if (!input) return tc.toolName;
 
+  // Handle MCP interaction tools before switch
+  if (isTodoTool(tc.toolName)) {
+    return 'Update todos';
+  }
+  if (isAskUserFormTool(tc.toolName)) {
+    return String(input.title || 'Form').substring(0, 20);
+  }
+  if (isApprovalTool(tc.toolName)) {
+    return String(input.title || 'Approval').substring(0, 20);
+  }
+  if (isPushFileTool(tc.toolName)) {
+    const fp = String(input.filePath || '');
+    return fp ? fp.split('/').pop()! : 'Push file';
+  }
+
   switch (tc.toolName) {
     case 'Read':
       return input.file_path ? String(input.file_path).split('/').pop()! : 'Read';
@@ -659,8 +798,6 @@ function getToolCallSummary(tc: ToolCallState): string {
       }
     case 'WebSearch':
       return String(input.query || '').substring(0, 15);
-    case 'TodoWrite':
-      return 'Update todos';
     case 'AskUserQuestion': {
       const questions = (input.questions as Array<{ header: string }>) || [];
       return questions[0]?.header || 'question';

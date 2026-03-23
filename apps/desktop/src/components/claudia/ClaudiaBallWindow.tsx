@@ -2,6 +2,16 @@ import { useEffect, useState, useRef, type PointerEvent as ReactPointerEvent } f
 
 const DRAG_THRESHOLD_PX = 6;
 
+interface ClaudiaWindowContext {
+  serverUrl?: string;
+  authToken?: string;
+  serverId?: string;
+  serverName?: string;
+  gatewayUrl?: string;
+  gatewaySecret?: string;
+  projectId?: string | null;
+}
+
 /**
  * Standalone floating ball window — rendered in a small transparent Tauri window.
  *
@@ -15,6 +25,18 @@ export function ClaudiaBallWindow() {
   const [isDark, setIsDark] = useState(() =>
     typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: dark)').matches
   );
+  const [context, setContext] = useState<ClaudiaWindowContext>(() => {
+    const params = new URLSearchParams(window.location.search);
+    return {
+      serverUrl: params.get('serverUrl') || undefined,
+      authToken: params.get('authToken') || undefined,
+      serverId: params.get('serverId') || undefined,
+      serverName: params.get('serverName') || undefined,
+      gatewayUrl: params.get('gatewayUrl') || undefined,
+      gatewaySecret: params.get('gatewaySecret') || undefined,
+      projectId: params.get('projectId'),
+    };
+  });
   const pointerDown = useRef(false);
   const dragStarted = useRef(false);
   const pointerStart = useRef<{ x: number; y: number } | null>(null);
@@ -59,17 +81,23 @@ export function ClaudiaBallWindow() {
 
   // Listen for unread notifications
   useEffect(() => {
-    let cleanup: (() => void) | undefined;
+    let cleanupUnread: (() => void) | undefined;
+    let cleanupContext: (() => void) | undefined;
     (async () => {
       try {
         const { listen } = await import('@tauri-apps/api/event');
-        const unlisten = await listen<{ unread: boolean }>('claudia:unread', (e) => {
+        cleanupUnread = await listen<{ unread: boolean }>('claudia:unread', (e) => {
           setHasUnread(e.payload.unread);
         });
-        cleanup = unlisten;
+        cleanupContext = await listen<ClaudiaWindowContext>('claudia:context', (e) => {
+          setContext((prev) => ({ ...prev, ...e.payload }));
+        });
       } catch { /* not ready */ }
     })();
-    return () => cleanup?.();
+    return () => {
+      cleanupUnread?.();
+      cleanupContext?.();
+    };
   }, []);
 
   const handlePointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -114,11 +142,9 @@ export function ClaudiaBallWindow() {
     setIsOpening(true);
     try {
       const { invoke } = await import('@tauri-apps/api/core');
-      const params = new URLSearchParams(window.location.search);
       const chatParams = new URLSearchParams({ claudiaChat: 'true' });
-      for (const key of ['serverUrl', 'authToken', 'serverId', 'serverName', 'gatewayUrl', 'gatewaySecret']) {
-        const val = params.get(key);
-        if (val) chatParams.set(key, val);
+      for (const [key, value] of Object.entries(context)) {
+        if (value) chatParams.set(key, value);
       }
 
       await invoke('toggle_claudia_chat', {

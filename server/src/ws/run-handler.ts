@@ -35,6 +35,7 @@ import {
   buildFilePushContext,
 } from '../helpers/server-utils.js';
 import {
+  classify,
   getMatchedPermissionRule,
   PermissionEvaluator,
   getAgentPermissionPolicy,
@@ -467,13 +468,16 @@ export async function handleRunStart(
           return;
         }
 
-        if (isOutsideWorkspacePathAllowed(
-          request.toolName,
-          request.toolInput,
-          request.detail,
-          activeRun.workspaceRoot,
-          activeRun.allowedOutsideWorkspaceRoots
-        )) {
+        if (
+          classify(request.toolName, request.toolInput, request.detail) === 'fileRead'
+          && isOutsideWorkspacePathAllowed(
+            request.toolName,
+            request.toolInput,
+            request.detail,
+            activeRun.workspaceRoot,
+            activeRun.allowedOutsideWorkspaceRoots
+          )
+        ) {
           sendMessage(client.ws, {
             type: 'agent_permission_intercepted',
             toolName: request.toolName,

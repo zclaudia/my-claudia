@@ -30,6 +30,16 @@ export function AgentFeedPanel() {
     }
   }, [items, sendMessage]);
 
+  const handleClearRead = useCallback(() => {
+    sendMessage({ type: 'clear_read_feed_items' });
+    clearRead();
+  }, [clearRead, sendMessage]);
+
+  const handleDismiss = useCallback((id: string) => {
+    sendMessage({ type: 'dismiss_feed_items', itemIds: [id] });
+    removeItem(id);
+  }, [removeItem, sendMessage]);
+
   const hasReadItems = items.some((i) => i.readAt);
 
   return (
@@ -47,7 +57,7 @@ export function AgentFeedPanel() {
         <div className="flex items-center gap-2">
           {hasReadItems && (
             <button
-              onClick={clearRead}
+              onClick={handleClearRead}
               className="text-[11px] text-muted-foreground hover:text-foreground transition-colors"
             >
               Clear read
@@ -75,7 +85,7 @@ export function AgentFeedPanel() {
 
         <div className="divide-y divide-border/50">
           {items.map((item) => (
-            <FeedItem key={item.id} item={item} onDismiss={removeItem} />
+            <FeedItem key={item.id} item={item} onDismiss={handleDismiss} />
           ))}
         </div>
 

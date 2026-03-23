@@ -104,6 +104,20 @@ export class AgentFeedRepository {
     return now;
   }
 
+  deleteByIds(ids: string[]): number {
+    if (ids.length === 0) return 0;
+    const placeholders = ids.map(() => '?').join(',');
+    const result = this.db.prepare(
+      `DELETE FROM agent_feed WHERE id IN (${placeholders})`
+    ).run(...ids);
+    return result.changes;
+  }
+
+  deleteRead(): number {
+    const result = this.db.prepare('DELETE FROM agent_feed WHERE read_at IS NOT NULL').run();
+    return result.changes;
+  }
+
   unreadCount(): number {
     const row = this.db.prepare('SELECT COUNT(*) as count FROM agent_feed WHERE read_at IS NULL').get() as { count: number };
     return row.count;

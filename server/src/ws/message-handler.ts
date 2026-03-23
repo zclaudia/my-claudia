@@ -100,6 +100,18 @@ export async function handleClientMessage(
       }
       break;
 
+    case 'dismiss_feed_items':
+      if (ctx.agentFeedService && Array.isArray(message.itemIds)) {
+        ctx.agentFeedService.dismissItems(message.itemIds);
+      }
+      break;
+
+    case 'clear_read_feed_items':
+      if (ctx.agentFeedService) {
+        ctx.agentFeedService.clearRead();
+      }
+      break;
+
     case 'claudia_message': {
       // Inline-first Claudia message: run in foreground, promote to background on tool_use or timeout
       const inlineMsg = message as import('@my-claudia/shared').ClaudiaMessageMessage;
@@ -137,6 +149,7 @@ export async function handleClientMessage(
       }
       const sessionId = uuidv4();
       const now = Date.now();
+      const inlineTitle = inlineInput.replace(/\s+/g, ' ').slice(0, 80);
 
       // Create ephemeral agent session
       db.prepare(`
@@ -154,13 +167,44 @@ export async function handleClientMessage(
         if (!completed && !promoted) promote();
       }, PROMOTE_TIMEOUT_MS);
 
+      function persistInlineHistory(status: 'completed' | 'failed', extra?: { summary?: string; error?: string; updatedAt?: number }) {
+        const existing = db.prepare(
+          'SELECT id FROM orchestrator_tasks WHERE session_id = ? AND initiator = ? ORDER BY created_at DESC LIMIT 1'
+        ).get(sessionId, 'claudia') as { id: string } | undefined;
+        if (existing) return existing.id;
+
+        const taskId = uuidv4();
+        const updatedAt = extra?.updatedAt ?? Date.now();
+        db.prepare(`
+          INSERT INTO orchestrator_tasks (
+            id, parent_task_id, root_task_id, project_id, session_id,
+            kind, context_template, status, task, external_id, initiator,
+            retry_count, max_retries, result_summary, error_summary,
+            created_at, started_at, completed_at, updated_at
+          ) VALUES (?, NULL, ?, ?, ?, 'agent', 'agent', ?, ?, NULL, 'claudia', 0, 0, ?, ?, ?, ?, ?, ?)
+        `).run(
+          taskId,
+          taskId,
+          inlineProjectId,
+          sessionId,
+          status,
+          inlineInput,
+          extra?.summary ?? null,
+          extra?.error ?? null,
+          now,
+          now,
+          updatedAt,
+          updatedAt,
+        );
+        return taskId;
+      }
+
       function promote() {
         if (promoted || completed) return;
         promoted = true;
         clearTimeout(promoteTimer);
 
         // Create orchestrator task for the already-running session
-        const title = inlineInput.replace(/\s+/g, ' ').slice(0, 80);
         const taskId = uuidv4();
         const taskNow = Date.now();
 
@@ -180,7 +224,7 @@ export async function handleClientMessage(
             sessionId,
             projectId: inlineProjectId,
             source: 'manual',
-            title,
+            title: inlineTitle,
             summary: inlineInput,
             status: 'running',
           });
@@ -236,6 +280,10 @@ export async function handleClientMessage(
               completed = true;
               clearTimeout(promoteTimer);
               if (!promoted) {
+                const stripped = fullContent.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+                persistInlineHistory('completed', {
+                  summary: stripped.slice(0, 200) || 'Task completed',
+                });
                 // Fast inline completion
                 sendMessage(client.ws, {
                   type: 'claudia_message_completed',
@@ -253,14 +301,13 @@ export async function handleClientMessage(
                     'UPDATE orchestrator_tasks SET status = ?, result_summary = ?, completed_at = ?, updated_at = ? WHERE id = ?'
                   ).run('completed', summary, Date.now(), Date.now(), taskRow.id);
                   // Broadcast update
-                  const title = inlineInput.replace(/\s+/g, ' ').slice(0, 80);
                   for (const [, c] of ctx.connectedClients) {
                     if (c.authenticated) sendMessage(c.ws, {
                       type: 'claudia_task_update',
                       taskId: taskRow.id,
                       status: 'completed',
                       sessionId,
-                      title,
+                      title: inlineTitle,
                       responseText: fullContent,
                       updatedAt: Date.now(),
                     } as import('@my-claudia/shared').ClaudiaTaskUpdateMessage);
@@ -279,6 +326,7 @@ export async function handleClientMessage(
               clients.delete(wrapperClientId);
               const errorMsg = evt.error || 'Task failed';
               if (!promoted) {
+                persistInlineHistory('failed', { error: errorMsg });
                 sendMessage(client.ws, {
                   type: 'claudia_message_failed',
                   clientRequestId: clientReqId,

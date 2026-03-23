@@ -69,7 +69,9 @@ export type ClientMessage =
   | ClaudiaMessageMessage
   // Agent Feed
   | GetAgentFeedMessage
-  | MarkFeedReadMessage;
+  | MarkFeedReadMessage
+  | DismissFeedItemsMessage
+  | ClearReadFeedItemsMessage;
 
 // Authentication message (sent after WebSocket connection)
 export interface AuthMessage {
@@ -1179,6 +1181,15 @@ export interface GetAgentFeedMessage {
 export interface MarkFeedReadMessage {
   type: 'mark_feed_read';
   itemIds: string[];
+}
+
+export interface DismissFeedItemsMessage {
+  type: 'dismiss_feed_items';
+  itemIds: string[];
+}
+
+export interface ClearReadFeedItemsMessage {
+  type: 'clear_read_feed_items';
 }
 
 export interface AgentFeedUpdateMessage {

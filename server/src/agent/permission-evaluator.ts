@@ -745,30 +745,7 @@ export function resolveRememberedDecision(
   toolInput: unknown,
   detail: string
 ): RememberedDecision | null {
-  const keys = buildRememberKeys(toolName, toolInput, detail);
-  const exact = lookup.get(keys[0]);
-  if (exact) return exact;
-
-  const segmentKeys = keys.slice(1);
-  if (segmentKeys.length === 0) return null;
-
-  const decisions = segmentKeys
-    .map((key) => lookup.get(key))
-    .filter((decision): decision is RememberedDecision => !!decision);
-
-  if (decisions.length !== segmentKeys.length) {
-    return null;
-  }
-
-  if (decisions.every((decision) => decision === 'allow')) {
-    return 'allow';
-  }
-
-  if (decisions.some((decision) => decision === 'deny')) {
-    return 'deny';
-  }
-
-  return null;
+  return lookup.get(buildRememberKey(toolName, toolInput, detail)) ?? null;
 }
 
 interface PermissionMemoryRow {
@@ -806,16 +783,12 @@ export function persistSessionRememberedDecision(
   decision: RememberedDecision
 ): void {
   const now = Date.now();
-  const stmt = db.prepare(`
+  db.prepare(`
     INSERT INTO permission_memories (session_id, remember_key, decision, created_at, updated_at)
     VALUES (?, ?, ?, ?, ?)
     ON CONFLICT(session_id, remember_key)
     DO UPDATE SET decision = excluded.decision, updated_at = excluded.updated_at
-  `);
-
-  for (const key of buildRememberKeys(toolName, toolInput, detail)) {
-    stmt.run(sessionId, key, decision, now, now);
-  }
+  `).run(sessionId, buildRememberKey(toolName, toolInput, detail), decision, now, now);
 }
 
 export function loadProjectAllowedOutsideWorkspaceRoots(

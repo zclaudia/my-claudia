@@ -132,11 +132,13 @@ function PluginWindowButtons() {
 function AppContent() {
   const { connectServer, embeddedServerStatus, embeddedServerError } = useConnection();
   const { connectionStatus } = useServerStore();
-  const { selectedSessionId, projects, selectProject, selectSession, setDashboardView } = useProjectStore();
+  const { selectedSessionId, selectedProjectId, sessions, projects, selectProject, selectSession, setDashboardView } = useProjectStore();
   const [dashboardProjectId, setDashboardProjectId] = useState<string | null>(null);
   const { directGatewayUrl, lastActiveBackendId, isConnected: isGatewayConnected, discoveredBackends } = useGatewayStore();
   const { isExpanded: isAgentExpanded, setExpanded: setAgentExpanded } = useClaudiaStore();
-  const hasClaudiaUnread = useClaudiaStore((s) => !s.isExpanded && s.tasks.some((task) => task.updatedAt > s.lastViewedAt));
+  const taskUnread = useClaudiaStore((s) => !s.isExpanded && s.tasks.some((task) => task.updatedAt > s.lastViewedAt));
+  const inlineUnread = useClaudiaStore((s) => !s.isExpanded && s.inlineResponses.some((response) => response.updatedAt > s.lastViewedAt && response.status !== 'promoted'));
+  const hasClaudiaUnread = taskUnread || inlineUnread;
   const disabledBuiltinPanels = usePluginStore((s) => s.disabledBuiltinPanels);
   const feedUnreadCount = useAgentFeedStore((s) => s.unreadCount);
   const [isFeedOpen, setFeedOpen] = useState(false);
@@ -156,6 +158,13 @@ function AppContent() {
     prevSessionRef.current = selectedSessionId;
   }, [selectedSessionId]);
   const isMobile = useIsMobile();
+  const selectedSession = selectedSessionId ? sessions.find((session) => session.id === selectedSessionId) ?? null : null;
+  const claudiaProjectId = selectedSession?.projectId || selectedProjectId || null;
+  const localServer = useServerStore((s) => s.getDefaultServer());
+  const claudiaServerUrl = useMemo(() => {
+    const localAddress = localServer?.address || 'localhost:3100';
+    return localAddress.includes('://') ? localAddress : `http://${localAddress}`;
+  }, [localServer?.address]);
 
   const mobileInitDone = useRef(false);
   const hasConnected = useRef(false);
@@ -175,12 +184,9 @@ function AppContent() {
       try {
         const { WebviewWindow } = await import('@tauri-apps/api/webviewWindow');
         const { invoke } = await import('@tauri-apps/api/core');
+        const { emit } = await import('@tauri-apps/api/event');
         const existing = await WebviewWindow.getByLabel('claudia-ball');
         const { getCurrentWindow } = await import('@tauri-apps/api/window');
-        // Claudia always connects to the local backend (it operates on local files/CLI)
-        const localServer = useServerStore.getState().getDefaultServer();
-        const localAddress = localServer?.address || 'localhost:3100';
-        const serverUrl = localAddress.includes('://') ? localAddress : `http://${localAddress}`;
         const authToken = ''; // Local server trusts localhost connections
         const serverId = 'local';
         const serverName = localServer?.name || 'Local Server';
@@ -197,15 +203,18 @@ function AppContent() {
 
         const ballParams = new URLSearchParams({
           claudiaBall: 'true',
-          serverUrl,
+          serverUrl: claudiaServerUrl,
           authToken,
           serverId,
           serverName,
         });
+        if (claudiaProjectId) {
+          ballParams.set('projectId', claudiaProjectId);
+        }
         // Local backend — no gateway needed
 
         const chatParams = new URLSearchParams({ claudiaChat: 'true' });
-        for (const key of ['serverUrl', 'authToken', 'serverId', 'serverName', 'gatewayUrl', 'gatewaySecret'] as const) {
+        for (const key of ['serverUrl', 'authToken', 'serverId', 'serverName', 'gatewayUrl', 'gatewaySecret', 'projectId'] as const) {
           const val = ballParams.get(key);
           if (val) chatParams.set(key, val);
         }
@@ -223,11 +232,31 @@ function AppContent() {
         }).catch((preloadErr) => {
           console.warn('[App] Failed to preload Claudia chat window:', preloadErr);
         });
+
+        await emit('claudia:context', {
+          serverUrl: claudiaServerUrl,
+          authToken,
+          serverId,
+          serverName,
+          projectId: claudiaProjectId,
+        });
       } catch (err) {
         console.warn('[App] Failed to create Claudia floating ball:', err);
       }
     })();
-  }, [isMobile]);
+  }, [claudiaProjectId, claudiaServerUrl, isMobile, localServer?.name]);
+
+  useEffect(() => {
+    if (!isDesktopTauri || isMobile) return;
+    (async () => {
+      try {
+        const { emit } = await import('@tauri-apps/api/event');
+        await emit('claudia:unread', { unread: hasClaudiaUnread });
+      } catch {
+        // Ignore when Tauri event bridge is unavailable during startup.
+      }
+    })();
+  }, [hasClaudiaUnread, isMobile]);
 
   // Auto-update check (desktop only, silent)
   useAutoUpdate();
@@ -748,6 +777,7 @@ function App() {
         serverName={params.get('serverName') || undefined}
         gatewayUrl={params.get('gatewayUrl') || undefined}
         gatewaySecret={params.get('gatewaySecret') || undefined}
+        projectId={params.get('projectId') || undefined}
       />
     );
   }

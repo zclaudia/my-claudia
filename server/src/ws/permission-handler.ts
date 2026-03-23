@@ -2,7 +2,8 @@ import type { PermissionDecision } from '../providers/claude-sdk.js';
 import { decryptCredential } from '../utils/crypto.js';
 import { rewriteSudoCommand } from '../helpers/server-utils.js';
 import {
-  buildRememberKeys,
+  buildRememberKey,
+  classify,
   getOutsideWorkspaceRootsToRemember,
   persistProjectAllowedOutsideWorkspaceRoots,
   persistSessionRememberedDecision
@@ -71,15 +72,13 @@ export function handlePermissionDecision(
           detail,
           message.allow ? 'allow' : 'deny'
         );
-        const keys = buildRememberKeys(
+        const rememberKey = buildRememberKey(
           toolName,
           pending.originalToolInput,
           detail
         );
-        for (const key of keys) {
-          run.rememberedDecisions.set(key, message.allow ? 'allow' : 'deny');
-        }
-        if (message.allow) {
+        run.rememberedDecisions.set(rememberKey, message.allow ? 'allow' : 'deny');
+        if (message.allow && classify(toolName, pending.originalToolInput, detail) === 'fileRead') {
           const outsideRoots = getOutsideWorkspaceRootsToRemember(
             toolName,
             pending.originalToolInput,
@@ -94,7 +93,7 @@ export function handlePermissionDecision(
             console.log(`[Permission] Remembered outside-workspace roots ${JSON.stringify(outsideRoots)}`);
           }
         }
-        console.log(`[Permission] Remembered ${message.allow ? 'allow' : 'deny'} for keys ${JSON.stringify(keys)}`);
+        console.log(`[Permission] Remembered ${message.allow ? 'allow' : 'deny'} for key "${rememberKey}"`);
       }
 
       const decision: PermissionDecision = {

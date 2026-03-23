@@ -33,9 +33,10 @@ type FeedItem = UserBubble | TaskEntry | InlineEntry;
 
 interface ClaudiaChatProps {
   isMobile?: boolean;
+  preferredProjectId?: string;
 }
 
-export function ClaudiaChat({ isMobile = false }: ClaudiaChatProps) {
+export function ClaudiaChat({ isMobile = false, preferredProjectId }: ClaudiaChatProps) {
   const { sendMessage: wsSendMessage, isConnected } = useConnection();
   const { selectedSessionId, selectedProjectId, sessions, projects } = useProjectStore();
   const tasks = useClaudiaStore((s) => s.tasks);
@@ -51,10 +52,11 @@ export function ClaudiaChat({ isMobile = false }: ClaudiaChatProps) {
 
   const setTasks = useClaudiaStore((s) => s.setTasks);
   const currentSession = sessions.find((s) => s.id === selectedSessionId);
-  // Resolve project: prefer session's project, fall back to selected project
+  // Resolve project from explicit context first; do not fall back to an arbitrary project.
   const currentProject = (currentSession ? projects.find((p) => p.id === currentSession.projectId) : null)
     ?? (selectedProjectId ? projects.find((p) => p.id === selectedProjectId) : null)
-    ?? projects[0] ?? null;
+    ?? (preferredProjectId ? projects.find((p) => p.id === preferredProjectId) : null)
+    ?? null;
 
   // Hydrate tasks from server on mount / project change
   const hydratedProjectRef = useRef<string | null>(null);
