@@ -1,6 +1,15 @@
 import { useState } from 'react';
 import type { ClaudiaTask } from '../../stores/claudiaStore';
 
+function formatElapsedTime(createdAt: number): string {
+  const minutes = Math.floor((Date.now() - createdAt) / 60000);
+  if (minutes < 1) return 'now';
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h`;
+  return `${Math.floor(hours / 24)}d`;
+}
+
 interface ActiveTasksPanelProps {
   tasks: ClaudiaTask[];
   interruptedSessionIds: Set<string>;
@@ -69,7 +78,7 @@ export function ActiveTasksPanel({
                       <span className="truncate text-xs font-medium text-foreground">{task.title}</span>
                       <span className="flex-shrink-0">{label}</span>
                       <span>·</span>
-                      <span className="flex-shrink-0">{Math.max(1, Math.round((Date.now() - task.updatedAt) / 60000))}m</span>
+                      <span className="flex-shrink-0">{formatElapsedTime(task.createdAt)}</span>
                     </div>
                     <p className="mt-1 line-clamp-1 text-[11px] text-muted-foreground">
                       {task.input}

@@ -15,6 +15,7 @@ import { TaskCard } from './TaskCard';
 import { InlineResponse } from './InlineResponse';
 import { ActiveTasksPanel } from './ActiveTasksPanel';
 import type { ClaudiaTask, InlineResponse as InlineResponseType } from '../../stores/claudiaStore';
+import type { ClaudiaMessageMessage, ClaudiaTaskCancelMessage } from '@my-claudia/shared';
 
 interface UserBubble {
   kind: 'user';
@@ -207,14 +208,15 @@ export function ClaudiaChat({ isMobile = false, hostProjectId, contextProjectId 
       // Start inline — may auto-promote to background task
       startInline(clientRequestId, content);
 
-      wsSendMessage({
+      const message: ClaudiaMessageMessage = {
         type: 'claudia_message',
         clientRequestId,
         input: content,
         projectId: currentProject.id,
         contextProjectIds: attachedProject ? [attachedProject.id] : undefined,
         primaryContextProjectId: attachedProject?.id,
-      });
+      };
+      wsSendMessage(message);
     }
 
   }, [addTask, attachedProject, startInline, currentProject, continueTask, isConnected, setContinueTaskId, wsSendMessage]);
@@ -273,10 +275,11 @@ export function ClaudiaChat({ isMobile = false, hostProjectId, contextProjectId 
       return;
     }
 
-    wsSendMessage({
+    const message: ClaudiaTaskCancelMessage = {
       type: 'claudia_task_cancel',
       taskId: task.id,
-    });
+    };
+    wsSendMessage(message);
   }, [wsSendMessage]);
 
   const handleDismissTask = useCallback((task: ClaudiaTask) => {

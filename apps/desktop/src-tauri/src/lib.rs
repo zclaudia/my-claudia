@@ -1,5 +1,9 @@
 #[cfg(not(target_os = "android"))]
 use tauri::{LogicalPosition, Manager, Position, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
+#[cfg(not(target_os = "android"))]
+use std::sync::Mutex;
+#[cfg(not(target_os = "android"))]
+use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState as GlobalShortcutState};
 
 #[cfg(not(target_os = "android"))]
 mod server;
@@ -187,6 +191,18 @@ fn create_claudia_ball(
     Ok(())
 }
 
+// Global shortcut state
+#[cfg(not(target_os = "android"))]
+const DEFAULT_CLAUDIA_SHORTCUT: &str = "CmdOrCtrl+Shift+.";
+
+#[cfg(not(target_os = "android"))]
+struct ShortcutConfigState {
+    current_shortcut: Option<String>,
+}
+
+#[cfg(not(target_os = "android"))]
+type ShortcutStateHandle = Mutex<ShortcutConfigState>;
+
 /// Toggle Claudia chat window visibility (shared by command + global shortcut).
 #[cfg(not(target_os = "android"))]
 fn toggle_claudia_visibility(app: &tauri::AppHandle) {
@@ -324,6 +340,40 @@ fn hide_claudia_chat(app: tauri::AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+/// Update the global shortcut for toggling Claudia visibility.
+/// Pass `None` to disable the shortcut.
+#[cfg(not(target_os = "android"))]
+#[tauri::command]
+fn update_global_shortcut(app: tauri::AppHandle, shortcut: Option<String>) -> Result<(), String> {
+    let state = app.state::<ShortcutStateHandle>();
+    let mut state = state.lock().map_err(|e| e.to_string())?;
+
+    // Unregister the old shortcut if exists
+    if let Some(old_shortcut) = &state.current_shortcut {
+        if let Ok(s) = old_shortcut.parse::<tauri_plugin_global_shortcut::Shortcut>() {
+            let _ = app.global_shortcut().unregister(s);
+        }
+    }
+
+    // Register the new shortcut if provided
+    if let Some(new_shortcut) = &shortcut {
+        let s = new_shortcut
+            .parse::<tauri_plugin_global_shortcut::Shortcut>()
+            .map_err(|e| format!("Invalid shortcut: {}", e))?;
+
+        app.global_shortcut()
+            .on_shortcut(s, move |app, _shortcut, event| {
+                if event.state == GlobalShortcutState::Pressed {
+                    toggle_claudia_visibility(app);
+                }
+            })
+            .map_err(|e| format!("Failed to register shortcut: {}", e))?;
+    }
+
+    state.current_shortcut = shortcut;
+    Ok(())
+}
+
 #[cfg(not(target_os = "android"))]
 #[tauri::command]
 fn preload_claudia_chat(app: tauri::AppHandle, chat_url: String) -> Result<(), String> {
@@ -365,20 +415,9 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init());
 
-    // Global shortcut: Cmd+Shift+. (macOS) / Ctrl+Shift+. (others) to toggle Claudia
+    // Global shortcut plugin — initialized without fixed shortcuts, will be configured dynamically
     #[cfg(not(target_os = "android"))]
-    let builder = builder.plugin(
-        tauri_plugin_global_shortcut::Builder::new()
-            .with_handler(|app, shortcut, event| {
-                if event.state == tauri_plugin_global_shortcut::ShortcutState::Pressed {
-                    let _ = shortcut; // single shortcut registered, no need to match
-                    toggle_claudia_visibility(app);
-                }
-            })
-            .with_shortcut("CmdOrCtrl+Shift+.")
-            .expect("failed to parse Claudia shortcut")
-            .build(),
-    );
+    let builder = builder.plugin(tauri_plugin_global_shortcut::Builder::new().build());
 
     // Keep desktop app single-instance. The clean dev launcher uses a separate
     // identifier, so dev and production can still coexist without spawning
@@ -393,39 +432,60 @@ pub fn run() {
     }));
 
     #[cfg(not(target_os = "android"))]
-    let builder = builder.invoke_handler(tauri::generate_handler![
-        greet,
-        server::start_server,
-        server::stop_server,
-        server::register_dev_server_pid,
-        server::get_shell_network_env,
-        network_probe::probe_opencode_endpoints,
-        network_probe::probe_network_endpoint,
-        permissions::check_full_disk_access,
-        permissions::open_full_disk_access_settings,
-        permissions::check_folder_permissions,
-        permissions::open_files_and_folders_settings,
-        focus_window,
-        close_window,
-        create_claudia_ball,
-        toggle_claudia_chat,
-        show_claudia_chat,
-        hide_claudia_chat,
-        preload_claudia_chat,
-    ]);
+    let builder = builder
+        .manage(Mutex::new(ShortcutConfigState {
+            current_shortcut: None,
+        }))
+        .invoke_handler(tauri::generate_handler![
+            greet,
+            server::start_server,
+            server::stop_server,
+            server::register_dev_server_pid,
+            server::get_shell_network_env,
+            network_probe::probe_opencode_endpoints,
+            network_probe::probe_network_endpoint,
+            permissions::check_full_disk_access,
+            permissions::open_full_disk_access_settings,
+            permissions::check_folder_permissions,
+            permissions::open_files_and_folders_settings,
+            focus_window,
+            close_window,
+            create_claudia_ball,
+            toggle_claudia_chat,
+            show_claudia_chat,
+            hide_claudia_chat,
+            preload_claudia_chat,
+            update_global_shortcut,
+        ]);
 
     #[cfg(target_os = "android")]
     let builder = builder.invoke_handler(tauri::generate_handler![greet]);
 
-    // On macOS, probe TCC-protected folders at startup so the consent dialogs
-    // appear while the user is at the keyboard. Without this, remote sessions
-    // (phone via gateway) would fail to access Desktop/Documents/Downloads
-    // because TCC dialogs require local GUI interaction.
-    // The dialogs only appear once per folder — macOS caches the decision.
-    #[cfg(target_os = "macos")]
-    let builder = builder.setup(|_app| {
+    // Setup: initialize default shortcut and macOS permissions
+    #[cfg(not(target_os = "android"))]
+    let builder = builder.setup(|app| {
+        // Register default shortcut (will be overridden if frontend has different config)
+        let default_shortcut = DEFAULT_CLAUDIA_SHORTCUT
+            .parse::<tauri_plugin_global_shortcut::Shortcut>()
+            .expect("failed to parse default shortcut");
+
+        app.global_shortcut()
+            .on_shortcut(default_shortcut, |app, _, event| {
+                if event.state == GlobalShortcutState::Pressed {
+                    toggle_claudia_visibility(app);
+                }
+            })
+            .expect("failed to register default shortcut");
+
+        // Update state to track the default shortcut
+        let state = app.state::<ShortcutStateHandle>();
+        if let Ok(mut state) = state.lock() {
+            state.current_shortcut = Some(DEFAULT_CLAUDIA_SHORTCUT.to_string());
+        }
+
+        // macOS: probe TCC-protected folders at startup
+        #[cfg(target_os = "macos")]
         std::thread::spawn(|| {
-            // Small delay so the window appears first, then TCC dialogs overlay it
             std::thread::sleep(std::time::Duration::from_secs(1));
             let results = permissions::check_folder_permissions();
             let pending: Vec<_> = results
@@ -437,8 +497,12 @@ pub fn run() {
                 eprintln!("[Permissions] Folders not yet authorized: {:?}", pending);
             }
         });
+        
         Ok(())
     });
+
+    #[cfg(target_os = "android")]
+    let builder = builder.setup(|_app| Ok(()));
 
     builder
         .build(tauri::generate_context!())

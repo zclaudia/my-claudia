@@ -306,6 +306,22 @@ describe('ToolCallItem', () => {
       expect(screen.getByText('Update task list')).toBeInTheDocument();
     });
 
+    it('formats plain-name update_todo_list tool', () => {
+      render(<ToolCallItem toolCall={createToolCall({
+        toolName: 'update_todo_list',
+        toolInput: { todos: [{ content: 'Task 1', status: 'pending' }] },
+      })} />);
+      expect(screen.getByText('Update task list')).toBeInTheDocument();
+    });
+
+    it('formats plain-name ask_user_form tool', () => {
+      render(<ToolCallItem toolCall={createToolCall({
+        toolName: 'ask_user_form',
+        toolInput: { title: 'Need input' },
+      })} />);
+      expect(screen.getByText('Need input')).toBeInTheDocument();
+    });
+
     it('formats EnterPlanMode tool', () => {
       render(<ToolCallItem toolCall={createToolCall({
         toolName: 'EnterPlanMode',
@@ -492,6 +508,22 @@ describe('ToolCallItem', () => {
       expect(screen.getByText('Fix bug')).toBeInTheDocument();
       expect(screen.getByText('Write tests')).toBeInTheDocument();
       expect(screen.getByText('Deploy')).toBeInTheDocument();
+    });
+
+    it('shows plain-name update_todo_list with task list when expanded', () => {
+      render(<ToolCallItem toolCall={createToolCall({
+        toolName: 'update_todo_list',
+        toolInput: {
+          todos: [
+            { content: 'Fix bug', status: 'completed' },
+            { content: 'Write tests', status: 'in_progress' },
+          ],
+        },
+        status: 'completed',
+      })} />);
+      fireEvent.click(screen.getByRole('button'));
+      expect(screen.getByText('Fix bug')).toBeInTheDocument();
+      expect(screen.getByText('Write tests')).toBeInTheDocument();
     });
 
     it('shows completed todo with strikethrough', () => {

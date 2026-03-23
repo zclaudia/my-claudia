@@ -40,6 +40,7 @@ import { useAutoUpdate } from './hooks/useAutoUpdate';
 import { useServerLatencyMonitor } from './hooks/useServerLatencyMonitor';
 import { UpdateBanner } from './components/UpdateBanner';
 import { BrandMark } from './components/BrandMark';
+import { useShortcutStore } from './stores/shortcutStore';
 
 const isDesktopTauri = typeof window !== 'undefined'
   && '__TAURI_INTERNALS__' in window
@@ -178,6 +179,13 @@ function AppContent() {
 
   // Register builtin plugin panel components (once at startup)
   useEffect(() => { initBuiltinPanels(); }, []);
+
+  // Initialize global shortcut config (once at startup, desktop only)
+  useEffect(() => {
+    if (!isDesktopTauri) return;
+    const { loadConfig } = useShortcutStore.getState();
+    void loadConfig();
+  }, []);
 
   useEffect(() => {
     if (connectionStatus !== 'connected') return;

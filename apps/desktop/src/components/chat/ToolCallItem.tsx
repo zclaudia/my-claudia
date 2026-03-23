@@ -29,24 +29,28 @@ function normalizeToolInput(input: unknown): unknown {
   return input;
 }
 
+function hasInteractionToolSuffix(toolName: string, suffix: string): boolean {
+  return toolName === suffix || toolName.endsWith(`_${suffix}`) || toolName.endsWith(`-${suffix}`);
+}
+
 // Check if tool is a todo-list tool (built-in TodoWrite or MCP update_todo_list)
 function isTodoTool(toolName: string): boolean {
-  return toolName === 'TodoWrite' || toolName.endsWith('update_todo_list');
+  return toolName === 'TodoWrite' || hasInteractionToolSuffix(toolName, 'update_todo_list');
 }
 
 // Check if tool is an ask_user_form tool (MCP)
 function isAskUserFormTool(toolName: string): boolean {
-  return toolName.endsWith('ask_user_form');
+  return hasInteractionToolSuffix(toolName, 'ask_user_form');
 }
 
 // Check if tool is a request_approval tool (MCP)
 function isApprovalTool(toolName: string): boolean {
-  return toolName.endsWith('request_approval');
+  return hasInteractionToolSuffix(toolName, 'request_approval');
 }
 
 // Check if tool is a push_file tool (MCP)
 function isPushFileTool(toolName: string): boolean {
-  return toolName.endsWith('push_file');
+  return hasInteractionToolSuffix(toolName, 'push_file');
 }
 
 // Check if tool is any MCP interaction tool

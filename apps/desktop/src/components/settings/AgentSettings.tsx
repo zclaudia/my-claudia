@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { fetchApi, getProviders } from '../../services/api';
 import type { ProviderConfig } from '@my-claudia/shared';
+import { ShortcutSettings } from './ShortcutSettings';
 
 interface AgentConfig {
   id: number;
@@ -138,6 +139,14 @@ export function AgentSettings() {
           </div>
         </div>
       </div>
+
+      {/* Global Shortcut - desktop only */}
+      {typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window && !navigator.userAgent.includes('Android') && (
+        <div>
+          <h3 className="text-sm font-medium mb-3">Shortcut</h3>
+          <ShortcutSettings />
+        </div>
+      )}
 
       {/* Capabilities */}
       {capabilities && (
