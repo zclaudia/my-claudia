@@ -1,13 +1,19 @@
-import { useRef, useEffect, useCallback } from 'react';
+import { useRef, useEffect, useCallback, useMemo } from 'react';
 import { MessageInput } from '../chat/MessageInput';
 import { useClaudiaStore } from '../../stores/claudiaStore';
+import { useAskUserQuestionStore } from '../../stores/askUserQuestionStore';
+import { usePermissionStore } from '../../stores/permissionStore';
 import { useProjectStore } from '../../stores/projectStore';
 import { useConnection } from '../../contexts/ConnectionContext';
 import { fetchApi, getBaseUrl, getAuthHeaders } from '../../services/api';
+import { dismissInterrupted } from '../../services/api/sessions';
 import { useServerStore } from '../../stores/serverStore';
 import { useGatewayStore, isGatewayTarget } from '../../stores/gatewayStore';
+import { InlineAskUserQuestion } from '../chat/InlineAskUserQuestion';
+import { InlinePermissionRequest } from '../chat/InlinePermissionRequest';
 import { TaskCard } from './TaskCard';
 import { InlineResponse } from './InlineResponse';
+import { ActiveTasksPanel } from './ActiveTasksPanel';
 import type { ClaudiaTask, InlineResponse as InlineResponseType } from '../../stores/claudiaStore';
 
 interface UserBubble {
@@ -33,15 +39,22 @@ type FeedItem = UserBubble | TaskEntry | InlineEntry;
 
 interface ClaudiaChatProps {
   isMobile?: boolean;
-  preferredProjectId?: string;
+  hostProjectId?: string;
+  contextProjectId?: string;
 }
 
-export function ClaudiaChat({ isMobile = false, preferredProjectId }: ClaudiaChatProps) {
-  const { sendMessage: wsSendMessage, isConnected } = useConnection();
-  const { selectedSessionId, selectedProjectId, sessions, projects } = useProjectStore();
+export function ClaudiaChat({ isMobile = false, hostProjectId, contextProjectId }: ClaudiaChatProps) {
+  const {
+    sendMessage: wsSendMessage,
+    isConnected,
+    handlePermissionDecision,
+    handleAskUserAnswer,
+  } = useConnection();
+  const { selectedSessionId, selectedProjectId, sessions, projects, selectProject, updateSession } = useProjectStore();
   const tasks = useClaudiaStore((s) => s.tasks);
   const addTask = useClaudiaStore((s) => s.addTask);
   const removeTask = useClaudiaStore((s) => s.removeTask);
+  const updateTask = useClaudiaStore((s) => s.updateTask);
   const inlineResponses = useClaudiaStore((s) => s.inlineResponses);
   const startInline = useClaudiaStore((s) => s.startInline);
   const removeInline = useClaudiaStore((s) => s.removeInline);
@@ -52,11 +65,55 @@ export function ClaudiaChat({ isMobile = false, preferredProjectId }: ClaudiaCha
 
   const setTasks = useClaudiaStore((s) => s.setTasks);
   const currentSession = sessions.find((s) => s.id === selectedSessionId);
-  // Resolve project from explicit context first; do not fall back to an arbitrary project.
+  const latestSessionProject = sessions.length > 0
+    ? projects.find((project) => project.id === [...sessions].sort((a, b) => b.updatedAt - a.updatedAt)[0]?.projectId) ?? null
+    : null;
+  const attachedProject = contextProjectId
+    ? projects.find((project) => project.id === contextProjectId) ?? null
+    : null;
+  const claudiaSessionIds = new Set(
+    tasks
+      .map((task) => task.sessionId)
+      .filter((sessionId): sessionId is string => Boolean(sessionId))
+  );
+  const permissionRequests = usePermissionStore((state) =>
+    state.pendingRequests.filter((request) => !request.sessionId || claudiaSessionIds.has(request.sessionId))
+  );
+  const askUserRequests = useAskUserQuestionStore((state) =>
+    state.pendingRequests.filter((request) => !request.sessionId || claudiaSessionIds.has(request.sessionId))
+  );
+  const permissionRequestBySessionId = new Map(
+    permissionRequests
+      .filter((request) => request.sessionId)
+      .map((request) => [request.sessionId as string, request])
+  );
+  const interruptedSessionIds = new Set(
+    sessions
+      .filter((session) => session.lastRunStatus === 'interrupted')
+      .map((session) => session.id)
+  );
+  const interruptedTasks = tasks.filter((task) => task.sessionId && interruptedSessionIds.has(task.sessionId));
+  const latestInterruptedTask = interruptedTasks[0] ?? null;
   const currentProject = (currentSession ? projects.find((p) => p.id === currentSession.projectId) : null)
-    ?? (selectedProjectId ? projects.find((p) => p.id === selectedProjectId) : null)
-    ?? (preferredProjectId ? projects.find((p) => p.id === preferredProjectId) : null)
+    ?? (hostProjectId ? projects.find((p) => p.id === hostProjectId) : null)
+    ?? latestSessionProject
+    ?? (projects[0] ?? null)
     ?? null;
+
+  useEffect(() => {
+    if (hostProjectId && projects.some((project) => project.id === hostProjectId)) {
+      if (selectedProjectId !== hostProjectId) {
+        selectProject(hostProjectId);
+      }
+      return;
+    }
+
+    if (selectedSessionId) return;
+
+    if (projects.length > 0) {
+      selectProject(projects[0].id);
+    }
+  }, [hostProjectId, projects, selectProject, selectedProjectId, selectedSessionId]);
 
   // Hydrate tasks from server on mount / project change
   const hydratedProjectRef = useRef<string | null>(null);
@@ -107,6 +164,19 @@ export function ClaudiaChat({ isMobile = false, preferredProjectId }: ClaudiaCha
   }, [feedItems.length, scrollToBottom]);
 
   const continueTask = continueTaskId ? tasks.find((t) => t.id === continueTaskId) : null;
+  const activeTasks = useMemo(() => (
+    [...tasks]
+      .filter((task) => {
+        const isInterrupted = Boolean(task.sessionId && interruptedSessionIds.has(task.sessionId));
+        const needsPermission = Boolean(task.sessionId && permissionRequestBySessionId.has(task.sessionId));
+        return !['completed', 'failed', 'cancelled'].includes(task.status) || isInterrupted || needsPermission;
+      })
+      .sort((a, b) => b.updatedAt - a.updatedAt)
+  ), [tasks, interruptedSessionIds, permissionRequestBySessionId]);
+  const permissionSessionIdSet = useMemo(
+    () => new Set(permissionRequestBySessionId.keys()),
+    [permissionRequestBySessionId],
+  );
 
   const handleSend = useCallback((content: string) => {
     if (!content.trim() || !isConnected || !currentProject) return;
@@ -142,10 +212,12 @@ export function ClaudiaChat({ isMobile = false, preferredProjectId }: ClaudiaCha
         clientRequestId,
         input: content,
         projectId: currentProject.id,
+        contextProjectIds: attachedProject ? [attachedProject.id] : undefined,
+        primaryContextProjectId: attachedProject?.id,
       });
     }
 
-  }, [addTask, startInline, currentProject, continueTask, isConnected, setContinueTaskId, wsSendMessage]);
+  }, [addTask, attachedProject, startInline, currentProject, continueTask, isConnected, setContinueTaskId, wsSendMessage]);
 
   const handleViewDetails = useCallback((task: ClaudiaTask) => {
     if (!task.sessionId) return;
@@ -193,10 +265,17 @@ export function ClaudiaChat({ isMobile = false, preferredProjectId }: ClaudiaCha
   }, [setContinueTaskId]);
 
   const handleCancel = useCallback((task: ClaudiaTask) => {
-    if (!task.sessionId) return;
+    if (task.status === 'running' && task.sessionId) {
+      wsSendMessage({
+        type: 'agent_cancel',
+        sessionId: task.sessionId,
+      });
+      return;
+    }
+
     wsSendMessage({
-      type: 'agent_cancel',
-      sessionId: task.sessionId,
+      type: 'claudia_task_cancel',
+      taskId: task.id,
     });
   }, [wsSendMessage]);
 
@@ -208,11 +287,45 @@ export function ClaudiaChat({ isMobile = false, preferredProjectId }: ClaudiaCha
     removeInline(clientRequestId);
   }, [removeInline]);
 
+  const handleResumeInterrupted = useCallback(async (task: ClaudiaTask) => {
+    if (!task.sessionId) return;
+    updateSession(task.sessionId, { lastRunStatus: null });
+    updateTask(task.id, { status: 'running', updatedAt: Date.now() });
+    try {
+      await dismissInterrupted(task.sessionId);
+    } catch (error) {
+      console.warn('[ClaudiaChat] Failed to clear interrupted status before resume:', error);
+    }
+    wsSendMessage({
+      type: 'run_start',
+      clientRequestId: crypto.randomUUID(),
+      sessionId: task.sessionId,
+      input: 'continue',
+    });
+  }, [updateSession, updateTask, wsSendMessage]);
+
+  const handleDismissInterrupted = useCallback(async (task: ClaudiaTask) => {
+    if (!task.sessionId) return;
+    updateSession(task.sessionId, { lastRunStatus: null });
+    updateTask(task.id, { status: 'cancelled', updatedAt: Date.now() });
+    try {
+      await dismissInterrupted(task.sessionId);
+    } catch (error) {
+      console.warn('[ClaudiaChat] Failed to dismiss interrupted status:', error);
+    }
+  }, [updateSession, updateTask]);
+
   const hasRunningTask = tasks.some((t) => t.status === 'running');
   const hasStreaming = inlineResponses.some((r) => r.status === 'streaming');
 
   const placeholder = continueTask
     ? `Continue: ${continueTask.title}...`
+    : !isConnected
+      ? 'Connecting Claudia...'
+      : !currentProject
+        ? 'No project available for Claudia'
+    : attachedProject
+      ? `Ask Claudia about ${attachedProject.name}...`
     : hasRunningTask || hasStreaming
       ? 'Working... send another request'
       : 'Ask Claudia...';
@@ -224,6 +337,31 @@ export function ClaudiaChat({ isMobile = false, preferredProjectId }: ClaudiaCha
     }>
       {/* Feed */}
       <div ref={scrollRef} className="flex-1 overflow-y-auto p-2 md:p-4 space-y-3">
+        {latestInterruptedTask && (
+          <div className="rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm">
+            <div className="flex items-center gap-3">
+              <span className="text-red-400">Previous task was interrupted by app restart.</span>
+              <div className="ml-auto flex items-center gap-2">
+                <button
+                  onClick={() => void handleResumeInterrupted(latestInterruptedTask)}
+                  className="rounded-md bg-primary/20 px-3 py-1 text-xs text-primary hover:bg-primary/30 transition-colors"
+                >
+                  Resume
+                </button>
+                <button
+                  onClick={() => void handleDismissInterrupted(latestInterruptedTask)}
+                  className="rounded-md px-3 py-1 text-xs text-muted-foreground hover:bg-muted transition-colors"
+                >
+                  Dismiss
+                </button>
+              </div>
+            </div>
+            <p className="mt-1 text-xs text-muted-foreground">
+              {latestInterruptedTask.title}
+            </p>
+          </div>
+        )}
+
         {/* Empty state */}
         {feedItems.length === 0 && (
           <div className="flex items-center justify-center h-full">
@@ -269,6 +407,8 @@ export function ClaudiaChat({ isMobile = false, preferredProjectId }: ClaudiaCha
               <TaskCard
                 key={item.task.id}
                 task={item.task}
+                permissionRequired={Boolean(item.task.sessionId && permissionRequestBySessionId.has(item.task.sessionId))}
+                interrupted={Boolean(item.task.sessionId && interruptedSessionIds.has(item.task.sessionId))}
                 collapsed={shouldCollapse}
                 onViewDetails={handleViewDetails}
                 onContinue={handleContinue}
@@ -278,6 +418,25 @@ export function ClaudiaChat({ isMobile = false, preferredProjectId }: ClaudiaCha
             );
           });
         })()}
+
+        {(permissionRequests.length > 0 || askUserRequests.length > 0) && (
+          <div className="space-y-3">
+            {permissionRequests.map((request) => (
+              <InlinePermissionRequest
+                key={request.requestId}
+                request={request}
+                onDecision={handlePermissionDecision}
+              />
+            ))}
+            {askUserRequests.map((request) => (
+              <InlineAskUserQuestion
+                key={request.requestId}
+                request={request}
+                onAnswer={handleAskUserAnswer}
+              />
+            ))}
+          </div>
+        )}
 
         <div ref={endRef} />
       </div>
@@ -297,13 +456,29 @@ export function ClaudiaChat({ isMobile = false, preferredProjectId }: ClaudiaCha
         </div>
       )}
 
+      <ActiveTasksPanel
+        tasks={activeTasks}
+        interruptedSessionIds={interruptedSessionIds}
+        permissionSessionIds={permissionSessionIdSet}
+        onViewDetails={handleViewDetails}
+        onCancel={handleCancel}
+        onResumeInterrupted={handleResumeInterrupted}
+      />
+
       {/* Input */}
       <div className={`border-t border-border flex-shrink-0 ${isMobile ? 'p-3 safe-bottom-pad' : 'p-2 md:p-4'}`}>
+        {attachedProject && (
+          <div className="mb-2 flex items-center gap-2 text-[11px] text-muted-foreground">
+            <span className="rounded-full border border-border/60 bg-muted/40 px-2 py-0.5">
+              Context: {attachedProject.name}
+            </span>
+          </div>
+        )}
         <MessageInput
           sessionId="claudia-input"
           onSend={handleSend}
           isLoading={false}
-          disabled={!isConnected || !currentProject}
+          disabled={!isConnected || projects.length === 0}
           placeholder={placeholder}
         />
       </div>

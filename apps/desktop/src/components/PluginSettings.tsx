@@ -105,22 +105,20 @@ export function PluginSettings({ onOpenPluginSettings }: PluginSettingsProps) {
     );
   }
 
-  if (error) {
-    return (
-      <div className="p-4 bg-destructive/10 border border-destructive/20 rounded-lg">
-        <p className="text-destructive text-sm">{error}</p>
-        <button
-          onClick={() => setError(null)}
-          className="mt-2 text-xs text-destructive hover:text-destructive/80 transition-colors"
-        >
-          Dismiss
-        </button>
-      </div>
-    );
-  }
-
   return (
     <div className="space-y-6">
+      {/* Error banner (non-blocking) */}
+      {error && (
+        <div className="p-4 bg-destructive/10 border border-destructive/20 rounded-lg flex items-start justify-between gap-2">
+          <p className="text-destructive text-sm flex-1">{error}</p>
+          <button
+            onClick={() => setError(null)}
+            className="text-xs text-destructive hover:text-destructive/80 transition-colors shrink-0"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
       {/* Search */}
       <div className="relative">
         <svg

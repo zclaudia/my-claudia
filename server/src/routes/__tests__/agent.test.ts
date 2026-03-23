@@ -142,6 +142,88 @@ describe('agent routes', () => {
     });
   });
 
+  describe('POST /api/agent/ensure', () => {
+    beforeEach(() => {
+      seedDefaultConfig(db);
+    });
+
+    it('creates a hidden __claudia host project and session when missing', async () => {
+      const res = await request(app).post('/api/agent/ensure');
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.data.projectId).toBeTruthy();
+      expect(res.body.data.sessionId).toBeTruthy();
+
+      const project = db.prepare('SELECT name, type, is_internal FROM projects WHERE id = ?')
+        .get(res.body.data.projectId) as { name: string; type: string; is_internal: number };
+      const session = db.prepare('SELECT name, project_id FROM sessions WHERE id = ?')
+        .get(res.body.data.sessionId) as { name: string; project_id: string };
+      const config = db.prepare('SELECT project_id, session_id FROM agent_config WHERE id = 1')
+        .get() as { project_id: string; session_id: string };
+
+      expect(project).toEqual({ name: '__claudia', type: 'chat_only', is_internal: 1 });
+      expect(session).toEqual({ name: 'Claudia Chat', project_id: res.body.data.projectId });
+      expect(config).toEqual({ project_id: res.body.data.projectId, session_id: res.body.data.sessionId });
+    });
+
+    it('reuses legacy _Agent Assistant project and renames it to __claudia', async () => {
+      const now = Date.now();
+      db.prepare(`
+        INSERT INTO projects (id, name, type, is_internal, created_at, updated_at)
+        VALUES ('legacy-project', '_Agent Assistant', 'chat_only', 1, ?, ?)
+      `).run(now, now);
+      db.prepare(`
+        INSERT INTO sessions (id, project_id, name, type, created_at, updated_at)
+        VALUES ('legacy-session', 'legacy-project', 'Agent Chat', 'regular', ?, ?)
+      `).run(now, now);
+
+      const res = await request(app).post('/api/agent/ensure');
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.data).toEqual({
+        projectId: 'legacy-project',
+        sessionId: 'legacy-session',
+      });
+
+      const project = db.prepare('SELECT name, is_internal FROM projects WHERE id = ?')
+        .get('legacy-project') as { name: string; is_internal: number };
+      const session = db.prepare('SELECT name FROM sessions WHERE id = ?')
+        .get('legacy-session') as { name: string };
+
+      expect(project).toEqual({ name: '__claudia', is_internal: 1 });
+      expect(session).toEqual({ name: 'Claudia Chat' });
+    });
+
+    it('creates a new Claudia session instead of renaming an unrelated session in the host project', async () => {
+      const now = Date.now();
+      db.prepare(`
+        INSERT INTO projects (id, name, type, is_internal, created_at, updated_at)
+        VALUES ('claudia-project', '__claudia', 'chat_only', 1, ?, ?)
+      `).run(now, now);
+      db.prepare(`
+        INSERT INTO sessions (id, project_id, name, type, created_at, updated_at)
+        VALUES ('user-session', 'claudia-project', 'Keep Me', 'regular', ?, ?)
+      `).run(now, now);
+
+      const res = await request(app).post('/api/agent/ensure');
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.data.projectId).toBe('claudia-project');
+      expect(res.body.data.sessionId).not.toBe('user-session');
+
+      const reusedSession = db.prepare('SELECT name FROM sessions WHERE id = ?')
+        .get('user-session') as { name: string };
+      const claudiaSession = db.prepare('SELECT name, project_id FROM sessions WHERE id = ?')
+        .get(res.body.data.sessionId) as { name: string; project_id: string };
+
+      expect(reusedSession).toEqual({ name: 'Keep Me' });
+      expect(claudiaSession).toEqual({ name: 'Claudia Chat', project_id: 'claudia-project' });
+    });
+  });
+
   describe('PUT /api/agent/config', () => {
     beforeEach(() => {
       seedDefaultConfig(db);

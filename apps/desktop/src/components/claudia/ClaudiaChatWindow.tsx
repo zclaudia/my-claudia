@@ -1,8 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ThemeProvider, useTheme, isDarkTheme } from '../../contexts/ThemeContext';
 import { ConnectionProvider } from '../../contexts/ConnectionContext';
 import { ClaudiaChat } from './ClaudiaChat';
 import { useDataLoader } from '../../hooks/useDataLoader';
+import { usePermissionStore } from '../../stores/permissionStore';
+import { useClaudiaStatus } from '../../hooks/useClaudiaStatus';
 
 interface ClaudiaChatWindowProps {
   serverUrl: string;
@@ -12,6 +14,7 @@ interface ClaudiaChatWindowProps {
   gatewayUrl?: string;
   gatewaySecret?: string;
   projectId?: string;
+  contextProjectId?: string;
 }
 
 interface ClaudiaWindowContext {
@@ -22,6 +25,7 @@ interface ClaudiaWindowContext {
   gatewayUrl?: string;
   gatewaySecret?: string;
   projectId?: string | null;
+  contextProjectId?: string | null;
 }
 
 /**
@@ -30,11 +34,58 @@ interface ClaudiaWindowContext {
  */
 function ClaudiaChatWindowContent({
   isMobile = false,
-  preferredProjectId,
-}: { isMobile?: boolean; preferredProjectId?: string }) {
+  hostProjectId,
+  contextProjectId,
+}: { isMobile?: boolean; hostProjectId?: string; contextProjectId?: string }) {
   useDataLoader();
+  const { claudiaTaskSessionIds, hasRunning: hasClaudiaRunning, hasPermissionPending: hasClaudiaPermissionPending } = useClaudiaStatus();
+  const permissionRequests = usePermissionStore((state) =>
+    state.pendingRequests.filter((request) => !request.sessionId || claudiaTaskSessionIds.includes(request.sessionId))
+  );
+  const lastAutoOpenedRequestIdRef = useRef<string | null>(null);
 
-  return <ClaudiaChat isMobile={isMobile} preferredProjectId={preferredProjectId} />;
+  useEffect(() => {
+    (async () => {
+      try {
+        const { emit } = await import('@tauri-apps/api/event');
+        await emit('claudia:unread', {
+          unread: false,
+          running: hasClaudiaRunning,
+          permissionPending: hasClaudiaPermissionPending,
+        });
+      } catch {
+        // Ignore when the event bridge is not ready yet.
+      }
+    })();
+  }, [hasClaudiaPermissionPending, hasClaudiaRunning]);
+
+  useEffect(() => {
+    const latestRequestId = permissionRequests[permissionRequests.length - 1]?.requestId;
+    if (!latestRequestId) return;
+    if (lastAutoOpenedRequestIdRef.current === latestRequestId) return;
+    lastAutoOpenedRequestIdRef.current = latestRequestId;
+
+    (async () => {
+      try {
+        const { getCurrentWindow } = await import('@tauri-apps/api/window');
+        const currentWindow = getCurrentWindow();
+        const visible = await currentWindow.isVisible();
+        if (visible) return;
+
+        const { invoke } = await import('@tauri-apps/api/core');
+        const params = new URLSearchParams(window.location.search);
+        await invoke('show_claudia_chat', {
+          chatUrl: `${window.location.origin}${window.location.pathname}?${params}`,
+          screenWidth: window.screen.availWidth,
+          screenHeight: window.screen.availHeight,
+        });
+      } catch {
+        // Ignore auto-open failures and keep the permission card queued.
+      }
+    })();
+  }, [permissionRequests]);
+
+  return <ClaudiaChat isMobile={isMobile} hostProjectId={hostProjectId} contextProjectId={contextProjectId} />;
 }
 
 /** Header with theme-aware logo */
@@ -77,6 +128,7 @@ export function ClaudiaChatWindow({
   gatewayUrl,
   gatewaySecret,
   projectId,
+  contextProjectId,
 }: ClaudiaChatWindowProps) {
   const [context, setContext] = useState<Required<Pick<ClaudiaWindowContext, 'serverUrl' | 'authToken'>> & ClaudiaWindowContext>(() => ({
     serverUrl,
@@ -86,6 +138,7 @@ export function ClaudiaChatWindow({
     gatewayUrl,
     gatewaySecret,
     projectId,
+    contextProjectId,
   }));
 
   // Custom title bar drag + close
@@ -142,7 +195,10 @@ export function ClaudiaChatWindow({
               standaloneGatewayUrl={context.gatewayUrl}
               standaloneGatewaySecret={context.gatewaySecret}
             >
-              <ClaudiaChatWindowContent preferredProjectId={context.projectId ?? undefined} />
+              <ClaudiaChatWindowContent
+                hostProjectId={context.projectId ?? undefined}
+                contextProjectId={context.contextProjectId ?? undefined}
+              />
             </ConnectionProvider>
           </div>
         </div>

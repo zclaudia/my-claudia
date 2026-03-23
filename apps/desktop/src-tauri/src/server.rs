@@ -1,7 +1,7 @@
+use std::collections::BTreeMap;
 use std::io::{BufRead, BufReader, Write as IoWrite};
 use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
-use std::collections::BTreeMap;
 
 static SERVER_PROCESS: Mutex<Option<Child>> = Mutex::new(None);
 /// PID of a dev-mode server spawned from JS (not in SERVER_PROCESS).
@@ -27,7 +27,11 @@ pub struct ServerResult {
 /// Write a debug log line to a file in the data directory for troubleshooting.
 fn debug_log(data_dir: &str, msg: &str) {
     let log_path = std::path::Path::new(data_dir).join("server-debug.log");
-    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&log_path) {
+    if let Ok(mut f) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&log_path)
+    {
         let _ = writeln!(f, "[{}] {}", chrono_now(), msg);
     }
     eprintln!("[EmbeddedServer/Rust] {}", msg);
@@ -67,14 +71,21 @@ fn cleanup_stale_pid_file(data_dir: &str) {
             {
                 let alive = unsafe { libc::kill(pid, 0) } == 0;
                 if alive {
-                    eprintln!("[EmbeddedServer/Rust] Killing orphaned server (pid={})", pid);
-                    unsafe { libc::kill(pid, libc::SIGTERM); }
+                    eprintln!(
+                        "[EmbeddedServer/Rust] Killing orphaned server (pid={})",
+                        pid
+                    );
+                    unsafe {
+                        libc::kill(pid, libc::SIGTERM);
+                    }
                     // Brief wait for it to exit
                     std::thread::sleep(std::time::Duration::from_millis(500));
                     // Force kill if still alive
                     let still_alive = unsafe { libc::kill(pid, 0) } == 0;
                     if still_alive {
-                        unsafe { libc::kill(pid, libc::SIGKILL); }
+                        unsafe {
+                            libc::kill(pid, libc::SIGKILL);
+                        }
                     }
                 }
             }
@@ -94,7 +105,13 @@ fn resolve_shell_path(data_dir: &str) -> String {
     let home = std::env::var("HOME").unwrap_or_else(|_| String::new());
     let current_path = std::env::var("PATH").unwrap_or_default();
 
-    debug_log(data_dir, &format!("SHELL={}, HOME={}, current PATH={}", shell, home, current_path));
+    debug_log(
+        data_dir,
+        &format!(
+            "SHELL={}, HOME={}, current PATH={}",
+            shell, home, current_path
+        ),
+    );
 
     // Use -l (login) only — NOT -i (interactive).
     // Interactive mode sources .zshrc which can trigger macOS TCC permission
@@ -115,11 +132,14 @@ fn resolve_shell_path(data_dir: &str) -> String {
             path
         }
         Ok(out) => {
-            debug_log(data_dir, &format!(
-                "Shell exited with status={}, stderr={}",
-                out.status,
-                String::from_utf8_lossy(&out.stderr)
-            ));
+            debug_log(
+                data_dir,
+                &format!(
+                    "Shell exited with status={}, stderr={}",
+                    out.status,
+                    String::from_utf8_lossy(&out.stderr)
+                ),
+            );
             build_fallback_path(&current_path, &home, data_dir)
         }
         Err(e) => {
@@ -214,11 +234,17 @@ fn remove_quarantine(path: &std::path::Path, data_dir: &str) {
             let stderr = String::from_utf8_lossy(&out.stderr);
             // "No such xattr" is expected when quarantine is already absent — not an error
             if !stderr.contains("No such xattr") {
-                debug_log(data_dir, &format!("xattr warning on {}: {}", path.display(), stderr.trim()));
+                debug_log(
+                    data_dir,
+                    &format!("xattr warning on {}: {}", path.display(), stderr.trim()),
+                );
             }
         }
         Err(e) => {
-            debug_log(data_dir, &format!("Failed to run xattr on {}: {}", path.display(), e));
+            debug_log(
+                data_dir,
+                &format!("Failed to run xattr on {}: {}", path.display(), e),
+            );
         }
     }
 }
@@ -281,10 +307,13 @@ pub async fn start_server(
         server_path,
         data_dir
     );
-    debug_log(&data_dir, &format!(
-        "Inherited shell network env keys: {:?}",
-        shell_network_env.keys().collect::<Vec<_>>()
-    ));
+    debug_log(
+        &data_dir,
+        &format!(
+            "Inherited shell network env keys: {:?}",
+            shell_network_env.keys().collect::<Vec<_>>()
+        ),
+    );
 
     // Resolve the main app's bundle identifier so child processes (node sidecar,
     // Claude CLI) share the same macOS TCC permission entry as the main app.
@@ -408,7 +437,9 @@ fn graceful_kill(child: &mut Child, timeout_secs: u64) {
 
     #[cfg(unix)]
     {
-        unsafe { libc::kill(pid as i32, libc::SIGTERM); }
+        unsafe {
+            libc::kill(pid as i32, libc::SIGTERM);
+        }
     }
     #[cfg(not(unix))]
     {
@@ -421,7 +452,10 @@ fn graceful_kill(child: &mut Child, timeout_secs: u64) {
     loop {
         match child.try_wait() {
             Ok(Some(status)) => {
-                eprintln!("[EmbeddedServer/Rust] Server exited gracefully ({})", status);
+                eprintln!(
+                    "[EmbeddedServer/Rust] Server exited gracefully ({})",
+                    status
+                );
                 return;
             }
             Ok(None) => {
@@ -447,7 +481,10 @@ fn graceful_kill(child: &mut Child, timeout_secs: u64) {
 pub async fn stop_server() -> Result<(), String> {
     let mut guard = SERVER_PROCESS.lock().map_err(|e| e.to_string())?;
     if let Some(mut child) = guard.take() {
-        eprintln!("[EmbeddedServer/Rust] Stopping server (pid={})...", child.id());
+        eprintln!(
+            "[EmbeddedServer/Rust] Stopping server (pid={})...",
+            child.id()
+        );
         graceful_kill(&mut child, 3);
         // Remove pid file
         if let Ok(dir_guard) = DATA_DIR.lock() {
@@ -480,12 +517,16 @@ fn kill_dev_server() {
                 let alive = unsafe { libc::kill(pid as i32, 0) } == 0;
                 if alive {
                     eprintln!("[EmbeddedServer/Rust] Killing dev server (pid={})", pid);
-                    unsafe { libc::kill(pid as i32, libc::SIGTERM); }
+                    unsafe {
+                        libc::kill(pid as i32, libc::SIGTERM);
+                    }
                     std::thread::sleep(std::time::Duration::from_millis(500));
                     let still_alive = unsafe { libc::kill(pid as i32, 0) } == 0;
                     if still_alive {
                         eprintln!("[EmbeddedServer/Rust] Dev server still alive, sending SIGKILL");
-                        unsafe { libc::kill(pid as i32, libc::SIGKILL); }
+                        unsafe {
+                            libc::kill(pid as i32, libc::SIGKILL);
+                        }
                     }
                 }
             }
@@ -551,7 +592,9 @@ pub fn stop_server_sync() {
                 eprintln!("[EmbeddedServer/Rust] Cleanup thread: done");
             });
 
-            eprintln!("[EmbeddedServer/Rust] Exit hook: returning immediately (cleanup in background)");
+            eprintln!(
+                "[EmbeddedServer/Rust] Exit hook: returning immediately (cleanup in background)"
+            );
         }
     }
 }

@@ -66,6 +66,7 @@ export type ClientMessage =
   // Claudia Tasks
   | ClaudiaTaskSubmitMessage
   | ClaudiaTaskContinueMessage
+  | ClaudiaTaskCancelMessage
   | ClaudiaMessageMessage
   // Agent Feed
   | GetAgentFeedMessage
@@ -838,6 +839,10 @@ export interface PluginStateMessage {
     path: string;
     /** Effective platform scope: 'universal' (backend-only) or 'desktop' (has UI) */
     platform: 'universal' | 'desktop';
+    /** Capability requirements declared in manifest */
+    requires?: import('../plugin-types.js').PluginRequirements;
+    /** Result of capability negotiation */
+    capabilities?: import('../plugin-types.js').CapabilityNegotiationResult;
   }>;
 }
 
@@ -1072,6 +1077,12 @@ export interface ClaudiaTaskContinueMessage {
   input: string;           // Follow-up instruction
 }
 
+// Client → Server: cancel an existing Claudia task
+export interface ClaudiaTaskCancelMessage {
+  type: 'claudia_task_cancel';
+  taskId: string;
+}
+
 // Server → Client: task created confirmation
 export interface ClaudiaTaskCreatedMessage {
   type: 'claudia_task_created';
@@ -1135,6 +1146,8 @@ export interface ClaudiaMessageMessage {
   clientRequestId: string;
   input: string;
   projectId: string;
+  contextProjectIds?: string[];
+  primaryContextProjectId?: string;
   providerId?: string;
 }
 

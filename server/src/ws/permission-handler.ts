@@ -22,6 +22,7 @@ export function handlePermissionDecision(
     encryptedCredential?: string;
   },
   activeRuns: Map<string, ActiveRun>,
+  connectedClients: Map<string, ConnectedClient>,
 ): void {
   console.log(`[Permission] Received decision for ${message.requestId}: ${message.allow ? 'allow' : 'deny'}`);
   console.log(`[Permission] Active runs: ${activeRuns.size}`);
@@ -108,12 +109,16 @@ export function handlePermissionDecision(
       pending.resolve(decision);
 
       // Broadcast resolution to all clients (so other devices close their modals)
-      sendMessage(run.client.ws, {
+      const resolvedEvent = {
         type: 'permission_resolved',
         requestId: message.requestId,
         sessionId: run.sessionId,
         decision: message.allow ? 'allow' : 'deny',
-      } as any);
+      } as any;
+      sendMessage(run.client.ws, resolvedEvent);
+      if (connectedClients.size > 0) {
+        broadcastToOtherAuthenticatedClients(connectedClients, run.clientId, resolvedEvent as ServerMessage);
+      }
 
       console.log(`[Permission] ${message.requestId}: ${message.allow ? 'allowed' : 'denied'} - resolved!`);
       return;
@@ -124,11 +129,15 @@ export function handlePermissionDecision(
   console.warn(`[Permission] Request ${message.requestId} not found in any active run — broadcasting permission_resolved`);
   // Find any active run's client to broadcast through (they all share the same virtualClient in gateway mode)
   for (const [, run] of activeRuns.entries()) {
-    sendMessage(run.client.ws, {
+    const resolvedEvent = {
       type: 'permission_resolved',
       requestId: message.requestId,
       decision: message.allow ? 'allow' : 'deny',
-    } as any);
+    } as any;
+    sendMessage(run.client.ws, resolvedEvent);
+    if (connectedClients.size > 0) {
+      broadcastToOtherAuthenticatedClients(connectedClients, run.clientId, resolvedEvent as ServerMessage);
+    }
     break;
   }
 }

@@ -213,6 +213,65 @@ export interface PluginManifest {
 
   // 插件依赖
   dependencies?: Record<string, string>; // pluginId → semver range
+
+  // 外部能力需求声明
+  requires?: PluginRequirements;
+}
+
+// ============================================
+// Plugin Requirements (Capability Negotiation)
+// ============================================
+
+/** MCP server requirement */
+export interface McpRequirement {
+  /** MCP server name (e.g., "DevHelper") */
+  server: string;
+  /** Specific tools needed from this server (optional — if omitted, any tool set is acceptable) */
+  tools?: string[];
+  /** If true, plugin cannot activate without this MCP server. Default: true */
+  required?: boolean;
+}
+
+/** Provider (AI) requirement */
+export interface ProviderRequirement {
+  /** If true, plugin needs at least one AI provider available. Default: false */
+  required?: boolean;
+}
+
+export interface PluginRequirements {
+  /** Required MCP servers and their tools */
+  mcp?: McpRequirement[];
+  /** Required plugins */
+  plugins?: Array<{ id: string; required?: boolean }>;
+  /** AI provider requirements */
+  providers?: ProviderRequirement;
+}
+
+// ============================================
+// Capability Negotiation Result
+// ============================================
+
+export interface McpCapabilityStatus {
+  server: string;
+  available: boolean;
+  /** Tools that were requested and found */
+  availableTools?: string[];
+  /** Tools that were requested but NOT found */
+  missingTools?: string[];
+  error?: string;
+}
+
+export interface CapabilityNegotiationResult {
+  /** Overall: all required capabilities satisfied? */
+  satisfied: boolean;
+  /** Per-MCP-server status */
+  mcp: Record<string, McpCapabilityStatus>;
+  /** Per-plugin dependency status */
+  plugins: Record<string, { available: boolean }>;
+  /** Provider availability */
+  providers: { available: boolean };
+  /** Human-readable reasons for any failures */
+  unsatisfiedReasons: string[];
 }
 
 // ============================================
@@ -227,6 +286,8 @@ export interface PluginInstance {
   error?: string;
   /** Permissions not yet granted — will be requested on first tool/command use */
   pendingPermissions?: string[];
+  /** Result of capability negotiation (requires check) */
+  capabilities?: CapabilityNegotiationResult;
 }
 
 // ============================================
@@ -356,6 +417,31 @@ export interface ProviderStreamChunk {
   error?: string;
 }
 
+// ============================================
+// MCP API Types
+// ============================================
+
+export interface McpServerInfo {
+  name: string;
+  enabled: boolean;
+  description?: string;
+}
+
+export interface McpToolInfo {
+  name: string;
+  description?: string;
+  inputSchema?: Record<string, unknown>;
+}
+
+export interface McpAPI {
+  /** List all configured MCP servers */
+  listServers(): Promise<McpServerInfo[]>;
+  /** List tools available on a specific MCP server */
+  listTools(serverName: string): Promise<McpToolInfo[]>;
+  /** Call a tool on a specific MCP server */
+  callTool<T = unknown>(serverName: string, tool: string, args: Record<string, unknown>): Promise<T>;
+}
+
 export interface ProviderAPI {
   /**
    * List available providers
@@ -385,7 +471,17 @@ export interface PluginContext {
   events: EventAPI;
 
   // 注册扩展
+  commands: {
+    registerCommand(command: string, handler: CommandHandler): void;
+    unregisterCommand(command: string): void;
+  };
+  tools: {
+    registerTool(meta: ToolRegistration): void;
+    unregisterTool(toolId: string): void;
+  };
+  /** @deprecated Use commands.registerCommand() instead. */
   registerCommand(command: string, handler: CommandHandler): void;
+  /** @deprecated Use tools.registerTool() instead. */
   registerTool(meta: ToolRegistration): void;
   registerUIExtension(extension: UIExtensionRegistration): void;
 
@@ -407,6 +503,12 @@ export interface PluginContext {
 
   // AI Provider API（按权限提供）
   providers?: ProviderAPI;
+
+  // MCP API（按 network.fetch 权限提供）
+  mcp?: McpAPI;
+
+  // 能力协商结果
+  capabilities?: CapabilityNegotiationResult;
 
   // 插件间通信
   exports<T>(api: T): void;

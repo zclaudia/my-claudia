@@ -26,6 +26,7 @@ import { useGatewayStore, isGatewayTarget } from './stores/gatewayStore';
 import { useProjectStore } from './stores/projectStore';
 import { useClaudiaStore } from './stores/claudiaStore';
 import { useIsMobile } from './hooks/useMediaQuery';
+import { useClaudiaStatus } from './hooks/useClaudiaStatus';
 import { useAndroidBack } from './hooks/useAndroidBack';
 import { eagerSyncAllBackends } from './services/sessionSync';
 import { useFileViewerStore } from './stores/fileViewerStore';
@@ -136,9 +137,7 @@ function AppContent() {
   const [dashboardProjectId, setDashboardProjectId] = useState<string | null>(null);
   const { directGatewayUrl, lastActiveBackendId, isConnected: isGatewayConnected, discoveredBackends } = useGatewayStore();
   const { isExpanded: isAgentExpanded, setExpanded: setAgentExpanded } = useClaudiaStore();
-  const taskUnread = useClaudiaStore((s) => !s.isExpanded && s.tasks.some((task) => task.updatedAt > s.lastViewedAt));
-  const inlineUnread = useClaudiaStore((s) => !s.isExpanded && s.inlineResponses.some((response) => response.updatedAt > s.lastViewedAt && response.status !== 'promoted'));
-  const hasClaudiaUnread = taskUnread || inlineUnread;
+  const { hasUnread: hasClaudiaUnread, hasRunning: hasClaudiaRunning, hasPermissionPending: hasClaudiaPermissionPending } = useClaudiaStatus();
   const disabledBuiltinPanels = usePluginStore((s) => s.disabledBuiltinPanels);
   const feedUnreadCount = useAgentFeedStore((s) => s.unreadCount);
   const [isFeedOpen, setFeedOpen] = useState(false);
@@ -159,7 +158,10 @@ function AppContent() {
   }, [selectedSessionId]);
   const isMobile = useIsMobile();
   const selectedSession = selectedSessionId ? sessions.find((session) => session.id === selectedSessionId) ?? null : null;
-  const claudiaProjectId = selectedSession?.projectId || selectedProjectId || null;
+  const [claudiaProjectId, setClaudiaProjectId] = useState<string | null>(null);
+  const claudiaContextProjectId = (selectedSession?.projectId || dashboardProjectId || selectedProjectId || null) === claudiaProjectId
+    ? null
+    : (selectedSession?.projectId || dashboardProjectId || selectedProjectId || null);
   const localServer = useServerStore((s) => s.getDefaultServer());
   const claudiaServerUrl = useMemo(() => {
     const localAddress = localServer?.address || 'localhost:3100';
@@ -177,9 +179,30 @@ function AppContent() {
   // Register builtin plugin panel components (once at startup)
   useEffect(() => { initBuiltinPanels(); }, []);
 
+  useEffect(() => {
+    if (connectionStatus !== 'connected') return;
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const { ensureAgent } = await import('./services/api/servers');
+        const ensured = await ensureAgent();
+        if (!cancelled) {
+          setClaudiaProjectId(ensured.projectId);
+        }
+      } catch (error) {
+        console.warn('[App] Failed to ensure Claudia host project:', error);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [connectionStatus]);
+
   // Launch Claudia floating ball (desktop only, once)
   useEffect(() => {
-    if (!isDesktopTauri || isMobile) return;
+    if (!isDesktopTauri || isMobile || !claudiaProjectId) return;
     (async () => {
       try {
         const { WebviewWindow } = await import('@tauri-apps/api/webviewWindow');
@@ -211,10 +234,13 @@ function AppContent() {
         if (claudiaProjectId) {
           ballParams.set('projectId', claudiaProjectId);
         }
+        if (claudiaContextProjectId) {
+          ballParams.set('contextProjectId', claudiaContextProjectId);
+        }
         // Local backend — no gateway needed
 
         const chatParams = new URLSearchParams({ claudiaChat: 'true' });
-        for (const key of ['serverUrl', 'authToken', 'serverId', 'serverName', 'gatewayUrl', 'gatewaySecret', 'projectId'] as const) {
+        for (const key of ['serverUrl', 'authToken', 'serverId', 'serverName', 'gatewayUrl', 'gatewaySecret', 'projectId', 'contextProjectId'] as const) {
           const val = ballParams.get(key);
           if (val) chatParams.set(key, val);
         }
@@ -239,24 +265,29 @@ function AppContent() {
           serverId,
           serverName,
           projectId: claudiaProjectId,
+          contextProjectId: claudiaContextProjectId,
         });
       } catch (err) {
         console.warn('[App] Failed to create Claudia floating ball:', err);
       }
     })();
-  }, [claudiaProjectId, claudiaServerUrl, isMobile, localServer?.name]);
+  }, [claudiaContextProjectId, claudiaProjectId, claudiaServerUrl, isMobile, localServer?.name]);
 
   useEffect(() => {
     if (!isDesktopTauri || isMobile) return;
     (async () => {
       try {
         const { emit } = await import('@tauri-apps/api/event');
-        await emit('claudia:unread', { unread: hasClaudiaUnread });
+        await emit('claudia:unread', {
+          unread: hasClaudiaUnread,
+          running: hasClaudiaRunning,
+          permissionPending: hasClaudiaPermissionPending,
+        });
       } catch {
         // Ignore when Tauri event bridge is unavailable during startup.
       }
     })();
-  }, [hasClaudiaUnread, isMobile]);
+  }, [hasClaudiaPermissionPending, hasClaudiaUnread, hasClaudiaRunning, isMobile]);
 
   // Auto-update check (desktop only, silent)
   useAutoUpdate();
@@ -778,6 +809,7 @@ function App() {
         gatewayUrl={params.get('gatewayUrl') || undefined}
         gatewaySecret={params.get('gatewaySecret') || undefined}
         projectId={params.get('projectId') || undefined}
+        contextProjectId={params.get('contextProjectId') || undefined}
       />
     );
   }

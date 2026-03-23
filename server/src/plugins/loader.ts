@@ -39,6 +39,8 @@ import { createProviderAPI } from './provider-api.js';
 import { workerHost } from './worker-host.js';
 import { workflowStepRegistry } from './workflow-step-registry.js';
 import { pluginScheduler } from './scheduler.js';
+import { mcpClientManager } from '../utils/mcp-client-manager.js';
+import type { McpRequirement, CapabilityNegotiationResult, McpCapabilityStatus } from '@my-claudia/shared';
 
 // ============================================
 // Types
@@ -371,6 +373,20 @@ export class PluginLoader {
         return false;
       }
 
+      // Capability negotiation: check `requires` in manifest
+      if (instance.manifest.requires) {
+        const capabilities = await this.negotiateCapabilities(pluginId, instance.manifest.requires);
+        instance.capabilities = capabilities;
+        if (!capabilities.satisfied) {
+          const reasons = capabilities.unsatisfiedReasons.join('; ');
+          console.error(`[PluginLoader] Plugin ${pluginId} unsatisfied requirements: ${reasons}`);
+          instance.error = `Unsatisfied requirements: ${reasons}`;
+          await pluginEvents.emit('plugin.error', { pluginId, error: instance.error }, pluginId);
+          return false;
+        }
+        console.log(`[PluginLoader] Plugin ${pluginId} capability negotiation passed`);
+      }
+
       // Note: Permission checks are deferred to tool/command invocation time.
       // Requesting permissions here would block activation if no UI is connected
       // (e.g. during server startup before any WebSocket client connects).
@@ -445,6 +461,130 @@ export class PluginLoader {
 
     console.warn(`[PluginLoader] Plugin ${pluginId} permissions denied at use time`);
     return false;
+  }
+
+  /**
+   * Negotiate capabilities declared in manifest.requires.
+   * Returns a result indicating which requirements are satisfied.
+   */
+  private async negotiateCapabilities(
+    pluginId: string,
+    requires: NonNullable<PluginManifest['requires']>,
+  ): Promise<CapabilityNegotiationResult> {
+    const result: CapabilityNegotiationResult = {
+      satisfied: true,
+      mcp: {},
+      plugins: {},
+      providers: { available: false },
+      unsatisfiedReasons: [],
+    };
+
+    // 1. Check MCP server requirements
+    if (requires.mcp) {
+      for (const req of requires.mcp) {
+        const status = await this.checkMcpRequirement(req);
+        result.mcp[req.server] = status;
+
+        const isRequired = req.required !== false; // default: true
+        if (!status.available && isRequired) {
+          result.satisfied = false;
+          result.unsatisfiedReasons.push(
+            status.error || `MCP server "${req.server}" not available`,
+          );
+        }
+        if (status.missingTools && status.missingTools.length > 0 && isRequired) {
+          result.satisfied = false;
+          result.unsatisfiedReasons.push(
+            `MCP server "${req.server}" missing tools: ${status.missingTools.join(', ')}`,
+          );
+        }
+      }
+    }
+
+    // 2. Check plugin dependencies (beyond manifest.dependencies)
+    if (requires.plugins) {
+      for (const dep of requires.plugins) {
+        const depPlugin = this.plugins.get(dep.id);
+        const available = !!depPlugin?.isActive;
+        result.plugins[dep.id] = { available };
+
+        if (!available && dep.required !== false) {
+          result.satisfied = false;
+          result.unsatisfiedReasons.push(`Plugin "${dep.id}" not available`);
+        }
+      }
+    }
+
+    // 3. Check provider requirements
+    if (requires.providers?.required) {
+      const providerCountRow = this.db
+        ? this.db.prepare('SELECT COUNT(*) as count FROM providers').get() as { count: number } | undefined
+        : undefined;
+      const providerCount = providerCountRow?.count ?? 0;
+      result.providers.available = providerCount > 0;
+      if (!result.providers.available) {
+        result.satisfied = false;
+        result.unsatisfiedReasons.push('No AI providers available');
+      }
+    } else {
+      result.providers.available = !!this.db;
+    }
+
+    return result;
+  }
+
+  /**
+   * Check a single MCP server requirement against available MCP servers.
+   */
+  private async checkMcpRequirement(req: McpRequirement): Promise<McpCapabilityStatus> {
+    if (!this.db) {
+      return { server: req.server, available: false, error: 'Database not available' };
+    }
+
+    try {
+      // Look up MCP server config from DB
+      const row = this.db.prepare(
+        'SELECT name, command, args, env, enabled FROM mcp_servers WHERE name = ?',
+      ).get(req.server) as { name: string; command: string; args: string | null; env: string | null; enabled: number } | undefined;
+
+      if (!row) {
+        return { server: req.server, available: false, error: `MCP server "${req.server}" not configured` };
+      }
+      if (!row.enabled) {
+        return { server: req.server, available: false, error: `MCP server "${req.server}" is disabled` };
+      }
+
+      const config = {
+        command: row.command,
+        args: row.args ? JSON.parse(row.args) as string[] : [],
+        env: row.env ? JSON.parse(row.env) as Record<string, string> : undefined,
+      };
+
+      // If no specific tools required, just check server exists + enabled
+      if (!req.tools || req.tools.length === 0) {
+        return { server: req.server, available: true };
+      }
+
+      // Check specific tools
+      const tools = await mcpClientManager.listTools(req.server, config);
+      const toolNames = new Set(tools.map((t: { name: string }) => t.name));
+
+      const availableTools = req.tools.filter((t) => toolNames.has(t));
+      const missingTools = req.tools.filter((t) => !toolNames.has(t));
+
+      return {
+        server: req.server,
+        available: missingTools.length === 0,
+        availableTools,
+        missingTools: missingTools.length > 0 ? missingTools : undefined,
+      };
+    } catch (err) {
+      return {
+        server: req.server,
+        available: false,
+        error: `Failed to check MCP server "${req.server}": ${err instanceof Error ? err.message : String(err)}`,
+      };
+    }
   }
 
   /**
@@ -885,6 +1025,21 @@ export class PluginLoader {
         },
       },
 
+      registerCommand: (command: string, handler: any) => {
+        const normalized = command.startsWith('/') ? command : `/${command}`;
+        const existing = commandRegistry.get(normalized);
+        const description = (existing?.pluginId === pluginId && existing.description)
+          ? existing.description
+          : `Command from ${pluginId}`;
+        commandRegistry.register({
+          command: normalized,
+          description,
+          handler,
+          source: 'plugin',
+          pluginId,
+        });
+      },
+
       tools: {
         registerTool: (tool: any) => {
           toolRegistry.register({
@@ -906,6 +1061,24 @@ export class PluginLoader {
         unregisterTool: (toolId: string) => {
           toolRegistry.unregister(toolId);
         },
+      },
+
+      registerTool: (tool: any) => {
+        toolRegistry.register({
+          id: tool.id,
+          definition: {
+            type: 'function',
+            function: {
+              name: tool.name,
+              description: tool.description,
+              parameters: tool.parameters,
+            },
+          },
+          handler: tool.handler,
+          source: 'plugin',
+          pluginId,
+          permissions: tool.permissions,
+        });
       },
 
       workflowSteps: {
@@ -1111,9 +1284,63 @@ export class PluginLoader {
         : undefined,
 
       // Provider API (requires provider.call permission)
-      providers: this.db && permissionManager.hasPermission(pluginId, 'provider.call' as Permission)
+      providers: this.db && permissionManager.hasPermission(pluginId, 'provider.call')
         ? createProviderAPI(this.db, pluginId)
         : undefined,
+
+      // MCP API (requires network.fetch permission — operates through server-side manager, not HTTP)
+      mcp: permissionManager.hasPermission(pluginId, 'network.fetch') && this.db
+        ? {
+            listServers: async () => {
+              const rows = this.db!.prepare(
+                'SELECT name, enabled, description FROM mcp_servers ORDER BY name ASC',
+              ).all() as Array<{ name: string; enabled: number; description: string | null }>;
+              return rows.map((r) => ({ name: r.name, enabled: !!r.enabled, description: r.description || undefined }));
+            },
+            listTools: async (serverName: string) => {
+              const row = this.db!.prepare(
+                'SELECT command, args, env, enabled FROM mcp_servers WHERE name = ?',
+              ).get(serverName) as { command: string; args: string | null; env: string | null; enabled: number } | undefined;
+              if (!row || !row.enabled) return [];
+              const config = {
+                command: row.command,
+                args: row.args ? JSON.parse(row.args) as string[] : [],
+                env: row.env ? JSON.parse(row.env) as Record<string, string> : undefined,
+              };
+              const tools = await mcpClientManager.listTools(serverName, config);
+              return tools.map((t: { name: string; description?: string; inputSchema?: Record<string, unknown> }) => ({
+                name: t.name,
+                description: t.description,
+                inputSchema: t.inputSchema,
+              }));
+            },
+            callTool: async <T = unknown>(serverName: string, tool: string, args: Record<string, unknown>): Promise<T> => {
+              const row = this.db!.prepare(
+                'SELECT command, args, env, enabled FROM mcp_servers WHERE name = ?',
+              ).get(serverName) as { command: string; args: string | null; env: string | null; enabled: number } | undefined;
+              if (!row) throw new Error(`MCP server "${serverName}" not found`);
+              if (!row.enabled) throw new Error(`MCP server "${serverName}" is disabled`);
+              const config = {
+                command: row.command,
+                args: row.args ? JSON.parse(row.args) as string[] : [],
+                env: row.env ? JSON.parse(row.env) as Record<string, string> : undefined,
+              };
+              const result = await mcpClientManager.callTool(serverName, config, tool, args);
+              // Parse MCP text content
+              const content = (result as { content?: Array<{ type: string; text?: string }> })?.content;
+              const text = content?.find((c) => c.type === 'text')?.text;
+              try {
+                return text ? JSON.parse(text) as T : result as T;
+              } catch {
+                console.debug(`[PluginLoader] MCP callTool (${serverName}.${tool}) returned non-JSON:`, text?.slice(0, 100));
+                return (text ?? result) as T;
+              }
+            },
+          }
+        : undefined,
+
+      // Capability negotiation result
+      capabilities: instance?.capabilities,
 
       // UI API
       ui: {

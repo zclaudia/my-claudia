@@ -102,6 +102,7 @@ export async function handleRunStart(
   const notificationService = ctx!.notificationService;
   const serverPort = ctx!.serverPort;
   const broadcastHeartbeat = ctx!.broadcastHeartbeat;
+  const connectedClients = clients ?? new Map<string, ConnectedClient>();
 
   const runId = uuidv4();
   const trace = createTraceRecorder({
@@ -598,12 +599,16 @@ export async function handleRunStart(
             const timeoutMs = effectiveTimeoutSeconds * 1000;
             timeout = setTimeout(() => {
               activeRun.pendingPermissions.delete(request.requestId);
-              sendMessage(client.ws, {
+              const resolvedEvent = {
                 type: 'permission_auto_resolved',
                 requestId: request.requestId,
                 sessionId: message.sessionId,
                 behavior: effectiveTimeoutBehavior,
-              } as import('@my-claudia/shared').PermissionAutoResolvedMessage);
+              } as import('@my-claudia/shared').PermissionAutoResolvedMessage;
+              sendMessage(client.ws, resolvedEvent);
+              if (connectedClients.size > 0) {
+                broadcastToOtherAuthenticatedClients(connectedClients, client.id, resolvedEvent);
+              }
               if (effectiveTimeoutBehavior === 'approve') {
                 console.log(`[Permission] Auto-approved ${request.requestId} (${request.toolName}) on timeout`);
                 resolve({ behavior: 'allow', updatedInput: request.toolInput });

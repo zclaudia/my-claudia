@@ -53,8 +53,8 @@ export async function probeServerLatency(serverId: string, timeoutMs = 5000): Pr
 
 // Agent API
 export async function ensureAgent(): Promise<{ projectId: string; sessionId: string }> {
-  const { fetchApi } = await import('./base');
-  const result = await fetchApi<{ projectId: string; sessionId: string }>('/api/agent/ensure', {
+  const { fetchLocalApi } = await import('./base');
+  const result = await fetchLocalApi<{ projectId: string; sessionId: string }>('/api/agent/ensure', {
     method: 'POST'
   });
   if (!result.success || !result.data) {

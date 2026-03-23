@@ -160,6 +160,11 @@ function createProxyContext(pluginId: string, rpc: RPCClient): any {
       },
     },
 
+    registerCommand: (command: string, handler: (args: string[], ctx?: any) => any) => {
+      commandHandlers.set(command, handler);
+      rpc.call('commands.register', command).catch(() => {});
+    },
+
     // Tools registration — store handler locally, register metadata on host
     tools: {
       registerTool: (tool: { id: string; name: string; description: string; parameters: unknown; handler: (args: Record<string, unknown>) => Promise<string> | string }) => {
@@ -170,6 +175,11 @@ function createProxyContext(pluginId: string, rpc: RPCClient): any {
         toolHandlers.delete(toolId);
         rpc.call('tools.unregister', toolId).catch(() => {});
       },
+    },
+
+    registerTool: (tool: { id: string; name: string; description: string; parameters: unknown; handler: (args: Record<string, unknown>) => Promise<string> | string }) => {
+      toolHandlers.set(tool.id, tool.handler);
+      rpc.call('tools.register', tool.id, tool.name, tool.description, tool.parameters).catch(() => {});
     },
 
     // Permissions (proxied)

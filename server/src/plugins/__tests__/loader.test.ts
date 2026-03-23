@@ -716,6 +716,29 @@ describe('PluginLoader', () => {
       expect(toolRegistry.has('test_tool')).toBe(true);
     });
 
+    it('should fail activation when providers are required but none are configured', async () => {
+      const manifest = makeManifest({
+        requires: {
+          providers: { required: true },
+        },
+      });
+
+      setupSinglePlugin(mockPluginDir, 'test-plugin', manifest);
+      loader.setDatabase({
+        prepare: vi.fn(() => ({
+          get: vi.fn(() => ({ count: 0 })),
+        })),
+      } as any);
+
+      await loader.discover();
+
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const result = await loader.activate('com.test.plugin');
+      expect(result).toBe(false);
+      expect(loader.getPlugin('com.test.plugin')?.error).toContain('No AI providers available');
+      errorSpy.mockRestore();
+    });
+
     it('should fail activation when compatibility check fails', async () => {
       vi.mocked(checkPluginCompatibility).mockReturnValueOnce({
         compatible: false,

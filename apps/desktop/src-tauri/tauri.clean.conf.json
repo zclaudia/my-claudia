@@ -1,0 +1,6 @@
+{
+  "identifier": "com.myClaudia.desktop.dev",
+  "build": {
+    "beforeDevCommand": ""
+  }
+}

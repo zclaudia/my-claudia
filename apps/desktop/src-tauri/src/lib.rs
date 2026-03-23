@@ -46,8 +46,16 @@ const CHAT_GAP: f64 = 16.0;
 const SCREEN_MARGIN: f64 = 16.0;
 
 #[cfg(not(target_os = "android"))]
-fn compute_claudia_chat_position(ball_window: &WebviewWindow, screen_width: f64, screen_height: f64) -> Option<(f64, f64)> {
-    let scale = ball_window.scale_factor().ok().filter(|s| *s > 0.0).unwrap_or(1.0);
+fn compute_claudia_chat_position(
+    ball_window: &WebviewWindow,
+    screen_width: f64,
+    screen_height: f64,
+) -> Option<(f64, f64)> {
+    let scale = ball_window
+        .scale_factor()
+        .ok()
+        .filter(|s| *s > 0.0)
+        .unwrap_or(1.0);
     let ball_pos = ball_window.outer_position().ok()?;
     let ball_size = ball_window.outer_size().ok()?;
 
@@ -67,6 +75,20 @@ fn compute_claudia_chat_position(ball_window: &WebviewWindow, screen_width: f64,
         target_x.clamp(SCREEN_MARGIN, max_x),
         target_y.clamp(SCREEN_MARGIN, max_y),
     ))
+}
+
+#[cfg(not(target_os = "android"))]
+fn claudia_window_url(raw_url: &str) -> Result<WebviewUrl, String> {
+    let parsed = url::Url::parse(raw_url).map_err(|e| e.to_string())?;
+    let mut app_path = parsed.path().trim_start_matches('/').to_string();
+    if app_path.is_empty() {
+        app_path = "index.html".to_string();
+    }
+    if let Some(query) = parsed.query() {
+        app_path.push('?');
+        app_path.push_str(query);
+    }
+    Ok(WebviewUrl::App(app_path.into()))
 }
 
 /// macOS: make window fully transparent (for floating ball — no shadow, no background).
@@ -147,8 +169,7 @@ fn create_claudia_ball(
         return Ok(());
     }
 
-    let parsed = url::Url::parse(&ball_url).map_err(|e| e.to_string())?;
-    let builder = WebviewWindowBuilder::new(&app, "claudia-ball", WebviewUrl::External(parsed))
+    let builder = WebviewWindowBuilder::new(&app, "claudia-ball", claudia_window_url(&ball_url)?)
         .title("")
         .inner_size(80.0, 80.0)
         .position(x, y)
@@ -184,15 +205,27 @@ fn toggle_claudia_visibility(app: &tauri::AppHandle) {
         let _ = ball_window.show();
     } else {
         // Get screen dimensions from the ball window's monitor
-        let scale = ball_window.scale_factor().ok().filter(|s| *s > 0.0).unwrap_or(1.0);
+        let scale = ball_window
+            .scale_factor()
+            .ok()
+            .filter(|s| *s > 0.0)
+            .unwrap_or(1.0);
         let monitor = ball_window.current_monitor().ok().flatten();
         let (screen_w, screen_h) = monitor
             .as_ref()
-            .map(|m| (m.size().width as f64 / scale, m.size().height as f64 / scale))
+            .map(|m| {
+                (
+                    m.size().width as f64 / scale,
+                    m.size().height as f64 / scale,
+                )
+            })
             .unwrap_or((1920.0, 1080.0));
 
-        if let Some((chat_x, chat_y)) = compute_claudia_chat_position(&ball_window, screen_w, screen_h) {
-            let _ = chat_window.set_position(Position::Logical(LogicalPosition::new(chat_x, chat_y)));
+        if let Some((chat_x, chat_y)) =
+            compute_claudia_chat_position(&ball_window, screen_w, screen_h)
+        {
+            let _ =
+                chat_window.set_position(Position::Logical(LogicalPosition::new(chat_x, chat_y)));
         }
         let _ = chat_window.show();
         let _ = chat_window.set_focus();
@@ -201,28 +234,36 @@ fn toggle_claudia_visibility(app: &tauri::AppHandle) {
 }
 
 #[cfg(not(target_os = "android"))]
-#[tauri::command]
-fn toggle_claudia_chat(
+fn show_claudia_chat_window(
     app: tauri::AppHandle,
     chat_url: String,
     screen_width: f64,
     screen_height: f64,
 ) -> Result<(), String> {
-    // If chat window already exists, just toggle visibility
-    if app.get_webview_window("claudia-chat").is_some() {
-        toggle_claudia_visibility(&app);
+    if let Some(chat_window) = app.get_webview_window("claudia-chat") {
+        let ball_window = app
+            .get_webview_window("claudia-ball")
+            .ok_or_else(|| "claudia-ball window not found".to_string())?;
+
+        if let Some((chat_x, chat_y)) =
+            compute_claudia_chat_position(&ball_window, screen_width, screen_height)
+        {
+            let _ =
+                chat_window.set_position(Position::Logical(LogicalPosition::new(chat_x, chat_y)));
+        }
+        let _ = chat_window.show();
+        let _ = chat_window.set_focus();
+        let _ = ball_window.hide();
         return Ok(());
     }
 
-    // First time: create the chat window
     let ball_window = app
         .get_webview_window("claudia-ball")
         .ok_or_else(|| "claudia-ball window not found".to_string())?;
     let (chat_x, chat_y) = compute_claudia_chat_position(&ball_window, screen_width, screen_height)
         .ok_or_else(|| "failed to compute chat window position".to_string())?;
 
-    let parsed = url::Url::parse(&chat_url).map_err(|e| e.to_string())?;
-    let chat = WebviewWindowBuilder::new(&app, "claudia-chat", WebviewUrl::External(parsed))
+    let chat = WebviewWindowBuilder::new(&app, "claudia-chat", claudia_window_url(&chat_url)?)
         .title("Claudia")
         .inner_size(CHAT_WIDTH, CHAT_HEIGHT)
         .position(chat_x, chat_y)
@@ -244,6 +285,35 @@ fn toggle_claudia_chat(
 
 #[cfg(not(target_os = "android"))]
 #[tauri::command]
+fn toggle_claudia_chat(
+    app: tauri::AppHandle,
+    chat_url: String,
+    screen_width: f64,
+    screen_height: f64,
+) -> Result<(), String> {
+    if let Some(chat_window) = app.get_webview_window("claudia-chat") {
+        let visible = chat_window.is_visible().unwrap_or(false);
+        if visible {
+            return hide_claudia_chat(app);
+        }
+    }
+
+    show_claudia_chat_window(app, chat_url, screen_width, screen_height)
+}
+
+#[cfg(not(target_os = "android"))]
+#[tauri::command]
+fn show_claudia_chat(
+    app: tauri::AppHandle,
+    chat_url: String,
+    screen_width: f64,
+    screen_height: f64,
+) -> Result<(), String> {
+    show_claudia_chat_window(app, chat_url, screen_width, screen_height)
+}
+
+#[cfg(not(target_os = "android"))]
+#[tauri::command]
 fn hide_claudia_chat(app: tauri::AppHandle) -> Result<(), String> {
     if let Some(chat_window) = app.get_webview_window("claudia-chat") {
         let _ = chat_window.hide();
@@ -261,20 +331,20 @@ fn preload_claudia_chat(app: tauri::AppHandle, chat_url: String) -> Result<(), S
         return Ok(());
     }
 
-    let parsed = url::Url::parse(&chat_url).map_err(|e| e.to_string())?;
-    let chat_window = WebviewWindowBuilder::new(&app, "claudia-chat", WebviewUrl::External(parsed))
-        .title("Claudia")
-        .inner_size(CHAT_WIDTH, CHAT_HEIGHT)
-        .position(0.0, 0.0)
-        .decorations(false)
-        .transparent(true)
-        .always_on_top(true)
-        .resizable(true)
-        .skip_taskbar(true)
-        .min_inner_size(320.0, 400.0)
-        .visible(false)
-        .build()
-        .map_err(|e| e.to_string())?;
+    let chat_window =
+        WebviewWindowBuilder::new(&app, "claudia-chat", claudia_window_url(&chat_url)?)
+            .title("Claudia")
+            .inner_size(CHAT_WIDTH, CHAT_HEIGHT)
+            .position(0.0, 0.0)
+            .decorations(false)
+            .transparent(true)
+            .always_on_top(true)
+            .resizable(true)
+            .skip_taskbar(true)
+            .min_inner_size(320.0, 400.0)
+            .visible(false)
+            .build()
+            .map_err(|e| e.to_string())?;
 
     #[cfg(target_os = "macos")]
     make_chat_transparent(&chat_window);
@@ -310,8 +380,10 @@ pub fn run() {
             .build(),
     );
 
-    // Single-instance only in release builds — allows dev and production to coexist
-    #[cfg(all(not(target_os = "android"), not(debug_assertions)))]
+    // Keep desktop app single-instance. The clean dev launcher uses a separate
+    // identifier, so dev and production can still coexist without spawning
+    // duplicate floating windows inside the same channel.
+    #[cfg(not(target_os = "android"))]
     let builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
         // When a second instance is launched, focus the existing window
         if let Some(window) = app.get_webview_window("main") {
@@ -337,6 +409,7 @@ pub fn run() {
         close_window,
         create_claudia_ball,
         toggle_claudia_chat,
+        show_claudia_chat,
         hide_claudia_chat,
         preload_claudia_chat,
     ]);
@@ -355,7 +428,11 @@ pub fn run() {
             // Small delay so the window appears first, then TCC dialogs overlay it
             std::thread::sleep(std::time::Duration::from_secs(1));
             let results = permissions::check_folder_permissions();
-            let pending: Vec<_> = results.iter().filter(|r| !r.granted).map(|r| r.name.as_str()).collect();
+            let pending: Vec<_> = results
+                .iter()
+                .filter(|r| !r.granted)
+                .map(|r| r.name.as_str())
+                .collect();
             if !pending.is_empty() {
                 eprintln!("[Permissions] Folders not yet authorized: {:?}", pending);
             }
@@ -366,10 +443,20 @@ pub fn run() {
     builder
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
-        .run(|_app, _event| {
+        .run(|app, event| {
             #[cfg(not(target_os = "android"))]
-            if let tauri::RunEvent::Exit = _event {
-                server::stop_server_sync();
+            match event {
+                tauri::RunEvent::WindowEvent { label, event, .. } => {
+                    if label == "claudia-chat"
+                        && matches!(event, tauri::WindowEvent::Focused(false))
+                    {
+                        let _ = hide_claudia_chat(app.clone());
+                    }
+                }
+                tauri::RunEvent::Exit => {
+                    server::stop_server_sync();
+                }
+                _ => {}
             }
         });
 }

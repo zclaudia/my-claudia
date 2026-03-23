@@ -6,6 +6,7 @@
   "type": "module",
   "scripts": {
     "dev": "pnpm -r --parallel run dev",
+    "start:clean": "bash scripts/dev/start-app-clean.sh",
     "build": "pnpm -r run build",
     "server:dev": "pnpm --filter @my-claudia/server run dev",
     "server:dev:isolated": "PORT=0 MY_CLAUDIA_DATA_DIR=$HOME/.my-claudia-dev pnpm --filter @my-claudia/server run dev",

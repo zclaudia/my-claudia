@@ -8,6 +8,8 @@ import type { ClaudiaTaskStatus } from '@my-claudia/shared';
 interface TaskCardProps {
   task: ClaudiaTask;
   collapsed?: boolean;
+  permissionRequired?: boolean;
+  interrupted?: boolean;
   onViewDetails?: (task: ClaudiaTask) => void;
   onContinue?: (task: ClaudiaTask) => void;
   onCancel?: (task: ClaudiaTask) => void;
@@ -33,8 +35,12 @@ function timeAgo(ts: number): string {
   return `${Math.floor(diff / 86_400_000)}d ago`;
 }
 
-export function TaskCard({ task, collapsed, onViewDetails, onContinue, onCancel, onDismiss }: TaskCardProps) {
-  const config = STATUS_CONFIG[task.status];
+export function TaskCard({ task, collapsed, permissionRequired = false, interrupted = false, onViewDetails, onContinue, onCancel, onDismiss }: TaskCardProps) {
+  const config = interrupted
+    ? { dot: 'bg-red-400 animate-pulse', label: 'Interrupted' }
+    : permissionRequired
+    ? { dot: 'bg-orange-500 animate-pulse', label: 'Permission Required' }
+    : STATUS_CONFIG[task.status];
   const isTerminal = task.status === 'completed' || task.status === 'failed' || task.status === 'cancelled';
   const streamingText = useClaudiaStore((s) => s.streamingText[task.id]);
   const [manualExpand, setManualExpand] = useState(false);
@@ -110,7 +116,15 @@ export function TaskCard({ task, collapsed, onViewDetails, onContinue, onCancel,
       )}
 
       {/* Queued state — no content yet */}
-      {task.status === 'queued' && !displayText && (
+      {interrupted && (
+        <p className="text-xs text-red-400/90">Task was interrupted by app restart.</p>
+      )}
+
+      {permissionRequired && (
+        <p className="text-xs text-orange-500/90">Waiting for your approval to continue.</p>
+      )}
+
+      {task.status === 'queued' && !displayText && !permissionRequired && !interrupted && (
         <p className="text-xs text-muted-foreground/60 italic">Waiting to start...</p>
       )}
 
@@ -132,7 +146,7 @@ export function TaskCard({ task, collapsed, onViewDetails, onContinue, onCancel,
             Continue
           </button>
         )}
-        {task.status === 'running' && (
+        {(task.status === 'running' || task.status === 'queued' || task.status === 'waiting' || permissionRequired || interrupted) && (
           <button
             onClick={() => onCancel?.(task)}
             className="text-[11px] text-red-400 hover:underline"

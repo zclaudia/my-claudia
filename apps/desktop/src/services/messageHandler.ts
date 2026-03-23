@@ -127,6 +127,17 @@ function reconcileStaleBackgroundRunTasks(
   }
 }
 
+function updateClaudiaTaskStatusBySessionId(
+  sessionId: string | undefined,
+  status: import('@my-claudia/shared').ClaudiaTaskStatus,
+): void {
+  if (!sessionId) return;
+  const claudiaStore = useClaudiaStore.getState();
+  const task = claudiaStore.tasks.find((current) => current.sessionId === sessionId);
+  if (!task) return;
+  claudiaStore.updateTask(task.id, { status, updatedAt: Date.now() });
+}
+
 /**
  * Process a server message through the unified handler.
  * Handles all message types except `auth_result` (transport-specific).
@@ -308,6 +319,7 @@ export function handleServerMessage(
         credentialHint: permMsg.credentialHint,
         aiInitiated: permMsg.aiInitiated,
       });
+      updateClaudiaTaskStatusBySessionId(permMsg.sessionId, 'waiting');
       break;
     }
 
@@ -324,10 +336,12 @@ export function handleServerMessage(
     }
 
     case 'permission_resolved':
+      updateClaudiaTaskStatusBySessionId((msg as import('@my-claudia/shared').PermissionResolvedMessage).sessionId, 'running');
       usePermissionStore.getState().clearRequestById(msg.requestId);
       break;
 
     case 'permission_auto_resolved':
+      updateClaudiaTaskStatusBySessionId((msg as import('@my-claudia/shared').PermissionAutoResolvedMessage).sessionId, 'running');
       usePermissionStore.getState().clearRequestById(msg.requestId);
       break;
 

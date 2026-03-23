@@ -129,6 +129,8 @@ export function buildPluginStateMessage(): import('@my-claudia/shared').PluginSt
       path: p.path,
       platform: resolvePluginPlatform(p.manifest),
       panels,
+      requires: p.manifest.requires,
+      capabilities: p.capabilities,
     };
   });
   return { type: 'plugin_state', plugins };

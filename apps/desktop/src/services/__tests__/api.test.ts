@@ -124,6 +124,7 @@ import {
   // Scheduled tasks
   listGlobalScheduledTasks,
 } from '../api';
+import { useServerStore } from '../../stores/serverStore';
 
 // Mock the serverStore
 vi.mock('../../stores/serverStore', () => ({
@@ -642,6 +643,36 @@ describe('api', () => {
       mockResponse({ projectId: 'p1', sessionId: 's1' });
       const result = await ensureAgent();
       expect(result.projectId).toBe('p1');
+    });
+
+    it('ensureAgent always targets the local default server', async () => {
+      const originalGetState = useServerStore.getState;
+      (useServerStore.getState as any) = () => ({
+        activeServerId: 'gw:remote-1',
+        getActiveServer: () => ({
+          id: 'gw:remote-1',
+          name: 'Remote Server',
+          address: 'remote.example.com:3100',
+        }),
+        getDefaultServer: () => ({
+          id: 'server-1',
+          name: 'Local Server',
+          address: 'localhost:3100',
+        }),
+        activeServerSupports: () => true,
+      });
+
+      try {
+        mockResponse({ projectId: 'p1', sessionId: 's1' });
+        await ensureAgent();
+
+        expect(mockFetch).toHaveBeenCalledWith(
+          'http://localhost:3100/api/agent/ensure',
+          expect.objectContaining({ method: 'POST' }),
+        );
+      } finally {
+        (useServerStore.getState as any) = originalGetState;
+      }
     });
 
     it('getAgentConfig', async () => {

@@ -10,6 +10,7 @@ interface ClaudiaWindowContext {
   gatewayUrl?: string;
   gatewaySecret?: string;
   projectId?: string | null;
+  contextProjectId?: string | null;
 }
 
 /**
@@ -19,8 +20,27 @@ interface ClaudiaWindowContext {
  * - Pointer stays within threshold → click (toggle chat)
  * - Pointer moves beyond threshold → start Tauri window drag
  */
+/** Derive ring status from unread + running + permission state. */
+type RingStatus = 'idle' | 'running' | 'unread' | 'permission_pending';
+
+function getRingStatus(hasUnread: boolean, hasRunning: boolean, hasPermissionPending: boolean): RingStatus {
+  if (hasPermissionPending) return 'permission_pending';
+  if (hasUnread) return 'unread';
+  if (hasRunning) return 'running';
+  return 'idle';
+}
+
+const RING_COLORS: Record<RingStatus, { bg: string; glow: string }> = {
+  idle:               { bg: 'rgba(34,197,94,0.35)',  glow: 'rgba(34,197,94,0.5)'  },  // green
+  running:            { bg: 'rgba(234,179,8,0.4)',   glow: 'rgba(234,179,8,0.6)'  },  // yellow/amber
+  unread:             { bg: 'rgba(239,68,68,0.4)',   glow: 'rgba(239,68,68,0.6)'  },  // red
+  permission_pending: { bg: 'rgba(249,115,22,0.42)', glow: 'rgba(249,115,22,0.68)' },  // orange
+};
+
 export function ClaudiaBallWindow() {
   const [hasUnread, setHasUnread] = useState(false);
+  const [hasRunning, setHasRunning] = useState(false);
+  const [hasPermissionPending, setHasPermissionPending] = useState(false);
   const [isOpening, setIsOpening] = useState(false);
   const [isDark, setIsDark] = useState(() =>
     typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: dark)').matches
@@ -66,6 +86,26 @@ export function ClaudiaBallWindow() {
         from { transform: rotate(0deg); }
         to { transform: rotate(360deg); }
       }
+      @keyframes claudia-ring-pulse {
+        0%, 100% { opacity: 0.7; transform: scale(1); }
+        50% { opacity: 1; transform: scale(1.06); }
+      }
+      @keyframes claudia-ring-rotate {
+        from { transform: rotate(0deg); }
+        to { transform: rotate(360deg); }
+      }
+      @keyframes claudia-running-orbit {
+        from { transform: rotate(0deg); }
+        to { transform: rotate(360deg); }
+      }
+      @keyframes claudia-halo-breathe {
+        0%, 100% { opacity: 0.35; transform: scale(0.9); }
+        50% { opacity: 1; transform: scale(1.14); }
+      }
+      @keyframes claudia-ring-breathe {
+        0%, 100% { opacity: 0.55; transform: scale(0.96); }
+        50% { opacity: 1; transform: scale(1.06); }
+      }
       ::-webkit-scrollbar { display: none !important; }
     `;
     document.head.appendChild(style);
@@ -86,8 +126,10 @@ export function ClaudiaBallWindow() {
     (async () => {
       try {
         const { listen } = await import('@tauri-apps/api/event');
-        cleanupUnread = await listen<{ unread: boolean }>('claudia:unread', (e) => {
+        cleanupUnread = await listen<{ unread: boolean; running?: boolean; permissionPending?: boolean }>('claudia:unread', (e) => {
           setHasUnread(e.payload.unread);
+          setHasRunning(e.payload.running ?? false);
+          setHasPermissionPending(e.payload.permissionPending ?? false);
         });
         cleanupContext = await listen<ClaudiaWindowContext>('claudia:context', (e) => {
           setContext((prev) => ({ ...prev, ...e.payload }));
@@ -159,6 +201,9 @@ export function ClaudiaBallWindow() {
     }
   };
 
+  const ringStatus = getRingStatus(hasUnread, hasRunning, hasPermissionPending);
+  const ringColor = RING_COLORS[ringStatus];
+
   return (
     <div
       onPointerDown={handlePointerDown}
@@ -181,68 +226,138 @@ export function ClaudiaBallWindow() {
         WebkitAppRegion: 'no-drag',
       }}
     >
+      {/* Outer glassmorphism status ring */}
       <div
-        onDragStart={(event) => event.preventDefault()}
-        draggable={false}
         style={{
-          width: 56,
-          height: 56,
+          width: 68,
+          height: 68,
           borderRadius: '50%',
-          boxShadow: '0 2px 10px rgba(0,0,0,0.35)',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
           position: 'relative',
           pointerEvents: 'none',
-          overflow: 'hidden',
+          animation: ringStatus === 'unread' ? 'claudia-ring-pulse 2s ease-in-out infinite' : 'none',
         }}
       >
-        {isOpening ? (
-          <div style={{
+        {/* Halo layer — avoids box-shadow because transparent Tauri windows can rasterize it as a square */}
+        <div
+          style={{
+            position: 'absolute',
+            inset: -10,
+            borderRadius: '50%',
+            background: ringStatus === 'running'
+              ? `conic-gradient(from 0deg, transparent 0%, ${ringColor.glow} 18%, ${ringColor.bg} 32%, transparent 58%)`
+              : `radial-gradient(circle, ${ringColor.glow} 0%, ${ringColor.bg} 42%, rgba(255,255,255,0) 74%)`,
+            opacity: ringStatus === 'idle' ? 0.75 : 1,
+            transition: 'background 0.5s ease, opacity 0.5s ease',
+            willChange: 'transform, opacity',
+            animation: ringStatus === 'running'
+              ? 'claudia-ring-rotate 3s linear infinite'
+              : ringStatus === 'permission_pending'
+                ? 'claudia-ring-pulse 1.4s ease-in-out infinite'
+              : ringStatus === 'idle'
+                ? 'claudia-halo-breathe 2.6s ease-in-out infinite'
+                : 'none',
+          }}
+        />
+
+        {/* Ring background */}
+        <div
+          style={{
+            position: 'absolute',
+            inset: 0,
+            borderRadius: '50%',
+            background: 'rgba(255,255,255,0.14)',
+            border: `2.5px solid ${ringColor.glow}`,
+            transition: 'border-color 0.5s ease, background 0.5s ease',
+            willChange: 'transform, opacity',
+            animation: ringStatus === 'permission_pending'
+              ? 'claudia-ring-pulse 1.4s ease-in-out infinite'
+              : ringStatus === 'idle'
+                ? 'claudia-ring-breathe 2.6s ease-in-out infinite'
+                : 'none',
+          }}
+        />
+
+        {ringStatus === 'running' && (
+          <div
+            style={{
+              position: 'absolute',
+              inset: -2,
+              borderRadius: '50%',
+              animation: 'claudia-running-orbit 1.4s linear infinite',
+              willChange: 'transform',
+            }}
+          >
+            <span
+              style={{
+                position: 'absolute',
+                top: 2,
+                left: '50%',
+                width: 6,
+                height: 6,
+                marginLeft: -3,
+                borderRadius: '50%',
+                background: ringColor.glow,
+                boxShadow: `0 0 0 2px ${ringColor.bg}`,
+              }}
+            />
+          </div>
+        )}
+
+        {/* Inner ball — logo */}
+        <div
+          onDragStart={(event) => event.preventDefault()}
+          draggable={false}
+          style={{
             width: 56,
             height: 56,
             borderRadius: '50%',
-            background: '#1e293b',
+            boxShadow: '0 2px 10px rgba(0,0,0,0.35)',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-          }}>
-            <span style={{
-              width: 20,
-              height: 20,
-              borderRadius: '50%',
-              border: '2px solid rgba(255,255,255,0.35)',
-              borderTopColor: 'white',
-              animation: 'claudia-ball-spin 0.8s linear infinite',
-              boxSizing: 'border-box',
-            }} />
-          </div>
-        ) : (
-          <img
-            src={isDark ? '/logo-transparent-dark.png' : '/logo.png'}
-            alt="Claudia"
-            draggable={false}
-            style={{
+            position: 'relative',
+            zIndex: 1,
+            overflow: 'hidden',
+          }}
+        >
+          {isOpening ? (
+            <div style={{
               width: 56,
               height: 56,
               borderRadius: '50%',
-              objectFit: 'cover',
-              pointerEvents: 'none',
-            }}
-          />
-        )}
-        {hasUnread && (
-          <span style={{
-            position: 'absolute',
-            top: 0,
-            right: 0,
-            width: 12,
-            height: 12,
-            borderRadius: '50%',
-            background: '#ef4444',
-            border: '2px solid #1e293b',
-          }} />
-        )}
+              background: '#1e293b',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}>
+              <span style={{
+                width: 20,
+                height: 20,
+                borderRadius: '50%',
+                border: '2px solid rgba(255,255,255,0.35)',
+                borderTopColor: 'white',
+                animation: 'claudia-ball-spin 0.8s linear infinite',
+                boxSizing: 'border-box',
+              }} />
+            </div>
+          ) : (
+            <img
+              src={isDark ? '/logo-transparent-dark.png' : '/logo.png'}
+              alt="Claudia"
+              draggable={false}
+              style={{
+                width: 56,
+                height: 56,
+                borderRadius: '50%',
+                objectFit: 'cover',
+                pointerEvents: 'none',
+              }}
+            />
+          )}
+        </div>
       </div>
     </div>
   );

@@ -67,11 +67,39 @@ export async function handleClientMessage(
       break;
 
     case 'agent_cancel': {
+      let cancelled = false;
+
       // Find and cancel the active run for this agent session
       for (const [runId, run] of ctx.activeRuns.entries()) {
         if (run.sessionId === message.sessionId && !run.completed) {
           ctx.cancelRun(runId);
+          cancelled = true;
           break;
+        }
+      }
+
+      // Claudia tasks can outlive the in-memory active run map after app/server restarts.
+      // Fall back to the latest Claudia-owned orchestrator task for this session so the
+      // task card's Cancel action still works for stale "running" sessions.
+      if (!cancelled && ctx.orchestrator) {
+        const taskRow = db.prepare(
+          `SELECT id
+           FROM orchestrator_tasks
+           WHERE session_id = ? AND initiator = ?
+           ORDER BY created_at DESC
+           LIMIT 1`
+        ).get(message.sessionId, 'claudia') as { id: string } | undefined;
+
+        if (taskRow) {
+          try {
+            await ctx.orchestrator.killTask(taskRow.id);
+          } catch (err) {
+            sendMessage(client.ws, {
+              type: 'error',
+              code: 'TASK_CANCEL_FAILED',
+              message: err instanceof Error ? err.message : 'Failed to cancel task',
+            } as ErrorMessage);
+          }
         }
       }
       break;
@@ -147,15 +175,51 @@ export async function handleClientMessage(
         } as import('@my-claudia/shared').ClaudiaMessageFailedMessage);
         break;
       }
+
+      const contextProjectIds = Array.from(new Set((inlineMsg.contextProjectIds || []).filter(Boolean)));
+      const contextProjects = contextProjectIds.length > 0
+        ? db.prepare(`
+            SELECT id, name, root_path
+            FROM projects
+            WHERE id IN (${contextProjectIds.map(() => '?').join(',')})
+          `).all(...contextProjectIds) as Array<{ id: string; name: string; root_path: string | null }>
+        : [];
+      if (contextProjects.length !== contextProjectIds.length) {
+        const foundIds = new Set(contextProjects.map((project) => project.id));
+        const missingIds = contextProjectIds.filter((id) => !foundIds.has(id));
+        sendMessage(client.ws, {
+          type: 'claudia_message_failed',
+          clientRequestId: clientReqId,
+          error: `Context project(s) not found: ${missingIds.join(', ')}`,
+        } as import('@my-claudia/shared').ClaudiaMessageFailedMessage);
+        break;
+      }
+
+      const primaryContextProject = contextProjects.find((project) => project.id === inlineMsg.primaryContextProjectId)
+        ?? contextProjects[0]
+        ?? null;
+      const sessionWorkingDirectory = primaryContextProject?.root_path || null;
+      const contextSystemPrompt = contextProjects.length > 0
+        ? [
+            'Attached project context:',
+            ...contextProjects.map((project, index) => {
+              const primaryTag = primaryContextProject?.id === project.id ? ' [primary]' : '';
+              const rootInfo = project.root_path ? project.root_path : 'no root path configured';
+              return `${index + 1}. ${project.name} (${project.id})${primaryTag} — root: ${rootInfo}`;
+            }),
+            '',
+            'Use the primary attached project as the active workspace for file and shell operations unless the user says otherwise.',
+          ].join('\n')
+        : undefined;
       const sessionId = uuidv4();
       const now = Date.now();
       const inlineTitle = inlineInput.replace(/\s+/g, ' ').slice(0, 80);
 
       // Create ephemeral agent session
       db.prepare(`
-        INSERT INTO sessions (id, project_id, name, type, parent_session_id, created_at, updated_at)
-        VALUES (?, ?, ?, 'agent', NULL, ?, ?)
-      `).run(sessionId, inlineProjectId, `Claudia: ${inlineInput.slice(0, 50)}`, now, now);
+        INSERT INTO sessions (id, project_id, name, type, parent_session_id, working_directory, created_at, updated_at)
+        VALUES (?, ?, ?, 'agent', NULL, ?, ?, ?)
+      `).run(sessionId, inlineProjectId, `Claudia: ${inlineInput.slice(0, 50)}`, sessionWorkingDirectory, now, now);
 
       let fullContent = '';
       let promoted = false;
@@ -380,6 +444,7 @@ export async function handleClientMessage(
         sessionId,
         input: inlineInput,
         providerId: inlineMsg.providerId,
+        systemContext: contextSystemPrompt,
         _contextTemplate: 'agent',
       }, db, {}, clients).catch((err) => {
         completed = true;
@@ -486,6 +551,34 @@ export async function handleClientMessage(
           type: 'error',
           code: 'TASK_CONTINUE_FAILED',
           message: err instanceof Error ? err.message : 'Failed to continue task',
+        } as ErrorMessage);
+      }
+      break;
+    }
+
+    case 'claudia_task_cancel': {
+      if (!ctx.orchestrator) {
+        sendMessage(client.ws, { type: 'error', code: 'NO_ORCHESTRATOR', message: 'Task orchestrator not available' } as ErrorMessage);
+        break;
+      }
+
+      const task = ctx.orchestrator.getTask(message.taskId);
+      if (!task) {
+        sendMessage(client.ws, {
+          type: 'error',
+          code: 'TASK_NOT_FOUND',
+          message: `Task not found: ${message.taskId}`,
+        } as ErrorMessage);
+        break;
+      }
+
+      try {
+        await ctx.orchestrator.killTask(message.taskId);
+      } catch (err) {
+        sendMessage(client.ws, {
+          type: 'error',
+          code: 'TASK_CANCEL_FAILED',
+          message: err instanceof Error ? err.message : 'Failed to cancel task',
         } as ErrorMessage);
       }
       break;
@@ -627,7 +720,7 @@ export async function handleClientMessage(
     }
 
     case 'permission_decision':
-      handlePermissionDecision(message, ctx.activeRuns);
+      handlePermissionDecision(message, ctx.activeRuns, ctx.connectedClients);
       break;
 
     case 'ask_user_answer':
