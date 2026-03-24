@@ -152,6 +152,10 @@ function AppContent() {
   const removePoppedOutSession = useUIStore((s) => s.removePoppedOutSession);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [agentSwipePreview, setAgentSwipePreview] = useState<{
+    mode: 'open' | 'close' | null;
+    progress: number;
+  }>({ mode: null, progress: 0 });
   // When a session is selected, exit the dashboard view
   const prevSessionRef = useRef(selectedSessionId);
   useEffect(() => {
@@ -176,6 +180,21 @@ function AppContent() {
     const localAddress = localServer?.address || 'localhost:3100';
     return localAddress.includes('://') ? localAddress : `http://${localAddress}`;
   }, [localServer?.address]);
+  const claudiaSwipePreviewProgress = useMemo(() => {
+    const progress = Math.max(0, Math.min(1, agentSwipePreview.progress));
+    if (progress === 0 || progress === 1) return progress;
+    // Add a light damping curve so the panel lags the finger slightly and eases in.
+    return Math.min(1, progress * 0.72 + progress * progress * 0.28);
+  }, [agentSwipePreview.progress]);
+  const claudiaOverlayOpacity = useMemo(() => {
+    if (agentSwipePreview.mode === 'open') {
+      return claudiaSwipePreviewProgress * 0.14;
+    }
+    if (agentSwipePreview.mode === 'close') {
+      return (1 - claudiaSwipePreviewProgress) * 0.14;
+    }
+    return isAgentExpanded ? 0.14 : 0;
+  }, [agentSwipePreview.mode, claudiaSwipePreviewProgress, isAgentExpanded]);
   const dashboardProject = dashboardProjectId
     ? projects.find((project) => project.id === dashboardProjectId) || null
     : null;
@@ -370,6 +389,7 @@ function AppContent() {
   // Mobile swipe: left-swipe from right edge to open Claudia Chat
   const swipeOpenClaudiaRef = useSwipeBack({
     onSwipe: () => setAgentExpanded(true),
+    onProgress: (progress) => setAgentSwipePreview(progress > 0 ? { mode: 'open', progress } : { mode: null, progress: 0 }),
     enabled: isMobile && !isAgentExpanded && !sidebarOpen && !fileViewerFullscreen,
     direction: 'left',
     edgeWidth: 24,
@@ -379,11 +399,21 @@ function AppContent() {
   // Mobile swipe: right-swipe anywhere in Claudia Chat to close
   const swipeCloseClaudiaRef = useSwipeBack({
     onSwipe: () => setAgentExpanded(false),
+    onProgress: (progress) => setAgentSwipePreview(progress > 0 ? { mode: 'close', progress } : { mode: null, progress: 0 }),
     enabled: isMobile && isAgentExpanded,
     direction: 'right',
     fullWidth: true,
     threshold: 60,
+    velocityThreshold: 0.18,
   });
+
+  useEffect(() => {
+    if (isAgentExpanded) {
+      setAgentSwipePreview((current) => current.mode === 'open' ? { mode: null, progress: 0 } : current);
+      return;
+    }
+    setAgentSwipePreview((current) => current.mode === 'close' ? { mode: null, progress: 0 } : current);
+  }, [isAgentExpanded]);
 
   // Mobile: prevent localhost connection on initial load
   useEffect(() => {
@@ -569,10 +599,15 @@ function AppContent() {
         {/* Center section: Server selector + Feed */}
         <div className="flex-1 flex items-center justify-start ml-2 md:ml-4 min-w-0 gap-2">
           {isMobile && isAgentExpanded ? (
-            <div className="flex items-center gap-2">
-              <Bot size={16} strokeWidth={1.75} className="text-primary" />
-              <span className="font-semibold text-sm text-foreground">Agent</span>
-            </div>
+            <button
+              onClick={() => setAgentExpanded(false)}
+              className="flex items-center gap-2 active:opacity-70"
+            >
+              <svg className="w-4 h-4 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+              </svg>
+              <span className="font-semibold text-sm text-foreground">Claudia</span>
+            </button>
           ) : isMobile ? null : (
             <>
               <ServerSelector />
@@ -614,23 +649,6 @@ function AppContent() {
         {/* Plugin window buttons — plugin-registered icons on the right */}
         <PluginWindowButtons />
 
-        {/* Agent toggle button — mobile only (desktop uses floating ball) */}
-        {isMobile && (
-          <button
-            onClick={() => setAgentExpanded(!isAgentExpanded)}
-            className={`relative p-1.5 rounded hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors mr-2 ${
-              isAgentExpanded ? 'bg-secondary text-foreground' : ''
-            }`}
-            title={isAgentExpanded ? 'Close Claudia' : 'Open Claudia'}
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-            </svg>
-            {hasClaudiaUnread && (
-              <span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-primary rounded-full animate-pulse" />
-            )}
-          </button>
-        )}
       </header>
 
       {/* Update notification banner (VS Code style) */}
@@ -659,11 +677,35 @@ function AppContent() {
         <main className="flex-1 flex flex-col overflow-hidden relative">
           {/* Chat Area */}
           <div className="flex-1 overflow-hidden relative" ref={swipeOpenClaudiaRef}>
+            {isMobile && (isAgentExpanded || agentSwipePreview.mode === 'open' || agentSwipePreview.mode === 'close') && (
+              <div
+                className={`absolute inset-0 z-10 bg-black/100 ${
+                  agentSwipePreview.mode ? 'transition-none' : 'transition-opacity duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]'
+                }`}
+                style={{
+                  opacity: claudiaOverlayOpacity,
+                  pointerEvents: 'none',
+                }}
+              />
+            )}
             {/* Mobile agent panel (full-screen overlay, always mounted to preserve state) */}
             {isMobile && (
               <div
                 ref={swipeCloseClaudiaRef}
-                className={`absolute inset-0 z-20 bg-background ${isAgentExpanded ? '' : 'hidden'}`}
+                className={`absolute inset-0 z-20 bg-background will-change-transform ${
+                  isAgentExpanded || agentSwipePreview.mode === 'open' ? '' : 'hidden'
+                } ${
+                  agentSwipePreview.mode ? 'transition-none' : 'transition-transform duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]'
+                }`}
+                style={{
+                  transform: isAgentExpanded
+                    ? `translateX(${agentSwipePreview.mode === 'close' ? claudiaSwipePreviewProgress * 100 : 0}%)`
+                    : `translateX(${(1 - (agentSwipePreview.mode === 'open' ? claudiaSwipePreviewProgress : 0)) * 100}%)`,
+                  pointerEvents: isAgentExpanded ? 'auto' : 'none',
+                  boxShadow: isAgentExpanded || agentSwipePreview.mode === 'open'
+                    ? `-16px 0 40px rgba(0, 0, 0, ${0.14 + claudiaSwipePreviewProgress * 0.08})`
+                    : 'none',
+                }}
               >
                 <button
                   onClick={() => setAgentExpanded(false)}

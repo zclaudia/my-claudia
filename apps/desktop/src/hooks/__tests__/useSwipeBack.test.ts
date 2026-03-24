@@ -49,6 +49,17 @@ describe('hooks/useSwipeBack', () => {
     Object.defineProperty(mockElement, 'clientWidth', {
       value: 375, writable: true, configurable: true,
     });
+    vi.spyOn(mockElement, 'getBoundingClientRect').mockReturnValue({
+      x: 0,
+      y: 0,
+      width: 375,
+      height: 800,
+      top: 0,
+      right: 375,
+      bottom: 800,
+      left: 0,
+      toJSON: () => ({}),
+    });
   });
 
   function setupHook(options: Parameters<typeof useSwipeBack>[0]) {
@@ -107,6 +118,9 @@ describe('hooks/useSwipeBack', () => {
       expect(handlers.touchstart).toBeDefined();
       expect(handlers.touchmove).toBeDefined();
       expect(handlers.touchend).toBeDefined();
+      expect(handlers.pointerdown).toBeDefined();
+      expect(handlers.pointermove).toBeDefined();
+      expect(handlers.pointerup).toBeDefined();
     });
   });
 
@@ -171,6 +185,27 @@ describe('hooks/useSwipeBack', () => {
       setupHook({ onSwipe, edgeWidthRatio: 0.1, threshold: 80, velocityThreshold: 0.3 });
 
       fireHandlers(35, 100, 120, 100); // in edge, moved 85 > 80
+      expect(onSwipe).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('container bounds', () => {
+    it('uses the container right edge instead of assuming x starts at 0', () => {
+      const onSwipe = vi.fn();
+      vi.spyOn(mockElement, 'getBoundingClientRect').mockReturnValue({
+        x: 80,
+        y: 0,
+        width: 295,
+        height: 800,
+        top: 0,
+        right: 375,
+        bottom: 800,
+        left: 80,
+        toJSON: () => ({}),
+      });
+      setupHook({ onSwipe, direction: 'left', edgeWidth: 30, threshold: 80, velocityThreshold: 0.3 });
+
+      fireHandlers(365, 100, 250, 100);
       expect(onSwipe).toHaveBeenCalledTimes(1);
     });
   });
