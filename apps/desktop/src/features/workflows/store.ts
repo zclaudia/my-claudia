@@ -9,6 +9,7 @@ import type {
 } from '@my-claudia/shared';
 import {
   listWorkflows,
+  listAllWorkflows,
   createWorkflow as apiCreateWorkflow,
   updateWorkflow as apiUpdateWorkflow,
   deleteWorkflow as apiDeleteWorkflow,
@@ -23,6 +24,8 @@ import {
   listWorkflowStepTypes,
 } from './api';
 
+const ALL_KEY = '__all__';
+
 interface WorkflowState {
   /** projectId → workflows */
   workflows: Record<string, Workflow[]>;
@@ -36,6 +39,7 @@ interface WorkflowState {
 
   // CRUD
   loadWorkflows: (projectId: string) => Promise<void>;
+  loadAllWorkflows: () => Promise<void>;
   loadTemplates: () => Promise<void>;
   loadStepTypes: () => Promise<void>;
   createWorkflow: (projectId: string, data: { name: string; description?: string; definition: WorkflowDefinition }) => Promise<Workflow>;
@@ -67,6 +71,11 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
   loadWorkflows: async (projectId) => {
     const workflows = await listWorkflows(projectId);
     set((state) => ({ workflows: { ...state.workflows, [projectId]: workflows } }));
+  },
+
+  loadAllWorkflows: async () => {
+    const workflows = await listAllWorkflows();
+    set((state) => ({ workflows: { ...state.workflows, [ALL_KEY]: workflows } }));
   },
 
   loadTemplates: async () => {
@@ -103,7 +112,7 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
 
   triggerWorkflow: async (workflowId) => {
     const run = await apiTriggerWorkflow(workflowId);
-    get().upsertRun(run.projectId, run);
+    get().upsertRun(run.projectId ?? '__all__', run);
     return run;
   },
 

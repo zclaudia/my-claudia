@@ -15,7 +15,7 @@ export class WorkflowRunRepository extends BaseRepository<WorkflowRun, WorkflowR
     return {
       id: row.id,
       workflowId: row.workflow_id,
-      projectId: row.project_id,
+      projectId: row.project_id ?? undefined,
       status: row.status as WorkflowRunStatus,
       triggerSource: row.trigger_source as WorkflowRunTriggerSource,
       triggerDetail: row.trigger_detail || undefined,
@@ -36,7 +36,7 @@ export class WorkflowRunRepository extends BaseRepository<WorkflowRun, WorkflowR
       params: [
         id,
         data.workflowId,
-        data.projectId,
+        data.projectId ?? null,
         data.status,
         data.triggerSource,
         data.triggerDetail ?? null,

@@ -13,6 +13,7 @@ import { useAgentFeedStore } from './stores/agentFeedStore';
 import { ToastContainer } from './components/ToastContainer';
 import { FileViewerWindow } from './components/fileviewer/FileViewerWindow';
 import { WorkflowEditorWindow } from './features/workflows/components/WorkflowEditorWindow';
+import { AutomationWindow } from './features/automation/AutomationWindow';
 import { SessionChatWindow } from './components/chat/SessionChatWindow';
 import { TerminalWindow } from './components/terminal/TerminalWindow';
 import { DraftWindow } from './components/draft/DraftWindow';
@@ -536,6 +537,21 @@ function AppContent() {
         {/* Plugin window buttons */}
         <PluginWindowButtons />
 
+        {/* Automation button — desktop only */}
+        {!isMobile && (
+          <button
+            onClick={() => {
+              import('./features/automation/openAutomationWindow').then(m => m.openAutomationWindow());
+            }}
+            className="p-1.5 rounded hover:bg-secondary text-muted-foreground hover:text-foreground"
+            title="Automation"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+            </svg>
+          </button>
+        )}
+
         {/* Agent toggle button — mobile only (desktop uses floating ball) */}
         {isMobile && (
           <button
@@ -703,6 +719,17 @@ function App() {
           authToken={authToken}
           serverName={serverName}
         />
+      </ThemeProvider>
+    );
+  }
+
+  // Check if this window is a standalone automation panel
+  if (params.get('automationWindow')) {
+    const serverUrl = params.get('serverUrl') || '';
+    const authToken = params.get('authToken') || '';
+    return (
+      <ThemeProvider defaultTheme="dark-neutral">
+        <AutomationWindow serverUrl={serverUrl} authToken={authToken} />
       </ThemeProvider>
     );
   }

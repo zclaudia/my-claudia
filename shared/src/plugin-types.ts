@@ -141,7 +141,7 @@ export interface WorkflowStepContribution {
 export type WorkflowStepHandler = (
   config: Record<string, unknown>,
   context: {
-    projectId: string;
+    projectId?: string;
     projectRootPath?: string;
     providerId?: string;
     stepRunId: string;

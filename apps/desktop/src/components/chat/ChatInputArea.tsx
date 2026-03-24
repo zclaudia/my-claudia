@@ -95,6 +95,7 @@ export function ChatInputArea({
   const setSendCallback = useDraftEditorStore((s) => s.setSendCallback);
   const unreadFeedCount = useAgentFeedStore((s) => s.unreadCount);
 
+
   // Mobile toolbar popover state
   const [mobileToolsOpen, setMobileToolsOpen] = useState(false);
   const mobileToolsRef = useRef<HTMLDivElement>(null);
@@ -116,7 +117,6 @@ export function ChatInputArea({
   }, [mobileToolsOpen]);
 
   const closeMobileTools = useCallback(() => setMobileToolsOpen(false), []);
-
   const toggleAgentFeedPanel = useCallback(() => {
     const pluginStore = usePluginStore.getState();
     const isActive = bottomPanelTab === 'agent-feed';
@@ -304,21 +304,6 @@ export function ChatInputArea({
             </button>
           );
         })()}
-        {!isMobile && !disabledBuiltinPanels.includes('agent-feed') && (
-          <button
-            onClick={toggleAgentFeedPanel}
-            className={`p-1.5 rounded hover:bg-secondary relative ${bottomPanelTab === 'agent-feed' ? 'text-primary' : 'text-muted-foreground hover:text-foreground'}`}
-            title={bottomPanelTab === 'agent-feed' ? 'Hide agent feed' : 'Open agent feed'}
-          >
-            <Activity size={16} strokeWidth={1.75} />
-            {unreadFeedCount > 0 && bottomPanelTab !== 'agent-feed' && (
-              <span className="absolute -top-0.5 -right-0.5 min-w-[16px] h-4 px-1 rounded-full bg-primary text-primary-foreground text-[10px] font-medium flex items-center justify-center">
-                {unreadFeedCount > 99 ? '99+' : unreadFeedCount}
-              </span>
-            )}
-          </button>
-        )}
-
         {!isMobile && (
           <button
             onClick={() => setAdvancedInput(!advancedInput)}
@@ -428,7 +413,7 @@ export function ChatInputArea({
             toolItems.push({
               key: 'agent-feed',
               icon: <Activity size={18} strokeWidth={1.75} />,
-              label: isActive ? 'Hide Feed' : 'Agent Feed',
+              label: isActive ? 'Hide Feed' : 'Notifications',
               isActive,
               hasBadge: unreadFeedCount > 0 && !isActive,
               onClick: () => {

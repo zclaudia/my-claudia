@@ -14,7 +14,7 @@ export class WorkflowRepository extends BaseRepository<Workflow, WorkflowCreate,
   mapRow(row: any): Workflow {
     return {
       id: row.id,
-      projectId: row.project_id,
+      projectId: row.project_id ?? undefined,
       name: row.name,
       description: row.description || undefined,
       status: row.status as WorkflowStatus,
@@ -35,7 +35,7 @@ export class WorkflowRepository extends BaseRepository<Workflow, WorkflowCreate,
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       params: [
         id,
-        data.projectId,
+        data.projectId ?? null,
         data.name,
         data.description ?? null,
         data.status ?? 'active',
@@ -72,6 +72,21 @@ export class WorkflowRepository extends BaseRepository<Workflow, WorkflowCreate,
 
   findByProjectAndTemplate(projectId: string, templateId: string): Workflow | null {
     const row = this.db.prepare('SELECT * FROM workflows WHERE project_id = ? AND template_id = ?').get(projectId, templateId);
+    return row ? this.mapRow(row) : null;
+  }
+
+  findAll(): Workflow[] {
+    const rows = this.db.prepare('SELECT * FROM workflows ORDER BY created_at DESC').all();
+    return rows.map(row => this.mapRow(row));
+  }
+
+  findGlobal(): Workflow[] {
+    const rows = this.db.prepare('SELECT * FROM workflows WHERE project_id IS NULL ORDER BY created_at DESC').all();
+    return rows.map(row => this.mapRow(row));
+  }
+
+  findGlobalByTemplate(templateId: string): Workflow | null {
+    const row = this.db.prepare('SELECT * FROM workflows WHERE project_id IS NULL AND template_id = ?').get(templateId);
     return row ? this.mapRow(row) : null;
   }
 

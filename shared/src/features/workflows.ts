@@ -173,7 +173,7 @@ export function migrateV1ToV2(def: WorkflowDefinitionV1): WorkflowDefinitionV2 {
 
 export interface Workflow {
   id: string;
-  projectId: string;
+  projectId?: string;
   name: string;
   description?: string;
   status: WorkflowStatus;
@@ -189,7 +189,7 @@ export type WorkflowRunTriggerSource = 'manual' | 'schedule' | 'event';
 export interface WorkflowRun {
   id: string;
   workflowId: string;
-  projectId: string;
+  projectId?: string;
   status: WorkflowRunStatus;
   triggerSource: WorkflowRunTriggerSource;
   triggerDetail?: string;

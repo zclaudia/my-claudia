@@ -15,6 +15,21 @@ export async function listWorkflows(projectId: string): Promise<Workflow[]> {
   return result.data;
 }
 
+export async function listAllWorkflows(): Promise<Workflow[]> {
+  const result = await fetchApi<Workflow[]>('/api/workflows');
+  if (!result.success || !result.data) throw new Error(result.error?.message || 'Failed to list all workflows');
+  return result.data;
+}
+
+export async function createGlobalWorkflow(data: { name: string; description?: string; definition: WorkflowDefinition; status?: string }): Promise<Workflow> {
+  const result = await fetchApi<Workflow>('/api/workflows', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+  if (!result.success || !result.data) throw new Error(result.error?.message || 'Failed to create global workflow');
+  return result.data;
+}
+
 export async function getWorkflow(workflowId: string): Promise<Workflow> {
   const result = await fetchApi<Workflow>(`/api/workflows/${workflowId}`);
   if (!result.success || !result.data) throw new Error(result.error?.message || 'Failed to get workflow');

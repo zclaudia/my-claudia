@@ -33,7 +33,7 @@ export class WorkflowService {
 
   constructor(
     private db: Database,
-    private broadcastFn: (projectId: string, message: any) => void,
+    private broadcastFn: (projectId: string | undefined, message: any) => void,
     notificationService?: { notify(event: { type: string; title: string; body: string; priority?: string; tags?: string[] }): Promise<void> },
   ) {
     this.workflowRepo = new WorkflowRepository(db);
@@ -55,12 +55,16 @@ export class WorkflowService {
     return this.workflowRepo.findByProject(projectId);
   }
 
+  listAllWorkflows(): Workflow[] {
+    return this.workflowRepo.findAll();
+  }
+
   getWorkflow(workflowId: string): Workflow | null {
     return this.workflowRepo.findById(workflowId);
   }
 
   createWorkflow(data: {
-    projectId: string;
+    projectId?: string;
     name: string;
     description?: string;
     definition: WorkflowDefinition;
@@ -97,7 +101,7 @@ export class WorkflowService {
     return workflow;
   }
 
-  deleteWorkflow(workflowId: string, projectId: string): boolean {
+  deleteWorkflow(workflowId: string, projectId?: string): boolean {
     this.scheduleRepo.deleteByWorkflow(workflowId);
     const deleted = this.workflowRepo.delete(workflowId);
     if (deleted) {
@@ -117,12 +121,14 @@ export class WorkflowService {
     return BUILTIN_WORKFLOW_TEMPLATES;
   }
 
-  createFromTemplate(projectId: string, templateId: string): Workflow {
+  createFromTemplate(projectId: string | undefined, templateId: string): Workflow {
     const template = BUILTIN_WORKFLOW_TEMPLATES.find(t => t.id === templateId);
     if (!template) throw new Error(`Template not found: ${templateId}`);
 
     // Check if already exists — toggle enable/disable
-    const existing = this.workflowRepo.findByProjectAndTemplate(projectId, templateId);
+    const existing = projectId
+      ? this.workflowRepo.findByProjectAndTemplate(projectId, templateId)
+      : this.workflowRepo.findGlobalByTemplate(templateId);
     if (existing) {
       const newStatus = existing.status === 'active' ? 'disabled' : 'active';
       return this.updateWorkflow(existing.id, { status: newStatus });

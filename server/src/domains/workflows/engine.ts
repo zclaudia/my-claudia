@@ -45,7 +45,7 @@ export interface StepResult {
 export interface ExecutionContext {
   results: Map<string, StepResult>;
   run: WorkflowRun;
-  projectId: string;
+  projectId?: string;
   projectRootPath?: string;
   providerId?: string;
 }
@@ -63,7 +63,7 @@ export class WorkflowEngine {
 
   constructor(
     private db: Database,
-    private broadcastFn: (projectId: string, message: any) => void,
+    private broadcastFn: (projectId: string | undefined, message: any) => void,
     private notificationService?: { notify(event: { type: string; title: string; body: string; priority?: string; tags?: string[] }): Promise<void> },
   ) {
     this.runRepo = new WorkflowRunRepository(db);
@@ -190,7 +190,7 @@ export class WorkflowEngine {
 
   async startRun(
     workflowId: string,
-    projectId: string,
+    projectId: string | undefined,
     definition: WorkflowDefinition,
     triggerSource: 'manual' | 'schedule' | 'event',
     triggerDetail?: string,
@@ -208,7 +208,7 @@ export class WorkflowEngine {
       throw new Error(`Invalid workflow graph: ${validation.error}`);
     }
 
-    const project = this.projectRepo.findById(projectId);
+    const project = projectId ? this.projectRepo.findById(projectId) : null;
 
     // Create run record
     const run = this.runRepo.create({
@@ -1060,7 +1060,7 @@ If there are critical issues, include ${failMarker} in your response and list th
 
   // ── Broadcast ─────────────────────────────────────────────────
 
-  private broadcastRunUpdate(projectId: string, runId: string): void {
+  private broadcastRunUpdate(projectId: string | undefined, runId: string): void {
     const run = this.runRepo.findById(runId);
     if (!run) return;
     const stepRuns = this.stepRunRepo.findByRun(runId);

@@ -33,7 +33,7 @@ export interface WorkflowDomainResult {
 export function registerWorkflowDomain(deps: WorkflowDomainDeps): WorkflowDomainResult {
   const { db, app, authMiddleware, clients, notificationService } = deps;
 
-  const broadcast = (projectId: string, message: any) => {
+  const broadcast = (projectId: string | undefined, message: any) => {
     clients.forEach((client) => {
       if (client.authenticated) sendMessage(client.ws, message);
     });

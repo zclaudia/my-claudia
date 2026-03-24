@@ -7,10 +7,50 @@
 import { Router, Request, Response } from 'express';
 import type { WorkflowService } from './service.js';
 import type { WorkflowGeneratorService } from './generator.js';
-import type { WorkflowStepTypeMeta, WorkflowDefinition } from '@my-claudia/shared';
+import type { WorkflowStepTypeMeta, WorkflowDefinition, WorkflowDefinitionV2 } from '@my-claudia/shared';
 import { isV2Definition } from '@my-claudia/shared';
 import { isValidCron } from '../../utils/cron.js';
 import { workflowStepRegistry } from '../../plugins/workflow-step-registry.js';
+
+function validateWorkflowDefinition(res: Response, definition: unknown): definition is WorkflowDefinition {
+  const candidate = definition as Record<string, unknown> | null | undefined;
+  const triggers = Array.isArray(candidate?.triggers) ? candidate.triggers : null;
+  const isV1 = Array.isArray(candidate?.steps) && Array.isArray(triggers);
+  const isV2 = isV2Definition(definition as WorkflowDefinition);
+
+  if (!isV1 && !isV2) {
+    res.status(400).json({
+      success: false,
+      error: { code: 'VALIDATION_ERROR', message: 'Definition must have triggers and either steps (V1) or nodes+edges+entryNodeId (V2)' },
+    });
+    return false;
+  }
+
+  if (isV2) {
+    const workflowDefinition = definition as WorkflowDefinitionV2;
+    const nodeIds = new Set(workflowDefinition.nodes.map((node) => node.id));
+    if (!workflowDefinition.entryNodeId || !nodeIds.has(workflowDefinition.entryNodeId)) {
+      res.status(400).json({
+        success: false,
+        error: { code: 'VALIDATION_ERROR', message: 'entryNodeId must reference an existing node' },
+      });
+      return false;
+    }
+  }
+
+  const workflowDefinition = definition as WorkflowDefinition;
+  for (const trigger of workflowDefinition.triggers) {
+    if (trigger.type === 'cron' && trigger.cron && !isValidCron(trigger.cron)) {
+      res.status(400).json({
+        success: false,
+        error: { code: 'VALIDATION_ERROR', message: `Invalid cron expression: ${trigger.cron}` },
+      });
+      return false;
+    }
+  }
+
+  return true;
+}
 
 export function createWorkflowRoutes(service: WorkflowService, generatorService?: WorkflowGeneratorService): Router {
   const router = Router();
@@ -38,36 +78,7 @@ export function createWorkflowRoutes(service: WorkflowService, generatorService?
           error: { code: 'VALIDATION_ERROR', message: 'Name is required' },
         });
       }
-      // Accept both V1 (steps+triggers) and V2 (nodes+edges+entryNodeId+triggers)
-      const isV1 = definition?.steps && definition?.triggers;
-      const isV2 = definition?.version === 2 && definition?.nodes && definition?.edges && definition?.triggers;
-      if (!isV1 && !isV2) {
-        return res.status(400).json({
-          success: false,
-          error: { code: 'VALIDATION_ERROR', message: 'Definition must have triggers and either steps (V1) or nodes+edges+entryNodeId (V2)' },
-        });
-      }
-
-      // V2: validate entryNodeId exists
-      if (isV2) {
-        const nodeIds = new Set((definition.nodes as any[]).map((n: any) => n.id));
-        if (!definition.entryNodeId || !nodeIds.has(definition.entryNodeId)) {
-          return res.status(400).json({
-            success: false,
-            error: { code: 'VALIDATION_ERROR', message: 'entryNodeId must reference an existing node' },
-          });
-        }
-      }
-
-      // Validate cron expressions
-      for (const trigger of definition.triggers) {
-        if (trigger.type === 'cron' && trigger.cron && !isValidCron(trigger.cron)) {
-          return res.status(400).json({
-            success: false,
-            error: { code: 'VALIDATION_ERROR', message: `Invalid cron expression: ${trigger.cron}` },
-          });
-        }
-      }
+      if (!validateWorkflowDefinition(res, definition)) return;
 
       const workflow = service.createWorkflow({
         projectId: req.params.projectId,
@@ -76,6 +87,61 @@ export function createWorkflowRoutes(service: WorkflowService, generatorService?
         definition,
         status,
       });
+      res.status(201).json({ success: true, data: workflow });
+    } catch (error) {
+      res.status(500).json({
+        success: false,
+        error: { code: 'INTERNAL_ERROR', message: error instanceof Error ? error.message : String(error) },
+      });
+    }
+  });
+
+  // GET /api/workflows — list ALL workflows (global + project-scoped)
+  router.get('/workflows', (req: Request, res: Response) => {
+    try {
+      const workflows = service.listAllWorkflows();
+      res.json({ success: true, data: workflows });
+    } catch (error) {
+      res.status(500).json({
+        success: false,
+        error: { code: 'INTERNAL_ERROR', message: error instanceof Error ? error.message : String(error) },
+      });
+    }
+  });
+
+  // POST /api/workflows — create a global workflow (no project binding)
+  router.post('/workflows', (req: Request, res: Response) => {
+    try {
+      const { name, description, definition, status } = req.body;
+      if (!name) {
+        return res.status(400).json({
+          success: false,
+          error: { code: 'VALIDATION_ERROR', message: 'Name is required' },
+        });
+      }
+
+      const parsedDef = typeof definition === 'string' ? JSON.parse(definition) : (definition ?? { version: 2, nodes: [], edges: [], entryNodeId: '', triggers: [] });
+      if (!validateWorkflowDefinition(res, parsedDef)) return;
+
+      const workflow = service.createWorkflow({
+        name,
+        description,
+        definition: parsedDef,
+        status,
+      });
+      res.status(201).json({ success: true, data: workflow });
+    } catch (error) {
+      res.status(500).json({
+        success: false,
+        error: { code: 'INTERNAL_ERROR', message: error instanceof Error ? error.message : String(error) },
+      });
+    }
+  });
+
+  // POST /api/workflows/from-template/:templateId — global template instantiation
+  router.post('/workflows/from-template/:templateId', (req: Request, res: Response) => {
+    try {
+      const workflow = service.createFromTemplate(undefined, req.params.templateId);
       res.status(201).json({ success: true, data: workflow });
     } catch (error) {
       res.status(500).json({

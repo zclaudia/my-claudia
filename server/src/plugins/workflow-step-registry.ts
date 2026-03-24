@@ -122,7 +122,7 @@ class WorkflowStepRegistry {
     type: string,
     config: Record<string, unknown>,
     context: {
-      projectId: string;
+      projectId?: string;
       projectRootPath?: string;
       providerId?: string;
       stepRunId: string;
