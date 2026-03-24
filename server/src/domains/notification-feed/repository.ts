@@ -45,7 +45,7 @@ export class NotificationFeedRepository {
     const id = uuidv4();
     const now = Date.now();
     this.db.prepare(`
-      INSERT INTO agent_feed (id, trigger_id, task_id, session_id, project_id, source, title, summary, status, error, delegation_context, created_at, completed_at, read_at)
+      INSERT INTO notifications (id, trigger_id, task_id, session_id, project_id, source, title, summary, status, error, delegation_context, created_at, completed_at, read_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       id,
@@ -68,7 +68,7 @@ export class NotificationFeedRepository {
 
   updateStatus(id: string, status: NotificationStatus, extra?: { summary?: string; error?: string; completedAt?: number }): void {
     this.db.prepare(`
-      UPDATE agent_feed SET status = ?, summary = COALESCE(?, summary), error = COALESCE(?, error), completed_at = COALESCE(?, completed_at)
+      UPDATE notifications SET status = ?, summary = COALESCE(?, summary), error = COALESCE(?, error), completed_at = COALESCE(?, completed_at)
       WHERE id = ?
     `).run(status, extra?.summary ?? null, extra?.error ?? null, extra?.completedAt ?? null, id);
   }
@@ -88,7 +88,7 @@ export class NotificationFeedRepository {
 
     const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
     const rows = this.db.prepare(
-      `SELECT * FROM agent_feed ${where} ORDER BY created_at DESC LIMIT ?`
+      `SELECT * FROM notifications ${where} ORDER BY created_at DESC LIMIT ?`
     ).all(...params, limit) as FeedRow[];
 
     return rows.map(rowToItem);
@@ -99,7 +99,7 @@ export class NotificationFeedRepository {
     const now = Date.now();
     const placeholders = ids.map(() => '?').join(',');
     this.db.prepare(
-      `UPDATE agent_feed SET read_at = ? WHERE id IN (${placeholders}) AND read_at IS NULL`
+      `UPDATE notifications SET read_at = ? WHERE id IN (${placeholders}) AND read_at IS NULL`
     ).run(now, ...ids);
     return now;
   }
@@ -108,28 +108,28 @@ export class NotificationFeedRepository {
     if (ids.length === 0) return 0;
     const placeholders = ids.map(() => '?').join(',');
     const result = this.db.prepare(
-      `DELETE FROM agent_feed WHERE id IN (${placeholders})`
+      `DELETE FROM notifications WHERE id IN (${placeholders})`
     ).run(...ids);
     return result.changes;
   }
 
   deleteRead(): number {
-    const result = this.db.prepare('DELETE FROM agent_feed WHERE read_at IS NOT NULL').run();
+    const result = this.db.prepare('DELETE FROM notifications WHERE read_at IS NOT NULL').run();
     return result.changes;
   }
 
   unreadCount(): number {
-    const row = this.db.prepare('SELECT COUNT(*) as count FROM agent_feed WHERE read_at IS NULL').get() as { count: number };
+    const row = this.db.prepare('SELECT COUNT(*) as count FROM notifications WHERE read_at IS NULL').get() as { count: number };
     return row.count;
   }
 
   findById(id: string): NotificationItem | undefined {
-    const row = this.db.prepare('SELECT * FROM agent_feed WHERE id = ?').get(id) as FeedRow | undefined;
+    const row = this.db.prepare('SELECT * FROM notifications WHERE id = ?').get(id) as FeedRow | undefined;
     return row ? rowToItem(row) : undefined;
   }
 
   findByTaskId(taskId: string): NotificationItem | undefined {
-    const row = this.db.prepare('SELECT * FROM agent_feed WHERE task_id = ?').get(taskId) as FeedRow | undefined;
+    const row = this.db.prepare('SELECT * FROM notifications WHERE task_id = ?').get(taskId) as FeedRow | undefined;
     return row ? rowToItem(row) : undefined;
   }
 }

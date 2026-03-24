@@ -9,8 +9,7 @@ docs/
 ├── features            # 功能设计 (待实现)
 ├── impl/               # 实现细节
 ├── testing/            # 测试相关
-├── archive/            # 已实现 (归档)
-└── plugin-sdk.d.ts     # 插件 SDK 类型定义
+└── archive/            # 已实现 (归档)
 ```
 
 ## 文档分类

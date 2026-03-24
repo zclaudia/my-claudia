@@ -3,7 +3,6 @@ import type { SupervisionTask } from '@my-claudia/shared';
 import { ArrowLeft } from 'lucide-react';
 import * as api from '../../services/api';
 import { useSupervisionStore } from '../../features/supervision/store';
-import { AgentStatusBar } from '../../features/supervision/components/AgentStatusBar';
 import { TaskBoard } from '../../features/supervision/components/TaskBoard';
 import { ContextBrowser } from '../../features/supervision/components/ContextBrowser';
 import { CheckpointFeed } from '../../features/supervision/components/CheckpointFeed';
@@ -28,9 +27,10 @@ const VIEW_LABELS: Record<DashboardView, string> = {
 interface ProjectDashboardProps {
   projectId: string;
   projectRootPath?: string;
+  onOpenAutomations?: () => void;
 }
 
-export function ProjectDashboard({ projectId, projectRootPath }: ProjectDashboardProps) {
+export function ProjectDashboard({ projectId, projectRootPath, onOpenAutomations }: ProjectDashboardProps) {
   const agent = useSupervisionStore((s) => s.agents[projectId]) ?? null;
   const tasks = useSupervisionStore((s) => s.tasks[projectId]) ?? [];
   const setAgent = useSupervisionStore((s) => s.setAgent);
@@ -69,17 +69,8 @@ export function ProjectDashboard({ projectId, projectRootPath }: ProjectDashboar
     hydrate();
   }, [hydrate]);
 
-  const handleOpenSession = () => navigate('supervisor');
-
   return (
     <div className="flex flex-col h-full bg-background">
-      {/* Fixed header: Agent status bar */}
-      <AgentStatusBar
-        projectId={projectId}
-        agent={agent}
-        onOpenSession={handleOpenSession}
-      />
-
       {/* Back button for drill-down views */}
       {view !== 'home' && (view !== 'workflows' || workflowViewMode === 'list') && (
         <div className="flex items-center gap-2 px-4 py-2 border-b border-border">
@@ -128,7 +119,7 @@ export function ProjectDashboard({ projectId, projectRootPath }: ProjectDashboar
 
       {view === 'scheduled' && (
         <div className="flex-1 overflow-hidden">
-          <ScheduledTasksPanel projectId={projectId} />
+          <ScheduledTasksPanel projectId={projectId} onOpenAutomations={onOpenAutomations} />
         </div>
       )}
 
@@ -137,6 +128,7 @@ export function ProjectDashboard({ projectId, projectRootPath }: ProjectDashboar
           <WorkflowsPanel
             projectId={projectId}
             onViewModeChange={setWorkflowViewMode}
+            onOpenAutomations={onOpenAutomations}
           />
         </div>
       )}

@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, useMemo } from 'react';
+import { useEffect, useState, useRef, useMemo, useCallback } from 'react';
 import { Bot, ChevronsRight, ChevronsLeft, MessageSquare, Activity, Clock, Cloud, Gauge, StickyNote, Puzzle, type LucideIcon } from 'lucide-react';
 import { Sidebar } from './components/Sidebar';
 import { ChatInterface } from './components/chat/ChatInterface';
@@ -135,6 +135,9 @@ function AppContent() {
   const { connectionStatus } = useServerStore();
   const { selectedSessionId, selectedProjectId, sessions, projects, selectProject, selectSession, setDashboardView } = useProjectStore();
   const [dashboardProjectId, setDashboardProjectId] = useState<string | null>(null);
+  const openAutomationWindowFn = useCallback(() => {
+    import('./features/automation/openAutomationWindow').then(m => m.openAutomationWindow());
+  }, []);
   const { directGatewayUrl, lastActiveBackendId, isConnected: isGatewayConnected, discoveredBackends } = useGatewayStore();
   const { isExpanded: isAgentExpanded, setExpanded: setAgentExpanded } = useClaudiaStore();
   const { hasUnread: hasClaudiaUnread, hasRunning: hasClaudiaRunning, hasPermissionPending: hasClaudiaPermissionPending } = useClaudiaStatus();
@@ -576,13 +579,11 @@ function AppContent() {
                   </button>
                 </div>
               )}
-              {/* Automation button — built-in, lives with other system icons */}
+              {/* Automation button — opens standalone Automations window */}
               <button
-                onClick={() => {
-                  import('./features/automation/openAutomationWindow').then(m => m.openAutomationWindow());
-                }}
+                onClick={openAutomationWindowFn}
                 className="p-1.5 rounded hover:bg-secondary text-muted-foreground hover:text-foreground"
-                title="Automation"
+                title="Automations"
               >
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
@@ -633,6 +634,7 @@ function AppContent() {
             setDashboardView(projectId, 'home');
             setDashboardProjectId(projectId);
           }}
+          onOpenAutomations={openAutomationWindowFn}
         />
 
         {/* Main Content */}
@@ -688,6 +690,7 @@ function AppContent() {
               <ProjectDashboard
                 projectId={dashboardProject.id}
                 projectRootPath={dashboardProject.rootPath}
+                onOpenAutomations={openAutomationWindowFn}
               />
             ) : selectedSessionId ? (
               <ChatInterface

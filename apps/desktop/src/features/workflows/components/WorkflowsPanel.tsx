@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo } from 'react';
-import { Workflow as WorkflowIcon, Plus, Sparkles, Loader2 } from 'lucide-react';
+import { Workflow as WorkflowIcon, Loader2 } from 'lucide-react';
 import type { Workflow, WorkflowRun } from '@my-claudia/shared';
 import { useWorkflowStore } from '../store';
 import { useIsMobile } from '../../../hooks/useMediaQuery';
@@ -24,6 +24,7 @@ async function openEditorInNewWindow(projectId: string, workflow?: Workflow) {
 interface WorkflowsPanelProps {
   projectId: string;
   onViewModeChange?: (mode: 'list' | 'detail') => void;
+  onOpenAutomations?: () => void;
 }
 
 type ViewState =
@@ -31,18 +32,15 @@ type ViewState =
   | { type: 'editor'; workflow?: Workflow; initialMode?: 'toolbox' | 'ai' }
   | { type: 'run-viewer'; runId: string };
 
-export function WorkflowsPanel({ projectId, onViewModeChange }: WorkflowsPanelProps) {
+export function WorkflowsPanel({ projectId, onViewModeChange, onOpenAutomations }: WorkflowsPanelProps) {
   const isMobile = useIsMobile();
   const {
     workflows,
     runs,
-    templates,
     loadWorkflows,
-    loadTemplates,
     triggerWorkflow,
     updateWorkflow,
     deleteWorkflow,
-    createFromTemplate,
     loadRuns,
   } = useWorkflowStore();
 
@@ -55,9 +53,8 @@ export function WorkflowsPanel({ projectId, onViewModeChange }: WorkflowsPanelPr
   }, [view.type, onViewModeChange]);
 
   useEffect(() => {
-    Promise.all([loadWorkflows(projectId), loadTemplates()])
-      .finally(() => setLoading(false));
-  }, [projectId, loadWorkflows, loadTemplates]);
+    loadWorkflows(projectId).finally(() => setLoading(false));
+  }, [projectId, loadWorkflows]);
 
   const projectWorkflows = workflows[projectId] ?? [];
 
@@ -82,12 +79,6 @@ export function WorkflowsPanel({ projectId, onViewModeChange }: WorkflowsPanelPr
   const getLatestRun = (workflowId: string): WorkflowRun | undefined => {
     return (runs[workflowId] ?? [])[0];
   };
-
-  // Active template IDs for this project
-  const activeTemplateIds = useMemo(
-    () => new Set(projectWorkflows.filter((w) => w.templateId).map((w) => w.templateId)),
-    [projectWorkflows]
-  );
 
   // ── Render sub-views ──────────────────────────────────
 
@@ -130,23 +121,13 @@ export function WorkflowsPanel({ projectId, onViewModeChange }: WorkflowsPanelPr
             </span>
           )}
         </div>
-        {!isMobile && (
-          <div className="flex items-center gap-1.5">
-            <button
-              onClick={() => setView({ type: 'editor', initialMode: 'ai' })}
-              className="flex items-center gap-1 px-2.5 py-1 text-xs rounded-md border border-border hover:bg-secondary transition-colors text-muted-foreground hover:text-foreground"
-            >
-              <Sparkles size={14} />
-              AI
-            </button>
-            <button
-              onClick={() => setView({ type: 'editor' })}
-              className="flex items-center gap-1 px-2.5 py-1 text-xs rounded-md bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
-            >
-              <Plus size={14} />
-              New
-            </button>
-          </div>
+        {onOpenAutomations && (
+          <button
+            onClick={onOpenAutomations}
+            className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-primary transition-colors"
+          >
+            Manage in Automations →
+          </button>
         )}
       </div>
 
@@ -157,64 +138,7 @@ export function WorkflowsPanel({ projectId, onViewModeChange }: WorkflowsPanelPr
           </div>
         ) : (
           <>
-            {/* Quick Start Templates (hidden on mobile) */}
-            {!isMobile && templates.length > 0 && (
-              <div className="mb-6">
-                <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2">
-                  Quick Start Templates
-                </h3>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
-                  {templates.map((template) => {
-                    const isEnabled = activeTemplateIds.has(template.id);
-                    const catColors: Record<string, string> = {
-                      git: 'text-orange-500',
-                      ai: 'text-purple-500',
-                      ci: 'text-blue-500',
-                      custom: 'text-muted-foreground',
-                    };
-                    return (
-                      <div
-                        key={template.id}
-                        className={`border rounded-lg p-2.5 transition-colors ${
-                          isEnabled ? 'border-primary/40 bg-primary/5' : 'border-border hover:border-primary/20'
-                        }`}
-                      >
-                        <div className="flex items-start justify-between gap-2">
-                          <div className="min-w-0 flex-1">
-                            <div className="flex items-center gap-1.5">
-                              <span className={`text-xs font-medium ${catColors[template.category]}`}>
-                                {template.category}
-                              </span>
-                              {isEnabled && (
-                                <span className="text-[10px] bg-primary/10 text-primary px-1.5 py-0.5 rounded-full">
-                                  Enabled
-                                </span>
-                              )}
-                            </div>
-                            <div className="text-sm font-medium mt-0.5 truncate">{template.name}</div>
-                            <div className="text-xs text-muted-foreground mt-0.5 line-clamp-2">
-                              {template.description}
-                            </div>
-                          </div>
-                        </div>
-                        <button
-                          onClick={() => createFromTemplate(projectId, template.id)}
-                          className={`mt-2 w-full py-1 text-xs rounded-md border transition-colors ${
-                            isEnabled
-                              ? 'border-primary/40 text-primary hover:bg-primary/10'
-                              : 'border-border hover:bg-muted'
-                          }`}
-                        >
-                          {isEnabled ? 'Enabled' : 'Enable'}
-                        </button>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-
-            {/* Active Workflows */}
+            {/* Active Workflows (read-only — management in Automations window) */}
             {activeWorkflows.length > 0 && (
               <div className="mb-4">
                 <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2">

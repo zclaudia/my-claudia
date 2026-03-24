@@ -27,7 +27,7 @@ const phaseConfig: Record<string, { label: string; color: string }> = {
   archived: { label: 'Archived', color: 'bg-gray-600/10 text-gray-500' },
 };
 
-export function AgentStatusBar({ projectId, agent, onOpenSession }: AgentStatusBarProps) {
+export function AgentStatusBar({ projectId, agent, onOpenSession: _onOpenSession }: AgentStatusBarProps) {
   const [loading, setLoading] = useState(false);
   const [showInitForm, setShowInitForm] = useState(false);
   const [initMode, setInitMode] = useState<AgentMode>('lite');
@@ -238,27 +238,18 @@ export function AgentStatusBar({ projectId, agent, onOpenSession }: AgentStatusB
           {phase.label}
         </span>
 
-        {/* Config summary */}
-        <span className="text-xs text-muted-foreground">
-          {(agent.mode ?? 'full') === 'lite' ? 'Workflow' : 'Supervisor'}
-          {(agent.mode ?? 'full') === 'full' && ` | ${agent.config.maxConcurrentTasks} concurrent | Trust: ${trustLevelLabels[agent.config.trustLevel]?.label ?? agent.config.trustLevel}`}
-        </span>
+        {/* Config summary (full mode only) */}
+        {(agent.mode ?? 'full') === 'full' && (
+          <span className="text-xs text-muted-foreground">
+            {agent.config.maxConcurrentTasks} concurrent | Trust: {trustLevelLabels[agent.config.trustLevel]?.label ?? agent.config.trustLevel}
+          </span>
+        )}
 
         {/* Paused reason */}
         {agent.phase === 'paused' && agent.pausedReason && (
           <span className="text-xs text-orange-500">
             ({agent.pausedReason === 'budget' ? 'Budget limit' : agent.pausedReason === 'sync_error' ? 'Sync error' : 'User paused'})
           </span>
-        )}
-
-        {/* Link to main session */}
-        {agent.mainSessionId && (
-          <button
-            onClick={() => onOpenSession ? onOpenSession() : selectSession(agent.mainSessionId!)}
-            className="text-xs text-primary hover:underline"
-          >
-            Open Session
-          </button>
         )}
       </div>
 
