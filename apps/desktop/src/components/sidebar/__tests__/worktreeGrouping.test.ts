@@ -101,7 +101,7 @@ describe('groupSessionsByWorktree', () => {
     expect(result[0].sessions[0].id).toBe('s1');
   });
 
-  it('sorts sessions within group by updatedAt desc', () => {
+  it('preserves input order for sessions within each group', () => {
     const sessions = [
       makeSession({ id: 's1', updatedAt: 1000 }),
       makeSession({ id: 's2', updatedAt: 3000 }),
@@ -109,8 +109,8 @@ describe('groupSessionsByWorktree', () => {
     ];
 
     const result = groupSessionsByWorktree(sessions, '/project', []);
-    expect(result[0].sessions[0].id).toBe('s2'); // most recent first
-    expect(result[0].sessions[1].id).toBe('s1');
+    expect(result[0].sessions[0].id).toBe('s1');
+    expect(result[0].sessions[1].id).toBe('s2');
   });
 
   it('sorts non-root groups by most recent session updatedAt desc', () => {

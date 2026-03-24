@@ -16,6 +16,7 @@ export interface Project {
   agentPermissionOverride?: Partial<AgentPermissionPolicy>;  // Project-level override of global agent policy
   isInternal?: boolean;  // Internal projects (e.g. Agent Assistant) are hidden from user-facing lists
   reviewProviderId?: string;  // Provider used for Local PR reviews
+  sortOrder?: number;
   createdAt: number;
   updatedAt: number;
 

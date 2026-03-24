@@ -26,6 +26,7 @@ function relativePath(from: string, to: string): string {
  * - Sessions with no workingDirectory or workingDirectory === rootPath → root group
  * - Returns empty array if only one group exists (triggers flat list fallback)
  * - Root group is always first; other groups sorted by most recent session updatedAt
+ * - Sessions within each group preserve the incoming order
  */
 export function groupSessionsByWorktree(
   sessions: Session[],
@@ -63,9 +64,6 @@ export function groupSessionsByWorktree(
 
   for (const [key, groupSessions] of groups) {
     const isRoot = key === '__root__';
-
-    // Sort sessions within group by updatedAt desc
-    groupSessions.sort((a, b) => b.updatedAt - a.updatedAt);
 
     if (isRoot) {
       // Find the main worktree's branch name

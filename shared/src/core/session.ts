@@ -11,6 +11,7 @@ export interface Session {
   type: SessionType;                // 'regular' = user-facing, 'background' = autonomous task
   parentSessionId?: string;          // Which session spawned this one (for background sessions)
   workingDirectory?: string;         // Session-specific working directory (e.g., for git worktree)
+  sortOrder?: number;
   createdAt: number;
   updatedAt: number;
   isActive?: boolean;  // Whether this session has an active AI request running

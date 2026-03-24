@@ -33,7 +33,7 @@ export function SupervisorGroupItem({
   const cfg = phase ? phaseConfig[phase] : undefined;
 
   return (
-    <li className="relative" data-testid="supervisor-group">
+    <div className="relative" data-testid="supervisor-group">
       <div>
         {/* Card — clickable to open dashboard */}
         <button
@@ -75,11 +75,11 @@ export function SupervisorGroupItem({
 
         {/* Task sessions — shown directly under supervisor */}
         {taskCount > 0 && (
-          <ul className="mt-0.5 space-y-0.5 pl-2">
+          <div className="mt-0.5 pl-2">
             {taskChildren}
-          </ul>
+          </div>
         )}
       </div>
-    </li>
+    </div>
   );
 }

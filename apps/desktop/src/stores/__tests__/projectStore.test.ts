@@ -184,6 +184,17 @@ describe('projectStore', () => {
 
       expect(useProjectStore.getState().selectedSessionId).toBeNull();
     });
+
+    it('reorderSessions only reorders the target project segment', () => {
+      const s1 = createSession({ id: 's1', projectId: 'p1' });
+      const s2 = createSession({ id: 's2', projectId: 'p1' });
+      const other = createSession({ id: 's3', projectId: 'p2' });
+      useProjectStore.getState().setSessions([other, s1, s2]);
+
+      useProjectStore.getState().reorderSessions('p1', ['s2', 's1']);
+
+      expect(useProjectStore.getState().sessions.map((s) => s.id)).toEqual(['s3', 's2', 's1']);
+    });
   });
 
   describe('selection', () => {

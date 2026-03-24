@@ -1,6 +1,10 @@
 import { useState, useEffect } from 'react';
 import { Loader2 } from 'lucide-react';
 import type { Workflow } from '@my-claudia/shared';
+import { ConnectionProvider } from '../../../contexts/ConnectionContext';
+import { useServerStore } from '../../../stores/serverStore';
+import { useProjectStore } from '../../../stores/projectStore';
+import * as api from '../../../services/api';
 import { WorkflowEditor } from './WorkflowEditor';
 
 interface WorkflowEditorWindowProps {
@@ -8,16 +12,78 @@ interface WorkflowEditorWindowProps {
   workflowId?: string;
   serverUrl: string;
   authToken: string;
+  serverId?: string;
+  serverName?: string;
+  gatewayUrl?: string;
+  gatewaySecret?: string;
 }
 
 /** Standalone workflow editor rendered in a separate Tauri window */
-export function WorkflowEditorWindow({ projectId, workflowId, serverUrl, authToken }: WorkflowEditorWindowProps) {
+export function WorkflowEditorWindow({
+  projectId,
+  workflowId,
+  serverUrl,
+  authToken,
+  serverId,
+  serverName,
+  gatewayUrl,
+  gatewaySecret,
+}: WorkflowEditorWindowProps) {
+  return (
+    <ConnectionProvider
+      standaloneServerUrl={serverUrl}
+      standaloneServerId={serverId}
+      standaloneServerName={serverName}
+      standaloneGatewayUrl={gatewayUrl}
+      standaloneGatewaySecret={gatewaySecret}
+    >
+      <WorkflowEditorWindowContent
+        projectId={projectId}
+        workflowId={workflowId}
+        serverUrl={serverUrl}
+        authToken={authToken}
+      />
+    </ConnectionProvider>
+  );
+}
+
+function WorkflowEditorWindowContent({ projectId, workflowId, serverUrl, authToken }: Omit<WorkflowEditorWindowProps, 'serverId' | 'serverName' | 'gatewayUrl' | 'gatewaySecret'>) {
   const [workflow, setWorkflow] = useState<Workflow | undefined>(undefined);
   const [loading, setLoading] = useState(!!workflowId);
   const [error, setError] = useState<string | null>(null);
+  const connectionStatus = useServerStore((s) => s.connectionStatus);
 
   useEffect(() => {
-    if (!workflowId || !serverUrl) {
+    if (connectionStatus !== 'connected') return;
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const [projects, providers] = await Promise.all([
+          api.getProjects(),
+          api.getProviders(),
+        ]);
+        if (cancelled) return;
+        const store = useProjectStore.getState();
+        store.setProjects(projects);
+        store.setProviders(providers);
+        store.selectProject(projectId);
+      } catch (err) {
+        if (!cancelled) console.warn('[WorkflowEditorWindow] Failed to load workflow editor context:', err);
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [connectionStatus, projectId]);
+
+  useEffect(() => {
+    if (!serverUrl) {
+      setError('Missing server URL');
+      setLoading(false);
+      return;
+    }
+
+    if (!workflowId) {
       setLoading(false);
       return;
     }

@@ -4,6 +4,8 @@ import type { Workflow, WorkflowRun } from '@my-claudia/shared';
 import { useWorkflowStore } from '../../stores/workflowStore';
 import { useIsMobile } from '../../hooks/useMediaQuery';
 import { getBaseUrl, getAuthHeaders } from '../../services/api';
+import { useServerStore } from '../../stores/serverStore';
+import { useGatewayStore, isGatewayTarget } from '../../stores/gatewayStore';
 import { WorkflowCard } from './WorkflowCard';
 import { WorkflowEditor } from './WorkflowEditor';
 import { WorkflowRunViewer } from './WorkflowRunViewer';
@@ -20,10 +22,19 @@ async function openEditorInNewWindow(projectId: string, workflow?: Workflow) {
   try { serverUrl = getBaseUrl(); } catch {}
   const authHeaders = getAuthHeaders();
   const authToken = (authHeaders as Record<string, string>)['Authorization'] || '';
+  const activeServerId = useServerStore.getState().activeServerId || '';
+  const activeServer = useServerStore.getState().getActiveServer();
+  const { gatewayUrl, gatewaySecret } = useGatewayStore.getState();
 
   const params = new URLSearchParams({ workflowEditor: projectId, serverUrl });
   if (workflow?.id) params.set('workflowId', workflow.id);
   if (authToken) params.set('authToken', authToken);
+  if (activeServerId) params.set('serverId', activeServerId);
+  if (activeServer?.name) params.set('serverName', activeServer.name);
+  if (isGatewayTarget(activeServerId) && gatewayUrl && gatewaySecret) {
+    params.set('gatewayUrl', gatewayUrl);
+    params.set('gatewaySecret', gatewaySecret);
+  }
   const url = `${window.location.origin}${window.location.pathname}?${params}`;
 
   new WebviewWindow(label, {

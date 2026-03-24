@@ -36,9 +36,10 @@ export function createProjectRoutes(db: Database.Database): Router {
                agent_permission_override as agentPermissionOverride,
                is_internal as isInternal,
                review_provider_id as reviewProviderId,
+               sort_order as sortOrder,
                created_at as createdAt, updated_at as updatedAt
         FROM projects
-        ORDER BY updated_at DESC
+        ORDER BY sort_order ASC, updated_at DESC
       `).all() as any[];
 
       const result = projects.map(p => ({
@@ -114,10 +115,13 @@ export function createProjectRoutes(db: Database.Database): Router {
 
       const id = uuidv4();
       const now = Date.now();
+      const { sortOrder } = db.prepare(
+        'SELECT COALESCE(MAX(sort_order), -1) + 1 as sortOrder FROM projects'
+      ).get() as { sortOrder: number };
 
       db.prepare(`
-        INSERT INTO projects (id, name, type, provider_id, root_path, system_prompt, permission_policy, agent_permission_override, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO projects (id, name, type, provider_id, root_path, system_prompt, permission_policy, agent_permission_override, sort_order, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         id,
         name,
@@ -127,6 +131,7 @@ export function createProjectRoutes(db: Database.Database): Router {
         systemPrompt || null,
         permissionPolicy ? JSON.stringify(permissionPolicy) : null,
         agentPermissionOverride ? JSON.stringify(agentPermissionOverride) : null,
+        sortOrder,
         now,
         now
       );
@@ -140,6 +145,7 @@ export function createProjectRoutes(db: Database.Database): Router {
         systemPrompt,
         permissionPolicy,
         agentPermissionOverride,
+        sortOrder,
         createdAt: now,
         updatedAt: now
       };
@@ -301,6 +307,29 @@ export function createProjectRoutes(db: Database.Database): Router {
       const msg = error instanceof Error ? error.message : 'Failed to create worktree';
       console.error('Error creating worktree:', error);
       res.status(500).json({ success: false, error: { code: 'GIT_ERROR', message: msg } });
+    }
+  });
+
+  // Reorder projects
+  router.post('/reorder', (req: Request, res: Response) => {
+    try {
+      const { orderedIds } = req.body as { orderedIds?: string[] };
+      if (!Array.isArray(orderedIds) || orderedIds.length === 0) {
+        res.status(400).json({ success: false, error: { code: 'BAD_REQUEST', message: 'orderedIds must be a non-empty array' } });
+        return;
+      }
+
+      const update = db.prepare('UPDATE projects SET sort_order = ? WHERE id = ?');
+      db.transaction(() => {
+        for (let i = 0; i < orderedIds.length; i++) {
+          update.run(i, orderedIds[i]);
+        }
+      })();
+
+      res.json({ success: true } as ApiResponse<void>);
+    } catch (error) {
+      console.error('Error reordering projects:', error);
+      res.status(500).json({ success: false, error: { code: 'DB_ERROR', message: 'Failed to reorder projects' } });
     }
   });
 

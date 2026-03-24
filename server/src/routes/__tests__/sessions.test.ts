@@ -33,6 +33,7 @@ function createTestDb(): Database.Database {
       context_sync_status TEXT NOT NULL DEFAULT 'synced',
       review_provider_id TEXT,
       is_internal INTEGER NOT NULL DEFAULT 0,
+      sort_order INTEGER NOT NULL DEFAULT 0,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
     );
@@ -52,6 +53,7 @@ function createTestDb(): Database.Database {
       plan_status TEXT,
       is_read_only INTEGER DEFAULT 0,
       last_run_status TEXT,
+      sort_order INTEGER NOT NULL DEFAULT 0,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL,
       FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
@@ -196,6 +198,24 @@ describe('sessions routes', () => {
       expect(res.status).toBe(200);
       expect(res.body.data[0].name).toBe('Newer');
     });
+
+    it('orders by sort_order before updated_at', async () => {
+      const now = Date.now();
+      db.prepare(`
+        INSERT INTO sessions (id, project_id, name, sort_order, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).run('s1', 'project-1', 'Pinned Older', 0, now, now);
+      db.prepare(`
+        INSERT INTO sessions (id, project_id, name, sort_order, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).run('s2', 'project-1', 'Newer But Later In Sort', 1, now, now + 1000);
+
+      const res = await request(app).get('/api/sessions');
+
+      expect(res.status).toBe(200);
+      expect(res.body.data[0].name).toBe('Pinned Older');
+      expect(res.body.data[1].name).toBe('Newer But Later In Sort');
+    });
   });
 
   describe('GET /api/sessions/:id', () => {
@@ -255,6 +275,28 @@ describe('sessions routes', () => {
       expect(res.status).toBe(400);
       expect(res.body.success).toBe(false);
       expect(res.body.error.message).toContain('Project not found');
+    });
+
+    it('assigns new sessions to the end of the current project sort order', async () => {
+      const now = Date.now();
+      db.prepare(`
+        INSERT INTO sessions (id, project_id, name, sort_order, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).run('s1', 'project-1', 'Existing 1', 0, now, now);
+      db.prepare(`
+        INSERT INTO sessions (id, project_id, name, sort_order, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).run('s2', 'project-1', 'Existing 2', 1, now, now);
+
+      const res = await request(app)
+        .post('/api/sessions')
+        .send({ projectId: 'project-1', name: 'Appended Session' });
+
+      expect(res.status).toBe(201);
+      expect(res.body.data.sortOrder).toBe(2);
+
+      const row = db.prepare('SELECT sort_order FROM sessions WHERE id = ?').get(res.body.data.id) as { sort_order: number };
+      expect(row.sort_order).toBe(2);
     });
   });
 
@@ -1158,20 +1200,16 @@ internal reasoning cursor plan
         VALUES (?, ?, ?, ?, ?)
       `).run('s1', 'project-1', 'Test', now, now);
 
-      // Mock fs.existsSync to return true
-      const fs = require('fs');
-      const origExistsSync = fs.existsSync;
-      fs.existsSync = vi.fn().mockReturnValue(true);
+      // Use a directory that actually exists on the filesystem
+      const testDir = require('os').tmpdir();
 
       const res = await request(app)
         .patch('/api/sessions/s1/working-directory')
-        .send({ workingDirectory: '/tmp/test-dir' });
+        .send({ workingDirectory: testDir });
 
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
-      expect(res.body.data.workingDirectory).toBe('/tmp/test-dir');
-
-      fs.existsSync = origExistsSync;
+      expect(res.body.data.workingDirectory).toBe(testDir);
     });
 
     it('returns 404 for non-existent session', async () => {
@@ -1457,6 +1495,34 @@ internal reasoning cursor plan
       const res = await request(app).get('/api/sessions/search/suggestions?prefix=zzz');
       expect(res.status).toBe(200);
       expect(res.body.data.suggestions).toEqual([]);
+    });
+  });
+
+  describe('POST /api/sessions/reorder', () => {
+    it('updates sort_order without changing updated_at', async () => {
+      const now = Date.now();
+      db.prepare(`
+        INSERT INTO sessions (id, project_id, name, sort_order, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).run('s1', 'project-1', 'Session 1', 0, now, now);
+      db.prepare(`
+        INSERT INTO sessions (id, project_id, name, sort_order, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).run('s2', 'project-1', 'Session 2', 1, now, now + 1000);
+
+      const before = db.prepare('SELECT id, sort_order, updated_at FROM sessions ORDER BY id').all() as Array<{ id: string; sort_order: number; updated_at: number }>;
+
+      const res = await request(app)
+        .post('/api/sessions/reorder')
+        .send({ projectId: 'project-1', orderedIds: ['s2', 's1'] });
+
+      expect(res.status).toBe(200);
+
+      const after = db.prepare('SELECT id, sort_order, updated_at FROM sessions ORDER BY id').all() as Array<{ id: string; sort_order: number; updated_at: number }>;
+      expect(after).toEqual([
+        { id: 's1', sort_order: 1, updated_at: before[0].updated_at },
+        { id: 's2', sort_order: 0, updated_at: before[1].updated_at },
+      ]);
     });
   });
 });

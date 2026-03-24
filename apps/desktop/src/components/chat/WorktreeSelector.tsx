@@ -25,7 +25,7 @@ interface WorktreeSelectorProps {
   projectId: string;
   projectRootPath: string;
   currentWorktree: string;   // currentSession?.workingDirectory || ''
-  onChange: (path: string) => void;
+  onChange: (path: string) => Promise<void> | void;
   disabled?: boolean;
   locked?: boolean;
   lockReason?: string;
@@ -74,6 +74,7 @@ export function WorktreeSelector({
   const [creating, setCreating] = useState(false);
   const [newBranch, setNewBranch] = useState('');
   const [createError, setCreateError] = useState('');
+  const [selectionError, setSelectionError] = useState('');
   const ref = useRef<HTMLDivElement>(null);
   const branchInputRef = useRef<HTMLInputElement>(null);
 
@@ -86,6 +87,7 @@ export function WorktreeSelector({
         setCreating(false);
         setNewBranch('');
         setCreateError('');
+        setSelectionError('');
       }
     };
     document.addEventListener('mousedown', handler);
@@ -122,11 +124,17 @@ export function WorktreeSelector({
     setCreating(false);
     setNewBranch('');
     setCreateError('');
+    setSelectionError('');
   };
 
-  const handleSelect = (wtPath: string) => {
-    onChange(wtPath);
-    setIsOpen(false);
+  const handleSelect = async (wtPath: string) => {
+    setSelectionError('');
+    try {
+      await onChange(wtPath);
+      setIsOpen(false);
+    } catch (err) {
+      setSelectionError(err instanceof Error ? err.message : 'Failed to switch worktree');
+    }
   };
 
   const handleCreate = async () => {
@@ -139,10 +147,13 @@ export function WorktreeSelector({
       setWorktrees(prev => [...prev, wt]);
       setCreating(false);
       setNewBranch('');
-      onChange(wt.path);
+      setSelectionError('');
+      await onChange(wt.path);
       setIsOpen(false);
     } catch (err) {
-      setCreateError(err instanceof Error ? err.message : 'Failed to create worktree');
+      const message = err instanceof Error ? err.message : 'Failed to create worktree';
+      setCreateError(message);
+      setSelectionError(message);
     } finally {
       setLoading(false);
     }
@@ -218,6 +229,12 @@ export function WorktreeSelector({
 
           {!loading && worktrees.length <= 1 && !creating && (
             <div className="px-3 py-2 text-[12px] text-muted-foreground">No additional worktrees</div>
+          )}
+
+          {selectionError && (
+            <div className="px-3 py-2 text-[11px] text-destructive border-b border-border">
+              {selectionError}
+            </div>
           )}
 
           {!loading && worktrees.filter(wt => !wt.isMain).map(wt => {

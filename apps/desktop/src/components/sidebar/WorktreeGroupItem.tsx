@@ -54,9 +54,9 @@ export function WorktreeGroupItem({
 
       {/* Expanded children */}
       {isExpanded && (
-        <ul className="ml-2 mt-0.5 space-y-0.5">
+        <div className="ml-2 mt-0.5">
           {children}
-        </ul>
+        </div>
       )}
     </div>
   );

@@ -10,6 +10,16 @@ export async function getSessions(projectId?: string, options?: RequestInit): Pr
   return result.data;
 }
 
+export async function reorderSessions(projectId: string, orderedIds: string[]): Promise<void> {
+  const result = await fetchApi<void>('/api/sessions/reorder', {
+    method: 'POST',
+    body: JSON.stringify({ projectId, orderedIds }),
+  });
+  if (!result.success) {
+    throw new Error(result.error?.message || 'Failed to reorder sessions');
+  }
+}
+
 export async function getSessionRunState(sessionId: string): Promise<{ sessionId: string; isRunning: boolean; activeRunId?: string }> {
   const result = await fetchApi<{ sessionId: string; isRunning: boolean; activeRunId?: string }>(`/api/sessions/${sessionId}/run-state`);
   if (!result.success || !result.data) {
@@ -52,14 +62,15 @@ export async function updateSession(
 export async function updateSessionWorkingDirectory(
   sessionId: string,
   workingDirectory: string
-): Promise<void> {
+): Promise<Session> {
   const result = await fetchApi<Session>(`/api/sessions/${sessionId}/working-directory`, {
     method: 'PATCH',
     body: JSON.stringify({ workingDirectory })
   });
-  if (!result.success) {
+  if (!result.success || !result.data) {
     throw new Error(result.error?.message || 'Failed to update working directory');
   }
+  return result.data;
 }
 
 export async function resetSessionSdkSession(sessionId: string): Promise<void> {

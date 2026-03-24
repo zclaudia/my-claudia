@@ -530,27 +530,24 @@ function AppContent() {
                   </button>
                 </div>
               )}
+              {/* Automation button — built-in, lives with other system icons */}
+              <button
+                onClick={() => {
+                  import('./features/automation/openAutomationWindow').then(m => m.openAutomationWindow());
+                }}
+                className="p-1.5 rounded hover:bg-secondary text-muted-foreground hover:text-foreground"
+                title="Automation"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                </svg>
+              </button>
             </>
           )}
         </div>
 
-        {/* Plugin window buttons */}
+        {/* Plugin window buttons — plugin-registered icons on the right */}
         <PluginWindowButtons />
-
-        {/* Automation button — desktop only */}
-        {!isMobile && (
-          <button
-            onClick={() => {
-              import('./features/automation/openAutomationWindow').then(m => m.openAutomationWindow());
-            }}
-            className="p-1.5 rounded hover:bg-secondary text-muted-foreground hover:text-foreground"
-            title="Automation"
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-            </svg>
-          </button>
-        )}
 
         {/* Agent toggle button — mobile only (desktop uses floating ball) */}
         {isMobile && (
@@ -747,6 +744,10 @@ function App() {
           workflowId={workflowId}
           serverUrl={serverUrl}
           authToken={authToken}
+          serverId={params.get('serverId') || undefined}
+          serverName={params.get('serverName') || undefined}
+          gatewayUrl={params.get('gatewayUrl') || undefined}
+          gatewaySecret={params.get('gatewaySecret') || undefined}
         />
       </ThemeProvider>
     );

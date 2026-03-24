@@ -59,7 +59,7 @@ export function SessionItem({
     : (session.name || 'Untitled Session');
 
   return (
-    <li className="relative group" data-testid="session-item">
+    <div className="relative group" data-testid="session-item">
       <button
         onClick={() => onSelect(session.id)}
         className={`w-full text-left px-2 rounded-lg truncate flex items-center gap-1 ${
@@ -117,6 +117,6 @@ export function SessionItem({
           <ExternalLink size={11} />
         </button>
       )}
-    </li>
+    </div>
   );
 }

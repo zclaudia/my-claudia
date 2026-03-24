@@ -67,9 +67,12 @@ import { WorktreeGroupItem } from './sidebar/WorktreeGroupItem';
 import { SupervisorGroupItem } from './sidebar/SupervisorGroupItem';
 import { groupSessionsByWorktree } from './sidebar/worktreeGrouping';
 import { useSearchSidebar } from './sidebar/useSearchSidebar';
+import { SortableList, SortableItem } from './SortableList';
 import * as api from '../services/api';
+import { reorderProjects } from '../services/api/projects';
+import { reorderSessions } from '../services/api/sessions';
 import { getBaseUrl, getAuthHeaders } from '../services/api';
-import type { GitWorktree } from '@my-claudia/shared';
+import type { GitWorktree, Session } from '@my-claudia/shared';
 
 interface SidebarProps {
   collapsed: boolean;
@@ -86,6 +89,23 @@ function normalizeSearchPreview(content: string): string {
   return normalized || 'No preview text';
 }
 
+function splitProjectSessions(sessionList: Session[]) {
+  const mainSession = sessionList.find((session) => session.projectRole === 'main') ?? null;
+  const taskSessions: Session[] = [];
+  const regularSessions: Session[] = [];
+
+  for (const session of sessionList) {
+    if (mainSession && session.id === mainSession.id) continue;
+    if (mainSession && session.projectRole === 'task' && session.parentSessionId === mainSession.id) {
+      taskSessions.push(session);
+      continue;
+    }
+    regularSessions.push(session);
+  }
+
+  return { mainSession, taskSessions, regularSessions };
+}
+
 export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHeader, onOpenDashboard }: SidebarProps) {
   const requestMessageJump = useUIStore((s) => s.requestMessageJump);
   const {
@@ -98,6 +118,8 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
     addProject,
     addSession,
     deleteProject,
+    reorderProjects: storeReorderProjects,
+    reorderSessions: storeReorderSessions,
   } = useProjectStore();
 
   const { connectionStatus, setActiveServer, servers, getDefaultServer } = useServerStore();
@@ -369,6 +391,23 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
   };
 
 
+  const handleReorderProjects = useCallback((orderedIds: string[]) => {
+    storeReorderProjects(orderedIds);
+    reorderProjects(orderedIds).catch((err) => console.error('[Sidebar] Failed to persist project order:', err));
+  }, [storeReorderProjects]);
+
+  const handleReorderSessions = useCallback((projectId: string, orderedIds: string[]) => {
+    const currentVisibleIds = getFilteredSessionsForProject(projectId).map((session) => session.id);
+    const reorderedSet = new Set(orderedIds);
+    const nextSubset = [...orderedIds];
+    const mergedIds = currentVisibleIds.map((id) => (
+      reorderedSet.has(id) ? (nextSubset.shift() ?? id) : id
+    ));
+
+    storeReorderSessions(projectId, mergedIds);
+    reorderSessions(projectId, mergedIds).catch((err) => console.error('[Sidebar] Failed to persist session order:', err));
+  }, [getFilteredSessionsForProject, storeReorderSessions]);
+
   const sidebarSwipeRef = useSwipeBack({
     onSwipe: () => onClose?.(),
     enabled: isMobile && !!isOpen,
@@ -519,9 +558,18 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
             ) : filteredProjects.length === 0 ? (
               <p className="text-sm text-muted-foreground px-2">No active sessions</p>
             ) : (
-              <ul className="space-y-2">
+              <SortableList
+                items={filteredProjects.map((p) => p.id)}
+                onReorder={handleReorderProjects}
+                className="space-y-2"
+              >
                 {filteredProjects.map((project) => (
-                  <li key={project.id}>
+                  <SortableItem
+                    key={project.id}
+                    id={project.id}
+                    wrapperClassName="items-start"
+                    dragHandleClassName="w-4 h-4 -ml-1 mr-0.5 mt-2"
+                  >
                     <div className="flex items-center group relative">
                       <button
                         onClick={() => toggleProject(project.id)}
@@ -613,7 +661,16 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
 
                     {/* Sessions */}
                     {expandedProjects.has(project.id) && (() => {
-                      const groups = getWorktreeGroupsForProject(project.id);
+                      const projectSessions = getFilteredSessionsForProject(project.id);
+                      const { mainSession, taskSessions, regularSessions } = splitProjectSessions(projectSessions);
+                      const worktrees = worktreesByProject.get(project.id) || [];
+                      const regularSessionIds = new Set(regularSessions.map((session) => session.id));
+                      const groups = groupSessionsByWorktree(projectSessions, project.rootPath, worktrees)
+                        .map((group) => ({
+                          ...group,
+                          sessions: group.sessions.filter((session) => regularSessionIds.has(session.id)),
+                        }))
+                        .filter((group) => group.sessions.length > 0);
                       const renderSession = (session: typeof sessions[0]) => (
                         <SessionItem
                           key={session.id}
@@ -628,92 +685,82 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
                         />
                       );
 
-                      const renderWithSupervisorGroups = (sessionList: typeof sessions) => {
-                        const tasksByParent = new Map<string, typeof sessions>();
-                        let mainSession: (typeof sessions)[number] | null = null;
-                        const regularSessions: typeof sessions = [];
-                        for (const s of sessionList) {
-                          if (s.projectRole === 'task' && s.parentSessionId) {
-                            const list = tasksByParent.get(s.parentSessionId) || [];
-                            list.push(s);
-                            tasksByParent.set(s.parentSessionId, list);
-                          } else if (s.projectRole === 'main') {
-                            mainSession = s;
-                          } else {
-                            regularSessions.push(s);
-                          }
+                      const renderSortableSessions = (sessionList: typeof sessions, className = 'space-y-0.5') => (
+                        <SortableList
+                          items={sessionList.map((s) => s.id)}
+                          onReorder={(ordered) => handleReorderSessions(project.id, ordered)}
+                          className={className}
+                        >
+                          {sessionList.map((session) => (
+                            <SortableItem key={session.id} id={session.id} dragHandleClassName="w-3 h-3 -ml-0.5 mr-0.5">
+                              {renderSession(session)}
+                            </SortableItem>
+                          ))}
+                        </SortableList>
+                      );
+
+                      const isCollapsed = regularSessionsCollapsed.has(project.id);
+                      const renderRegularSessions = () => {
+                        if (regularSessions.length === 0) return null;
+                        if (groups.length === 0) {
+                          return renderSortableSessions(regularSessions);
                         }
-                        if (mainSession) {
-                          const tasks = tasksByParent.get(mainSession.id) || [];
-                          const isCollapsed = regularSessionsCollapsed.has(project.id);
-                          return (
-                            <>
-                              <SupervisorGroupItem
-                                key={mainSession.id}
-                                onSelect={() => {
-                                  if (onOpenDashboard) onOpenDashboard(project.id);
-                                  if (onClose) onClose();
-                                }}
-                                isSelected={selectedSessionId === mainSession!.id}
-                                isActive={activeRunSessionIds.has(mainSession!.id)}
-                                phase={v2Agents[project.id]?.phase}
-                                taskCount={tasks.length}
-                                taskChildren={tasks.map(renderSession)}
-                              />
-                              {regularSessions.length > 0 && (
-                                <li className="mt-1">
-                                  <button
-                                    onClick={() => toggleRegularSessions(project.id)}
-                                    className="w-full flex items-center gap-1.5 px-2 py-1 rounded-lg text-muted-foreground hover:text-foreground transition-colors"
-                                  >
-                                    <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground/60">
-                                      Sessions
-                                    </span>
-                                    <span className="text-[10px] text-muted-foreground/50">
-                                      {regularSessions.length}
-                                    </span>
-                                    <svg
-                                      className={`ml-auto w-2.5 h-2.5 opacity-40 transition-transform duration-200 ${!isCollapsed ? 'rotate-90' : ''}`}
-                                      fill="none" stroke="currentColor" viewBox="0 0 24 24"
-                                    >
-                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                                    </svg>
-                                  </button>
-                                  {!isCollapsed && (
-                                    <ul className="mt-0.5 space-y-0.5">
-                                      {regularSessions.map(renderSession)}
-                                    </ul>
-                                  )}
-                                </li>
-                              )}
-                            </>
-                          );
-                        }
-                        // No supervisor — render flat
-                        return sessionList.map(renderSession);
+                        return groups.map(group => (
+                          <WorktreeGroupItem
+                            key={group.key}
+                            group={group}
+                            isExpanded={expandedWorktrees.has(`${project.id}:${group.key}`)}
+                            onToggle={() => toggleWorktree(`${project.id}:${group.key}`)}
+                            isMobile
+                          >
+                            {renderSortableSessions(group.sessions)}
+                          </WorktreeGroupItem>
+                        ));
                       };
 
                       return (
                         <div className="ml-1 mt-0.5" data-testid="session-list">
-                          {groups.length === 0 ? (
-                            // Flat list (no worktree grouping)
-                            <ul className="space-y-0.5">
-                              {renderWithSupervisorGroups(getFilteredSessionsForProject(project.id))}
-                            </ul>
-                          ) : (
-                            // Tree view grouped by worktree
-                            groups.map(group => (
-                              <WorktreeGroupItem
-                                key={group.key}
-                                group={group}
-                                isExpanded={expandedWorktrees.has(`${project.id}:${group.key}`)}
-                                onToggle={() => toggleWorktree(`${project.id}:${group.key}`)}
-                                isMobile
-                              >
-                                {renderWithSupervisorGroups(group.sessions)}
-                              </WorktreeGroupItem>
-                            ))
+                          {mainSession && (
+                            <SupervisorGroupItem
+                              key={mainSession.id}
+                              onSelect={() => {
+                                if (onOpenDashboard) onOpenDashboard(project.id);
+                                if (onClose) onClose();
+                              }}
+                              isSelected={selectedSessionId === mainSession.id}
+                              isActive={activeRunSessionIds.has(mainSession.id)}
+                              phase={v2Agents[project.id]?.phase}
+                              taskCount={taskSessions.length}
+                              taskChildren={taskSessions.length > 0 ? renderSortableSessions(taskSessions) : null}
+                            />
                           )}
+                          {regularSessions.length > 0 && mainSession && (
+                            <div className="mt-1">
+                              <button
+                                onClick={() => toggleRegularSessions(project.id)}
+                                className="w-full flex items-center gap-1.5 px-2 py-1 rounded-lg text-muted-foreground hover:text-foreground transition-colors"
+                              >
+                                <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground/60">
+                                  Sessions
+                                </span>
+                                <span className="text-[10px] text-muted-foreground/50">
+                                  {regularSessions.length}
+                                </span>
+                                <svg
+                                  className={`ml-auto w-2.5 h-2.5 opacity-40 transition-transform duration-200 ${!isCollapsed ? 'rotate-90' : ''}`}
+                                  fill="none" stroke="currentColor" viewBox="0 0 24 24"
+                                >
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                                </svg>
+                              </button>
+                              {!isCollapsed && (
+                                <div className="mt-0.5">
+                                  {renderRegularSessions()}
+                                </div>
+                              )}
+                            </div>
+                          )}
+                          {!mainSession && renderRegularSessions()}
 
                           {/* New session form */}
                           {creatingSessionForProject === project.id && (
@@ -771,9 +818,9 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
                       </div>
                     );
                     })()}
-                  </li>
+                  </SortableItem>
                 ))}
-              </ul>
+              </SortableList>
             )}
 
             {/* New Project */}
@@ -1075,9 +1122,18 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
         ) : filteredProjects.length === 0 ? (
           <p className="text-sm text-muted-foreground px-2">No active sessions</p>
         ) : (
-          <ul className="space-y-2">
+          <SortableList
+            items={filteredProjects.map((p) => p.id)}
+            onReorder={handleReorderProjects}
+            className="space-y-2"
+          >
             {filteredProjects.map((project) => (
-              <li key={project.id}>
+              <SortableItem
+                key={project.id}
+                id={project.id}
+                wrapperClassName="items-start"
+                dragHandleClassName="w-4 h-4 -ml-1 mr-0.5 mt-2"
+              >
                 <div className="flex items-center group relative">
                   <button
                     onClick={() => toggleProject(project.id)}
@@ -1162,7 +1218,16 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
 
                 {/* Sessions */}
                 {expandedProjects.has(project.id) && (() => {
-                  const groups = getWorktreeGroupsForProject(project.id);
+                  const projectSessions = getFilteredSessionsForProject(project.id);
+                  const { mainSession, taskSessions, regularSessions } = splitProjectSessions(projectSessions);
+                  const worktrees = worktreesByProject.get(project.id) || [];
+                  const regularSessionIds = new Set(regularSessions.map((session) => session.id));
+                  const groups = groupSessionsByWorktree(projectSessions, project.rootPath, worktrees)
+                    .map((group) => ({
+                      ...group,
+                      sessions: group.sessions.filter((session) => regularSessionIds.has(session.id)),
+                    }))
+                    .filter((group) => group.sessions.length > 0);
                   const renderSession = (session: typeof sessions[0]) => (
                     <SessionItem
                       key={session.id}
@@ -1178,95 +1243,80 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
                   );
 
                   // Render a list of sessions with supervisor grouping applied
-                  const renderWithSupervisorGroups = (sessionList: typeof sessions) => {
-                    // Collect task sessions keyed by parent, and find main session
-                    const tasksByParent = new Map<string, typeof sessions>();
-                    let mainSession: (typeof sessions)[number] | null = null;
-                    const regularSessions: typeof sessions = [];
+                  const renderSortableSessions = (sessionList: typeof sessions, className = 'space-y-0.5') => (
+                    <SortableList
+                      items={sessionList.map((s) => s.id)}
+                      onReorder={(ordered) => handleReorderSessions(project.id, ordered)}
+                      className={className}
+                    >
+                      {sessionList.map((session) => (
+                        <SortableItem key={session.id} id={session.id} dragHandleClassName="w-3 h-3 -ml-0.5 mr-0.5">
+                          {renderSession(session)}
+                        </SortableItem>
+                      ))}
+                    </SortableList>
+                  );
 
-                    for (const s of sessionList) {
-                      if (s.projectRole === 'task' && s.parentSessionId) {
-                        const list = tasksByParent.get(s.parentSessionId) || [];
-                        list.push(s);
-                        tasksByParent.set(s.parentSessionId, list);
-                      } else if (s.projectRole === 'main') {
-                        mainSession = s;
-                      } else {
-                        regularSessions.push(s);
-                      }
+                  const isCollapsed = regularSessionsCollapsed.has(project.id);
+                  const renderRegularSessions = () => {
+                    if (regularSessions.length === 0) return null;
+                    if (groups.length === 0) {
+                      return renderSortableSessions(regularSessions);
                     }
-
-                    // When a supervisor main session exists, show it + collapsible Sessions group
-                    if (mainSession) {
-                      const tasks = tasksByParent.get(mainSession.id) || [];
-                      const isCollapsed = regularSessionsCollapsed.has(project.id);
-                      return (
-                        <>
-                          <SupervisorGroupItem
-                            key={mainSession.id}
-                            onSelect={() => {
-                              if (onOpenDashboard) onOpenDashboard(project.id);
-                            }}
-                            isSelected={selectedSessionId === mainSession!.id}
-                            isActive={activeRunSessionIds.has(mainSession!.id)}
-                            phase={v2Agents[project.id]?.phase}
-                            taskCount={tasks.length}
-                            taskChildren={tasks.map(renderSession)}
-                          />
-                          {regularSessions.length > 0 && (
-                            <li className="mt-1">
-                              <button
-                                onClick={() => toggleRegularSessions(project.id)}
-                                className="w-full flex items-center gap-1.5 px-2 py-1 rounded-lg text-muted-foreground hover:text-foreground transition-colors"
-                              >
-                                <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground/60">
-                                  Sessions
-                                </span>
-                                <span className="text-[10px] text-muted-foreground/50">
-                                  {regularSessions.length}
-                                </span>
-                                <svg
-                                  className={`ml-auto w-2.5 h-2.5 opacity-40 transition-transform duration-200 ${!isCollapsed ? 'rotate-90' : ''}`}
-                                  fill="none" stroke="currentColor" viewBox="0 0 24 24"
-                                >
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                                </svg>
-                              </button>
-                              {!isCollapsed && (
-                                <ul className="mt-0.5 space-y-0.5">
-                                  {regularSessions.map(renderSession)}
-                                </ul>
-                              )}
-                            </li>
-                          )}
-                        </>
-                      );
-                    }
-
-                    // No supervisor — render flat
-                    return sessionList.map(renderSession);
+                    return groups.map(group => (
+                      <WorktreeGroupItem
+                        key={group.key}
+                        group={group}
+                        isExpanded={expandedWorktrees.has(`${project.id}:${group.key}`)}
+                        onToggle={() => toggleWorktree(`${project.id}:${group.key}`)}
+                      >
+                        {renderSortableSessions(group.sessions)}
+                      </WorktreeGroupItem>
+                    ));
                   };
 
                   return (
                     <div className="ml-1 mt-0.5" data-testid="session-list">
-                      {groups.length === 0 ? (
-                        // Flat list (no worktree grouping)
-                        <ul className="space-y-0.5">
-                          {renderWithSupervisorGroups(getFilteredSessionsForProject(project.id))}
-                        </ul>
-                      ) : (
-                        // Tree view grouped by worktree
-                        groups.map(group => (
-                          <WorktreeGroupItem
-                            key={group.key}
-                            group={group}
-                            isExpanded={expandedWorktrees.has(`${project.id}:${group.key}`)}
-                            onToggle={() => toggleWorktree(`${project.id}:${group.key}`)}
-                          >
-                            {renderWithSupervisorGroups(group.sessions)}
-                          </WorktreeGroupItem>
-                        ))
+                      {mainSession && (
+                        <SupervisorGroupItem
+                          key={mainSession.id}
+                          onSelect={() => {
+                            if (onOpenDashboard) onOpenDashboard(project.id);
+                          }}
+                          isSelected={selectedSessionId === mainSession.id}
+                          isActive={activeRunSessionIds.has(mainSession.id)}
+                          phase={v2Agents[project.id]?.phase}
+                          taskCount={taskSessions.length}
+                          taskChildren={taskSessions.length > 0 ? renderSortableSessions(taskSessions) : null}
+                        />
                       )}
+                      {regularSessions.length > 0 && mainSession && (
+                        <div className="mt-1">
+                          <button
+                            onClick={() => toggleRegularSessions(project.id)}
+                            className="w-full flex items-center gap-1.5 px-2 py-1 rounded-lg text-muted-foreground hover:text-foreground transition-colors"
+                          >
+                            <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground/60">
+                              Sessions
+                            </span>
+                            <span className="text-[10px] text-muted-foreground/50">
+                              {regularSessions.length}
+                            </span>
+                            <svg
+                              className={`ml-auto w-2.5 h-2.5 opacity-40 transition-transform duration-200 ${!isCollapsed ? 'rotate-90' : ''}`}
+                              fill="none" stroke="currentColor" viewBox="0 0 24 24"
+                            >
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                            </svg>
+                          </button>
+                          {!isCollapsed && (
+                            <div className="mt-0.5">
+                              {renderRegularSessions()}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                      {!mainSession && renderRegularSessions()}
 
                       {/* New session form */}
                       {creatingSessionForProject === project.id && (
@@ -1324,9 +1374,9 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
                   </div>
                 );
                 })()}
-              </li>
+              </SortableItem>
             ))}
-          </ul>
+          </SortableList>
         )}
 
         {/* New Project */}

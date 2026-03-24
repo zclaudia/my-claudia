@@ -976,6 +976,63 @@ describe('Sidebar', () => {
     expect(container.querySelector('[data-testid="supervisor-group"]')).toBeTruthy();
   });
 
+  it('keeps supervisor at project level when worktree groups exist', () => {
+    vi.mocked(groupSessionsByWorktree).mockReturnValue([
+      {
+        key: '__root__',
+        label: 'main',
+        isRoot: true,
+        sessions: [{ ...baseSession, id: 'regular-1', name: 'Regular 1', projectId: 'proj-1' } as any],
+      },
+    ] as any);
+
+    setupStores({
+      projectStore: {
+        sessions: [
+          { ...baseSession, id: 'main-sess', name: 'Main', projectRole: 'main', projectId: 'proj-1' },
+          { ...baseSession, id: 'task-1', name: 'Task 1', projectRole: 'task', parentSessionId: 'main-sess', projectId: 'proj-1' },
+          { ...baseSession, id: 'regular-1', name: 'Regular 1', projectId: 'proj-1' },
+        ],
+      },
+    });
+
+    const { container } = render(<Sidebar collapsed={false} onToggle={vi.fn()} />);
+    const buttons = Array.from(container.querySelectorAll('button'));
+    const projBtn = buttons.find(b => b.textContent?.includes('Project One'))!;
+    fireEvent.click(projBtn);
+
+    const sessionList = container.querySelector('[data-testid="session-list"]')!;
+    const firstChild = Array.from(sessionList.children)[0] as HTMLElement;
+    expect(firstChild.dataset.testid).toBe('supervisor-group');
+    expect(container.querySelector('[data-testid="worktree-group"]')).toBeTruthy();
+  });
+
+  it('preserves worktree grouping inputs when supervisor exists', () => {
+    setupStores({
+      projectStore: {
+        sessions: [
+          { ...baseSession, id: 'main-sess', name: 'Main', projectRole: 'main', projectId: 'proj-1', workingDirectory: '/tmp/proj1' },
+          { ...baseSession, id: 'task-1', name: 'Task 1', projectRole: 'task', parentSessionId: 'main-sess', projectId: 'proj-1', workingDirectory: '/tmp/proj1' },
+          { ...baseSession, id: 'regular-1', name: 'Regular 1', projectId: 'proj-1', workingDirectory: '/tmp/proj1/wt-test1' },
+        ],
+      },
+    });
+
+    const { container } = render(<Sidebar collapsed={false} onToggle={vi.fn()} />);
+    const buttons = Array.from(container.querySelectorAll('button'));
+    const projBtn = buttons.find(b => b.textContent?.includes('Project One'))!;
+    fireEvent.click(projBtn);
+
+    expect(groupSessionsByWorktree).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        expect.objectContaining({ id: 'main-sess' }),
+        expect.objectContaining({ id: 'regular-1' }),
+      ]),
+      '/tmp/proj1',
+      expect.any(Array)
+    );
+  });
+
   it('calls onOpenDashboard when clicking supervisor in desktop mode', () => {
     const onOpenDashboard = vi.fn();
     setupStores({

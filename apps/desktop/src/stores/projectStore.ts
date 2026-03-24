@@ -27,6 +27,7 @@ interface ProjectState {
   addProject: (project: Project) => void;
   updateProject: (id: string, updates: Partial<Project>) => void;
   deleteProject: (id: string) => void;
+  reorderProjects: (orderedIds: string[]) => void;
 
   setSessions: (sessions: Session[]) => void;
   mergeSessions: (incoming: Session[]) => void;
@@ -34,6 +35,7 @@ interface ProjectState {
   updateSession: (id: string, updates: Partial<Session>) => void;
   deleteSession: (id: string) => void;
   setSessionActive: (sessionId: string, isActive: boolean) => void;
+  reorderSessions: (projectId: string, orderedIds: string[]) => void;
 
   setProviders: (providers: ProviderConfig[]) => void;
   setDataServerId: (serverId: string | null) => void;
@@ -81,6 +83,19 @@ export const useProjectStore = create<ProjectState>((set) => ({
           ? null
           : state.selectedSessionId,
     })),
+
+  reorderProjects: (orderedIds) =>
+    set((state) => {
+      const idToProject = new Map(state.projects.map((p) => [p.id, p]));
+      const reordered = orderedIds
+        .map((id) => idToProject.get(id))
+        .filter((p): p is Project => !!p);
+      // Append any projects not in orderedIds (shouldn't happen, but be safe)
+      for (const p of state.projects) {
+        if (!orderedIds.includes(p.id)) reordered.push(p);
+      }
+      return { projects: reordered };
+    }),
 
   setSessions: (sessions) => set({ sessions }),
 
@@ -139,6 +154,38 @@ export const useProjectStore = create<ProjectState>((set) => ({
         s.id === sessionId ? { ...s, isActive } : s
       ),
     })),
+
+  reorderSessions: (projectId, orderedIds) =>
+    set((state) => {
+      const projectSessionIds = new Set(orderedIds);
+      const idToSession = new Map(
+        state.sessions.filter((s) => s.projectId === projectId).map((s) => [s.id, s])
+      );
+      const reordered = orderedIds
+        .map((id) => idToSession.get(id))
+        .filter((s): s is Session => !!s);
+      // Keep sessions not in orderedIds at the end
+      for (const s of state.sessions) {
+        if (s.projectId === projectId && !projectSessionIds.has(s.id)) reordered.push(s);
+      }
+      // Replace only this project's contiguous slots, keep every other session in place.
+      const nextSessions: Session[] = [];
+      let inserted = false;
+      for (const session of state.sessions) {
+        if (session.projectId === projectId) {
+          if (!inserted) {
+            nextSessions.push(...reordered);
+            inserted = true;
+          }
+          continue;
+        }
+        nextSessions.push(session);
+      }
+      if (!inserted) {
+        nextSessions.push(...reordered);
+      }
+      return { sessions: nextSessions };
+    }),
 
   setProviders: (providers) => set({ providers }),
 

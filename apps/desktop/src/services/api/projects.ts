@@ -90,6 +90,16 @@ export async function upsertWorktreeConfig(
   return result.data;
 }
 
+export async function reorderProjects(orderedIds: string[]): Promise<void> {
+  const result = await fetchApi<void>('/api/projects/reorder', {
+    method: 'POST',
+    body: JSON.stringify({ orderedIds }),
+  });
+  if (!result.success) {
+    throw new Error(result.error?.message || 'Failed to reorder projects');
+  }
+}
+
 export async function setProjectReviewProvider(
   projectId: string,
   providerId: string,

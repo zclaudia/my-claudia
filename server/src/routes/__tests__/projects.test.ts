@@ -28,6 +28,7 @@ function createTestDb(): Database.Database {
       context_sync_status TEXT NOT NULL DEFAULT 'synced',
       review_provider_id TEXT,
       is_internal INTEGER NOT NULL DEFAULT 0,
+      sort_order INTEGER NOT NULL DEFAULT 0,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
     );
@@ -46,6 +47,7 @@ function createTestDb(): Database.Database {
       task_id TEXT,
       plan_status TEXT,
       is_read_only INTEGER DEFAULT 0,
+      sort_order INTEGER NOT NULL DEFAULT 0,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL,
       FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
@@ -158,6 +160,28 @@ describe('projects routes', () => {
       expect(row.type).toBe('code');
     });
 
+    it('assigns new projects to the end of the current sort order', async () => {
+      const now = Date.now();
+      db.prepare(`
+        INSERT INTO projects (id, name, type, sort_order, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).run('p1', 'Existing 1', 'code', 0, now, now);
+      db.prepare(`
+        INSERT INTO projects (id, name, type, sort_order, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).run('p2', 'Existing 2', 'code', 1, now, now);
+
+      const res = await request(app)
+        .post('/api/projects')
+        .send({ name: 'Appended Project' });
+
+      expect(res.status).toBe(201);
+      expect(res.body.data.sortOrder).toBe(2);
+
+      const row = db.prepare('SELECT sort_order FROM projects WHERE id = ?').get(res.body.data.id) as { sort_order: number };
+      expect(row.sort_order).toBe(2);
+    });
+
     it('defaults type to code when not specified', async () => {
       const res = await request(app)
         .post('/api/projects')
@@ -224,6 +248,24 @@ describe('projects routes', () => {
       expect(res.status).toBe(200);
       expect(res.body.data[0].name).toBe('Newer');
       expect(res.body.data[1].name).toBe('Older');
+    });
+
+    it('orders by sort_order before updated_at', async () => {
+      const now = Date.now();
+      db.prepare(`
+        INSERT INTO projects (id, name, type, sort_order, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).run('p1', 'Pinned Older', 'code', 0, now, now);
+      db.prepare(`
+        INSERT INTO projects (id, name, type, sort_order, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).run('p2', 'Newer But Later In Sort', 'code', 1, now, now + 1000);
+
+      const res = await request(app).get('/api/projects');
+
+      expect(res.status).toBe(200);
+      expect(res.body.data[0].name).toBe('Pinned Older');
+      expect(res.body.data[1].name).toBe('Newer But Later In Sort');
     });
 
     it('includes is_internal projects in listing', async () => {
@@ -667,6 +709,34 @@ describe('projects routes', () => {
       expect(res.status).toBe(200);
       const row = db.prepare('SELECT review_provider_id FROM projects WHERE id = ?').get('p1') as any;
       expect(row.review_provider_id).toBeNull();
+    });
+  });
+
+  describe('POST /api/projects/reorder', () => {
+    it('updates sort_order without changing updated_at', async () => {
+      const now = Date.now();
+      db.prepare(`
+        INSERT INTO projects (id, name, type, sort_order, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).run('p1', 'Project 1', 'code', 0, now, now);
+      db.prepare(`
+        INSERT INTO projects (id, name, type, sort_order, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).run('p2', 'Project 2', 'code', 1, now, now + 1000);
+
+      const before = db.prepare('SELECT id, sort_order, updated_at FROM projects ORDER BY id').all() as Array<{ id: string; sort_order: number; updated_at: number }>;
+
+      const res = await request(app)
+        .post('/api/projects/reorder')
+        .send({ orderedIds: ['p2', 'p1'] });
+
+      expect(res.status).toBe(200);
+
+      const after = db.prepare('SELECT id, sort_order, updated_at FROM projects ORDER BY id').all() as Array<{ id: string; sort_order: number; updated_at: number }>;
+      expect(after).toEqual([
+        { id: 'p1', sort_order: 1, updated_at: before[0].updated_at },
+        { id: 'p2', sort_order: 0, updated_at: before[1].updated_at },
+      ]);
     });
   });
 });

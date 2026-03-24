@@ -5,7 +5,7 @@
  * across all projects and global scope.
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { Loader2, Zap, Clock, Radio, RefreshCw, Play, Pause, Trash2, Globe, FolderOpen } from 'lucide-react';
 import type { Workflow, WorkflowTemplate } from '@my-claudia/shared';
 
@@ -62,12 +62,12 @@ function useApi(serverUrl: string, authToken: string) {
     return json.data;
   }, [serverUrl, authToken]);
 
-  return {
+  return useMemo(() => ({
     get: (path: string) => request(path),
     post: (path: string, body?: unknown) => request(path, 'POST', body),
     patch: (path: string, body?: unknown) => request(path, 'PATCH', body),
     del: (path: string) => request(path, 'DELETE'),
-  };
+  }), [request]);
 }
 
 export function AutomationWindow({ serverUrl, authToken }: AutomationWindowProps) {

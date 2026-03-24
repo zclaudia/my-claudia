@@ -20,6 +20,7 @@ const SESSION_SELECT = `id, project_id as projectId, name, provider_id as provid
                plan_status as planStatus,
                last_run_status as lastRunStatus,
                CASE WHEN is_read_only = 1 THEN 1 ELSE NULL END as isReadOnly,
+               sort_order as sortOrder,
                created_at as createdAt, updated_at as updatedAt`;
 
 export function createSessionRoutes(db: Database.Database, activeRuns: ActiveRunsMap): Router {
@@ -48,7 +49,7 @@ export function createSessionRoutes(db: Database.Database, activeRuns: ActiveRun
         SELECT ${SESSION_SELECT}
         FROM sessions
         ${where}
-        ORDER BY updated_at DESC
+        ORDER BY sort_order ASC, updated_at DESC
       `).all(...params) as Session[];
 
       res.json({ success: true, data: sessions } as ApiResponse<Session[]>);
@@ -327,11 +328,14 @@ export function createSessionRoutes(db: Database.Database, activeRuns: ActiveRun
 
       const id = uuidv4();
       const now = Date.now();
+      const { sortOrder } = db.prepare(
+        'SELECT COALESCE(MAX(sort_order), -1) + 1 as sortOrder FROM sessions WHERE project_id = ?'
+      ).get(projectId) as { sortOrder: number };
 
       db.prepare(`
-        INSERT INTO sessions (id, project_id, name, provider_id, type, parent_session_id, working_directory, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(id, projectId, name || null, providerId || null, sessionType, parentSessionId || null, workingDirectory || null, now, now);
+        INSERT INTO sessions (id, project_id, name, provider_id, type, parent_session_id, working_directory, sort_order, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(id, projectId, name || null, providerId || null, sessionType, parentSessionId || null, workingDirectory || null, sortOrder, now, now);
 
       const session: Session = {
         id,
@@ -341,6 +345,7 @@ export function createSessionRoutes(db: Database.Database, activeRuns: ActiveRun
         type: sessionType,
         parentSessionId: parentSessionId || undefined,
         workingDirectory: workingDirectory || undefined,
+        sortOrder,
         createdAt: now,
         updatedAt: now
       };
@@ -415,7 +420,6 @@ export function createSessionRoutes(db: Database.Database, activeRuns: ActiveRun
     try {
       const { id } = req.params;
       const { workingDirectory } = req.body;
-      const fs = require('fs');
 
       const lockRow = db.prepare(`
         SELECT project_role, plan_status
@@ -702,6 +706,29 @@ export function createSessionRoutes(db: Database.Database, activeRuns: ActiveRun
     }
   });
 
+
+  // Reorder sessions within a project
+  router.post('/reorder', (req: Request, res: Response) => {
+    try {
+      const { projectId, orderedIds } = req.body as { projectId?: string; orderedIds?: string[] };
+      if (!projectId || !Array.isArray(orderedIds) || orderedIds.length === 0) {
+        res.status(400).json({ success: false, error: { code: 'BAD_REQUEST', message: 'projectId and orderedIds are required' } });
+        return;
+      }
+
+      const update = db.prepare('UPDATE sessions SET sort_order = ? WHERE id = ? AND project_id = ?');
+      db.transaction(() => {
+        for (let i = 0; i < orderedIds.length; i++) {
+          update.run(i, orderedIds[i], projectId);
+        }
+      })();
+
+      res.json({ success: true } as ApiResponse<void>);
+    } catch (error) {
+      console.error('Error reordering sessions:', error);
+      res.status(500).json({ success: false, error: { code: 'DB_ERROR', message: 'Failed to reorder sessions' } });
+    }
+  });
 
   // Mount search routes (search messages, history, suggestions)
   mountSearchRoutes(router, db);

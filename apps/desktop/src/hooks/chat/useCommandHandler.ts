@@ -216,17 +216,23 @@ export function useCommandHandler({
     if (isForcedPlanSession) {
       throw new Error('Worktree switching is locked during Supervisor planning mode.');
     }
+    const previousWorkingDirectory = currentSession?.workingDirectory;
     // 乐观更新 projectStore（立即反映在 UI）
     useProjectStore.getState().updateSession(sessionId, {
       workingDirectory: worktreePath || undefined,
     });
     // 持久化到 DB
     try {
-      await api.updateSessionWorkingDirectory(sessionId, worktreePath);
+      const updatedSession = await api.updateSessionWorkingDirectory(sessionId, worktreePath);
+      useProjectStore.getState().updateSession(sessionId, updatedSession);
     } catch (err) {
       console.error('[Worktree] Failed to persist working directory:', err);
+      useProjectStore.getState().updateSession(sessionId, {
+        workingDirectory: previousWorkingDirectory,
+      });
+      throw err;
     }
-  }, [isForcedPlanSession, sessionId]);
+  }, [currentSession?.workingDirectory, isForcedPlanSession, sessionId]);
 
   const handleResetProviderSession = useCallback(async () => {
     try {
