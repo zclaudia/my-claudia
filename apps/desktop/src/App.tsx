@@ -387,13 +387,15 @@ function AppContent() {
   useAndroidBack(() => setSidebarOpen(true), isMobile && !sidebarOpen && !isAgentExpanded && !fileViewerFullscreen, 5);
 
   // Mobile swipe: left-swipe from right edge to open Claudia Chat
-  const swipeOpenClaudiaRef = useSwipeBack({
+  // Uses global: true to listen on document so edge touches aren't blocked by scroll containers
+  useSwipeBack({
     onSwipe: () => setAgentExpanded(true),
     onProgress: (progress) => setAgentSwipePreview(progress > 0 ? { mode: 'open', progress } : { mode: null, progress: 0 }),
     enabled: isMobile && !isAgentExpanded && !sidebarOpen && !fileViewerFullscreen,
     direction: 'left',
     edgeWidth: 24,
     threshold: 60,
+    global: true,
   });
 
   // Mobile swipe: right-swipe anywhere in Claudia Chat to close
@@ -664,6 +666,11 @@ function AppContent() {
           isOpen={sidebarOpen}
           onClose={() => setSidebarOpen(false)}
           hideHeader={true}
+          onOpenNotifications={() => {
+            setAgentExpanded(false);
+            setFeedOpen((current) => !current);
+          }}
+          isNotificationsOpen={isFeedOpen}
           onOpenDashboard={(projectId) => {
             selectProject(projectId);
             selectSession(null);
@@ -676,7 +683,7 @@ function AppContent() {
         {/* Main Content */}
         <main className="flex-1 flex flex-col overflow-hidden relative">
           {/* Chat Area */}
-          <div className="flex-1 overflow-hidden relative" ref={swipeOpenClaudiaRef}>
+          <div className="flex-1 overflow-hidden relative">
             {isMobile && (isAgentExpanded || agentSwipePreview.mode === 'open' || agentSwipePreview.mode === 'close') && (
               <div
                 className={`absolute inset-0 z-10 bg-black/100 ${

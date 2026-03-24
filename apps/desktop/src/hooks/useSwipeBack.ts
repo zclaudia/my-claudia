@@ -19,6 +19,8 @@ interface UseSwipeBackOptions {
   velocityThreshold?: number;
   /** If true, swipe triggers from anywhere, not just the edge. Default: false */
   fullWidth?: boolean;
+  /** If true, listen on document instead of the ref element. Useful for edge gestures that must work regardless of scroll containers. */
+  global?: boolean;
 }
 
 interface SwipeState {
@@ -40,6 +42,7 @@ export function useSwipeBack(options: UseSwipeBackOptions) {
     threshold = 80,
     velocityThreshold = 0.3,
     fullWidth = false,
+    global = false,
   } = options;
 
   const stateRef = useRef<SwipeState>({
@@ -162,28 +165,29 @@ export function useSwipeBack(options: UseSwipeBackOptions) {
   }, [onProgress]);
 
   useEffect(() => {
-    const el = containerRef.current;
+    const el = global ? document.documentElement : containerRef.current;
     if (!el || !enabled) return;
 
-    el.addEventListener('touchstart', handleTouchStart, { passive: true });
-    el.addEventListener('touchmove', handleTouchMove, { passive: true });
-    el.addEventListener('touchend', handleTouchEnd, { passive: true });
-    el.addEventListener('pointerdown', handlePointerDown, { passive: true });
-    el.addEventListener('pointermove', handlePointerMove, { passive: true });
-    el.addEventListener('pointerup', handlePointerUp, { passive: true });
-    el.addEventListener('pointercancel', handlePointerCancel, { passive: true });
+    el.addEventListener('touchstart', handleTouchStart as EventListener, { passive: true });
+    el.addEventListener('touchmove', handleTouchMove as EventListener, { passive: true });
+    el.addEventListener('touchend', handleTouchEnd as EventListener, { passive: true });
+    el.addEventListener('pointerdown', handlePointerDown as EventListener, { passive: true });
+    el.addEventListener('pointermove', handlePointerMove as EventListener, { passive: true });
+    el.addEventListener('pointerup', handlePointerUp as EventListener, { passive: true });
+    el.addEventListener('pointercancel', handlePointerCancel as EventListener, { passive: true });
 
     return () => {
-      el.removeEventListener('touchstart', handleTouchStart);
-      el.removeEventListener('touchmove', handleTouchMove);
-      el.removeEventListener('touchend', handleTouchEnd);
-      el.removeEventListener('pointerdown', handlePointerDown);
-      el.removeEventListener('pointermove', handlePointerMove);
-      el.removeEventListener('pointerup', handlePointerUp);
-      el.removeEventListener('pointercancel', handlePointerCancel);
+      el.removeEventListener('touchstart', handleTouchStart as EventListener);
+      el.removeEventListener('touchmove', handleTouchMove as EventListener);
+      el.removeEventListener('touchend', handleTouchEnd as EventListener);
+      el.removeEventListener('pointerdown', handlePointerDown as EventListener);
+      el.removeEventListener('pointermove', handlePointerMove as EventListener);
+      el.removeEventListener('pointerup', handlePointerUp as EventListener);
+      el.removeEventListener('pointercancel', handlePointerCancel as EventListener);
     };
   }, [
     enabled,
+    global,
     handleTouchStart,
     handleTouchMove,
     handleTouchEnd,

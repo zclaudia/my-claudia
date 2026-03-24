@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
-import { Bot, FileText, Wrench } from 'lucide-react';
+import { Bell, Bot, FileText, Wrench } from 'lucide-react';
 import { isDesktopTauri } from '../utils/platform';
 import { openPopoutWindow } from '../utils/popoutWindow';
 
@@ -34,6 +34,9 @@ import { useAskUserQuestionStore } from '../stores/askUserQuestionStore';
 import { useChatStore } from '../stores/chatStore';
 import { useSwipeBack } from '../hooks/useSwipeBack';
 import { useUIStore } from '../stores/uiStore';
+import { useClaudiaStore } from '../stores/claudiaStore';
+import { useNotificationFeedStore } from '../stores/notificationFeedStore';
+import { useClaudiaStatus } from '../hooks/useClaudiaStatus';
 
 import { ProjectSettings } from './ProjectSettings';
 import { SettingsPanel } from './SettingsPanel';
@@ -41,6 +44,7 @@ import { SearchFilters } from './SearchFilters';
 import { ActiveSessionsPanel } from './ActiveSessionsPanel';
 import { ServerSelector } from './ServerSelector';
 import { PluginPermissionDialog } from './PluginPermissionDialog';
+import { BrandMark } from './BrandMark';
 import { SessionItem } from './sidebar/SessionItem';
 import { WorktreeGroupItem } from './sidebar/WorktreeGroupItem';
 import { SupervisorGroupItem } from './sidebar/SupervisorGroupItem';
@@ -61,6 +65,8 @@ interface SidebarProps {
   hideHeader?: boolean;
   onOpenDashboard?: (projectId: string) => void;
   onOpenAutomations?: () => void;
+  onOpenNotifications?: () => void;
+  isNotificationsOpen?: boolean;
 }
 
 function normalizeSearchPreview(content: string): string {
@@ -85,7 +91,18 @@ function splitProjectSessions(sessionList: Session[]) {
   return { mainSession, taskSessions, regularSessions };
 }
 
-export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHeader, onOpenDashboard, onOpenAutomations }: SidebarProps) {
+export function Sidebar({
+  collapsed,
+  onToggle,
+  isMobile,
+  isOpen,
+  onClose,
+  hideHeader,
+  onOpenDashboard,
+  onOpenAutomations,
+  onOpenNotifications,
+  isNotificationsOpen = false,
+}: SidebarProps) {
   const requestMessageJump = useUIStore((s) => s.requestMessageJump);
   const {
     projects = [],
@@ -103,6 +120,10 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
 
   const { connectionStatus, setActiveServer, servers, getDefaultServer } = useServerStore();
   const v2Agents = useSupervisionStore((s) => s.agents);
+  const notificationUnreadCount = useNotificationFeedStore((s) => s.unreadCount);
+  const { hasUnread: hasClaudiaUnread, hasRunning: hasClaudiaRunning, hasPermissionPending: hasClaudiaPermissionPending } = useClaudiaStatus();
+  const isClaudiaExpanded = useClaudiaStore((s) => s.isExpanded);
+  const setClaudiaExpanded = useClaudiaStore((s) => s.setExpanded);
 
   // Sessions with pending permission or question requests
   const permSessionIds = usePermissionStore(s => new Set(s.pendingRequests.map(r => r.sessionId)));
@@ -434,7 +455,53 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
 
           {/* Server Selector */}
           <div className="px-3 py-2 border-b border-border">
-            <ServerSelector />
+            <div className="flex items-center gap-2">
+              <div className="flex-1 min-w-0">
+                <ServerSelector />
+              </div>
+              <button
+                onClick={() => {
+                  onOpenNotifications?.();
+                  onClose?.();
+                }}
+                className={`relative h-10 w-10 flex-shrink-0 flex items-center justify-center rounded-full transition-colors ${
+                  isNotificationsOpen ? 'bg-secondary text-foreground' : 'text-muted-foreground hover:text-foreground hover:bg-secondary'
+                }`}
+                title="Notifications"
+                aria-label="Open notifications"
+              >
+                <Bell size={18} strokeWidth={1.75} />
+                {notificationUnreadCount > 0 && !isNotificationsOpen && (
+                  <span className="absolute -top-0.5 -right-0.5 min-w-[14px] h-[14px] flex items-center justify-center bg-primary text-primary-foreground text-[9px] font-medium rounded-full px-0.5">
+                    {notificationUnreadCount > 99 ? '99+' : notificationUnreadCount}
+                  </span>
+                )}
+              </button>
+              <button
+                onClick={() => {
+                  setClaudiaExpanded(true);
+                  onClose?.();
+                }}
+                className={`relative h-10 w-10 flex-shrink-0 flex items-center justify-center rounded-full transition-colors ${
+                  isClaudiaExpanded ? 'bg-secondary text-foreground' : 'text-muted-foreground hover:text-foreground hover:bg-secondary'
+                }`}
+                title="Open Claudia"
+                aria-label="Open Claudia"
+              >
+                <BrandMark className="w-[18px] h-[18px] object-contain" />
+                {(hasClaudiaPermissionPending || hasClaudiaUnread || hasClaudiaRunning) && !isClaudiaExpanded && (
+                  <span
+                    className={`absolute top-1 right-1 w-2 h-2 rounded-full ${
+                      hasClaudiaPermissionPending
+                        ? 'bg-orange-500'
+                        : hasClaudiaUnread
+                        ? 'bg-primary animate-pulse'
+                        : 'bg-amber-500 animate-pulse'
+                    }`}
+                  />
+                )}
+              </button>
+            </div>
           </div>
 
           {/* Search */}

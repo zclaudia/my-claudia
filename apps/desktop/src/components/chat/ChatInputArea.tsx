@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { Lock, Unlock, X, FileText, FileEdit, Terminal as TerminalIcon, ChevronDown, ChevronUp, Plus, Activity } from 'lucide-react';
+import { Lock, Unlock, X, FileText, FileEdit, Terminal as TerminalIcon, ChevronDown, ChevronUp, Plus } from 'lucide-react';
 import { ModeSelector } from './ModeSelector';
 import { SystemInfoButton } from './SystemInfoButton';
 import { ModelSelector } from './ModelSelector';
@@ -15,7 +15,6 @@ import { usePluginStore } from '../../stores/pluginStore';
 import { useProjectStore } from '../../stores/projectStore';
 import { useDraftEditorStore } from '../../stores/draftEditorStore';
 import { useUIStore } from '../../stores/uiStore';
-import { useNotificationFeedStore } from '../../stores/notificationFeedStore';
 import * as api from '../../services/api';
 import type { AgentPermissionPolicy, ProviderCapabilities, SlashCommand, Session, Project, SystemInfo } from '@my-claudia/shared';
 
@@ -93,9 +92,6 @@ export function ChatInputArea({
   const { setAdvancedInput } = useUIStore();
   const openDraftEditor = useDraftEditorStore((s) => s.openEditor);
   const setSendCallback = useDraftEditorStore((s) => s.setSendCallback);
-  const unreadNotificationCount = useNotificationFeedStore((s) => s.unreadCount);
-
-
   // Mobile toolbar popover state
   const [mobileToolsOpen, setMobileToolsOpen] = useState(false);
   const mobileToolsRef = useRef<HTMLDivElement>(null);
@@ -117,20 +113,6 @@ export function ChatInputArea({
   }, [mobileToolsOpen]);
 
   const closeMobileTools = useCallback(() => setMobileToolsOpen(false), []);
-  const toggleNotificationsPanel = useCallback(() => {
-    const pluginStore = usePluginStore.getState();
-    const isActive = bottomPanelTab === 'notifications';
-    const panel = pluginStore.panels.find((item) => item.id === 'notifications');
-    const isVisible = !!panel?.visible;
-
-    if (isVisible && isActive) {
-      pluginStore.updatePanelVisibility('notifications', false);
-      return;
-    }
-
-    pluginStore.updatePanelVisibility('notifications', true);
-    setBottomPanelTab('notifications');
-  }, [bottomPanelTab, setBottomPanelTab]);
 
   // Read-only mode
   if (currentSession.isReadOnly) {
@@ -403,21 +385,6 @@ export function ChatInputArea({
                   setDrawerOpen(pid, true);
                   setBottomPanelTab('terminal');
                 }
-                closeMobileTools();
-              },
-            });
-          }
-
-          if (!disabledBuiltinPanels.includes('notifications')) {
-            const isActive = bottomPanelTab === 'notifications';
-            toolItems.push({
-              key: 'notifications',
-              icon: <Activity size={18} strokeWidth={1.75} />,
-              label: isActive ? 'Hide Feed' : 'Notifications',
-              isActive,
-              hasBadge: unreadNotificationCount > 0 && !isActive,
-              onClick: () => {
-                toggleNotificationsPanel();
                 closeMobileTools();
               },
             });
