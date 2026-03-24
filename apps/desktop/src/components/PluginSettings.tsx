@@ -10,7 +10,13 @@ import { usePluginStore, selectPluginPanels } from '../stores/pluginStore';
 import type { InstalledPlugin, PluginStatus, UIExtension } from '../stores/pluginStore';
 import { getBaseUrl } from '../services/api';
 
-const BUILTIN_PLUGIN_PREFIX = 'com.claudia.';
+/** Plugin IDs hardcoded in builtinPanels.ts — only these count as built-in */
+const BUILTIN_PLUGIN_IDS = new Set([
+  'com.claudia.terminal',
+  'com.claudia.file-viewer',
+  'com.claudia.draft',
+  'com.claudia.notifications',
+]);
 
 // Status badge colors — using semantic theme tokens
 const statusColors: Record<PluginStatus, string> = {
@@ -44,7 +50,7 @@ export function PluginSettings({ onOpenPluginSettings }: PluginSettingsProps) {
     toggleBuiltinPanel,
   } = usePluginStore();
   const allPanels = usePluginStore(selectPluginPanels);
-  const builtinPanels = allPanels.filter((p) => p.pluginId.startsWith(BUILTIN_PLUGIN_PREFIX));
+  const builtinPanels = allPanels.filter((p) => BUILTIN_PLUGIN_IDS.has(p.pluginId));
 
   const [searchQuery, setSearchQuery] = useState('');
 

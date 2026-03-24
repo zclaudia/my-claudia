@@ -7,7 +7,7 @@
 
 import { v4 as uuidv4 } from 'uuid';
 import type Database from 'better-sqlite3';
-import type { FeedItemSource } from '@my-claudia/shared';
+import type { NotificationSource } from '@my-claudia/shared';
 import type {
   TaskOrchestrator,
   SpawnTaskConfig,
@@ -27,13 +27,13 @@ export interface TaskOrchestratorDeps {
   handleRunStart: (client: any, message: any, db: any, options: any, clients: any) => Promise<void>;
   getClients: () => Map<string, any>;
   serverPort: number | null;
-  agentFeedService?: {
+  notificationService?: {
     postItem: (item: {
       triggerId?: string;
       taskId?: string;
       sessionId?: string;
       projectId?: string;
-      source: FeedItemSource;
+      source: NotificationSource;
       title: string;
       summary?: string;
       status: 'running' | 'completed' | 'failed';
@@ -55,10 +55,10 @@ export interface TaskOrchestratorDeps {
 export function createTaskOrchestrator(deps: TaskOrchestratorDeps): TaskOrchestrator {
   const repo = new TaskRepository(deps.db);
   const waiters = new Map<string, Set<(result: TaskResult) => void>>();
-  const feedOverrides = new Map<string, { triggerId?: string; source: FeedItemSource; title: string }>();
+  const feedOverrides = new Map<string, { triggerId?: string; source: NotificationSource; title: string }>();
   let interval: NodeJS.Timeout | null = null;
 
-  function getFeedSource(task: OrchestratorTask): FeedItemSource {
+  function getFeedSource(task: OrchestratorTask): NotificationSource {
     const override = feedOverrides.get(task.id);
     if (override) return override.source;
     if (task.parentTaskId) return 'delegation';
@@ -78,18 +78,18 @@ export function createTaskOrchestrator(deps: TaskOrchestratorDeps): TaskOrchestr
     status: 'completed' | 'failed' | 'cancelled',
     extra?: { resultSummary?: string; errorSummary?: string },
   ): void {
-    if (!deps.agentFeedService) return;
+    if (!deps.notificationService) return;
     const mappedStatus = status === 'completed' ? 'completed' : 'failed';
     const summary = extra?.resultSummary ?? task.resultSummary ?? undefined;
     const error = extra?.errorSummary ?? task.errorSummary ?? undefined;
-    const existing = deps.agentFeedService.findByTaskId(task.id);
+    const existing = deps.notificationService.findByTaskId(task.id);
 
     if (existing) {
-      deps.agentFeedService.updateItemStatus(existing.id, mappedStatus, { summary, error });
+      deps.notificationService.updateItemStatus(existing.id, mappedStatus, { summary, error });
       return;
     }
 
-    deps.agentFeedService.postItem({
+    deps.notificationService.postItem({
       triggerId: feedOverrides.get(task.id)?.triggerId,
       taskId: task.id,
       sessionId: task.sessionId ?? undefined,
@@ -183,10 +183,10 @@ export function createTaskOrchestrator(deps: TaskOrchestratorDeps): TaskOrchestr
     const runningTask = repo.findById(task.id);
     if (runningTask) deps.onTaskStatusChange?.(runningTask);
 
-    if (deps.agentFeedService) {
-      const existing = deps.agentFeedService.findByTaskId(task.id);
+    if (deps.notificationService) {
+      const existing = deps.notificationService.findByTaskId(task.id);
       if (!existing) {
-        deps.agentFeedService.postItem({
+        deps.notificationService.postItem({
           triggerId: feedOverrides.get(task.id)?.triggerId,
           taskId: task.id,
           sessionId,

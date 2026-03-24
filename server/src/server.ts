@@ -67,7 +67,7 @@ function broadcastPluginState(): void {
 }
 function buildStateHeartbeat(): StateHeartbeatMessage {
   const heartbeat = _buildStateHeartbeat(activeRuns);
-  heartbeat.unreadFeedCount = agentFeedService?.getUnreadCount() ?? 0;
+  heartbeat.unreadFeedCount = notificationFeedService?.getUnreadCount() ?? 0;
   return heartbeat;
 }
 
@@ -137,7 +137,7 @@ let processMonitor: ProcessMonitor | null = null;
 let connectedClients = new Map<string, ConnectedClient>();
 let notificationService: NotificationService;
 let serverPort: number | null = null;
-let agentFeedService: import('./domains/agent-feed/service.js').AgentFeedService | undefined;
+let notificationFeedService: import('./domains/notification-feed/service.js').NotificationFeedService | undefined;
 let taskOrchestrator: import('./orchestration/types.js').TaskOrchestrator | undefined;
 
 // Re-exports for backward compatibility
@@ -154,7 +154,7 @@ function getMessageHandlerContext(): MessageHandlerContext {
     cancelRun,
     broadcastPluginState,
     findProcessPidsByTaskCommand,
-    agentFeedService,
+    notificationService: notificationFeedService,
     orchestrator: taskOrchestrator,
   };
 }
@@ -231,7 +231,7 @@ export async function createServer(): Promise<ServerContext> {
     setNotificationService: (ns) => { notificationService = ns; },
     setProcessMonitor: (pm) => { processMonitor = pm; },
   });
-  agentFeedService = setup.agentFeedService;
+  notificationFeedService = setup.notificationFeedService;
   taskOrchestrator = setup.orchestrator;
 
   // Error handling middleware (must be after routes)

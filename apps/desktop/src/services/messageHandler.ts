@@ -663,9 +663,9 @@ export function handleServerMessage(
       break;
     }
 
-    case 'agent_feed_update': {
-      const { item } = msg as import('@my-claudia/shared').AgentFeedUpdateMessage;
-      import('../stores/agentFeedStore').then(m => m.useAgentFeedStore.getState().upsertItem(item));
+    case 'notification_update': {
+      const { item } = msg as import('@my-claudia/shared').NotificationUpdateMessage;
+      import('../stores/notificationFeedStore').then(m => m.useNotificationFeedStore.getState().upsertItem(item));
       // Toast notification for completed/failed feed items
       if (item.status === 'completed' || item.status === 'failed') {
         import('../stores/toastStore').then(m => {
@@ -679,24 +679,24 @@ export function handleServerMessage(
       break;
     }
 
-    case 'agent_feed_list': {
-      const feedMsg = msg as import('@my-claudia/shared').AgentFeedListMessage;
-      import('../stores/agentFeedStore').then(m => {
-        m.useAgentFeedStore.getState().setFeedList(
+    case 'notification_list': {
+      const feedMsg = msg as import('@my-claudia/shared').NotificationListMessage;
+      import('../stores/notificationFeedStore').then(m => {
+        m.useNotificationFeedStore.getState().setFeedList(
           feedMsg.items,
           feedMsg.hasMore,
           feedMsg.unreadCount,
           feedMsg.append,
         );
-        m.useAgentFeedStore.getState().setLoading(false);
+        m.useNotificationFeedStore.getState().setLoading(false);
       });
       break;
     }
 
-    case 'agent_feed_read': {
-      const readMsg = msg as import('@my-claudia/shared').AgentFeedReadMessage;
-      import('../stores/agentFeedStore').then(m => {
-        m.useAgentFeedStore.getState().markRead(
+    case 'notification_read': {
+      const readMsg = msg as import('@my-claudia/shared').NotificationReadMessage;
+      import('../stores/notificationFeedStore').then(m => {
+        m.useNotificationFeedStore.getState().markRead(
           readMsg.itemIds,
           readMsg.unreadCount,
           readMsg.readAt,
@@ -824,10 +824,10 @@ export function handleServerMessage(
 
       // Sync feed unread count from heartbeat (covers offline/reconnect scenario)
       if (heartbeat.unreadFeedCount !== undefined) {
-        import('../stores/agentFeedStore').then(m => {
-          const store = m.useAgentFeedStore.getState();
+        import('../stores/notificationFeedStore').then(m => {
+          const store = m.useNotificationFeedStore.getState();
           if (store.unreadCount !== heartbeat.unreadFeedCount) {
-            m.useAgentFeedStore.setState({ unreadCount: heartbeat.unreadFeedCount! });
+            m.useNotificationFeedStore.setState({ unreadCount: heartbeat.unreadFeedCount! });
           }
         });
       }
@@ -973,7 +973,7 @@ export function handleServerMessage(
 
     case 'plugin_notification': {
       const pluginMsg = msg as import('@my-claudia/shared').PluginNotificationMessage;
-      import('../stores/agentFeedStore').then(m => m.useAgentFeedStore.getState().upsertItem({
+      import('../stores/notificationFeedStore').then(m => m.useNotificationFeedStore.getState().upsertItem({
         id: `plugin-${pluginMsg.pluginId}-${Date.now()}`,
         source: 'trigger',
         title: pluginMsg.title,

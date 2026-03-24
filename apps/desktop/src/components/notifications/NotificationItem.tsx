@@ -1,7 +1,7 @@
-import type { AgentFeedItem } from '@my-claudia/shared';
+import type { NotificationItem as NotificationItemData } from '@my-claudia/shared';
 import { useProjectStore } from '../../stores/projectStore';
 import { extractThinking } from '../chat/MessageList';
-import { useAgentFeedStore } from '../../stores/agentFeedStore';
+import { useNotificationFeedStore } from '../../stores/notificationFeedStore';
 import { useConnection } from '../../contexts/ConnectionContext';
 
 function timeAgo(timestamp: number): string {
@@ -25,12 +25,12 @@ const SOURCE_ICONS: Record<string, string> = {
   delegation: '\u{1F916}', // 🤖
 };
 
-interface FeedItemProps {
-  item: AgentFeedItem;
+interface NotificationItemProps {
+  item: NotificationItemData;
   onDismiss?: (id: string) => void;
 }
 
-export function FeedItem({ item, onDismiss }: FeedItemProps) {
+export function NotificationItem({ item, onDismiss }: NotificationItemProps) {
   const selectSession = useProjectStore((s) => s.selectSession);
   const { sendMessage } = useConnection();
   const statusStyle = STATUS_STYLES[item.status] || STATUS_STYLES.running;
@@ -39,8 +39,8 @@ export function FeedItem({ item, onDismiss }: FeedItemProps) {
   const handleClick = () => {
     // Mark as read on click
     if (isUnread) {
-      sendMessage({ type: 'mark_feed_read', itemIds: [item.id] });
-      useAgentFeedStore.getState().markRead([item.id]);
+      sendMessage({ type: 'mark_notifications_read', itemIds: [item.id] });
+      useNotificationFeedStore.getState().markRead([item.id]);
     }
     if (item.sessionId) {
       selectSession(item.sessionId);

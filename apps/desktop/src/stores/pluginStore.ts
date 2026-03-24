@@ -11,6 +11,15 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { PluginManifest } from '@my-claudia/shared';
 
+const BUILTIN_PANEL_ID_ALIASES: Record<string, string> = {
+  'agent-feed': 'notifications',
+};
+
+export function normalizeDisabledBuiltinPanels(panelIds: string[] | undefined): string[] {
+  if (!Array.isArray(panelIds)) return [];
+  return Array.from(new Set(panelIds.map((id) => BUILTIN_PANEL_ID_ALIASES[id] ?? id)));
+}
+
 // ============================================
 // Types
 // ============================================
@@ -249,6 +258,15 @@ export const usePluginStore = create<PluginStoreState>()(
         settings: state.settings,
         disabledBuiltinPanels: state.disabledBuiltinPanels,
       }),
+      merge: (persistedState, currentState) => {
+        const persisted = (persistedState as Partial<PluginStoreState> | undefined) ?? {};
+        return {
+          ...currentState,
+          ...persisted,
+          settings: persisted.settings ?? currentState.settings,
+          disabledBuiltinPanels: normalizeDisabledBuiltinPanels(persisted.disabledBuiltinPanels),
+        };
+      },
     }
   )
 );

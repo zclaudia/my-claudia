@@ -26,10 +26,10 @@ import { createGatewayRouter, type GatewayConfig, type GatewayStatus } from './r
 import { createImportRoutes } from './routes/import.js';
 import { createOpenCodeImportRoutes } from './routes/import-opencode.js';
 import { createAgentRoutes } from './routes/agent.js';
-import { createAgentFeedRoutes } from './routes/agent-feed.js';
+import { createNotificationFeedRoutes } from './routes/notification-feed.js';
 import { createClaudiaRoutes } from './routes/claudia.js';
 import { createAgentTriggerRoutes } from './routes/agent-triggers.js';
-import { AgentFeedService } from './domains/agent-feed/service.js';
+import { NotificationFeedService } from './domains/notification-feed/service.js';
 import { AgentTriggerService } from './domains/agent-triggers/service.js';
 import { createDelegationRoutes } from './routes/delegation.js';
 import { createNotificationRoutes } from './routes/notifications.js';
@@ -92,7 +92,7 @@ export interface SetupResult {
   setGatewayDisconnector: (disconnector: () => Promise<void>) => void;
   notificationService: NotificationService;
   supervisorService: SupervisorService;
-  agentFeedService: AgentFeedService;
+  notificationFeedService: NotificationFeedService;
   orchestrator: import('./orchestration/types.js').TaskOrchestrator;
   /** Cleanup function: call when WebSocket server closes */
   onWssClose: () => void;
@@ -217,8 +217,8 @@ export function setupRoutesAndServices(deps: SetupDependencies): SetupResult {
 
   let notificationService: NotificationService | null = null;
 
-  // Agent Feed Service
-  const agentFeedService = new AgentFeedService({
+  // Notification Feed Service
+  const notificationFeedService = new NotificationFeedService({
     db,
     broadcastFn: (msg) => {
       for (const client of clients.values()) {
@@ -235,7 +235,7 @@ export function setupRoutesAndServices(deps: SetupDependencies): SetupResult {
       });
     },
   });
-  app.use('/api/agent-feed', authMiddleware, createAgentFeedRoutes(agentFeedService));
+  app.use('/api/notifications', authMiddleware, createNotificationFeedRoutes(notificationFeedService));
   app.use('/api/claudia', authMiddleware, createClaudiaRoutes(db));
   app.use('/api/import', localOnlyMiddleware, createImportRoutes(db));
   app.use('/api/import', localOnlyMiddleware, createOpenCodeImportRoutes(db));
@@ -424,7 +424,7 @@ export function setupRoutesAndServices(deps: SetupDependencies): SetupResult {
     handleRunStart,
     getClients: () => clients,
     serverPort: getServerPort(),
-    agentFeedService,
+    notificationService: notificationFeedService,
     onTaskStatusChange: (task, extra) => {
       if (task.initiator !== 'claudia') return;
       const update: import('@my-claudia/shared').ClaudiaTaskUpdateMessage = {
@@ -469,7 +469,7 @@ export function setupRoutesAndServices(deps: SetupDependencies): SetupResult {
   const agentTriggerService = new AgentTriggerService({
     db,
     orchestrator,
-    feedService: agentFeedService,
+    notificationService: notificationFeedService,
     pluginEvents,
   });
   scheduledTaskService.setAgentTriggerService(agentTriggerService);
@@ -588,7 +588,7 @@ export function setupRoutesAndServices(deps: SetupDependencies): SetupResult {
     },
     notificationService,
     supervisorService,
-    agentFeedService,
+    notificationFeedService,
     orchestrator,
     onWssClose,
   };

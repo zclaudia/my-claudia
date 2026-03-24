@@ -1,6 +1,6 @@
 import { v4 as uuidv4 } from 'uuid';
 import type Database from 'better-sqlite3';
-import type { AgentFeedItem, FeedItemStatus, FeedItemSource } from '@my-claudia/shared';
+import type { NotificationItem, NotificationStatus, NotificationSource } from '@my-claudia/shared';
 
 interface FeedRow {
   id: string;
@@ -19,17 +19,17 @@ interface FeedRow {
   read_at: number | null;
 }
 
-function rowToItem(row: FeedRow): AgentFeedItem {
+function rowToItem(row: FeedRow): NotificationItem {
   return {
     id: row.id,
     triggerId: row.trigger_id ?? undefined,
     taskId: row.task_id ?? undefined,
     sessionId: row.session_id ?? undefined,
     projectId: row.project_id ?? undefined,
-    source: row.source as FeedItemSource,
+    source: row.source as NotificationSource,
     title: row.title,
     summary: row.summary ?? undefined,
-    status: row.status as FeedItemStatus,
+    status: row.status as NotificationStatus,
     error: row.error ?? undefined,
     delegationContext: row.delegation_context ? JSON.parse(row.delegation_context) : undefined,
     createdAt: row.created_at,
@@ -38,10 +38,10 @@ function rowToItem(row: FeedRow): AgentFeedItem {
   };
 }
 
-export class AgentFeedRepository {
+export class NotificationFeedRepository {
   constructor(private db: Database.Database) {}
 
-  create(item: Omit<AgentFeedItem, 'id' | 'createdAt'>): AgentFeedItem {
+  create(item: Omit<NotificationItem, 'id' | 'createdAt'>): NotificationItem {
     const id = uuidv4();
     const now = Date.now();
     this.db.prepare(`
@@ -66,14 +66,14 @@ export class AgentFeedRepository {
     return { ...item, id, createdAt: now };
   }
 
-  updateStatus(id: string, status: FeedItemStatus, extra?: { summary?: string; error?: string; completedAt?: number }): void {
+  updateStatus(id: string, status: NotificationStatus, extra?: { summary?: string; error?: string; completedAt?: number }): void {
     this.db.prepare(`
       UPDATE agent_feed SET status = ?, summary = COALESCE(?, summary), error = COALESCE(?, error), completed_at = COALESCE(?, completed_at)
       WHERE id = ?
     `).run(status, extra?.summary ?? null, extra?.error ?? null, extra?.completedAt ?? null, id);
   }
 
-  list(options?: { limit?: number; before?: number; unreadOnly?: boolean }): AgentFeedItem[] {
+  list(options?: { limit?: number; before?: number; unreadOnly?: boolean }): NotificationItem[] {
     const limit = options?.limit ?? 50;
     const conditions: string[] = [];
     const params: unknown[] = [];
@@ -123,12 +123,12 @@ export class AgentFeedRepository {
     return row.count;
   }
 
-  findById(id: string): AgentFeedItem | undefined {
+  findById(id: string): NotificationItem | undefined {
     const row = this.db.prepare('SELECT * FROM agent_feed WHERE id = ?').get(id) as FeedRow | undefined;
     return row ? rowToItem(row) : undefined;
   }
 
-  findByTaskId(taskId: string): AgentFeedItem | undefined {
+  findByTaskId(taskId: string): NotificationItem | undefined {
     const row = this.db.prepare('SELECT * FROM agent_feed WHERE task_id = ?').get(taskId) as FeedRow | undefined;
     return row ? rowToItem(row) : undefined;
   }

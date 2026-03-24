@@ -1,7 +1,7 @@
-// Agent Feed Types — proactive agent task results
+// Notification Feed Types — proactive agent task results
 
-export type FeedItemStatus = 'running' | 'completed' | 'failed';
-export type FeedItemSource = 'trigger' | 'scheduled' | 'manual' | 'delegation';
+export type NotificationStatus = 'running' | 'completed' | 'failed';
+export type NotificationSource = 'trigger' | 'scheduled' | 'manual' | 'delegation';
 
 export interface DelegationContext {
   originalRequestId: string;
@@ -12,16 +12,16 @@ export interface DelegationContext {
   confidence: number;
 }
 
-export interface AgentFeedItem {
+export interface NotificationItem {
   id: string;
   triggerId?: string;
   taskId?: string;
   sessionId?: string;
   projectId?: string;
-  source: FeedItemSource;
+  source: NotificationSource;
   title: string;
   summary?: string;
-  status: FeedItemStatus;
+  status: NotificationStatus;
   error?: string;
   delegationContext?: DelegationContext;
   createdAt: number;

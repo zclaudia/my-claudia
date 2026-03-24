@@ -1,23 +1,23 @@
 import { create } from 'zustand';
-import type { AgentFeedItem } from '@my-claudia/shared';
+import type { NotificationItem } from '@my-claudia/shared';
 
-interface AgentFeedState {
-  items: AgentFeedItem[];
+interface NotificationFeedState {
+  items: NotificationItem[];
   unreadCount: number;
   hasMore: boolean;
   loading: boolean;
   hydrated: boolean;
 
   // Actions
-  setFeedList: (items: AgentFeedItem[], hasMore: boolean, unreadCount: number, append?: boolean) => void;
-  upsertItem: (item: AgentFeedItem) => void;
+  setFeedList: (items: NotificationItem[], hasMore: boolean, unreadCount: number, append?: boolean) => void;
+  upsertItem: (item: NotificationItem) => void;
   markRead: (ids: string[], unreadCount?: number, readAt?: number) => void;
   removeItem: (id: string) => void;
   clearRead: () => void;
   setLoading: (loading: boolean) => void;
 }
 
-export const useAgentFeedStore = create<AgentFeedState>((set) => ({
+export const useNotificationFeedStore = create<NotificationFeedState>((set) => ({
   items: [],
   unreadCount: 0,
   hasMore: false,

@@ -9,7 +9,7 @@ export * from './permissions.js';
 export * from './supervision.js';
 export * from './claudia.js';
 export * from './workflow.js';
-export * from './agent-feed.js';
+export * from './notification-feed.js';
 export * from './plugins.js';
 
 // Re-import interaction types needed for the ServerMessage union
@@ -51,8 +51,8 @@ import type {
   ClaudiaMessageMessage,
 } from './claudia.js';
 import type {
-  GetAgentFeedMessage, MarkFeedReadMessage, DismissFeedItemsMessage, ClearReadFeedItemsMessage,
-} from './agent-feed.js';
+  GetNotificationsMessage, MarkNotificationsReadMessage, DismissNotificationsMessage, ClearReadNotificationsMessage,
+} from './notification-feed.js';
 
 export type ClientMessage =
   | AuthMessage
@@ -104,11 +104,11 @@ export type ClientMessage =
   | ClaudiaTaskContinueMessage
   | ClaudiaTaskCancelMessage
   | ClaudiaMessageMessage
-  // Agent Feed
-  | GetAgentFeedMessage
-  | MarkFeedReadMessage
-  | DismissFeedItemsMessage
-  | ClearReadFeedItemsMessage;
+  // Notifications
+  | GetNotificationsMessage
+  | MarkNotificationsReadMessage
+  | DismissNotificationsMessage
+  | ClearReadNotificationsMessage;
 
 // ============================================
 // Server → Client messages (union type)
@@ -157,8 +157,8 @@ import type {
   SystemTaskUpdateMessage, LocalPRUpdateMessage, LocalPRDeletedMessage,
 } from './workflow.js';
 import type {
-  AgentFeedUpdateMessage, AgentFeedListMessage, AgentFeedReadMessage,
-} from './agent-feed.js';
+  NotificationUpdateMessage, NotificationListMessage, NotificationReadMessage,
+} from './notification-feed.js';
 import type {
   PluginStateMessage, PluginNotificationMessage, PluginShowPanelMessage,
   PluginPanelRegisteredMessage, PluginPanelUnregisteredMessage, FilePushNotificationMessage,
@@ -253,7 +253,7 @@ export type ServerMessage =
   | ClaudiaMessageCompletedMessage
   | ClaudiaMessageFailedMessage
   | ClaudiaMessagePromotedMessage
-  // Agent Feed
-  | AgentFeedUpdateMessage
-  | AgentFeedListMessage
-  | AgentFeedReadMessage;
+  // Notifications
+  | NotificationUpdateMessage
+  | NotificationListMessage
+  | NotificationReadMessage;

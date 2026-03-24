@@ -1,39 +1,39 @@
 import type Database from 'better-sqlite3';
 import type {
-  AgentFeedItem,
-  FeedItemStatus,
-  AgentFeedReadMessage,
-  AgentFeedUpdateMessage,
+  NotificationItem,
+  NotificationStatus,
+  NotificationReadMessage,
+  NotificationUpdateMessage,
   ServerMessage,
 } from '@my-claudia/shared';
-import { AgentFeedRepository } from './repository.js';
+import { NotificationFeedRepository } from './repository.js';
 
-export interface AgentFeedServiceDeps {
+export interface NotificationFeedServiceDeps {
   db: Database.Database;
   broadcastFn: (message: ServerMessage) => void;
-  notifyFn?: (item: AgentFeedItem) => void | Promise<void>;
+  notifyFn?: (item: NotificationItem) => void | Promise<void>;
 }
 
-export class AgentFeedService {
-  private repo: AgentFeedRepository;
+export class NotificationFeedService {
+  private repo: NotificationFeedRepository;
   private broadcastFn: (message: ServerMessage) => void;
-  private notifyFn?: (item: AgentFeedItem) => void | Promise<void>;
+  private notifyFn?: (item: NotificationItem) => void | Promise<void>;
 
-  constructor(deps: AgentFeedServiceDeps) {
-    this.repo = new AgentFeedRepository(deps.db);
+  constructor(deps: NotificationFeedServiceDeps) {
+    this.repo = new NotificationFeedRepository(deps.db);
     this.broadcastFn = deps.broadcastFn;
     this.notifyFn = deps.notifyFn;
   }
 
   /** Post a new feed item — persists to DB, broadcasts to clients, optionally sends push notification */
-  postItem(item: Omit<AgentFeedItem, 'id' | 'createdAt'>): AgentFeedItem {
+  postItem(item: Omit<NotificationItem, 'id' | 'createdAt'>): NotificationItem {
     const created = this.repo.create(item);
 
     // Broadcast to all connected WS clients
     this.broadcastFn({
-      type: 'agent_feed_update',
+      type: 'notification_update',
       item: created,
-    } as AgentFeedUpdateMessage);
+    } as NotificationUpdateMessage);
 
     // Push notification for completed items
     if (created.status === 'completed' || created.status === 'failed') {
@@ -44,7 +44,7 @@ export class AgentFeedService {
   }
 
   /** Update an existing feed item's status */
-  updateItemStatus(id: string, status: FeedItemStatus, extra?: { summary?: string; error?: string }): void {
+  updateItemStatus(id: string, status: NotificationStatus, extra?: { summary?: string; error?: string }): void {
     this.repo.updateStatus(id, status, {
       ...extra,
       completedAt: status === 'completed' || status === 'failed' ? Date.now() : undefined,
@@ -53,9 +53,9 @@ export class AgentFeedService {
     const updated = this.repo.findById(id);
     if (updated) {
       this.broadcastFn({
-        type: 'agent_feed_update',
+        type: 'notification_update',
         item: updated,
-      } as AgentFeedUpdateMessage);
+      } as NotificationUpdateMessage);
 
       if (status === 'completed' || status === 'failed') {
         void this.notifyFn?.(updated);
@@ -65,7 +65,7 @@ export class AgentFeedService {
 
   /** List feed items with pagination */
   listItems(options?: { limit?: number; before?: number; unreadOnly?: boolean }): {
-    items: AgentFeedItem[];
+    items: NotificationItem[];
     hasMore: boolean;
     unreadCount: number;
   } {
@@ -89,11 +89,11 @@ export class AgentFeedService {
     const readAt = this.repo.markRead(ids);
     const unreadCount = this.repo.unreadCount();
     this.broadcastFn({
-      type: 'agent_feed_read',
+      type: 'notification_read',
       itemIds: ids,
       readAt: readAt ?? Date.now(),
       unreadCount,
-    } as AgentFeedReadMessage);
+    } as NotificationReadMessage);
     return unreadCount;
   }
 
@@ -111,7 +111,7 @@ export class AgentFeedService {
   }
 
   /** Find feed item by task ID (for updating on task completion) */
-  findByTaskId(taskId: string): AgentFeedItem | undefined {
+  findByTaskId(taskId: string): NotificationItem | undefined {
     return this.repo.findByTaskId(taskId);
   }
 }

@@ -15,7 +15,7 @@ import { usePluginStore } from '../../stores/pluginStore';
 import { useProjectStore } from '../../stores/projectStore';
 import { useDraftEditorStore } from '../../stores/draftEditorStore';
 import { useUIStore } from '../../stores/uiStore';
-import { useAgentFeedStore } from '../../stores/agentFeedStore';
+import { useNotificationFeedStore } from '../../stores/notificationFeedStore';
 import * as api from '../../services/api';
 import type { AgentPermissionPolicy, ProviderCapabilities, SlashCommand, Session, Project, SystemInfo } from '@my-claudia/shared';
 
@@ -93,7 +93,7 @@ export function ChatInputArea({
   const { setAdvancedInput } = useUIStore();
   const openDraftEditor = useDraftEditorStore((s) => s.openEditor);
   const setSendCallback = useDraftEditorStore((s) => s.setSendCallback);
-  const unreadFeedCount = useAgentFeedStore((s) => s.unreadCount);
+  const unreadNotificationCount = useNotificationFeedStore((s) => s.unreadCount);
 
 
   // Mobile toolbar popover state
@@ -117,19 +117,19 @@ export function ChatInputArea({
   }, [mobileToolsOpen]);
 
   const closeMobileTools = useCallback(() => setMobileToolsOpen(false), []);
-  const toggleAgentFeedPanel = useCallback(() => {
+  const toggleNotificationsPanel = useCallback(() => {
     const pluginStore = usePluginStore.getState();
-    const isActive = bottomPanelTab === 'agent-feed';
-    const panel = pluginStore.panels.find((item) => item.id === 'agent-feed');
+    const isActive = bottomPanelTab === 'notifications';
+    const panel = pluginStore.panels.find((item) => item.id === 'notifications');
     const isVisible = !!panel?.visible;
 
     if (isVisible && isActive) {
-      pluginStore.updatePanelVisibility('agent-feed', false);
+      pluginStore.updatePanelVisibility('notifications', false);
       return;
     }
 
-    pluginStore.updatePanelVisibility('agent-feed', true);
-    setBottomPanelTab('agent-feed');
+    pluginStore.updatePanelVisibility('notifications', true);
+    setBottomPanelTab('notifications');
   }, [bottomPanelTab, setBottomPanelTab]);
 
   // Read-only mode
@@ -408,16 +408,16 @@ export function ChatInputArea({
             });
           }
 
-          if (!disabledBuiltinPanels.includes('agent-feed')) {
-            const isActive = bottomPanelTab === 'agent-feed';
+          if (!disabledBuiltinPanels.includes('notifications')) {
+            const isActive = bottomPanelTab === 'notifications';
             toolItems.push({
-              key: 'agent-feed',
+              key: 'notifications',
               icon: <Activity size={18} strokeWidth={1.75} />,
               label: isActive ? 'Hide Feed' : 'Notifications',
               isActive,
-              hasBadge: unreadFeedCount > 0 && !isActive,
+              hasBadge: unreadNotificationCount > 0 && !isActive,
               onClick: () => {
-                toggleAgentFeedPanel();
+                toggleNotificationsPanel();
                 closeMobileTools();
               },
             });

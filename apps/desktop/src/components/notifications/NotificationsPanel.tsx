@@ -1,16 +1,16 @@
 import { useEffect, useCallback } from 'react';
-import { useAgentFeedStore } from '../../stores/agentFeedStore';
+import { useNotificationFeedStore } from '../../stores/notificationFeedStore';
 import { useConnection } from '../../contexts/ConnectionContext';
-import { FeedItem } from './FeedItem';
+import { NotificationItem } from './NotificationItem';
 
-export function AgentFeedPanel() {
-  const { items, hasMore, loading, unreadCount, hydrated, setLoading, clearRead, removeItem } = useAgentFeedStore();
+export function NotificationsPanel() {
+  const { items, hasMore, loading, unreadCount, hydrated, setLoading, clearRead, removeItem } = useNotificationFeedStore();
   const { sendMessage } = useConnection();
 
   useEffect(() => {
     if (hydrated) return;
     setLoading(true);
-    sendMessage({ type: 'get_agent_feed', limit: 50 });
+    sendMessage({ type: 'get_notifications', limit: 50 });
   }, [hydrated, sendMessage, setLoading]);
 
   const loadMore = useCallback(() => {
@@ -18,25 +18,25 @@ export function AgentFeedPanel() {
     const oldest = items[items.length - 1];
     if (oldest) {
       setLoading(true);
-      sendMessage({ type: 'get_agent_feed', limit: 50, before: oldest.createdAt });
+      sendMessage({ type: 'get_notifications', limit: 50, before: oldest.createdAt });
     }
   }, [hasMore, loading, items, sendMessage, setLoading]);
 
   const markAllRead = useCallback(() => {
     const unreadIds = items.filter((i) => !i.readAt).map((i) => i.id);
     if (unreadIds.length > 0) {
-      sendMessage({ type: 'mark_feed_read', itemIds: unreadIds });
-      useAgentFeedStore.getState().markRead(unreadIds);
+      sendMessage({ type: 'mark_notifications_read', itemIds: unreadIds });
+      useNotificationFeedStore.getState().markRead(unreadIds);
     }
   }, [items, sendMessage]);
 
   const handleClearRead = useCallback(() => {
-    sendMessage({ type: 'clear_read_feed_items' });
+    sendMessage({ type: 'clear_read_notifications' });
     clearRead();
   }, [clearRead, sendMessage]);
 
   const handleDismiss = useCallback((id: string) => {
-    sendMessage({ type: 'dismiss_feed_items', itemIds: [id] });
+    sendMessage({ type: 'dismiss_notifications', itemIds: [id] });
     removeItem(id);
   }, [removeItem, sendMessage]);
 
@@ -85,7 +85,7 @@ export function AgentFeedPanel() {
 
         <div className="divide-y divide-border/50">
           {items.map((item) => (
-            <FeedItem key={item.id} item={item} onDismiss={handleDismiss} />
+            <NotificationItem key={item.id} item={item} onDismiss={handleDismiss} />
           ))}
         </div>
 

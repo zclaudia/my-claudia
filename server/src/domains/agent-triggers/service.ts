@@ -1,13 +1,13 @@
 import type Database from 'better-sqlite3';
 import type { AgentTrigger } from '@my-claudia/shared';
 import type { TaskOrchestrator } from '../../orchestration/types.js';
-import type { AgentFeedService } from '../agent-feed/service.js';
+import type { NotificationFeedService } from '../notification-feed/service.js';
 import { AgentTriggerRepository } from './repository.js';
 
 export interface AgentTriggerServiceDeps {
   db: Database.Database;
   orchestrator: TaskOrchestrator;
-  feedService: AgentFeedService;
+  notificationService: NotificationFeedService;
   pluginEvents: {
     on: (event: string, handler: (...args: any[]) => void) => (() => void) | void;
     off: (event: string, handler: (...args: any[]) => void) => void;
@@ -123,7 +123,7 @@ export class AgentTriggerService {
       });
     } catch (err: unknown) {
       if (trigger.feedDelivery) {
-        this.deps.feedService.postItem({
+        this.deps.notificationService.postItem({
           triggerId: trigger.id,
           source: trigger.triggerType === 'schedule' ? 'scheduled' : 'trigger',
           title: trigger.name,

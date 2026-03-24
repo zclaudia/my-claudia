@@ -11,7 +11,7 @@ import type { TerminalManager } from '../terminal-manager.js';
 import type { ProcessMonitor } from '../utils/process-monitor.js';
 import type { initDatabase } from '../storage/db.js';
 import type { ConnectedClient, ActiveRun } from './types.js';
-import type { AgentFeedService } from '../domains/agent-feed/service.js';
+import type { NotificationFeedService } from '../domains/notification-feed/service.js';
 import type { TaskOrchestrator } from '../orchestration/types.js';
 import { sendMessage } from './broadcast.js';
 
@@ -21,8 +21,8 @@ import {
   handleTerminalClose, handleTerminalDetach, handleTerminalAttach,
 } from './handlers/terminal.js';
 import {
-  handleGetAgentFeed, handleMarkFeedRead, handleDismissFeedItems, handleClearReadFeedItems,
-} from './handlers/agent-feed.js';
+  handleGetNotifications, handleMarkNotificationsRead, handleDismissNotifications, handleClearReadNotifications,
+} from './handlers/notification-feed.js';
 import {
   handlePermission, handleAskUser, handleInteractionResponse, handlePluginPermissionResponse,
 } from './handlers/permissions.js';
@@ -42,7 +42,7 @@ export interface MessageHandlerContext {
   cancelRun: (runId: string) => void;
   broadcastPluginState: () => void;
   findProcessPidsByTaskCommand: (taskCommand?: string, excludedPids?: number[]) => Promise<number[]>;
-  agentFeedService?: AgentFeedService;
+  notificationService?: NotificationFeedService;
   orchestrator?: TaskOrchestrator;
 }
 
@@ -95,21 +95,21 @@ export async function handleClientMessage(
       await handleStopBackgroundTask(client, message, db, ctx.activeRuns, ctx.findProcessPidsByTaskCommand);
       break;
 
-    // ── Agent Feed ──
-    case 'get_agent_feed':
-      if (ctx.agentFeedService) handleGetAgentFeed(client, message, ctx.agentFeedService);
+    // ── Notifications ──
+    case 'get_notifications':
+      if (ctx.notificationService) handleGetNotifications(client, message, ctx.notificationService);
       break;
 
-    case 'mark_feed_read':
-      if (ctx.agentFeedService) handleMarkFeedRead(message, ctx.agentFeedService);
+    case 'mark_notifications_read':
+      if (ctx.notificationService) handleMarkNotificationsRead(message, ctx.notificationService);
       break;
 
-    case 'dismiss_feed_items':
-      if (ctx.agentFeedService) handleDismissFeedItems(message, ctx.agentFeedService);
+    case 'dismiss_notifications':
+      if (ctx.notificationService) handleDismissNotifications(message, ctx.notificationService);
       break;
 
-    case 'clear_read_feed_items':
-      if (ctx.agentFeedService) handleClearReadFeedItems(ctx.agentFeedService);
+    case 'clear_read_notifications':
+      if (ctx.notificationService) handleClearReadNotifications(ctx.notificationService);
       break;
 
     // ── Claudia (inline + tasks) ──

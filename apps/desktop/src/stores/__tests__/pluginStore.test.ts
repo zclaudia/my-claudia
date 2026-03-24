@@ -9,6 +9,7 @@ import {
   selectPluginById,
   selectPluginPanels,
   selectPluginSettingsTabs,
+  normalizeDisabledBuiltinPanels,
   type InstalledPlugin,
   type UIExtension,
 } from '../pluginStore';
@@ -218,6 +219,15 @@ describe('PluginStore', () => {
 
       usePluginStore.getState().setError(null);
       expect(usePluginStore.getState().error).toBeNull();
+    });
+  });
+
+  describe('builtin panel migrations', () => {
+    it('normalizes legacy agent-feed disabled state to notifications', () => {
+      expect(normalizeDisabledBuiltinPanels(['terminal', 'agent-feed', 'notifications'])).toEqual([
+        'terminal',
+        'notifications',
+      ]);
     });
   });
 

@@ -52,7 +52,7 @@ export interface SpawnTaskConfig {
   contextReset?: boolean;
   feed?: {
     triggerId?: string;
-    source: import('@my-claudia/shared').FeedItemSource;
+    source: import('@my-claudia/shared').NotificationSource;
     title: string;
   };
   tools?: string[];

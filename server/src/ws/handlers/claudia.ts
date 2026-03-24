@@ -16,7 +16,7 @@ import type {
 import type { BranchAction } from '@my-claudia/shared';
 import type { ConnectedClient, ActiveRun } from '../types.js';
 import type { initDatabase } from '../../storage/db.js';
-import type { AgentFeedService } from '../../domains/agent-feed/service.js';
+import type { NotificationFeedService } from '../../domains/notification-feed/service.js';
 import type { TaskOrchestrator } from '../../orchestration/types.js';
 import { ClaudiaBranchService } from '../../services/claudia-branch-service.js';
 import { sendMessage } from '../broadcast.js';
@@ -25,7 +25,7 @@ interface ClaudiaHandlerContext {
   activeRuns: Map<string, ActiveRun>;
   connectedClients: Map<string, ConnectedClient>;
   handleRunStart: (client: ConnectedClient, message: any, db: any, options: any, clients: Map<string, ConnectedClient>) => Promise<void>;
-  agentFeedService?: AgentFeedService;
+  notificationService?: NotificationFeedService;
   orchestrator?: TaskOrchestrator;
 }
 
@@ -196,8 +196,8 @@ export async function handleClaudiaMessage(
 
     branchService.updateBranchTask(branchId, taskId, sessionId);
 
-    if (ctx.agentFeedService) {
-      ctx.agentFeedService.postItem({
+    if (ctx.notificationService) {
+      ctx.notificationService.postItem({
         taskId, sessionId, projectId: inlineProjectId,
         source: 'manual', title: inlineTitle, summary: inlineInput, status: 'running',
       });
@@ -270,9 +270,9 @@ export async function handleClaudiaMessage(
                   title: inlineTitle, responseText: fullContent, toolCount, updatedAt: Date.now(),
                 } as ClaudiaTaskUpdateMessage);
               }
-              if (ctx.agentFeedService) {
-                const feedItem = ctx.agentFeedService.findByTaskId(taskRow.id);
-                if (feedItem) ctx.agentFeedService.updateItemStatus(feedItem.id, 'completed', { summary });
+              if (ctx.notificationService) {
+                const feedItem = ctx.notificationService.findByTaskId(taskRow.id);
+                if (feedItem) ctx.notificationService.updateItemStatus(feedItem.id, 'completed', { summary });
               }
             }
           }
@@ -305,9 +305,9 @@ export async function handleClaudiaMessage(
                 error: errorMsg, responseText: fullContent || undefined, toolCount, updatedAt: Date.now(),
               } as ClaudiaTaskUpdateMessage);
             }
-            if (ctx.agentFeedService) {
-              const feedItem = ctx.agentFeedService.findByTaskId(taskRow.id);
-              if (feedItem) ctx.agentFeedService.updateItemStatus(feedItem.id, 'failed', { error: errorMsg });
+            if (ctx.notificationService) {
+              const feedItem = ctx.notificationService.findByTaskId(taskRow.id);
+              if (feedItem) ctx.notificationService.updateItemStatus(feedItem.id, 'failed', { error: errorMsg });
             }
           }
         }

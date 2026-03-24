@@ -11,7 +11,7 @@ import { usePluginStore } from '../stores/pluginStore';
 import { TerminalPanel, TerminalActions } from '../components/terminal/TerminalPanel';
 import { FileViewerPanel, FileViewerActions } from '../components/fileviewer/FileViewerPanel';
 import { DraftPanel, DraftActions } from '../components/draft/DraftPanel';
-import { AgentFeedPanel } from '../components/agent-feed/AgentFeedPanel';
+import { NotificationsPanel } from '../components/notifications/NotificationsPanel';
 import { useTerminalStore } from '../stores/terminalStore';
 import { useFileViewerStore } from '../stores/fileViewerStore';
 import { useDraftEditorStore } from '../stores/draftEditorStore';
@@ -82,18 +82,18 @@ export function initBuiltinPanels() {
   });
 
   registerPanel({
-    id: 'agent-feed',
-    pluginId: 'com.claudia.agent-feed',
+    id: 'notifications',
+    pluginId: 'com.claudia.notifications',
     type: 'panel',
-    label: 'Agent Feed',
+    label: 'Notifications',
     icon: 'Activity',
-    component: AgentFeedPanel,
+    component: NotificationsPanel,
     order: 3,
     platforms: ['desktop', 'mobile'],
     alwaysMount: false,
     visible: false,
     onClose: () => {
-      usePluginStore.getState().updatePanelVisibility('agent-feed', false);
+      usePluginStore.getState().updatePanelVisibility('notifications', false);
     },
   });
 
