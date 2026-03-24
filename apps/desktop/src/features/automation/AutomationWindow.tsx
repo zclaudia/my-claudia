@@ -214,14 +214,20 @@ function WorkflowsTab({ api, projects, projectName }: { api: ApiType; projects: 
   };
 
   const handleEnableTemplate = async (templateId: string, projectId: string) => {
-    await api.post(`/api/projects/${projectId}/workflows/from-template/${templateId}`).catch(() => {});
+    const path = selectedIsGlobal
+      ? `/api/workflows/from-template/${templateId}`
+      : `/api/projects/${projectId}/workflows/from-template/${templateId}`;
+    await api.post(path).catch(() => {});
     refresh();
   };
 
   const handleCreate = async () => {
     if (!effectiveProjectId) return;
     const name = `New Workflow ${new Date().toLocaleTimeString()}`;
-    await api.post(`/api/projects/${effectiveProjectId}/workflows`, {
+    const path = selectedIsGlobal
+      ? '/api/workflows'
+      : `/api/projects/${effectiveProjectId}/workflows`;
+    await api.post(path, {
       name,
       definition: { nodes: [], edges: [], entryNodeId: '', triggers: [{ type: 'manual' }] },
     }).catch(() => {});
@@ -258,13 +264,16 @@ function WorkflowsTab({ api, projects, projectName }: { api: ApiType; projects: 
         </div>
       </div>
 
-      {/* Quick Start Templates — hidden when Global project is selected */}
-      {templates.length > 0 && !selectedIsGlobal && (
+      {/* Quick Start Templates */}
+      {templates.length > 0 && (
         <div>
           <h3 className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider mb-2">Quick Start Templates</h3>
           <div className="grid grid-cols-3 gap-2">
             {templates.map(t => {
-              const enabled = workflows.some(w => w.templateId === t.id);
+              const enabled = workflows.some((w) => {
+                if (w.templateId !== t.id) return false;
+                return selectedIsGlobal ? !w.projectId : w.projectId === effectiveProjectId;
+              });
               return (
                 <div key={t.id} className="rounded-lg border border-border bg-card p-3 flex flex-col gap-2">
                   <div className="flex items-start justify-between gap-2">

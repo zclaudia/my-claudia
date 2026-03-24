@@ -44,6 +44,38 @@ describe('WorkflowRepository', () => {
       expect(result.description).toBeUndefined();
       expect(result.templateId).toBeUndefined();
     });
+
+    it('normalizes legacy step-based definitions', () => {
+      const row = {
+        id: 'w1',
+        project_id: 'p1',
+        name: 'legacy',
+        status: 'active',
+        definition: JSON.stringify({
+          version: 1,
+          steps: [
+            { id: 's1', name: 'First', type: 'shell', config: { command: 'echo 1' } },
+            { id: 's2', name: 'Second', type: 'shell', config: { command: 'echo 2' } },
+          ],
+          triggers: [{ type: 'manual' }],
+        }),
+        created_at: 100,
+        updated_at: 200,
+      };
+
+      const result = repo.mapRow(row);
+      expect(result.definition).toEqual({
+        nodes: [
+          { id: 's1', name: 'First', type: 'shell', config: { command: 'echo 1' }, position: { x: 300, y: 0 } },
+          { id: 's2', name: 'Second', type: 'shell', config: { command: 'echo 2' }, position: { x: 300, y: 150 } },
+        ],
+        edges: [
+          { id: 'edge_s1_to_s2', source: 's1', target: 's2', type: 'success' },
+        ],
+        entryNodeId: 's1',
+        triggers: [{ type: 'manual' }],
+      });
+    });
   });
 
   describe('createQuery', () => {

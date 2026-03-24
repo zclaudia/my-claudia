@@ -141,6 +141,35 @@ describe('workflow routes', () => {
       expect(res.body.success).toBe(true);
     });
 
+    it('normalizes legacy step-based definitions on create', async () => {
+      const legacyDefinition = {
+        version: 1,
+        steps: [
+          { id: 's1', name: 'First', type: 'shell', config: {} },
+          { id: 's2', name: 'Second', type: 'shell', config: {} },
+        ],
+        triggers: [{ type: 'manual' }],
+      };
+
+      const res = await request(app).post('/api/projects/proj-1/workflows').send({
+        name: 'Legacy WF',
+        definition: legacyDefinition,
+      });
+
+      expect(res.status).toBe(201);
+      expect(service.createWorkflow).toHaveBeenCalledWith(expect.objectContaining({
+        definition: {
+          nodes: [
+            { id: 's1', name: 'First', type: 'shell', config: {}, position: { x: 300, y: 0 } },
+            { id: 's2', name: 'Second', type: 'shell', config: {}, position: { x: 300, y: 150 } },
+          ],
+          edges: [{ id: 'edge_s1_to_s2', source: 's1', target: 's2', type: 'success' }],
+          entryNodeId: 's1',
+          triggers: [{ type: 'manual' }],
+        },
+      }));
+    });
+
     it('returns 400 when name is missing', async () => {
       const res = await request(app).post('/api/projects/proj-1/workflows').send({
         definition: validBody.definition,

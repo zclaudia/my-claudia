@@ -1,6 +1,6 @@
 import { BaseRepository } from '../../repositories/base.js';
 import type { Database } from 'better-sqlite3';
-import type { Workflow, WorkflowStatus, WorkflowDefinition } from '@my-claudia/shared';
+import { normalizeWorkflowDefinition, type Workflow, type WorkflowStatus, type WorkflowDefinition } from '@my-claudia/shared';
 import { v4 as uuidv4 } from 'uuid';
 
 type WorkflowCreate = Omit<Workflow, 'id' | 'createdAt' | 'updatedAt'>;
@@ -12,13 +12,14 @@ export class WorkflowRepository extends BaseRepository<Workflow, WorkflowCreate,
   }
 
   mapRow(row: any): Workflow {
+    const parsedDefinition = JSON.parse(row.definition || '{}');
     return {
       id: row.id,
       projectId: row.project_id ?? undefined,
       name: row.name,
       description: row.description || undefined,
       status: row.status as WorkflowStatus,
-      definition: JSON.parse(row.definition || '{}') as WorkflowDefinition,
+      definition: normalizeWorkflowDefinition(parsedDefinition) as WorkflowDefinition,
       templateId: row.template_id || undefined,
       createdAt: row.created_at,
       updatedAt: row.updated_at,

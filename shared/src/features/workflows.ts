@@ -78,6 +78,123 @@ export interface WorkflowDefinition {
   triggers: WorkflowTrigger[];
 }
 
+interface LegacyWorkflowCondition {
+  expression: string;
+  thenSteps?: string[];
+  elseSteps?: string[];
+}
+
+interface LegacyWorkflowStepDef {
+  id: string;
+  name: string;
+  type: WorkflowStepType;
+  config?: Record<string, unknown>;
+  onError?: WorkflowStepOnError;
+  retryCount?: number;
+  timeoutMs?: number;
+  condition?: LegacyWorkflowCondition;
+}
+
+interface LegacyWorkflowDefinition {
+  version?: number;
+  steps?: LegacyWorkflowStepDef[];
+  triggers?: WorkflowTrigger[];
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function toNodePosition(index: number): WorkflowNodePosition {
+  return { x: 300, y: index * 150 };
+}
+
+function migrateLegacyWorkflowDefinition(definition: LegacyWorkflowDefinition): WorkflowDefinition {
+  const steps = Array.isArray(definition.steps) ? definition.steps : [];
+  const triggers = Array.isArray(definition.triggers) ? definition.triggers : [];
+
+  const nodes: WorkflowNodeDef[] = steps.map((step, index) => ({
+    id: step.id,
+    name: step.name,
+    type: step.type,
+    config: step.config ?? {},
+    position: toNodePosition(index),
+    onError: step.onError,
+    retryCount: step.retryCount,
+    timeoutMs: step.timeoutMs,
+    condition: step.condition?.expression ? { expression: step.condition.expression } : undefined,
+  }));
+
+  const edges: WorkflowEdgeDef[] = [];
+
+  for (let index = 0; index < steps.length; index += 1) {
+    const step = steps[index];
+    const nextStep = steps[index + 1];
+
+    if (step.type === 'condition' && step.condition) {
+      for (const thenId of step.condition.thenSteps ?? []) {
+        edges.push({
+          id: `edge_${step.id}_true_${thenId}`,
+          source: step.id,
+          target: thenId,
+          type: 'condition_true',
+        });
+      }
+      for (const elseId of step.condition.elseSteps ?? []) {
+        edges.push({
+          id: `edge_${step.id}_false_${elseId}`,
+          source: step.id,
+          target: elseId,
+          type: 'condition_false',
+        });
+      }
+      continue;
+    }
+
+    if (nextStep) {
+      edges.push({
+        id: `edge_${step.id}_to_${nextStep.id}`,
+        source: step.id,
+        target: nextStep.id,
+        type: 'success',
+      });
+    }
+  }
+
+  return {
+    nodes,
+    edges,
+    entryNodeId: steps[0]?.id ?? '',
+    triggers,
+  };
+}
+
+export function normalizeWorkflowDefinition(definition: unknown): WorkflowDefinition {
+  if (!isRecord(definition)) {
+    return { nodes: [], edges: [], entryNodeId: '', triggers: [] };
+  }
+
+  if (Array.isArray(definition.nodes) && Array.isArray(definition.edges)) {
+    return {
+      nodes: definition.nodes as WorkflowNodeDef[],
+      edges: definition.edges as WorkflowEdgeDef[],
+      entryNodeId: typeof definition.entryNodeId === 'string' ? definition.entryNodeId : '',
+      triggers: Array.isArray(definition.triggers) ? definition.triggers as WorkflowTrigger[] : [],
+    };
+  }
+
+  if (Array.isArray((definition as LegacyWorkflowDefinition).steps)) {
+    return migrateLegacyWorkflowDefinition(definition as LegacyWorkflowDefinition);
+  }
+
+  return {
+    nodes: [],
+    edges: [],
+    entryNodeId: '',
+    triggers: Array.isArray(definition.triggers) ? definition.triggers as WorkflowTrigger[] : [],
+  };
+}
+
 export interface Workflow {
   id: string;
   projectId?: string;

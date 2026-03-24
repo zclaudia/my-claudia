@@ -64,7 +64,9 @@ vi.mock('../WorkflowGraphEditor', () => ({
 }));
 
 // Mock shared utilities
-vi.mock('@my-claudia/shared', () => ({}));
+vi.mock('@my-claudia/shared', () => ({
+  normalizeWorkflowDefinition: (definition: unknown) => definition,
+}));
 
 // Mock Tauri
 vi.mock('@tauri-apps/api/webviewWindow', () => ({
@@ -74,6 +76,7 @@ vi.mock('@tauri-apps/api/webviewWindow', () => ({
 import { WorkflowEditor } from '../WorkflowEditor';
 
 describe('WorkflowEditor', () => {
+  const mockFetch = vi.fn();
   const mockCreateWorkflow = vi.fn().mockResolvedValue({ id: 'wf-new' });
   const mockUpdateWorkflow = vi.fn().mockResolvedValue(undefined);
   const mockLoadStepTypes = vi.fn();
@@ -82,6 +85,8 @@ describe('WorkflowEditor', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.stubGlobal('fetch', mockFetch);
+    mockFetch.mockReset();
 
     useWorkflowStore.setState({
       workflows: {},
@@ -438,7 +443,7 @@ describe('WorkflowEditor', () => {
     });
   });
 
-  it('uses PUT for standalone save of existing workflow', async () => {
+  it('uses PATCH for standalone save of existing workflow', async () => {
     const mockFetch = vi.fn().mockResolvedValue({
       ok: true,
       json: async () => ({ data: { id: 'wf-1' } }),
@@ -472,7 +477,7 @@ describe('WorkflowEditor', () => {
     await waitFor(() => {
       expect(mockFetch).toHaveBeenCalledWith(
         'http://localhost:3100/api/workflows/wf-1',
-        expect.objectContaining({ method: 'PUT' })
+        expect.objectContaining({ method: 'PATCH' })
       );
     });
   });

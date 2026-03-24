@@ -7,6 +7,7 @@ import type {
   WorkflowDefinition,
   WorkflowTrigger,
 } from '@my-claudia/shared';
+import { normalizeWorkflowDefinition } from '@my-claudia/shared';
 import { StepConfigForm } from './StepConfigForm';
 import { TriggerConfigForm } from './TriggerConfigForm';
 import { NodePalette } from './NodePalette';
@@ -42,7 +43,7 @@ function getInitialDefinition(workflow?: Workflow): WorkflowDefinition {
       triggers: [{ type: 'manual' }],
     };
   }
-  return workflow.definition;
+  return normalizeWorkflowDefinition(workflow.definition);
 }
 
 export function WorkflowEditor({ workflow, projectId, onBack, onSaved, standalone, serverUrl, authToken, initialMode }: WorkflowEditorProps) {
@@ -178,7 +179,7 @@ export function WorkflowEditor({ workflow, projectId, onBack, onSaved, standalon
 
         if (workflowId) {
           const resp = await fetch(`${serverUrl}/api/workflows/${workflowId}`, {
-            method: 'PUT',
+            method: 'PATCH',
             headers,
             body: JSON.stringify({ name, description: description || undefined, definition, projectId }),
           });

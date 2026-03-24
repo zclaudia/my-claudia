@@ -7,12 +7,13 @@
 import { Router, Request, Response } from 'express';
 import type { WorkflowService } from './service.js';
 import type { WorkflowGeneratorService } from './generator.js';
-import type { WorkflowStepTypeMeta, WorkflowDefinition, WorkflowNodeDef } from '@my-claudia/shared';
+import { normalizeWorkflowDefinition, type WorkflowStepTypeMeta, type WorkflowDefinition, type WorkflowNodeDef } from '@my-claudia/shared';
 import { isValidCron } from '../../utils/cron.js';
 import { workflowStepRegistry } from '../../plugins/workflow-step-registry.js';
 
 function validateWorkflowDefinition(res: Response, definition: unknown): definition is WorkflowDefinition {
-  const candidate = definition as Record<string, unknown> | null | undefined;
+  const workflowDefinition = normalizeWorkflowDefinition(definition);
+  const candidate = workflowDefinition as Record<string, unknown> | null | undefined;
 
   if (
     !Array.isArray(candidate?.nodes) ||
@@ -27,7 +28,6 @@ function validateWorkflowDefinition(res: Response, definition: unknown): definit
     return false;
   }
 
-  const workflowDefinition = definition as WorkflowDefinition;
   const nodeIds = new Set(workflowDefinition.nodes.map((node: WorkflowNodeDef) => node.id));
   const hasNodes = workflowDefinition.nodes.length > 0;
   if (hasNodes && (!workflowDefinition.entryNodeId || !nodeIds.has(workflowDefinition.entryNodeId))) {
@@ -78,12 +78,13 @@ export function createWorkflowRoutes(service: WorkflowService, generatorService?
         });
       }
       if (!validateWorkflowDefinition(res, definition)) return;
+      const normalizedDefinition = normalizeWorkflowDefinition(definition);
 
       const workflow = service.createWorkflow({
         projectId: req.params.projectId,
         name,
         description,
-        definition,
+        definition: normalizedDefinition,
         status,
       });
       res.status(201).json({ success: true, data: workflow });
@@ -119,7 +120,9 @@ export function createWorkflowRoutes(service: WorkflowService, generatorService?
         });
       }
 
-      const parsedDef = typeof definition === 'string' ? JSON.parse(definition) : (definition ?? { nodes: [], edges: [], entryNodeId: '', triggers: [] });
+      const parsedDef = normalizeWorkflowDefinition(
+        typeof definition === 'string' ? JSON.parse(definition) : definition
+      );
       if (!validateWorkflowDefinition(res, parsedDef)) return;
 
       const workflow = service.createWorkflow({
@@ -181,10 +184,10 @@ export function createWorkflowRoutes(service: WorkflowService, generatorService?
       }
 
       if (req.body.definition !== undefined) {
-        const mergedDefinition = {
+        const mergedDefinition = normalizeWorkflowDefinition({
           ...existing.definition,
           ...req.body.definition,
-        };
+        });
         if (!validateWorkflowDefinition(res, mergedDefinition)) return;
         req.body.definition = mergedDefinition;
       }
