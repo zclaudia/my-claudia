@@ -93,7 +93,7 @@ export function ShortcutSettings({ disabled = false }: { disabled?: boolean }) {
 
       {disabled && (
         <div className="text-xs text-muted-foreground px-3">
-          Claudia 关闭时，桌面悬浮球和全局快捷键都会一起停用。
+          When Claudia is closed, the desktop orb and global shortcut are disabled together.
         </div>
       )}
 
