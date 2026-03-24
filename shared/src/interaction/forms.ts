@@ -82,6 +82,13 @@ export interface ApprovalInteractionMessage extends InteractionBase {
   payload?: Record<string, unknown>;
 }
 
+/** Plan review interaction (from exit_plan_mode tool) */
+export interface PlanReviewInteractionMessage extends InteractionBase {
+  type: 'interaction_plan_review';
+  plan: string;
+  allowedPrompts?: Array<{ tool: string; prompt: string }>;
+}
+
 /** Client → Server: user submitted a form response */
 export interface InteractionResponseMessage {
   type: 'interaction_response';
@@ -91,4 +98,4 @@ export interface InteractionResponseMessage {
 }
 
 /** Union of all interaction message types */
-export type InteractionMessage = AskUserInteractionMessage | TodoUpdateInteractionMessage | AskUserFormInteractionMessage | ApprovalInteractionMessage;
+export type InteractionMessage = AskUserInteractionMessage | TodoUpdateInteractionMessage | AskUserFormInteractionMessage | ApprovalInteractionMessage | PlanReviewInteractionMessage;

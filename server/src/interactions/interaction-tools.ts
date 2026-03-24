@@ -16,7 +16,7 @@ import http from 'http';
 import { toolRegistry } from '../plugins/tool-registry.js';
 import { interactionDispatcher } from './interaction-dispatcher.js';
 import { normalizeTodoItems } from './todo-normalizer.js';
-import type { TodoUpdateInteractionMessage, AskUserFormInteractionMessage, ApprovalInteractionMessage } from '@my-claudia/shared';
+import type { TodoUpdateInteractionMessage, AskUserFormInteractionMessage, ApprovalInteractionMessage, PlanReviewInteractionMessage } from '@my-claudia/shared';
 
 export interface InteractionToolsConfig {
   getServerPort: () => number | null;
@@ -162,6 +162,17 @@ export function registerInteractionTools(config?: InteractionToolsConfig): void 
       };
 
       const response = await interactionDispatcher.dispatchAndWait(interactionId, sessionId, event);
+      if (response.error) {
+        throw new Error(String(response.error));
+      }
+
+      if (response.approved !== true) {
+        const feedback = typeof response.feedback === 'string' && response.feedback.trim()
+          ? response.feedback.trim()
+          : 'Plan rejected by user';
+        throw new Error(feedback);
+      }
+
       return JSON.stringify(response);
     },
   });
@@ -206,6 +217,18 @@ export function registerInteractionTools(config?: InteractionToolsConfig): void 
       };
 
       const response = await interactionDispatcher.dispatchAndWait(interactionId, sessionId, event);
+
+      if (response.error) {
+        throw new Error(String(response.error));
+      }
+
+      if (response.approved !== true) {
+        const feedback = typeof response.feedback === 'string' && response.feedback.trim()
+          ? response.feedback.trim()
+          : 'Plan rejected by user';
+        throw new Error(feedback);
+      }
+
       return JSON.stringify(response);
     },
   });
@@ -267,5 +290,87 @@ export function registerInteractionTools(config?: InteractionToolsConfig): void 
     },
   });
 
-  console.log('[InteractionTools] Registered 4 interaction tools: update_todo_list, ask_user_form, request_approval, push_file');
+  // ============================================
+  // enter_plan_mode — fire-and-forget, signals plan mode entry
+  // ============================================
+  toolRegistry.register({
+    id: 'enter_plan_mode',
+    source: 'interaction',
+    definition: {
+      type: 'function',
+      function: {
+        name: 'enter_plan_mode',
+        description: 'Enter plan mode to analyze and plan before executing. Use this when the task is complex and you want to create a thorough plan before making changes. In plan mode, only use read-only tools (read files, search, etc.) — do not modify files until the plan is approved.',
+        parameters: {
+          type: 'object',
+          properties: {},
+        },
+      },
+    },
+    handler: async () => {
+      return JSON.stringify({ entered: true });
+    },
+  });
+
+  // ============================================
+  // exit_plan_mode — blocks until user approves/denies the plan
+  // ============================================
+  toolRegistry.register({
+    id: 'exit_plan_mode',
+    source: 'interaction',
+    definition: {
+      type: 'function',
+      function: {
+        name: 'exit_plan_mode',
+        description: 'Exit plan mode with a completed plan for user review. The plan will be presented to the user for approval. If approved, you may proceed with execution. If denied, read the feedback and revise your plan.',
+        parameters: {
+          type: 'object',
+          properties: {
+            plan: { type: 'string', description: 'The complete execution plan in markdown format' },
+            allowedPrompts: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  tool: { type: 'string', description: 'Tool name to be used' },
+                  prompt: { type: 'string', description: 'Description of what this tool call will do' },
+                },
+                required: ['tool', 'prompt'],
+              },
+              description: 'List of tool calls the plan intends to make',
+            },
+          },
+          required: ['plan'],
+        },
+      },
+    },
+    handler: async (args, context) => {
+      const sessionId = (context?.sessionId as string) || '';
+      const interactionId = uuidv4();
+
+      const event: PlanReviewInteractionMessage = {
+        type: 'interaction_plan_review',
+        interactionId,
+        sessionId,
+        source: 'tool_call',
+        createdAt: Date.now(),
+        plan: (args.plan as string) || '',
+        allowedPrompts: args.allowedPrompts as PlanReviewInteractionMessage['allowedPrompts'],
+      };
+
+      const response = await interactionDispatcher.dispatchAndWait(interactionId, sessionId, event);
+      if (response.error) {
+        throw new Error(String(response.error));
+      }
+      if (response.approved !== true) {
+        const feedback = typeof response.feedback === 'string' && response.feedback.trim()
+          ? response.feedback.trim()
+          : 'Plan rejected by user';
+        throw new Error(feedback);
+      }
+      return JSON.stringify(response);
+    },
+  });
+
+  console.log('[InteractionTools] Registered 6 interaction tools: update_todo_list, ask_user_form, request_approval, push_file, enter_plan_mode, exit_plan_mode');
 }

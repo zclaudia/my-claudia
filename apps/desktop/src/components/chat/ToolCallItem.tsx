@@ -63,9 +63,17 @@ function isPushFileTool(toolName: string): boolean {
   return hasInteractionToolSuffix(toolName, 'push_file');
 }
 
+// Check if tool is enter_plan_mode or exit_plan_mode (MCP or normalized)
+function isPlanModeTool(toolName: string): boolean {
+  return hasInteractionToolSuffix(toolName, 'enter_plan_mode')
+    || hasInteractionToolSuffix(toolName, 'exit_plan_mode')
+    || toolName === 'EnterPlanMode'
+    || toolName === 'ExitPlanMode';
+}
+
 // Check if tool is any MCP interaction tool
 function isInteractionTool(toolName: string): boolean {
-  return isTodoTool(toolName) || isAskUserFormTool(toolName) || isApprovalTool(toolName) || isPushFileTool(toolName);
+  return isTodoTool(toolName) || isAskUserFormTool(toolName) || isApprovalTool(toolName) || isPushFileTool(toolName) || isPlanModeTool(toolName);
 }
 
 type TodoItem = {
@@ -684,7 +692,7 @@ export const ToolCallItem = memo(function ToolCallItem({ toolCall }: ToolCallIte
     if (interaction.type === 'interaction_todo_update' && interaction.todos.length > 0) {
       return <InteractionItem interaction={interaction} />;
     }
-    if (interaction.type === 'interaction_ask_user_form' || interaction.type === 'interaction_approval') {
+    if (interaction.type === 'interaction_ask_user_form' || interaction.type === 'interaction_approval' || interaction.type === 'interaction_plan_review') {
       return <InteractionItem interaction={interaction} />;
     }
   }

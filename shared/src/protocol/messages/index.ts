@@ -13,7 +13,7 @@ export * from './notification-feed.js';
 export * from './plugins.js';
 
 // Re-import interaction types needed for the ServerMessage union
-import type { AskUserInteractionMessage, TodoUpdateInteractionMessage, AskUserFormInteractionMessage, ApprovalInteractionMessage, InteractionResolvedMessage, InteractionResponseMessage } from '../../interaction/forms.js';
+import type { AskUserInteractionMessage, TodoUpdateInteractionMessage, AskUserFormInteractionMessage, ApprovalInteractionMessage, PlanReviewInteractionMessage, InteractionResolvedMessage, InteractionResponseMessage } from '../../interaction/forms.js';
 export type { InteractionResponseMessage };
 
 // ============================================
@@ -242,6 +242,7 @@ export type ServerMessage =
   | TodoUpdateInteractionMessage
   | AskUserFormInteractionMessage
   | ApprovalInteractionMessage
+  | PlanReviewInteractionMessage
   | InteractionResolvedMessage
   // Claudia Tasks
   | ClaudiaTaskCreatedMessage

@@ -829,7 +829,11 @@ You have access to these interaction tools via MCP:
 
 Prefer ask_user_form over AskUserQuestion when you need multiple pieces of information at once or want to offer specific options/choices.
 Use request_approval when an action is destructive or hard to reverse — do not just proceed without confirmation.
-Use push_file instead of curl to send files to the user — it is more reliable and works across all providers.`
+Use push_file instead of curl to send files to the user — it is more reliable and works across all providers.
+- **enter_plan_mode**: Enter plan mode to analyze and plan before executing. Use for complex multi-step tasks. In plan mode, only use read-only tools.
+- **exit_plan_mode**: Exit plan mode with your completed plan for user review. Blocks until the user approves or denies. If denied, read the feedback and revise.
+
+Use enter_plan_mode / exit_plan_mode for complex tasks that affect multiple files or have ambiguous requirements. Flow: enter_plan_mode → analyze (read-only) → exit_plan_mode with plan → if approved, execute; if denied, revise and resubmit.`
       : undefined;
 
     // 🆕 Assemble workspace prompt (SOUL.md, AGENTS.md, TOOLS.md, skills)
@@ -1079,8 +1083,8 @@ Use push_file instead of curl to send files to the user — it is more reliable 
             result: msg.toolResult,
             isError: msg.isToolError,
           }).catch(() => {});
-          // Claude-specific: sync plan mode state to client
-          if (activeRun.providerType === 'claude' && !msg.isToolError) {
+          // Sync plan mode state to client (Claude native + Codex via MCP tools)
+          if ((activeRun.providerType === 'claude' || activeRun.providerType === 'codex') && !msg.isToolError) {
             if (toolName === 'EnterPlanMode') {
               sendRunEvent({ type: 'mode_change', runId, sessionId: activeRun.sessionId, mode: 'plan' });
               // Track AI-initiated plan mode (only when the run didn't start in plan mode)

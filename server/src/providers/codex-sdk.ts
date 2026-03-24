@@ -149,6 +149,22 @@ function prepareCodexInput(input: string): Input {
   return parts;
 }
 
+// ── MCP tool name normalization ───────────────────────────────
+// Plan mode tools are registered as MCP tools (snake_case) but run-handler
+// expects PascalCase names matching Claude SDK's native tools.
+const MCP_PLAN_TOOL_MAP: Record<string, string> = {
+  'enter_plan_mode': 'EnterPlanMode',
+  'exit_plan_mode': 'ExitPlanMode',
+};
+
+function normalizeMcpToolName(server: string, tool: string): string {
+  if (server === 'claudia-plugins') {
+    const native = MCP_PLAN_TOOL_MAP[tool];
+    if (native) return native;
+  }
+  return `mcp:${server}:${tool}`;
+}
+
 // ── ThreadItem → ClaudeMessage mapping ───────────────────────
 
 function mapItemStarted(item: ThreadItem): ClaudeMessage | null {
@@ -176,7 +192,7 @@ function mapItemStarted(item: ThreadItem): ClaudeMessage | null {
       return {
         type: 'tool_use',
         toolUseId,
-        toolName: `mcp:${item.server}:${item.tool}`,
+        toolName: normalizeMcpToolName(item.server, item.tool),
         toolInput: item.arguments,
       };
     case 'web_search':
@@ -229,7 +245,7 @@ function mapItemCompleted(item: ThreadItem): ClaudeMessage | null {
       return {
         type: 'tool_result',
         toolUseId,
-        toolName: `mcp:${item.server}:${item.tool}`,
+        toolName: normalizeMcpToolName(item.server, item.tool),
         toolResult: resultText,
         isToolError: item.status === 'failed',
       };

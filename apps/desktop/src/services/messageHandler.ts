@@ -354,6 +354,7 @@ export function handleServerMessage(
     case 'interaction_ask_user_form':
     case 'interaction_approval':
     case 'interaction_todo_update':
+    case 'interaction_plan_review':
       useInteractionStore.getState().upsertInteraction(msg);
       break;
 

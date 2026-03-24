@@ -1,6 +1,6 @@
 import { memo, useState, useCallback } from 'react';
-import { CheckCircle2, Loader2, Square, ListTodo, MessageCircleQuestion, FileQuestion, Send, Check, ShieldAlert, ThumbsUp, ThumbsDown } from 'lucide-react';
-import type { InteractionMessage, AskUserFormInteractionMessage, AskUserFormField, ApprovalInteractionMessage } from '@my-claudia/shared';
+import { CheckCircle2, Loader2, Square, ListTodo, MessageCircleQuestion, FileQuestion, Send, Check, ShieldAlert, ThumbsUp, ThumbsDown, ClipboardCheck, Maximize2, Minimize2 } from 'lucide-react';
+import type { InteractionMessage, AskUserFormInteractionMessage, AskUserFormField, ApprovalInteractionMessage, PlanReviewInteractionMessage } from '@my-claudia/shared';
 import { useConnection } from '../../contexts/ConnectionContext';
 
 interface InteractionItemProps {
@@ -223,6 +223,117 @@ function ApprovalRenderer({ interaction }: { interaction: ApprovalInteractionMes
 }
 
 // ============================================
+// Plan Review Interaction Renderer
+// ============================================
+
+function PlanReviewRenderer({ interaction }: { interaction: PlanReviewInteractionMessage }) {
+  const { sendMessage } = useConnection();
+  const [decision, setDecision] = useState<'approved' | 'rejected' | null>(null);
+  const [feedback, setFeedback] = useState('');
+  const [showFeedback, setShowFeedback] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+
+  const handleApprove = useCallback(() => {
+    sendMessage({
+      type: 'interaction_response',
+      interactionId: interaction.interactionId,
+      sessionId: interaction.sessionId,
+      response: { approved: true },
+    });
+    setDecision('approved');
+  }, [sendMessage, interaction.interactionId, interaction.sessionId]);
+
+  const handleDeny = useCallback((withFeedback: boolean) => {
+    if (withFeedback && !showFeedback) {
+      setShowFeedback(true);
+      return;
+    }
+    sendMessage({
+      type: 'interaction_response',
+      interactionId: interaction.interactionId,
+      sessionId: interaction.sessionId,
+      response: { approved: false, feedback: feedback.trim() || undefined },
+    });
+    setDecision('rejected');
+  }, [sendMessage, interaction.interactionId, interaction.sessionId, feedback, showFeedback]);
+
+  if (decision) {
+    return (
+      <div className={`flex flex-col gap-1 px-3 py-2 rounded-md border ${decision === 'approved' ? 'bg-success/10 border-success/30' : 'bg-destructive/10 border-destructive/30'}`}>
+        <div className={`flex items-center gap-2 text-xs font-medium ${decision === 'approved' ? 'text-success' : 'text-destructive'}`}>
+          {decision === 'approved' ? <ThumbsUp size={12} /> : <ThumbsDown size={12} />}
+          <span>Plan {decision === 'approved' ? 'Approved' : 'Rejected'}</span>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-2 px-3 py-2 rounded-md bg-primary/5 border border-primary/30">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2 text-xs font-medium text-foreground">
+          <ClipboardCheck size={12} className="text-primary" />
+          <span>Plan Review</span>
+        </div>
+        <button
+          onClick={() => setExpanded(!expanded)}
+          className="p-0.5 rounded hover:bg-muted transition-colors text-muted-foreground"
+          title={expanded ? 'Collapse' : 'Expand'}
+        >
+          {expanded ? <Minimize2 size={12} /> : <Maximize2 size={12} />}
+        </button>
+      </div>
+
+      {/* Plan content */}
+      <div className={`text-xs text-foreground whitespace-pre-wrap overflow-auto rounded bg-muted/30 p-2 ${expanded ? 'max-h-[80vh]' : 'max-h-60'}`}>
+        {interaction.plan}
+      </div>
+
+      {/* Allowed prompts */}
+      {interaction.allowedPrompts && interaction.allowedPrompts.length > 0 && (
+        <div className="flex flex-col gap-1">
+          <span className="text-xs font-medium text-muted-foreground">Requested permissions:</span>
+          <ul className="text-xs text-foreground list-disc list-inside space-y-0.5">
+            {interaction.allowedPrompts.map((p, i) => (
+              <li key={i}><code className="text-primary">{p.tool}</code> — {p.prompt}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {/* Feedback textarea */}
+      {showFeedback && (
+        <textarea
+          value={feedback}
+          onChange={(e) => setFeedback(e.target.value)}
+          placeholder="Why do you reject this plan? (optional)"
+          rows={2}
+          className="w-full px-2 py-1 text-xs rounded border border-border bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary resize-y"
+        />
+      )}
+
+      {/* Action buttons */}
+      <div className="flex items-center gap-2 self-end">
+        <button
+          onClick={() => handleDeny(true)}
+          className="flex items-center gap-1 px-3 py-1 text-xs font-medium rounded border border-border bg-background text-foreground hover:bg-muted transition-colors"
+        >
+          <ThumbsDown size={10} />
+          {showFeedback ? 'Send Rejection' : 'Deny'}
+        </button>
+        <button
+          onClick={handleApprove}
+          className="flex items-center gap-1 px-3 py-1 text-xs font-medium rounded bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
+        >
+          <ThumbsUp size={10} />
+          Approve Plan
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ============================================
 // Main InteractionItem
 // ============================================
 
@@ -280,6 +391,10 @@ function InteractionItemInner({ interaction }: InteractionItemProps) {
 
   if (interaction.type === 'interaction_approval') {
     return <ApprovalRenderer interaction={interaction} />;
+  }
+
+  if (interaction.type === 'interaction_plan_review') {
+    return <PlanReviewRenderer interaction={interaction} />;
   }
 
   return null;
