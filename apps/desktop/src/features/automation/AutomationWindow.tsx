@@ -8,7 +8,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Loader2, Zap, Clock, Radio, Server, RefreshCw, Play, Pause, Trash2,
-  Globe, FolderOpen, ChevronDown, ChevronRight, Plus,
+  Globe, FolderOpen, ChevronDown, ChevronRight, Plus, Pencil, Sparkles,
   CheckCircle2, XCircle,
 } from 'lucide-react';
 import type { Workflow, WorkflowTemplate, ScheduledTask, ScheduledTaskTemplate, SystemTaskInfo, TaskRun } from '@my-claudia/shared';
@@ -167,7 +167,7 @@ export function AutomationWindow({ serverUrl, authToken }: AutomationWindowProps
 
       {/* Content */}
       <div className="flex-1 overflow-auto p-4">
-        {tab === 'workflows' && <WorkflowsTab api={api} projects={projects} projectName={projectName} />}
+        {tab === 'workflows' && <WorkflowsTab api={api} projects={projects} projectName={projectName} serverUrl={serverUrl} authToken={authToken} />}
         {tab === 'scheduled' && <ScheduledTasksTab api={api} projects={projects} projectName={projectName} />}
         {tab === 'system' && <SystemTasksTab api={api} />}
         {tab === 'triggers' && <TriggersTab api={api} projectName={projectName} />}
@@ -178,7 +178,30 @@ export function AutomationWindow({ serverUrl, authToken }: AutomationWindowProps
 
 // ── Workflows Tab ────────────────────────────────────────────
 
-function WorkflowsTab({ api, projects, projectName }: { api: ApiType; projects: ProjectInfo[]; projectName: (id?: string) => string }) {
+async function openWorkflowEditor(serverUrl: string, authToken: string, projectId: string, workflowId?: string, initialMode?: string): Promise<void> {
+  try {
+    const { WebviewWindow } = await import('@tauri-apps/api/webviewWindow');
+    const label = `workflow-editor-${Date.now()}`;
+    const params = new URLSearchParams({
+      workflowEditor: projectId,
+      serverUrl,
+      authToken,
+    });
+    if (workflowId) params.set('workflowId', workflowId);
+    if (initialMode) params.set('initialMode', initialMode);
+    const url = `${window.location.origin}${window.location.pathname}?${params}`;
+    new WebviewWindow(label, {
+      url,
+      title: workflowId ? 'Edit Workflow' : 'New Workflow',
+      width: 1100,
+      height: 700,
+      center: true,
+      dragDropEnabled: false,
+    });
+  } catch { /* not in Tauri */ }
+}
+
+function WorkflowsTab({ api, projects, projectName, serverUrl, authToken }: { api: ApiType; projects: ProjectInfo[]; projectName: (id?: string) => string; serverUrl: string; authToken: string }) {
   const [workflows, setWorkflows] = useState<Workflow[]>([]);
   const [templates, setTemplates] = useState<WorkflowTemplate[]>([]);
   const [loading, setLoading] = useState(true);
@@ -221,17 +244,20 @@ function WorkflowsTab({ api, projects, projectName }: { api: ApiType; projects: 
     refresh();
   };
 
-  const handleCreate = async () => {
+  const handleCreate = () => {
     if (!effectiveProjectId) return;
-    const name = `New Workflow ${new Date().toLocaleTimeString()}`;
-    const path = selectedIsGlobal
-      ? '/api/workflows'
-      : `/api/projects/${effectiveProjectId}/workflows`;
-    await api.post(path, {
-      name,
-      definition: { nodes: [], edges: [], entryNodeId: '', triggers: [{ type: 'manual' }] },
-    }).catch(() => {});
-    refresh();
+    openWorkflowEditor(serverUrl, authToken, effectiveProjectId);
+  };
+
+  const handleAIGenerate = () => {
+    if (!effectiveProjectId) return;
+    openWorkflowEditor(serverUrl, authToken, effectiveProjectId, undefined, 'ai');
+  };
+
+  const handleEdit = (workflow: Workflow) => {
+    const pid = workflow.projectId || effectiveProjectId;
+    if (!pid) return;
+    openWorkflowEditor(serverUrl, authToken, pid, workflow.id);
   };
 
   if (loading) return <LoadingState />;
@@ -251,6 +277,13 @@ function WorkflowsTab({ api, projects, projectName }: { api: ApiType; projects: 
               {renderProjectOptions(projects)}
             </select>
           )}
+          <button
+            onClick={handleAIGenerate}
+            className="flex items-center gap-1 px-2.5 py-1 text-xs rounded-md border border-border hover:bg-secondary transition-colors"
+          >
+            <Sparkles size={12} />
+            AI Generate
+          </button>
           <button
             onClick={handleCreate}
             className="flex items-center gap-1 px-2.5 py-1 text-xs rounded-md bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
@@ -311,7 +344,11 @@ function WorkflowsTab({ api, projects, projectName }: { api: ApiType; projects: 
       ) : (
         <div className="space-y-2">
           {workflows.map(w => (
-            <div key={w.id} className="rounded-lg border border-border bg-card/50 p-3 flex items-center gap-3">
+            <div
+              key={w.id}
+              className="rounded-lg border border-border bg-card/50 p-3 flex items-center gap-3 cursor-pointer hover:bg-secondary/30 transition-colors"
+              onClick={() => handleEdit(w)}
+            >
               <span className={`w-2 h-2 rounded-full flex-shrink-0 ${w.status === 'active' ? 'bg-green-500' : 'bg-muted-foreground'}`} />
               <div className="flex-1 min-w-0">
                 <div className="text-sm font-medium truncate">{w.name}</div>
@@ -323,7 +360,10 @@ function WorkflowsTab({ api, projects, projectName }: { api: ApiType; projects: 
                   {w.description && <><span>·</span><span className="truncate">{w.description}</span></>}
                 </div>
               </div>
-              <div className="flex items-center gap-1">
+              <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+                <button onClick={() => handleEdit(w)} className="p-1.5 rounded hover:bg-secondary text-muted-foreground hover:text-foreground" title="Edit">
+                  <Pencil size={12} />
+                </button>
                 {w.status === 'active' && (
                   <button onClick={() => handleTrigger(w.id)} className="p-1.5 rounded hover:bg-secondary text-muted-foreground hover:text-foreground" title="Trigger">
                     <Play size={12} />

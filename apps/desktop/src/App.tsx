@@ -819,6 +819,7 @@ function App() {
           serverName={params.get('serverName') || undefined}
           gatewayUrl={params.get('gatewayUrl') || undefined}
           gatewaySecret={params.get('gatewaySecret') || undefined}
+          initialMode={(params.get('initialMode') as 'toolbox' | 'ai') || undefined}
         />
       </ThemeProvider>
     );

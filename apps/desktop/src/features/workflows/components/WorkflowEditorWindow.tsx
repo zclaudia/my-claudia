@@ -16,6 +16,7 @@ interface WorkflowEditorWindowProps {
   serverName?: string;
   gatewayUrl?: string;
   gatewaySecret?: string;
+  initialMode?: 'toolbox' | 'ai';
 }
 
 /** Standalone workflow editor rendered in a separate Tauri window */
@@ -28,6 +29,7 @@ export function WorkflowEditorWindow({
   serverName,
   gatewayUrl,
   gatewaySecret,
+  initialMode,
 }: WorkflowEditorWindowProps) {
   return (
     <ConnectionProvider
@@ -42,12 +44,13 @@ export function WorkflowEditorWindow({
         workflowId={workflowId}
         serverUrl={serverUrl}
         authToken={authToken}
+        initialMode={initialMode}
       />
     </ConnectionProvider>
   );
 }
 
-function WorkflowEditorWindowContent({ projectId, workflowId, serverUrl, authToken }: Omit<WorkflowEditorWindowProps, 'serverId' | 'serverName' | 'gatewayUrl' | 'gatewaySecret'>) {
+function WorkflowEditorWindowContent({ projectId, workflowId, serverUrl, authToken, initialMode }: Omit<WorkflowEditorWindowProps, 'serverId' | 'serverName' | 'gatewayUrl' | 'gatewaySecret'>) {
   const [workflow, setWorkflow] = useState<Workflow | undefined>(undefined);
   const [loading, setLoading] = useState(!!workflowId);
   const [error, setError] = useState<string | null>(null);
@@ -146,6 +149,7 @@ function WorkflowEditorWindowContent({ projectId, workflowId, serverUrl, authTok
         standalone
         serverUrl={serverUrl}
         authToken={authToken}
+        initialMode={initialMode}
       />
     </div>
   );
