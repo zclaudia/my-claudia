@@ -4,10 +4,9 @@ import type {
   Workflow,
   WorkflowNodeDef,
   WorkflowEdgeDef,
-  WorkflowDefinitionV2,
+  WorkflowDefinition,
   WorkflowTrigger,
 } from '@my-claudia/shared';
-import { isV2Definition, migrateV1ToV2 } from '@my-claudia/shared';
 import { StepConfigForm } from './StepConfigForm';
 import { TriggerConfigForm } from './TriggerConfigForm';
 import { NodePalette } from './NodePalette';
@@ -34,19 +33,16 @@ interface WorkflowEditorProps {
   initialMode?: 'toolbox' | 'ai';
 }
 
-function getInitialDefinition(workflow?: Workflow): WorkflowDefinitionV2 {
+function getInitialDefinition(workflow?: Workflow): WorkflowDefinition {
   if (!workflow) {
     return {
-      version: 2,
       nodes: [],
       edges: [],
       entryNodeId: '',
       triggers: [{ type: 'manual' }],
     };
   }
-  return isV2Definition(workflow.definition)
-    ? workflow.definition
-    : migrateV1ToV2(workflow.definition);
+  return workflow.definition;
 }
 
 export function WorkflowEditor({ workflow, projectId, onBack, onSaved, standalone, serverUrl, authToken, initialMode }: WorkflowEditorProps) {
@@ -140,7 +136,7 @@ export function WorkflowEditor({ workflow, projectId, onBack, onSaved, standalon
   }, []);
 
   const handleAIGenerated = useCallback((result: {
-    definition: WorkflowDefinitionV2;
+    definition: WorkflowDefinition;
     name: string;
     description: string;
     triggers: WorkflowTrigger[];
@@ -168,8 +164,7 @@ export function WorkflowEditor({ workflow, projectId, onBack, onSaved, standalon
       const entryNodes = nodes.filter(n => !targetIds.has(n.id));
       const entryNodeId = entryNodes[0]?.id ?? nodes[0]?.id ?? '';
 
-      const definition: WorkflowDefinitionV2 = {
-        version: 2,
+      const definition: WorkflowDefinition = {
         nodes,
         edges,
         entryNodeId,

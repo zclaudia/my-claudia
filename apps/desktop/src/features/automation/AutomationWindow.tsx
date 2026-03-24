@@ -223,7 +223,7 @@ function WorkflowsTab({ api, projects, projectName }: { api: ApiType; projects: 
     const name = `New Workflow ${new Date().toLocaleTimeString()}`;
     await api.post(`/api/projects/${effectiveProjectId}/workflows`, {
       name,
-      definition: { steps: [], triggers: [{ type: 'manual' }] },
+      definition: { nodes: [], edges: [], entryNodeId: '', triggers: [{ type: 'manual' }] },
     }).catch(() => {});
     refresh();
   };

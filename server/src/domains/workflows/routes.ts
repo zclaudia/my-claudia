@@ -7,38 +7,37 @@
 import { Router, Request, Response } from 'express';
 import type { WorkflowService } from './service.js';
 import type { WorkflowGeneratorService } from './generator.js';
-import type { WorkflowStepTypeMeta, WorkflowDefinition, WorkflowDefinitionV2 } from '@my-claudia/shared';
-import { isV2Definition } from '@my-claudia/shared';
+import type { WorkflowStepTypeMeta, WorkflowDefinition, WorkflowNodeDef } from '@my-claudia/shared';
 import { isValidCron } from '../../utils/cron.js';
 import { workflowStepRegistry } from '../../plugins/workflow-step-registry.js';
 
 function validateWorkflowDefinition(res: Response, definition: unknown): definition is WorkflowDefinition {
   const candidate = definition as Record<string, unknown> | null | undefined;
-  const triggers = Array.isArray(candidate?.triggers) ? candidate.triggers : null;
-  const isV1 = Array.isArray(candidate?.steps) && Array.isArray(triggers);
-  const isV2 = isV2Definition(definition as WorkflowDefinition);
 
-  if (!isV1 && !isV2) {
+  if (
+    !Array.isArray(candidate?.nodes) ||
+    !Array.isArray(candidate?.edges) ||
+    typeof candidate?.entryNodeId !== 'string' ||
+    !Array.isArray(candidate?.triggers)
+  ) {
     res.status(400).json({
       success: false,
-      error: { code: 'VALIDATION_ERROR', message: 'Definition must have triggers and either steps (V1) or nodes+edges+entryNodeId (V2)' },
+      error: { code: 'VALIDATION_ERROR', message: 'Definition must have nodes, edges, entryNodeId, and triggers' },
     });
     return false;
   }
 
-  if (isV2) {
-    const workflowDefinition = definition as WorkflowDefinitionV2;
-    const nodeIds = new Set(workflowDefinition.nodes.map((node) => node.id));
-    if (!workflowDefinition.entryNodeId || !nodeIds.has(workflowDefinition.entryNodeId)) {
-      res.status(400).json({
-        success: false,
-        error: { code: 'VALIDATION_ERROR', message: 'entryNodeId must reference an existing node' },
-      });
-      return false;
-    }
+  const workflowDefinition = definition as WorkflowDefinition;
+  const nodeIds = new Set(workflowDefinition.nodes.map((node: WorkflowNodeDef) => node.id));
+  const hasNodes = workflowDefinition.nodes.length > 0;
+  if (hasNodes && (!workflowDefinition.entryNodeId || !nodeIds.has(workflowDefinition.entryNodeId))) {
+    res.status(400).json({
+      success: false,
+      error: { code: 'VALIDATION_ERROR', message: 'entryNodeId must reference an existing node' },
+    });
+    return false;
   }
 
-  const workflowDefinition = definition as WorkflowDefinition;
   for (const trigger of workflowDefinition.triggers) {
     if (trigger.type === 'cron' && trigger.cron && !isValidCron(trigger.cron)) {
       res.status(400).json({
@@ -120,7 +119,7 @@ export function createWorkflowRoutes(service: WorkflowService, generatorService?
         });
       }
 
-      const parsedDef = typeof definition === 'string' ? JSON.parse(definition) : (definition ?? { version: 2, nodes: [], edges: [], entryNodeId: '', triggers: [] });
+      const parsedDef = typeof definition === 'string' ? JSON.parse(definition) : (definition ?? { nodes: [], edges: [], entryNodeId: '', triggers: [] });
       if (!validateWorkflowDefinition(res, parsedDef)) return;
 
       const workflow = service.createWorkflow({
@@ -181,16 +180,13 @@ export function createWorkflowRoutes(service: WorkflowService, generatorService?
         });
       }
 
-      // Validate cron if definition is being updated
-      if (req.body.definition?.triggers) {
-        for (const trigger of req.body.definition.triggers) {
-          if (trigger.type === 'cron' && trigger.cron && !isValidCron(trigger.cron)) {
-            return res.status(400).json({
-              success: false,
-              error: { code: 'VALIDATION_ERROR', message: `Invalid cron expression: ${trigger.cron}` },
-            });
-          }
-        }
+      if (req.body.definition !== undefined) {
+        const mergedDefinition = {
+          ...existing.definition,
+          ...req.body.definition,
+        };
+        if (!validateWorkflowDefinition(res, mergedDefinition)) return;
+        req.body.definition = mergedDefinition;
       }
 
       const workflow = service.updateWorkflow(req.params.workflowId, req.body);

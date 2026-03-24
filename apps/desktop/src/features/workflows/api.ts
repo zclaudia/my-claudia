@@ -1,7 +1,6 @@
 import type {
   Workflow,
   WorkflowDefinition,
-  WorkflowDefinitionV2,
   WorkflowRun,
   WorkflowStepRun,
   WorkflowTemplate,
@@ -90,7 +89,7 @@ export async function rejectWorkflowStep(stepRunId: string): Promise<void> {
 
 export interface WorkflowGenerateResult {
   generationId: string;
-  definition: WorkflowDefinitionV2;
+  definition: WorkflowDefinition;
   name: string;
   description: string;
   warnings?: string[];

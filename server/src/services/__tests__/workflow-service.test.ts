@@ -54,12 +54,14 @@ vi.mock('../../events/index.js', () => ({
 }));
 vi.mock('../../domains/workflows/templates.js', () => ({
   BUILTIN_WORKFLOW_TEMPLATES: [
-    { id: 'tpl1', name: 'Template 1', description: 'desc', definition: { triggers: [], steps: [] } },
+    { id: 'tpl1', name: 'Template 1', description: 'desc', definition: { triggers: [], nodes: [], edges: [], entryNodeId: '' } },
   ],
 }));
 
 import { WorkflowService } from '../workflow-service.js';
 import { pluginEvents } from '../../events/index.js';
+
+const emptyDefinition = { triggers: [], nodes: [], edges: [], entryNodeId: '' };
 
 describe('WorkflowService', () => {
   let service: WorkflowService;
@@ -106,7 +108,7 @@ describe('WorkflowService', () => {
       mockWorkflowRepo.create.mockReturnValue(mockWorkflow);
 
       const result = service.createWorkflow({
-        projectId: 'p1', name: 'flow', definition: { triggers: [], steps: [] } as any,
+        projectId: 'p1', name: 'flow', definition: { triggers: [], nodes: [], edges: [], entryNodeId: '' } as any,
       });
 
       expect(result).toEqual(mockWorkflow);
@@ -118,7 +120,7 @@ describe('WorkflowService', () => {
       mockWorkflowRepo.create.mockReturnValue(mockWorkflow);
 
       service.createWorkflow({
-        projectId: 'p1', name: 'flow', definition: { triggers: [], steps: [] } as any, status: 'disabled',
+        projectId: 'p1', name: 'flow', definition: { triggers: [], nodes: [], edges: [], entryNodeId: '' } as any, status: 'disabled',
       });
 
       // Schedule sync not called for inactive
@@ -205,7 +207,7 @@ describe('WorkflowService', () => {
     });
 
     it('delegates to engine.startRun', async () => {
-      const wf = { id: 'w1', projectId: 'p1', status: 'active', definition: { steps: [] } };
+      const wf = { id: 'w1', projectId: 'p1', status: 'active', definition: { nodes: [], edges: [], entryNodeId: '', triggers: [] } };
       mockWorkflowRepo.findById.mockReturnValue(wf);
       mockEngine.startRun.mockResolvedValue({ id: 'r1' });
 
@@ -282,7 +284,7 @@ describe('WorkflowService', () => {
       mockScheduleRepo.findDue.mockReturnValue([{ workflowId: 'w1', triggerIndex: 0 }]);
       mockWorkflowRepo.findById.mockReturnValue({
         id: 'w1', projectId: 'p1', status: 'active',
-        definition: { triggers: [trigger], steps: [] },
+        definition: { ...emptyDefinition, triggers: [trigger] },
       });
       mockEngine.isRunning.mockReturnValue(false);
       mockEngine.startRun.mockResolvedValue({ id: 'r1' });
@@ -298,7 +300,7 @@ describe('WorkflowService', () => {
       mockScheduleRepo.findDue.mockReturnValue([{ workflowId: 'w1', triggerIndex: 0 }]);
       mockWorkflowRepo.findById.mockReturnValue({
         id: 'w1', projectId: 'p1', status: 'active',
-        definition: { triggers: [trigger], steps: [] },
+        definition: { ...emptyDefinition, triggers: [trigger] },
       });
       mockEngine.isRunning.mockReturnValue(false);
       mockEngine.startRun.mockRejectedValue(new Error('engine error'));
@@ -394,16 +396,16 @@ describe('WorkflowService', () => {
         {
           id: 'w1', projectId: 'p1', status: 'active',
           definition: {
+            ...emptyDefinition,
             triggers: [{ type: 'event', event: 'run.completed', eventFilter: { status: 'success' } }],
-            steps: [],
           },
         },
       ]);
       mockWorkflowRepo.findById.mockReturnValue({
         id: 'w1', projectId: 'p1', status: 'active',
         definition: {
+          ...emptyDefinition,
           triggers: [{ type: 'event', event: 'run.completed', eventFilter: { status: 'success' } }],
-          steps: [],
         },
       });
       mockEngine.isRunning.mockReturnValue(false);
@@ -430,8 +432,8 @@ describe('WorkflowService', () => {
         {
           id: 'w1', projectId: 'p1', status: 'active',
           definition: {
+            ...emptyDefinition,
             triggers: [{ type: 'event', event: 'run.completed', eventFilter: { status: 'success' } }],
-            steps: [],
           },
         },
       ]);
@@ -457,8 +459,8 @@ describe('WorkflowService', () => {
         {
           id: 'w1', projectId: 'p1', status: 'active',
           definition: {
+            ...emptyDefinition,
             triggers: [{ type: 'event', event: 'run.completed' }],
-            steps: [],
           },
         },
       ]);
@@ -483,14 +485,14 @@ describe('WorkflowService', () => {
         {
           id: 'w1', projectId: 'p1', status: 'active',
           definition: {
+            ...emptyDefinition,
             triggers: [{ type: 'event', event: 'run.completed' }],
-            steps: [],
           },
         },
       ]);
       mockWorkflowRepo.findById.mockReturnValue({
         id: 'w1', projectId: 'p1', status: 'active',
-        definition: { triggers: [{ type: 'event', event: 'run.completed' }], steps: [] },
+        definition: { ...emptyDefinition, triggers: [{ type: 'event', event: 'run.completed' }] },
       });
       mockEngine.isRunning.mockReturnValue(false);
       mockEngine.startRun.mockRejectedValue(new Error('Engine error'));
@@ -513,7 +515,7 @@ describe('WorkflowService', () => {
 
       service.createWorkflow({
         projectId: 'p1', name: 'flow',
-        definition: { triggers: [{ type: 'cron', cron: '0 9 * * *' }], steps: [] } as any,
+        definition: { ...emptyDefinition, triggers: [{ type: 'cron', cron: '0 9 * * *' }] } as any,
       });
 
       expect(mockScheduleRepo.upsert).toHaveBeenCalledWith('w1', 0, 99999, true);
@@ -528,7 +530,7 @@ describe('WorkflowService', () => {
 
       service.createWorkflow({
         projectId: 'p1', name: 'flow',
-        definition: { triggers: [{ type: 'interval', intervalMinutes: 30 }], steps: [] } as any,
+        definition: { ...emptyDefinition, triggers: [{ type: 'interval', intervalMinutes: 30 }] } as any,
       });
 
       expect(mockScheduleRepo.upsert).toHaveBeenCalled();

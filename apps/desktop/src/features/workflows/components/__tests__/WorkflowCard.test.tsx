@@ -11,7 +11,9 @@ function makeWorkflow(overrides: Partial<Workflow> = {}): Workflow {
     status: 'active',
     definition: {
       triggers: [{ type: 'cron', cron: '0 * * * *' }],
-      steps: [{ id: 's1', type: 'prompt', name: 'Step 1', config: {} }],
+      nodes: [{ id: 's1', type: 'prompt', name: 'Step 1', config: {}, position: { x: 0, y: 0 } }],
+      edges: [],
+      entryNodeId: 's1',
     },
     createdAt: Date.now(),
     updatedAt: Date.now(),
@@ -79,7 +81,9 @@ describe('WorkflowCard', () => {
     const wf = makeWorkflow({
       definition: {
         triggers: [{ type: 'interval', intervalMinutes: 30 }],
-        steps: [],
+        nodes: [],
+        edges: [],
+        entryNodeId: '',
       } as any,
     });
     const { getByText } = render(
@@ -92,7 +96,9 @@ describe('WorkflowCard', () => {
     const wf = makeWorkflow({
       definition: {
         triggers: [{ type: 'event', event: 'run.completed' }],
-        steps: [],
+        nodes: [],
+        edges: [],
+        entryNodeId: '',
       } as any,
     });
     const { getByText } = render(

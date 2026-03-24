@@ -233,7 +233,7 @@ describe('WorkflowEngine', () => {
 
   describe('startRun', () => {
     it('throws when workflow already running', async () => {
-      const def = { version: 2, triggers: [], nodes: [{ id: 'n1', type: 'shell', config: { command: 'echo hi' } }], edges: [] };
+      const def = { triggers: [], nodes: [{ id: 'n1', type: 'shell', config: { command: 'echo hi' } }], edges: [] };
       const startPromise = engine.startRun('w1', 'p1', def as any, 'manual');
       await expect(engine.startRun('w1', 'p1', def as any, 'manual')).rejects.toThrow('already running');
       try { await startPromise; } catch {}
@@ -241,7 +241,7 @@ describe('WorkflowEngine', () => {
 
     it('throws for invalid DAG', async () => {
       const def = {
-        version: 2, triggers: [],
+        triggers: [],
         nodes: [{ id: 'a' }],
         edges: [{ id: 'e1', source: 'a', target: 'a', type: 'success' }],
       };
@@ -251,7 +251,7 @@ describe('WorkflowEngine', () => {
     it('creates run and step run records', async () => {
       // Use a notify step which completes synchronously
       const def = {
-        version: 2, triggers: [],
+        triggers: [],
         nodes: [{ id: 'n1', type: 'notify', name: 'Test', config: { message: 'hi' } }],
         edges: [],
         entryNodeId: 'n1',
@@ -321,7 +321,7 @@ describe('WorkflowEngine', () => {
   describe('executeGraph via startRun — full graph traversal', () => {
     it('executes a single notify step and completes', async () => {
       const def = {
-        version: 2, triggers: [],
+        triggers: [],
         nodes: [{ id: 'n1', type: 'notify', name: 'Notify', config: { message: 'hello' } }],
         edges: [],
         entryNodeId: 'n1',
@@ -338,7 +338,7 @@ describe('WorkflowEngine', () => {
 
     it('handles cancelled run mid-execution', async () => {
       const def = {
-        version: 2, triggers: [],
+        triggers: [],
         nodes: [{ id: 'n1', type: 'notify', name: 'N1', config: { message: 'hi' } }],
         edges: [],
         entryNodeId: 'n1',
@@ -356,7 +356,7 @@ describe('WorkflowEngine', () => {
 
     it('handles missing node definition during execution', async () => {
       const def = {
-        version: 2, triggers: [],
+        triggers: [],
         nodes: [{ id: 'n1', type: 'notify', name: 'N1', config: { message: 'hi' } }],
         edges: [],
         entryNodeId: 'n_missing', // Points to non-existent node
@@ -374,7 +374,7 @@ describe('WorkflowEngine', () => {
 
     it('follows success edges between nodes', async () => {
       const def = {
-        version: 2, triggers: [],
+        triggers: [],
         nodes: [
           { id: 'n1', type: 'notify', name: 'Step 1', config: { message: 'first' } },
           { id: 'n2', type: 'notify', name: 'Step 2', config: { message: 'second' } },
@@ -402,7 +402,7 @@ describe('WorkflowEngine', () => {
 
     it('aborts on failed step with default onError', async () => {
       const def = {
-        version: 2, triggers: [],
+        triggers: [],
         nodes: [
           { id: 'n1', type: 'unknown_type', name: 'Bad Step', config: {} },
         ],
@@ -421,7 +421,7 @@ describe('WorkflowEngine', () => {
 
     it('skips unvisited nodes when graph completes', async () => {
       const def = {
-        version: 2, triggers: [],
+        triggers: [],
         nodes: [
           { id: 'n1', type: 'notify', name: 'Step 1', config: { message: 'run' } },
           { id: 'n2', type: 'notify', name: 'Unvisited', config: { message: 'skip' } },
@@ -443,7 +443,7 @@ describe('WorkflowEngine', () => {
 
     it('handles step with onError=skip — continues execution', async () => {
       const def = {
-        version: 2, triggers: [],
+        triggers: [],
         nodes: [
           { id: 'n1', type: 'unknown_type', name: 'Fail Skip', config: {}, onError: 'skip' },
           { id: 'n2', type: 'notify', name: 'After', config: { message: 'after' } },
@@ -469,7 +469,7 @@ describe('WorkflowEngine', () => {
 
     it('handles step with onError=route — follows error edges', async () => {
       const def = {
-        version: 2, triggers: [],
+        triggers: [],
         nodes: [
           { id: 'n1', type: 'unknown_type', name: 'Fail Route', config: {}, onError: 'route' },
           { id: 'n_ok', type: 'notify', name: 'Normal', config: { message: 'ok' } },
@@ -496,7 +496,7 @@ describe('WorkflowEngine', () => {
 
     it('handles condition node with true branch', async () => {
       const def = {
-        version: 2, triggers: [],
+        triggers: [],
         nodes: [
           { id: 'n1', type: 'notify', name: 'Start', config: { message: 'start' } },
           { id: 'cond', type: 'condition', name: 'Check', config: {}, condition: { expression: '${n1.status} == completed' } },
@@ -527,7 +527,7 @@ describe('WorkflowEngine', () => {
     it('handles step with onError=retry', async () => {
       let callCount = 0;
       const def = {
-        version: 2, triggers: [],
+        triggers: [],
         nodes: [
           { id: 'n1', type: 'shell', name: 'Retry', config: { command: 'false' }, onError: 'retry', retryCount: 2 },
         ],
@@ -551,7 +551,7 @@ describe('WorkflowEngine', () => {
 
     it('handles missing step run record', async () => {
       const def = {
-        version: 2, triggers: [],
+        triggers: [],
         nodes: [{ id: 'n1', type: 'notify', name: 'N', config: { message: 'hi' } }],
         edges: [],
         entryNodeId: 'n1',
@@ -568,7 +568,7 @@ describe('WorkflowEngine', () => {
 
     it('uses plugin step registry for custom step types', async () => {
       const def = {
-        version: 2, triggers: [],
+        triggers: [],
         nodes: [{ id: 'n1', type: 'custom_plugin_step', name: 'Plugin', config: { key: 'val' } }],
         edges: [],
         entryNodeId: 'n1',
@@ -589,16 +589,16 @@ describe('WorkflowEngine', () => {
       expect(mockRunRepo.update).toHaveBeenCalledWith('r1', expect.objectContaining({ status: 'completed' }));
     });
 
-    it('handles V1 definition by migrating to V2', async () => {
-      // V1 definition (no version field or version=1)
+    it('executes graph definitions without requiring a version field', async () => {
       const def = {
         triggers: [],
-        steps: [{ id: 'n1', type: 'notify', name: 'Notify', config: { message: 'hi' } }],
+        nodes: [{ id: 'n1', type: 'notify', name: 'Notify', config: { message: 'hi' } }],
+        edges: [],
+        entryNodeId: 'n1',
       };
       mockStepRunRepo.findByRunAndStep.mockReturnValue({ id: 'sr1', status: 'pending' });
       mockRunRepo.findById.mockReturnValue({ id: 'r1', status: 'running', projectId: 'p1' });
 
-      // This will try to migrate V1 to V2 using the shared util
       const run = await engine.startRun('wf-v1', 'p1', def as any, 'manual');
       expect(run.id).toBe('r1');
       await vi.advanceTimersByTimeAsync(100);
@@ -608,7 +608,7 @@ describe('WorkflowEngine', () => {
   describe('handleShell step', () => {
     it('executes shell command successfully', async () => {
       const def = {
-        version: 2, triggers: [],
+        triggers: [],
         nodes: [{ id: 'n1', type: 'shell', name: 'Shell', config: { command: 'echo hello' } }],
         edges: [],
         entryNodeId: 'n1',
@@ -628,7 +628,7 @@ describe('WorkflowEngine', () => {
 
     it('fails on empty command', async () => {
       const def = {
-        version: 2, triggers: [],
+        triggers: [],
         nodes: [{ id: 'n1', type: 'shell', name: 'Shell', config: {} }],
         edges: [],
         entryNodeId: 'n1',
@@ -644,7 +644,7 @@ describe('WorkflowEngine', () => {
 
     it('handles command timeout', async () => {
       const def = {
-        version: 2, triggers: [],
+        triggers: [],
         nodes: [{ id: 'n1', type: 'shell', name: 'Shell', config: { command: 'sleep 100' } }],
         edges: [],
         entryNodeId: 'n1',
@@ -661,7 +661,7 @@ describe('WorkflowEngine', () => {
 
     it('handles command failure with exit code', async () => {
       const def = {
-        version: 2, triggers: [],
+        triggers: [],
         nodes: [{ id: 'n1', type: 'shell', name: 'Shell', config: { command: 'false' } }],
         edges: [],
         entryNodeId: 'n1',
@@ -687,7 +687,7 @@ describe('WorkflowEngine', () => {
       });
 
       const def = {
-        version: 2, triggers: [],
+        triggers: [],
         nodes: [{ id: 'n1', type: 'webhook', name: 'Hook', config: { url: 'http://example.com', method: 'POST', body: '{}' } }],
         edges: [],
         entryNodeId: 'n1',
@@ -707,7 +707,7 @@ describe('WorkflowEngine', () => {
 
     it('fails when no URL specified', async () => {
       const def = {
-        version: 2, triggers: [],
+        triggers: [],
         nodes: [{ id: 'n1', type: 'webhook', name: 'Hook', config: {} }],
         edges: [],
         entryNodeId: 'n1',
@@ -730,7 +730,7 @@ describe('WorkflowEngine', () => {
       });
 
       const def = {
-        version: 2, triggers: [],
+        triggers: [],
         nodes: [{ id: 'n1', type: 'webhook', name: 'Hook', config: { url: 'http://example.com' } }],
         edges: [],
         entryNodeId: 'n1',
@@ -754,7 +754,7 @@ describe('WorkflowEngine', () => {
       });
 
       const def = {
-        version: 2, triggers: [],
+        triggers: [],
         nodes: [{ id: 'n1', type: 'webhook', name: 'Hook', config: { url: 'http://example.com', method: 'GET' } }],
         edges: [],
         entryNodeId: 'n1',
@@ -779,7 +779,7 @@ describe('WorkflowEngine', () => {
       globalThis.fetch = vi.fn().mockResolvedValue({ status: 200 });
 
       const def = {
-        version: 2, triggers: [],
+        triggers: [],
         nodes: [{ id: 'n1', type: 'notify', name: 'Webhook Notify', config: { message: 'alert', type: 'webhook', url: 'http://hook.com' } }],
         edges: [],
         entryNodeId: 'n1',
@@ -801,7 +801,7 @@ describe('WorkflowEngine', () => {
   describe('handleCondition step', () => {
     it('fails when no condition defined', async () => {
       const def = {
-        version: 2, triggers: [],
+        triggers: [],
         nodes: [{ id: 'n1', type: 'condition', name: 'Cond', config: {} }],
         edges: [],
         entryNodeId: 'n1',
@@ -819,7 +819,7 @@ describe('WorkflowEngine', () => {
   describe('handleWait step', () => {
     it('executes timeout wait', async () => {
       const def = {
-        version: 2, triggers: [],
+        triggers: [],
         nodes: [{ id: 'n1', type: 'wait', name: 'Wait', config: { type: 'timeout', timeoutMs: 10 } }],
         edges: [],
         entryNodeId: 'n1',
@@ -838,7 +838,7 @@ describe('WorkflowEngine', () => {
 
     it('handles approval wait with approve', async () => {
       const def = {
-        version: 2, triggers: [],
+        triggers: [],
         nodes: [{ id: 'n1', type: 'wait', name: 'Approve', config: { type: 'approval' }, timeoutMs: 5000 }],
         edges: [],
         entryNodeId: 'n1',
@@ -866,7 +866,7 @@ describe('WorkflowEngine', () => {
 
     it('handles approval wait with reject', async () => {
       const def = {
-        version: 2, triggers: [],
+        triggers: [],
         nodes: [{ id: 'n1', type: 'wait', name: 'Reject', config: { type: 'approval' }, timeoutMs: 5000 }],
         edges: [],
         entryNodeId: 'n1',
@@ -890,7 +890,7 @@ describe('WorkflowEngine', () => {
   describe('handleGitCommit step', () => {
     it('commits changes successfully', async () => {
       const def = {
-        version: 2, triggers: [],
+        triggers: [],
         nodes: [{ id: 'n1', type: 'git_commit', name: 'Commit', config: { message: 'auto commit' } }],
         edges: [],
         entryNodeId: 'n1',
@@ -915,7 +915,7 @@ describe('WorkflowEngine', () => {
 
     it('handles no changes to commit', async () => {
       const def = {
-        version: 2, triggers: [],
+        triggers: [],
         nodes: [{ id: 'n1', type: 'git_commit', name: 'Commit', config: {} }],
         edges: [],
         entryNodeId: 'n1',
@@ -935,7 +935,7 @@ describe('WorkflowEngine', () => {
 
     it('fails when no working directory', async () => {
       const def = {
-        version: 2, triggers: [],
+        triggers: [],
         nodes: [{ id: 'n1', type: 'git_commit', name: 'Commit', config: {} }],
         edges: [],
         entryNodeId: 'n1',
@@ -955,7 +955,7 @@ describe('WorkflowEngine', () => {
   describe('handleGitMerge step', () => {
     it('merges successfully', async () => {
       const def = {
-        version: 2, triggers: [],
+        triggers: [],
         nodes: [{ id: 'n1', type: 'git_merge', name: 'Merge', config: { branch: 'feature', baseBranch: 'main' } }],
         edges: [],
         entryNodeId: 'n1',
@@ -977,7 +977,7 @@ describe('WorkflowEngine', () => {
 
     it('handles merge conflicts', async () => {
       const def = {
-        version: 2, triggers: [],
+        triggers: [],
         nodes: [{ id: 'n1', type: 'git_merge', name: 'Merge', config: { branch: 'conflict-branch' } }],
         edges: [],
         entryNodeId: 'n1',
@@ -998,7 +998,7 @@ describe('WorkflowEngine', () => {
 
     it('fails when no branch specified', async () => {
       const def = {
-        version: 2, triggers: [],
+        triggers: [],
         nodes: [{ id: 'n1', type: 'git_merge', name: 'Merge', config: {} }],
         edges: [],
         entryNodeId: 'n1',
@@ -1016,7 +1016,7 @@ describe('WorkflowEngine', () => {
   describe('handleCreateWorktree step', () => {
     it('creates worktree successfully', async () => {
       const def = {
-        version: 2, triggers: [],
+        triggers: [],
         nodes: [{ id: 'n1', type: 'create_worktree', name: 'WT', config: { branchName: 'feature-1' } }],
         edges: [],
         entryNodeId: 'n1',
@@ -1036,7 +1036,7 @@ describe('WorkflowEngine', () => {
 
     it('fails when no branch name', async () => {
       const def = {
-        version: 2, triggers: [],
+        triggers: [],
         nodes: [{ id: 'n1', type: 'create_worktree', name: 'WT', config: {} }],
         edges: [],
         entryNodeId: 'n1',
@@ -1054,7 +1054,7 @@ describe('WorkflowEngine', () => {
   describe('handleCreatePR step', () => {
     it('creates PR successfully', async () => {
       const def = {
-        version: 2, triggers: [],
+        triggers: [],
         nodes: [{ id: 'n1', type: 'create_pr', name: 'PR', config: { title: 'My PR' } }],
         edges: [],
         entryNodeId: 'n1',
@@ -1076,7 +1076,7 @@ describe('WorkflowEngine', () => {
 
     it('fails when no working directory', async () => {
       const def = {
-        version: 2, triggers: [],
+        triggers: [],
         nodes: [{ id: 'n1', type: 'create_pr', name: 'PR', config: {} }],
         edges: [],
         entryNodeId: 'n1',
@@ -1096,7 +1096,7 @@ describe('WorkflowEngine', () => {
   describe('handleAIPrompt step', () => {
     it('fails when no prompt specified', async () => {
       const def = {
-        version: 2, triggers: [],
+        triggers: [],
         nodes: [{ id: 'n1', type: 'ai_prompt', name: 'AI', config: {} }],
         edges: [],
         entryNodeId: 'n1',
@@ -1112,7 +1112,7 @@ describe('WorkflowEngine', () => {
 
     it('fails when no provider configured', async () => {
       const def = {
-        version: 2, triggers: [],
+        triggers: [],
         nodes: [{ id: 'n1', type: 'ai_prompt', name: 'AI', config: { prompt: 'test' } }],
         edges: [],
         entryNodeId: 'n1',
@@ -1130,7 +1130,7 @@ describe('WorkflowEngine', () => {
 
     it('completes when run_completed message received', async () => {
       const def = {
-        version: 2, triggers: [],
+        triggers: [],
         nodes: [{ id: 'n1', type: 'ai_prompt', name: 'AI', config: { prompt: 'test prompt' } }],
         edges: [],
         entryNodeId: 'n1',
@@ -1156,7 +1156,7 @@ describe('WorkflowEngine', () => {
 
     it('fails when run_failed message received', async () => {
       const def = {
-        version: 2, triggers: [],
+        triggers: [],
         nodes: [{ id: 'n1', type: 'ai_prompt', name: 'AI', config: { prompt: 'test prompt' } }],
         edges: [],
         entryNodeId: 'n1',
@@ -1180,7 +1180,7 @@ describe('WorkflowEngine', () => {
   describe('handleAIReview step', () => {
     it('fails when no provider configured', async () => {
       const def = {
-        version: 2, triggers: [],
+        triggers: [],
         nodes: [{ id: 'n1', type: 'ai_review', name: 'Review', config: {} }],
         edges: [],
         entryNodeId: 'n1',
@@ -1198,7 +1198,7 @@ describe('WorkflowEngine', () => {
 
     it('completes with review passed', async () => {
       const def = {
-        version: 2, triggers: [],
+        triggers: [],
         nodes: [{ id: 'n1', type: 'ai_review', name: 'Review', config: {} }],
         edges: [],
         entryNodeId: 'n1',
@@ -1228,7 +1228,7 @@ describe('WorkflowEngine', () => {
   describe('broadcastRunUpdate', () => {
     it('broadcasts when run exists', async () => {
       const def = {
-        version: 2, triggers: [],
+        triggers: [],
         nodes: [{ id: 'n1', type: 'notify', name: 'N', config: { message: 'hi' } }],
         edges: [],
         entryNodeId: 'n1',
@@ -1255,7 +1255,7 @@ describe('WorkflowEngine', () => {
   describe('startRun triggerDetail', () => {
     it('passes triggerDetail through to run record', async () => {
       const def = {
-        version: 2, triggers: [],
+        triggers: [],
         nodes: [{ id: 'n1', type: 'notify', name: 'N', config: { message: 'hi' } }],
         edges: [],
         entryNodeId: 'n1',

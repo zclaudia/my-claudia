@@ -1,13 +1,13 @@
 /**
  * Workflow Generator Service
  *
- * Converts natural language descriptions into WorkflowDefinitionV2
+ * Converts natural language descriptions into WorkflowDefinition
  * using AI providers via the existing virtual client pattern.
  */
 
 import type { Database } from 'better-sqlite3';
 import type {
-  WorkflowDefinitionV2,
+  WorkflowDefinition,
   WorkflowNodeDef,
   WorkflowEdgeDef,
   ServerMessage,
@@ -25,7 +25,7 @@ import { v4 as uuidv4 } from 'uuid';
 
 export interface GenerateResult {
   generationId: string;
-  definition: WorkflowDefinitionV2;
+  definition: WorkflowDefinition;
   name: string;
   description: string;
   warnings?: string[];
@@ -35,7 +35,7 @@ interface GenerationSession {
   id: string;
   projectId: string;
   providerId: string;
-  currentDefinition: WorkflowDefinitionV2;
+  currentDefinition: WorkflowDefinition;
   name: string;
   description: string;
   history: Array<{ role: 'user' | 'assistant'; content: string }>;
@@ -174,7 +174,6 @@ You MUST output a single JSON block wrapped in \`\`\`json ... \`\`\` with exactl
   "name": "Short workflow name",
   "description": "One-line description",
   "definition": {
-    "version": 2,
     "nodes": [...],
     "edges": [...],
     "entryNodeId": "first_node_id",
@@ -323,7 +322,7 @@ Generate a workflow definition based on the user's natural language description.
   private parseResponse(response: string): {
     name: string;
     description: string;
-    definition: WorkflowDefinitionV2;
+    definition: WorkflowDefinition;
     warnings?: string[];
   } {
     // Extract JSON from ```json ... ``` block
@@ -343,8 +342,8 @@ Generate a workflow definition based on the user's natural language description.
     }
 
     const def = parsed.definition;
-    if (def.version !== 2 || !Array.isArray(def.nodes) || !Array.isArray(def.edges) || !def.entryNodeId) {
-      throw new Error('Invalid definition: must have version=2, nodes, edges, entryNodeId');
+    if (!Array.isArray(def.nodes) || !Array.isArray(def.edges) || !def.entryNodeId) {
+      throw new Error('Invalid definition: must have nodes, edges, entryNodeId');
     }
 
     if (!Array.isArray(def.triggers) || def.triggers.length === 0) {
@@ -354,14 +353,14 @@ Generate a workflow definition based on the user's natural language description.
     return {
       name: parsed.name,
       description: parsed.description ?? '',
-      definition: def as WorkflowDefinitionV2,
+      definition: def as WorkflowDefinition,
       warnings: parsed.warnings,
     };
   }
 
   // ── Validation ─────────────────────────────────────────────
 
-  private validateDefinition(def: WorkflowDefinitionV2): string[] {
+  private validateDefinition(def: WorkflowDefinition): string[] {
     const errors: string[] = [];
 
     // Check entryNodeId exists
@@ -421,13 +420,13 @@ Generate a workflow definition based on the user's natural language description.
   }
 
   private async validateOrRetry(
-    parsed: { name: string; description: string; definition: WorkflowDefinitionV2; warnings?: string[] },
+    parsed: { name: string; description: string; definition: WorkflowDefinition; warnings?: string[] },
     projectId: string,
     providerId: string,
     systemPrompt: string,
     originalUserPrompt: string,
     originalResponse: string,
-  ): Promise<{ name: string; description: string; definition: WorkflowDefinitionV2; warnings?: string[] }> {
+  ): Promise<{ name: string; description: string; definition: WorkflowDefinition; warnings?: string[] }> {
     const errors = this.validateDefinition(parsed.definition);
     if (errors.length === 0) return parsed;
 
@@ -462,7 +461,7 @@ Generate a workflow definition based on the user's natural language description.
   private createSession(
     projectId: string,
     providerId: string,
-    result: { name: string; description: string; definition: WorkflowDefinitionV2 },
+    result: { name: string; description: string; definition: WorkflowDefinition },
     userDescription: string,
     aiResponse: string,
   ): GenerationSession {

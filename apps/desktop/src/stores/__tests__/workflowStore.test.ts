@@ -38,7 +38,7 @@ const mockWorkflow = (id: string, projectId = 'proj-1') => ({
   projectId,
   name: `Workflow ${id}`,
   description: '',
-  definition: { steps: [] },
+  definition: { nodes: [], edges: [], entryNodeId: '', triggers: [] },
   createdAt: 1000,
   updatedAt: 2000,
 });
@@ -103,7 +103,7 @@ describe('workflowStore', () => {
       vi.mocked(apiCreateWorkflow).mockResolvedValue(wf as any);
 
       const result = await useWorkflowStore.getState().createWorkflow('proj-1', {
-        name: 'New', definition: { steps: [] },
+        name: 'New', definition: { nodes: [], edges: [], entryNodeId: '', triggers: [] },
       });
 
       expect(result).toEqual(wf);

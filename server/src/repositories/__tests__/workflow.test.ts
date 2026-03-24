@@ -23,13 +23,13 @@ describe('WorkflowRepository', () => {
     it('maps row with all fields', () => {
       const row = {
         id: 'w1', project_id: 'p1', name: 'flow', description: 'desc',
-        status: 'active', definition: '{"steps":[]}', template_id: 'tpl1',
+        status: 'active', definition: '{"nodes":[],"edges":[],"entryNodeId":"","triggers":[]}', template_id: 'tpl1',
         created_at: 100, updated_at: 200,
       };
       const result = repo.mapRow(row);
       expect(result).toEqual({
         id: 'w1', projectId: 'p1', name: 'flow', description: 'desc',
-        status: 'active', definition: { steps: [] }, templateId: 'tpl1',
+        status: 'active', definition: { nodes: [], edges: [], entryNodeId: '', triggers: [] }, templateId: 'tpl1',
         createdAt: 100, updatedAt: 200,
       });
     });
@@ -50,12 +50,12 @@ describe('WorkflowRepository', () => {
     it('generates insert SQL', () => {
       const { sql, params } = repo.createQuery({
         projectId: 'p1', name: 'flow', description: 'desc',
-        status: 'active' as any, definition: { steps: [] } as any, templateId: 'tpl1',
+        status: 'active' as any, definition: { nodes: [], edges: [], entryNodeId: '', triggers: [] } as any, templateId: 'tpl1',
       });
       expect(sql).toContain('INSERT INTO workflows');
       expect(params[0]).toBe('mock-uuid');
       expect(params[1]).toBe('p1');
-      expect(params[5]).toBe('{"steps":[]}');
+      expect(params[5]).toBe('{"nodes":[],"edges":[],"entryNodeId":"","triggers":[]}');
     });
 
     it('handles nullable fields', () => {
@@ -76,8 +76,8 @@ describe('WorkflowRepository', () => {
     });
 
     it('handles definition serialization', () => {
-      const { params } = repo.updateQuery('w1', { definition: { steps: [1] } as any });
-      expect(params).toContain('{"steps":[1]}');
+      const { params } = repo.updateQuery('w1', { definition: { nodes: [{ id: 'n1' }], edges: [], entryNodeId: 'n1', triggers: [] } as any });
+      expect(params).toContain('{"nodes":[{"id":"n1"}],"edges":[],"entryNodeId":"n1","triggers":[]}');
     });
 
     it('handles templateId', () => {

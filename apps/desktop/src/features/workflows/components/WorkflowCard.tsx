@@ -1,6 +1,5 @@
 import { Play, Pencil, Pause, Zap, Trash2, Loader2, CheckCircle2, XCircle, Clock, Timer, Activity, ExternalLink } from 'lucide-react';
 import type { Workflow, WorkflowRun } from '@my-claudia/shared';
-import { isV2Definition } from '@my-claudia/shared';
 
 interface WorkflowCardProps {
   workflow: Workflow;
@@ -61,7 +60,7 @@ export function WorkflowCard({ workflow, latestRun, onTrigger, onEdit, onToggle,
   const isActive = workflow.status === 'active';
   const { icon: triggerIcon, label: triggerLabel } = getTriggerLabel(workflow);
   const def = workflow.definition;
-  const stepCount = isV2Definition(def) ? def.nodes.length : def.steps.length;
+  const stepCount = def.nodes.length;
 
   return (
     <div

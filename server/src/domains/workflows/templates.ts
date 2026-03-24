@@ -7,7 +7,6 @@ export const BUILTIN_WORKFLOW_TEMPLATES: WorkflowTemplate[] = [
     description: 'Auto-commit changes, AI-review, and merge if approved. On merge conflict, start AI resolution session.',
     category: 'git',
     definition: {
-      version: 2,
       entryNodeId: 'commit',
       triggers: [
         { type: 'event', event: 'run.completed' },
@@ -84,7 +83,6 @@ export const BUILTIN_WORKFLOW_TEMPLATES: WorkflowTemplate[] = [
     description: 'AI reviews recent git changes every morning',
     category: 'ai',
     definition: {
-      version: 2,
       entryNodeId: 'review',
       triggers: [{ type: 'cron', cron: '0 9 * * *' }],
       nodes: [
@@ -108,7 +106,6 @@ export const BUILTIN_WORKFLOW_TEMPLATES: WorkflowTemplate[] = [
     description: 'Periodically commits uncommitted changes with AI-generated messages',
     category: 'git',
     definition: {
-      version: 2,
       entryNodeId: 'commit',
       triggers: [{ type: 'interval', intervalMinutes: 30 }],
       nodes: [
@@ -132,7 +129,6 @@ export const BUILTIN_WORKFLOW_TEMPLATES: WorkflowTemplate[] = [
     description: 'Run linting and type checking with AI analysis',
     category: 'ci',
     definition: {
-      version: 2,
       entryNodeId: 'lint',
       triggers: [{ type: 'cron', cron: '0 12 * * 1-5' }],
       nodes: [
@@ -166,7 +162,6 @@ export const BUILTIN_WORKFLOW_TEMPLATES: WorkflowTemplate[] = [
     description: 'Run tests nightly, auto-fix failures with AI, create PR for review and merge',
     category: 'ci',
     definition: {
-      version: 2,
       entryNodeId: 'create_wt',
       triggers: [{ type: 'cron', cron: '0 2 * * *' }],
       nodes: [

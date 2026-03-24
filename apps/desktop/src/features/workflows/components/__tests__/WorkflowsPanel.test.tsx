@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { WorkflowsPanel } from '../WorkflowsPanel';
-import type { Workflow, WorkflowRun, WorkflowTemplate } from '@my-claudia/shared';
+import type { Workflow, WorkflowRun } from '@my-claudia/shared';
 
 vi.mock('../../../../hooks/useMediaQuery', () => ({
   useIsMobile: () => false,
@@ -97,7 +97,7 @@ function createWorkflow(overrides: Partial<Workflow> = {}): Workflow {
     name: 'Test Workflow',
     description: 'A test workflow',
     status: 'active',
-    definition: { triggers: [], steps: [] },
+    definition: { triggers: [], nodes: [], edges: [], entryNodeId: '' },
     createdAt: '2026-01-01T00:00:00Z',
     updatedAt: '2026-01-01T00:00:00Z',
     ...overrides,
@@ -110,15 +110,15 @@ describe('WorkflowsPanel', () => {
     expect(screen.getByText('Workflows')).toBeInTheDocument();
   });
 
-  it('renders New button', () => {
+  it('does not render create controls in the panel header', () => {
     render(<WorkflowsPanel projectId="proj-1" />);
-    expect(screen.getByText('New')).toBeInTheDocument();
+    expect(screen.queryByText('New')).not.toBeInTheDocument();
   });
 
   it('calls loadWorkflows and loadTemplates on mount', () => {
     render(<WorkflowsPanel projectId="proj-1" />);
     expect(mockLoadWorkflows).toHaveBeenCalledWith('proj-1');
-    expect(mockLoadTemplates).toHaveBeenCalled();
+    expect(mockLoadTemplates).not.toHaveBeenCalled();
   });
 
   it('shows empty state when no workflows', async () => {
@@ -163,51 +163,34 @@ describe('WorkflowsPanel', () => {
     });
   });
 
-  it('switches to editor view when New is clicked', async () => {
-    render(<WorkflowsPanel projectId="proj-1" />);
-    await vi.waitFor(() => {
-      expect(screen.getByText('New')).toBeInTheDocument();
-    });
-    fireEvent.click(screen.getByText('New'));
-    expect(screen.getByTestId('workflow-editor')).toBeInTheDocument();
-  });
-
   it('returns to list view from editor when Back is clicked', async () => {
+    mockWorkflows = {
+      'proj-1': [createWorkflow({ id: 'wf-1', name: 'Editable Workflow', status: 'active' })],
+    };
     render(<WorkflowsPanel projectId="proj-1" />);
     await vi.waitFor(() => {
-      expect(screen.getByText('New')).toBeInTheDocument();
+      expect(screen.getByText('Edit')).toBeInTheDocument();
     });
-    fireEvent.click(screen.getByText('New'));
+    fireEvent.click(screen.getByText('Edit'));
     expect(screen.getByTestId('workflow-editor')).toBeInTheDocument();
     fireEvent.click(screen.getByText('Back'));
     expect(screen.getByText('Workflows')).toBeInTheDocument();
   });
 
-  it('renders templates when available', async () => {
-    mockTemplates = [
-      {
-        id: 'tpl-1',
-        name: 'CI Pipeline',
-        description: 'Run CI checks',
-        category: 'ci',
-        definition: { triggers: [], steps: [] },
-      } as WorkflowTemplate,
-    ];
-    render(<WorkflowsPanel projectId="proj-1" />);
-    await vi.waitFor(() => {
-      expect(screen.getByText('Quick Start Templates')).toBeInTheDocument();
-    });
-    expect(screen.getByText('CI Pipeline')).toBeInTheDocument();
-  });
-
   it('calls onViewModeChange when view changes', async () => {
     const onViewModeChange = vi.fn();
+    mockWorkflows = {
+      'proj-1': [createWorkflow({ id: 'wf-1', name: 'Editable Workflow', status: 'active' })],
+    };
     render(<WorkflowsPanel projectId="proj-1" onViewModeChange={onViewModeChange} />);
     await vi.waitFor(() => {
       expect(onViewModeChange).toHaveBeenCalledWith('list');
     });
 
-    fireEvent.click(screen.getByText('New'));
+    await vi.waitFor(() => {
+      expect(screen.getByText('Edit')).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByText('Edit'));
     expect(onViewModeChange).toHaveBeenCalledWith('detail');
   });
 
@@ -252,47 +235,6 @@ describe('WorkflowsPanel', () => {
     });
   });
 
-  it('calls createFromTemplate when template Enable is clicked', async () => {
-    mockTemplates = [
-      {
-        id: 'tpl-1',
-        name: 'CI Pipeline',
-        description: 'Run CI checks',
-        category: 'ci',
-        definition: { triggers: [], steps: [] },
-      } as WorkflowTemplate,
-    ];
-    render(<WorkflowsPanel projectId="proj-1" />);
-    await vi.waitFor(() => {
-      expect(screen.getByText('Enable')).toBeInTheDocument();
-    });
-    fireEvent.click(screen.getByText('Enable'));
-    await vi.waitFor(() => {
-      expect(mockCreateFromTemplate).toHaveBeenCalledWith('proj-1', 'tpl-1');
-    });
-  });
-
-  it('shows template workflow association', async () => {
-    mockTemplates = [
-      {
-        id: 'tpl-1',
-        name: 'CI Pipeline',
-        description: 'Run CI checks',
-        category: 'ci',
-        definition: { triggers: [], steps: [] },
-      } as WorkflowTemplate,
-    ];
-    mockWorkflows = {
-      'proj-1': [createWorkflow({ id: 'wf-1', templateId: 'tpl-1', status: 'active' })],
-    };
-    render(<WorkflowsPanel projectId="proj-1" />);
-    await vi.waitFor(() => {
-      // Verify both template and workflow are rendered
-      expect(screen.getByText('CI Pipeline')).toBeInTheDocument();
-      expect(screen.getByTestId('workflow-card-wf-1')).toBeInTheDocument();
-    });
-  });
-
   it('loads runs for each workflow on mount', async () => {
     mockWorkflows = {
       'proj-1': [createWorkflow({ id: 'wf-1' })],
@@ -308,30 +250,6 @@ describe('WorkflowsPanel', () => {
     const { container } = render(<WorkflowsPanel projectId="proj-1" />);
     const spinner = container.querySelector('.animate-spin');
     expect(spinner).toBeInTheDocument();
-  });
-
-  it('renders templates with different categories', async () => {
-    mockTemplates = [
-      {
-        id: 'tpl-1',
-        name: 'Git Template',
-        description: 'Git operations',
-        category: 'git',
-        definition: { triggers: [], steps: [] },
-      } as WorkflowTemplate,
-      {
-        id: 'tpl-2',
-        name: 'AI Template',
-        description: 'AI operations',
-        category: 'ai',
-        definition: { triggers: [], steps: [] },
-      } as WorkflowTemplate,
-    ];
-    render(<WorkflowsPanel projectId="proj-1" />);
-    await vi.waitFor(() => {
-      expect(screen.getByText('Git Template')).toBeInTheDocument();
-      expect(screen.getByText('AI Template')).toBeInTheDocument();
-    });
   });
 
   it('loads workflow runs on mount', async () => {
@@ -359,11 +277,14 @@ describe('WorkflowsPanel', () => {
   });
 
   it('calls onSaved when editor saves', async () => {
+    mockWorkflows = {
+      'proj-1': [createWorkflow({ id: 'wf-1', name: 'Editable Workflow', status: 'active' })],
+    };
     render(<WorkflowsPanel projectId="proj-1" />);
     await vi.waitFor(() => {
-      expect(screen.getByText('New')).toBeInTheDocument();
+      expect(screen.getByText('Edit')).toBeInTheDocument();
     });
-    fireEvent.click(screen.getByText('New'));
+    fireEvent.click(screen.getByText('Edit'));
     expect(screen.getByTestId('workflow-editor')).toBeInTheDocument();
   });
 });

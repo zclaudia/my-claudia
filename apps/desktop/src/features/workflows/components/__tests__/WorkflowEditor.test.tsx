@@ -64,16 +64,7 @@ vi.mock('../WorkflowGraphEditor', () => ({
 }));
 
 // Mock shared utilities
-vi.mock('@my-claudia/shared', () => ({
-  isV2Definition: (def: any) => def?.version === 2,
-  migrateV1ToV2: (def: any) => ({
-    version: 2,
-    nodes: def?.steps?.map((s: any, i: number) => ({ id: `node_${i}`, name: s.name || '', type: s.type || '', config: {}, position: { x: 0, y: i * 100 } })) || [],
-    edges: [],
-    entryNodeId: '',
-    triggers: def?.triggers || [{ type: 'manual' }],
-  }),
-}));
+vi.mock('@my-claudia/shared', () => ({}));
 
 // Mock Tauri
 vi.mock('@tauri-apps/api/webviewWindow', () => ({
@@ -166,7 +157,6 @@ describe('WorkflowEditor', () => {
       name: 'My Workflow',
       description: 'A test workflow',
       definition: {
-        version: 2,
         nodes: [],
         edges: [],
         entryNodeId: '',
@@ -259,7 +249,6 @@ describe('WorkflowEditor', () => {
       id: 'wf-1',
       name: 'Test WF',
       definition: {
-        version: 2,
         nodes: [],
         edges: [],
         entryNodeId: '',
@@ -369,7 +358,6 @@ describe('WorkflowEditor', () => {
       id: 'wf-1',
       name: 'Existing',
       definition: {
-        version: 2,
         nodes: [],
         edges: [],
         entryNodeId: '',
@@ -461,7 +449,6 @@ describe('WorkflowEditor', () => {
       id: 'wf-1',
       name: 'Existing',
       definition: {
-        version: 2,
         nodes: [],
         edges: [],
         entryNodeId: '',
@@ -490,12 +477,14 @@ describe('WorkflowEditor', () => {
     });
   });
 
-  it('handles V1 workflow definition by migrating', () => {
+  it('renders existing workflow definition directly', () => {
     const workflow = {
-      id: 'wf-old',
-      name: 'Legacy',
+      id: 'wf-existing',
+      name: 'Existing',
       definition: {
-        steps: [{ name: 'Step 1', type: 'ai_prompt' }],
+        nodes: [{ id: 'n1', name: 'Step 1', type: 'ai_prompt', config: {}, position: { x: 0, y: 0 } }],
+        edges: [],
+        entryNodeId: 'n1',
         triggers: [{ type: 'manual' }],
       },
     } as any;
@@ -511,6 +500,6 @@ describe('WorkflowEditor', () => {
 
     expect(container).toBeTruthy();
     const nameInput = screen.getByPlaceholderText('Workflow name...') as HTMLInputElement;
-    expect(nameInput.value).toBe('Legacy');
+    expect(nameInput.value).toBe('Existing');
   });
 });

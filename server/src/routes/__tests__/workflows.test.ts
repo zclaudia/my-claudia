@@ -26,7 +26,9 @@ const mockWorkflow = {
   description: 'A test workflow',
   status: 'active',
   definition: {
-    steps: [{ id: 's1', type: 'shell', config: {} }],
+    nodes: [{ id: 's1', type: 'shell', config: {} }],
+    edges: [],
+    entryNodeId: 's1',
     triggers: [{ type: 'manual' }],
   },
   createdAt: '2026-01-01T00:00:00Z',
@@ -99,55 +101,56 @@ describe('workflow routes', () => {
   // ── POST /api/projects/:projectId/workflows ──
 
   describe('POST /api/projects/:projectId/workflows', () => {
-    const validV1Body = {
+    const validBody = {
       name: 'New WF',
       description: 'desc',
       definition: {
-        steps: [{ id: 's1', type: 'shell', config: {} }],
+        nodes: [{ id: 's1', type: 'shell', config: {} }],
+        edges: [],
+        entryNodeId: 's1',
         triggers: [{ type: 'manual' }],
       },
     };
 
-    const validV2Body = {
-      name: 'V2 WF',
+    const emptyDraftBody = {
+      name: 'Draft WF',
       definition: {
-        version: 2,
-        nodes: [{ id: 'n1', type: 'shell' }, { id: 'n2', type: 'notify' }],
-        edges: [{ from: 'n1', to: 'n2' }],
-        entryNodeId: 'n1',
+        nodes: [],
+        edges: [],
+        entryNodeId: '',
         triggers: [{ type: 'manual' }],
       },
     };
 
-    it('creates a V1 workflow', async () => {
-      const res = await request(app).post('/api/projects/proj-1/workflows').send(validV1Body);
+    it('creates a workflow with graph definition', async () => {
+      const res = await request(app).post('/api/projects/proj-1/workflows').send(validBody);
       expect(res.status).toBe(201);
       expect(res.body.success).toBe(true);
       expect(service.createWorkflow).toHaveBeenCalledWith({
         projectId: 'proj-1',
         name: 'New WF',
         description: 'desc',
-        definition: validV1Body.definition,
+        definition: validBody.definition,
         status: undefined,
       });
     });
 
-    it('creates a V2 workflow', async () => {
-      const res = await request(app).post('/api/projects/proj-1/workflows').send(validV2Body);
+    it('creates an empty workflow draft', async () => {
+      const res = await request(app).post('/api/projects/proj-1/workflows').send(emptyDraftBody);
       expect(res.status).toBe(201);
       expect(res.body.success).toBe(true);
     });
 
     it('returns 400 when name is missing', async () => {
       const res = await request(app).post('/api/projects/proj-1/workflows').send({
-        definition: validV1Body.definition,
+        definition: validBody.definition,
       });
       expect(res.status).toBe(400);
       expect(res.body.error.code).toBe('VALIDATION_ERROR');
       expect(res.body.error.message).toBe('Name is required');
     });
 
-    it('returns 400 when definition is invalid (no steps or nodes)', async () => {
+    it('returns 400 when definition is invalid', async () => {
       const res = await request(app).post('/api/projects/proj-1/workflows').send({
         name: 'Bad',
         definition: { triggers: [{ type: 'manual' }] },
@@ -159,7 +162,7 @@ describe('workflow routes', () => {
     it('returns 400 when definition has no triggers', async () => {
       const res = await request(app).post('/api/projects/proj-1/workflows').send({
         name: 'No triggers',
-        definition: { steps: [{ id: 's1' }] },
+        definition: { nodes: [{ id: 's1' }], edges: [], entryNodeId: 's1' },
       });
       expect(res.status).toBe(400);
       expect(res.body.error.code).toBe('VALIDATION_ERROR');
@@ -169,7 +172,6 @@ describe('workflow routes', () => {
       const res = await request(app).post('/api/projects/proj-1/workflows').send({
         name: 'V2 bad',
         definition: {
-          version: 2,
           nodes: [{ id: 'n1' }],
           edges: [],
           triggers: [{ type: 'manual' }],
@@ -183,7 +185,6 @@ describe('workflow routes', () => {
       const res = await request(app).post('/api/projects/proj-1/workflows').send({
         name: 'V2 bad ref',
         definition: {
-          version: 2,
           nodes: [{ id: 'n1' }],
           edges: [],
           entryNodeId: 'n999',
@@ -199,7 +200,9 @@ describe('workflow routes', () => {
       const res = await request(app).post('/api/projects/proj-1/workflows').send({
         name: 'Cron WF',
         definition: {
-          steps: [{ id: 's1', type: 'shell', config: {} }],
+          nodes: [{ id: 's1', type: 'shell', config: {} }],
+          edges: [],
+          entryNodeId: 's1',
           triggers: [{ type: 'cron', cron: 'bad-cron' }],
         },
       });
@@ -209,7 +212,7 @@ describe('workflow routes', () => {
 
     it('returns 500 on service error', async () => {
       service.createWorkflow.mockImplementation(() => { throw new Error('create fail'); });
-      const res = await request(app).post('/api/projects/proj-1/workflows').send(validV1Body);
+      const res = await request(app).post('/api/projects/proj-1/workflows').send(validBody);
       expect(res.status).toBe(500);
     });
   });
@@ -260,6 +263,14 @@ describe('workflow routes', () => {
       });
       expect(res.status).toBe(400);
       expect(res.body.error.message).toContain('Invalid cron');
+    });
+
+    it('validates merged definition when updating entryNodeId', async () => {
+      const res = await request(app).patch('/api/workflows/wf-1').send({
+        definition: { entryNodeId: 'missing-node' },
+      });
+      expect(res.status).toBe(400);
+      expect(res.body.error.message).toContain('entryNodeId');
     });
 
     it('skips cron validation when no triggers in body', async () => {

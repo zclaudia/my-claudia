@@ -1,13 +1,13 @@
 import { useState, useCallback } from 'react';
 import { Sparkles, Loader2, AlertTriangle, RotateCcw } from 'lucide-react';
-import type { WorkflowDefinitionV2, WorkflowTrigger } from '@my-claudia/shared';
+import type { WorkflowDefinition, WorkflowTrigger } from '@my-claudia/shared';
 import { generateWorkflowFromNL, refineGeneratedWorkflow } from '../api';
 
 interface NLWorkflowGeneratorProps {
   projectId: string;
   providerId: string;
   onGenerated: (result: {
-    definition: WorkflowDefinitionV2;
+    definition: WorkflowDefinition;
     name: string;
     description: string;
     triggers: WorkflowTrigger[];

@@ -50,7 +50,7 @@ describe('WorkflowEditorWindow', () => {
       ok: true,
       json: async () => ({
         success: true,
-        data: { id: 'w1', name: 'My Workflow', definition: { steps: [], triggers: [] } },
+        data: { id: 'w1', name: 'My Workflow', definition: { nodes: [], edges: [], entryNodeId: '', triggers: [] } },
       }),
     });
 

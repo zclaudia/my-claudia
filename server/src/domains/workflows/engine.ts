@@ -1,5 +1,5 @@
 /**
- * Workflow Execution Engine (V2 — Graph-based)
+ * Workflow Execution Engine (Graph-based)
  *
  * Executes workflow nodes by traversing a DAG with support for:
  * - Variable interpolation: ${stepId.output.field}
@@ -17,11 +17,9 @@ import type {
   WorkflowStepRun,
   WorkflowRun,
   WorkflowDefinition,
-  WorkflowDefinitionV2,
   ServerMessage,
   Session,
 } from '@my-claudia/shared';
-import { isV2Definition, migrateV1ToV2 } from '@my-claudia/shared';
 import { WorkflowRunRepository } from './workflow-run-repository.js';
 import { WorkflowStepRunRepository } from './workflow-step-run-repository.js';
 import { ProjectRepository } from '../../repositories/project.js';
@@ -199,11 +197,8 @@ export class WorkflowEngine {
       throw new Error(`Workflow ${workflowId} is already running`);
     }
 
-    // Normalize to V2
-    const defV2 = isV2Definition(definition) ? definition : migrateV1ToV2(definition);
-
     // Validate DAG
-    const validation = this.validateDAG(defV2.nodes, defV2.edges);
+    const validation = this.validateDAG(definition.nodes, definition.edges);
     if (!validation.valid) {
       throw new Error(`Invalid workflow graph: ${validation.error}`);
     }
@@ -221,7 +216,7 @@ export class WorkflowEngine {
     });
 
     // Create step run records for all nodes
-    for (const node of defV2.nodes) {
+    for (const node of definition.nodes) {
       this.stepRunRepo.create({
         runId: run.id,
         stepId: node.id,
@@ -235,7 +230,7 @@ export class WorkflowEngine {
     this.activeRuns.set(workflowId, true);
 
     // Execute asynchronously
-    this.executeGraph(run, defV2, project?.rootPath, project?.providerId)
+    this.executeGraph(run, definition, project?.rootPath, project?.providerId)
       .catch((err) => {
         console.error(`[Workflow] Run ${run.id} failed:`, err);
         // Ensure run is marked as failed if executeGraph throws
@@ -259,7 +254,7 @@ export class WorkflowEngine {
 
   private async executeGraph(
     run: WorkflowRun,
-    definition: WorkflowDefinitionV2,
+    definition: WorkflowDefinition,
     projectRootPath?: string,
     providerId?: string,
   ): Promise<void> {
@@ -605,7 +600,7 @@ export class WorkflowEngine {
   }
 
   // ── Condition ─────────────────────────────────────────────────
-  // In V2, condition branching is handled by edges (condition_true/condition_false).
+  // Condition branching is handled by edges (condition_true/condition_false).
   // The handler only needs to evaluate the expression and return the result.
 
   private async handleCondition(
