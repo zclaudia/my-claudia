@@ -29,6 +29,7 @@ import { useClaudiaStore } from './stores/claudiaStore';
 import { useIsMobile } from './hooks/useMediaQuery';
 import { useClaudiaStatus } from './hooks/useClaudiaStatus';
 import { useAndroidBack } from './hooks/useAndroidBack';
+import { useSwipeBack } from './hooks/useSwipeBack';
 import { eagerSyncAllBackends } from './services/sessionSync';
 import { useFileViewerStore } from './stores/fileViewerStore';
 import { useUIStore } from './stores/uiStore';
@@ -366,6 +367,23 @@ function AppContent() {
   // Android back gesture: open sidebar when nothing else is open (pri 5)
   useAndroidBack(() => setSidebarOpen(true), isMobile && !sidebarOpen && !isAgentExpanded && !fileViewerFullscreen, 5);
 
+  // Mobile swipe: left-swipe from right edge to open Claudia Chat
+  const swipeOpenClaudiaRef = useSwipeBack({
+    onSwipe: () => setAgentExpanded(true),
+    enabled: isMobile && !isAgentExpanded && !sidebarOpen && !fileViewerFullscreen,
+    direction: 'left',
+    edgeWidth: 24,
+    threshold: 60,
+  });
+
+  // Mobile swipe: right-swipe anywhere in Claudia Chat to close
+  const swipeCloseClaudiaRef = useSwipeBack({
+    onSwipe: () => setAgentExpanded(false),
+    enabled: isMobile && isAgentExpanded,
+    direction: 'right',
+    fullWidth: true,
+    threshold: 60,
+  });
 
   // Mobile: prevent localhost connection on initial load
   useEffect(() => {
@@ -640,10 +658,13 @@ function AppContent() {
         {/* Main Content */}
         <main className="flex-1 flex flex-col overflow-hidden relative">
           {/* Chat Area */}
-          <div className="flex-1 overflow-hidden relative">
+          <div className="flex-1 overflow-hidden relative" ref={swipeOpenClaudiaRef}>
             {/* Mobile agent panel (full-screen overlay, always mounted to preserve state) */}
             {isMobile && (
-              <div className={`absolute inset-0 z-20 bg-background ${isAgentExpanded ? '' : 'hidden'}`}>
+              <div
+                ref={swipeCloseClaudiaRef}
+                className={`absolute inset-0 z-20 bg-background ${isAgentExpanded ? '' : 'hidden'}`}
+              >
                 <button
                   onClick={() => setAgentExpanded(false)}
                   className="absolute left-0 top-1/2 -translate-y-1/2 z-10
@@ -654,6 +675,7 @@ function AppContent() {
                              dark:bg-zinc-600/60 dark:text-zinc-400
                              dark:border-zinc-600 dark:active:bg-zinc-600/80"
                   title="Close Claudia"
+                  aria-label="Close Claudia"
                 >
                   <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 5l7 7-7 7" />
