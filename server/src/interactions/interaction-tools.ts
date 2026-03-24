@@ -165,14 +165,6 @@ export function registerInteractionTools(config?: InteractionToolsConfig): void 
       if (response.error) {
         throw new Error(String(response.error));
       }
-
-      if (response.approved !== true) {
-        const feedback = typeof response.feedback === 'string' && response.feedback.trim()
-          ? response.feedback.trim()
-          : 'Plan rejected by user';
-        throw new Error(feedback);
-      }
-
       return JSON.stringify(response);
     },
   });

@@ -684,10 +684,23 @@ function ToolExpandedContent({ toolName, toolInput, status, result, isError }: {
 export const ToolCallItem = memo(function ToolCallItem({ toolCall }: ToolCallItemProps) {
   const [isExpanded, setIsExpanded] = useState(false);
   const { toolName, toolInput, status, result, isError, activity } = toolCall;
+  const selectedSessionId = useProjectStore((s) => s.selectedSessionId);
 
   // Phase 1 dedup: render InteractionItem instead of interaction tool when interaction store has it
   const interactionId = extractInteractionId(result);
-  const interaction = useInteractionStore((s) => s.interactions[toolCall.id] || (interactionId ? s.interactions[interactionId] : undefined));
+  const interaction = useInteractionStore((s) => {
+    const direct = s.interactions[toolCall.id] || (interactionId ? s.interactions[interactionId] : undefined);
+    if (direct) return direct;
+
+    // exit_plan_mode creates a separate interaction before the tool result exists.
+    if (selectedSessionId && status === 'running' && (toolName === 'ExitPlanMode' || hasInteractionToolSuffix(toolName, 'exit_plan_mode'))) {
+      return Object.values(s.interactions)
+        .filter((item) => item.sessionId === selectedSessionId && item.type === 'interaction_plan_review')
+        .sort((a, b) => b.createdAt - a.createdAt)[0];
+    }
+
+    return undefined;
+  });
   if (interaction && isInteractionTool(toolName)) {
     if (interaction.type === 'interaction_todo_update' && interaction.todos.length > 0) {
       return <InteractionItem interaction={interaction} />;

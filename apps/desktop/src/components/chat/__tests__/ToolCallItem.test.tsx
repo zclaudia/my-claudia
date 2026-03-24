@@ -34,10 +34,15 @@ vi.mock('../../../stores/terminalStore', () => ({
   ),
 }));
 
+const mockProjectState = {
+  selectedSessionId: null as string | null,
+  sessions: [] as any[],
+};
+
 vi.mock('../../../stores/projectStore', () => ({
   useProjectStore: Object.assign(
-    (selector: any) => selector({ selectedSessionId: null, sessions: [] }),
-    { getState: () => ({ selectedSessionId: null, sessions: [] }) },
+    (selector: any) => selector(mockProjectState),
+    { getState: () => mockProjectState },
   ),
 }));
 
@@ -76,6 +81,8 @@ const createToolCall = (overrides: Partial<ToolCallState> = {}): ToolCallState =
 describe('ToolCallItem', () => {
   beforeEach(() => {
     mockInteractionState.interactions = {};
+    mockProjectState.selectedSessionId = null;
+    mockProjectState.sessions = [];
   });
 
   // ── Basic display ─────────────────────────────────────────────────────────
@@ -587,6 +594,28 @@ describe('ToolCallItem', () => {
       expect(screen.getByText('Task List')).toBeInTheDocument();
       expect(screen.getByText('Render MCP todo list')).toBeInTheDocument();
       expect(screen.queryByText('Stale raw todo')).not.toBeInTheDocument();
+    });
+
+    it('renders plan review interaction for running ExitPlanMode in the active session', () => {
+      mockInteractionState.interactions['interaction-plan-1'] = {
+        type: 'interaction_plan_review',
+        interactionId: 'interaction-plan-1',
+        sessionId: 's1',
+        source: 'tool_call',
+        createdAt: Date.now(),
+        plan: 'Review this plan',
+      };
+      mockProjectState.selectedSessionId = 's1';
+
+      render(<ToolCallItem toolCall={createToolCall({
+        toolName: 'ExitPlanMode',
+        toolInput: { plan: 'Raw plan' },
+        status: 'running',
+      })} />);
+
+      expect(screen.getByText('Plan Review')).toBeInTheDocument();
+      expect(screen.getByText('Approve Plan')).toBeInTheDocument();
+      expect(screen.queryByText('Raw plan')).not.toBeInTheDocument();
     });
 
     it('falls back to native TodoWrite rendering when interaction has no todos', () => {
