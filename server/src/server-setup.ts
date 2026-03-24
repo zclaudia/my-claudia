@@ -28,6 +28,7 @@ import { createOpenCodeImportRoutes } from './routes/import-opencode.js';
 import { createAgentRoutes } from './routes/agent.js';
 import { createNotificationFeedRoutes } from './routes/notification-feed.js';
 import { createClaudiaRoutes } from './routes/claudia.js';
+import { handleMcpRequest, handleMcpSse, handleMcpSessionClose, getMcpServerInfo } from './mcp/mcp-server.js';
 import { createAgentTriggerRoutes } from './routes/agent-triggers.js';
 import { NotificationFeedService } from './domains/notification-feed/service.js';
 import { AgentTriggerService } from './domains/agent-triggers/service.js';
@@ -289,6 +290,33 @@ export function setupRoutesAndServices(deps: SetupDependencies): SetupResult {
 
   // MCP server management routes
   app.use('/api/mcp-servers', authMiddleware, createMcpServerRoutes(db));
+
+  // MCP Streamable HTTP endpoint — exposes all registered tools to external AI
+  {
+    app.post('/mcp', authMiddleware, async (req: Request, res: Response) => {
+      await handleMcpRequest(req, res, req.body);
+    });
+    app.get('/mcp', authMiddleware, async (req: Request, res: Response) => {
+      await handleMcpSse(req, res);
+    });
+    app.delete('/mcp', authMiddleware, async (req: Request, res: Response) => {
+      await handleMcpSessionClose(req, res);
+    });
+    app.get('/mcp/info', authMiddleware, (_req: Request, res: Response) => {
+      res.json(getMcpServerInfo());
+    });
+  }
+
+  // MCP export config — returns JSON for external AI tools to connect
+  app.get('/api/mcp-export', authMiddleware, (_req: Request, res: Response) => {
+    const port = getServerPort() ?? 3100;
+    res.json({
+      claudia: {
+        type: 'url',
+        url: `http://localhost:${port}/mcp`,
+      },
+    });
+  });
 
   // System stats + plugin storage reader (local only)
   app.use('/api/system', localOnlyMiddleware, createSystemStatsRoutes());

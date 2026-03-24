@@ -13,7 +13,7 @@ import { workflowStepRegistry } from '../../plugins/workflow-step-registry.js';
 
 function validateWorkflowDefinition(res: Response, definition: unknown): definition is WorkflowDefinition {
   const workflowDefinition = normalizeWorkflowDefinition(definition);
-  const candidate = workflowDefinition as Record<string, unknown> | null | undefined;
+  const candidate = workflowDefinition as unknown as Record<string, unknown> | null | undefined;
 
   if (
     !Array.isArray(candidate?.nodes) ||
