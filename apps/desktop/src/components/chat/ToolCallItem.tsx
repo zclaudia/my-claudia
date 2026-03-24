@@ -29,8 +29,18 @@ function normalizeToolInput(input: unknown): unknown {
   return input;
 }
 
+function extractInteractionId(result: unknown): string | null {
+  const normalized = normalizeToolInput(result);
+  if (!normalized || typeof normalized !== 'object') return null;
+  const interactionId = (normalized as Record<string, unknown>).interactionId;
+  return typeof interactionId === 'string' && interactionId ? interactionId : null;
+}
+
 function hasInteractionToolSuffix(toolName: string, suffix: string): boolean {
-  return toolName === suffix || toolName.endsWith(`_${suffix}`) || toolName.endsWith(`-${suffix}`);
+  return toolName === suffix
+    || toolName.endsWith(`_${suffix}`)
+    || toolName.endsWith(`-${suffix}`)
+    || toolName.endsWith(`:${suffix}`);
 }
 
 // Check if tool is a todo-list tool (built-in TodoWrite or MCP update_todo_list)
@@ -668,7 +678,8 @@ export const ToolCallItem = memo(function ToolCallItem({ toolCall }: ToolCallIte
   const { toolName, toolInput, status, result, isError, activity } = toolCall;
 
   // Phase 1 dedup: render InteractionItem instead of interaction tool when interaction store has it
-  const interaction = useInteractionStore((s) => s.interactions[toolCall.id]);
+  const interactionId = extractInteractionId(result);
+  const interaction = useInteractionStore((s) => s.interactions[toolCall.id] || (interactionId ? s.interactions[interactionId] : undefined));
   if (interaction && isInteractionTool(toolName)) {
     if (interaction.type === 'interaction_todo_update' && interaction.todos.length > 0) {
       return <InteractionItem interaction={interaction} />;

@@ -32,31 +32,7 @@ function sleep(ms: number): Promise<void> {
   return new Promise(resolve => window.setTimeout(resolve, ms));
 }
 
-/**
- * Detect if we're running inside a Tauri desktop app (not Android/mobile/Windows).
- * On mobile, the shell spawn capability isn't available.
- * On Windows, the app runs as UI-only — server runs in WSL or remotely.
- */
-function isDesktopTauri(): boolean {
-  return (
-    typeof window !== 'undefined' &&
-    '__TAURI_INTERNALS__' in window &&
-    !navigator.userAgent.includes('Android') &&
-    !navigator.userAgent.includes('Windows')
-  );
-}
-
-/**
- * Detect if we're running on Windows with Tauri.
- * Returns true only on Windows desktop (not mobile/browser).
- */
-export function isWindowsTauri(): boolean {
-  return (
-    typeof window !== 'undefined' &&
-    '__TAURI_INTERNALS__' in window &&
-    navigator.userAgent.includes('Windows')
-  );
-}
+import { isDesktopTauriNonWindows, isWindows as isWindowsTauri } from '../utils/platform';
 
 /**
  * Resolve the path to the server entry point.
@@ -86,7 +62,7 @@ export function useEmbeddedServer(options?: { disabled?: boolean }): EmbeddedSer
   const getInitialStatus = (): EmbeddedServerStatus => {
     if (disabled) return 'disabled';
     if (isWindowsTauri()) return 'wsl-mode';
-    if (!isDesktopTauri()) return 'disabled';
+    if (!isDesktopTauriNonWindows()) return 'disabled';
     return 'starting';
   };
 
@@ -290,7 +266,7 @@ export function useEmbeddedServer(options?: { disabled?: boolean }): EmbeddedSer
   useEffect(() => {
     mountedRef.current = true;
 
-    if (disabled || !isDesktopTauri()) return;
+    if (disabled || !isDesktopTauriNonWindows()) return;
 
     if (import.meta.env.DEV) {
       startServerDev();

@@ -1,40 +1,19 @@
 import { useState, useCallback, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { Bot, FileText, Wrench } from 'lucide-react';
-
-const isDesktopTauri = typeof window !== 'undefined'
-  && '__TAURI_INTERNALS__' in window
-  && !navigator.userAgent.includes('Android');
+import { isDesktopTauri } from '../utils/platform';
+import { openPopoutWindow } from '../utils/popoutWindow';
 
 async function openSessionInNewWindow(sessionId: string, projectId: string) {
-  if (!isDesktopTauri) return;
+  if (!isDesktopTauri()) return;
   try {
-    const { WebviewWindow } = await import('@tauri-apps/api/webviewWindow');
-    const label = `session-chat-${Date.now()}`;
-    const serverUrl = getBaseUrl();
-    const authToken = (getAuthHeaders() as Record<string, string>)['Authorization'] || '';
-    const activeServerId = useServerStore.getState().activeServerId || '';
-    const gatewayState = useGatewayStore.getState();
-    const params = new URLSearchParams({
-      sessionWindow: sessionId,
-      projectId,
-      serverUrl,
-      authToken,
-      ...(activeServerId ? { serverId: activeServerId } : {}),
-    });
-    if (isGatewayTarget(activeServerId) && gatewayState.gatewayUrl && gatewayState.gatewaySecret) {
-      params.set('gatewayUrl', gatewayState.gatewayUrl);
-      params.set('gatewaySecret', gatewayState.gatewaySecret);
-    }
-    new WebviewWindow(label, {
-      url: `${window.location.origin}${window.location.pathname}?${params}`,
+    const label = await openPopoutWindow({
+      type: 'session-chat',
+      params: { sessionWindow: sessionId, projectId },
       title: 'Session',
-      width: 900,
-      height: 700,
-      center: true,
-      dragDropEnabled: false,
     });
     useUIStore.getState().addPoppedOutSession(sessionId, label);
+    const { WebviewWindow } = await import('@tauri-apps/api/webviewWindow');
     const win = await WebviewWindow.getByLabel(label);
     if (win) {
       const unlisten = await win.onCloseRequested(() => {
@@ -48,7 +27,7 @@ async function openSessionInNewWindow(sessionId: string, projectId: string) {
 }
 import { useProjectStore } from '../stores/projectStore';
 import { useServerStore } from '../stores/serverStore';
-import { toGatewayServerId, isGatewayTarget, useGatewayStore } from '../stores/gatewayStore';
+import { toGatewayServerId } from '../stores/gatewayStore';
 import { useSupervisionStore } from '../stores/supervisionStore';
 import { usePermissionStore } from '../stores/permissionStore';
 import { useAskUserQuestionStore } from '../stores/askUserQuestionStore';
@@ -71,7 +50,6 @@ import { SortableList, SortableItem } from './SortableList';
 import * as api from '../services/api';
 import { reorderProjects } from '../services/api/projects';
 import { reorderSessions } from '../services/api/sessions';
-import { getBaseUrl, getAuthHeaders } from '../services/api';
 import type { GitWorktree, Session } from '@my-claudia/shared';
 
 interface SidebarProps {
@@ -1238,7 +1216,7 @@ export function Sidebar({ collapsed, onToggle, isMobile, isOpen, onClose, hideHe
                       isActive={activeRunSessionIds.has(session.id)}
                       providerName={getProviderName(session)}
                       worktreeBranch={getWorktreeBranch(session, projects.find(p => p.id === session.projectId))}
-                      onPopOut={isDesktopTauri && !isMobile ? () => openSessionInNewWindow(session.id, session.projectId) : undefined}
+                      onPopOut={isDesktopTauri() && !isMobile ? () => openSessionInNewWindow(session.id, session.projectId) : undefined}
                     />
                   );
 

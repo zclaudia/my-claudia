@@ -15,14 +15,9 @@ import { NLWorkflowGenerator } from './NLWorkflowGenerator';
 import { WorkflowGraphEditor, fromFlowNodes, fromFlowEdges } from './WorkflowGraphEditor';
 import { useWorkflowStore } from '../store';
 import { useProjectStore } from '../../../stores/projectStore';
-import { useServerStore } from '../../../stores/serverStore';
-import { useGatewayStore, isGatewayTarget } from '../../../stores/gatewayStore';
-import { getBaseUrl, getAuthHeaders } from '../../../services/api';
 import type { Node, Edge } from '@xyflow/react';
-
-const isDesktopTauri = typeof window !== 'undefined'
-  && '__TAURI_INTERNALS__' in window
-  && !navigator.userAgent.includes('Android');
+import { isDesktopTauri } from '../../../utils/platform';
+import { openPopoutWindow } from '../../../utils/popoutWindow';
 
 interface WorkflowEditorProps {
   workflow?: Workflow;
@@ -221,36 +216,16 @@ export function WorkflowEditor({ workflow, projectId, onBack, onSaved, standalon
   };
 
   const handlePopOut = async () => {
-    if (!isDesktopTauri) return;
+    if (!isDesktopTauri()) return;
     try {
-      const { WebviewWindow } = await import('@tauri-apps/api/webviewWindow');
-      const label = `workflow-editor-${Date.now()}`;
-      let sUrl = '';
-      try { sUrl = getBaseUrl(); } catch {}
-      const aHeaders = getAuthHeaders();
-      const aToken = (aHeaders as Record<string, string>)['Authorization'] || '';
-      const activeServerId = useServerStore.getState().activeServerId || '';
-      const activeServer = useServerStore.getState().getActiveServer();
-      const { gatewayUrl, gatewaySecret } = useGatewayStore.getState();
-
-      const params = new URLSearchParams({ workflowEditor: projectId, serverUrl: sUrl });
-      if (workflow?.id) params.set('workflowId', workflow.id);
-      if (aToken) params.set('authToken', aToken);
-      if (activeServerId) params.set('serverId', activeServerId);
-      if (activeServer?.name) params.set('serverName', activeServer.name);
-      if (isGatewayTarget(activeServerId) && gatewayUrl && gatewaySecret) {
-        params.set('gatewayUrl', gatewayUrl);
-        params.set('gatewaySecret', gatewaySecret);
-      }
-      const url = `${window.location.origin}${window.location.pathname}?${params}`;
-
-      new WebviewWindow(label, {
-        url,
+      await openPopoutWindow({
+        type: 'workflow-editor',
+        params: {
+          workflowEditor: projectId,
+          ...(workflow?.id ? { workflowId: workflow.id } : {}),
+        },
         title: workflow ? `Edit: ${workflow.name}` : 'New Workflow',
         width: 1100,
-        height: 700,
-        center: true,
-        dragDropEnabled: false,
       });
 
       // Go back to list in main window
@@ -341,7 +316,7 @@ export function WorkflowEditor({ workflow, projectId, onBack, onSaved, standalon
               <Check size={12} /> Saved
             </span>
           )}
-          {!standalone && isDesktopTauri && (
+          {!standalone && isDesktopTauri() && (
             <button
               onClick={handlePopOut}
               className="p-1.5 rounded hover:bg-secondary text-muted-foreground hover:text-foreground shrink-0"

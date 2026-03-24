@@ -23,13 +23,7 @@ import { AgentSettings } from './settings/AgentSettings';
 import { PermissionSettings } from './settings/PermissionSettings';
 import { NotificationSettingsInline } from './settings/NotificationSettings';
 import { MobileGatewayConfig } from './settings/MobileGatewayConfig';
-
-
-/** Detect macOS desktop (Tauri + Mac, not Android) */
-const isMacOS = typeof window !== 'undefined'
-  && '__TAURI_INTERNALS__' in window
-  && !navigator.userAgent.includes('Android')
-  && navigator.platform.includes('Mac');
+import { isMacOS, isTauri } from '../utils/platform';
 
 type SettingsTab = 'general' | 'agent' | 'permissions' | 'providers' | 'notifications' | 'gateway' | 'import' | 'plugins' | 'mcp-servers' | 'workspace' | 'debug' | `plugin:${string}`;
 
@@ -135,7 +129,7 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
   const [fdaGranted, setFdaGranted] = useState<boolean | null>(null);
   const [folderPerms, setFolderPerms] = useState<{ name: string; granted: boolean }[]>([]);
   useEffect(() => {
-    if (!isMacOS || !isOpen) return;
+    if (!isMacOS() || !isOpen) return;
     invoke<boolean>('check_full_disk_access').then(setFdaGranted).catch(() => setFdaGranted(null));
     invoke<{ name: string; granted: boolean }[]>('check_folder_permissions').then(setFolderPerms).catch(() => {});
   }, [isOpen]);
@@ -545,7 +539,7 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
                   </div>
                 </div>
 
-                {isMacOS && fdaGranted !== null && (
+                {isMacOS() && fdaGranted !== null && (
                 <div>
                   <h3 className="text-sm font-medium mb-3">Permissions</h3>
                   <div className="space-y-2">
@@ -818,7 +812,7 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
                               const fileName = `my-claudia-logs-${ts}.json`;
                               const blob = new Blob([logs], { type: 'application/json' });
 
-                              if ('__TAURI_INTERNALS__' in window) {
+                              if (isTauri()) {
                                 const { downloadDir } = await import('@tauri-apps/api/path');
                                 const { writeFile } = await import('@tauri-apps/plugin-fs');
                                 const dir = await downloadDir();

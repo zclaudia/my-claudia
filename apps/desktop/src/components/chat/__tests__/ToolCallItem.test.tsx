@@ -567,6 +567,28 @@ describe('ToolCallItem', () => {
       expect(screen.getByText('Use normalized todo list')).toBeInTheDocument();
     });
 
+    it('renders InteractionItem for update_todo_list via interactionId in tool result', () => {
+      mockInteractionState.interactions['interaction-1'] = {
+        type: 'interaction_todo_update',
+        interactionId: 'interaction-1',
+        sessionId: 's1',
+        source: 'tool_call',
+        createdAt: Date.now(),
+        todos: [{ content: 'Render MCP todo list', status: 'in_progress' }],
+      };
+
+      render(<ToolCallItem toolCall={createToolCall({
+        toolName: 'mcp:claudia-plugins:update_todo_list',
+        toolInput: { todos: [{ content: 'Stale raw todo', status: 'pending' }] },
+        result: JSON.stringify({ success: true, interactionId: 'interaction-1' }),
+        status: 'completed',
+      })} />);
+
+      expect(screen.getByText('Task List')).toBeInTheDocument();
+      expect(screen.getByText('Render MCP todo list')).toBeInTheDocument();
+      expect(screen.queryByText('Stale raw todo')).not.toBeInTheDocument();
+    });
+
     it('falls back to native TodoWrite rendering when interaction has no todos', () => {
       mockInteractionState.interactions['tool-1'] = {
         type: 'interaction_todo_update',

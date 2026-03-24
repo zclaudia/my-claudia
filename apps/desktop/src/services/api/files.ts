@@ -1,5 +1,5 @@
 import type { DirectoryListingResponse, FileContentResponse } from '@my-claudia/shared';
-import { fetchApi } from './base';
+import { apiCall } from './unwrap';
 
 export async function listDirectory(params: {
   projectRoot: string;
@@ -14,11 +14,7 @@ export async function listDirectory(params: {
     ...(params.maxResults !== undefined && { maxResults: String(params.maxResults) })
   });
 
-  const result = await fetchApi<DirectoryListingResponse>(`/api/files/list?${queryParams}`);
-  if (!result.success || !result.data) {
-    throw new Error(result.error?.message || 'Failed to list directory');
-  }
-  return result.data;
+  return apiCall<DirectoryListingResponse>(`/api/files/list?${queryParams}`);
 }
 
 export async function getFileContent(params: {
@@ -30,9 +26,5 @@ export async function getFileContent(params: {
     relativePath: params.relativePath,
   });
 
-  const result = await fetchApi<FileContentResponse>(`/api/files/content?${queryParams}`);
-  if (!result.success || !result.data) {
-    throw new Error(result.error?.message || 'Failed to fetch file content');
-  }
-  return result.data;
+  return apiCall<FileContentResponse>(`/api/files/content?${queryParams}`);
 }

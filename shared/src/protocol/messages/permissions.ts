@@ -1,0 +1,102 @@
+/**
+ * Permission and user-interaction messages: permission decisions, ask-user answers,
+ * permission requests, agent interceptions, resolution notifications, and plugin permissions.
+ */
+
+import type { AskUserQuestionItem } from '../../interaction/forms.js';
+
+// Client → Server
+
+export interface PermissionDecisionMessage {
+  type: 'permission_decision';
+  requestId: string;
+  allow: boolean;
+  remember?: boolean;
+  /** Optional user feedback attached to a deny decision (e.g., deny ExitPlanMode with guidance). */
+  feedback?: string;
+  /** RSA-OAEP encrypted credential (base64). Used for sudo password etc. */
+  encryptedCredential?: string;
+}
+
+// AskUserQuestion answer (Client → Server)
+export interface AskUserAnswerMessage {
+  type: 'ask_user_answer';
+  requestId: string;
+  formattedAnswer: string;  // Pre-formatted readable text for Claude
+}
+
+// Plugin permission response (Client → Server)
+export interface PluginPermissionResponseMessage {
+  type: 'plugin_permission_response';
+  pluginId: string;
+  granted: boolean;
+  permanently?: boolean;
+}
+
+// Server → Client
+
+export interface PermissionRequestMessage {
+  type: 'permission_request';
+  requestId: string;
+  sessionId: string;
+  toolName: string;
+  detail: string;
+  matchedRule?: string;
+  timeoutSeconds: number;
+  /** When true, the UI should show a password input for credential (e.g. sudo). */
+  requiresCredential?: boolean;
+  /** Hint for what kind of credential is needed (e.g. 'sudo_password'). */
+  credentialHint?: string;
+  /** When true, timeout will auto-approve (not deny); show countdown accordingly. */
+  aiInitiated?: boolean;
+}
+
+// AskUserQuestion: interactive question UI (Server → Client)
+export interface AskUserQuestionMessage {
+  type: 'ask_user_question';
+  requestId: string;
+  sessionId: string;
+  questions: AskUserQuestionItem[];
+}
+
+// Agent permission auto-approval notification (Server → Client)
+export interface AgentPermissionInterceptedMessage {
+  type: 'agent_permission_intercepted';
+  toolName: string;
+  decision: 'approve' | 'deny';
+  reason: string;
+  sessionId: string;     // The session whose permission was intercepted
+  runId: string;
+}
+
+// Server → Client: a permission request has been resolved by another device
+export interface PermissionResolvedMessage {
+  type: 'permission_resolved';
+  requestId: string;
+  sessionId?: string;
+  decision: 'allow' | 'deny';
+}
+
+// Server → Client: a permission request was auto-resolved by backend timer
+export interface PermissionAutoResolvedMessage {
+  type: 'permission_auto_resolved';
+  requestId: string;
+  sessionId: string;
+  /** Whether the backend approved or denied on timeout expiry. */
+  behavior: 'approve' | 'deny';
+}
+
+// Server → Client: an ask_user_question has been resolved by another device
+export interface AskUserQuestionResolvedMessage {
+  type: 'ask_user_question_resolved';
+  requestId: string;
+  sessionId?: string;
+}
+
+// Plugin permission request (Server → Client)
+export interface PluginPermissionRequestMessage {
+  type: 'plugin_permission_request';
+  pluginId: string;
+  pluginName: string;
+  permissions: string[];
+}

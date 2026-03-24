@@ -1,14 +1,14 @@
 import { useState, useEffect } from 'react';
 import { useFileViewerStore } from '../../stores/fileViewerStore';
-import { useServerStore } from '../../stores/serverStore';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneDark, oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { useTheme, isDarkTheme } from '../../contexts/ThemeContext';
 import { useIsMobile } from '../../hooks/useMediaQuery';
 import * as api from '../../services/api';
-import { getBaseUrl, getAuthHeaders } from '../../services/api';
 import { FileSearchInput } from './FileSearchInput';
 import { MarkdownFileContent } from './MarkdownFileContent';
+import { isDesktopTauri } from '../../utils/platform';
+import { openPopoutWindow, buildWindowTitle, getConnectionParams } from '../../utils/popoutWindow';
 
 const EXT_TO_LANG: Record<string, string> = {
   ts: 'typescript', tsx: 'tsx', js: 'javascript', jsx: 'jsx',
@@ -37,45 +37,17 @@ interface FileViewerPanelProps {
   projectRoot: string;
 }
 
-const isDesktopTauri = typeof window !== 'undefined'
-  && '__TAURI_INTERNALS__' in window
-  && !navigator.userAgent.includes('Android');
-
 async function openFileInNewWindow(filePath: string, projectRoot: string) {
-  const { WebviewWindow } = await import('@tauri-apps/api/webviewWindow');
-  const label = `file-viewer-${Date.now()}`;
   const fileName = filePath.split('/').pop() || filePath;
-
-  // Pass the server URL so the new window can fetch without ConnectionProvider
-  let serverUrl = '';
-  try { serverUrl = getBaseUrl(); } catch { /* no server */ }
-  const authHeaders = getAuthHeaders();
-  const authToken = (authHeaders as Record<string, string>)['Authorization'] || '';
-
-  const serverState = useServerStore.getState();
-  const activeServerId = serverState.activeServerId || '';
-  const activeServer = serverState.getActiveServer();
-  const serverName = activeServer?.name || '';
-
-  const params = new URLSearchParams({ fileViewer: filePath, projectRoot, serverUrl });
-  if (authToken) params.set('authToken', authToken);
-  if (activeServerId) params.set('serverId', activeServerId);
-  if (serverName) params.set('serverName', serverName);
-  const url = `${window.location.origin}${window.location.pathname}?${params}`;
-
-  // Build descriptive title: "fileName — ServerName · projectRoot"
   const projectName = projectRoot.split('/').pop() || projectRoot;
-  const titleParts = [fileName];
-  const contextParts = [serverName, projectName].filter(Boolean);
-  if (contextParts.length > 0) titleParts.push(contextParts.join(' · '));
-  const title = titleParts.join(' — ');
-
-  new WebviewWindow(label, {
-    url,
-    title,
+  const conn = getConnectionParams();
+  await openPopoutWindow({
+    type: 'file-viewer',
+    params: { fileViewer: filePath, projectRoot },
+    title: buildWindowTitle(fileName, conn.serverName, projectName),
     width: 800,
     height: 600,
-    center: true,
+    dragDropEnabled: true,
   });
 }
 
@@ -94,7 +66,7 @@ export function FileViewerActions() {
 
   const handleExpand = () => {
     if (!filePath) return;
-    if (isDesktopTauri && projectRoot) {
+    if (isDesktopTauri() && projectRoot) {
       openFileInNewWindow(filePath, projectRoot);
     } else {
       setFullscreen(true);
@@ -135,10 +107,10 @@ export function FileViewerActions() {
         <button
           onClick={handleExpand}
           className="p-1 rounded text-muted-foreground hover:bg-secondary hover:text-foreground flex-shrink-0"
-          title={isDesktopTauri ? 'Open in new window' : 'Fullscreen'}
+          title={isDesktopTauri() ? 'Open in new window' : 'Fullscreen'}
         >
           <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            {isDesktopTauri ? (
+            {isDesktopTauri() ? (
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
             ) : (
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />

@@ -58,6 +58,33 @@ vi.mock('@tauri-apps/api/core', () => ({
   invoke: (...args: any[]) => mockInvoke(...args),
 }));
 
+// Dynamic platform detection mock — evaluates at access time so tests can
+// manipulate window.__TAURI_INTERNALS__ and navigator.userAgent before import.
+vi.mock('../../utils/platform', () => ({
+  isTauri: vi.fn(() => typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window),
+  isAndroid: vi.fn(() => {
+    const t = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
+    return t && navigator.userAgent.includes('Android');
+  }),
+  isWindows: vi.fn(() => {
+    const t = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
+    return t && navigator.userAgent.includes('Windows');
+  }),
+  isMacOS: vi.fn(() => {
+    const t = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
+    const a = t && navigator.userAgent.includes('Android');
+    return t && !a && navigator.platform.includes('Mac');
+  }),
+  isDesktopTauri: vi.fn(() => {
+    const t = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
+    return t && !navigator.userAgent.includes('Android');
+  }),
+  isDesktopTauriNonWindows: vi.fn(() => {
+    const t = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
+    return t && !navigator.userAgent.includes('Android') && !navigator.userAgent.includes('Windows');
+  }),
+}));
+
 // Mock fetch for health check
 const mockFetch = vi.fn();
 global.fetch = mockFetch;

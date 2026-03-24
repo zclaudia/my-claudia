@@ -1,48 +1,21 @@
 import { useCallback, useRef, useEffect } from 'react';
 import { useDraftEditorStore } from '../../stores/draftEditorStore';
 import { usePluginStore } from '../../stores/pluginStore';
-import { useServerStore } from '../../stores/serverStore';
-import { isGatewayTarget, useGatewayStore } from '../../stores/gatewayStore';
 import { useIsMobile } from '../../hooks/useMediaQuery';
-import { getBaseUrl, getAuthHeaders } from '../../services/api';
+import { isDesktopTauri } from '../../utils/platform';
+import { openPopoutWindow, getConnectionParams } from '../../utils/popoutWindow';
 
 const MAX_CONTENT_BYTES = 100 * 1024;
 
-const isDesktopTauri = typeof window !== 'undefined'
-  && '__TAURI_INTERNALS__' in window
-  && !navigator.userAgent.includes('Android');
-
 async function openDraftInNewWindow(sessionId: string) {
-  const { WebviewWindow } = await import('@tauri-apps/api/webviewWindow');
-  const label = `draft-${Date.now()}`;
-
-  let serverUrl = '';
-  try { serverUrl = getBaseUrl(); } catch { /* ignore */ }
-  const authHeaders = getAuthHeaders();
-  const authToken = (authHeaders as Record<string, string>)['Authorization'] || '';
-
-  const serverState = useServerStore.getState();
-  const activeServerId = serverState.activeServerId || '';
-  const activeServer = serverState.getActiveServer();
-  const serverName = activeServer?.name || '';
-  const gatewayState = useGatewayStore.getState();
-
-  const params = new URLSearchParams({ draftWindow: sessionId, serverUrl });
-  if (authToken) params.set('authToken', authToken);
-  if (activeServerId) params.set('serverId', activeServerId);
-  if (serverName) params.set('serverName', serverName);
-  if (isGatewayTarget(activeServerId) && gatewayState.gatewayUrl && gatewayState.gatewaySecret) {
-    params.set('gatewayUrl', gatewayState.gatewayUrl);
-    params.set('gatewaySecret', gatewayState.gatewaySecret);
-  }
-  const url = `${window.location.origin}${window.location.pathname}?${params}`;
-
-  new WebviewWindow(label, {
-    url,
-    title: `Draft — ${serverName || 'Local'}`,
+  const conn = getConnectionParams();
+  const label = await openPopoutWindow({
+    type: 'draft',
+    params: { draftWindow: sessionId },
+    title: `Draft — ${conn.serverName || 'Local'}`,
     width: 700,
     height: 500,
-    center: true,
+    dragDropEnabled: true,
   });
 
   useDraftEditorStore.getState().setPoppedOut(true, label);
@@ -54,7 +27,7 @@ export function DraftActions() {
   const activeSessionId = useDraftEditorStore((s) => s.activeSessionId);
   const isMobile = useIsMobile();
 
-  if (!isDesktopTauri || isMobile || !activeSessionId) return null;
+  if (!isDesktopTauri() || isMobile || !activeSessionId) return null;
 
   return (
     <button

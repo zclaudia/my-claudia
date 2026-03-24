@@ -1,31 +1,21 @@
 import type { Session, Message } from '@my-claudia/shared';
 import { fetchApi } from './base';
+import { apiCall, apiCallVoid } from './unwrap';
 
 export async function getSessions(projectId?: string, options?: RequestInit): Promise<Session[]> {
   const query = projectId ? `?projectId=${projectId}` : '';
-  const result = await fetchApi<Session[]>(`/api/sessions${query}`, options);
-  if (!result.success || !result.data) {
-    throw new Error(result.error?.message || 'Failed to fetch sessions');
-  }
-  return result.data;
+  return apiCall<Session[]>(`/api/sessions${query}`, options);
 }
 
 export async function reorderSessions(projectId: string, orderedIds: string[]): Promise<void> {
-  const result = await fetchApi<void>('/api/sessions/reorder', {
+  return apiCallVoid('/api/sessions/reorder', {
     method: 'POST',
     body: JSON.stringify({ projectId, orderedIds }),
   });
-  if (!result.success) {
-    throw new Error(result.error?.message || 'Failed to reorder sessions');
-  }
 }
 
 export async function getSessionRunState(sessionId: string): Promise<{ sessionId: string; isRunning: boolean; activeRunId?: string }> {
-  const result = await fetchApi<{ sessionId: string; isRunning: boolean; activeRunId?: string }>(`/api/sessions/${sessionId}/run-state`);
-  if (!result.success || !result.data) {
-    throw new Error(result.error?.message || 'Failed to fetch session run state');
-  }
-  return result.data;
+  return apiCall<{ sessionId: string; isRunning: boolean; activeRunId?: string }>(`/api/sessions/${sessionId}/run-state`);
 }
 
 export async function createSession(data: {
@@ -36,101 +26,65 @@ export async function createSession(data: {
   parentSessionId?: string;
   workingDirectory?: string;
 }): Promise<Session> {
-  const result = await fetchApi<Session>('/api/sessions', {
+  return apiCall<Session>('/api/sessions', {
     method: 'POST',
     body: JSON.stringify(data)
   });
-  if (!result.success || !result.data) {
-    throw new Error(result.error?.message || 'Failed to create session');
-  }
-  return result.data;
 }
 
 export async function updateSession(
   id: string,
   data: Partial<Session>
 ): Promise<void> {
-  const result = await fetchApi<void>(`/api/sessions/${id}`, {
+  return apiCallVoid(`/api/sessions/${id}`, {
     method: 'PUT',
     body: JSON.stringify(data)
   });
-  if (!result.success) {
-    throw new Error(result.error?.message || 'Failed to update session');
-  }
 }
 
 export async function updateSessionWorkingDirectory(
   sessionId: string,
   workingDirectory: string
 ): Promise<Session> {
-  const result = await fetchApi<Session>(`/api/sessions/${sessionId}/working-directory`, {
+  return apiCall<Session>(`/api/sessions/${sessionId}/working-directory`, {
     method: 'PATCH',
     body: JSON.stringify({ workingDirectory })
   });
-  if (!result.success || !result.data) {
-    throw new Error(result.error?.message || 'Failed to update working directory');
-  }
-  return result.data;
 }
 
 export async function resetSessionSdkSession(sessionId: string): Promise<void> {
-  const result = await fetchApi<{ sessionId: string; reset: boolean }>(`/api/sessions/${sessionId}/reset-sdk-session`, {
-    method: 'POST',
-  });
-  if (!result.success) {
-    throw new Error(result.error?.message || 'Failed to reset SDK session');
-  }
+  return apiCallVoid(`/api/sessions/${sessionId}/reset-sdk-session`, { method: 'POST' });
 }
 
 export async function dismissInterrupted(sessionId: string): Promise<void> {
+  // Fire-and-forget, no error check
   await fetchApi(`/api/sessions/${sessionId}/dismiss-interrupted`, { method: 'PATCH' });
 }
 
 export async function unlockSession(sessionId: string): Promise<Session> {
-  const result = await fetchApi<Session>(`/api/sessions/${sessionId}/unlock`, {
-    method: 'PATCH',
-  });
-  if (!result.success || !result.data) {
-    throw new Error(result.error?.message || 'Failed to unlock session');
-  }
-  return result.data;
+  return apiCall<Session>(`/api/sessions/${sessionId}/unlock`, { method: 'PATCH' });
 }
 
 export async function deleteSession(id: string): Promise<void> {
-  const result = await fetchApi<void>(`/api/sessions/${id}`, {
-    method: 'DELETE'
-  });
-  if (!result.success) {
-    throw new Error(result.error?.message || 'Failed to delete session');
-  }
+  return apiCallVoid(`/api/sessions/${id}`, { method: 'DELETE' });
 }
 
 export async function archiveSessions(sessionIds: string[]): Promise<void> {
-  const result = await fetchApi<void>('/api/sessions/archive', {
+  return apiCallVoid('/api/sessions/archive', {
     method: 'POST',
     body: JSON.stringify({ sessionIds })
   });
-  if (!result.success) {
-    throw new Error(result.error?.message || 'Failed to archive sessions');
-  }
 }
 
 export async function restoreSessions(sessionIds: string[]): Promise<void> {
-  const result = await fetchApi<void>('/api/sessions/restore', {
+  return apiCallVoid('/api/sessions/restore', {
     method: 'POST',
     body: JSON.stringify({ sessionIds })
   });
-  if (!result.success) {
-    throw new Error(result.error?.message || 'Failed to restore sessions');
-  }
 }
 
 export async function getArchivedSessions(): Promise<Session[]> {
-  const result = await fetchApi<Session[]>('/api/sessions/archived');
-  if (!result.success || !result.data) {
-    throw new Error(result.error?.message || 'Failed to fetch archived sessions');
-  }
-  return result.data;
+  return apiCall<Session[]>('/api/sessions/archived');
 }
 
 interface PaginationInfo {
@@ -166,20 +120,11 @@ export async function getSessionMessages(
   if (options?.aroundMessageId) params.set('aroundMessageId', options.aroundMessageId);
 
   const query = params.toString() ? `?${params.toString()}` : '';
-  const result = await fetchApi<MessagesResponse>(`/api/sessions/${sessionId}/messages${query}`, {
+  return apiCall<MessagesResponse>(`/api/sessions/${sessionId}/messages${query}`, {
     signal: options?.signal,
   });
-
-  if (!result.success || !result.data) {
-    throw new Error(result.error?.message || 'Failed to fetch messages');
-  }
-  return result.data;
 }
 
 export async function exportSession(sessionId: string): Promise<{ markdown: string; sessionName: string }> {
-  const result = await fetchApi<{ markdown: string; sessionName: string }>(`/api/sessions/${sessionId}/export`);
-  if (!result.success || !result.data) {
-    throw new Error(result.error?.message || 'Failed to export session');
-  }
-  return result.data;
+  return apiCall<{ markdown: string; sessionName: string }>(`/api/sessions/${sessionId}/export`);
 }

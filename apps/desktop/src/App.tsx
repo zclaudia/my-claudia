@@ -42,10 +42,8 @@ import { useServerLatencyMonitor } from './hooks/useServerLatencyMonitor';
 import { UpdateBanner } from './components/UpdateBanner';
 import { BrandMark } from './components/BrandMark';
 import { useShortcutStore } from './stores/shortcutStore';
-
-const isDesktopTauri = typeof window !== 'undefined'
-  && '__TAURI_INTERNALS__' in window
-  && !navigator.userAgent.includes('Android');
+import { useAgentConfigStore } from './stores/agentConfigStore';
+import { isDesktopTauri } from './utils/platform';
 
 // ── Plugin Dock ─────────────────────────────────────────────────
 // Icon name → Lucide component mapping for plugin-declared icons.
@@ -91,7 +89,7 @@ function useActivePluginPanels() {
 function PluginWindowButtons() {
   const pluginPanels = useActivePluginPanels();
 
-  if (pluginPanels.length === 0 || !isDesktopTauri) return null;
+  if (pluginPanels.length === 0 || !isDesktopTauri()) return null;
 
   const openWindow = async (panel: typeof pluginPanels[0]) => {
     try {
@@ -164,11 +162,19 @@ function AppContent() {
   const claudiaContextProjectId = (selectedSession?.projectId || dashboardProjectId || selectedProjectId || null) === claudiaProjectId
     ? null
     : (selectedSession?.projectId || dashboardProjectId || selectedProjectId || null);
+  const agentConfig = useAgentConfigStore((s) => s.config);
+  const agentConfigLoaded = useAgentConfigStore((s) => s.hasLoaded);
+  const loadAgentConfig = useAgentConfigStore((s) => s.loadConfig);
   const localServer = useServerStore((s) => s.getDefaultServer());
+  const shortcut = useShortcutStore((s) => s.shortcut);
+  const shortcutEnabled = useShortcutStore((s) => s.enabled);
   const claudiaServerUrl = useMemo(() => {
     const localAddress = localServer?.address || 'localhost:3100';
     return localAddress.includes('://') ? localAddress : `http://${localAddress}`;
   }, [localServer?.address]);
+  const dashboardProject = dashboardProjectId
+    ? projects.find((project) => project.id === dashboardProjectId) || null
+    : null;
 
   const mobileInitDone = useRef(false);
   const hasConnected = useRef(false);
@@ -183,13 +189,18 @@ function AppContent() {
 
   // Initialize global shortcut config (once at startup, desktop only)
   useEffect(() => {
-    if (!isDesktopTauri) return;
+    if (!isDesktopTauri()) return;
     const { loadConfig } = useShortcutStore.getState();
     void loadConfig();
   }, []);
 
   useEffect(() => {
     if (connectionStatus !== 'connected') return;
+    void loadAgentConfig();
+  }, [connectionStatus, loadAgentConfig]);
+
+  useEffect(() => {
+    if (connectionStatus !== 'connected' || !agentConfigLoaded || !agentConfig?.enabled) return;
     let cancelled = false;
 
     (async () => {
@@ -207,17 +218,31 @@ function AppContent() {
     return () => {
       cancelled = true;
     };
-  }, [connectionStatus]);
+  }, [agentConfig?.enabled, agentConfigLoaded, connectionStatus]);
 
-  // Launch Claudia floating ball (desktop only, once)
+  // Keep desktop floating ball visibility in sync with the Claudia master toggle.
   useEffect(() => {
-    if (!isDesktopTauri || isMobile || !claudiaProjectId) return;
+    if (!isDesktopTauri() || isMobile || !agentConfigLoaded) return;
     (async () => {
       try {
         const { WebviewWindow } = await import('@tauri-apps/api/webviewWindow');
         const { invoke } = await import('@tauri-apps/api/core');
         const { emit } = await import('@tauri-apps/api/event');
         const existing = await WebviewWindow.getByLabel('claudia-ball');
+        const existingChat = await WebviewWindow.getByLabel('claudia-chat');
+
+        if (!agentConfig?.enabled) {
+          if (existingChat) {
+            await existingChat.hide().catch(() => undefined);
+          }
+          if (existing) {
+            await existing.hide().catch(() => undefined);
+          }
+          return;
+        }
+
+        if (!claudiaProjectId) return;
+
         const { getCurrentWindow } = await import('@tauri-apps/api/window');
         const authToken = ''; // Local server trusts localhost connections
         const serverId = 'local';
@@ -260,6 +285,13 @@ function AppContent() {
             x: Math.max(16, Math.floor(hostX + hostWidth - 72)),
             y: Math.max(16, Math.floor(hostY + hostHeight - 96)),
           });
+        } else {
+          const chatVisible = existingChat
+            ? await existingChat.isVisible().catch(() => false)
+            : false;
+          if (!chatVisible) {
+            await existing.show().catch(() => undefined);
+          }
         }
 
         void invoke('preload_claudia_chat', {
@@ -280,10 +312,24 @@ function AppContent() {
         console.warn('[App] Failed to create Claudia floating ball:', err);
       }
     })();
-  }, [claudiaContextProjectId, claudiaProjectId, claudiaServerUrl, isMobile, localServer?.name]);
+  }, [agentConfig?.enabled, agentConfigLoaded, claudiaContextProjectId, claudiaProjectId, claudiaServerUrl, isMobile, localServer?.name]);
 
   useEffect(() => {
-    if (!isDesktopTauri || isMobile) return;
+    if (!isDesktopTauri() || isMobile || !agentConfigLoaded) return;
+    (async () => {
+      try {
+        const { invoke } = await import('@tauri-apps/api/core');
+        await invoke('update_global_shortcut', {
+          shortcut: agentConfig?.enabled && shortcutEnabled ? shortcut : null,
+        });
+      } catch (err) {
+        console.warn('[App] Failed to sync Claudia shortcut state:', err);
+      }
+    })();
+  }, [agentConfig?.enabled, agentConfigLoaded, isMobile, shortcut, shortcutEnabled]);
+
+  useEffect(() => {
+    if (!isDesktopTauri() || isMobile) return;
     (async () => {
       try {
         const { emit } = await import('@tauri-apps/api/event');
@@ -638,10 +684,10 @@ function AppContent() {
             )}
 
             {/* Project Dashboard / Chat / Welcome */}
-            {dashboardProjectId && projects.find((p) => p.id === dashboardProjectId) ? (
+            {dashboardProject ? (
               <ProjectDashboard
-                projectId={dashboardProjectId}
-                projectRootPath={projects.find((p) => p.id === dashboardProjectId)!.rootPath}
+                projectId={dashboardProject.id}
+                projectRootPath={dashboardProject.rootPath}
               />
             ) : selectedSessionId ? (
               <ChatInterface

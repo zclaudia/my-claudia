@@ -2,17 +2,8 @@ import { useState, useEffect, useCallback } from 'react';
 import { fetchApi, getProviders } from '../../services/api';
 import type { ProviderConfig } from '@my-claudia/shared';
 import { ShortcutSettings } from './ShortcutSettings';
-
-interface AgentConfig {
-  id: number;
-  enabled: boolean;
-  projectId: string | null;
-  sessionId: string | null;
-  providerId: string | null;
-  permissionPolicy: string | null;
-  createdAt: number;
-  updatedAt: number;
-}
+import { isDesktopTauri } from '../../utils/platform';
+import { useAgentConfigStore } from '../../stores/agentConfigStore';
 
 interface AgentCapabilities {
   tools: Array<{ id: string; name: string; description: string; scope: string[] }>;
@@ -22,31 +13,34 @@ interface AgentCapabilities {
 }
 
 export function AgentSettings() {
-  const [config, setConfig] = useState<AgentConfig | null>(null);
   const [capabilities, setCapabilities] = useState<AgentCapabilities | null>(null);
   const [providers, setProviders] = useState<ProviderConfig[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const config = useAgentConfigStore((s) => s.config);
+  const loadConfig = useAgentConfigStore((s) => s.loadConfig);
+  const updateConfig = useAgentConfigStore((s) => s.updateConfig);
+  const loading = useAgentConfigStore((s) => s.isLoading);
+  const saving = useAgentConfigStore((s) => s.isSaving);
+  const error = useAgentConfigStore((s) => s.error);
+  const [metaLoading, setMetaLoading] = useState(true);
+  const [metaError, setMetaError] = useState<string | null>(null);
 
   const loadData = useCallback(async () => {
-    setLoading(true);
-    setError(null);
+    setMetaLoading(true);
+    setMetaError(null);
     try {
-      const [configRes, capsRes, providerList] = await Promise.all([
-        fetchApi<AgentConfig>('/api/agent/config'),
+      await loadConfig();
+      const [capsRes, providerList] = await Promise.all([
         fetchApi<AgentCapabilities>('/api/agent/capabilities'),
         getProviders().catch(() => [] as ProviderConfig[]),
       ]);
-      if (configRes.success && configRes.data) setConfig(configRes.data);
       if (capsRes.success && capsRes.data) setCapabilities(capsRes.data);
       setProviders(providerList);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Failed to load agent settings');
+      setMetaError(err instanceof Error ? err.message : 'Failed to load agent settings');
     } finally {
-      setLoading(false);
+      setMetaLoading(false);
     }
-  }, []);
+  }, [loadConfig]);
 
   useEffect(() => { loadData(); }, [loadData]);
 
@@ -54,21 +48,10 @@ export function AgentSettings() {
     enabled?: boolean;
     providerId?: string | null;
   }) => {
-    setSaving(true);
-    try {
-      const res = await fetchApi<AgentConfig>('/api/agent/config', {
-        method: 'PUT',
-        body: JSON.stringify(updates),
-      });
-      if (res.success && res.data) setConfig(res.data);
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Failed to save');
-    } finally {
-      setSaving(false);
-    }
-  }, []);
+    await updateConfig(updates);
+  }, [updateConfig]);
 
-  if (loading) {
+  if (loading || metaLoading) {
     return (
       <div className="space-y-6">
         <div className="p-3 bg-secondary/50 rounded-lg text-sm text-muted-foreground">Loading...</div>
@@ -76,12 +59,12 @@ export function AgentSettings() {
     );
   }
 
-  if (error && !config) {
+  if ((error || metaError) && !config) {
     return (
       <div className="space-y-6">
         <div className="p-3 bg-destructive/10 rounded-lg text-sm">
           <p className="text-destructive">Could not load agent settings from server.</p>
-          <p className="text-xs text-destructive/70 mt-1">{error}</p>
+          <p className="text-xs text-destructive/70 mt-1">{error || metaError}</p>
         </div>
       </div>
     );
@@ -141,10 +124,10 @@ export function AgentSettings() {
       </div>
 
       {/* Global Shortcut - desktop only */}
-      {typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window && !navigator.userAgent.includes('Android') && (
+      {isDesktopTauri() && (
         <div>
           <h3 className="text-sm font-medium mb-3">Shortcut</h3>
-          <ShortcutSettings />
+          <ShortcutSettings disabled={!config?.enabled} />
         </div>
       )}
 

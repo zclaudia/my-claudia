@@ -3,47 +3,21 @@ import { Workflow as WorkflowIcon, Plus, Sparkles, Loader2 } from 'lucide-react'
 import type { Workflow, WorkflowRun } from '@my-claudia/shared';
 import { useWorkflowStore } from '../store';
 import { useIsMobile } from '../../../hooks/useMediaQuery';
-import { getBaseUrl, getAuthHeaders } from '../../../services/api';
-import { useServerStore } from '../../../stores/serverStore';
-import { useGatewayStore, isGatewayTarget } from '../../../stores/gatewayStore';
 import { WorkflowCard } from './WorkflowCard';
 import { WorkflowEditor } from './WorkflowEditor';
 import { WorkflowRunViewer } from './WorkflowRunViewer';
-
-const isDesktopTauri = typeof window !== 'undefined'
-  && '__TAURI_INTERNALS__' in window
-  && !navigator.userAgent.includes('Android');
+import { isDesktopTauri } from '../../../utils/platform';
+import { openPopoutWindow } from '../../../utils/popoutWindow';
 
 async function openEditorInNewWindow(projectId: string, workflow?: Workflow) {
-  const { WebviewWindow } = await import('@tauri-apps/api/webviewWindow');
-  const label = `workflow-editor-${Date.now()}`;
-
-  let serverUrl = '';
-  try { serverUrl = getBaseUrl(); } catch {}
-  const authHeaders = getAuthHeaders();
-  const authToken = (authHeaders as Record<string, string>)['Authorization'] || '';
-  const activeServerId = useServerStore.getState().activeServerId || '';
-  const activeServer = useServerStore.getState().getActiveServer();
-  const { gatewayUrl, gatewaySecret } = useGatewayStore.getState();
-
-  const params = new URLSearchParams({ workflowEditor: projectId, serverUrl });
-  if (workflow?.id) params.set('workflowId', workflow.id);
-  if (authToken) params.set('authToken', authToken);
-  if (activeServerId) params.set('serverId', activeServerId);
-  if (activeServer?.name) params.set('serverName', activeServer.name);
-  if (isGatewayTarget(activeServerId) && gatewayUrl && gatewaySecret) {
-    params.set('gatewayUrl', gatewayUrl);
-    params.set('gatewaySecret', gatewaySecret);
-  }
-  const url = `${window.location.origin}${window.location.pathname}?${params}`;
-
-  new WebviewWindow(label, {
-    url,
+  await openPopoutWindow({
+    type: 'workflow-editor',
+    params: {
+      workflowEditor: projectId,
+      ...(workflow?.id ? { workflowId: workflow.id } : {}),
+    },
     title: workflow ? `Edit: ${workflow.name}` : 'New Workflow',
     width: 1100,
-    height: 700,
-    center: true,
-    dragDropEnabled: false,
   });
 }
 
@@ -265,7 +239,7 @@ export function WorkflowsPanel({ projectId, onViewModeChange }: WorkflowsPanelPr
                           setView({ type: 'run-viewer', runId: latest.id });
                         }
                       }}
-                      onPopOut={isDesktopTauri && !isMobile ? () => openEditorInNewWindow(projectId, wf) : undefined}
+                      onPopOut={isDesktopTauri() && !isMobile ? () => openEditorInNewWindow(projectId, wf) : undefined}
                     />
                   ))}
                 </div>
@@ -288,7 +262,7 @@ export function WorkflowsPanel({ projectId, onViewModeChange }: WorkflowsPanelPr
                       onEdit={isMobile ? undefined : () => setView({ type: 'editor', workflow: wf })}
                       onToggle={isMobile ? undefined : () => updateWorkflow(wf.id, projectId, { status: 'active' })}
                       onDelete={isMobile ? undefined : () => deleteWorkflow(wf.id, projectId)}
-                      onPopOut={isDesktopTauri && !isMobile ? () => openEditorInNewWindow(projectId, wf) : undefined}
+                      onPopOut={isDesktopTauri() && !isMobile ? () => openEditorInNewWindow(projectId, wf) : undefined}
                       onViewRuns={() => {}}
                     />
                   ))}

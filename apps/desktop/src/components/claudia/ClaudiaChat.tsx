@@ -5,10 +5,9 @@ import { useAskUserQuestionStore } from '../../stores/askUserQuestionStore';
 import { usePermissionStore } from '../../stores/permissionStore';
 import { useProjectStore } from '../../stores/projectStore';
 import { useConnection } from '../../contexts/ConnectionContext';
-import { fetchApi, getBaseUrl, getAuthHeaders } from '../../services/api';
+import { fetchApi } from '../../services/api';
 import { dismissInterrupted } from '../../services/api/sessions';
-import { useServerStore } from '../../stores/serverStore';
-import { useGatewayStore, isGatewayTarget } from '../../stores/gatewayStore';
+import { openPopoutWindow } from '../../utils/popoutWindow';
 import { InlineAskUserQuestion } from '../chat/InlineAskUserQuestion';
 import { InlinePermissionRequest } from '../chat/InlinePermissionRequest';
 import { TaskCard } from './TaskCard';
@@ -229,36 +228,10 @@ export function ClaudiaChat({ isMobile = false, hostProjectId, contextProjectId 
     if (!task.sessionId) return;
     (async () => {
       try {
-        const { WebviewWindow } = await import('@tauri-apps/api/webviewWindow');
-        const label = `claudia-task-${Date.now()}`;
-        const serverUrl = getBaseUrl();
-        const authToken = (getAuthHeaders() as Record<string, string>)['Authorization'] || '';
-        const activeServerId = useServerStore.getState().activeServerId;
-        const activeServer = useServerStore.getState().getActiveServer();
-        const serverName = activeServer?.name || '';
-        const gatewayState = useGatewayStore.getState();
-
-        const urlParams = new URLSearchParams({
-          sessionWindow: task.sessionId!,
-          projectId: currentProject?.id || '',
-          serverUrl,
-          authToken,
-          ...(activeServerId ? { serverId: activeServerId } : {}),
-          ...(serverName ? { serverName } : {}),
-        });
-        if (isGatewayTarget(activeServerId) && gatewayState.gatewayUrl && gatewayState.gatewaySecret) {
-          urlParams.set('gatewayUrl', gatewayState.gatewayUrl);
-          urlParams.set('gatewaySecret', gatewayState.gatewaySecret);
-        }
-
-        const winUrl = `${window.location.origin}${window.location.pathname}?${urlParams}`;
-        new WebviewWindow(label, {
-          url: winUrl,
+        await openPopoutWindow({
+          type: 'claudia-task',
+          params: { sessionWindow: task.sessionId!, projectId: currentProject?.id || '' },
           title: `Claudia: ${task.title}`,
-          width: 900,
-          height: 700,
-          center: true,
-          dragDropEnabled: false,
         });
       } catch {
         // Not on desktop Tauri — ignore

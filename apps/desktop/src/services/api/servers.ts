@@ -63,15 +63,17 @@ export async function ensureAgent(): Promise<{ projectId: string; sessionId: str
   return result.data;
 }
 
-export async function getAgentConfig(): Promise<{
+export interface AgentConfig {
   enabled: boolean;
   projectId: string | null;
   sessionId: string | null;
   providerId: string | null;
   permissionPolicy: string | null;
-}> {
+}
+
+export async function getAgentConfig(): Promise<AgentConfig> {
   const { fetchApi } = await import('./base');
-  const result = await fetchApi<any>('/api/agent/config');
+  const result = await fetchApi<AgentConfig>('/api/agent/config');
   if (!result.success || !result.data) {
     throw new Error(result.error?.message || 'Failed to get agent config');
   }
@@ -80,17 +82,18 @@ export async function getAgentConfig(): Promise<{
 
 export async function updateAgentConfig(config: {
   enabled?: boolean;
-  providerId?: string;
-  permissionPolicy?: string;
-}): Promise<void> {
+  providerId?: string | null;
+  permissionPolicy?: string | null;
+}): Promise<AgentConfig> {
   const { fetchApi } = await import('./base');
-  const result = await fetchApi<void>('/api/agent/config', {
+  const result = await fetchApi<AgentConfig>('/api/agent/config', {
     method: 'PUT',
     body: JSON.stringify(config)
   });
-  if (!result.success) {
+  if (!result.success || !result.data) {
     throw new Error(result.error?.message || 'Failed to update agent config');
   }
+  return result.data;
 }
 
 // Process Info API

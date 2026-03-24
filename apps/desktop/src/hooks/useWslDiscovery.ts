@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { Command } from '@tauri-apps/plugin-shell';
-import { isWindowsTauri } from './useEmbeddedServer';
+import { isWindows as isWindowsTauri } from '../utils/platform';
 
 export interface WslDistro {
   name: string;

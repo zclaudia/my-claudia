@@ -8,17 +8,7 @@ const ANDROID_LATEST_URL =
 const DESKTOP_LATEST_URL =
   'https://github.com/zclaudia/my-claudia/releases/latest/download/latest.json';
 
-function isTauri(): boolean {
-  return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
-}
-
-function isAndroid(): boolean {
-  return isTauri() && navigator.userAgent.includes('Android');
-}
-
-function isDesktopTauri(): boolean {
-  return isTauri() && !navigator.userAgent.includes('Android');
-}
+import { isTauri, isAndroid, isDesktopTauri } from '../utils/platform';
 
 /**
  * Compare semver-like version strings (e.g. "0.1.2260" > "0.1.2259").

@@ -1,4 +1,4 @@
-import { fetchApi } from './base';
+import { apiCall, apiCallVoid } from './unwrap';
 
 export interface SearchResult {
   id: string;
@@ -42,11 +42,8 @@ export async function searchMessages(query: string, filters?: SearchFilters): Pr
     if (filters.offset !== undefined) params.set('offset', filters.offset.toString());
   }
 
-  const result = await fetchApi<{ results: SearchResult[] }>(`/api/sessions/search/messages?${params}`);
-  if (!result.success || !result.data) {
-    throw new Error(result.error?.message || 'Failed to search messages');
-  }
-  return result.data.results;
+  const data = await apiCall<{ results: SearchResult[] }>(`/api/sessions/search/messages?${params}`);
+  return data.results;
 }
 
 export interface SearchHistoryEntry {
@@ -62,23 +59,15 @@ export async function getSearchHistory(userId?: string, limit?: number): Promise
   if (userId) params.set('userId', userId);
   if (limit) params.set('limit', limit.toString());
 
-  const result = await fetchApi<{ history: SearchHistoryEntry[] }>(`/api/sessions/search/history?${params}`);
-  if (!result.success || !result.data) {
-    throw new Error(result.error?.message || 'Failed to fetch search history');
-  }
-  return result.data.history;
+  const data = await apiCall<{ history: SearchHistoryEntry[] }>(`/api/sessions/search/history?${params}`);
+  return data.history;
 }
 
 export async function clearSearchHistory(userId?: string): Promise<void> {
   const params = new URLSearchParams();
   if (userId) params.set('userId', userId);
 
-  const result = await fetchApi(`/api/sessions/search/history?${params}`, {
-    method: 'DELETE',
-  });
-  if (!result.success) {
-    throw new Error(result.error?.message || 'Failed to clear search history');
-  }
+  return apiCallVoid(`/api/sessions/search/history?${params}`, { method: 'DELETE' });
 }
 
 export async function getSearchSuggestions(prefix: string, userId?: string, limit?: number): Promise<string[]> {
@@ -86,9 +75,6 @@ export async function getSearchSuggestions(prefix: string, userId?: string, limi
   if (userId) params.set('userId', userId);
   if (limit) params.set('limit', limit.toString());
 
-  const result = await fetchApi<{ suggestions: string[] }>(`/api/sessions/search/suggestions?${params}`);
-  if (!result.success || !result.data) {
-    throw new Error(result.error?.message || 'Failed to fetch search suggestions');
-  }
-  return result.data.suggestions;
+  const data = await apiCall<{ suggestions: string[] }>(`/api/sessions/search/suggestions?${params}`);
+  return data.suggestions;
 }

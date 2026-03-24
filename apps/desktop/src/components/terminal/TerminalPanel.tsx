@@ -1,17 +1,12 @@
 import { useCallback } from 'react';
 import { useTerminalStore } from '../../stores/terminalStore';
 import { usePluginStore } from '../../stores/pluginStore';
-import { useServerStore } from '../../stores/serverStore';
-import { isGatewayTarget, useGatewayStore } from '../../stores/gatewayStore';
 import { useIsMobile } from '../../hooks/useMediaQuery';
 import { useConnection } from '../../contexts/ConnectionContext';
 import { XTerminal } from './XTerminal';
 import { xtermRegistry } from '../../utils/xtermRegistry';
-import { getBaseUrl, getAuthHeaders } from '../../services/api';
-
-const isDesktopTauri = typeof window !== 'undefined'
-  && '__TAURI_INTERNALS__' in window
-  && !navigator.userAgent.includes('Android');
+import { isDesktopTauri } from '../../utils/platform';
+import { openPopoutWindow, buildWindowTitle, getConnectionParams } from '../../utils/popoutWindow';
 
 /** Quick-send keys for mobile toolbar */
 const QUICK_KEYS: { label: string; data: string }[] = [
@@ -27,47 +22,13 @@ interface TerminalPanelProps {
 }
 
 async function openTerminalInNewWindow(terminalId: string, projectId: string) {
-  const { WebviewWindow } = await import('@tauri-apps/api/webviewWindow');
-  const label = `terminal-${Date.now()}`;
-
-  let serverUrl = '';
-  try { serverUrl = getBaseUrl(); } catch { /* ignore */ }
-  const authHeaders = getAuthHeaders();
-  const authToken = (authHeaders as Record<string, string>)['Authorization'] || '';
-
-  const serverState = useServerStore.getState();
-  const activeServerId = serverState.activeServerId || '';
-  const activeServer = serverState.getActiveServer();
-  const serverName = activeServer?.name || '';
-  const gatewayState = useGatewayStore.getState();
-
-  const params = new URLSearchParams({
-    terminalWindow: terminalId,
-    projectId,
-    serverUrl,
-  });
-  if (authToken) params.set('authToken', authToken);
-  if (activeServerId) params.set('serverId', activeServerId);
-  if (serverName) params.set('serverName', serverName);
-  if (isGatewayTarget(activeServerId) && gatewayState.gatewayUrl && gatewayState.gatewaySecret) {
-    params.set('gatewayUrl', gatewayState.gatewayUrl);
-    params.set('gatewaySecret', gatewayState.gatewaySecret);
-  }
-  const url = `${window.location.origin}${window.location.pathname}?${params}`;
-
-  // Build descriptive title: "Terminal — ServerName · projectId"
-  const titleParts = ['Terminal'];
-  const contextParts = [serverName, projectId].filter(Boolean);
-  if (contextParts.length > 0) titleParts.push(contextParts.join(' · '));
-  const title = titleParts.join(' — ');
-
-  new WebviewWindow(label, {
-    url,
-    title,
+  const conn = getConnectionParams();
+  const label = await openPopoutWindow({
+    type: 'terminal',
+    params: { terminalWindow: terminalId, projectId },
+    title: buildWindowTitle('Terminal', conn.serverName, projectId),
     width: 800,
     height: 500,
-    center: true,
-    dragDropEnabled: false,
   });
 
   // Track popped-out state and hide panel in main window
@@ -84,7 +45,7 @@ export function TerminalActions({ projectId }: { projectId: string }) {
   return (
     <div className="flex items-center gap-0.5">
       {/* Pop-out button (desktop only) */}
-      {isDesktopTauri && terminalId && !isPoppedOut && (
+      {isDesktopTauri() && terminalId && !isPoppedOut && (
         <button
           onClick={() => openTerminalInNewWindow(terminalId, projectId)}
           className="p-1 rounded hover:bg-secondary text-muted-foreground hover:text-foreground"

@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import type { Project, Session, SlashCommand, ProviderConfig, ProviderCapabilities } from '@my-claudia/shared';
 import { useSessionsStore } from './sessionsStore';
 import { useChatStore } from './chatStore';
+import { useProviderMetaStore } from './providerMetaStore';
 
 export type ProjectDashboardView =
   | 'home'
@@ -14,21 +15,28 @@ export type ProjectDashboardView =
 interface ProjectState {
   projects: Project[];
   sessions: Session[];
-  providers: ProviderConfig[];
   dataServerId: string | null;
   selectedProjectId: string | null;
   selectedSessionId: string | null;
   dashboardViews: Record<string, ProjectDashboardView>;
+
+  /**
+   * Provider data is kept here for backward compatibility.
+   * New code should use useProviderMetaStore directly.
+   * Writes are synced to providerMetaStore automatically.
+   */
+  providers: ProviderConfig[];
   providerCommands: Record<string, SlashCommand[]>;
   providerCapabilities: Record<string, ProviderCapabilities>;
 
-  // Actions
+  // Actions — projects
   setProjects: (projects: Project[]) => void;
   addProject: (project: Project) => void;
   updateProject: (id: string, updates: Partial<Project>) => void;
   deleteProject: (id: string) => void;
   reorderProjects: (orderedIds: string[]) => void;
 
+  // Actions — sessions
   setSessions: (sessions: Session[]) => void;
   mergeSessions: (incoming: Session[]) => void;
   addSession: (session: Session) => void;
@@ -37,13 +45,16 @@ interface ProjectState {
   setSessionActive: (sessionId: string, isActive: boolean) => void;
   reorderSessions: (projectId: string, orderedIds: string[]) => void;
 
+  // Actions — providers (synced to providerMetaStore)
   setProviders: (providers: ProviderConfig[]) => void;
   setDataServerId: (serverId: string | null) => void;
 
+  // Actions — selection & UI
   selectProject: (id: string | null) => void;
   selectSession: (id: string | null) => void;
   setDashboardView: (projectId: string, view: ProjectDashboardView) => void;
 
+  // Actions — provider metadata (synced to providerMetaStore)
   setProviderCommands: (providerId: string, commands: SlashCommand[]) => void;
   setProviderCapabilities: (providerId: string, capabilities: ProviderCapabilities) => void;
 }
@@ -58,6 +69,8 @@ export const useProjectStore = create<ProjectState>((set) => ({
   dashboardViews: {},
   providerCommands: {},
   providerCapabilities: {},
+
+  // ── Project actions ──
 
   setProjects: (projects) => set({ projects }),
 
@@ -90,12 +103,13 @@ export const useProjectStore = create<ProjectState>((set) => ({
       const reordered = orderedIds
         .map((id) => idToProject.get(id))
         .filter((p): p is Project => !!p);
-      // Append any projects not in orderedIds (shouldn't happen, but be safe)
       for (const p of state.projects) {
         if (!orderedIds.includes(p.id)) reordered.push(p);
       }
       return { projects: reordered };
     }),
+
+  // ── Session actions ──
 
   setSessions: (sessions) => set({ sessions }),
 
@@ -110,12 +124,10 @@ export const useProjectStore = create<ProjectState>((set) => ({
         const incomingIsActive = (s as Session & { isActive?: boolean }).isActive;
         const hasIncomingActive = typeof incomingIsActive === 'boolean';
 
-        // If API payload doesn't include isActive, preserve the current UI status.
         if (!hasIncomingActive) {
           return { ...s, isActive: Boolean((existing as Session & { isActive?: boolean }).isActive) };
         }
 
-        // If a foreground run is currently active, keep active=true to avoid racey flicker.
         if (existing.isActive && incomingIsActive === false) {
           const chat = useChatStore.getState();
           const hasForegroundRun = Object.entries(chat.activeRuns).some(
@@ -164,11 +176,9 @@ export const useProjectStore = create<ProjectState>((set) => ({
       const reordered = orderedIds
         .map((id) => idToSession.get(id))
         .filter((s): s is Session => !!s);
-      // Keep sessions not in orderedIds at the end
       for (const s of state.sessions) {
         if (s.projectId === projectId && !projectSessionIds.has(s.id)) reordered.push(s);
       }
-      // Replace only this project's contiguous slots, keep every other session in place.
       const nextSessions: Session[] = [];
       let inserted = false;
       for (const session of state.sessions) {
@@ -187,16 +197,22 @@ export const useProjectStore = create<ProjectState>((set) => ({
       return { sessions: nextSessions };
     }),
 
-  setProviders: (providers) => set({ providers }),
+  // ── Provider actions (synced to providerMetaStore) ──
+
+  setProviders: (providers) => {
+    useProviderMetaStore.getState().setProviders(providers);
+    set({ providers });
+  },
 
   setDataServerId: (serverId) => set({ dataServerId: serverId }),
+
+  // ── Selection & UI actions ──
 
   selectProject: (id) => set({ selectedProjectId: id }),
 
   selectSession: (id) =>
     set((state) => {
       let session = state.sessions.find((s) => s.id === id);
-      // Fall back to remote sessions (gateway) if not in local store
       if (!session && id) {
         for (const [, sessions] of useSessionsStore.getState().remoteSessions) {
           const remote = sessions.find((s) => s.id === id);
@@ -217,19 +233,25 @@ export const useProjectStore = create<ProjectState>((set) => ({
       },
     })),
 
-  setProviderCommands: (providerId, commands) =>
+  // ── Provider metadata (synced to providerMetaStore) ──
+
+  setProviderCommands: (providerId, commands) => {
+    useProviderMetaStore.getState().setProviderCommands(providerId, commands);
     set((state) => ({
       providerCommands: {
         ...state.providerCommands,
         [providerId]: commands,
       },
-    })),
+    }));
+  },
 
-  setProviderCapabilities: (providerId, capabilities) =>
+  setProviderCapabilities: (providerId, capabilities) => {
+    useProviderMetaStore.getState().setProviderCapabilities(providerId, capabilities);
     set((state) => ({
       providerCapabilities: {
         ...state.providerCapabilities,
         [providerId]: capabilities,
       },
-    })),
+    }));
+  },
 }));

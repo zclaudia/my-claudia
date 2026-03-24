@@ -6,6 +6,7 @@ import type {
   SupervisionLog,
 } from '@my-claudia/shared';
 import { fetchApi } from './base';
+import { apiCall, apiCallVoid } from './unwrap';
 
 export async function initSupervisionAgent(
   projectId: string,
@@ -13,14 +14,10 @@ export async function initSupervisionAgent(
   providerId?: string,
   mode?: AgentMode,
 ): Promise<ProjectAgent> {
-  const result = await fetchApi<ProjectAgent>(`/api/projects/${projectId}/agent/init`, {
+  return apiCall<ProjectAgent>(`/api/projects/${projectId}/agent/init`, {
     method: 'POST',
     body: JSON.stringify({ config, providerId, mode }),
   });
-  if (!result.success || !result.data) {
-    throw new Error(result.error?.message || 'Failed to initialize agent');
-  }
-  return result.data;
 }
 
 export async function getSupervisionAgent(projectId: string): Promise<ProjectAgent | null> {
@@ -36,22 +33,14 @@ export async function updateSupervisionAgentAction(
   projectId: string,
   action: 'pause' | 'resume' | 'archive' | 'approve_setup',
 ): Promise<ProjectAgent> {
-  const result = await fetchApi<ProjectAgent>(`/api/projects/${projectId}/agent/action`, {
+  return apiCall<ProjectAgent>(`/api/projects/${projectId}/agent/action`, {
     method: 'POST',
     body: JSON.stringify({ action }),
   });
-  if (!result.success || !result.data) {
-    throw new Error(result.error?.message || 'Failed to update agent');
-  }
-  return result.data;
 }
 
 export async function getSupervisionTasks(projectId: string): Promise<SupervisionTask[]> {
-  const result = await fetchApi<SupervisionTask[]>(`/api/projects/${projectId}/tasks`);
-  if (!result.success || !result.data) {
-    throw new Error(result.error?.message || 'Failed to fetch tasks');
-  }
-  return result.data;
+  return apiCall<SupervisionTask[]>(`/api/projects/${projectId}/tasks`);
 }
 
 export async function createSupervisionTask(
@@ -70,24 +59,16 @@ export async function createSupervisionTask(
     retryDelayMs?: number;
   },
 ): Promise<SupervisionTask> {
-  const result = await fetchApi<SupervisionTask>(`/api/projects/${projectId}/tasks`, {
+  return apiCall<SupervisionTask>(`/api/projects/${projectId}/tasks`, {
     method: 'POST',
     body: JSON.stringify(data),
   });
-  if (!result.success || !result.data) {
-    throw new Error(result.error?.message || 'Failed to create task');
-  }
-  return result.data;
 }
 
 export async function openTaskSession(taskId: string): Promise<{ sessionId: string }> {
-  const result = await fetchApi<{ sessionId: string }>(`/api/tasks/${taskId}/open-session`, {
+  return apiCall<{ sessionId: string }>(`/api/tasks/${taskId}/open-session`, {
     method: 'POST',
   });
-  if (!result.success || !result.data) {
-    throw new Error(result.error?.message || 'Failed to open task session');
-  }
-  return result.data;
 }
 
 export interface TaskPlanStatus {
@@ -99,21 +80,13 @@ export interface TaskPlanStatus {
 }
 
 export async function getTaskPlanStatus(taskId: string): Promise<TaskPlanStatus> {
-  const result = await fetchApi<TaskPlanStatus>(`/api/tasks/${taskId}/plan-status`);
-  if (!result.success || !result.data) {
-    throw new Error(result.error?.message || 'Failed to get task plan status');
-  }
-  return result.data;
+  return apiCall<TaskPlanStatus>(`/api/tasks/${taskId}/plan-status`);
 }
 
 export async function submitTaskPlan(taskId: string): Promise<{ task: SupervisionTask; sessionId: string }> {
-  const result = await fetchApi<{ task: SupervisionTask; sessionId: string }>(`/api/tasks/${taskId}/plan/submit`, {
+  return apiCall<{ task: SupervisionTask; sessionId: string }>(`/api/tasks/${taskId}/plan/submit`, {
     method: 'POST',
   });
-  if (!result.success || !result.data) {
-    throw new Error(result.error?.message || 'Failed to submit task plan');
-  }
-  return result.data;
 }
 
 export async function updateSupervisionTask(
@@ -123,115 +96,56 @@ export async function updateSupervisionTask(
     | 'acceptanceCriteria' | 'relevantDocIds' | 'scope' | 'taskSpecificContext'
   >>,
 ): Promise<SupervisionTask> {
-  const result = await fetchApi<SupervisionTask>(`/api/tasks/${taskId}`, {
+  return apiCall<SupervisionTask>(`/api/tasks/${taskId}`, {
     method: 'PUT',
     body: JSON.stringify(data),
   });
-  if (!result.success || !result.data) {
-    throw new Error(result.error?.message || 'Failed to update task');
-  }
-  return result.data;
 }
 
 export async function approveSupervisionTask(taskId: string): Promise<SupervisionTask> {
-  const result = await fetchApi<SupervisionTask>(`/api/tasks/${taskId}/approve`, {
-    method: 'POST',
-  });
-  if (!result.success || !result.data) {
-    throw new Error(result.error?.message || 'Failed to approve task');
-  }
-  return result.data;
+  return apiCall<SupervisionTask>(`/api/tasks/${taskId}/approve`, { method: 'POST' });
 }
 
 export async function rejectSupervisionTask(taskId: string): Promise<SupervisionTask> {
-  const result = await fetchApi<SupervisionTask>(`/api/tasks/${taskId}/reject`, {
-    method: 'POST',
-  });
-  if (!result.success || !result.data) {
-    throw new Error(result.error?.message || 'Failed to reject task');
-  }
-  return result.data;
+  return apiCall<SupervisionTask>(`/api/tasks/${taskId}/reject`, { method: 'POST' });
 }
 
 export async function approveSupervisionTaskResult(taskId: string): Promise<SupervisionTask> {
-  const result = await fetchApi<SupervisionTask>(`/api/tasks/${taskId}/review/approve`, {
-    method: 'POST',
-  });
-  if (!result.success || !result.data) {
-    throw new Error(result.error?.message || 'Failed to approve task result');
-  }
-  return result.data;
+  return apiCall<SupervisionTask>(`/api/tasks/${taskId}/review/approve`, { method: 'POST' });
 }
 
 export async function rejectSupervisionTaskResult(
   taskId: string,
   notes: string,
 ): Promise<SupervisionTask> {
-  const result = await fetchApi<SupervisionTask>(`/api/tasks/${taskId}/review/reject`, {
+  return apiCall<SupervisionTask>(`/api/tasks/${taskId}/review/reject`, {
     method: 'POST',
     body: JSON.stringify({ notes }),
   });
-  if (!result.success || !result.data) {
-    throw new Error(result.error?.message || 'Failed to reject task result');
-  }
-  return result.data;
 }
 
 export async function retryTask(taskId: string): Promise<SupervisionTask> {
-  const result = await fetchApi<SupervisionTask>(`/api/tasks/${taskId}/retry`, {
-    method: 'POST',
-  });
-  if (!result.success || !result.data) {
-    throw new Error(result.error?.message || 'Failed to retry task');
-  }
-  return result.data;
+  return apiCall<SupervisionTask>(`/api/tasks/${taskId}/retry`, { method: 'POST' });
 }
 
 export async function cancelTask(taskId: string): Promise<SupervisionTask> {
-  const result = await fetchApi<SupervisionTask>(`/api/tasks/${taskId}/cancel`, {
-    method: 'POST',
-  });
-  if (!result.success || !result.data) {
-    throw new Error(result.error?.message || 'Failed to cancel task');
-  }
-  return result.data;
+  return apiCall<SupervisionTask>(`/api/tasks/${taskId}/cancel`, { method: 'POST' });
 }
 
 export async function runTaskNow(taskId: string): Promise<SupervisionTask> {
-  const result = await fetchApi<SupervisionTask>(`/api/tasks/${taskId}/run-now`, {
-    method: 'POST',
-  });
-  if (!result.success || !result.data) {
-    throw new Error(result.error?.message || 'Failed to run task');
-  }
-  return result.data;
+  return apiCall<SupervisionTask>(`/api/tasks/${taskId}/run-now`, { method: 'POST' });
 }
 
 export async function resolveSupervisionConflict(taskId: string): Promise<SupervisionTask> {
-  const result = await fetchApi<SupervisionTask>(`/api/tasks/${taskId}/resolve-conflict`, {
-    method: 'POST',
-  });
-  if (!result.success || !result.data) {
-    throw new Error(result.error?.message || 'Failed to resolve conflict');
-  }
-  return result.data;
+  return apiCall<SupervisionTask>(`/api/tasks/${taskId}/resolve-conflict`, { method: 'POST' });
 }
 
 export async function reloadSupervisionContext(projectId: string): Promise<void> {
-  const result = await fetchApi<null>(`/api/projects/${projectId}/context/reload`, {
-    method: 'POST',
-  });
-  if (!result.success) {
-    throw new Error(result.error?.message || 'Failed to reload context');
-  }
+  return apiCallVoid(`/api/projects/${projectId}/context/reload`, { method: 'POST' });
 }
 
 export async function getSupervisionContext(projectId: string): Promise<any[]> {
-  const result = await fetchApi<any[]>(`/api/projects/${projectId}/context`);
-  if (!result.success || !result.data) {
-    throw new Error(result.error?.message || 'Failed to get context');
-  }
-  return result.data;
+  return apiCall<any[]>(`/api/projects/${projectId}/context`);
 }
 
 export async function getSupervisionBudget(projectId: string): Promise<{
@@ -239,13 +153,9 @@ export async function getSupervisionBudget(projectId: string): Promise<{
   limit?: number;
   remaining?: number;
 }> {
-  const result = await fetchApi<{ usage: number; limit?: number; remaining?: number }>(
+  return apiCall<{ usage: number; limit?: number; remaining?: number }>(
     `/api/projects/${projectId}/budget`,
   );
-  if (!result.success || !result.data) {
-    throw new Error(result.error?.message || 'Failed to get budget');
-  }
-  return result.data;
 }
 
 export async function getSupervisionLogs(
@@ -253,9 +163,5 @@ export async function getSupervisionLogs(
   limit?: number,
 ): Promise<SupervisionLog[]> {
   const params = limit ? `?limit=${limit}` : '';
-  const result = await fetchApi<SupervisionLog[]>(`/api/projects/${projectId}/logs${params}`);
-  if (!result.success || !result.data) {
-    throw new Error(result.error?.message || 'Failed to get logs');
-  }
-  return result.data;
+  return apiCall<SupervisionLog[]>(`/api/projects/${projectId}/logs${params}`);
 }

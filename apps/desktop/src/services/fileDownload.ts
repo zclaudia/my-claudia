@@ -1,10 +1,6 @@
 import { getBaseUrl, getAuthHeaders } from './api';
 import { useFilePushStore } from '../stores/filePushStore';
-
-/** Check if running inside Tauri (desktop or Android) */
-function isTauri(): boolean {
-  return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
-}
+import { isTauri } from '../utils/platform';
 
 /** Check if running on Android (Tauri mobile) */
 export function isAndroid(): boolean {

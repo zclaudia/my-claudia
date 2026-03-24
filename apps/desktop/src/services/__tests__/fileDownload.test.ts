@@ -55,6 +55,28 @@ vi.mock('@tauri-apps/plugin-shell', () => ({
   open: vi.fn(() => Promise.resolve()),
 }));
 
+// Dynamic platform detection mock — evaluates at access time so tests can
+// manipulate window.__TAURI_INTERNALS__ and navigator.userAgent dynamically.
+vi.mock('../../utils/platform', () => ({
+  isTauri: vi.fn(() => typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window),
+  isAndroid: vi.fn(() => {
+    const t = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
+    return t && navigator.userAgent.includes('Android');
+  }),
+  isWindows: vi.fn(() => {
+    const t = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
+    return t && navigator.userAgent.includes('Windows');
+  }),
+  isDesktopTauri: vi.fn(() => {
+    const t = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
+    return t && !navigator.userAgent.includes('Android');
+  }),
+  isDesktopTauriNonWindows: vi.fn(() => {
+    const t = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
+    return t && !navigator.userAgent.includes('Android') && !navigator.userAgent.includes('Windows');
+  }),
+}));
+
 describe('services/fileDownload', () => {
   let consoleLogSpy: ReturnType<typeof vi.spyOn>;
   let consoleWarnSpy: ReturnType<typeof vi.spyOn>;

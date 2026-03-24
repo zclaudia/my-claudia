@@ -1,7 +1,9 @@
 import type { SessionDraft } from '@my-claudia/shared';
 import { fetchApi } from './base';
+import { apiCall, apiCallVoid } from './unwrap';
 
 export async function getSessionDraft(sessionId: string): Promise<SessionDraft | null> {
+  // Special: returns null on failure instead of throwing
   const result = await fetchApi<SessionDraft | null>(`/api/sessions/${sessionId}/draft`);
   if (!result.success) {
     throw new Error(result.error?.message || 'Failed to fetch draft');
@@ -14,14 +16,10 @@ export async function upsertSessionDraft(
   content: string,
   deviceId?: string
 ): Promise<SessionDraft> {
-  const result = await fetchApi<SessionDraft>(`/api/sessions/${sessionId}/draft`, {
+  return apiCall<SessionDraft>(`/api/sessions/${sessionId}/draft`, {
     method: 'PUT',
     body: JSON.stringify({ content, deviceId }),
   });
-  if (!result.success || !result.data) {
-    throw new Error(result.error?.message || 'Failed to save draft');
-  }
-  return result.data;
 }
 
 export async function lockSessionDraft(
@@ -29,23 +27,20 @@ export async function lockSessionDraft(
   deviceId: string,
   force?: boolean
 ): Promise<{ locked: boolean; draft: SessionDraft | null }> {
-  const result = await fetchApi<{ locked: boolean; draft: SessionDraft | null }>(
+  return apiCall<{ locked: boolean; draft: SessionDraft | null }>(
     `/api/sessions/${sessionId}/draft/lock`,
     {
       method: 'POST',
       body: JSON.stringify({ deviceId, force }),
     }
   );
-  if (!result.success || !result.data) {
-    throw new Error(result.error?.message || 'Failed to lock draft');
-  }
-  return result.data;
 }
 
 export async function unlockSessionDraft(
   sessionId: string,
   deviceId: string
 ): Promise<void> {
+  // Fire-and-forget, no error check
   await fetchApi(`/api/sessions/${sessionId}/draft/unlock`, {
     method: 'POST',
     body: JSON.stringify({ deviceId }),
@@ -53,19 +48,9 @@ export async function unlockSessionDraft(
 }
 
 export async function archiveSessionDraft(sessionId: string): Promise<void> {
-  const result = await fetchApi(`/api/sessions/${sessionId}/draft/archive`, {
-    method: 'POST',
-  });
-  if (!result.success) {
-    throw new Error(result.error?.message || 'Failed to archive draft');
-  }
+  return apiCallVoid(`/api/sessions/${sessionId}/draft/archive`, { method: 'POST' });
 }
 
 export async function deleteSessionDraft(sessionId: string): Promise<void> {
-  const result = await fetchApi(`/api/sessions/${sessionId}/draft`, {
-    method: 'DELETE',
-  });
-  if (!result.success) {
-    throw new Error(result.error?.message || 'Failed to delete draft');
-  }
+  return apiCallVoid(`/api/sessions/${sessionId}/draft`, { method: 'DELETE' });
 }

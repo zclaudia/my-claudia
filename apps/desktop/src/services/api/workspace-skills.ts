@@ -1,4 +1,5 @@
-import { fetchApi, getBaseUrl, getAuthHeaders } from './base';
+import { getBaseUrl, getAuthHeaders } from './base';
+import { apiCall, apiCallVoid } from './unwrap';
 
 export interface WorkspaceSkillInfo {
   id: string;
@@ -8,39 +9,25 @@ export interface WorkspaceSkillInfo {
 }
 
 export async function getWorkspaceSkills(): Promise<WorkspaceSkillInfo[]> {
-  const result = await fetchApi<WorkspaceSkillInfo[]>('/api/workspace/skills');
-  if (!result.success || !result.data) {
-    throw new Error(result.error?.message || 'Failed to fetch skills');
-  }
-  return result.data;
+  return apiCall<WorkspaceSkillInfo[]>('/api/workspace/skills');
 }
 
 export async function getWorkspaceSkill(skillId: string): Promise<{ id: string; content: string }> {
-  const result = await fetchApi<{ id: string; content: string }>(`/api/workspace/skills/${encodeURIComponent(skillId)}`);
-  if (!result.success || !result.data) {
-    throw new Error(result.error?.message || 'Failed to fetch skill');
-  }
-  return result.data;
+  return apiCall<{ id: string; content: string }>(`/api/workspace/skills/${encodeURIComponent(skillId)}`);
 }
 
 export async function saveWorkspaceSkill(skillId: string, content: string): Promise<void> {
-  const result = await fetchApi<unknown>(`/api/workspace/skills/${encodeURIComponent(skillId)}`, {
+  return apiCallVoid(`/api/workspace/skills/${encodeURIComponent(skillId)}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ content }),
   });
-  if (!result.success) {
-    throw new Error(result.error?.message || 'Failed to save skill');
-  }
 }
 
 export async function deleteWorkspaceSkill(skillId: string): Promise<void> {
-  const result = await fetchApi<unknown>(`/api/workspace/skills/${encodeURIComponent(skillId)}`, {
+  return apiCallVoid(`/api/workspace/skills/${encodeURIComponent(skillId)}`, {
     method: 'DELETE',
   });
-  if (!result.success) {
-    throw new Error(result.error?.message || 'Failed to delete skill');
-  }
 }
 
 export interface RegisteredSkillTool {
@@ -49,6 +36,7 @@ export interface RegisteredSkillTool {
 }
 
 export async function getRegisteredSkillTools(): Promise<RegisteredSkillTool[]> {
+  // Uses raw fetch with different error handling — returns [] on failure
   try {
     const baseUrl = getBaseUrl();
     const response = await fetch(`${baseUrl}/api/plugins/tools`, {
@@ -66,20 +54,13 @@ export async function getRegisteredSkillTools(): Promise<RegisteredSkillTool[]> 
 }
 
 export async function getExternalSkillDirs(): Promise<string[]> {
-  const result = await fetchApi<string[]>('/api/workspace/skill-dirs');
-  if (!result.success || !result.data) {
-    throw new Error(result.error?.message || 'Failed to fetch skill dirs');
-  }
-  return result.data;
+  return apiCall<string[]>('/api/workspace/skill-dirs');
 }
 
 export async function saveExternalSkillDirs(dirs: string[]): Promise<void> {
-  const result = await fetchApi<unknown>('/api/workspace/skill-dirs', {
+  return apiCallVoid('/api/workspace/skill-dirs', {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ dirs }),
   });
-  if (!result.success) {
-    throw new Error(result.error?.message || 'Failed to update skill dirs');
-  }
 }

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useShortcutStore, MODIFIER_KEYS, MAIN_KEYS, formatShortcutForDisplay, parseShortcut, buildShortcut, type ModifierKey, type MainKey } from '../../stores/shortcutStore';
 
-export function ShortcutSettings() {
+export function ShortcutSettings({ disabled = false }: { disabled?: boolean }) {
   const { shortcut, enabled, isLoading, error, toggleEnabled, updateShortcut, resetToDefault } = useShortcutStore();
   const [isEditing, setIsEditing] = useState(false);
   const [tempModifiers, setTempModifiers] = useState<ModifierKey[]>([]);
@@ -62,14 +62,14 @@ export function ShortcutSettings() {
             <>
               <button
                 onClick={() => setIsEditing(true)}
-                disabled={isLoading}
+                disabled={isLoading || disabled}
                 className="px-3 py-1.5 text-xs font-medium bg-secondary hover:bg-secondary/80 text-secondary-foreground rounded-md transition-colors"
               >
                 {displayShortcut}
               </button>
               <button
                 onClick={() => void toggleEnabled()}
-                disabled={isLoading}
+                disabled={isLoading || disabled}
                 className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
                   enabled ? 'bg-primary' : 'bg-muted'
                 }`}
@@ -88,6 +88,12 @@ export function ShortcutSettings() {
       {error && (
         <div className="text-xs text-destructive px-3">
           {error}
+        </div>
+      )}
+
+      {disabled && (
+        <div className="text-xs text-muted-foreground px-3">
+          Claudia 关闭时，桌面悬浮球和全局快捷键都会一起停用。
         </div>
       )}
 
@@ -114,6 +120,7 @@ export function ShortcutSettings() {
                 <button
                   key={modifier}
                   onClick={() => toggleModifier(modifier)}
+                  disabled={disabled}
                   className={`px-2 py-1 text-xs rounded-md transition-colors ${
                     isSelected 
                       ? 'bg-primary text-primary-foreground' 
@@ -132,6 +139,7 @@ export function ShortcutSettings() {
               <button
                 key={key}
                 onClick={() => setTempMainKey(key)}
+                disabled={disabled}
                 className={`px-1 py-1 text-xs rounded-md transition-colors ${
                   tempMainKey === key 
                     ? 'bg-primary text-primary-foreground' 
@@ -146,7 +154,7 @@ export function ShortcutSettings() {
           <div className="flex items-center justify-end gap-2 pt-2 border-t border-border/50">
             <button
               onClick={handleReset}
-              disabled={isLoading}
+              disabled={isLoading || disabled}
               className="px-3 py-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
             >
               Reset
@@ -160,7 +168,7 @@ export function ShortcutSettings() {
             </button>
             <button
               onClick={() => void handleSave()}
-              disabled={isLoading || !tempMainKey || tempModifiers.length === 0}
+              disabled={isLoading || disabled || !tempMainKey || tempModifiers.length === 0}
               className="px-3 py-1.5 text-xs bg-primary hover:bg-primary/90 text-primary-foreground rounded-md transition-colors disabled:opacity-50"
             >
               {isLoading ? 'Saving...' : 'Save'}

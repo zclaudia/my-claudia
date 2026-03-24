@@ -1,15 +1,10 @@
 import { useCallback } from 'react';
 import { useProjectStore } from '../../stores/projectStore';
-import { useServerStore } from '../../stores/serverStore';
-import { isGatewayTarget, useGatewayStore } from '../../stores/gatewayStore';
 import { useUIStore } from '../../stores/uiStore';
 import * as api from '../../services/api';
-import { getBaseUrl, getAuthHeaders } from '../../services/api';
 import type { Session, Project } from '@my-claudia/shared';
-
-const isDesktopTauri = typeof window !== 'undefined'
-  && '__TAURI_INTERNALS__' in window
-  && !navigator.userAgent.includes('Android');
+import { isDesktopTauri } from '../../utils/platform';
+import { openPopoutWindow, buildWindowTitle, getConnectionParams } from '../../utils/popoutWindow';
 
 interface UseSessionActionsParams {
   sessionId: string;
@@ -26,7 +21,7 @@ export function useSessionActions({
   isConnected,
   currentSession,
   currentProject,
-  activeServerId,
+  activeServerId: _activeServerId,
   renameValue,
   setIsRenamingSession,
 }: UseSessionActionsParams) {
@@ -72,53 +67,22 @@ export function useSessionActions({
   }, [isConnected, sessionId]);
 
   const handlePopOut = useCallback(async () => {
-    if (!isDesktopTauri) return;
+    if (!isDesktopTauri()) return;
     try {
-      const { WebviewWindow } = await import('@tauri-apps/api/webviewWindow');
-
-      const label = `session-chat-${Date.now()}`;
-      const serverUrl = getBaseUrl();
-      const authToken = (getAuthHeaders() as Record<string, string>)['Authorization'] || '';
-
-      const activeServer = useServerStore.getState().getActiveServer();
-      const serverName = activeServer?.name || '';
-      const gatewayState = useGatewayStore.getState();
-
-      const urlParams = new URLSearchParams({
-        sessionWindow: sessionId,
-        projectId: currentSession?.projectId || '',
-        serverUrl,
-        authToken,
-        ...(activeServerId ? { serverId: activeServerId } : {}),
-        ...(serverName ? { serverName } : {}),
-      });
-      if (isGatewayTarget(activeServerId) && gatewayState.gatewayUrl && gatewayState.gatewaySecret) {
-        urlParams.set('gatewayUrl', gatewayState.gatewayUrl);
-        urlParams.set('gatewaySecret', gatewayState.gatewaySecret);
-      }
-
-      const winUrl = `${window.location.origin}${window.location.pathname}?${urlParams}`;
-
-      // Build descriptive title: "SessionName — ServerName · ProjectName"
+      const conn = getConnectionParams();
       const sessionName = currentSession?.name || 'Session';
       const projectName = currentProject?.name || '';
-      const titleParts = [sessionName];
-      const contextParts = [serverName, projectName].filter(Boolean);
-      if (contextParts.length > 0) titleParts.push(contextParts.join(' · '));
-      const title = titleParts.join(' — ');
+      const title = buildWindowTitle(sessionName, conn.serverName, projectName);
 
-      new WebviewWindow(label, {
-        url: winUrl,
+      const label = await openPopoutWindow({
+        type: 'session-chat',
+        params: { sessionWindow: sessionId, projectId: currentSession?.projectId || '' },
         title,
-        width: 900,
-        height: 700,
-        center: true,
-        dragDropEnabled: false,
       });
-
       addPoppedOutSession(sessionId, label);
 
       // When the standalone window closes, remove the popped-out state
+      const { WebviewWindow } = await import('@tauri-apps/api/webviewWindow');
       const win = await WebviewWindow.getByLabel(label);
       if (win) {
         const unlisten = await win.onCloseRequested(() => {
@@ -129,10 +93,10 @@ export function useSessionActions({
     } catch (err) {
       console.error('[ChatInterface] Pop out failed:', err);
     }
-  }, [sessionId, currentSession?.projectId, currentSession?.name, currentProject?.name, activeServerId, addPoppedOutSession, removePoppedOutSession]);
+  }, [sessionId, currentSession?.projectId, currentSession?.name, currentProject?.name, addPoppedOutSession, removePoppedOutSession]);
 
   const handleFocusPoppedOutWindow = useCallback(async (windowLabel: string) => {
-    if (!isDesktopTauri) return;
+    if (!isDesktopTauri()) return;
     try {
       const { invoke } = await import('@tauri-apps/api/core');
       await invoke('focus_window', { label: windowLabel });
@@ -142,7 +106,7 @@ export function useSessionActions({
   }, []);
 
   const handleBringBackHere = useCallback(async (windowLabel: string) => {
-    if (!isDesktopTauri) {
+    if (!isDesktopTauri()) {
       removePoppedOutSession(sessionId);
       return;
     }

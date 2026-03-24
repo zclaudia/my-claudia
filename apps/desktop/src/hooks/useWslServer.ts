@@ -2,7 +2,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { Command, type Child } from '@tauri-apps/plugin-shell';
 import { resolveResource } from '@tauri-apps/api/path';
-import { isWindowsTauri } from './useEmbeddedServer';
+import { isWindows as isWindowsTauri } from '../utils/platform';
 
 export type WslServerStatus = 'idle' | 'checking' | 'deploying' | 'starting' | 'ready' | 'error';
 

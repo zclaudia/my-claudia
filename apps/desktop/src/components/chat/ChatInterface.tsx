@@ -32,7 +32,7 @@ import { useKeyboardShortcuts } from '../../hooks/chat/useKeyboardShortcuts';
 import { useMobileViewport } from '../../hooks/chat/useMobileViewport';
 import * as api from '../../services/api';
 import { uploadFile } from '../../services/fileUpload';
-import { TaskCardStrip } from '../supervision/TaskCardStrip';
+import { TaskCardStrip } from '../../features/supervision/components/TaskCardStrip';
 import { BackgroundTaskPanel } from '../BackgroundTaskPanel';
 import { DraftLockPrompt } from '../draft/DraftLockPrompt';
 import { useDraftEditorStore } from '../../stores/draftEditorStore';

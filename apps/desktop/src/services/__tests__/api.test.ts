@@ -469,7 +469,7 @@ describe('api', () => {
     });
 
     it('updateSessionWorkingDirectory', async () => {
-      mockResponse(undefined);
+      mockResponse({ id: 's1', workingDirectory: '/new/path' });
       await updateSessionWorkingDirectory('s1', '/new/path');
       expect(mockFetch).toHaveBeenCalledWith(
         expect.stringContaining('/api/sessions/s1/working-directory'),
@@ -1357,7 +1357,7 @@ describe('api', () => {
 
     it('cancelLocalPRQueue throws default message', async () => {
       mockErrorNoMessage();
-      await expect(cancelLocalPRQueue('pr1')).rejects.toThrow('Failed to cancel queue');
+      await expect(cancelLocalPRQueue('pr1')).rejects.toThrow('API call failed');
     });
 
     it('retryLocalPR throws on error', async () => {
@@ -1367,7 +1367,7 @@ describe('api', () => {
 
     it('retryLocalPR throws default message', async () => {
       mockErrorNoMessage();
-      await expect(retryLocalPR('pr1')).rejects.toThrow('Failed to retry');
+      await expect(retryLocalPR('pr1')).rejects.toThrow('API call failed');
     });
 
     it('setProjectReviewProvider throws on error', async () => {
@@ -1377,7 +1377,7 @@ describe('api', () => {
 
     it('setProjectReviewProvider throws default message', async () => {
       mockErrorNoMessage();
-      await expect(setProjectReviewProvider('p1', 'prov1')).rejects.toThrow('Failed to set review provider');
+      await expect(setProjectReviewProvider('p1', 'prov1')).rejects.toThrow('API call failed');
     });
 
     it('getWorktreeConfigs throws on error', async () => {
@@ -1387,7 +1387,7 @@ describe('api', () => {
 
     it('getWorktreeConfigs throws default message', async () => {
       mockErrorNoMessage();
-      await expect(getWorktreeConfigs('p1')).rejects.toThrow('Failed to list worktree configs');
+      await expect(getWorktreeConfigs('p1')).rejects.toThrow('API call failed');
     });
 
     it('upsertWorktreeConfig throws on error', async () => {
@@ -1397,7 +1397,7 @@ describe('api', () => {
 
     it('upsertWorktreeConfig throws default message', async () => {
       mockErrorNoMessage();
-      await expect(upsertWorktreeConfig('p1', { worktreePath: '/path', autoCreatePR: false, autoReview: false })).rejects.toThrow('Failed to update worktree config');
+      await expect(upsertWorktreeConfig('p1', { worktreePath: '/path', autoCreatePR: false, autoReview: false })).rejects.toThrow('API call failed');
     });
   });
 });
