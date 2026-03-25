@@ -386,16 +386,15 @@ function AppContent() {
   // Android back gesture: open sidebar when nothing else is open (pri 5)
   useAndroidBack(() => setSidebarOpen(true), isMobile && !sidebarOpen && !isAgentExpanded && !fileViewerFullscreen, 5);
 
-  // Mobile swipe: left-swipe from right edge to open Claudia Chat
-  // Uses global: true to listen on document so edge touches aren't blocked by scroll containers
-  useSwipeBack({
+  // Mobile swipe: left-swipe from the center band to open Claudia Chat.
+  // Avoid the physical screen edges so Android system back gestures can keep priority there.
+  const swipeOpenClaudiaRef = useSwipeBack({
     onSwipe: () => setAgentExpanded(true),
     onProgress: (progress) => setAgentSwipePreview(progress > 0 ? { mode: 'open', progress } : { mode: null, progress: 0 }),
     enabled: isMobile && !isAgentExpanded && !sidebarOpen && !fileViewerFullscreen,
     direction: 'left',
-    edgeWidth: 24,
+    startZone: { startRatio: 0.25, endRatio: 0.75 },
     threshold: 60,
-    global: true,
   });
 
   // Mobile swipe: right-swipe anywhere in Claudia Chat to close
@@ -681,7 +680,7 @@ function AppContent() {
         />
 
         {/* Main Content */}
-        <main className="flex-1 flex flex-col overflow-hidden relative">
+        <main ref={swipeOpenClaudiaRef} className="flex-1 flex flex-col overflow-hidden relative">
           {/* Chat Area */}
           <div className="flex-1 overflow-hidden relative">
             {isMobile && (isAgentExpanded || agentSwipePreview.mode === 'open' || agentSwipePreview.mode === 'close') && (

@@ -19,6 +19,11 @@ interface UseSwipeBackOptions {
   velocityThreshold?: number;
   /** If true, swipe triggers from anywhere, not just the edge. Default: false */
   fullWidth?: boolean;
+  /** Start zone as ratios of container width, inclusive. Overrides edge detection when both are set. */
+  startZone?: {
+    startRatio: number;
+    endRatio: number;
+  };
   /** If true, listen on document instead of the ref element. Useful for edge gestures that must work regardless of scroll containers. */
   global?: boolean;
 }
@@ -42,6 +47,7 @@ export function useSwipeBack(options: UseSwipeBackOptions) {
     threshold = 80,
     velocityThreshold = 0.3,
     fullWidth = false,
+    startZone,
     global = false,
   } = options;
 
@@ -67,6 +73,12 @@ export function useSwipeBack(options: UseSwipeBackOptions) {
     let inEdge = false;
     if (fullWidth) {
       inEdge = true;
+    } else if (startZone) {
+      const normalizedStart = Math.min(Math.max(startZone.startRatio, 0), 1);
+      const normalizedEnd = Math.min(Math.max(startZone.endRatio, 0), 1);
+      const zoneStart = leftEdge + containerWidth * Math.min(normalizedStart, normalizedEnd);
+      const zoneEnd = leftEdge + containerWidth * Math.max(normalizedStart, normalizedEnd);
+      inEdge = x >= zoneStart && x <= zoneEnd;
     } else if (direction === 'right') {
       inEdge = x <= leftEdge + computedEdgeWidth;
     } else {
@@ -83,7 +95,7 @@ export function useSwipeBack(options: UseSwipeBackOptions) {
       source,
     };
     onProgress?.(0);
-  }, [enabled, direction, edgeWidth, edgeWidthRatio, fullWidth, onProgress]);
+  }, [enabled, direction, edgeWidth, edgeWidthRatio, fullWidth, onProgress, startZone]);
 
   const updateTracking = useCallback((source: 'touch' | 'pointer', x: number, y: number) => {
     if (!stateRef.current.tracking || stateRef.current.source !== source) return;

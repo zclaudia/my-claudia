@@ -189,6 +189,26 @@ describe('hooks/useSwipeBack', () => {
     });
   });
 
+  describe('startZone', () => {
+    it('triggers only when the swipe starts inside the configured center band', () => {
+      const onSwipe = vi.fn();
+      setupHook({
+        onSwipe,
+        direction: 'left',
+        startZone: { startRatio: 0.25, endRatio: 0.75 },
+        threshold: 80,
+        velocityThreshold: 0.3,
+      });
+
+      fireHandlers(200, 100, 110, 100);
+      expect(onSwipe).toHaveBeenCalledTimes(1);
+
+      onSwipe.mockClear();
+      fireHandlers(40, 100, -60, 100);
+      expect(onSwipe).not.toHaveBeenCalled();
+    });
+  });
+
   describe('container bounds', () => {
     it('uses the container right edge instead of assuming x starts at 0', () => {
       const onSwipe = vi.fn();
