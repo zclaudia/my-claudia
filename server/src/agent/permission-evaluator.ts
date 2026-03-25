@@ -74,15 +74,104 @@ export function isBashLikeTool(toolName: string): boolean {
     || lower === 'agent_shell';
 }
 
+interface ShellToken {
+  value: string;
+}
+
+const TEXT_VALUE_FLAGS_BY_COMMAND = new Map<string, Set<string>>([
+  ['git commit', new Set(['-m', '--message'])],
+]);
+
+function tokenizeShellWords(command: string): ShellToken[] {
+  const tokens: ShellToken[] = [];
+  let current = '';
+  let inSingle = false;
+  let inDouble = false;
+  let escaped = false;
+
+  const pushCurrent = () => {
+    if (!current) return;
+    tokens.push({ value: current });
+    current = '';
+  };
+
+  for (let i = 0; i < command.length; i += 1) {
+    const ch = command[i];
+
+    if (escaped) {
+      current += ch;
+      escaped = false;
+      continue;
+    }
+
+    if (ch === '\\') {
+      if (inSingle) {
+        current += ch;
+      } else {
+        escaped = true;
+      }
+      continue;
+    }
+
+    if (ch === "'" && !inDouble) {
+      inSingle = !inSingle;
+      continue;
+    }
+
+    if (ch === '"' && !inSingle) {
+      inDouble = !inDouble;
+      continue;
+    }
+
+    if (!inSingle && !inDouble && /\s/.test(ch)) {
+      pushCurrent();
+      continue;
+    }
+
+    current += ch;
+  }
+
+  pushCurrent();
+  return tokens;
+}
+
+function getCommandSignature(tokens: ShellToken[]): string | null {
+  const commandTokens = tokens
+    .map((token) => token.value)
+    .filter((value) => value && !value.includes('='));
+  if (commandTokens.length === 0) return null;
+  if (commandTokens[0] === 'git' && commandTokens[1]) {
+    return `git ${commandTokens[1]}`;
+  }
+  return commandTokens[0];
+}
+
+function shouldSkipTokenAsTextArgument(tokens: ShellToken[], index: number): boolean {
+  const signature = getCommandSignature(tokens);
+  if (!signature) return false;
+
+  const rules = TEXT_VALUE_FLAGS_BY_COMMAND.get(signature);
+  if (rules?.has('*')) {
+    return index > 0;
+  }
+
+  const previous = tokens[index - 1]?.value;
+  if (!previous || !rules) return false;
+  return rules.has(previous);
+}
+
 function extractPathsFromCommand(command: string): string[] {
-  const paths: string[] = [];
-  const matches = command.match(/(?:^|\s)(\/[^\s;|&>]+)/g);
-  if (matches) {
-    for (const m of matches) {
-      paths.push(m.trim());
+  const paths = new Set<string>();
+  for (const segment of splitCompoundCommand(command)) {
+    const tokens = tokenizeShellWords(segment);
+    for (let i = 0; i < tokens.length; i += 1) {
+      const token = tokens[i];
+      if (!token.value.startsWith('/')) continue;
+      if (shouldSkipTokenAsTextArgument(tokens, i)) continue;
+      paths.add(token.value);
     }
   }
-  return paths;
+  return [...paths];
 }
 
 function isPathWithinRoot(filePath: string, rootPath: string): boolean {

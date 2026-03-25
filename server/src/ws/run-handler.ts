@@ -37,6 +37,7 @@ import {
 import {
   classify,
   getMatchedPermissionRule,
+  getOutsideWorkspacePaths,
   PermissionEvaluator,
   getAgentPermissionPolicy,
   getProjectPermissionOverride,
@@ -554,6 +555,26 @@ export async function handleRunStart(
             { rootPath: cwd, sessionType }
           ) || undefined
           : undefined;
+
+        if (matchedRule === 'Outside workspace access') {
+          const outsidePaths = getOutsideWorkspacePaths(
+            request.toolName,
+            request.toolInput,
+            request.detail,
+            cwd
+          );
+          const bashCommand = isBashLikeTool(request.toolName)
+            ? ((request.toolInput as { command?: unknown } | undefined)?.command ?? request.detail)
+            : undefined;
+          console.warn('[Permission] Outside workspace access detected', {
+            sessionId: message.sessionId,
+            runId,
+            toolName: request.toolName,
+            rootPath: cwd,
+            command: bashCommand,
+            outsidePaths,
+          });
+        }
 
         const continueWithUserFlow = () => {
           // For background sessions, escalate sends a notification instead of blocking UI

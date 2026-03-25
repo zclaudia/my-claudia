@@ -1,35 +1,29 @@
 /**
  * Automation management window — standalone Tauri window.
  *
- * Displays all workflows, scheduled tasks, system tasks, and agent triggers
- * across all projects and global scope. Uses direct HTTP API (no zustand stores).
+ * Tabs:
+ *   - Workflows: full DAG workflows (graph editor)
+ *   - Automations: simple single-action automations (schedule/event + prompt/shell/webhook)
+ *     Combines legacy scheduled tasks, agent triggers, and new workflow-backed simple automations.
+ *   - System: internal system tasks (readonly)
  */
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import {
-  Loader2, Zap, Clock, Radio, Server, RefreshCw, Play, Pause, Trash2,
-  Globe, FolderOpen, ChevronDown, ChevronRight, Plus, Pencil, Sparkles,
+  Loader2, Zap, Clock, Server, RefreshCw, Play, Pause, Trash2,
+  Globe, FolderOpen, ChevronDown, ChevronRight, Plus, Pencil,
   CheckCircle2, XCircle,
 } from 'lucide-react';
 import type { Workflow, WorkflowTemplate, ScheduledTask, ScheduledTaskTemplate, SystemTaskInfo, TaskRun } from '@my-claudia/shared';
+import { isDesktopTauri } from '../../utils/platform';
+import { buildPopoutUrl, openPopoutWindow } from '../../utils/popoutWindow';
 
 interface AutomationWindowProps {
   serverUrl: string;
   authToken: string;
 }
 
-type Tab = 'workflows' | 'scheduled' | 'system' | 'triggers';
-
-interface AgentTrigger {
-  id: string;
-  name: string;
-  description?: string;
-  enabled: boolean;
-  triggerType: string;
-  eventPattern?: string;
-  promptTemplate: string;
-  projectId?: string;
-}
+type Tab = 'workflows' | 'automations' | 'system';
 
 interface ProjectInfo {
   id: string;
@@ -75,7 +69,6 @@ function displayProjectName(name: string): string {
   return stripped.charAt(0).toUpperCase() + stripped.slice(1);
 }
 
-/** Render project options: Global first (optgroup), then projects (optgroup) */
 function renderProjectOptions(projects: ProjectInfo[]) {
   const internal = projects.filter(p => isInternalProject(p.name));
   const normal = projects.filter(p => !isInternalProject(p.name)).sort((a, b) => a.name.localeCompare(b.name));
@@ -116,13 +109,71 @@ const CATEGORY_COLORS: Record<string, string> = {
   plugin: 'bg-muted text-muted-foreground',
 };
 
+// ── Unified Automation Item ──────────────────────────────────
+// Normalized view that can represent a legacy ScheduledTask or a simple Workflow.
+
+interface AutomationItem {
+  id: string;
+  name: string;
+  description?: string;
+  enabled: boolean;
+  projectId?: string;
+  triggerSummary: string;
+  actionSummary: string;
+  source: 'legacy-scheduled' | 'legacy-trigger' | 'workflow';
+  status: string;
+  runCount: number;
+  lastError?: string;
+}
+
+function scheduledTaskToItem(t: ScheduledTask): AutomationItem {
+  const trigger = t.scheduleType === 'cron' ? `cron: ${t.scheduleCron}`
+    : t.scheduleType === 'interval' ? `every ${t.scheduleIntervalMinutes}m`
+    : t.scheduleType;
+  return {
+    id: t.id,
+    name: t.name,
+    description: t.description,
+    enabled: t.enabled,
+    projectId: t.projectId,
+    triggerSummary: trigger,
+    actionSummary: t.actionType,
+    source: 'legacy-scheduled',
+    status: t.status,
+    runCount: t.runCount,
+    lastError: t.lastError,
+  };
+}
+
+function simpleWorkflowToItem(w: Workflow): AutomationItem {
+  const trigger = w.definition.triggers[0];
+  const node = w.definition.nodes[0];
+  const triggerSummary = !trigger ? 'manual'
+    : trigger.type === 'cron' ? `cron: ${trigger.cron}`
+    : trigger.type === 'interval' ? `every ${trigger.intervalMinutes}m`
+    : trigger.type === 'once' ? 'once'
+    : trigger.type === 'event' ? `event: ${trigger.event}`
+    : trigger.type;
+  return {
+    id: w.id,
+    name: w.name,
+    description: w.description,
+    enabled: w.status === 'active',
+    projectId: w.projectId,
+    triggerSummary,
+    actionSummary: node?.type ?? 'unknown',
+    source: 'workflow',
+    status: w.status === 'active' ? 'idle' : 'disabled',
+    runCount: 0,
+  };
+}
+
 // ── Main Component ───────────────────────────────────────────
 
 export function AutomationWindow({ serverUrl, authToken }: AutomationWindowProps) {
-  const [tab, setTab] = useState<Tab>('workflows');
+  const [tab, setTab] = useState<Tab>('automations');
   const api = useApi(serverUrl, authToken);
 
-  // Projects lookup
   const [projects, setProjects] = useState<ProjectInfo[]>([]);
   useEffect(() => {
     api.get('/api/projects').then(setProjects).catch(() => {});
@@ -136,10 +187,9 @@ export function AutomationWindow({ serverUrl, authToken }: AutomationWindowProps
   }, [projects]);
 
   const tabs: { key: Tab; label: string; icon: React.ReactNode }[] = [
-    { key: 'workflows', label: 'Workflows', icon: <Zap size={14} /> },
-    { key: 'scheduled', label: 'Scheduled Tasks', icon: <Clock size={14} /> },
+    { key: 'automations', label: 'Automations', icon: <Zap size={14} /> },
+    { key: 'workflows', label: 'Workflows', icon: <Clock size={14} /> },
     { key: 'system', label: 'System', icon: <Server size={14} /> },
-    { key: 'triggers', label: 'Triggers', icon: <Radio size={14} /> },
   ];
 
   return (
@@ -167,234 +217,35 @@ export function AutomationWindow({ serverUrl, authToken }: AutomationWindowProps
 
       {/* Content */}
       <div className="flex-1 overflow-auto p-4">
-        {tab === 'workflows' && <WorkflowsTab api={api} projects={projects} projectName={projectName} serverUrl={serverUrl} authToken={authToken} />}
-        {tab === 'scheduled' && <ScheduledTasksTab api={api} projects={projects} projectName={projectName} />}
+        {tab === 'automations' && <AutomationsTab api={api} projects={projects} projectName={projectName} />}
+        {tab === 'workflows' && <WorkflowsTab api={api} projects={projects} projectName={projectName} />}
         {tab === 'system' && <SystemTasksTab api={api} />}
-        {tab === 'triggers' && <TriggersTab api={api} projectName={projectName} />}
       </div>
     </div>
   );
 }
 
-// ── Workflows Tab ────────────────────────────────────────────
+// ── Automations Tab (unified) ────────────────────────────────
 
-async function openWorkflowEditor(serverUrl: string, authToken: string, projectId: string, workflowId?: string, initialMode?: string): Promise<void> {
-  try {
-    const { WebviewWindow } = await import('@tauri-apps/api/webviewWindow');
-    const label = `workflow-editor-${Date.now()}`;
-    const params = new URLSearchParams({
-      workflowEditor: projectId,
-      serverUrl,
-      authToken,
-    });
-    if (workflowId) params.set('workflowId', workflowId);
-    if (initialMode) params.set('initialMode', initialMode);
-    const url = `${window.location.origin}${window.location.pathname}?${params}`;
-    new WebviewWindow(label, {
-      url,
-      title: workflowId ? 'Edit Workflow' : 'New Workflow',
-      width: 1100,
-      height: 700,
-      center: true,
-      dragDropEnabled: false,
-    });
-  } catch { /* not in Tauri */ }
-}
-
-function WorkflowsTab({ api, projects, projectName, serverUrl, authToken }: { api: ApiType; projects: ProjectInfo[]; projectName: (id?: string) => string; serverUrl: string; authToken: string }) {
-  const [workflows, setWorkflows] = useState<Workflow[]>([]);
-  const [templates, setTemplates] = useState<WorkflowTemplate[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [createProjectId, setCreateProjectId] = useState('');
-
-  const effectiveProjectId = createProjectId || projects[0]?.id || '';
-  const selectedProject = projects.find(p => p.id === effectiveProjectId);
-  const selectedIsGlobal = selectedProject ? isInternalProject(selectedProject.name) : false;
-
-  const refresh = useCallback(async () => {
-    setLoading(true);
-    try {
-      const [wfs, tpls] = await Promise.all([
-        api.get('/api/workflows'),
-        api.get('/api/workflow-templates'),
-      ]);
-      setWorkflows(wfs);
-      setTemplates(tpls);
-    } catch { /* ignore */ }
-    setLoading(false);
-  }, [api]);
-
-  useEffect(() => { refresh(); }, [refresh]);
-
-  const handleTrigger = async (id: string) => {
-    await api.post(`/api/workflows/${id}/trigger`).catch(() => {});
-    refresh();
-  };
-
-  const handleDelete = async (id: string) => {
-    await api.del(`/api/workflows/${id}`).catch(() => {});
-    setWorkflows(prev => prev.filter(w => w.id !== id));
-  };
-
-  const handleEnableTemplate = async (templateId: string, projectId: string) => {
-    const path = selectedIsGlobal
-      ? `/api/workflows/from-template/${templateId}`
-      : `/api/projects/${projectId}/workflows/from-template/${templateId}`;
-    await api.post(path).catch(() => {});
-    refresh();
-  };
-
-  const handleCreate = () => {
-    if (!effectiveProjectId) return;
-    openWorkflowEditor(serverUrl, authToken, effectiveProjectId);
-  };
-
-  const handleAIGenerate = () => {
-    if (!effectiveProjectId) return;
-    openWorkflowEditor(serverUrl, authToken, effectiveProjectId, undefined, 'ai');
-  };
-
-  const handleEdit = (workflow: Workflow) => {
-    const pid = workflow.projectId || effectiveProjectId;
-    if (!pid) return;
-    openWorkflowEditor(serverUrl, authToken, pid, workflow.id);
-  };
-
-  if (loading) return <LoadingState />;
-
-  return (
-    <div className="space-y-4">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <h2 className="text-sm font-medium text-muted-foreground">{workflows.length} workflow{workflows.length !== 1 ? 's' : ''}</h2>
-        <div className="flex items-center gap-1.5">
-          {projects.length > 1 && (
-            <select
-              value={effectiveProjectId}
-              onChange={(e) => setCreateProjectId(e.target.value)}
-              className="px-2 py-1 text-xs rounded border border-border bg-background text-foreground"
-            >
-              {renderProjectOptions(projects)}
-            </select>
-          )}
-          <button
-            onClick={handleAIGenerate}
-            className="flex items-center gap-1 px-2.5 py-1 text-xs rounded-md border border-border hover:bg-secondary transition-colors"
-          >
-            <Sparkles size={12} />
-            AI Generate
-          </button>
-          <button
-            onClick={handleCreate}
-            className="flex items-center gap-1 px-2.5 py-1 text-xs rounded-md bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
-          >
-            <Plus size={12} />
-            New
-          </button>
-          <button onClick={refresh} className="p-1.5 rounded hover:bg-secondary text-muted-foreground hover:text-foreground" title="Refresh">
-            <RefreshCw size={14} />
-          </button>
-        </div>
-      </div>
-
-      {/* Quick Start Templates */}
-      {templates.length > 0 && (
-        <div>
-          <h3 className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider mb-2">Quick Start Templates</h3>
-          <div className="grid grid-cols-3 gap-2">
-            {templates.map(t => {
-              const enabled = workflows.some((w) => {
-                if (w.templateId !== t.id) return false;
-                return selectedIsGlobal ? !w.projectId : w.projectId === effectiveProjectId;
-              });
-              return (
-                <div key={t.id} className="rounded-lg border border-border bg-card p-3 flex flex-col gap-2">
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0">
-                      <div className="text-xs font-medium">{t.name}</div>
-                      {t.description && <div className="text-[10px] text-muted-foreground mt-0.5 line-clamp-2">{t.description}</div>}
-                    </div>
-                    {(t as any).category && (
-                      <span className={`px-1.5 py-0.5 rounded text-[9px] font-medium shrink-0 ${CATEGORY_COLORS[(t as any).category] ?? 'bg-muted text-muted-foreground'}`}>
-                        {(t as any).category}
-                      </span>
-                    )}
-                  </div>
-                  {effectiveProjectId && (
-                    <button
-                      onClick={() => handleEnableTemplate(t.id, effectiveProjectId)}
-                      disabled={enabled}
-                      className={`self-start text-[10px] px-2 py-0.5 rounded transition-colors ${
-                        enabled ? 'bg-success/15 text-success' : 'bg-primary/10 text-primary hover:bg-primary/20'
-                      }`}
-                    >
-                      {enabled ? 'Enabled' : 'Enable'}
-                    </button>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* Workflow list */}
-      {workflows.length === 0 ? (
-        <EmptyState message="No workflows yet" subtitle="Create one or enable a template to get started" />
-      ) : (
-        <div className="space-y-2">
-          {workflows.map(w => (
-            <div
-              key={w.id}
-              className="rounded-lg border border-border bg-card/50 p-3 flex items-center gap-3 cursor-pointer hover:bg-secondary/30 transition-colors"
-              onClick={() => handleEdit(w)}
-            >
-              <span className={`w-2 h-2 rounded-full flex-shrink-0 ${w.status === 'active' ? 'bg-green-500' : 'bg-muted-foreground'}`} />
-              <div className="flex-1 min-w-0">
-                <div className="text-sm font-medium truncate">{w.name}</div>
-                <div className="flex items-center gap-2 text-[11px] text-muted-foreground mt-0.5">
-                  <span className="flex items-center gap-1">
-                    {w.projectId ? <FolderOpen size={10} /> : <Globe size={10} />}
-                    {projectName(w.projectId)}
-                  </span>
-                  {w.description && <><span>·</span><span className="truncate">{w.description}</span></>}
-                </div>
-              </div>
-              <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
-                <button onClick={() => handleEdit(w)} className="p-1.5 rounded hover:bg-secondary text-muted-foreground hover:text-foreground" title="Edit">
-                  <Pencil size={12} />
-                </button>
-                {w.status === 'active' && (
-                  <button onClick={() => handleTrigger(w.id)} className="p-1.5 rounded hover:bg-secondary text-muted-foreground hover:text-foreground" title="Trigger">
-                    <Play size={12} />
-                  </button>
-                )}
-                <button onClick={() => handleDelete(w.id)} className="p-1.5 rounded hover:bg-secondary text-muted-foreground hover:text-red-400" title="Delete">
-                  <Trash2 size={12} />
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ── Scheduled Tasks Tab ──────────────────────────────────────
-
-function ScheduledTasksTab({ api, projects, projectName }: { api: ApiType; projects: ProjectInfo[]; projectName: (id?: string) => string }) {
-  const [userTasks, setUserTasks] = useState<ScheduledTask[]>([]);
+function AutomationsTab({ api, projects, projectName }: { api: ApiType; projects: ProjectInfo[]; projectName: (id?: string) => string }) {
+  const [legacyTasks, setLegacyTasks] = useState<ScheduledTask[]>([]);
+  const [simpleWorkflows, setSimpleWorkflows] = useState<Workflow[]>([]);
   const [templates, setTemplates] = useState<ScheduledTaskTemplate[]>([]);
   const [loading, setLoading] = useState(true);
+
+  // Create form state
   const [createProjectId, setCreateProjectId] = useState('');
   const [showCreate, setShowCreate] = useState(false);
   const [newName, setNewName] = useState('');
-  const [newScheduleType, setNewScheduleType] = useState('interval');
+  const [newTriggerType, setNewTriggerType] = useState<string>('interval');
   const [newIntervalMinutes, setNewIntervalMinutes] = useState('60');
   const [newCron, setNewCron] = useState('');
-  const [newActionType, setNewActionType] = useState('prompt');
+  const [newOnceAt, setNewOnceAt] = useState('');
+  const [newEvent, setNewEvent] = useState('');
+  const [newActionType, setNewActionType] = useState('ai_prompt');
   const [newPrompt, setNewPrompt] = useState('');
+  const [newShellCmd, setNewShellCmd] = useState('');
+  const [createError, setCreateError] = useState<string | null>(null);
 
   const effectiveProjectId = createProjectId || projects[0]?.id || '';
   const selectedProject = projects.find(p => p.id === effectiveProjectId);
@@ -403,6 +254,7 @@ function ScheduledTasksTab({ api, projects, projectName }: { api: ApiType; proje
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
+      // Load legacy scheduled tasks
       const [globalTasks, projectsResp, tpls] = await Promise.all([
         api.get('/api/scheduled-tasks/global').catch(() => []),
         api.get('/api/projects').catch(() => []),
@@ -411,27 +263,96 @@ function ScheduledTasksTab({ api, projects, projectName }: { api: ApiType; proje
       const projectTasks = await Promise.all(
         projectsResp.map((p: { id: string }) => api.get(`/api/projects/${p.id}/scheduled-tasks`).catch(() => []))
       );
-      setUserTasks([...globalTasks, ...projectTasks.flat()]);
+      setLegacyTasks([...globalTasks, ...projectTasks.flat()]);
       setTemplates(tpls);
+
+      // Load simple workflow-backed automations
+      const allWorkflows: Workflow[] = await api.get('/api/automations').catch(() => []);
+      setSimpleWorkflows(allWorkflows.filter(w => w.authoringMode === 'simple'));
     } catch { /* ignore */ }
     setLoading(false);
   }, [api]);
 
   useEffect(() => { refresh(); }, [refresh]);
 
-  const handleToggle = async (task: ScheduledTask) => {
-    await api.patch(`/api/scheduled-tasks/${task.id}`, { enabled: !task.enabled }).catch(() => {});
+  // Build unified list
+  const items: AutomationItem[] = useMemo(() => {
+    const fromLegacy = legacyTasks.map(scheduledTaskToItem);
+    const fromWorkflow = simpleWorkflows.map(simpleWorkflowToItem);
+    return [...fromWorkflow, ...fromLegacy].sort((a, b) =>
+      (b.enabled ? 1 : 0) - (a.enabled ? 1 : 0)
+    );
+  }, [legacyTasks, simpleWorkflows]);
+
+  // ── Handlers ──
+
+  const handleCreate = async () => {
+    if (!newName.trim()) return;
+    const actionConfig: Record<string, unknown> =
+      newActionType === 'ai_prompt' ? { prompt: newPrompt }
+      : newActionType === 'shell' ? { command: newShellCmd }
+      : {};
+
+    const trigger: Record<string, unknown> = { type: newTriggerType };
+    if (newTriggerType === 'interval') trigger.intervalMinutes = parseInt(newIntervalMinutes) || 60;
+    if (newTriggerType === 'cron') trigger.cron = newCron;
+    if (newTriggerType === 'once') {
+      const onceAt = newOnceAt ? new Date(newOnceAt).getTime() : NaN;
+      if (!Number.isFinite(onceAt)) {
+        setCreateError('Please choose a valid run time');
+        return;
+      }
+      trigger.onceAt = onceAt;
+    }
+    if (newTriggerType === 'event') trigger.event = newEvent;
+
+    try {
+      setCreateError(null);
+      await api.post('/api/automations', {
+        name: newName.trim(),
+        projectId: effectiveProjectId || undefined,
+        trigger,
+        action: { type: newActionType, config: actionConfig },
+      });
+
+      setShowCreate(false);
+      setNewName('');
+      setNewPrompt('');
+      setNewShellCmd('');
+      setNewCron('');
+      setNewEvent('');
+      setNewOnceAt('');
+      refresh();
+    } catch (error) {
+      setCreateError(error instanceof Error ? error.message : 'Failed to create automation');
+    }
+  };
+
+  const handleToggle = async (item: AutomationItem) => {
+    if (item.source === 'legacy-scheduled') {
+      await api.patch(`/api/scheduled-tasks/${item.id}`, { enabled: !item.enabled }).catch(() => {});
+    } else {
+      await api.patch(`/api/workflows/${item.id}`, { status: item.enabled ? 'disabled' : 'active' }).catch(() => {});
+    }
     refresh();
   };
 
-  const handleTrigger = async (id: string) => {
-    await api.post(`/api/scheduled-tasks/${id}/trigger`).catch(() => {});
+  const handleTriggerNow = async (item: AutomationItem) => {
+    if (item.source === 'legacy-scheduled') {
+      await api.post(`/api/scheduled-tasks/${item.id}/trigger`).catch(() => {});
+    } else {
+      await api.post(`/api/automations/${item.id}/trigger`).catch(() => {});
+    }
     refresh();
   };
 
-  const handleDelete = async (id: string) => {
-    await api.del(`/api/scheduled-tasks/${id}`).catch(() => {});
-    setUserTasks(prev => prev.filter(t => t.id !== id));
+  const handleDelete = async (item: AutomationItem) => {
+    if (item.source === 'legacy-scheduled') {
+      await api.del(`/api/scheduled-tasks/${item.id}`).catch(() => {});
+    } else {
+      await api.del(`/api/workflows/${item.id}`).catch(() => {});
+    }
+    refresh();
   };
 
   const handleEnableTemplate = async (templateId: string, projectId: string) => {
@@ -439,35 +360,18 @@ function ScheduledTasksTab({ api, projects, projectName }: { api: ApiType; proje
     refresh();
   };
 
-  const handleCreateTask = async () => {
-    if (!effectiveProjectId || !newName.trim()) return;
-    const path = `/api/projects/${effectiveProjectId}/scheduled-tasks`;
-    const body: Record<string, unknown> = {
-      name: newName.trim(),
-      enabled: true,
-      scheduleType: newScheduleType,
-      actionType: newActionType,
-      actionConfig: newActionType === 'prompt' ? { prompt: newPrompt } : {},
-    };
-    if (newScheduleType === 'interval') body.scheduleIntervalMinutes = parseInt(newIntervalMinutes) || 60;
-    if (newScheduleType === 'cron') body.scheduleCron = newCron;
-    await api.post(path, body).catch(() => {});
-    setShowCreate(false);
-    setNewName('');
-    setNewPrompt('');
-    refresh();
-  };
-
-  const enabledTasks = userTasks.filter(t => t.enabled);
-  const disabledTasks = userTasks.filter(t => !t.enabled);
-
   if (loading) return <LoadingState />;
+
+  const enabledItems = items.filter(i => i.enabled);
+  const disabledItems = items.filter(i => !i.enabled);
 
   return (
     <div className="space-y-4">
       {/* Header */}
       <div className="flex items-center justify-between">
-        <h2 className="text-sm font-medium text-muted-foreground">{userTasks.length} task{userTasks.length !== 1 ? 's' : ''}</h2>
+        <h2 className="text-sm font-medium text-muted-foreground">
+          {items.length} automation{items.length !== 1 ? 's' : ''}
+        </h2>
         <div className="flex items-center gap-1.5">
           {projects.length > 1 && (
             <select
@@ -491,50 +395,87 @@ function ScheduledTasksTab({ api, projects, projectName }: { api: ApiType; proje
         </div>
       </div>
 
-      {/* Inline Create Form */}
+      {/* Create Form */}
       {showCreate && (
         <div className="rounded-lg border border-primary/30 bg-primary/5 p-3 space-y-2">
           <input
             value={newName}
             onChange={(e) => setNewName(e.target.value)}
-            placeholder="Task name"
-            className="w-full px-2 py-1 text-xs rounded border border-border bg-background text-foreground"
+            placeholder="Automation name"
+            className="w-full px-2 py-1.5 text-xs rounded border border-border bg-background text-foreground"
           />
-          <div className="flex gap-2">
-            <select value={newScheduleType} onChange={(e) => setNewScheduleType(e.target.value)} className="px-2 py-1 text-xs rounded border border-border bg-background text-foreground">
-              <option value="interval">Interval</option>
-              <option value="cron">Cron</option>
-              <option value="once">Once</option>
-            </select>
-            {newScheduleType === 'interval' && (
-              <input value={newIntervalMinutes} onChange={(e) => setNewIntervalMinutes(e.target.value)} placeholder="Minutes" className="w-20 px-2 py-1 text-xs rounded border border-border bg-background text-foreground" />
+          <div className="flex gap-2 flex-wrap">
+            <div className="flex items-center gap-1">
+              <span className="text-[10px] text-muted-foreground">Trigger:</span>
+              <select value={newTriggerType} onChange={(e) => setNewTriggerType(e.target.value)} className="px-2 py-1 text-xs rounded border border-border bg-background text-foreground">
+                <option value="manual">Manual</option>
+                <option value="interval">Interval</option>
+                <option value="cron">Cron</option>
+                <option value="once">Once</option>
+                <option value="event">Event</option>
+              </select>
+            </div>
+            {newTriggerType === 'interval' && (
+              <div className="flex items-center gap-1">
+                <span className="text-[10px] text-muted-foreground">every</span>
+                <input value={newIntervalMinutes} onChange={(e) => setNewIntervalMinutes(e.target.value)} placeholder="60" className="w-16 px-2 py-1 text-xs rounded border border-border bg-background text-foreground" />
+                <span className="text-[10px] text-muted-foreground">min</span>
+              </div>
             )}
-            {newScheduleType === 'cron' && (
-              <input value={newCron} onChange={(e) => setNewCron(e.target.value)} placeholder="*/5 * * * *" className="flex-1 px-2 py-1 text-xs rounded border border-border bg-background text-foreground" />
+            {newTriggerType === 'cron' && (
+              <input value={newCron} onChange={(e) => setNewCron(e.target.value)} placeholder="0 9 * * *" className="flex-1 px-2 py-1 text-xs rounded border border-border bg-background text-foreground font-mono" />
             )}
+            {newTriggerType === 'once' && (
+              <input
+                type="datetime-local"
+                value={newOnceAt}
+                onChange={(e) => setNewOnceAt(e.target.value)}
+                className="px-2 py-1 text-xs rounded border border-border bg-background text-foreground"
+              />
+            )}
+            {newTriggerType === 'event' && (
+              <input value={newEvent} onChange={(e) => setNewEvent(e.target.value)} placeholder="plugin.event.name" className="flex-1 px-2 py-1 text-xs rounded border border-border bg-background text-foreground" />
+            )}
+          </div>
+          <div className="flex items-center gap-1">
+            <span className="text-[10px] text-muted-foreground">Action:</span>
             <select value={newActionType} onChange={(e) => setNewActionType(e.target.value)} className="px-2 py-1 text-xs rounded border border-border bg-background text-foreground">
-              <option value="prompt">AI Prompt</option>
-              <option value="shell">Shell</option>
+              <option value="ai_prompt">AI Prompt</option>
+              <option value="shell">Shell Command</option>
               <option value="webhook">Webhook</option>
             </select>
           </div>
-          {newActionType === 'prompt' && (
-            <textarea value={newPrompt} onChange={(e) => setNewPrompt(e.target.value)} placeholder="Enter prompt..." rows={2} className="w-full px-2 py-1 text-xs rounded border border-border bg-background text-foreground resize-y" />
+          {newActionType === 'ai_prompt' && (
+            <textarea value={newPrompt} onChange={(e) => setNewPrompt(e.target.value)} placeholder="Enter prompt... (supports {{event.key}} templates)" rows={3} className="w-full px-2 py-1 text-xs rounded border border-border bg-background text-foreground resize-y" />
+          )}
+          {newActionType === 'shell' && (
+            <input value={newShellCmd} onChange={(e) => setNewShellCmd(e.target.value)} placeholder="command to run" className="w-full px-2 py-1 text-xs rounded border border-border bg-background text-foreground font-mono" />
+          )}
+          {createError && (
+            <div className="text-[11px] text-destructive">{createError}</div>
           )}
           <div className="flex justify-end gap-2">
-            <button onClick={() => setShowCreate(false)} className="px-2 py-1 text-xs rounded border border-border hover:bg-secondary">Cancel</button>
-            <button onClick={handleCreateTask} disabled={!newName.trim()} className="px-2 py-1 text-xs rounded bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50">Create</button>
+            <button
+              onClick={() => {
+                setShowCreate(false);
+                setCreateError(null);
+              }}
+              className="px-2 py-1 text-xs rounded border border-border hover:bg-secondary"
+            >
+              Cancel
+            </button>
+            <button onClick={handleCreate} disabled={!newName.trim()} className="px-2 py-1 text-xs rounded bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50">Create</button>
           </div>
         </div>
       )}
 
-      {/* Quick Start Templates — hidden when Global project is selected */}
+      {/* Quick Start Templates */}
       {templates.length > 0 && !selectedIsGlobal && (
         <div>
           <h3 className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider mb-2">Quick Start</h3>
           <div className="grid grid-cols-2 gap-2">
             {templates.map(t => {
-              const enabled = userTasks.some(task => task.templateId === t.id);
+              const enabled = legacyTasks.some(task => task.templateId === t.id);
               return (
                 <div key={t.id} className="rounded-lg border border-border bg-card p-3 flex flex-col gap-2">
                   <div className="flex items-start justify-between gap-2">
@@ -566,95 +507,313 @@ function ScheduledTasksTab({ api, projects, projectName }: { api: ApiType; proje
         </div>
       )}
 
-      {/* Enabled Tasks */}
-      {enabledTasks.length > 0 && (
+      {/* Enabled Automations */}
+      {enabledItems.length > 0 && (
         <div>
-          <h3 className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider mb-2">Enabled ({enabledTasks.length})</h3>
+          <h3 className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider mb-2">Active ({enabledItems.length})</h3>
           <div className="space-y-1.5">
-            {enabledTasks.map(t => (
-              <ScheduledTaskCard
-                key={t.id}
-                task={t}
-                projectName={projectName}
-                onToggle={() => handleToggle(t)}
-                onTrigger={() => handleTrigger(t.id)}
-                onDelete={() => handleDelete(t.id)}
-              />
+            {enabledItems.map(item => (
+              <AutomationCard key={item.id} item={item} projectName={projectName} onToggle={() => handleToggle(item)} onTrigger={() => handleTriggerNow(item)} onDelete={() => handleDelete(item)} />
             ))}
           </div>
         </div>
       )}
 
-      {/* Disabled Tasks */}
-      {disabledTasks.length > 0 && (
+      {/* Disabled Automations */}
+      {disabledItems.length > 0 && (
         <div>
-          <h3 className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider mb-2">Disabled ({disabledTasks.length})</h3>
+          <h3 className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider mb-2">Disabled ({disabledItems.length})</h3>
           <div className="space-y-1.5">
-            {disabledTasks.map(t => (
-              <ScheduledTaskCard
-                key={t.id}
-                task={t}
-                projectName={projectName}
-                onToggle={() => handleToggle(t)}
-                onTrigger={() => handleTrigger(t.id)}
-                onDelete={() => handleDelete(t.id)}
-              />
+            {disabledItems.map(item => (
+              <AutomationCard key={item.id} item={item} projectName={projectName} onToggle={() => handleToggle(item)} onTrigger={() => handleTriggerNow(item)} onDelete={() => handleDelete(item)} />
             ))}
           </div>
         </div>
       )}
 
-      {userTasks.length === 0 && (
-        <EmptyState message="No scheduled tasks" subtitle="Enable a template to get started" />
+      {items.length === 0 && !showCreate && (
+        <EmptyState message="No automations yet" subtitle="Create one or enable a template to get started" />
       )}
     </div>
   );
 }
 
-function ScheduledTaskCard({ task: t, projectName, onToggle, onTrigger, onDelete }: {
-  task: ScheduledTask;
+function AutomationCard({ item, projectName, onToggle, onTrigger, onDelete }: {
+  item: AutomationItem;
   projectName: (id?: string) => string;
   onToggle: () => void;
   onTrigger: () => void;
   onDelete: () => void;
 }) {
-  const schedule = t.scheduleType === 'cron' ? `cron: ${t.scheduleCron}`
-    : t.scheduleType === 'interval' ? `every ${t.scheduleIntervalMinutes}m`
-    : t.scheduleType;
-
   return (
-    <div className={`rounded-lg border p-3 flex items-center gap-3 ${t.enabled ? 'border-border bg-card/50' : 'border-border/50 bg-muted/30 opacity-60'}`}>
+    <div className={`rounded-lg border p-3 flex items-center gap-3 ${item.enabled ? 'border-border bg-card/50' : 'border-border/50 bg-muted/30 opacity-60'}`}>
       <span className={`w-2 h-2 rounded-full flex-shrink-0 ${
-        t.status === 'running' ? 'bg-amber-500 animate-pulse' :
-        t.status === 'error' ? 'bg-red-500' :
-        t.enabled ? 'bg-green-500' : 'bg-muted-foreground'
+        item.status === 'running' ? 'bg-amber-500 animate-pulse' :
+        item.status === 'error' ? 'bg-red-500' :
+        item.enabled ? 'bg-green-500' : 'bg-muted-foreground'
       }`} />
       <div className="flex-1 min-w-0">
-        <div className="text-sm font-medium truncate">{t.name}</div>
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-medium truncate">{item.name}</span>
+          {item.source === 'legacy-scheduled' && (
+            <span className="text-[8px] text-muted-foreground/50 bg-muted/40 px-1 py-0.5 rounded">legacy</span>
+          )}
+        </div>
         <div className="flex items-center gap-2 text-[11px] text-muted-foreground mt-0.5">
           <span className="flex items-center gap-1">
-            {t.projectId ? <FolderOpen size={10} /> : <Globe size={10} />}
-            {projectName(t.projectId)}
+            {item.projectId ? <FolderOpen size={10} /> : <Globe size={10} />}
+            {projectName(item.projectId)}
           </span>
           <span>·</span>
-          <span>{schedule}</span>
-          {t.runCount > 0 && <><span>·</span><span>{t.runCount} runs</span></>}
-          {t.lastError && (
-            <span className="text-destructive truncate max-w-[120px]" title={t.lastError}>· {t.lastError.slice(0, 30)}</span>
+          <span>{item.triggerSummary}</span>
+          <span>·</span>
+          <span>{item.actionSummary}</span>
+          {item.runCount > 0 && <><span>·</span><span>{item.runCount} runs</span></>}
+          {item.lastError && (
+            <span className="text-destructive truncate max-w-[120px]" title={item.lastError}>· {item.lastError.slice(0, 30)}</span>
           )}
         </div>
       </div>
       <div className="flex items-center gap-1">
-        <button onClick={onTrigger} className="p-1.5 rounded hover:bg-secondary text-muted-foreground hover:text-foreground" title="Trigger now">
+        <button onClick={onTrigger} className="p-1.5 rounded hover:bg-secondary text-muted-foreground hover:text-foreground" title="Run now">
           <Play size={12} />
         </button>
-        <button onClick={onToggle} className="p-1.5 rounded hover:bg-secondary text-muted-foreground hover:text-foreground" title={t.enabled ? 'Disable' : 'Enable'}>
-          {t.enabled ? <Pause size={12} /> : <Play size={12} />}
+        <button onClick={onToggle} className="p-1.5 rounded hover:bg-secondary text-muted-foreground hover:text-foreground" title={item.enabled ? 'Disable' : 'Enable'}>
+          {item.enabled ? <Pause size={12} /> : <Play size={12} />}
         </button>
         <button onClick={onDelete} className="p-1.5 rounded hover:bg-secondary text-muted-foreground hover:text-red-400" title="Delete">
           <Trash2 size={12} />
         </button>
       </div>
+    </div>
+  );
+}
+
+// ── Workflows Tab ────────────────────────────────────────────
+
+function WorkflowsTab({ api, projects, projectName }: {
+  api: ApiType; projects: ProjectInfo[]; projectName: (id?: string) => string;
+}) {
+  const [workflows, setWorkflows] = useState<Workflow[]>([]);
+  const [templates, setTemplates] = useState<WorkflowTemplate[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [createProjectId, setCreateProjectId] = useState('');
+
+  const effectiveProjectId = createProjectId || projects[0]?.id || '';
+  const selectedProject = projects.find(p => p.id === effectiveProjectId);
+  const selectedIsGlobal = selectedProject ? isInternalProject(selectedProject.name) : false;
+
+  const refresh = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [wfs, tpls] = await Promise.all([
+        api.get('/api/workflows'),
+        api.get('/api/workflow-templates'),
+      ]);
+      // Filter out simple automations — they belong in Automations tab
+      setWorkflows(wfs.filter((w: Workflow) => w.authoringMode !== 'simple'));
+      setTemplates(tpls);
+    } catch { /* ignore */ }
+    setLoading(false);
+  }, [api]);
+
+  useEffect(() => { refresh(); }, [refresh]);
+
+  const handleTrigger = async (id: string) => {
+    await api.post(`/api/workflows/${id}/trigger`).catch(() => {});
+    refresh();
+  };
+
+  const handleDelete = async (id: string) => {
+    await api.del(`/api/workflows/${id}`).catch(() => {});
+    setWorkflows(prev => prev.filter(w => w.id !== id));
+  };
+
+  const handleEnableTemplate = async (templateId: string, projectId: string) => {
+    await api.post(`/api/projects/${projectId}/workflows/from-template/${templateId}`).catch(() => {});
+    refresh();
+  };
+
+  const handleCreate = async () => {
+    if (!effectiveProjectId) return;
+    const name = `New Workflow ${new Date().toLocaleTimeString()}`;
+    await api.post(`/api/projects/${effectiveProjectId}/workflows`, {
+      name,
+      definition: { steps: [], triggers: [{ type: 'manual' }] },
+    }).catch(() => {});
+    refresh();
+  };
+
+  const handleEdit = (w: Workflow) => {
+    const params = new URLSearchParams({
+      workflowEditor: w.projectId || '__global__',
+      workflowId: w.id,
+    });
+    if (isDesktopTauri()) {
+      void openPopoutWindow({
+        type: 'workflow-editor',
+        params: Object.fromEntries(params.entries()),
+        title: `Edit: ${w.name}`,
+        width: 1200,
+        height: 800,
+      });
+      return;
+    }
+    window.open(buildPopoutUrl(Object.fromEntries(params.entries())), '_blank', 'width=1200,height=800');
+  };
+
+  if (loading) return <LoadingState />;
+
+  return (
+    <div className="space-y-4">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <h2 className="text-sm font-medium text-muted-foreground">{workflows.length} workflow{workflows.length !== 1 ? 's' : ''}</h2>
+        <div className="flex items-center gap-1.5">
+          {projects.length > 1 && (
+            <select
+              value={effectiveProjectId}
+              onChange={(e) => setCreateProjectId(e.target.value)}
+              className="px-2 py-1 text-xs rounded border border-border bg-background text-foreground"
+            >
+              {renderProjectOptions(projects)}
+            </select>
+          )}
+          <button
+            onClick={handleCreate}
+            className="flex items-center gap-1 px-2.5 py-1 text-xs rounded-md bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
+          >
+            <Plus size={12} />
+            New
+          </button>
+          <button onClick={refresh} className="p-1.5 rounded hover:bg-secondary text-muted-foreground hover:text-foreground" title="Refresh">
+            <RefreshCw size={14} />
+          </button>
+        </div>
+      </div>
+
+      {/* Templates */}
+      {templates.length > 0 && !selectedIsGlobal && (
+        <div>
+          <h3 className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider mb-2">Quick Start Templates</h3>
+          <div className="grid grid-cols-3 gap-2">
+            {templates.map(t => {
+              const enabled = workflows.some(w => w.templateId === t.id);
+              return (
+                <div key={t.id} className="rounded-lg border border-border bg-card p-3 flex flex-col gap-2">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="text-xs font-medium">{t.name}</div>
+                      {t.description && <div className="text-[10px] text-muted-foreground mt-0.5 line-clamp-2">{t.description}</div>}
+                    </div>
+                    {(t as any).category && (
+                      <span className={`px-1.5 py-0.5 rounded text-[9px] font-medium shrink-0 ${CATEGORY_COLORS[(t as any).category] ?? 'bg-muted text-muted-foreground'}`}>
+                        {(t as any).category}
+                      </span>
+                    )}
+                  </div>
+                  {effectiveProjectId && (
+                    <button
+                      onClick={() => handleEnableTemplate(t.id, effectiveProjectId)}
+                      disabled={enabled}
+                      className={`self-start text-[10px] px-2 py-0.5 rounded transition-colors ${
+                        enabled ? 'bg-success/15 text-success' : 'bg-primary/10 text-primary hover:bg-primary/20'
+                      }`}
+                    >
+                      {enabled ? 'Enabled' : 'Enable'}
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Workflow List */}
+      {workflows.length === 0 ? (
+        <EmptyState message="No workflows yet" subtitle="Create one or enable a template to get started" />
+      ) : (
+        <div className="space-y-2">
+          {workflows.map(w => (
+            <div
+              key={w.id}
+              className="rounded-lg border border-border bg-card/50 p-3 flex items-center gap-3 cursor-pointer hover:bg-secondary/30 transition-colors"
+              onClick={() => handleEdit(w)}
+            >
+              <span className={`w-2 h-2 rounded-full flex-shrink-0 ${w.status === 'active' ? 'bg-green-500' : 'bg-muted-foreground'}`} />
+              <div className="flex-1 min-w-0">
+                <div className="text-sm font-medium truncate">{w.name}</div>
+                <div className="flex items-center gap-2 text-[11px] text-muted-foreground mt-0.5">
+                  <span className="flex items-center gap-1">
+                    {w.projectId ? <FolderOpen size={10} /> : <Globe size={10} />}
+                    {projectName(w.projectId)}
+                  </span>
+                  {w.description && <><span>·</span><span className="truncate">{w.description}</span></>}
+                  {w.definition.nodes.length > 0 && <><span>·</span><span>{w.definition.nodes.length} nodes</span></>}
+                </div>
+              </div>
+              <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+                <button onClick={() => handleEdit(w)} className="p-1.5 rounded hover:bg-secondary text-muted-foreground hover:text-foreground" title="Edit">
+                  <Pencil size={12} />
+                </button>
+                {w.status === 'active' && (
+                  <button onClick={() => handleTrigger(w.id)} className="p-1.5 rounded hover:bg-secondary text-muted-foreground hover:text-foreground" title="Trigger">
+                    <Play size={12} />
+                  </button>
+                )}
+                <button onClick={() => handleDelete(w.id)} className="p-1.5 rounded hover:bg-secondary text-muted-foreground hover:text-red-400" title="Delete">
+                  <Trash2 size={12} />
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── System Tasks Tab ─────────────────────────────────────────
+
+function SystemTasksTab({ api }: { api: ApiType }) {
+  const [tasks, setTasks] = useState<SystemTaskInfo[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+
+  const refresh = useCallback(async () => {
+    setLoading(true);
+    await api.get('/api/system-tasks').then(setTasks).catch(() => setTasks([]));
+    setLoading(false);
+  }, [api]);
+
+  useEffect(() => { refresh(); }, [refresh]);
+
+  if (loading) return <LoadingState />;
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <h2 className="text-sm font-medium text-muted-foreground">{tasks.length} system task{tasks.length !== 1 ? 's' : ''}</h2>
+        <button onClick={refresh} className="p-1.5 rounded hover:bg-secondary text-muted-foreground hover:text-foreground" title="Refresh">
+          <RefreshCw size={14} />
+        </button>
+      </div>
+      {tasks.length === 0 ? (
+        <EmptyState message="No system tasks running" />
+      ) : (
+        <div className="space-y-1.5">
+          {tasks.map(t => (
+            <SystemTaskCard
+              key={t.id}
+              task={t}
+              api={api}
+              expanded={expandedId === t.id}
+              onToggleExpand={() => setExpandedId(prev => prev === t.id ? null : t.id)}
+            />
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -719,110 +878,6 @@ function SystemTaskCard({ task, api, expanded, onToggleExpand }: {
               </span>
               <span>{r.durationMs ? `${r.durationMs}ms` : '-'}</span>
               <span>{new Date(r.startedAt).toLocaleTimeString()}</span>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ── System Tasks Tab ─────────────────────────────────────────
-
-function SystemTasksTab({ api }: { api: ApiType }) {
-  const [tasks, setTasks] = useState<SystemTaskInfo[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [expandedId, setExpandedId] = useState<string | null>(null);
-
-  const refresh = useCallback(async () => {
-    setLoading(true);
-    await api.get('/api/system-tasks').then(setTasks).catch(() => setTasks([]));
-    setLoading(false);
-  }, [api]);
-
-  useEffect(() => { refresh(); }, [refresh]);
-
-  if (loading) return <LoadingState />;
-
-  return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h2 className="text-sm font-medium text-muted-foreground">{tasks.length} system task{tasks.length !== 1 ? 's' : ''}</h2>
-        <button onClick={refresh} className="p-1.5 rounded hover:bg-secondary text-muted-foreground hover:text-foreground" title="Refresh">
-          <RefreshCw size={14} />
-        </button>
-      </div>
-      {tasks.length === 0 ? (
-        <EmptyState message="No system tasks running" />
-      ) : (
-        <div className="space-y-1.5">
-          {tasks.map(t => (
-            <SystemTaskCard
-              key={t.id}
-              task={t}
-              api={api}
-              expanded={expandedId === t.id}
-              onToggleExpand={() => setExpandedId(prev => prev === t.id ? null : t.id)}
-            />
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ── Triggers Tab ─────────────────────────────────────────────
-
-function TriggersTab({ api, projectName }: { api: ApiType; projectName: (id?: string) => string }) {
-  const [triggers, setTriggers] = useState<AgentTrigger[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  const refresh = useCallback(async () => {
-    setLoading(true);
-    await api.get('/api/agent-triggers').then(setTriggers).catch(() => setTriggers([]));
-    setLoading(false);
-  }, [api]);
-
-  useEffect(() => { refresh(); }, [refresh]);
-
-  const handleDelete = async (id: string) => {
-    await api.del(`/api/agent-triggers/${id}`).catch(() => {});
-    setTriggers(prev => prev.filter(t => t.id !== id));
-  };
-
-  if (loading) return <LoadingState />;
-
-  return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h2 className="text-sm font-medium text-muted-foreground">{triggers.length} trigger{triggers.length !== 1 ? 's' : ''}</h2>
-        <button onClick={refresh} className="p-1.5 rounded hover:bg-secondary text-muted-foreground hover:text-foreground" title="Refresh">
-          <RefreshCw size={14} />
-        </button>
-      </div>
-      {triggers.length === 0 ? (
-        <EmptyState message="No agent triggers" />
-      ) : (
-        <div className="space-y-2">
-          {triggers.map(t => (
-            <div key={t.id} className="rounded-lg border border-border bg-card/50 p-3 flex items-center gap-3">
-              <span className={`w-2 h-2 rounded-full flex-shrink-0 ${t.enabled ? 'bg-green-500' : 'bg-muted-foreground'}`} />
-              <div className="flex-1 min-w-0">
-                <div className="text-sm font-medium truncate">{t.name}</div>
-                <div className="flex items-center gap-2 text-[11px] text-muted-foreground mt-0.5">
-                  <span className="flex items-center gap-1">
-                    {t.projectId ? <FolderOpen size={10} /> : <Globe size={10} />}
-                    {projectName(t.projectId)}
-                  </span>
-                  <span>·</span>
-                  <span>{t.triggerType}</span>
-                  {t.eventPattern && <><span>·</span><span className="truncate">{t.eventPattern}</span></>}
-                </div>
-                {t.description && <div className="text-[10px] text-muted-foreground mt-1 line-clamp-1">{t.description}</div>}
-              </div>
-              <button onClick={() => handleDelete(t.id)} className="p-1.5 rounded hover:bg-secondary text-muted-foreground hover:text-red-400" title="Delete">
-                <Trash2 size={12} />
-              </button>
             </div>
           ))}
         </div>

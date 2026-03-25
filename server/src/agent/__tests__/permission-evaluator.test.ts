@@ -18,6 +18,7 @@ import {
   persistSessionRememberedDecision,
   loadSessionRememberedDecisions,
   resolveRememberedDecision,
+  getOutsideWorkspacePaths,
   getOutsideWorkspaceRootsToRemember,
   isOutsideWorkspacePathAllowed,
   loadProjectAllowedOutsideWorkspaceRoots,
@@ -274,6 +275,7 @@ describe('PermissionEvaluator', () => {
           background: makeProfile(),
           agent: makeProfile(),
         },
+        globalGuards: { blockSensitiveFiles: false, blockOutsideWorkspace: false },
       });
       expect(evaluator.evaluate('Bash', { command: 'rm -rf /' }, '', policy, makeContext())).toBe('deny');
     });
@@ -396,6 +398,30 @@ describe('PermissionEvaluator', () => {
         globalGuards: { blockSensitiveFiles: false, blockOutsideWorkspace: true },
       });
       expect(evaluator.evaluate('Bash', { command: 'cat /etc/hosts' }, 'cat /etc/hosts', policy, makeContext())).toBe('escalate');
+    });
+
+    it('should ignore git commit message text when checking outside workspace', () => {
+      const policy = makePolicy({
+        globalGuards: { blockSensitiveFiles: false, blockOutsideWorkspace: true },
+      });
+      const command = 'git commit -m "document /tmp/logs for follow-up"';
+      expect(evaluator.evaluate('Bash', { command }, command, policy, makeContext())).toBe('approve');
+    });
+
+    it('should still detect quoted absolute path arguments', () => {
+      const policy = makePolicy({
+        globalGuards: { blockSensitiveFiles: false, blockOutsideWorkspace: true },
+      });
+      const command = 'cat "/etc/hosts"';
+      expect(evaluator.evaluate('Bash', { command }, command, policy, makeContext())).toBe('escalate');
+    });
+
+    it('should detect outside workspace paths passed through echo into xargs', () => {
+      const policy = makePolicy({
+        globalGuards: { blockSensitiveFiles: false, blockOutsideWorkspace: true },
+      });
+      const command = 'echo /etc/hosts | xargs cat';
+      expect(evaluator.evaluate('Bash', { command }, command, policy, makeContext())).toBe('escalate');
     });
   });
 
@@ -770,6 +796,15 @@ describe('session remembered decisions', () => {
 });
 
 describe('outside workspace allowlist', () => {
+  it('extracts real absolute path arguments but skips git commit message text', () => {
+    expect(getOutsideWorkspacePaths(
+      'Bash',
+      { command: 'git commit -m "document /private/tmp/app/output.log in release notes"' },
+      '',
+      '/Users/zhvala/SourceCode/my-claudia'
+    )).toEqual([]);
+  });
+
   it('derives rememberable outside-workspace roots', () => {
     expect(getOutsideWorkspaceRootsToRemember(
       'Bash',
