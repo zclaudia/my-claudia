@@ -490,13 +490,22 @@ export class GatewayClient {
     return true;
   }
 
+  private static normalizeProxyRequestBody(body: unknown): string | Buffer | undefined {
+    if (body == null) return undefined;
+    if (typeof body === 'string' || Buffer.isBuffer(body)) return body;
+    if (body instanceof Uint8Array) return Buffer.from(body);
+    return JSON.stringify(body);
+  }
+
   private async handleHttpProxyRequest(msg: GatewayHttpProxyRequest): Promise<void> {
     const port = this.config.serverPort || 3100;
     const url = `http://localhost:${port}${msg.path}`;
     try {
       const resp = await fetch(url, {
         method: msg.method, headers: msg.headers,
-        body: !['GET', 'HEAD'].includes(msg.method) ? (msg.body as BodyInit | null | undefined) : undefined,
+        body: !['GET', 'HEAD'].includes(msg.method)
+          ? GatewayClient.normalizeProxyRequestBody(msg.body)
+          : undefined,
       });
       const responseHeaders: Record<string, string> = {};
       resp.headers.forEach((value, key) => { responseHeaders[key] = value; });
