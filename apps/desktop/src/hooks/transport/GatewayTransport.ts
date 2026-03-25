@@ -80,6 +80,7 @@ export interface GatewayTransportConfig {
 export class GatewayTransport {
   private ws: WebSocket | null = null;
   private config: GatewayTransportConfig;
+  private expectedCloseWs: WebSocket | null = null;
 
   private peerSessionId: string | null = null;
   private recoveryToken: string | null = null;
@@ -99,7 +100,10 @@ export class GatewayTransport {
   }
 
   connect(): void {
-    if (this.ws) this.ws.close();
+    if (this.ws) {
+      this.expectedCloseWs = this.ws;
+      this.ws.close();
+    }
     this.authenticated = false;
     this.channels.clear();
     this.backendToChannel.clear();
@@ -108,7 +112,11 @@ export class GatewayTransport {
   }
 
   disconnect(): void {
-    if (this.ws) { this.ws.close(); this.ws = null; }
+    if (this.ws) {
+      this.expectedCloseWs = this.ws;
+      this.ws.close();
+      this.ws = null;
+    }
     this.cleanup();
   }
 
@@ -180,9 +188,15 @@ export class GatewayTransport {
     const currentWs = ws;
     ws.onopen = () => { if (this.ws !== currentWs) return; this.sendPeerHello(); };
     ws.onclose = () => {
+      const expectedClose = this.expectedCloseWs === currentWs;
+      if (expectedClose) {
+        this.expectedCloseWs = null;
+      }
       if (this.ws !== null && this.ws !== currentWs) return;
       this.ws = null; this.authenticated = false; this.channels.clear(); this.backendToChannel.clear();
-      this.config.onDisconnected();
+      if (!expectedClose) {
+        this.config.onDisconnected();
+      }
     };
     ws.onerror = (error) => { this.config.onError(error); };
     ws.onmessage = (event: MessageEvent) => {

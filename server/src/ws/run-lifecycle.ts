@@ -73,9 +73,15 @@ export interface CancelRunContext {
   broadcastHeartbeat: () => void;
 }
 
+export interface CancelRunOptions {
+  clientError?: string;
+  logLabel?: string;
+}
+
 export function cancelRun(
   runId: string,
   ctx: CancelRunContext,
+  options: CancelRunOptions = {},
 ): void {
   const run = ctx.activeRuns.get(runId);
   if (run) {
@@ -123,14 +129,14 @@ export function cancelRun(
       type: 'run_failed',
       runId,
       sessionId: run.sessionId,
-      error: 'Run cancelled by user',
+      error: options.clientError ?? 'Run cancelled by user',
       seq: run.eventSeq,
     });
 
     interactionDispatcher.cancelBySession(run.sessionId);
     ctx.activeRuns.delete(runId);
     ctx.broadcastHeartbeat();
-    console.log(`Run ${runId} cancelled`);
+    console.log(`${options.logLabel ?? 'Run'} ${runId} cancelled`);
 
     // Trigger deferred leak check after cancel
     if (ctx.processMonitor && ctx.activeRuns.size === 0) {

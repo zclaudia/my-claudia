@@ -1,6 +1,9 @@
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 import type { Server } from 'http';
 import WebSocket from 'ws';
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
 import { createGatewayServer } from '../server.js';
 
 const GATEWAY_SECRET = 'test-secret-stream-v2';
@@ -72,14 +75,25 @@ async function registerBackend(ws: WebSocket, name: string) {
 
 describe('Gateway Proxy Streaming V2', () => {
   let server: Server;
+  let dataDir: string;
+  let previousDataDir: string | undefined;
 
   beforeEach(async () => {
+    previousDataDir = process.env.MY_CLAUDIA_DATA_DIR;
+    dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gateway-proxy-v2-'));
+    process.env.MY_CLAUDIA_DATA_DIR = dataDir;
     server = createGatewayServer({ gatewaySecret: GATEWAY_SECRET });
     await new Promise<void>((resolve) => server.listen(TEST_PORT, '127.0.0.1', resolve));
   });
 
   afterEach(async () => {
     await new Promise<void>((resolve) => server.close(() => resolve()));
+    if (previousDataDir === undefined) {
+      delete process.env.MY_CLAUDIA_DATA_DIR;
+    } else {
+      process.env.MY_CLAUDIA_DATA_DIR = previousDataDir;
+    }
+    fs.rmSync(dataDir, { recursive: true, force: true });
   });
 
   test('does not return 502 after http_proxy_response_start begins streaming', async () => {
@@ -169,6 +183,46 @@ describe('Gateway Proxy Streaming V2', () => {
     expect(new Uint8Array(await response.arrayBuffer())).toEqual(
       new Uint8Array([0x00, 0x01, 0xfe, 0xff, 0x41])
     );
+
+    await closeWs(backendWs);
+  });
+
+  test('preserves binary request bodies when proxying uploads', async () => {
+    const backendWs = new WebSocket(WS_URL);
+    await waitForOpen(backendWs);
+    const backendId = await registerBackend(backendWs, 'upload-backend');
+
+    const requestPromise = waitForMessage<{
+      type: 'http_proxy_request';
+      bodyEncoding?: 'utf8' | 'base64';
+      body?: string;
+    }>(backendWs, 'http_proxy_request');
+
+    const uploadBody = new Uint8Array([0x00, 0x01, 0xfe, 0xff, 0x41]);
+    const responsePromise = fetch(`${HTTP_URL}/api/proxy/${backendId}/upload`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${GATEWAY_SECRET}`,
+        'content-type': 'application/octet-stream',
+      },
+      body: uploadBody,
+    });
+
+    const request = await requestPromise;
+    expect(request.bodyEncoding).toBe('base64');
+    expect(request.body).toBe(Buffer.from(uploadBody).toString('base64'));
+
+    backendWs.send(JSON.stringify({
+      type: 'http_proxy_response',
+      requestId: request.requestId,
+      statusCode: 204,
+      headers: {},
+      bodyEncoding: 'utf8',
+      body: '',
+    }));
+
+    const response = await responsePromise;
+    expect(response.status).toBe(204);
 
     await closeWs(backendWs);
   });

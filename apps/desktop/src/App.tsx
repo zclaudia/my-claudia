@@ -600,15 +600,7 @@ function AppContent() {
         {/* Center section: Server selector + Feed */}
         <div className="flex-1 flex items-center justify-start ml-2 md:ml-4 min-w-0 gap-2">
           {isMobile && isAgentExpanded ? (
-            <button
-              onClick={() => setAgentExpanded(false)}
-              className="flex items-center gap-2 active:opacity-70"
-            >
-              <svg className="w-4 h-4 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-              </svg>
-              <span className="font-semibold text-sm text-foreground">Claudia</span>
-            </button>
+            <span className="font-semibold text-sm text-foreground">Claudia</span>
           ) : isMobile ? null : (
             <>
               <ServerSelector />

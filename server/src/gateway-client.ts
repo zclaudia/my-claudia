@@ -516,7 +516,9 @@ export class GatewayClient {
       const resp = await fetch(url, {
         method: msg.method, headers: msg.headers,
         body: !['GET', 'HEAD'].includes(msg.method)
-          ? GatewayClient.normalizeProxyRequestBody(msg.body)
+          ? (msg.bodyEncoding === 'base64' && typeof msg.body === 'string'
+            ? Buffer.from(msg.body, 'base64')
+            : GatewayClient.normalizeProxyRequestBody(msg.body))
           : undefined,
       });
       const responseHeaders: Record<string, string> = {};

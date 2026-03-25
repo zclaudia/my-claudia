@@ -55,6 +55,7 @@ import type {
 } from '@my-claudia/shared';
 import { GatewayStorage } from './storage.js';
 import { GatewayState, type PeerSession, type ChannelState } from './state.js';
+import { encodeProxyRequestBody } from './proxy-body.js';
 
 // ============================================================================
 // Config & Helpers
@@ -125,6 +126,8 @@ export function createGatewayServer(config: GatewayConfig): Server {
     next();
   });
 
+  // Preserve raw bytes for proxy uploads before JSON/body-parser mutation.
+  app.use('/api/proxy', express.raw({ type: '*/*', limit: '100mb' }));
   app.use(express.json({ limit: '15mb' }));
 
   // ========================================================================
@@ -264,15 +267,17 @@ export function createGatewayServer(config: GatewayConfig): Server {
       const targetPath = `/${fullPath}${queryString}`;
       const requestId = uuidv4();
       const contentType = req.headers['content-type'];
+      const encodedBody = ['GET', 'HEAD'].includes(req.method)
+        ? {}
+        : encodeProxyRequestBody(
+          req.body,
+          typeof contentType === 'string' ? contentType : undefined,
+        );
       const proxyRequest: GatewayHttpProxyRequest = {
         type: 'http_proxy_request', requestId, method: req.method,
         path: targetPath,
         headers: {},
-        body: ['GET', 'HEAD'].includes(req.method) ? undefined : (
-          typeof req.body === 'string' || Buffer.isBuffer(req.body)
-            ? req.body
-            : JSON.stringify(req.body ?? {})
-        ),
+        ...encodedBody,
       };
       if (contentType) proxyRequest.headers['content-type'] = contentType;
       const clientRequestId = req.headers['x-request-id'];

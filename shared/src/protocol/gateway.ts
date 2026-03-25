@@ -567,6 +567,7 @@ export interface GatewayHttpProxyRequest {
   method: string;
   path: string;
   headers: Record<string, string>;
+  bodyEncoding?: 'utf8' | 'base64';
   body?: unknown;
 }
 

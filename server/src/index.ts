@@ -1,7 +1,8 @@
 import * as os from 'os';
 import * as fs from 'fs';
 import * as path from 'path';
-import { createServer, createVirtualClient, activeRuns, connectedClients, type ServerContext } from './server.js';
+import { ALL_SERVER_FEATURES } from '@my-claudia/shared';
+import { createServer, createVirtualClient, activeRuns, connectedClients, cancelRun, type ServerContext } from './server.js';
 import { GatewayClient } from './gateway-client.js';
 import { setGatewayClient } from './gateway-instance.js';
 import type { ServerMessage } from '@my-claudia/shared';
@@ -15,6 +16,7 @@ import { pluginLoader } from './plugins/loader.js';
 import { registerBuiltinCommands } from './commands/init.js';
 import { sanitizeInheritedProviderEnv } from './utils/startup-env.js';
 import { isIgnorableProcessError } from './utils/process-error-filter.js';
+import { cancelRunsForClosedChannel } from './gateway-channel-cleanup.js';
 
 const sanitizedEnv = sanitizeInheritedProviderEnv();
 if (sanitizedEnv.removedKeys.length > 0) {
@@ -102,6 +104,8 @@ async function connectToGateway(config: GatewayConfig): Promise<void> {
   }
 
   if (gatewayClient) {
+    const syncInterval = (gatewayClient as any)._syncInterval;
+    if (syncInterval) clearInterval(syncInterval);
     gatewayClient.disconnect();
   }
 
@@ -121,6 +125,7 @@ async function connectToGateway(config: GatewayConfig): Promise<void> {
     channel: process.env.MY_CLAUDIA_CHANNEL || 'prod',
     serverPort: actualPort,
     visible: config.registerAsBackend !== false,
+    capabilities: ALL_SERVER_FEATURES,
   };
 
   if (config.proxyUrl) {
@@ -153,6 +158,7 @@ async function connectToGateway(config: GatewayConfig): Promise<void> {
   });
 
   gatewayClient.onChannelClosed((channelId) => {
+    cancelRunsForClosedChannel(channelId, activeRuns, cancelRun);
     virtualClients.delete(channelId);
     connectedClients.delete(channelId);
     serverContext?.terminalManager.detachClient(channelId);

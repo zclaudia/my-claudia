@@ -237,10 +237,11 @@ export function useGatewayConnection() {
       },
 
       // Channel: update server connection status
-      onChannelOpened: (backendId, _channelId, _epoch, _capabilities) => {
+      onChannelOpened: (backendId, _channelId, _epoch, capabilities) => {
         const serverId = toGatewayServerId(backendId);
         setServerConnectionStatus(serverId, 'connected');
         setServerLocalConnection(serverId, false);
+        setServerFeatures(serverId, capabilities as Parameters<typeof setServerFeatures>[1]);
         setBackendAuthStatus(backendId, 'authenticated');
         reconnectAttemptRef.current = 0;
         updateLastConnected(serverId);
@@ -249,12 +250,14 @@ export function useGatewayConnection() {
       onChannelRejected: (backendId, reason) => {
         const serverId = toGatewayServerId(backendId);
         setServerConnectionStatus(serverId, 'error', reason);
+        setServerFeatures(serverId, []);
         setBackendAuthStatus(backendId, 'failed');
       },
 
       onChannelClosed: (_channelId, backendId, _reason) => {
         const serverId = toGatewayServerId(backendId);
         setServerConnectionStatus(serverId, 'disconnected');
+        setServerFeatures(serverId, []);
         setBackendAuthStatus(backendId, 'failed');
       },
 

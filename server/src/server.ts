@@ -49,6 +49,7 @@ import {
   cancelRun as _cancelRun,
   findProcessPidsByTaskCommand,
   parseMessage,
+  type CancelRunOptions,
 } from './ws/run-lifecycle.js';
 import {
   handleRunStart as _handleRunStart,
@@ -142,7 +143,7 @@ let taskOrchestrator: import('./orchestration/types.js').TaskOrchestrator | unde
 
 // Re-exports for backward compatibility
 export type { ConnectedClient, MessageSender };
-export { sendMessage, handleClientMessage, activeRuns, handleRunStart, connectedClients, createVirtualClient };
+export { sendMessage, handleClientMessage, activeRuns, handleRunStart, connectedClients, createVirtualClient, cancelRun };
 
 // Message handler context — created once, used by handleClientMessage wrapper
 function getMessageHandlerContext(): MessageHandlerContext {
@@ -457,8 +458,8 @@ export async function createServer(): Promise<ServerContext> {
 }
 
 // Thin wrapper that delegates to extracted cancelRun
-function cancelRun(runId: string): void {
-  _cancelRun(runId, { activeRuns, processMonitor, broadcastHeartbeat });
+function cancelRun(runId: string, options?: CancelRunOptions): void {
+  _cancelRun(runId, { activeRuns, processMonitor, broadcastHeartbeat }, options);
 }
 
 // Thin wrapper that delegates to the extracted message handler
