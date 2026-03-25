@@ -198,6 +198,25 @@ describe('WorkflowEngine', () => {
       const resolved = engine.resolveConfig(config, results);
       expect(resolved).toEqual({ command: 'cat /tmp/test', cwd: '/root' });
     });
+
+    it('renders trigger and event template context', () => {
+      const results = new Map<string, StepResult>();
+      results.set('prev', { status: 'completed', output: { summary: 'done' } });
+
+      const config = {
+        prompt: 'Event={{event.status}} Trigger={{trigger.type}} Step={{steps.prev.summary}} Workflow={{workflow.id}}',
+      };
+      const resolved = engine.resolveConfig(config, results, {
+        results,
+        run: { id: 'run-1', workflowId: 'wf-1', status: 'running', startedAt: Date.now(), triggerSource: 'event' } as any,
+        projectId: 'p1',
+        eventPayload: { status: 'ok' },
+        triggerContext: { type: 'event' },
+      });
+      expect(resolved).toEqual({
+        prompt: 'Event=ok Trigger=event Step=done Workflow=wf-1',
+      });
+    });
   });
 
   describe('evaluateCondition', () => {

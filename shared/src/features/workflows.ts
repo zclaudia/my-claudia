@@ -1,12 +1,13 @@
 // Workflow Types
 
 export type WorkflowStatus = 'active' | 'disabled' | 'archived';
-export type WorkflowTriggerType = 'manual' | 'cron' | 'interval' | 'event';
+export type WorkflowTriggerType = 'manual' | 'cron' | 'interval' | 'once' | 'event';
 
 export interface WorkflowTrigger {
   type: WorkflowTriggerType;
   cron?: string;
   intervalMinutes?: number;
+  onceAt?: number;            // epoch ms — for 'once' triggers
   event?: string;
   eventFilter?: Record<string, unknown>;
 }
@@ -195,6 +196,9 @@ export function normalizeWorkflowDefinition(definition: unknown): WorkflowDefini
   };
 }
 
+export type WorkflowSourceType = 'user' | 'plugin' | 'template';
+export type WorkflowAuthoringMode = 'simple' | 'graph' | 'event-trigger';
+
 export interface Workflow {
   id: string;
   projectId?: string;
@@ -203,6 +207,12 @@ export interface Workflow {
   status: WorkflowStatus;
   definition: WorkflowDefinition;
   templateId?: string;
+  /** Plugin that created/owns this workflow */
+  sourcePluginId?: string;
+  /** How this workflow was created */
+  sourceType?: WorkflowSourceType;
+  /** Which editor to use when reopening */
+  authoringMode?: WorkflowAuthoringMode;
   createdAt: number;
   updatedAt: number;
 }

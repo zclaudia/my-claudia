@@ -27,6 +27,7 @@ import { SessionRepository } from '../../repositories/session.js';
 import { createVirtualClient, handleRunStart } from '../../server.js';
 import { pluginEvents } from '../../events/index.js';
 import { workflowStepRegistry } from '../../plugins/workflow-step-registry.js';
+import { renderConfig, type RenderContext } from './template-renderer.js';
 import { execFile as execFileCb } from 'child_process';
 import { promisify } from 'util';
 
@@ -46,6 +47,15 @@ export interface ExecutionContext {
   projectId?: string;
   projectRootPath?: string;
   providerId?: string;
+  /** Event payload from event-triggered workflows */
+  eventPayload?: Record<string, unknown>;
+  /** Trigger metadata */
+  triggerContext?: Record<string, unknown>;
+}
+
+export interface RunTriggerContext {
+  eventPayload?: Record<string, unknown>;
+  triggerContext?: Record<string, unknown>;
 }
 
 export class WorkflowEngine {
@@ -192,6 +202,7 @@ export class WorkflowEngine {
     definition: WorkflowDefinition,
     triggerSource: 'manual' | 'schedule' | 'event',
     triggerDetail?: string,
+    triggerData?: RunTriggerContext,
   ): Promise<WorkflowRun> {
     if (this.activeRuns.has(workflowId)) {
       throw new Error(`Workflow ${workflowId} is already running`);
@@ -230,7 +241,7 @@ export class WorkflowEngine {
     this.activeRuns.set(workflowId, true);
 
     // Execute asynchronously
-    this.executeGraph(run, definition, project?.rootPath, project?.providerId)
+    this.executeGraph(run, definition, project?.rootPath, project?.providerId, triggerData)
       .catch((err) => {
         console.error(`[Workflow] Run ${run.id} failed:`, err);
         // Ensure run is marked as failed if executeGraph throws
@@ -257,6 +268,7 @@ export class WorkflowEngine {
     definition: WorkflowDefinition,
     projectRootPath?: string,
     providerId?: string,
+    triggerData?: RunTriggerContext,
   ): Promise<void> {
     const ctx: ExecutionContext = {
       results: new Map(),
@@ -264,6 +276,8 @@ export class WorkflowEngine {
       projectId: run.projectId,
       projectRootPath,
       providerId,
+      eventPayload: triggerData?.eventPayload,
+      triggerContext: triggerData?.triggerContext,
     };
 
     const nodeMap = new Map(definition.nodes.map(n => [n.id, n]));
@@ -384,7 +398,7 @@ export class WorkflowEngine {
       this.broadcastRunUpdate(ctx.projectId, runId);
 
       try {
-        const resolvedConfig = this.resolveConfig(nodeDef.config, ctx.results);
+        const resolvedConfig = this.resolveConfig(nodeDef.config, ctx.results, ctx);
         this.stepRunRepo.update(stepRun.id, { input: resolvedConfig });
 
         const result = await this.executeStepHandler(nodeDef, resolvedConfig, ctx, stepRun.id);
@@ -993,10 +1007,25 @@ If there are critical issues, include ${failMarker} in your response and list th
   resolveConfig(
     config: Record<string, unknown>,
     results: Map<string, StepResult>,
+    ctx?: ExecutionContext,
   ): Record<string, unknown> {
+    // Phase 1: resolve legacy ${stepId.output.field} syntax
     const serialized = JSON.stringify(config);
     const resolved = this.resolveTemplate(serialized, results);
-    return JSON.parse(resolved);
+    const parsed = JSON.parse(resolved) as Record<string, unknown>;
+
+    // Phase 2: resolve {{path}} template syntax (event, trigger, steps, workflow)
+    const stepsOutput: Record<string, Record<string, unknown>> = {};
+    for (const [nodeId, result] of results) {
+      stepsOutput[nodeId] = { status: result.status, ...result.output };
+    }
+    const renderCtx: RenderContext = {
+      event: ctx?.eventPayload,
+      trigger: ctx?.triggerContext,
+      steps: stepsOutput,
+      workflow: ctx ? { id: ctx.run.workflowId, projectId: ctx.projectId } : undefined,
+    };
+    return renderConfig(parsed, renderCtx);
   }
 
   // ── Condition Evaluation ──────────────────────────────────────

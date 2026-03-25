@@ -1,6 +1,10 @@
 /**
  * Scheduled Task Service
  *
+ * @deprecated Legacy scheduled task runtime. New automations should use the
+ * unified Workflow model via /api/automations. This service will be removed
+ * after migration. See docs/design/automation-unification-findings.md.
+ *
  * General-purpose scheduled task system. Supports cron / interval / once schedules
  * with multiple action types: prompt, command, shell, webhook, plugin_event.
  *
@@ -121,9 +125,6 @@ export class ScheduledTaskService {
           break;
         case 'plugin_event':
           result = await this.executePluginEvent(task);
-          break;
-        case 'agent_task':
-          result = await this.executeAgentTask(task);
           break;
         default:
           result = `Unknown action type: ${task.actionType}`;
@@ -282,36 +283,6 @@ export class ScheduledTaskService {
     await pluginEvents.emit(config.event, config.data ?? {}, 'scheduled-tasks');
     return `Event emitted: ${config.event}`;
   }
-
-  private async executeAgentTask(task: ScheduledTask): Promise<string> {
-    const config = task.actionConfig as import('@my-claudia/shared').AgentTaskActionConfig;
-    if (!this.agentTriggerService) {
-      return 'Agent trigger service not available';
-    }
-    // Create a synthetic trigger and execute
-    await this.agentTriggerService.executeAgentPrompt({
-      id: `scheduled-${task.id}`,
-      name: task.name,
-      enabled: true,
-      triggerType: 'schedule',
-      promptTemplate: config.promptTemplate,
-      providerId: config.providerId,
-      projectId: task.projectId,
-      contextTemplate: config.contextTemplate || 'agent',
-      feedDelivery: config.feedDelivery !== false,
-      notifyDelivery: config.notifyDelivery === true,
-      createdAt: 0,
-      updatedAt: 0,
-    });
-    return 'Agent task spawned';
-  }
-
-  /** Set the agent trigger service reference (injected after construction to avoid circular deps) */
-  setAgentTriggerService(service: import('../agent-triggers/service.js').AgentTriggerService): void {
-    this.agentTriggerService = service;
-  }
-
-  private agentTriggerService?: import('../agent-triggers/service.js').AgentTriggerService;
 
   // ── Schedule Computation ────────────────────────────────────────
 

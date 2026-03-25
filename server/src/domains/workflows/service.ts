@@ -70,6 +70,9 @@ export class WorkflowService {
     definition: WorkflowDefinition;
     templateId?: string;
     status?: 'active' | 'disabled';
+    sourcePluginId?: string;
+    sourceType?: 'user' | 'plugin' | 'template';
+    authoringMode?: 'simple' | 'graph' | 'event-trigger';
   }): Workflow {
     const workflow = this.workflowRepo.create({
       projectId: data.projectId,
@@ -78,6 +81,9 @@ export class WorkflowService {
       status: data.status ?? 'active',
       definition: data.definition,
       templateId: data.templateId,
+      sourcePluginId: data.sourcePluginId,
+      sourceType: data.sourceType,
+      authoringMode: data.authoringMode,
     });
 
     // Set up schedule if needed
@@ -149,6 +155,10 @@ export class WorkflowService {
     workflowId: string,
     triggerSource: 'manual' | 'schedule' | 'event' = 'manual',
     triggerDetail?: string,
+    triggerData?: {
+      eventPayload?: Record<string, unknown>;
+      triggerContext?: Record<string, unknown>;
+    },
   ): Promise<WorkflowRun> {
     const workflow = this.workflowRepo.findById(workflowId);
     if (!workflow) throw new Error(`Workflow not found: ${workflowId}`);
@@ -160,6 +170,7 @@ export class WorkflowService {
       workflow.definition,
       triggerSource,
       triggerDetail,
+      triggerData,
     );
   }
 
@@ -208,11 +219,20 @@ export class WorkflowService {
 
         const triggerDetail = trigger.type === 'cron'
           ? `cron: ${trigger.cron}`
+          : trigger.type === 'once'
+          ? `once: ${new Date(trigger.onceAt || 0).toISOString()}`
           : `interval: ${trigger.intervalMinutes}min`;
 
         // Start the run
         try {
-          await this.triggerWorkflow(workflow.id, 'schedule', triggerDetail);
+          await this.triggerWorkflow(workflow.id, 'schedule', triggerDetail, {
+            triggerContext: {
+              type: trigger.type,
+              cron: trigger.cron,
+              intervalMinutes: trigger.intervalMinutes,
+              onceAt: trigger.onceAt,
+            },
+          });
         } catch (err) {
           console.error(`[Workflow] Schedule trigger failed for ${workflow.id}:`, err);
         }
@@ -263,7 +283,13 @@ export class WorkflowService {
           if (trigger?.eventFilter && !this.matchesFilter(data, trigger.eventFilter)) continue;
 
           try {
-            await this.triggerWorkflow(wf.id, 'event', `event: ${event}`);
+            await this.triggerWorkflow(wf.id, 'event', `event: ${event}`, {
+              eventPayload: data && typeof data === 'object' ? data as Record<string, unknown> : { value: data },
+              triggerContext: {
+                type: 'event',
+                event,
+              },
+            });
           } catch (err) {
             console.error(`[Workflow] Event trigger failed for ${wf.id}:`, err);
           }
@@ -289,9 +315,9 @@ export class WorkflowService {
       return;
     }
 
-    // Find first cron/interval trigger
+    // Find first schedulable trigger (cron/interval/once)
     const triggerIndex = workflow.definition.triggers.findIndex(
-      t => t.type === 'cron' || t.type === 'interval'
+      t => t.type === 'cron' || t.type === 'interval' || t.type === 'once'
     );
 
     if (triggerIndex === -1) {
@@ -310,6 +336,9 @@ export class WorkflowService {
     }
     if (trigger.type === 'interval' && trigger.intervalMinutes) {
       return Date.now() + trigger.intervalMinutes * 60 * 1000;
+    }
+    if (trigger.type === 'once' && trigger.onceAt) {
+      return trigger.onceAt > Date.now() ? trigger.onceAt : null;
     }
     return null;
   }

@@ -12,6 +12,7 @@ import type { initDatabase } from '../../storage/db.js';
 import { WorkflowService } from './service.js';
 import { WorkflowGeneratorService } from './generator.js';
 import { createWorkflowRoutes } from './routes.js';
+import { createAutomationRoutes } from '../../routes/automations.js';
 import { systemTaskRegistry } from '../../services/system-task-registry.js';
 import { sendMessage } from '../../ws/broadcast.js';
 import type { ConnectedClient } from '../../ws/types.js';
@@ -46,6 +47,7 @@ export function registerWorkflowDomain(deps: WorkflowDomainDeps): WorkflowDomain
 
   // Mount routes
   app.use('/api', authMiddleware, createWorkflowRoutes(workflowService, workflowGeneratorService));
+  app.use('/api/automations', authMiddleware, createAutomationRoutes(workflowService));
 
   // Register and start scheduler
   systemTaskRegistry.register({

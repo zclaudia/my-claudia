@@ -1252,6 +1252,14 @@ function runMigrations(db: Database.Database): void {
         CREATE INDEX IF NOT EXISTS idx_notifications_status ON notifications(status);
         CREATE INDEX IF NOT EXISTS idx_notifications_read ON notifications(read_at);
       `
+    },
+    {
+      name: '059_workflow_metadata',
+      sql: `
+        ALTER TABLE workflows ADD COLUMN source_plugin_id TEXT;
+        ALTER TABLE workflows ADD COLUMN source_type TEXT DEFAULT 'user';
+        ALTER TABLE workflows ADD COLUMN authoring_mode TEXT DEFAULT 'graph';
+      `
     }
   ];
 

@@ -500,7 +500,6 @@ export function setupRoutesAndServices(deps: SetupDependencies): SetupResult {
     notificationService: notificationFeedService,
     pluginEvents,
   });
-  scheduledTaskService.setAgentTriggerService(agentTriggerService);
   agentTriggerService.start();
   app.use('/api/agent-triggers', authMiddleware, createAgentTriggerRoutes(agentTriggerService));
   pluginLoader.agentTriggerService = agentTriggerService;

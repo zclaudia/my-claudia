@@ -21,6 +21,9 @@ export class WorkflowRepository extends BaseRepository<Workflow, WorkflowCreate,
       status: row.status as WorkflowStatus,
       definition: normalizeWorkflowDefinition(parsedDefinition) as WorkflowDefinition,
       templateId: row.template_id || undefined,
+      sourcePluginId: row.source_plugin_id || undefined,
+      sourceType: row.source_type || undefined,
+      authoringMode: row.authoring_mode || undefined,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     };
@@ -32,8 +35,9 @@ export class WorkflowRepository extends BaseRepository<Workflow, WorkflowCreate,
     return {
       sql: `INSERT INTO workflows (
         id, project_id, name, description, status, definition, template_id,
+        source_plugin_id, source_type, authoring_mode,
         created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       params: [
         id,
         data.projectId ?? null,
@@ -42,6 +46,9 @@ export class WorkflowRepository extends BaseRepository<Workflow, WorkflowCreate,
         data.status ?? 'active',
         JSON.stringify(data.definition),
         data.templateId ?? null,
+        data.sourcePluginId ?? null,
+        data.sourceType ?? 'user',
+        data.authoringMode ?? 'graph',
         now,
         now,
       ],
@@ -58,6 +65,9 @@ export class WorkflowRepository extends BaseRepository<Workflow, WorkflowCreate,
     if (data.status !== undefined) { sets.push('status = ?'); params.push(data.status); }
     if (data.definition !== undefined) { sets.push('definition = ?'); params.push(JSON.stringify(data.definition)); }
     if (data.templateId !== undefined) { sets.push('template_id = ?'); params.push(data.templateId); }
+    if (data.sourcePluginId !== undefined) { sets.push('source_plugin_id = ?'); params.push(data.sourcePluginId); }
+    if (data.sourceType !== undefined) { sets.push('source_type = ?'); params.push(data.sourceType); }
+    if (data.authoringMode !== undefined) { sets.push('authoring_mode = ?'); params.push(data.authoringMode); }
 
     params.push(id);
     return {

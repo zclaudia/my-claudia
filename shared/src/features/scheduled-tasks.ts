@@ -1,7 +1,13 @@
-// Scheduled Task Types
+/**
+ * Scheduled Task Types
+ *
+ * @deprecated Legacy authoring surface. New automations should be created as
+ * Workflows via /api/automations. This module will be removed after migration
+ * to the unified Workflow model. See docs/design/automation-unification-findings.md.
+ */
 
 export type ScheduleType = 'cron' | 'interval' | 'once';
-export type ScheduledActionType = 'prompt' | 'command' | 'shell' | 'webhook' | 'plugin_event' | 'agent_task';
+export type ScheduledActionType = 'prompt' | 'command' | 'shell' | 'webhook' | 'plugin_event';
 export type ScheduledTaskStatus = 'idle' | 'running' | 'error';
 
 export interface PromptActionConfig {
@@ -32,21 +38,12 @@ export interface PluginEventActionConfig {
   data?: Record<string, unknown>;
 }
 
-export interface AgentTaskActionConfig {
-  promptTemplate: string;
-  providerId?: string;
-  contextTemplate?: string;
-  feedDelivery?: boolean;
-  notifyDelivery?: boolean;
-}
-
 export type ActionConfig =
   | PromptActionConfig
   | CommandActionConfig
   | ShellActionConfig
   | WebhookActionConfig
-  | PluginEventActionConfig
-  | AgentTaskActionConfig;
+  | PluginEventActionConfig;
 
 export interface ScheduledTask {
   id: string;

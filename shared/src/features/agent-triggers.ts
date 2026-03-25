@@ -1,4 +1,10 @@
-// Agent Trigger Types — event-driven and scheduled agent task triggers
+/**
+ * Agent Trigger Types — event-driven and scheduled agent task triggers
+ *
+ * @deprecated Legacy authoring surface. New event-driven automations should be
+ * created as Workflows with event triggers via /api/automations. This module will
+ * be removed after migration. See docs/design/automation-unification-findings.md.
+ */
 
 import type { ScheduleType } from './scheduled-tasks.js';
 

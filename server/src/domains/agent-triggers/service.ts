@@ -1,3 +1,11 @@
+/**
+ * Agent Trigger Service
+ *
+ * @deprecated Legacy event-driven trigger runtime. New event automations should
+ * use Workflows with event triggers via /api/automations. This service will be
+ * removed after migration. See docs/design/automation-unification-findings.md.
+ */
+
 import type Database from 'better-sqlite3';
 import type { AgentTrigger } from '@my-claudia/shared';
 import type { TaskOrchestrator } from '../../orchestration/types.js';

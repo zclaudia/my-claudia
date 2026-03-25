@@ -212,7 +212,7 @@ describe('WorkflowService', () => {
       mockEngine.startRun.mockResolvedValue({ id: 'r1' });
 
       await service.triggerWorkflow('w1', 'manual', 'detail');
-      expect(mockEngine.startRun).toHaveBeenCalledWith('w1', 'p1', wf.definition, 'manual', 'detail');
+      expect(mockEngine.startRun).toHaveBeenCalledWith('w1', 'p1', wf.definition, 'manual', 'detail', undefined);
     });
   });
 
@@ -291,7 +291,16 @@ describe('WorkflowService', () => {
 
       await service.tick();
 
-      expect(mockEngine.startRun).toHaveBeenCalledWith('w1', 'p1', expect.any(Object), 'schedule', expect.stringContaining('cron'));
+      expect(mockEngine.startRun).toHaveBeenCalledWith(
+        'w1',
+        'p1',
+        expect.any(Object),
+        'schedule',
+        expect.stringContaining('cron'),
+        expect.objectContaining({
+          triggerContext: expect.objectContaining({ type: 'cron', cron: '* * * * *' }),
+        }),
+      );
       expect(mockScheduleRepo.updateNextRun).toHaveBeenCalledWith('w1', 99999);
     });
 
@@ -416,7 +425,17 @@ describe('WorkflowService', () => {
       // Trigger the event with matching data
       await eventHandler!({ status: 'success' });
 
-      expect(mockEngine.startRun).toHaveBeenCalledWith('w1', 'p1', expect.any(Object), 'event', 'event: run.completed');
+      expect(mockEngine.startRun).toHaveBeenCalledWith(
+        'w1',
+        'p1',
+        expect.any(Object),
+        'event',
+        'event: run.completed',
+        expect.objectContaining({
+          eventPayload: { status: 'success' },
+          triggerContext: expect.objectContaining({ type: 'event', event: 'run.completed' }),
+        }),
+      );
     });
 
     it('does not trigger workflow when filter does not match', async () => {

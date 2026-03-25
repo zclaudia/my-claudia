@@ -1,4 +1,4 @@
-import { Plus, X, Clock, Timer, Zap, MousePointer } from 'lucide-react';
+import { Plus, X, Clock, Timer, Zap, MousePointer, CalendarClock } from 'lucide-react';
 import type { WorkflowTrigger, WorkflowTriggerType } from '@my-claudia/shared';
 import { useState } from 'react';
 
@@ -11,6 +11,7 @@ const TRIGGER_ICONS: Record<WorkflowTriggerType, React.ReactNode> = {
   manual: <MousePointer size={12} />,
   cron: <Clock size={12} />,
   interval: <Timer size={12} />,
+  once: <CalendarClock size={12} />,
   event: <Zap size={12} />,
 };
 
@@ -18,6 +19,7 @@ const TRIGGER_LABELS: Record<WorkflowTriggerType, string> = {
   manual: 'Manual',
   cron: 'Cron Schedule',
   interval: 'Interval',
+  once: 'One-time',
   event: 'Event',
 };
 
@@ -30,6 +32,13 @@ const CRON_PRESETS = [
   { label: 'Weekdays 9AM', cron: '0 9 * * 1-5' },
   { label: 'Weekly Sunday', cron: '0 2 * * 0' },
 ];
+
+function formatDateTimeLocal(timestamp?: number): string {
+  if (!timestamp) return '';
+  const date = new Date(timestamp);
+  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+  return local.toISOString().slice(0, 16);
+}
 
 function TriggerCard({ trigger, onUpdate, onRemove }: {
   trigger: WorkflowTrigger;
@@ -88,6 +97,18 @@ function TriggerCard({ trigger, onUpdate, onRemove }: {
         </div>
       )}
 
+      {trigger.type === 'once' && (
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-muted-foreground">Run at</span>
+          <input
+            type="datetime-local"
+            value={formatDateTimeLocal(trigger.onceAt)}
+            onChange={(e) => onUpdate({ ...trigger, onceAt: e.target.value ? new Date(e.target.value).getTime() : undefined })}
+            className="flex-1 px-2.5 py-1.5 text-sm rounded-md border border-border bg-background"
+          />
+        </div>
+      )}
+
       {trigger.type === 'event' && (
         <select
           value={trigger.event ?? ''}
@@ -111,6 +132,7 @@ export function TriggerConfigForm({ triggers, onChange }: TriggerConfigFormProps
     const newTrigger: WorkflowTrigger = { type };
     if (type === 'cron') newTrigger.cron = '0 9 * * *';
     if (type === 'interval') newTrigger.intervalMinutes = 30;
+    if (type === 'once') newTrigger.onceAt = Date.now() + 60 * 60 * 1000;
     if (type === 'event') newTrigger.event = 'run.completed';
     onChange([...triggers, newTrigger]);
     setShowAdd(false);
@@ -145,7 +167,7 @@ export function TriggerConfigForm({ triggers, onChange }: TriggerConfigFormProps
         <div className="border border-dashed border-border rounded-lg p-3">
           <div className="text-xs text-muted-foreground mb-2">Select trigger type</div>
           <div className="flex flex-wrap gap-1.5">
-            {(['cron', 'interval', 'event', 'manual'] as WorkflowTriggerType[]).map((type) => (
+            {(['cron', 'interval', 'once', 'event', 'manual'] as WorkflowTriggerType[]).map((type) => (
               <button
                 key={type}
                 onClick={() => addTrigger(type)}
