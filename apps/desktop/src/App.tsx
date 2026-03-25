@@ -633,16 +633,6 @@ function AppContent() {
                   </button>
                 </div>
               )}
-              {/* Automation button — opens standalone Automations window */}
-              <button
-                onClick={openAutomationWindowFn}
-                className="p-1.5 rounded hover:bg-secondary text-muted-foreground hover:text-foreground"
-                title="Automations"
-              >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                </svg>
-              </button>
             </>
           )}
         </div>
