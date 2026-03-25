@@ -490,6 +490,18 @@ export class GatewayClient {
     return true;
   }
 
+  private static isUtf8Response(headers: Record<string, string>): boolean {
+    const rawCt = (headers['content-type'] || '').toLowerCase();
+    const ct = rawCt.split(';')[0].trim();
+    if (!ct) return false;
+    if (ct.startsWith('text/')) return true;
+    if (ct === 'application/json' || ct.endsWith('+json')) return true;
+    if (ct === 'application/xml' || ct === 'text/xml' || ct.endsWith('+xml')) return true;
+    if (ct === 'application/javascript' || ct === 'text/javascript') return true;
+    if (ct === 'application/x-www-form-urlencoded') return true;
+    return false;
+  }
+
   private static normalizeProxyRequestBody(body: unknown): string | Buffer | undefined {
     if (body == null) return undefined;
     if (typeof body === 'string' || Buffer.isBuffer(body)) return body;
@@ -522,11 +534,22 @@ export class GatewayClient {
         } finally { reader.releaseLock(); }
         this.sendWs({ type: 'http_proxy_response_end', requestId: msg.requestId } satisfies GatewayHttpProxyResponseEnd);
       } else {
-        this.sendWs({ type: 'http_proxy_response', requestId: msg.requestId, statusCode: resp.status, headers: responseHeaders, body: await resp.text() } satisfies GatewayHttpProxyResponse);
+        const bodyEncoding = GatewayClient.isUtf8Response(responseHeaders) ? 'utf8' as const : 'base64' as const;
+        const body = bodyEncoding === 'utf8'
+          ? await resp.text()
+          : Buffer.from(await resp.arrayBuffer()).toString('base64');
+        this.sendWs({ type: 'http_proxy_response', requestId: msg.requestId, statusCode: resp.status, headers: responseHeaders, bodyEncoding, body } satisfies GatewayHttpProxyResponse);
       }
     } catch (error) {
       console.error('[Gateway] HTTP proxy error:', error);
-      this.sendWs({ type: 'http_proxy_response', requestId: msg.requestId, statusCode: 502, headers: { 'content-type': 'application/json' }, body: JSON.stringify({ success: false, error: { code: 'PROXY_ERROR', message: 'Failed to reach local server' } }) } satisfies GatewayHttpProxyResponse);
+      this.sendWs({
+        type: 'http_proxy_response',
+        requestId: msg.requestId,
+        statusCode: 502,
+        headers: { 'content-type': 'application/json' },
+        bodyEncoding: 'utf8',
+        body: JSON.stringify({ success: false, error: { code: 'PROXY_ERROR', message: 'Failed to reach local server' } })
+      } satisfies GatewayHttpProxyResponse);
     }
   }
 

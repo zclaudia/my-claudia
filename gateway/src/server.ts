@@ -286,11 +286,10 @@ export function createGatewayServer(config: GatewayConfig): Server {
       if (response === null) return;
       if (response.headers) { for (const [key, value] of Object.entries(response.headers)) res.setHeader(key, value); }
       if (clientRequestId) res.setHeader('x-request-id', clientRequestId);
-      res.status(response.statusCode).send(
-        typeof response.body === 'string' || Buffer.isBuffer(response.body)
-          ? response.body
-          : JSON.stringify(response.body)
-      );
+      const responseBody = response.bodyEncoding === 'base64'
+        ? Buffer.from(response.body, 'base64')
+        : response.body;
+      res.status(response.statusCode).send(responseBody);
     } catch (error) {
       if (!res.headersSent) res.status(500).json({ success: false, error: { code: 'PROXY_ERROR', message: 'Failed to proxy request' } });
     }

@@ -398,6 +398,7 @@ describe('Gateway Error Handling', () => {
             requestId: msg.requestId,
             statusCode: 200,
             headers: {},
+            bodyEncoding: 'utf8',
             body: JSON.stringify({ received: true })
           }));
         }
@@ -484,6 +485,7 @@ describe('Gateway Error Handling', () => {
               requestId: msg.requestId,
               statusCode: 200,
               headers: {},
+              bodyEncoding: 'utf8',
               body: JSON.stringify({ id: msg.requestId })
             }));
           }, 10);

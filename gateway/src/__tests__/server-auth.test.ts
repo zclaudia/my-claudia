@@ -248,6 +248,7 @@ describe('Gateway Authentication', () => {
             requestId: msg.requestId,
             statusCode: 200,
             headers: {},
+            bodyEncoding: 'utf8',
             body: JSON.stringify({ success: true })
           }));
         }

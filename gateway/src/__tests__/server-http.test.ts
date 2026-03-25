@@ -197,6 +197,7 @@ describe('Gateway HTTP Endpoints', () => {
             requestId: msg.requestId,
             statusCode: 200,
             headers: { 'Content-Type': 'application/json' },
+            bodyEncoding: 'utf8',
             body: JSON.stringify({ success: true })
           }));
         }
@@ -249,6 +250,7 @@ describe('Gateway HTTP Endpoints', () => {
             requestId: msg.requestId,
             statusCode: 201,
             headers: { 'Content-Type': 'application/json' },
+            bodyEncoding: 'utf8',
             body: JSON.stringify({ created: true })
           }));
         }
@@ -373,6 +375,7 @@ describe('Gateway HTTP Endpoints', () => {
               requestId: msg.requestId,
               statusCode: 200,
               headers: {},
+              bodyEncoding: 'utf8',
               body: JSON.stringify({ method })
             }));
           }
@@ -423,6 +426,7 @@ describe('Gateway HTTP Endpoints', () => {
             requestId: msg.requestId,
             statusCode: 200,
             headers: {},
+            bodyEncoding: 'utf8',
             body: JSON.stringify({ received: true })
           }));
         }

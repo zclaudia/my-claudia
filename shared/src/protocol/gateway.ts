@@ -575,7 +575,8 @@ export interface GatewayHttpProxyResponse {
   requestId: string;
   statusCode: number;
   headers: Record<string, string>;
-  body: unknown;
+  bodyEncoding: 'utf8' | 'base64';
+  body: string;
 }
 
 export interface GatewayHttpProxyResponseStart {

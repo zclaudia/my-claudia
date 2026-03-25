@@ -210,6 +210,9 @@ export async function createServer(): Promise<ServerContext> {
   const app: Express = express();
 
   app.use(cors());
+  // Preserve raw bytes for gateway-proxy requests so binary and multipart payloads
+  // are forwarded without JSON/body-parser mutation.
+  app.use('/api/gateway-proxy', express.raw({ type: '*/*', limit: '100mb' }));
   app.use(express.json({ limit: '15mb' }));
 
   // WebSocket clients map (declared early so it can be used in auth endpoints)

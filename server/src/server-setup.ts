@@ -5,6 +5,7 @@
 import type { Express, Request, Response } from 'express';
 import { request as httpRequest, type IncomingMessage } from 'http';
 import { request as httpsRequest } from 'https';
+import { pipeline } from 'stream';
 import type { WebSocket } from 'ws';
 import { v4 as uuidv4 } from 'uuid';
 import type {
@@ -369,54 +370,79 @@ export function setupRoutesAndServices(deps: SetupDependencies): SetupResult {
       const fullUrl = qs ? `${targetUrl}?${qs}` : targetUrl;
 
       const headers: Record<string, string> = {
-        'authorization': `Bearer ${gatewayClient.getGatewaySecret()}`,
-        'content-type': req.headers['content-type'] || 'application/json',
+        authorization: `Bearer ${gatewayClient.getGatewaySecret()}`,
       };
-      if (req.headers['accept']) {
-        headers['accept'] = req.headers['accept'] as string;
+      for (const [key, value] of Object.entries(req.headers)) {
+        const lowerKey = key.toLowerCase();
+        if (value == null) continue;
+        if (lowerKey === 'authorization' || lowerKey === 'host' || lowerKey === 'connection') continue;
+        headers[key] = Array.isArray(value) ? value.join(', ') : value;
       }
 
       const agent = gatewayClient.createHttpAgent();
-      const body = !['GET', 'HEAD'].includes(req.method) ? JSON.stringify(req.body) : undefined;
+      const body = !['GET', 'HEAD'].includes(req.method)
+        ? (Buffer.isBuffer(req.body)
+          ? req.body
+          : typeof req.body === 'string'
+            ? Buffer.from(req.body)
+            : req.body != null
+              ? Buffer.from(JSON.stringify(req.body))
+              : null)
+        : null;
+      if (body) {
+        headers['content-length'] = String(body.length);
+      } else {
+        delete headers['content-length'];
+      }
 
       const parsed = new URL(fullUrl);
       const transport = parsed.protocol === 'https:' ? httpsRequest : httpRequest;
 
-      const proxyRes = await new Promise<{ status: number; headers: Record<string, string>; body: Buffer }>((resolve, reject) => {
+      await new Promise<void>((resolve, reject) => {
         const proxyReq = transport(fullUrl, {
           method: req.method,
           headers,
           agent: agent || undefined,
         }, (upstream) => {
-          const chunks: Buffer[] = [];
-          upstream.on('data', (chunk: Buffer) => chunks.push(chunk));
-          upstream.on('end', () => {
-            const respHeaders: Record<string, string> = {};
-            for (const [key, val] of Object.entries(upstream.headers)) {
-              if (val && key.toLowerCase() !== 'transfer-encoding') {
-                respHeaders[key] = Array.isArray(val) ? val.join(', ') : val;
-              }
-            }
-            resolve({
-              status: upstream.statusCode || 502,
-              headers: respHeaders,
-              body: Buffer.concat(chunks),
-            });
-          });
-          upstream.on('error', reject);
-        });
-        proxyReq.on('error', reject);
-        if (body) proxyReq.write(body);
-        proxyReq.end();
-      });
+          res.status(upstream.statusCode || 502);
+          for (const [key, val] of Object.entries(upstream.headers)) {
+            if (!val || key.toLowerCase() === 'transfer-encoding') continue;
+            res.setHeader(key, Array.isArray(val) ? val.join(', ') : val);
+          }
 
-      res.status(proxyRes.status);
-      for (const [key, value] of Object.entries(proxyRes.headers)) {
-        res.setHeader(key, value);
-      }
-      res.end(proxyRes.body);
+          pipeline(upstream, res, (error) => {
+            if (error && !res.writableEnded) {
+              reject(error);
+              return;
+            }
+            resolve();
+          });
+        });
+
+        const abortUpstream = () => {
+          proxyReq.destroy();
+        };
+
+        req.on('aborted', abortUpstream);
+        res.on('close', abortUpstream);
+        proxyReq.on('error', reject);
+        proxyReq.on('close', () => {
+          req.off('aborted', abortUpstream);
+          res.off('close', abortUpstream);
+        });
+
+        if (body) {
+          proxyReq.end(body);
+        } else {
+          proxyReq.end();
+        }
+      });
     } catch (error) {
       console.error(`[GatewayProxy] Error proxying to backend ${backendId}:`, error);
+      if (res.headersSent) {
+        res.destroy(error instanceof Error ? error : undefined);
+        return;
+      }
       res.status(502).json({
         success: false,
         error: { code: 'PROXY_ERROR', message: 'Failed to proxy request to gateway' },

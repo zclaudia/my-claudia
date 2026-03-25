@@ -467,6 +467,7 @@ describe('Gateway Backend Message Handling', () => {
         requestId: 'non-existent-request',
         statusCode: 200,
         headers: {},
+        bodyEncoding: 'utf8',
         body: '{}'
       }));
 
