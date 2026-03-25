@@ -283,7 +283,7 @@ export function createGatewayServer(config: GatewayConfig): Server {
         pendingHttpRequests.set(requestId, { resolve, reject, timeout, res });
         sendToWs(backendPeer.ws, proxyRequest);
       });
-      if (!response) { if (!res.headersSent) res.status(502).json({ success: false, error: { code: 'PROXY_ERROR', message: 'No response' } }); return; }
+      if (response === null) return;
       if (response.headers) { for (const [key, value] of Object.entries(response.headers)) res.setHeader(key, value); }
       if (clientRequestId) res.setHeader('x-request-id', clientRequestId);
       res.status(response.statusCode).send(
