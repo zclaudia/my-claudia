@@ -44,6 +44,7 @@ describe('MessageInput', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.useRealTimers();
   });
 
   // ── Basic rendering ─────────────────────────────────────────────────────
@@ -83,10 +84,13 @@ describe('MessageInput', () => {
     expect(textarea).toHaveValue('Hello world');
   });
 
-  it('persists draft to store on change', () => {
+  it('persists draft to store after debounce', () => {
+    vi.useFakeTimers();
     render(<MessageInput {...defaultProps} />);
     const textarea = screen.getByPlaceholderText(/Type a message/);
     fireEvent.change(textarea, { target: { value: 'draft text' } });
+    expect(mockSetDraft).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(300);
     expect(mockSetDraft).toHaveBeenCalledWith('session-1', 'draft text');
   });
 

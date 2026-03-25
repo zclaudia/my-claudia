@@ -58,7 +58,7 @@ import { isLocalhost, localOnlyMiddleware } from './middleware/local-only.js';
 import { createExpressAuthMiddleware } from './middleware/express-auth.js';
 import { getPublicKeyPem } from './utils/crypto.js';
 import { getSdkVersionReport } from './utils/sdk-version-check.js';
-// GatewayClientMode removed in v2 — relay endpoints return empty results
+import { getGatewayClient } from './gateway-instance.js';
 import { ProcessMonitor } from './utils/process-monitor.js';
 import { sendMessage, broadcastToOtherAuthenticatedClients, buildPluginStateMessage } from './ws/broadcast.js';
 import { getNextOffset } from './ws/run-lifecycle.js';
@@ -354,29 +354,29 @@ export function setupRoutesAndServices(deps: SetupDependencies): SetupResult {
     const { backendId } = req.params;
     const subPath = req.params[0] || '';
 
-    const clientMode: any = null; // GatewayClientMode removed in v2
-    if (!clientMode || !clientMode.isConnected()) {
+    const gatewayClient = getGatewayClient();
+    if (!gatewayClient || !gatewayClient.isGatewayConnected()) {
       res.status(502).json({
         success: false,
-        error: { code: 'GATEWAY_NOT_CONNECTED', message: 'Gateway client mode not connected' },
+        error: { code: 'GATEWAY_NOT_CONNECTED', message: 'Gateway client not connected' },
       });
       return;
     }
 
     try {
-      const targetUrl = `${clientMode.gatewayUrl}/api/proxy/${backendId}/${subPath}`;
+      const targetUrl = `${gatewayClient.getGatewayUrl()}/api/proxy/${backendId}/${subPath}`;
       const qs = req.originalUrl.split('?')[1];
       const fullUrl = qs ? `${targetUrl}?${qs}` : targetUrl;
 
       const headers: Record<string, string> = {
-        'authorization': `Bearer ${clientMode.gatewaySecret}`,
+        'authorization': `Bearer ${gatewayClient.getGatewaySecret()}`,
         'content-type': req.headers['content-type'] || 'application/json',
       };
       if (req.headers['accept']) {
         headers['accept'] = req.headers['accept'] as string;
       }
 
-      const agent = clientMode.createHttpAgent();
+      const agent = gatewayClient.createHttpAgent();
       const body = !['GET', 'HEAD'].includes(req.method) ? JSON.stringify(req.body) : undefined;
 
       const parsed = new URL(fullUrl);

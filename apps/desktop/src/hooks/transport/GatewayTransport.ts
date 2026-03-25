@@ -11,6 +11,8 @@
  */
 
 import type {
+  ClientMessage,
+  ServerMessage,
   BackendPresence,
   RegistrySyncPayload,
   RegistryEvent,
@@ -31,6 +33,8 @@ import type {
   BackendChannelRejectedMessage,
   CloseBackendChannelMessage,
   BackendChannelClosedMessage,
+  ChannelClientMessage,
+  ChannelServerMessage,
   OpenSessionStreamMessage,
   CloseSessionStreamMessage,
   SessionStreamClosedMessage,
@@ -63,6 +67,7 @@ export interface GatewayTransportConfig {
   onChannelOpened: (backendId: string, channelId: string, epoch: number, capabilities: string[]) => void;
   onChannelRejected: (backendId: string, reason: string) => void;
   onChannelClosed: (channelId: string, backendId: string, reason: string) => void;
+  onChannelMessage: (backendId: string, message: ServerMessage) => void;
   onRunStreamEvent: (channelId: string, sessionId: string, event: RunStreamEvent) => void;
   onSessionStreamClosed: (channelId: string, sessionId: string, reason: string) => void;
   onContentPatch: (channelId: string, sessionId: string, messages: SessionMessage[], latestOffset: number) => void;
@@ -130,8 +135,21 @@ export class GatewayTransport {
     this.send({ type: 'close_backend_channel', channelId } satisfies CloseBackendChannelMessage);
   }
 
+  sendToBackend(backendId: string, message: ClientMessage): void {
+    const channelId = this.backendToChannel.get(backendId);
+    if (!channelId) {
+      console.error('[GatewayTransport] Cannot send: channel not open for backend', backendId);
+      return;
+    }
+    this.send({ type: 'channel_client_message', channelId, message } satisfies ChannelClientMessage);
+  }
+
   getChannelId(backendId: string): string | undefined {
     return this.backendToChannel.get(backendId);
+  }
+
+  isBackendAuthenticated(backendId: string): boolean {
+    return this.backendToChannel.has(backendId);
   }
 
   // --- Stream ---
@@ -199,6 +217,7 @@ export class GatewayTransport {
       case 'backend_channel_opened': this.handleChannelOpened(message); break;
       case 'backend_channel_rejected': this.handleChannelRejected(message); break;
       case 'backend_channel_closed': this.handleChannelClosed(message); break;
+      case 'channel_server_message': this.handleChannelMessage(message); break;
       case 'run_stream_event': this.handleRunStreamEvent(message); break;
       case 'session_stream_closed': this.handleSessionStreamClosed(message); break;
       case 'session_content_patch': this.handleContentPatch(message); break;
@@ -310,6 +329,11 @@ export class GatewayTransport {
     if (channel) this.backendToChannel.delete(channel.backendId);
     this.channels.delete(msg.channelId);
     this.config.onChannelClosed(msg.channelId, msg.backendId, msg.reason);
+  }
+  private handleChannelMessage(msg: ChannelServerMessage): void {
+    const channel = this.channels.get(msg.channelId);
+    if (!channel) return;
+    this.config.onChannelMessage(channel.backendId, msg.message);
   }
 
   // --- Stream ---

@@ -53,6 +53,7 @@ let gatewayClient: GatewayClient | null = null;
 let serverContext: ServerContext | null = null;
 // Actual port the server is listening on (resolved after server.listen)
 let actualPort = PORT;
+const virtualClients = new Map<string, ReturnType<typeof createVirtualClient>>();
 
 
 // Load Gateway configuration from database
@@ -133,6 +134,29 @@ async function connectToGateway(config: GatewayConfig): Promise<void> {
   }
 
   gatewayClient = new GatewayClient(gatewayClientConfig, serverContext.db, activeRuns);
+  setGatewayClient(gatewayClient);
+
+  gatewayClient.onChannelMessage(async (channelId, message) => {
+    if (!serverContext) return;
+
+    let virtualClient = virtualClients.get(channelId);
+    if (!virtualClient) {
+      virtualClient = createVirtualClient(channelId, {
+        send: (msg: ServerMessage) => {
+          gatewayClient?.sendToChannel(channelId, msg);
+        }
+      });
+      virtualClients.set(channelId, virtualClient);
+    }
+
+    await serverContext.handleMessage(virtualClient, message);
+  });
+
+  gatewayClient.onChannelClosed((channelId) => {
+    virtualClients.delete(channelId);
+    connectedClients.delete(channelId);
+    serverContext?.terminalManager.detachClient(channelId);
+  });
 
   // Set up catch-up handler for content recovery
   gatewayClient.onCatchUp(async (sessionId, afterOffset) => {
@@ -185,7 +209,13 @@ async function disconnectFromGateway(): Promise<void> {
     const syncInterval = (gatewayClient as any)._syncInterval;
     if (syncInterval) clearInterval(syncInterval);
     gatewayClient.disconnect();
+    setGatewayClient(null);
     gatewayClient = null;
+    for (const channelId of virtualClients.keys()) {
+      connectedClients.delete(channelId);
+      serverContext?.terminalManager.detachClient(channelId);
+    }
+    virtualClients.clear();
     if (serverContext) {
       serverContext.updateGatewayConnected(false);
       serverContext.updateGatewayBackendId(null);

@@ -32,6 +32,8 @@ import type {
   SessionMessage,
   SessionContentPatchMessage,
   GatewayBackendInfo,
+  ChannelClientMessage,
+  ChannelServerMessage,
   GatewayHttpProxyRequest,
   GatewayHttpProxyResponse,
   GatewayHttpProxyResponseStart,
@@ -39,6 +41,8 @@ import type {
   GatewayHttpProxyResponseEnd,
   RegistryRevision,
   CatalogRevision,
+  ClientMessage,
+  ServerMessage,
 } from '@my-claudia/shared';
 import { hasForegroundActiveRunForSession } from './utils/run-state.js';
 
@@ -90,6 +94,8 @@ export interface GatewayClientConfig {
 
 type Database = any;
 type ActiveRunsMap = Map<string, any>;
+type ChannelMessageHandler = (channelId: string, message: ClientMessage) => Promise<void> | void;
+type ChannelClosedHandler = (channelId: string) => void;
 
 // ============================================================================
 // GatewayClient
@@ -128,6 +134,8 @@ export class GatewayClient {
   private activeRuns: ActiveRunsMap | null = null;
 
   private onCatchUpHandler: ((sessionId: string, afterOffset: number) => Promise<SessionMessage[]>) | null = null;
+  private onChannelMessageHandler: ChannelMessageHandler | null = null;
+  private onChannelClosedHandler: ChannelClosedHandler | null = null;
 
   constructor(config: GatewayClientConfig, db?: Database, activeRuns?: ActiveRunsMap) {
     this.config = config;
@@ -201,6 +209,25 @@ export class GatewayClient {
   getInstanceId(): string { return this.instanceId; }
   getDeviceId(): string { return this.deviceId; }
   getStreamDemandActive(): boolean { return this.streamDemandActive; }
+  getGatewayUrl(): string { return this.config.gatewayUrl; }
+  getGatewaySecret(): string { return this.config.gatewaySecret; }
+
+  createHttpAgent(): SocksProxyAgent | undefined {
+    if (!this.config.proxyUrl) return undefined;
+    try {
+      let proxyUrl = this.config.proxyUrl;
+      if (this.config.proxyAuth) {
+        const url = new URL(proxyUrl);
+        url.username = this.config.proxyAuth.username;
+        url.password = this.config.proxyAuth.password;
+        proxyUrl = url.toString();
+      }
+      return new SocksProxyAgent(proxyUrl);
+    } catch (error) {
+      console.error('[Gateway] Failed to configure HTTP proxy agent:', error);
+      return undefined;
+    }
+  }
 
   getDiscoveredBackends(): GatewayBackendInfo[] {
     return Array.from(this.registryItems.values())
@@ -215,6 +242,19 @@ export class GatewayClient {
 
   onCatchUp(handler: (sessionId: string, afterOffset: number) => Promise<SessionMessage[]>): void {
     this.onCatchUpHandler = handler;
+  }
+
+  onChannelMessage(handler: ChannelMessageHandler): void {
+    this.onChannelMessageHandler = handler;
+  }
+
+  onChannelClosed(handler: ChannelClosedHandler): void {
+    this.onChannelClosedHandler = handler;
+  }
+
+  sendToChannel(channelId: string, message: ServerMessage): void {
+    if (!this.ws || !this.isConnected) return;
+    this.sendWs({ type: 'channel_server_message', channelId, message } satisfies ChannelServerMessage);
   }
 
   // ==========================================================================
@@ -306,6 +346,8 @@ export class GatewayClient {
       case 'registry_event': this.handleRegistryEvent(message); break;
       case 'heartbeat_ack': this.handleHeartbeatAck(message); break;
       case 'stream_demand': this.handleStreamDemand(message); break;
+      case 'channel_client_message': void this.handleChannelClientMessage(message); break;
+      case 'backend_channel_closed': this.handleBackendChannelClosed(message); break;
       case 'catch_up_session_content': this.handleCatchUpRequest(message); break;
       case 'http_proxy_request': this.handleHttpProxyRequest(message); break;
       case 'gateway_error': console.error(`[Gateway] Error: ${message.code} — ${message.message}`); break;
@@ -416,6 +458,19 @@ export class GatewayClient {
     }
   }
 
+  private async handleChannelClientMessage(msg: ChannelClientMessage): Promise<void> {
+    if (!this.onChannelMessageHandler) return;
+    try {
+      await this.onChannelMessageHandler(msg.channelId, msg.message);
+    } catch (error) {
+      console.error('[Gateway] Channel message handler error:', error);
+    }
+  }
+
+  private handleBackendChannelClosed(msg: { channelId: string }): void {
+    this.onChannelClosedHandler?.(msg.channelId);
+  }
+
   // ==========================================================================
   // Internal — HTTP Proxy
   // ==========================================================================
@@ -441,7 +496,7 @@ export class GatewayClient {
     try {
       const resp = await fetch(url, {
         method: msg.method, headers: msg.headers,
-        body: !['GET', 'HEAD'].includes(msg.method) ? (msg.body as string) : undefined,
+        body: !['GET', 'HEAD'].includes(msg.method) ? (msg.body as BodyInit | null | undefined) : undefined,
       });
       const responseHeaders: Record<string, string> = {};
       resp.headers.forEach((value, key) => { responseHeaders[key] = value; });

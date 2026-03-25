@@ -52,6 +52,8 @@ const initialMentionState: MentionState = {
   isLoading: false,
 };
 
+const DRAFT_PERSIST_DEBOUNCE_MS = 300;
+
 // Format file size
 const formatFileSize = (bytes: number): string => {
   if (bytes < 1024) return `${bytes}B`;
@@ -109,11 +111,39 @@ export function MessageInput({
   const commandListRef = useRef<HTMLDivElement>(null);
   const mentionListRef = useRef<HTMLDivElement>(null);
   const compositionTimeoutRef = useRef<number | null>(null); // Timer for composition end delay
+  const draftPersistTimeoutRef = useRef<number | null>(null);
+  const pendingDraftValueRef = useRef('');
+
+  const flushDraftPersistence = useCallback(() => {
+    if (draftPersistTimeoutRef.current) {
+      clearTimeout(draftPersistTimeoutRef.current);
+      draftPersistTimeoutRef.current = null;
+    }
+
+    setDraft(sessionId, pendingDraftValueRef.current);
+  }, [sessionId, setDraft]);
+
+  const clearDraftPersistence = useCallback(() => {
+    if (draftPersistTimeoutRef.current) {
+      clearTimeout(draftPersistTimeoutRef.current);
+      draftPersistTimeoutRef.current = null;
+    }
+    pendingDraftValueRef.current = '';
+  }, []);
 
   // Update value and persist draft to store
   const updateValue = useCallback((newValue: string) => {
     setValue(newValue);
-    setDraft(sessionId, newValue);
+    pendingDraftValueRef.current = newValue;
+
+    if (draftPersistTimeoutRef.current) {
+      clearTimeout(draftPersistTimeoutRef.current);
+    }
+
+    draftPersistTimeoutRef.current = window.setTimeout(() => {
+      draftPersistTimeoutRef.current = null;
+      setDraft(sessionId, pendingDraftValueRef.current);
+    }, DRAFT_PERSIST_DEBOUNCE_MS);
   }, [sessionId, setDraft]);
 
   // Update value when initialValue changes (e.g., after cancel to restore previous message)
@@ -138,8 +168,11 @@ export function MessageInput({
       if (compositionTimeoutRef.current) {
         clearTimeout(compositionTimeoutRef.current);
       }
+      if (draftPersistTimeoutRef.current) {
+        flushDraftPersistence();
+      }
     };
-  }, []);
+  }, [flushDraftPersistence]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -612,6 +645,7 @@ export function MessageInput({
       const isPluginCommand = command.includes(':');
 
       if (onCommand && (isKnownCommand || isPluginCommand)) {
+        clearDraftPersistence();
         onCommand(command, args);
         setValue('');
         clearDraft(sessionId);
@@ -621,6 +655,7 @@ export function MessageInput({
 
     // Send message with attachments
     if (trimmedValue || attachments.length > 0) {
+      clearDraftPersistence();
       onSend(trimmedValue, attachments.length > 0 ? attachments : undefined);
       setValue('');
       clearDraft(sessionId);

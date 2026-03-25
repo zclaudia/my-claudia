@@ -36,6 +36,8 @@ import type {
   BackendChannelRejectedMessage,
   CloseBackendChannelMessage,
   BackendChannelClosedMessage,
+  ChannelClientMessage,
+  ChannelServerMessage,
   StreamDemandMessage,
   OpenSessionStreamMessage,
   CloseSessionStreamMessage,
@@ -259,12 +261,20 @@ export function createGatewayServer(config: GatewayConfig): Server {
       }
       const fullPath = req.params[0] || '';
       const queryString = req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : '';
-      const targetPath = fullPath + queryString;
+      const targetPath = `/${fullPath}${queryString}`;
       const requestId = uuidv4();
+      const contentType = req.headers['content-type'];
       const proxyRequest: GatewayHttpProxyRequest = {
         type: 'http_proxy_request', requestId, method: req.method,
-        path: targetPath, headers: { 'content-type': req.headers['content-type'] || 'application/json' }, body: req.body,
+        path: targetPath,
+        headers: {},
+        body: ['GET', 'HEAD'].includes(req.method) ? undefined : (
+          typeof req.body === 'string' || Buffer.isBuffer(req.body)
+            ? req.body
+            : JSON.stringify(req.body ?? {})
+        ),
       };
+      if (contentType) proxyRequest.headers['content-type'] = contentType;
       const clientRequestId = req.headers['x-request-id'];
       if (clientRequestId) proxyRequest.headers['x-request-id'] = clientRequestId as string;
 
@@ -276,7 +286,11 @@ export function createGatewayServer(config: GatewayConfig): Server {
       if (!response) { if (!res.headersSent) res.status(502).json({ success: false, error: { code: 'PROXY_ERROR', message: 'No response' } }); return; }
       if (response.headers) { for (const [key, value] of Object.entries(response.headers)) res.setHeader(key, value); }
       if (clientRequestId) res.setHeader('x-request-id', clientRequestId);
-      res.status(response.statusCode).json(response.body);
+      res.status(response.statusCode).send(
+        typeof response.body === 'string' || Buffer.isBuffer(response.body)
+          ? response.body
+          : JSON.stringify(response.body)
+      );
     } catch (error) {
       if (!res.headersSent) res.status(500).json({ success: false, error: { code: 'PROXY_ERROR', message: 'Failed to proxy request' } });
     }
@@ -400,6 +414,8 @@ export function createGatewayServer(config: GatewayConfig): Server {
       case 'unsubscribe_backend_catalog': handleUnsubscribeBackendCatalog(peer, message); break;
       case 'open_backend_channel': handleOpenBackendChannel(peer, message); break;
       case 'close_backend_channel': handleCloseBackendChannel(peer, message); break;
+      case 'channel_client_message': handleChannelClientMessage(peer, message); break;
+      case 'channel_server_message': handleChannelServerMessage(peer, message); break;
       case 'open_session_stream': handleOpenSessionStream(peer, message); break;
       case 'close_session_stream': handleCloseSessionStream(peer, message); break;
       case 'catch_up_session_content': handleCatchUpSessionContent(peer, message); break;
@@ -515,12 +531,38 @@ export function createGatewayServer(config: GatewayConfig): Server {
     const channel = state.channels.get(msg.channelId);
     if (!channel || channel.peerSessionId !== peer.peerSessionId) return;
     const backendId = channel.backendId;
+    const backendPeer = findBackendPeer(backendId);
     state.removeChannel(msg.channelId);
     sendToWs(peer.ws, { type: 'backend_channel_closed', channelId: msg.channelId, backendId, reason: 'client_closed' } satisfies BackendChannelClosedMessage);
+    if (backendPeer) {
+      sendToWs(backendPeer.ws, { type: 'backend_channel_closed', channelId: msg.channelId, backendId, reason: 'client_closed' } satisfies BackendChannelClosedMessage);
+    }
     if (!state.getStreamDemand(backendId)) {
       const bp = findBackendPeer(backendId);
       if (bp) sendToWs(bp.ws, { type: 'stream_demand', active: false } satisfies StreamDemandMessage);
     }
+  }
+
+  function handleChannelClientMessage(peer: PeerSession, msg: ChannelClientMessage): void {
+    const channel = state.channels.get(msg.channelId);
+    if (!channel || channel.peerSessionId !== peer.peerSessionId) {
+      sendToWs(peer.ws, { type: 'gateway_error', code: 'BACKEND_CHANNEL_NOT_FOUND', message: 'Channel not found', recovery: 'reopen_channel' } satisfies GatewayErrorMessage);
+      return;
+    }
+    const backendPeer = findBackendPeer(channel.backendId);
+    if (!backendPeer) {
+      sendToWs(peer.ws, { type: 'gateway_error', code: 'BACKEND_OFFLINE', message: 'Backend offline', recovery: 'reconnect' } satisfies GatewayErrorMessage);
+      return;
+    }
+    sendToWs(backendPeer.ws, msg);
+  }
+
+  function handleChannelServerMessage(peer: PeerSession, msg: ChannelServerMessage): void {
+    if (!peer.backendId) return;
+    const channel = state.channels.get(msg.channelId);
+    if (!channel || channel.backendId !== peer.backendId) return;
+    const clientPeer = state.peers.get(channel.peerSessionId);
+    if (clientPeer) sendToWs(clientPeer.ws, msg);
   }
 
   function handleOpenSessionStream(peer: PeerSession, msg: OpenSessionStreamMessage): void {
@@ -612,7 +654,11 @@ export function createGatewayServer(config: GatewayConfig): Server {
     for (const channelId of peer.channels) {
       const channel = state.channels.get(channelId);
       if (channel) {
+        const backendPeer = findBackendPeer(channel.backendId);
         state.removeChannel(channelId);
+        if (backendPeer) {
+          sendToWs(backendPeer.ws, { type: 'backend_channel_closed', channelId, backendId: channel.backendId, reason: 'peer_disconnected' } satisfies BackendChannelClosedMessage);
+        }
         if (!state.getStreamDemand(channel.backendId)) { const bp = findBackendPeer(channel.backendId); if (bp) sendToWs(bp.ws, { type: 'stream_demand', active: false } satisfies StreamDemandMessage); }
       }
     }
@@ -641,9 +687,13 @@ export function createGatewayServer(config: GatewayConfig): Server {
     for (const [channelId, channel] of state.channels) {
       if (channel.backendId === backendId) {
         const clientPeer = state.peers.get(channel.peerSessionId);
+        const backendPeer = findBackendPeer(backendId);
         if (clientPeer) {
           for (const sessionId of channel.openStreams) sendToWs(clientPeer.ws, { type: 'session_stream_closed', channelId, sessionId, reason: reason === 'backend_offline' ? 'backend_offline' : 'channel_closed' } satisfies SessionStreamClosedMessage);
           sendToWs(clientPeer.ws, { type: 'backend_channel_closed', channelId, backendId, reason } satisfies BackendChannelClosedMessage);
+        }
+        if (backendPeer) {
+          sendToWs(backendPeer.ws, { type: 'backend_channel_closed', channelId, backendId, reason } satisfies BackendChannelClosedMessage);
         }
         state.removeChannel(channelId);
       }

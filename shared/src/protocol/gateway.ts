@@ -12,6 +12,8 @@
  * - No three-way auth: gateway decides channel authorization, backend is unaware of clients
  */
 
+import type { ClientMessage, ServerMessage } from './messages.js';
+
 // ============================================================================
 // Core Types
 // ============================================================================
@@ -316,6 +318,18 @@ export interface BackendChannelClosedMessage {
   reason: 'client_closed' | 'backend_offline' | 'epoch_changed' | 'peer_disconnected';
 }
 
+export interface ChannelClientMessage {
+  type: 'channel_client_message';
+  channelId: ChannelId;
+  message: ClientMessage;
+}
+
+export interface ChannelServerMessage {
+  type: 'channel_server_message';
+  channelId: ChannelId;
+  message: ServerMessage;
+}
+
 // ============================================================================
 // Session Content Protocol
 // ============================================================================
@@ -443,6 +457,8 @@ export type PeerToGatewayMessage =
   | UnsubscribeBackendCatalogMessage
   | OpenBackendChannelMessage
   | CloseBackendChannelMessage
+  | ChannelClientMessage
+  | ChannelServerMessage
   | OpenSessionStreamMessage
   | CloseSessionStreamMessage
   | BackendRunStreamEvent
@@ -462,6 +478,7 @@ export type GatewayToPeerMessage =
   | BackendChannelOpenedMessage
   | BackendChannelRejectedMessage
   | BackendChannelClosedMessage
+  | ChannelServerMessage
   | RunStreamEvent
   | SessionStreamClosedMessage
   | SessionContentPatchMessage
@@ -473,6 +490,7 @@ export type BackendToGatewayMessage =
   | BackendHeartbeatMessage
   | CatalogSnapshotMessage
   | CatalogEventMessage
+  | ChannelServerMessage
   | BackendRunStreamEvent;
 
 export type GatewayToBackendMessage =
@@ -482,6 +500,7 @@ export type GatewayToBackendMessage =
   | RegistryEventMessage
   | HeartbeatAckMessage
   | StreamDemandMessage
+  | ChannelClientMessage
   | GatewayErrorMessage;
 
 export type ClientToGatewayMessage =
@@ -491,6 +510,7 @@ export type ClientToGatewayMessage =
   | UnsubscribeBackendCatalogMessage
   | OpenBackendChannelMessage
   | CloseBackendChannelMessage
+  | ChannelClientMessage
   | OpenSessionStreamMessage
   | CloseSessionStreamMessage
   | CatchUpSessionContentMessage;
@@ -507,6 +527,7 @@ export type GatewayToClientMessage =
   | BackendChannelOpenedMessage
   | BackendChannelRejectedMessage
   | BackendChannelClosedMessage
+  | ChannelServerMessage
   | RunStreamEvent
   | SessionStreamClosedMessage
   | SessionContentPatchMessage

@@ -7,7 +7,7 @@
  */
 
 import { useEffect, useRef, useCallback } from 'react';
-import type { ServerMessage } from '@my-claudia/shared';
+import type { ClientMessage, ServerMessage } from '@my-claudia/shared';
 import { useGatewayStore } from '../stores/gatewayStore';
 import { useServerStore } from '../stores/serverStore';
 import { GatewayTransport } from './transport/GatewayTransport';
@@ -258,6 +258,10 @@ export function useGatewayConnection() {
         setBackendAuthStatus(backendId, 'failed');
       },
 
+      onChannelMessage: (backendId, message) => {
+        handleBackendMessage(backendId, message);
+      },
+
       // Stream: route to message handler
       onRunStreamEvent: (_channelId, _sessionId, event) => {
         // Resolve backendId from channelId via transport's internal channel map
@@ -461,6 +465,15 @@ export function useGatewayConnection() {
     transport.subscribeCatalog(backendId, presence.epoch);
   }, [setBackendAuthStatus]);
 
+  const sendToBackend = useCallback((backendId: string, message: ClientMessage) => {
+    const transport = transportRef.current;
+    if (!transport || !transport.isConnected()) {
+      console.error('[GatewayConn] Cannot send: gateway not connected');
+      return;
+    }
+    transport.sendToBackend(backendId, message);
+  }, []);
+
   const isBackendConnected = useCallback((backendId: string) => {
     return !!transportRef.current?.getChannelId(backendId);
   }, []);
@@ -479,6 +492,8 @@ export function useGatewayConnection() {
 
   return {
     openChannel,
+    sendToBackend,
+    isBackendAuthenticated: isBackendConnected,
     isBackendConnected,
     disconnectGateway,
   };
