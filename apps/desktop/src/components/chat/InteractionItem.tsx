@@ -230,7 +230,6 @@ function PlanReviewRenderer({ interaction }: { interaction: PlanReviewInteractio
   const { sendMessage } = useConnection();
   const [decision, setDecision] = useState<'approved' | 'rejected' | null>(null);
   const [feedback, setFeedback] = useState('');
-  const [showFeedback, setShowFeedback] = useState(false);
   const [expanded, setExpanded] = useState(false);
 
   const handleApprove = useCallback(() => {
@@ -238,16 +237,12 @@ function PlanReviewRenderer({ interaction }: { interaction: PlanReviewInteractio
       type: 'interaction_response',
       interactionId: interaction.interactionId,
       sessionId: interaction.sessionId,
-      response: { approved: true },
+      response: { approved: true, feedback: feedback.trim() || undefined },
     });
     setDecision('approved');
-  }, [sendMessage, interaction.interactionId, interaction.sessionId]);
+  }, [sendMessage, interaction.interactionId, interaction.sessionId, feedback]);
 
-  const handleDeny = useCallback((withFeedback: boolean) => {
-    if (withFeedback && !showFeedback) {
-      setShowFeedback(true);
-      return;
-    }
+  const handleDeny = useCallback(() => {
     sendMessage({
       type: 'interaction_response',
       interactionId: interaction.interactionId,
@@ -255,7 +250,7 @@ function PlanReviewRenderer({ interaction }: { interaction: PlanReviewInteractio
       response: { approved: false, feedback: feedback.trim() || undefined },
     });
     setDecision('rejected');
-  }, [sendMessage, interaction.interactionId, interaction.sessionId, feedback, showFeedback]);
+  }, [sendMessage, interaction.interactionId, interaction.sessionId, feedback]);
 
   if (decision) {
     return (
@@ -301,25 +296,22 @@ function PlanReviewRenderer({ interaction }: { interaction: PlanReviewInteractio
         </div>
       )}
 
-      {/* Feedback textarea */}
-      {showFeedback && (
-        <textarea
-          value={feedback}
-          onChange={(e) => setFeedback(e.target.value)}
-          placeholder="Why do you reject this plan? (optional)"
-          rows={2}
-          className="w-full px-2 py-1 text-xs rounded border border-border bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary resize-y"
-        />
-      )}
+      <textarea
+        value={feedback}
+        onChange={(e) => setFeedback(e.target.value)}
+        placeholder="Add an optional comment for approval or rejection"
+        rows={2}
+        className="w-full px-2 py-1 text-xs rounded border border-border bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary resize-y"
+      />
 
       {/* Action buttons */}
       <div className="flex items-center gap-2 self-end">
         <button
-          onClick={() => handleDeny(true)}
+          onClick={handleDeny}
           className="flex items-center gap-1 px-3 py-1 text-xs font-medium rounded border border-border bg-background text-foreground hover:bg-muted transition-colors"
         >
           <ThumbsDown size={10} />
-          {showFeedback ? 'Send Rejection' : 'Deny'}
+          Deny
         </button>
         <button
           onClick={handleApprove}

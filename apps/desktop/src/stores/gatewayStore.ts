@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { GatewayBackendInfo, BackendRegistryEntry } from '@my-claudia/shared';
+import type { GatewayBackendInfo, BackendPresence } from '@my-claudia/shared';
 
 export type BackendAuthStatus = 'authenticated' | 'pending' | 'failed';
 
@@ -17,7 +17,7 @@ interface GatewayState {
   backendAuthStatus: Record<string, BackendAuthStatus>;
 
   // Registry from gateway (Phase 2) — keyed by backendId
-  registry: Record<string, BackendRegistryEntry>;
+  registry: Record<string, BackendPresence>;
 
   // Direct gateway config — for mobile clients (persisted)
   directGatewayUrl: string | null;
@@ -35,8 +35,8 @@ interface GatewayState {
   clearGateway: () => void;
 
   // Registry actions (Phase 2)
-  setRegistrySnapshot: (entries: BackendRegistryEntry[]) => void;
-  upsertRegistryEntry: (entry: BackendRegistryEntry) => void;
+  setRegistrySnapshot: (entries: BackendPresence[]) => void;
+  upsertRegistryEntry: (entry: BackendPresence) => void;
   removeRegistryEntry: (backendId: string) => void;
 
   // Mobile direct config actions
@@ -67,7 +67,7 @@ function markIdentity(backends: GatewayBackendInfo[], currentInstanceId: string 
 }
 
 function deriveBackendsFromRegistry(
-  registry: Record<string, BackendRegistryEntry>,
+  registry: Record<string, BackendPresence>,
   currentInstanceId: string | null,
   currentDeviceId: string | null,
 ): GatewayBackendInfo[] {
@@ -76,7 +76,7 @@ function deriveBackendsFromRegistry(
     .map(entry => ({
       backendId: entry.backendId,
       name: entry.name,
-      online: entry.online,
+      online: true, // In v2, presence in registry means online
       isThisInstance: !!(currentInstanceId && entry.instanceId === currentInstanceId),
       isThisDevice: !!(currentDeviceId && entry.deviceId === currentDeviceId),
       instanceId: entry.instanceId,
@@ -187,7 +187,7 @@ export const useGatewayStore = create<GatewayState>()(
 
       // Registry actions (Phase 2)
       setRegistrySnapshot: (entries) => {
-        const registry: Record<string, BackendRegistryEntry> = {};
+        const registry: Record<string, BackendPresence> = {};
         for (const entry of entries) {
           registry[entry.backendId] = entry;
         }

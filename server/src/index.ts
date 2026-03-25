@@ -3,8 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { createServer, createVirtualClient, activeRuns, connectedClients, type ServerContext } from './server.js';
 import { GatewayClient } from './gateway-client.js';
-import { GatewayClientMode } from './gateway-client-mode.js';
-import { setGatewayClient, setGatewayClientMode } from './gateway-instance.js';
+import { setGatewayClient } from './gateway-instance.js';
 import type { ServerMessage } from '@my-claudia/shared';
 import { initDatabase } from './storage/db.js';
 import type { GatewayConfig } from './routes/gateway.js';
@@ -51,13 +50,10 @@ const GATEWAY_SECRET = process.env.GATEWAY_SECRET;
 const GATEWAY_NAME = process.env.GATEWAY_NAME || `Backend on ${os.hostname()}`;
 
 let gatewayClient: GatewayClient | null = null;
-let gatewayClientMode: GatewayClientMode | null = null;
 let serverContext: ServerContext | null = null;
 // Actual port the server is listening on (resolved after server.listen)
 let actualPort = PORT;
 
-// Track virtual clients for Gateway connections
-const virtualClients = new Map<string, ReturnType<typeof createVirtualClient>>();
 
 // Load Gateway configuration from database
 function loadGatewayConfig(): GatewayConfig | null {
@@ -94,7 +90,10 @@ function loadGatewayConfig(): GatewayConfig | null {
   }
 }
 
-// Connect to Gateway with config
+// ============================================================================
+// Gateway Connection
+// ============================================================================
+
 async function connectToGateway(config: GatewayConfig): Promise<void> {
   if (!config.gatewayUrl || !config.gatewaySecret) {
     console.error('[Gateway] URL or Secret not configured');
@@ -102,22 +101,17 @@ async function connectToGateway(config: GatewayConfig): Promise<void> {
   }
 
   if (gatewayClient) {
-    // Clear sync interval before disconnect
-    const syncInterval = (gatewayClient as any)._syncInterval;
-    if (syncInterval) clearInterval(syncInterval);
     gatewayClient.disconnect();
   }
 
-  console.log(`\n🌐 Gateway connection configured:`);
+  console.log(`\n🌐 Gateway V2 connection configured:`);
   console.log(`   URL: ${config.gatewayUrl}`);
   console.log(`   Name: ${config.backendName || `Backend on ${os.hostname()}`}`);
-  if (config.proxyUrl) {
-    console.log(`   Proxy: ${config.proxyUrl}`);
-  }
 
-  // Expose gateway config to providers (e.g. claude-sdk getFileData) via env vars
   process.env.GATEWAY_URL = config.gatewayUrl;
   process.env.GATEWAY_SECRET = config.gatewaySecret;
+
+  if (!serverContext) return;
 
   const gatewayClientConfig: any = {
     gatewayUrl: config.gatewayUrl,
@@ -125,112 +119,55 @@ async function connectToGateway(config: GatewayConfig): Promise<void> {
     name: config.backendName || `Backend on ${os.hostname()}`,
     channel: process.env.MY_CLAUDIA_CHANNEL || 'prod',
     serverPort: actualPort,
-    visible: config.registerAsBackend !== false
+    visible: config.registerAsBackend !== false,
   };
 
-  // Add proxy configuration if provided
   if (config.proxyUrl) {
     gatewayClientConfig.proxyUrl = config.proxyUrl;
     if (config.proxyUsername || config.proxyPassword) {
       gatewayClientConfig.proxyAuth = {
-        username: config.proxyUsername || '',
-        password: config.proxyPassword || ''
-      };
-    }
-  }
-
-  if (!serverContext) return;
-
-  // Create GatewayClient with db and activeRuns dependencies
-  gatewayClient = new GatewayClient(gatewayClientConfig, serverContext.db, activeRuns);
-
-  // Set global instance for access from routes
-  setGatewayClient(gatewayClient);
-
-  // Set up message handler - integrate with server's message handling
-  gatewayClient.onMessage(async (clientId, message) => {
-    console.log(`[Gateway] Message from ${clientId}:`, message.type);
-
-    // Get or create virtual client for this Gateway client
-    let virtualClient = virtualClients.get(clientId);
-    if (!virtualClient) {
-      virtualClient = createVirtualClient(clientId, {
-        send: (msg: ServerMessage) => {
-          // Terminal messages target the specific client, not broadcast
-          if (
-            msg.type === 'terminal_output' ||
-            msg.type === 'terminal_opened' ||
-            msg.type === 'terminal_exited' ||
-            msg.type === 'terminal_attached'
-          ) {
-            gatewayClient?.sendToClient(clientId, msg);
-          } else {
-            gatewayClient?.broadcast(msg);
-          }
-        }
-      });
-      virtualClients.set(clientId, virtualClient);
-    }
-
-    // Handle the message using the server's message handler
-    await serverContext!.handleMessage(virtualClient, message);
-
-    // Return null since we send responses through the virtual client
-    return null;
-  });
-
-  // Clean up virtual client on disconnect
-  gatewayClient.onClientDisconnected((clientId) => {
-    virtualClients.delete(clientId);
-    connectedClients.delete(clientId);
-    serverContext!.terminalManager.detachClient(clientId);
-    console.log(`[Gateway] Cleaned up virtual client: ${clientId}`);
-  });
-
-  // Always send state heartbeat to newly subscribed client so it can
-  // restore active runs AND clean up stale runs that completed while disconnected
-  gatewayClient.onClientSubscribed((clientId) => {
-    const heartbeat = serverContext!.getStateHeartbeat();
-    gatewayClient?.sendToClient(clientId, heartbeat);
-  });
-
-  gatewayClient.connect();
-
-  // Also start a client-role connection for relaying desktop frontend traffic
-  // through the gateway to remote backends (with SOCKS5 support)
-  if (gatewayClientMode) {
-    gatewayClientMode.disconnect();
-  }
-
-  const clientModeConfig: any = {
-    gatewayUrl: config.gatewayUrl,
-    gatewaySecret: config.gatewaySecret,
-  };
-  if (config.proxyUrl) {
-    clientModeConfig.proxyUrl = config.proxyUrl;
-    if (config.proxyUsername || config.proxyPassword) {
-      clientModeConfig.proxyAuth = {
         username: config.proxyUsername || '',
         password: config.proxyPassword || '',
       };
     }
   }
 
-  gatewayClientMode = new GatewayClientMode(clientModeConfig);
-  setGatewayClientMode(gatewayClientMode);
-  gatewayClientMode.connect();
+  gatewayClient = new GatewayClient(gatewayClientConfig, serverContext.db, activeRuns);
 
-  // Set identity immediately (available before connection)
-  if (serverContext) {
-    serverContext.updateGatewayIdentity(gatewayClient.getInstanceId(), gatewayClient.getDeviceId());
-  }
+  // Set up catch-up handler for content recovery
+  gatewayClient.onCatchUp(async (sessionId, afterOffset) => {
+    if (!serverContext) return [];
+    try {
+      const rows = serverContext.db.prepare(`
+        SELECT id as messageId, session_id as sessionId, offset, role, created_at as createdAt, content
+        FROM messages
+        WHERE session_id = ? AND offset > ?
+        ORDER BY offset ASC
+      `).all(sessionId, afterOffset) as any[];
 
-  // Sync gateway status periodically as fallback (backendId + discoveredBackends)
+      return rows.map((r: any) => ({
+        messageId: r.messageId,
+        sessionId: r.sessionId,
+        offset: r.offset,
+        role: r.role,
+        createdAt: r.createdAt,
+        content: r.content ? JSON.parse(r.content) : null,
+      }));
+    } catch (error) {
+      console.error('[Gateway] Catch-up query error:', error);
+      return [];
+    }
+  });
+
+  gatewayClient.connect();
+
+  // Set identity immediately
+  serverContext.updateGatewayIdentity(gatewayClient.getInstanceId(), gatewayClient.getDeviceId());
+
+  // Sync gateway status periodically
   const syncGatewayStatus = setInterval(() => {
     if (gatewayClient && serverContext) {
-      const connected = gatewayClient.isGatewayConnected() || gatewayClientMode?.isConnected() === true;
-      serverContext.updateGatewayConnected(connected);
-
+      serverContext.updateGatewayConnected(gatewayClient.isGatewayConnected());
       const backendId = gatewayClient.getBackendId();
       if (backendId) {
         serverContext.updateGatewayBackendId(backendId);
@@ -239,31 +176,21 @@ async function connectToGateway(config: GatewayConfig): Promise<void> {
     }
   }, 2000);
 
-  // Store interval reference for cleanup on disconnect
   (gatewayClient as any)._syncInterval = syncGatewayStatus;
 }
 
 async function disconnectFromGateway(): Promise<void> {
   if (gatewayClient) {
-    console.log('📡 Disconnecting from Gateway...');
+    console.log('📡 Disconnecting from Gateway V2...');
     const syncInterval = (gatewayClient as any)._syncInterval;
-    if (syncInterval) {
-      clearInterval(syncInterval);
-    }
+    if (syncInterval) clearInterval(syncInterval);
     gatewayClient.disconnect();
     gatewayClient = null;
-    setGatewayClient(null);
-    virtualClients.clear();
     if (serverContext) {
       serverContext.updateGatewayConnected(false);
       serverContext.updateGatewayBackendId(null);
       serverContext.updateDiscoveredBackends([]);
     }
-  }
-  if (gatewayClientMode) {
-    gatewayClientMode.disconnect();
-    gatewayClientMode = null;
-    setGatewayClientMode(null);
   }
 }
 
@@ -435,10 +362,6 @@ async function main() {
       if (gatewayClient) {
         gatewayClient.disconnect();
       }
-      if (gatewayClientMode) {
-        gatewayClientMode.disconnect();
-      }
-
       // Deactivate all plugins (cleanup schedulers, event listeners, etc.)
       await pluginLoader.deactivateAll();
 

@@ -1003,12 +1003,12 @@ internal reasoning cursor plan
   });
 
   describe('PATCH /api/sessions/:id/unlock', () => {
-    it('unlocks a read-only session', async () => {
+    it('restores planning status for task sessions', async () => {
       const now = Date.now();
       db.prepare(`
-        INSERT INTO sessions (id, project_id, name, is_read_only, plan_status, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-      `).run('s1', 'project-1', 'Locked', 1, 'completed', now, now);
+        INSERT INTO sessions (id, project_id, name, project_role, is_read_only, plan_status, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `).run('s1', 'project-1', 'Locked', 'task', 1, 'completed', now, now);
 
       const res = await request(app).patch('/api/sessions/s1/unlock');
       expect(res.status).toBe(200);
@@ -1017,6 +1017,22 @@ internal reasoning cursor plan
       const row = db.prepare('SELECT is_read_only, plan_status FROM sessions WHERE id = ?').get('s1') as any;
       expect(row.is_read_only).toBe(0);
       expect(row.plan_status).toBe('planning');
+    });
+
+    it('clears plan status for regular sessions', async () => {
+      const now = Date.now();
+      db.prepare(`
+        INSERT INTO sessions (id, project_id, name, is_read_only, plan_status, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `).run('s2', 'project-1', 'Locked Regular', 1, 'completed', now, now);
+
+      const res = await request(app).patch('/api/sessions/s2/unlock');
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+
+      const row = db.prepare('SELECT is_read_only, plan_status FROM sessions WHERE id = ?').get('s2') as any;
+      expect(row.is_read_only).toBe(0);
+      expect(row.plan_status).toBeNull();
     });
 
     it('returns 404 for non-existent session', async () => {

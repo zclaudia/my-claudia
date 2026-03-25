@@ -58,7 +58,7 @@ import { isLocalhost, localOnlyMiddleware } from './middleware/local-only.js';
 import { createExpressAuthMiddleware } from './middleware/express-auth.js';
 import { getPublicKeyPem } from './utils/crypto.js';
 import { getSdkVersionReport } from './utils/sdk-version-check.js';
-import { getGatewayClientMode } from './gateway-instance.js';
+// GatewayClientMode removed in v2 — relay endpoints return empty results
 import { ProcessMonitor } from './utils/process-monitor.js';
 import { sendMessage, broadcastToOtherAuthenticatedClients, buildPluginStateMessage } from './ws/broadcast.js';
 import { getNextOffset } from './ws/run-lifecycle.js';
@@ -334,7 +334,7 @@ export function setupRoutesAndServices(deps: SetupDependencies): SetupResult {
   // Gateway relay: list available remote backends (local only)
   app.get('/api/gateway/backends', localOnlyMiddleware, async (_req: Request, res: Response) => {
     try {
-      const clientMode = getGatewayClientMode();
+      const clientMode: any = null; // GatewayClientMode removed in v2
       if (!clientMode || !clientMode.isConnected()) {
         res.json({ success: true, data: [] });
         return;
@@ -354,7 +354,7 @@ export function setupRoutesAndServices(deps: SetupDependencies): SetupResult {
     const { backendId } = req.params;
     const subPath = req.params[0] || '';
 
-    const clientMode = getGatewayClientMode();
+    const clientMode: any = null; // GatewayClientMode removed in v2
     if (!clientMode || !clientMode.isConnected()) {
       res.status(502).json({
         success: false,

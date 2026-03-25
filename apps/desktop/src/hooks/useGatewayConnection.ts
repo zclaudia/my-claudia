@@ -7,7 +7,7 @@
  */
 
 import { useEffect, useRef, useCallback } from 'react';
-import type { ClientMessage, ServerMessage } from '@my-claudia/shared';
+import type { ServerMessage } from '@my-claudia/shared';
 import { useGatewayStore } from '../stores/gatewayStore';
 import { useServerStore } from '../stores/serverStore';
 import { GatewayTransport } from './transport/GatewayTransport';
@@ -162,63 +162,138 @@ export function useGatewayConnection() {
     const transport = new GatewayTransport({
       url: wsUrl,
       gatewaySecret,
-      onConnected: () => {
-        console.log('[GatewayConn] Gateway connected');
+      deviceId: `client-${crypto.randomUUID().slice(0, 8)}`,
+      instanceId: `client-${crypto.randomUUID().slice(0, 8)}`,
+
+      onConnected: (_peerSessionId, _recoveryToken) => {
+        console.log('[GatewayConn] Gateway V2 connected');
         setConnected(true);
         reconnectAttemptRef.current = 0;
-
-        // Send persisted subscription preferences to gateway
-        const { subscribedBackendIds } = useGatewayStore.getState();
-        if (subscribedBackendIds.length === 0) {
-          // Empty = subscribe to all
-          transport!.updateSubscriptions([], true);
-        } else {
-          transport!.updateSubscriptions(subscribedBackendIds);
-        }
       },
+
       onDisconnected: () => {
-        console.log('[GatewayConn] Gateway disconnected');
+        console.log('[GatewayConn] Gateway V2 disconnected');
         setConnected(false);
         scheduleReconnect();
       },
+
       onError: (error) => {
-        console.error('[GatewayConn] Gateway error:', error);
+        console.error('[GatewayConn] Gateway V2 error:', error);
       },
-      onBackendsUpdated: (backends) => {
+
+      // Registry: convert BackendPresence[] to discoveredBackends format
+      onRegistryChanged: (items) => {
+        const backends = items
+          .filter(item => item.visible)
+          .map(item => ({
+            backendId: item.backendId,
+            name: item.name,
+            online: true,
+            instanceId: item.instanceId,
+            deviceId: item.deviceId,
+            channel: item.channel,
+          }));
         setDiscoveredBackends(backends);
       },
-      onBackendAuthResult: (backendId, success, error, features) => {
-        setBackendAuthStatus(backendId, success ? 'authenticated' : 'failed');
 
-        if (success) {
-          const serverId = toGatewayServerId(backendId);
-          setServerConnectionStatus(serverId, 'connected');
-          setServerLocalConnection(serverId, false);
-          if (features) {
-            setServerFeatures(serverId, features);
-          }
-          reconnectAttemptRef.current = 0;
-          updateLastConnected(serverId);
-        } else {
-          const serverId = toGatewayServerId(backendId);
-          setServerConnectionStatus(serverId, 'error', error);
+      // Catalog: map to session store
+      onCatalogSnapshot: (backendId, _epoch, items) => {
+        useSessionsStore.getState().setRemoteSessions(backendId, items.map(item => ({
+          id: item.sessionId,
+          projectId: '',
+          name: item.title || '',
+          createdAt: item.createdAt,
+          updatedAt: item.updatedAt,
+          isActive: item.activeRunStatus === 'running',
+          type: 'regular' as const,
+        })));
+      },
+
+      onCatalogEvent: (backendId, _epoch, op, item, sessionId) => {
+        if (op === 'upsert' && item) {
+          useSessionsStore.getState().handleSessionEvent(backendId, 'updated', {
+            id: item.sessionId,
+            projectId: '',
+            name: item.title || '',
+            createdAt: item.createdAt,
+            updatedAt: item.updatedAt,
+            isActive: item.activeRunStatus === 'running',
+            type: 'regular' as const,
+          });
+        } else if (op === 'remove' && sessionId) {
+          useSessionsStore.getState().handleSessionEvent(backendId, 'deleted', {
+            id: sessionId,
+            projectId: '',
+            isActive: false,
+            type: 'regular' as const,
+            createdAt: 0,
+            updatedAt: 0,
+          });
         }
       },
-      onBackendMessage: handleBackendMessage,
-      onBackendDisconnected: (backendId) => {
+
+      onCatalogReset: (backendId, _epoch) => {
+        useSessionsStore.getState().clearBackendSessions(backendId);
+      },
+
+      // Channel: update server connection status
+      onChannelOpened: (backendId, _channelId, _epoch, _capabilities) => {
+        const serverId = toGatewayServerId(backendId);
+        setServerConnectionStatus(serverId, 'connected');
+        setServerLocalConnection(serverId, false);
+        setBackendAuthStatus(backendId, 'authenticated');
+        reconnectAttemptRef.current = 0;
+        updateLastConnected(serverId);
+      },
+
+      onChannelRejected: (backendId, reason) => {
+        const serverId = toGatewayServerId(backendId);
+        setServerConnectionStatus(serverId, 'error', reason);
         setBackendAuthStatus(backendId, 'failed');
+      },
+
+      onChannelClosed: (_channelId, backendId, _reason) => {
         const serverId = toGatewayServerId(backendId);
         setServerConnectionStatus(serverId, 'disconnected');
+        setBackendAuthStatus(backendId, 'failed');
       },
-      // Registry callbacks (Phase 2)
-      onRegistrySnapshot: (entries) => {
-        useGatewayStore.getState().setRegistrySnapshot(entries);
+
+      // Stream: route to message handler
+      onRunStreamEvent: (_channelId, _sessionId, event) => {
+        // Resolve backendId from channelId via transport's internal channel map
+        const channelInfo = (transport as any).channels?.get(event.channelId) as { backendId: string } | undefined;
+        const backendId = channelInfo?.backendId;
+        if (!backendId) return;
+
+        // Skip messages from our own embedded server
+        const { localBackendId } = useGatewayStore.getState();
+        if (localBackendId && backendId === localBackendId) return;
+
+        // Map RunStreamEvent to ServerMessage format for shared handler
+        const serverMessage = {
+          type: event.eventType,
+          runId: event.runId,
+          sessionId: event.sessionId,
+          seq: event.seq,
+          ...(event.payload as object),
+        } as ServerMessage;
+
+        handleServerMessage(serverMessage, {
+          serverId: toGatewayServerId(backendId),
+          backendId,
+          serverRunsRef: serverRunsRef.current,
+          resolveBackendName: () => useGatewayStore.getState().discoveredBackends.find(b => b.backendId === backendId)?.name,
+          logTag: `Gateway:${backendId}`,
+        });
       },
-      onRegistryUpsert: (entry) => {
-        useGatewayStore.getState().upsertRegistryEntry(entry);
+
+      onSessionStreamClosed: (_channelId, _sessionId, reason) => {
+        console.log(`[GatewayConn] Session stream closed: ${reason}`);
       },
-      onRegistryRemove: (backendId) => {
-        useGatewayStore.getState().removeRegistryEntry(backendId);
+
+      onContentPatch: (_channelId, _sessionId, _messages, _latestOffset) => {
+        // TODO: integrate with session content cache
+        console.log(`[GatewayConn] Content patch received`);
       },
     });
 
@@ -232,7 +307,8 @@ export function useGatewayConnection() {
     setServerConnectionStatus,
     setServerLocalConnection,
     setServerFeatures,
-    handleBackendMessage
+    handleBackendMessage,
+    updateLastConnected,
   ]);
 
   /**
@@ -316,55 +392,44 @@ export function useGatewayConnection() {
     };
   }, [gatewayUrl, gatewaySecret, createTransport, setConnected]);
 
-  // Auto-authenticate backend when active server changes to a gateway target
+  // V2: Auto-open channel + subscribe catalog when active server changes to a gateway target
   useEffect(() => {
     if (!activeServerId || !isGatewayTarget(activeServerId)) return;
-    if (!transportRef.current || !transportRef.current.isConnected()) return;
+    const transport = transportRef.current;
+    if (!transport || !transport.isConnected()) return;
 
     const backendId = parseBackendId(activeServerId);
+    if (transport.getChannelId(backendId)) return; // Already have channel
 
-    // Already authenticated
-    if (transportRef.current.isBackendAuthenticated(backendId)) return;
+    const registryItems = transport.getRegistryItems();
+    const presence = registryItems.get(backendId);
+    if (!presence) return;
 
-    console.log(`[GatewayConn] Auto-authenticating backend: ${backendId}`);
+    console.log(`[GatewayConn] V2: Opening channel + subscribing catalog: ${backendId}`);
     setBackendAuthStatus(backendId, 'pending');
     setServerConnectionStatus(activeServerId, 'connecting');
-    transportRef.current.authenticateBackend(backendId);
+    transport.openChannel(backendId, presence.epoch);
+    transport.subscribeCatalog(backendId, presence.epoch);
   }, [activeServerId, setBackendAuthStatus, setServerConnectionStatus]);
 
-  // Auto-authenticate all online backends (gateway handles subscription filtering)
+  // V2: Auto-open channels for all online backends
   useEffect(() => {
-    if (!isGatewayConnected || !transportRef.current?.isConnected()) return;
+    if (!isGatewayConnected) return;
+    const transport = transportRef.current;
+    if (!transport?.isConnected()) return;
 
-    for (const backend of discoveredBackends) {
-      if (!backend.online) continue;
-      if (transportRef.current.isBackendAuthenticated(backend.backendId)) continue;
+    const registryItems = transport.getRegistryItems();
+    for (const [backendId, presence] of registryItems) {
+      if (!presence.visible) continue;
+      if (transport.getChannelId(backendId)) continue; // Already have channel
 
-      console.log(`[GatewayConn] Auto-authenticating backend: ${backend.backendId}`);
-      setBackendAuthStatus(backend.backendId, 'pending');
-      setServerConnectionStatus(toGatewayServerId(backend.backendId), 'connecting');
-      transportRef.current.authenticateBackend(backend.backendId);
+      console.log(`[GatewayConn] V2: Auto-opening channel: ${backendId}`);
+      setBackendAuthStatus(backendId, 'pending');
+      setServerConnectionStatus(toGatewayServerId(backendId), 'connecting');
+      transport.openChannel(backendId, presence.epoch);
+      transport.subscribeCatalog(backendId, presence.epoch);
     }
   }, [isGatewayConnected, discoveredBackends, setBackendAuthStatus, setServerConnectionStatus]);
-
-  // Push subscription changes to gateway when subscribedBackendIds changes
-  useEffect(() => {
-    let prevIds = useGatewayStore.getState().subscribedBackendIds;
-    const unsub = useGatewayStore.subscribe((state) => {
-      if (state.subscribedBackendIds !== prevIds) {
-        prevIds = state.subscribedBackendIds;
-        const transport = transportRef.current;
-        if (!transport?.isConnected()) return;
-
-        if (state.subscribedBackendIds.length === 0) {
-          transport.updateSubscriptions([], true);
-        } else {
-          transport.updateSubscriptions(state.subscribedBackendIds);
-        }
-      }
-    });
-    return unsub;
-  }, []);
 
   // When localBackendId becomes available, clean up any stale remote sessions
   // that leaked through the gateway before the guard was active (startup timing window)
@@ -374,41 +439,30 @@ export function useGatewayConnection() {
     }
   }, [localBackendId]);
 
-  // Heartbeat for the gateway connection
-  useEffect(() => {
-    const interval = setInterval(() => {
-      // Refresh backends list periodically when connected
-      if (transportRef.current?.isConnected()) {
-        transportRef.current.requestBackendsList();
-      }
-    }, 30000);
+  // V2: No heartbeat polling needed — registry is push-based
 
-    return () => clearInterval(interval);
-  }, []);
-
-  // Public API
-  const authenticateBackend = useCallback((backendId: string) => {
+  // Public API (v2)
+  const openChannel = useCallback((backendId: string) => {
     const transport = transportRef.current;
     if (!transport || !transport.isConnected()) {
-      console.error('[GatewayConn] Cannot authenticate: gateway not connected');
+      console.error('[GatewayConn] Cannot open channel: gateway not connected');
+      return;
+    }
+
+    const registryItems = transport.getRegistryItems();
+    const presence = registryItems.get(backendId);
+    if (!presence) {
+      console.error('[GatewayConn] Backend not in registry:', backendId);
       return;
     }
 
     setBackendAuthStatus(backendId, 'pending');
-    transport.authenticateBackend(backendId);
+    transport.openChannel(backendId, presence.epoch);
+    transport.subscribeCatalog(backendId, presence.epoch);
   }, [setBackendAuthStatus]);
 
-  const sendToBackend = useCallback((backendId: string, message: ClientMessage) => {
-    const transport = transportRef.current;
-    if (!transport) {
-      console.error('[GatewayConn] No gateway transport');
-      return;
-    }
-    transport.sendToBackend(backendId, message);
-  }, []);
-
-  const isBackendAuthenticated = useCallback((backendId: string) => {
-    return transportRef.current?.isBackendAuthenticated(backendId) || false;
+  const isBackendConnected = useCallback((backendId: string) => {
+    return !!transportRef.current?.getChannelId(backendId);
   }, []);
 
   const disconnectGateway = useCallback(() => {
@@ -424,9 +478,8 @@ export function useGatewayConnection() {
   }, [setConnected]);
 
   return {
-    authenticateBackend,
-    sendToBackend,
-    isBackendAuthenticated,
-    disconnectGateway
+    openChannel,
+    isBackendConnected,
+    disconnectGateway,
   };
 }

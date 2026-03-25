@@ -496,19 +496,25 @@ export function createSessionRoutes(db: Database.Database, activeRuns: ActiveRun
       const { id } = req.params;
       const now = Date.now();
 
-      const result = db.prepare(`
-        UPDATE sessions
-        SET is_read_only = 0, plan_status = 'planning', updated_at = ?
+      const existing = db.prepare(`
+        SELECT ${SESSION_SELECT}
+        FROM sessions
         WHERE id = ?
-      `).run(now, id);
+      `).get(id) as Session | undefined;
 
-      if (result.changes === 0) {
+      if (!existing) {
         res.status(404).json({
           success: false,
           error: { code: 'NOT_FOUND', message: 'Session not found' }
         });
         return;
       }
+
+      db.prepare(`
+        UPDATE sessions
+        SET is_read_only = 0, plan_status = ?, updated_at = ?
+        WHERE id = ?
+      `).run(existing.projectRole === 'task' ? 'planning' : null, now, id);
 
       const updatedSession = db.prepare(`
         SELECT ${SESSION_SELECT}

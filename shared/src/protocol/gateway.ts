@@ -1,276 +1,552 @@
-// Gateway Protocol Types
+/**
+ * Gateway Sync Protocol
+ *
+ * See docs/design/gateway-sync-protocol-v2.md for full specification.
+ *
+ * Key features:
+ * - Epoch-bound routing: all messages tied to backendId + epoch
+ * - Revision-based sync: registry and catalog use monotonic revisions with gap detection
+ * - Channel abstraction: client↔backend interaction via gateway-managed channelId
+ * - Stream demand flow control: gateway controls when backend pushes stream events
+ * - Heartbeat + lease: application-level liveness detection
+ * - No three-way auth: gateway decides channel authorization, backend is unaware of clients
+ */
 
-import type { GatewayBackendInfo, ServerFeature } from '../core/server.js';
-import type { Session, SessionType } from '../core/session.js';
-import type { ClientMessage, ServerMessage } from './messages.js';
+// ============================================================================
+// Core Types
+// ============================================================================
 
-// --- Gateway Messages (Backend → Gateway) ---
+export type ProtocolVersion = number;
+export type PeerSessionId = string;
+export type RecoveryToken = string;
+export type BackendId = string;
+export type Epoch = number;
+export type RegistryRevision = number;
+export type CatalogRevision = number;
+export type ChannelId = string;
+export type Offset = number;
+export type Seq = number;
 
-export interface GatewayRegisterMessage {
-  type: 'register';
-  gatewaySecret: string;
-  deviceId: string;
-  instanceId?: string;   // sha256(deviceId + ':' + channel).slice(0, 16) — distinguishes prod/dev on same device
-  channel?: string;      // 'prod' | 'dev' | string — defaults to 'prod'
-  name?: string;
-  visible?: boolean;  // Default true. If false, connects to gateway but is not listed as available backend
-}
+/** Current protocol version. */
+export const GATEWAY_PROTOCOL_VERSION: ProtocolVersion = 2;
 
-export interface GatewayRegisterResultMessage {
-  type: 'register_result';
-  success: boolean;
-  backendId?: string;
-  instanceId?: string;   // Echo back the resolved instanceId
-  error?: string;
-}
-
-// Client auth forwarded to backend
-export interface GatewayClientAuthMessage {
-  type: 'client_auth';
-  clientId: string;
-}
-
-// Backend's response to client auth
-export interface GatewayClientAuthResultMessage {
-  type: 'client_auth_result';
-  clientId: string;
-  success: boolean;
-  error?: string;
-  features?: ServerFeature[];   // Backend-advertised feature flags
-}
-
-// Wrapper for forwarded messages from client to backend
-export interface GatewayForwardedMessage {
-  type: 'forwarded';
-  clientId: string;
-  message: ClientMessage;
-}
-
-// Wrapper for messages from backend to client
-export interface GatewayBackendResponseMessage {
-  type: 'backend_response';
-  clientId: string;
-  message: ServerMessage;
-}
-
-// Client connected/disconnected notifications to backend
-export interface GatewayClientConnectedMessage {
-  type: 'client_connected';
-  clientId: string;
-}
-
-export interface GatewayClientDisconnectedMessage {
-  type: 'client_disconnected';
-  clientId: string;
-}
-
-// --- Gateway Messages (Client → Gateway) ---
-
-export interface GatewayAuthMessage {
-  type: 'gateway_auth';
-  gatewaySecret: string;
-}
-
-export interface GatewayAuthResultMessage {
-  type: 'gateway_auth_result';
-  success: boolean;
-  error?: string;
-  backends?: GatewayBackendInfo[];  // Included on success for immediate discovery
-}
-
-export interface GatewayListBackendsMessage {
-  type: 'list_backends';
-}
-
-export interface GatewayBackendsListMessage {
-  type: 'backends_list';
-  backends: GatewayBackendInfo[];
-}
-
-export interface GatewayConnectBackendMessage {
-  type: 'connect_backend';
-  backendId: string;
-}
-
-export interface GatewayBackendAuthResultMessage {
-  type: 'backend_auth_result';
-  backendId: string;
-  success: boolean;
-  error?: string;
-  features?: ServerFeature[];   // Backend-advertised feature flags (passthrough)
-}
-
-export interface GatewayBackendDisconnectedMessage {
-  type: 'backend_disconnected';
-  backendId: string;
-}
-
-// Client sends messages to a specific backend
-export interface GatewaySendToBackendMessage {
-  type: 'send_to_backend';
-  backendId: string;
-  message: ClientMessage;
-}
-
-// Gateway forwards backend messages to client
-export interface GatewayBackendMessageMessage {
-  type: 'backend_message';
-  backendId: string;
-  message: ServerMessage | BackendSessionsListMessage | BackendSessionEventMessage;
-}
-
-export interface GatewayErrorMessage {
-  type: 'gateway_error';
-  code: string;
-  message: string;
-  backendId?: string;
-}
-
-// --- Session Sync Protocol (Backend → Client via Gateway) ---
-
-// Backend sends full session list to a newly subscribed client
-export interface BackendSessionsListMessage {
-  type: 'backend_sessions_list';
-  backendId: string;
-  sessions: Array<{
-    id: string;
-    projectId: string;
-    name?: string;
-    providerId?: string;
-    type?: SessionType;
-    parentSessionId?: string;
-    createdAt: number;
-    updatedAt: number;
-    isActive: boolean;  // Whether there's an active run for this session
-    lastMessageOffset?: number;  // Max message offset in this session (for gap detection)
-  }>;
-}
-
-// Backend broadcasts session event to all subscribed clients
-export interface BackendSessionEventMessage {
-  type: 'backend_session_event';
-  backendId: string;
-  eventType: 'created' | 'updated' | 'deleted';
-  session: {
-    id: string;
-    projectId: string;
-    name?: string;
-    providerId?: string;
-    type?: SessionType;
-    parentSessionId?: string;
-    createdAt: number;
-    updatedAt: number;
-    isActive?: boolean;
-    lastMessageOffset?: number;
-  };
-}
-
-// Backend → Gateway: request to broadcast session event to all subscribers
-export interface GatewayBroadcastSessionEventMessage {
-  type: 'broadcast_session_event';
-  eventType: 'created' | 'updated' | 'deleted';
-  session: Session;
-}
-
-// Gateway → Backend: notification that a client has subscribed
-export interface GatewayClientSubscribedMessage {
-  type: 'client_subscribed';
-  clientId: string;
-}
-
-// Backend → Gateway: broadcast message to all subscribers
-export interface GatewayBroadcastToSubscribersMessage {
-  type: 'broadcast_to_subscribers';
-  message: ServerMessage | BackendSessionsListMessage | BackendSessionEventMessage;
-}
-
-// Client → Gateway: update subscription preferences
-export interface GatewayUpdateSubscriptionsMessage {
-  type: 'update_subscriptions';
-  subscribedBackendIds: string[];
-  subscribeAll?: boolean;
-}
-
-// Gateway → Client: confirm subscription state
-export interface GatewaySubscriptionAckMessage {
-  type: 'subscription_ack';
-  subscribedBackendIds: string[];
-}
-
-// --- Backend Registry (Phase 2: Registry Unification) ---
-
-export interface BackendRegistryEntry {
-  backendId: string;
-  instanceId: string;
-  deviceId: string;
-  channel: string;
-  name: string;
-  visible: boolean;
-  online: boolean;
-  registeredAt: number;
-  updatedAt: number;
-}
-
-export interface GatewayRegistrySnapshotMessage {
-  type: 'registry_snapshot';
-  registry: BackendRegistryEntry[];
-}
-
-export interface GatewayRegistryUpsertMessage {
-  type: 'registry_upsert';
-  entry: BackendRegistryEntry;
-}
-
-export interface GatewayRegistryRemoveMessage {
-  type: 'registry_remove';
-  backendId: string;
-  instanceId: string;
-}
-
-// --- Peer Hello Protocol (Phase 3: Single Peer Connection) ---
+// ============================================================================
+// Peer Handshake Protocol
+// ============================================================================
 
 export interface PeerHelloMessage {
   type: 'peer_hello';
+  protocolVersion: ProtocolVersion;
+  peerType: 'client-only' | 'client+backend';
   gatewaySecret: string;
-  peerId?: string;          // Optional: resume a previous peer session
-  capabilities: {
-    client: boolean;
-    backend: boolean;
-  };
   identity: {
     deviceId: string;
     instanceId: string;
-    channel?: string;       // 'prod' | 'dev' | string — defaults to 'prod'
+    channel?: string;
     name?: string;
   };
   backend?: {
-    visible: boolean;       // Whether this backend appears in backends_list
+    visible: boolean;
+    capabilities: string[];
   };
+  lastRegistryRevision?: RegistryRevision;
 }
 
-export interface PeerHelloResultMessage {
-  type: 'peer_hello_result';
-  success: boolean;
-  peerId: string;
-  clientConnected: boolean;
-  backendRegistered: boolean;
-  backendId?: string;
-  registrySnapshot?: BackendRegistryEntry[];
-  error?: string;
+export interface PeerReadyMessage {
+  type: 'peer_ready';
+  protocolVersion: ProtocolVersion;
+  peerSessionId: PeerSessionId;
+  recoveryToken: RecoveryToken;
+  backend?: {
+    backendId: BackendId;
+    epoch: Epoch;
+    leaseTtlMs: number;
+  };
+  registrySync: RegistrySyncPayload;
 }
 
-// --- Gateway HTTP Proxy Protocol ---
-// Used when clients connect through Gateway and need to make REST API calls
-// to a backend that may be behind NAT.
-// Flow: Client → HTTP → Gateway → WS → Backend → WS → Gateway → HTTP → Client
+export type RegistrySyncPayload =
+  | {
+      mode: 'snapshot';
+      revision: RegistryRevision;
+      items: BackendPresence[];
+    }
+  | {
+      mode: 'delta';
+      fromRevision: RegistryRevision;
+      toRevision: RegistryRevision;
+      events: RegistryEvent[];
+    };
+
+// ============================================================================
+// Registry Protocol
+// ============================================================================
+
+export interface BackendPresence {
+  backendId: BackendId;
+  instanceId: string;
+  deviceId: string;
+  name: string;
+  channel: string;
+  visible: boolean;
+  capabilities: string[];
+  epoch: Epoch;
+  connectedAt: number;
+  lastSeenAt: number;
+}
+
+export type RegistryEvent =
+  | {
+      revision: RegistryRevision;
+      op: 'upsert';
+      item: BackendPresence;
+    }
+  | {
+      revision: RegistryRevision;
+      op: 'remove';
+      backendId: BackendId;
+    };
+
+export interface ResyncRegistryMessage {
+  type: 'resync_registry';
+  lastRevision?: RegistryRevision;
+}
+
+export interface RegistrySnapshotMessage {
+  type: 'registry_snapshot';
+  revision: RegistryRevision;
+  items: BackendPresence[];
+}
+
+export interface RegistryDeltaMessage {
+  type: 'registry_delta';
+  fromRevision: RegistryRevision;
+  toRevision: RegistryRevision;
+  events: RegistryEvent[];
+}
+
+export interface RegistryEventMessage {
+  type: 'registry_event';
+  event: RegistryEvent;
+}
+
+export type RegistrySyncResponse =
+  | {
+      mode: 'snapshot';
+      revision: RegistryRevision;
+      items: BackendPresence[];
+    }
+  | {
+      mode: 'delta';
+      fromRevision: RegistryRevision;
+      toRevision: RegistryRevision;
+      events: RegistryEvent[];
+    };
+
+// ============================================================================
+// Backend Lease and Heartbeat
+// ============================================================================
+
+export interface BackendHeartbeatMessage {
+  type: 'backend_heartbeat';
+  epoch: Epoch;
+  observedAt: number;
+}
+
+export interface HeartbeatAckMessage {
+  type: 'heartbeat_ack';
+  epoch: Epoch;
+  streamDemand: boolean;
+}
+
+// ============================================================================
+// Backend Catalog Protocol
+// ============================================================================
+
+export interface SessionCatalogItem {
+  sessionId: string;
+  title?: string;
+  createdAt: number;
+  updatedAt: number;
+  lastMessageAt?: number;
+  lastMessagePreview?: string;
+  activeRunStatus?: 'idle' | 'running';
+  archived?: boolean;
+}
+
+export interface CatalogSnapshotMessage {
+  type: 'catalog_snapshot';
+  epoch: Epoch;
+  revision: CatalogRevision;
+  items: SessionCatalogItem[];
+}
+
+export type CatalogEventMessage =
+  | {
+      type: 'catalog_event';
+      epoch: Epoch;
+      revision: CatalogRevision;
+      op: 'upsert';
+      item: SessionCatalogItem;
+    }
+  | {
+      type: 'catalog_event';
+      epoch: Epoch;
+      revision: CatalogRevision;
+      op: 'remove';
+      sessionId: string;
+    };
+
+export interface SubscribeBackendCatalogMessage {
+  type: 'subscribe_backend_catalog';
+  backendId: BackendId;
+  expectedEpoch: Epoch;
+  lastRevision?: CatalogRevision;
+}
+
+export interface UnsubscribeBackendCatalogMessage {
+  type: 'unsubscribe_backend_catalog';
+  backendId: BackendId;
+  expectedEpoch: Epoch;
+}
+
+export interface BackendCatalogSnapshotMessage {
+  type: 'backend_catalog_snapshot';
+  backendId: BackendId;
+  epoch: Epoch;
+  revision: CatalogRevision;
+  items: SessionCatalogItem[];
+}
+
+export interface BackendCatalogDeltaMessage {
+  type: 'backend_catalog_delta';
+  backendId: BackendId;
+  epoch: Epoch;
+  fromRevision: CatalogRevision;
+  toRevision: CatalogRevision;
+  events: CatalogDeltaEvent[];
+}
+
+export type CatalogDeltaEvent =
+  | {
+      revision: CatalogRevision;
+      op: 'upsert';
+      item: SessionCatalogItem;
+    }
+  | {
+      revision: CatalogRevision;
+      op: 'remove';
+      sessionId: string;
+    };
+
+export type BackendCatalogEventMessage =
+  | {
+      type: 'backend_catalog_event';
+      backendId: BackendId;
+      epoch: Epoch;
+      revision: CatalogRevision;
+      op: 'upsert';
+      item: SessionCatalogItem;
+    }
+  | {
+      type: 'backend_catalog_event';
+      backendId: BackendId;
+      epoch: Epoch;
+      revision: CatalogRevision;
+      op: 'remove';
+      sessionId: string;
+    };
+
+export interface BackendCatalogResetMessage {
+  type: 'backend_catalog_reset';
+  backendId: BackendId;
+  epoch: Epoch;
+}
+
+export type BackendCatalogSyncResponse =
+  | {
+      mode: 'snapshot';
+      backendId: BackendId;
+      epoch: Epoch;
+      revision: CatalogRevision;
+      items: SessionCatalogItem[];
+    }
+  | {
+      mode: 'delta';
+      backendId: BackendId;
+      epoch: Epoch;
+      fromRevision: CatalogRevision;
+      toRevision: CatalogRevision;
+      events: CatalogDeltaEvent[];
+    };
+
+// ============================================================================
+// Backend Channel Protocol
+// ============================================================================
+
+export interface OpenBackendChannelMessage {
+  type: 'open_backend_channel';
+  backendId: BackendId;
+  expectedEpoch: Epoch;
+}
+
+export interface BackendChannelOpenedMessage {
+  type: 'backend_channel_opened';
+  backendId: BackendId;
+  epoch: Epoch;
+  channelId: ChannelId;
+  capabilities: string[];
+}
+
+export interface BackendChannelRejectedMessage {
+  type: 'backend_channel_rejected';
+  backendId: BackendId;
+  reason: 'offline' | 'epoch_mismatch' | 'max_channels_exceeded';
+}
+
+export interface CloseBackendChannelMessage {
+  type: 'close_backend_channel';
+  channelId: ChannelId;
+}
+
+export interface BackendChannelClosedMessage {
+  type: 'backend_channel_closed';
+  channelId: ChannelId;
+  backendId: BackendId;
+  reason: 'client_closed' | 'backend_offline' | 'epoch_changed' | 'peer_disconnected';
+}
+
+// ============================================================================
+// Session Content Protocol
+// ============================================================================
+
+export interface SessionMessage {
+  messageId: string;
+  sessionId: string;
+  offset: Offset;
+  role: 'user' | 'assistant' | 'system' | 'tool';
+  createdAt: number;
+  content: unknown;
+}
+
+export interface StreamDemandMessage {
+  type: 'stream_demand';
+  active: boolean;
+}
+
+export interface OpenSessionStreamMessage {
+  type: 'open_session_stream';
+  channelId: ChannelId;
+  sessionId: string;
+}
+
+export interface CloseSessionStreamMessage {
+  type: 'close_session_stream';
+  channelId: ChannelId;
+  sessionId: string;
+}
+
+export interface SessionStreamClosedMessage {
+  type: 'session_stream_closed';
+  channelId: ChannelId;
+  sessionId: string;
+  reason: 'client_closed' | 'channel_closed' | 'backend_offline' | 'epoch_changed';
+}
+
+export type RunStreamEventType =
+  | 'run_started'
+  | 'run_delta'
+  | 'tool_call_started'
+  | 'tool_call_delta'
+  | 'tool_call_completed'
+  | 'run_completed'
+  | 'run_failed';
+
+export interface BackendRunStreamEvent {
+  type: 'run_stream_event';
+  eventType: RunStreamEventType;
+  sessionId: string;
+  runId: string;
+  seq: Seq;
+  payload: unknown;
+}
+
+export interface RunStreamEvent {
+  type: 'run_stream_event';
+  eventType: RunStreamEventType;
+  channelId: ChannelId;
+  sessionId: string;
+  runId: string;
+  seq: Seq;
+  payload: unknown;
+}
+
+export interface CatchUpSessionContentMessage {
+  type: 'catch_up_session_content';
+  channelId: ChannelId;
+  sessionId: string;
+  afterOffset: Offset;
+}
+
+export interface SessionContentPatchMessage {
+  type: 'session_content_patch';
+  channelId: ChannelId;
+  sessionId: string;
+  messages: SessionMessage[];
+  latestOffset: Offset;
+}
+
+// ============================================================================
+// Error Model
+// ============================================================================
+
+export type GatewayErrorCode =
+  | 'INVALID_MESSAGE'
+  | 'PROTOCOL_VERSION_MISMATCH'
+  | 'UNAUTHORIZED'
+  | 'REGISTRY_REVISION_GAP'
+  | 'CATALOG_REVISION_GAP'
+  | 'BACKEND_OFFLINE'
+  | 'BACKEND_EPOCH_MISMATCH'
+  | 'BACKEND_CHANNEL_NOT_FOUND'
+  | 'BACKEND_CHANNEL_CLOSED'
+  | 'MAX_CHANNELS_EXCEEDED'
+  | 'SESSION_NOT_FOUND'
+  | 'STREAM_GAP_DETECTED'
+  | 'RATE_LIMITED';
+
+export type GatewayErrorRecovery =
+  | 'resync_registry'
+  | 'resync_catalog'
+  | 'reopen_channel'
+  | 'catch_up_content'
+  | 'reconnect';
+
+export interface GatewayErrorMessage {
+  type: 'gateway_error';
+  code: GatewayErrorCode;
+  message: string;
+  recovery?: GatewayErrorRecovery;
+}
+
+// ============================================================================
+// Union Types
+// ============================================================================
+
+export type PeerToGatewayMessage =
+  | PeerHelloMessage
+  | ResyncRegistryMessage
+  | BackendHeartbeatMessage
+  | CatalogSnapshotMessage
+  | CatalogEventMessage
+  | SubscribeBackendCatalogMessage
+  | UnsubscribeBackendCatalogMessage
+  | OpenBackendChannelMessage
+  | CloseBackendChannelMessage
+  | OpenSessionStreamMessage
+  | CloseSessionStreamMessage
+  | BackendRunStreamEvent
+  | CatchUpSessionContentMessage;
+
+export type GatewayToPeerMessage =
+  | PeerReadyMessage
+  | RegistrySnapshotMessage
+  | RegistryDeltaMessage
+  | RegistryEventMessage
+  | HeartbeatAckMessage
+  | StreamDemandMessage
+  | BackendCatalogSnapshotMessage
+  | BackendCatalogDeltaMessage
+  | BackendCatalogEventMessage
+  | BackendCatalogResetMessage
+  | BackendChannelOpenedMessage
+  | BackendChannelRejectedMessage
+  | BackendChannelClosedMessage
+  | RunStreamEvent
+  | SessionStreamClosedMessage
+  | SessionContentPatchMessage
+  | GatewayErrorMessage;
+
+export type BackendToGatewayMessage =
+  | PeerHelloMessage
+  | ResyncRegistryMessage
+  | BackendHeartbeatMessage
+  | CatalogSnapshotMessage
+  | CatalogEventMessage
+  | BackendRunStreamEvent;
+
+export type GatewayToBackendMessage =
+  | PeerReadyMessage
+  | RegistrySnapshotMessage
+  | RegistryDeltaMessage
+  | RegistryEventMessage
+  | HeartbeatAckMessage
+  | StreamDemandMessage
+  | GatewayErrorMessage;
+
+export type ClientToGatewayMessage =
+  | PeerHelloMessage
+  | ResyncRegistryMessage
+  | SubscribeBackendCatalogMessage
+  | UnsubscribeBackendCatalogMessage
+  | OpenBackendChannelMessage
+  | CloseBackendChannelMessage
+  | OpenSessionStreamMessage
+  | CloseSessionStreamMessage
+  | CatchUpSessionContentMessage;
+
+export type GatewayToClientMessage =
+  | PeerReadyMessage
+  | RegistrySnapshotMessage
+  | RegistryDeltaMessage
+  | RegistryEventMessage
+  | BackendCatalogSnapshotMessage
+  | BackendCatalogDeltaMessage
+  | BackendCatalogEventMessage
+  | BackendCatalogResetMessage
+  | BackendChannelOpenedMessage
+  | BackendChannelRejectedMessage
+  | BackendChannelClosedMessage
+  | RunStreamEvent
+  | SessionStreamClosedMessage
+  | SessionContentPatchMessage
+  | GatewayErrorMessage;
+
+// ============================================================================
+// Client State Model (for reference)
+// ============================================================================
+
+export interface ClientRegistryCache {
+  revision: RegistryRevision;
+  items: Record<BackendId, BackendPresence>;
+}
+
+export interface BackendCatalogCache {
+  backendId: BackendId;
+  epoch: Epoch;
+  revision: CatalogRevision;
+  items: Record<string, SessionCatalogItem>;
+}
+
+export interface SessionContentCache {
+  backendId: BackendId;
+  epoch: Epoch;
+  sessionId: string;
+  maxOffset: Offset;
+  messages: SessionMessage[];
+}
+
+// ============================================================================
+// HTTP Proxy Protocol (shared between gateway server and backend)
+// ============================================================================
 
 export interface GatewayHttpProxyRequest {
   type: 'http_proxy_request';
   requestId: string;
-  method: string;        // GET, POST, PUT, DELETE
-  path: string;          // /api/projects, /api/sessions/xxx/messages
+  method: string;
+  path: string;
   headers: Record<string, string>;
-  body?: string;         // JSON string
+  body?: unknown;
 }
 
 export interface GatewayHttpProxyResponse {
@@ -278,11 +554,8 @@ export interface GatewayHttpProxyResponse {
   requestId: string;
   statusCode: number;
   headers: Record<string, string>;
-  body: string;          // JSON string
+  body: unknown;
 }
-
-// Streaming HTTP proxy response (for large/binary payloads)
-// Flow: response_start → N × response_chunk → response_end
 
 export interface GatewayHttpProxyResponseStart {
   type: 'http_proxy_response_start';
@@ -294,93 +567,10 @@ export interface GatewayHttpProxyResponseStart {
 export interface GatewayHttpProxyResponseChunk {
   type: 'http_proxy_response_chunk';
   requestId: string;
-  data: string;          // base64-encoded binary chunk
+  data: string;
 }
 
 export interface GatewayHttpProxyResponseEnd {
   type: 'http_proxy_response_end';
   requestId: string;
 }
-
-// Union types for Gateway messages
-// Peer messages: sent/received by peers with peer_hello protocol
-export type PeerToGatewayMessage =
-  | PeerHelloMessage
-  // Client capability messages
-  | GatewayListBackendsMessage
-  | GatewayConnectBackendMessage
-  | GatewaySendToBackendMessage
-  | GatewayUpdateSubscriptionsMessage
-  // Backend capability messages
-  | GatewayClientAuthResultMessage
-  | GatewayBackendResponseMessage
-  | GatewayBroadcastSessionEventMessage
-  | GatewayBroadcastToSubscribersMessage
-  | GatewayHttpProxyResponse
-  | GatewayHttpProxyResponseStart
-  | GatewayHttpProxyResponseChunk
-  | GatewayHttpProxyResponseEnd;
-
-export type GatewayToPeerMessage =
-  | PeerHelloResultMessage
-  // Client capability messages
-  | GatewayBackendsListMessage
-  | GatewayBackendAuthResultMessage
-  | GatewayBackendDisconnectedMessage
-  | GatewayBackendMessageMessage
-  | GatewayErrorMessage
-  | GatewaySubscriptionAckMessage
-  // Backend capability messages
-  | GatewayClientAuthMessage
-  | GatewayForwardedMessage
-  | GatewayClientConnectedMessage
-  | GatewayClientDisconnectedMessage
-  | GatewayClientSubscribedMessage
-  | GatewayHttpProxyRequest
-  // Shared
-  | GatewayRegistrySnapshotMessage
-  | GatewayRegistryUpsertMessage
-  | GatewayRegistryRemoveMessage;
-
-export type GatewayToBackendMessage =
-  | GatewayRegisterResultMessage
-  | GatewayBackendsListMessage
-  | GatewayClientAuthMessage
-  | GatewayForwardedMessage
-  | GatewayClientConnectedMessage
-  | GatewayClientDisconnectedMessage
-  | GatewayClientSubscribedMessage
-  | GatewayHttpProxyRequest
-  | GatewayRegistrySnapshotMessage
-  | GatewayRegistryUpsertMessage
-  | GatewayRegistryRemoveMessage;
-
-export type BackendToGatewayMessage =
-  | GatewayRegisterMessage
-  | GatewayClientAuthResultMessage
-  | GatewayBackendResponseMessage
-  | GatewayBroadcastSessionEventMessage
-  | GatewayBroadcastToSubscribersMessage
-  | GatewayHttpProxyResponse
-  | GatewayHttpProxyResponseStart
-  | GatewayHttpProxyResponseChunk
-  | GatewayHttpProxyResponseEnd;
-
-export type ClientToGatewayMessage =
-  | GatewayAuthMessage
-  | GatewayListBackendsMessage
-  | GatewayConnectBackendMessage
-  | GatewaySendToBackendMessage
-  | GatewayUpdateSubscriptionsMessage;
-
-export type GatewayToClientMessage =
-  | GatewayAuthResultMessage
-  | GatewayBackendsListMessage
-  | GatewayBackendAuthResultMessage
-  | GatewayBackendDisconnectedMessage
-  | GatewayBackendMessageMessage
-  | GatewayErrorMessage
-  | GatewaySubscriptionAckMessage
-  | GatewayRegistrySnapshotMessage
-  | GatewayRegistryUpsertMessage
-  | GatewayRegistryRemoveMessage;

@@ -63,6 +63,16 @@ export function initDatabase(dbPath: string = getDbPath()): Database.Database {
 
     CREATE INDEX IF NOT EXISTS idx_instance_backend_id ON instance_mappings(backend_id);
     CREATE INDEX IF NOT EXISTS idx_instance_device_id ON instance_mappings(device_id);
+
+    -- v2: monotonic counters for epoch and registry revision
+    CREATE TABLE IF NOT EXISTS counters (
+      key TEXT PRIMARY KEY,
+      value INTEGER NOT NULL DEFAULT 0
+    );
+
+    -- Initialize counters if not present
+    INSERT OR IGNORE INTO counters (key, value) VALUES ('max_epoch', 0);
+    INSERT OR IGNORE INTO counters (key, value) VALUES ('registry_revision', 0);
   `);
 
   return db;
@@ -184,6 +194,36 @@ export class GatewayStorage {
     `).get(backendId) as DeviceMapping | undefined;
 
     return row;
+  }
+
+  // =========================================================================
+  // v2: Epoch management
+  // =========================================================================
+
+  /**
+   * Allocate a new epoch (monotonically increasing).
+   * Persisted to survive gateway restarts.
+   */
+  allocateEpoch(): number {
+    this.db.prepare(`
+      UPDATE counters SET value = value + 1 WHERE key = 'max_epoch'
+    `).run();
+
+    const row = this.db.prepare(`
+      SELECT value FROM counters WHERE key = 'max_epoch'
+    `).get() as { value: number };
+
+    return row.value;
+  }
+
+  /**
+   * Get the current max epoch without incrementing.
+   */
+  getMaxEpoch(): number {
+    const row = this.db.prepare(`
+      SELECT value FROM counters WHERE key = 'max_epoch'
+    `).get() as { value: number };
+    return row.value;
   }
 
   /**

@@ -1,367 +1,343 @@
 /**
- * Gateway WebSocket Transport (Multi-Backend)
+ * Gateway WebSocket Transport (Client-Only Peer)
  *
- * Maintains a single WebSocket connection to a Gateway.
- * Supports discovering and communicating with multiple backends
- * through the Gateway's protocol.
+ * Implements the gateway sync protocol for desktop/mobile client.
+ * Features:
+ * - Epoch-bound routing
+ * - Revision-based registry/catalog sync with gap detection
+ * - Channel abstraction for backend interaction
+ * - Session stream lifecycle
+ * - Content catch-up for disconnect recovery
  */
 
 import type {
-  ClientMessage,
-  ServerMessage,
-  ServerFeature,
-  GatewayBackendInfo,
-  BackendRegistryEntry,
-  ClientToGatewayMessage,
-  GatewayToPeerMessage,
+  BackendPresence,
+  RegistrySyncPayload,
+  RegistryEvent,
+  RegistrySnapshotMessage,
+  RegistryDeltaMessage,
+  RegistryEventMessage,
+  ResyncRegistryMessage,
   PeerHelloMessage,
-  PeerHelloResultMessage,
-  GatewayRegistrySnapshotMessage,
-  GatewayRegistryUpsertMessage,
-  GatewayRegistryRemoveMessage,
-  BackendSessionsListMessage,
-  BackendSessionEventMessage,
-  GatewayUpdateSubscriptionsMessage
+  PeerReadyMessage,
+  SubscribeBackendCatalogMessage,
+  UnsubscribeBackendCatalogMessage,
+  BackendCatalogSnapshotMessage,
+  BackendCatalogDeltaMessage,
+  BackendCatalogEventMessage,
+  BackendCatalogResetMessage,
+  OpenBackendChannelMessage,
+  BackendChannelOpenedMessage,
+  BackendChannelRejectedMessage,
+  CloseBackendChannelMessage,
+  BackendChannelClosedMessage,
+  OpenSessionStreamMessage,
+  CloseSessionStreamMessage,
+  SessionStreamClosedMessage,
+  RunStreamEvent,
+  CatchUpSessionContentMessage,
+  SessionContentPatchMessage,
+  SessionCatalogItem,
+  SessionMessage,
+  GatewayErrorMessage,
 } from '@my-claudia/shared';
 import { useSessionsStore } from '../../stores/sessionsStore';
-import { useGatewayStore } from '../../stores/gatewayStore';
-import { useServerStore } from '../../stores/serverStore';
-import { eagerSyncSessionUpdate, startSessionSync, stopSessionSync } from '../../services/sessionSync';
+
+// ============================================================================
+// Config & Callbacks
+// ============================================================================
 
 export interface GatewayTransportConfig {
   url: string;
   gatewaySecret: string;
-  onConnected: () => void;
+  deviceId: string;
+  instanceId: string;
+
+  onConnected: (peerSessionId: string, recoveryToken: string) => void;
   onDisconnected: () => void;
   onError: (error: Event | string) => void;
-  onBackendsUpdated: (backends: GatewayBackendInfo[]) => void;
-  onBackendAuthResult: (backendId: string, success: boolean, error?: string, features?: ServerFeature[]) => void;
-  onBackendMessage: (backendId: string, message: ServerMessage) => void;
-  onBackendDisconnected: (backendId: string) => void;
-  onSubscriptionAck?: (subscribedBackendIds: string[]) => void;
-  // Registry callbacks (Phase 2)
-  onRegistrySnapshot?: (entries: BackendRegistryEntry[]) => void;
-  onRegistryUpsert?: (entry: BackendRegistryEntry) => void;
-  onRegistryRemove?: (backendId: string, instanceId: string) => void;
+  onRegistryChanged: (items: BackendPresence[]) => void;
+  onCatalogSnapshot: (backendId: string, epoch: number, items: SessionCatalogItem[]) => void;
+  onCatalogEvent: (backendId: string, epoch: number, op: 'upsert' | 'remove', item?: SessionCatalogItem, sessionId?: string) => void;
+  onCatalogReset: (backendId: string, epoch: number) => void;
+  onChannelOpened: (backendId: string, channelId: string, epoch: number, capabilities: string[]) => void;
+  onChannelRejected: (backendId: string, reason: string) => void;
+  onChannelClosed: (channelId: string, backendId: string, reason: string) => void;
+  onRunStreamEvent: (channelId: string, sessionId: string, event: RunStreamEvent) => void;
+  onSessionStreamClosed: (channelId: string, sessionId: string, reason: string) => void;
+  onContentPatch: (channelId: string, sessionId: string, messages: SessionMessage[], latestOffset: number) => void;
 }
+
+// ============================================================================
+// Transport
+// ============================================================================
 
 export class GatewayTransport {
   private ws: WebSocket | null = null;
   private config: GatewayTransportConfig;
-  private gatewayAuthenticated = false;
-  private authenticatedBackends = new Set<string>();
-  private pendingBackendAuths = new Set<string>();
+
+  private peerSessionId: string | null = null;
+  private recoveryToken: string | null = null;
+  private authenticated = false;
+
+  private registryRevision: number = 0;
+  private registryItems = new Map<string, BackendPresence>();
+
+  private catalogRevisions = new Map<string, number>();
+  private catalogEpochs = new Map<string, number>();
+
+  channels = new Map<string, { backendId: string; epoch: number }>();
+  private backendToChannel = new Map<string, string>();
 
   constructor(config: GatewayTransportConfig) {
     this.config = config;
   }
 
   connect(): void {
-    if (this.ws) {
-      this.ws.close();
-    }
-
-    this.gatewayAuthenticated = false;
-    this.authenticatedBackends.clear();
-    this.pendingBackendAuths.clear();
-
+    if (this.ws) this.ws.close();
+    this.authenticated = false;
+    this.channels.clear();
+    this.backendToChannel.clear();
     this.ws = new WebSocket(this.config.url);
     this.setupWebSocket(this.ws);
   }
 
   disconnect(): void {
-    if (this.ws) {
-      this.ws.close();
-      this.ws = null;
-    }
-    this.gatewayAuthenticated = false;
-    this.authenticatedBackends.clear();
-    this.pendingBackendAuths.clear();
-    // Intentional disconnect: stop syncs and clear sessions
-    stopSessionSync();
-    useSessionsStore.getState().clearAllSessions();
+    if (this.ws) { this.ws.close(); this.ws = null; }
+    this.cleanup();
   }
 
   isConnected(): boolean {
-    return this.ws !== null &&
-      this.ws.readyState === WebSocket.OPEN &&
-      this.gatewayAuthenticated;
+    return this.ws !== null && this.ws.readyState === WebSocket.OPEN && this.authenticated;
   }
 
-  isBackendAuthenticated(backendId: string): boolean {
-    return this.authenticatedBackends.has(backendId);
+  // --- Catalog ---
+  subscribeCatalog(backendId: string, epoch: number, lastRevision?: number): void {
+    this.send({ type: 'subscribe_backend_catalog', backendId, expectedEpoch: epoch, lastRevision } satisfies SubscribeBackendCatalogMessage);
   }
 
-  /**
-   * Authenticate to a specific backend through the gateway
-   */
-  authenticateBackend(backendId: string): void {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN || !this.gatewayAuthenticated) {
-      console.error('[GatewayTransport] Cannot authenticate backend: not connected to gateway');
-      this.config.onBackendAuthResult(backendId, false, 'Not connected to gateway');
-      return;
-    }
-
-    if (this.authenticatedBackends.has(backendId) || this.pendingBackendAuths.has(backendId)) {
-      console.log('[GatewayTransport] Skipping duplicate backend auth request:', backendId);
-      return;
-    }
-
-    this.pendingBackendAuths.add(backendId);
-
-    const msg: ClientToGatewayMessage = {
-      type: 'connect_backend',
-      backendId
-    };
-    this.ws.send(JSON.stringify(msg));
+  unsubscribeCatalog(backendId: string, epoch: number): void {
+    this.send({ type: 'unsubscribe_backend_catalog', backendId, expectedEpoch: epoch } satisfies UnsubscribeBackendCatalogMessage);
   }
 
-  /**
-   * Send a message to a specific backend through the gateway
-   */
-  sendToBackend(backendId: string, message: ClientMessage): void {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
-      console.error('[GatewayTransport] Cannot send: not connected');
-      return;
-    }
-
-    if (!this.authenticatedBackends.has(backendId)) {
-      console.error('[GatewayTransport] Cannot send: not authenticated to backend', backendId);
-      return;
-    }
-
-    const msg: ClientToGatewayMessage = {
-      type: 'send_to_backend',
-      backendId,
-      message
-    };
-    this.ws.send(JSON.stringify(msg));
+  // --- Channel ---
+  openChannel(backendId: string, epoch: number): void {
+    if (this.backendToChannel.has(backendId)) return;
+    this.send({ type: 'open_backend_channel', backendId, expectedEpoch: epoch } satisfies OpenBackendChannelMessage);
   }
 
-  /**
-   * Request the list of available backends from the gateway
-   */
-  requestBackendsList(): void {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN || !this.gatewayAuthenticated) {
-      return;
-    }
-
-    const msg: ClientToGatewayMessage = {
-      type: 'list_backends'
-    };
-    this.ws.send(JSON.stringify(msg));
+  closeChannel(channelId: string): void {
+    this.send({ type: 'close_backend_channel', channelId } satisfies CloseBackendChannelMessage);
   }
 
-  /**
-   * Update subscription preferences at the gateway
-   */
-  updateSubscriptions(subscribedBackendIds: string[], subscribeAll?: boolean): void {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN || !this.gatewayAuthenticated) {
-      return;
-    }
-
-    const msg: GatewayUpdateSubscriptionsMessage = {
-      type: 'update_subscriptions',
-      subscribedBackendIds,
-      subscribeAll
-    };
-    this.ws.send(JSON.stringify(msg));
+  getChannelId(backendId: string): string | undefined {
+    return this.backendToChannel.get(backendId);
   }
+
+  // --- Stream ---
+  openSessionStream(channelId: string, sessionId: string): void {
+    this.send({ type: 'open_session_stream', channelId, sessionId } satisfies OpenSessionStreamMessage);
+  }
+
+  closeSessionStream(channelId: string, sessionId: string): void {
+    this.send({ type: 'close_session_stream', channelId, sessionId } satisfies CloseSessionStreamMessage);
+  }
+
+  // --- Content ---
+  catchUpContent(channelId: string, sessionId: string, afterOffset: number): void {
+    this.send({ type: 'catch_up_session_content', channelId, sessionId, afterOffset } satisfies CatchUpSessionContentMessage);
+  }
+
+  // --- Accessors ---
+  getRegistryRevision(): number { return this.registryRevision; }
+  getRegistryItems(): Map<string, BackendPresence> { return this.registryItems; }
+  getPeerSessionId(): string | null { return this.peerSessionId; }
+  getRecoveryToken(): string | null { return this.recoveryToken; }
+
+  // ==========================================================================
+  // Internal — WebSocket Setup
+  // ==========================================================================
 
   private setupWebSocket(ws: WebSocket): void {
-    ws.onopen = () => {
-      console.log('[GatewayTransport] Connected to Gateway, sending peer_hello...');
-
-      // Send peer_hello with client-only capability
-      const peerHello: PeerHelloMessage = {
-        type: 'peer_hello',
-        gatewaySecret: this.config.gatewaySecret,
-        capabilities: {
-          client: true,
-          backend: false,
-        },
-        identity: {
-          deviceId: `client-${crypto.randomUUID().slice(0, 8)}`,
-          instanceId: `client-${crypto.randomUUID().slice(0, 8)}`,
-        },
-      };
-      ws.send(JSON.stringify(peerHello));
-    };
-
+    const currentWs = ws;
+    ws.onopen = () => { if (this.ws !== currentWs) return; this.sendPeerHello(); };
     ws.onclose = () => {
-      // Guard: ignore stale WebSocket close events during reconnection
-      if (this.ws !== null && this.ws !== ws) return;
-
-      console.log('[GatewayTransport] Disconnected from Gateway');
-      this.ws = null;
-      this.gatewayAuthenticated = false;
-      this.authenticatedBackends.clear();
-      this.pendingBackendAuths.clear();
-      // Don't stop sync timers or clear sessions here —
-      // session data survives temporary disconnects (mobile background).
-      // Sync HTTP requests will fail silently until reconnected.
-      // Cleanup only happens on intentional disconnect() or max reconnect failure.
+      if (this.ws !== null && this.ws !== currentWs) return;
+      this.ws = null; this.authenticated = false; this.channels.clear(); this.backendToChannel.clear();
       this.config.onDisconnected();
     };
-
-    ws.onerror = (error) => {
-      console.error('[GatewayTransport] WebSocket error:', error);
-      this.config.onError(error);
-    };
-
+    ws.onerror = (error) => { this.config.onError(error); };
     ws.onmessage = (event: MessageEvent) => {
-      try {
-        const message: GatewayToPeerMessage = JSON.parse(event.data);
-        this.handleGatewayMessage(message);
-      } catch (error) {
-        console.error('[GatewayTransport] Failed to parse message:', error);
-      }
+      try { this.handleMessage(JSON.parse(event.data)); }
+      catch (error) { console.error('[GatewayTransport] Failed to parse message:', error); }
     };
   }
 
-  private handleGatewayMessage(message: GatewayToPeerMessage): void {
+  private sendPeerHello(): void {
+    const msg: PeerHelloMessage = {
+      type: 'peer_hello', protocolVersion: 2, peerType: 'client-only', gatewaySecret: this.config.gatewaySecret,
+      identity: { deviceId: this.config.deviceId, instanceId: this.config.instanceId },
+      lastRegistryRevision: this.registryRevision > 0 ? this.registryRevision : undefined,
+    };
+    this.ws?.send(JSON.stringify(msg));
+  }
+
+  // ==========================================================================
+  // Internal — Message Router
+  // ==========================================================================
+
+  private handleMessage(message: any): void {
     switch (message.type) {
-      case 'peer_hello_result': {
-        const result = message as PeerHelloResultMessage;
-        if (result.success) {
-          console.log('[GatewayTransport] Peer hello successful, peerId:', result.peerId);
-          this.gatewayAuthenticated = true;
-          this.config.onConnected();
-          // Process registry snapshot from peer_hello_result
-          if (result.registrySnapshot) {
-            console.log('[GatewayTransport] Registry from peer_hello:', result.registrySnapshot.length, 'entries');
-            this.config.onRegistrySnapshot?.(result.registrySnapshot);
-            // Derive backends list for legacy consumers
-            const backends: GatewayBackendInfo[] = result.registrySnapshot
-              .filter(e => e.visible)
-              .map(e => ({
-                backendId: e.backendId,
-                name: e.name,
-                online: e.online,
-                instanceId: e.instanceId,
-                deviceId: e.deviceId,
-                channel: e.channel,
-              }));
-            this.config.onBackendsUpdated(backends);
-          } else {
-            this.requestBackendsList();
-          }
-        } else {
-          console.error('[GatewayTransport] Peer hello failed:', result.error);
-          this.config.onError(result.error || 'Peer hello failed');
-        }
-        break;
-      }
-
-      case 'backends_list':
-        console.log('[GatewayTransport] Backends discovered:', message.backends.length);
-        this.config.onBackendsUpdated(message.backends);
-        break;
-
-      case 'backend_auth_result':
-        this.pendingBackendAuths.delete(message.backendId);
-        if (message.success) {
-          console.log('[GatewayTransport] Backend authenticated:', message.backendId);
-          this.authenticatedBackends.add(message.backendId);
-          // Start periodic sync for every backend (including local backend via gateway),
-          // so ActiveSessionsPanel has a consistent cross-backend session snapshot.
-          startSessionSync(message.backendId, {
-            skipInitialFullSync:
-              useServerStore.getState().activeServerId === `gw:${message.backendId}`,
-          });
-        } else {
-          console.error('[GatewayTransport] Backend auth failed:', message.backendId, message.error);
-          this.authenticatedBackends.delete(message.backendId);
-        }
-        this.config.onBackendAuthResult(message.backendId, message.success, message.error, (message as any).features);
-        break;
-
-      case 'backend_message':
-        // Unwrap and forward the backend message
-        if (message.message && message.backendId) {
-          // Check if it's a session-related message
-          const innerMessage = message.message as any;
-          if (innerMessage.type === 'backend_sessions_list') {
-            this.handleSessionsList(innerMessage as BackendSessionsListMessage);
-          } else if (innerMessage.type === 'backend_session_event') {
-            this.handleSessionEvent(innerMessage as BackendSessionEventMessage);
-          } else {
-            // For non-session traffic, skip messages from our own local backend
-            // to avoid duplicate chat/message streams with the direct local connection.
-            const { localBackendId: msgLocalId } = useGatewayStore.getState();
-            if (msgLocalId && message.backendId === msgLocalId) {
-              break;
-            }
-            this.config.onBackendMessage(message.backendId, message.message as ServerMessage);
-          }
-        }
-        break;
-
-      case 'backend_disconnected':
-        console.log('[GatewayTransport] Backend disconnected:', message.backendId);
-        this.authenticatedBackends.delete(message.backendId);
-        this.pendingBackendAuths.delete(message.backendId);
-        // Stop periodic sync for this backend
-        stopSessionSync(message.backendId);
-        // Clear sessions for this backend
-        useSessionsStore.getState().clearBackendSessions(message.backendId);
-        this.config.onBackendDisconnected(message.backendId);
-        break;
-
-      case 'subscription_ack':
-        console.log('[GatewayTransport] Subscription ack:', message.subscribedBackendIds);
-        this.config.onSubscriptionAck?.(message.subscribedBackendIds);
-        break;
-
-      case 'gateway_error':
-        console.error('[GatewayTransport] Gateway error:', message.message);
-        this.config.onError(message.message);
-        break;
-
-      // Registry messages (Phase 2)
-      case 'registry_snapshot': {
-        const snapshotMsg = message as GatewayRegistrySnapshotMessage;
-        console.log(`[GatewayTransport] Registry snapshot: ${snapshotMsg.registry.length} entries`);
-        this.config.onRegistrySnapshot?.(snapshotMsg.registry);
-        break;
-      }
-
-      case 'registry_upsert': {
-        const upsertMsg = message as GatewayRegistryUpsertMessage;
-        console.log(`[GatewayTransport] Registry upsert: ${upsertMsg.entry.backendId} (${upsertMsg.entry.name})`);
-        this.config.onRegistryUpsert?.(upsertMsg.entry);
-        break;
-      }
-
-      case 'registry_remove': {
-        const removeMsg = message as GatewayRegistryRemoveMessage;
-        console.log(`[GatewayTransport] Registry remove: ${removeMsg.backendId}`);
-        this.config.onRegistryRemove?.(removeMsg.backendId, removeMsg.instanceId);
-        break;
-      }
-
-      default:
-        console.warn('[GatewayTransport] Unknown message type:', (message as any).type);
+      case 'peer_ready': this.handlePeerReady(message); break;
+      case 'registry_snapshot': this.handleRegistrySnapshot(message); break;
+      case 'registry_delta': this.handleRegistryDelta(message); break;
+      case 'registry_event': this.handleRegistryEvent(message); break;
+      case 'backend_catalog_snapshot': this.handleCatalogSnapshot(message); break;
+      case 'backend_catalog_delta': this.handleCatalogDelta(message); break;
+      case 'backend_catalog_event': this.handleCatalogEvent(message); break;
+      case 'backend_catalog_reset': this.handleCatalogReset(message); break;
+      case 'backend_channel_opened': this.handleChannelOpened(message); break;
+      case 'backend_channel_rejected': this.handleChannelRejected(message); break;
+      case 'backend_channel_closed': this.handleChannelClosed(message); break;
+      case 'run_stream_event': this.handleRunStreamEvent(message); break;
+      case 'session_stream_closed': this.handleSessionStreamClosed(message); break;
+      case 'session_content_patch': this.handleContentPatch(message); break;
+      case 'gateway_error': this.handleGatewayError(message); break;
+      default: console.warn('[GatewayTransport] Unknown message type:', message.type);
     }
   }
 
-  private handleSessionsList(message: BackendSessionsListMessage): void {
-    console.log(`[GatewayTransport] Received ${message.sessions.length} sessions from backend ${message.backendId}`);
-    useSessionsStore.getState().setRemoteSessions(message.backendId, message.sessions.map(s => ({
-      ...s,
-      type: s.type || 'regular',
-    })));
+  // --- Handshake ---
+  private handlePeerReady(msg: PeerReadyMessage): void {
+    this.authenticated = true; this.peerSessionId = msg.peerSessionId; this.recoveryToken = msg.recoveryToken;
+    this.applyRegistrySync(msg.registrySync);
+    this.config.onConnected(msg.peerSessionId, msg.recoveryToken);
   }
 
-  private handleSessionEvent(message: BackendSessionEventMessage): void {
-    console.log(`[GatewayTransport] Session ${message.eventType}: ${message.session.id} on backend ${message.backendId}`);
-    useSessionsStore.getState().handleSessionEvent(
-      message.backendId,
-      message.eventType,
-      message.session as any
-    );
-    if (message.eventType !== 'deleted') {
-      void eagerSyncSessionUpdate(message.session as any);
+  // --- Registry ---
+  private applyRegistrySync(sync: RegistrySyncPayload): void {
+    if (sync.mode === 'snapshot') {
+      this.registryItems.clear();
+      for (const item of sync.items) this.registryItems.set(item.backendId, item);
+      this.registryRevision = sync.revision;
+    } else {
+      for (const event of sync.events) this.applyRegistryEventItem(event);
+      this.registryRevision = sync.toRevision;
+    }
+    this.notifyRegistryChanged();
+  }
+
+  private handleRegistrySnapshot(msg: RegistrySnapshotMessage): void {
+    this.registryItems.clear();
+    for (const item of msg.items) this.registryItems.set(item.backendId, item);
+    this.registryRevision = msg.revision;
+    this.notifyRegistryChanged();
+  }
+
+  private handleRegistryDelta(msg: RegistryDeltaMessage): void {
+    for (const event of msg.events) this.applyRegistryEventItem(event);
+    this.registryRevision = msg.toRevision;
+    this.notifyRegistryChanged();
+  }
+
+  private handleRegistryEvent(msg: RegistryEventMessage): void {
+    if (msg.event.revision !== this.registryRevision + 1) {
+      console.warn(`[GatewayTransport] Registry gap: expected ${this.registryRevision + 1}, got ${msg.event.revision}`);
+      this.send({ type: 'resync_registry', lastRevision: this.registryRevision } satisfies ResyncRegistryMessage);
+      return;
+    }
+    this.applyRegistryEventItem(msg.event);
+    this.registryRevision = msg.event.revision;
+    this.notifyRegistryChanged();
+  }
+
+  private applyRegistryEventItem(event: RegistryEvent): void {
+    if (event.op === 'upsert') { this.registryItems.set(event.item.backendId, event.item); }
+    else {
+      this.registryItems.delete(event.backendId);
+      this.catalogRevisions.delete(event.backendId);
+      this.catalogEpochs.delete(event.backendId);
+      const channelId = this.backendToChannel.get(event.backendId);
+      if (channelId) { this.channels.delete(channelId); this.backendToChannel.delete(event.backendId); }
+      useSessionsStore.getState().clearBackendSessions(event.backendId);
     }
   }
+
+  private notifyRegistryChanged(): void { this.config.onRegistryChanged(Array.from(this.registryItems.values())); }
+
+  // --- Catalog ---
+  private handleCatalogSnapshot(msg: BackendCatalogSnapshotMessage): void {
+    this.catalogRevisions.set(msg.backendId, msg.revision);
+    this.catalogEpochs.set(msg.backendId, msg.epoch);
+    this.config.onCatalogSnapshot(msg.backendId, msg.epoch, msg.items);
+  }
+
+  private handleCatalogDelta(msg: BackendCatalogDeltaMessage): void {
+    this.catalogRevisions.set(msg.backendId, msg.toRevision);
+    for (const event of msg.events) {
+      if (event.op === 'upsert') this.config.onCatalogEvent(msg.backendId, msg.epoch, 'upsert', event.item, undefined);
+      else this.config.onCatalogEvent(msg.backendId, msg.epoch, 'remove', undefined, event.sessionId);
+    }
+  }
+
+  private handleCatalogEvent(msg: BackendCatalogEventMessage): void {
+    const currentRevision = this.catalogRevisions.get(msg.backendId) ?? 0;
+    if (msg.revision !== currentRevision + 1) {
+      console.warn(`[GatewayTransport] Catalog gap for ${msg.backendId}: expected ${currentRevision + 1}, got ${msg.revision}`);
+      this.subscribeCatalog(msg.backendId, msg.epoch);
+      return;
+    }
+    this.catalogRevisions.set(msg.backendId, msg.revision);
+    if (msg.op === 'upsert') this.config.onCatalogEvent(msg.backendId, msg.epoch, 'upsert', msg.item, undefined);
+    else this.config.onCatalogEvent(msg.backendId, msg.epoch, 'remove', undefined, msg.sessionId);
+  }
+
+  private handleCatalogReset(msg: BackendCatalogResetMessage): void {
+    this.catalogRevisions.delete(msg.backendId);
+    this.catalogEpochs.delete(msg.backendId);
+    this.config.onCatalogReset(msg.backendId, msg.epoch);
+  }
+
+  // --- Channel ---
+  private handleChannelOpened(msg: BackendChannelOpenedMessage): void {
+    this.channels.set(msg.channelId, { backendId: msg.backendId, epoch: msg.epoch });
+    this.backendToChannel.set(msg.backendId, msg.channelId);
+    this.config.onChannelOpened(msg.backendId, msg.channelId, msg.epoch, msg.capabilities);
+  }
+  private handleChannelRejected(msg: BackendChannelRejectedMessage): void { this.config.onChannelRejected(msg.backendId, msg.reason); }
+  private handleChannelClosed(msg: BackendChannelClosedMessage): void {
+    const channel = this.channels.get(msg.channelId);
+    if (channel) this.backendToChannel.delete(channel.backendId);
+    this.channels.delete(msg.channelId);
+    this.config.onChannelClosed(msg.channelId, msg.backendId, msg.reason);
+  }
+
+  // --- Stream ---
+  private handleRunStreamEvent(msg: RunStreamEvent): void { this.config.onRunStreamEvent(msg.channelId, msg.sessionId, msg); }
+  private handleSessionStreamClosed(msg: SessionStreamClosedMessage): void { this.config.onSessionStreamClosed(msg.channelId, msg.sessionId, msg.reason); }
+
+  // --- Content ---
+  private handleContentPatch(msg: SessionContentPatchMessage): void { this.config.onContentPatch(msg.channelId, msg.sessionId, msg.messages, msg.latestOffset); }
+
+  // --- Error ---
+  private handleGatewayError(msg: GatewayErrorMessage): void {
+    console.error(`[GatewayTransport] Error: ${msg.code} — ${msg.message}`);
+    if (msg.recovery) {
+      switch (msg.recovery) {
+        case 'resync_registry': this.send({ type: 'resync_registry', lastRevision: this.registryRevision } satisfies ResyncRegistryMessage); break;
+        case 'resync_catalog': for (const [backendId, epoch] of this.catalogEpochs) this.subscribeCatalog(backendId, epoch); break;
+        case 'reopen_channel':
+          for (const [backendId, presence] of this.registryItems) {
+            if (this.backendToChannel.has(backendId)) { this.backendToChannel.delete(backendId); this.openChannel(backendId, presence.epoch); }
+          }
+          break;
+        case 'reconnect': this.ws?.close(); break;
+      }
+    }
+    this.config.onError(`${msg.code}: ${msg.message}`);
+  }
+
+  // --- Helpers ---
+  private send(msg: unknown): void { if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify(msg)); }
+  private cleanup(): void { this.authenticated = false; this.peerSessionId = null; this.recoveryToken = null; this.channels.clear(); this.backendToChannel.clear(); }
 }

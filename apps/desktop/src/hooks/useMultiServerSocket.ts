@@ -191,7 +191,7 @@ export function useMultiServerSocket() {
     // Gateway targets: handled by useGatewayConnection (single shared transport)
     if (isGatewayTarget(serverId)) {
       const backendId = parseBackendId(serverId);
-      gatewayConnection.authenticateBackend(backendId);
+      gatewayConnection.openChannel(backendId);
       return;
     }
 
@@ -277,7 +277,8 @@ export function useMultiServerSocket() {
     // Gateway targets: route through gateway connection
     if (isGatewayTarget(serverId)) {
       const backendId = parseBackendId(serverId);
-      gatewayConnection.sendToBackend(backendId, message);
+      // V2: write operations go through HTTP Proxy, not WS
+      console.warn(`[Socket] Gateway V2: sendToBackend not supported, use HTTP Proxy for backend ${backendId}`);
       return;
     }
 
@@ -307,7 +308,7 @@ export function useMultiServerSocket() {
     // Gateway targets: check via gateway connection
     if (isGatewayTarget(serverId)) {
       const backendId = parseBackendId(serverId);
-      return gatewayConnection.isBackendAuthenticated(backendId);
+      return gatewayConnection.isBackendConnected(backendId);
     }
 
     const state = transportsRef.current.get(serverId);

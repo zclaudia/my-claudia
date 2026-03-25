@@ -54,6 +54,7 @@ import { useServerStore } from '../../stores/serverStore';
 import { useSupervisionStore } from '../../stores/supervisionStore';
 import { usePermissionStore } from '../../stores/permissionStore';
 import { useAskUserQuestionStore } from '../../stores/askUserQuestionStore';
+import { useInteractionStore } from '../../stores/interactionStore';
 import { useChatStore } from '../../stores/chatStore';
 import { useUIStore } from '../../stores/uiStore';
 import * as api from '../../services/api';
@@ -92,6 +93,7 @@ function setupStores(overrides: Record<string, any> = {}) {
   useSupervisionStore.setState({ agents: {}, ...overrides.supervisionStore } as any);
   usePermissionStore.setState({ pendingRequests: [], ...overrides.permissionStore } as any);
   useAskUserQuestionStore.setState({ pendingRequests: [], ...overrides.askStore } as any);
+  useInteractionStore.setState({ interactions: {}, ...overrides.interactionStore } as any);
   useChatStore.setState({ activeRuns: {}, ...overrides.chatStore } as any);
   useUIStore.setState({
     poppedOutSessions: new Map(),
@@ -222,6 +224,30 @@ describe('Sidebar', () => {
     expect(sessBtn).toBeTruthy();
     fireEvent.click(sessBtn!);
     expect(selectSession).toHaveBeenCalledWith('sess-1');
+  });
+
+  it('marks session pending for plan review interactions', () => {
+    setupStores({
+      interactionStore: {
+        interactions: {
+          'plan-1': {
+            type: 'interaction_plan_review',
+            interactionId: 'plan-1',
+            sessionId: 'sess-1',
+            source: 'tool_call',
+            createdAt: Date.now(),
+            plan: 'review plan',
+          },
+        },
+      },
+    });
+
+    const { container } = render(<Sidebar collapsed={false} onToggle={vi.fn()} />);
+    const buttons = Array.from(container.querySelectorAll('button'));
+    const projBtn = buttons.find((b) => b.textContent?.includes('Project One'))!;
+    fireEvent.click(projBtn);
+
+    expect(container.querySelector('[data-testid="session-item"]')?.getAttribute('data-pending')).toBe('true');
   });
 
   // ---- Pending indicators ----

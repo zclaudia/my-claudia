@@ -1,3 +1,10 @@
+/**
+ * Gateway Client — Backend Peer
+ *
+ * Connects to a gateway as a client+backend peer.
+ * Implements handshake, heartbeat, catalog, stream demand, and stream event protocols.
+ */
+
 import WebSocket from 'ws';
 import { SocksProxyAgent } from 'socks-proxy-agent';
 import * as fs from 'fs';
@@ -5,31 +12,40 @@ import * as path from 'path';
 import * as os from 'os';
 import * as crypto from 'crypto';
 import type {
-  GatewayToPeerMessage,
-  PeerToGatewayMessage,
   PeerHelloMessage,
-  PeerHelloResultMessage,
-  GatewayClientAuthMessage,
-  GatewayForwardedMessage,
-  GatewayClientConnectedMessage,
-  GatewayClientDisconnectedMessage,
+  PeerReadyMessage,
+  RegistrySyncPayload,
+  BackendPresence,
+  RegistryEvent,
+  RegistrySnapshotMessage,
+  RegistryDeltaMessage,
+  RegistryEventMessage,
+  ResyncRegistryMessage,
+  BackendHeartbeatMessage,
+  HeartbeatAckMessage,
+  StreamDemandMessage,
+  CatalogSnapshotMessage,
+  CatalogEventMessage,
+  SessionCatalogItem,
+  BackendRunStreamEvent,
+  RunStreamEventType,
+  SessionMessage,
+  SessionContentPatchMessage,
+  GatewayBackendInfo,
   GatewayHttpProxyRequest,
   GatewayHttpProxyResponse,
   GatewayHttpProxyResponseStart,
   GatewayHttpProxyResponseChunk,
   GatewayHttpProxyResponseEnd,
-  GatewayBackendInfo,
-  BackendRegistryEntry,
-  GatewayRegistrySnapshotMessage,
-  GatewayRegistryUpsertMessage,
-  GatewayRegistryRemoveMessage,
-  ClientMessage,
-  ServerMessage,
+  RegistryRevision,
+  CatalogRevision,
 } from '@my-claudia/shared';
-import { ALL_SERVER_FEATURES } from '@my-claudia/shared';
 import { hasForegroundActiveRunForSession } from './utils/run-state.js';
 
-// Config storage path
+// ============================================================================
+// Config & Device ID
+// ============================================================================
+
 const CONFIG_DIR = process.env.MY_CLAUDIA_DATA_DIR
   ? path.resolve(process.env.MY_CLAUDIA_DATA_DIR)
   : path.join(os.homedir(), '.my-claudia');
@@ -40,57 +56,44 @@ interface DeviceConfig {
   createdAt: number;
 }
 
-interface GatewayClientConfig {
-  gatewayUrl: string;
-  gatewaySecret: string;
-  name?: string;
-  channel?: string;     // 'prod' | 'dev' | string — defaults to 'prod'
-  serverPort?: number;  // Local server port for HTTP proxy requests
-  visible?: boolean;    // Whether to register as visible backend (default true)
-  proxyUrl?: string;
-  proxyAuth?: {
-    username: string;
-    password: string;
-  };
-}
-
-type MessageHandler = (clientId: string, message: ClientMessage) => Promise<ServerMessage | null>;
-type ClientEventHandler = (clientId: string) => void;
-
-// Database and ActiveRun types (to be injected)
-type Database = any;  // Will be the better-sqlite3 database instance
-type ActiveRunsMap = Map<string, any>;  // sessionId -> ActiveRun
-
-/**
- * Get or create a stable device ID for this backend
- */
 function getOrCreateDeviceId(): string {
-  // Ensure config directory exists
   if (!fs.existsSync(CONFIG_DIR)) {
     fs.mkdirSync(CONFIG_DIR, { recursive: true });
   }
-
-  // Try to load existing device ID
   if (fs.existsSync(DEVICE_CONFIG_PATH)) {
     try {
       const config: DeviceConfig = JSON.parse(fs.readFileSync(DEVICE_CONFIG_PATH, 'utf-8'));
       return config.deviceId;
-    } catch {
-      // Fall through to create new ID
-    }
+    } catch { /* fall through */ }
   }
-
-  // Generate a new device ID
   const deviceId = crypto.randomUUID();
-  const config: DeviceConfig = {
-    deviceId,
-    createdAt: Date.now()
-  };
-  fs.writeFileSync(DEVICE_CONFIG_PATH, JSON.stringify(config, null, 2));
+  fs.writeFileSync(DEVICE_CONFIG_PATH, JSON.stringify({ deviceId, createdAt: Date.now() }, null, 2));
   console.log(`[Gateway] Generated new device ID: ${deviceId}`);
-
   return deviceId;
 }
+
+// ============================================================================
+// Types
+// ============================================================================
+
+export interface GatewayClientConfig {
+  gatewayUrl: string;
+  gatewaySecret: string;
+  name?: string;
+  channel?: string;
+  serverPort?: number;
+  visible?: boolean;
+  capabilities?: string[];
+  proxyUrl?: string;
+  proxyAuth?: { username: string; password: string };
+}
+
+type Database = any;
+type ActiveRunsMap = Map<string, any>;
+
+// ============================================================================
+// GatewayClient
+// ============================================================================
 
 export class GatewayClient {
   private ws: WebSocket | null = null;
@@ -98,30 +101,33 @@ export class GatewayClient {
   private deviceId: string;
   private instanceId: string;
   private channel: string;
-  private peerId: string | null = null;
+
+  private peerSessionId: string | null = null;
+  private recoveryToken: string | null = null;
   private backendId: string | null = null;
+  private epoch: number | null = null;
+  private isConnected = false;
+  private intentionalDisconnect = false;
+
   private reconnectAttempts = 0;
   private reconnectBaseInterval = 5000;
   private reconnectMaxInterval = 60000;
   private reconnectTimeout: NodeJS.Timeout | null = null;
-  private isConnected = false;
-  private messageHandler: MessageHandler | null = null;
-  private clientConnectedHandler: ClientEventHandler | null = null;
-  private clientDisconnectedHandler: ClientEventHandler | null = null;
-  private clientSubscribedHandler: ClientEventHandler | null = null;
 
-  // Track authenticated clients (client auth is verified by backend)
-  private authenticatedClients = new Set<string>();
-  // Discovered backends from gateway
-  private discoveredBackends: GatewayBackendInfo[] = [];
-  // Registry entries from gateway (Phase 2)
-  private registryEntries = new Map<string, BackendRegistryEntry>();
-  // Flag to prevent reconnection after intentional disconnect
-  private intentionalDisconnect = false;
+  private heartbeatInterval: NodeJS.Timeout | null = null;
+  private heartbeatIntervalMs = 10_000;
 
-  // Dependencies for session broadcasting
+  private streamDemandActive = false;
+
+  private registryRevision: RegistryRevision = 0;
+  private registryItems = new Map<string, BackendPresence>();
+
+  private catalogRevision: CatalogRevision = 0;
+
   private db: Database | null = null;
   private activeRuns: ActiveRunsMap | null = null;
+
+  private onCatchUpHandler: ((sessionId: string, afterOffset: number) => Promise<SessionMessage[]>) | null = null;
 
   constructor(config: GatewayClientConfig, db?: Database, activeRuns?: ActiveRunsMap) {
     this.config = config;
@@ -136,71 +142,29 @@ export class GatewayClient {
     console.log(`[Gateway] Instance ID: ${this.instanceId} (channel=${this.channel})`);
   }
 
-  /**
-   * Set the handler for client messages
-   */
-  onMessage(handler: MessageHandler): void {
-    this.messageHandler = handler;
-  }
+  // ==========================================================================
+  // Public API
+  // ==========================================================================
 
-  /**
-   * Set the handler for client connect events
-   */
-  onClientConnected(handler: ClientEventHandler): void {
-    this.clientConnectedHandler = handler;
-  }
-
-  /**
-   * Set the handler for client disconnect events
-   */
-  onClientDisconnected(handler: ClientEventHandler): void {
-    this.clientDisconnectedHandler = handler;
-  }
-
-  /**
-   * Set the handler for client subscribed events
-   */
-  onClientSubscribed(handler: ClientEventHandler): void {
-    this.clientSubscribedHandler = handler;
-  }
-
-  /**
-   * Connect to the Gateway
-   */
   connect(): void {
     this.intentionalDisconnect = false;
-    // Clear pending reconnect to prevent duplicate connections
-    if (this.reconnectTimeout) {
-      clearTimeout(this.reconnectTimeout);
-      this.reconnectTimeout = null;
-    }
-    if (this.ws) {
-      this.ws.removeAllListeners();
-      this.ws.close();
-      this.ws = null;
-    }
+    if (this.reconnectTimeout) { clearTimeout(this.reconnectTimeout); this.reconnectTimeout = null; }
+    if (this.ws) { this.ws.removeAllListeners(); this.ws.close(); this.ws = null; }
 
     const wsUrl = this.config.gatewayUrl.replace(/^http/, 'ws');
     console.log(`[Gateway] Connecting to ${wsUrl}...`);
 
-    // Configure WebSocket options
     const wsOptions: any = {};
-
-    // Add SOCKS5 proxy agent if configured
     if (this.config.proxyUrl) {
       try {
         let proxyUrl = this.config.proxyUrl;
-
-        // Add authentication to proxy URL if provided
         if (this.config.proxyAuth) {
           const url = new URL(proxyUrl);
           url.username = this.config.proxyAuth.username;
           url.password = this.config.proxyAuth.password;
           proxyUrl = url.toString();
         }
-
         wsOptions.agent = new SocksProxyAgent(proxyUrl);
-        console.log(`[Gateway] Using SOCKS5 proxy: ${this.config.proxyUrl}`);
       } catch (error) {
         console.error('[Gateway] Failed to configure proxy:', error);
       }
@@ -209,532 +173,318 @@ export class GatewayClient {
     this.ws = new WebSocket(`${wsUrl}/ws`, wsOptions);
     const currentWs = this.ws;
 
-    this.ws.on('open', () => {
-      if (this.ws !== currentWs) return;
-      console.log('[Gateway] Connected, sending peer_hello...');
-      this.sendPeerHello();
-    });
-
+    this.ws.on('open', () => { if (this.ws !== currentWs) return; this.sendPeerHello(); });
     this.ws.on('message', (data: Buffer) => {
       if (this.ws !== currentWs) return;
-      try {
-        const message: GatewayToPeerMessage = JSON.parse(data.toString());
-        this.handleMessage(message);
-      } catch (error) {
-        console.error('[Gateway] Failed to parse message:', error);
-      }
+      try { this.handleMessage(JSON.parse(data.toString())); }
+      catch (error) { console.error('[Gateway] Failed to parse message:', error); }
     });
-
     this.ws.on('close', (code: number) => {
       if (this.ws !== currentWs) return;
       console.log(`[Gateway] Disconnected (code: ${code})`);
-      this.isConnected = false;
-      this.backendId = null;
-      this.registryEntries.clear();
-      // Code 4000 = "Replaced by new connection" — our own connect() already
-      // created a new WS, so reconnecting would create a duplicate.
-      if (code === 4000) {
-        console.log('[Gateway] Replaced by new connection, skipping reconnect');
-        return;
-      }
-      // Keep discoveredBackends across reconnects — will be refreshed on reconnect
-      this.scheduleReconnect();
+      this.cleanup();
+      if (code !== 4000) this.scheduleReconnect();
     });
-
-    this.ws.on('error', (error) => {
-      if (this.ws !== currentWs) return;
-      console.error('[Gateway] Connection error:', error);
-    });
+    this.ws.on('error', (error) => { if (this.ws !== currentWs) return; console.error('[Gateway] Connection error:', error); });
   }
 
-  /**
-   * Disconnect from the Gateway
-   */
   disconnect(): void {
     this.intentionalDisconnect = true;
-    if (this.reconnectTimeout) {
-      clearTimeout(this.reconnectTimeout);
-      this.reconnectTimeout = null;
-    }
-    if (this.ws) {
-      this.ws.removeAllListeners();
-      this.ws.close();
-      this.ws = null;
-    }
-    this.isConnected = false;
-    this.backendId = null;
-    this.peerId = null;
-    this.discoveredBackends = [];
-    this.registryEntries.clear();
+    if (this.reconnectTimeout) { clearTimeout(this.reconnectTimeout); this.reconnectTimeout = null; }
+    this.cleanup();
+    if (this.ws) { this.ws.removeAllListeners(); this.ws.close(); this.ws = null; }
   }
 
-  /**
-   * Send a response to a specific client via Gateway (for request-response routing)
-   */
-  sendToClient(clientId: string, message: ServerMessage): void {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
-      console.error('[Gateway] Cannot send message: not connected');
-      return;
-    }
+  getBackendId(): string | null { return this.backendId; }
+  getEpoch(): number | null { return this.epoch; }
+  isGatewayConnected(): boolean { return this.isConnected; }
+  getInstanceId(): string { return this.instanceId; }
+  getDeviceId(): string { return this.deviceId; }
+  getStreamDemandActive(): boolean { return this.streamDemandActive; }
 
-    const response: PeerToGatewayMessage = {
-      type: 'backend_response',
-      clientId,
-      message
-    };
-
-    this.ws.send(JSON.stringify(response));
-  }
-
-  /**
-   * Broadcast a message to all subscribers via Gateway
-   */
-  broadcast(message: ServerMessage): void {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
-      console.error('[Gateway] Cannot broadcast: not connected');
-      return;
-    }
-
-    const msg: PeerToGatewayMessage = {
-      type: 'broadcast_to_subscribers',
-      message
-    };
-
-    this.ws.send(JSON.stringify(msg));
-  }
-
-  /**
-   * Get the current backend ID (assigned by Gateway)
-   */
-  getBackendId(): string | null {
-    return this.backendId;
-  }
-
-  /**
-   * Get discovered backends from gateway
-   */
   getDiscoveredBackends(): GatewayBackendInfo[] {
-    return this.discoveredBackends;
-  }
-
-  /**
-   * Check if connected to Gateway
-   */
-  isGatewayConnected(): boolean {
-    return this.isConnected;
-  }
-
-  /**
-   * Get this instance's instanceId
-   */
-  getInstanceId(): string {
-    return this.instanceId;
-  }
-
-  /**
-   * Get this device's deviceId
-   */
-  getDeviceId(): string {
-    return this.deviceId;
-  }
-
-  /** Derive discoveredBackends from registry entries */
-  private deriveDiscoveredBackendsFromRegistry(): void {
-    this.discoveredBackends = Array.from(this.registryEntries.values())
+    return Array.from(this.registryItems.values())
       .filter(entry => entry.visible)
       .map(entry => ({
-        backendId: entry.backendId,
-        name: entry.name,
-        online: entry.online,
+        backendId: entry.backendId, name: entry.name, online: true,
         isThisInstance: entry.instanceId === this.instanceId,
         isThisDevice: entry.deviceId === this.deviceId,
-        instanceId: entry.instanceId,
-        deviceId: entry.deviceId,
-        channel: entry.channel,
+        instanceId: entry.instanceId, deviceId: entry.deviceId, channel: entry.channel,
       }));
   }
 
-  private sendPeerHello(): void {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
-
-    const peerHello: PeerHelloMessage = {
-      type: 'peer_hello',
-      gatewaySecret: this.config.gatewaySecret,
-      peerId: this.peerId || undefined,
-      capabilities: {
-        client: true,
-        backend: true,
-      },
-      identity: {
-        deviceId: this.deviceId,
-        instanceId: this.instanceId,
-        channel: this.channel,
-        name: this.config.name,
-      },
-      backend: {
-        visible: this.config.visible !== false,
-      },
-    };
-
-    this.ws.send(JSON.stringify(peerHello));
+  onCatchUp(handler: (sessionId: string, afterOffset: number) => Promise<SessionMessage[]>): void {
+    this.onCatchUpHandler = handler;
   }
 
-  private handleMessage(message: GatewayToPeerMessage): void {
-    switch (message.type) {
-      case 'peer_hello_result': {
-        const result = message as PeerHelloResultMessage;
-        if (result.success) {
-          this.isConnected = true;
-          this.peerId = result.peerId;
-          this.backendId = result.backendId || null;
-          this.reconnectAttempts = 0;
-          console.log(`[Gateway] Peer connected: peerId=${this.peerId} backendId=${this.backendId} (instance=${this.instanceId})`);
+  // ==========================================================================
+  // Catalog
+  // ==========================================================================
 
-          // Process registry snapshot if included
-          if (result.registrySnapshot) {
-            this.registryEntries.clear();
-            for (const entry of result.registrySnapshot) {
-              this.registryEntries.set(entry.backendId, entry);
-            }
-            this.deriveDiscoveredBackendsFromRegistry();
-            console.log(`[Gateway] Registry snapshot: ${result.registrySnapshot.length} entries`);
-          }
-        } else {
-          console.error('[Gateway] Peer hello failed:', result.error);
-          this.ws?.close();
-        }
-        break;
-      }
-
-      case 'registry_snapshot': {
-        const snapshotMsg = message as GatewayRegistrySnapshotMessage;
-        this.registryEntries.clear();
-        for (const entry of snapshotMsg.registry) {
-          this.registryEntries.set(entry.backendId, entry);
-        }
-        this.deriveDiscoveredBackendsFromRegistry();
-        console.log(`[Gateway] Registry snapshot: ${snapshotMsg.registry.length} entries`);
-        break;
-      }
-
-      case 'registry_upsert': {
-        const upsertMsg = message as GatewayRegistryUpsertMessage;
-        this.registryEntries.set(upsertMsg.entry.backendId, upsertMsg.entry);
-        this.deriveDiscoveredBackendsFromRegistry();
-        console.log(`[Gateway] Registry upsert: ${upsertMsg.entry.backendId} (${upsertMsg.entry.name})`);
-        break;
-      }
-
-      case 'registry_remove': {
-        const removeMsg = message as GatewayRegistryRemoveMessage;
-        this.registryEntries.delete(removeMsg.backendId);
-        this.deriveDiscoveredBackendsFromRegistry();
-        console.log(`[Gateway] Registry remove: ${removeMsg.backendId}`);
-        break;
-      }
-
-      case 'client_connected':
-        this.handleClientConnected(message as GatewayClientConnectedMessage);
-        break;
-
-      case 'client_auth':
-        this.handleClientAuth(message as GatewayClientAuthMessage);
-        break;
-
-      case 'forwarded':
-        this.handleForwardedMessage(message as GatewayForwardedMessage);
-        break;
-
-      case 'client_disconnected':
-        this.handleClientDisconnected(message as GatewayClientDisconnectedMessage);
-        break;
-
-      case 'http_proxy_request':
-        this.handleHttpProxyRequest(message as GatewayHttpProxyRequest);
-        break;
-
-      case 'client_subscribed': {
-        const { clientId } = message as any;
-        console.log(`[GatewayClient] Client ${clientId} subscribed to this backend`);
-        this.broadcastSessionsList();
-        this.clientSubscribedHandler?.(clientId);
-        break;
-      }
+  publishCatalogSnapshot(): void {
+    if (!this.ws || !this.isConnected || !this.epoch) return;
+    if (!this.db || !this.activeRuns) return;
+    try {
+      const sessions = this.db.prepare(`
+        SELECT s.id, s.name, s.created_at as createdAt, s.updated_at as updatedAt,
+               (SELECT MAX(offset) FROM messages WHERE session_id = s.id) as lastMessageOffset
+        FROM sessions s ORDER BY s.updated_at DESC
+      `).all();
+      const items: SessionCatalogItem[] = sessions.map((s: any) => ({
+        sessionId: s.id, title: s.name || undefined, createdAt: s.createdAt, updatedAt: s.updatedAt,
+        lastMessageAt: s.updatedAt,
+        activeRunStatus: hasForegroundActiveRunForSession(this.activeRuns!, s.id) ? 'running' as const : 'idle' as const,
+      }));
+      this.catalogRevision++;
+      const msg: CatalogSnapshotMessage = { type: 'catalog_snapshot', epoch: this.epoch, revision: this.catalogRevision, items };
+      this.sendWs(msg);
+      console.log(`[Gateway] Published catalog snapshot: ${items.length} sessions, revision=${this.catalogRevision}`);
+    } catch (error) {
+      console.error('[Gateway] Failed to publish catalog snapshot:', error);
     }
   }
 
-  private static readonly STREAM_THRESHOLD = 1024 * 1024; // 1MB — stream responses larger than this
+  publishCatalogEvent(eventType: 'upsert' | 'remove', session: any): void {
+    if (!this.ws || !this.isConnected || !this.epoch) return;
+    this.catalogRevision++;
+    if (eventType === 'upsert') {
+      const item: SessionCatalogItem = {
+        sessionId: session.id, title: session.name || undefined,
+        createdAt: session.createdAt ?? session.created_at,
+        updatedAt: session.updatedAt ?? session.updated_at ?? Date.now(),
+        lastMessageAt: session.updatedAt ?? session.updated_at ?? Date.now(),
+        activeRunStatus: this.activeRuns && hasForegroundActiveRunForSession(this.activeRuns, session.id) ? 'running' : 'idle',
+      };
+      const msg: CatalogEventMessage = { type: 'catalog_event', epoch: this.epoch, revision: this.catalogRevision, op: 'upsert', item };
+      this.sendWs(msg);
+    } else {
+      const msg: CatalogEventMessage = { type: 'catalog_event', epoch: this.epoch, revision: this.catalogRevision, op: 'remove', sessionId: session.id };
+      this.sendWs(msg);
+    }
+  }
+
+  // ==========================================================================
+  // Stream Events
+  // ==========================================================================
+
+  /** Compatibility alias for publishCatalogEvent — used by sessions routes and run handler. */
+  broadcastSessionEvent(eventType: 'created' | 'updated' | 'deleted', session: any): void {
+    this.publishCatalogEvent(eventType === 'deleted' ? 'remove' : 'upsert', session);
+  }
+
+  emitRunStreamEvent(sessionId: string, runId: string, eventType: RunStreamEventType, seq: number, payload: unknown): void {
+    if (!this.ws || !this.isConnected || !this.streamDemandActive) return;
+    const msg: BackendRunStreamEvent = { type: 'run_stream_event', eventType, sessionId, runId, seq, payload };
+    this.sendWs(msg);
+  }
+
+  // ==========================================================================
+  // Internal — Handshake
+  // ==========================================================================
+
+  private sendPeerHello(): void {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+    const msg: PeerHelloMessage = {
+      type: 'peer_hello', protocolVersion: 2, peerType: 'client+backend',
+      gatewaySecret: this.config.gatewaySecret,
+      identity: { deviceId: this.deviceId, instanceId: this.instanceId, channel: this.channel, name: this.config.name },
+      backend: { visible: this.config.visible !== false, capabilities: this.config.capabilities ?? [] },
+      lastRegistryRevision: this.registryRevision > 0 ? this.registryRevision : undefined,
+    };
+    this.ws.send(JSON.stringify(msg));
+  }
+
+  // ==========================================================================
+  // Internal — Message Router
+  // ==========================================================================
+
+  private handleMessage(message: any): void {
+    switch (message.type) {
+      case 'peer_ready': this.handlePeerReady(message); break;
+      case 'registry_snapshot': this.handleRegistrySnapshot(message); break;
+      case 'registry_delta': this.handleRegistryDelta(message); break;
+      case 'registry_event': this.handleRegistryEvent(message); break;
+      case 'heartbeat_ack': this.handleHeartbeatAck(message); break;
+      case 'stream_demand': this.handleStreamDemand(message); break;
+      case 'catch_up_session_content': this.handleCatchUpRequest(message); break;
+      case 'http_proxy_request': this.handleHttpProxyRequest(message); break;
+      case 'gateway_error': console.error(`[Gateway] Error: ${message.code} — ${message.message}`); break;
+    }
+  }
+
+  private handlePeerReady(msg: PeerReadyMessage): void {
+    this.isConnected = true;
+    this.peerSessionId = msg.peerSessionId;
+    this.recoveryToken = msg.recoveryToken;
+    this.reconnectAttempts = 0;
+    if (msg.backend) {
+      this.backendId = msg.backend.backendId;
+      this.epoch = msg.backend.epoch;
+      console.log(`[Gateway] Connected: peerSessionId=${this.peerSessionId} backendId=${this.backendId} epoch=${this.epoch}`);
+    } else {
+      console.log(`[Gateway] Connected: peerSessionId=${this.peerSessionId} (no backend)`);
+    }
+    this.applyRegistrySync(msg.registrySync);
+    this.startHeartbeat();
+    this.catalogRevision = 0;
+    this.publishCatalogSnapshot();
+  }
+
+  // ==========================================================================
+  // Internal — Heartbeat
+  // ==========================================================================
+
+  private startHeartbeat(): void {
+    this.stopHeartbeat();
+    this.heartbeatInterval = setInterval(() => {
+      if (!this.ws || !this.isConnected || !this.epoch) return;
+      const msg: BackendHeartbeatMessage = { type: 'backend_heartbeat', epoch: this.epoch, observedAt: Date.now() };
+      this.sendWs(msg);
+    }, this.heartbeatIntervalMs);
+  }
+
+  private stopHeartbeat(): void {
+    if (this.heartbeatInterval) { clearInterval(this.heartbeatInterval); this.heartbeatInterval = null; }
+  }
+
+  private handleHeartbeatAck(msg: HeartbeatAckMessage): void {
+    if (msg.epoch !== this.epoch) return;
+    this.streamDemandActive = msg.streamDemand;
+  }
+
+  private handleStreamDemand(msg: StreamDemandMessage): void {
+    const prev = this.streamDemandActive;
+    this.streamDemandActive = msg.active;
+    if (prev !== msg.active) console.log(`[Gateway] Stream demand: ${msg.active ? 'active' : 'inactive'}`);
+  }
+
+  // ==========================================================================
+  // Internal — Registry
+  // ==========================================================================
+
+  private applyRegistrySync(sync: RegistrySyncPayload): void {
+    if (sync.mode === 'snapshot') {
+      this.registryItems.clear();
+      for (const item of sync.items) this.registryItems.set(item.backendId, item);
+      this.registryRevision = sync.revision;
+    } else {
+      for (const event of sync.events) this.applyRegistryEventItem(event);
+      this.registryRevision = sync.toRevision;
+    }
+  }
+
+  private handleRegistrySnapshot(msg: RegistrySnapshotMessage): void {
+    this.registryItems.clear();
+    for (const item of msg.items) this.registryItems.set(item.backendId, item);
+    this.registryRevision = msg.revision;
+  }
+
+  private handleRegistryDelta(msg: RegistryDeltaMessage): void {
+    for (const event of msg.events) this.applyRegistryEventItem(event);
+    this.registryRevision = msg.toRevision;
+  }
+
+  private handleRegistryEvent(msg: RegistryEventMessage): void {
+    const event = msg.event;
+    if (event.revision !== this.registryRevision + 1) {
+      console.warn(`[Gateway] Registry gap: expected ${this.registryRevision + 1}, got ${event.revision}. Requesting resync.`);
+      this.sendWs({ type: 'resync_registry', lastRevision: this.registryRevision } satisfies ResyncRegistryMessage);
+      return;
+    }
+    this.applyRegistryEventItem(event);
+    this.registryRevision = event.revision;
+  }
+
+  private applyRegistryEventItem(event: RegistryEvent): void {
+    if (event.op === 'upsert') this.registryItems.set(event.item.backendId, event.item);
+    else this.registryItems.delete(event.backendId);
+  }
+
+  // ==========================================================================
+  // Internal — Content Catch-Up
+  // ==========================================================================
+
+  private async handleCatchUpRequest(msg: any): Promise<void> {
+    if (!this.onCatchUpHandler) return;
+    try {
+      const messages = await this.onCatchUpHandler(msg.sessionId, msg.afterOffset);
+      const maxOffset = messages.length > 0 ? Math.max(...messages.map(m => m.offset)) : msg.afterOffset;
+      const patch: SessionContentPatchMessage = { type: 'session_content_patch', channelId: msg.channelId, sessionId: msg.sessionId, messages, latestOffset: maxOffset };
+      this.sendWs(patch);
+    } catch (error) {
+      console.error('[Gateway] Catch-up error:', error);
+    }
+  }
+
+  // ==========================================================================
+  // Internal — HTTP Proxy
+  // ==========================================================================
+
+  private static readonly STREAM_THRESHOLD = 1024 * 1024;
 
   private static shouldStream(headers: Record<string, string>): boolean {
     const contentLength = parseInt(headers['content-length'] || '0', 10);
     if (contentLength > GatewayClient.STREAM_THRESHOLD) return true;
-
     const rawCt = (headers['content-type'] || '').toLowerCase();
     const ct = rawCt.split(';')[0].trim();
     if (!ct) return false;
-
-    // Known text-like media types can safely use resp.text()
-    if (ct.startsWith('text/')) return false;
-    if (ct === 'application/json') return false;
-    if (ct.endsWith('+json')) return false;
+    if (ct.startsWith('text/') || ct === 'application/json' || ct.endsWith('+json')) return false;
     if (ct === 'application/xml' || ct === 'text/xml' || ct.endsWith('+xml')) return false;
     if (ct === 'application/javascript' || ct === 'text/javascript') return false;
     if (ct === 'application/x-www-form-urlencoded') return false;
-    if (ct === 'application/graphql-response+json') return false;
-
-    // Default to streaming for non-text types to avoid binary corruption.
     return true;
-  }
-
-  private sendWs(data: PeerToGatewayMessage): void {
-    this.ws?.send(JSON.stringify(data));
   }
 
   private async handleHttpProxyRequest(msg: GatewayHttpProxyRequest): Promise<void> {
     const port = this.config.serverPort || 3100;
     const url = `http://localhost:${port}${msg.path}`;
-
     try {
-      console.log(`[Gateway] HTTP proxy: ${msg.method} ${msg.path}`);
       const resp = await fetch(url, {
-        method: msg.method,
-        headers: msg.headers,
-        body: !['GET', 'HEAD'].includes(msg.method) ? msg.body : undefined
+        method: msg.method, headers: msg.headers,
+        body: !['GET', 'HEAD'].includes(msg.method) ? (msg.body as string) : undefined,
       });
-
       const responseHeaders: Record<string, string> = {};
-      resp.headers.forEach((value, key) => {
-        responseHeaders[key] = value;
-      });
+      resp.headers.forEach((value, key) => { responseHeaders[key] = value; });
 
       if (GatewayClient.shouldStream(responseHeaders) && resp.body) {
-        // Streaming path: send headers, then chunked body, then end
-        console.log(`[Gateway] HTTP proxy streaming: ${msg.method} ${msg.path} (${responseHeaders['content-length'] || '?'} bytes)`);
-
-        const start: GatewayHttpProxyResponseStart = {
-          type: 'http_proxy_response_start',
-          requestId: msg.requestId,
-          statusCode: resp.status,
-          headers: responseHeaders,
-        };
-        this.sendWs(start);
-
+        this.sendWs({ type: 'http_proxy_response_start', requestId: msg.requestId, statusCode: resp.status, headers: responseHeaders } satisfies GatewayHttpProxyResponseStart);
         const reader = resp.body.getReader();
         try {
           while (true) {
             const { done, value } = await reader.read();
             if (done) break;
-
-            const chunk: GatewayHttpProxyResponseChunk = {
-              type: 'http_proxy_response_chunk',
-              requestId: msg.requestId,
-              data: Buffer.from(value).toString('base64'),
-            };
-            this.sendWs(chunk);
+            this.sendWs({ type: 'http_proxy_response_chunk', requestId: msg.requestId, data: Buffer.from(value).toString('base64') } satisfies GatewayHttpProxyResponseChunk);
           }
-        } finally {
-          reader.releaseLock();
-        }
-
-        const end: GatewayHttpProxyResponseEnd = {
-          type: 'http_proxy_response_end',
-          requestId: msg.requestId,
-        };
-        this.sendWs(end);
+        } finally { reader.releaseLock(); }
+        this.sendWs({ type: 'http_proxy_response_end', requestId: msg.requestId } satisfies GatewayHttpProxyResponseEnd);
       } else {
-        // Single-message path: small text/JSON responses
-        const response: GatewayHttpProxyResponse = {
-          type: 'http_proxy_response',
-          requestId: msg.requestId,
-          statusCode: resp.status,
-          headers: responseHeaders,
-          body: await resp.text()
-        };
-        this.sendWs(response);
+        this.sendWs({ type: 'http_proxy_response', requestId: msg.requestId, statusCode: resp.status, headers: responseHeaders, body: await resp.text() } satisfies GatewayHttpProxyResponse);
       }
     } catch (error) {
       console.error('[Gateway] HTTP proxy error:', error);
-      const response: GatewayHttpProxyResponse = {
-        type: 'http_proxy_response',
-        requestId: msg.requestId,
-        statusCode: 502,
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          success: false,
-          error: { code: 'PROXY_ERROR', message: 'Failed to reach local server' }
-        })
-      };
-      this.sendWs(response);
+      this.sendWs({ type: 'http_proxy_response', requestId: msg.requestId, statusCode: 502, headers: { 'content-type': 'application/json' }, body: JSON.stringify({ success: false, error: { code: 'PROXY_ERROR', message: 'Failed to reach local server' } }) } satisfies GatewayHttpProxyResponse);
     }
   }
 
-  private handleClientConnected(message: GatewayClientConnectedMessage): void {
-    console.log(`[Gateway] Client connected: ${message.clientId}`);
-    this.clientConnectedHandler?.(message.clientId);
+  // ==========================================================================
+  // Internal — Helpers
+  // ==========================================================================
+
+  private sendWs(data: unknown): void {
+    if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify(data));
   }
 
-  private handleClientAuth(message: GatewayClientAuthMessage): void {
-    console.log(`[Gateway] Client auth request: ${message.clientId}`);
-
-    // Trust clients from gateway — no per-backend API key validation
-    this.authenticatedClients.add(message.clientId);
-    console.log(`[Gateway] Client ${message.clientId} authenticated (trusted via gateway)`);
-
-    const response: PeerToGatewayMessage = {
-      type: 'client_auth_result',
-      clientId: message.clientId,
-      success: true,
-      features: ALL_SERVER_FEATURES,
-    };
-
-    this.ws?.send(JSON.stringify(response));
-  }
-
-  private async handleForwardedMessage(message: GatewayForwardedMessage): Promise<void> {
-    const { clientId, message: clientMessage } = message;
-
-    // Check if client is authenticated
-    if (!this.authenticatedClients.has(clientId)) {
-      console.log(`[Gateway] Rejecting message from unauthenticated client: ${clientId}`);
-      this.sendToClient(clientId, {
-        type: 'error',
-        code: 'UNAUTHORIZED',
-        message: 'Not authenticated'
-      });
-      return;
-    }
-
-    // Forward to message handler
-    if (this.messageHandler) {
-      try {
-        const response = await this.messageHandler(clientId, clientMessage);
-        if (response) {
-          this.sendToClient(clientId, response);
-        }
-      } catch (error) {
-        console.error('[Gateway] Error handling message:', error);
-        this.sendToClient(clientId, {
-          type: 'error',
-          code: 'INTERNAL_ERROR',
-          message: error instanceof Error ? error.message : 'Internal error'
-        });
-      }
-    }
-  }
-
-  private handleClientDisconnected(message: GatewayClientDisconnectedMessage): void {
-    console.log(`[Gateway] Client disconnected: ${message.clientId}`);
-    this.authenticatedClients.delete(message.clientId);
-    this.clientDisconnectedHandler?.(message.clientId);
+  private cleanup(): void {
+    this.isConnected = false; this.backendId = null; this.epoch = null;
+    this.peerSessionId = null; this.recoveryToken = null; this.streamDemandActive = false;
+    this.stopHeartbeat();
   }
 
   private scheduleReconnect(): void {
-    if (this.intentionalDisconnect) {
-      console.log('[Gateway] Skipping reconnect (intentional disconnect)');
-      return;
-    }
-
-    // Prevent duplicate reconnect scheduling
-    if (this.reconnectTimeout) {
-      console.log('[Gateway] Reconnect already scheduled, skipping');
-      return;
-    }
-
+    if (this.intentionalDisconnect || this.reconnectTimeout) return;
     this.reconnectAttempts++;
-    // Exponential backoff: 5s, 10s, 20s, 40s, 60s, 60s, ...
-    const delay = Math.min(
-      this.reconnectBaseInterval * Math.pow(2, this.reconnectAttempts - 1),
-      this.reconnectMaxInterval
-    );
+    const delay = Math.min(this.reconnectBaseInterval * Math.pow(2, this.reconnectAttempts - 1), this.reconnectMaxInterval);
     console.log(`[Gateway] Reconnecting in ${delay / 1000}s (attempt ${this.reconnectAttempts})`);
-
-    this.reconnectTimeout = setTimeout(() => {
-      this.reconnectTimeout = null;
-      this.connect();
-    }, delay);
-  }
-
-  /**
-   * Broadcast current sessions list to all subscribers
-   */
-  private broadcastSessionsList(): void {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
-      console.error('[GatewayClient] Cannot broadcast sessions list: not connected');
-      return;
-    }
-
-    if (!this.db || !this.activeRuns) {
-      console.warn('[GatewayClient] Cannot broadcast sessions list: db or activeRuns not available');
-      return;
-    }
-
-    try {
-      // Get all sessions from database, with lastMessageOffset for gap detection
-      const sessions = this.db.prepare(`
-        SELECT s.id, s.project_id as projectId, s.name, s.provider_id as providerId,
-               s.working_directory as workingDirectory,
-               s.created_at as createdAt, s.updated_at as updatedAt,
-               (SELECT MAX(offset) FROM messages WHERE session_id = s.id) as lastMessageOffset
-        FROM sessions s
-        ORDER BY s.updated_at DESC
-      `).all();
-
-      // Add isActive status based on activeRuns
-      const sessionsWithStatus = sessions.map((session: any) => ({
-        id: session.id,
-        projectId: session.projectId,
-        name: session.name,
-        providerId: session.providerId,
-        workingDirectory: session.workingDirectory,
-        createdAt: session.createdAt,
-        updatedAt: session.updatedAt,
-        isActive: hasForegroundActiveRunForSession(this.activeRuns!, session.id),
-        lastMessageOffset: session.lastMessageOffset ?? undefined,
-      }));
-
-      // Broadcast via broadcast_to_subscribers
-      this.broadcast({
-        type: 'backend_sessions_list',
-        backendId: this.backendId || '',
-        sessions: sessionsWithStatus
-      } as any);
-
-      console.log(`[GatewayClient] Broadcast ${sessions.length} sessions to all subscribers`);
-    } catch (error) {
-      console.error('[GatewayClient] Failed to broadcast sessions list:', error);
-    }
-  }
-
-  /**
-   * Broadcast a session event to all subscribed clients
-   */
-  public broadcastSessionEvent(
-    eventType: 'created' | 'updated' | 'deleted',
-    session: any
-  ): void {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
-      console.error('[GatewayClient] Cannot broadcast session event: not connected');
-      return;
-    }
-
-    // Attach lastMessageOffset if db is available and session is not being deleted
-    let sessionWithOffset = session;
-    if (this.db && eventType !== 'deleted') {
-      const offsetRow = this.db.prepare(
-        'SELECT MAX(offset) as lastMessageOffset FROM messages WHERE session_id = ?'
-      ).get(session.id) as { lastMessageOffset: number | null } | undefined;
-      if (offsetRow?.lastMessageOffset != null) {
-        sessionWithOffset = { ...session, lastMessageOffset: offsetRow.lastMessageOffset };
-      }
-    }
-
-    const message: PeerToGatewayMessage = {
-      type: 'broadcast_session_event',
-      eventType,
-      session: sessionWithOffset
-    };
-
-    this.ws.send(JSON.stringify(message));
-    console.log(`[GatewayClient] Broadcasted session ${eventType}: ${session.id}`);
+    this.reconnectTimeout = setTimeout(() => { this.reconnectTimeout = null; this.connect(); }, delay);
   }
 }

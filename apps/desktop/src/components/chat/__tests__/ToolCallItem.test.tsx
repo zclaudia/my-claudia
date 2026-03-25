@@ -3,6 +3,8 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import { ToolCallItem, ToolCallList } from '../ToolCallItem';
 import type { ToolCallState } from '../../../stores/chatStore';
 
+const mockSendMessage = vi.fn();
+
 // Mock heavy sub-components
 vi.mock('../DiffViewer', () => ({
   DiffViewer: ({ oldString, newString, filePath }: any) => (
@@ -24,7 +26,7 @@ vi.mock('../CodeViewer', () => ({
 }));
 
 vi.mock('../../../contexts/ConnectionContext', () => ({
-  useConnection: () => ({ sendMessage: vi.fn() }),
+  useConnection: () => ({ sendMessage: mockSendMessage }),
 }));
 
 vi.mock('../../../stores/terminalStore', () => ({
@@ -83,6 +85,7 @@ describe('ToolCallItem', () => {
     mockInteractionState.interactions = {};
     mockProjectState.selectedSessionId = null;
     mockProjectState.sessions = [];
+    mockSendMessage.mockReset();
   });
 
   // ── Basic display ─────────────────────────────────────────────────────────
@@ -616,6 +619,40 @@ describe('ToolCallItem', () => {
       expect(screen.getByText('Plan Review')).toBeInTheDocument();
       expect(screen.getByText('Approve Plan')).toBeInTheDocument();
       expect(screen.queryByText('Raw plan')).not.toBeInTheDocument();
+    });
+
+    it('sends optional feedback when approving a plan review', () => {
+      mockInteractionState.interactions['interaction-plan-1'] = {
+        type: 'interaction_plan_review',
+        interactionId: 'interaction-plan-1',
+        sessionId: 's1',
+        source: 'tool_call',
+        createdAt: Date.now(),
+        plan: 'Review this plan',
+      };
+      mockProjectState.selectedSessionId = 's1';
+
+      render(<ToolCallItem toolCall={createToolCall({
+        toolName: 'ExitPlanMode',
+        toolInput: { plan: 'Raw plan' },
+        status: 'running',
+      })} />);
+
+      fireEvent.change(
+        screen.getByPlaceholderText('Add an optional comment for approval or rejection'),
+        { target: { value: 'Ship this, but keep storage backwards compatible.' } }
+      );
+      fireEvent.click(screen.getByText('Approve Plan'));
+
+      expect(mockSendMessage).toHaveBeenCalledWith({
+        type: 'interaction_response',
+        interactionId: 'interaction-plan-1',
+        sessionId: 's1',
+        response: {
+          approved: true,
+          feedback: 'Ship this, but keep storage backwards compatible.',
+        },
+      });
     });
 
     it('falls back to native TodoWrite rendering when interaction has no todos', () => {
