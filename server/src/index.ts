@@ -9,6 +9,7 @@ import type { ServerMessage } from '@my-claudia/shared';
 import { initDatabase } from './storage/db.js';
 import type { GatewayConfig } from './routes/gateway.js';
 import { openCodeServerManager } from './providers/opencode-sdk.js';
+import { destroyAllAppServerClients } from './providers/codex-app-server.js';
 import { checkVersionCompatibility } from './providers/claude-sdk.js';
 import { checkSdkVersions } from './utils/sdk-version-check.js';
 import { detectCliProvidersSync } from './utils/cli-detect.js';
@@ -403,6 +404,9 @@ async function main() {
 
       // Stop all managed OpenCode server processes
       await openCodeServerManager.stopAll();
+
+      // Destroy all Codex app-server processes
+      destroyAllAppServerClients();
 
       // Destroy all terminal sessions
       serverContext?.terminalManager.destroyAll();

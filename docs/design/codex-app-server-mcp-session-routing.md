@@ -47,14 +47,6 @@ MCP bridge 调用交互工具（如 `ask_user_form`、`update_todo_list`、`requ
 
 ## 已探讨的方案
 
-### 方案 A: 每个 session 独立的 app-server 进程
-
-- `CLAUDIA_SESSION_ID` 作为进程环境变量传给 app-server
-- Bridge 子进程从父进程继承 env，自动拿到正确的 session ID
-- 共享配置目录 `~/.my-claudia/codex-config/.codex/config.toml`（用户 MCP servers 只配一次）
-- 优点：简单、无歧义
-- 缺点：每个进程 ~17MB 内存，需要清理机制
-
 ### 方案 B: 共享进程 + resolveActiveSessionId fallback
 
 - Bridge 不传 sessionId，server 端从 `activeRuns` 中找当前活跃的 run
@@ -64,21 +56,289 @@ MCP bridge 调用交互工具（如 `ask_user_form`、`update_todo_list`、`requ
 
 - 当 `item/started {type: mcpToolCall}` 通知到达时（路径 1），记录 `{threadId, sessionId, toolName}`
 - 当 bridge HTTP 请求到达时（路径 2），从 pending queue 中按 toolName 匹配
-- 优点：一个共享进程，精确匹配
-- 缺点：两个 session 同时调同一个工具时有歧义（但可用 FIFO 顺序解决，因为 app-server 单线程按序发出事件）
+- **被否决**：两个 session 同时调同一个工具时有歧义，过度复杂
 
-### 方案 D: 将 sessionId 作为 MCP 工具的必填参数 ← 待深入探讨
+### 方案 D: 将 sessionId 作为 MCP 工具的必填参数
 
 - 在 `tools/list` 返回的工具 schema 中加 `_claudia_session_id` 参数
-- 在 system prompt / 用户消息中注入 session ID
 - 模型调用工具时自带 session ID → bridge 原样转发 → server 提取
-- 优点：一个共享进程，无竞态，bridge 完全无状态
-- 缺点：依赖模型正确传递参数
-- 可降级：设为 optional，server 端有 fallback（resolveActiveSessionId）
+- **被否决**：依赖模型正确传递参数，不可靠
+
+### 方案 A: 每个 session 独立的 app-server 进程 ← 选定方案
+
+- `CLAUDIA_SESSION_ID` 作为进程环境变量传给 app-server
+- Bridge 子进程从父进程继承 env，自动拿到正确的 session ID
+- 共享配置目录 `~/.my-claudia/codex-config/.codex/config.toml`（用户 MCP servers 只配一次）
+- 优点：简单、无歧义、进程级隔离
+- 缺点：每个进程 ~17MB 内存，需要清理机制
+
+## 方案 A 详细设计
+
+### 核心原理
+
+```
+Session X 创建:
+  spawn codex app-server 进程 (env: CLAUDIA_SESSION_ID=session-x)
+    └─ 模型调 MCP 工具
+        └─ spawn bridge 子进程（继承父进程 env）
+            └─ bridge 读 process.env.CLAUDIA_SESSION_ID → "session-x" ✓
+
+Session Y 创建:
+  spawn codex app-server 进程 (env: CLAUDIA_SESSION_ID=session-y)
+    └─ bridge 子进程自动拿到 "session-y" ✓
+
+两个 session 完全隔离，无竞态。
+```
+
+### 进程生命周期
+
+```
+┌─────────────┐     ┌──────────────┐     ┌──────────────┐
+│  session 创建  │────→│  spawn 进程   │────→│  多轮 turn    │
+│  (首次 run)   │     │  + initialize │     │  复用进程     │
+└─────────────┘     └──────────────┘     └──────┬───────┘
+                                                │
+                              ┌─────────────────┼─────────────────┐
+                              │                 │                 │
+                        ┌─────▼─────┐   ┌──────▼──────┐   ┌─────▼─────┐
+                        │ 空闲超时   │   │ session 删除 │   │ server 退出│
+                        │ (30 min)  │   │ (用户操作)   │   │ (SIGTERM)  │
+                        └─────┬─────┘   └──────┬──────┘   └─────┬─────┘
+                              │                │                 │
+                              └────────────────┼─────────────────┘
+                                               │
+                                        ┌──────▼──────┐
+                                        │ client.destroy() │
+                                        │ SIGTERM → 进程退出 │
+                                        │ 从 cache 移除    │
+                                        └─────────────┘
+```
+
+### 改动清单
+
+#### 1. `codex-app-server.ts` — 进程管理改为 per-session
+
+**Cache key 变更**：
+
+```typescript
+// 现在: cliPath + env signature（所有 session 共享一个进程）
+function getCacheKey(options, env) {
+  return `${options.cliPath}::${envSignature}`;
+}
+
+// 改为: 加入 claudiaSessionId（每个 session 独立进程）
+function getCacheKey(options, env) {
+  return `${options.cliPath}::${options.claudiaSessionId || 'default'}::${envSignature}`;
+}
+```
+
+**Env 注入**：
+
+```typescript
+function buildEnv(options: CodexAppServerOptions): Record<string, string> {
+  const mergedEnv = { ...process.env };
+  sanitizeInheritedProviderEnv(mergedEnv);
+  Object.assign(mergedEnv, options.env);
+  // 方案 A: 直接注入 session ID 到进程 env
+  if (options.claudiaSessionId) {
+    mergedEnv.CLAUDIA_SESSION_ID = options.claudiaSessionId;
+  }
+  return mergedEnv;
+}
+```
+
+**MCP bridge 配置变更**：
+
+```typescript
+// 现在: 用 sessionIdFile（文件传递，有竞态）
+const bridgeEntry = buildMcpBridgeEntry(
+  options.serverPort,
+  undefined,              // no static session ID
+  getSessionIdFilePath(), // bridge reads from file
+);
+
+// 改为: 不传 sessionId 给 bridge 配置
+// bridge 从父进程继承的 CLAUDIA_SESSION_ID env 获取
+const bridgeEntry = buildMcpBridgeEntry(options.serverPort);
+```
+
+**空闲清理**：
+
+```typescript
+class CodexAppServerClient {
+  lastActivity: number = Date.now();
+
+  async *runTurn(...) {
+    this.lastActivity = Date.now();
+    // ... existing logic ...
+  }
+}
+
+// 模块级清理定时器
+const IDLE_TIMEOUT_MS = 30 * 60 * 1000;  // 30 minutes
+const CLEANUP_INTERVAL_MS = 5 * 60 * 1000; // scan every 5 minutes
+
+const cleanupTimer = setInterval(() => {
+  const now = Date.now();
+  for (const [key, client] of appServerClients) {
+    if (now - client.lastActivity > IDLE_TIMEOUT_MS) {
+      debugLog(`[Codex AppServer] Idle cleanup: ${key}`);
+      client.destroy();
+      appServerClients.delete(key);
+    }
+  }
+}, CLEANUP_INTERVAL_MS);
+cleanupTimer.unref(); // 不阻止 Node.js 退出
+```
+
+**Server 退出清理**：
+
+```typescript
+export function destroyAllAppServerClients(): void {
+  for (const [key, client] of appServerClients) {
+    client.destroy();
+  }
+  appServerClients.clear();
+  clearInterval(cleanupTimer);
+}
+
+// 在 server.ts 的 gracefulShutdown() 中调用
+```
+
+#### 2. `mcp-bridge-launch.ts` — 简化，移除 sessionIdFile
+
+```typescript
+// 现在: 支持 sessionId 和 sessionIdFile 两种模式
+export function buildMcpBridgeEntry(
+  serverPort: number,
+  sessionId?: string,
+  sessionIdFile?: string,
+): McpBridgeServerEntry | null {
+  const env = { CLAUDIA_BRIDGE_URL: `http://127.0.0.1:${serverPort}` };
+  if (sessionIdFile) {
+    env.CLAUDIA_SESSION_ID_FILE = sessionIdFile;
+  } else {
+    env.CLAUDIA_SESSION_ID = sessionId || '';
+  }
+  return { command, args, env };
+}
+
+// 改为: 只需 serverPort，session ID 由父进程 env 传递
+export function buildMcpBridgeEntry(
+  serverPort: number,
+): McpBridgeServerEntry | null {
+  const env = { CLAUDIA_BRIDGE_URL: `http://127.0.0.1:${serverPort}` };
+  // CLAUDIA_SESSION_ID 不在 bridge 配置中设置
+  // bridge 子进程会从 codex app-server 父进程继承 CLAUDIA_SESSION_ID env
+  return { command, args, env };
+}
+```
+
+#### 3. `mcp-bridge.ts` — 简化 getSessionId()
+
+```typescript
+// 现在: 支持 SESSION_ID_FILE fallback
+const STATIC_SESSION_ID = process.env.CLAUDIA_SESSION_ID || '';
+const SESSION_ID_FILE = process.env.CLAUDIA_SESSION_ID_FILE || '';
+
+function getSessionId(): string {
+  if (SESSION_ID_FILE) {
+    try { return readFileSync(SESSION_ID_FILE, 'utf-8').trim(); }
+    catch { return STATIC_SESSION_ID; }
+  }
+  return STATIC_SESSION_ID;
+}
+
+// 改为: 只读 env（从父进程继承）
+function getSessionId(): string {
+  return process.env.CLAUDIA_SESSION_ID || '';
+}
+```
+
+#### 4. `codex-app-server.ts` — 删除 session ID 文件相关代码
+
+删除以下函数和引用：
+- `getSessionIdFilePath()`
+- `updateSessionIdFile()`
+- `runCodexAppServer()` 中的 `updateSessionIdFile()` 调用
+
+#### 5. `server.ts` — 注册退出清理
+
+```typescript
+import { destroyAllAppServerClients } from './providers/codex-app-server.js';
+
+async function gracefulShutdown() {
+  // ... existing cleanup ...
+  destroyAllAppServerClients();
+}
+```
+
+### MCP 配置共享
+
+所有 per-session 进程共享同一个 MCP 配置目录，但各自有独立的 `CLAUDIA_SESSION_ID` env：
+
+```
+~/.my-claudia/codex-config/
+└── .codex/config.toml          ← 所有进程共享此配置
+                                   config.toml 中的 claudia-plugins bridge
+                                   不再包含 CLAUDIA_SESSION_ID env
+                                   （由父进程 env 传递）
+```
+
+`config.toml` 中 bridge 条目变为：
+
+```toml
+[mcp_servers.claudia-plugins]
+command = "/path/to/node"
+args = ["/path/to/mcp-bridge.js"]
+
+[mcp_servers.claudia-plugins.env]
+CLAUDIA_BRIDGE_URL = "http://127.0.0.1:3100"
+# CLAUDIA_SESSION_ID 不在这里 — 由 codex app-server 进程 env 传递给 bridge 子进程
+```
+
+**关键点**：Codex app-server spawn bridge 子进程时，子进程继承父进程的全部 env。`config.toml` 中的 `env` 字段是 **追加**而非覆盖，所以父进程的 `CLAUDIA_SESSION_ID` 会自动传递到 bridge。
+
+### Session Resume 的影响
+
+方案 A 下每个 session 有独立进程，thread/resume 可以正常工作：
+- 进程存活期间：resume 直接复用同一进程的 thread，rollout 文件仍在
+- 进程被清理后：需要创建新进程 + 新 thread（resume 会失败，fallback 到 startThread）
+
+现有代码已有这个 fallback 逻辑（`codex-app-server.ts:747-754`）：
+
+```typescript
+if (options.sessionId) {
+  try {
+    await client.resumeThread(options.sessionId);
+    threadId = options.sessionId;
+  } catch (err) {
+    // Resume failed, start fresh
+    threadId = await client.startThread(options.cwd);
+  }
+}
+```
+
+### 内存与资源预估
+
+| 并发 session 数 | 进程数 | 内存占用 | 备注 |
+|---------------|-------|---------|------|
+| 1 | 1 | ~17MB | 最常见场景 |
+| 3 | 3 | ~51MB | 多 session 并发 |
+| 5 | 5 | ~85MB | 极端场景 |
+
+- 空闲进程只占内存不占 CPU
+- 30 分钟超时覆盖"用户离开但没关 session"
+- 进程被清理后下次 run 自动 spawn 新进程，对用户透明
+
+### 不需要改动的部分
+
+- `codex-app-server-adapter.ts` — 无变化，已正确传递 `claudiaSessionId`
+- `mcp-bridge.ts` 的 HTTP 通信逻辑 — 无变化，只简化 `getSessionId()`
+- `config.toml` 的生成逻辑 — 只是不再传 `sessionIdFile` 参数
+- 前端代码 — 无感知
 
 ## 配置目录方案（已确定）
-
-不论选哪种 session 路由方案，MCP 配置目录已确定：
 
 ```
 ~/.my-claudia/codex-config/          ← 稳定目录
@@ -108,14 +368,16 @@ MCP bridge 调用交互工具（如 `ask_user_form`、`update_todo_list`、`requ
 
 ### 已知问题
 
-1. Session resume 在每次创建新进程时失败（`no rollout found`），需要复用进程或稳定 CODEX_HOME
-2. MCP bridge 的 session ID 传递机制待确定（上述方案选择）
-3. `turn/completed` 的 usage 字段可能为 undefined（token 信息在 `thread/tokenUsage/updated` 通知中）
+1. Session resume 在进程清理后失败（`no rollout found`），已有 fallback 逻辑处理
+2. `turn/completed` 的 usage 字段可能为 undefined（token 信息在 `thread/tokenUsage/updated` 通知中）
 
-## 下一步
+## 实施步骤
 
-1. 确定 MCP session 路由方案（A/C/D）
-2. 实现所选方案
-3. 验证并发 session 的 MCP 工具调用
-4. 添加进程清理机制（如果选方案 A）
-5. 提交并部署
+1. **`codex-app-server.ts`**：cache key 加入 `claudiaSessionId`，`buildEnv()` 注入 `CLAUDIA_SESSION_ID`
+2. **`codex-app-server.ts`**：加 `lastActivity` 字段 + 30 分钟空闲清理定时器 + `destroyAllAppServerClients()`
+3. **`codex-app-server.ts`**：删除 `getSessionIdFilePath()`、`updateSessionIdFile()` 及相关调用
+4. **`mcp-bridge-launch.ts`**：简化 `buildMcpBridgeEntry()`，移除 `sessionId`/`sessionIdFile` 参数
+5. **`mcp-bridge.ts`**：简化 `getSessionId()`，移除 `SESSION_ID_FILE` 逻辑
+6. **`server.ts`**：在 `gracefulShutdown()` 中调用 `destroyAllAppServerClients()`
+7. **测试**：验证并发 session 的 MCP 工具调用正确路由
+8. **测试**：验证空闲清理后重新 spawn 进程正常工作

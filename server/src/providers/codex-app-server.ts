@@ -1,7 +1,7 @@
 import { spawn, type ChildProcess } from 'child_process';
 import { createInterface, type Interface as ReadlineInterface } from 'readline';
 import { EventEmitter } from 'events';
-import { appendFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
+import { appendFileSync, writeFileSync, mkdirSync, existsSync, unlinkSync } from 'fs';
 import { join } from 'path';
 import type { MessageInput, PermissionRequest } from '@my-claudia/shared';
 
@@ -154,13 +154,8 @@ function getCodexConfigDir(): string {
   return join(dataDir, 'codex-config');
 }
 
-/** Session ID file path — the MCP bridge reads this to route interaction tools */
-function getSessionIdFilePath(): string {
-  return join(getCodexConfigDir(), '.claudia-session-id');
-}
-
 function mcpServersToToml(mcpServers: Record<string, unknown>): string {
-  return Object.entries(mcpServers).map(([name, config]) => {
+  return Object.entries(mcpServers).sort(([a], [b]) => a.localeCompare(b)).map(([name, config]) => {
     const cfg = config as Record<string, unknown>;
     const lines: string[] = [`[mcp_servers.${name}]`];
     if (cfg.command) lines.push(`command = ${JSON.stringify(cfg.command)}`);
@@ -169,7 +164,7 @@ function mcpServersToToml(mcpServers: Record<string, unknown>): string {
     }
     if (cfg.env && typeof cfg.env === 'object') {
       lines.push(`[mcp_servers.${name}.env]`);
-      for (const [k, v] of Object.entries(cfg.env as Record<string, string>)) {
+      for (const [k, v] of Object.entries(cfg.env as Record<string, string>).sort(([a], [b]) => a.localeCompare(b))) {
         lines.push(`${k} = ${JSON.stringify(v)}`);
       }
     }
@@ -178,50 +173,52 @@ function mcpServersToToml(mcpServers: Record<string, unknown>): string {
   }).join('\n\n');
 }
 
-/**
- * Write MCP config to the stable codex config dir.
- * Uses sessionIdFile so the bridge dynamically reads the current session ID
- * instead of it being baked into the config — this allows process reuse.
- */
-function writeMcpConfig(options: CodexAppServerOptions): string {
-  const configDir = getCodexConfigDir();
-  const codexDir = join(configDir, '.codex');
-  mkdirSync(codexDir, { recursive: true });
-
+function buildMcpConfigToml(options: CodexAppServerOptions): string {
   const mcpServers: Record<string, unknown> = {};
   if (options.db) {
     Object.assign(mcpServers, loadMcpServersFromDb(options.db, 'codex'));
   }
   if (options.serverPort) {
-    // Use sessionIdFile so the bridge reads session ID dynamically
-    const bridgeEntry = buildMcpBridgeEntry(
-      options.serverPort,
-      undefined,                  // no static session ID
-      getSessionIdFilePath(),     // bridge reads from this file
-    );
+    // No sessionId in bridge config — bridge inherits CLAUDIA_SESSION_ID
+    // from the per-session app-server parent process env
+    const bridgeEntry = buildMcpBridgeEntry(options.serverPort);
     if (bridgeEntry) {
       mcpServers['claudia-plugins'] = bridgeEntry;
     }
   }
 
-  const configPath = join(codexDir, 'config.toml');
-  if (Object.keys(mcpServers).length > 0) {
-    writeFileSync(configPath, mcpServersToToml(mcpServers), 'utf-8');
-    debugLog(`[Codex AppServer] Wrote MCP config: ${configPath} (${Object.keys(mcpServers).join(', ')})`);
-  }
-
-  return configDir;
+  return Object.keys(mcpServers).length > 0 ? mcpServersToToml(mcpServers) : '';
 }
 
-/** Update the session ID file so the MCP bridge routes to the current session */
-function updateSessionIdFile(sessionId: string): void {
-  const filePath = getSessionIdFilePath();
-  try {
-    mkdirSync(getCodexConfigDir(), { recursive: true });
-    writeFileSync(filePath, sessionId, 'utf-8');
-  } catch (err) {
-    debugLog(`[Codex AppServer] WARN: Failed to write session ID file: ${err}`);
+/**
+ * Write MCP config to the stable codex config dir.
+ * Session ID is passed via parent process env (CLAUDIA_SESSION_ID),
+ * not via config — bridge child processes inherit it automatically.
+ */
+/** Last written config content — skip redundant writes */
+let lastWrittenConfig = '';
+
+function writeMcpConfig(options: CodexAppServerOptions): { configDir: string; configSignature: string } {
+  const configDir = getCodexConfigDir();
+  const configToml = buildMcpConfigToml(options);
+
+  // Only write when config content actually changed
+  if (configToml !== lastWrittenConfig) {
+    const codexDir = join(configDir, '.codex');
+    mkdirSync(codexDir, { recursive: true });
+    const configPath = join(codexDir, 'config.toml');
+
+    if (configToml) {
+      writeFileSync(configPath, configToml, 'utf-8');
+      debugLog(`[Codex AppServer] Wrote MCP config: ${configPath}`);
+    } else if (existsSync(configPath)) {
+      unlinkSync(configPath);
+      debugLog(`[Codex AppServer] Removed MCP config: ${configPath}`);
+    }
+    lastWrittenConfig = configToml;
   }
+
+  return { configDir, configSignature: configToml };
 }
 
 // ── App Server Client ────────────────────────────────────────
@@ -243,6 +240,12 @@ export class CodexAppServerClient {
   private permissionCallback: PermissionCallback | null = null;
 
   private processCwd: string | undefined;
+
+  /** Last activity timestamp for idle cleanup */
+  lastActivity: number = Date.now();
+
+  /** Number of in-flight turns; active clients must not be reaped */
+  activeTurns = 0;
 
   constructor(cliPath: string | undefined, env: Record<string, string>, extraArgs: string[] = [], options?: { processCwd?: string }) {
     this.cliPath = cliPath || 'codex';
@@ -331,6 +334,7 @@ export class CodexAppServerClient {
 
   private handleLine(line: string): void {
     if (!line.trim()) return;
+    this.lastActivity = Date.now();
 
     let msg: Record<string, unknown>;
     try {
@@ -376,6 +380,7 @@ export class CodexAppServerClient {
 
   private async handleServerRequest(id: number, method: string, params?: Record<string, unknown>): Promise<void> {
     debugLog(`[Codex AppServer] Server request: ${method}`);
+    this.lastActivity = Date.now();
 
     // Map approval requests to our permission callback
     if (method.includes('Approval') || method.includes('approval')) {
@@ -455,6 +460,8 @@ export class CodexAppServerClient {
     onPermission: PermissionCallback,
     options?: { model?: string; systemPrompt?: string },
   ): AsyncGenerator<ClaudeMessage, void, void> {
+    this.lastActivity = Date.now();
+    this.activeTurns += 1;
     this.permissionCallback = onPermission;
 
     // Yield init message
@@ -550,6 +557,8 @@ export class CodexAppServerClient {
         }
       }
     } finally {
+      this.lastActivity = Date.now();
+      this.activeTurns = Math.max(0, this.activeTurns - 1);
       this.emitter.off('notification', onNotification);
       this.emitter.off('exit', onExit);
       this.permissionCallback = null;
@@ -703,14 +712,21 @@ function buildEnv(options: CodexAppServerOptions): Record<string, string> {
       mergedEnv[key] = value;
     }
   }
+  // Per-session process: inject session ID into env so MCP bridge
+  // child processes inherit it automatically
+  if (options.claudiaSessionId) {
+    mergedEnv.CLAUDIA_SESSION_ID = options.claudiaSessionId;
+  }
   return mergedEnv;
 }
 
-function getCacheKey(options: CodexAppServerOptions, env: Record<string, string>): string {
+export function getCacheKey(options: CodexAppServerOptions, env: Record<string, string>, configSignature = ''): string {
+  // env already contains CLAUDIA_SESSION_ID (injected by buildEnv),
+  // so envSignature naturally differentiates per-session processes
   const envSignature = JSON.stringify(
     Object.keys(env).sort().map((key) => [key, env[key]])
   );
-  return `${options.cliPath || '__default__'}::${envSignature}`;
+  return `${options.cliPath || '__default__'}::${configSignature}::${envSignature}`;
 }
 
 export function getOrCreateAppServerClient(options: CodexAppServerOptions): CodexAppServerClient {
@@ -718,14 +734,11 @@ export function getOrCreateAppServerClient(options: CodexAppServerOptions): Code
   const modeArgs = mapModeToConfigArgs(options.mode);
   const modelArgs = options.model ? ['-c', `model="${options.model}"`] : [];
   const extraArgs = [...modeArgs, ...modelArgs];
-
-  // Write MCP config to stable app data dir (shared by all sessions)
-  const processCwd = writeMcpConfig(options);
-
-  const key = getCacheKey(options, env);
+  const { configDir, configSignature } = writeMcpConfig(options);
+  const key = getCacheKey(options, env, configSignature);
   let client = appServerClients.get(key);
   if (!client) {
-    client = new CodexAppServerClient(options.cliPath, env, extraArgs, { processCwd });
+    client = new CodexAppServerClient(options.cliPath, env, extraArgs, { processCwd: configDir });
     appServerClients.set(key, client);
   }
   return client;
@@ -756,11 +769,6 @@ export async function* runCodexAppServer(
     threadId = await client.startThread(options.cwd);
   }
   debugLog(`[Codex AppServer] Using threadId: ${threadId}`);
-
-  // Update session ID file so MCP bridge routes to the current session
-  if (options.claudiaSessionId) {
-    updateSessionIdFile(options.claudiaSessionId);
-  }
 
   // Prepare input
   let inputBlocks = prepareAppServerInput(input);
@@ -800,4 +808,39 @@ export async function abortCodexAppServer(sessionId: string): Promise<void> {
     await entry.client.interruptTurn(entry.threadId);
     activeThreadIds.delete(sessionId);
   }
+}
+
+// ── Idle cleanup ─────────────────────────────────────────────
+
+export const IDLE_TIMEOUT_MS = 30 * 60 * 1000;    // 30 minutes
+const CLEANUP_INTERVAL_MS = 5 * 60 * 1000; // scan every 5 minutes
+
+/** Destroy all app-server processes (called on server shutdown) */
+export function runIdleCleanup(now = Date.now()): void {
+  for (const [key, client] of appServerClients) {
+    if (client.activeTurns > 0) continue;
+    if (now - client.lastActivity > IDLE_TIMEOUT_MS) {
+      debugLog(`[Codex AppServer] Idle cleanup: ${key}`);
+      client.destroy();
+      appServerClients.delete(key);
+    }
+  }
+}
+
+const cleanupTimer = setInterval(() => {
+  runIdleCleanup();
+}, CLEANUP_INTERVAL_MS);
+cleanupTimer.unref(); // don't prevent Node.js from exiting
+
+export function destroyAllAppServerClients(): void {
+  for (const [key, client] of appServerClients) {
+    debugLog(`[Codex AppServer] Shutdown cleanup: ${key}`);
+    client.destroy();
+  }
+  appServerClients.clear();
+  clearInterval(cleanupTimer);
+}
+
+export function resetAppServerClientsForTests(): void {
+  appServerClients.clear();
 }
