@@ -220,9 +220,6 @@ export function BottomPanel({ projectId, projectRoot, workingDirectory }: Bottom
         onMouseDown={onDragStart}
         onTouchStart={onDragStart}
       >
-        {/* Drag indicator */}
-        <div className="w-8 h-1 rounded-full bg-muted-foreground/40 mx-auto absolute left-1/2 -translate-x-1/2" />
-
         {/* Tabs */}
         <div className="flex items-center gap-0.5 flex-shrink-0" onMouseDown={(e) => e.stopPropagation()} onTouchStart={(e) => e.stopPropagation()}>
           {showTabs ? (

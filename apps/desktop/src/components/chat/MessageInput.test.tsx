@@ -331,9 +331,9 @@ describe('MessageInput', () => {
   describe('advanced mode', () => {
     it('renders larger textarea with resize in advanced mode', () => {
       render(<MessageInput {...defaultProps} advancedMode />);
-      const textarea = screen.getByPlaceholderText(/Type a message/);
-      expect(textarea.className).toContain('resize-y');
-      expect(textarea.className).toContain('min-h-[160px]');
+      const textarea = screen.getByPlaceholderText(/Type a message/) as HTMLTextAreaElement;
+      expect(textarea.className).toContain('resize-none');
+      expect(textarea.style.minHeight).toBe('160px');
     });
 
     it('renders normal textarea when not in advanced mode', () => {
@@ -388,6 +388,25 @@ describe('MessageInput', () => {
       expect(textarea.style.overflowY).toBe('hidden');
       rerender(<MessageInput {...defaultProps} advancedMode />);
       expect(textarea.style.overflowY).toBe('auto');
+    });
+
+    it('caps collapsed auto-resize at the expanded input height baseline', () => {
+      render(<MessageInput {...defaultProps} />);
+      const textarea = screen.getByPlaceholderText(/Type a message/) as HTMLTextAreaElement;
+      fireEvent.change(textarea, { target: { value: 'long content that should still cap the collapsed composer height' } });
+      expect(textarea.style.maxHeight).toBe('160px');
+    });
+
+    it('requests advanced mode when collapsed desktop input exceeds the max height', () => {
+      const onRequestAdvancedMode = vi.fn();
+      render(<MessageInput {...defaultProps} onRequestAdvancedMode={onRequestAdvancedMode} />);
+      const textarea = screen.getByPlaceholderText(/Type a message/) as HTMLTextAreaElement;
+      Object.defineProperty(textarea, 'scrollHeight', {
+        configurable: true,
+        value: 220,
+      });
+      fireEvent.change(textarea, { target: { value: 'content that exceeds collapsed height' } });
+      expect(onRequestAdvancedMode).toHaveBeenCalledTimes(1);
     });
   });
 

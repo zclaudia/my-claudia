@@ -319,6 +319,7 @@ export function ChatInputArea({
         initialValue={restoreMessage?.content ?? initialDraft}
         initialAttachments={restoreMessage?.attachments}
         advancedMode={advancedInput}
+        onRequestAdvancedMode={!isMobile && !advancedInput ? () => setAdvancedInput(true) : undefined}
         mobileToolbarSlot={isMobile ? (() => {
           const toolItems: Array<{ key: string; icon: React.ReactNode; label: string; isActive: boolean; hasBadge?: boolean; onClick: () => void }> = [];
 

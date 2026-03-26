@@ -29,6 +29,7 @@ interface MessageInputProps {
   initialAttachments?: Attachment[]; // Initial attachments to restore
   advancedMode?: boolean;     // Advanced input: larger textarea, Enter=newline on desktop
   mobileToolbarSlot?: React.ReactNode; // Extra buttons rendered in mobile action row
+  onRequestAdvancedMode?: () => void;
 }
 
 // State for @ mention feature
@@ -53,6 +54,8 @@ const initialMentionState: MentionState = {
 };
 
 const DRAFT_PERSIST_DEBOUNCE_MS = 300;
+const EXPANDED_INPUT_DEFAULT_HEIGHT_PX = 160;
+const EXPANDED_INPUT_MIN_HEIGHT_PX = 120;
 
 // Format file size
 const formatFileSize = (bytes: number): string => {
@@ -87,6 +90,7 @@ export function MessageInput({
   initialAttachments,
   advancedMode = false,
   mobileToolbarSlot,
+  onRequestAdvancedMode,
 }: MessageInputProps) {
   const getAvailableViewportHeight = useCallback(() => {
     if (typeof window === 'undefined') return 800;
@@ -105,6 +109,11 @@ export function MessageInput({
   const [availableViewportHeight, setAvailableViewportHeight] = useState(getAvailableViewportHeight);
   const compactRowHeightClass = isMobile ? 'h-16' : 'h-12';
   const controlIconSize = isMobile ? 18 : 20;
+  const expandedInputMaxHeight = Math.max(
+    EXPANDED_INPUT_MIN_HEIGHT_PX,
+    Math.min(Math.floor(availableViewportHeight * 0.4), 320)
+  );
+  const expandedInputHeight = Math.min(EXPANDED_INPUT_DEFAULT_HEIGHT_PX, expandedInputMaxHeight);
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -274,9 +283,13 @@ export function MessageInput({
     if (!textarea) return;
 
     if (!advancedMode) {
-      const maxHeight = isMobile
-        ? Math.max(160, availableViewportHeight * 0.4)
-        : Math.max(120, Math.min(220, availableViewportHeight * 0.3));
+      // Keep the collapsed composer from growing taller than the expanded composer baseline.
+      const maxHeight = expandedInputHeight;
+      const shouldAutoExpand = !isMobile && textarea.scrollHeight > maxHeight;
+
+      if (shouldAutoExpand) {
+        onRequestAdvancedMode?.();
+      }
 
       textarea.style.height = 'auto';
       textarea.style.height = `${Math.min(textarea.scrollHeight, maxHeight)}px`;
@@ -291,7 +304,7 @@ export function MessageInput({
       textarea.style.height = '';
       textarea.style.overflowY = 'auto';
     }
-  }, [value, advancedMode, isMobile, availableViewportHeight]);
+  }, [value, advancedMode, expandedInputHeight, isMobile, availableViewportHeight, onRequestAdvancedMode]);
 
   useEffect(() => {
     if (!isMobile) return;
@@ -915,11 +928,17 @@ export function MessageInput({
               rows={1}
               className={`w-full bg-input border border-border rounded-xl px-4 py-3 text-foreground placeholder-muted-foreground/60 focus:outline-none focus:border-primary/60 focus:shadow-apple-md disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-200 ${
                 advancedMode
-                  ? 'resize-none min-h-[160px] max-h-[40vh] overflow-auto'
+                  ? 'resize-none overflow-auto'
                   : 'resize-none min-h-12 overflow-y-auto'
               }`}
               style={{
                 fontSize: 'var(--chat-font-input, 0.875rem)',
+                ...(advancedMode
+                  ? {
+                      minHeight: `${expandedInputHeight}px`,
+                      maxHeight: `${expandedInputMaxHeight}px`,
+                    }
+                  : null),
               }}
             />
           </div>
