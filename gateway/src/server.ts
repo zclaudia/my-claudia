@@ -457,31 +457,34 @@ export function createGatewayServer(config: GatewayConfig): Server {
 
   function handleBackendHeartbeat(peer: PeerSession, msg: BackendHeartbeatMessage): void {
     if (!isCurrentBackendOwner(peer, msg.epoch)) return;
-    const lease = state.leases.get(peer.backendId!);
+    const backendId = peer.backendId!;
+    const lease = state.leases.get(backendId);
     if (!lease) return;
     lease.lastHeartbeatAt = Date.now();
-    const presence = state.registry.items.get(peer.backendId!);
+    const presence = state.registry.items.get(backendId);
     if (presence) presence.lastSeenAt = Date.now();
-    sendToWs(peer.ws, { type: 'heartbeat_ack', epoch: msg.epoch, streamDemand: state.getStreamDemand(peer.backendId) } satisfies HeartbeatAckMessage);
+    sendToWs(peer.ws, { type: 'heartbeat_ack', epoch: msg.epoch, streamDemand: state.getStreamDemand(backendId) } satisfies HeartbeatAckMessage);
   }
 
   function handleCatalogSnapshot(peer: PeerSession, msg: CatalogSnapshotMessage): void {
     if (!isCurrentBackendOwner(peer, msg.epoch)) return;
-    state.setCatalogSnapshot(peer.backendId, msg.epoch, msg.revision, msg.items);
-    const catalog = state.catalogs.get(peer.backendId);
+    const backendId = peer.backendId!;
+    state.setCatalogSnapshot(backendId, msg.epoch, msg.revision, msg.items);
+    const catalog = state.catalogs.get(backendId);
     if (!catalog) return;
-    const snapshot: BackendCatalogSnapshotMessage = { type: 'backend_catalog_snapshot', backendId: peer.backendId, epoch: msg.epoch, revision: msg.revision, items: msg.items };
+    const snapshot: BackendCatalogSnapshotMessage = { type: 'backend_catalog_snapshot', backendId, epoch: msg.epoch, revision: msg.revision, items: msg.items };
     for (const sub of catalog.subscribers) { const p = state.peers.get(sub); if (p) sendToWs(p.ws, snapshot); }
   }
 
   function handleCatalogEvent(peer: PeerSession, msg: CatalogEventMessage): void {
     if (!isCurrentBackendOwner(peer, msg.epoch)) return;
-    const currentCatalog = state.catalogs.get(peer.backendId);
+    const backendId = peer.backendId!;
+    const currentCatalog = state.catalogs.get(backendId);
     if (!currentCatalog) {
       sendToWs(peer.ws, {
         type: 'gateway_error',
         code: 'INVALID_MESSAGE',
-        message: `Catalog ${peer.backendId} is not initialized`,
+        message: `Catalog ${backendId} is not initialized`,
         recovery: 'resync_catalog',
       } satisfies GatewayErrorMessage);
       return;
@@ -491,25 +494,26 @@ export function createGatewayServer(config: GatewayConfig): Server {
       sendToWs(peer.ws, {
         type: 'gateway_error',
         code: 'INVALID_MESSAGE',
-        message: `Catalog revision mismatch for ${peer.backendId}: expected ${expectedRevision}, got ${msg.revision}`,
+        message: `Catalog revision mismatch for ${backendId}: expected ${expectedRevision}, got ${msg.revision}`,
         recovery: 'resync_catalog',
       } satisfies GatewayErrorMessage);
       return;
     }
     let catalog: ReturnType<typeof state.catalogUpsert>;
-    if (msg.op === 'upsert') catalog = state.catalogUpsert(peer.backendId, msg.epoch, msg.revision, msg.item);
-    else catalog = state.catalogRemove(peer.backendId, msg.epoch, msg.revision, msg.sessionId);
+    if (msg.op === 'upsert') catalog = state.catalogUpsert(backendId, msg.epoch, msg.revision, msg.item);
+    else catalog = state.catalogRemove(backendId, msg.epoch, msg.revision, msg.sessionId);
     if (!catalog) return;
     const event: BackendCatalogEventMessage = msg.op === 'upsert'
-      ? { type: 'backend_catalog_event', backendId: peer.backendId, epoch: msg.epoch, revision: msg.revision, op: 'upsert', item: msg.item }
-      : { type: 'backend_catalog_event', backendId: peer.backendId, epoch: msg.epoch, revision: msg.revision, op: 'remove', sessionId: msg.sessionId };
+      ? { type: 'backend_catalog_event', backendId, epoch: msg.epoch, revision: msg.revision, op: 'upsert', item: msg.item }
+      : { type: 'backend_catalog_event', backendId, epoch: msg.epoch, revision: msg.revision, op: 'remove', sessionId: msg.sessionId };
     for (const sub of catalog.subscribers) { const p = state.peers.get(sub); if (p) sendToWs(p.ws, event); }
   }
 
   function handleBackendRunStreamEvent(peer: PeerSession, msg: BackendRunStreamEvent): void {
     if (!isCurrentBackendOwner(peer)) return;
+    const backendId = peer.backendId!;
     for (const channel of state.channels.values()) {
-      if (channel.backendId === peer.backendId && channel.openStreams.has(msg.sessionId)) {
+      if (channel.backendId === backendId && channel.openStreams.has(msg.sessionId)) {
         const clientEvent: RunStreamEvent = { type: 'run_stream_event', eventType: msg.eventType, channelId: channel.channelId, sessionId: msg.sessionId, runId: msg.runId, seq: msg.seq, payload: msg.payload };
         const clientPeer = state.peers.get(channel.peerSessionId);
         if (clientPeer) sendToWs(clientPeer.ws, clientEvent);
@@ -609,8 +613,9 @@ export function createGatewayServer(config: GatewayConfig): Server {
 
   function handleChannelServerMessage(peer: PeerSession, msg: ChannelServerMessage): void {
     if (!isCurrentBackendOwner(peer)) return;
+    const backendId = peer.backendId!;
     const channel = state.channels.get(msg.channelId);
-    if (!channel || channel.backendId !== peer.backendId) return;
+    if (!channel || channel.backendId !== backendId) return;
     const clientPeer = state.peers.get(channel.peerSessionId);
     if (clientPeer) sendToWs(clientPeer.ws, msg);
   }
