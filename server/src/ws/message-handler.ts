@@ -24,7 +24,7 @@ import {
   handleGetNotifications, handleMarkNotificationsRead, handleDismissNotifications, handleClearReadNotifications,
 } from './handlers/notification-feed.js';
 import {
-  handlePermission, handleAskUser, handleInteractionResponse, handlePluginPermissionResponse,
+  handlePermission, handlePromptAnswerMessage, handleInteractionResponse, handlePluginPermissionResponse,
 } from './handlers/permissions.js';
 import {
   handleKillLeakedProcesses, handleStopBackgroundTask, handleAgentCancel,
@@ -146,8 +146,8 @@ export async function handleClientMessage(
       handlePermission(message, ctx.activeRuns, ctx.connectedClients);
       break;
 
-    case 'ask_user_answer':
-      handleAskUser(message, ctx.activeRuns, ctx.connectedClients);
+    case 'prompt_answer':
+      handlePromptAnswerMessage(message, ctx.activeRuns, ctx.connectedClients);
       break;
 
     case 'interaction_response':

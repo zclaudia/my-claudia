@@ -142,16 +142,16 @@ export function handlePermissionDecision(
   }
 }
 
-export function handleAskUserAnswer(
+export function handlePromptAnswer(
   message: {
-    type: 'ask_user_answer';
+    type: 'prompt_answer';
     requestId: string;
     formattedAnswer: string;
   },
   activeRuns: Map<string, ActiveRun>,
   connectedClients: Map<string, ConnectedClient>,
 ): void {
-  console.log(`[AskUser] Received answer for ${message.requestId}`);
+  console.log(`[PromptRequest] Received answer for ${message.requestId}`);
 
   // Find the run with this pending permission (reuses the same pendingPermissions map)
   for (const [, run] of activeRuns.entries()) {
@@ -176,13 +176,13 @@ export function handleAskUserAnswer(
       } as import('@my-claudia/shared').InteractionResolvedMessage;
 
       sendMessage(run.client.ws, {
-        type: 'ask_user_question_resolved',
+        type: 'prompt_request_resolved',
         requestId: message.requestId,
         sessionId: run.sessionId,
       } as any);
       if (connectedClients.size > 0) {
         broadcastToOtherAuthenticatedClients(connectedClients, run.clientId, {
-          type: 'ask_user_question_resolved',
+          type: 'prompt_request_resolved',
           requestId: message.requestId,
           sessionId: run.sessionId,
         } as any);
@@ -194,16 +194,16 @@ export function handleAskUserAnswer(
         broadcastToOtherAuthenticatedClients(connectedClients, run.clientId, resolvedEvent as ServerMessage);
       }
 
-      console.log(`[AskUser] ${message.requestId}: answered - resolved!`);
+      console.log(`[PromptRequest] ${message.requestId}: answered - resolved!`);
       return;
     }
   }
 
   // requestId not found — already resolved by another device. Broadcast idempotent resolution.
-  console.warn(`[AskUser] Request ${message.requestId} not found in any active run — broadcasting ask_user_question_resolved`);
+  console.warn(`[PromptRequest] Request ${message.requestId} not found in any active run — broadcasting prompt_request_resolved`);
   for (const [, run] of activeRuns.entries()) {
     sendMessage(run.client.ws, {
-      type: 'ask_user_question_resolved',
+      type: 'prompt_request_resolved',
       requestId: message.requestId,
     } as any);
     sendMessage(run.client.ws, {

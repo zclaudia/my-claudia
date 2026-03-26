@@ -96,7 +96,7 @@ export function normalizeFromAskUser(args: NormalizeAskUserArgs): InteractionPro
     })),
     submitLabel: 'Submit',
     cancelLabel: 'Skip',
-    responseMode: 'ask_user_answer',
+    responseMode: 'prompt_answer',
     variant: 'question',
   };
 }

@@ -5,7 +5,7 @@ import { DEFAULT_NOTIFICATION_CONFIG } from '@my-claudia/shared';
 
 const EVENT_LABELS: { key: keyof NotificationConfig['events']; label: string; description: string }[] = [
   { key: 'permissionRequest', label: 'Permission requests', description: 'Tool execution needs your approval' },
-  { key: 'askUserQuestion', label: 'Claude questions', description: 'Claude asks you a question' },
+  { key: 'promptRequest', label: 'Prompt requests', description: 'The app surfaces a prompt request' },
   { key: 'runCompleted', label: 'Run completed', description: 'A run finishes successfully' },
   { key: 'runFailed', label: 'Run failed', description: 'A run fails with an error' },
   { key: 'supervisionUpdate', label: 'Supervision updates', description: 'Supervision completes, fails, or is cancelled' },

@@ -53,7 +53,7 @@ import { useProjectStore } from '../../stores/projectStore';
 import { useServerStore } from '../../stores/serverStore';
 import { useSupervisionStore } from '../../stores/supervisionStore';
 import { usePermissionStore } from '../../stores/permissionStore';
-import { useAskUserQuestionStore } from '../../stores/askUserQuestionStore';
+import { usePromptRequestStore } from '../../stores/promptRequestStore';
 import { useInteractionStore } from '../../stores/interactionStore';
 import { useChatStore } from '../../stores/chatStore';
 import { useUIStore } from '../../stores/uiStore';
@@ -92,7 +92,7 @@ function setupStores(overrides: Record<string, any> = {}) {
 
   useSupervisionStore.setState({ agents: {}, ...overrides.supervisionStore } as any);
   usePermissionStore.setState({ pendingRequests: [], ...overrides.permissionStore } as any);
-  useAskUserQuestionStore.setState({ pendingRequests: [], ...overrides.askStore } as any);
+  usePromptRequestStore.setState({ pendingRequests: [], ...overrides.askStore } as any);
   useInteractionStore.setState({ interactions: {}, ...overrides.interactionStore } as any);
   useChatStore.setState({ activeRuns: {}, ...overrides.chatStore } as any);
   useUIStore.setState({

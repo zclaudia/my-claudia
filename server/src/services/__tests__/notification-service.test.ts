@@ -55,7 +55,7 @@ describe('NotificationService', () => {
         ntfyTopic: 'legacy-topic',
         events: {
           permissionRequest: true,
-          askUserQuestion: true,
+          promptRequest: true,
           runCompleted: false,
           runFailed: false,
           supervisionUpdate: false,
@@ -107,11 +107,14 @@ describe('NotificationService', () => {
 
       service.saveConfig(config);
 
+      const savedConfig = JSON.parse(mockDb.prepare().run.mock.calls[0][0]);
+
       expect(mockDb.prepare).toHaveBeenCalledWith(expect.stringContaining('INSERT INTO notification_config'));
       expect(mockDb.prepare().run).toHaveBeenCalledWith(
-        JSON.stringify(config),
+        JSON.stringify(savedConfig),
         expect.any(Number)
       );
+      expect(savedConfig.events.promptRequest).toBe(DEFAULT_NOTIFICATION_CONFIG.events.promptRequest);
     });
 
     it('updates cache after saving', () => {
@@ -130,7 +133,7 @@ describe('NotificationService', () => {
         ntfyTopic: 'legacy-topic',
         events: {
           permissionRequest: true,
-          askUserQuestion: true,
+          promptRequest: true,
           runCompleted: false,
           runFailed: false,
           supervisionUpdate: false,
@@ -275,7 +278,7 @@ describe('NotificationService', () => {
     it('handles all event types', async () => {
       const eventTypes = [
         'permission_request',
-        'ask_user_question',
+        'prompt_request',
         'run_completed',
         'run_failed',
         'background_permission',
@@ -289,7 +292,7 @@ describe('NotificationService', () => {
         ntfyUrl: 'https://ntfy.sh',
         events: {
           permissionRequest: true,
-          askUserQuestion: true,
+          promptRequest: true,
           runCompleted: true,
           runFailed: true,
           supervisionUpdate: true,

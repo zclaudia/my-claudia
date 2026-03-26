@@ -13,7 +13,7 @@ import { useChatStore } from '../stores/chatStore';
 import { useProjectStore } from '../stores/projectStore';
 import { useServerStore } from '../stores/serverStore';
 import { usePermissionStore } from '../stores/permissionStore';
-import { useAskUserQuestionStore } from '../stores/askUserQuestionStore';
+import { usePromptRequestStore } from '../stores/promptRequestStore';
 import { handleLocalPRMessage } from '../features/local-pr/handlers';
 import { handleWorkflowMessage } from '../features/workflows/handlers';
 import { handleScheduledTaskMessage } from '../features/scheduled-tasks/handlers';
@@ -274,7 +274,7 @@ export function handleServerMessage(
       const completedSession = msg.sessionId || useChatStore.getState().activeRuns[msg.runId];
       console.log(`[${logTag}] run_completed runId=${msg.runId} sessionId=${completedSession ?? 'unknown'} seq=${msg.seq ?? 'none'}`);
       if (completedSession) {
-        useAskUserQuestionStore.getState().clearRequestsForSession(completedSession);
+        usePromptRequestStore.getState().clearRequestsForSession(completedSession);
         useInteractionStore.getState().clearSession(completedSession);
         useChatStore.getState().finalizeRunToMessage(msg.runId);
         if (msg.usage) {
@@ -303,7 +303,7 @@ export function handleServerMessage(
       const failedSession = msg.sessionId || useChatStore.getState().activeRuns[msg.runId];
       console.log(`[${logTag}] run_failed runId=${msg.runId} sessionId=${failedSession ?? 'unknown'} seq=${msg.seq ?? 'none'}`);
       if (failedSession) {
-        useAskUserQuestionStore.getState().clearRequestsForSession(failedSession);
+        usePromptRequestStore.getState().clearRequestsForSession(failedSession);
         useInteractionStore.getState().clearSession(failedSession);
         if (msg.error) {
           useChatStore.getState().appendToLastMessage(failedSession, `\n\n**Error:** ${msg.error}`);
@@ -387,9 +387,9 @@ export function handleServerMessage(
       break;
     }
 
-    case 'ask_user_question': {
+    case 'prompt_request': {
       const backendName = ctx.resolveBackendName();
-      useAskUserQuestionStore.getState().setPendingRequest({
+      usePromptRequestStore.getState().setPendingRequest({
         requestId: msg.requestId,
         sessionId: msg.sessionId,
         serverId,
@@ -409,8 +409,8 @@ export function handleServerMessage(
       usePermissionStore.getState().clearRequestById(msg.requestId);
       break;
 
-    case 'ask_user_question_resolved':
-      useAskUserQuestionStore.getState().clearRequestById(msg.requestId);
+    case 'prompt_request_resolved':
+      usePromptRequestStore.getState().clearRequestById(msg.requestId);
       break;
 
     // Phase 1: Unified Interaction Events
@@ -864,10 +864,10 @@ export function handleServerMessage(
 
       // Reconcile questions — always clear stale
       const validQIds = new Set<string>(heartbeat.pendingQuestions.map(q => q.requestId));
-      useAskUserQuestionStore.getState().clearStaleRequests(serverId, validQIds);
+      usePromptRequestStore.getState().clearStaleRequests(serverId, validQIds);
       for (const q of heartbeat.pendingQuestions) {
-        if (!useAskUserQuestionStore.getState().hasRequest(q.requestId)) {
-          useAskUserQuestionStore.getState().setPendingRequest({
+        if (!usePromptRequestStore.getState().hasRequest(q.requestId)) {
+          usePromptRequestStore.getState().setPendingRequest({
             requestId: q.requestId,
             sessionId: q.sessionId,
             serverId,

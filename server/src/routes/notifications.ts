@@ -4,7 +4,7 @@ import type { NotificationConfig } from '@my-claudia/shared';
 
 const NOTIFICATION_EVENT_KEYS: Array<keyof NotificationConfig['events']> = [
   'permissionRequest',
-  'askUserQuestion',
+  'promptRequest',
   'runCompleted',
   'runFailed',
   'supervisionUpdate',
@@ -22,6 +22,9 @@ export function parseNotificationConfig(input: unknown): NotificationConfig | nu
   if (!candidate.events || typeof candidate.events !== 'object' || Array.isArray(candidate.events)) return null;
 
   const events = candidate.events as Record<string, unknown>;
+  if (typeof events.promptRequest !== 'boolean' && typeof events.askUserQuestion === 'boolean') {
+    events.promptRequest = events.askUserQuestion;
+  }
   for (const key of NOTIFICATION_EVENT_KEYS) {
     if (typeof events[key] !== 'boolean') return null;
   }
@@ -32,7 +35,7 @@ export function parseNotificationConfig(input: unknown): NotificationConfig | nu
     ntfyTopic: candidate.ntfyTopic,
     events: {
       permissionRequest: events.permissionRequest as boolean,
-      askUserQuestion: events.askUserQuestion as boolean,
+      promptRequest: events.promptRequest as boolean,
       runCompleted: events.runCompleted as boolean,
       runFailed: events.runFailed as boolean,
       supervisionUpdate: events.supervisionUpdate as boolean,

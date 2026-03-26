@@ -171,7 +171,7 @@ vi.mock('../../../contexts/ConnectionContext', () => ({
     setActiveBackend: vi.fn(),
     sendMessage: mockSendMessage,
     handlePermissionDecision: mockHandlePermissionDecision,
-    handleAskUserAnswer: mockHandleAskUserAnswer,
+    handlePromptAnswer: mockHandleAskUserAnswer,
   }),
 }));
 

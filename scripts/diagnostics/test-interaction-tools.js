@@ -315,11 +315,11 @@ async function runScenario(ws, sessionId, scenario, providerId) {
         });
       }
 
-      // Handle ask_user_question (legacy, auto-answer)
-      if (msg.type === 'ask_user_question' && msg.sessionId === sessionId) {
-        console.log(`  ${c.yellow}${tag} ask_user_question (legacy) - auto-answering${c.reset}`);
+      // Handle prompt_request (native prompt routing, auto-answer)
+      if (msg.type === 'prompt_request' && msg.sessionId === sessionId) {
+        console.log(`  ${c.yellow}${tag} prompt_request - auto-answering${c.reset}`);
         send(ws, {
-          type: 'ask_user_answer',
+          type: 'prompt_answer',
           requestId: msg.requestId,
           formattedAnswer: 'Continue with defaults',
         });

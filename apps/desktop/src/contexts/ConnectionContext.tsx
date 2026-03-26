@@ -3,7 +3,7 @@ import { useMultiServerSocket } from '../hooks/useMultiServerSocket';
 import { useEmbeddedServer, type EmbeddedServerStatus } from '../hooks/useEmbeddedServer';
 import { useWslServer, type WslServerState } from '../hooks/useWslServer';
 import { usePermissionStore } from '../stores/permissionStore';
-import { useAskUserQuestionStore } from '../stores/askUserQuestionStore';
+import { usePromptRequestStore } from '../stores/promptRequestStore';
 import { useServerStore } from '../stores/serverStore';
 import { useGatewayStore, isGatewayTarget } from '../stores/gatewayStore';
 import { encryptCredential, isEncryptionAvailable } from '../utils/crypto';
@@ -25,7 +25,7 @@ interface ConnectionContextValue {
 
   // Permission decision handlers (shared across all components)
   handlePermissionDecision: (requestId: string, allow: boolean, remember?: boolean, credential?: string, feedback?: string) => Promise<void>;
-  handleAskUserAnswer: (requestId: string, formattedAnswer: string) => void;
+  handlePromptAnswer: (requestId: string, formattedAnswer: string) => void;
 
   // Embedded server debug info
   embeddedServerStatus: EmbeddedServerStatus;
@@ -181,12 +181,12 @@ export function ConnectionProvider({
     usePermissionStore.getState().clearRequestById(requestId);
   }, [socket]);
 
-  const handleAskUserAnswer = useCallback((requestId: string, formattedAnswer: string) => {
-    const request = useAskUserQuestionStore.getState().pendingRequests.find(r => r.requestId === requestId);
+  const handlePromptAnswer = useCallback((requestId: string, formattedAnswer: string) => {
+    const request = usePromptRequestStore.getState().pendingRequests.find(r => r.requestId === requestId);
     const targetServerId = request?.serverId;
 
     const message = {
-      type: 'ask_user_answer' as const,
+      type: 'prompt_answer' as const,
       requestId,
       formattedAnswer,
     };
@@ -196,7 +196,7 @@ export function ConnectionProvider({
     } else {
       socket.sendMessage(message);
     }
-    useAskUserQuestionStore.getState().clearRequestById(requestId);
+    usePromptRequestStore.getState().clearRequestById(requestId);
   }, [socket]);
 
   const value: ConnectionContextValue = {
@@ -215,7 +215,7 @@ export function ConnectionProvider({
 
     // Permission handlers
     handlePermissionDecision,
-    handleAskUserAnswer,
+    handlePromptAnswer,
 
     // Embedded server debug info
     embeddedServerStatus: embeddedServer.status,

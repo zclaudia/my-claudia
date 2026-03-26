@@ -41,7 +41,7 @@ const mockPermissionStore = {
   hasRequest: vi.fn(() => false),
 };
 
-const mockAskUserQuestionStore = {
+const mockPromptRequestStore = {
   setPendingRequest: vi.fn(),
   clearRequestById: vi.fn(),
   clearRequestsForSession: vi.fn(),
@@ -108,8 +108,8 @@ vi.mock('../../stores/serverStore', () => ({
 vi.mock('../../stores/permissionStore', () => ({
   usePermissionStore: { getState: () => mockPermissionStore },
 }));
-vi.mock('../../stores/askUserQuestionStore', () => ({
-  useAskUserQuestionStore: { getState: () => mockAskUserQuestionStore },
+vi.mock('../../stores/promptRequestStore', () => ({
+  usePromptRequestStore: { getState: () => mockPromptRequestStore },
 }));
 vi.mock('../../features/local-pr/handlers', () => ({
   handleLocalPRMessage: (...args: any[]) => mockHandleLocalPRMessage(...args),
@@ -295,7 +295,7 @@ describe('handleServerMessage', () => {
 
       handleServerMessage({ type: 'run_completed', runId: 'r1', usage: { tokens: 100 } }, ctx);
 
-      expect(mockAskUserQuestionStore.clearRequestsForSession).toHaveBeenCalledWith('s1');
+      expect(mockPromptRequestStore.clearRequestsForSession).toHaveBeenCalledWith('s1');
       expect(mockInteractionStore.clearSession).toHaveBeenCalledWith('s1');
       expect(mockChatStore.finalizeRunToMessage).toHaveBeenCalledWith('r1');
       expect(mockChatStore.addSessionUsage).toHaveBeenCalledWith('s1', { tokens: 100 });
@@ -308,7 +308,7 @@ describe('handleServerMessage', () => {
 
     it('uses sessionId from message when available', () => {
       handleServerMessage({ type: 'run_completed', runId: 'r1', sessionId: 's2' }, makeCtx());
-      expect(mockAskUserQuestionStore.clearRequestsForSession).toHaveBeenCalledWith('s2');
+      expect(mockPromptRequestStore.clearRequestsForSession).toHaveBeenCalledWith('s2');
       expect(mockInteractionStore.clearSession).toHaveBeenCalledWith('s2');
     });
 
@@ -395,11 +395,11 @@ describe('handleServerMessage', () => {
     );
   });
 
-  it('handles ask_user_question', () => {
+  it('handles prompt_request', () => {
     handleServerMessage({
-      type: 'ask_user_question', requestId: 'q1', sessionId: 's1', questions: ['What?'],
+      type: 'prompt_request', requestId: 'q1', sessionId: 's1', questions: ['What?'],
     }, makeCtx());
-    expect(mockAskUserQuestionStore.setPendingRequest).toHaveBeenCalledWith(
+    expect(mockPromptRequestStore.setPendingRequest).toHaveBeenCalledWith(
       expect.objectContaining({ requestId: 'q1', questions: ['What?'] })
     );
   });
@@ -414,9 +414,9 @@ describe('handleServerMessage', () => {
     expect(mockPermissionStore.clearRequestById).toHaveBeenCalledWith('pr1');
   });
 
-  it('handles ask_user_question_resolved', () => {
-    handleServerMessage({ type: 'ask_user_question_resolved', requestId: 'q1' }, makeCtx());
-    expect(mockAskUserQuestionStore.clearRequestById).toHaveBeenCalledWith('q1');
+  it('handles prompt_request_resolved', () => {
+    handleServerMessage({ type: 'prompt_request_resolved', requestId: 'q1' }, makeCtx());
+    expect(mockPromptRequestStore.clearRequestById).toHaveBeenCalledWith('q1');
   });
 
   it('handles interaction_todo_update', () => {
@@ -724,8 +724,8 @@ describe('handleServerMessage', () => {
           requestId: 'q1', sessionId: 's1', questions: ['Confirm?'],
         }],
       }), makeCtx());
-      expect(mockAskUserQuestionStore.clearStaleRequests).toHaveBeenCalled();
-      expect(mockAskUserQuestionStore.setPendingRequest).toHaveBeenCalled();
+      expect(mockPromptRequestStore.clearStaleRequests).toHaveBeenCalled();
+      expect(mockPromptRequestStore.setPendingRequest).toHaveBeenCalled();
     });
 
     it('gateway: reconciles active sessions', () => {

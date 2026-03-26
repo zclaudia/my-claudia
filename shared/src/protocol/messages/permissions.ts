@@ -1,5 +1,5 @@
 /**
- * Permission and user-interaction messages: permission decisions, ask-user answers,
+ * Permission and prompt-routing messages: permission decisions, prompt answers,
  * permission requests, agent interceptions, resolution notifications, and plugin permissions.
  */
 
@@ -18,9 +18,9 @@ export interface PermissionDecisionMessage {
   encryptedCredential?: string;
 }
 
-// AskUserQuestion answer (Client → Server)
-export interface AskUserAnswerMessage {
-  type: 'ask_user_answer';
+// Prompt answer routed back to the originating backend (Client → Server)
+export interface PromptAnswerMessage {
+  type: 'prompt_answer';
   requestId: string;
   formattedAnswer: string;  // Pre-formatted readable text for Claude
 }
@@ -51,9 +51,9 @@ export interface PermissionRequestMessage {
   aiInitiated?: boolean;
 }
 
-// AskUserQuestion: interactive question UI (Server → Client)
-export interface AskUserQuestionMessage {
-  type: 'ask_user_question';
+// Prompt request: transport-level native question routing (Server → Client)
+export interface PromptRequestMessage {
+  type: 'prompt_request';
   requestId: string;
   sessionId: string;
   questions: AskUserQuestionItem[];
@@ -86,9 +86,9 @@ export interface PermissionAutoResolvedMessage {
   behavior: 'approve' | 'deny';
 }
 
-// Server → Client: an ask_user_question has been resolved by another device
-export interface AskUserQuestionResolvedMessage {
-  type: 'ask_user_question_resolved';
+// Server → Client: a prompt_request has been resolved by another device
+export interface PromptRequestResolvedMessage {
+  type: 'prompt_request_resolved';
   requestId: string;
   sessionId?: string;
 }

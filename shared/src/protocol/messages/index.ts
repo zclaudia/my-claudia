@@ -40,7 +40,7 @@ import type {
   TerminalCloseMessage, TerminalAttachMessage, TerminalDetachMessage,
 } from './terminal.js';
 import type {
-  PermissionDecisionMessage, AskUserAnswerMessage, PluginPermissionResponseMessage,
+  PermissionDecisionMessage, PromptAnswerMessage, PluginPermissionResponseMessage,
 } from './permissions.js';
 import type {
   GetSupervisionTasksMessage, AddSupervisionTaskMessage, UpdateSupervisionTaskMessage,
@@ -61,7 +61,7 @@ export type ClientMessage =
   | KillLeakedProcessesMessage
   | StopBackgroundTaskMessage
   | PermissionDecisionMessage
-  | AskUserAnswerMessage
+  | PromptAnswerMessage
   | PingMessage
   | GetProjectsMessage
   | GetSessionsMessage
@@ -139,8 +139,8 @@ import type {
   TerminalOpenedMessage, TerminalOutputMessage, TerminalExitedMessage, TerminalAttachedMessage,
 } from './terminal.js';
 import type {
-  PermissionRequestMessage, AskUserQuestionMessage, AgentPermissionInterceptedMessage,
-  PermissionResolvedMessage, PermissionAutoResolvedMessage, AskUserQuestionResolvedMessage,
+  PermissionRequestMessage, PromptRequestMessage, AgentPermissionInterceptedMessage,
+  PermissionResolvedMessage, PermissionAutoResolvedMessage, PromptRequestResolvedMessage,
   PluginPermissionRequestMessage,
 } from './permissions.js';
 import type {
@@ -177,7 +177,7 @@ export type ServerMessage =
   | RunCompletedMessage
   | RunFailedMessage
   | PermissionRequestMessage
-  | AskUserQuestionMessage
+  | PromptRequestMessage
   | AgentPermissionInterceptedMessage
   | BackgroundTaskUpdateMessage
   | BackgroundPermissionPendingMessage
@@ -214,7 +214,7 @@ export type ServerMessage =
   | SupervisionCheckpointMessage
   | PermissionResolvedMessage
   | PermissionAutoResolvedMessage
-  | AskUserQuestionResolvedMessage
+  | PromptRequestResolvedMessage
   | StateHeartbeatMessage
   | TerminalOpenedMessage
   | TerminalOutputMessage

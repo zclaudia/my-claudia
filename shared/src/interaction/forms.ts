@@ -55,7 +55,7 @@ export interface InteractionPromptMessage extends InteractionBase {
   fields: InteractionPromptField[];
   submitLabel?: string;
   cancelLabel?: string;
-  responseMode?: 'interaction_response' | 'ask_user_answer';
+  responseMode?: 'interaction_response' | 'prompt_answer';
   variant?: 'question' | 'form';
 }
 

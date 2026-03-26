@@ -5,7 +5,7 @@ import { DEFAULT_NOTIFICATION_CONFIG } from '@my-claudia/shared';
 type NtfyPriority = 'urgent' | 'high' | 'default' | 'low' | 'min';
 
 interface NotifyEvent {
-  type: 'permission_request' | 'ask_user_question' | 'run_completed' | 'run_failed' | 'background_permission' | 'process_leak';
+  type: 'permission_request' | 'prompt_request' | 'run_completed' | 'run_failed' | 'background_permission' | 'process_leak';
   title: string;
   body: string;
   priority?: NtfyPriority;
@@ -52,11 +52,13 @@ export class NotificationService {
   }
 
   private normalizeConfig(config: Partial<NotificationConfig>): NotificationConfig {
+    const legacyPromptRequest = (config.events as Record<string, unknown> | undefined)?.askUserQuestion;
     return {
       ...DEFAULT_NOTIFICATION_CONFIG,
       ...config,
       events: {
         ...DEFAULT_NOTIFICATION_CONFIG.events,
+        ...(typeof legacyPromptRequest === 'boolean' ? { promptRequest: legacyPromptRequest } : {}),
         ...(config.events || {}),
       },
     };
@@ -69,7 +71,7 @@ export class NotificationService {
     // Check if this event type is enabled
     const eventKeyMap: Record<NotifyEvent['type'], keyof NotificationConfig['events']> = {
       permission_request: 'permissionRequest',
-      ask_user_question: 'askUserQuestion',
+      prompt_request: 'promptRequest',
       run_completed: 'runCompleted',
       run_failed: 'runFailed',
       background_permission: 'backgroundPermission',

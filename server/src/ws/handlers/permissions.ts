@@ -1,13 +1,13 @@
 import type {
   PermissionDecisionMessage,
-  AskUserAnswerMessage,
+  PromptAnswerMessage,
   InteractionResponseMessage,
   InteractionResolvedMessage,
   PluginPermissionResponseMessage,
   ServerMessage,
 } from '@my-claudia/shared';
 import type { ConnectedClient, ActiveRun } from '../types.js';
-import { handlePermissionDecision, handleAskUserAnswer } from '../permission-handler.js';
+import { handlePermissionDecision, handlePromptAnswer } from '../permission-handler.js';
 import { interactionDispatcher } from '../../interactions/interaction-dispatcher.js';
 import { permissionManager as pluginPermissionManager } from '../../plugins/permissions.js';
 import { sendMessage, broadcastToOtherAuthenticatedClients } from '../broadcast.js';
@@ -20,12 +20,12 @@ export function handlePermission(
   handlePermissionDecision(message, activeRuns, connectedClients);
 }
 
-export function handleAskUser(
-  message: AskUserAnswerMessage,
+export function handlePromptAnswerMessage(
+  message: PromptAnswerMessage,
   activeRuns: Map<string, ActiveRun>,
   connectedClients: Map<string, ConnectedClient>,
 ): void {
-  handleAskUserAnswer(message, activeRuns, connectedClients);
+  handlePromptAnswer(message, activeRuns, connectedClients);
 }
 
 export function handleInteractionResponse(

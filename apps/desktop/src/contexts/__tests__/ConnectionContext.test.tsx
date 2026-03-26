@@ -50,8 +50,8 @@ const mockAskUserStore = {
   clearRequestById: vi.fn(),
 };
 
-vi.mock('../../stores/askUserQuestionStore', () => ({
-  useAskUserQuestionStore: {
+vi.mock('../../stores/promptRequestStore', () => ({
+  usePromptRequestStore: {
     getState: () => mockAskUserStore,
   },
 }));
@@ -215,7 +215,7 @@ describe('ConnectionContext', () => {
     );
   });
 
-  it('handleAskUserAnswer sends answer via socket', () => {
+  it('handlePromptAnswer sends answer via socket', () => {
     mockAskUserStore.pendingRequests = [
       { requestId: 'ask-1', question: 'what?', serverId: undefined },
     ];
@@ -227,18 +227,18 @@ describe('ConnectionContext', () => {
     const { result } = renderHook(() => useConnection(), { wrapper });
 
     act(() => {
-      result.current.handleAskUserAnswer('ask-1', 'My answer');
+      result.current.handlePromptAnswer('ask-1', 'My answer');
     });
 
     expect(mockSocket.sendMessage).toHaveBeenCalledWith({
-      type: 'ask_user_answer',
+      type: 'prompt_answer',
       requestId: 'ask-1',
       formattedAnswer: 'My answer',
     });
     expect(mockAskUserStore.clearRequestById).toHaveBeenCalledWith('ask-1');
   });
 
-  it('handleAskUserAnswer routes to specific server', () => {
+  it('handlePromptAnswer routes to specific server', () => {
     mockAskUserStore.pendingRequests = [
       { requestId: 'ask-2', question: 'what?', serverId: 'server-1' },
     ];
@@ -250,13 +250,13 @@ describe('ConnectionContext', () => {
     const { result } = renderHook(() => useConnection(), { wrapper });
 
     act(() => {
-      result.current.handleAskUserAnswer('ask-2', 'Answer');
+      result.current.handlePromptAnswer('ask-2', 'Answer');
     });
 
     expect(mockSocket.sendToServer).toHaveBeenCalledWith(
       'server-1',
       expect.objectContaining({
-        type: 'ask_user_answer',
+        type: 'prompt_answer',
         requestId: 'ask-2',
       }),
     );

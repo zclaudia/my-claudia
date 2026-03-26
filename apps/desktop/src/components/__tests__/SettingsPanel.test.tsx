@@ -40,7 +40,7 @@ vi.mock('../../services/api', async (importOriginal) => {
   stubbed.updateAgentConfig = vi.fn().mockResolvedValue({});
   stubbed.getNotificationConfig = vi.fn().mockResolvedValue({
     enabled: false, ntfyUrl: 'https://ntfy.sh', ntfyTopic: '', events: {
-      permissionRequest: true, askUserQuestion: true, runCompleted: false,
+      permissionRequest: true, promptRequest: true, runCompleted: false,
       runFailed: false, supervisionUpdate: false, backgroundPermission: false,
       processLeak: true,
     },
@@ -65,7 +65,7 @@ vi.mock('@my-claudia/shared', async (importOriginal) => {
       ntfyTopic: '',
       events: {
         permissionRequest: true,
-        askUserQuestion: true,
+        promptRequest: true,
         runCompleted: false,
         runFailed: false,
         supervisionUpdate: false,
@@ -575,7 +575,7 @@ describe('SettingsPanel', () => {
     (api.getNotificationConfig as ReturnType<typeof vi.fn>).mockResolvedValue({
       enabled: true, ntfyUrl: 'https://ntfy.sh', ntfyTopic: 'test-topic',
       events: {
-        permissionRequest: true, askUserQuestion: true, runCompleted: false,
+        permissionRequest: true, promptRequest: true, runCompleted: false,
         runFailed: false, supervisionUpdate: false, backgroundPermission: false,
       },
     });
@@ -592,7 +592,7 @@ describe('SettingsPanel', () => {
     });
 
     expect(container.textContent).toContain('Permission requests');
-    expect(container.textContent).toContain('Claude questions');
+    expect(container.textContent).toContain('Prompt requests');
     expect(container.textContent).toContain('Run completed');
     expect(container.textContent).toContain('Run failed');
     expect(container.textContent).toContain('Supervision updates');
@@ -602,7 +602,7 @@ describe('SettingsPanel', () => {
   it('shows Send Test button for notifications', async () => {
     (api.getNotificationConfig as ReturnType<typeof vi.fn>).mockResolvedValue({
       enabled: true, ntfyUrl: 'https://ntfy.sh', ntfyTopic: 'test-topic',
-      events: { permissionRequest: true, askUserQuestion: true, runCompleted: false, runFailed: false, supervisionUpdate: false, backgroundPermission: false },
+      events: { permissionRequest: true, promptRequest: true, runCompleted: false, runFailed: false, supervisionUpdate: false, backgroundPermission: false },
     });
 
     const { container } = render(<SettingsPanel isOpen={true} onClose={vi.fn()} />);

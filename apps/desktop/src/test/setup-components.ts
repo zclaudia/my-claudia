@@ -493,24 +493,24 @@ vi.mock('@/stores/permissionStore', () => ({
   ...mockPermissionStore,
 }));
 
-// Mock askUserQuestionStore
-const mockAskUserQuestionStore = createMockStore({
+// Mock promptRequestStore
+const mockPromptRequestStore = createMockStore({
   pendingQuestions: [],
   hasPendingQuestions: false,
 });
 
-const useAskUserQuestionStoreMock = vi.fn((selector?: (state: any) => any) => {
-  const state = mockAskUserQuestionStore.getState();
+const usePromptRequestStoreMock = vi.fn((selector?: (state: any) => any) => {
+  const state = mockPromptRequestStore.getState();
   return selector ? selector(state) : state;
 });
-(useAskUserQuestionStoreMock as any).setState = mockAskUserQuestionStore.setState;
-(useAskUserQuestionStoreMock as any).getState = mockAskUserQuestionStore.getState;
-(useAskUserQuestionStoreMock as any).subscribe = mockAskUserQuestionStore.subscribe;
+(usePromptRequestStoreMock as any).setState = mockPromptRequestStore.setState;
+(usePromptRequestStoreMock as any).getState = mockPromptRequestStore.getState;
+(usePromptRequestStoreMock as any).subscribe = mockPromptRequestStore.subscribe;
 
-vi.mock('@/stores/askUserQuestionStore', () => ({
-  useAskUserQuestionStore: useAskUserQuestionStoreMock,
-  askUserQuestionStore: mockAskUserQuestionStore,
-  ...mockAskUserQuestionStore,
+vi.mock('@/stores/promptRequestStore', () => ({
+  usePromptRequestStore: usePromptRequestStoreMock,
+  promptRequestStore: mockPromptRequestStore,
+  ...mockPromptRequestStore,
 }));
 
 // Mock fileViewerStore
@@ -551,6 +551,6 @@ afterEach(() => {
   mockUIStore.setState(mockUIStore.getInitialState());
   mockGatewayStore.setState(mockGatewayStore.getInitialState());
   mockPermissionStore.setState(mockPermissionStore.getInitialState());
-  mockAskUserQuestionStore.setState(mockAskUserQuestionStore.getInitialState());
+  mockPromptRequestStore.setState(mockPromptRequestStore.getInitialState());
   mockFileViewerStore.setState(mockFileViewerStore.getInitialState());
 });

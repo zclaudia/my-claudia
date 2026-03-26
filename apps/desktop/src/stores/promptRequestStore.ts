@@ -1,25 +1,21 @@
 import { create } from 'zustand';
 import type { AskUserQuestionItem } from '@my-claudia/shared';
 
-export interface AskUserQuestionRequest {
+export interface PromptRequest {
   requestId: string;
-  /** The session this question belongs to (may be absent for older servers). */
+  /** The session this prompt belongs to (may be absent for older servers). */
   sessionId?: string;
   /** Source server ID (e.g. "gw:backend-1") — used to route the answer to the correct backend. */
   serverId?: string;
-  /** Human-readable backend name — shown in the modal when the request is from a non-active backend. */
+  /** Human-readable backend name for diagnostics and cross-backend routing UX. */
   backendName?: string;
   questions: AskUserQuestionItem[];
 }
 
-interface AskUserQuestionState {
-  // Queue of pending requests (FIFO)
-  pendingRequests: AskUserQuestionRequest[];
-  // First item in queue — retained for legacy ask_user_question transport routing
-  pendingRequest: AskUserQuestionRequest | null;
-
-  // Actions
-  setPendingRequest: (request: AskUserQuestionRequest | null) => void;
+interface PromptRequestState {
+  pendingRequests: PromptRequest[];
+  pendingRequest: PromptRequest | null;
+  setPendingRequest: (request: PromptRequest | null) => void;
   clearRequest: () => void;
   clearRequestById: (requestId: string) => void;
   clearAllRequests: () => void;
@@ -27,11 +23,11 @@ interface AskUserQuestionState {
   clearRequestsForSession: (sessionId: string) => void;
   clearStaleRequests: (serverId: string, validIds: Set<string>) => void;
   hasRequest: (requestId: string) => boolean;
-  getRequestsForSession: (sessionId: string) => AskUserQuestionRequest[];
+  getRequestsForSession: (sessionId: string) => PromptRequest[];
   getSessionsWithPendingRequests: () => string[];
 }
 
-export const useAskUserQuestionStore = create<AskUserQuestionState>((set, get) => ({
+export const usePromptRequestStore = create<PromptRequestState>((set, get) => ({
   pendingRequests: [],
   pendingRequest: null,
 
@@ -41,8 +37,7 @@ export const useAskUserQuestionStore = create<AskUserQuestionState>((set, get) =
       return;
     }
     set((state) => {
-      // Don't add duplicates
-      if (state.pendingRequests.some(r => r.requestId === request.requestId)) {
+      if (state.pendingRequests.some((r) => r.requestId === request.requestId)) {
         return state;
       }
       const updated = [...state.pendingRequests, request];
@@ -53,7 +48,6 @@ export const useAskUserQuestionStore = create<AskUserQuestionState>((set, get) =
     });
   },
 
-  // Remove the first (current) request from queue, advance to next
   clearRequest: () =>
     set((state) => {
       const remaining = state.pendingRequests.slice(1);
@@ -63,24 +57,21 @@ export const useAskUserQuestionStore = create<AskUserQuestionState>((set, get) =
       };
     }),
 
-  // Clear everything (e.g. on run end)
   clearAllRequests: () =>
     set({ pendingRequests: [], pendingRequest: null }),
 
-  // Remove a specific request by ID (e.g. resolved by another device)
   clearRequestById: (requestId) =>
     set((state) => {
-      const remaining = state.pendingRequests.filter(r => r.requestId !== requestId);
+      const remaining = state.pendingRequests.filter((r) => r.requestId !== requestId);
       return {
         pendingRequests: remaining,
         pendingRequest: remaining[0] || null,
       };
     }),
 
-  // Clear all requests from a specific server (e.g. when that server's run ends)
   clearRequestsForServer: (serverId) =>
     set((state) => {
-      const remaining = state.pendingRequests.filter(r => r.serverId !== serverId);
+      const remaining = state.pendingRequests.filter((r) => r.serverId !== serverId);
       return {
         pendingRequests: remaining,
         pendingRequest: remaining[0] || null,
@@ -89,18 +80,17 @@ export const useAskUserQuestionStore = create<AskUserQuestionState>((set, get) =
 
   clearRequestsForSession: (sessionId) =>
     set((state) => {
-      const remaining = state.pendingRequests.filter(r => r.sessionId !== sessionId);
+      const remaining = state.pendingRequests.filter((r) => r.sessionId !== sessionId);
       return {
         pendingRequests: remaining,
         pendingRequest: remaining[0] || null,
       };
     }),
 
-  // Remove requests for a server that are not in the valid set (state heartbeat reconciliation)
   clearStaleRequests: (serverId, validIds) =>
     set((state) => {
       const remaining = state.pendingRequests.filter(
-        r => r.serverId !== serverId || validIds.has(r.requestId)
+        (r) => r.serverId !== serverId || validIds.has(r.requestId),
       );
       return {
         pendingRequests: remaining,
@@ -108,18 +98,15 @@ export const useAskUserQuestionStore = create<AskUserQuestionState>((set, get) =
       };
     }),
 
-  // Check if a request exists
   hasRequest: (requestId): boolean => {
-    return get().pendingRequests.some((r: AskUserQuestionRequest) => r.requestId === requestId);
+    return get().pendingRequests.some((r: PromptRequest) => r.requestId === requestId);
   },
 
-  // Get all requests for a specific session
-  getRequestsForSession: (sessionId): AskUserQuestionRequest[] => {
-    return get().pendingRequests.filter(r => r.sessionId === sessionId);
+  getRequestsForSession: (sessionId): PromptRequest[] => {
+    return get().pendingRequests.filter((r) => r.sessionId === sessionId);
   },
 
-  // Get unique session IDs that have pending requests
   getSessionsWithPendingRequests: (): string[] => {
-    return [...new Set(get().pendingRequests.map(r => r.sessionId).filter((id): id is string => !!id))];
+    return [...new Set(get().pendingRequests.map((r) => r.sessionId).filter(Boolean))] as string[];
   },
 }));

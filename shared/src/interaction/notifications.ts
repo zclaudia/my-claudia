@@ -2,7 +2,7 @@
 
 export interface NotificationEventPreferences {
   permissionRequest: boolean;
-  askUserQuestion: boolean;
+  promptRequest: boolean;
   runCompleted: boolean;
   runFailed: boolean;
   supervisionUpdate: boolean;
@@ -23,7 +23,7 @@ export const DEFAULT_NOTIFICATION_CONFIG: NotificationConfig = {
   ntfyTopic: '',
   events: {
     permissionRequest: true,
-    askUserQuestion: true,
+    promptRequest: true,
     runCompleted: true,
     runFailed: true,
     supervisionUpdate: true,

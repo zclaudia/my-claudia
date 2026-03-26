@@ -180,7 +180,6 @@ function buildPromptResponse(
 }
 
 function formatAskUserAnswer(
-  interaction: InteractionPromptMessage,
   fields: InteractionPromptField[],
   formData: Record<string, unknown>,
   customValues: Record<string, string>,
@@ -196,7 +195,7 @@ function formatAskUserAnswer(
 }
 
 function PromptRenderer({ interaction }: { interaction: InteractionPromptMessage }) {
-  const { sendMessage, handleAskUserAnswer } = useConnection();
+  const { sendMessage, handlePromptAnswer } = useConnection();
   const [submitted, setSubmitted] = useState(false);
   const [formData, setFormData] = useState<Record<string, unknown>>(() => {
     const init: Record<string, unknown> = {};
@@ -212,10 +211,10 @@ function PromptRenderer({ interaction }: { interaction: InteractionPromptMessage
 
   const handleSubmit = useCallback(() => {
     const response = buildPromptResponse(interaction.fields, formData, customValues, customEnabled);
-    if (interaction.responseMode === 'ask_user_answer') {
-      handleAskUserAnswer(
+    if (interaction.responseMode === 'prompt_answer') {
+      handlePromptAnswer(
         interaction.interactionId,
-        formatAskUserAnswer(interaction, interaction.fields, formData, customValues, customEnabled),
+        formatAskUserAnswer(interaction.fields, formData, customValues, customEnabled),
       );
     } else {
       sendMessage({
@@ -226,14 +225,14 @@ function PromptRenderer({ interaction }: { interaction: InteractionPromptMessage
       });
     }
     setSubmitted(true);
-  }, [sendMessage, handleAskUserAnswer, interaction, formData, customValues, customEnabled]);
+  }, [sendMessage, handlePromptAnswer, interaction, formData, customValues, customEnabled]);
 
   const handleCancel = useCallback(() => {
-    if (interaction.responseMode === 'ask_user_answer') {
-      handleAskUserAnswer(interaction.interactionId, 'User declined to answer.');
+    if (interaction.responseMode === 'prompt_answer') {
+      handlePromptAnswer(interaction.interactionId, 'User declined to answer.');
       setSubmitted(true);
     }
-  }, [handleAskUserAnswer, interaction]);
+  }, [handlePromptAnswer, interaction]);
 
   if (submitted) {
     return (
@@ -289,7 +288,7 @@ function PromptRenderer({ interaction }: { interaction: InteractionPromptMessage
         ))}
       </div>
       <div className="flex items-center gap-2 self-end">
-        {interaction.responseMode === 'ask_user_answer' && (
+        {interaction.responseMode === 'prompt_answer' && (
           <button
             onClick={handleCancel}
             className="flex items-center gap-1 px-3 py-1 text-xs font-medium rounded border border-border bg-background text-foreground hover:bg-muted transition-colors"

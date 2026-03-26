@@ -683,12 +683,12 @@ export async function handleRunStart(
             if (request.toolName === 'AskUserQuestion') {
               const toolInput = request.toolInput as { questions?: Array<any> };
               sendMessage(client.ws, {
-                type: 'ask_user_question',
+                type: 'prompt_request',
                 requestId: request.requestId,
                 sessionId: message.sessionId,
                 questions: toolInput.questions || [],
-              } as import('@my-claudia/shared').AskUserQuestionMessage);
-              console.log(`[Permission] Sent ask_user_question ${request.requestId} to client (${(toolInput.questions || []).length} questions)`);
+              } as import('@my-claudia/shared').PromptRequestMessage);
+              console.log(`[Permission] Sent prompt_request ${request.requestId} to client (${(toolInput.questions || []).length} questions)`);
               // Emit a parallel unified interaction_prompt event for the chat UI
               const askUserInteraction = normalizeFromAskUser({
                 requestId: request.requestId,
@@ -700,7 +700,7 @@ export async function handleRunStart(
               sendRunEvent(askUserInteraction);
               const firstQuestion = (toolInput.questions || [])[0];
               notificationService.notify({
-                type: 'ask_user_question',
+                type: 'prompt_request',
                 title: 'Claude has a question',
                 body: firstQuestion?.question?.slice(0, 200) || 'Interactive question',
                 priority: 'high',

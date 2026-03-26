@@ -30,7 +30,7 @@ import { useServerStore } from '../stores/serverStore';
 import { toGatewayServerId } from '../stores/gatewayStore';
 import { useSupervisionStore } from '../stores/supervisionStore';
 import { usePermissionStore } from '../stores/permissionStore';
-import { useAskUserQuestionStore } from '../stores/askUserQuestionStore';
+import { usePromptRequestStore } from '../stores/promptRequestStore';
 import { useInteractionStore } from '../stores/interactionStore';
 import { useChatStore } from '../stores/chatStore';
 import { useSwipeBack } from '../hooks/useSwipeBack';
@@ -128,7 +128,7 @@ export function Sidebar({
 
   // Sessions with pending approval-style interactions
   const permSessionIds = usePermissionStore(s => new Set(s.pendingRequests.map(r => r.sessionId)));
-  const questionSessionIds = useAskUserQuestionStore(s => new Set(s.pendingRequests.map(r => r.sessionId)));
+  const promptSessionIds = usePromptRequestStore(s => new Set(s.pendingRequests.map(r => r.sessionId)));
   const interactionSessionIds = useInteractionStore((s) => {
     const ids = new Set<string>();
     for (const interaction of Object.values(s.interactions)) {
@@ -144,9 +144,9 @@ export function Sidebar({
   });
   const hasPendingForSession = useCallback((sessionId: string) => {
     return permSessionIds.has(sessionId)
-      || questionSessionIds.has(sessionId)
+      || promptSessionIds.has(sessionId)
       || interactionSessionIds.has(sessionId);
-  }, [permSessionIds, questionSessionIds, interactionSessionIds]);
+  }, [permSessionIds, promptSessionIds, interactionSessionIds]);
 
   // Active run session IDs for status indicator
   const activeRunSessionIds = useChatStore((s) => {
