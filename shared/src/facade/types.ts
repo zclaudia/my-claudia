@@ -1,0 +1,252 @@
+/**
+ * BackendFacade Type Definitions
+ *
+ * UI-facing types for the unified backend capability surface.
+ * See docs/design/backend-facade.md for full specification.
+ */
+
+import type {
+  BackendPresence,
+  SessionCatalogItem,
+  SessionMessage,
+} from '../protocol/gateway.js';
+import type { ClientMessage, ServerMessage } from '../protocol/messages.js';
+
+// ============================================================================
+// State Enums
+// ============================================================================
+
+export type BackendFacadeMode = 'embedded' | 'direct';
+
+/** Facade main connection state (transport to gateway or embedded server). */
+export type BackendConnectionState =
+  | 'idle'
+  | 'connecting'
+  | 'connected'
+  | 'reconnecting'
+  | 'disconnected'
+  | 'error';
+
+/**
+ * Backend runtime state as seen by the facade.
+ *
+ * Derived from registry presence + channel + catalog initialization + epoch alignment.
+ */
+export type BackendRuntimeState =
+  | 'offline'
+  | 'visible'
+  | 'opening'
+  | 'ready'
+  | 'degraded'
+  | 'error';
+
+/** Backend channel lifecycle state. */
+export type BackendOpenState =
+  | 'closed'
+  | 'opening'
+  | 'open'
+  | 'closing'
+  | 'error';
+
+/** Session stream lifecycle state. */
+export type SessionStreamState =
+  | 'closed'
+  | 'opening'
+  | 'open'
+  | 'closing'
+  | 'error';
+
+// ============================================================================
+// Snapshots (UI-facing read models)
+// ============================================================================
+
+export interface BackendHandle {
+  id: string;
+}
+
+export interface BackendSnapshot {
+  backendId: string;
+  name: string;
+  online: boolean;
+  runtimeState: BackendRuntimeState;
+  openState: BackendOpenState;
+  channelId: string | null;
+  instanceId: string;
+  deviceId: string;
+  channel: string;
+  isThisInstance: boolean;
+  isThisDevice: boolean;
+  capabilities: string[];
+  lastError?: string;
+}
+
+export interface SessionStreamSnapshot {
+  streamKey: string;
+  backendId: string;
+  sessionId: string;
+  state: SessionStreamState;
+  channelId: string | null;
+  lastError?: string;
+  latestOffset?: number;
+  updatedAt: number;
+}
+
+export interface BackendFacadeSnapshot {
+  snapshotVersion: number;
+  capturedAt: number;
+  mode: BackendFacadeMode;
+  connectionState: BackendConnectionState;
+  localBackendId: string | null;
+  currentInstanceId: string | null;
+  currentDeviceId: string | null;
+  backends: BackendSnapshot[];
+  sessionStreams: Record<string, SessionStreamSnapshot>;
+  registryRevision?: number;
+}
+
+// ============================================================================
+// Internal Runtime Records
+// ============================================================================
+
+/**
+ * Internal record maintained by FacadeRegistryStore.
+ *
+ * Tracks the full lifecycle state of a single backend, derived from
+ * registry presence, channel, catalog, and epoch alignment.
+ */
+export interface BackendRuntimeRecord {
+  backendId: string;
+
+  /** Raw presence from gateway registry. null if removed. */
+  presence: BackendPresence | null;
+  currentEpoch: number | null;
+
+  /** Outgoing channel to this backend. */
+  channelId: string | null;
+  channelEpoch: number | null;
+
+  /** Catalog initialization tracking. */
+  catalogInitialized: boolean;
+  catalogEpoch: number | null;
+
+  lastError?: string;
+  lastClosureReason?: string;
+
+  /** Derived states. */
+  runtimeState: BackendRuntimeState;
+  openState: BackendOpenState;
+
+  /** Capabilities reported at channel open. */
+  capabilities: string[];
+}
+
+/**
+ * Diff produced by FacadeRegistryStore on state transitions.
+ * Used by runtime to emit facade events.
+ */
+export interface BackendStateDiff {
+  backendId: string;
+  previousRuntimeState?: BackendRuntimeState;
+  nextRuntimeState: BackendRuntimeState;
+  previousOpenState?: BackendOpenState;
+  nextOpenState: BackendOpenState;
+  reason?: string;
+}
+
+// ============================================================================
+// Session Stream Internal Models
+// ============================================================================
+
+/** Business intent: should this stream be open? */
+export interface DesiredSessionStream {
+  streamKey: string;
+  backendId: string;
+  sessionId: string;
+  shouldBeOpen: boolean;
+  autoResume: boolean;
+  openedAt: number;
+  updatedAt: number;
+}
+
+/** Current runtime state of a session stream. */
+export interface SessionStreamRuntime {
+  streamKey: string;
+  backendId: string;
+  sessionId: string;
+
+  state: SessionStreamState;
+  channelId: string | null;
+
+  latestOffset?: number;
+  lastError?: string;
+  lastCloseReason?: string;
+
+  source: 'desired' | 'ephemeral';
+  lastActivityAt: number;
+
+  openedAt?: number;
+  closedAt?: number;
+  updatedAt: number;
+}
+
+// ============================================================================
+// Stream Manager Result Types
+// ============================================================================
+
+/** Commands that StreamManager returns for runtime to execute via adapter. */
+export type StreamCommand =
+  | { type: 'open_session_stream'; backendId: string; channelId: string; sessionId: string }
+  | { type: 'close_session_stream'; backendId: string; channelId: string; sessionId: string }
+  | { type: 'catch_up_content'; backendId: string; channelId: string; sessionId: string; afterOffset: number };
+
+/** Events that StreamManager returns for runtime to broadcast. */
+export type StreamEvent =
+  | { type: 'session_stream_state_changed'; stream: SessionStreamSnapshot }
+  | { type: 'content_patch'; backendId: string; sessionId: string; messages: SessionMessage[]; latestOffset: number }
+  | { type: 'run_event'; backendId: string; sessionId: string; event: ServerMessage };
+
+/** Composite result from StreamManager operations. */
+export interface StreamManagerResult {
+  commands: StreamCommand[];
+  events: StreamEvent[];
+}
+
+// ============================================================================
+// Facade Events (UI-facing semantic events)
+// ============================================================================
+
+export type BackendFacadeEvent =
+  | { type: 'connection_state_changed'; state: BackendConnectionState; error?: string }
+  | { type: 'snapshot_updated'; snapshot: BackendFacadeSnapshot }
+  | { type: 'backend_state_changed'; backendId: string; state: BackendRuntimeState; error?: string }
+  | { type: 'catalog_snapshot'; backendId: string; items: SessionCatalogItem[] }
+  | { type: 'catalog_event'; backendId: string; op: 'upsert' | 'remove'; item?: SessionCatalogItem; sessionId?: string }
+  | { type: 'session_stream_state_changed'; stream: SessionStreamSnapshot }
+  | { type: 'run_event'; backendId: string; sessionId: string; event: ServerMessage }
+  | { type: 'content_patch'; backendId: string; sessionId: string; messages: SessionMessage[]; latestOffset: number };
+
+// ============================================================================
+// BackendFacade Interface (UI-facing contract)
+// ============================================================================
+
+export interface BackendFacade {
+  connect(): void;
+  disconnect(): void;
+
+  getSnapshot(): BackendFacadeSnapshot;
+  subscribe(listener: (snapshot: BackendFacadeSnapshot) => void): () => void;
+  onEvent(listener: (event: BackendFacadeEvent) => void): () => void;
+
+  openBackend(backendId: string): void;
+  closeBackend(backendId: string): void;
+
+  sendToBackend(backendId: string, message: ClientMessage): void;
+
+  openSessionStream(backendId: string, sessionId: string): void;
+  closeSessionStream(backendId: string, sessionId: string): void;
+
+  catchUpContent(backendId: string, sessionId: string, afterOffset: number): void;
+
+  getHttpBaseUrl(backendId: string): string | null;
+  getHttpHeaders(): Record<string, string>;
+}

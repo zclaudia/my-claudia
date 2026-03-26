@@ -1,0 +1,528 @@
+/**
+ * BackendFacadeRuntimeCore
+ *
+ * Shared runtime core for both Embedded and Direct providers.
+ * Coordinates FacadeRegistryStore and FacadeStreamManager,
+ * consumes adapter events, assembles snapshots, and emits facade events.
+ *
+ * Pure ES2022 — no platform dependencies, no timers, no EventEmitter.
+ *
+ * See docs/design/backend-facade.md § "BackendFacadeRuntimeCore"
+ */
+
+import type {
+  BackendFacadeRuntimeCoreOptions,
+  FacadeAdapterEvent,
+  FacadeRuntimeGatewayAdapter,
+} from './adapter.js';
+import { FacadeRegistryStore } from './registry-store.js';
+import { assembleSnapshot } from './snapshot.js';
+import { FacadeStreamManager } from './stream-manager.js';
+import type {
+  BackendConnectionState,
+  BackendFacade,
+  BackendFacadeEvent,
+  BackendFacadeMode,
+  BackendFacadeSnapshot,
+  StreamManagerResult,
+} from './types.js';
+import type { BackendPresence } from '../protocol/gateway.js';
+import type { ClientMessage } from '../protocol/messages.js';
+
+// ============================================================================
+// BackendFacadeRuntimeCore
+// ============================================================================
+
+export class BackendFacadeRuntimeCore implements BackendFacade {
+  private readonly adapter: FacadeRuntimeGatewayAdapter;
+  private readonly mode: BackendFacadeMode;
+  private readonly localBackendMatcher?: (
+    presence: BackendPresence,
+    identity: { instanceId: string; deviceId: string },
+  ) => boolean;
+
+  private readonly registryStore = new FacadeRegistryStore();
+  private readonly streamManager = new FacadeStreamManager();
+
+  private connectionState: BackendConnectionState = 'idle';
+  private localBackendId: string | null = null;
+  private currentInstanceId: string | null = null;
+  private currentDeviceId: string | null = null;
+
+  private snapshotVersion = 0;
+  private initialized = false;
+  private eventBuffer: FacadeAdapterEvent[] | null = null;
+  private unsubscribeAdapter: (() => void) | null = null;
+
+  private snapshotListeners: Array<(snapshot: BackendFacadeSnapshot) => void> = [];
+  private eventListeners: Array<(event: BackendFacadeEvent) => void> = [];
+
+  constructor(options: BackendFacadeRuntimeCoreOptions) {
+    this.adapter = options.adapter;
+    this.mode = options.mode;
+    this.localBackendMatcher = options.localBackendMatcher;
+  }
+
+  // --------------------------------------------------------------------------
+  // Lifecycle
+  // --------------------------------------------------------------------------
+
+  connect(): void {
+    this.start();
+  }
+
+  disconnect(): void {
+    this.stop();
+  }
+
+  start(): void {
+    if (this.unsubscribeAdapter) return; // already started
+
+    // 1. Subscribe to adapter events — buffer during initialization
+    this.eventBuffer = [];
+    this.unsubscribeAdapter = this.adapter.events.subscribe(event => {
+      if (!this.initialized) {
+        this.eventBuffer!.push(event);
+      } else {
+        this.handleAdapterEvent(event);
+      }
+    });
+
+    // 2. Query bootstrap state
+    const bootstrap = this.adapter.queries.bootstrap.getInitialState();
+
+    // 3. Initialize stores
+    this.registryStore.applyBootstrap(bootstrap);
+    this.streamManager.applyBootstrap();
+
+    // 4. Record identity
+    this.connectionState = bootstrap.connection.state as BackendConnectionState;
+    this.currentInstanceId = bootstrap.identity.instanceId;
+    this.currentDeviceId = bootstrap.identity.deviceId;
+
+    // 5. Identify local backend
+    this.localBackendId = null;
+    if (this.localBackendMatcher) {
+      const identity = { instanceId: bootstrap.identity.instanceId, deviceId: bootstrap.identity.deviceId };
+      for (const item of bootstrap.registry.items) {
+        if (this.localBackendMatcher(item, identity)) {
+          this.localBackendId = item.backendId;
+          break;
+        }
+      }
+    }
+
+    // 6. Replay buffered events
+    const buffer = this.eventBuffer!;
+    this.eventBuffer = null;
+    this.initialized = true;
+    for (const event of buffer) {
+      this.handleAdapterEvent(event);
+    }
+
+    // 7. Emit initial snapshot
+    this.emitFacadeEvent({
+      type: 'snapshot_updated',
+      snapshot: this.getSnapshot(),
+    });
+  }
+
+  stop(): void {
+    if (this.unsubscribeAdapter) {
+      this.unsubscribeAdapter();
+      this.unsubscribeAdapter = null;
+    }
+    this.initialized = false;
+    this.eventBuffer = null;
+    this.connectionState = 'disconnected';
+  }
+
+  // --------------------------------------------------------------------------
+  // BackendFacade — Snapshot & Subscription
+  // --------------------------------------------------------------------------
+
+  getSnapshot(): BackendFacadeSnapshot {
+    return assembleSnapshot({
+      version: this.snapshotVersion++,
+      now: Date.now(),
+      mode: this.mode,
+      connectionState: this.connectionState,
+      localBackendId: this.localBackendId,
+      currentInstanceId: this.currentInstanceId,
+      currentDeviceId: this.currentDeviceId,
+      backends: this.registryStore.getAllBackends(),
+      streams: this.streamManager.getAllStreams(),
+      registryRevision: this.registryStore.getRegistryRevision(),
+    });
+  }
+
+  subscribe(listener: (snapshot: BackendFacadeSnapshot) => void): () => void {
+    this.snapshotListeners.push(listener);
+    return () => {
+      const idx = this.snapshotListeners.indexOf(listener);
+      if (idx >= 0) this.snapshotListeners.splice(idx, 1);
+    };
+  }
+
+  onEvent(listener: (event: BackendFacadeEvent) => void): () => void {
+    this.eventListeners.push(listener);
+    return () => {
+      const idx = this.eventListeners.indexOf(listener);
+      if (idx >= 0) this.eventListeners.splice(idx, 1);
+    };
+  }
+
+  // --------------------------------------------------------------------------
+  // BackendFacade — Backend Operations
+  // --------------------------------------------------------------------------
+
+  openBackend(backendId: string): void {
+    const backend = this.registryStore.getBackend(backendId);
+    if (!backend || !backend.presence) return;
+
+    const diffs = this.registryStore.markChannelOpening(backendId, backend.presence.epoch);
+    this.adapter.commands.channel.openBackendChannel(backendId, backend.presence.epoch);
+    this.emitBackendDiffs(diffs);
+  }
+
+  closeBackend(backendId: string): void {
+    const backend = this.registryStore.getBackend(backendId);
+    if (!backend || !backend.channelId) return;
+
+    this.adapter.commands.channel.closeBackendChannel(backend.channelId);
+    const diffs = this.registryStore.markChannelClosed(backendId, backend.channelId, 'user_closed');
+    this.emitBackendDiffs(diffs);
+
+    // Notify stream manager
+    const streamResult = this.streamManager.handleBackendLostChannel(
+      backendId, 'user_closed', { willAutoRecover: false },
+    );
+    this.executeStreamResult(streamResult);
+  }
+
+  sendToBackend(backendId: string, message: ClientMessage): void {
+    const backend = this.registryStore.getBackend(backendId);
+    if (!backend || !backend.channelId) return;
+    this.adapter.commands.channel.sendToBackend(backend.channelId, message);
+  }
+
+  // --------------------------------------------------------------------------
+  // BackendFacade — Session Stream Operations
+  // --------------------------------------------------------------------------
+
+  openSessionStream(backendId: string, sessionId: string): void {
+    const backend = this.registryStore.getBackend(backendId);
+    const result = this.streamManager.requestOpen(backendId, sessionId, {
+      backendReady: backend?.runtimeState === 'ready',
+      channelId: backend?.channelId ?? null,
+    });
+    this.executeStreamResult(result);
+  }
+
+  closeSessionStream(backendId: string, sessionId: string): void {
+    const backend = this.registryStore.getBackend(backendId);
+    const result = this.streamManager.requestClose(backendId, sessionId, {
+      channelId: backend?.channelId ?? null,
+    });
+    this.executeStreamResult(result);
+  }
+
+  catchUpContent(backendId: string, sessionId: string, afterOffset: number): void {
+    const backend = this.registryStore.getBackend(backendId);
+    if (!backend || !backend.channelId) return;
+    this.adapter.commands.stream.catchUp(backend.channelId, sessionId, afterOffset);
+  }
+
+  // --------------------------------------------------------------------------
+  // BackendFacade — HTTP
+  // --------------------------------------------------------------------------
+
+  getHttpBaseUrl(backendId: string): string | null {
+    return this.adapter.queries.http.getBaseUrl(backendId);
+  }
+
+  getHttpHeaders(): Record<string, string> {
+    return this.adapter.queries.http.getHeaders();
+  }
+
+  // --------------------------------------------------------------------------
+  // GC (caller schedules timer externally)
+  // --------------------------------------------------------------------------
+
+  collectGarbage(now: number): void {
+    const result = this.streamManager.collectGarbage(now);
+    this.executeStreamResult(result);
+  }
+
+  // --------------------------------------------------------------------------
+  // Adapter Event Dispatch
+  // --------------------------------------------------------------------------
+
+  private handleAdapterEvent(event: FacadeAdapterEvent): void {
+    switch (event.type) {
+      case 'connection_state_changed':
+        this.handleConnectionStateChanged(event);
+        break;
+      case 'registry_snapshot_received':
+        this.handleRegistrySnapshot(event);
+        break;
+      case 'registry_event_received':
+        this.handleRegistryEvent(event);
+        break;
+      case 'backend_channel_opened':
+        this.handleBackendChannelOpened(event);
+        break;
+      case 'backend_channel_closed':
+        this.handleBackendChannelClosed(event);
+        break;
+      case 'backend_channel_rejected':
+        this.handleBackendChannelRejected(event);
+        break;
+      case 'catalog_snapshot_received':
+        this.handleCatalogSnapshot(event);
+        break;
+      case 'catalog_event_received':
+        this.handleCatalogEvent(event);
+        break;
+      case 'catalog_reset_received':
+        this.handleCatalogReset(event);
+        break;
+      case 'session_stream_closed':
+        this.handleSessionStreamClosed(event);
+        break;
+      case 'content_patch_received':
+        this.handleContentPatch(event);
+        break;
+      case 'run_event_received':
+        this.handleRunEvent(event);
+        break;
+      case 'backend_message_received':
+        this.handleBackendMessage(event);
+        break;
+    }
+  }
+
+  // --------------------------------------------------------------------------
+  // Connection
+  // --------------------------------------------------------------------------
+
+  private handleConnectionStateChanged(event: Extract<FacadeAdapterEvent, { type: 'connection_state_changed' }>): void {
+    this.connectionState = event.state as BackendConnectionState;
+    this.emitFacadeEvent({
+      type: 'connection_state_changed',
+      state: this.connectionState,
+      error: event.error,
+    });
+  }
+
+  // --------------------------------------------------------------------------
+  // Registry
+  // --------------------------------------------------------------------------
+
+  private handleRegistrySnapshot(event: Extract<FacadeAdapterEvent, { type: 'registry_snapshot_received' }>): void {
+    const diffs = this.registryStore.applyRegistrySnapshot(event.revision, event.items);
+
+    // Re-evaluate local backend
+    this.updateLocalBackendId(event.items);
+
+    this.emitBackendDiffs(diffs);
+  }
+
+  private handleRegistryEvent(event: Extract<FacadeAdapterEvent, { type: 'registry_event_received' }>): void {
+    const diffs = this.registryStore.applyRegistryEvent(
+      event.revision, event.op, event.item, event.backendId,
+    );
+
+    // Re-evaluate local backend on upsert
+    if (event.op === 'upsert' && event.item) {
+      this.updateLocalBackendId([event.item]);
+    }
+
+    this.emitBackendDiffs(diffs);
+  }
+
+  // --------------------------------------------------------------------------
+  // Channel
+  // --------------------------------------------------------------------------
+
+  private handleBackendChannelOpened(event: Extract<FacadeAdapterEvent, { type: 'backend_channel_opened' }>): void {
+    const diffs = this.registryStore.markChannelOpened(
+      event.backendId, event.channelId, event.epoch, event.capabilities,
+    );
+
+    // Subscribe to catalog
+    this.adapter.commands.catalog.subscribe(event.backendId, event.epoch);
+
+    this.emitBackendDiffs(diffs);
+  }
+
+  private handleBackendChannelClosed(event: Extract<FacadeAdapterEvent, { type: 'backend_channel_closed' }>): void {
+    const backend = this.registryStore.getBackend(event.backendId);
+    const wasReady = backend?.runtimeState === 'ready';
+
+    const diffs = this.registryStore.markChannelClosed(
+      event.backendId, event.channelId, event.reason,
+    );
+
+    // Notify stream manager
+    const willAutoRecover = backend?.presence !== null;
+    const streamResult = this.streamManager.handleBackendLostChannel(
+      event.backendId, event.reason, { willAutoRecover },
+    );
+    this.executeStreamResult(streamResult);
+
+    this.emitBackendDiffs(diffs);
+  }
+
+  private handleBackendChannelRejected(event: Extract<FacadeAdapterEvent, { type: 'backend_channel_rejected' }>): void {
+    const diffs = this.registryStore.markChannelRejected(event.backendId, event.reason);
+    this.emitBackendDiffs(diffs);
+  }
+
+  // --------------------------------------------------------------------------
+  // Catalog
+  // --------------------------------------------------------------------------
+
+  private handleCatalogSnapshot(event: Extract<FacadeAdapterEvent, { type: 'catalog_snapshot_received' }>): void {
+    const diffs = this.registryStore.markCatalogInitialized(event.backendId, event.epoch);
+
+    // Emit catalog event
+    this.emitFacadeEvent({
+      type: 'catalog_snapshot',
+      backendId: event.backendId,
+      items: event.items,
+    });
+
+    // Check if backend became ready → trigger stream auto-resume
+    const backend = this.registryStore.getBackend(event.backendId);
+    if (backend && backend.runtimeState === 'ready' && backend.channelId) {
+      const streamResult = this.streamManager.handleBackendBecameReady(
+        event.backendId, backend.channelId,
+      );
+      this.executeStreamResult(streamResult);
+    }
+
+    this.emitBackendDiffs(diffs);
+  }
+
+  private handleCatalogEvent(event: Extract<FacadeAdapterEvent, { type: 'catalog_event_received' }>): void {
+    this.emitFacadeEvent({
+      type: 'catalog_event',
+      backendId: event.backendId,
+      op: event.op,
+      item: event.item,
+      sessionId: event.sessionId,
+    });
+  }
+
+  private handleCatalogReset(event: Extract<FacadeAdapterEvent, { type: 'catalog_reset_received' }>): void {
+    const diffs = this.registryStore.markCatalogReset(event.backendId, event.epoch);
+    this.emitBackendDiffs(diffs);
+  }
+
+  // --------------------------------------------------------------------------
+  // Session Stream Events
+  // --------------------------------------------------------------------------
+
+  private handleSessionStreamClosed(event: Extract<FacadeAdapterEvent, { type: 'session_stream_closed' }>): void {
+    const result = this.streamManager.handleSessionStreamClosed(
+      event.backendId, event.channelId, event.sessionId, event.reason,
+    );
+    this.executeStreamResult(result);
+  }
+
+  private handleContentPatch(event: Extract<FacadeAdapterEvent, { type: 'content_patch_received' }>): void {
+    const result = this.streamManager.handleContentPatch(
+      event.backendId, event.channelId, event.sessionId,
+      event.messages, event.latestOffset,
+    );
+    this.executeStreamResult(result);
+  }
+
+  private handleRunEvent(event: Extract<FacadeAdapterEvent, { type: 'run_event_received' }>): void {
+    const result = this.streamManager.handleRunEvent(
+      event.backendId, event.channelId, event.sessionId, event.event,
+    );
+    this.executeStreamResult(result);
+  }
+
+  private handleBackendMessage(event: Extract<FacadeAdapterEvent, { type: 'backend_message_received' }>): void {
+    // Backend messages that aren't run/content events — pass through as run_event
+    // for now, letting the UI decide how to handle them.
+    const backend = this.registryStore.getBackend(event.backendId);
+    if (!backend) return;
+
+    // Generic backend message — emit as-is for consumers that need raw messages
+    // This could be refined in the future to handle specific message types
+  }
+
+  // --------------------------------------------------------------------------
+  // Internal Helpers
+  // --------------------------------------------------------------------------
+
+  private updateLocalBackendId(items: BackendPresence[]): void {
+    if (!this.localBackendMatcher || !this.currentInstanceId || !this.currentDeviceId) return;
+    const identity = { instanceId: this.currentInstanceId, deviceId: this.currentDeviceId };
+    for (const item of items) {
+      if (this.localBackendMatcher(item, identity)) {
+        this.localBackendId = item.backendId;
+        return;
+      }
+    }
+  }
+
+  private executeStreamResult(result: StreamManagerResult): void {
+    // Execute commands via adapter
+    for (const cmd of result.commands) {
+      switch (cmd.type) {
+        case 'open_session_stream':
+          this.adapter.commands.stream.open(cmd.channelId, cmd.sessionId);
+          break;
+        case 'close_session_stream':
+          this.adapter.commands.stream.close(cmd.channelId, cmd.sessionId);
+          break;
+        case 'catch_up_content':
+          this.adapter.commands.stream.catchUp(cmd.channelId, cmd.sessionId, cmd.afterOffset);
+          break;
+      }
+    }
+
+    // Broadcast events
+    for (const evt of result.events) {
+      this.emitFacadeEvent(evt);
+    }
+  }
+
+  private emitBackendDiffs(diffs: Array<{ backendId: string; nextRuntimeState: string; reason?: string }>): void {
+    for (const diff of diffs) {
+      this.emitFacadeEvent({
+        type: 'backend_state_changed',
+        backendId: diff.backendId,
+        state: diff.nextRuntimeState as BackendFacadeEvent & { type: 'backend_state_changed' } extends { state: infer S } ? S : never,
+        error: diff.reason,
+      });
+    }
+  }
+
+  private emitFacadeEvent(event: BackendFacadeEvent): void {
+    for (const listener of this.eventListeners) {
+      try {
+        listener(event);
+      } catch {
+        // Listener errors must not break event dispatch
+      }
+    }
+
+    // Snapshot listeners get notified on state-changing events
+    if (event.type === 'snapshot_updated') {
+      const snapshot = (event as { type: 'snapshot_updated'; snapshot: BackendFacadeSnapshot }).snapshot;
+      for (const listener of this.snapshotListeners) {
+        try {
+          listener(snapshot);
+        } catch {
+          // Listener errors must not break dispatch
+        }
+      }
+    }
+  }
+}

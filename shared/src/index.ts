@@ -38,3 +38,6 @@ export * from './files.js';
 
 // Plugin types
 export * from './plugin-types.js';
+
+// Facade types and runtime
+export * from './facade/index.js';
