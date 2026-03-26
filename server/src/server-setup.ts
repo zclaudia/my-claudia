@@ -296,6 +296,17 @@ export function setupRoutesAndServices(deps: SetupDependencies): SetupResult {
       const row = db.prepare('SELECT type FROM sessions WHERE id = ?').get(sessionId) as { type: string } | undefined;
       return row?.type;
     },
+    resolveActiveSessionId: () => {
+      // Find the most recently active non-completed run (any provider).
+      // This allows the shared Codex app-server MCP bridge to work
+      // without knowing the session ID upfront.
+      for (const run of activeRuns.values()) {
+        if (!run.completed) {
+          return run.sessionId;
+        }
+      }
+      return undefined;
+    },
   }));
 
   // MCP server management routes

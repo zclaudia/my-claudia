@@ -2,7 +2,7 @@ import type { PCPProviderManifest } from '@my-claudia/shared';
 import type { ProviderAdapter } from './types.js';
 import { ClaudeAdapter } from './claude-adapter.js';
 import { OpenCodeAdapter } from './opencode-adapter.js';
-import { CodexAdapter } from './codex-adapter.js';
+import { CodexAppServerAdapter } from './codex-app-server-adapter.js';
 import { CursorAdapter } from './cursor-adapter.js';
 import { KimiAdapter } from './kimi-adapter.js';
 
@@ -13,7 +13,7 @@ class ProviderRegistry {
   constructor() {
     this.register(new ClaudeAdapter());
     this.register(new OpenCodeAdapter());
-    this.register(new CodexAdapter());
+    this.register(new CodexAppServerAdapter());
     this.register(new CursorAdapter());
     this.register(new KimiAdapter());
   }

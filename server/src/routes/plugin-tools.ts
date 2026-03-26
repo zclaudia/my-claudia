@@ -16,6 +16,8 @@ export interface PluginToolsRoutesDeps {
   getActiveProfile?: (sessionId: string) => PCPEffectiveProfile | undefined;
   /** Resolve the session type for scope-based tool filtering */
   getSessionType?: (sessionId: string) => string | undefined;
+  /** Resolve session ID when the bridge doesn't provide one (e.g. shared Codex app-server process) */
+  resolveActiveSessionId?: () => string | undefined;
 }
 
 export function createPluginToolsRoutes(deps?: PluginToolsRoutesDeps): Router {
@@ -27,7 +29,7 @@ export function createPluginToolsRoutes(deps?: PluginToolsRoutesDeps): Router {
    * Optional ?sessionId= to filter by PCP capability.
    */
   router.get('/tools', (req: Request, res: Response) => {
-    const sessionId = req.query.sessionId as string | undefined;
+    const sessionId = (req.query.sessionId as string | undefined) || deps?.resolveActiveSessionId?.();
     const profile = sessionId ? deps?.getActiveProfile?.(sessionId) : undefined;
 
     const sessionType = sessionId ? deps?.getSessionType?.(sessionId) : undefined;
@@ -56,7 +58,7 @@ export function createPluginToolsRoutes(deps?: PluginToolsRoutesDeps): Router {
   router.post('/tools/:name/execute', async (req: Request, res: Response) => {
     const { name } = req.params;
     const args = req.body.arguments || req.body.args || {};
-    const context = { sessionId: req.body.sessionId as string | undefined };
+    const context = { sessionId: (req.body.sessionId as string | undefined) || deps?.resolveActiveSessionId?.() };
     const sessionTag = context.sessionId || 'none';
 
     // Scope check: reject agent-only tools in non-agent sessions

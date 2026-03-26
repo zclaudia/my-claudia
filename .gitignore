@@ -116,3 +116,5 @@ gateway/.deploy-version*
 # Ignore .github except workflows
 .github/*
 !.github/workflows/
+
+.cursor/
