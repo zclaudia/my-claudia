@@ -355,6 +355,10 @@ export async function* runCodex(
   options: CodexRunOptions,
   _onPermission: PermissionCallback,
 ): AsyncGenerator<ClaudeMessage, void, void> {
+  // Clear text tracking state at the start of each run to prevent stale state
+  // from previous runs (especially when resuming threads)
+  itemEmittedText.clear();
+
   const codex = getCodexInstance(options);
   const policies = mapModeToPolicies(options.mode);
 
@@ -405,6 +409,8 @@ export async function* runCodex(
         const thread = options.sessionId
           ? codex.resumeThread(options.sessionId, threadOptions)
           : codex.startThread(threadOptions);
+
+        console.log(`[Codex] ${options.sessionId ? `Resuming thread ${options.sessionId.slice(0, 8)}...` : 'Starting new thread'} (attempt ${attempt})`);
 
         // Run streamed
         const { events } = await thread.runStreamed(codexInput, {
@@ -631,6 +637,7 @@ function mapThreadEvent(event: ThreadEvent, sessionId?: string, initSystemInfo?:
       break;
 
     case 'error':
+      itemEmittedText.clear();
       messages.push({ type: 'error', error: event.message });
       break;
   }

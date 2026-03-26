@@ -401,6 +401,7 @@ describe('MessageInput', () => {
       render(<MessageInput {...defaultProps} advancedMode />);
       const textarea = screen.getByPlaceholderText(/Type a message/);
       expect(textarea.className).toContain('min-h-[160px]');
+      expect(textarea.className).toContain('resize-none');
     });
 
     it('renders normal textarea with smaller min-height when not in advanced mode', () => {
@@ -408,6 +409,7 @@ describe('MessageInput', () => {
       const textarea = screen.getByPlaceholderText(/Type a message/);
       expect(textarea.className).toContain('min-h-12');
       expect(textarea.className).not.toContain('min-h-[160px]');
+      expect(textarea.className).toContain('resize-none');
     });
 
     it('does not send on plain Enter in advanced mode (desktop)', () => {

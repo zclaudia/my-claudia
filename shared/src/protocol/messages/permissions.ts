@@ -84,6 +84,18 @@ export interface PermissionAutoResolvedMessage {
   sessionId: string;
   /** Whether the backend approved or denied on timeout expiry. */
   behavior: 'approve' | 'deny';
+  /** Optional reason for the auto-resolution (e.g., AI review reasoning). */
+  reason?: string;
+}
+
+// Server → Client: AI review completed for an escalated permission request
+export interface AIReviewCompletedMessage {
+  type: 'ai_review_completed';
+  requestId: string;
+  sessionId: string;
+  decision: 'approve' | 'deny' | 'uncertain';
+  reasoning: string;
+  confidence: number;
 }
 
 // Server → Client: a prompt_request has been resolved by another device

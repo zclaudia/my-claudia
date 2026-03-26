@@ -6,12 +6,16 @@ import type {
   CategoryProfile,
   PermissionCategory,
   EvaluationContext,
+  UnifiedPermissionPolicy,
 } from '@my-claudia/shared';
 import {
   DEFAULT_SENSITIVE_PATTERNS,
   DEFAULT_CATEGORY_POLICY,
   DEFAULT_CATEGORY_PROFILES,
   DEFAULT_GLOBAL_GUARDS,
+  DEFAULT_UNIFIED_POLICY,
+  normalizeToUnifiedPolicy,
+  ensureEscalateAlways,
 } from '@my-claudia/shared';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -938,13 +942,12 @@ export function getMatchedPermissionRule(
   toolName: string,
   toolInput: unknown,
   detail: string,
-  policy: CategoryPermissionPolicy,
+  policy: EffectivePolicy,
   context?: EvaluationContext
 ): MatchedPermissionRule | null {
   if (!policy.enabled) return null;
 
   const rootPath = context?.rootPath || process.cwd();
-  const sessionType = context?.sessionType || 'regular';
 
   if (policy.escalateAlways?.includes(toolName)) {
     return 'Always escalate';
@@ -964,8 +967,7 @@ export function getMatchedPermissionRule(
   }
 
   const category = classify(toolName, toolInput, detail);
-  const profile = policy.profiles[sessionType] || policy.profiles.regular;
-  if (profile[category] === 'ask') {
+  if (resolveProfile(policy, context)[category] === 'ask') {
     return `Category: ${category}`;
   }
 
@@ -1000,27 +1002,41 @@ function evaluateCustomRules(toolName: string, detail: string, rules: AgentPermi
 // Category-Based Permission Evaluator
 // ============================================
 
+/** Effective policy type used by the evaluator — supports both unified and legacy formats */
+export type EffectivePolicy = UnifiedPermissionPolicy | CategoryPermissionPolicy;
+
+/** Check if a policy is the new unified format (has `profile` singular, no `profiles`) */
+export function isUnifiedPolicy(policy: EffectivePolicy): policy is UnifiedPermissionPolicy {
+  return 'profile' in policy && !('profiles' in policy);
+}
+
+/** Resolve the active CategoryProfile from a policy (unified: single profile, legacy: by session type) */
+function resolveProfile(policy: EffectivePolicy, context?: EvaluationContext): CategoryProfile {
+  return isUnifiedPolicy(policy)
+    ? policy.profile
+    : (policy.profiles[(context?.sessionType || 'regular')] || policy.profiles.regular);
+}
+
 /**
- * Permission evaluator with category-based profiles per session type.
+ * Permission evaluator — unified single-profile evaluation.
  *
  * Evaluation order:
  *   1. escalateAlways list
  *   2. Custom rules (first match wins)
  *   3. Global guards (sensitive files / outside workspace → escalate)
- *   4. Classify tool → category → look up profile for session type → action
+ *   4. Classify tool → category → look up profile → action
  */
 export class PermissionEvaluator {
   evaluate(
     toolName: string,
     toolInput: unknown,
     detail: string,
-    policy: CategoryPermissionPolicy,
+    policy: EffectivePolicy,
     context?: EvaluationContext
   ): EvaluationResult {
     if (!policy.enabled) return 'escalate';
 
     const rootPath = context?.rootPath || process.cwd();
-    const sessionType = context?.sessionType || 'regular';
 
     // 1. escalateAlways
     if (policy.escalateAlways?.includes(toolName)) {
@@ -1043,8 +1059,7 @@ export class PermissionEvaluator {
 
     // 4. Category-based evaluation
     const category = classify(toolName, toolInput, detail);
-    const profile = policy.profiles[sessionType] || policy.profiles.regular;
-    const action = profile[category];
+    const action = resolveProfile(policy, context)[category];
 
     return actionToResult(action);
   }
@@ -1096,63 +1111,46 @@ function trustLevelToProfiles(trustLevel: string): CategoryPermissionPolicy['pro
 }
 
 /**
- * Normalize a policy from the database — handles both old trustLevel and new category format.
+ * Normalize a policy from the database — handles v3 unified, v2 category, and v1 trustLevel formats.
+ * Always returns UnifiedPermissionPolicy (v3).
+ *
+ * v2/v3 delegation is handled by shared's normalizeToUnifiedPolicy.
+ * v1 (trustLevel) conversion is server-only since it references deprecated trust levels.
  */
-export function normalizePolicy(raw: unknown): CategoryPermissionPolicy {
-  if (!raw || typeof raw !== 'object') return DEFAULT_CATEGORY_POLICY;
+export function normalizePolicy(raw: unknown): UnifiedPermissionPolicy {
+  if (!raw || typeof raw !== 'object') return DEFAULT_UNIFIED_POLICY;
 
-  // New format: has `profiles` key
-  if ('profiles' in (raw as Record<string, unknown>)) {
-    const policy = raw as CategoryPermissionPolicy;
-    const escalateAlways = [...(policy.escalateAlways || ['AskUserQuestion'])];
-    if (!escalateAlways.includes('ExitPlanMode')) escalateAlways.push('ExitPlanMode');
-    return {
-      enabled: policy.enabled ?? true,
-      profiles: {
-        regular: { ...DEFAULT_CATEGORY_PROFILES.regular, ...policy.profiles?.regular },
-        background: { ...DEFAULT_CATEGORY_PROFILES.background, ...policy.profiles?.background },
-        agent: { ...DEFAULT_CATEGORY_PROFILES.agent, ...policy.profiles?.agent },
-      },
-      globalGuards: { ...DEFAULT_GLOBAL_GUARDS, ...policy.globalGuards },
-      customRules: policy.customRules || [],
-      escalateAlways,
-    };
-  }
-
-  // Old format: trustLevel-based
+  // v1 format: trustLevel-based — convert to v3 before delegating
   if (isLegacyPolicy(raw)) {
-    const escalateAlways = [...(raw.escalateAlways || ['AskUserQuestion'])];
-    if (!escalateAlways.includes('ExitPlanMode')) escalateAlways.push('ExitPlanMode');
+    const profiles = trustLevelToProfiles(raw.trustLevel);
     return {
       enabled: raw.enabled ?? false,
-      profiles: trustLevelToProfiles(raw.trustLevel),
-      globalGuards: DEFAULT_GLOBAL_GUARDS,
+      profile: profiles.regular,
+      globalGuards: { ...DEFAULT_UNIFIED_POLICY.globalGuards },
       customRules: raw.customRules || [],
-      escalateAlways,
+      escalateAlways: ensureEscalateAlways(raw.escalateAlways),
+      aiReview: { ...DEFAULT_UNIFIED_POLICY.aiReview },
     };
   }
 
-  return DEFAULT_CATEGORY_POLICY;
+  // v2/v3: delegate to shared
+  return normalizeToUnifiedPolicy(raw);
 }
 
 /**
  * Merge a project-level override into the global policy.
- * Project overrides can only affect regular and background profiles (agent is global-only).
  */
 export function mergePolicy(
-  globalPolicy: CategoryPermissionPolicy,
-  projectOverride?: Partial<CategoryPermissionPolicy> | null
-): CategoryPermissionPolicy {
+  globalPolicy: UnifiedPermissionPolicy,
+  projectOverride?: Partial<UnifiedPermissionPolicy> | null
+): UnifiedPermissionPolicy {
   if (!projectOverride) return globalPolicy;
 
-  const merged: CategoryPermissionPolicy = {
+  const merged: UnifiedPermissionPolicy = {
     ...globalPolicy,
-    profiles: {
-      regular: { ...globalPolicy.profiles.regular, ...projectOverride.profiles?.regular },
-      background: { ...globalPolicy.profiles.background, ...projectOverride.profiles?.background },
-      agent: globalPolicy.profiles.agent, // Agent profile is NOT overridden by project
-    },
+    profile: { ...globalPolicy.profile, ...projectOverride.profile },
     globalGuards: { ...globalPolicy.globalGuards, ...projectOverride.globalGuards },
+    aiReview: { ...globalPolicy.aiReview, ...projectOverride.aiReview },
   };
 
   if (projectOverride.enabled !== undefined) merged.enabled = projectOverride.enabled;
@@ -1163,11 +1161,11 @@ export function mergePolicy(
 }
 
 /**
- * Read agent permission policy from database (handles both old and new format).
+ * Read agent permission policy from database (handles v1/v2/v3 formats, always returns v3).
  */
 export function getAgentPermissionPolicy(
   db: { prepare: (sql: string) => { get: (...args: any[]) => any } }
-): CategoryPermissionPolicy | null {
+): UnifiedPermissionPolicy | null {
   try {
     const row = db.prepare(
       'SELECT permission_policy FROM agent_config WHERE id = 1'
@@ -1188,7 +1186,7 @@ export function getAgentPermissionPolicy(
 export function getProjectPermissionOverride(
   db: { prepare: (sql: string) => { get: (...args: any[]) => any } },
   projectId: string
-): Partial<CategoryPermissionPolicy> | null {
+): Partial<UnifiedPermissionPolicy> | null {
   try {
     const row = db.prepare(
       'SELECT agent_permission_override FROM projects WHERE id = ?'
@@ -1197,12 +1195,18 @@ export function getProjectPermissionOverride(
     if (!row?.agent_permission_override) return null;
 
     const raw = JSON.parse(row.agent_permission_override);
-    // If legacy format, convert first then extract as partial
+    // If legacy format, convert and extract profile
     if (isLegacyPolicy(raw)) {
       const converted = normalizePolicy(raw);
-      return { profiles: { regular: converted.profiles.regular, background: converted.profiles.background } } as Partial<CategoryPermissionPolicy>;
+      return { profile: converted.profile } as Partial<UnifiedPermissionPolicy>;
     }
-    return raw as Partial<CategoryPermissionPolicy>;
+    // If v2 format with profiles, extract regular as profile
+    const obj = raw as Record<string, unknown>;
+    if ('profiles' in obj && !('profile' in obj)) {
+      const profiles = obj.profiles as Record<string, CategoryProfile>;
+      return { profile: profiles.regular, ...('globalGuards' in obj ? { globalGuards: obj.globalGuards } : {}) } as Partial<UnifiedPermissionPolicy>;
+    }
+    return raw as Partial<UnifiedPermissionPolicy>;
   } catch {
     return null;
   }

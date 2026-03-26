@@ -40,6 +40,7 @@ import {
   getOutsideWorkspacePaths,
   isInternalInteractionTool,
   PermissionEvaluator,
+  isUnifiedPolicy,
   getAgentPermissionPolicy,
   getProjectPermissionOverride,
   isOutsideWorkspacePathAllowed,
@@ -50,7 +51,7 @@ import {
   loadSessionRememberedDecisions,
   resolveRememberedDecision,
 } from '../agent/permission-evaluator.js';
-import { evaluateDelegation, getDelegationConfig } from '../agent/delegation-evaluator.js';
+import { evaluateAIReview } from '../agent/delegation-evaluator.js';
 import type { PermissionDecision, SystemInfo } from '../providers/claude-sdk.js';
 import { providerRegistry } from '../providers/registry.js';
 import { negotiateProfile } from '../providers/pcp-negotiator.js';
@@ -504,10 +505,11 @@ export async function handleRunStart(
             ? normalizePolicy(projectOverride)
             : null;
 
-        if (effectivePolicy && sessionPermissionOverride) {
-          effectivePolicy = mergePolicy(effectivePolicy, sessionPermissionOverride);
-        } else if (!effectivePolicy && sessionPermissionOverride) {
-          effectivePolicy = normalizePolicy(sessionPermissionOverride);
+        if (sessionPermissionOverride) {
+          const normalizedOverride = normalizePolicy(sessionPermissionOverride);
+          effectivePolicy = effectivePolicy
+            ? mergePolicy(effectivePolicy, normalizedOverride)
+            : normalizedOverride;
         }
 
         const _cmdPreview = isBashLikeTool(request.toolName) ? ` | cmd=${JSON.stringify((request.toolInput as any)?.command || request.detail).slice(0, 120)}` : '';
@@ -618,40 +620,116 @@ export async function handleRunStart(
             });
           }
 
-          // Determine effective timeout behavior from policy table
+          // Determine effective timeout behavior
+          // For escalateAlways tools: use hardcoded PERMISSION_TIMEOUT_POLICIES (e.g., ExitPlanMode auto-approve)
+          // For other escalated tools: use AI review timeout from policy
+          const isEscalateAlways = effectivePolicy?.escalateAlways?.includes(request.toolName);
           const timeoutPolicy = PERMISSION_TIMEOUT_POLICIES.get(request.toolName);
           const policyApplies = timeoutPolicy && (!timeoutPolicy.condition || timeoutPolicy.condition(activeRun));
-          const effectiveTimeoutBehavior: 'approve' | 'deny' =
-            policyApplies ? timeoutPolicy!.behavior : (request.timeoutBehavior || 'deny');
-          let effectiveTimeoutSeconds = request.timeoutSeconds;
-          if (policyApplies && effectiveTimeoutSeconds === 0 && timeoutPolicy!.timeoutSeconds) {
-            effectiveTimeoutSeconds = timeoutPolicy!.timeoutSeconds;
+
+          // Resolve AI review config from unified policy
+          const aiReviewConfig = effectivePolicy && isUnifiedPolicy(effectivePolicy)
+            ? effectivePolicy.aiReview
+            : undefined;
+
+          let effectiveTimeoutSeconds: number;
+          let effectiveTimeoutBehavior: 'approve' | 'deny' | 'ai_review';
+          let aiInitiated = false;
+
+          if (policyApplies) {
+            // Hardcoded timeout policy (e.g., ExitPlanMode)
+            effectiveTimeoutBehavior = timeoutPolicy!.behavior;
+            effectiveTimeoutSeconds = request.timeoutSeconds || timeoutPolicy!.timeoutSeconds || 0;
+            aiInitiated = timeoutPolicy!.behavior === 'approve';
+          } else if (!isEscalateAlways && aiReviewConfig?.enabled) {
+            // AI review timeout for non-escalateAlways tools
+            effectiveTimeoutBehavior = 'ai_review';
+            effectiveTimeoutSeconds = aiReviewConfig.timeoutBeforeReview;
+          } else {
+            // escalateAlways tools or no AI review: no timeout, wait for user
+            effectiveTimeoutBehavior = 'deny';
+            effectiveTimeoutSeconds = request.timeoutSeconds;
           }
-          const aiInitiated = policyApplies && timeoutPolicy!.behavior === 'approve';
 
           let timeout: ReturnType<typeof setTimeout> | null = null;
           if (effectiveTimeoutSeconds > 0) {
             const timeoutMs = effectiveTimeoutSeconds * 1000;
-            timeout = setTimeout(() => {
-              activeRun.pendingPermissions.delete(request.requestId);
-              const resolvedEvent = {
-                type: 'permission_auto_resolved',
-                requestId: request.requestId,
-                sessionId: message.sessionId,
-                behavior: effectiveTimeoutBehavior,
-              } as import('@my-claudia/shared').PermissionAutoResolvedMessage;
-              sendMessage(client.ws, resolvedEvent);
-              if (connectedClients.size > 0) {
-                broadcastToOtherAuthenticatedClients(connectedClients, client.id, resolvedEvent);
-              }
-              if (effectiveTimeoutBehavior === 'approve') {
-                console.log(`[Permission] Auto-approved ${request.requestId} (${request.toolName}) on timeout`);
-                resolve({ behavior: 'allow', updatedInput: request.toolInput });
+            timeout = setTimeout(() => void (async () => {
+              // Guard: if user already resolved this permission, skip
+              if (!activeRun.pendingPermissions.has(request.requestId)) return;
+
+              if (effectiveTimeoutBehavior === 'ai_review' && aiReviewConfig) {
+                // Trigger AI review instead of auto-deny
+                console.log(`[AI Review] Triggering AI review for ${request.requestId} (${request.toolName})`);
+                try {
+                  const aiResult = await evaluateAIReview(aiReviewConfig, {
+                    toolName: request.toolName,
+                    toolInput: request.toolInput,
+                    detail: request.detail,
+                    analysisProvider: createDelegationAnalysisProvider(aiReviewConfig.analysisProviderId),
+                  });
+
+                  if (aiResult.decision === 'approve') {
+                    // AI approved — resolve and notify
+                    activeRun.pendingPermissions.delete(request.requestId);
+                    const resolvedEvent = {
+                      type: 'permission_auto_resolved',
+                      requestId: request.requestId,
+                      sessionId: message.sessionId,
+                      behavior: 'approve' as const,
+                      reason: `AI review: ${aiResult.reasoning} (${Math.round(aiResult.confidence * 100)}%)`,
+                    } as import('@my-claudia/shared').PermissionAutoResolvedMessage;
+                    sendMessage(client.ws, resolvedEvent);
+                    if (connectedClients.size > 0) {
+                      broadcastToOtherAuthenticatedClients(connectedClients, client.id, resolvedEvent);
+                    }
+                    console.log(`[AI Review] Approved ${request.requestId} (${request.toolName}): ${aiResult.reasoning}`);
+                    resolve({ behavior: 'allow', updatedInput: request.toolInput });
+                  } else {
+                    // AI denied or uncertain — notify but keep waiting for user
+                    const reviewEvent = {
+                      type: 'ai_review_completed',
+                      requestId: request.requestId,
+                      sessionId: message.sessionId,
+                      decision: aiResult.decision,
+                      reasoning: aiResult.reasoning,
+                      confidence: aiResult.confidence,
+                    } as import('@my-claudia/shared').AIReviewCompletedMessage;
+                    sendMessage(client.ws, reviewEvent);
+                    if (connectedClients.size > 0) {
+                      broadcastToOtherAuthenticatedClients(connectedClients, client.id, reviewEvent);
+                    }
+                    console.log(`[AI Review] ${aiResult.decision} ${request.requestId} (${request.toolName}): ${aiResult.reasoning} — keeping pending for user`);
+                  }
+                } catch (err) {
+                  console.error('[AI Review] Failed:', err);
+                  // Keep waiting for user on failure
+                }
               } else {
-                console.log(`[Permission] Auto-denied ${request.requestId} (${request.toolName}) on timeout`);
-                resolve({ behavior: 'deny', message: 'Permission request timed out' });
+                // Non-AI-review timeout (e.g., ExitPlanMode auto-approve, or legacy deny)
+                activeRun.pendingPermissions.delete(request.requestId);
+                const behavior = effectiveTimeoutBehavior === 'ai_review' ? 'deny' : effectiveTimeoutBehavior;
+                const resolvedEvent = {
+                  type: 'permission_auto_resolved',
+                  requestId: request.requestId,
+                  sessionId: message.sessionId,
+                  behavior,
+                } as import('@my-claudia/shared').PermissionAutoResolvedMessage;
+                sendMessage(client.ws, resolvedEvent);
+                if (connectedClients.size > 0) {
+                  broadcastToOtherAuthenticatedClients(connectedClients, client.id, resolvedEvent);
+                }
+                if (behavior === 'approve') {
+                  console.log(`[Permission] Auto-approved ${request.requestId} (${request.toolName}) on timeout`);
+                  resolve({ behavior: 'allow', updatedInput: request.toolInput });
+                } else {
+                  console.log(`[Permission] Auto-denied ${request.requestId} (${request.toolName}) on timeout`);
+                  resolve({ behavior: 'deny', message: 'Permission request timed out' });
+                }
               }
-            }, timeoutMs);
+            })().catch((err) => {
+              console.error(`[Permission] Timeout handler error for ${request.requestId}:`, err);
+            }), timeoutMs);
           }
 
           const isAskUserQuestion = request.toolName === 'AskUserQuestion';
@@ -735,52 +813,8 @@ export async function handleRunStart(
           }
         };
 
-        void (async () => {
-          if (effectivePolicy?.enabled) {
-            const delegationConfig = getDelegationConfig(db);
-            if (delegationConfig.enabled) {
-              const delegationDecision = await evaluateDelegation(delegationConfig, {
-                toolName: request.toolName,
-                toolInput: request.toolInput,
-                detail: request.detail,
-                sessionType,
-                policy: effectivePolicy,
-                analysisProvider: createDelegationAnalysisProvider(delegationConfig.analysisProviderId),
-              });
-
-              if (delegationDecision.decision === 'approve') {
-                sendMessage(client.ws, {
-                  type: 'agent_permission_intercepted',
-                  toolName: request.toolName,
-                  decision: 'approve',
-                  reason: `Delegation (${delegationDecision.source}): ${delegationDecision.reasoning} (confidence: ${Math.round(delegationDecision.confidence * 100)}%)`,
-                  sessionId: message.sessionId,
-                  runId,
-                } as import('@my-claudia/shared').AgentPermissionInterceptedMessage);
-                resolve({ behavior: 'allow', updatedInput: request.toolInput });
-                return;
-              }
-
-              if (delegationDecision.decision === 'deny') {
-                sendMessage(client.ws, {
-                  type: 'agent_permission_intercepted',
-                  toolName: request.toolName,
-                  decision: 'deny',
-                  reason: `Delegation (${delegationDecision.source}): ${delegationDecision.reasoning} (confidence: ${Math.round(delegationDecision.confidence * 100)}%)`,
-                  sessionId: message.sessionId,
-                  runId,
-                } as import('@my-claudia/shared').AgentPermissionInterceptedMessage);
-                resolve({ behavior: 'deny', message: delegationDecision.reasoning });
-                return;
-              }
-            }
-          }
-
-          continueWithUserFlow();
-        })().catch((error) => {
-          console.error('[Delegation] Failed to evaluate permission:', error);
-          continueWithUserFlow();
-        });
+        // AI review is now handled via timeout, no pre-check delegation needed
+        continueWithUserFlow();
       });
     };
 

@@ -39,8 +39,10 @@ process.on('unhandledRejection', (reason) => {
     console.warn(`[Process] Ignored non-fatal unhandled rejection: ${code}`);
     return;
   }
-  console.error('[Process] Unhandled rejection:', reason);
-  process.exit(1);
+  // Log but do NOT exit — an unhandled rejection from a single session/provider
+  // should not take down the entire server. The process state is still consistent
+  // (unlike uncaughtException), so it's safe to continue.
+  console.error('[Process] Unhandled rejection (non-fatal):', reason);
 });
 
 const PORT = parseInt(process.env.PORT || '3100', 10);

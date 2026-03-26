@@ -1,16 +1,15 @@
 import { useState, useEffect, useCallback } from 'react';
 import { fetchApi } from '../../services/api';
 import type {
-  CategoryPermissionPolicy,
-  CategoryProfile,
+  UnifiedPermissionPolicy,
   CategoryAction,
   PermissionCategory,
   GlobalGuards,
+  AIReviewConfig,
 } from '@my-claudia/shared';
 import {
-  DEFAULT_CATEGORY_POLICY,
-  DEFAULT_CATEGORY_PROFILES,
-  DEFAULT_GLOBAL_GUARDS,
+  DEFAULT_UNIFIED_POLICY,
+  normalizeToUnifiedPolicy,
 } from '@my-claudia/shared';
 
 interface AgentConfigResponse {
@@ -36,12 +35,6 @@ const ACTION_OPTIONS: Array<{ value: CategoryAction; label: string }> = [
   { value: 'auto-approve', label: 'Auto-approve' },
   { value: 'ask', label: 'Ask' },
   { value: 'block', label: 'Block' },
-];
-
-const SESSION_SECTIONS: Array<{ key: keyof CategoryPermissionPolicy['profiles']; label: string; description: string }> = [
-  { key: 'regular', label: 'Coding Sessions', description: 'Regular interactive sessions where you are actively reviewing' },
-  { key: 'background', label: 'Supervisor Sessions', description: 'Background autonomous tasks like code review and PR management' },
-  { key: 'agent', label: 'Agent Sessions', description: 'Agent assistant sessions with tool and task orchestration' },
 ];
 
 function CategoryRow({ category, value, onChange, disabled }: {
@@ -76,52 +69,8 @@ function CategoryRow({ category, value, onChange, disabled }: {
   );
 }
 
-function ProfileSection({ label, description, profile, onChange, disabled, defaultOpen }: {
-  label: string;
-  description: string;
-  profile: CategoryProfile;
-  onChange: (category: PermissionCategory, action: CategoryAction) => void;
-  disabled?: boolean;
-  defaultOpen?: boolean;
-}) {
-  const [open, setOpen] = useState(defaultOpen ?? true);
-
-  return (
-    <div className="border border-border rounded-lg overflow-hidden">
-      <button
-        onClick={() => setOpen(!open)}
-        className="w-full flex items-center justify-between p-2.5 hover:bg-secondary/50 transition-colors"
-      >
-        <div className="text-left">
-          <span className="text-xs font-medium">{label}</span>
-          <p className="text-[10px] text-muted-foreground">{description}</p>
-        </div>
-        <svg
-          className={`w-3.5 h-3.5 text-muted-foreground transition-transform flex-shrink-0 ${open ? 'rotate-180' : ''}`}
-          fill="none" stroke="currentColor" viewBox="0 0 24 24"
-        >
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-        </svg>
-      </button>
-      {open && (
-        <div className="px-3 pb-2.5 space-y-0.5 border-t border-border">
-          {CATEGORY_ORDER.map((cat) => (
-            <CategoryRow
-              key={cat}
-              category={cat}
-              value={profile[cat]}
-              onChange={(action) => onChange(cat, action)}
-              disabled={disabled}
-            />
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
 export function PermissionSettings() {
-  const [policy, setPolicy] = useState<CategoryPermissionPolicy>(DEFAULT_CATEGORY_POLICY);
+  const [policy, setPolicy] = useState<UnifiedPermissionPolicy>(DEFAULT_UNIFIED_POLICY);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -133,22 +82,7 @@ export function PermissionSettings() {
       const res = await fetchApi<AgentConfigResponse>('/api/agent/config');
       if (res.success && res.data?.permissionPolicy) {
         const raw = JSON.parse(res.data.permissionPolicy);
-        // Handle both old and new format client-side
-        if (raw.profiles) {
-          setPolicy({
-            ...DEFAULT_CATEGORY_POLICY,
-            ...raw,
-            profiles: {
-              regular: { ...DEFAULT_CATEGORY_PROFILES.regular, ...raw.profiles?.regular },
-              background: { ...DEFAULT_CATEGORY_PROFILES.background, ...raw.profiles?.background },
-              agent: { ...DEFAULT_CATEGORY_PROFILES.agent, ...raw.profiles?.agent },
-            },
-            globalGuards: { ...DEFAULT_GLOBAL_GUARDS, ...raw.globalGuards },
-          });
-        } else {
-          // Old trustLevel format — use defaults (server will normalize on next save)
-          setPolicy(DEFAULT_CATEGORY_POLICY);
-        }
+        setPolicy(normalizeToUnifiedPolicy(raw));
       }
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Failed to load');
@@ -159,7 +93,7 @@ export function PermissionSettings() {
 
   useEffect(() => { loadPolicy(); }, [loadPolicy]);
 
-  const savePolicy = useCallback(async (updated: CategoryPermissionPolicy) => {
+  const savePolicy = useCallback(async (updated: UnifiedPermissionPolicy) => {
     setSaving(true);
     try {
       await fetchApi('/api/agent/config', {
@@ -174,20 +108,10 @@ export function PermissionSettings() {
     }
   }, []);
 
-  const updateProfile = useCallback((
-    sessionType: keyof CategoryPermissionPolicy['profiles'],
-    category: PermissionCategory,
-    action: CategoryAction,
-  ) => {
+  const updateCategory = useCallback((category: PermissionCategory, action: CategoryAction) => {
     const updated = {
       ...policy,
-      profiles: {
-        ...policy.profiles,
-        [sessionType]: {
-          ...policy.profiles[sessionType],
-          [category]: action,
-        },
-      },
+      profile: { ...policy.profile, [category]: action },
     };
     savePolicy(updated);
   }, [policy, savePolicy]);
@@ -200,13 +124,21 @@ export function PermissionSettings() {
     savePolicy(updated);
   }, [policy, savePolicy]);
 
+  const updateAIReview = useCallback((patch: Partial<AIReviewConfig>) => {
+    const updated = {
+      ...policy,
+      aiReview: { ...policy.aiReview, ...patch },
+    };
+    savePolicy(updated);
+  }, [policy, savePolicy]);
+
   const toggleEnabled = useCallback(() => {
     const updated = { ...policy, enabled: !policy.enabled };
     savePolicy(updated);
   }, [policy, savePolicy]);
 
   const resetDefaults = useCallback(() => {
-    savePolicy(DEFAULT_CATEGORY_POLICY);
+    savePolicy(DEFAULT_UNIFIED_POLICY);
   }, [savePolicy]);
 
   if (loading) {
@@ -248,22 +180,98 @@ export function PermissionSettings() {
         )}
       </div>
 
-      {/* Session profiles */}
+      {/* Unified category profile */}
       {policy.enabled && (
         <div>
-          <h3 className="text-sm font-medium mb-3">Session Profiles</h3>
-          <div className="space-y-2">
-            {SESSION_SECTIONS.map((section) => (
-              <ProfileSection
-                key={section.key}
-                label={section.label}
-                description={section.description}
-                profile={policy.profiles[section.key]}
-                onChange={(cat, action) => updateProfile(section.key, cat, action)}
+          <h3 className="text-sm font-medium mb-3">Permission Categories</h3>
+          <div className="border border-border rounded-lg px-3 pb-2.5 pt-1 space-y-0.5">
+            {CATEGORY_ORDER.map((cat) => (
+              <CategoryRow
+                key={cat}
+                category={cat}
+                value={policy.profile[cat]}
+                onChange={(action) => updateCategory(cat, action)}
                 disabled={saving}
-                defaultOpen={section.key === 'regular'}
               />
             ))}
+          </div>
+        </div>
+      )}
+
+      {/* AI Review */}
+      {policy.enabled && (
+        <div>
+          <h3 className="text-sm font-medium mb-3">AI Review</h3>
+          <div className="p-3 bg-secondary/50 rounded-lg space-y-3">
+            <label className="flex items-center justify-between cursor-pointer">
+              <div>
+                <span className="text-xs font-medium">Enable AI Review</span>
+                <p className="text-[10px] text-muted-foreground">
+                  When a blacklisted command times out, AI reviews it before denying
+                </p>
+              </div>
+              <button
+                onClick={() => updateAIReview({ enabled: !policy.aiReview.enabled })}
+                disabled={saving}
+                className={`relative w-9 h-[18px] rounded-full transition-colors flex-shrink-0 ${
+                  policy.aiReview.enabled ? 'bg-primary' : 'bg-muted'
+                }`}
+              >
+                <span className={`absolute top-[2px] left-[2px] w-[14px] h-[14px] rounded-full bg-white shadow transition-transform ${
+                  policy.aiReview.enabled ? 'translate-x-[18px]' : 'translate-x-0'
+                }`} />
+              </button>
+            </label>
+
+            {policy.aiReview.enabled && (
+              <>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <span className="text-xs font-medium">Review timeout</span>
+                    <p className="text-[10px] text-muted-foreground">Seconds before triggering AI review</p>
+                  </div>
+                  <input
+                    type="number"
+                    min={10}
+                    max={300}
+                    defaultValue={policy.aiReview.timeoutBeforeReview}
+                    onBlur={(e) => updateAIReview({ timeoutBeforeReview: Math.max(10, parseInt(e.target.value) || 60) })}
+                    disabled={saving}
+                    className="w-16 h-6 px-1.5 text-[11px] text-right bg-background border border-border rounded-md focus:outline-none focus:ring-1 focus:ring-primary"
+                  />
+                </div>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <span className="text-xs font-medium">Confidence threshold</span>
+                    <p className="text-[10px] text-muted-foreground">AI must be this confident to auto-approve (%)</p>
+                  </div>
+                  <input
+                    type="number"
+                    min={50}
+                    max={100}
+                    defaultValue={Math.round(policy.aiReview.confidenceThreshold * 100)}
+                    onBlur={(e) => updateAIReview({ confidenceThreshold: Math.max(0.5, Math.min(1, (parseInt(e.target.value) || 80) / 100)) })}
+                    disabled={saving}
+                    className="w-16 h-6 px-1.5 text-[11px] text-right bg-background border border-border rounded-md focus:outline-none focus:ring-1 focus:ring-primary"
+                  />
+                </div>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <span className="text-xs font-medium">Rate limit</span>
+                    <p className="text-[10px] text-muted-foreground">Max auto-approvals per minute</p>
+                  </div>
+                  <input
+                    type="number"
+                    min={1}
+                    max={60}
+                    defaultValue={policy.aiReview.maxAutoApprovalsPerMinute}
+                    onBlur={(e) => updateAIReview({ maxAutoApprovalsPerMinute: Math.max(1, parseInt(e.target.value) || 10) })}
+                    disabled={saving}
+                    className="w-16 h-6 px-1.5 text-[11px] text-right bg-background border border-border rounded-md focus:outline-none focus:ring-1 focus:ring-primary"
+                  />
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}

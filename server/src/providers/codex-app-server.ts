@@ -2,7 +2,7 @@ import { spawn, type ChildProcess } from 'child_process';
 import { createInterface, type Interface as ReadlineInterface } from 'readline';
 import { EventEmitter } from 'events';
 import { appendFileSync, writeFileSync, mkdirSync, existsSync, unlinkSync, readFileSync, realpathSync } from 'fs';
-import { join } from 'path';
+import { join, extname } from 'path';
 import type { MessageInput, PermissionRequest } from '@my-claudia/shared';
 
 // File-based debug log (stdout is captured by Tauri)
@@ -117,8 +117,19 @@ function prepareAppServerInput(rawInput: string): AppServerInputBlock[] {
       if (attachment.type === 'image') {
         const filePath = fileStore.getFilePath(attachment.fileId);
         if (filePath) {
-          blocks.push({ type: 'image', url: `file://${filePath}` });
-          debugLog(`[Codex AppServer] Attached image: ${attachment.name} → ${filePath}`);
+          try {
+            const base64Data = readFileSync(filePath, { encoding: 'base64' });
+            const ext = extname(filePath).toLowerCase().replace('.', '');
+            const mimeType = ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg'
+              : ext === 'png' ? 'image/png'
+              : ext === 'gif' ? 'image/gif'
+              : ext === 'webp' ? 'image/webp'
+              : 'image/png';
+            blocks.push({ type: 'image', url: `data:${mimeType};base64,${base64Data}` });
+            debugLog(`[Codex AppServer] Attached image: ${attachment.name} → base64 (${base64Data.length} chars)`);
+          } catch (err) {
+            debugLog(`[Codex AppServer] WARN: Could not read image ${filePath}: ${err}`);
+          }
         }
       }
     }
@@ -427,7 +438,11 @@ export class CodexAppServerClient {
         msg.id as number,
         msg.method as string,
         msg.params as Record<string, unknown> | undefined,
-      );
+      ).catch((err) => {
+        console.error(`[Codex AppServer] Unhandled error in server request handler (${msg.method}):`, err);
+        // Respond with error to unblock the Codex process
+        this.sendResponse(msg.id as number, { error: { code: -1, message: String(err) } });
+      });
     } else if (hasMethod) {
       // Notification
       this.emitter.emit('notification', msg.method, msg.params || {});
@@ -464,21 +479,36 @@ export class CodexAppServerClient {
   private mapApprovalToPermissionRequest(method: string, params?: Record<string, unknown>): PermissionRequest {
     // Map App Server approval methods to our PermissionRequest format
     const command = params?.command as string || '';
+    const filePath = (params?.path || params?.file || params?.file_path || '') as string;
     let toolName = 'Unknown';
     let toolInput: Record<string, unknown> = {};
+    let detail = '';
 
-    if (method.includes('commandExecution') || method.includes('ExecCommand')) {
+    const lowerMethod = method.toLowerCase();
+
+    if (lowerMethod.includes('commandexecution') || lowerMethod.includes('execcommand')) {
       toolName = 'Bash';
       toolInput = { command };
-    } else if (method.includes('fileChange') || method.includes('ApplyPatch')) {
+      detail = command;
+    } else if (lowerMethod.includes('filechange') || lowerMethod.includes('applypatch') || lowerMethod.includes('filewrite')) {
       toolName = 'Edit';
-      toolInput = { changes: params?.patch || params?.changes || '' };
+      toolInput = { file_path: filePath, changes: params?.patch || params?.changes || '' };
+      detail = filePath || JSON.stringify(toolInput);
+    } else if (lowerMethod.includes('fileread') || lowerMethod.includes('readfile')) {
+      toolName = 'Read';
+      toolInput = { file_path: filePath };
+      detail = filePath || method;
+    } else {
+      // Fallback: try to infer from params
+      detail = command || filePath || JSON.stringify(params || {}).slice(0, 200);
     }
 
     return {
       toolName,
       toolInput,
+      detail,
       requestId: `codex-${Date.now()}`,
+      timeoutSeconds: 0,
     } as PermissionRequest;
   }
 
@@ -506,6 +536,15 @@ export class CodexAppServerClient {
     } catch (error) {
       debugLog(`[Codex AppServer] WARN: turn/interrupt failed: ${error}`);
     }
+  }
+
+  /** Extract error message from Codex notification params */
+  private extractErrorMessage(params: Record<string, unknown>, fallback: string): string {
+    const turn = params.turn as { error?: { message?: string } } | undefined;
+    return turn?.error?.message
+      || (params.error as { message?: string } | undefined)?.message
+      || (params.message as string | undefined)
+      || fallback;
   }
 
   // ── Core: run a turn and yield ClaudeMessage ──
@@ -568,23 +607,37 @@ export class CodexAppServerClient {
       }
 
       if (method === 'turn/completed') {
-        // Extract usage from turn/completed params
-        const usage = params.usage as { input_tokens?: number; output_tokens?: number } | undefined;
-        enqueue({
-          type: 'msg',
-          msg: {
-            type: 'result',
-            isComplete: true,
-            usage: usage ? {
-              inputTokens: usage.input_tokens || 0,
-              outputTokens: usage.output_tokens || 0,
-            } : undefined,
-          },
-        });
-        enqueue({ type: 'done' });
+        // Check turn.status — Codex may send turn/completed with status="failed"
+        const turn = params.turn as { status?: string; error?: { message?: string }; } | undefined;
+        const turnStatus = turn?.status || (params as { status?: string }).status;
+
+        if (turnStatus === 'failed') {
+          const errorMsg = this.extractErrorMessage(params, 'Turn completed with failed status');
+          enqueue({ type: 'msg', msg: { type: 'error', error: `Codex error: ${errorMsg}` } });
+          enqueue({ type: 'done' });
+        } else {
+          // Normal completion
+          const usage = params.usage as { input_tokens?: number; output_tokens?: number } | undefined;
+          enqueue({
+            type: 'msg',
+            msg: {
+              type: 'result',
+              isComplete: true,
+              usage: usage ? {
+                inputTokens: usage.input_tokens || 0,
+                outputTokens: usage.output_tokens || 0,
+              } : undefined,
+            },
+          });
+          enqueue({ type: 'done' });
+        }
       } else if (method === 'turn/failed') {
-        enqueue({ type: 'msg', msg: { type: 'error', error: `Turn failed` } });
+        const errorMsg = this.extractErrorMessage(params, 'Turn failed');
+        enqueue({ type: 'msg', msg: { type: 'error', error: `Codex error: ${errorMsg}` } });
         enqueue({ type: 'done' });
+      } else if (method === 'error') {
+        const errorMsg = this.extractErrorMessage(params, 'Unknown Codex error');
+        enqueue({ type: 'msg', msg: { type: 'error', error: `Codex error: ${errorMsg}` } });
       }
     };
 
@@ -802,6 +855,20 @@ export function getOrCreateAppServerClient(options: CodexAppServerOptions): Code
 
 // ── Main run function ────────────────────────────────────────
 
+/** Errors that indicate a corrupted/unrecoverable session (e.g., bad history with invalid image URLs) */
+const SESSION_RECOVERY_PATTERNS = [
+  /invalid.*image_url/i,
+  /invalid.*url/i,
+  /systemError/i,
+  /session.*corrupt/i,
+  /thread.*not.*found/i,
+  /invalid.*input/i,
+];
+
+function isRecoverableSessionError(error: string): boolean {
+  return SESSION_RECOVERY_PATTERNS.some(p => p.test(error));
+}
+
 export async function* runCodexAppServer(
   input: string,
   options: CodexAppServerOptions,
@@ -811,12 +878,14 @@ export async function* runCodexAppServer(
 
   // Start or resume thread
   let threadId: string;
+  let isResumed = false;
   debugLog(`[Codex AppServer] runCodexAppServer: sessionId=${options.sessionId || 'NEW'}, cwd=${options.cwd}`);
   if (options.sessionId) {
     try {
       debugLog(`[Codex AppServer] Resuming thread: ${options.sessionId}`);
       await client.resumeThread(options.sessionId);
       threadId = options.sessionId;
+      isResumed = true;
     } catch (err) {
       debugLog(`[Codex AppServer] WARN: Resume failed, starting fresh: ${err}`);
       threadId = await client.startThread(options.cwd);
@@ -840,10 +909,56 @@ export async function* runCodexAppServer(
     }
   }
 
-  yield* client.runTurn(threadId, inputBlocks, onPermission, {
+  // Run the turn. If this is a resumed session, buffer messages until we know it's
+  // not a recoverable error — avoids leaking partial output to the frontend before recovery.
+  let encounteredError: string | null = null;
+  const buffered: ClaudeMessage[] = [];
+
+  for await (const msg of client.runTurn(threadId, inputBlocks, onPermission, {
     model: options.model,
     systemPrompt: options.systemPrompt,
-  });
+  })) {
+    if (msg.type === 'error' && isResumed && isRecoverableSessionError(msg.error || '')) {
+      encounteredError = msg.error || 'Unknown session error';
+      break;
+    }
+    if (isResumed) {
+      // Buffer until turn completes successfully
+      buffered.push(msg);
+      if (msg.type === 'result' && (msg as { isComplete?: boolean }).isComplete) {
+        // Turn completed OK — flush buffer and return
+        for (const m of buffered) yield m;
+        return;
+      }
+    } else {
+      yield msg;
+      if (msg.type === 'result' && (msg as { isComplete?: boolean }).isComplete) {
+        return;
+      }
+    }
+  }
+
+  // If resumed turn ended without error and without explicit completion, flush buffer
+  if (!encounteredError && buffered.length > 0) {
+    for (const m of buffered) yield m;
+  }
+
+  // If we broke out due to a recoverable error on a resumed session, retry once with a new thread
+  if (encounteredError && isResumed) {
+    console.warn(`[Codex AppServer] Recovered from broken session ${threadId}: ${encounteredError}. Starting fresh thread.`);
+    yield { type: 'assistant', content: `[Session recovery: previous thread failed (${encounteredError}), starting fresh]` } as ClaudeMessage;
+
+    const freshThreadId = await client.startThread(options.cwd);
+    debugLog(`[Codex AppServer] Recovery: new threadId=${freshThreadId}`);
+
+    // Re-prepare input (inputBlocks may have been mutated by systemPrompt prepend)
+    inputBlocks = prepareAppServerInput(input);
+
+    yield* client.runTurn(freshThreadId, inputBlocks, onPermission, {
+      model: options.model,
+      systemPrompt: options.systemPrompt,
+    });
+  }
 }
 
 // ── Abort ────────────────────────────────────────────────────

@@ -1,7 +1,9 @@
 // Delegation Mode Types — AI-assisted permission auto-resolution
+// @deprecated Use AIReviewConfig in UnifiedPermissionPolicy instead.
 
 import type { PermissionCategory } from '../interaction/permissions.js';
 
+/** @deprecated Use AIReviewConfig in UnifiedPermissionPolicy instead. */
 export interface DelegationConfig {
   enabled: boolean;
   /** Confidence threshold (0-1). Below this, escalate to user. Default 0.8 */

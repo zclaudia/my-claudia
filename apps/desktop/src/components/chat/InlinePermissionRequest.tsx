@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Check, X, Lock, AlertTriangle } from 'lucide-react';
+import { Check, X, Lock, AlertTriangle, Bot } from 'lucide-react';
 import { usePermissionStore, type PermissionRequest } from '../../stores/permissionStore';
 import { PermissionDetailView } from '../permission/PermissionDetailView';
 
@@ -19,6 +19,7 @@ export function InlinePermissionRequest({ request, onDecision }: InlinePermissio
   const feedback = usePermissionStore((state) => state.feedbackDrafts[request.requestId] || '');
   const setFeedbackDraft = usePermissionStore((state) => state.setFeedbackDraft);
   const clearFeedbackDraft = usePermissionStore((state) => state.clearFeedbackDraft);
+  const aiReviewResult = usePermissionStore((state) => state.aiReviewResults[request.requestId]);
   const isExitPlanModeRequest = request.toolName.toLowerCase().includes('exitplanmode');
 
   useEffect(() => {
@@ -56,12 +57,8 @@ export function InlinePermissionRequest({ request, onDecision }: InlinePermissio
       setRemainingTime((prev) => {
         if (countdownStopped) return prev;
         if (prev <= 1) {
-          // Backend handles auto-approve; for auto-deny, also trigger from frontend as fallback
-          if (!request.aiInitiated) {
-            setResolved('deny');
-            clearFeedbackDraft(request.requestId);
-            onDecisionRef.current(request.requestId, false);
-          }
+          // Backend handles timeout resolution (AI review or auto-approve/deny).
+          // Frontend no longer auto-denies — server is authoritative.
           return 0;
         }
         return prev - 1;
@@ -69,7 +66,7 @@ export function InlinePermissionRequest({ request, onDecision }: InlinePermissio
     }, 1000);
 
     return () => clearInterval(interval);
-  }, [request.requestId, request.timeoutSec, request.aiInitiated, countdownStopped, clearFeedbackDraft]);
+  }, [request.requestId, request.timeoutSec, countdownStopped]);
 
   const handleAllow = () => {
     setResolved('allow');
@@ -202,17 +199,33 @@ export function InlinePermissionRequest({ request, onDecision }: InlinePermissio
 
         {/* Timer + remember + actions */}
         <div className="flex items-center gap-2 mt-2 flex-wrap">
-          {/* Timer */}
-          {hasTimeout ? (
+          {/* Timer / AI Review status */}
+          {aiReviewResult ? (
+            <span className={`text-xs flex items-center gap-1 ${
+              aiReviewResult.decision === 'deny' ? 'text-destructive' : 'text-muted-foreground'
+            }`}>
+              <Bot size={12} />
+              {aiReviewResult.decision === 'deny'
+                ? `AI: unsafe (${Math.round(aiReviewResult.confidence * 100)}%)`
+                : aiReviewResult.decision === 'uncertain'
+                  ? `AI: uncertain (${Math.round(aiReviewResult.confidence * 100)}%)`
+                  : `AI: safe (${Math.round(aiReviewResult.confidence * 100)}%)`}
+            </span>
+          ) : hasTimeout && remainingTime > 0 ? (
             <span className="text-xs text-muted-foreground flex items-center gap-1">
               {request.aiInitiated && <span>Auto-approve:</span>}
               <span className={
                 request.aiInitiated
                   ? (remainingTime <= 10 ? 'text-success font-semibold' : 'text-success/80')
-                  : (remainingTime <= 10 ? 'text-destructive font-semibold' : 'text-warning')
+                  : (remainingTime <= 10 ? 'text-warning font-semibold' : 'text-muted-foreground')
               }>
                 {remainingTime}s
               </span>
+            </span>
+          ) : hasTimeout && remainingTime === 0 && !aiReviewResult ? (
+            <span className="text-xs text-muted-foreground flex items-center gap-1 animate-pulse">
+              <Bot size={12} />
+              AI reviewing...
             </span>
           ) : null}
 

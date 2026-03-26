@@ -409,6 +409,16 @@ export function handleServerMessage(
       usePermissionStore.getState().clearRequestById(msg.requestId);
       break;
 
+    case 'ai_review_completed': {
+      const aiMsg = msg as import('@my-claudia/shared').AIReviewCompletedMessage;
+      usePermissionStore.getState().setAIReviewResult(aiMsg.requestId, {
+        decision: aiMsg.decision,
+        reasoning: aiMsg.reasoning,
+        confidence: aiMsg.confidence,
+      });
+      break;
+    }
+
     case 'prompt_request_resolved':
       usePromptRequestStore.getState().clearRequestById(msg.requestId);
       break;

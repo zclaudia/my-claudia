@@ -268,26 +268,23 @@ export function MessageInput({
     [fetchEntries]
   );
 
-  // Auto-resize textarea height based on content (mobile) or keep fixed height (desktop)
+  // Auto-resize textarea height based on content and fall back to internal scrolling past a max height.
   useEffect(() => {
     const textarea = textareaRef.current;
     if (!textarea) return;
 
     if (!advancedMode) {
+      const maxHeight = isMobile
+        ? Math.max(160, availableViewportHeight * 0.4)
+        : Math.max(120, Math.min(220, availableViewportHeight * 0.3));
+
+      textarea.style.height = 'auto';
+      textarea.style.height = `${Math.min(textarea.scrollHeight, maxHeight)}px`;
+      textarea.style.maxHeight = `${maxHeight}px`;
+      textarea.style.overflowY = textarea.scrollHeight > maxHeight ? 'auto' : 'hidden';
+
       if (isMobile) {
-        const maxHeight = Math.max(160, availableViewportHeight * 0.4);
-        // Mobile: auto-resize to fit content with max height limit
-        textarea.style.height = 'auto';
-        textarea.style.height = `${Math.min(textarea.scrollHeight, maxHeight)}px`;
-        textarea.style.maxHeight = `${maxHeight}px`;
-        textarea.style.overflowY = textarea.scrollHeight > maxHeight ? 'auto' : 'hidden';
         textarea.scrollTop = textarea.scrollHeight;
-      } else {
-        // Desktop normal mode: keep fixed height for Enter-to-send behavior
-        textarea.style.height = '';
-        textarea.style.minHeight = '';
-        textarea.style.maxHeight = '';
-        textarea.style.overflowY = 'hidden';
       }
     } else {
       // Advanced mode: clear inline styles so CSS min/max + overflow takes effect
@@ -918,8 +915,8 @@ export function MessageInput({
               rows={1}
               className={`w-full bg-input border border-border rounded-xl px-4 py-3 text-foreground placeholder-muted-foreground/60 focus:outline-none focus:border-primary/60 focus:shadow-apple-md disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-200 ${
                 advancedMode
-                  ? 'resize-y min-h-[160px] max-h-[40vh] overflow-auto'
-                  : 'resize-y min-h-12'
+                  ? 'resize-none min-h-[160px] max-h-[40vh] overflow-auto'
+                  : 'resize-none min-h-12 overflow-y-auto'
               }`}
               style={{
                 fontSize: 'var(--chat-font-input, 0.875rem)',

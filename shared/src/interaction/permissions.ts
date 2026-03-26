@@ -63,7 +63,7 @@ export interface GlobalGuards {
   blockOutsideWorkspace: boolean; // Outside workspace → escalate
 }
 
-/** Category-based permission policy — replaces trust-level system */
+/** @deprecated Use UnifiedPermissionPolicy instead. Kept for backward compat parsing. */
 export interface CategoryPermissionPolicy {
   enabled: boolean;
 
@@ -83,6 +83,80 @@ export interface CategoryPermissionPolicy {
   escalateAlways: string[];
 }
 
+// ============================================
+// Unified Permission Policy (v3)
+// ============================================
+
+/** Result of an AI review for an escalated permission request */
+export interface AIReviewResult {
+  decision: 'approve' | 'deny' | 'uncertain';
+  reasoning: string;
+  confidence: number;
+}
+
+/** AI review configuration for blacklisted/escalated commands */
+export interface AIReviewConfig {
+  enabled: boolean;
+  /** Seconds to wait for user before triggering AI review. Default 60. */
+  timeoutBeforeReview: number;
+  /** Confidence threshold (0-1). Below this, keep waiting for user. Default 0.8 */
+  confidenceThreshold: number;
+  /** Rate limit: max auto-approvals per minute. Default 10 */
+  maxAutoApprovalsPerMinute: number;
+  /** Provider for LLM risk analysis (optional, uses default if not set) */
+  analysisProviderId?: string;
+}
+
+/** Unified permission policy — single profile for all session types */
+export interface UnifiedPermissionPolicy {
+  enabled: boolean;
+
+  /** Single profile applied to ALL session types */
+  profile: CategoryProfile;
+
+  globalGuards: GlobalGuards;
+
+  /** Custom rules (first-match override, same as before) */
+  customRules: AgentPermissionRule[];
+
+  /** Tools that always escalate to user (interactive tools, no AI review) */
+  escalateAlways: string[];
+
+  /** AI review configuration for escalated commands on timeout */
+  aiReview: AIReviewConfig;
+}
+
+export const DEFAULT_AI_REVIEW_CONFIG: AIReviewConfig = {
+  enabled: true,
+  timeoutBeforeReview: 60,
+  confidenceThreshold: 0.8,
+  maxAutoApprovalsPerMinute: 10,
+};
+
+export const DEFAULT_UNIFIED_PROFILE: CategoryProfile = {
+  fileRead: 'auto-approve',
+  fileWrite: 'auto-approve',
+  shellSafe: 'auto-approve',
+  networkOps: 'auto-approve',
+  destructiveOps: 'ask',
+  userQuestions: 'ask',
+};
+
+export const DEFAULT_GLOBAL_GUARDS: GlobalGuards = {
+  blockSensitiveFiles: true,
+  blockOutsideWorkspace: false,
+};
+
+export const DEFAULT_UNIFIED_POLICY: UnifiedPermissionPolicy = {
+  enabled: true,
+  profile: DEFAULT_UNIFIED_PROFILE,
+  globalGuards: DEFAULT_GLOBAL_GUARDS,
+  customRules: [],
+  escalateAlways: ['AskUserQuestion', 'ExitPlanMode'],
+  aiReview: DEFAULT_AI_REVIEW_CONFIG,
+};
+
+/** @deprecated Use DEFAULT_UNIFIED_POLICY instead. */
 export const DEFAULT_CATEGORY_PROFILES: CategoryPermissionPolicy['profiles'] = {
   regular: {
     fileRead: 'auto-approve',
@@ -110,23 +184,66 @@ export const DEFAULT_CATEGORY_PROFILES: CategoryPermissionPolicy['profiles'] = {
   },
 };
 
-export const DEFAULT_GLOBAL_GUARDS: GlobalGuards = {
-  blockSensitiveFiles: true,
-  blockOutsideWorkspace: true,
-};
-
+/** @deprecated Use DEFAULT_UNIFIED_POLICY instead. */
 export const DEFAULT_CATEGORY_POLICY: CategoryPermissionPolicy = {
   enabled: true,
   profiles: DEFAULT_CATEGORY_PROFILES,
-  globalGuards: DEFAULT_GLOBAL_GUARDS,
+  globalGuards: { blockSensitiveFiles: true, blockOutsideWorkspace: true },
   customRules: [],
   escalateAlways: ['AskUserQuestion', 'ExitPlanMode'],
 };
 
+/** Ensure AskUserQuestion and ExitPlanMode are always in the escalateAlways list */
+export function ensureEscalateAlways(list?: string[]): string[] {
+  const result = [...(list || ['AskUserQuestion'])];
+  if (!result.includes('ExitPlanMode')) result.push('ExitPlanMode');
+  return result;
+}
+
+/**
+ * Normalize a raw policy object to UnifiedPermissionPolicy (v3).
+ * Handles v3 (profile), v2 (profiles), and unknown/v1 formats.
+ * For full v1 trustLevel conversion, use the server's normalizePolicy instead.
+ */
+export function normalizeToUnifiedPolicy(raw: unknown): UnifiedPermissionPolicy {
+  if (!raw || typeof raw !== 'object') return DEFAULT_UNIFIED_POLICY;
+
+  const obj = raw as Record<string, unknown>;
+
+  // v3: has `profile` (singular), no `profiles`
+  if ('profile' in obj && !('profiles' in obj)) {
+    const policy = raw as UnifiedPermissionPolicy;
+    return {
+      enabled: policy.enabled ?? true,
+      profile: { ...DEFAULT_UNIFIED_PROFILE, ...policy.profile },
+      globalGuards: { ...DEFAULT_GLOBAL_GUARDS, ...policy.globalGuards },
+      customRules: policy.customRules || [],
+      escalateAlways: ensureEscalateAlways(policy.escalateAlways),
+      aiReview: { ...DEFAULT_AI_REVIEW_CONFIG, ...policy.aiReview },
+    };
+  }
+
+  // v2: has `profiles` (plural) — collapse to single profile using `regular`
+  if ('profiles' in obj) {
+    const policy = raw as CategoryPermissionPolicy;
+    return {
+      enabled: policy.enabled ?? true,
+      profile: { ...DEFAULT_UNIFIED_PROFILE, ...policy.profiles?.regular },
+      globalGuards: { ...DEFAULT_GLOBAL_GUARDS, ...policy.globalGuards },
+      customRules: policy.customRules || [],
+      escalateAlways: ensureEscalateAlways(policy.escalateAlways),
+      aiReview: { ...DEFAULT_AI_REVIEW_CONFIG },
+    };
+  }
+
+  // v1 (trustLevel) or unknown — use defaults
+  return DEFAULT_UNIFIED_POLICY;
+}
+
 /** Context passed to the permission evaluator for path-aware evaluation */
 export interface EvaluationContext {
   rootPath: string;              // Session's workspace root directory
-  sessionType: SessionType;      // 'regular', 'background', or 'agent'
+  sessionType?: SessionType;     // Optional, no longer used for profile lookup
 }
 
 /** Default sensitive file patterns */

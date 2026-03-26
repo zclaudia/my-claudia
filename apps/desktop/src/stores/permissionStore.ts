@@ -1,4 +1,7 @@
 import { create } from 'zustand';
+import type { AIReviewResult } from '@my-claudia/shared';
+
+export type { AIReviewResult };
 
 export interface PermissionRequest {
   requestId: string;
@@ -27,6 +30,8 @@ interface PermissionState {
   pendingRequest: PermissionRequest | null;
   // Feedback drafts keyed by requestId (survives component remounts)
   feedbackDrafts: Record<string, string>;
+  // AI review results keyed by requestId
+  aiReviewResults: Record<string, AIReviewResult>;
 
   // Actions
   setPendingRequest: (request: PermissionRequest | null) => void;
@@ -39,12 +44,14 @@ interface PermissionState {
   getSessionsWithPendingRequests: () => string[];
   setFeedbackDraft: (requestId: string, feedback: string) => void;
   clearFeedbackDraft: (requestId: string) => void;
+  setAIReviewResult: (requestId: string, result: AIReviewResult) => void;
 }
 
 export const usePermissionStore = create<PermissionState>((set, get) => ({
   pendingRequests: [],
   pendingRequest: null,
   feedbackDrafts: {},
+  aiReviewResults: {},
 
   setPendingRequest: (request) => {
     if (!request) {
@@ -71,13 +78,16 @@ export const usePermissionStore = create<PermissionState>((set, get) => ({
       const removed = state.pendingRequests[0];
       const remaining = state.pendingRequests.slice(1);
       const feedbackDrafts = { ...state.feedbackDrafts };
+      const aiReviewResults = { ...state.aiReviewResults };
       if (removed) {
         delete feedbackDrafts[removed.requestId];
+        delete aiReviewResults[removed.requestId];
       }
       return {
         pendingRequests: remaining,
         pendingRequest: remaining[0] || null,
         feedbackDrafts,
+        aiReviewResults,
       };
     }),
 
@@ -86,17 +96,20 @@ export const usePermissionStore = create<PermissionState>((set, get) => ({
     set((state) => {
       const remaining = state.pendingRequests.filter(r => r.requestId !== requestId);
       const feedbackDrafts = { ...state.feedbackDrafts };
+      const aiReviewResults = { ...state.aiReviewResults };
       delete feedbackDrafts[requestId];
+      delete aiReviewResults[requestId];
       return {
         pendingRequests: remaining,
         pendingRequest: remaining[0] || null,
         feedbackDrafts,
+        aiReviewResults,
       };
     }),
 
   // Clear everything (e.g. on run end)
   clearAllRequests: () =>
-    set({ pendingRequests: [], pendingRequest: null, feedbackDrafts: {} }),
+    set({ pendingRequests: [], pendingRequest: null, feedbackDrafts: {}, aiReviewResults: {} }),
 
   // Remove requests for a server that are not in the valid set (state heartbeat reconciliation)
   clearStaleRequests: (serverId, validIds) =>
@@ -108,13 +121,16 @@ export const usePermissionStore = create<PermissionState>((set, get) => ({
         r => r.serverId !== serverId || validIds.has(r.requestId)
       );
       const feedbackDrafts = { ...state.feedbackDrafts };
+      const aiReviewResults = { ...state.aiReviewResults };
       for (const requestId of removedIds) {
         delete feedbackDrafts[requestId];
+        delete aiReviewResults[requestId];
       }
       return {
         pendingRequests: remaining,
         pendingRequest: remaining[0] || null,
         feedbackDrafts,
+        aiReviewResults,
       };
     }),
 
@@ -148,4 +164,9 @@ export const usePermissionStore = create<PermissionState>((set, get) => ({
       delete feedbackDrafts[requestId];
       return { feedbackDrafts };
     }),
+
+  setAIReviewResult: (requestId, result) =>
+    set((state) => ({
+      aiReviewResults: { ...state.aiReviewResults, [requestId]: result },
+    })),
 }));
