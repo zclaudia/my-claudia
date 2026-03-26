@@ -15,6 +15,7 @@ import { toGatewayServerId, isGatewayTarget, parseBackendId } from '../stores/ga
 import { useSessionsStore } from '../stores/sessionsStore';
 import { useProjectStore } from '../stores/projectStore';
 import { useChatStore } from '../stores/chatStore';
+import type { MessageWithToolCalls } from '../stores/chatStore';
 import { handleServerMessage } from '../services/messageHandler';
 import { getServerGatewayStatus } from '../services/api';
 import { startSessionSync, stopSessionSync } from '../services/sessionSync';
@@ -414,11 +415,12 @@ export function useGatewayConnection() {
       },
 
       onContentPatch: (_channelId, sessionId, messages, latestOffset) => {
-        const restoredMessages = messages.map((message: SessionMessage) => ({
+        const restoredMessages: MessageWithToolCalls[] = messages.map((message: SessionMessage) => ({
           id: message.messageId,
           sessionId: message.sessionId,
-          role: message.role,
+          role: message.role === 'tool' ? 'assistant' : message.role,
           createdAt: message.createdAt,
+          offset: message.offset,
           content: typeof message.content === 'string'
             ? message.content
             : JSON.stringify(message.content),
