@@ -511,7 +511,7 @@ describe('codex-sdk', () => {
 
       const events = [
         { type: 'thread.started', thread_id: 'thread-1' },
-        { type: 'item.started', item: { type: 'agent_message', text: 'Hello' } },
+        { type: 'item.started', item: { id: 'msg-1', type: 'agent_message', text: 'Hello' } },
         { type: 'turn.completed', usage: { input_tokens: 10, output_tokens: 5 } },
       ];
 
@@ -720,11 +720,12 @@ describe('codex-sdk', () => {
       expect(result.value).toMatchObject({ type: 'tool_result', toolName: 'WebSearch', toolResult: 'Search completed' });
     });
 
-    it('映射 item.updated agent_message', async () => {
+    it('映射 item.updated agent_message (delta only)', async () => {
       const { runCodex } = await import('../codex-sdk');
       const mockEvents = {
         [Symbol.asyncIterator]: async function* () {
-          yield { type: 'item.updated', item: { type: 'agent_message', text: 'streaming...' } };
+          // No preceding item.started, so entire text is the delta
+          yield { type: 'item.updated', item: { id: 'msg-1', type: 'agent_message', text: 'streaming...' } };
         },
       };
       mockRunStreamed.mockResolvedValue({ events: mockEvents });
@@ -733,11 +734,11 @@ describe('codex-sdk', () => {
       expect(result.value).toMatchObject({ type: 'assistant', content: 'streaming...' });
     });
 
-    it('映射 item.updated reasoning', async () => {
+    it('映射 item.updated reasoning (delta only)', async () => {
       const { runCodex } = await import('../codex-sdk');
       const mockEvents = {
         [Symbol.asyncIterator]: async function* () {
-          yield { type: 'item.updated', item: { type: 'reasoning', text: 'thinking more...' } };
+          yield { type: 'item.updated', item: { id: 'r-1', type: 'reasoning', text: 'thinking more...' } };
         },
       };
       mockRunStreamed.mockResolvedValue({ events: mockEvents });
@@ -746,17 +747,44 @@ describe('codex-sdk', () => {
       expect(result.value).toMatchObject({ type: 'assistant', content: '<think>thinking more...</think>' });
     });
 
-    it('映射 item.completed agent_message', async () => {
+    it('映射 item.completed agent_message (delta only, no prior events)', async () => {
       const { runCodex } = await import('../codex-sdk');
       const mockEvents = {
         [Symbol.asyncIterator]: async function* () {
-          yield { type: 'item.completed', item: { type: 'agent_message', text: 'Done!' } };
+          // No preceding started/updated, so completed emits the full text as delta
+          yield { type: 'item.completed', item: { id: 'msg-1', type: 'agent_message', text: 'Done!' } };
         },
       };
       mockRunStreamed.mockResolvedValue({ events: mockEvents });
       const gen = runCodex('test', { cwd: '/test' }, vi.fn());
       const result = await gen.next();
       expect(result.value).toMatchObject({ type: 'assistant', content: 'Done!' });
+    });
+
+    it('item.started + item.updated + item.completed 只发送增量 delta', async () => {
+      const { runCodex } = await import('../codex-sdk');
+      const mockEvents = {
+        [Symbol.asyncIterator]: async function* () {
+          yield { type: 'item.started', item: { id: 'msg-1', type: 'agent_message', text: 'Hello' } };
+          yield { type: 'item.updated', item: { id: 'msg-1', type: 'agent_message', text: 'Hello world' } };
+          yield { type: 'item.updated', item: { id: 'msg-1', type: 'agent_message', text: 'Hello world!' } };
+          yield { type: 'item.completed', item: { id: 'msg-1', type: 'agent_message', text: 'Hello world!' } };
+          yield { type: 'turn.completed', usage: { input_tokens: 10, output_tokens: 5 } };
+        },
+      };
+      mockRunStreamed.mockResolvedValue({ events: mockEvents });
+      const gen = runCodex('test', { cwd: '/test' }, vi.fn());
+      const msgs: any[] = [];
+      for await (const m of gen) msgs.push(m);
+
+      // started: "Hello", updated delta: " world", updated delta: "!", completed delta: "" (skipped)
+      const assistantMsgs = msgs.filter((m: any) => m.type === 'assistant');
+      expect(assistantMsgs).toHaveLength(3);
+      expect(assistantMsgs[0].content).toBe('Hello');
+      expect(assistantMsgs[1].content).toBe(' world');
+      expect(assistantMsgs[2].content).toBe('!');
+      // Concatenated should equal the full text
+      expect(assistantMsgs.map((m: any) => m.content).join('')).toBe('Hello world!');
     });
 
     it('ignores unknown item types in item.started', async () => {

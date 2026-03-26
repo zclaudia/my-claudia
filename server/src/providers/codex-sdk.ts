@@ -497,6 +497,25 @@ export async function* runCodex(
 
 // ── Event mapping ────────────────────────────────────────────
 
+// Track emitted text length per item to compute true deltas.
+// Codex SDK's item.updated/item.completed carry the full accumulated text,
+// but run-handler expects incremental deltas.  Without this, every update
+// re-sends the entire text causing O(n²) growth on server, WebSocket, and client.
+const itemEmittedLength = new Map<string, number>();
+
+function getItemId(item: ThreadItem): string {
+  return (item as { id?: string }).id || `__anon_${item.type}`;
+}
+
+/** Compute the delta portion of `fullText` that hasn't been emitted yet for `itemId`. */
+function computeTextDelta(itemId: string, fullText: string): string {
+  const prev = itemEmittedLength.get(itemId) || 0;
+  if (fullText.length <= prev) return '';
+  const delta = fullText.slice(prev);
+  itemEmittedLength.set(itemId, fullText.length);
+  return delta;
+}
+
 function mapThreadEvent(event: ThreadEvent, sessionId?: string, initSystemInfo?: SystemInfo): ClaudeMessage[] {
   const messages: ClaudeMessage[] = [];
 
@@ -523,28 +542,60 @@ function mapThreadEvent(event: ThreadEvent, sessionId?: string, initSystemInfo?:
       break;
 
     case 'item.started': {
+      const itemId = getItemId(event.item);
+      // Record initial text length so subsequent updates only emit the delta.
+      if (event.item.type === 'agent_message' || event.item.type === 'reasoning') {
+        const text = event.item.text || '';
+        itemEmittedLength.set(itemId, text.length);
+      }
       const msg = mapItemStarted(event.item);
       if (msg) messages.push(msg);
       break;
     }
 
     case 'item.updated': {
-      // For streaming updates (agent_message text deltas)
+      const itemId = getItemId(event.item);
+      // Compute true delta — only the new portion since last emission.
       if (event.item.type === 'agent_message') {
-        messages.push({ type: 'assistant', content: event.item.text });
+        const delta = computeTextDelta(itemId, event.item.text);
+        if (delta) {
+          messages.push({ type: 'assistant', content: delta });
+        }
       } else if (event.item.type === 'reasoning') {
-        messages.push({ type: 'assistant', content: `<think>${event.item.text}</think>` });
+        const delta = computeTextDelta(itemId, event.item.text);
+        if (delta) {
+          messages.push({ type: 'assistant', content: `<think>${delta}</think>` });
+        }
       }
       break;
     }
 
     case 'item.completed': {
-      const msg = mapItemCompleted(event.item);
-      if (msg) messages.push(msg);
+      const itemId = getItemId(event.item);
+      // For text-bearing items, emit only the remaining delta (if any),
+      // then clean up tracking state.
+      if (event.item.type === 'agent_message') {
+        const delta = computeTextDelta(itemId, event.item.text);
+        if (delta) {
+          messages.push({ type: 'assistant', content: delta });
+        }
+        itemEmittedLength.delete(itemId);
+      } else if (event.item.type === 'reasoning') {
+        const delta = computeTextDelta(itemId, event.item.text);
+        if (delta) {
+          messages.push({ type: 'assistant', content: `<think>${delta}</think>` });
+        }
+        itemEmittedLength.delete(itemId);
+      } else {
+        const msg = mapItemCompleted(event.item);
+        if (msg) messages.push(msg);
+      }
       break;
     }
 
     case 'turn.completed': {
+      // Clean up all tracking state for this turn
+      itemEmittedLength.clear();
       const usage = event.usage;
       messages.push({
         type: 'result',
@@ -558,6 +609,7 @@ function mapThreadEvent(event: ThreadEvent, sessionId?: string, initSystemInfo?:
     }
 
     case 'turn.failed':
+      itemEmittedLength.clear();
       messages.push({ type: 'error', error: `Turn failed: ${event.error.message}` });
       break;
 
