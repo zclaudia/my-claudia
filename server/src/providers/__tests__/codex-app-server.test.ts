@@ -5,6 +5,8 @@ const writeFileSyncMock = vi.fn();
 const mkdirSyncMock = vi.fn();
 const existsSyncMock = vi.fn(() => false);
 const unlinkSyncMock = vi.fn();
+const readFileSyncMock = vi.fn(() => '');
+const realpathSyncMock = vi.fn((value: string) => value);
 const loadMcpServersFromDbMock = vi.fn(() => ({}));
 const buildMcpBridgeEntryMock = vi.fn(() => null);
 
@@ -14,6 +16,8 @@ vi.mock('fs', () => ({
   mkdirSync: mkdirSyncMock,
   existsSync: existsSyncMock,
   unlinkSync: unlinkSyncMock,
+  readFileSync: readFileSyncMock,
+  realpathSync: realpathSyncMock,
 }));
 
 vi.mock('../../utils/mcp-config.js', () => ({
@@ -29,6 +33,8 @@ describe('codex-app-server', () => {
     vi.resetModules();
     vi.clearAllMocks();
     existsSyncMock.mockReturnValue(false);
+    readFileSyncMock.mockReturnValue('');
+    realpathSyncMock.mockImplementation((value: string) => value);
     loadMcpServersFromDbMock.mockReturnValue({});
     buildMcpBridgeEntryMock.mockReturnValue(null);
   });
@@ -57,7 +63,7 @@ describe('codex-app-server', () => {
     const second = mod.getOrCreateAppServerClient(options);
 
     expect(first).not.toBe(second);
-    expect(writeFileSyncMock).toHaveBeenCalledTimes(2);
+    expect(writeFileSyncMock).toHaveBeenCalledTimes(4);
   });
 
   it('does not reap clients with active turns during idle cleanup', async () => {
@@ -86,5 +92,22 @@ describe('codex-app-server', () => {
 
     expect(activeDestroySpy).not.toHaveBeenCalled();
     expect(idleDestroySpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('trusts the codex config directory before relying on project config.toml', async () => {
+    realpathSyncMock.mockReturnValue('/private/tmp/my-claudia-dev/codex-config');
+
+    const mod = await import('../codex-app-server');
+    mod.getOrCreateAppServerClient({
+      cwd: '/tmp/project',
+      env: { TEST_ENV: 'trust' },
+      claudiaSessionId: 'session-trust',
+    });
+
+    expect(writeFileSyncMock).toHaveBeenCalledWith(
+      expect.stringContaining('/.codex/config.toml'),
+      expect.stringContaining('[projects."/private/tmp/my-claudia-dev/codex-config"]'),
+      'utf-8',
+    );
   });
 });

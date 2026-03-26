@@ -1,6 +1,7 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 
 const existsSyncMock = vi.fn<(path: string) => boolean>();
+const getBridgeToolsMock = vi.fn(() => [{ id: 'push_file' }]);
 
 vi.mock('fs', async () => {
   const actual = await vi.importActual<typeof import('fs')>('fs');
@@ -10,9 +11,17 @@ vi.mock('fs', async () => {
   };
 });
 
+vi.mock('../../plugins/tool-registry.js', () => ({
+  toolRegistry: {
+    getBridgeTools: getBridgeToolsMock,
+  },
+}));
+
 describe('mcp-bridge-launch', () => {
   beforeEach(() => {
     existsSyncMock.mockReset();
+    getBridgeToolsMock.mockReset();
+    getBridgeToolsMock.mockReturnValue([{ id: 'push_file' }]);
   });
 
   afterEach(() => {
@@ -37,5 +46,21 @@ describe('mcp-bridge-launch', () => {
 
     expect(result.command).toBe(process.execPath);
     expect(result.args).toEqual(['--import', 'tsx/esm', '/tmp/plugins/mcp-bridge.ts']);
+  });
+
+  it('does not force an empty CLAUDIA_SESSION_ID when no static session is provided', async () => {
+    const { buildMcpBridgeEntry } = await import('../mcp-bridge-launch.js');
+    const entry = buildMcpBridgeEntry(3100);
+
+    expect(entry).toBeTruthy();
+    expect(entry?.env.CLAUDIA_BRIDGE_URL).toBe('http://127.0.0.1:3100');
+    expect(entry?.env).not.toHaveProperty('CLAUDIA_SESSION_ID');
+  });
+
+  it('keeps explicit session IDs when provided', async () => {
+    const { buildMcpBridgeEntry } = await import('../mcp-bridge-launch.js');
+    const entry = buildMcpBridgeEntry(3100, 'session-123');
+
+    expect(entry?.env.CLAUDIA_SESSION_ID).toBe('session-123');
   });
 });

@@ -1,7 +1,7 @@
 import { spawn, type ChildProcess } from 'child_process';
 import { createInterface, type Interface as ReadlineInterface } from 'readline';
 import { EventEmitter } from 'events';
-import { appendFileSync, writeFileSync, mkdirSync, existsSync, unlinkSync } from 'fs';
+import { appendFileSync, writeFileSync, mkdirSync, existsSync, unlinkSync, readFileSync, realpathSync } from 'fs';
 import { join } from 'path';
 import type { MessageInput, PermissionRequest } from '@my-claudia/shared';
 
@@ -190,6 +190,60 @@ function buildMcpConfigToml(options: CodexAppServerOptions): string {
   return Object.keys(mcpServers).length > 0 ? mcpServersToToml(mcpServers) : '';
 }
 
+function upsertTrustedProjectConfig(existing: string, projectPath: string): string {
+  const header = `[projects.${JSON.stringify(projectPath)}]`;
+  const sectionPattern = new RegExp(`(^|\\n)${header.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(\\n(?:[^\\[][^\\n]*\\n?)*)?`, 'm');
+
+  if (!sectionPattern.test(existing)) {
+    const trimmed = existing.trimEnd();
+    return `${trimmed ? `${trimmed}\n\n` : ''}${header}\ntrust_level = "trusted"\n`;
+  }
+
+  return existing.replace(sectionPattern, (match) => {
+    if (/^\s*trust_level\s*=.*$/m.test(match)) {
+      return match.replace(/^\s*trust_level\s*=.*$/m, 'trust_level = "trusted"');
+    }
+    return `${match.trimEnd()}\ntrust_level = "trusted"\n`;
+  });
+}
+
+function ensureCodexProjectTrusted(configDir: string): void {
+  const userCodexConfigPath = join(homedir(), '.codex', 'config.toml');
+  const trustPaths = new Set<string>([configDir]);
+
+  try {
+    trustPaths.add(realpathSync(configDir));
+  } catch {
+    // Best effort only; fall back to the original path.
+  }
+
+  let existing = '';
+  if (existsSync(userCodexConfigPath)) {
+    try {
+      existing = readFileSync(userCodexConfigPath, 'utf-8');
+    } catch (error) {
+      debugLog(`[Codex AppServer] WARN: Failed to read user Codex config: ${error}`);
+      return;
+    }
+  } else {
+    mkdirSync(join(homedir(), '.codex'), { recursive: true });
+  }
+
+  let next = existing;
+  for (const trustPath of trustPaths) {
+    next = upsertTrustedProjectConfig(next, trustPath);
+  }
+
+  if (next !== existing) {
+    try {
+      writeFileSync(userCodexConfigPath, next, 'utf-8');
+      debugLog(`[Codex AppServer] Trusted project for config loading: ${Array.from(trustPaths).join(', ')}`);
+    } catch (error) {
+      debugLog(`[Codex AppServer] WARN: Failed to update user Codex trust config: ${error}`);
+    }
+  }
+}
+
 /**
  * Write MCP config to the stable codex config dir.
  * Session ID is passed via parent process env (CLAUDIA_SESSION_ID),
@@ -200,6 +254,8 @@ let lastWrittenConfig = '';
 
 function writeMcpConfig(options: CodexAppServerOptions): { configDir: string; configSignature: string } {
   const configDir = getCodexConfigDir();
+  mkdirSync(configDir, { recursive: true });
+  ensureCodexProjectTrusted(configDir);
   const configToml = buildMcpConfigToml(options);
 
   // Only write when config content actually changed

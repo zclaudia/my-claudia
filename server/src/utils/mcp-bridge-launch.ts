@@ -36,8 +36,8 @@ export function buildMcpBridgeEntry(
   };
   if (sessionIdFile) {
     env.CLAUDIA_SESSION_ID_FILE = sessionIdFile;
-  } else {
-    env.CLAUDIA_SESSION_ID = sessionId || '';
+  } else if (sessionId) {
+    env.CLAUDIA_SESSION_ID = sessionId;
   }
 
   return {
