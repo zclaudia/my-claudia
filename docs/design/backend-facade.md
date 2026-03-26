@@ -2330,21 +2330,59 @@ apps/desktop/src/facade/
   direct-provider.ts    # DirectBackendFacadeProvider
 ```
 
-### runtime-core 共享策略
+### runtime-core 共享策略（已决策）
 
-`BackendFacadeRuntimeCore`、`FacadeRegistryStore`、`FacadeStreamManager` 是纯逻辑、无平台依赖。两种放置方案：
+**决策：方案 B — class 放 shared，严格约束只用 ES2022 API。**
 
-**方案 A：放在 shared 包**
+`BackendFacadeRuntimeCore`、`FacadeRegistryStore`、`FacadeStreamManager` 全部放入 `shared/src/facade/`。
 
-- 优点：编译时共享，单一来源
-- 缺点：shared 包膨胀，引入运行时逻辑（当前 shared 只有类型和协议定义）
+确认依据：
 
-**方案 B：放在独立包 `facade-core`**
+- RuntimeCore 全链路可做到零平台依赖（Map 操作 + 状态推导 + callback 数组 + 参数化时间）
+- shared 的 `tsconfig` 已设置 `lib: ["ES2022"]`（无 DOM / Node.js types），编译器自动拦截平台 API
+- shared 的 `package.json` 无 `dependencies`，保证无外部依赖引入
+- `correlation.ts` 已有运行时逻辑先例（type guards + factory functions）
 
-- 优点：职责清晰，shared 保持纯类型
-- 缺点：增加一个 workspace 包
+#### shared/src/facade/ 约束清单
 
-**建议第一阶段用方案 A**，将 runtime-core 放在 `shared/src/facade/` 下。如果后续 shared 包过大再拆分。
+允许：
+- types / interfaces / discriminated unions / enums
+- 纯函数（输入 → 输出，不修改输入，无副作用）
+- 函数可创建并返回新的 Map/Set 实例
+- type guards、常量（原始值）
+- class（ES2022 API，constructor injection，纯 callback 数组做事件订阅）
+
+禁止：
+- 可变模块级状态
+- `setTimeout` / `setInterval` / `clearTimeout` / `clearInterval`
+- `EventEmitter` / `EventTarget`
+- `WebSocket` / `fetch` / `crypto`（超出 ES2022 的部分）
+- import shared 包外的任何模块
+- Node.js 全局变量（`process`, `Buffer`, `__dirname` 等）
+- DOM API（`window`, `document` 等）
+
+#### 最终文件布局
+
+```
+shared/src/facade/
+  types.ts              # BackendFacadeSnapshot, BackendFacadeEvent, BackendRuntimeRecord, etc.
+  adapter.ts            # FacadeRuntimeGatewayAdapter 接口 + FacadeAdapterEvent 类型
+  registry-store.ts     # class FacadeRegistryStore
+  stream-manager.ts     # class FacadeStreamManager
+  runtime-core.ts       # class BackendFacadeRuntimeCore (~300 行)
+  snapshot.ts           # assembleSnapshot() 纯函数
+  constants.ts          # TTL / GC 常量
+  index.ts              # barrel export
+
+server/src/facade/
+  embedded-adapter.ts   # EmbeddedGatewayAdapter (wraps GatewayClient)
+  embedded-provider.ts  # EmbeddedBackendFacadeProvider
+  ws-hub.ts             # FacadeWsHub
+
+apps/desktop/src/facade/
+  direct-adapter.ts     # DirectGatewayAdapter (wraps GatewayTransport)
+  direct-provider.ts    # DirectBackendFacadeProvider
+```
 
 ## 修订后的实施顺序
 
@@ -2354,24 +2392,401 @@ apps/desktop/src/facade/
 2. 在 shared 实现 `BackendFacadeRuntimeCore`、`FacadeRegistryStore`、`FacadeStreamManager`
 3. 单元测试：使用 mock adapter 测试 runtime core 全流程
 
-### Phase 1b — Direct provider
+### Phase 1b — 单元测试
 
-4. 实现 `DirectGatewayAdapter`（wraps `GatewayTransport`）
-5. 实现 `DirectBackendFacadeProvider`
-6. UI 侧引入 facade store，替换 `gatewayStore` 核心路径
+- MockFacadeGatewayAdapter：模拟 adapter CQE，可编程式注入事件
+- 测试矩阵：bootstrap 流程、registry 状态推导、backend open/close、catalog → ready、stream open/close、auto-resume、content patch / run event、GC、snapshot 组装
 
-### Phase 1c — Embedded provider
+### Phase 1c — GatewayClient outgoing channel 扩展
 
-7. 扩展 `GatewayClient` 增加 outgoing channel 能力
-8. 实现 `EmbeddedGatewayAdapter`（含 local backend 短路）
-9. 实现 `EmbeddedBackendFacadeProvider` + `FacadeWsHub`
-10. desktop 引入 `EmbeddedBackendFacadeProvider`，UI 通过 facade WS 接入
+- 在现有 `GatewayClient` 上增量添加 outgoing channel 能力
+- 新增 `outgoingChannels: Map<string, OutgoingChannel>`
+- 新增方法：openOutgoingChannel / closeOutgoingChannel / sendToOutgoingChannel
+- 新增方法：subscribeOutgoingCatalog / unsubscribeOutgoingCatalog
+- 新增方法：openOutgoingStream / closeOutgoingStream / catchUpOutgoingStream
+- 消息处理中按 backendId 区分 incoming/outgoing routing
 
-### Phase 2 — 收敛
+### Phase 1d — Embedded adapter + provider
 
-11. 删除旧 desktop gateway 特殊分支
-12. 收缩 `gatewayStore`
-13. 删除双控制面
+```
+server/src/facade/
+  embedded-adapter.ts   # EmbeddedGatewayAdapter (wraps GatewayClient)
+  embedded-provider.ts  # EmbeddedBackendFacadeProvider
+  ws-hub.ts             # FacadeWsHub
+```
+
+- EmbeddedGatewayAdapter：wraps GatewayClient，local backend 短路
+- EmbeddedBackendFacadeProvider：组装 adapter + core + hub
+- FacadeWsHub：`/ws/backend-facade` 连接管理 + snapshot/event 广播
+- server 注册 facade HTTP 路由（status + proxy）
+
+### Phase 1e — Direct adapter + provider
+
+```
+apps/desktop/src/facade/
+  direct-adapter.ts     # DirectGatewayAdapter (wraps GatewayTransport)
+  direct-provider.ts    # DirectBackendFacadeProvider
+```
+
+- DirectGatewayAdapter：wraps GatewayTransport
+- DirectBackendFacadeProvider：组装 adapter + core
+
+### Phase 2 — UI 对接与收敛
+
+#### 现状分析
+
+迁移涉及的 UI 层核心组件：
+
+| 组件 | 行数 | 依赖强度 | 职责 |
+|------|------|---------|------|
+| useGatewayConnection | 650 | Critical | GatewayTransport 生命周期、registry/catalog/channel/stream 状态编排 |
+| useMultiServerSocket | 395 | Critical | DirectTransport + gateway target 分流 |
+| ConnectionContext | 243 | Critical | 统一 sendMessage API、embedded server port、standalone 窗口配置 |
+| gatewayStore | 326 | High | gateway 连接状态、registry、backend 发现、mobile 配置 |
+| serverStore | 368 | High | server 列表、active server 选择、per-server 连接状态 |
+| 33 个组件文件 | — | Medium-Low | 读取 gatewayStore/serverStore 状态 |
+
+核心耦合点：
+
+- `useGatewayConnection` 是最大的状态机，同时更新 4 个 store（gateway、server、sessions、chat）
+- `serverStore.getActiveServer()` 桥接 gatewayStore — 如果 activeServerId 是 `gw:` 前缀，从 gatewayStore 构造虚拟 BackendServer
+- 双控制面：server gateway status polling（30s）+ GatewayTransport push events
+
+#### Phase 2a — facade store + useBackendFacade hook
+
+新增 `apps/desktop/src/stores/facadeStore.ts`（替代 gatewayStore + serverStore 的 gateway 部分）：
+
+```ts
+interface FacadeStoreState {
+  // 来自 BackendFacadeSnapshot 的核心状态
+  connectionState: BackendConnectionState;
+  backends: BackendSnapshot[];
+  sessionStreams: Record<string, SessionStreamSnapshot>;
+  localBackendId: string | null;
+  registryRevision: number;
+
+  // facade 实例引用（非 snapshot，运行时持有）
+  facade: BackendFacade | null;
+}
+```
+
+新增 `apps/desktop/src/hooks/useBackendFacade.ts`：
+
+- desktop embedded 模式：连接 `/ws/backend-facade`，解析 snapshot/events 更新 facadeStore
+- mobile/Windows direct 模式：直接创建 DirectBackendFacadeProvider，持有 facade 引用
+- 统一入口：`const { snapshot, facade } = useBackendFacade()`
+
+#### Phase 2b — UI 偏好状态分离
+
+从 gatewayStore 中提取与 facade 无关的 UI 偏好到 `uiPreferencesStore`（或保留在 gatewayStore 中收缩后的版本）：
+
+| 字段 | 去向 | 理由 |
+|------|------|------|
+| `subscribedBackendIds` | uiPreferencesStore | 用户过滤偏好，不属于 facade 运行态 |
+| `showLocalBackend` | uiPreferencesStore | 调试开关 |
+| `directGatewayUrl/Secret` | uiPreferencesStore | mobile 持久配置 |
+| `lastActiveBackendId` | uiPreferencesStore | mobile UI 恢复 |
+| `gatewayUrl/Secret` (运行时) | facade 内部 | 由 embedded server 或 direct 配置决定 |
+
+#### Phase 2c — 组件逐步迁移
+
+按依赖强度从低到高迁移：
+
+**第一批（Low risk，读取为主）**：
+- ServerSelector → `facadeStore.backends` 替代 `gatewayStore.discoveredBackends`
+- Sidebar、ActiveSessionsPanel → 读取 `facadeStore.connectionState`
+- SettingsPanel → 读取 `facadeStore` 替代多 store 读取
+
+**第二批（Medium risk，涉及交互）**：
+- ServerGatewayConfig → 配置由 facade provider 消费
+- MobileSetup / WindowsSetup → 使用 uiPreferencesStore + facade
+
+**第三批（High risk，核心链路）**：
+- ConnectionContext → 简化为 facade wrapper + embedded server 管理
+- messageHandler → 已通过 serverId 抽象，最小改动
+
+#### Phase 2d — 旧层退役
+
+1. **useGatewayConnection → 删除** — 650 行 hook 被 useBackendFacade + BackendFacadeRuntimeCore 替代
+
+2. **useMultiServerSocket → 简化** — gateway target 分支删除（全部走 facade），仅保留 direct server 连接管理
+
+3. **gatewayStore → 收缩为 uiPreferencesStore** — 删除所有运行时状态（isConnected、registry、discoveredBackends），仅保留持久化偏好
+
+4. **serverStore → 瘦身** — 删除 `gw:` 前缀桥接逻辑和 gateway target 虚拟 BackendServer 构造
+
+5. **删除双控制面** — 删除 30s gateway status polling，facade snapshot/event 成为唯一状态来源
+
+#### Phase 2 关键设计决策（待定）
+
+1. **direct server 是否走 facade？**
+   - 如果是：serverStore 中的 direct server 也变成 BackendSnapshot，useMultiServerSocket 完全删除
+   - 如果否：保留 direct server 独立链路，serverStore 保留，facade 只管 gateway backend
+   - 建议：第一阶段只迁移 gateway backend，direct server 保留独立链路
+
+2. **embedded 模式下 facadeStore 的数据来源**
+   - 方案 A：UI 通过 `/ws/backend-facade` WS 获取 snapshot/event
+   - 方案 B：UI 直接在进程内创建 EmbeddedBackendFacadeProvider（Tauri 场景下 server 也在同进程）
+   - 建议方案 A：WS 隔离更清晰，支持多 UI 客户端，与 direct 模式对称
+
+3. **activeServerId 统一**
+   - 当前使用 `gw:` 前缀区分 gateway target
+   - facade 后统一使用 `backendId`，不再需要前缀
+   - 需要处理 migration path（已有 `gw:` 引用的 store 数据）
+
+### Phase 3 — GatewayClient CQE 完整重构
+
+Phase 1c 是增量添加 outgoing channel，`GatewayClient` 会变得更臃肿。Phase 3 做完整 CQE 重构：
+
+- 将现有 `GatewayClient` class 拆分为 `commands` / `queries` / `events` 结构
+- incoming channel（backend-peer 角色）和 outgoing channel（facade client 角色）内部清晰分离
+- 删除 `GatewayClient` 上遗留的 UI 友好方法（`getDiscoveredBackends()` 等）
+- 事件从 callback registry 迁移到单一 union event bus
+
+### Phase 4 — 端到端测试矩阵
+
+- embedded 全链路：UI → facade WS → embedded server → gateway �� remote backend
+- direct 全链路：UI → DirectBackendFacadeProvider → gateway → backend
+- 断线恢复：gateway 断连 → 重连 → registry rebuild → stream auto-resume
+- 多 active session：同一 backend 多 stream 并行
+- local backend 短路：embedded 模式下 local backend 不走 gateway 的验证
+- backend 掉线：stream 状态迁移 + desired state 保留 + 自动恢复
+
+### Phase 5 — direct server 统一（可选）
+
+Phase 2 建议先只迁移 gateway backend，direct server 保留独立链路。Phase 5 决定是否将 direct server 也纳入 facade：
+
+- 如果纳入：需要一个 `DirectServerAdapter`（不走 gateway，直连 server WS），serverStore 可完全退役
+- 如果不纳入：保持现状，facade 只管 gateway 链路
+- 取决于产品方向 — direct server 长期是否还是一等公民
+
+### Phase 6 — 性能与可靠性
+
+- snapshot diffing：大量 backend 时避免全量 snapshot 序列化开销
+- event batching：高频事件（content_patch、run_event）的微批处理
+- facade WS 背压：慢消费者检测与断开策略的实际调参
+- GC 调参：基于真实使用模式调整 TTL 常量
+
+## GatewayClient outgoing channel 扩展
+
+### 协议可行性（已确认）
+
+gateway 协议 v2 **已完整支持**双角色 peer，无需协议改动：
+
+- `PeerHelloMessage.peerType` 支持 `'client+backend'`，`GatewayClient` 已使用此值
+- `PeerToGatewayMessage` union 同时包含 client-side 消息（`open_backend_channel`、`channel_client_message`、`subscribe_backend_catalog`、`open_session_stream`）和 backend-side 消息（`catalog_snapshot`、`catalog_event`、`run_stream_event`）
+- gateway 的 `handleOpenBackendChannel` 不做 peerType 限制，任何 peer 可向任何 backend 开 channel
+- registry 广播不按 peerType 过滤，所有 peer 均收到 registry events
+
+**唯一缺失**：`GatewayClient` 实现层面只管理 incoming channel（作为 backend 接受来自 client 的连接），没有实现 outgoing channel（作为 facade client 主动连接其他 backend）。
+
+### 当前 GatewayClient channel 模型
+
+```ts
+// 现有：作为 backend 接受 client 的 channel
+// - gateway 通知 backend_channel_opened（client 向本 backend 建立了 channel）
+// - backend 通过 channelId 向 client 发送 server message
+// - backend 接收 client 通过 channel 发来的 client message
+```
+
+gateway 的 channel 模型是：
+
+```
+client-peer  --open_backend_channel-->  gateway  --backend_channel_opened-->  backend-peer
+client-peer  --channel_client_message-->  gateway  --channel_server_message-->  backend-peer
+backend-peer  --channel_server_message-->  gateway  --channel_client_message-->  client-peer
+```
+
+对于 `client+backend` peer，它可以同时：
+- 作为 backend 接收其他 peer 发来的 channel（incoming）
+- 作为 client 主动向其他 backend 发起 channel（outgoing）
+
+### outgoing channel 扩展设计
+
+#### 新增数据结构
+
+```ts
+interface OutgoingChannel {
+  backendId: string;
+  channelId: string;
+  epoch: number;
+  capabilities: string[];
+  state: 'opening' | 'open' | 'closing' | 'closed' | 'rejected';
+  openedAt: number;
+  closedAt?: number;
+  lastError?: string;
+}
+```
+
+#### GatewayClient 内部分离
+
+```ts
+class GatewayClient {
+  // 现有：incoming channels（本 backend 被其他 peer 连接）
+  private incomingChannels: Map<string, IncomingChannel>;
+
+  // 新增：outgoing channels（本 peer 作为 client 连接其他 backend）
+  private outgoingChannels: Map<string, OutgoingChannel>;
+}
+```
+
+#### 新增 outgoing channel 方法
+
+```ts
+// === outgoing channel commands ===
+
+openOutgoingChannel(targetBackendId: string, epoch: number): void;
+closeOutgoingChannel(channelId: string): void;
+sendToOutgoingChannel(channelId: string, message: ClientMessage): void;
+
+// === outgoing catalog commands ===
+
+subscribeOutgoingCatalog(targetBackendId: string, epoch: number, lastRevision?: number): void;
+unsubscribeOutgoingCatalog(targetBackendId: string, epoch: number): void;
+
+// === outgoing stream commands ===
+
+openOutgoingStream(channelId: string, sessionId: string): void;
+closeOutgoingStream(channelId: string, sessionId: string): void;
+catchUpOutgoingStream(channelId: string, sessionId: string, afterOffset: number): void;
+```
+
+#### 新增 outgoing 事件
+
+gateway 发回的 outgoing channel 相关消息，当前 `GatewayClient` 已经能接收（protocol 层已支持），但没有处理路由。需要在消息处理中区分 incoming 和 outgoing：
+
+```ts
+// gateway -> peer 的 channel 消息
+case 'backend_channel_opened':
+  // 如果 backendId 是本 peer 的 backendId → incoming channel（现有逻辑）
+  // 如果 backendId 是其他 backend → outgoing channel（新增逻辑）
+  break;
+
+case 'backend_channel_closed':
+  // 同上：按 backendId 区分 incoming / outgoing
+  break;
+
+case 'channel_server_message':
+  // outgoing channel 收到的 server message（来自目标 backend 的响应）
+  break;
+```
+
+**关键判断**：`backend_channel_opened` 事件中的 `backendId` 如果等于本 peer 的 `backendId`，是 incoming；否则是 outgoing。
+
+#### 与 EmbeddedGatewayAdapter 的集成
+
+`EmbeddedGatewayAdapter` 将 outgoing channel 相关方法映射到 `FacadeAdapterCommands`：
+
+```ts
+class EmbeddedGatewayAdapter implements FacadeRuntimeGatewayAdapter {
+  get commands() {
+    return {
+      connection: {
+        connect: () => this.gatewayClient.connect(),
+        disconnect: () => this.gatewayClient.disconnect(),
+      },
+      channel: {
+        openBackendChannel: (backendId, epoch) => {
+          if (this.isLocalBackend(backendId)) {
+            this.handleLocalChannelOpen(backendId, epoch);
+          } else {
+            this.gatewayClient.openOutgoingChannel(backendId, epoch);
+          }
+        },
+        closeBackendChannel: (channelId) => {
+          if (this.isLocalChannel(channelId)) {
+            this.handleLocalChannelClose(channelId);
+          } else {
+            this.gatewayClient.closeOutgoingChannel(channelId);
+          }
+        },
+        sendToBackend: (channelId, message) => {
+          if (this.isLocalChannel(channelId)) {
+            this.handleLocalMessage(channelId, message);
+          } else {
+            this.gatewayClient.sendToOutgoingChannel(channelId, message);
+          }
+        },
+      },
+      catalog: {
+        subscribe: (backendId, epoch, lastRevision) => {
+          if (this.isLocalBackend(backendId)) {
+            this.handleLocalCatalogSubscribe(backendId);
+          } else {
+            this.gatewayClient.subscribeOutgoingCatalog(backendId, epoch, lastRevision);
+          }
+        },
+        unsubscribe: (backendId, epoch) => {
+          if (this.isLocalBackend(backendId)) {
+            this.handleLocalCatalogUnsubscribe(backendId);
+          } else {
+            this.gatewayClient.unsubscribeOutgoingCatalog(backendId, epoch);
+          }
+        },
+      },
+      stream: {
+        open: (channelId, sessionId) => {
+          if (this.isLocalChannel(channelId)) {
+            this.handleLocalStreamOpen(channelId, sessionId);
+          } else {
+            this.gatewayClient.openOutgoingStream(channelId, sessionId);
+          }
+        },
+        close: (channelId, sessionId) => {
+          if (this.isLocalChannel(channelId)) {
+            this.handleLocalStreamClose(channelId, sessionId);
+          } else {
+            this.gatewayClient.closeOutgoingStream(channelId, sessionId);
+          }
+        },
+        catchUp: (channelId, sessionId, afterOffset) => {
+          if (this.isLocalChannel(channelId)) {
+            this.handleLocalCatchUp(channelId, sessionId, afterOffset);
+          } else {
+            this.gatewayClient.catchUpOutgoingStream(channelId, sessionId, afterOffset);
+          }
+        },
+      },
+    };
+  }
+}
+```
+
+### outgoing channel 与 incoming channel 的隔离
+
+#### 命名空间隔离
+
+建议 channelId 对 local backend 使用 `local:` 前缀，避免与 gateway 分配的 channelId 冲突：
+
+```ts
+// local backend channel
+channelId = `local:${backendId}:${epoch}`;
+
+// outgoing remote channel
+channelId = gateway 分配（UUID 或类似）
+
+// incoming channel
+channelId = gateway 分配（UUID 或类似）
+```
+
+#### 生命周期隔离
+
+- incoming channel 的生命周期由 gateway 和 client-peer 控制���本 backend 不主动关闭）
+- outgoing channel 的生命周期由本 peer 和 gateway 控制（本 peer 可主动 open/close）
+- local channel 的生命周期由 adapter 完全控制（不经过 gateway）
+
+三者互不影响，backend 掉线只影响 incoming channel 的 client 端和 outgoing channel 到该 backend 的连接。
+
+### GatewayClient CQE 改造路径
+
+outgoing channel 扩展可以与 GatewayClient CQE 改造同步推进，也可以先在现有 class 上增量实现。
+
+建议第一阶段在现有 `GatewayClient` 上增量添加 outgoing 方法，不做完整 CQE 重构。CQE 重构留到 Phase 2。
+
+理由：
+- outgoing channel 是 facade adapter 的前置依赖，需要尽早可用
+- CQE 重构涉及 `GatewayClient` 全量接口重新设计，范围更大
+- 先增量后重构，降低单次变更风险
 
 ## 待继续讨论的问题
 
@@ -2379,6 +2794,7 @@ apps/desktop/src/facade/
 - stream 自动恢复的默认策略是否应在 backend 恢复后立即执行
 - facade WS 是否需要支持版本协商
 - desktop 模式下 embedded facade 是否需要支持多 UI 客户端同时连接
-- `BackendFacadeRuntimeCore` 放在 shared 还是独立包
 - `EmbeddedGatewayAdapter` local backend 短路是否需要支持 local catalog 的 revision 一致性
 - direct 模式下 HTTP proxy 的鉴权 header 是否需要与 WS 鉴权统一
+- outgoing channel 的 channelId 分配由 gateway 还是 client 决定
+- outgoing channel 重连后是否需要自动恢复（recover）
