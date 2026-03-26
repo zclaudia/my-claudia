@@ -1,6 +1,6 @@
 import { memo, useState, useCallback } from 'react';
-import { CheckCircle2, Loader2, Square, ListTodo, MessageCircleQuestion, FileQuestion, Send, Check, ShieldAlert, ThumbsUp, ThumbsDown, ClipboardCheck, Maximize2, Minimize2 } from 'lucide-react';
-import type { InteractionMessage, AskUserFormInteractionMessage, AskUserFormField, ApprovalInteractionMessage, PlanReviewInteractionMessage } from '@my-claudia/shared';
+import { CheckCircle2, Loader2, Square, ListTodo, FileQuestion, Send, Check, ShieldAlert, ThumbsUp, ThumbsDown, ClipboardCheck, Maximize2, Minimize2 } from 'lucide-react';
+import type { InteractionMessage, InteractionPromptMessage, InteractionPromptField, ApprovalInteractionMessage, PlanReviewInteractionMessage } from '@my-claudia/shared';
 import { useConnection } from '../../contexts/ConnectionContext';
 
 interface InteractionItemProps {
@@ -11,7 +11,7 @@ interface InteractionItemProps {
 // Form Field Renderers
 // ============================================
 
-function TextField({ field, value, onChange }: { field: AskUserFormField; value: string; onChange: (v: string) => void }) {
+function TextField({ field, value, onChange }: { field: InteractionPromptField; value: string; onChange: (v: string) => void }) {
   return (
     <input
       type="text"
@@ -23,7 +23,7 @@ function TextField({ field, value, onChange }: { field: AskUserFormField; value:
   );
 }
 
-function TextareaField({ field, value, onChange }: { field: AskUserFormField; value: string; onChange: (v: string) => void }) {
+function TextareaField({ field, value, onChange }: { field: InteractionPromptField; value: string; onChange: (v: string) => void }) {
   return (
     <textarea
       value={value}
@@ -35,43 +35,106 @@ function TextareaField({ field, value, onChange }: { field: AskUserFormField; va
   );
 }
 
-function SelectField({ field, value, onChange }: { field: AskUserFormField; value: string; onChange: (v: string) => void }) {
-  return (
-    <select
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      className="w-full px-2 py-1 text-xs rounded border border-border bg-background text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
-    >
-      <option value="">{field.placeholder || 'Select...'}</option>
-      {(field.options || []).map((opt) => (
-        <option key={opt.value} value={opt.value}>{opt.label}</option>
-      ))}
-    </select>
-  );
-}
+function ChoiceField({
+  field,
+  value,
+  customEnabled,
+  customValue,
+  onChange,
+  onCustomEnabledChange,
+  onCustomValueChange,
+}: {
+  field: InteractionPromptField;
+  value: string | string[];
+  customEnabled: boolean;
+  customValue: string;
+  onChange: (v: string | string[]) => void;
+  onCustomEnabledChange: (v: boolean) => void;
+  onCustomValueChange: (v: string) => void;
+}) {
+  const selected = Array.isArray(value) ? value : (value ? [value] : []);
+  const isMulti = field.type === 'multiselect';
 
-function MultiselectField({ field, value, onChange }: { field: AskUserFormField; value: string[]; onChange: (v: string[]) => void }) {
   const toggle = (optValue: string) => {
-    onChange(value.includes(optValue) ? value.filter(v => v !== optValue) : [...value, optValue]);
+    if (isMulti) {
+      const next = selected.includes(optValue)
+        ? selected.filter((item) => item !== optValue)
+        : [...selected, optValue];
+      onChange(next);
+      return;
+    }
+    onChange(optValue);
+    onCustomEnabledChange(false);
   };
+
   return (
-    <div className="flex flex-col gap-1">
-      {(field.options || []).map((opt) => (
-        <label key={opt.value} className="flex items-center gap-2 text-xs cursor-pointer">
+    <div className="flex flex-col gap-1.5">
+      {(field.options || []).map((opt) => {
+        const isSelected = selected.includes(opt.value);
+        return (
+          <label
+            key={opt.value}
+            className={`flex items-start gap-2 p-2 rounded cursor-pointer transition-colors text-xs ${
+              isSelected
+                ? 'bg-primary/10 border border-primary/30'
+                : 'bg-muted/50 border border-transparent hover:bg-muted'
+            }`}
+          >
+            <input
+              type={isMulti ? 'checkbox' : 'radio'}
+              name={field.id}
+              checked={isSelected}
+              onChange={() => toggle(opt.value)}
+              className="mt-0.5 w-3.5 h-3.5 flex-shrink-0"
+            />
+            <div className="flex-1 min-w-0">
+              <div className="font-medium text-foreground">{opt.label}</div>
+              {opt.description && (
+                <div className="text-muted-foreground mt-0.5">{opt.description}</div>
+              )}
+            </div>
+          </label>
+        );
+      })}
+
+      {field.allowCustomValue && (
+        <label
+          className={`flex items-start gap-2 p-2 rounded cursor-pointer transition-colors text-xs ${
+            customEnabled
+              ? 'bg-primary/10 border border-primary/30'
+              : 'bg-muted/50 border border-transparent hover:bg-muted'
+          }`}
+        >
           <input
-            type="checkbox"
-            checked={value.includes(opt.value)}
-            onChange={() => toggle(opt.value)}
-            className="rounded border-border"
+            type={isMulti ? 'checkbox' : 'radio'}
+            name={field.id}
+            checked={customEnabled}
+            onChange={() => {
+              const next = !customEnabled;
+              onCustomEnabledChange(next);
+              if (!isMulti && next) onChange('');
+            }}
+            className="mt-0.5 w-3.5 h-3.5 flex-shrink-0"
           />
-          <span>{opt.label}</span>
+          <div className="flex-1 min-w-0">
+            <div className="font-medium text-foreground">{field.customValuePlaceholder || 'Other'}</div>
+            {customEnabled && (
+              <input
+                type="text"
+                value={customValue}
+                onChange={(e) => onCustomValueChange(e.target.value)}
+                placeholder={field.placeholder || 'Type your answer...'}
+                className="mt-1 w-full px-2 py-1 text-xs bg-background border border-border rounded focus:outline-none focus:ring-1 focus:ring-primary"
+              />
+            )}
+          </div>
         </label>
-      ))}
+      )}
     </div>
   );
 }
 
-function ConfirmField({ value, onChange }: { field: AskUserFormField; value: boolean; onChange: (v: boolean) => void }) {
+function ConfirmField({ value, onChange }: { field: InteractionPromptField; value: boolean; onChange: (v: boolean) => void }) {
   return (
     <button
       type="button"
@@ -84,11 +147,56 @@ function ConfirmField({ value, onChange }: { field: AskUserFormField; value: boo
 }
 
 // ============================================
-// Form Interaction Renderer
+// Prompt Interaction Renderer
 // ============================================
 
-function AskUserFormRenderer({ interaction }: { interaction: AskUserFormInteractionMessage }) {
-  const { sendMessage } = useConnection();
+function buildPromptResponse(
+  fields: InteractionPromptField[],
+  formData: Record<string, unknown>,
+  customValues: Record<string, string>,
+  customEnabled: Record<string, boolean>,
+): Record<string, unknown> {
+  const response: Record<string, unknown> = {};
+  for (const field of fields) {
+    const value = formData[field.id];
+    const customValue = customValues[field.id]?.trim();
+    const usingCustom = customEnabled[field.id] && customValue;
+
+    if (field.type === 'multiselect') {
+      const selected = Array.isArray(value) ? [...value] : [];
+      if (usingCustom) selected.push(customValue);
+      response[field.id] = selected;
+      continue;
+    }
+
+    if (field.type === 'confirm') {
+      response[field.id] = Boolean(value);
+      continue;
+    }
+
+    response[field.id] = usingCustom ? customValue : String(value ?? '');
+  }
+  return response;
+}
+
+function formatAskUserAnswer(
+  interaction: InteractionPromptMessage,
+  fields: InteractionPromptField[],
+  formData: Record<string, unknown>,
+  customValues: Record<string, string>,
+  customEnabled: Record<string, boolean>,
+): string {
+  return fields.map((field) => {
+    const raw = buildPromptResponse([field], formData, customValues, customEnabled)[field.id];
+    const answerText = Array.isArray(raw)
+      ? (raw.length > 0 ? raw.join(', ') : 'No answer')
+      : String(raw || 'No answer');
+    return `Q: ${field.label}\nA: ${answerText}`;
+  }).join('\n\n');
+}
+
+function PromptRenderer({ interaction }: { interaction: InteractionPromptMessage }) {
+  const { sendMessage, handleAskUserAnswer } = useConnection();
   const [submitted, setSubmitted] = useState(false);
   const [formData, setFormData] = useState<Record<string, unknown>>(() => {
     const init: Record<string, unknown> = {};
@@ -99,23 +207,40 @@ function AskUserFormRenderer({ interaction }: { interaction: AskUserFormInteract
     }
     return init;
   });
+  const [customValues, setCustomValues] = useState<Record<string, string>>({});
+  const [customEnabled, setCustomEnabled] = useState<Record<string, boolean>>({});
 
   const handleSubmit = useCallback(() => {
-    sendMessage({
-      type: 'interaction_response',
-      interactionId: interaction.interactionId,
-      sessionId: interaction.sessionId,
-      response: formData,
-    });
+    const response = buildPromptResponse(interaction.fields, formData, customValues, customEnabled);
+    if (interaction.responseMode === 'ask_user_answer') {
+      handleAskUserAnswer(
+        interaction.interactionId,
+        formatAskUserAnswer(interaction, interaction.fields, formData, customValues, customEnabled),
+      );
+    } else {
+      sendMessage({
+        type: 'interaction_response',
+        interactionId: interaction.interactionId,
+        sessionId: interaction.sessionId,
+        response,
+      });
+    }
     setSubmitted(true);
-  }, [sendMessage, interaction.interactionId, interaction.sessionId, formData]);
+  }, [sendMessage, handleAskUserAnswer, interaction, formData, customValues, customEnabled]);
+
+  const handleCancel = useCallback(() => {
+    if (interaction.responseMode === 'ask_user_answer') {
+      handleAskUserAnswer(interaction.interactionId, 'User declined to answer.');
+      setSubmitted(true);
+    }
+  }, [handleAskUserAnswer, interaction]);
 
   if (submitted) {
     return (
       <div className="flex flex-col gap-1 px-3 py-2 rounded-md bg-success/10 border border-success/30">
         <div className="flex items-center gap-2 text-xs font-medium text-success">
           <Check size={12} />
-          <span>Form submitted</span>
+          <span>{interaction.variant === 'question' ? 'Response submitted' : 'Form submitted'}</span>
         </div>
       </div>
     );
@@ -137,17 +262,25 @@ function AskUserFormRenderer({ interaction }: { interaction: AskUserFormInteract
               {field.label}
               {field.required && <span className="text-destructive ml-0.5">*</span>}
             </label>
+            {field.description && (
+              <p className="text-xs text-muted-foreground">{field.description}</p>
+            )}
             {field.type === 'text' && (
               <TextField field={field} value={formData[field.id] as string} onChange={(v) => setFormData(prev => ({ ...prev, [field.id]: v }))} />
             )}
             {field.type === 'textarea' && (
               <TextareaField field={field} value={formData[field.id] as string} onChange={(v) => setFormData(prev => ({ ...prev, [field.id]: v }))} />
             )}
-            {field.type === 'select' && (
-              <SelectField field={field} value={formData[field.id] as string} onChange={(v) => setFormData(prev => ({ ...prev, [field.id]: v }))} />
-            )}
-            {field.type === 'multiselect' && (
-              <MultiselectField field={field} value={formData[field.id] as string[]} onChange={(v) => setFormData(prev => ({ ...prev, [field.id]: v }))} />
+            {(field.type === 'select' || field.type === 'multiselect') && (
+              <ChoiceField
+                field={field}
+                value={formData[field.id] as string | string[]}
+                customEnabled={Boolean(customEnabled[field.id])}
+                customValue={customValues[field.id] || ''}
+                onChange={(v) => setFormData(prev => ({ ...prev, [field.id]: v }))}
+                onCustomEnabledChange={(v) => setCustomEnabled(prev => ({ ...prev, [field.id]: v }))}
+                onCustomValueChange={(v) => setCustomValues(prev => ({ ...prev, [field.id]: v }))}
+              />
             )}
             {field.type === 'confirm' && (
               <ConfirmField field={field} value={formData[field.id] as boolean} onChange={(v) => setFormData(prev => ({ ...prev, [field.id]: v }))} />
@@ -155,13 +288,23 @@ function AskUserFormRenderer({ interaction }: { interaction: AskUserFormInteract
           </div>
         ))}
       </div>
-      <button
-        onClick={handleSubmit}
-        className="self-end flex items-center gap-1 px-3 py-1 text-xs font-medium rounded bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
-      >
-        <Send size={10} />
-        Submit
-      </button>
+      <div className="flex items-center gap-2 self-end">
+        {interaction.responseMode === 'ask_user_answer' && (
+          <button
+            onClick={handleCancel}
+            className="flex items-center gap-1 px-3 py-1 text-xs font-medium rounded border border-border bg-background text-foreground hover:bg-muted transition-colors"
+          >
+            {interaction.cancelLabel || 'Skip'}
+          </button>
+        )}
+        <button
+          onClick={handleSubmit}
+          className="flex items-center gap-1 px-3 py-1 text-xs font-medium rounded bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
+        >
+          <Send size={10} />
+          {interaction.submitLabel || 'Submit'}
+        </button>
+      </div>
     </div>
   );
 }
@@ -359,26 +502,8 @@ function InteractionItemInner({ interaction }: InteractionItemProps) {
     );
   }
 
-  if (interaction.type === 'interaction_ask_user') {
-    return (
-      <div className="flex flex-col gap-1 px-3 py-2 rounded-md bg-muted/30 border border-border/50">
-        <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
-          <MessageCircleQuestion size={12} />
-          <span>Question</span>
-        </div>
-        <div className="space-y-1">
-          {interaction.questions.map((q, idx) => (
-            <div key={idx} className="text-xs text-foreground">
-              {q.question}
-            </div>
-          ))}
-        </div>
-      </div>
-    );
-  }
-
-  if (interaction.type === 'interaction_ask_user_form') {
-    return <AskUserFormRenderer interaction={interaction} />;
+  if (interaction.type === 'interaction_prompt') {
+    return <PromptRenderer interaction={interaction} />;
   }
 
   if (interaction.type === 'interaction_approval') {

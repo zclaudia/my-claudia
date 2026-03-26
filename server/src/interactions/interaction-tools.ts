@@ -6,7 +6,7 @@
  * the AI to produce structured interaction events.
  *
  * - update_todo_list: fire-and-forget, emits interaction_todo_update
- * - ask_user_form: blocks until user responds, emits interaction_ask_user_form
+ * - ask_user_form: blocks until user responds, emits interaction_prompt
  * - request_approval: blocks until user approves/rejects
  * - push_file: fire-and-forget, pushes a local file to user's device
  */
@@ -16,7 +16,7 @@ import http from 'http';
 import { toolRegistry } from '../plugins/tool-registry.js';
 import { interactionDispatcher } from './interaction-dispatcher.js';
 import { normalizeTodoItems } from './todo-normalizer.js';
-import type { TodoUpdateInteractionMessage, AskUserFormInteractionMessage, ApprovalInteractionMessage, PlanReviewInteractionMessage } from '@my-claudia/shared';
+import type { TodoUpdateInteractionMessage, InteractionPromptMessage, ApprovalInteractionMessage, PlanReviewInteractionMessage } from '@my-claudia/shared';
 
 export interface InteractionToolsConfig {
   getServerPort: () => number | null;
@@ -150,15 +150,18 @@ export function registerInteractionTools(config?: InteractionToolsConfig): void 
       const sessionId = (context?.sessionId as string) || '';
       const interactionId = uuidv4();
 
-      const event: AskUserFormInteractionMessage = {
-        type: 'interaction_ask_user_form',
+      const event: InteractionPromptMessage = {
+        type: 'interaction_prompt',
         interactionId,
         sessionId,
         source: 'tool_call',
         createdAt: Date.now(),
         title: (args.title as string) || 'Form',
         description: args.description as string | undefined,
-        fields: (args.fields as AskUserFormInteractionMessage['fields']) || [],
+        fields: (args.fields as InteractionPromptMessage['fields']) || [],
+        submitLabel: 'Submit',
+        responseMode: 'interaction_response',
+        variant: 'form',
       };
 
       const response = await interactionDispatcher.dispatchAndWait(interactionId, sessionId, event);

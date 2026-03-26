@@ -15,7 +15,7 @@ export interface AskUserQuestionRequest {
 interface AskUserQuestionState {
   // Queue of pending requests (FIFO)
   pendingRequests: AskUserQuestionRequest[];
-  // First item in queue — for backward compatibility with AskUserQuestionModal
+  // First item in queue — retained for legacy ask_user_question transport routing
   pendingRequest: AskUserQuestionRequest | null;
 
   // Actions

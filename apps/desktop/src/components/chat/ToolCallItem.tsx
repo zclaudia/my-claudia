@@ -705,7 +705,7 @@ export const ToolCallItem = memo(function ToolCallItem({ toolCall }: ToolCallIte
     if (interaction.type === 'interaction_todo_update' && interaction.todos.length > 0) {
       return <InteractionItem interaction={interaction} />;
     }
-    if (interaction.type === 'interaction_ask_user_form' || interaction.type === 'interaction_approval' || interaction.type === 'interaction_plan_review') {
+    if (interaction.type === 'interaction_prompt' || interaction.type === 'interaction_approval' || interaction.type === 'interaction_plan_review') {
       return <InteractionItem interaction={interaction} />;
     }
   }

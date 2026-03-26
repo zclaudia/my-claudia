@@ -135,7 +135,7 @@ export function Sidebar({
       if (
         interaction.type === 'interaction_plan_review'
         || interaction.type === 'interaction_approval'
-        || interaction.type === 'interaction_ask_user_form'
+        || interaction.type === 'interaction_prompt'
       ) {
         ids.add(interaction.sessionId);
       }

@@ -38,6 +38,7 @@ import {
   classify,
   getMatchedPermissionRule,
   getOutsideWorkspacePaths,
+  isInternalInteractionTool,
   PermissionEvaluator,
   getAgentPermissionPolicy,
   getProjectPermissionOverride,
@@ -577,6 +578,19 @@ export async function handleRunStart(
         }
 
         const continueWithUserFlow = () => {
+          if (isInternalInteractionTool(request.toolName)) {
+            sendMessage(client.ws, {
+              type: 'agent_permission_intercepted',
+              toolName: request.toolName,
+              decision: 'approve',
+              reason: 'Internal interaction tool handles its own user flow',
+              sessionId: message.sessionId,
+              runId,
+            } as import('@my-claudia/shared').AgentPermissionInterceptedMessage);
+            resolve({ behavior: 'allow', updatedInput: request.toolInput });
+            return;
+          }
+
           // For background sessions, escalate sends a notification instead of blocking UI
           if (sessionType === 'background') {
             sendMessage(client.ws, {
@@ -675,7 +689,7 @@ export async function handleRunStart(
                 questions: toolInput.questions || [],
               } as import('@my-claudia/shared').AskUserQuestionMessage);
               console.log(`[Permission] Sent ask_user_question ${request.requestId} to client (${(toolInput.questions || []).length} questions)`);
-              // Phase 1: Emit parallel interaction_ask_user event
+              // Emit a parallel unified interaction_prompt event for the chat UI
               const askUserInteraction = normalizeFromAskUser({
                 requestId: request.requestId,
                 sessionId: message.sessionId,
@@ -820,7 +834,8 @@ export async function handleRunStart(
     // When interaction tools are available, push_file tool replaces the curl-based prompt
     const filePushEnv: Record<string, string> = {};
     let filePushContext: string | undefined;
-    const hasInteractionTools = pluginToolRegistry.getAll().some(t => t.source === 'interaction');
+    const hasInteractionTools = providerType !== 'claude'
+      && pluginToolRegistry.getAll().some(t => t.source === 'interaction');
     if (serverPort) {
       const apiUrl = `http://127.0.0.1:${serverPort}`;
       filePushEnv.MY_CLAUDIA_API_URL = apiUrl;

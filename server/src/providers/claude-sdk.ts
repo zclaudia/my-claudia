@@ -322,17 +322,6 @@ export async function* runClaude(
     sdkOptions.plugins = userPlugins;
   }
 
-  // Inject MCP bridge for plugin tools (if any plugin tools are registered)
-  if (options.serverPort) {
-    const bridgeEntry = buildMcpBridgeEntry(options.serverPort, options.claudiaSessionId);
-    if (bridgeEntry) {
-      const mcpServers = (sdkOptions.mcpServers || {}) as Record<string, unknown>;
-      mcpServers['claudia-plugins'] = bridgeEntry;
-      sdkOptions.mcpServers = mcpServers;
-      console.log(`[Claude SDK] Injected MCP bridge`);
-    }
-  }
-
   // Intercept subprocess spawn to capture PID
   sdkOptions.spawnClaudeCodeProcess = (spawnOpts: { command: string; args: string[]; cwd?: string; env: Record<string, string | undefined>; signal: AbortSignal }) => {
     console.log(`[Claude SDK] spawnClaudeCodeProcess called: command=${spawnOpts.command} args=${spawnOpts.args.join(' ')} cwd=${spawnOpts.cwd}`);

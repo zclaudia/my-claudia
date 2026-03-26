@@ -6,7 +6,6 @@ import { useTerminalStore } from '../../../stores/terminalStore';
 import { useBottomPanelStore } from '../../../stores/bottomPanelStore';
 import { useUIStore } from '../../../stores/uiStore';
 import { usePermissionStore } from '../../../stores/permissionStore';
-import { useAskUserQuestionStore } from '../../../stores/askUserQuestionStore';
 import { useServerStore } from '../../../stores/serverStore';
 import { useFileViewerStore } from '../../../stores/fileViewerStore';
 
@@ -70,11 +69,6 @@ vi.mock('../LoadingIndicator', () => ({
 vi.mock('../InlinePermissionRequest', () => ({
   InlinePermissionRequest: (props: any) => (
     <div data-testid="permission-request" data-request-id={props.request?.requestId} />
-  ),
-}));
-vi.mock('../InlineAskUserQuestion', () => ({
-  InlineAskUserQuestion: (props: any) => (
-    <div data-testid="ask-user" data-request-id={props.request?.requestId} />
   ),
 }));
 vi.mock('../ModeSelector', () => ({
@@ -196,7 +190,6 @@ function setDefaultStores(overrides?: {
   terminalStore?: Record<string, any>;
   uiStore?: Record<string, any>;
   permissionStore?: Record<string, any>;
-  askUserStore?: Record<string, any>;
   serverStore?: Record<string, any>;
   fileViewerStore?: Record<string, any>;
 }) {
@@ -264,10 +257,6 @@ function setDefaultStores(overrides?: {
   usePermissionStore.setState({
     pendingRequests: [],
     ...overrides?.permissionStore,
-  } as any);
-  useAskUserQuestionStore.setState({
-    pendingRequests: [],
-    ...overrides?.askUserStore,
   } as any);
   useServerStore.setState({
     activeServerId: 'local',
@@ -713,32 +702,6 @@ describe('ChatInterface', () => {
     const { container } = render(<ChatInterface sessionId="sess-1" />);
     const permReqs = container.querySelectorAll('[data-testid="permission-request"]');
     expect(permReqs.length).toBe(1);
-  });
-
-  // ─── Ask User Question Requests ───────────────────────────────────────
-
-  it('renders ask-user question requests for the session', () => {
-    setDefaultStores({
-      askUserStore: {
-        pendingRequests: [
-          { requestId: 'ask-1', sessionId: 'sess-1', question: 'Yes or no?' },
-        ],
-      },
-    });
-    const { container } = render(<ChatInterface sessionId="sess-1" />);
-    expect(container.querySelector('[data-testid="ask-user"]')).toBeTruthy();
-  });
-
-  it('does not render ask-user requests for other sessions', () => {
-    setDefaultStores({
-      askUserStore: {
-        pendingRequests: [
-          { requestId: 'ask-1', sessionId: 'other', question: 'Yes or no?' },
-        ],
-      },
-    });
-    const { container } = render(<ChatInterface sessionId="sess-1" />);
-    expect(container.querySelector('[data-testid="ask-user"]')).toBeNull();
   });
 
   // ─── Tool Calls Display ───────────────────────────────────────────────

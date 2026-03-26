@@ -9,6 +9,7 @@ import { DEFAULT_CATEGORY_POLICY, DEFAULT_CATEGORY_PROFILES, DEFAULT_GLOBAL_GUAR
 import {
   PermissionEvaluator,
   classify,
+  isInternalInteractionTool,
   buildRememberKey,
   buildRememberKeys,
   mergePolicy,
@@ -162,6 +163,12 @@ describe('classify', () => {
     expect(classify('AskUserQuestion', {}, '')).toBe('userQuestions' as PermissionCategory);
   });
 
+  it('should classify blocking interaction tools as userQuestions', () => {
+    expect(classify('ask_user_form', {}, '')).toBe('userQuestions' as PermissionCategory);
+    expect(classify('mcp:claudia-plugins:request_approval', {}, '')).toBe('userQuestions' as PermissionCategory);
+    expect(classify('ExitPlanMode', {}, '')).toBe('userQuestions' as PermissionCategory);
+  });
+
   it('should classify unknown tools as shellSafe', () => {
     expect(classify('SomeUnknownTool', {}, '')).toBe('shellSafe' as PermissionCategory);
     expect(classify('Task', {}, '')).toBe('shellSafe' as PermissionCategory);
@@ -175,6 +182,14 @@ describe('classify', () => {
   it('should fall back to detail string when command not in toolInput', () => {
     expect(classify('Bash', {}, 'ls -la')).toBe('shellSafe' as PermissionCategory);
     expect(classify('Bash', {}, 'curl https://example.com')).toBe('networkOps' as PermissionCategory);
+  });
+
+  it('should detect internal interaction tools with normalized or mcp-prefixed names', () => {
+    expect(isInternalInteractionTool('ask_user_form')).toBe(true);
+    expect(isInternalInteractionTool('mcp__claudia-plugins__ask_user_form')).toBe(true);
+    expect(isInternalInteractionTool('mcp:claudia-plugins:push_file')).toBe(true);
+    expect(isInternalInteractionTool('EnterPlanMode')).toBe(true);
+    expect(isInternalInteractionTool('SomeUnknownTool')).toBe(false);
   });
 });
 

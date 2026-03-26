@@ -414,8 +414,7 @@ export function handleServerMessage(
       break;
 
     // Phase 1: Unified Interaction Events
-    case 'interaction_ask_user':
-    case 'interaction_ask_user_form':
+    case 'interaction_prompt':
     case 'interaction_approval':
     case 'interaction_todo_update':
     case 'interaction_plan_review':

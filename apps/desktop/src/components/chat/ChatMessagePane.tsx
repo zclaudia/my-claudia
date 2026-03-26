@@ -4,10 +4,8 @@ import { MessageList } from './MessageList';
 import { ToolCallList } from './ToolCallItem';
 import { LoadingIndicator } from './LoadingIndicator';
 import { InlinePermissionRequest } from './InlinePermissionRequest';
-import { InlineAskUserQuestion } from './InlineAskUserQuestion';
 import type { MessageWithToolCalls, ToolCallState, RunHealth } from '../../stores/chatStore';
 import type { PermissionRequest } from '../../stores/permissionStore';
-import type { AskUserQuestionRequest } from '../../stores/askUserQuestionStore';
 import type { ContentBlock } from '@my-claudia/shared';
 import type { PaginationInfo } from '../../stores/chatStore';
 
@@ -50,9 +48,7 @@ interface ChatMessagePaneProps {
 
   // Permission / ask-user
   permissionRequests: PermissionRequest[];
-  askUserRequests: AskUserQuestionRequest[];
   onPermissionDecision: (requestId: string, allow: boolean, remember?: boolean, credential?: string, feedback?: string) => Promise<void>;
-  onAskUserAnswer: (requestId: string, formattedAnswer: string) => void;
 }
 
 export const ChatMessagePane = memo(function ChatMessagePane({
@@ -85,9 +81,7 @@ export const ChatMessagePane = memo(function ChatMessagePane({
   onResendTarget,
   onCancelRun,
   permissionRequests,
-  askUserRequests,
   onPermissionDecision,
-  onAskUserAnswer,
 }: ChatMessagePaneProps) {
   const shouldStickToBottomRef = useRef(true);
   const hasSessionSnapshot = !!sessionPagination;
@@ -231,19 +225,6 @@ export const ChatMessagePane = memo(function ChatMessagePane({
               key={req.requestId}
               request={req}
               onDecision={onPermissionDecision}
-            />
-          ))}
-        </div>
-      )}
-
-      {/* Inline ask-user-question requests */}
-      {askUserRequests.length > 0 && (
-        <div className="mt-4 space-y-3 max-w-full md:max-w-3xl lg:max-w-4xl xl:max-w-5xl">
-          {askUserRequests.map(req => (
-            <InlineAskUserQuestion
-              key={req.requestId}
-              request={req}
-              onAnswer={onAskUserAnswer}
             />
           ))}
         </div>

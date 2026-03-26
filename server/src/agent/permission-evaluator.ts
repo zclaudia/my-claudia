@@ -74,6 +74,31 @@ export function isBashLikeTool(toolName: string): boolean {
     || lower === 'agent_shell';
 }
 
+function hasToolNameSuffix(toolName: string, suffix: string): boolean {
+  return toolName === suffix
+    || toolName.endsWith(`_${suffix}`)
+    || toolName.endsWith(`-${suffix}`)
+    || toolName.endsWith(`:${suffix}`);
+}
+
+export function isInternalInteractionTool(toolName: string): boolean {
+  return hasToolNameSuffix(toolName, 'update_todo_list')
+    || hasToolNameSuffix(toolName, 'ask_user_form')
+    || hasToolNameSuffix(toolName, 'request_approval')
+    || hasToolNameSuffix(toolName, 'push_file')
+    || hasToolNameSuffix(toolName, 'enter_plan_mode')
+    || hasToolNameSuffix(toolName, 'exit_plan_mode')
+    || toolName === 'EnterPlanMode'
+    || toolName === 'ExitPlanMode';
+}
+
+function isBlockingInteractionTool(toolName: string): boolean {
+  return hasToolNameSuffix(toolName, 'ask_user_form')
+    || hasToolNameSuffix(toolName, 'request_approval')
+    || hasToolNameSuffix(toolName, 'exit_plan_mode')
+    || toolName === 'ExitPlanMode';
+}
+
 interface ShellToken {
   value: string;
 }
@@ -344,6 +369,7 @@ function isDangerousCommand(toolInput: unknown, detail: string): boolean {
 /** Classify a tool call into a permission category */
 export function classify(toolName: string, toolInput: unknown, detail: string): PermissionCategory {
   if (toolName === 'AskUserQuestion') return 'userQuestions';
+  if (isBlockingInteractionTool(toolName)) return 'userQuestions';
   if (READONLY_TOOLS.includes(toolName)) return 'fileRead';
   if (EDIT_TOOLS.includes(toolName)) return 'fileWrite';
 

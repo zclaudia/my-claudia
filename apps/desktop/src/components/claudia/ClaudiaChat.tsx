@@ -1,14 +1,12 @@
 import { useRef, useEffect, useCallback, useMemo } from 'react';
 import { MessageInput } from '../chat/MessageInput';
 import { useClaudiaStore } from '../../stores/claudiaStore';
-import { useAskUserQuestionStore } from '../../stores/askUserQuestionStore';
 import { usePermissionStore } from '../../stores/permissionStore';
 import { useProjectStore } from '../../stores/projectStore';
 import { useConnection } from '../../contexts/ConnectionContext';
 import { fetchApi } from '../../services/api';
 import { dismissInterrupted } from '../../services/api/sessions';
 import { openPopoutWindow } from '../../utils/popoutWindow';
-import { InlineAskUserQuestion } from '../chat/InlineAskUserQuestion';
 import { InlinePermissionRequest } from '../chat/InlinePermissionRequest';
 import { TaskCard } from './TaskCard';
 import { InlineResponse } from './InlineResponse';
@@ -48,7 +46,6 @@ export function ClaudiaChat({ isMobile = false, hostProjectId, contextProjectId 
     sendMessage: wsSendMessage,
     isConnected,
     handlePermissionDecision,
-    handleAskUserAnswer,
   } = useConnection();
   const { selectedSessionId, selectedProjectId, sessions, projects, selectProject, updateSession } = useProjectStore();
   const tasks = useClaudiaStore((s) => s.tasks);
@@ -78,9 +75,6 @@ export function ClaudiaChat({ isMobile = false, hostProjectId, contextProjectId 
       .filter((sessionId): sessionId is string => Boolean(sessionId))
   );
   const permissionRequests = usePermissionStore((state) =>
-    state.pendingRequests.filter((request) => !request.sessionId || claudiaSessionIds.has(request.sessionId))
-  );
-  const askUserRequests = useAskUserQuestionStore((state) =>
     state.pendingRequests.filter((request) => !request.sessionId || claudiaSessionIds.has(request.sessionId))
   );
   const permissionRequestBySessionId = new Map(
@@ -399,20 +393,13 @@ export function ClaudiaChat({ isMobile = false, hostProjectId, contextProjectId 
           });
         })()}
 
-        {(permissionRequests.length > 0 || askUserRequests.length > 0) && (
+        {permissionRequests.length > 0 && (
           <div className="space-y-3">
             {permissionRequests.map((request) => (
               <InlinePermissionRequest
                 key={request.requestId}
                 request={request}
                 onDecision={handlePermissionDecision}
-              />
-            ))}
-            {askUserRequests.map((request) => (
-              <InlineAskUserQuestion
-                key={request.requestId}
-                request={request}
-                onAnswer={handleAskUserAnswer}
               />
             ))}
           </div>

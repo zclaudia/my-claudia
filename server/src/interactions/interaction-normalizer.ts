@@ -6,8 +6,8 @@
  */
 
 import type {
-  AskUserInteractionMessage,
   AskUserQuestionItem,
+  InteractionPromptMessage,
   TodoUpdateInteractionMessage,
 } from '@my-claudia/shared';
 import { normalizeTodoItems } from './todo-normalizer.js';
@@ -57,7 +57,7 @@ export function normalizeFromToolUse(args: NormalizeToolUseArgs): TodoUpdateInte
 }
 
 // ============================================
-// AskUserQuestion → interaction_ask_user
+// AskUserQuestion → interaction_prompt
 // ============================================
 
 export interface NormalizeAskUserArgs {
@@ -69,17 +69,34 @@ export interface NormalizeAskUserArgs {
 }
 
 /**
- * Convert an AskUserQuestion event into an AskUserInteractionMessage.
+ * Convert an AskUserQuestion event into a unified prompt interaction.
  */
-export function normalizeFromAskUser(args: NormalizeAskUserArgs): AskUserInteractionMessage {
+export function normalizeFromAskUser(args: NormalizeAskUserArgs): InteractionPromptMessage {
   return {
-    type: 'interaction_ask_user',
+    type: 'interaction_prompt',
     interactionId: args.requestId,
     sessionId: args.sessionId,
     runId: args.runId,
     provider: args.providerType,
     source: 'provider_native',
     createdAt: Date.now(),
-    questions: args.questions,
+    title: args.questions.length > 1 ? 'Questions' : 'Question',
+    fields: args.questions.map((question, index) => ({
+      id: `question_${index}`,
+      label: question.question,
+      description: question.header,
+      type: question.multiSelect ? 'multiselect' : 'select',
+      options: question.options.map((option) => ({
+        value: option.label,
+        label: option.label,
+        description: option.description,
+      })),
+      allowCustomValue: true,
+      customValuePlaceholder: 'Other',
+    })),
+    submitLabel: 'Submit',
+    cancelLabel: 'Skip',
+    responseMode: 'ask_user_answer',
+    variant: 'question',
   };
 }

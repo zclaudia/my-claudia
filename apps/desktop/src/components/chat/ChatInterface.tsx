@@ -17,7 +17,6 @@ import { useTerminalStore } from '../../stores/terminalStore';
 import { useBottomPanelStore } from '../../stores/bottomPanelStore';
 import { useUIStore } from '../../stores/uiStore';
 import { usePermissionStore } from '../../stores/permissionStore';
-import { useAskUserQuestionStore } from '../../stores/askUserQuestionStore';
 import { useDraftEditorStore } from '../../stores/draftEditorStore';
 import { useConnection } from '../../contexts/ConnectionContext';
 import { useIsMobile } from '../../hooks/useMediaQuery';
@@ -37,7 +36,7 @@ interface ChatInterfaceProps {
 }
 
 export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar }: ChatInterfaceProps) {
-  const { sendMessage: wsSendMessage, isConnected, handlePermissionDecision, handleAskUserAnswer } = useConnection();
+  const { sendMessage: wsSendMessage, isConnected, handlePermissionDecision } = useConnection();
   const isMobile = useIsMobile();
   const activeServerId = useServerStore((s) => s.activeServerId);
   const setDrawerOpen = useTerminalStore((s) => s.setDrawerOpen);
@@ -75,8 +74,6 @@ export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar }:
 
   // Per-session pending permission/question requests
   const permissionRequests = usePermissionStore(state => state.pendingRequests.filter(r => r.sessionId === sessionId || !r.sessionId));
-  const askUserRequests = useAskUserQuestionStore(state => state.pendingRequests.filter(r => r.sessionId === sessionId || !r.sessionId));
-
   // Message pagination & scroll management
   const pagination = useMessagePagination({ sessionId, isConnected, isMobile });
   const { scrollToBottom, resetRefs: resetPaginationRefs } = pagination;
@@ -248,9 +245,7 @@ export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar }:
         onResendTarget={handleResendLastMessage}
         onCancelRun={handleCancelRun}
         permissionRequests={permissionRequests}
-        askUserRequests={askUserRequests}
         onPermissionDecision={handlePermissionDecision}
-        onAskUserAnswer={handleAskUserAnswer}
       />
 
       {/* Background Tasks Panel */}

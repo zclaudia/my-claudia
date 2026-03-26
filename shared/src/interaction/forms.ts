@@ -29,9 +29,34 @@ export interface InteractionBase {
 }
 
 /** Unified ask-user interaction */
-export interface AskUserInteractionMessage extends InteractionBase {
-  type: 'interaction_ask_user';
-  questions: AskUserQuestionItem[];
+export interface InteractionPromptOption {
+  value: string;
+  label: string;
+  description?: string;
+}
+
+export interface InteractionPromptField {
+  id: string;
+  label: string;
+  description?: string;
+  type: 'text' | 'select' | 'multiselect' | 'textarea' | 'confirm';
+  options?: InteractionPromptOption[];
+  required?: boolean;
+  defaultValue?: string;
+  placeholder?: string;
+  allowCustomValue?: boolean;
+  customValuePlaceholder?: string;
+}
+
+export interface InteractionPromptMessage extends InteractionBase {
+  type: 'interaction_prompt';
+  title: string;
+  description?: string;
+  fields: InteractionPromptField[];
+  submitLabel?: string;
+  cancelLabel?: string;
+  responseMode?: 'interaction_response' | 'ask_user_answer';
+  variant?: 'question' | 'form';
 }
 
 /** Normalized todo item for interaction layer */
@@ -53,24 +78,7 @@ export interface InteractionResolvedMessage {
   sessionId?: string;
 }
 
-/** Form field definition for ask_user_form */
-export interface AskUserFormField {
-  id: string;
-  label: string;
-  type: 'text' | 'select' | 'multiselect' | 'textarea' | 'confirm';
-  options?: { value: string; label: string }[];
-  required?: boolean;
-  defaultValue?: string;
-  placeholder?: string;
-}
-
-/** Structured form interaction (from internal ask_user_form tool) */
-export interface AskUserFormInteractionMessage extends InteractionBase {
-  type: 'interaction_ask_user_form';
-  title: string;
-  description?: string;
-  fields: AskUserFormField[];
-}
+export type AskUserFormField = InteractionPromptField;
 
 /** Approval request interaction (from internal request_approval tool) */
 export interface ApprovalInteractionMessage extends InteractionBase {
@@ -98,4 +106,4 @@ export interface InteractionResponseMessage {
 }
 
 /** Union of all interaction message types */
-export type InteractionMessage = AskUserInteractionMessage | TodoUpdateInteractionMessage | AskUserFormInteractionMessage | ApprovalInteractionMessage | PlanReviewInteractionMessage;
+export type InteractionMessage = InteractionPromptMessage | TodoUpdateInteractionMessage | ApprovalInteractionMessage | PlanReviewInteractionMessage;
