@@ -1620,10 +1620,765 @@ interface BackendStateDiff {
 - 删除基于 gateway status 轮询的双控制面
 - 重建与 facade 契约对应的集成测试
 
+## FacadeRuntimeGatewayAdapter 统一契约
+
+### 动机
+
+前述设计中，`EmbeddedBackendFacadeRuntime` 直接依赖 `GatewayClient`。但 `DirectBackendFacadeProvider` 同样需要 registry、channel、stream、catalog 等能力，只是协议承载方式不同：
+
+- embedded：server 进程内的 `GatewayClient`（backend-peer 兼 client-peer）
+- direct：UI 进程内的 `GatewayTransport`（纯 client-peer）
+
+如果 runtime 直接绑定具体实现，就无法共享核心编排逻辑。
+
+解法：提取 `FacadeRuntimeGatewayAdapter` 作为 runtime 对 gateway 协议的唯一依赖面，embedded 和 direct 各自实现该 adapter。
+
+### 架构关系
+
+```
+┌─────────────────────────────────────────────────┐
+│           BackendFacadeRuntimeCore              │
+│  ┌──────────────┐  ┌───────────────────┐        │
+│  │RegistryStore │  │  StreamManager    │        │
+│  └──────────────┘  └───────────────────┘        │
+│                                                 │
+│  depends on: FacadeRuntimeGatewayAdapter         │
+└────────────────────┬────────────────────────────┘
+                     │
+        ┌────────────┴────────────┐
+        │                         │
+┌───────┴────────┐    ┌───────────┴──────────┐
+│  Embedded      │    │  Direct              │
+│  GatewayAdapter│    │  GatewayAdapter      │
+│                │    │                      │
+│  wraps:        │    │  wraps:              │
+│  GatewayClient │    │  GatewayTransport    │
+│  (server-side) │    │  (client-side)       │
+└────────────────┘    └──────────────────────┘
+```
+
+### adapter CQE 接口
+
+`FacadeRuntimeGatewayAdapter` 采用与 `GatewayClient` 相同的 CQE 范式，但只暴露 facade runtime 需要的子集。
+
+```ts
+export interface FacadeRuntimeGatewayAdapter {
+  readonly commands: FacadeAdapterCommands;
+  readonly queries: FacadeAdapterQueries;
+  readonly events: FacadeAdapterEventBus;
+}
+```
+
+#### Commands
+
+```ts
+export interface FacadeAdapterCommands {
+  connection: {
+    connect(): void;
+    disconnect(): void;
+  };
+
+  channel: {
+    openBackendChannel(backendId: string, epoch: number): void;
+    closeBackendChannel(channelId: string): void;
+    sendToBackend(channelId: string, message: ClientMessage): void;
+  };
+
+  catalog: {
+    subscribe(backendId: string, epoch: number, lastRevision?: number): void;
+    unsubscribe(backendId: string, epoch: number): void;
+  };
+
+  stream: {
+    open(channelId: string, sessionId: string): void;
+    close(channelId: string, sessionId: string): void;
+    catchUp(channelId: string, sessionId: string, afterOffset: number): void;
+  };
+}
+```
+
+与 `GatewayClientCommands` 的关键区别：
+
+- 不包含 `catalog.publishSnapshot()` / `catalog.publishEvent()` — 这是 backend-peer 发布方行为，不属于 facade client 视角
+- 不包含 `stream.emitRunEvent()` — 同上
+- facade runtime 始终以 client-peer 视角消费 backend 能力
+
+#### Queries
+
+```ts
+export interface FacadeAdapterQueries {
+  bootstrap: {
+    getInitialState(): FacadeAdapterBootstrapState;
+  };
+
+  connection: {
+    getState(): FacadeAdapterConnectionState;
+  };
+
+  identity: {
+    getInstanceId(): string;
+    getDeviceId(): string;
+  };
+
+  registry: {
+    getRevision(): number;
+    getSnapshot(): Map<string, BackendPresence>;
+  };
+
+  channel: {
+    get(backendId: string): { backendId: string; channelId: string; epoch: number } | undefined;
+    getAll(): Map<string, { backendId: string; channelId: string; epoch: number }>;
+  };
+
+  http: {
+    getBaseUrl(backendId: string): string | null;
+    getHeaders(): Record<string, string>;
+  };
+}
+```
+
+与 `GatewayClientQueries` 的关键区别：
+
+- 不包含 `identity.getBackendId()` / `identity.getEpoch()` — 这是 backend-peer 自身 identity，不属于 facade client
+- 新增 `http.getBaseUrl()` / `http.getHeaders()` — 因为 HTTP 代理策略在 embedded 和 direct 之间差异显著：
+  - embedded：`http://localhost:{embeddedPort}/api/backend-facade/proxy/{backendId}`
+  - direct：gateway HTTP proxy 或直连 backend URL
+
+#### Bootstrap State
+
+```ts
+export interface FacadeAdapterBootstrapState {
+  capturedAt: number;
+
+  connection: {
+    state: FacadeAdapterConnectionState;
+    lastError?: string;
+  };
+
+  identity: {
+    instanceId: string;
+    deviceId: string;
+  };
+
+  registry: {
+    revision: number;
+    items: BackendPresence[];
+  };
+
+  channels: {
+    items: Array<{
+      backendId: string;
+      channelId: string;
+      epoch: number;
+    }>;
+  };
+}
+
+export type FacadeAdapterConnectionState =
+  | 'idle'
+  | 'connecting'
+  | 'connected'
+  | 'reconnecting'
+  | 'disconnected'
+  | 'error';
+```
+
+与 `GatewayClientBootstrapState` 的区别：
+
+- 不含 `peerSessionId` / `recoveryToken` — 这些是 transport recovery 细节，adapter 内部消化
+- `identity` 只暴露 `instanceId` / `deviceId`，不暴露 `backendId` / `epoch`
+
+#### Events
+
+```ts
+export interface FacadeAdapterEventBus {
+  subscribe(listener: (event: FacadeAdapterEvent) => void): () => void;
+}
+
+export type FacadeAdapterEvent =
+  | { type: 'connection_state_changed'; state: FacadeAdapterConnectionState; error?: string }
+  | { type: 'registry_snapshot_received'; revision: number; items: BackendPresence[] }
+  | { type: 'registry_event_received'; revision: number; op: 'upsert' | 'remove'; item?: BackendPresence; backendId?: string }
+  | { type: 'backend_channel_opened'; backendId: string; channelId: string; epoch: number; capabilities: string[] }
+  | { type: 'backend_channel_closed'; backendId: string; channelId: string; reason: string }
+  | { type: 'backend_channel_rejected'; backendId: string; reason: string }
+  | { type: 'catalog_snapshot_received'; backendId: string; epoch: number; revision: number; items: SessionCatalogItem[] }
+  | { type: 'catalog_event_received'; backendId: string; epoch: number; revision: number; op: 'upsert' | 'remove'; item?: SessionCatalogItem; sessionId?: string }
+  | { type: 'catalog_reset_received'; backendId: string; epoch: number }
+  | { type: 'session_stream_closed'; backendId: string; channelId: string; sessionId: string; reason: string }
+  | { type: 'content_patch_received'; backendId: string; channelId: string; sessionId: string; messages: SessionMessage[]; latestOffset: number }
+  | { type: 'run_event_received'; backendId: string; channelId: string; sessionId: string; event: ServerMessage }
+  | { type: 'backend_message_received'; backendId: string; channelId: string; message: ServerMessage };
+```
+
+事件契约与 `GatewayClientEvent` 完全同构。这是有意为之 — adapter 的职责是协议适配，不是事件重塑。Runtime 消费 adapter 事件后再生产 facade 语义事件。
+
+#### 事件投递语义
+
+与 `GatewayClient` 相同：
+
+- 按接收顺序串行投递
+- 同一 listener 不会并发重入
+- listener 抛错不中断后续事件
+- 不保证事件重放
+- 新订阅者不收到历史事件
+- 初始化基线通过 `queries.bootstrap.getInitialState()` 获取
+
+### Embedded adapter 实现要点
+
+`EmbeddedGatewayAdapter` 在 server 进程内运行，wraps `GatewayClient`。
+
+```ts
+class EmbeddedGatewayAdapter implements FacadeRuntimeGatewayAdapter {
+  constructor(private gatewayClient: GatewayClient) {}
+}
+```
+
+关键适配：
+
+1. **connection** — 直接代理 `GatewayClient` 的连接状态。embedded server 启动时 `GatewayClient` 已连接，adapter 以 `connected` 为初始状态。
+
+2. **identity** — `instanceId` / `deviceId` 从 `GatewayClient` 获取。注意不暴露 `backendId`（backend-peer 自身身份），因为 facade runtime 关心的是其他 backend 的 backendId。
+
+3. **local backend 过滤** — embedded server 自身也出现在 registry 中。adapter 不做过滤，由 runtime 通过 `instanceId` 比对决定哪个是 local backend。
+
+4. **channel** — 当前 `GatewayClient` 主要作为 backend-peer 接受来自 client 的 channel。作为 facade adapter，它需要额外支持作为 client-peer 主动 open channel 到其他 backend。这是 `GatewayClient` 需要扩展的核心能力。
+
+5. **HTTP proxy** — `getBaseUrl(backendId)` 返回 embedded server 自身的 proxy 路由：`/api/backend-facade/proxy/{backendId}`。embedded server 内部再代理到 gateway HTTP proxy。
+
+#### GatewayClient 扩展需求
+
+当前 `GatewayClient` 是纯 backend-peer。为支持 embedded facade，它需要增加 client-peer 能力：
+
+- 主动 `openBackendChannel(targetBackendId, epoch)` — 以 client 身份向另一个 backend 开 channel
+- 接收其他 backend 的 catalog、stream、run event
+- 管理多个 outgoing channel（当前只管理 incoming channel）
+
+建议在 `GatewayClient` 内部区分：
+
+```ts
+// 现有：作为 backend 接受 client channel
+incomingChannels: Map<string, IncomingChannel>;
+
+// 新增：作为 facade client 主动连接其他 backend
+outgoingChannels: Map<string, OutgoingChannel>;
+```
+
+adapter 只暴露 outgoing 部分给 runtime。
+
+### Direct adapter 实现要点
+
+`DirectGatewayAdapter` 在 UI 进程内运行，wraps `GatewayTransport`。
+
+```ts
+class DirectGatewayAdapter implements FacadeRuntimeGatewayAdapter {
+  constructor(private transport: GatewayTransport) {}
+}
+```
+
+关键适配：
+
+1. **connection** — 代理 `GatewayTransport` 的连接状态。transport 内部处理 reconnect、recovery token 等，adapter 只暴露归一化的连接状态。
+
+2. **identity** — `instanceId` / `deviceId` 从 transport 或本地持久化获取。
+
+3. **channel** — 直接映射 `GatewayTransport.openChannel()` / `closeChannel()` / `sendToBackend()`。
+
+4. **HTTP proxy** — `getBaseUrl(backendId)` 通过 gateway HTTP proxy 路由。依赖 `gatewayUrl` 和 auth headers。
+
+5. **catalog/stream** — 直接映射 `GatewayTransport` 已有的 `subscribeCatalog()` / `openSessionStream()` 等方法。
+
+Direct adapter 的实现相对直接，因为 `GatewayTransport` 本身就是 client-peer。
+
+### adapter 内部不做的事
+
+- 不维护 `BackendRuntimeRecord`
+- 不维护 `DesiredSessionStream`
+- 不组装 facade snapshot
+- 不做 backend open/close 编排
+- 不做 stream auto-resume
+- 不做 epoch 对齐检查
+
+这些全部属于 `BackendFacadeRuntimeCore`。
+
+## BackendFacadeRuntimeCore
+
+### 定位
+
+`BackendFacadeRuntimeCore` 是 embedded 和 direct 共享的 facade 状态编排核心。
+
+它包含前述设计中的所有 runtime 职责：
+
+- 接收 adapter 事件
+- 协调 `FacadeRegistryStore`
+- 协调 `FacadeStreamManager`
+- 组装 `BackendFacadeSnapshot`
+- 产出 facade 语义事件
+
+### 构造
+
+```ts
+interface BackendFacadeRuntimeCoreOptions {
+  adapter: FacadeRuntimeGatewayAdapter;
+  mode: BackendFacadeMode;
+  localBackendMatcher?: (presence: BackendPresence, identity: { instanceId: string; deviceId: string }) => boolean;
+}
+
+class BackendFacadeRuntimeCore {
+  constructor(options: BackendFacadeRuntimeCoreOptions) {}
+}
+```
+
+`localBackendMatcher` 的用途：
+
+- embedded 模式下，需要识别 registry 中哪个 backend 是 embedded server 自身
+- direct 模式下，通常无 local backend，该函数返回 `false` 或不提供
+- 判定规则由外部注入，runtime 不硬编码 instanceId 比对逻辑
+
+### 对外接口
+
+`BackendFacadeRuntimeCore` 对外暴露的接口即前述 `BackendFacade` 接口的完整实现：
+
+```ts
+interface BackendFacadeRuntimeCore {
+  // lifecycle
+  start(): void;
+  stop(): void;
+
+  // BackendFacade 接口实现
+  getSnapshot(): BackendFacadeSnapshot;
+  subscribe(listener: (snapshot: BackendFacadeSnapshot) => void): () => void;
+  onEvent(listener: (event: BackendFacadeEvent) => void): () => void;
+
+  openBackend(backendId: string): void;
+  closeBackend(backendId: string): void;
+
+  sendToBackend(backendId: string, message: ClientMessage): void;
+
+  openSessionStream(backendId: string, sessionId: string): void;
+  closeSessionStream(backendId: string, sessionId: string): void;
+
+  catchUpContent(backendId: string, sessionId: string, afterOffset: number): void;
+
+  getHttpBaseUrl(backendId: string): string | null;
+  getHttpHeaders(): Record<string, string>;
+}
+```
+
+### 内部事件处理入口
+
+runtime 内部使用单一事件入口处理 adapter 事件：
+
+```ts
+private handleAdapterEvent(event: FacadeAdapterEvent): void {
+  switch (event.type) {
+    case 'connection_state_changed':
+      this.handleConnectionStateChanged(event);
+      break;
+    case 'registry_snapshot_received':
+      this.handleRegistrySnapshot(event);
+      break;
+    case 'registry_event_received':
+      this.handleRegistryEvent(event);
+      break;
+    case 'backend_channel_opened':
+      this.handleBackendChannelOpened(event);
+      break;
+    case 'backend_channel_closed':
+      this.handleBackendChannelClosed(event);
+      break;
+    case 'backend_channel_rejected':
+      this.handleBackendChannelRejected(event);
+      break;
+    case 'catalog_snapshot_received':
+      this.handleCatalogSnapshot(event);
+      break;
+    case 'catalog_event_received':
+      this.handleCatalogEvent(event);
+      break;
+    case 'catalog_reset_received':
+      this.handleCatalogReset(event);
+      break;
+    case 'session_stream_closed':
+      this.handleSessionStreamClosed(event);
+      break;
+    case 'content_patch_received':
+      this.handleContentPatch(event);
+      break;
+    case 'run_event_received':
+      this.handleRunEvent(event);
+      break;
+    case 'backend_message_received':
+      this.handleBackendMessage(event);
+      break;
+  }
+}
+```
+
+### 核心编排流程
+
+以 `handleBackendChannelOpened` 为例：
+
+```ts
+private handleBackendChannelOpened(event: BackendChannelOpenedEvent): void {
+  // 1. 更新 registry store
+  const diffs = this.registryStore.markChannelOpened(
+    event.backendId, event.channelId, event.epoch, event.capabilities
+  );
+
+  // 2. 订阅该 backend 的 catalog
+  this.adapter.commands.catalog.subscribe(event.backendId, event.epoch);
+
+  // 3. 检查是否触发 stream 自动恢复（catalog 初始化后再恢复，此处只记录 channel ready）
+  // stream 恢复延迟到 catalog initialized 后
+
+  // 4. 产出 facade event
+  for (const diff of diffs) {
+    this.emitFacadeEvent({
+      type: 'backend_state_changed',
+      backendId: diff.backendId,
+      state: diff.nextRuntimeState,
+    });
+  }
+}
+
+private handleCatalogSnapshot(event: CatalogSnapshotReceivedEvent): void {
+  // 1. 标记 catalog 已初始化
+  const diffs = this.registryStore.markCatalogInitialized(event.backendId, event.epoch);
+
+  // 2. 广播 catalog
+  this.emitFacadeEvent({
+    type: 'catalog_snapshot',
+    backendId: event.backendId,
+    items: event.items,
+  });
+
+  // 3. 检查 backend 是否已达 ready
+  const backend = this.registryStore.getBackend(event.backendId);
+  if (backend && backend.runtimeState === 'ready') {
+    // 4. 触发 stream 自动恢复
+    const result = this.streamManager.handleBackendBecameReady(
+      event.backendId, backend.channelId!
+    );
+    this.executeStreamResult(result);
+  }
+
+  // 5. 广播 state diff
+  for (const diff of diffs) {
+    this.emitFacadeEvent({
+      type: 'backend_state_changed',
+      backendId: diff.backendId,
+      state: diff.nextRuntimeState,
+    });
+  }
+}
+```
+
+### StreamCommand 执行桥接
+
+runtime 统一负责将 `StreamCommand[]` 翻译为 adapter commands：
+
+```ts
+private executeStreamResult(result: StreamManagerResult): void {
+  // 执行 commands
+  for (const cmd of result.commands) {
+    switch (cmd.type) {
+      case 'open_session_stream':
+        this.adapter.commands.stream.open(cmd.channelId, cmd.sessionId);
+        break;
+      case 'close_session_stream':
+        this.adapter.commands.stream.close(cmd.channelId, cmd.sessionId);
+        break;
+      case 'catch_up_content':
+        this.adapter.commands.stream.catchUp(cmd.channelId, cmd.sessionId, cmd.afterOffset);
+        break;
+    }
+  }
+
+  // 广播 events
+  for (const evt of result.events) {
+    this.emitFacadeEvent(evt);
+  }
+}
+```
+
+注意 `StreamCommand` 中的 `backendId` 不直接传给 adapter — adapter 的 stream commands 接受 `channelId`，而 `backendId -> channelId` 的解析由 `StreamManager` 在生成 command 时已完成（通过 runtime 传入的 context）。
+
+### bootstrap 流程
+
+runtime 启动时遵循前述 subscribe-buffer-bootstrap-replay 模式：
+
+```ts
+start(): void {
+  // 1. 订阅 adapter 事件，buffer 模式
+  this.eventBuffer = [];
+  this.unsubscribe = this.adapter.events.subscribe(event => {
+    if (!this.initialized) {
+      this.eventBuffer.push(event);
+    } else {
+      this.handleAdapterEvent(event);
+    }
+  });
+
+  // 2. 获取 bootstrap state
+  const bootstrap = this.adapter.queries.bootstrap.getInitialState();
+
+  // 3. 初始化 registry store
+  this.registryStore.applyBootstrap(bootstrap);
+
+  // 4. 初始化 stream manager
+  this.streamManager.applyBootstrap();
+
+  // 5. 记录 identity
+  this.currentInstanceId = bootstrap.identity.instanceId;
+  this.currentDeviceId = bootstrap.identity.deviceId;
+
+  // 6. 识别 local backend
+  if (this.options.localBackendMatcher) {
+    for (const item of bootstrap.registry.items) {
+      if (this.options.localBackendMatcher(item, bootstrap.identity)) {
+        this.localBackendId = item.backendId;
+        break;
+      }
+    }
+  }
+
+  // 7. replay buffered events
+  for (const event of this.eventBuffer) {
+    this.handleAdapterEvent(event);
+  }
+  this.eventBuffer = null;
+
+  // 8. 标记已初始化
+  this.initialized = true;
+
+  // 9. 发出首份全量 snapshot
+  this.emitFacadeEvent({
+    type: 'snapshot_updated',
+    snapshot: this.getSnapshot(),
+  });
+}
+```
+
+## Provider 与 RuntimeCore 的关系
+
+### EmbeddedBackendFacadeProvider
+
+```ts
+class EmbeddedBackendFacadeProvider implements BackendFacade {
+  private adapter: EmbeddedGatewayAdapter;
+  private core: BackendFacadeRuntimeCore;
+  private wsHub: FacadeWsHub;
+
+  constructor(gatewayClient: GatewayClient, embeddedPort: number) {
+    this.adapter = new EmbeddedGatewayAdapter(gatewayClient);
+    this.core = new BackendFacadeRuntimeCore({
+      adapter: this.adapter,
+      mode: 'embedded',
+      localBackendMatcher: (presence, identity) =>
+        presence.instanceId === identity.instanceId,
+    });
+    this.wsHub = new FacadeWsHub(this.core);
+  }
+
+  // BackendFacade 方法全部委托给 core
+  connect() { this.core.start(); }
+  disconnect() { this.core.stop(); }
+  getSnapshot() { return this.core.getSnapshot(); }
+  // ...
+}
+```
+
+embedded provider 额外拥有 `FacadeWsHub`，负责将 facade 能力暴露给 UI WS 客户端。
+
+### DirectBackendFacadeProvider
+
+```ts
+class DirectBackendFacadeProvider implements BackendFacade {
+  private adapter: DirectGatewayAdapter;
+  private core: BackendFacadeRuntimeCore;
+
+  constructor(transport: GatewayTransport) {
+    this.adapter = new DirectGatewayAdapter(transport);
+    this.core = new BackendFacadeRuntimeCore({
+      adapter: this.adapter,
+      mode: 'direct',
+      // direct 模式无 local backend
+    });
+  }
+
+  // BackendFacade 方法全部委托给 core
+  connect() { this.core.start(); }
+  disconnect() { this.core.stop(); }
+  getSnapshot() { return this.core.getSnapshot(); }
+  // ...
+}
+```
+
+direct provider 无 WsHub — UI 直接持有 `BackendFacade` 引用，无需 WS 中转。
+
+### 关键约束
+
+- `BackendFacadeRuntimeCore` 不感知自己运行在 server 还是 UI 进程
+- `FacadeRuntimeGatewayAdapter` 不感知 facade 状态模型
+- provider 是组装层，负责选择 adapter、创建 core、挂载 transport（WsHub 或直接引用）
+- `FacadeRegistryStore` 和 `FacadeStreamManager` 只被 `BackendFacadeRuntimeCore` 持有，不被 adapter 或 provider 直接访问
+
+## embedded 模式下的 local backend 特殊处理
+
+embedded 模式下，embedded server 自身既是一个 backend-peer（通过 `GatewayClient` 注册），又是 facade runtime 的宿主。这导致 local backend 在 facade 中有特殊语义：
+
+### local backend channel
+
+对于 local backend，facade runtime **不需要**通过 gateway 开 channel — 它直接在同一进程内。
+
+建议策略：
+
+- `EmbeddedGatewayAdapter` 对 local backend 的 channel 操作做短路处理
+- `openBackendChannel(localBackendId, epoch)` 不走 gateway 协议，而是立即返回一个虚拟 channel
+- `sendToBackend(localChannelId, message)` 直接路由到进程内 server handler
+- adapter 合成 `backend_channel_opened` 事件给 runtime
+
+```ts
+// EmbeddedGatewayAdapter 内部
+openBackendChannel(backendId: string, epoch: number): void {
+  if (backendId === this.localBackendId) {
+    // 短路：不走 gateway
+    const virtualChannelId = `local:${backendId}:${epoch}`;
+    this.emitEvent({
+      type: 'backend_channel_opened',
+      backendId,
+      channelId: virtualChannelId,
+      epoch,
+      capabilities: this.getLocalCapabilities(),
+    });
+    return;
+  }
+  // 远程 backend：走 gateway
+  this.gatewayClient.openOutgoingChannel(backendId, epoch);
+}
+```
+
+这样 runtime core 完全不需要区分 local 和 remote — 都是走 adapter，adapter 内部决定是短路还是走协议。
+
+### local backend HTTP
+
+`getBaseUrl(localBackendId)` 直接返回 `http://localhost:{port}`，无需走 proxy。
+
+### local backend catalog
+
+local backend 的 catalog 变更，adapter 可以直接从 server 内部订阅，无需走 gateway catalog 协议：
+
+- adapter 直接监听 server 内部的 catalog 变更事件
+- 合成 `catalog_snapshot_received` / `catalog_event_received` 事件给 runtime
+
+同样，runtime core 无感。
+
+## direct 模式下的 HTTP proxy
+
+direct 模式下，UI 无法直连 backend HTTP（backend 可能在 NAT 后面）。
+
+HTTP 请求通过 gateway 代理：
+
+```ts
+// DirectGatewayAdapter 内部
+getBaseUrl(backendId: string): string | null {
+  if (!this.transport.isConnected()) return null;
+  return `${this.gatewayHttpUrl}/api/proxy/${backendId}`;
+}
+
+getHeaders(): Record<string, string> {
+  return {
+    'x-gateway-secret': this.gatewaySecret,
+    'x-peer-session-id': this.transport.getPeerSessionId() ?? '',
+  };
+}
+```
+
+## 代码放置建议
+
+### shared 层
+
+```
+shared/src/facade/
+  types.ts              # BackendFacadeSnapshot, BackendFacadeEvent, etc.
+  adapter-types.ts      # FacadeRuntimeGatewayAdapter, FacadeAdapterEvent, etc.
+```
+
+facade 类型定义放在 shared，因为 direct 模式下 UI 进程需要引用。
+
+### server 层
+
+```
+server/src/facade/
+  runtime-core.ts       # BackendFacadeRuntimeCore
+  registry-store.ts     # FacadeRegistryStore
+  stream-manager.ts     # FacadeStreamManager
+  embedded-adapter.ts   # EmbeddedGatewayAdapter
+  embedded-provider.ts  # EmbeddedBackendFacadeProvider
+  ws-hub.ts             # FacadeWsHub
+```
+
+### UI 层
+
+```
+apps/desktop/src/facade/
+  runtime-core.ts       # 同一份 BackendFacadeRuntimeCore（或从 shared 包引入）
+  registry-store.ts     # 同一份
+  stream-manager.ts     # 同一份
+  direct-adapter.ts     # DirectGatewayAdapter
+  direct-provider.ts    # DirectBackendFacadeProvider
+```
+
+### runtime-core 共享策略
+
+`BackendFacadeRuntimeCore`、`FacadeRegistryStore`、`FacadeStreamManager` 是纯逻辑、无平台依赖。两种放置方案：
+
+**方案 A：放在 shared 包**
+
+- 优点：编译时共享，单一来源
+- 缺点：shared 包膨胀，引入运行时逻辑（当前 shared 只有类型和协议定义）
+
+**方案 B：放在独立包 `facade-core`**
+
+- 优点：职责清晰，shared 保持纯类型
+- 缺点：增加一个 workspace 包
+
+**建议第一阶段用方案 A**，将 runtime-core 放在 `shared/src/facade/` 下。如果后续 shared 包过大再拆分。
+
+## 修订后的实施顺序
+
+### Phase 1a — 契约与核心
+
+1. 在 shared 定义 `FacadeRuntimeGatewayAdapter` 接口和事件类型
+2. 在 shared 实现 `BackendFacadeRuntimeCore`、`FacadeRegistryStore`、`FacadeStreamManager`
+3. 单元测试：使用 mock adapter 测试 runtime core 全流程
+
+### Phase 1b — Direct provider
+
+4. 实现 `DirectGatewayAdapter`（wraps `GatewayTransport`）
+5. 实现 `DirectBackendFacadeProvider`
+6. UI 侧引入 facade store，替换 `gatewayStore` 核心路径
+
+### Phase 1c — Embedded provider
+
+7. 扩展 `GatewayClient` 增加 outgoing channel 能力
+8. 实现 `EmbeddedGatewayAdapter`（含 local backend 短路）
+9. 实现 `EmbeddedBackendFacadeProvider` + `FacadeWsHub`
+10. desktop 引入 `EmbeddedBackendFacadeProvider`，UI 通过 facade WS 接入
+
+### Phase 2 — 收敛
+
+11. 删除旧 desktop gateway 特殊分支
+12. 收缩 `gatewayStore`
+13. 删除双控制面
+
 ## 待继续讨论的问题
 
 - `BackendFacadeSnapshot` 是否需要在运行中支持强制全量重发
 - stream 自动恢复的默认策略是否应在 backend 恢复后立即执行
 - facade WS 是否需要支持版本协商
-- direct provider 是否要在内部完全复用现有 `GatewayTransport`
 - desktop 模式下 embedded facade 是否需要支持多 UI 客户端同时连接
+- `BackendFacadeRuntimeCore` 放在 shared 还是独立包
+- `EmbeddedGatewayAdapter` local backend 短路是否需要支持 local catalog 的 revision 一致性
+- direct 模式下 HTTP proxy 的鉴权 header 是否需要与 WS 鉴权统一
