@@ -192,7 +192,16 @@ export function setupRoutesAndServices(deps: SetupDependencies): SetupResult {
     gatewayStatus.connected = connected;
   };
 
-  const authMiddleware = createExpressAuthMiddleware(() => gatewayStatus.gatewaySecret);
+  const authMiddleware = createExpressAuthMiddleware((token) => {
+    const row = db.prepare(`
+      SELECT client_id
+      FROM servers
+      WHERE client_id = ?
+      LIMIT 1
+    `).get(token) as { client_id: string } | undefined;
+
+    return !!row?.client_id;
+  });
 
   // API routes (protected by auth middleware)
   app.use('/api/projects', authMiddleware, createProjectRoutes(db));

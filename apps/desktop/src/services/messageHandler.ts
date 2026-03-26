@@ -30,6 +30,7 @@ import { useBackgroundTaskStore } from '../stores/backgroundTaskStore';
 import { useProcessMonitorStore } from '../stores/processMonitorStore';
 import { useClaudiaStore } from '../stores/claudiaStore';
 import { downloadPushedFile } from './fileDownload';
+import { eagerSyncCurrentSession, recoverCurrentSessionTail } from './sessionSync';
 import { xtermRegistry } from '../utils/xtermRegistry';
 
 export interface MessageHandlerContext {
@@ -68,6 +69,8 @@ function isCompletedBackgroundStatus(status: string | undefined): boolean {
  * Events without seq (old servers) always pass through.
  */
 const maxSeqByRun = new Map<string, number>();
+const terminalRunSeqByRun = new Map<string, { seq?: number; endedAt: number }>();
+const TERMINAL_RUN_TOMBSTONE_MS = 60_000;
 
 function isStaleRunEvent(runId: string, seq?: number): boolean {
   if (seq == null || seq < 1) return false; // Old server without seq — pass through
@@ -75,6 +78,50 @@ function isStaleRunEvent(runId: string, seq?: number): boolean {
   if (seq <= maxSeq) return true; // Duplicate or stale
   maxSeqByRun.set(runId, seq);
   return false;
+}
+
+function recordTerminalRun(runId: string, seq?: number): void {
+  terminalRunSeqByRun.set(runId, { seq, endedAt: Date.now() });
+}
+
+function clearExpiredTerminalRuns(now = Date.now()): void {
+  for (const [runId, tombstone] of terminalRunSeqByRun) {
+    if (now - tombstone.endedAt > TERMINAL_RUN_TOMBSTONE_MS) {
+      terminalRunSeqByRun.delete(runId);
+    }
+  }
+}
+
+function shouldIgnoreHeartbeatRun(runId: string, lastSeq?: number): boolean {
+  const tombstone = terminalRunSeqByRun.get(runId);
+  if (!tombstone) return false;
+  if (Date.now() - tombstone.endedAt > TERMINAL_RUN_TOMBSTONE_MS) {
+    terminalRunSeqByRun.delete(runId);
+    return false;
+  }
+  if (tombstone.seq == null || lastSeq == null) return true;
+  return lastSeq <= tombstone.seq;
+}
+
+function isRunEventGap(runId: string, seq?: number): boolean {
+  if (seq == null || seq < 1) return false;
+  const maxSeq = maxSeqByRun.get(runId) ?? 0;
+  return maxSeq > 0 && seq > maxSeq + 1;
+}
+
+function recoverRunGap(
+  ctx: MessageHandlerContext,
+  runId: string,
+  seq: number | undefined,
+  sessionId?: string,
+): void {
+  const resolvedSessionId = sessionId || useChatStore.getState().activeRuns[runId];
+  console.warn(
+    `[${ctx.logTag}] Run event gap detected for ${runId}: expected ${((maxSeqByRun.get(runId) ?? 0) + 1)}, got ${seq ?? 'none'}`
+  );
+  if (resolvedSessionId) {
+    void recoverCurrentSessionTail(ctx.serverId, resolvedSessionId);
+  }
 }
 
 function upsertBackgroundTask(taskId: string, task: import('../stores/backgroundTaskStore').BackgroundTask): void {
@@ -155,6 +202,7 @@ export function handleServerMessage(
       break;
 
     case 'delta': {
+      if (isRunEventGap(msg.runId, msg.seq)) recoverRunGap(ctx, msg.runId, msg.seq, msg.sessionId);
       if (isStaleRunEvent(msg.runId, msg.seq)) break;
       const deltaSession = msg.sessionId || useChatStore.getState().activeRuns[msg.runId];
       if (deltaSession) {
@@ -167,7 +215,9 @@ export function handleServerMessage(
     }
 
     case 'run_started': {
+      if (isRunEventGap(msg.runId, msg.seq)) recoverRunGap(ctx, msg.runId, msg.seq, msg.sessionId);
       if (isStaleRunEvent(msg.runId, msg.seq)) break;
+      terminalRunSeqByRun.delete(msg.runId);
       const currentSessionId = useProjectStore.getState().selectedSessionId;
       const targetSessionId = msg.sessionId || currentSessionId;
       const assistantMsgId = msg.assistantMessageId || msg.runId;
@@ -219,8 +269,10 @@ export function handleServerMessage(
     }
 
     case 'run_completed': {
+      if (isRunEventGap(msg.runId, msg.seq)) recoverRunGap(ctx, msg.runId, msg.seq, msg.sessionId);
       if (isStaleRunEvent(msg.runId, msg.seq)) break;
       const completedSession = msg.sessionId || useChatStore.getState().activeRuns[msg.runId];
+      console.log(`[${logTag}] run_completed runId=${msg.runId} sessionId=${completedSession ?? 'unknown'} seq=${msg.seq ?? 'none'}`);
       if (completedSession) {
         useAskUserQuestionStore.getState().clearRequestsForSession(completedSession);
         useInteractionStore.getState().clearSession(completedSession);
@@ -235,7 +287,10 @@ export function handleServerMessage(
           false
         );
         if (backendId) useSessionsStore.getState().setSessionActiveById(backendId, completedSession, false);
+        void eagerSyncCurrentSession(serverId);
+        void recoverCurrentSessionTail(serverId, completedSession);
       }
+      recordTerminalRun(msg.runId, msg.seq);
       useChatStore.getState().endRun(msg.runId);
       serverRunsRef.get(serverId)?.delete(msg.runId);
       maxSeqByRun.delete(msg.runId);
@@ -243,8 +298,10 @@ export function handleServerMessage(
     }
 
     case 'run_failed': {
+      if (isRunEventGap(msg.runId, msg.seq)) recoverRunGap(ctx, msg.runId, msg.seq, msg.sessionId);
       if (isStaleRunEvent(msg.runId, msg.seq)) break;
       const failedSession = msg.sessionId || useChatStore.getState().activeRuns[msg.runId];
+      console.log(`[${logTag}] run_failed runId=${msg.runId} sessionId=${failedSession ?? 'unknown'} seq=${msg.seq ?? 'none'}`);
       if (failedSession) {
         useAskUserQuestionStore.getState().clearRequestsForSession(failedSession);
         useInteractionStore.getState().clearSession(failedSession);
@@ -259,7 +316,10 @@ export function handleServerMessage(
           false
         );
         if (backendId) useSessionsStore.getState().setSessionActiveById(backendId, failedSession, false);
+        void eagerSyncCurrentSession(serverId);
+        void recoverCurrentSessionTail(serverId, failedSession);
       }
+      recordTerminalRun(msg.runId, msg.seq);
       useChatStore.getState().endRun(msg.runId);
       serverRunsRef.get(serverId)?.delete(msg.runId);
       maxSeqByRun.delete(msg.runId);
@@ -268,6 +328,7 @@ export function handleServerMessage(
     }
 
     case 'tool_use': {
+      if (isRunEventGap(msg.runId, msg.seq)) recoverRunGap(ctx, msg.runId, msg.seq, msg.sessionId);
       if (isStaleRunEvent(msg.runId, msg.seq)) break;
       const toolSession = msg.sessionId || useChatStore.getState().activeRuns[msg.runId];
       if (toolSession) {
@@ -280,6 +341,7 @@ export function handleServerMessage(
     }
 
     case 'tool_result': {
+      if (isRunEventGap(msg.runId, msg.seq)) recoverRunGap(ctx, msg.runId, msg.seq, msg.sessionId);
       if (isStaleRunEvent(msg.runId, msg.seq)) break;
       const resultSession = msg.sessionId || useChatStore.getState().activeRuns[msg.runId];
       if (resultSession) {
@@ -291,6 +353,7 @@ export function handleServerMessage(
     }
 
     case 'tool_activity': {
+      if (isRunEventGap(msg.runId, msg.seq)) recoverRunGap(ctx, msg.runId, msg.seq, msg.sessionId);
       if (isStaleRunEvent(msg.runId, msg.seq)) break;
       if (msg.runId && msg.toolUseId && msg.content) {
         useChatStore.getState().updateToolCallActivity(msg.runId, msg.toolUseId, msg.content);
@@ -299,6 +362,7 @@ export function handleServerMessage(
     }
 
     case 'mode_change':
+      if (isRunEventGap(msg.runId, msg.seq)) recoverRunGap(ctx, msg.runId, msg.seq, msg.sessionId);
       if (isStaleRunEvent(msg.runId, msg.seq)) break;
       useChatStore.getState().setMode(msg.sessionId, msg.mode);
       break;
@@ -710,6 +774,7 @@ export function handleServerMessage(
       const heartbeat = msg as StateHeartbeatMessage;
       const backendName = ctx.resolveBackendName();
       const chatState = useChatStore.getState();
+      clearExpiredTerminalRuns();
 
       const serverActiveRunIds = new Set(heartbeat.activeRuns.map(r => r.runId));
       const activeBackgroundSessionIds = new Set(
@@ -721,7 +786,12 @@ export function handleServerMessage(
       // Add missing runs (server has active run, client doesn't know about it)
       for (const run of heartbeat.activeRuns) {
         if (!chatState.activeRuns[run.runId]) {
+          if (shouldIgnoreHeartbeatRun(run.runId, run.lastSeq)) {
+            console.log(`[${logTag}] Ignoring stale heartbeat resurrection for run ${run.runId} lastSeq=${run.lastSeq ?? 'none'}`);
+            continue;
+          }
           const isBackground = run.sessionType === 'background';
+          console.log(`[${logTag}] Heartbeat resurrecting run ${run.runId} sessionId=${run.sessionId} lastSeq=${run.lastSeq ?? 'none'}`);
           chatState.startRun(run.runId, run.sessionId, isBackground);
           if (!isBackground) {
             // Only track foreground runs in serverRunsRef for heartbeat cleanup
@@ -749,6 +819,8 @@ export function handleServerMessage(
                 sessionId,
                 false
               );
+              void eagerSyncCurrentSession(serverId);
+              void recoverCurrentSessionTail(serverId, sessionId);
             }
             trackedRuns.delete(runId);
           }

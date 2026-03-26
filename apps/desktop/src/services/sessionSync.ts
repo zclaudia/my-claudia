@@ -323,6 +323,54 @@ export async function eagerSyncCurrentSession(_backendId: string): Promise<void>
 }
 
 /**
+ * Reload the latest window of the currently viewed session and merge it into the
+ * chat cache. This recovers partial assistant bodies and middle gaps inside the
+ * latest message window, which plain afterOffset sync cannot repair.
+ *
+ * Deduplication: if the same session already has a pending recovery request,
+ * the call is coalesced — only one HTTP request is in-flight per session at a time,
+ * and at most one trailing request is queued.
+ */
+const pendingRecovery = new Map<string, Promise<void>>();
+const trailingRecovery = new Set<string>();
+
+export async function recoverCurrentSessionTail(targetServerId: string, sessionId?: string): Promise<void> {
+  const currentSessionId = useProjectStore.getState().selectedSessionId;
+  const activeServerId = useServerStore.getState().activeServerId;
+  const targetSessionId = sessionId ?? currentSessionId;
+
+  if (!targetSessionId || currentSessionId !== targetSessionId) return;
+  if (!activeServerId || activeServerId !== targetServerId) return;
+
+  const key = `${targetServerId}:${targetSessionId}`;
+
+  // Already in-flight: mark trailing so we re-run once after the current finishes
+  if (pendingRecovery.has(key)) {
+    trailingRecovery.add(key);
+    return;
+  }
+
+  const run = async () => {
+    try {
+      const result = await api.getSessionMessages(targetSessionId, { limit: 100 });
+      useChatStore.getState().mergeMessages(targetSessionId, result.messages, result.pagination);
+      console.log(`[SessionSync] Recovered tail snapshot for session ${targetSessionId}: ${result.messages.length} messages`);
+    } catch (error) {
+      console.error('[SessionSync] Failed to recover current session tail:', error);
+    } finally {
+      pendingRecovery.delete(key);
+      // If trailing requests accumulated, run exactly one more
+      if (trailingRecovery.delete(key)) {
+        void recoverCurrentSessionTail(targetServerId, targetSessionId);
+      }
+    }
+  };
+
+  const promise = run();
+  pendingRecovery.set(key, promise);
+}
+
+/**
  * Trigger immediate gap-fill for a pushed session snapshot.
  * Used by WebSocket session events so cross-device messages appear without waiting
  * for the 30s incremental sync cycle or a manual session switch.

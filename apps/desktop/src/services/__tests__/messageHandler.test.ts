@@ -93,6 +93,8 @@ const mockInteractionStore = {
   resolveInteraction: vi.fn(),
   clearSession: vi.fn(),
 };
+const mockEagerSyncCurrentSession = vi.fn(() => Promise.resolve());
+const mockRecoverCurrentSessionTail = vi.fn(() => Promise.resolve());
 
 vi.mock('../../stores/chatStore', () => ({
   useChatStore: { getState: () => mockChatStore },
@@ -145,6 +147,10 @@ vi.mock('../../stores/interactionStore', () => ({
 }));
 vi.mock('../fileDownload', () => ({
   downloadPushedFile: vi.fn(),
+}));
+vi.mock('../sessionSync', () => ({
+  eagerSyncCurrentSession: (...args: any[]) => mockEagerSyncCurrentSession(...args),
+  recoverCurrentSessionTail: (...args: any[]) => mockRecoverCurrentSessionTail(...args),
 }));
 
 const mockXtermEntry = {
@@ -295,6 +301,8 @@ describe('handleServerMessage', () => {
       expect(mockChatStore.addSessionUsage).toHaveBeenCalledWith('s1', { tokens: 100 });
       expect(mockProjectStore.setSessionActive).toHaveBeenCalledWith('s1', false);
       expect(mockChatStore.endRun).toHaveBeenCalledWith('r1');
+      expect(mockEagerSyncCurrentSession).toHaveBeenCalledWith('server-1');
+      expect(mockRecoverCurrentSessionTail).toHaveBeenCalledWith('server-1', 's1');
       expect(ctx.serverRunsRef.get('server-1')?.has('r1')).toBe(false);
     });
 
@@ -324,6 +332,8 @@ describe('handleServerMessage', () => {
       expect(mockChatStore.appendToLastMessage).toHaveBeenCalledWith('s1', expect.stringContaining('boom'));
       expect(mockChatStore.finalizeRunToMessage).toHaveBeenCalledWith('r1');
       expect(mockChatStore.endRun).toHaveBeenCalledWith('r1');
+      expect(mockEagerSyncCurrentSession).toHaveBeenCalledWith('server-1');
+      expect(mockRecoverCurrentSessionTail).toHaveBeenCalledWith('server-1', 's1');
       errSpy.mockRestore();
     });
   });
@@ -637,9 +647,9 @@ describe('handleServerMessage', () => {
 
     it('adds missing runs from heartbeat', () => {
       handleServerMessage(makeHeartbeat({
-        activeRuns: [{ runId: 'r1', sessionId: 's1', sessionType: 'foreground' }],
+        activeRuns: [{ runId: 'hb-1', sessionId: 's1', sessionType: 'foreground' }],
       }), makeCtx());
-      expect(mockChatStore.startRun).toHaveBeenCalledWith('r1', 's1', false);
+      expect(mockChatStore.startRun).toHaveBeenCalledWith('hb-1', 's1', false);
     });
 
     it('skips already known runs', () => {
@@ -661,7 +671,28 @@ describe('handleServerMessage', () => {
       expect(mockChatStore.finalizeRunToMessage).toHaveBeenCalledWith('r1');
       expect(mockChatStore.endRun).toHaveBeenCalledWith('r1');
       expect(mockProjectStore.setSessionActive).toHaveBeenCalledWith('s1', false);
+      expect(mockEagerSyncCurrentSession).toHaveBeenCalledWith('server-1');
+      expect(mockRecoverCurrentSessionTail).toHaveBeenCalledWith('server-1', 's1');
       logSpy.mockRestore();
+    });
+
+    it('ignores stale heartbeat resurrection after terminal run event', () => {
+      const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+      handleServerMessage({ type: 'run_completed', runId: 'r1', sessionId: 's1', seq: 10 }, makeCtx());
+      handleServerMessage(makeHeartbeat({
+        activeRuns: [{ runId: 'r1', sessionId: 's1', sessionType: 'foreground', lastSeq: 9 }],
+      }), makeCtx());
+
+      expect(mockChatStore.startRun).not.toHaveBeenCalled();
+      logSpy.mockRestore();
+    });
+
+    it('triggers tail recovery when run event seq has a gap', () => {
+      handleServerMessage({ type: 'delta', runId: 'gap-run', sessionId: 's1', seq: 1, content: 'a' }, makeCtx());
+      handleServerMessage({ type: 'delta', runId: 'gap-run', sessionId: 's1', seq: 3, content: 'c' }, makeCtx());
+
+      expect(mockRecoverCurrentSessionTail).toHaveBeenCalledWith('server-1', 's1');
     });
 
     it('updates run health info', () => {
@@ -699,14 +730,14 @@ describe('handleServerMessage', () => {
 
     it('gateway: reconciles active sessions', () => {
       handleServerMessage(makeHeartbeat({
-        activeRuns: [{ runId: 'r1', sessionId: 's1', sessionType: 'foreground' }],
+        activeRuns: [{ runId: 'hb-2', sessionId: 's1', sessionType: 'foreground' }],
       }), makeCtx({ backendId: 'b1' }));
       expect(mockSessionsStore.reconcileActiveStatus).toHaveBeenCalled();
     });
 
     it('direct: sets active sessions for local backend', () => {
       handleServerMessage(makeHeartbeat({
-        activeRuns: [{ runId: 'r1', sessionId: 's1' }],
+        activeRuns: [{ runId: 'hb-3', sessionId: 's1' }],
       }), makeCtx());
       expect(mockSessionsStore.setActiveSessionsForBackend).toHaveBeenCalled();
     });

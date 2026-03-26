@@ -7,15 +7,17 @@
  */
 
 import { useEffect, useRef, useCallback } from 'react';
-import type { ClientMessage, ServerMessage } from '@my-claudia/shared';
+import type { ClientMessage, ServerMessage, SessionMessage } from '@my-claudia/shared';
 import { useGatewayStore } from '../stores/gatewayStore';
 import { useServerStore } from '../stores/serverStore';
 import { GatewayTransport } from './transport/GatewayTransport';
 import { toGatewayServerId, isGatewayTarget, parseBackendId } from '../stores/gatewayStore';
 import { useSessionsStore } from '../stores/sessionsStore';
+import { useProjectStore } from '../stores/projectStore';
+import { useChatStore } from '../stores/chatStore';
 import { handleServerMessage } from '../services/messageHandler';
 import { getServerGatewayStatus } from '../services/api';
-import { stopSessionSync } from '../services/sessionSync';
+import { startSessionSync, stopSessionSync } from '../services/sessionSync';
 
 const RECONNECT_INTERVAL = 3000;
 const MAX_RECONNECT_ATTEMPTS = 30;
@@ -26,6 +28,7 @@ export function useGatewayConnection() {
   const reconnectTimeoutRef = useRef<number | null>(null);
   // Track which runs belong to which backend server (for heartbeat reconciliation)
   const serverRunsRef = useRef<Map<string, Set<string>>>(new Map());
+  const activeStreamRef = useRef<{ backendId: string; channelId: string; sessionId: string } | null>(null);
 
   // Gateway store
   const {
@@ -47,6 +50,94 @@ export function useGatewayConnection() {
     setServerFeatures,
     updateLastConnected
   } = useServerStore();
+  const selectedSessionId = useProjectStore((state) => state.selectedSessionId);
+
+  const clearActiveSessionStreamRef = useCallback(() => {
+    activeStreamRef.current = null;
+  }, []);
+
+  const closeActiveSessionStream = useCallback(() => {
+    const current = activeStreamRef.current;
+    const transport = transportRef.current;
+    if (current && transport?.isConnected()) {
+      transport.closeSessionStream(current.channelId, current.sessionId);
+    }
+    activeStreamRef.current = null;
+  }, []);
+
+  const ensureActiveSessionStream = useCallback(() => {
+    if (!selectedSessionId || !activeServerId || !isGatewayTarget(activeServerId)) return;
+    const transport = transportRef.current;
+    if (!transport?.isConnected()) return;
+
+    const backendId = parseBackendId(activeServerId);
+    const channelId = transport.getChannelId(backendId);
+    if (!channelId) return;
+
+    const current = activeStreamRef.current;
+    const needsReopen = !current
+      || current.backendId !== backendId
+      || current.channelId !== channelId
+      || current.sessionId !== selectedSessionId;
+
+    if (current && needsReopen) {
+      transport.closeSessionStream(current.channelId, current.sessionId);
+    }
+
+    if (needsReopen) {
+      console.log(`[GatewayConn] Opening session stream ${selectedSessionId} on ${backendId}`);
+      transport.openSessionStream(channelId, selectedSessionId);
+      activeStreamRef.current = { backendId, channelId, sessionId: selectedSessionId };
+    }
+
+    const afterOffset = useChatStore.getState().pagination[selectedSessionId]?.maxOffset ?? 0;
+    console.log(`[GatewayConn] Catch-up request ${selectedSessionId} afterOffset=${afterOffset} on ${backendId}`);
+    transport.catchUpContent(channelId, selectedSessionId, afterOffset);
+  }, [activeServerId, selectedSessionId]);
+
+  const stopGatewaySessionSync = useCallback((backendId?: string) => {
+    if (backendId) {
+      stopSessionSync(toGatewayServerId(backendId));
+      return;
+    }
+
+    const backendIds = new Set<string>();
+    for (const backend of useGatewayStore.getState().discoveredBackends) {
+      backendIds.add(backend.backendId);
+    }
+
+    const registryItems = transportRef.current?.getRegistryItems();
+    if (registryItems) {
+      for (const backendId of registryItems.keys()) {
+        backendIds.add(backendId);
+      }
+    }
+
+    for (const currentBackendId of backendIds) {
+      stopSessionSync(toGatewayServerId(currentBackendId));
+    }
+  }, []);
+
+  const markGatewayBackendsDisconnected = useCallback(() => {
+    const backendIds = new Set<string>();
+    for (const backend of useGatewayStore.getState().discoveredBackends) {
+      backendIds.add(backend.backendId);
+    }
+
+    const registryItems = transportRef.current?.getRegistryItems();
+    if (registryItems) {
+      for (const backendId of registryItems.keys()) {
+        backendIds.add(backendId);
+      }
+    }
+
+    for (const backendId of backendIds) {
+      const serverId = toGatewayServerId(backendId);
+      setServerConnectionStatus(serverId, 'disconnected');
+      setServerFeatures(serverId, []);
+      setBackendAuthStatus(backendId, 'failed');
+    }
+  }, [setBackendAuthStatus, setServerConnectionStatus, setServerFeatures]);
 
   // Poll server gateway status and sync to store
   // Skip when direct config is active (mobile mode — no local server to poll)
@@ -174,6 +265,9 @@ export function useGatewayConnection() {
       onDisconnected: () => {
         console.log('[GatewayConn] Gateway V2 disconnected');
         setConnected(false);
+        clearActiveSessionStreamRef();
+        stopGatewaySessionSync();
+        markGatewayBackendsDisconnected();
         scheduleReconnect();
       },
 
@@ -211,7 +305,12 @@ export function useGatewayConnection() {
 
       onCatalogEvent: (backendId, _epoch, op, item, sessionId) => {
         if (op === 'upsert' && item) {
-          useSessionsStore.getState().handleSessionEvent(backendId, 'updated', {
+          const sessionStore = useSessionsStore.getState();
+          const existingSessions = sessionStore.remoteSessions.get(backendId) || [];
+          const eventType = existingSessions.some(session => session.id === item.sessionId)
+            ? 'updated'
+            : 'created';
+          sessionStore.handleSessionEvent(backendId, eventType, {
             id: item.sessionId,
             projectId: '',
             name: item.title || '',
@@ -233,6 +332,10 @@ export function useGatewayConnection() {
       },
 
       onCatalogReset: (backendId, _epoch) => {
+        if (activeStreamRef.current?.backendId === backendId) {
+          clearActiveSessionStreamRef();
+        }
+        stopGatewaySessionSync(backendId);
         useSessionsStore.getState().clearBackendSessions(backendId);
       },
 
@@ -245,6 +348,8 @@ export function useGatewayConnection() {
         setBackendAuthStatus(backendId, 'authenticated');
         reconnectAttemptRef.current = 0;
         updateLastConnected(serverId);
+        startSessionSync(serverId);
+        ensureActiveSessionStream();
       },
 
       onChannelRejected: (backendId, reason) => {
@@ -252,13 +357,22 @@ export function useGatewayConnection() {
         setServerConnectionStatus(serverId, 'error', reason);
         setServerFeatures(serverId, []);
         setBackendAuthStatus(backendId, 'failed');
+        if (activeStreamRef.current?.backendId === backendId) {
+          clearActiveSessionStreamRef();
+        }
+        stopGatewaySessionSync(backendId);
       },
 
-      onChannelClosed: (_channelId, backendId, _reason) => {
+      onChannelClosed: (channelId, backendId, reason) => {
         const serverId = toGatewayServerId(backendId);
         setServerConnectionStatus(serverId, 'disconnected');
         setServerFeatures(serverId, []);
         setBackendAuthStatus(backendId, 'failed');
+        if (activeStreamRef.current?.channelId === channelId) {
+          console.log(`[GatewayConn] Session stream dropped with channel ${channelId}: ${reason}`);
+          clearActiveSessionStreamRef();
+        }
+        stopGatewaySessionSync(backendId);
       },
 
       onChannelMessage: (backendId, message) => {
@@ -296,11 +410,21 @@ export function useGatewayConnection() {
 
       onSessionStreamClosed: (_channelId, _sessionId, reason) => {
         console.log(`[GatewayConn] Session stream closed: ${reason}`);
+        clearActiveSessionStreamRef();
       },
 
-      onContentPatch: (_channelId, _sessionId, _messages, _latestOffset) => {
-        // TODO: integrate with session content cache
-        console.log(`[GatewayConn] Content patch received`);
+      onContentPatch: (_channelId, sessionId, messages, latestOffset) => {
+        const restoredMessages = messages.map((message: SessionMessage) => ({
+          id: message.messageId,
+          sessionId: message.sessionId,
+          role: message.role,
+          createdAt: message.createdAt,
+          content: typeof message.content === 'string'
+            ? message.content
+            : JSON.stringify(message.content),
+        }));
+        console.log(`[GatewayConn] Content patch received: session=${sessionId}, count=${restoredMessages.length}, latestOffset=${latestOffset}`);
+        useChatStore.getState().appendMessages(sessionId, restoredMessages, { maxOffset: latestOffset });
       },
     });
 
@@ -315,6 +439,10 @@ export function useGatewayConnection() {
     setServerLocalConnection,
     setServerFeatures,
     handleBackendMessage,
+    ensureActiveSessionStream,
+    clearActiveSessionStreamRef,
+    markGatewayBackendsDisconnected,
+    stopGatewaySessionSync,
     updateLastConnected,
   ]);
 
@@ -324,7 +452,7 @@ export function useGatewayConnection() {
   const scheduleReconnect = useCallback(() => {
     if (reconnectAttemptRef.current >= MAX_RECONNECT_ATTEMPTS) {
       console.log('[GatewayConn] Max reconnect attempts reached, clearing stale sessions');
-      stopSessionSync();
+      stopGatewaySessionSync();
       useSessionsStore.getState().clearAllSessions();
       return;
     }
@@ -342,7 +470,7 @@ export function useGatewayConnection() {
         transport.connect();
       }
     }, RECONNECT_INTERVAL);
-  }, []);
+  }, [stopGatewaySessionSync]);
 
   // Reconnect immediately when app returns to foreground (mobile background/foreground)
   useEffect(() => {
@@ -371,11 +499,14 @@ export function useGatewayConnection() {
         transportRef.current.disconnect();
         transportRef.current = null;
       }
+      clearActiveSessionStreamRef();
       if (reconnectTimeoutRef.current) {
         clearTimeout(reconnectTimeoutRef.current);
         reconnectTimeoutRef.current = null;
       }
       setConnected(false);
+      stopGatewaySessionSync();
+      markGatewayBackendsDisconnected();
       return;
     }
 
@@ -392,12 +523,14 @@ export function useGatewayConnection() {
         transportRef.current.disconnect();
         transportRef.current = null;
       }
+      clearActiveSessionStreamRef();
       if (reconnectTimeoutRef.current) {
         clearTimeout(reconnectTimeoutRef.current);
         reconnectTimeoutRef.current = null;
       }
+      stopGatewaySessionSync();
     };
-  }, [gatewayUrl, gatewaySecret, createTransport, setConnected]);
+  }, [gatewayUrl, gatewaySecret, clearActiveSessionStreamRef, createTransport, markGatewayBackendsDisconnected, setConnected, stopGatewaySessionSync]);
 
   // V2: Auto-open channel + subscribe catalog when active server changes to a gateway target
   useEffect(() => {
@@ -446,6 +579,15 @@ export function useGatewayConnection() {
     }
   }, [localBackendId]);
 
+  useEffect(() => {
+    if (!selectedSessionId || !activeServerId || !isGatewayTarget(activeServerId)) {
+      closeActiveSessionStream();
+      return;
+    }
+
+    ensureActiveSessionStream();
+  }, [activeServerId, closeActiveSessionStream, ensureActiveSessionStream, selectedSessionId]);
+
   // V2: No heartbeat polling needed — registry is push-based
 
   // Public API (v2)
@@ -486,12 +628,15 @@ export function useGatewayConnection() {
       transportRef.current.disconnect();
       transportRef.current = null;
     }
+    clearActiveSessionStreamRef();
     if (reconnectTimeoutRef.current) {
       clearTimeout(reconnectTimeoutRef.current);
       reconnectTimeoutRef.current = null;
     }
     setConnected(false);
-  }, [setConnected]);
+    stopGatewaySessionSync();
+    markGatewayBackendsDisconnected();
+  }, [clearActiveSessionStreamRef, markGatewayBackendsDisconnected, setConnected, stopGatewaySessionSync]);
 
   return {
     openChannel,

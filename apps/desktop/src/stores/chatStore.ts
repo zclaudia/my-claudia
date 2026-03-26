@@ -79,6 +79,7 @@ interface ChatState {
   setMessages: (sessionId: string, messages: MessageWithToolCalls[], pagination?: Omit<PaginationInfo, 'isLoadingMore'>) => void;
   prependMessages: (sessionId: string, messages: MessageWithToolCalls[], pagination?: Omit<PaginationInfo, 'isLoadingMore'>) => void;
   appendMessages: (sessionId: string, messages: MessageWithToolCalls[], pagination?: Omit<PaginationInfo, 'isLoadingMore'>) => void;
+  mergeMessages: (sessionId: string, messages: MessageWithToolCalls[], pagination?: Omit<PaginationInfo, 'isLoadingMore'>) => void;
   addMessage: (sessionId: string, message: MessageWithToolCalls) => void;
   updateMessageIdByClientMessageId: (sessionId: string, clientMessageId: string, newId: string) => void;
   appendToLastMessage: (sessionId: string, content: string) => void;
@@ -222,6 +223,50 @@ export const useChatStore = create<ChatState>((set, get) => ({
             isLoadingMore: false,
           },
         },
+      };
+    }),
+
+  mergeMessages: (sessionId, incomingMessages, pagination) =>
+    set((state) => {
+      const existingMessages = state.messages[sessionId] || [];
+      const byId = new Map(existingMessages.map((message) => [message.id, message]));
+      let changed = false;
+
+      for (const incoming of incomingMessages) {
+        const existing = byId.get(incoming.id);
+        if (!existing) {
+          byId.set(incoming.id, incoming);
+          changed = true;
+          continue;
+        }
+
+        const merged = { ...existing, ...incoming };
+        if (JSON.stringify(existing) !== JSON.stringify(merged)) {
+          byId.set(incoming.id, merged);
+          changed = true;
+        }
+      }
+
+      const existingPagination = state.pagination[sessionId] || DEFAULT_PAGINATION;
+      const nextPagination = pagination
+        ? {
+          ...existingPagination,
+          ...pagination,
+          maxOffset: pagination.maxOffset != null
+            ? Math.max(pagination.maxOffset, existingPagination.maxOffset ?? 0)
+            : existingPagination.maxOffset,
+          isLoadingMore: false,
+        }
+        : existingPagination;
+
+      if (!changed && nextPagination === existingPagination) return state;
+
+      const mergedMessages = Array.from(byId.values())
+        .sort((a, b) => a.createdAt - b.createdAt);
+
+      return {
+        messages: { ...state.messages, [sessionId]: mergedMessages },
+        pagination: { ...state.pagination, [sessionId]: nextPagination },
       };
     }),
 

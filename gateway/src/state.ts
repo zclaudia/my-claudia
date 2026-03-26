@@ -31,6 +31,7 @@ export interface PeerSession {
   instanceId: string;
   channel: string;
   name: string;
+  recoveryToken: string;
   isAlive: boolean;
 
   /** If peerType === 'client+backend', the registered backend info. */
@@ -195,11 +196,6 @@ export class GatewayState {
       this.removeChannel(channelId);
     }
 
-    // Clean up backend lease if this peer was a backend
-    if (peer.backendId) {
-      this.removeBackend(peer.backendId);
-    }
-
     this.wsToPeer.delete(peer.ws);
     this.peers.delete(peerSessionId);
     return peer;
@@ -298,6 +294,18 @@ export class GatewayState {
       eventLog: [],
       subscribers,
     });
+  }
+
+  /** Reset catalog contents while preserving subscribers across epoch changes. */
+  resetCatalog(backendId: BackendId, epoch: Epoch): BackendCatalogState | null {
+    const existing = this.catalogs.get(backendId);
+    if (!existing) return null;
+
+    existing.epoch = epoch;
+    existing.revision = 0;
+    existing.items.clear();
+    existing.eventLog.length = 0;
+    return existing;
   }
 
   /** Apply a catalog upsert event. Returns the catalog state or null if backend not found. */

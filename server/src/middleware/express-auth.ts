@@ -1,13 +1,12 @@
 import type { Request, Response, NextFunction } from 'express';
-import { safeCompare } from '../auth.js';
 import { isLocalhost } from './local-only.js';
 
 /**
  * Create Express authentication middleware for REST API.
- * Local requests are always allowed. Remote requests require gateway secret.
+ * Local requests are always allowed. Remote requests require a known clientId.
  */
 export function createExpressAuthMiddleware(
-  getGatewaySecret: () => string | null,
+  isValidClientId: (token: string) => boolean,
 ): (req: Request, res: Response, next: NextFunction) => void {
   return (req: Request, res: Response, next: NextFunction): void => {
     // Local connections are always trusted
@@ -16,14 +15,11 @@ export function createExpressAuthMiddleware(
       return;
     }
 
-    // Remote connections: require gateway secret as Bearer token
+    // Remote connections: require a known clientId as Bearer token
     const authHeader = req.headers.authorization;
-    const gatewaySecret = getGatewaySecret();
-    if (authHeader?.startsWith('Bearer ') && gatewaySecret) {
+    if (authHeader?.startsWith('Bearer ')) {
       const token = authHeader.slice(7);
-      // Support both plain gatewaySecret and legacy gatewaySecret:apiKey format
-      const secretPart = token.includes(':') ? token.split(':')[0] : token;
-      if (safeCompare(secretPart, gatewaySecret)) {
+      if (isValidClientId(token)) {
         next();
         return;
       }
