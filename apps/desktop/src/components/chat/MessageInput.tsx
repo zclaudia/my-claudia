@@ -195,12 +195,15 @@ export function MessageInput({
     };
   }, [getAvailableViewportHeight]);
 
-  // Filter commands based on input
-  const filteredCommands = value.startsWith('/')
-    ? commands.filter((cmd) =>
-        cmd.command.toLowerCase().startsWith(value.toLowerCase())
-      )
-    : [];
+  // Filter commands based on input (memoized to avoid O(n) filter on every render)
+  const filteredCommands = useMemo(
+    () => value.startsWith('/')
+      ? commands.filter((cmd) =>
+          cmd.command.toLowerCase().startsWith(value.toLowerCase())
+        )
+      : [],
+    [value, commands]
+  );
 
   // Detect @ mention in text
   const detectMention = useCallback((text: string, cursorPos: number): { triggerIndex: number; query: string } | null => {

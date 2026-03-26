@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import type { Message, SystemInfo, UsageInfo, ContentBlock, RunHealthStatus, AgentPermissionPolicy } from '@my-claudia/shared';
 
-interface PaginationInfo {
+export interface PaginationInfo {
   total: number;
   hasMore: boolean;
   oldestTimestamp?: number;

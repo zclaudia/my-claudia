@@ -787,6 +787,30 @@ describe('codex-sdk', () => {
       expect(assistantMsgs.map((m: any) => m.content).join('')).toBe('Hello world!');
     });
 
+    it('item.started + incremental item.updated (delta text, not accumulated)', async () => {
+      const { runCodex } = await import('../codex-sdk');
+      const mockEvents = {
+        [Symbol.asyncIterator]: async function* () {
+          // Codex CLI may send short delta text in item.updated instead of accumulated
+          yield { type: 'item.started', item: { id: 'msg-2', type: 'agent_message', text: '' } };
+          yield { type: 'item.updated', item: { id: 'msg-2', type: 'agent_message', text: 'Hi' } };
+          yield { type: 'item.updated', item: { id: 'msg-2', type: 'agent_message', text: ' there' } };
+          yield { type: 'item.completed', item: { id: 'msg-2', type: 'agent_message', text: 'Hi there' } };
+          yield { type: 'turn.completed', usage: { input_tokens: 10, output_tokens: 5 } };
+        },
+      };
+      mockRunStreamed.mockResolvedValue({ events: mockEvents });
+      const gen = runCodex('test', { cwd: '/test' }, vi.fn());
+      const msgs: any[] = [];
+      for await (const m of gen) msgs.push(m);
+
+      // started: "" (empty), updated: "Hi" (delta), updated: " there" (delta), completed: remaining delta
+      const assistantMsgs = msgs.filter((m: any) => m.type === 'assistant');
+      // All deltas should be passed through; concatenated equals the full text
+      const fullText = assistantMsgs.map((m: any) => m.content).join('');
+      expect(fullText).toBe('Hi there');
+    });
+
     it('ignores unknown item types in item.started', async () => {
       const { runCodex } = await import('../codex-sdk');
       const mockEvents = {

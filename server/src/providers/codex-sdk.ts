@@ -497,23 +497,41 @@ export async function* runCodex(
 
 // ── Event mapping ────────────────────────────────────────────
 
-// Track emitted text length per item to compute true deltas.
-// Codex SDK's item.updated/item.completed carry the full accumulated text,
-// but run-handler expects incremental deltas.  Without this, every update
-// re-sends the entire text causing O(n²) growth on server, WebSocket, and client.
-const itemEmittedLength = new Map<string, number>();
+// Track emitted text per item to deduplicate item.completed re-emission.
+// Codex CLI may send `item.text` as either accumulated text or incremental delta
+// depending on the event type and CLI version.  We detect which mode by checking
+// whether the new text starts with what we've already emitted (accumulated) or not
+// (incremental delta).
+const itemEmittedText = new Map<string, string>();
 
 function getItemId(item: ThreadItem): string {
   return (item as { id?: string }).id || `__anon_${item.type}`;
 }
 
-/** Compute the delta portion of `fullText` that hasn't been emitted yet for `itemId`. */
-function computeTextDelta(itemId: string, fullText: string): string {
-  const prev = itemEmittedLength.get(itemId) || 0;
-  if (fullText.length <= prev) return '';
-  const delta = fullText.slice(prev);
-  itemEmittedLength.set(itemId, fullText.length);
-  return delta;
+/**
+ * Extracts the portion of `text` that hasn't been emitted yet.
+ * Auto-detects accumulated vs incremental text:
+ *   - If text starts with previously emitted content → accumulated snapshot; return the new suffix
+ *   - Otherwise → incremental delta; pass through as-is
+ */
+function computeTextDelta(itemId: string, text: string): string {
+  if (!text) return '';
+  const prev = itemEmittedText.get(itemId) || '';
+
+  if (text.startsWith(prev)) {
+    // Text begins with what we already emitted — accumulated snapshot
+    if (text.length > prev.length) {
+      const delta = text.slice(prev.length);
+      itemEmittedText.set(itemId, text);
+      return delta;
+    }
+    // Same as before (e.g. item.completed echoing final text) — nothing new
+    return '';
+  }
+
+  // Text doesn't start with previous — it's an incremental delta; pass through
+  itemEmittedText.set(itemId, prev + text);
+  return text;
 }
 
 function mapThreadEvent(event: ThreadEvent, sessionId?: string, initSystemInfo?: SystemInfo): ClaudeMessage[] {
@@ -543,10 +561,9 @@ function mapThreadEvent(event: ThreadEvent, sessionId?: string, initSystemInfo?:
 
     case 'item.started': {
       const itemId = getItemId(event.item);
-      // Record initial text length so subsequent updates only emit the delta.
+      // Record initial text so subsequent updates can detect accumulated vs delta.
       if (event.item.type === 'agent_message' || event.item.type === 'reasoning') {
-        const text = event.item.text || '';
-        itemEmittedLength.set(itemId, text.length);
+        itemEmittedText.set(itemId, event.item.text || '');
       }
       const msg = mapItemStarted(event.item);
       if (msg) messages.push(msg);
@@ -579,13 +596,13 @@ function mapThreadEvent(event: ThreadEvent, sessionId?: string, initSystemInfo?:
         if (delta) {
           messages.push({ type: 'assistant', content: delta });
         }
-        itemEmittedLength.delete(itemId);
+        itemEmittedText.delete(itemId);
       } else if (event.item.type === 'reasoning') {
         const delta = computeTextDelta(itemId, event.item.text);
         if (delta) {
           messages.push({ type: 'assistant', content: `<think>${delta}</think>` });
         }
-        itemEmittedLength.delete(itemId);
+        itemEmittedText.delete(itemId);
       } else {
         const msg = mapItemCompleted(event.item);
         if (msg) messages.push(msg);
@@ -595,7 +612,7 @@ function mapThreadEvent(event: ThreadEvent, sessionId?: string, initSystemInfo?:
 
     case 'turn.completed': {
       // Clean up all tracking state for this turn
-      itemEmittedLength.clear();
+      itemEmittedText.clear();
       const usage = event.usage;
       messages.push({
         type: 'result',
@@ -609,7 +626,7 @@ function mapThreadEvent(event: ThreadEvent, sessionId?: string, initSystemInfo?:
     }
 
     case 'turn.failed':
-      itemEmittedLength.clear();
+      itemEmittedText.clear();
       messages.push({ type: 'error', error: `Turn failed: ${event.error.message}` });
       break;
 

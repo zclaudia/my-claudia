@@ -85,11 +85,13 @@ export function ChatInputArea({
   onCancelRun,
   onCommand,
 }: ChatInputAreaProps) {
-  const { setDrawerOpen, drawerOpen } = useTerminalStore();
-  const { activeTab: bottomPanelTab, setActiveTab: setBottomPanelTab } = useBottomPanelStore();
+  const setDrawerOpen = useTerminalStore((s) => s.setDrawerOpen);
+  const drawerOpen = useTerminalStore((s) => s.drawerOpen);
+  const bottomPanelTab = useBottomPanelStore((s) => s.activeTab);
+  const setBottomPanelTab = useBottomPanelStore((s) => s.setActiveTab);
   const disabledBuiltinPanels = usePluginStore((s) => s.disabledBuiltinPanels);
-  const { isOpen: fileViewerOpen } = useFileViewerStore();
-  const { setAdvancedInput } = useUIStore();
+  const fileViewerOpen = useFileViewerStore((s) => s.isOpen);
+  const setAdvancedInput = useUIStore((s) => s.setAdvancedInput);
   const openDraftEditor = useDraftEditorStore((s) => s.openEditor);
   const setSendCallback = useDraftEditorStore((s) => s.setSendCallback);
   // Mobile toolbar popover state
