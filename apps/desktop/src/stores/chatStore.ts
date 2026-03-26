@@ -76,10 +76,10 @@ interface ChatState {
   drafts: Record<string, string>;
 
   // Actions — Messages
-  setMessages: (sessionId: string, messages: MessageWithToolCalls[], pagination?: Omit<PaginationInfo, 'isLoadingMore'>) => void;
-  prependMessages: (sessionId: string, messages: MessageWithToolCalls[], pagination?: Omit<PaginationInfo, 'isLoadingMore'>) => void;
-  appendMessages: (sessionId: string, messages: MessageWithToolCalls[], pagination?: Omit<PaginationInfo, 'isLoadingMore'>) => void;
-  mergeMessages: (sessionId: string, messages: MessageWithToolCalls[], pagination?: Omit<PaginationInfo, 'isLoadingMore'>) => void;
+  setMessages: (sessionId: string, messages: MessageWithToolCalls[], pagination?: Partial<Omit<PaginationInfo, 'isLoadingMore'>>) => void;
+  prependMessages: (sessionId: string, messages: MessageWithToolCalls[], pagination?: Partial<Omit<PaginationInfo, 'isLoadingMore'>>) => void;
+  appendMessages: (sessionId: string, messages: MessageWithToolCalls[], pagination?: Partial<Omit<PaginationInfo, 'isLoadingMore'>>) => void;
+  mergeMessages: (sessionId: string, messages: MessageWithToolCalls[], pagination?: Partial<Omit<PaginationInfo, 'isLoadingMore'>>) => void;
   addMessage: (sessionId: string, message: MessageWithToolCalls) => void;
   updateMessageIdByClientMessageId: (sessionId: string, clientMessageId: string, newId: string) => void;
   appendToLastMessage: (sessionId: string, content: string) => void;
@@ -177,7 +177,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     set((state) => ({
       messages: { ...state.messages, [sessionId]: messages },
       pagination: pagination
-        ? { ...state.pagination, [sessionId]: { ...pagination, isLoadingMore: false } }
+        ? { ...state.pagination, [sessionId]: { ...(state.pagination[sessionId] || DEFAULT_PAGINATION), ...pagination, isLoadingMore: false } }
         : state.pagination,
     })),
 
@@ -190,7 +190,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       return {
         messages: { ...state.messages, [sessionId]: combined },
         pagination: pagination
-          ? { ...state.pagination, [sessionId]: { ...pagination, isLoadingMore: false } }
+          ? { ...state.pagination, [sessionId]: { ...(state.pagination[sessionId] || DEFAULT_PAGINATION), ...pagination, isLoadingMore: false } }
           : state.pagination,
       };
     }),
