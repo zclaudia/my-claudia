@@ -1,9 +1,10 @@
 import { useState } from 'react';
-import { useServerStore, type ServerConnection } from '../stores/serverStore';
+import { useServerStore } from '../stores/serverStore';
 import { useGatewayStore, toGatewayServerId, shouldShowBackend } from '../stores/gatewayStore';
+import { useFacadeStore } from '../stores/facadeStore';
 import { useConnection } from '../contexts/ConnectionContext';
 import { useIsMobile } from '../hooks/useMediaQuery';
-import type { BackendServer, GatewayBackendInfo } from '@my-claudia/shared';
+import type { GatewayBackendInfo } from '@my-claudia/shared';
 
 function formatLatency(latencyMs?: number | null): string | null {
   if (latencyMs == null) return null;
@@ -12,7 +13,6 @@ function formatLatency(latencyMs?: number | null): string | null {
 
 export function ServerSelector() {
   const {
-    servers,
     activeServerId,
     connections,
     connectionStatus,
@@ -37,15 +37,10 @@ export function ServerSelector() {
 
   const [isOpen, setIsOpen] = useState(false);
 
-  const directServers = servers.filter(s => s.connectionMode !== 'gateway');
-  const activeServer = useServerStore.getState().getActiveServer();
+  const backends = useFacadeStore((s) => s.backends);
+  const activeBackend = backends.find(b => b.backendId === activeServerId);
   const isGatewayConfigured = !!gatewayUrl && !!gatewaySecret;
   const remoteBackends = discoveredBackends.filter(b => shouldShowBackend(b, currentInstanceId, showLocalBackend));
-
-  const handleServerSelect = (serverId: string) => {
-    setActiveServer(serverId);
-    setIsOpen(false);
-  };
 
   const handleBackendClick = (backend: GatewayBackendInfo) => {
     if (!backend.online) return;
@@ -95,7 +90,7 @@ export function ServerSelector() {
       >
         <span className={`w-2 h-2 rounded-full ${getStatusColor()}`} />
         <span className="text-sm truncate max-w-[150px]">
-          {activeServer?.name || (isMobile ? 'Select Server' : 'No Server')}
+          {activeBackend?.name || (isMobile ? 'Select Server' : 'No Server')}
         </span>
         <svg
           className={`w-4 h-4 transition-transform ${isOpen ? 'rotate-180' : ''}`}
@@ -118,23 +113,8 @@ export function ServerSelector() {
             </div>
           </div>
 
-          {/* Direct Servers — hidden on mobile */}
-          {!isMobile && (
-            <div className="max-h-40 overflow-y-auto">
-              {directServers.map((server) => (
-                <ServerItem
-                  key={server.id}
-                  server={server}
-                  isActive={server.id === activeServerId}
-                  connection={connections[server.id]}
-                  onSelect={() => handleServerSelect(server.id)}
-                />
-              ))}
-            </div>
-          )}
-
           {/* Gateway Section */}
-          <div className={isMobile ? '' : 'border-t border-border'}>
+          <div>
             <div className="px-3 py-1.5 text-xs font-medium text-muted-foreground uppercase tracking-wider bg-secondary/50 flex items-center justify-between">
               <span>{isMobile ? 'Servers' : 'Gateway'}</span>
               {isGatewayConfigured && (
@@ -272,65 +252,3 @@ function GatewayBackendItem({
   );
 }
 
-function ServerItem({
-  server,
-  isActive,
-  connection,
-  onSelect
-}: {
-  server: BackendServer;
-  isActive: boolean;
-  connection?: ServerConnection;
-  onSelect: () => void;
-}) {
-  const getConnectionStatusColor = () => {
-    switch (connection?.status) {
-      case 'connected':
-        return 'bg-success';
-      case 'connecting':
-        return 'bg-warning animate-pulse';
-      case 'error':
-        return 'bg-destructive';
-      default:
-        return 'bg-muted-foreground';
-    }
-  };
-
-  const isConnected = connection?.status === 'connected';
-  const isConnecting = connection?.status === 'connecting';
-
-  return (
-    <div
-      className={`px-3 py-2 hover:bg-muted cursor-pointer ${isActive ? 'bg-muted' : ''}`}
-      onClick={onSelect}
-    >
-      <div className="flex items-center gap-2">
-        <span className={`w-2 h-2 rounded-full flex-shrink-0 ${getConnectionStatusColor()}`} />
-        <span className="text-sm font-medium truncate flex-1 min-w-0">{server.name}</span>
-        {formatLatency(connection?.latencyMs) && (
-          <span className="text-[10px] text-muted-foreground flex-shrink-0">
-            {formatLatency(connection?.latencyMs)}
-          </span>
-        )}
-        {server.isDefault && (
-          <span className="px-1.5 py-0.5 bg-primary/20 text-primary text-xs rounded flex-shrink-0">
-            Default
-          </span>
-        )}
-        {isConnected && (
-          <span className="px-1.5 py-0.5 bg-success/20 text-success text-xs rounded flex-shrink-0">
-            Connected
-          </span>
-        )}
-        {isConnecting && (
-          <span className="px-1.5 py-0.5 bg-warning/20 text-warning text-xs rounded flex-shrink-0 animate-pulse">
-            Connecting
-          </span>
-        )}
-      </div>
-      <div className="text-xs text-muted-foreground truncate ml-4 mt-0.5">
-        {server.address}
-      </div>
-    </div>
-  );
-}

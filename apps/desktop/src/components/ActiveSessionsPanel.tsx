@@ -2,7 +2,7 @@ import { useMemo, useState, useEffect } from 'react';
 import { useSessionsStore, type RemoteSession, LOCAL_BACKEND_KEY } from '../stores/sessionsStore';
 import { useServerStore } from '../stores/serverStore';
 import { useProjectStore } from '../stores/projectStore';
-import { isGatewayTarget, parseBackendId, shouldShowBackend, toGatewayServerId, useGatewayStore } from '../stores/gatewayStore';
+import { isGatewayTarget, parseBackendId, shouldShowBackend, useGatewayStore } from '../stores/gatewayStore';
 
 interface ActiveSessionsPanelProps {
   onSessionSelect?: (backendId: string, sessionId: string) => void;
@@ -21,7 +21,7 @@ export function ActiveSessionsPanel({ onSessionSelect }: ActiveSessionsPanelProp
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [, forceUpdate] = useState(0);
   const { remoteSessions, activeSessionIdsByBackend, recentlyCompletedSessions, dismissRecentlyCompleted, clearAllRecentlyCompleted } = useSessionsStore();
-  const { activeServerId, servers, connections } = useServerStore();
+  const { activeServerId, connections } = useServerStore();
   const { sessions: localSessions, projects } = useProjectStore();
   const { localBackendId, discoveredBackends, currentInstanceId, showLocalBackend } = useGatewayStore();
   const hasDirectLocalConnection = (connections.local?.status === 'connected' || connections.local?.status === 'connecting');
@@ -151,8 +151,7 @@ export function ActiveSessionsPanel({ onSessionSelect }: ActiveSessionsPanelProp
       return 'Local Backend';
     }
     const discovered = discoveredBackends.find(b => b.backendId === backendId);
-    const server = servers.find(s => s.id === toGatewayServerId(backendId));
-    const baseName = discovered?.name || server?.name || `Backend ${backendId.slice(0, 8)}`;
+    const baseName = discovered?.name || `Backend ${backendId.slice(0, 8)}`;
     if (backendId === currentBackendId) {
       return `${baseName} (Current)`;
     }

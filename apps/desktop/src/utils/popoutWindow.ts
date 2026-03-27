@@ -3,6 +3,7 @@
  * Centralizes connection param gathering, URL building, and WebviewWindow creation.
  */
 import { useServerStore } from '../stores/serverStore';
+import { useFacadeStore } from '../stores/facadeStore';
 import { useGatewayStore, isGatewayTarget } from '../stores/gatewayStore';
 import { getBaseUrl, getAuthHeaders } from '../services/api/base';
 
@@ -23,8 +24,8 @@ export function getConnectionParams(): ConnectionParams {
 
   const serverState = useServerStore.getState();
   const activeServerId = serverState.activeServerId || '';
-  const activeServer = serverState.getActiveServer();
-  const serverName = activeServer?.name || '';
+  const activeBackend = useFacadeStore.getState().backends.find(b => b.backendId === activeServerId);
+  const serverName = activeBackend?.name || '';
   const gatewayState = useGatewayStore.getState();
 
   const result: ConnectionParams = { serverUrl, authToken, serverId: activeServerId, serverName };

@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { useServerStore } from '../stores/serverStore';
+import { useFacadeStore } from '../stores/facadeStore';
 import { useGatewayStore, toGatewayServerId, shouldShowBackend } from '../stores/gatewayStore';
 import { useUIStore, type FontSizePreset } from '../stores/uiStore';
 import { useConnection } from '../contexts/ConnectionContext';
@@ -43,10 +44,7 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
 
   const {
     connectionStatus,
-    getActiveServer,
     activeServerId,
-    servers,
-    connections,
     setActiveServer
   } = useServerStore();
   const {
@@ -62,19 +60,21 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
   const clearCleanupResult = useProcessMonitorStore((state) => state.clearCleanupResult);
 
   const isConnected = connectionStatus === 'connected';
-  const activeServer = getActiveServer();
+  const facadeBackends = useFacadeStore((s) => s.backends);
+  const activeServer = facadeBackends.find(b => b.backendId === activeServerId) ?? null;
   const isLocalServer = activeServerId === 'local';
-  const directServers = servers.filter(s => s.connectionMode !== 'gateway');
   const visibleGatewayBackends = discoveredBackends.filter(b => shouldShowBackend(b, currentInstanceId, showLocalBackend));
 
   // SDK version check
+  const localServerPort = useServerStore((s) => s.localServerPort);
   const [sdkVersions, setSdkVersions] = useState<SdkVersionReport | null>(null);
   useEffect(() => {
     if (!isOpen || !activeServer) return;
-    api.getServerInfo(activeServer.address)
+    const address = `localhost:${localServerPort || 3100}`;
+    api.getServerInfo(address)
       .then(info => setSdkVersions(info.sdkVersions ?? null))
       .catch(() => {});
-  }, [isOpen, activeServer?.address]);
+  }, [isOpen, activeServer, localServerPort]);
 
   const handleLeakCleanup = useCallback(() => {
     if (!isConnected) {
@@ -141,12 +141,6 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
       setActiveTab('providers');
     }
   }, [activeServerId, activeTab, isLocalServer]);
-
-  const handleServerSwitch = (serverId: string) => {
-    setActiveServer(serverId);
-    connectServer(serverId);
-    setServerPickerOpen(false);
-  };
 
   const handleBackendSwitch = (backend: GatewayBackendInfo) => {
     if (!backend.online) return;
@@ -315,17 +309,6 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
     </button>
   );
 
-  // --- Connection status helper for server picker ---
-
-  const getStatusColor = (status?: string) => {
-    switch (status) {
-      case 'connected': return 'bg-success';
-      case 'connecting': return 'bg-warning animate-pulse';
-      case 'error': return 'bg-destructive';
-      default: return 'bg-muted-foreground';
-    }
-  };
-
   return (
     <div className={`fixed inset-0 z-50 ${isMobile ? '' : 'flex items-center justify-center p-2 md:p-4'}`}>
       {!isMobile && <div className="absolute inset-0 bg-black/50" onClick={onClose} />}
@@ -444,28 +427,6 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
                   <>
                     <div className="fixed inset-0 z-40" onClick={() => setServerPickerOpen(false)} />
                     <div className="absolute left-1 right-1 top-full bg-card border border-border rounded-lg shadow-lg z-50 max-h-60 overflow-y-auto">
-                      {/* Direct servers */}
-                      {directServers.map((server) => {
-                        const isActive = server.id === activeServerId;
-                        return (
-                          <button
-                            key={server.id}
-                            onClick={() => handleServerSwitch(server.id)}
-                            className={`w-full px-3 py-2 text-left hover:bg-muted flex items-center gap-2 text-sm ${
-                              isActive ? 'bg-muted' : ''
-                            }`}
-                          >
-                            <span className={`w-2 h-2 rounded-full flex-shrink-0 ${getStatusColor(connections[server.id]?.status)}`} />
-                            <span className="truncate flex-1" title={server.name}>{server.name}</span>
-                            {isActive && (
-                              <span className="px-1.5 py-0.5 bg-primary/20 text-primary text-[10px] rounded flex-shrink-0">
-                                Active
-                              </span>
-                            )}
-                          </button>
-                        );
-                      })}
-
                       {/* Gateway backends */}
                       {isGatewayConnected && visibleGatewayBackends.length > 0 && (
                         <>

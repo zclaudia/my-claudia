@@ -86,11 +86,10 @@ function getSyncRequestBaseUrl(targetBackendId?: string): string | null {
       const backendId = parseBackendId(targetBackendId);
       return resolveGatewayBackendUrl(backendId);
     }
-    // Direct server: look up by serverId
-    const server = useServerStore.getState().servers.find(s => s.id === targetBackendId);
-    if (!server) return null;
-    const addr = server.address.includes('://') ? server.address.replace(/^ws/, 'http') : `http://${server.address}`;
-    return addr;
+    // Direct/local server: use localServerPort
+    const port = useServerStore.getState().localServerPort;
+    if (!port) return null;
+    return `http://localhost:${port}`;
   }
 
   // Fallback: use active server
@@ -102,14 +101,10 @@ function getSyncRequestBaseUrl(targetBackendId?: string): string | null {
     return resolveGatewayBackendUrl(backendId);
   }
 
-  // Direct server: connect directly to backend
-  const server = useServerStore.getState().getActiveServer();
-  if (!server) return null;
-
-  const serverAddr = server.address.includes('://')
-    ? server.address.replace(/^ws/, 'http')
-    : `http://${server.address}`;
-  return serverAddr;
+  // Direct/local server: use localServerPort
+  const port = useServerStore.getState().localServerPort;
+  if (!port) return null;
+  return `http://localhost:${port}`;
 }
 
 /**
@@ -120,10 +115,8 @@ function getAuthHeaders(targetBackendId?: string): Record<string, string> {
     if (isGatewayTarget(targetBackendId)) {
       return getGatewayAuthHeaders();
     }
-    // Direct server: look up by serverId
-    const server = useServerStore.getState().servers.find(s => s.id === targetBackendId);
-    if (!server?.clientId) return {};
-    return { Authorization: `Bearer ${server.clientId}` };
+    // Direct/local server: no auth needed
+    return {};
   }
 
   // Fallback: infer from active server
@@ -134,13 +127,8 @@ function getAuthHeaders(targetBackendId?: string): Record<string, string> {
     return getGatewayAuthHeaders();
   }
 
-  // Direct server
-  const server = useServerStore.getState().getActiveServer();
-  if (!server?.clientId) return {};
-
-  return {
-    Authorization: `Bearer ${server.clientId}`,
-  };
+  // Direct/local server: no auth needed
+  return {};
 }
 
 /**

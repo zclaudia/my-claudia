@@ -142,9 +142,8 @@ export function PluginPanelRenderer({
 
   // ── Iframe panel (third-party plugins with frontend HTML) ──────────────────
   if (activePanel.iframeUrl) {
-    const server = useServerStore.getState().getActiveServer?.();
-    const address = server?.address || 'localhost:3100';
-    const baseUrl = address.includes('://') ? address : `http://${address}`;
+    const port = useServerStore.getState().localServerPort || 3100;
+    const baseUrl = `http://localhost:${port}`;
     const url = new URL(activePanel.iframeUrl, baseUrl);
     if (projectRoot) url.searchParams.set('projectRoot', projectRoot);
     if (projectId) url.searchParams.set('projectId', projectId);

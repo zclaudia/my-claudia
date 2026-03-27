@@ -1,30 +1,21 @@
 import { useEffect } from 'react';
 import { useServerStore } from '../stores/serverStore';
-import { toGatewayServerId, useGatewayStore } from '../stores/gatewayStore';
+import { useFacadeStore } from '../stores/facadeStore';
+import { toGatewayServerId } from '../stores/gatewayStore';
 import { probeServerLatency } from '../services/api';
 
 const PROBE_INTERVAL_MS = 15000;
 
 export function useServerLatencyMonitor(): void {
-  const servers = useServerStore((s) => s.servers);
   const setServerLatency = useServerStore((s) => s.setServerLatency);
-  const discoveredBackends = useGatewayStore((s) => s.discoveredBackends);
-  const showLocalBackend = useGatewayStore((s) => s.showLocalBackend);
-  const localBackendId = useGatewayStore((s) => s.localBackendId);
+  const backends = useFacadeStore((s) => s.backends);
 
   useEffect(() => {
     let cancelled = false;
 
-    const directServerIds = servers
-      .filter((server) => server.connectionMode !== 'gateway')
-      .map((server) => server.id);
-
-    const gatewayServerIds = discoveredBackends
-      .filter((backend) => backend.online)
-      .filter((backend) => showLocalBackend || backend.backendId !== localBackendId)
-      .map((backend) => toGatewayServerId(backend.backendId));
-
-    const serverIds = [...new Set([...directServerIds, ...gatewayServerIds])];
+    const serverIds = backends
+      .filter((b) => b.online)
+      .map((b) => toGatewayServerId(b.backendId));
 
     const probeAll = async () => {
       await Promise.all(serverIds.map(async (serverId) => {
@@ -46,5 +37,5 @@ export function useServerLatencyMonitor(): void {
       cancelled = true;
       window.clearInterval(interval);
     };
-  }, [servers, discoveredBackends, showLocalBackend, localBackendId, setServerLatency]);
+  }, [backends, setServerLatency]);
 }

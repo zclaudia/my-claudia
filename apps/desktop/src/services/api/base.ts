@@ -27,15 +27,12 @@ export function getBaseUrl(): string {
     return url;
   }
 
-  // Direct server: connect directly to backend
-  const server = useServerStore.getState().getActiveServer();
-  if (!server) {
+  // Direct/local server: connect via localhost
+  const port = useServerStore.getState().localServerPort;
+  if (!port) {
     throw new Error('No server configured');
   }
-  const address = server.address.includes('://')
-    ? server.address
-    : `http://${server.address}`;
-  return address;
+  return `http://localhost:${port}`;
 }
 
 // Get authentication header for the active server
@@ -82,9 +79,8 @@ export async function fetchApi<T>(
 // ============================================
 
 function getLocalBaseUrl(): string {
-  const server = useServerStore.getState().getDefaultServer();
-  const address = server?.address || 'localhost:3100';
-  return address.includes('://') ? address : `http://${address}`;
+  const port = useServerStore.getState().localServerPort || 3100;
+  return `http://localhost:${port}`;
 }
 
 function getLocalAuthHeaders(): HeadersInit {

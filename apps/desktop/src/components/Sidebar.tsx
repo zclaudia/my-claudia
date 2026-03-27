@@ -119,7 +119,7 @@ export function Sidebar({
     reorderSessions: storeReorderSessions,
   } = useProjectStore();
 
-  const { connectionStatus, setActiveServer, servers, getDefaultServer } = useServerStore();
+  const { connectionStatus, setActiveServer } = useServerStore();
   const v2Agents = useSupervisionStore((s) => s.agents);
   const notificationUnreadCount = useNotificationFeedStore((s) => s.unreadCount);
   const { hasUnread: hasClaudiaUnread, hasRunning: hasClaudiaRunning, hasPermissionPending: hasClaudiaPermissionPending } = useClaudiaStatus();
@@ -316,16 +316,12 @@ export function Sidebar({
 
     // Switch to the matching server context first, then select session.
     if (backendId === 'local' || backendId === '__local__') {
-      const localServerId = servers.find((s) => s.id === 'local')?.id
-        || getDefaultServer()?.id
-        || servers[0]?.id
-        || 'local';
-      selectWithServerContext(localServerId);
+      selectWithServerContext('local');
       return;
     }
 
     selectWithServerContext(toGatewayServerId(backendId));
-  }, [servers, getDefaultServer, setActiveServer, selectSession]);
+  }, [setActiveServer, selectSession]);
 
   const handleCreateProject = async () => {
     if (!newProjectName.trim() || !isConnected) return;

@@ -23,9 +23,10 @@ function resolveProbeBaseUrl(serverId: string): string | null {
     return resolveGatewayBackendUrl(backendId);
   }
 
-  const server = useServerStore.getState().servers.find((item) => item.id === serverId);
-  if (!server) return null;
-  return server.address.includes('://') ? server.address : `http://${server.address}`;
+  // Local/direct server: use localServerPort
+  const port = useServerStore.getState().localServerPort;
+  if (!port) return null;
+  return `http://localhost:${port}`;
 }
 
 export async function probeServerLatency(serverId: string, timeoutMs = 5000): Promise<number | null> {

@@ -55,10 +55,9 @@ const PLUGIN_ICON_MAP: Record<string, LucideIcon> = {
 
 function PluginIcon({ name, pluginId, size = 16 }: { name?: string; pluginId?: string; size?: number }) {
   // Image file: icon value contains a file extension (e.g. "icon.svg", "logo.png")
-  const activeServer = useServerStore(s => s.getActiveServer?.());
+  const localServerPort = useServerStore(s => s.localServerPort);
   if (name && pluginId && /\.\w+$/.test(name)) {
-    const address = activeServer?.address || 'localhost:3100';
-    const baseUrl = address.includes('://') ? address : `http://${address}`;
+    const baseUrl = `http://localhost:${localServerPort || 3100}`;
     const src = `${baseUrl}/api/plugins/${encodeURIComponent(pluginId)}/frontend/${name}`;
     return <img src={src} alt="" style={{ width: size, height: size }} className="object-contain" />;
   }
@@ -173,13 +172,12 @@ function AppContent() {
   const agentConfig = useAgentConfigStore((s) => s.config);
   const agentConfigLoaded = useAgentConfigStore((s) => s.hasLoaded);
   const loadAgentConfig = useAgentConfigStore((s) => s.loadConfig);
-  const localServer = useServerStore((s) => s.getDefaultServer());
+  const localServerPort = useServerStore((s) => s.localServerPort);
   const shortcut = useShortcutStore((s) => s.shortcut);
   const shortcutEnabled = useShortcutStore((s) => s.enabled);
   const claudiaServerUrl = useMemo(() => {
-    const localAddress = localServer?.address || 'localhost:3100';
-    return localAddress.includes('://') ? localAddress : `http://${localAddress}`;
-  }, [localServer?.address]);
+    return `http://localhost:${localServerPort || 3100}`;
+  }, [localServerPort]);
   const claudiaSwipePreviewProgress = useMemo(() => {
     const progress = Math.max(0, Math.min(1, agentSwipePreview.progress));
     if (progress === 0 || progress === 1) return progress;
@@ -269,7 +267,7 @@ function AppContent() {
         const { getCurrentWindow } = await import('@tauri-apps/api/window');
         const authToken = ''; // Local server trusts localhost connections
         const serverId = 'local';
-        const serverName = localServer?.name || 'Local Server';
+        const serverName = 'Local Server';
         const hostWindow = getCurrentWindow();
         const scale = typeof window.devicePixelRatio === 'number' && window.devicePixelRatio > 0
           ? window.devicePixelRatio
@@ -335,7 +333,7 @@ function AppContent() {
         console.warn('[App] Failed to create Claudia floating ball:', err);
       }
     })();
-  }, [agentConfig?.enabled, agentConfigLoaded, claudiaContextProjectId, claudiaProjectId, claudiaServerUrl, isMobile, localServer?.name]);
+  }, [agentConfig?.enabled, agentConfigLoaded, claudiaContextProjectId, claudiaProjectId, claudiaServerUrl, isMobile]);
 
   useEffect(() => {
     if (!isDesktopTauri() || isMobile || !agentConfigLoaded) return;

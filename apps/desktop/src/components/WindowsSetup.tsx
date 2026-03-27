@@ -24,7 +24,7 @@ function Spinner({ className = 'w-4 h-4' }: { className?: string }) {
 export function WindowsSetup() {
   const { wslAvailable, distros, runDiscovery } = useWslDiscovery();
   const { wslServer, connectServer } = useConnection();
-  const { setActiveServer, setLocalServerAddress } = useServerStore();
+  const { setActiveServer, setLocalServerPort } = useServerStore();
 
   const {
     isConnected: isGatewayConnected,
@@ -76,7 +76,8 @@ export function WindowsSetup() {
 
     try {
       const normalizedAddress = normalizeAddress(address);
-      setLocalServerAddress(normalizedAddress);
+      const port = parseInt(normalizedAddress.split(':')[1]) || DEFAULT_PORT;
+      setLocalServerPort(port);
       setActiveServer('local');
       connectServer('local');
 
@@ -99,7 +100,7 @@ export function WindowsSetup() {
       setConnectError(err instanceof Error ? err.message : 'Connection failed');
       setConnecting(false);
     }
-  }, [connectServer, normalizeAddress, setActiveServer, setLocalServerAddress]);
+  }, [connectServer, normalizeAddress, setActiveServer, setLocalServerPort]);
 
   const handleGatewayConnect = useCallback(() => {
     const url = gatewayUrl.trim();

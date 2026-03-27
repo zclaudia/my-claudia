@@ -65,7 +65,7 @@ export function ImportOpenCodeDialog({ isOpen, onClose }: ImportOpenCodeDialogPr
   const [loading, setLoading] = useState(false);
   const [visibleProjectsCount, setVisibleProjectsCount] = useState(10);
 
-  const server = useServerStore((state) => state.getDefaultServer());
+  const localServerPort = useServerStore((state) => state.localServerPort);
   const allProjects = useProjectStore((state) => state.projects) || [];
   const projects = allProjects.filter(p => !p.isInternal);
 
@@ -115,11 +115,7 @@ export function ImportOpenCodeDialog({ isOpen, onClose }: ImportOpenCodeDialogPr
   }, [activeSourceProjects, projectMapping]);
 
   const getServerUrl = (): string => {
-    const address = server?.address || 'localhost:3100';
-    if (address.startsWith('http://') || address.startsWith('https://')) {
-      return address;
-    }
-    return `http://${address}`;
+    return `http://localhost:${localServerPort || 3100}`;
   };
 
   const visibleProjects = useMemo(() => {
