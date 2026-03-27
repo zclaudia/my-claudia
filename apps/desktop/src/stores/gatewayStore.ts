@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { GatewayBackendInfo, BackendPresence, BackendSnapshot } from '@my-claudia/shared';
+import type { GatewayBackendInfo, BackendSnapshot } from '@my-claudia/shared';
 
 export type BackendAuthStatus = 'authenticated' | 'pending' | 'failed';
 
@@ -13,13 +13,11 @@ interface GatewayState {
   gatewayUrl: string | null;
   gatewaySecret: string | null;
   isConnected: boolean;
-  backendRegistered: boolean;
   localBackendId: string | null;
   currentInstanceId: string | null;
   currentDeviceId: string | null;
   discoveredBackends: GatewayBackendInfo[];
   backendAuthStatus: Record<string, BackendAuthStatus>;
-  registry: Record<string, BackendPresence>;
 
   // ---------------------------------------------------------------------------
   // UI preferences — persisted, NOT managed by facade
@@ -39,11 +37,6 @@ interface GatewayState {
   setDiscoveredBackends: (backends: GatewayBackendInfo[]) => void;
   setBackendAuthStatus: (backendId: string, status: BackendAuthStatus) => void;
   clearGateway: () => void;
-
-  // Registry actions
-  setRegistrySnapshot: (entries: BackendPresence[]) => void;
-  upsertRegistryEntry: (entry: BackendPresence) => void;
-  removeRegistryEntry: (backendId: string) => void;
 
   // ---------------------------------------------------------------------------
   // UI preference actions
@@ -67,25 +60,6 @@ function markIdentity(backends: GatewayBackendInfo[], currentInstanceId: string 
     isThisInstance: !!(currentInstanceId && b.instanceId === currentInstanceId),
     isThisDevice: !!(currentDeviceId && b.deviceId === currentDeviceId),
   }));
-}
-
-function deriveBackendsFromRegistry(
-  registry: Record<string, BackendPresence>,
-  currentInstanceId: string | null,
-  currentDeviceId: string | null,
-): GatewayBackendInfo[] {
-  return Object.values(registry)
-    .filter(entry => entry.visible)
-    .map(entry => ({
-      backendId: entry.backendId,
-      name: entry.name,
-      online: true, // In v2, presence in registry means online
-      isThisInstance: !!(currentInstanceId && entry.instanceId === currentInstanceId),
-      isThisDevice: !!(currentDeviceId && entry.deviceId === currentDeviceId),
-      instanceId: entry.instanceId,
-      deviceId: entry.deviceId,
-      channel: entry.channel,
-    }));
 }
 
 /**
@@ -114,13 +88,11 @@ export const useGatewayStore = create<GatewayState>()(
       gatewayUrl: null,
       gatewaySecret: null,
       isConnected: false,
-      backendRegistered: false,
       localBackendId: null,
       currentInstanceId: null,
       currentDeviceId: null,
       discoveredBackends: [],
       backendAuthStatus: {},
-      registry: {},
 
       // Mobile direct config (persisted)
       directGatewayUrl: null,
@@ -138,19 +110,13 @@ export const useGatewayStore = create<GatewayState>()(
         const localId = backendId !== undefined ? backendId : get().localBackendId;
         const curInstanceId = instanceId !== undefined ? instanceId : get().currentInstanceId;
         const curDeviceId = deviceId !== undefined ? deviceId : get().currentDeviceId;
-        const { registry } = get();
-        const hasRegistry = Object.keys(registry).length > 0;
         set({
           gatewayUrl: url,
           gatewaySecret: secret,
           localBackendId: localId,
-          backendRegistered: !!localId,
           ...(instanceId !== undefined ? { currentInstanceId: instanceId } : {}),
           ...(deviceId !== undefined ? { currentDeviceId: deviceId } : {}),
-          ...(hasRegistry
-            ? { discoveredBackends: deriveBackendsFromRegistry(registry, curInstanceId, curDeviceId) }
-            : { discoveredBackends: markIdentity(backends, curInstanceId, curDeviceId) }),
-          // Sync server-side gateway connected status when available
+          discoveredBackends: markIdentity(backends, curInstanceId, curDeviceId),
           ...(connected !== undefined ? { isConnected: connected } : {}),
         });
       },
@@ -179,46 +145,11 @@ export const useGatewayStore = create<GatewayState>()(
           gatewayUrl: null,
           gatewaySecret: null,
           isConnected: false,
-          backendRegistered: false,
           localBackendId: null,
           currentInstanceId: null,
           currentDeviceId: null,
           discoveredBackends: [],
           backendAuthStatus: {},
-          registry: {},
-        });
-      },
-
-      // Registry actions (Phase 2)
-      setRegistrySnapshot: (entries) => {
-        const registry: Record<string, BackendPresence> = {};
-        for (const entry of entries) {
-          registry[entry.backendId] = entry;
-        }
-        const { currentInstanceId, currentDeviceId } = get();
-        set({
-          registry,
-          discoveredBackends: deriveBackendsFromRegistry(registry, currentInstanceId, currentDeviceId),
-        });
-      },
-
-      upsertRegistryEntry: (entry) => {
-        set((state) => {
-          const registry = { ...state.registry, [entry.backendId]: entry };
-          return {
-            registry,
-            discoveredBackends: deriveBackendsFromRegistry(registry, state.currentInstanceId, state.currentDeviceId),
-          };
-        });
-      },
-
-      removeRegistryEntry: (backendId) => {
-        set((state) => {
-          const { [backendId]: _, ...registry } = state.registry;
-          return {
-            registry,
-            discoveredBackends: deriveBackendsFromRegistry(registry, state.currentInstanceId, state.currentDeviceId),
-          };
         });
       },
 
