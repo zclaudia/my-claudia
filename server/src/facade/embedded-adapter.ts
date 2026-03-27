@@ -229,12 +229,15 @@ export class EmbeddedGatewayAdapter implements FacadeRuntimeGatewayAdapter {
   }
 
   private handleLocalChannelClose(channelId: string): void {
-    // Parse backendId from local:backendId:epoch
-    const parts = channelId.split(':');
-    if (parts.length >= 2) {
+    // Parse backendId from local:backendId:epoch format
+    // Fix #8: use indexOf to handle backendIds that may contain colons
+    const firstColon = channelId.indexOf(':');
+    const lastColon = channelId.lastIndexOf(':');
+    if (firstColon > 0 && lastColon > firstColon) {
+      const backendId = channelId.slice(firstColon + 1, lastColon);
       this.emit({
         type: 'backend_channel_closed',
-        backendId: parts[1],
+        backendId,
         channelId,
         reason: 'client_closed',
       });

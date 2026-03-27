@@ -175,20 +175,23 @@ export class FacadeWsHub {
 
   private broadcast(event: FacadeToUiMessage): void {
     const data = JSON.stringify(event);
+    // Fix #10: collect IDs to remove after iteration to avoid Map mutation during iteration
+    const toRemove: string[] = [];
     for (const session of this.clients.values()) {
       if (!session.subscribed) continue;
       try {
         if (session.ws.readyState === 1 /* WebSocket.OPEN */) {
           session.ws.send(data);
         } else {
-          // Slow consumer — disconnect
-          this.clients.delete(session.clientId);
+          // Slow consumer — mark for removal
+          toRemove.push(session.clientId);
           try { session.ws.close(); } catch { /* ignore */ }
         }
       } catch {
-        this.clients.delete(session.clientId);
+        toRemove.push(session.clientId);
       }
     }
+    for (const id of toRemove) this.clients.delete(id);
   }
 
   private sendTo(ws: WebSocket, msg: FacadeToUiMessage): void {

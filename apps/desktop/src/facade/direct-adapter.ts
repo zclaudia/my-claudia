@@ -91,10 +91,13 @@ export class DirectGatewayAdapter implements FacadeRuntimeGatewayAdapter {
             this.emit({ type: 'backend_channel_closed', backendId, channelId, reason });
           },
           onChannelMessage: (backendId, message) => {
-            // Find channelId for this backend
-            const channelId = this.transport?.channels.get(backendId)
-              ? Array.from(this.transport.channels.entries()).find(([, v]) => v.backendId === backendId)?.[0] ?? ''
-              : '';
+            // Fix #4: channels map is keyed by channelId, find by backendId value
+            let channelId = '';
+            if (this.transport) {
+              for (const [cid, info] of this.transport.channels) {
+                if (info.backendId === backendId) { channelId = cid; break; }
+              }
+            }
             this.emit({ type: 'backend_message_received', backendId, channelId, message });
           },
           onRunStreamEvent: (channelId, sessionId, event) => {
@@ -123,6 +126,8 @@ export class DirectGatewayAdapter implements FacadeRuntimeGatewayAdapter {
           this.transport.disconnect();
           this.transport = null;
           this.emit({ type: 'connection_state_changed', state: 'disconnected' });
+          // Fix #13: clear listeners to prevent stale callbacks on reuse
+          this.listeners = [];
         }
       },
     },

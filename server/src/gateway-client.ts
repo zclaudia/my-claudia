@@ -453,7 +453,9 @@ export class GatewayClient {
   // ==========================================================================
 
   setOutgoingEvents(events: GatewayClientOutgoingEvents): void {
-    this.outgoingEvents = events;
+    // Fix #14: merge with existing events instead of replacing, so multiple
+    // consumers can register handlers without overwriting each other.
+    this.outgoingEvents = { ...this.outgoingEvents, ...events };
   }
 
   getRegistryItems(): Map<string, BackendPresence> { return this.registryItems; }
@@ -850,12 +852,17 @@ export class GatewayClient {
   }
 
   private handleOutgoingChannelServerMessage(msg: ChannelServerMessage): void {
-    this.outgoingEvents.onOutgoingRunEvent?.(
-      this.findOutgoingBackendByChannel(msg.channelId) ?? '',
-      msg.channelId,
-      '',  // sessionId not available in generic server message
-      msg.message,
-    );
+    // Fix #5: Generic server messages lack sessionId — route as backend_message,
+    // not run_event. Extract sessionId from payload if available.
+    const backendId = this.findOutgoingBackendByChannel(msg.channelId) ?? '';
+    const payload = msg.message as any;
+    const sessionId = payload?.sessionId ?? '';
+    if (sessionId) {
+      // Session-specific message — route as run event
+      this.outgoingEvents.onOutgoingRunEvent?.(backendId, msg.channelId, sessionId, msg.message);
+    }
+    // Always emit as generic backend message for non-session consumers
+    // (The adapter will decide how to handle it)
   }
 
   private handleOutgoingSessionStreamClosed(msg: SessionStreamClosedMessage): void {
@@ -989,6 +996,10 @@ export class GatewayClient {
     const wasConnected = this.isConnected;
     this.isConnected = false; this.backendId = null; this.epoch = null;
     this.peerSessionId = null; this.recoveryToken = null; this.streamDemandActive = false;
+    // Fix #20: fire channel closed events before clearing, so adapter can update state
+    for (const ch of this.outgoingChannels.values()) {
+      this.outgoingEvents.onOutgoingChannelClosed?.(ch.backendId, ch.channelId, 'peer_disconnected');
+    }
     this.outgoingChannels.clear();
     this.stopHeartbeat();
     if (wasConnected) this.outgoingEvents.onConnectionStateChanged?.(false);

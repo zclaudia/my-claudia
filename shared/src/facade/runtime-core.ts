@@ -24,6 +24,7 @@ import type {
   BackendFacadeEvent,
   BackendFacadeMode,
   BackendFacadeSnapshot,
+  BackendRuntimeState,
   StreamManagerResult,
 } from './types.js';
 import type { BackendPresence } from '../protocol/gateway.js';
@@ -135,6 +136,17 @@ export class BackendFacadeRuntimeCore implements BackendFacade {
     this.initialized = false;
     this.eventBuffer = null;
     this.connectionState = 'disconnected';
+    this.localBackendId = null;
+    this.snapshotVersion = 0;
+    // Reset stores so stale data isn't accessible via getSnapshot()
+    this.registryStore.applyBootstrap({
+      capturedAt: 0,
+      connection: { state: 'disconnected' },
+      identity: { instanceId: '', deviceId: '' },
+      registry: { revision: 0, items: [] },
+      channels: { items: [] },
+    });
+    this.streamManager.applyBootstrap();
   }
 
   // --------------------------------------------------------------------------
@@ -143,7 +155,7 @@ export class BackendFacadeRuntimeCore implements BackendFacade {
 
   getSnapshot(): BackendFacadeSnapshot {
     return assembleSnapshot({
-      version: this.snapshotVersion++,
+      version: this.snapshotVersion,
       now: Date.now(),
       mode: this.mode,
       connectionState: this.connectionState,
@@ -252,6 +264,8 @@ export class BackendFacadeRuntimeCore implements BackendFacade {
   collectGarbage(now: number): void {
     const result = this.streamManager.collectGarbage(now);
     this.executeStreamResult(result);
+    // Fix #16: also GC zombie registry records
+    this.registryStore.collectGarbage();
   }
 
   // --------------------------------------------------------------------------
@@ -469,6 +483,13 @@ export class BackendFacadeRuntimeCore implements BackendFacade {
         return;
       }
     }
+    // Fix #7: if no match found in current items, check if local backend still exists in registry
+    if (this.localBackendId) {
+      const stillExists = this.registryStore.getBackend(this.localBackendId);
+      if (!stillExists || !stillExists.presence) {
+        this.localBackendId = null;
+      }
+    }
   }
 
   private executeStreamResult(result: StreamManagerResult): void {
@@ -493,18 +514,33 @@ export class BackendFacadeRuntimeCore implements BackendFacade {
     }
   }
 
+  /** Fix #3: proper type-safe emit for backend diffs */
   private emitBackendDiffs(diffs: Array<{ backendId: string; nextRuntimeState: string; reason?: string }>): void {
     for (const diff of diffs) {
       this.emitFacadeEvent({
         type: 'backend_state_changed',
         backendId: diff.backendId,
-        state: diff.nextRuntimeState as BackendFacadeEvent & { type: 'backend_state_changed' } extends { state: infer S } ? S : never,
+        state: diff.nextRuntimeState as BackendRuntimeState,
         error: diff.reason,
       });
     }
   }
 
+  /** Increment version and notify snapshot listeners. */
+  private notifySnapshotListeners(): void {
+    this.snapshotVersion++;
+    const snapshot = this.getSnapshot();
+    for (const listener of this.snapshotListeners) {
+      try {
+        listener(snapshot);
+      } catch {
+        // Listener errors must not break dispatch
+      }
+    }
+  }
+
   private emitFacadeEvent(event: BackendFacadeEvent): void {
+    // Emit to event listeners
     for (const listener of this.eventListeners) {
       try {
         listener(event);
@@ -513,16 +549,15 @@ export class BackendFacadeRuntimeCore implements BackendFacade {
       }
     }
 
-    // Snapshot listeners get notified on state-changing events
-    if (event.type === 'snapshot_updated') {
-      const snapshot = (event as { type: 'snapshot_updated'; snapshot: BackendFacadeSnapshot }).snapshot;
-      for (const listener of this.snapshotListeners) {
-        try {
-          listener(snapshot);
-        } catch {
-          // Listener errors must not break dispatch
-        }
-      }
+    // Fix #2: notify snapshot listeners on ALL state-changing events, not just snapshot_updated
+    switch (event.type) {
+      case 'snapshot_updated':
+      case 'connection_state_changed':
+      case 'backend_state_changed':
+      case 'session_stream_state_changed':
+        this.notifySnapshotListeners();
+        break;
+      // catalog/run/content events don't change facade snapshot state
     }
   }
 }

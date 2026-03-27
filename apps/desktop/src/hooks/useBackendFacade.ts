@@ -24,8 +24,19 @@ import { useChatStore, type MessageWithToolCalls } from '../stores/chatStore';
 import { handleServerMessage } from '../services/messageHandler';
 import { isAndroid } from '../utils/platform';
 
-/** Shared server runs ref for facade message routing. */
-const facadeServerRuns = new Map<string, Set<string>>();
+// Fix #21: use WeakRef-like pattern — clear on each facade lifecycle
+let facadeServerRuns = new Map<string, Set<string>>();
+
+/** Persistent device ID for direct mode (survives across sessions). */
+function getOrCreateDirectDeviceId(): string {
+  const key = 'my-claudia-direct-device-id';
+  let id = localStorage.getItem(key);
+  if (!id) {
+    id = crypto.randomUUID();
+    localStorage.setItem(key, id);
+  }
+  return id;
+}
 
 /**
  * Initialize and manage the BackendFacade lifecycle.
@@ -60,6 +71,7 @@ export function useBackendFacade(): void {
       unsubEventRef.current = null;
     }
     useFacadeStore.getState().clearFacade();
+    facadeServerRuns = new Map(); // Fix #21: clear stale run tracking
 
     let facade: BackendFacade | null = null;
 
@@ -73,9 +85,9 @@ export function useBackendFacade(): void {
       facade = new DirectBackendFacadeProvider({
         url: directGatewayUrl,
         gatewaySecret: directGatewaySecret,
-        // TODO: get from device config
-        deviceId: 'mobile-device',
-        instanceId: 'mobile-instance',
+        // Fix #11: generate unique IDs per client to avoid registry collisions
+        deviceId: getOrCreateDirectDeviceId(),
+        instanceId: `direct-${crypto.randomUUID().slice(0, 8)}`,
       });
     }
 

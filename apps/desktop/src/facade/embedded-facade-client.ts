@@ -42,6 +42,7 @@ export class EmbeddedFacadeClient implements BackendFacade {
 
   disconnect(): void {
     this.intentionalClose = true;
+    this.pendingMessages = [];
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
@@ -63,6 +64,7 @@ export class EmbeddedFacadeClient implements BackendFacade {
     ws.onopen = () => {
       this.ws = ws;
       // Server sends facade_snapshot on connect automatically
+      this.flushPendingMessages();
     };
 
     ws.onmessage = (event) => {
@@ -205,9 +207,23 @@ export class EmbeddedFacadeClient implements BackendFacade {
   // Helpers
   // --------------------------------------------------------------------------
 
+  // Fix #22: queue messages while WS is connecting, flush on open
+  private pendingMessages: unknown[] = [];
+
   private send(msg: unknown): void {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify(msg));
+    } else {
+      // Queue for later — will be flushed when connection opens
+      this.pendingMessages.push(msg);
     }
+  }
+
+  private flushPendingMessages(): void {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+    for (const msg of this.pendingMessages) {
+      this.ws.send(JSON.stringify(msg));
+    }
+    this.pendingMessages = [];
   }
 }

@@ -350,6 +350,15 @@ export class FacadeRegistryStore {
   // Queries
   // --------------------------------------------------------------------------
 
+  /** Fix #16: Remove zombie records (null presence, no active channel) to prevent memory leak. */
+  collectGarbage(): void {
+    for (const [id, record] of this.records) {
+      if (!record.presence && !record.channelId) {
+        this.records.delete(id);
+      }
+    }
+  }
+
   getBackend(backendId: string): BackendRuntimeRecord | undefined {
     return this.records.get(backendId);
   }
