@@ -13,13 +13,19 @@
 
 import { useEffect, useRef } from 'react';
 import type { BackendFacade, BackendFacadeEvent, BackendSnapshot } from '@my-claudia/shared';
-import type { GatewayBackendInfo } from '@my-claudia/shared';
+import type { GatewayBackendInfo, SessionMessage } from '@my-claudia/shared';
 import { useFacadeStore } from '../stores/facadeStore';
 import { EmbeddedFacadeClient } from '../facade/embedded-facade-client';
 import { DirectBackendFacadeProvider } from '../facade/direct-provider';
-import { useGatewayStore } from '../stores/gatewayStore';
+import { useGatewayStore, toGatewayServerId } from '../stores/gatewayStore';
 import { useServerStore } from '../stores/serverStore';
+import { useSessionsStore } from '../stores/sessionsStore';
+import { useChatStore, type MessageWithToolCalls } from '../stores/chatStore';
+import { handleServerMessage } from '../services/messageHandler';
 import { isAndroid } from '../utils/platform';
+
+/** Shared server runs ref for facade message routing. */
+const facadeServerRuns = new Map<string, Set<string>>();
 
 /**
  * Initialize and manage the BackendFacade lifecycle.
@@ -164,9 +170,85 @@ function syncToGatewayStore(event: BackendFacadeEvent): void {
       break;
     }
 
-    // catalog_snapshot, catalog_event, run_event, content_patch
-    // are handled by their own existing handlers (sessionsStore, chatStore)
-    // and don't need to sync to gatewayStore.
+    // --- Catalog events → sessionsStore ---
+    case 'catalog_snapshot': {
+      const { backendId, items } = event;
+      useSessionsStore.getState().setRemoteSessions(backendId, items.map(item => ({
+        id: item.sessionId,
+        projectId: '',
+        name: item.title || '',
+        createdAt: item.createdAt,
+        updatedAt: item.updatedAt,
+        isActive: item.activeRunStatus === 'running',
+        type: 'regular' as const,
+      })));
+      break;
+    }
+
+    case 'catalog_event': {
+      const { backendId, op, item, sessionId } = event;
+      if (op === 'upsert' && item) {
+        const sessionStore = useSessionsStore.getState();
+        const existingSessions = sessionStore.remoteSessions.get(backendId) || [];
+        const eventType = existingSessions.some(s => s.id === item.sessionId)
+          ? 'updated' : 'created';
+        sessionStore.handleSessionEvent(backendId, eventType, {
+          id: item.sessionId,
+          projectId: '',
+          name: item.title || '',
+          createdAt: item.createdAt,
+          updatedAt: item.updatedAt,
+          isActive: item.activeRunStatus === 'running',
+          type: 'regular' as const,
+        });
+      } else if (op === 'remove' && sessionId) {
+        useSessionsStore.getState().handleSessionEvent(backendId, 'deleted', {
+          id: sessionId,
+          projectId: '',
+          isActive: false,
+          type: 'regular' as const,
+          createdAt: 0,
+          updatedAt: 0,
+        });
+      }
+      break;
+    }
+
+    // --- Run events → message handler ---
+    case 'run_event': {
+      const { backendId, event: serverEvent } = event;
+      // Skip local backend messages (embedded server handles them via direct WS)
+      const { localBackendId } = useGatewayStore.getState();
+      if (localBackendId && backendId === localBackendId) break;
+
+      handleServerMessage(serverEvent, {
+        serverId: toGatewayServerId(backendId),
+        backendId,
+        serverRunsRef: facadeServerRuns,
+        resolveBackendName: () =>
+          useGatewayStore.getState().discoveredBackends.find(b => b.backendId === backendId)?.name,
+        logTag: `Facade:${backendId}`,
+      });
+      break;
+    }
+
+    // --- Content patches → chatStore ---
+    case 'content_patch': {
+      const { sessionId, messages, latestOffset } = event;
+      const restoredMessages: MessageWithToolCalls[] = messages.map((msg: SessionMessage) => ({
+        id: msg.messageId,
+        sessionId: msg.sessionId,
+        role: msg.role === 'tool' ? 'assistant' : msg.role,
+        createdAt: msg.createdAt,
+        offset: msg.offset,
+        content: typeof msg.content === 'string'
+          ? msg.content
+          : JSON.stringify(msg.content),
+      }));
+      useChatStore.getState().appendMessages(sessionId, restoredMessages, { maxOffset: latestOffset });
+      break;
+    }
+
     default:
       break;
   }
