@@ -140,6 +140,84 @@ export interface GatewayClientOutgoingEvents {
 }
 
 // ============================================================================
+// CQE Interfaces
+// ============================================================================
+
+export interface GatewayClientCommands {
+  connection: {
+    connect(): void;
+    disconnect(): void;
+  };
+  channel: {
+    /** Send a message through an incoming channel (backend-peer role). */
+    sendToIncoming(channelId: string, message: ServerMessage): void;
+    /** Register handler for incoming channel messages. */
+    onIncomingMessage(handler: ChannelMessageHandler): void;
+    /** Register handler for incoming channel closures. */
+    onIncomingClosed(handler: ChannelClosedHandler): void;
+    /** Register handler for content catch-up requests. */
+    onCatchUp(handler: (sessionId: string, afterOffset: number) => Promise<SessionMessage[]>): void;
+    /** Open an outgoing channel to another backend (facade client role). */
+    openOutgoing(targetBackendId: string, epoch: number): void;
+    /** Close an outgoing channel. */
+    closeOutgoing(channelId: string): void;
+    /** Send a message through an outgoing channel. */
+    sendToOutgoing(channelId: string, message: ClientMessage): void;
+  };
+  catalog: {
+    /** Publish a full catalog snapshot (backend-peer role). */
+    publishSnapshot(): void;
+    /** Publish a catalog event (backend-peer role). */
+    publishEvent(eventType: 'upsert' | 'remove', session: any): void;
+    /** Compatibility alias for publishEvent. */
+    broadcastSessionEvent(eventType: 'created' | 'updated' | 'deleted', session: any): void;
+    /** Subscribe to a remote backend's catalog (facade client role). */
+    subscribeOutgoing(targetBackendId: string, epoch: number, lastRevision?: number): void;
+    /** Unsubscribe from a remote backend's catalog. */
+    unsubscribeOutgoing(targetBackendId: string, epoch: number): void;
+  };
+  stream: {
+    /** Emit a run stream event (backend-peer role). */
+    emitRunEvent(sessionId: string, runId: string, eventType: RunStreamEventType, seq: number, payload: unknown): void;
+    /** Open an outgoing session stream (facade client role). */
+    openOutgoing(channelId: string, sessionId: string): void;
+    /** Close an outgoing session stream. */
+    closeOutgoing(channelId: string, sessionId: string): void;
+    /** Request content catch-up on an outgoing stream. */
+    catchUpOutgoing(channelId: string, sessionId: string, afterOffset: number): void;
+  };
+}
+
+export interface GatewayClientQueries {
+  identity: {
+    getInstanceId(): string;
+    getDeviceId(): string;
+    getBackendId(): string | null;
+    getEpoch(): number | null;
+  };
+  connection: {
+    isConnected(): boolean;
+    getStreamDemandActive(): boolean;
+    getGatewayUrl(): string;
+    getGatewaySecret(): string;
+    createHttpAgent(): SocksProxyAgent | undefined;
+  };
+  registry: {
+    getItems(): Map<string, BackendPresence>;
+    getRevision(): RegistryRevision;
+    getDiscoveredBackends(): GatewayBackendInfo[];
+  };
+  channel: {
+    getOutgoing(backendId: string): OutgoingChannel | undefined;
+    getAllOutgoing(): Map<string, OutgoingChannel>;
+  };
+}
+
+export interface GatewayClientEventBus {
+  setOutgoingEvents(events: GatewayClientOutgoingEvents): void;
+}
+
+// ============================================================================
 // GatewayClient
 // ============================================================================
 
@@ -183,6 +261,14 @@ export class GatewayClient {
   private outgoingChannels = new Map<string, OutgoingChannel>();
   private outgoingEvents: GatewayClientOutgoingEvents = {};
 
+  // ==========================================================================
+  // CQE Interface
+  // ==========================================================================
+
+  readonly commands: GatewayClientCommands;
+  readonly queries: GatewayClientQueries;
+  readonly events: GatewayClientEventBus;
+
   constructor(config: GatewayClientConfig, db?: Database, activeRuns?: ActiveRunsMap) {
     this.config = config;
     this.deviceId = getOrCreateDeviceId();
@@ -194,6 +280,65 @@ export class GatewayClient {
     this.db = db || null;
     this.activeRuns = activeRuns || null;
     console.log(`[Gateway] Instance ID: ${this.instanceId} (channel=${this.channel})`);
+
+    // Wire CQE properties
+    this.commands = {
+      connection: {
+        connect: () => this.connect(),
+        disconnect: () => this.disconnect(),
+      },
+      channel: {
+        sendToIncoming: (channelId, message) => this.sendToChannel(channelId, message),
+        onIncomingMessage: (handler) => this.onChannelMessage(handler),
+        onIncomingClosed: (handler) => this.onChannelClosed(handler),
+        onCatchUp: (handler) => this.onCatchUp(handler),
+        openOutgoing: (bid, epoch) => this.openOutgoingChannel(bid, epoch),
+        closeOutgoing: (cid) => this.closeOutgoingChannel(cid),
+        sendToOutgoing: (cid, msg) => this.sendToOutgoingChannel(cid, msg),
+      },
+      catalog: {
+        publishSnapshot: () => this.publishCatalogSnapshot(),
+        publishEvent: (t, s) => this.publishCatalogEvent(t, s),
+        broadcastSessionEvent: (t, s) => this.broadcastSessionEvent(t, s),
+        subscribeOutgoing: (bid, epoch, rev?) => this.subscribeOutgoingCatalog(bid, epoch, rev),
+        unsubscribeOutgoing: (bid, epoch) => this.unsubscribeOutgoingCatalog(bid, epoch),
+      },
+      stream: {
+        emitRunEvent: (sid, rid, et, seq, p) => this.emitRunStreamEvent(sid, rid, et, seq, p),
+        openOutgoing: (cid, sid) => this.openOutgoingStream(cid, sid),
+        closeOutgoing: (cid, sid) => this.closeOutgoingStream(cid, sid),
+        catchUpOutgoing: (cid, sid, off) => this.catchUpOutgoingStream(cid, sid, off),
+      },
+    };
+
+    this.queries = {
+      identity: {
+        getInstanceId: () => this.getInstanceId(),
+        getDeviceId: () => this.getDeviceId(),
+        getBackendId: () => this.getBackendId(),
+        getEpoch: () => this.getEpoch(),
+      },
+      connection: {
+        isConnected: () => this.isGatewayConnected(),
+        getStreamDemandActive: () => this.getStreamDemandActive(),
+        getGatewayUrl: () => this.getGatewayUrl(),
+        getGatewaySecret: () => this.getGatewaySecret(),
+        createHttpAgent: () => this.createHttpAgent(),
+      },
+      registry: {
+        getItems: () => this.getRegistryItems(),
+        getRevision: () => this.getRegistryRevision(),
+        getDiscoveredBackends: () => this.getDiscoveredBackends(),
+      },
+      channel: {
+        getOutgoing: (bid) => this.getOutgoingChannel(bid),
+        getAllOutgoing: () => this.getAllOutgoingChannels(),
+      },
+    };
+
+    this.events = {
+      setOutgoingEvents: (e) => this.setOutgoingEvents(e),
+    };
   }
 
   // ==========================================================================
