@@ -18,6 +18,7 @@ import { registerBuiltinCommands } from './commands/init.js';
 import { sanitizeInheritedProviderEnv } from './utils/startup-env.js';
 import { isIgnorableProcessError } from './utils/process-error-filter.js';
 import { cancelRunsForClosedChannel } from './gateway-channel-cleanup.js';
+import { EmbeddedBackendFacadeProvider } from './facade/embedded-provider.js';
 
 const sanitizedEnv = sanitizeInheritedProviderEnv();
 if (sanitizedEnv.removedKeys.length > 0) {
@@ -56,6 +57,7 @@ const GATEWAY_NAME = process.env.GATEWAY_NAME || `Backend on ${os.hostname()}`;
 
 let gatewayClient: GatewayClient | null = null;
 let serverContext: ServerContext | null = null;
+let facadeProvider: EmbeddedBackendFacadeProvider | null = null;
 // Actual port the server is listening on (resolved after server.listen)
 let actualPort = PORT;
 const virtualClients = new Map<string, ReturnType<typeof createVirtualClient>>();
@@ -194,6 +196,15 @@ async function connectToGateway(config: GatewayConfig): Promise<void> {
 
   gatewayClient.connect();
 
+  // Start facade provider (wraps gateway client for UI facade WS)
+  if (facadeProvider) {
+    facadeProvider.disconnect();
+  }
+  facadeProvider = new EmbeddedBackendFacadeProvider(gatewayClient, null, actualPort);
+  facadeProvider.connect();
+  serverContext.setFacadeHub(facadeProvider.getWsHub());
+  console.log(`   Facade WS endpoint: ws://${HOST}:${actualPort}/ws/backend-facade`);
+
   // Set identity immediately
   serverContext.updateGatewayIdentity(gatewayClient.getInstanceId(), gatewayClient.getDeviceId());
 
@@ -213,6 +224,11 @@ async function connectToGateway(config: GatewayConfig): Promise<void> {
 }
 
 async function disconnectFromGateway(): Promise<void> {
+  if (facadeProvider) {
+    facadeProvider.disconnect();
+    facadeProvider = null;
+    serverContext?.setFacadeHub(null);
+  }
   if (gatewayClient) {
     console.log('📡 Disconnecting from Gateway V2...');
     const syncInterval = (gatewayClient as any)._syncInterval;

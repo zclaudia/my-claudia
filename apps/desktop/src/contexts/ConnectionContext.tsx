@@ -2,6 +2,7 @@ import { createContext, useContext, useCallback, useEffect, type ReactNode } fro
 import { useMultiServerSocket } from '../hooks/useMultiServerSocket';
 import { useEmbeddedServer, type EmbeddedServerStatus } from '../hooks/useEmbeddedServer';
 import { useWslServer, type WslServerState } from '../hooks/useWslServer';
+import { useBackendFacade } from '../hooks/useBackendFacade';
 import { usePermissionStore } from '../stores/permissionStore';
 import { usePromptRequestStore } from '../stores/promptRequestStore';
 import { useServerStore } from '../stores/serverStore';
@@ -62,6 +63,9 @@ export function ConnectionProvider({
   // WSL server hook — must live at this level (not in WindowsSetup) so the
   // spawned wsl.exe process and its event listeners survive component unmounts.
   const wslServer = useWslServer();
+
+  // Initialize BackendFacade — syncs facade state to gatewayStore for backward compat
+  useBackendFacade();
 
   // Update the local server address when the embedded server is ready
   useEffect(() => {

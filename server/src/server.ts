@@ -140,6 +140,7 @@ let notificationService: NotificationService;
 let serverPort: number | null = null;
 let notificationFeedService: import('./domains/notification-feed/service.js').NotificationFeedService | undefined;
 let taskOrchestrator: import('./orchestration/types.js').TaskOrchestrator | undefined;
+let facadeHubRef: import('./facade/ws-hub.js').FacadeWsHub | null = null;
 
 // Re-exports for backward compatibility
 export type { ConnectedClient, MessageSender };
@@ -187,6 +188,7 @@ export interface ServerContext {
   setGatewayConnector: (connector: (config: GatewayConfig) => Promise<void>) => void;
   setGatewayDisconnector: (disconnector: () => Promise<void>) => void;
   setServerPort: (port: number) => void;
+  setFacadeHub: (hub: import('./facade/ws-hub.js').FacadeWsHub | null) => void;
 }
 
 export async function createServer(): Promise<ServerContext> {
@@ -247,6 +249,16 @@ export async function createServer(): Promise<ServerContext> {
   // Create WebSocket server
   const wss = new WebSocketServer({ noServer: true });
 
+  // Create facade WebSocket server (for /ws/backend-facade)
+  const facadeWss = new WebSocketServer({ noServer: true });
+  facadeWss.on('connection', (ws) => {
+    if (facadeHubRef) {
+      facadeHubRef.attachClient(ws);
+    } else {
+      ws.close();
+    }
+  });
+
   // Upgrade handler routes to WebSocketServer
   server.on('upgrade', (req: IncomingMessage, socket, head) => {
     socket.on('error', (err) => {
@@ -257,6 +269,13 @@ export async function createServer(): Promise<ServerContext> {
     if (url === '/ws' || url.startsWith('/ws?')) {
       wss.handleUpgrade(req, socket, head, (ws) => {
         wss.emit('connection', ws, req);
+      });
+      return;
+    }
+
+    if (url === '/ws/backend-facade' || url.startsWith('/ws/backend-facade?')) {
+      facadeWss.handleUpgrade(req, socket, head, (ws) => {
+        facadeWss.emit('connection', ws, req);
       });
       return;
     }
@@ -453,6 +472,9 @@ export async function createServer(): Promise<ServerContext> {
     updateDiscoveredBackends: setup.updateDiscoveredBackends,
     setServerPort: (port: number) => {
       serverPort = port;
+    },
+    setFacadeHub: (hub) => {
+      facadeHubRef = hub;
     },
   };
 }
