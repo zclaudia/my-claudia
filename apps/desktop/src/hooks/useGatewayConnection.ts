@@ -19,11 +19,16 @@ import type { MessageWithToolCalls } from '../stores/chatStore';
 import { handleServerMessage } from '../services/messageHandler';
 import { getServerGatewayStatus } from '../services/api';
 import { startSessionSync, stopSessionSync } from '../services/sessionSync';
+import { useFacadeStore } from '../stores/facadeStore';
 
 const RECONNECT_INTERVAL = 3000;
 const MAX_RECONNECT_ATTEMPTS = 30;
 
 export function useGatewayConnection() {
+  // When facade is active, skip transport creation — facade handles gateway communication.
+  // Only keep gateway config polling and session sync.
+  const facadeActive = useFacadeStore((s) => s.facade !== null);
+
   const transportRef = useRef<GatewayTransport | null>(null);
   const reconnectAttemptRef = useRef(0);
   const reconnectTimeoutRef = useRef<number | null>(null);
@@ -475,7 +480,9 @@ export function useGatewayConnection() {
   }, [stopGatewaySessionSync]);
 
   // Reconnect immediately when app returns to foreground (mobile background/foreground)
+  // Skip when facade is active — facade handles reconnection
   useEffect(() => {
+    if (facadeActive) return;
     const handleVisibilityChange = () => {
       if (document.visibilityState !== 'visible') return;
       const transport = transportRef.current;
@@ -491,10 +498,25 @@ export function useGatewayConnection() {
     };
     document.addEventListener('visibilitychange', handleVisibilityChange);
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
-  }, []);
+  }, [facadeActive]);
 
   // Create/destroy transport when gateway config changes
+  // Skip when facade is active — facade handles gateway communication
   useEffect(() => {
+    if (facadeActive) {
+      // Facade handles transport — clean up any leftover legacy transport
+      if (transportRef.current) {
+        transportRef.current.disconnect();
+        transportRef.current = null;
+      }
+      clearActiveSessionStreamRef();
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+        reconnectTimeoutRef.current = null;
+      }
+      return;
+    }
+
     if (!gatewayUrl || !gatewaySecret) {
       // No gateway config — clean up
       if (transportRef.current) {
@@ -532,10 +554,12 @@ export function useGatewayConnection() {
       }
       stopGatewaySessionSync();
     };
-  }, [gatewayUrl, gatewaySecret, clearActiveSessionStreamRef, createTransport, markGatewayBackendsDisconnected, setConnected, stopGatewaySessionSync]);
+  }, [facadeActive, gatewayUrl, gatewaySecret, clearActiveSessionStreamRef, createTransport, markGatewayBackendsDisconnected, setConnected, stopGatewaySessionSync]);
 
   // V2: Auto-open channel + subscribe catalog when active server changes to a gateway target
+  // Skip when facade is active — facade handles channel management
   useEffect(() => {
+    if (facadeActive) return;
     if (!activeServerId || !isGatewayTarget(activeServerId)) return;
     const transport = transportRef.current;
     if (!transport || !transport.isConnected()) return;
@@ -552,10 +576,12 @@ export function useGatewayConnection() {
     setServerConnectionStatus(activeServerId, 'connecting');
     transport.openChannel(backendId, presence.epoch);
     transport.subscribeCatalog(backendId, presence.epoch);
-  }, [activeServerId, setBackendAuthStatus, setServerConnectionStatus]);
+  }, [facadeActive, activeServerId, setBackendAuthStatus, setServerConnectionStatus]);
 
   // V2: Auto-open channels for all online backends
+  // Skip when facade is active — facade handles channel management
   useEffect(() => {
+    if (facadeActive) return;
     if (!isGatewayConnected) return;
     const transport = transportRef.current;
     if (!transport?.isConnected()) return;
@@ -571,7 +597,7 @@ export function useGatewayConnection() {
       transport.openChannel(backendId, presence.epoch);
       transport.subscribeCatalog(backendId, presence.epoch);
     }
-  }, [isGatewayConnected, discoveredBackends, setBackendAuthStatus, setServerConnectionStatus]);
+  }, [facadeActive, isGatewayConnected, discoveredBackends, setBackendAuthStatus, setServerConnectionStatus]);
 
   // When localBackendId becomes available, clean up any stale remote sessions
   // that leaked through the gateway before the guard was active (startup timing window)
@@ -581,19 +607,28 @@ export function useGatewayConnection() {
     }
   }, [localBackendId]);
 
+  // Skip session stream management when facade is active — facade handles streams
   useEffect(() => {
+    if (facadeActive) return;
     if (!selectedSessionId || !activeServerId || !isGatewayTarget(activeServerId)) {
       closeActiveSessionStream();
       return;
     }
 
     ensureActiveSessionStream();
-  }, [activeServerId, closeActiveSessionStream, ensureActiveSessionStream, selectedSessionId]);
+  }, [facadeActive, activeServerId, closeActiveSessionStream, ensureActiveSessionStream, selectedSessionId]);
 
   // V2: No heartbeat polling needed — registry is push-based
 
-  // Public API (v2)
+  // Public API (v2) — delegates to facade when active
   const openChannel = useCallback((backendId: string) => {
+    // When facade is active, delegate to facade
+    const facade = useFacadeStore.getState().facade;
+    if (facade) {
+      facade.openBackend(backendId);
+      return;
+    }
+
     const transport = transportRef.current;
     if (!transport || !transport.isConnected()) {
       console.error('[GatewayConn] Cannot open channel: gateway not connected');
@@ -613,6 +648,13 @@ export function useGatewayConnection() {
   }, [setBackendAuthStatus]);
 
   const sendToBackend = useCallback((backendId: string, message: ClientMessage) => {
+    // When facade is active, delegate to facade
+    const facade = useFacadeStore.getState().facade;
+    if (facade) {
+      facade.sendToBackend(backendId, message);
+      return;
+    }
+
     const transport = transportRef.current;
     if (!transport || !transport.isConnected()) {
       console.error('[GatewayConn] Cannot send: gateway not connected');
@@ -622,10 +664,25 @@ export function useGatewayConnection() {
   }, []);
 
   const isBackendConnected = useCallback((backendId: string) => {
+    // When facade is active, check facade snapshot
+    const facade = useFacadeStore.getState().facade;
+    if (facade) {
+      const snapshot = facade.getSnapshot();
+      const backend = snapshot.backends.find(b => b.backendId === backendId);
+      return backend?.runtimeState === 'ready';
+    }
+
     return !!transportRef.current?.getChannelId(backendId);
   }, []);
 
   const disconnectGateway = useCallback(() => {
+    // When facade is active, delegate to facade
+    const facade = useFacadeStore.getState().facade;
+    if (facade) {
+      facade.disconnect();
+      return;
+    }
+
     if (transportRef.current) {
       transportRef.current.disconnect();
       transportRef.current = null;
