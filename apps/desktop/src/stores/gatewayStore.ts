@@ -1,55 +1,58 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { GatewayBackendInfo, BackendPresence } from '@my-claudia/shared';
+import type { GatewayBackendInfo, BackendPresence, BackendSnapshot } from '@my-claudia/shared';
 
 export type BackendAuthStatus = 'authenticated' | 'pending' | 'failed';
 
 interface GatewayState {
-  // Runtime state — synced from server (NOT persisted)
+  // ---------------------------------------------------------------------------
+  // Runtime state — managed by facade sync bridge (NOT persisted)
+  // When facade is active, these fields are written by useBackendFacade's
+  // syncToGatewayStore(). Do NOT write to them from other sources.
+  // ---------------------------------------------------------------------------
   gatewayUrl: string | null;
   gatewaySecret: string | null;
   isConnected: boolean;
-  backendRegistered: boolean;  // Whether this instance registered as backend on gateway
-  localBackendId: string | null;  // This server's own backendId (for isLocal filtering)
-  currentInstanceId: string | null;  // This server's instanceId
-  currentDeviceId: string | null;    // This server's deviceId
+  backendRegistered: boolean;
+  localBackendId: string | null;
+  currentInstanceId: string | null;
+  currentDeviceId: string | null;
   discoveredBackends: GatewayBackendInfo[];
   backendAuthStatus: Record<string, BackendAuthStatus>;
-
-  // Registry from gateway (Phase 2) — keyed by backendId
   registry: Record<string, BackendPresence>;
 
-  // Direct gateway config — for mobile clients (persisted)
+  // ---------------------------------------------------------------------------
+  // UI preferences — persisted, NOT managed by facade
+  // These are user settings that survive across sessions.
+  // ---------------------------------------------------------------------------
   directGatewayUrl: string | null;
   directGatewaySecret: string | null;
-  lastActiveBackendId: string | null; // e.g. "gw:abc123"
-
-  // Backend subscription — empty array means "subscribe to all" (default)
+  lastActiveBackendId: string | null;
   subscribedBackendIds: string[];
+  showLocalBackend: boolean;
 
-  // Actions
+  // ---------------------------------------------------------------------------
+  // Runtime state actions
+  // ---------------------------------------------------------------------------
   syncFromServer: (url: string | null, secret: string | null, backends: GatewayBackendInfo[], backendId?: string | null, connected?: boolean, instanceId?: string | null, deviceId?: string | null) => void;
   setConnected: (connected: boolean) => void;
   setDiscoveredBackends: (backends: GatewayBackendInfo[]) => void;
   setBackendAuthStatus: (backendId: string, status: BackendAuthStatus) => void;
   clearGateway: () => void;
 
-  // Registry actions (Phase 2)
+  // Registry actions
   setRegistrySnapshot: (entries: BackendPresence[]) => void;
   upsertRegistryEntry: (entry: BackendPresence) => void;
   removeRegistryEntry: (backendId: string) => void;
 
-  // Mobile direct config actions
+  // ---------------------------------------------------------------------------
+  // UI preference actions
+  // ---------------------------------------------------------------------------
   setDirectGatewayConfig: (url: string, secret: string) => void;
   setLastActiveBackend: (serverId: string | null) => void;
   clearDirectGatewayConfig: () => void;
-
-  // Subscription actions
   toggleBackendSubscription: (backendId: string) => void;
   isBackendSubscribed: (backendId: string) => boolean;
-
-  // Dev debug
-  showLocalBackend: boolean;
   setShowLocalBackend: (show: boolean) => void;
 
   // Getters
@@ -88,9 +91,10 @@ function deriveBackendsFromRegistry(
 /**
  * Whether a backend should be shown in UI lists.
  * Hide "this instance" (the embedded server) unless showLocalBackend is on.
+ * Accepts both GatewayBackendInfo and BackendSnapshot (facade model).
  */
 export function shouldShowBackend(
-  backend: GatewayBackendInfo,
+  backend: GatewayBackendInfo | BackendSnapshot,
   currentInstanceId: string | null,
   showLocalBackend: boolean
 ): boolean {
