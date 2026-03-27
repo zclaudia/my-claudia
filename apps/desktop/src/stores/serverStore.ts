@@ -62,7 +62,7 @@ interface ServerState {
 }
 
 export const useServerStore = create<ServerState>()((set, get) => ({
-  activeServerId: null,
+  activeServerId: 'local',
   connections: {},
   localServerPort: null,
   // Legacy global state

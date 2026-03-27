@@ -19,6 +19,10 @@ import { sanitizeInheritedProviderEnv } from './utils/startup-env.js';
 import { isIgnorableProcessError } from './utils/process-error-filter.js';
 import { cancelRunsForClosedChannel } from './gateway-channel-cleanup.js';
 import { EmbeddedBackendFacadeProvider } from './facade/embedded-provider.js';
+import { StandaloneBackendFacadeProvider } from './facade/standalone-provider.js';
+import type { LocalBackendHandler } from './facade/embedded-adapter.js';
+import type { SessionCatalogItem } from '@my-claudia/shared';
+import { hasForegroundActiveRunForSession } from './utils/run-state.js';
 
 const sanitizedEnv = sanitizeInheritedProviderEnv();
 if (sanitizedEnv.removedKeys.length > 0) {
@@ -320,6 +324,80 @@ function probeMacOSFolderPermissions(): void {
   }
 }
 
+/**
+ * Create a LocalBackendHandler that routes facade messages to the server's
+ * internal message handler, providing in-process short-circuit for the
+ * local embedded backend.
+ */
+function createLocalBackendHandler(): LocalBackendHandler {
+  // Virtual client for facade-routed messages (shares lifecycle with facade)
+  let facadeVirtualClient: ReturnType<typeof createVirtualClient> | null = null;
+
+  return {
+    onMessage: async (message) => {
+      if (!serverContext) return;
+      if (!facadeVirtualClient) {
+        facadeVirtualClient = createVirtualClient('facade-local', {
+          send: (_msg: ServerMessage) => {
+            // Responses to facade-routed messages go through the facade's event system,
+            // not back through this virtual client. The server's WS broadcast handlers
+            // and run event emitters will push to connected WS clients and gateway.
+          },
+        });
+      }
+      await serverContext.handleMessage(facadeVirtualClient, message);
+    },
+    onStreamOpen: (_sessionId) => {
+      // Stream open is handled at the facade level — no server-side action needed
+    },
+    onStreamClose: (_sessionId) => {
+      // Stream close is handled at the facade level
+    },
+    onCatchUp: async (sessionId, afterOffset) => {
+      if (!serverContext) return [];
+      try {
+        const rows = serverContext.db.prepare(`
+          SELECT id as messageId, session_id as sessionId, offset, role, created_at as createdAt, content
+          FROM messages
+          WHERE session_id = ? AND offset > ?
+          ORDER BY offset ASC
+        `).all(sessionId, afterOffset) as any[];
+        return rows.map((r: any) => ({
+          messageId: r.messageId,
+          sessionId: r.sessionId,
+          offset: r.offset,
+          role: r.role,
+          createdAt: r.createdAt,
+          content: r.content ? JSON.parse(r.content) : null,
+        }));
+      } catch (error) {
+        console.error('[LocalHandler] Catch-up error:', error);
+        return [];
+      }
+    },
+    getCatalogItems: () => {
+      if (!serverContext) return [];
+      try {
+        const sessions = serverContext.db.prepare(`
+          SELECT s.id, s.name, s.created_at as createdAt, s.updated_at as updatedAt
+          FROM sessions s ORDER BY s.updated_at DESC
+        `).all() as any[];
+        return sessions.map((s: any): SessionCatalogItem => ({
+          sessionId: s.id,
+          title: s.name || undefined,
+          createdAt: s.createdAt,
+          updatedAt: s.updatedAt,
+          lastMessageAt: s.updatedAt,
+          activeRunStatus: hasForegroundActiveRunForSession(activeRuns, s.id) ? 'running' : 'idle',
+        }));
+      } catch {
+        return [];
+      }
+    },
+    getCapabilities: () => [...ALL_SERVER_FEATURES],
+  };
+}
+
 async function main() {
   try {
     serverContext = await createServer();
@@ -368,6 +446,22 @@ async function main() {
       console.log(`SERVER_READY:${actualPort}`);
       console.log(`🚀 MyClaudia Server running at http://${HOST}:${actualPort}`);
       console.log(`📡 WebSocket endpoint: ws://${HOST}:${actualPort}/ws`);
+
+      // Start standalone facade immediately (no gateway required).
+      // This ensures /ws/backend-facade is available even without gateway.
+      // Will be replaced by EmbeddedBackendFacadeProvider when gateway connects.
+      if (!facadeProvider) {
+        const standaloneFacade = new StandaloneBackendFacadeProvider({
+          serverPort: actualPort,
+          instanceId: 'standalone',
+          deviceId: 'standalone',
+          localHandler: createLocalBackendHandler(),
+        });
+        standaloneFacade.connect();
+        facadeProvider = standaloneFacade as any;
+        serverContext!.setFacadeHub(standaloneFacade.getWsHub());
+        console.log(`📡 Facade WS endpoint: ws://${HOST}:${actualPort}/ws/backend-facade (standalone)`);
+      }
 
       // Probe TCC-protected folders so macOS consent dialogs appear now
       // (while user is at the keyboard) rather than during remote sessions.

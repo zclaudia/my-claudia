@@ -160,6 +160,11 @@ function syncToGatewayStore(event: BackendFacadeEvent): void {
         currentInstanceId: snapshot.currentInstanceId,
         currentDeviceId: snapshot.currentDeviceId,
       });
+      // Auto-set activeServerId to local backend if not yet set or still 'local'
+      const serverState = useServerStore.getState();
+      if (snapshot.localBackendId && (!serverState.activeServerId || serverState.activeServerId === 'local')) {
+        serverState.setActiveServer(snapshot.localBackendId);
+      }
       break;
     }
 

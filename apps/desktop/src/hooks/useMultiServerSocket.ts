@@ -1,8 +1,9 @@
 /**
  * Multi-Server WebSocket Hook
  *
- * All backend connections go through the BackendFacade.
- * This hook provides backward-compatible API for ConnectionContext consumers.
+ * All backend connections (including local embedded server) go through
+ * the BackendFacade. This hook provides backward-compatible API for
+ * ConnectionContext consumers.
  */
 
 import { useCallback } from 'react';
@@ -21,7 +22,6 @@ export function useMultiServerSocket() {
       facade.openBackend(backendId);
       return;
     }
-    // Fallback to gateway connection (legacy)
     gatewayConnection.openChannel(backendId);
   }, [gatewayConnection]);
 
@@ -38,7 +38,6 @@ export function useMultiServerSocket() {
       facade.sendToBackend(backendId, message);
       return;
     }
-    // Fallback to gateway connection (legacy)
     gatewayConnection.sendToBackend(backendId, message);
   }, [gatewayConnection]);
 
