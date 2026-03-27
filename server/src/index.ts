@@ -111,7 +111,7 @@ async function connectToGateway(config: GatewayConfig): Promise<void> {
   if (gatewayClient) {
     const syncInterval = (gatewayClient as any)._syncInterval;
     if (syncInterval) clearInterval(syncInterval);
-    gatewayClient.disconnect();
+    gatewayClient.commands.connection.disconnect();
   }
 
   console.log(`\n🌐 Gateway V2 connection configured:`);
@@ -146,14 +146,14 @@ async function connectToGateway(config: GatewayConfig): Promise<void> {
   gatewayClient = new GatewayClient(gatewayClientConfig, serverContext.db, activeRuns);
   setGatewayClient(gatewayClient);
 
-  gatewayClient.onChannelMessage(async (channelId, message) => {
+  gatewayClient.commands.channel.onIncomingMessage(async (channelId, message) => {
     if (!serverContext) return;
 
     let virtualClient = virtualClients.get(channelId);
     if (!virtualClient) {
       virtualClient = createVirtualClient(channelId, {
         send: (msg: ServerMessage) => {
-          gatewayClient?.sendToChannel(channelId, msg);
+          gatewayClient?.commands.channel.sendToIncoming(channelId, msg);
         }
       });
       virtualClients.set(channelId, virtualClient);
@@ -162,7 +162,7 @@ async function connectToGateway(config: GatewayConfig): Promise<void> {
     await serverContext.handleMessage(virtualClient, message);
   });
 
-  gatewayClient.onChannelClosed((channelId) => {
+  gatewayClient.commands.channel.onIncomingClosed((channelId) => {
     cancelRunsForClosedChannel(channelId, activeRuns, cancelRun);
     virtualClients.delete(channelId);
     connectedClients.delete(channelId);
@@ -170,7 +170,7 @@ async function connectToGateway(config: GatewayConfig): Promise<void> {
   });
 
   // Set up catch-up handler for content recovery
-  gatewayClient.onCatchUp(async (sessionId, afterOffset) => {
+  gatewayClient.commands.channel.onCatchUp(async (sessionId, afterOffset) => {
     if (!serverContext) return [];
     try {
       const rows = serverContext.db.prepare(`
@@ -194,7 +194,7 @@ async function connectToGateway(config: GatewayConfig): Promise<void> {
     }
   });
 
-  gatewayClient.connect();
+  gatewayClient.commands.connection.connect();
 
   // Start facade provider (wraps gateway client for UI facade WS)
   if (facadeProvider) {
@@ -206,17 +206,17 @@ async function connectToGateway(config: GatewayConfig): Promise<void> {
   console.log(`   Facade WS endpoint: ws://${HOST}:${actualPort}/ws/backend-facade`);
 
   // Set identity immediately
-  serverContext.updateGatewayIdentity(gatewayClient.getInstanceId(), gatewayClient.getDeviceId());
+  serverContext.updateGatewayIdentity(gatewayClient.queries.identity.getInstanceId(), gatewayClient.queries.identity.getDeviceId());
 
   // Sync gateway status periodically
   const syncGatewayStatus = setInterval(() => {
     if (gatewayClient && serverContext) {
-      serverContext.updateGatewayConnected(gatewayClient.isGatewayConnected());
-      const backendId = gatewayClient.getBackendId();
+      serverContext.updateGatewayConnected(gatewayClient.queries.connection.isConnected());
+      const backendId = gatewayClient.queries.identity.getBackendId();
       if (backendId) {
         serverContext.updateGatewayBackendId(backendId);
       }
-      serverContext.updateDiscoveredBackends(gatewayClient.getDiscoveredBackends());
+      serverContext.updateDiscoveredBackends(gatewayClient.queries.registry.getDiscoveredBackends());
     }
   }, 2000);
 
@@ -233,7 +233,7 @@ async function disconnectFromGateway(): Promise<void> {
     console.log('📡 Disconnecting from Gateway V2...');
     const syncInterval = (gatewayClient as any)._syncInterval;
     if (syncInterval) clearInterval(syncInterval);
-    gatewayClient.disconnect();
+    gatewayClient.commands.connection.disconnect();
     setGatewayClient(null);
     gatewayClient = null;
     for (const channelId of virtualClients.keys()) {
@@ -415,7 +415,7 @@ async function main() {
 
       // Disconnect from Gateway
       if (gatewayClient) {
-        gatewayClient.disconnect();
+        gatewayClient.commands.connection.disconnect();
       }
       // Deactivate all plugins (cleanup schedulers, event listeners, etc.)
       await pluginLoader.deactivateAll();

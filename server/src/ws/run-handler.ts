@@ -322,7 +322,7 @@ export async function handleRunStart(
     `).get(message.sessionId);
 
     if (updatedSession) {
-      gatewayClient.broadcastSessionEvent('updated', updatedSession);
+      gatewayClient.commands.catalog.broadcastSessionEvent('updated', updatedSession);
     }
   };
 

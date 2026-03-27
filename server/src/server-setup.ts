@@ -376,7 +376,7 @@ export function setupRoutesAndServices(deps: SetupDependencies): SetupResult {
     const subPath = req.params[0] || '';
 
     const gatewayClient = getGatewayClient();
-    if (!gatewayClient || !gatewayClient.isGatewayConnected()) {
+    if (!gatewayClient || !gatewayClient.queries.connection.isConnected()) {
       res.status(502).json({
         success: false,
         error: { code: 'GATEWAY_NOT_CONNECTED', message: 'Gateway client not connected' },
@@ -385,12 +385,12 @@ export function setupRoutesAndServices(deps: SetupDependencies): SetupResult {
     }
 
     try {
-      const targetUrl = `${gatewayClient.getGatewayUrl()}/api/proxy/${backendId}/${subPath}`;
+      const targetUrl = `${gatewayClient.queries.connection.getGatewayUrl()}/api/proxy/${backendId}/${subPath}`;
       const qs = req.originalUrl.split('?')[1];
       const fullUrl = qs ? `${targetUrl}?${qs}` : targetUrl;
 
       const headers: Record<string, string> = {
-        authorization: `Bearer ${gatewayClient.getGatewaySecret()}`,
+        authorization: `Bearer ${gatewayClient.queries.connection.getGatewaySecret()}`,
       };
       for (const [key, value] of Object.entries(req.headers)) {
         const lowerKey = key.toLowerCase();
@@ -399,7 +399,7 @@ export function setupRoutesAndServices(deps: SetupDependencies): SetupResult {
         headers[key] = Array.isArray(value) ? value.join(', ') : value;
       }
 
-      const agent = gatewayClient.createHttpAgent();
+      const agent = gatewayClient.queries.connection.createHttpAgent();
       const body = !['GET', 'HEAD'].includes(req.method)
         ? (Buffer.isBuffer(req.body)
           ? req.body

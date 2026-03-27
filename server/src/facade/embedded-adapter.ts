@@ -61,29 +61,29 @@ export class EmbeddedGatewayAdapter implements FacadeRuntimeGatewayAdapter {
 
   readonly commands: FacadeAdapterCommands = {
     connection: {
-      connect: () => this.gatewayClient.connect(),
-      disconnect: () => this.gatewayClient.disconnect(),
+      connect: () => this.gatewayClient.commands.connection.connect(),
+      disconnect: () => this.gatewayClient.commands.connection.disconnect(),
     },
     channel: {
       openBackendChannel: (backendId, epoch) => {
         if (this.isLocalBackend(backendId)) {
           this.handleLocalChannelOpen(backendId, epoch);
         } else {
-          this.gatewayClient.openOutgoingChannel(backendId, epoch);
+          this.gatewayClient.commands.channel.openOutgoing(backendId, epoch);
         }
       },
       closeBackendChannel: (channelId) => {
         if (this.isLocalChannel(channelId)) {
           this.handleLocalChannelClose(channelId);
         } else {
-          this.gatewayClient.closeOutgoingChannel(channelId);
+          this.gatewayClient.commands.channel.closeOutgoing(channelId);
         }
       },
       sendToBackend: (channelId, message) => {
         if (this.isLocalChannel(channelId)) {
           this.handleLocalMessage(channelId, message);
         } else {
-          this.gatewayClient.sendToOutgoingChannel(channelId, message);
+          this.gatewayClient.commands.channel.sendToOutgoing(channelId, message);
         }
       },
     },
@@ -92,12 +92,12 @@ export class EmbeddedGatewayAdapter implements FacadeRuntimeGatewayAdapter {
         if (this.isLocalBackend(backendId)) {
           this.handleLocalCatalogSubscribe(backendId, epoch);
         } else {
-          this.gatewayClient.subscribeOutgoingCatalog(backendId, epoch, lastRevision);
+          this.gatewayClient.commands.catalog.subscribeOutgoing(backendId, epoch, lastRevision);
         }
       },
       unsubscribe: (backendId, epoch) => {
         if (!this.isLocalBackend(backendId)) {
-          this.gatewayClient.unsubscribeOutgoingCatalog(backendId, epoch);
+          this.gatewayClient.commands.catalog.unsubscribeOutgoing(backendId, epoch);
         }
       },
     },
@@ -106,21 +106,21 @@ export class EmbeddedGatewayAdapter implements FacadeRuntimeGatewayAdapter {
         if (this.isLocalChannel(channelId)) {
           this.localHandler?.onStreamOpen(sessionId);
         } else {
-          this.gatewayClient.openOutgoingStream(channelId, sessionId);
+          this.gatewayClient.commands.stream.openOutgoing(channelId, sessionId);
         }
       },
       close: (channelId, sessionId) => {
         if (this.isLocalChannel(channelId)) {
           this.localHandler?.onStreamClose(sessionId);
         } else {
-          this.gatewayClient.closeOutgoingStream(channelId, sessionId);
+          this.gatewayClient.commands.stream.closeOutgoing(channelId, sessionId);
         }
       },
       catchUp: (channelId, sessionId, afterOffset) => {
         if (this.isLocalChannel(channelId)) {
           this.handleLocalCatchUp(channelId, sessionId, afterOffset);
         } else {
-          this.gatewayClient.catchUpOutgoingStream(channelId, sessionId, afterOffset);
+          this.gatewayClient.commands.stream.catchUpOutgoing(channelId, sessionId, afterOffset);
         }
       },
     },
@@ -129,22 +129,22 @@ export class EmbeddedGatewayAdapter implements FacadeRuntimeGatewayAdapter {
   readonly queries: FacadeAdapterQueries = {
     bootstrap: {
       getInitialState: (): FacadeAdapterBootstrapState => {
-        const registryItems = Array.from(this.gatewayClient.getRegistryItems().values());
+        const registryItems = Array.from(this.gatewayClient.queries.registry.getItems().values());
         const channels: Array<{ backendId: string; channelId: string; epoch: number }> = [];
-        for (const [, ch] of this.gatewayClient.getAllOutgoingChannels()) {
+        for (const [, ch] of this.gatewayClient.queries.channel.getAllOutgoing()) {
           channels.push({ backendId: ch.backendId, channelId: ch.channelId, epoch: ch.epoch });
         }
         return {
           capturedAt: Date.now(),
           connection: {
-            state: this.gatewayClient.isGatewayConnected() ? 'connected' : 'idle',
+            state: this.gatewayClient.queries.connection.isConnected() ? 'connected' : 'idle',
           },
           identity: {
-            instanceId: this.gatewayClient.getInstanceId(),
-            deviceId: this.gatewayClient.getDeviceId(),
+            instanceId: this.gatewayClient.queries.identity.getInstanceId(),
+            deviceId: this.gatewayClient.queries.identity.getDeviceId(),
           },
           registry: {
-            revision: this.gatewayClient.getRegistryRevision(),
+            revision: this.gatewayClient.queries.registry.getRevision(),
             items: registryItems,
           },
           channels: { items: channels },
@@ -152,24 +152,24 @@ export class EmbeddedGatewayAdapter implements FacadeRuntimeGatewayAdapter {
       },
     },
     connection: {
-      getState: () => (this.gatewayClient.isGatewayConnected() ? 'connected' : 'disconnected') as FacadeAdapterConnectionState,
+      getState: () => (this.gatewayClient.queries.connection.isConnected() ? 'connected' : 'disconnected') as FacadeAdapterConnectionState,
     },
     identity: {
-      getInstanceId: () => this.gatewayClient.getInstanceId(),
-      getDeviceId: () => this.gatewayClient.getDeviceId(),
+      getInstanceId: () => this.gatewayClient.queries.identity.getInstanceId(),
+      getDeviceId: () => this.gatewayClient.queries.identity.getDeviceId(),
     },
     registry: {
-      getRevision: () => this.gatewayClient.getRegistryRevision(),
-      getSnapshot: () => this.gatewayClient.getRegistryItems(),
+      getRevision: () => this.gatewayClient.queries.registry.getRevision(),
+      getSnapshot: () => this.gatewayClient.queries.registry.getItems(),
     },
     channel: {
       get: (backendId) => {
-        const ch = this.gatewayClient.getOutgoingChannel(backendId);
+        const ch = this.gatewayClient.queries.channel.getOutgoing(backendId);
         return ch ? { backendId: ch.backendId, channelId: ch.channelId, epoch: ch.epoch } : undefined;
       },
       getAll: () => {
         const result = new Map<string, { backendId: string; channelId: string; epoch: number }>();
-        for (const [bid, ch] of this.gatewayClient.getAllOutgoingChannels()) {
+        for (const [bid, ch] of this.gatewayClient.queries.channel.getAllOutgoing()) {
           result.set(bid, { backendId: ch.backendId, channelId: ch.channelId, epoch: ch.epoch });
         }
         return result;
@@ -285,7 +285,7 @@ export class EmbeddedGatewayAdapter implements FacadeRuntimeGatewayAdapter {
   // --------------------------------------------------------------------------
 
   private wireGatewayEvents(): void {
-    this.gatewayClient.setOutgoingEvents({
+    this.gatewayClient.events.setOutgoingEvents({
       onConnectionStateChanged: (connected) => {
         this.emit({
           type: 'connection_state_changed',

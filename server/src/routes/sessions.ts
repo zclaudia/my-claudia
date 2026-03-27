@@ -113,7 +113,7 @@ export function createSessionRoutes(db: Database.Database, activeRuns: ActiveRun
             FROM sessions WHERE id = ?
           `).get(id) as Session | undefined;
           if (session) {
-            gatewayClient.broadcastSessionEvent('updated', session);
+            gatewayClient.commands.catalog.broadcastSessionEvent('updated', session);
           }
         }
       }
@@ -163,7 +163,7 @@ export function createSessionRoutes(db: Database.Database, activeRuns: ActiveRun
             FROM sessions WHERE id = ?
           `).get(id) as Session | undefined;
           if (session) {
-            gatewayClient.broadcastSessionEvent('updated', session);
+            gatewayClient.commands.catalog.broadcastSessionEvent('updated', session);
           }
         }
       }
@@ -353,7 +353,7 @@ export function createSessionRoutes(db: Database.Database, activeRuns: ActiveRun
       // Broadcast session created event to subscribed clients
       const gatewayClient = getGatewayClient();
       if (gatewayClient) {
-        gatewayClient.broadcastSessionEvent('created', session);
+        gatewayClient.commands.catalog.broadcastSessionEvent('created', session);
       }
 
       pluginEvents.emit('session.created', { sessionId: id, session }).catch(() => {});
@@ -401,7 +401,7 @@ export function createSessionRoutes(db: Database.Database, activeRuns: ActiveRun
         `).get(req.params.id) as Session | undefined;
 
         if (updatedSession) {
-          gatewayClient.broadcastSessionEvent('updated', updatedSession);
+          gatewayClient.commands.catalog.broadcastSessionEvent('updated', updatedSession);
         }
       }
 
@@ -477,7 +477,7 @@ export function createSessionRoutes(db: Database.Database, activeRuns: ActiveRun
       // Broadcast session updated event
       const gatewayClient = getGatewayClient();
       if (gatewayClient && updatedSession) {
-        gatewayClient.broadcastSessionEvent('updated', updatedSession);
+        gatewayClient.commands.catalog.broadcastSessionEvent('updated', updatedSession);
       }
 
       res.json({ success: true, data: updatedSession } as ApiResponse<Session>);
@@ -523,7 +523,7 @@ export function createSessionRoutes(db: Database.Database, activeRuns: ActiveRun
 
       const gatewayClient = getGatewayClient();
       if (gatewayClient && updatedSession) {
-        gatewayClient.broadcastSessionEvent('updated', updatedSession);
+        gatewayClient.commands.catalog.broadcastSessionEvent('updated', updatedSession);
       }
 
       res.json({ success: true, data: updatedSession } as ApiResponse<Session>);
@@ -563,7 +563,7 @@ export function createSessionRoutes(db: Database.Database, activeRuns: ActiveRun
 
       const gatewayClient = getGatewayClient();
       if (gatewayClient && updatedSession) {
-        gatewayClient.broadcastSessionEvent('updated', updatedSession);
+        gatewayClient.commands.catalog.broadcastSessionEvent('updated', updatedSession);
       }
 
       pluginEvents.emit('session.updated', { sessionId: req.params.id, session: updatedSession }).catch(() => {});
@@ -629,7 +629,7 @@ export function createSessionRoutes(db: Database.Database, activeRuns: ActiveRun
       // Broadcast session deleted event to subscribed clients
       const gatewayClient = getGatewayClient();
       if (gatewayClient) {
-        gatewayClient.broadcastSessionEvent('deleted', session);
+        gatewayClient.commands.catalog.broadcastSessionEvent('deleted', session);
       }
 
       pluginEvents.emit('session.deleted', { sessionId, session }).catch(() => {});
