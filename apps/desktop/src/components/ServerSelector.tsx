@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useServerStore } from '../stores/serverStore';
-import { useGatewayStore, toGatewayServerId, shouldShowBackend } from '../stores/gatewayStore';
+import { useGatewayStore, shouldShowBackend } from '../stores/gatewayStore';
 import { useFacadeStore } from '../stores/facadeStore';
 import { useConnection } from '../contexts/ConnectionContext';
 import { useIsMobile } from '../hooks/useMediaQuery';
@@ -44,7 +44,7 @@ export function ServerSelector() {
 
   const handleBackendClick = (backend: GatewayBackendInfo) => {
     if (!backend.online) return;
-    const serverId = toGatewayServerId(backend.backendId);
+    const serverId = backend.backendId;
     setActiveServer(serverId);
     connectServer(serverId);
     // On mobile, persist the last active backend
@@ -140,9 +140,9 @@ export function ServerSelector() {
                     <GatewayBackendItem
                       key={backend.backendId}
                       backend={backend}
-                      isActive={activeServerId === toGatewayServerId(backend.backendId)}
+                      isActive={activeServerId === backend.backendId}
                       isSubscribed={isBackendSubscribed(backend.backendId)}
-                      latencyMs={connections[toGatewayServerId(backend.backendId)]?.latencyMs}
+                      latencyMs={connections[backend.backendId]?.latencyMs}
                       onClick={() => handleBackendClick(backend)}
                       onToggleSubscription={() => toggleBackendSubscription(backend.backendId)}
                     />

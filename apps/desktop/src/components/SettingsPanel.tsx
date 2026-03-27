@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { useServerStore } from '../stores/serverStore';
 import { useFacadeStore } from '../stores/facadeStore';
-import { useGatewayStore, toGatewayServerId, shouldShowBackend } from '../stores/gatewayStore';
+import { useGatewayStore, shouldShowBackend } from '../stores/gatewayStore';
 import { useUIStore, type FontSizePreset } from '../stores/uiStore';
 import { useConnection } from '../contexts/ConnectionContext';
 import { useIsMobile } from '../hooks/useMediaQuery';
@@ -144,7 +144,7 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
 
   const handleBackendSwitch = (backend: GatewayBackendInfo) => {
     if (!backend.online) return;
-    const serverId = toGatewayServerId(backend.backendId);
+    const serverId = backend.backendId;
     setActiveServer(serverId);
     connectServer(serverId);
     setServerPickerOpen(false);
@@ -434,7 +434,7 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
                             Via Gateway
                           </div>
                           {visibleGatewayBackends.map((backend) => {
-                            const gwId = toGatewayServerId(backend.backendId);
+                            const gwId = backend.backendId;
                             const isActive = activeServerId === gwId;
                             const statusColor = backend.online ? 'bg-success' : 'bg-muted-foreground';
 

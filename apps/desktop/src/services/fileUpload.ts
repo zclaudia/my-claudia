@@ -1,5 +1,5 @@
 import { useServerStore } from '../stores/serverStore';
-import { isGatewayTarget } from '../stores/gatewayStore';
+
 import { getBaseUrl, getAuthHeaders } from './api';
 
 export interface UploadedFile {
@@ -44,7 +44,7 @@ export async function uploadFile(
   const baseUrl = getBaseUrl();
   const authHeaders = getAuthHeaders();
   const activeId = useServerStore.getState().activeServerId;
-  const viaGateway = isGatewayTarget(activeId);
+  const viaGateway = !!activeId;
 
   if (viaGateway) {
     // Gateway mode: send as JSON (gateway proxy can't forward multipart)

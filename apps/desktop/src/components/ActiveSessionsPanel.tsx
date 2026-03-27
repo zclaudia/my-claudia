@@ -2,7 +2,7 @@ import { useMemo, useState, useEffect } from 'react';
 import { useSessionsStore, type RemoteSession, LOCAL_BACKEND_KEY } from '../stores/sessionsStore';
 import { useServerStore } from '../stores/serverStore';
 import { useProjectStore } from '../stores/projectStore';
-import { isGatewayTarget, parseBackendId, shouldShowBackend, useGatewayStore } from '../stores/gatewayStore';
+import { shouldShowBackend, useGatewayStore } from '../stores/gatewayStore';
 
 interface ActiveSessionsPanelProps {
   onSessionSelect?: (backendId: string, sessionId: string) => void;
@@ -35,10 +35,10 @@ export function ActiveSessionsPanel({ onSessionSelect }: ActiveSessionsPanelProp
 
   // Get current backend ID (the one we're connected to via gateway)
   const currentBackendId = useMemo(() => {
-    if (!activeServerId || !isGatewayTarget(activeServerId)) {
+    if (!activeServerId) {
       return null;
     }
-    return parseBackendId(activeServerId);
+    return activeServerId;
   }, [activeServerId]);
 
   const isVisibleGatewayBackend = (backendId: string): boolean => {

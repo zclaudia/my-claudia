@@ -1,6 +1,6 @@
 import type { ApiResponse, ServerFeature } from '@my-claudia/shared';
 import { useServerStore } from '../../stores/serverStore';
-import { isGatewayTarget, parseBackendId } from '../../stores/gatewayStore';
+
 import { resolveGatewayBackendUrl, getGatewayAuthHeaders } from '../gatewayProxy';
 
 /** Check if the active server advertises a specific feature. */
@@ -20,9 +20,8 @@ export function getBaseUrl(): string {
   const activeId = useServerStore.getState().activeServerId;
 
   // Gateway target: delegate to shared gateway proxy resolver
-  if (isGatewayTarget(activeId)) {
-    const backendId = parseBackendId(activeId!);
-    const url = resolveGatewayBackendUrl(backendId);
+  if (activeId) {
+    const url = resolveGatewayBackendUrl(activeId);
     if (!url) throw new Error('Gateway not configured');
     return url;
   }
@@ -40,7 +39,7 @@ export function getAuthHeaders(): HeadersInit {
   const activeId = useServerStore.getState().activeServerId;
 
   // Gateway target: delegate to shared gateway auth resolver
-  if (isGatewayTarget(activeId)) {
+  if (activeId) {
     return getGatewayAuthHeaders();
   }
 

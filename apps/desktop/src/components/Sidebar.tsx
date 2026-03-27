@@ -27,7 +27,6 @@ async function openSessionInNewWindow(sessionId: string, projectId: string) {
 }
 import { useProjectStore } from '../stores/projectStore';
 import { useServerStore } from '../stores/serverStore';
-import { toGatewayServerId } from '../stores/gatewayStore';
 import { useSupervisionStore } from '../stores/supervisionStore';
 import { usePermissionStore } from '../stores/permissionStore';
 import { usePromptRequestStore } from '../stores/promptRequestStore';
@@ -320,7 +319,7 @@ export function Sidebar({
       return;
     }
 
-    selectWithServerContext(toGatewayServerId(backendId));
+    selectWithServerContext(backendId);
   }, [setActiveServer, selectSession]);
 
   const handleCreateProject = async () => {

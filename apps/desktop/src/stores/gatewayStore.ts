@@ -312,23 +312,3 @@ export const useGatewayStore = create<GatewayState>()(
     }
   )
 );
-
-/**
- * Legacy helpers — now identity functions.
- * Direct servers have been removed; all IDs are backendIds.
- * These remain for backward compatibility until all consumers are migrated.
- * @deprecated Use backendId directly.
- */
-export function toGatewayServerId(backendId: string): string {
-  return backendId;
-}
-
-/** @deprecated All server IDs are backend IDs now. */
-export function isGatewayTarget(serverId: string | null): boolean {
-  return !!serverId;
-}
-
-/** @deprecated Use serverId directly — it is already a backendId. */
-export function parseBackendId(serverId: string): string {
-  return serverId;
-}

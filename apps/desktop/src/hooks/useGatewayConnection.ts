@@ -11,7 +11,6 @@ import type { ClientMessage, ServerMessage, SessionMessage } from '@my-claudia/s
 import { useGatewayStore } from '../stores/gatewayStore';
 import { useServerStore } from '../stores/serverStore';
 import { GatewayTransport } from './transport/GatewayTransport';
-import { toGatewayServerId, isGatewayTarget, parseBackendId } from '../stores/gatewayStore';
 import { useSessionsStore } from '../stores/sessionsStore';
 import { useProjectStore } from '../stores/projectStore';
 import { useChatStore } from '../stores/chatStore';
@@ -72,17 +71,16 @@ export function useGatewayConnection() {
   }, []);
 
   const ensureActiveSessionStream = useCallback(() => {
-    if (!selectedSessionId || !activeServerId || !isGatewayTarget(activeServerId)) return;
+    if (!selectedSessionId || !activeServerId) return;
     const transport = transportRef.current;
     if (!transport?.isConnected()) return;
 
-    const backendId = parseBackendId(activeServerId);
-    const channelId = transport.getChannelId(backendId);
+    const channelId = transport.getChannelId(activeServerId);
     if (!channelId) return;
 
     const current = activeStreamRef.current;
     const needsReopen = !current
-      || current.backendId !== backendId
+      || current.backendId !== activeServerId
       || current.channelId !== channelId
       || current.sessionId !== selectedSessionId;
 
@@ -91,19 +89,19 @@ export function useGatewayConnection() {
     }
 
     if (needsReopen) {
-      console.log(`[GatewayConn] Opening session stream ${selectedSessionId} on ${backendId}`);
+      console.log(`[GatewayConn] Opening session stream ${selectedSessionId} on ${activeServerId}`);
       transport.openSessionStream(channelId, selectedSessionId);
-      activeStreamRef.current = { backendId, channelId, sessionId: selectedSessionId };
+      activeStreamRef.current = { backendId: activeServerId, channelId, sessionId: selectedSessionId };
     }
 
     const afterOffset = useChatStore.getState().pagination[selectedSessionId]?.maxOffset ?? 0;
-    console.log(`[GatewayConn] Catch-up request ${selectedSessionId} afterOffset=${afterOffset} on ${backendId}`);
+    console.log(`[GatewayConn] Catch-up request ${selectedSessionId} afterOffset=${afterOffset} on ${activeServerId}`);
     transport.catchUpContent(channelId, selectedSessionId, afterOffset);
   }, [activeServerId, selectedSessionId]);
 
   const stopGatewaySessionSync = useCallback((backendId?: string) => {
     if (backendId) {
-      stopSessionSync(toGatewayServerId(backendId));
+      stopSessionSync(backendId);
       return;
     }
 
@@ -120,7 +118,7 @@ export function useGatewayConnection() {
     }
 
     for (const currentBackendId of backendIds) {
-      stopSessionSync(toGatewayServerId(currentBackendId));
+      stopSessionSync(currentBackendId);
     }
   }, []);
 
@@ -138,7 +136,7 @@ export function useGatewayConnection() {
     }
 
     for (const backendId of backendIds) {
-      const serverId = toGatewayServerId(backendId);
+      const serverId = backendId;
       setServerConnectionStatus(serverId, 'disconnected');
       setServerFeatures(serverId, []);
       setBackendAuthStatus(backendId, 'failed');
@@ -199,8 +197,6 @@ export function useGatewayConnection() {
       return;
     }
 
-    const serverId = toGatewayServerId(backendId);
-
     // Handle correlation envelope format for auth check
     let msg: ServerMessage;
     if ('payload' in (message as any) && 'metadata' in (message as any)) {
@@ -216,23 +212,23 @@ export function useGatewayConnection() {
     if (msg.type === 'auth_result') {
       if (msg.success) {
         console.log(`[GatewayConn:${backendId}] Backend auth successful`);
-        setServerConnectionStatus(serverId, 'connected');
-        setServerLocalConnection(serverId, false);
+        setServerConnectionStatus(backendId, 'connected');
+        setServerLocalConnection(backendId, false);
         if (msg.publicKey) {
-          useServerStore.getState().setServerPublicKey(serverId, msg.publicKey);
+          useServerStore.getState().setServerPublicKey(backendId, msg.publicKey);
         }
         reconnectAttemptRef.current = 0;
-        updateLastConnected(serverId);
+        updateLastConnected(backendId);
       } else {
         console.error(`[GatewayConn:${backendId}] Backend auth failed:`, msg.error);
-        setServerConnectionStatus(serverId, 'error', msg.error);
+        setServerConnectionStatus(backendId, 'error', msg.error);
       }
       return;
     }
 
     // Delegate all other messages to the shared handler
     handleServerMessage(message, {
-      serverId,
+      serverId: backendId,
       backendId,
       serverRunsRef: serverRunsRef.current,
       resolveBackendName: () => useGatewayStore.getState().discoveredBackends.find(b => b.backendId === backendId)?.name,
@@ -347,7 +343,7 @@ export function useGatewayConnection() {
 
       // Channel: update server connection status
       onChannelOpened: (backendId, _channelId, _epoch, capabilities) => {
-        const serverId = toGatewayServerId(backendId);
+        const serverId = backendId;
         setServerConnectionStatus(serverId, 'connected');
         setServerLocalConnection(serverId, false);
         setServerFeatures(serverId, capabilities as Parameters<typeof setServerFeatures>[1]);
@@ -359,7 +355,7 @@ export function useGatewayConnection() {
       },
 
       onChannelRejected: (backendId, reason) => {
-        const serverId = toGatewayServerId(backendId);
+        const serverId = backendId;
         setServerConnectionStatus(serverId, 'error', reason);
         setServerFeatures(serverId, []);
         setBackendAuthStatus(backendId, 'failed');
@@ -370,7 +366,7 @@ export function useGatewayConnection() {
       },
 
       onChannelClosed: (channelId, backendId, reason) => {
-        const serverId = toGatewayServerId(backendId);
+        const serverId = backendId;
         setServerConnectionStatus(serverId, 'disconnected');
         setServerFeatures(serverId, []);
         setBackendAuthStatus(backendId, 'failed');
@@ -406,7 +402,7 @@ export function useGatewayConnection() {
         } as ServerMessage;
 
         handleServerMessage(serverMessage, {
-          serverId: toGatewayServerId(backendId),
+          serverId: backendId,
           backendId,
           serverRunsRef: serverRunsRef.current,
           resolveBackendName: () => useGatewayStore.getState().discoveredBackends.find(b => b.backendId === backendId)?.name,
@@ -560,22 +556,21 @@ export function useGatewayConnection() {
   // Skip when facade is active — facade handles channel management
   useEffect(() => {
     if (facadeActive) return;
-    if (!activeServerId || !isGatewayTarget(activeServerId)) return;
+    if (!activeServerId) return;
     const transport = transportRef.current;
     if (!transport || !transport.isConnected()) return;
 
-    const backendId = parseBackendId(activeServerId);
-    if (transport.getChannelId(backendId)) return; // Already have channel
+    if (transport.getChannelId(activeServerId)) return; // Already have channel
 
     const registryItems = transport.getRegistryItems();
-    const presence = registryItems.get(backendId);
+    const presence = registryItems.get(activeServerId);
     if (!presence) return;
 
-    console.log(`[GatewayConn] V2: Opening channel + subscribing catalog: ${backendId}`);
-    setBackendAuthStatus(backendId, 'pending');
+    console.log(`[GatewayConn] V2: Opening channel + subscribing catalog: ${activeServerId}`);
+    setBackendAuthStatus(activeServerId, 'pending');
     setServerConnectionStatus(activeServerId, 'connecting');
-    transport.openChannel(backendId, presence.epoch);
-    transport.subscribeCatalog(backendId, presence.epoch);
+    transport.openChannel(activeServerId, presence.epoch);
+    transport.subscribeCatalog(activeServerId, presence.epoch);
   }, [facadeActive, activeServerId, setBackendAuthStatus, setServerConnectionStatus]);
 
   // V2: Auto-open channels for all online backends
@@ -593,7 +588,7 @@ export function useGatewayConnection() {
 
       console.log(`[GatewayConn] V2: Auto-opening channel: ${backendId}`);
       setBackendAuthStatus(backendId, 'pending');
-      setServerConnectionStatus(toGatewayServerId(backendId), 'connecting');
+      setServerConnectionStatus(backendId, 'connecting');
       transport.openChannel(backendId, presence.epoch);
       transport.subscribeCatalog(backendId, presence.epoch);
     }
@@ -610,7 +605,7 @@ export function useGatewayConnection() {
   // Skip session stream management when facade is active — facade handles streams
   useEffect(() => {
     if (facadeActive) return;
-    if (!selectedSessionId || !activeServerId || !isGatewayTarget(activeServerId)) {
+    if (!selectedSessionId || !activeServerId) {
       closeActiveSessionStream();
       return;
     }

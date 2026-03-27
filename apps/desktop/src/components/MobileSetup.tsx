@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Bot, Monitor, ChevronRight } from 'lucide-react';
-import { useGatewayStore, toGatewayServerId, shouldShowBackend } from '../stores/gatewayStore';
+import { useGatewayStore, shouldShowBackend } from '../stores/gatewayStore';
 import { useServerStore } from '../stores/serverStore';
 import { useConnection } from '../contexts/ConnectionContext';
 import type { GatewayBackendInfo } from '@my-claudia/shared';
@@ -61,7 +61,7 @@ export function MobileSetup() {
 
   const handleBackendSelect = (backend: GatewayBackendInfo) => {
     if (!backend.online) return;
-    const serverId = toGatewayServerId(backend.backendId);
+    const serverId = backend.backendId;
     setActiveServer(serverId);
     setLastActiveBackend(serverId);
     connectServer(serverId);

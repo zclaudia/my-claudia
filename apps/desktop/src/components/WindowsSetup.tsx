@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { Bot, Monitor, ChevronRight, Terminal, RefreshCw, ExternalLink, Copy, Check, AlertCircle, Globe, ArrowLeft } from 'lucide-react';
 import { useWslDiscovery } from '../hooks/useWslDiscovery';
 import { useServerStore, type ConnectionStatus } from '../stores/serverStore';
-import { useGatewayStore, toGatewayServerId, shouldShowBackend } from '../stores/gatewayStore';
+import { useGatewayStore, shouldShowBackend } from '../stores/gatewayStore';
 import { useConnection } from '../contexts/ConnectionContext';
 import { open } from '@tauri-apps/plugin-shell';
 import type { GatewayBackendInfo } from '@my-claudia/shared';
@@ -132,7 +132,7 @@ export function WindowsSetup() {
 
   const handleBackendSelect = useCallback((backend: GatewayBackendInfo) => {
     if (!backend.online) return;
-    const serverId = toGatewayServerId(backend.backendId);
+    const serverId = backend.backendId;
     setActiveServer(serverId);
     setLastActiveBackend(serverId);
     connectServer(serverId);

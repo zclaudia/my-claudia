@@ -8,7 +8,7 @@
 
 import { useSessionsStore, type RemoteSession } from '../stores/sessionsStore';
 import { useServerStore } from '../stores/serverStore';
-import { isGatewayTarget, parseBackendId } from '../stores/gatewayStore';
+
 import { resolveGatewayBackendUrl, getGatewayAuthHeaders } from './gatewayProxy';
 import { useChatStore } from '../stores/chatStore';
 import { useProjectStore } from '../stores/projectStore';
@@ -82,9 +82,8 @@ async function checkAndFillMessageGaps(sessions: RemoteSession[]): Promise<void>
  */
 function getSyncRequestBaseUrl(targetBackendId?: string): string | null {
   if (targetBackendId) {
-    if (isGatewayTarget(targetBackendId)) {
-      const backendId = parseBackendId(targetBackendId);
-      return resolveGatewayBackendUrl(backendId);
+    if (targetBackendId) {
+      return resolveGatewayBackendUrl(targetBackendId);
     }
     // Direct/local server: use localServerPort
     const port = useServerStore.getState().localServerPort;
@@ -96,9 +95,8 @@ function getSyncRequestBaseUrl(targetBackendId?: string): string | null {
   const activeId = useServerStore.getState().activeServerId;
   if (!activeId) return null;
 
-  if (isGatewayTarget(activeId)) {
-    const backendId = parseBackendId(activeId);
-    return resolveGatewayBackendUrl(backendId);
+  if (activeId) {
+    return resolveGatewayBackendUrl(activeId);
   }
 
   // Direct/local server: use localServerPort
@@ -112,7 +110,7 @@ function getSyncRequestBaseUrl(targetBackendId?: string): string | null {
  */
 function getAuthHeaders(targetBackendId?: string): Record<string, string> {
   if (targetBackendId) {
-    if (isGatewayTarget(targetBackendId)) {
+    if (targetBackendId) {
       return getGatewayAuthHeaders();
     }
     // Direct/local server: no auth needed
@@ -123,7 +121,7 @@ function getAuthHeaders(targetBackendId?: string): Record<string, string> {
   const activeId = useServerStore.getState().activeServerId;
   if (!activeId) return {};
 
-  if (isGatewayTarget(activeId)) {
+  if (activeId) {
     return getGatewayAuthHeaders();
   }
 

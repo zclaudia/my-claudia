@@ -1,7 +1,6 @@
 import { useEffect } from 'react';
 import { useServerStore } from '../stores/serverStore';
 import { useFacadeStore } from '../stores/facadeStore';
-import { toGatewayServerId } from '../stores/gatewayStore';
 import { probeServerLatency } from '../services/api';
 
 const PROBE_INTERVAL_MS = 15000;
@@ -15,7 +14,7 @@ export function useServerLatencyMonitor(): void {
 
     const serverIds = backends
       .filter((b) => b.online)
-      .map((b) => toGatewayServerId(b.backendId));
+      .map((b) => b.backendId);
 
     const probeAll = async () => {
       await Promise.all(serverIds.map(async (serverId) => {

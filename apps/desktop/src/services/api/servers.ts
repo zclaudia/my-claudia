@@ -1,5 +1,5 @@
 import type { ServerInfo, ApiResponse } from '@my-claudia/shared';
-import { isGatewayTarget, parseBackendId } from '../../stores/gatewayStore';
+
 import { resolveGatewayBackendUrl } from '../gatewayProxy';
 import { useServerStore } from '../../stores/serverStore';
 
@@ -18,9 +18,8 @@ export async function getServerInfo(address: string): Promise<ServerInfo> {
 }
 
 function resolveProbeBaseUrl(serverId: string): string | null {
-  if (isGatewayTarget(serverId)) {
-    const backendId = parseBackendId(serverId);
-    return resolveGatewayBackendUrl(backendId);
+  if (serverId) {
+    return resolveGatewayBackendUrl(serverId);
   }
 
   // Local/direct server: use localServerPort

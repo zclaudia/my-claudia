@@ -4,7 +4,7 @@
  */
 import { useServerStore } from '../stores/serverStore';
 import { useFacadeStore } from '../stores/facadeStore';
-import { useGatewayStore, isGatewayTarget } from '../stores/gatewayStore';
+import { useGatewayStore } from '../stores/gatewayStore';
 import { getBaseUrl, getAuthHeaders } from '../services/api/base';
 
 export interface ConnectionParams {
@@ -29,7 +29,7 @@ export function getConnectionParams(): ConnectionParams {
   const gatewayState = useGatewayStore.getState();
 
   const result: ConnectionParams = { serverUrl, authToken, serverId: activeServerId, serverName };
-  if (isGatewayTarget(activeServerId) && gatewayState.gatewayUrl && gatewayState.gatewaySecret) {
+  if (activeServerId && gatewayState.gatewayUrl && gatewayState.gatewaySecret) {
     result.gatewayUrl = gatewayState.gatewayUrl;
     result.gatewaySecret = gatewayState.gatewaySecret;
   }

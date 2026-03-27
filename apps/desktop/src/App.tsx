@@ -23,7 +23,7 @@ import { ThemeProvider } from './contexts/ThemeContext';
 import { ConnectionProvider, useConnection } from './contexts/ConnectionContext';
 import { useDataLoader } from './hooks/useDataLoader';
 import { useServerStore } from './stores/serverStore';
-import { useGatewayStore, isGatewayTarget } from './stores/gatewayStore';
+import { useGatewayStore } from './stores/gatewayStore';
 import { useProjectStore } from './stores/projectStore';
 import { useClaudiaStore } from './stores/claudiaStore';
 import { useIsMobile } from './hooks/useMediaQuery';
@@ -429,7 +429,7 @@ function AppContent() {
   const mobileAutoConnectDone = useRef(false);
   useEffect(() => {
     if (!isMobile || mobileAutoConnectDone.current) return;
-    if (!lastActiveBackendId || !isGatewayTarget(lastActiveBackendId)) return;
+    if (!lastActiveBackendId) return;
     if (!isGatewayConnected) return;
 
     // Check if the last backend is online

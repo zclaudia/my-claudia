@@ -17,7 +17,7 @@ import type { GatewayBackendInfo, SessionMessage } from '@my-claudia/shared';
 import { useFacadeStore } from '../stores/facadeStore';
 import { EmbeddedFacadeClient } from '../facade/embedded-facade-client';
 import { DirectBackendFacadeProvider } from '../facade/direct-provider';
-import { useGatewayStore, toGatewayServerId } from '../stores/gatewayStore';
+import { useGatewayStore } from '../stores/gatewayStore';
 import { useServerStore } from '../stores/serverStore';
 import { useSessionsStore } from '../stores/sessionsStore';
 import { useChatStore, type MessageWithToolCalls } from '../stores/chatStore';
@@ -234,7 +234,7 @@ function syncToGatewayStore(event: BackendFacadeEvent): void {
       if (localBackendId && backendId === localBackendId) break;
 
       handleServerMessage(serverEvent, {
-        serverId: toGatewayServerId(backendId),
+        serverId: backendId,
         backendId,
         serverRunsRef: facadeServerRuns,
         resolveBackendName: () =>
