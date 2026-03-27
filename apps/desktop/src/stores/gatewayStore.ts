@@ -313,17 +313,22 @@ export const useGatewayStore = create<GatewayState>()(
   )
 );
 
-// Helper to construct a gateway-target serverId
+/**
+ * Legacy helpers — now identity functions.
+ * Direct servers have been removed; all IDs are backendIds.
+ * These remain for backward compatibility until all consumers are migrated.
+ * @deprecated Use backendId directly.
+ */
 export function toGatewayServerId(backendId: string): string {
-  return `gw:${backendId}`;
+  return backendId;
 }
 
-// Helper to check if a serverId is a gateway target
+/** @deprecated All server IDs are backend IDs now. */
 export function isGatewayTarget(serverId: string | null): boolean {
-  return !!serverId && serverId.startsWith('gw:');
+  return !!serverId;
 }
 
-// Helper to extract backendId from a gateway serverId
+/** @deprecated Use serverId directly — it is already a backendId. */
 export function parseBackendId(serverId: string): string {
-  return serverId.slice(3);
+  return serverId;
 }
