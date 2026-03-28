@@ -179,22 +179,24 @@ describe('workflow routes', () => {
       expect(res.body.error.message).toBe('Name is required');
     });
 
-    it('returns 400 when definition is invalid', async () => {
+    it('accepts definition with only triggers (empty draft)', async () => {
       const res = await request(app).post('/api/projects/proj-1/workflows').send({
-        name: 'Bad',
+        name: 'Draft',
         definition: { triggers: [{ type: 'manual' }] },
       });
-      expect(res.status).toBe(400);
-      expect(res.body.error.code).toBe('VALIDATION_ERROR');
+      // After normalization, empty nodes/edges are valid (draft workflow)
+      expect(res.status).toBe(201);
+      expect(res.body.success).toBe(true);
     });
 
-    it('returns 400 when definition has no triggers', async () => {
+    it('accepts definition with no triggers (normalized to empty array)', async () => {
       const res = await request(app).post('/api/projects/proj-1/workflows').send({
         name: 'No triggers',
         definition: { nodes: [{ id: 's1' }], edges: [], entryNodeId: 's1' },
       });
-      expect(res.status).toBe(400);
-      expect(res.body.error.code).toBe('VALIDATION_ERROR');
+      // Normalization adds empty triggers array, which is valid
+      expect(res.status).toBe(201);
+      expect(res.body.success).toBe(true);
     });
 
     it('returns 400 when V2 entryNodeId is missing', async () => {

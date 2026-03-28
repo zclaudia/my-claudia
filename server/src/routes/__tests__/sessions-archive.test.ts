@@ -38,6 +38,7 @@ function createTestDb(): Database.Database {
       plan_status TEXT,
       is_read_only INTEGER DEFAULT 0,
       last_run_status TEXT,
+      sort_order INTEGER DEFAULT 0,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL,
       FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE

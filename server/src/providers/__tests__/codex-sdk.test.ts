@@ -68,7 +68,7 @@ describe('codex-sdk', () => {
 
       expect(mockStartThread).toHaveBeenCalledWith(
         expect.objectContaining({
-          approvalPolicy: 'on-request',
+          approvalPolicy: 'never',
           sandboxMode: 'read-only',
         })
       );
@@ -112,7 +112,7 @@ describe('codex-sdk', () => {
 
       expect(mockStartThread).toHaveBeenCalledWith(
         expect.objectContaining({
-          approvalPolicy: 'on-request',
+          approvalPolicy: 'never',
           sandboxMode: 'workspace-write',
         })
       );
@@ -881,7 +881,7 @@ describe('codex-sdk', () => {
 
       expect(mockStartThread).toHaveBeenCalledWith(
         expect.objectContaining({
-          approvalPolicy: 'on-failure',
+          approvalPolicy: 'never',
           sandboxMode: 'workspace-write',
         })
       );

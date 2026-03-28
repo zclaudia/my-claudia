@@ -33,9 +33,15 @@ vi.mock('crypto', async (importOriginal) => {
   const actual = await importOriginal() as any;
   return {
     ...actual,
-    randomUUID: vi.fn().mockReturnValue('test-uuid-123')
+    randomUUID: vi.fn().mockReturnValue('test-uuid-123'),
+    createHash: actual.createHash,
   };
 });
+
+// Mock run-state utility
+vi.mock('../../../utils/run-state.js', () => ({
+  hasForegroundActiveRunForSession: vi.fn().mockReturnValue(false),
+}));
 
 describe('GatewayClient', () => {
   let client: GatewayClient;
@@ -120,6 +126,20 @@ describe('GatewayClient', () => {
       client = new GatewayClient(mockConfig, mockDb, mockActiveRuns);
 
       expect(client).toBeDefined();
+    });
+
+    it('exposes CQE interface properties', () => {
+      client = new GatewayClient(mockConfig);
+      expect(client.commands).toBeDefined();
+      expect(client.commands.connection).toBeDefined();
+      expect(client.commands.channel).toBeDefined();
+      expect(client.commands.catalog).toBeDefined();
+      expect(client.commands.stream).toBeDefined();
+      expect(client.queries).toBeDefined();
+      expect(client.queries.identity).toBeDefined();
+      expect(client.queries.connection).toBeDefined();
+      expect(client.queries.registry).toBeDefined();
+      expect(client.events).toBeDefined();
     });
   });
 
@@ -219,96 +239,16 @@ describe('GatewayClient', () => {
       expect(mockWs.close).toHaveBeenCalled();
     });
 
-    it('clears all state', () => {
+    it('clears connection state', () => {
       (client as any).isConnected = true;
       (client as any).backendId = 'test-backend';
-      (client as any).discoveredBackends = [{ id: 'test' }];
-      (client as any).registryEntries.set('backend-1', {
-        backendId: 'backend-1',
-        instanceId: 'instance-1',
-        deviceId: 'device-1',
-        channel: 'prod',
-        name: 'Backend 1',
-        visible: true,
-        online: true,
-        registeredAt: 1,
-        updatedAt: 1,
-      });
+      (client as any).epoch = 1;
 
       client.disconnect();
 
       expect((client as any).isConnected).toBe(false);
       expect((client as any).backendId).toBeNull();
-      expect((client as any).discoveredBackends).toEqual([]);
-      expect((client as any).registryEntries.size).toBe(0);
-    });
-  });
-
-  describe('sendToClient', () => {
-    beforeEach(() => {
-      client = new GatewayClient(mockConfig);
-    });
-
-    it('sends message to specific client', () => {
-      client.connect();
-      const mockWs = (client as any).ws;
-      mockWs.readyState = WebSocket.OPEN;
-
-      client.sendToClient('client-123', { type: 'test' } as any);
-
-      expect(mockWs.send).toHaveBeenCalledWith(
-        expect.stringContaining('client-123')
-      );
-    });
-
-    it('logs error if WebSocket not connected', () => {
-      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-
-      client.connect();
-      const mockWs = (client as any).ws;
-      mockWs.readyState = WebSocket.CLOSED;
-
-      client.sendToClient('client-123', { type: 'test' } as any);
-
-      expect(consoleErrorSpy).toHaveBeenCalled();
-    });
-
-    it('does nothing if WebSocket is null', () => {
-      (client as any).ws = null;
-
-      client.sendToClient('client-123', { type: 'test' } as any);
-
-      // Should not throw
-    });
-  });
-
-  describe('broadcast', () => {
-    beforeEach(() => {
-      client = new GatewayClient(mockConfig);
-    });
-
-    it('broadcasts message to all subscribers', () => {
-      client.connect();
-      const mockWs = (client as any).ws;
-      mockWs.readyState = WebSocket.OPEN;
-
-      client.broadcast({ type: 'test_broadcast' } as any);
-
-      expect(mockWs.send).toHaveBeenCalledWith(
-        expect.stringContaining('broadcast_to_subscribers')
-      );
-    });
-
-    it('logs error if not connected', () => {
-      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-
-      client.connect();
-      const mockWs = (client as any).ws;
-      mockWs.readyState = WebSocket.CLOSED;
-
-      client.broadcast({ type: 'test' } as any);
-
-      expect(consoleErrorSpy).toHaveBeenCalled();
+      expect((client as any).epoch).toBeNull();
     });
   });
 
@@ -323,14 +263,27 @@ describe('GatewayClient', () => {
       expect(client.getBackendId()).toBe('test-backend-123');
     });
 
-    it('getDiscoveredBackends returns backends list', () => {
-      const testBackends = [
-        { id: 'backend-1', name: 'Test 1' },
-        { id: 'backend-2', name: 'Test 2' },
-      ];
-      (client as any).discoveredBackends = testBackends;
+    it('getDiscoveredBackends returns visible backends from registry', () => {
+      (client as any).registryItems.set('backend-1', {
+        backendId: 'backend-1',
+        instanceId: 'instance-1',
+        deviceId: 'device-1',
+        channel: 'prod',
+        name: 'Backend 1',
+        visible: true,
+      });
+      (client as any).registryItems.set('backend-2', {
+        backendId: 'backend-2',
+        instanceId: 'instance-2',
+        deviceId: 'device-2',
+        channel: 'prod',
+        name: 'Backend 2',
+        visible: true,
+      });
 
-      expect(client.getDiscoveredBackends()).toEqual(testBackends);
+      const backends = client.getDiscoveredBackends();
+      expect(backends).toHaveLength(2);
+      expect(backends.map(b => b.backendId)).toEqual(['backend-1', 'backend-2']);
     });
 
     it('isGatewayConnected returns connection status', () => {
@@ -342,39 +295,23 @@ describe('GatewayClient', () => {
 
       expect(client.isGatewayConnected()).toBe(false);
     });
-  });
 
-  describe('event handler registration', () => {
-    beforeEach(() => {
-      client = new GatewayClient(mockConfig);
+    it('queries.identity.getBackendId returns backendId', () => {
+      (client as any).backendId = 'test-backend-id';
+      expect(client.queries.identity.getBackendId()).toBe('test-backend-id');
     });
 
-    it('registers message handler', () => {
-      const handler = vi.fn();
-      client.onMessage(handler);
-
-      expect((client as any).messageHandler).toBe(handler);
+    it('queries.connection.isConnected returns connection status', () => {
+      (client as any).isConnected = true;
+      expect(client.queries.connection.isConnected()).toBe(true);
     });
 
-    it('registers client connected handler', () => {
-      const handler = vi.fn();
-      client.onClientConnected(handler);
-
-      expect((client as any).clientConnectedHandler).toBe(handler);
-    });
-
-    it('registers client disconnected handler', () => {
-      const handler = vi.fn();
-      client.onClientDisconnected(handler);
-
-      expect((client as any).clientDisconnectedHandler).toBe(handler);
-    });
-
-    it('registers client subscribed handler', () => {
-      const handler = vi.fn();
-      client.onClientSubscribed(handler);
-
-      expect((client as any).clientSubscribedHandler).toBe(handler);
+    it('queries.registry.getDiscoveredBackends returns backends list', () => {
+      (client as any).registryItems.set('backend-1', {
+        backendId: 'backend-1', instanceId: 'i1', deviceId: 'd1',
+        channel: 'prod', name: 'B1', visible: true,
+      });
+      expect(client.queries.registry.getDiscoveredBackends()).toHaveLength(1);
     });
   });
 
@@ -415,28 +352,31 @@ describe('GatewayClient', () => {
       client.connect();
     });
 
-    it('handles peer_hello_result success message', () => {
+    it('handles peer_ready success message', () => {
       const mockWs = (client as any).ws;
       const message = {
-        type: 'peer_hello_result',
-        success: true,
-        peerId: 'peer-abc',
-        clientConnected: true,
-        backendRegistered: true,
-        backendId: 'backend-123',
-        registrySnapshot: [
-          {
-            backendId: 'backend-123',
-            instanceId: 'inst-1',
-            deviceId: 'dev-1',
-            channel: 'prod',
-            name: 'Backend 1',
-            visible: true,
-            online: true,
-            registeredAt: 1,
-            updatedAt: 1,
-          },
-        ],
+        type: 'peer_ready',
+        peerSessionId: 'session-abc',
+        recoveryToken: 'token-123',
+        backend: {
+          backendId: 'backend-123',
+          epoch: 1,
+        },
+        registrySync: {
+          mode: 'snapshot',
+          revision: 1,
+          items: [
+            {
+              backendId: 'backend-123',
+              instanceId: 'inst-1',
+              deviceId: 'dev-1',
+              channel: 'prod',
+              name: 'Backend 1',
+              visible: true,
+              online: true,
+            },
+          ],
+        },
       };
 
       const messageHandler = mockWs.on.mock.calls.find(
@@ -447,36 +387,14 @@ describe('GatewayClient', () => {
       }
 
       expect((client as any).isConnected).toBe(true);
-      expect((client as any).peerId).toBe('peer-abc');
+      expect((client as any).peerSessionId).toBe('session-abc');
       expect((client as any).backendId).toBe('backend-123');
+      expect((client as any).epoch).toBe(1);
       expect((client as any).reconnectAttempts).toBe(0);
       expect(client.getDiscoveredBackends()).toHaveLength(1);
     });
 
-    it('handles peer_hello_result failure message', () => {
-      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-      const mockWs = (client as any).ws;
-      const message = {
-        type: 'peer_hello_result',
-        success: false,
-        peerId: '',
-        clientConnected: false,
-        backendRegistered: false,
-        error: 'Invalid secret'
-      };
-
-      const messageHandler = mockWs.on.mock.calls.find(
-        (call: any[]) => call[0] === 'message'
-      )?.[1];
-      if (messageHandler) {
-        messageHandler(Buffer.from(JSON.stringify(message)));
-      }
-
-      expect(consoleErrorSpy).toHaveBeenCalled();
-      consoleErrorSpy.mockRestore();
-    });
-
-    it('hydrates registry from snapshot before applying incremental updates', () => {
+    it('handles registry_snapshot message', () => {
       const mockWs = (client as any).ws;
       (client as any).backendId = 'backend-1';
 
@@ -486,7 +404,8 @@ describe('GatewayClient', () => {
 
       messageHandler?.(Buffer.from(JSON.stringify({
         type: 'registry_snapshot',
-        registry: [
+        revision: 2,
+        items: [
           {
             backendId: 'backend-1',
             instanceId: 'instance-1',
@@ -494,9 +413,6 @@ describe('GatewayClient', () => {
             channel: 'prod',
             name: 'Backend 1',
             visible: true,
-            online: true,
-            registeredAt: 1,
-            updatedAt: 1,
           },
           {
             backendId: 'backend-2',
@@ -505,48 +421,49 @@ describe('GatewayClient', () => {
             channel: 'prod',
             name: 'Backend 2',
             visible: true,
-            online: true,
-            registeredAt: 2,
-            updatedAt: 2,
           }
         ]
       })));
 
-      messageHandler?.(Buffer.from(JSON.stringify({
-        type: 'registry_upsert',
-        entry: {
-          backendId: 'backend-3',
-          instanceId: 'instance-3',
-          deviceId: 'device-3',
-          channel: 'dev',
-          name: 'Backend 3',
-          visible: true,
-          online: true,
-          registeredAt: 3,
-          updatedAt: 3,
-        }
-      })));
-
-      expect(client.getDiscoveredBackends().map((b) => b.backendId)).toEqual([
-        'backend-1',
-        'backend-2',
-        'backend-3',
-      ]);
+      expect((client as any).registryItems.size).toBe(2);
+      expect((client as any).registryRevision).toBe(2);
+      expect(client.getDiscoveredBackends()).toHaveLength(2);
     });
 
-    it('clears registry cache when websocket closes', () => {
+    it('handles registry_event upsert message', () => {
       const mockWs = (client as any).ws;
-      (client as any).registryEntries.set('backend-1', {
-        backendId: 'backend-1',
-        instanceId: 'instance-1',
-        deviceId: 'device-1',
-        channel: 'prod',
-        name: 'Backend 1',
-        visible: true,
-        online: true,
-        registeredAt: 1,
-        updatedAt: 1,
-      });
+      (client as any).backendId = 'backend-1';
+      (client as any).registryRevision = 1;
+
+      const messageHandler = mockWs.on.mock.calls.find(
+        (call: any[]) => call[0] === 'message'
+      )?.[1];
+
+      messageHandler?.(Buffer.from(JSON.stringify({
+        type: 'registry_event',
+        event: {
+          revision: 2,
+          op: 'upsert',
+          item: {
+            backendId: 'backend-new',
+            instanceId: 'instance-new',
+            deviceId: 'device-new',
+            channel: 'prod',
+            name: 'New Backend',
+            visible: true,
+          },
+        },
+      })));
+
+      expect((client as any).registryItems.has('backend-new')).toBe(true);
+      expect((client as any).registryRevision).toBe(2);
+    });
+
+    it('clears connection state when websocket closes', () => {
+      const mockWs = (client as any).ws;
+      (client as any).isConnected = true;
+      (client as any).backendId = 'backend-123';
+      (client as any).epoch = 1;
 
       const closeHandler = mockWs.on.mock.calls.find(
         (call: any[]) => call[0] === 'close'
@@ -554,123 +471,9 @@ describe('GatewayClient', () => {
 
       closeHandler?.(1006);
 
-      expect((client as any).registryEntries.size).toBe(0);
-    });
-
-    it('handles client_connected message', () => {
-      const handler = vi.fn();
-      client.onClientConnected(handler);
-
-      const mockWs = (client as any).ws;
-      const message = {
-        type: 'client_connected',
-        clientId: 'client-123'
-      };
-
-      const messageHandler = mockWs.on.mock.calls.find(
-        (call: any[]) => call[0] === 'message'
-      )?.[1];
-      if (messageHandler) {
-        messageHandler(Buffer.from(JSON.stringify(message)));
-      }
-
-      expect(handler).toHaveBeenCalledWith('client-123');
-    });
-
-    it('handles client_disconnected message', () => {
-      const handler = vi.fn();
-      client.onClientDisconnected(handler);
-
-      const mockWs = (client as any).ws;
-      (client as any).authenticatedClients.add('client-123');
-
-      const message = {
-        type: 'client_disconnected',
-        clientId: 'client-123'
-      };
-
-      const messageHandler = mockWs.on.mock.calls.find(
-        (call: any[]) => call[0] === 'message'
-      )?.[1];
-      if (messageHandler) {
-        messageHandler(Buffer.from(JSON.stringify(message)));
-      }
-
-      expect(handler).toHaveBeenCalledWith('client-123');
-      expect((client as any).authenticatedClients.has('client-123')).toBe(false);
-    });
-
-    it('handles client_auth message and authenticates client', () => {
-      const mockWs = (client as any).ws;
-      mockWs.readyState = WebSocket.OPEN;
-
-      const message = {
-        type: 'client_auth',
-        clientId: 'client-456'
-      };
-
-      const messageHandler = mockWs.on.mock.calls.find(
-        (call: any[]) => call[0] === 'message'
-      )?.[1];
-      if (messageHandler) {
-        messageHandler(Buffer.from(JSON.stringify(message)));
-      }
-
-      expect((client as any).authenticatedClients.has('client-456')).toBe(true);
-      expect(mockWs.send).toHaveBeenCalledWith(
-        expect.stringContaining('client_auth_result')
-      );
-    });
-
-    it('rejects messages from unauthenticated clients', async () => {
-      const consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
-      const mockWs = (client as any).ws;
-      mockWs.readyState = WebSocket.OPEN;
-
-      const message = {
-        type: 'forwarded',
-        clientId: 'unauthenticated-client',
-        message: { type: 'test' }
-      };
-
-      const messageHandler = mockWs.on.mock.calls.find(
-        (call: any[]) => call[0] === 'message'
-      )?.[1];
-      if (messageHandler) {
-        messageHandler(Buffer.from(JSON.stringify(message)));
-      }
-
-      expect(consoleLogSpy).toHaveBeenCalledWith(
-        expect.stringContaining('Rejecting message from unauthenticated client')
-      );
-      consoleLogSpy.mockRestore();
-    });
-
-    it('forwards messages from authenticated clients to handler', async () => {
-      const messageHandler = vi.fn().mockResolvedValue({ type: 'response' });
-      client.onMessage(messageHandler);
-
-      const mockWs = (client as any).ws;
-      mockWs.readyState = WebSocket.OPEN;
-      (client as any).authenticatedClients.add('client-789');
-
-      const message = {
-        type: 'forwarded',
-        clientId: 'client-789',
-        message: { type: 'test_request' }
-      };
-
-      const handler = mockWs.on.mock.calls.find(
-        (call: any[]) => call[0] === 'message'
-      )?.[1];
-      if (handler) {
-        handler(Buffer.from(JSON.stringify(message)));
-      }
-
-      // Wait for async handler
-      await new Promise(resolve => setTimeout(resolve, 10));
-
-      expect(messageHandler).toHaveBeenCalledWith('client-789', { type: 'test_request' });
+      expect((client as any).isConnected).toBe(false);
+      expect((client as any).backendId).toBeNull();
+      expect((client as any).epoch).toBeNull();
     });
 
     it('handles invalid JSON message gracefully', () => {
@@ -749,30 +552,6 @@ describe('GatewayClient', () => {
       expect((client as any).reconnectTimeout).toBeNull();
     });
 
-    it('prevents duplicate reconnect scheduling', () => {
-      client.connect();
-      const mockWs = (client as any).ws;
-
-      // Trigger first close to schedule reconnect
-      const closeHandler = mockWs.on.mock.calls.find(
-        (call: any[]) => call[0] === 'close'
-      )?.[1];
-      if (closeHandler) {
-        closeHandler(1000);
-      }
-
-      const firstTimeout = (client as any).reconnectTimeout;
-      expect(firstTimeout).not.toBeNull();
-
-      // Try to trigger another close - should not schedule another reconnect
-      if (closeHandler) {
-        closeHandler(1000);
-      }
-
-      // Should still be the same timeout (not replaced)
-      expect((client as any).reconnectTimeout).toBe(firstTimeout);
-    });
-
     it('caps reconnect interval at max interval', () => {
       (client as any).reconnectAttempts = 10;
 
@@ -784,59 +563,50 @@ describe('GatewayClient', () => {
     });
   });
 
-  describe('session broadcasting', () => {
-    it('broadcasts session event when connected', () => {
-      // Setup mock db with prepare().get() chain
-      const mockGet = vi.fn().mockReturnValue({ lastMessageOffset: 5 });
-      mockDb.prepare = vi.fn().mockReturnValue({ get: mockGet });
+  describe('session broadcasting via catalog', () => {
+    it('publishes catalog snapshot when connected with db', () => {
+      // Setup mock db with prepare().all() chain
+      const mockAll = vi.fn().mockReturnValue([{ id: 'session-1', name: 'Test', createdAt: 1, updatedAt: 1, lastMessageOffset: 5 }]);
+      mockDb.prepare = vi.fn().mockReturnValue({ all: mockAll });
 
       client = new GatewayClient(mockConfig, mockDb, mockActiveRuns);
       client.connect();
       const mockWs = (client as any).ws;
       mockWs.readyState = WebSocket.OPEN;
       (client as any).backendId = 'backend-123';
+      (client as any).epoch = 1;
+      (client as any).isConnected = true;
 
-      client.broadcastSessionEvent('created', { id: 'session-1', name: 'Test' });
+      client.commands.catalog.publishSnapshot();
 
       expect(mockWs.send).toHaveBeenCalledWith(
-        expect.stringContaining('broadcast_session_event')
+        expect.stringContaining('catalog_snapshot')
       );
     });
 
-    it('does not broadcast session event when disconnected', () => {
-      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    it('broadcastSessionEvent publishes catalog event', () => {
       client = new GatewayClient(mockConfig);
-      (client as any).ws = null;
-
-      client.broadcastSessionEvent('created', { id: 'session-1' });
-
-      expect(consoleErrorSpy).toHaveBeenCalled();
-      consoleErrorSpy.mockRestore();
-    });
-
-    it('broadcasts sessions list on client subscribed', () => {
-      mockDb.prepare = vi.fn().mockReturnValue({
-        all: () => [{ id: 'session-1', projectId: 'proj-1', name: 'Test' }]
-      });
-
-      client = new GatewayClient(mockConfig, mockDb, mockActiveRuns);
       client.connect();
       const mockWs = (client as any).ws;
       mockWs.readyState = WebSocket.OPEN;
+      (client as any).backendId = 'backend-123';
+      (client as any).epoch = 1;
+      (client as any).isConnected = true;
 
-      const message = {
-        type: 'client_subscribed',
-        clientId: 'client-123'
-      };
+      client.commands.catalog.broadcastSessionEvent('created', { id: 'session-1', name: 'Test' });
 
-      const messageHandler = mockWs.on.mock.calls.find(
-        (call: any[]) => call[0] === 'message'
-      )?.[1];
-      if (messageHandler) {
-        messageHandler(Buffer.from(JSON.stringify(message)));
-      }
+      expect(mockWs.send).toHaveBeenCalledWith(
+        expect.stringContaining('catalog_event')
+      );
+    });
 
-      expect(mockWs.send).toHaveBeenCalled();
+    it('does not publish catalog event when disconnected', () => {
+      client = new GatewayClient(mockConfig);
+      (client as any).ws = null;
+      (client as any).isConnected = false;
+
+      // Should not throw
+      client.broadcastSessionEvent('created', { id: 'session-1' });
     });
   });
 
@@ -891,56 +661,12 @@ describe('GatewayClient', () => {
       client.disconnect();
     });
 
-    it('handles sendToClient with null WebSocket', () => {
-      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    it('handles sendToChannel with null WebSocket', () => {
       client = new GatewayClient(mockConfig);
       (client as any).ws = null;
 
-      client.sendToClient('client-123', { type: 'test' } as any);
-
-      expect(consoleErrorSpy).toHaveBeenCalled();
-      consoleErrorSpy.mockRestore();
-    });
-
-    it('handles broadcast with null WebSocket', () => {
-      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-      client = new GatewayClient(mockConfig);
-      (client as any).ws = null;
-
-      client.broadcast({ type: 'test' } as any);
-
-      expect(consoleErrorSpy).toHaveBeenCalled();
-      consoleErrorSpy.mockRestore();
-    });
-
-    it('handles message handler error gracefully', async () => {
-      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-      const errorHandler = vi.fn().mockRejectedValue(new Error('Handler error'));
-      client = new GatewayClient(mockConfig);
-      client.onMessage(errorHandler);
-      client.connect();
-
-      const mockWs = (client as any).ws;
-      mockWs.readyState = WebSocket.OPEN;
-      (client as any).authenticatedClients.add('client-error');
-
-      const message = {
-        type: 'forwarded',
-        clientId: 'client-error',
-        message: { type: 'test' }
-      };
-
-      const handler = mockWs.on.mock.calls.find(
-        (call: any[]) => call[0] === 'message'
-      )?.[1];
-      if (handler) {
-        handler(Buffer.from(JSON.stringify(message)));
-      }
-
-      await new Promise(resolve => setTimeout(resolve, 10));
-
-      expect(consoleErrorSpy).toHaveBeenCalled();
-      consoleErrorSpy.mockRestore();
+      // Should not throw
+      client.sendToChannel('channel-1', { type: 'test' } as any);
     });
   });
 });

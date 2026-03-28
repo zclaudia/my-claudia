@@ -4,8 +4,9 @@ import type {
   CategoryProfile,
   EvaluationContext,
   PermissionCategory,
+  UnifiedPermissionPolicy,
 } from '@my-claudia/shared';
-import { DEFAULT_CATEGORY_POLICY, DEFAULT_CATEGORY_PROFILES, DEFAULT_GLOBAL_GUARDS } from '@my-claudia/shared';
+import { DEFAULT_CATEGORY_POLICY, DEFAULT_CATEGORY_PROFILES, DEFAULT_GLOBAL_GUARDS, DEFAULT_UNIFIED_POLICY, DEFAULT_UNIFIED_PROFILE, DEFAULT_AI_REVIEW_CONFIG } from '@my-claudia/shared';
 import {
   PermissionEvaluator,
   classify,
@@ -41,6 +42,18 @@ function makePolicy(overrides: Partial<CategoryPermissionPolicy> = {}): Category
     globalGuards: { ...DEFAULT_GLOBAL_GUARDS },
     customRules: [],
     escalateAlways: ['AskUserQuestion', 'ExitPlanMode'],
+    ...overrides,
+  };
+}
+
+function makeUnifiedPolicy(overrides: Partial<UnifiedPermissionPolicy> = {}): UnifiedPermissionPolicy {
+  return {
+    enabled: true,
+    profile: { ...DEFAULT_UNIFIED_PROFILE },
+    globalGuards: { ...DEFAULT_GLOBAL_GUARDS },
+    customRules: [],
+    escalateAlways: ['AskUserQuestion', 'ExitPlanMode'],
+    aiReview: { ...DEFAULT_AI_REVIEW_CONFIG },
     ...overrides,
   };
 }
@@ -854,7 +867,7 @@ describe('outside workspace allowlist', () => {
 // ============================================
 
 describe('normalizePolicy', () => {
-  it('should convert old trustLevel format to category policy', () => {
+  it('should convert old trustLevel format to unified policy', () => {
     const oldPolicy = {
       enabled: true,
       trustLevel: 'aggressive',
@@ -864,19 +877,14 @@ describe('normalizePolicy', () => {
 
     const result = normalizePolicy(oldPolicy);
     expect(result.enabled).toBe(true);
-    expect(result.profiles).toBeDefined();
-    expect(result.profiles.regular).toBeDefined();
-    expect(result.profiles.background).toBeDefined();
-    expect(result.profiles.agent).toBeDefined();
+    expect(result.profile).toBeDefined();
     expect(result.globalGuards).toEqual(DEFAULT_GLOBAL_GUARDS);
     expect(result.customRules).toEqual(oldPolicy.customRules);
-    // Aggressive: regular shellSafe should be auto-approve
-    expect(result.profiles.regular.shellSafe).toBe('auto-approve');
-    // Aggressive: background networkOps should be block
-    expect(result.profiles.background.networkOps).toBe('block');
+    // Aggressive: profile shellSafe should be auto-approve (from regular)
+    expect(result.profile.shellSafe).toBe('auto-approve');
   });
 
-  it('should pass through new category format', () => {
+  it('should pass through new category format (v2 profiles → unified profile)', () => {
     const newPolicy: CategoryPermissionPolicy = {
       enabled: true,
       profiles: DEFAULT_CATEGORY_PROFILES,
@@ -887,9 +895,9 @@ describe('normalizePolicy', () => {
 
     const result = normalizePolicy(newPolicy);
     expect(result.enabled).toBe(true);
-    expect(result.profiles.regular).toEqual(DEFAULT_CATEGORY_PROFILES.regular);
-    expect(result.profiles.background).toEqual(DEFAULT_CATEGORY_PROFILES.background);
-    expect(result.profiles.agent).toEqual(DEFAULT_CATEGORY_PROFILES.agent);
+    // v2 profiles.regular gets collapsed into the single profile
+    expect(result.profile).toBeDefined();
+    expect(result.profile.fileRead).toBe(DEFAULT_CATEGORY_PROFILES.regular.fileRead);
   });
 
   it('should always include ExitPlanMode in escalateAlways', () => {
@@ -942,8 +950,8 @@ describe('normalizePolicy', () => {
   });
 
   it('should return default policy for null/undefined', () => {
-    expect(normalizePolicy(null)).toEqual(DEFAULT_CATEGORY_POLICY);
-    expect(normalizePolicy(undefined)).toEqual(DEFAULT_CATEGORY_POLICY);
+    expect(normalizePolicy(null)).toEqual(DEFAULT_UNIFIED_POLICY);
+    expect(normalizePolicy(undefined)).toEqual(DEFAULT_UNIFIED_POLICY);
   });
 
   it('should not mutate original', () => {
@@ -963,24 +971,24 @@ describe('normalizePolicy', () => {
   it('should convert each trust level correctly', () => {
     // conservative: fileRead auto-approve, fileWrite ask
     const conservative = normalizePolicy({ enabled: true, trustLevel: 'conservative', customRules: [], escalateAlways: [] });
-    expect(conservative.profiles.regular.fileRead).toBe('auto-approve');
-    expect(conservative.profiles.regular.fileWrite).toBe('ask');
-    expect(conservative.profiles.regular.shellSafe).toBe('ask');
+    expect(conservative.profile.fileRead).toBe('auto-approve');
+    expect(conservative.profile.fileWrite).toBe('ask');
+    expect(conservative.profile.shellSafe).toBe('ask');
 
     // moderate: fileWrite auto-approve, shellSafe ask
     const moderate = normalizePolicy({ enabled: true, trustLevel: 'moderate', customRules: [], escalateAlways: [] });
-    expect(moderate.profiles.regular.fileWrite).toBe('auto-approve');
-    expect(moderate.profiles.regular.shellSafe).toBe('ask');
+    expect(moderate.profile.fileWrite).toBe('auto-approve');
+    expect(moderate.profile.shellSafe).toBe('ask');
 
     // aggressive: shellSafe auto-approve, networkOps ask
     const aggressive = normalizePolicy({ enabled: true, trustLevel: 'aggressive', customRules: [], escalateAlways: [] });
-    expect(aggressive.profiles.regular.shellSafe).toBe('auto-approve');
-    expect(aggressive.profiles.regular.networkOps).toBe('ask');
+    expect(aggressive.profile.shellSafe).toBe('auto-approve');
+    expect(aggressive.profile.networkOps).toBe('ask');
 
     // full_trust: networkOps auto-approve, destructiveOps block
     const fullTrust = normalizePolicy({ enabled: true, trustLevel: 'full_trust', customRules: [], escalateAlways: [] });
-    expect(fullTrust.profiles.regular.networkOps).toBe('auto-approve');
-    expect(fullTrust.profiles.regular.destructiveOps).toBe('block');
+    expect(fullTrust.profile.networkOps).toBe('auto-approve');
+    expect(fullTrust.profile.destructiveOps).toBe('block');
   });
 });
 
@@ -989,7 +997,7 @@ describe('normalizePolicy', () => {
 // ============================================
 
 describe('mergePolicy', () => {
-  const base = makePolicy();
+  const base = makeUnifiedPolicy();
 
   it('should return global when override is null', () => {
     expect(mergePolicy(base, null)).toEqual(base);
@@ -1001,7 +1009,7 @@ describe('mergePolicy', () => {
 
   it('should return global when override is empty', () => {
     const result = mergePolicy(base, {});
-    expect(result.profiles).toEqual(base.profiles);
+    expect(result.profile).toEqual(base.profile);
     expect(result.globalGuards).toEqual(base.globalGuards);
   });
 
@@ -1010,32 +1018,18 @@ describe('mergePolicy', () => {
     expect(result.enabled).toBe(false);
   });
 
-  it('should override regular profile', () => {
+  it('should override profile', () => {
     const result = mergePolicy(base, {
-      profiles: {
-        regular: makeProfile({ shellSafe: 'block' }),
-      } as any,
+      profile: makeProfile({ shellSafe: 'block' }),
     });
-    expect(result.profiles.regular.shellSafe).toBe('block');
+    expect(result.profile.shellSafe).toBe('block');
   });
 
-  it('should override background profile', () => {
+  it('should override profile networkOps', () => {
     const result = mergePolicy(base, {
-      profiles: {
-        background: makeProfile({ networkOps: 'auto-approve' }),
-      } as any,
+      profile: makeProfile({ networkOps: 'auto-approve' }),
     });
-    expect(result.profiles.background.networkOps).toBe('auto-approve');
-  });
-
-  it('should NOT override agent profile (agent is global-only)', () => {
-    const result = mergePolicy(base, {
-      profiles: {
-        agent: makeProfile({ fileWrite: 'auto-approve', shellSafe: 'auto-approve' }),
-      } as any,
-    });
-    // Agent profile should remain unchanged from global
-    expect(result.profiles.agent).toEqual(base.profiles.agent);
+    expect(result.profile.networkOps).toBe('auto-approve');
   });
 
   it('should override customRules', () => {
@@ -1061,15 +1055,11 @@ describe('mergePolicy', () => {
     const result = mergePolicy(base, {
       enabled: false,
       escalateAlways: [],
-      profiles: {
-        regular: makeProfile({ shellSafe: 'block' }),
-      } as any,
+      profile: makeProfile({ shellSafe: 'block' }),
     });
     expect(result.enabled).toBe(false);
     expect(result.escalateAlways).toEqual([]);
-    expect(result.profiles.regular.shellSafe).toBe('block');
-    // Untouched fields remain
-    expect(result.profiles.agent).toEqual(base.profiles.agent);
+    expect(result.profile.shellSafe).toBe('block');
   });
 });
 
@@ -1092,8 +1082,8 @@ describe('getAgentPermissionPolicy', () => {
 
     expect(result).not.toBeNull();
     expect(result!.enabled).toBe(true);
-    expect(result!.profiles).toBeDefined();
-    expect(result!.profiles.regular.fileWrite).toBe('auto-approve'); // moderate
+    expect(result!.profile).toBeDefined();
+    expect(result!.profile.fileWrite).toBe('auto-approve'); // moderate
     // strategies should be stripped
     expect((result as any).strategies).toBeUndefined();
   });
@@ -1109,7 +1099,8 @@ describe('getAgentPermissionPolicy', () => {
 
     expect(result).not.toBeNull();
     expect(result!.enabled).toBe(true);
-    expect(result!.profiles.regular).toEqual(DEFAULT_CATEGORY_PROFILES.regular);
+    // v2 profiles.regular is collapsed to single profile
+    expect(result!.profile.fileRead).toEqual(DEFAULT_CATEGORY_PROFILES.regular.fileRead);
   });
 
   it('should return null when no row', () => {
@@ -1135,7 +1126,7 @@ describe('getAgentPermissionPolicy', () => {
 // ============================================
 
 describe('getProjectPermissionOverride', () => {
-  it('should return parsed override (new format)', () => {
+  it('should return parsed override (v2 profiles → unified profile)', () => {
     const override: Partial<CategoryPermissionPolicy> = {
       profiles: {
         regular: makeProfile({ shellSafe: 'block' }),
@@ -1146,17 +1137,17 @@ describe('getProjectPermissionOverride', () => {
     const db = makeMockDb({ projects: { agent_permission_override: JSON.stringify(override) } });
     const result = getProjectPermissionOverride(db, 'p-1');
     expect(result).not.toBeNull();
-    expect((result as any).profiles.regular.shellSafe).toBe('block');
+    // v2 profiles.regular is extracted as the single profile
+    expect((result as any).profile.shellSafe).toBe('block');
   });
 
-  it('should convert legacy override to only regular+background profiles', () => {
+  it('should convert legacy override to profile', () => {
     const override = { enabled: true, trustLevel: 'conservative' };
     const db = makeMockDb({ projects: { agent_permission_override: JSON.stringify(override) } });
     const result = getProjectPermissionOverride(db, 'p-1');
     expect(result).not.toBeNull();
-    expect((result as any).profiles.regular).toBeDefined();
-    expect((result as any).profiles.background).toBeDefined();
-    // Legacy conversion should only include regular+background (not agent)
+    // Legacy conversion extracts profile from normalizePolicy result
+    expect((result as any).profile).toBeDefined();
   });
 
   it('should return null when no row', () => {
@@ -1184,37 +1175,18 @@ describe('getProjectPermissionOverride', () => {
 describe('integration: mergePolicy + evaluate', () => {
   const evaluator = new PermissionEvaluator();
 
-  it('project override changes regular profile behavior', () => {
-    const global = makePolicy({
-      profiles: {
-        regular: makeProfile({ shellSafe: 'ask' }),
-        background: makeProfile(),
-        agent: makeProfile(),
-      },
+  it('project override changes profile behavior', () => {
+    const global = makeUnifiedPolicy({
+      profile: makeProfile({ shellSafe: 'ask' }),
     });
     const merged = mergePolicy(global, {
-      profiles: { regular: makeProfile({ shellSafe: 'auto-approve' }) } as any,
+      profile: makeProfile({ shellSafe: 'auto-approve' }),
     });
     expect(evaluator.evaluate('Bash', { command: 'ls' }, 'ls', merged, makeContext())).toBe('approve');
   });
 
-  it('project override does not affect agent profile', () => {
-    const global = makePolicy({
-      profiles: {
-        regular: makeProfile(),
-        background: makeProfile(),
-        agent: makeProfile({ shellSafe: 'ask' }),
-      },
-    });
-    const merged = mergePolicy(global, {
-      profiles: { agent: makeProfile({ shellSafe: 'auto-approve' }) } as any,
-    });
-    // Agent profile should still be 'ask' from global
-    expect(evaluator.evaluate('Bash', { command: 'ls' }, 'ls', merged, makeContext({ sessionType: 'agent' }))).toBe('escalate');
-  });
-
   it('project override disables policy', () => {
-    const global = makePolicy();
+    const global = makeUnifiedPolicy();
     const merged = mergePolicy(global, { enabled: false });
     expect(evaluator.evaluate('Read', {}, '', merged)).toBe('escalate');
   });
@@ -1242,14 +1214,12 @@ describe('integration: mergePolicy + evaluate', () => {
       escalateAlways: [],
     });
 
-    const projectOverride: Partial<CategoryPermissionPolicy> = {
-      profiles: {
-        regular: makeProfile({ shellSafe: 'auto-approve' }),
-      } as any,
+    const projectOverride: Partial<UnifiedPermissionPolicy> = {
+      profile: makeProfile({ shellSafe: 'auto-approve' }),
     };
 
     const merged = mergePolicy(global, projectOverride);
-    // Conservative global → shellSafe ask, but project override → auto-approve for regular
+    // Conservative global → shellSafe ask, but project override → auto-approve
     expect(evaluator.evaluate('Bash', { command: 'ls' }, 'ls', merged, makeContext({ sessionType: 'regular' }))).toBe('approve');
   });
 });

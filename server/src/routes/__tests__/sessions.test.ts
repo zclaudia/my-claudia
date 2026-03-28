@@ -5,7 +5,13 @@ import Database from 'better-sqlite3';
 import { createSessionRoutes } from '../sessions.js';
 
 vi.mock('../../domains/gateway/gateway-instance.js', () => ({
-  getGatewayClient: vi.fn(() => null),
+  getGatewayClient: vi.fn(() => ({
+    commands: {
+      catalog: {
+        broadcastSessionEvent: vi.fn(),
+      },
+    },
+  })),
 }));
 
 vi.mock('../../events/index.js', () => ({
@@ -1364,10 +1370,12 @@ internal reasoning cursor plan
   });
 
   describe('gateway broadcast paths', () => {
-    let mockGatewayClient: { broadcastSessionEvent: ReturnType<typeof vi.fn> };
+    let mockBroadcastSessionEvent: ReturnType<typeof vi.fn>;
+    let mockGatewayClient: { commands: { catalog: { broadcastSessionEvent: ReturnType<typeof vi.fn> } } };
 
     beforeEach(async () => {
-      mockGatewayClient = { broadcastSessionEvent: vi.fn() };
+      mockBroadcastSessionEvent = vi.fn();
+      mockGatewayClient = { commands: { catalog: { broadcastSessionEvent: mockBroadcastSessionEvent } } };
       const { getGatewayClient } = await import('../../domains/gateway/gateway-instance.js');
       (getGatewayClient as ReturnType<typeof vi.fn>).mockReturnValue(mockGatewayClient);
     });
@@ -1383,7 +1391,7 @@ internal reasoning cursor plan
         .send({ projectId: 'project-1', name: 'New Session' });
 
       expect(res.status).toBe(201);
-      expect(mockGatewayClient.broadcastSessionEvent).toHaveBeenCalledWith('created', expect.objectContaining({ name: 'New Session' }));
+      expect(mockBroadcastSessionEvent).toHaveBeenCalledWith('created', expect.objectContaining({ name: 'New Session' }));
     });
 
     it('broadcasts session updated on PUT', async () => {
@@ -1395,7 +1403,7 @@ internal reasoning cursor plan
 
       await request(app).put('/api/sessions/s1').send({ name: 'Updated' });
 
-      expect(mockGatewayClient.broadcastSessionEvent).toHaveBeenCalledWith('updated', expect.objectContaining({ id: 's1' }));
+      expect(mockBroadcastSessionEvent).toHaveBeenCalledWith('updated', expect.objectContaining({ id: 's1' }));
     });
 
     it('broadcasts session deleted on DELETE', async () => {
@@ -1407,7 +1415,7 @@ internal reasoning cursor plan
 
       await request(app).delete('/api/sessions/s1');
 
-      expect(mockGatewayClient.broadcastSessionEvent).toHaveBeenCalledWith('deleted', expect.objectContaining({ id: 's1' }));
+      expect(mockBroadcastSessionEvent).toHaveBeenCalledWith('deleted', expect.objectContaining({ id: 's1' }));
     });
 
     it('broadcasts on archive', async () => {
@@ -1419,7 +1427,7 @@ internal reasoning cursor plan
 
       await request(app).post('/api/sessions/archive').send({ sessionIds: ['s1'] });
 
-      expect(mockGatewayClient.broadcastSessionEvent).toHaveBeenCalledWith('updated', expect.objectContaining({ id: 's1' }));
+      expect(mockBroadcastSessionEvent).toHaveBeenCalledWith('updated', expect.objectContaining({ id: 's1' }));
     });
 
     it('broadcasts on restore', async () => {
@@ -1431,7 +1439,7 @@ internal reasoning cursor plan
 
       await request(app).post('/api/sessions/restore').send({ sessionIds: ['s1'] });
 
-      expect(mockGatewayClient.broadcastSessionEvent).toHaveBeenCalledWith('updated', expect.objectContaining({ id: 's1' }));
+      expect(mockBroadcastSessionEvent).toHaveBeenCalledWith('updated', expect.objectContaining({ id: 's1' }));
     });
 
     it('broadcasts on unlock', async () => {
@@ -1443,7 +1451,7 @@ internal reasoning cursor plan
 
       await request(app).patch('/api/sessions/s1/unlock');
 
-      expect(mockGatewayClient.broadcastSessionEvent).toHaveBeenCalledWith('updated', expect.objectContaining({ id: 's1' }));
+      expect(mockBroadcastSessionEvent).toHaveBeenCalledWith('updated', expect.objectContaining({ id: 's1' }));
     });
 
     it('broadcasts on reset-sdk-session', async () => {
@@ -1455,7 +1463,7 @@ internal reasoning cursor plan
 
       await request(app).post('/api/sessions/s1/reset-sdk-session');
 
-      expect(mockGatewayClient.broadcastSessionEvent).toHaveBeenCalledWith('updated', expect.objectContaining({ id: 's1' }));
+      expect(mockBroadcastSessionEvent).toHaveBeenCalledWith('updated', expect.objectContaining({ id: 's1' }));
     });
   });
 

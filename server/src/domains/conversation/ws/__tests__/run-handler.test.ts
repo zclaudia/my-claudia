@@ -145,6 +145,21 @@ function createDb(): Database.Database {
       created_at INTEGER NOT NULL,
       offset INTEGER
     );
+
+    CREATE TABLE IF NOT EXISTS permission_memories (
+      id INTEGER PRIMARY KEY,
+      session_id TEXT,
+      remember_key TEXT,
+      decision TEXT,
+      created_at INTEGER
+    );
+
+    CREATE TABLE IF NOT EXISTS permission_outside_workspace_roots (
+      id INTEGER PRIMARY KEY,
+      project_id TEXT,
+      allowed_root TEXT,
+      created_at INTEGER
+    );
   `);
 
   const now = Date.now();
