@@ -1149,36 +1149,45 @@ export async function* runCodexAppServer(
     }
   }
 
-  // Run the turn. If this is a resumed session, buffer messages until we know it's
-  // not a recoverable error — avoids leaking partial output to the frontend before recovery.
+  // Run the turn. For resumed sessions, buffer only the initial few messages
+  // to detect recoverable session errors (e.g., corrupted history with invalid
+  // image URLs). Once the first assistant/tool message arrives without error,
+  // flush the buffer and switch to streaming mode.
   let encounteredError: string | null = null;
   const buffered: ClaudeMessage[] = [];
+  let streamingMode = !isResumed; // New sessions stream immediately
 
   for await (const msg of client.runTurn(threadId, inputBlocks, onPermission, {
     model: options.model,
     systemPrompt: options.systemPrompt,
   })) {
-    if (msg.type === 'error' && isResumed && isRecoverableSessionError(msg.error || '')) {
+    if (msg.type === 'error' && !streamingMode && isRecoverableSessionError(msg.error || '')) {
       encounteredError = msg.error || 'Unknown session error';
       break;
     }
-    if (isResumed) {
-      // Buffer until turn completes successfully
-      buffered.push(msg);
-      if (msg.type === 'result' && (msg as { isComplete?: boolean }).isComplete) {
-        // Turn completed OK — flush buffer and return
-        for (const m of buffered) yield m;
-        return;
-      }
-    } else {
+
+    if (streamingMode) {
       yield msg;
       if (msg.type === 'result' && (msg as { isComplete?: boolean }).isComplete) {
         return;
       }
+    } else {
+      // Buffering phase: accumulate until we see a non-init, non-error message
+      buffered.push(msg);
+      const isContentMsg = msg.type === 'assistant' || msg.type === 'tool_use' || msg.type === 'tool_result' || msg.type === 'tool_activity';
+      if (isContentMsg || (msg.type === 'result' && (msg as { isComplete?: boolean }).isComplete)) {
+        // Session is healthy — flush buffer and switch to streaming
+        streamingMode = true;
+        for (const m of buffered) yield m;
+        buffered.length = 0;
+        if (msg.type === 'result' && (msg as { isComplete?: boolean }).isComplete) {
+          return;
+        }
+      }
     }
   }
 
-  // If resumed turn ended without error and without explicit completion, flush buffer
+  // If buffered messages remain (turn ended during buffer phase), flush them
   if (!encounteredError && buffered.length > 0) {
     for (const m of buffered) yield m;
   }

@@ -39,6 +39,11 @@
           "name": "binaries/node",
           "sidecar": true,
           "args": true
+        },
+        {
+          "name": "binaries/ollama",
+          "sidecar": true,
+          "args": true
         }
       ]
     },
@@ -53,6 +58,11 @@
         },
         {
           "name": "binaries/node",
+          "sidecar": true,
+          "args": true
+        },
+        {
+          "name": "binaries/ollama",
           "sidecar": true,
           "args": true
         }

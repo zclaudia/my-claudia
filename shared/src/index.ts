@@ -22,6 +22,7 @@ export * from './features/workflows.js';
 export * from './features/notification-feed.js';
 export * from './features/agent-triggers.js';
 export * from './features/delegation.js';
+export * from './features/local-reviewer.js';
 
 // Interaction types
 export * from './interaction/permissions.js';
