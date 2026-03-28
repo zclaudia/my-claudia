@@ -31,35 +31,35 @@ const mockEngine = {
   isRunning: vi.fn().mockReturnValue(false),
 };
 
-vi.mock('../../domains/workflows/repository.js', () => ({
+vi.mock('../repository.js', () => ({
   WorkflowRepository: class { constructor() { Object.assign(this, mockWorkflowRepo); } },
 }));
-vi.mock('../../domains/workflows/workflow-run-repository.js', () => ({
+vi.mock('../workflow-run-repository.js', () => ({
   WorkflowRunRepository: class { constructor() { Object.assign(this, mockRunRepo); } },
 }));
-vi.mock('../../domains/workflows/workflow-step-run-repository.js', () => ({
+vi.mock('../workflow-step-run-repository.js', () => ({
   WorkflowStepRunRepository: class { constructor() { Object.assign(this, mockStepRunRepo); } },
 }));
-vi.mock('../../domains/workflows/workflow-schedule-repository.js', () => ({
+vi.mock('../workflow-schedule-repository.js', () => ({
   WorkflowScheduleRepository: class { constructor() { Object.assign(this, mockScheduleRepo); } },
 }));
-vi.mock('../../domains/workflows/engine.js', () => ({
+vi.mock('../engine.js', () => ({
   WorkflowEngine: class { constructor() { Object.assign(this, mockEngine); } },
 }));
-vi.mock('../../utils/cron.js', () => ({
+vi.mock('../../../utils/cron.js', () => ({
   computeNextCronRun: vi.fn().mockReturnValue(99999),
 }));
-vi.mock('../../events/index.js', () => ({
+vi.mock('../../../events/index.js', () => ({
   pluginEvents: { on: vi.fn().mockReturnValue(() => {}), emit: vi.fn() },
 }));
-vi.mock('../../domains/workflows/templates.js', () => ({
+vi.mock('../templates.js', () => ({
   BUILTIN_WORKFLOW_TEMPLATES: [
     { id: 'tpl1', name: 'Template 1', description: 'desc', definition: { triggers: [], nodes: [], edges: [], entryNodeId: '' } },
   ],
 }));
 
-import { WorkflowService } from '../../domains/workflows/service.js';
-import { pluginEvents } from '../../events/index.js';
+import { WorkflowService } from '../service.js';
+import { pluginEvents } from '../../../events/index.js';
 
 const emptyDefinition = { triggers: [], nodes: [], edges: [], entryNodeId: '' };
 

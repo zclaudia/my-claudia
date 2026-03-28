@@ -15,29 +15,29 @@ const mockTaskRunRepo = {
   pruneOldRuns: vi.fn(),
 };
 
-vi.mock('../../domains/scheduled-tasks/repository.js', () => ({
+vi.mock('../repository.js', () => ({
   ScheduledTaskRepository: class { constructor() { Object.assign(this, mockRepo); } },
 }));
-vi.mock('../../domains/scheduled-tasks/task-run-repository.js', () => ({
+vi.mock('../task-run-repository.js', () => ({
   TaskRunRepository: class { constructor() { Object.assign(this, mockTaskRunRepo); } },
 }));
-vi.mock('../../repositories/project.js', () => ({
+vi.mock('../../../repositories/project.js', () => ({
   ProjectRepository: class { constructor() { Object.assign(this, mockProjectRepo); } },
 }));
-vi.mock('../../repositories/session.js', () => ({
+vi.mock('../../../repositories/session.js', () => ({
   SessionRepository: class { constructor() { Object.assign(this, mockSessionRepo); } },
 }));
-vi.mock('../../utils/cron.js', () => ({
+vi.mock('../../../utils/cron.js', () => ({
   computeNextCronRun: vi.fn().mockReturnValue(99999),
 }));
-vi.mock('../../events/index.js', () => ({
+vi.mock('../../../events/index.js', () => ({
   pluginEvents: { emit: vi.fn().mockResolvedValue(undefined) },
 }));
-vi.mock('../../server.js', () => ({
+vi.mock('../../../server.js', () => ({
   createVirtualClient: vi.fn().mockReturnValue({ id: 'vc1' }),
   handleRunStart: vi.fn(),
 }));
-vi.mock('../../commands/registry.js', () => ({
+vi.mock('../../../commands/registry.js', () => ({
   commandRegistry: { execute: vi.fn().mockResolvedValue('command result') },
 }));
 vi.mock('child_process', () => ({
@@ -50,9 +50,9 @@ vi.mock('util', () => ({
 import { promisify } from 'util';
 const mockExecFileAsync = promisify(null as any) as ReturnType<typeof vi.fn>;
 
-import { ScheduledTaskService } from '../../domains/scheduled-tasks/service.js';
-import { createVirtualClient } from '../../server.js';
-import { pluginEvents } from '../../events/index.js';
+import { ScheduledTaskService } from '../service.js';
+import { createVirtualClient } from '../../../server.js';
+import { pluginEvents } from '../../../events/index.js';
 
 describe('ScheduledTaskService', () => {
   let service: ScheduledTaskService;
@@ -486,7 +486,7 @@ describe('ScheduledTaskService', () => {
 
   describe('executeCommand with non-string result', () => {
     it('JSON stringifies non-string result', async () => {
-      const { commandRegistry } = await import('../../commands/registry.js');
+      const { commandRegistry } = await import('../../../commands/registry.js');
       (commandRegistry.execute as any).mockResolvedValue({ key: 'value' });
 
       const task = {

@@ -18,26 +18,26 @@ const mockSessionRepo = {
   create: vi.fn().mockReturnValue({ id: 'sess1' }),
 };
 
-vi.mock('../../domains/workflows/workflow-run-repository.js', () => ({
+vi.mock('../workflow-run-repository.js', () => ({
   WorkflowRunRepository: class { constructor() { Object.assign(this, mockRunRepo); } },
 }));
-vi.mock('../../domains/workflows/workflow-step-run-repository.js', () => ({
+vi.mock('../workflow-step-run-repository.js', () => ({
   WorkflowStepRunRepository: class { constructor() { Object.assign(this, mockStepRunRepo); } },
 }));
-vi.mock('../../repositories/project.js', () => ({
+vi.mock('../../../repositories/project.js', () => ({
   ProjectRepository: class { constructor() { Object.assign(this, mockProjectRepo); } },
 }));
-vi.mock('../../repositories/session.js', () => ({
+vi.mock('../../../repositories/session.js', () => ({
   SessionRepository: class { constructor() { Object.assign(this, mockSessionRepo); } },
 }));
-vi.mock('../../server.js', () => ({
+vi.mock('../../../server.js', () => ({
   createVirtualClient: vi.fn().mockReturnValue({ id: 'vc1' }),
   handleRunStart: vi.fn(),
 }));
-vi.mock('../../events/index.js', () => ({
+vi.mock('../../../events/index.js', () => ({
   pluginEvents: { emit: vi.fn().mockResolvedValue(undefined), on: vi.fn() },
 }));
-vi.mock('../../plugins/workflow-step-registry.js', () => ({
+vi.mock('../../../plugins/workflow-step-registry.js', () => ({
   workflowStepRegistry: { get: vi.fn(), has: vi.fn(), execute: vi.fn() },
 }));
 
@@ -53,9 +53,9 @@ vi.mock('util', () => ({
   promisify: () => mockExecFileAsync,
 }));
 
-import { WorkflowEngine, type StepResult } from '../../domains/workflows/engine.js';
-import { createVirtualClient, handleRunStart } from '../../server.js';
-import { workflowStepRegistry } from '../../plugins/workflow-step-registry.js';
+import { WorkflowEngine, type StepResult } from '../engine.js';
+import { createVirtualClient, handleRunStart } from '../../../server.js';
+import { workflowStepRegistry } from '../../../plugins/workflow-step-registry.js';
 
 describe('WorkflowEngine', () => {
   let engine: WorkflowEngine;
@@ -1158,7 +1158,7 @@ describe('WorkflowEngine', () => {
       mockRunRepo.findById.mockReturnValue({ id: 'r1', status: 'running', projectId: 'p1' });
 
       // Mock createVirtualClient to capture the send callback and call it with run_completed
-      const { createVirtualClient: mockCreateVirtualClient } = await import('../../server.js');
+      const { createVirtualClient: mockCreateVirtualClient } = await import('../../../server.js');
       (mockCreateVirtualClient as any).mockImplementation((_clientId: string, handlers: any) => {
         setTimeout(() => handlers.send({ type: 'run_completed' }), 20);
         return { id: _clientId };
@@ -1183,7 +1183,7 @@ describe('WorkflowEngine', () => {
       mockStepRunRepo.findByRunAndStep.mockReturnValue({ id: 'sr1', status: 'pending' });
       mockRunRepo.findById.mockReturnValue({ id: 'r1', status: 'running', projectId: 'p1' });
 
-      const { createVirtualClient: mockCreateVirtualClient } = await import('../../server.js');
+      const { createVirtualClient: mockCreateVirtualClient } = await import('../../../server.js');
       (mockCreateVirtualClient as any).mockImplementation((_clientId: string, handlers: any) => {
         setTimeout(() => handlers.send({ type: 'run_failed', error: 'AI failed' }), 20);
         return { id: _clientId };
@@ -1233,7 +1233,7 @@ describe('WorkflowEngine', () => {
       // Re-create engine with mockDb
       const engineWithDb = new WorkflowEngine(mockDb as any, mockBroadcast);
 
-      const { createVirtualClient: mockCreateVirtualClient } = await import('../../server.js');
+      const { createVirtualClient: mockCreateVirtualClient } = await import('../../../server.js');
       (mockCreateVirtualClient as any).mockImplementation((_clientId: string, handlers: any) => {
         setTimeout(() => handlers.send({ type: 'run_completed' }), 20);
         return { id: _clientId };

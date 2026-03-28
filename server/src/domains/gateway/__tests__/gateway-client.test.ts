@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { GatewayClient } from '../domains/gateway/gateway-client.js';
+import { GatewayClient } from '../gateway-client.js';
 import WebSocket from 'ws';
 import * as fs from 'fs';
 import * as crypto from 'crypto';

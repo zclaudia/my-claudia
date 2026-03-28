@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { NotificationService } from '../../domains/notification-feed/notification-service.js';
+import { NotificationService } from '../notification-service.js';
 import { DEFAULT_NOTIFICATION_CONFIG } from '@my-claudia/shared';
 
 // Mock fetch

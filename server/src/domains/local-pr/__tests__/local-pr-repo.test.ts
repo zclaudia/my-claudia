@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterAll, vi } from 'vitest';
 import Database from 'better-sqlite3';
-import { LocalPRRepository } from '../../domains/local-pr/repository.js';
+import { LocalPRRepository } from '../repository.js';
 
 vi.mock('@my-claudia/shared', async () => {
   const actual = await vi.importActual<typeof import('@my-claudia/shared')>('@my-claudia/shared');

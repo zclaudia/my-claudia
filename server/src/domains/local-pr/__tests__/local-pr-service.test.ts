@@ -27,7 +27,7 @@ const {
 }));
 
 // Mock git operations (path relative to THIS test file, not the source)
-vi.mock('../../utils/git-operations.js', () => ({
+vi.mock('../../../utils/git-operations.js', () => ({
   getGitStatus: mockGetGitStatus,
   commitAllChanges: mockCommitAllChanges,
   getNewCommits: mockGetNewCommits,
@@ -54,14 +54,14 @@ const { mockCreateVirtualClient, mockHandleRunStart } = vi.hoisted(() => ({
   mockHandleRunStart: vi.fn(),
 }));
 
-vi.mock('../../server.js', () => ({
+vi.mock('../../../server.js', () => ({
   createVirtualClient: mockCreateVirtualClient,
   handleRunStart: mockHandleRunStart,
   sendMessage: vi.fn(),
 }));
 
-import { LocalPRService } from '../../domains/local-pr/service.js';
-import { LocalPRRepository } from '../../repositories/local-pr.js';
+import { LocalPRService } from '../service.js';
+import { LocalPRRepository } from '../../../repositories/local-pr.js';
 import type { LocalPR, ServerMessage } from '@my-claudia/shared';
 
 // ========================================

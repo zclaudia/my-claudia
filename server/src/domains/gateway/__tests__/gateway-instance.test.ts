@@ -4,7 +4,7 @@ import {
   getGatewayClient,
   setGatewayClientMode,
   getGatewayClientMode,
-} from '../domains/gateway/gateway-instance.js';
+} from '../gateway-instance.js';
 
 // Mock the types
 type MockGatewayClient = { id: string; mock: true };

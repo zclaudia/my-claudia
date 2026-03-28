@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type express from 'express';
-import { createNotificationRoutes, parseNotificationConfig } from '../../domains/notification-feed/notification-routes.js';
-import type { NotificationService } from '../../domains/notification-feed/notification-service.js';
+import { createNotificationRoutes, parseNotificationConfig } from '../notification-routes.js';
+import type { NotificationService } from '../notification-service.js';
 import { DEFAULT_NOTIFICATION_CONFIG } from '@my-claudia/shared';
 
 // Create mock notification service

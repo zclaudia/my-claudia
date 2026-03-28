@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { ScheduledTaskRepository } from '../../domains/scheduled-tasks/repository.js';
+import { ScheduledTaskRepository } from '../repository.js';
 
 vi.mock('uuid', () => ({ v4: () => 'mock-uuid' }));
 
