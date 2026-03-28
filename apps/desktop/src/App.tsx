@@ -44,6 +44,7 @@ import { xtermRegistry } from './utils/xtermRegistry';
 import { initBuiltinPanels } from './plugins/builtinPanels';
 import { useAutoUpdate } from './hooks/useAutoUpdate';
 import { useServerLatencyMonitor } from './hooks/useServerLatencyMonitor';
+import { useActiveSessionStream } from './hooks/useActiveSessionStream';
 import { UpdateBanner } from './components/UpdateBanner';
 import { BrandMark } from './components/BrandMark';
 import { useShortcutStore } from './stores/shortcutStore';
@@ -209,6 +210,8 @@ function AppContent() {
   const dashboardProject = dashboardProjectId
     ? projects.find((project) => project.id === dashboardProjectId) || null
     : null;
+
+  useActiveSessionStream();
 
   const mobileInitDone = useRef(false);
   const hasConnected = useRef(false);
