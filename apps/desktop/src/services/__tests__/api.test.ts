@@ -152,10 +152,12 @@ vi.mock('../../stores/ownershipStore', () => ({
     getState: () => ({
       getProjectBackendId: (projectId: string | null | undefined) => {
         if (!projectId) return null;
+        if (projectId === 'remote-project') return 'gw:backend-1';
         return 'server-1';
       },
       getSessionBackendId: (sessionId: string | null | undefined) => {
         if (!sessionId) return null;
+        if (sessionId === 'remote-session') return 'gw:backend-1';
         return 'server-1';
       },
     }),
@@ -345,6 +347,19 @@ describe('api', () => {
       expect(result).toEqual(data);
     });
 
+    it('routes remote session message requests through the owner backend', async () => {
+      mockResponse({ messages: [], pagination: { total: 0, hasMore: false } });
+
+      await getSessionMessages('remote-session');
+
+      expect(mockFetch).toHaveBeenCalledWith(
+        'http://gateway/gw:backend-1/api/sessions/remote-session/messages',
+        expect.objectContaining({
+          headers: expect.objectContaining({ Authorization: 'Bearer gw-token' }),
+        })
+      );
+    });
+
     it('getSessionMessages supports before/after cursors', async () => {
       mockResponse({ messages: [], pagination: { total: 0, hasMore: false } });
 
@@ -372,6 +387,19 @@ describe('api', () => {
       expect(mockFetch).toHaveBeenCalledWith(
         'http://localhost:3100/api/sessions/s1/draft',
         expect.objectContaining({ method: 'DELETE' })
+      );
+    });
+
+    it('routes project-scoped session lists through the project owner backend', async () => {
+      mockResponse([{ id: 'remote-session', projectId: 'remote-project' }]);
+
+      await getSessions('remote-project');
+
+      expect(mockFetch).toHaveBeenCalledWith(
+        'http://gateway/gw:backend-1/api/sessions?projectId=remote-project',
+        expect.objectContaining({
+          headers: expect.objectContaining({ Authorization: 'Bearer gw-token' }),
+        })
       );
     });
   });

@@ -10,7 +10,7 @@ import { DEFAULT_DELEGATION_CONFIG } from '@my-claudia/shared';
 import { classify } from './permission-evaluator.js';
 import type Database from 'better-sqlite3';
 import { readFileSync, existsSync } from 'fs';
-import { resolve, isAbsolute, basename, extname, sep } from 'path';
+import { resolve, isAbsolute, basename, extname, sep, dirname } from 'path';
 
 // Rate limiter: circular buffer tracking approvals per minute
 let approvalTimestamps: number[] = [];
@@ -180,6 +180,7 @@ const MAX_REVIEW_FILES = 5;
 const MAX_REVIEW_TURNS = 6;
 const MAX_BYTES_PER_FILE = 12_000;
 const MAX_TOTAL_BYTES = 40_000;
+const MAX_DEPENDENCY_DEPTH = 1;
 
 const HARD_DENY_PATH_SEGMENTS = [
   `${sep}.ssh${sep}`,
@@ -224,6 +225,7 @@ const REDACTION_PATTERNS: Array<{ pattern: RegExp; replacement: string }> = [
 interface CandidateScript {
   displayPath: string;
   resolvedPath: string;
+  source: 'direct' | 'dependency';
 }
 
 interface ReviewFileAccessResult {
@@ -312,15 +314,126 @@ function extractScriptPaths(command: string): string[] {
   });
 }
 
+function addCandidateScript(
+  candidates: CandidateScript[],
+  seen: Set<string>,
+  displayPath: string,
+  resolvedPath: string,
+  source: CandidateScript['source'],
+): void {
+  if (seen.has(resolvedPath)) return;
+  seen.add(resolvedPath);
+  candidates.push({ displayPath, resolvedPath, source });
+}
+
+function maybeAddDependencyCandidate(
+  dependencyPath: string,
+  parentResolvedPath: string,
+  workspaceRoot: string,
+  candidates: CandidateScript[],
+  seen: Set<string>,
+): void {
+  const resolvedPath = dependencyPath.startsWith('.')
+    ? resolve(dirname(parentResolvedPath), dependencyPath)
+    : resolve(workspaceRoot, dependencyPath);
+  if (!isWithinRoot(workspaceRoot, resolvedPath)) return;
+
+  if (existsSync(resolvedPath)) {
+    addCandidateScript(candidates, seen, dependencyPath, resolvedPath, 'dependency');
+    return;
+  }
+
+  const ext = extname(resolvedPath);
+  if (!ext) {
+    for (const extension of ['.sh', '.bash', '.zsh', '.py', '.js', '.ts', '.mjs', '.cjs']) {
+      const withExt = `${resolvedPath}${extension}`;
+      if (existsSync(withExt)) {
+        addCandidateScript(candidates, seen, dependencyPath, withExt, 'dependency');
+        return;
+      }
+    }
+  }
+}
+
+function extractShellDependencies(content: string): string[] {
+  const deps: string[] = [];
+  const pattern = /(?:^|\n)\s*(?:source|\.)\s+(['"]?)(\.[^'"\s]+)\1/g;
+  let match: RegExpExecArray | null;
+  while ((match = pattern.exec(content)) !== null) {
+    deps.push(match[2]);
+  }
+  return deps;
+}
+
+function extractPythonDependencies(content: string): string[] {
+  const deps: string[] = [];
+  const fromPattern = /(?:^|\n)\s*from\s+(\.[\w.]+)\s+import\s+/g;
+  let match: RegExpExecArray | null;
+  while ((match = fromPattern.exec(content)) !== null) {
+    deps.push(match[1].replace(/\./g, '/'));
+  }
+  return deps;
+}
+
+function extractJsDependencies(content: string): string[] {
+  const deps: string[] = [];
+  const patterns = [
+    /(?:import|export)\s+[^'"\n]*?from\s+['"](\.[^'"]+)['"]/g,
+    /require\(\s*['"](\.[^'"]+)['"]\s*\)/g,
+    /import\(\s*['"](\.[^'"]+)['"]\s*\)/g,
+  ];
+  for (const pattern of patterns) {
+    let match: RegExpExecArray | null;
+    while ((match = pattern.exec(content)) !== null) {
+      deps.push(match[1]);
+    }
+  }
+  return deps;
+}
+
+function extractLocalDependencies(resolvedPath: string, content: string): string[] {
+  const extension = extname(resolvedPath).toLowerCase();
+  if (['.sh', '.bash', '.zsh', '.fish', '.ksh'].includes(extension)) {
+    return extractShellDependencies(content);
+  }
+  if (extension === '.py') {
+    return extractPythonDependencies(content);
+  }
+  if (['.js', '.ts', '.mjs', '.cjs'].includes(extension)) {
+    return extractJsDependencies(content);
+  }
+  return [];
+}
+
 function collectCandidateScripts(command: string, cwd?: string): CandidateScript[] {
   const root = resolve(cwd || process.cwd());
   const seen = new Set<string>();
   const candidates: CandidateScript[] = [];
   for (const scriptPath of extractScriptPaths(command)) {
     const resolvedPath = isAbsolute(scriptPath) ? resolve(scriptPath) : resolve(root, scriptPath);
-    if (seen.has(resolvedPath)) continue;
-    seen.add(resolvedPath);
-    candidates.push({ displayPath: scriptPath, resolvedPath });
+    addCandidateScript(candidates, seen, scriptPath, resolvedPath, 'direct');
+  }
+
+  let frontier = candidates.filter((item) => item.source === 'direct');
+  for (let depth = 0; depth < MAX_DEPENDENCY_DEPTH; depth += 1) {
+    const nextFrontier: CandidateScript[] = [];
+    for (const candidate of frontier) {
+      try {
+        if (!existsSync(candidate.resolvedPath)) continue;
+        const content = readFileSync(candidate.resolvedPath, 'utf-8');
+        const beforeCount = candidates.length;
+        for (const dependencyPath of extractLocalDependencies(candidate.resolvedPath, content)) {
+          maybeAddDependencyCandidate(dependencyPath, candidate.resolvedPath, root, candidates, seen);
+        }
+        if (candidates.length > beforeCount) {
+          nextFrontier.push(...candidates.slice(beforeCount));
+        }
+      } catch {
+        // Ignore unreadable dependency graph edges; direct file read still goes through review policy.
+      }
+    }
+    frontier = nextFrontier;
+    if (frontier.length === 0) break;
   }
   return candidates;
 }
@@ -395,7 +508,7 @@ function buildInitialReviewPrompt(
 ): string {
   const sanitizedInput = JSON.stringify(ctx.toolInput, null, 2).slice(0, 800);
   const fileList = candidateScripts.length > 0
-    ? candidateScripts.map((item) => `- ${item.displayPath}`).join('\n')
+    ? candidateScripts.map((item) => `- ${item.displayPath}${item.source === 'dependency' ? ' (dependency)' : ''}`).join('\n')
     : '- none';
 
   return `You are a security analyzer for a coding assistant. Analyze whether this tool call should be automatically approved, denied, or left uncertain.

@@ -42,7 +42,9 @@ export function ServerSelector() {
     || (localBackendId ? backends.find((b) => b.backendId === localBackendId) : null)
     || backends.find((b) => b.isThisInstance)
     || null;
-  const activeConnection = activeServerId ? connections[activeServerId] : undefined;
+  const displayedBackend = activeBackend || fallbackBackend;
+  const displayedBackendId = displayedBackend?.backendId ?? activeServerId ?? null;
+  const activeConnection = displayedBackendId ? connections[displayedBackendId] : undefined;
   const activeConnectionStatus = activeConnection?.status || 'disconnected';
   const activeConnectionError = activeConnection?.error || null;
   const isGatewayConfigured = !!gatewayUrl && !!gatewaySecret;
@@ -96,7 +98,7 @@ export function ServerSelector() {
       >
         <span className={`w-2 h-2 rounded-full ${getStatusColor()}`} />
         <span className="text-sm truncate max-w-[150px]">
-          {fallbackBackend?.name || (isMobile ? 'Select Server' : 'No Server')}
+          {displayedBackend?.name || (isMobile ? 'Select Server' : 'No Server')}
         </span>
         <svg
           className={`w-4 h-4 transition-transform ${isOpen ? 'rotate-180' : ''}`}

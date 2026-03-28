@@ -1,10 +1,19 @@
 import type { Session, Message } from '@my-claudia/shared';
-import { fetchApi } from './base';
-import { apiCall, apiCallVoid } from './unwrap';
+import { fetchApiForBackend } from './base';
+import { apiCall, apiCallForBackend, apiCallVoid, apiCallVoidForBackend } from './unwrap';
+import { useOwnershipStore } from '../../stores/ownershipStore';
+
+function getBackendIdForSession(sessionId: string): string | null {
+  return useOwnershipStore.getState().getSessionBackendId(sessionId);
+}
+
+function getBackendIdForProject(projectId: string): string | null {
+  return useOwnershipStore.getState().getProjectBackendId(projectId);
+}
 
 export async function getSessions(projectId?: string, options?: RequestInit): Promise<Session[]> {
   const query = projectId ? `?projectId=${projectId}` : '';
-  return apiCall<Session[]>(`/api/sessions${query}`, options);
+  return apiCallForBackend<Session[]>(projectId ? getBackendIdForProject(projectId) : null, `/api/sessions${query}`, options);
 }
 
 export async function reorderSessions(projectId: string, orderedIds: string[]): Promise<void> {
@@ -15,7 +24,10 @@ export async function reorderSessions(projectId: string, orderedIds: string[]): 
 }
 
 export async function getSessionRunState(sessionId: string): Promise<{ sessionId: string; isRunning: boolean; activeRunId?: string }> {
-  return apiCall<{ sessionId: string; isRunning: boolean; activeRunId?: string }>(`/api/sessions/${sessionId}/run-state`);
+  return apiCallForBackend<{ sessionId: string; isRunning: boolean; activeRunId?: string }>(
+    getBackendIdForSession(sessionId),
+    `/api/sessions/${sessionId}/run-state`
+  );
 }
 
 export async function createSession(data: {
@@ -36,7 +48,7 @@ export async function updateSession(
   id: string,
   data: Partial<Session>
 ): Promise<void> {
-  return apiCallVoid(`/api/sessions/${id}`, {
+  return apiCallVoidForBackend(getBackendIdForSession(id), `/api/sessions/${id}`, {
     method: 'PUT',
     body: JSON.stringify(data)
   });
@@ -46,27 +58,27 @@ export async function updateSessionWorkingDirectory(
   sessionId: string,
   workingDirectory: string
 ): Promise<Session> {
-  return apiCall<Session>(`/api/sessions/${sessionId}/working-directory`, {
+  return apiCallForBackend<Session>(getBackendIdForSession(sessionId), `/api/sessions/${sessionId}/working-directory`, {
     method: 'PATCH',
     body: JSON.stringify({ workingDirectory })
   });
 }
 
 export async function resetSessionSdkSession(sessionId: string): Promise<void> {
-  return apiCallVoid(`/api/sessions/${sessionId}/reset-sdk-session`, { method: 'POST' });
+  return apiCallVoidForBackend(getBackendIdForSession(sessionId), `/api/sessions/${sessionId}/reset-sdk-session`, { method: 'POST' });
 }
 
 export async function dismissInterrupted(sessionId: string): Promise<void> {
   // Fire-and-forget, no error check
-  await fetchApi(`/api/sessions/${sessionId}/dismiss-interrupted`, { method: 'PATCH' });
+  await fetchApiForBackend(getBackendIdForSession(sessionId), `/api/sessions/${sessionId}/dismiss-interrupted`, { method: 'PATCH' });
 }
 
 export async function unlockSession(sessionId: string): Promise<Session> {
-  return apiCall<Session>(`/api/sessions/${sessionId}/unlock`, { method: 'PATCH' });
+  return apiCallForBackend<Session>(getBackendIdForSession(sessionId), `/api/sessions/${sessionId}/unlock`, { method: 'PATCH' });
 }
 
 export async function deleteSession(id: string): Promise<void> {
-  return apiCallVoid(`/api/sessions/${id}`, { method: 'DELETE' });
+  return apiCallVoidForBackend(getBackendIdForSession(id), `/api/sessions/${id}`, { method: 'DELETE' });
 }
 
 export async function archiveSessions(sessionIds: string[]): Promise<void> {
@@ -120,11 +132,11 @@ export async function getSessionMessages(
   if (options?.aroundMessageId) params.set('aroundMessageId', options.aroundMessageId);
 
   const query = params.toString() ? `?${params.toString()}` : '';
-  return apiCall<MessagesResponse>(`/api/sessions/${sessionId}/messages${query}`, {
+  return apiCallForBackend<MessagesResponse>(getBackendIdForSession(sessionId), `/api/sessions/${sessionId}/messages${query}`, {
     signal: options?.signal,
   });
 }
 
 export async function exportSession(sessionId: string): Promise<{ markdown: string; sessionName: string }> {
-  return apiCall<{ markdown: string; sessionName: string }>(`/api/sessions/${sessionId}/export`);
+  return apiCallForBackend<{ markdown: string; sessionName: string }>(getBackendIdForSession(sessionId), `/api/sessions/${sessionId}/export`);
 }

@@ -102,4 +102,22 @@ describe('ServerSelector', () => {
     const statusEl = container.querySelector('[data-testid="connection-status"]');
     expect(statusEl!.textContent).toBe('Connecting...');
   });
+
+  it('uses fallback backend connection state when activeServerId is stale', () => {
+    useServerStore.setState({
+      activeServerId: 'legacy-local',
+      connections: {
+        'legacy-local': { status: 'error', error: 'stale', isLocalConnection: true, features: [] },
+        local: { status: 'connected', error: null, isLocalConnection: true, features: [] },
+      },
+    } as any);
+
+    const { container } = render(<ServerSelector />);
+    const button = container.querySelector('[data-testid="server-selector"]')!;
+    fireEvent.click(button);
+
+    const statusEl = container.querySelector('[data-testid="connection-status"]');
+    expect(statusEl!.textContent).toBe('Connected');
+    expect(container.textContent).toContain('Local Server');
+  });
 });
