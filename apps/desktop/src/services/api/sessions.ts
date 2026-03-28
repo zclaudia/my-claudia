@@ -70,7 +70,7 @@ export async function resetSessionSdkSession(sessionId: string): Promise<void> {
 
 export async function dismissInterrupted(sessionId: string): Promise<void> {
   // Fire-and-forget, no error check
-  await fetchApiForBackend(getBackendIdForSession(sessionId), `/api/sessions/${sessionId}/dismiss-interrupted`, { method: 'PATCH' });
+  await fetchApiForBackend(`/api/sessions/${sessionId}/dismiss-interrupted`, getBackendIdForSession(sessionId), { method: 'PATCH' });
 }
 
 export async function unlockSession(sessionId: string): Promise<Session> {

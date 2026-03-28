@@ -9,7 +9,10 @@ function getBackendIdForSession(sessionId: string): string | null {
 
 export async function getSessionDraft(sessionId: string): Promise<SessionDraft | null> {
   // Special: returns null on failure instead of throwing
-  const result = await fetchApiForBackend<SessionDraft | null>(getBackendIdForSession(sessionId), `/api/sessions/${sessionId}/draft`);
+  const result = await fetchApiForBackend<SessionDraft | null>(
+    `/api/sessions/${sessionId}/draft`,
+    getBackendIdForSession(sessionId),
+  );
   if (!result.success) {
     throw new Error(result.error?.message || 'Failed to fetch draft');
   }
@@ -47,7 +50,7 @@ export async function unlockSessionDraft(
   deviceId: string
 ): Promise<void> {
   // Fire-and-forget, no error check
-  await fetchApiForBackend(getBackendIdForSession(sessionId), `/api/sessions/${sessionId}/draft/unlock`, {
+  await fetchApiForBackend(`/api/sessions/${sessionId}/draft/unlock`, getBackendIdForSession(sessionId), {
     method: 'POST',
     body: JSON.stringify({ deviceId }),
   });
