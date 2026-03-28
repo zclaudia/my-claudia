@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import type Database from 'better-sqlite3';
-import { getDelegationConfig, saveDelegationConfig } from '../agent/delegation-evaluator.js';
+import { getDelegationConfig, saveDelegationConfig } from '../domains/conversation/agent/delegation-evaluator.js';
 import { DEFAULT_DELEGATION_CONFIG } from '@my-claudia/shared';
 
 export function createDelegationRoutes(db: Database.Database): Router {

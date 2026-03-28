@@ -31,8 +31,8 @@ import { isLocalhost } from './middleware/local-only.js';
 import { expressErrorHandler } from './middleware/express-error.js';
 
 // Extracted modules
-import type { ConnectedClient, ActiveRun, MessageSender } from './ws/types.js';
-import { createVirtualClient } from './ws/types.js';
+import type { ConnectedClient, ActiveRun, MessageSender } from './domains/conversation/ws/types.js';
+import { createVirtualClient } from './domains/conversation/ws/types.js';
 import {
   sendMessage,
   broadcastToOtherAuthenticatedClients,
@@ -40,21 +40,21 @@ import {
   broadcastHeartbeat as _broadcastHeartbeat,
   buildPluginStateMessage,
   broadcastPluginState as _broadcastPluginState,
-} from './ws/broadcast.js';
+} from './domains/conversation/ws/broadcast.js';
 import {
   handleClientMessage as _handleClientMessage,
   type MessageHandlerContext,
-} from './ws/message-handler.js';
+} from './domains/conversation/ws/message-handler.js';
 import {
   cancelRun as _cancelRun,
   findProcessPidsByTaskCommand,
   parseMessage,
   type CancelRunOptions,
-} from './ws/run-lifecycle.js';
+} from './domains/conversation/ws/run-lifecycle.js';
 import {
   handleRunStart as _handleRunStart,
   type RunHandlerContext,
-} from './ws/run-handler.js';
+} from './domains/conversation/ws/run-handler.js';
 import { setupRoutesAndServices } from './server-setup.js';
 
 let database: ReturnType<typeof initDatabase> | null = null;

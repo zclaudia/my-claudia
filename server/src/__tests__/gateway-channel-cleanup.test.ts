@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { cancelRunsForClosedChannel } from '../gateway-channel-cleanup.js';
+import { cancelRunsForClosedChannel } from '../domains/gateway/gateway-channel-cleanup.js';
 import type { ActiveRun } from '../ws/types.js';
 
 function createRun(clientId: string): ActiveRun {

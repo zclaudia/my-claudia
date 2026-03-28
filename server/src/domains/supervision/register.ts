@@ -16,9 +16,9 @@ import { SupervisionTaskRepository } from '../../repositories/supervision-task.j
 import { ProjectRepository } from '../../repositories/project.js';
 import { SessionRepository } from '../../repositories/session.js';
 import { createSupervisionRoutes } from './routes.js';
-import { sendMessage } from '../../ws/broadcast.js';
-import { createVirtualClient } from '../../ws/types.js';
-import type { ConnectedClient, ActiveRun } from '../../ws/types.js';
+import { sendMessage } from '../conversation/ws/broadcast.js';
+import { createVirtualClient } from '../conversation/ws/types.js';
+import type { ConnectedClient, ActiveRun } from '../conversation/ws/types.js';
 
 export interface SupervisionDomainDeps {
   db: ReturnType<typeof initDatabase>;

@@ -15,10 +15,10 @@ import type {
 } from '@my-claudia/shared';
 import type { BranchAction } from '@my-claudia/shared';
 import type { ConnectedClient, ActiveRun } from '../types.js';
-import type { initDatabase } from '../../storage/db.js';
-import type { NotificationFeedService } from '../../domains/notification-feed/service.js';
-import type { TaskOrchestrator } from '../../orchestration/types.js';
-import { ClaudiaBranchService } from '../../services/claudia-branch-service.js';
+import type { initDatabase } from '../../../../storage/db.js';
+import type { NotificationFeedService } from '../../../../domains/notification-feed/service.js';
+import type { TaskOrchestrator } from '../../../../orchestration/types.js';
+import { ClaudiaBranchService } from '../../../../services/claudia-branch-service.js';
 import { sendMessage } from '../broadcast.js';
 
 interface ClaudiaHandlerContext {

@@ -53,7 +53,7 @@ vi.mock('util', () => ({
   promisify: () => mockExecFileAsync,
 }));
 
-import { WorkflowEngine, type StepResult } from '../workflow-engine.js';
+import { WorkflowEngine, type StepResult } from '../../domains/workflows/engine.js';
 import { createVirtualClient, handleRunStart } from '../../server.js';
 import { workflowStepRegistry } from '../../plugins/workflow-step-registry.js';
 

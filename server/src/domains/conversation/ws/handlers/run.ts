@@ -4,10 +4,10 @@ import type {
   TaskNotificationMessage,
 } from '@my-claudia/shared';
 import type { ConnectedClient, ActiveRun } from '../types.js';
-import type { ProcessMonitor } from '../../utils/process-monitor.js';
-import type { initDatabase } from '../../storage/db.js';
-import { isProcessAlive, killProcessTree } from '../../utils/process-tree.js';
-import { providerRegistry } from '../../providers/registry.js';
+import type { ProcessMonitor } from '../../../../utils/process-monitor.js';
+import type { initDatabase } from '../../../../storage/db.js';
+import { isProcessAlive, killProcessTree } from '../../../../utils/process-tree.js';
+import { providerRegistry } from '../../../../providers/registry.js';
 import { sendMessage } from '../broadcast.js';
 
 export async function handleKillLeakedProcesses(

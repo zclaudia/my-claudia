@@ -7,12 +7,12 @@ import type {
   PongMessage,
   ErrorMessage,
 } from '@my-claudia/shared';
-import type { TerminalManager } from '../terminal-manager.js';
-import type { ProcessMonitor } from '../utils/process-monitor.js';
-import type { initDatabase } from '../storage/db.js';
+import type { TerminalManager } from '../../../terminal-manager.js';
+import type { ProcessMonitor } from '../../../utils/process-monitor.js';
+import type { initDatabase } from '../../../storage/db.js';
 import type { ConnectedClient, ActiveRun } from './types.js';
-import type { NotificationFeedService } from '../domains/notification-feed/service.js';
-import type { TaskOrchestrator } from '../orchestration/types.js';
+import type { NotificationFeedService } from '../../../domains/notification-feed/service.js';
+import type { TaskOrchestrator } from '../../../orchestration/types.js';
 import { sendMessage } from './broadcast.js';
 
 // Domain handlers

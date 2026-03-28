@@ -3,9 +3,9 @@ import { promisify } from 'util';
 import { v4 as uuidv4 } from 'uuid';
 import type { Request as CorrelatedRequest } from '@my-claudia/shared';
 import { isRequest } from '@my-claudia/shared';
-import { providerRegistry } from '../providers/registry.js';
+import { providerRegistry } from '../../../providers/registry.js';
 import { interactionDispatcher } from '../interactions/interaction-dispatcher.js';
-import { extractAndIndexMetadata, removeIndexedMetadata } from '../storage/metadata-extractor.js';
+import { extractAndIndexMetadata, removeIndexedMetadata } from '../../../storage/metadata-extractor.js';
 import { sendMessage } from './broadcast.js';
 import type { ConnectedClient, ActiveRun } from './types.js';
 

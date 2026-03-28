@@ -9,7 +9,7 @@ import type {
 import type { ConnectedClient, ActiveRun } from '../types.js';
 import { handlePermissionDecision, handlePromptAnswer } from '../permission-handler.js';
 import { interactionDispatcher } from '../../interactions/interaction-dispatcher.js';
-import { permissionManager as pluginPermissionManager } from '../../plugins/permissions.js';
+import { permissionManager as pluginPermissionManager } from '../../../../plugins/permissions.js';
 import { sendMessage, broadcastToOtherAuthenticatedClients } from '../broadcast.js';
 
 export function handlePermission(

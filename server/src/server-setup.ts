@@ -47,11 +47,11 @@ import type { LocalPRService } from './domains/local-pr/service.js';
 import { registerWorkflowDomain } from './domains/workflows/register.js';
 import type { SupervisorService } from './domains/supervision/supervisor-service.js';
 import { NotificationService } from './services/notification-service.js';
-import { registerInteractionTools } from './interactions/interaction-tools.js';
-import { registerAgentTools } from './agent-tools/index.js';
-import { registerTaskTools } from './agent-tools/task-tools.js';
+import { registerInteractionTools } from './domains/conversation/interactions/interaction-tools.js';
+import { registerAgentTools } from './domains/conversation/agent-tools/index.js';
+import { registerTaskTools } from './domains/conversation/agent-tools/task-tools.js';
 import { createTaskOrchestrator } from './orchestration/task-orchestrator.js';
-import { interactionDispatcher } from './interactions/interaction-dispatcher.js';
+import { interactionDispatcher } from './domains/conversation/interactions/interaction-dispatcher.js';
 import { pluginEvents } from './events/index.js';
 import { pluginLoader } from './plugins/loader.js';
 import { permissionManager as pluginPermissionManager } from './plugins/permissions.js';
@@ -61,9 +61,9 @@ import { getPublicKeyPem } from './utils/crypto.js';
 import { getSdkVersionReport } from './utils/sdk-version-check.js';
 import { getGatewayClient } from './domains/gateway/gateway-instance.js';
 import { ProcessMonitor } from './utils/process-monitor.js';
-import { sendMessage, broadcastToOtherAuthenticatedClients, buildPluginStateMessage } from './ws/broadcast.js';
-import { getNextOffset } from './ws/run-lifecycle.js';
-import type { ConnectedClient, ActiveRun } from './ws/types.js';
+import { sendMessage, broadcastToOtherAuthenticatedClients, buildPluginStateMessage } from './domains/conversation/ws/broadcast.js';
+import { getNextOffset } from './domains/conversation/ws/run-lifecycle.js';
+import type { ConnectedClient, ActiveRun } from './domains/conversation/ws/types.js';
 import type { createRouter } from './router/index.js';
 
 export interface SetupDependencies {
@@ -490,7 +490,7 @@ export function setupRoutesAndServices(deps: SetupDependencies): SetupResult {
   });
 
   // Register browser tool (lightweight URL fetcher)
-  import('./agent-tools/browser.js').then(m => m.registerBrowserTool());
+  import('./domains/conversation/agent-tools/browser.js').then(m => m.registerBrowserTool());
 
   // TaskOrchestrator — unified task orchestration (Phase 2: agent tasks only)
   const orchestrator = createTaskOrchestrator({

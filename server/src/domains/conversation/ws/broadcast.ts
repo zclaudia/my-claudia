@@ -1,11 +1,11 @@
 import { WebSocket } from 'ws';
 import type { ServerMessage, StateHeartbeatMessage, RunHealthStatus } from '@my-claudia/shared';
 import { resolvePluginPlatform } from '@my-claudia/shared';
-import { detectLoop } from '../loop-detection.js';
-import { pluginLoader } from '../plugins/loader.js';
-import { permissionManager as pluginPermissionManager } from '../plugins/permissions.js';
-import { toolRegistry as pluginToolRegistry } from '../plugins/tool-registry.js';
-import { commandRegistry as pluginCommandRegistry } from '../commands/registry.js';
+import { detectLoop } from '../../../loop-detection.js';
+import { pluginLoader } from '../../../plugins/loader.js';
+import { permissionManager as pluginPermissionManager } from '../../../plugins/permissions.js';
+import { toolRegistry as pluginToolRegistry } from '../../../plugins/tool-registry.js';
+import { commandRegistry as pluginCommandRegistry } from '../../../commands/registry.js';
 import type { ConnectedClient, ActiveRun } from './types.js';
 
 export function sendMessage(ws: WebSocket, message: ServerMessage): void {

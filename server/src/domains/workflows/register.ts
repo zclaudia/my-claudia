@@ -14,8 +14,8 @@ import { WorkflowGeneratorService } from './generator.js';
 import { createWorkflowRoutes } from './routes.js';
 import { createAutomationRoutes } from '../../routes/automations.js';
 import { systemTaskRegistry } from '../../services/system-task-registry.js';
-import { sendMessage } from '../../ws/broadcast.js';
-import type { ConnectedClient } from '../../ws/types.js';
+import { sendMessage } from '../conversation/ws/broadcast.js';
+import type { ConnectedClient } from '../conversation/ws/types.js';
 import type { NotificationService } from '../../services/notification-service.js';
 
 export interface WorkflowDomainDeps {

@@ -4,7 +4,7 @@ import type {
   DismissNotificationsMessage,
   NotificationListMessage,
 } from '@my-claudia/shared';
-import type { NotificationFeedService } from '../../domains/notification-feed/service.js';
+import type { NotificationFeedService } from '../../../../domains/notification-feed/service.js';
 import type { ConnectedClient } from '../types.js';
 import { sendMessage } from '../broadcast.js';
 

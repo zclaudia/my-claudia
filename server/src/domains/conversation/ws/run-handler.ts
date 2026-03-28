@@ -17,8 +17,8 @@ import {
   PERIODIC_SAVE_INTERVAL_MS,
 } from './types.js';
 import { getNextOffset, upsertAssistantMessage, findProcessPidsByTaskCommand } from './run-lifecycle.js';
-import { getDiscoveredSkills, loadSkillContent } from '../plugins/skill-tools.js';
-import { selectSkills } from '../plugins/skill-selector.js';
+import { getDiscoveredSkills, loadSkillContent } from '../../../plugins/skill-tools.js';
+import { selectSkills } from '../../../plugins/skill-selector.js';
 import {
   normalizeSessionWorkingDirectory,
   isSlashCommand,
@@ -33,7 +33,7 @@ import {
   isHardQuotaExceededError,
   SYSTEM_INFO_COMMANDS,
   buildFilePushContext,
-} from '../helpers/server-utils.js';
+} from '../../../helpers/server-utils.js';
 import {
   classify,
   getMatchedPermissionRule,
@@ -52,24 +52,24 @@ import {
   resolveRememberedDecision,
 } from '../agent/permission-evaluator.js';
 import { evaluateAIReview } from '../agent/delegation-evaluator.js';
-import type { PermissionDecision, SystemInfo } from '../providers/claude-sdk.js';
-import { providerRegistry } from '../providers/registry.js';
-import { negotiateProfile } from '../providers/pcp-negotiator.js';
-import { mapPermissionMode } from '../providers/pcp-permission.js';
+import type { PermissionDecision, SystemInfo } from '../../../providers/claude-sdk.js';
+import { providerRegistry } from '../../../providers/registry.js';
+import { negotiateProfile } from '../../../providers/pcp-negotiator.js';
+import { mapPermissionMode } from '../../../providers/pcp-permission.js';
 import { createContextEngine } from '../context/engine.js';
 import { interactionDispatcher } from '../interactions/interaction-dispatcher.js';
 import { normalizeFromToolUse, normalizeFromAskUser } from '../interactions/interaction-normalizer.js';
-import { pluginEvents } from '../events/index.js';
-import { workspaceService } from '../services/workspace.js';
-import { buildSkillDirectoryHint } from '../plugins/skill-tools.js';
-import { toolRegistry as pluginToolRegistry } from '../plugins/tool-registry.js';
-import { resolveProviderCwd } from '../utils/provider-cwd.js';
-import { createTraceRecorder, summarizeProviderMessage, summarizeServerMessage } from '../utils/provider-trace.js';
-import { generateToolSignature, detectLoop } from '../loop-detection.js';
-import { getGatewayClient } from '../domains/gateway/gateway-instance.js';
-import { initDatabase } from '../storage/db.js';
-import { NotificationService } from '../services/notification-service.js';
-import { ProcessMonitor } from '../utils/process-monitor.js';
+import { pluginEvents } from '../../../events/index.js';
+import { workspaceService } from '../../../services/workspace.js';
+import { buildSkillDirectoryHint } from '../../../plugins/skill-tools.js';
+import { toolRegistry as pluginToolRegistry } from '../../../plugins/tool-registry.js';
+import { resolveProviderCwd } from '../../../utils/provider-cwd.js';
+import { createTraceRecorder, summarizeProviderMessage, summarizeServerMessage } from '../../../utils/provider-trace.js';
+import { generateToolSignature, detectLoop } from '../../../loop-detection.js';
+import { getGatewayClient } from '../../../domains/gateway/gateway-instance.js';
+import { initDatabase } from '../../../storage/db.js';
+import { NotificationService } from '../../../services/notification-service.js';
+import { ProcessMonitor } from '../../../utils/process-monitor.js';
 
 export interface RunHandlerContext {
   activeRuns: Map<string, ActiveRun>;

@@ -58,7 +58,7 @@ vi.mock('../../domains/workflows/templates.js', () => ({
   ],
 }));
 
-import { WorkflowService } from '../workflow-service.js';
+import { WorkflowService } from '../../domains/workflows/service.js';
 import { pluginEvents } from '../../events/index.js';
 
 const emptyDefinition = { triggers: [], nodes: [], edges: [], entryNodeId: '' };

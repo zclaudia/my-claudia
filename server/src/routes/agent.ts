@@ -4,7 +4,7 @@ import { v4 as uuidv4 } from 'uuid';
 import type { ApiResponse } from '@my-claudia/shared';
 import { toolRegistry } from '../plugins/tool-registry.js';
 import { getDiscoveredSkills } from '../plugins/skill-tools.js';
-import { CONTEXT_TEMPLATES } from '../context/types.js';
+import { CONTEXT_TEMPLATES } from '../domains/conversation/context/types.js';
 
 interface AgentConfig {
   id: number;

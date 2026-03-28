@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import Database from 'better-sqlite3';
 import { registerAgentTools } from '../index.js';
-import { toolRegistry } from '../../plugins/tool-registry.js';
+import { toolRegistry } from '../../../../plugins/tool-registry.js';
 
 function createDb(): Database.Database {
   const db = new Database(':memory:');

@@ -50,7 +50,7 @@ vi.mock('util', () => ({
 import { promisify } from 'util';
 const mockExecFileAsync = promisify(null as any) as ReturnType<typeof vi.fn>;
 
-import { ScheduledTaskService } from '../scheduled-task-service.js';
+import { ScheduledTaskService } from '../../domains/scheduled-tasks/service.js';
 import { createVirtualClient } from '../../server.js';
 import { pluginEvents } from '../../events/index.js';
 

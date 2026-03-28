@@ -1,5 +1,5 @@
-import type { ActiveRun } from '../../ws/types.js';
-import type { CancelRunOptions } from '../../ws/run-lifecycle.js';
+import type { ActiveRun } from '../conversation/ws/types.js';
+import type { CancelRunOptions } from '../conversation/ws/run-lifecycle.js';
 
 export function cancelRunsForClosedChannel(
   channelId: string,

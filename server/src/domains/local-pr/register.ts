@@ -14,8 +14,8 @@ import { LocalPRService } from './service.js';
 import { createLocalPRRoutes } from './routes.js';
 import { systemTaskRegistry } from '../../services/system-task-registry.js';
 import { pluginEvents } from '../../events/index.js';
-import { sendMessage } from '../../ws/broadcast.js';
-import type { ConnectedClient } from '../../ws/types.js';
+import { sendMessage } from '../conversation/ws/broadcast.js';
+import type { ConnectedClient } from '../conversation/ws/types.js';
 
 export interface LocalPRDomainDeps {
   db: ReturnType<typeof initDatabase>;

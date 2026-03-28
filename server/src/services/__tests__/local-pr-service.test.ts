@@ -60,7 +60,7 @@ vi.mock('../../server.js', () => ({
   sendMessage: vi.fn(),
 }));
 
-import { LocalPRService } from '../local-pr-service.js';
+import { LocalPRService } from '../../domains/local-pr/service.js';
 import { LocalPRRepository } from '../../repositories/local-pr.js';
 import type { LocalPR, ServerMessage } from '@my-claudia/shared';
 

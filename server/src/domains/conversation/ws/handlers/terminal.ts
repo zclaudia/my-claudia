@@ -6,10 +6,10 @@ import type {
   TerminalDetachMessage,
   TerminalAttachMessage,
 } from '@my-claudia/shared';
-import type { TerminalManager } from '../../terminal-manager.js';
+import type { TerminalManager } from '../../../../terminal-manager.js';
 import type { ConnectedClient } from '../types.js';
 import { sendMessage } from '../broadcast.js';
-import type { initDatabase } from '../../storage/db.js';
+import type { initDatabase } from '../../../../storage/db.js';
 
 export function handleTerminalOpen(
   client: ConnectedClient,

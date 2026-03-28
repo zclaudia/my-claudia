@@ -13,8 +13,8 @@ import { ScheduledTaskService } from './service.js';
 import { createScheduledTaskRoutes } from './routes.js';
 import { createSystemTaskRoutes } from '../../routes/system-tasks.js';
 import { systemTaskRegistry } from '../../services/system-task-registry.js';
-import { sendMessage } from '../../ws/broadcast.js';
-import type { ConnectedClient } from '../../ws/types.js';
+import { sendMessage } from '../conversation/ws/broadcast.js';
+import type { ConnectedClient } from '../conversation/ws/types.js';
 
 export interface ScheduledTaskDomainDeps {
   db: ReturnType<typeof initDatabase>;

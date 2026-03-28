@@ -1,6 +1,6 @@
-import type { PermissionDecision } from '../providers/claude-sdk.js';
-import { decryptCredential } from '../utils/crypto.js';
-import { rewriteSudoCommand } from '../helpers/server-utils.js';
+import type { PermissionDecision } from '../../../providers/claude-sdk.js';
+import { decryptCredential } from '../../../utils/crypto.js';
+import { rewriteSudoCommand } from '../../../helpers/server-utils.js';
 import {
   buildRememberKey,
   classify,

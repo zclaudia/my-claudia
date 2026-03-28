@@ -28,17 +28,17 @@ vi.mock('../run-lifecycle.js', () => ({
   findProcessPidsByTaskCommand: findProcessPidsByTaskCommandMock,
 }));
 
-vi.mock('../../plugins/skill-tools.js', () => ({
+vi.mock('../../../../plugins/skill-tools.js', () => ({
   getDiscoveredSkills: getDiscoveredSkillsMock,
   loadSkillContent: loadSkillContentMock,
   buildSkillDirectoryHint: buildSkillDirectoryHintMock,
 }));
 
-vi.mock('../../plugins/skill-selector.js', () => ({
+vi.mock('../../../../plugins/skill-selector.js', () => ({
   selectSkills: selectSkillsMock,
 }));
 
-vi.mock('../../providers/registry.js', () => ({
+vi.mock('../../../../providers/registry.js', () => ({
   providerRegistry: {
     getOrDefault: vi.fn(() => ({
       run: providerRunMock,
@@ -54,25 +54,25 @@ vi.mock('../../context/engine.js', () => ({
   })),
 }));
 
-vi.mock('../../events/index.js', () => ({
+vi.mock('../../../../events/index.js', () => ({
   pluginEvents: {
     emit: pluginEventsEmitMock,
   },
 }));
 
-vi.mock('../../services/workspace.js', () => ({
+vi.mock('../../../../services/workspace.js', () => ({
   workspaceService: {
     assembleSystemPrompt: assembleSystemPromptMock,
   },
 }));
 
-vi.mock('../../plugins/tool-registry.js', () => ({
+vi.mock('../../../../plugins/tool-registry.js', () => ({
   toolRegistry: {
     getAll: toolRegistryGetAllMock,
   },
 }));
 
-vi.mock('../../domains/gateway/gateway-instance.js', () => ({
+vi.mock('../../../../domains/gateway/gateway-instance.js', () => ({
   getGatewayClient: vi.fn(() => null),
 }));
 
@@ -87,7 +87,7 @@ vi.mock('../../interactions/interaction-normalizer.js', () => ({
   normalizeFromAskUser: vi.fn(() => null),
 }));
 
-vi.mock('../../utils/provider-trace.js', () => ({
+vi.mock('../../../../utils/provider-trace.js', () => ({
   createTraceRecorder: vi.fn(() => ({
     log: vi.fn(),
     setMeta: vi.fn(),
@@ -96,7 +96,7 @@ vi.mock('../../utils/provider-trace.js', () => ({
   summarizeServerMessage: vi.fn(() => ''),
 }));
 
-vi.mock('../../utils/provider-cwd.js', () => ({
+vi.mock('../../../../utils/provider-cwd.js', () => ({
   resolveProviderCwd: vi.fn(({ requestedCwd }) => requestedCwd),
 }));
 
