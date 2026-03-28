@@ -1,8 +1,8 @@
 import { describe, it, expect, beforeAll, beforeEach, vi } from 'vitest';
 import express from 'express';
 import request from 'supertest';
-import { createSupervisionRoutes } from '../supervision.js';
-import type { SupervisorService } from '../../services/supervision/supervisor-service.js';
+import { createSupervisionRoutes } from '../../domains/supervision/routes.js';
+import type { SupervisorService } from '../../domains/supervision/supervisor-service.js';
 import type { ProjectAgent, SupervisionTask } from '@my-claudia/shared';
 
 function makeMockAgent(overrides: Partial<ProjectAgent> = {}): ProjectAgent {

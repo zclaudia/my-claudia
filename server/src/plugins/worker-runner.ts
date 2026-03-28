@@ -110,14 +110,14 @@ function createProxyContext(pluginId: string, rpc: RPCClient): any {
         }
         eventHandlers.get(event)!.add(handler);
         // Register with host so it forwards events to this worker
-        rpc.call('events.on', event).catch(() => {});
+        rpc.call('events.on', event).catch((err: unknown) => { console.warn('[WorkerRunner] RPC failed:', err instanceof Error ? err.message : err); });
         return () => {
           const handlers = eventHandlers.get(event);
           if (handlers) {
             handlers.delete(handler);
             if (handlers.size === 0) {
               eventHandlers.delete(event);
-              rpc.call('events.off', event).catch(() => {});
+              rpc.call('events.off', event).catch((err: unknown) => { console.warn('[WorkerRunner] RPC failed:', err instanceof Error ? err.message : err); });
             }
           }
         };
@@ -135,7 +135,7 @@ function createProxyContext(pluginId: string, rpc: RPCClient): any {
           eventHandlers.set(event, new Set());
         }
         eventHandlers.get(event)!.add(wrappedHandler);
-        rpc.call('events.once', event).catch(() => {});
+        rpc.call('events.once', event).catch((err: unknown) => { console.warn('[WorkerRunner] RPC failed:', err instanceof Error ? err.message : err); });
       },
       emit: (event: string, data: unknown) => rpc.call('events.emit', event, data),
     },
@@ -152,34 +152,34 @@ function createProxyContext(pluginId: string, rpc: RPCClient): any {
     commands: {
       registerCommand: (command: string, handler: (args: string[], ctx?: any) => any) => {
         commandHandlers.set(command, handler);
-        rpc.call('commands.register', command).catch(() => {});
+        rpc.call('commands.register', command).catch((err: unknown) => { console.warn('[WorkerRunner] RPC failed:', err instanceof Error ? err.message : err); });
       },
       unregisterCommand: (command: string) => {
         commandHandlers.delete(command);
-        rpc.call('commands.unregister', command).catch(() => {});
+        rpc.call('commands.unregister', command).catch((err: unknown) => { console.warn('[WorkerRunner] RPC failed:', err instanceof Error ? err.message : err); });
       },
     },
 
     registerCommand: (command: string, handler: (args: string[], ctx?: any) => any) => {
       commandHandlers.set(command, handler);
-      rpc.call('commands.register', command).catch(() => {});
+      rpc.call('commands.register', command).catch((err: unknown) => { console.warn('[WorkerRunner] RPC failed:', err instanceof Error ? err.message : err); });
     },
 
     // Tools registration — store handler locally, register metadata on host
     tools: {
       registerTool: (tool: { id: string; name: string; description: string; parameters: unknown; handler: (args: Record<string, unknown>) => Promise<string> | string }) => {
         toolHandlers.set(tool.id, tool.handler);
-        rpc.call('tools.register', tool.id, tool.name, tool.description, tool.parameters).catch(() => {});
+        rpc.call('tools.register', tool.id, tool.name, tool.description, tool.parameters).catch((err: unknown) => { console.warn('[WorkerRunner] RPC failed:', err instanceof Error ? err.message : err); });
       },
       unregisterTool: (toolId: string) => {
         toolHandlers.delete(toolId);
-        rpc.call('tools.unregister', toolId).catch(() => {});
+        rpc.call('tools.unregister', toolId).catch((err: unknown) => { console.warn('[WorkerRunner] RPC failed:', err instanceof Error ? err.message : err); });
       },
     },
 
     registerTool: (tool: { id: string; name: string; description: string; parameters: unknown; handler: (args: Record<string, unknown>) => Promise<string> | string }) => {
       toolHandlers.set(tool.id, tool.handler);
-      rpc.call('tools.register', tool.id, tool.name, tool.description, tool.parameters).catch(() => {});
+      rpc.call('tools.register', tool.id, tool.name, tool.description, tool.parameters).catch((err: unknown) => { console.warn('[WorkerRunner] RPC failed:', err instanceof Error ? err.message : err); });
     },
 
     // Permissions (proxied)
@@ -224,21 +224,21 @@ function createProxyContext(pluginId: string, rpc: RPCClient): any {
         handler: () => Promise<void> | void,
       ) => {
         schedulerHandlers.set(task.id, handler);
-        rpc.call('scheduler.register', task.id, task.name, task.intervalMs, task.immediate).catch(() => {});
+        rpc.call('scheduler.register', task.id, task.name, task.intervalMs, task.immediate).catch((err: unknown) => { console.warn('[WorkerRunner] RPC failed:', err instanceof Error ? err.message : err); });
         return () => {
           schedulerHandlers.delete(task.id);
-          rpc.call('scheduler.unregister', task.id).catch(() => {});
+          rpc.call('scheduler.unregister', task.id).catch((err: unknown) => { console.warn('[WorkerRunner] RPC failed:', err instanceof Error ? err.message : err); });
         };
       },
       unregister: (taskId: string) => {
         schedulerHandlers.delete(taskId);
-        rpc.call('scheduler.unregister', taskId).catch(() => {});
+        rpc.call('scheduler.unregister', taskId).catch((err: unknown) => { console.warn('[WorkerRunner] RPC failed:', err instanceof Error ? err.message : err); });
       },
       trigger: (taskId: string) => rpc.call('scheduler.trigger', taskId),
     },
 
     // Plugin inter-communication (proxied)
-    exports: (api: unknown) => { rpc.call('exports', api).catch(() => {}); },
+    exports: (api: unknown) => { rpc.call('exports', api).catch((err: unknown) => { console.warn('[WorkerRunner] RPC failed:', err instanceof Error ? err.message : err); }); },
     getPluginAPI: (targetPluginId: string) => rpc.call('getPluginAPI', targetPluginId),
 
     env: {

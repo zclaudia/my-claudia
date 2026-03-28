@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import express from 'express';
 import request from 'supertest';
-import { createWorkflowRoutes } from '../workflows.js';
+import { createWorkflowRoutes } from '../../domains/workflows/routes.js';
 
 // Mock cron
 vi.mock('../../utils/cron.js', () => ({

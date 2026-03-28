@@ -855,7 +855,7 @@ export async function handleRunStart(
       input: message.input,
       providerId,
       providerType: providerConfig?.type,
-    }).catch(() => {});
+    }).catch((err: unknown) => { console.warn('[PluginEvents] Event emission failed:', err instanceof Error ? err.message : err); });
 
     // Notify background task started
     if (sessionType === 'background') {
@@ -1112,7 +1112,7 @@ Use enter_plan_mode / exit_plan_mode for complex tasks that affect multiple file
             toolName: msg.toolName,
             toolUseId: msg.toolUseId,
             toolInput: msg.toolInput,
-          }).catch(() => {});
+          }).catch((err: unknown) => { console.warn('[PluginEvents] Event emission failed:', err instanceof Error ? err.message : err); });
           // Phase 1: Emit parallel interaction event for TodoWrite
           const todoInteraction = normalizeFromToolUse({
             sessionId: activeRun.sessionId,
@@ -1154,7 +1154,7 @@ Use enter_plan_mode / exit_plan_mode for complex tasks that affect multiple file
             toolUseId: msg.toolUseId,
             result: msg.toolResult,
             isError: msg.isToolError,
-          }).catch(() => {});
+          }).catch((err: unknown) => { console.warn('[PluginEvents] Event emission failed:', err instanceof Error ? err.message : err); });
           // Sync plan mode state to client (Claude native + Codex via MCP tools)
           if ((activeRun.providerType === 'claude' || activeRun.providerType === 'codex') && !msg.isToolError) {
             if (toolName === 'EnterPlanMode') {
@@ -1294,7 +1294,7 @@ Use enter_plan_mode / exit_plan_mode for complex tasks that affect multiple file
               runId,
               sessionId: activeRun.sessionId,
               usage: msg.usage,
-            }).catch(() => {});
+            }).catch((err: unknown) => { console.warn('[PluginEvents] Event emission failed:', err instanceof Error ? err.message : err); });
             broadcastHeartbeat();
             notificationService.notify({
               type: 'run_completed',
@@ -1336,7 +1336,7 @@ Use enter_plan_mode / exit_plan_mode for complex tasks that affect multiple file
               runId,
               sessionId: activeRun.sessionId,
               error: errorMessage,
-            }).catch(() => {});
+            }).catch((err: unknown) => { console.warn('[PluginEvents] Event emission failed:', err instanceof Error ? err.message : err); });
             broadcastHeartbeat();
             notificationService.notify({
               type: 'run_failed',

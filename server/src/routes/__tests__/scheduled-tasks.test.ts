@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import express from 'express';
 import request from 'supertest';
-import { createScheduledTaskRoutes } from '../scheduled-tasks.js';
+import { createScheduledTaskRoutes } from '../../domains/scheduled-tasks/routes.js';
 
 // Mock cron
 vi.mock('../../utils/cron.js', () => ({
