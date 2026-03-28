@@ -266,8 +266,11 @@ export const useProjectStore = create<ProjectState>((set) => ({
 
       if (id) {
         if (targetBackendId) {
+          // Session found on a specific remote backend — switch to it
           useServerStore.getState().setActiveServer(targetBackendId);
-        } else if (session && getControlPlaneMode() === 'embedded-local') {
+        } else if (!useServerStore.getState().activeServerId && session && getControlPlaneMode() === 'embedded-local') {
+          // No active server yet (first boot) and session is local — set local backend.
+          // Don't override if user has already selected a remote backend.
           const localBackendId = resolveLocalBackendId();
           if (localBackendId) {
             useServerStore.getState().setActiveServer(localBackendId);

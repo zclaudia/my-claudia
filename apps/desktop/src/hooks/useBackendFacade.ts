@@ -155,8 +155,12 @@ export function syncToGatewayStore(event: BackendFacadeEvent): void {
         const status = runtimeStateToConnectionStatus(b.runtimeState);
         serverState.setServerConnectionStatus(b.backendId, status, b.lastError ?? undefined);
       }
-      // Auto-set or migrate activeServerId to the resolved local backend.
-      if (resolvedLocalBackendId && (!serverState.activeServerId || isLegacyLocalBackendId(serverState.activeServerId))) {
+      // Auto-set activeServerId to local backend ONLY on first boot or legacy migration.
+      // Never override a user-selected remote backend.
+      if (resolvedLocalBackendId && isLegacyLocalBackendId(serverState.activeServerId)) {
+        serverState.setActiveServer(resolvedLocalBackendId);
+      } else if (resolvedLocalBackendId && !serverState.activeServerId) {
+        // First boot: no active server yet
         serverState.setActiveServer(resolvedLocalBackendId);
       }
       // Auto-open the local backend if it's visible but not yet opened

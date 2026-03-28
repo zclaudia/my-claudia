@@ -29,10 +29,15 @@ export function useDataLoader() {
       store.setDataServerId(activeServerId);
 
       // If current selectedSessionId doesn't exist in the new sessions, auto-select
+      // Skip internal project sessions (e.g. __claudia) when auto-selecting
       const { selectedSessionId } = store;
       if (selectedSessionId && !sessions.find(s => s.id === selectedSessionId)) {
-        const latest = sessions.length > 0
-          ? sessions.reduce((a, b) => (b.updatedAt > a.updatedAt ? b : a))
+        const internalProjectIds = new Set(
+          (store.projects || []).filter(p => p.isInternal).map(p => p.id)
+        );
+        const userSessions = sessions.filter(s => !internalProjectIds.has(s.projectId) && s.type !== 'background');
+        const latest = userSessions.length > 0
+          ? userSessions.reduce((a, b) => (b.updatedAt > a.updatedAt ? b : a))
           : null;
         useProjectStore.getState().selectSession(latest?.id ?? null);
       }

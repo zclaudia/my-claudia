@@ -221,10 +221,15 @@ export function Sidebar({
 
   // Memoize sessions grouped by project ID to avoid repeated filtering
   // This significantly improves performance when toggling project expansion
+  const internalProjectIds = useMemo(
+    () => new Set(projects.filter(p => p.isInternal).map(p => p.id)),
+    [projects]
+  );
+
   const sessionsByProject = useMemo(() => {
     const grouped = new Map<string, typeof sessions>();
-    // Filter out background sessions (e.g. review, conflict resolution) from sidebar
-    const visibleSessions = sessions.filter(s => s.type !== 'background');
+    // Filter out background sessions and sessions belonging to internal projects (e.g. __claudia)
+    const visibleSessions = sessions.filter(s => s.type !== 'background' && !internalProjectIds.has(s.projectId));
     visibleSessions.forEach(session => {
       const projectSessions = grouped.get(session.projectId) || [];
       projectSessions.push(session);

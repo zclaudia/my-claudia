@@ -69,6 +69,10 @@ export const useServerStore = create<ServerState>()((set, get) => ({
   controlPlaneState: 'connecting',
 
   setActiveServer: (id) => {
+    const prev = get().activeServerId;
+    if (prev !== id) {
+      console.log(`[ServerStore] setActiveServer: ${prev} → ${id}`, new Error().stack?.split('\n').slice(1, 4).join(' | '));
+    }
     set({
       activeServerId: id,
     });

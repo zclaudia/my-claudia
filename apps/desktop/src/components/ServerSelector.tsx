@@ -48,7 +48,11 @@ export function ServerSelector() {
   const activeConnectionStatus = activeConnection?.status || 'disconnected';
   const activeConnectionError = activeConnection?.error || null;
   const isGatewayConfigured = !!gatewayUrl && !!gatewaySecret;
-  const remoteBackends = backends.filter(b => shouldShowNonCurrentInstanceBackend(b, currentInstanceId, showLocalBackend));
+  // Show all backends in the dropdown. When the active server is remote,
+  // the local backend must be visible so the user can switch back.
+  const isActiveRemote = activeServerId && localBackendId && activeServerId !== localBackendId;
+  const effectiveShowLocal = showLocalBackend || !!isActiveRemote;
+  const remoteBackends = backends.filter(b => shouldShowNonCurrentInstanceBackend(b, currentInstanceId, effectiveShowLocal));
 
   const handleBackendClick = (backend: BackendSnapshot) => {
     if (!backend.online) return;
