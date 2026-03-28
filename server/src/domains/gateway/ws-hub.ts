@@ -12,6 +12,7 @@ import type { WebSocket } from 'ws';
 import type {
   BackendFacadeEvent,
   BackendFacadeSnapshot,
+  ClientMessage,
 } from '@my-claudia/shared';
 import type { BackendFacadeRuntimeCore } from '@my-claudia/shared';
 
@@ -149,7 +150,7 @@ export class FacadeWsHub {
         break;
 
       case 'send_to_backend':
-        this.core.sendToBackend(msg.backendId, msg.message as any);
+        this.core.sendToBackend(msg.backendId, msg.message as ClientMessage);
         break;
 
       case 'open_session_stream':

@@ -11,25 +11,26 @@ export class WorkflowRepository extends BaseRepository<Workflow, WorkflowCreate,
     super(db, 'workflows');
   }
 
-  mapRow(row: any): Workflow {
-    const parsedDefinition = JSON.parse(row.definition || '{}');
+  mapRow(raw: unknown): Workflow {
+    const row = raw as Record<string, unknown>;
+    const parsedDefinition = JSON.parse((row.definition as string) || '{}');
     return {
-      id: row.id,
-      projectId: row.project_id ?? undefined,
-      name: row.name,
-      description: row.description || undefined,
+      id: row.id as string,
+      projectId: (row.project_id as string) ?? undefined,
+      name: row.name as string,
+      description: (row.description as string) || undefined,
       status: row.status as WorkflowStatus,
       definition: normalizeWorkflowDefinition(parsedDefinition) as WorkflowDefinition,
-      templateId: row.template_id || undefined,
-      sourcePluginId: row.source_plugin_id || undefined,
-      sourceType: row.source_type || undefined,
-      authoringMode: row.authoring_mode || undefined,
-      createdAt: row.created_at,
-      updatedAt: row.updated_at,
+      templateId: (row.template_id as string) || undefined,
+      sourcePluginId: (row.source_plugin_id as string) || undefined,
+      sourceType: (row.source_type as Workflow['sourceType']) || undefined,
+      authoringMode: (row.authoring_mode as Workflow['authoringMode']) || undefined,
+      createdAt: row.created_at as number,
+      updatedAt: row.updated_at as number,
     };
   }
 
-  createQuery(data: WorkflowCreate): { sql: string; params: any[] } {
+  createQuery(data: WorkflowCreate): { sql: string; params: unknown[] } {
     const id = uuidv4();
     const now = Date.now();
     return {
@@ -55,10 +56,10 @@ export class WorkflowRepository extends BaseRepository<Workflow, WorkflowCreate,
     };
   }
 
-  updateQuery(id: string, data: WorkflowUpdate): { sql: string; params: any[] } {
+  updateQuery(id: string, data: WorkflowUpdate): { sql: string; params: unknown[] } {
     const now = Date.now();
     const sets: string[] = ['updated_at = ?'];
-    const params: any[] = [now];
+    const params: unknown[] = [now];
 
     if (data.name !== undefined) { sets.push('name = ?'); params.push(data.name); }
     if (data.description !== undefined) { sets.push('description = ?'); params.push(data.description); }

@@ -8,6 +8,7 @@ import type {
   AgentPermissionPolicy,
   ToolCall,
   ContentBlock,
+  AskUserQuestionItem,
 } from '@my-claudia/shared';
 import { DEFAULT_UNIFIED_POLICY } from '@my-claudia/shared';
 import { sendMessage, broadcastToOtherAuthenticatedClients } from './broadcast.js';
@@ -278,7 +279,7 @@ export async function handleRunStart(
     // Inject monotonically increasing seq for run-scoped events (for client-side dedup)
     if ('runId' in event) {
       activeRun.eventSeq += 1;
-      (event as any).seq = activeRun.eventSeq;
+      (event as ServerMessage & { seq?: number }).seq = activeRun.eventSeq;
     }
     trace.log('server_norm', event.type, event, summarizeServerMessage(event as { type: string; [key: string]: unknown }));
     sendMessage(client.ws, event);
@@ -320,7 +321,7 @@ export async function handleRunStart(
              s.created_at as createdAt, s.updated_at as updatedAt
       FROM sessions s
       WHERE s.id = ?
-    `).get(message.sessionId);
+    `).get(message.sessionId) as { id: string; name?: string; createdAt?: number; updatedAt?: number } | undefined;
 
     if (updatedSession) {
       gatewayClient.commands.catalog.broadcastSessionEvent('updated', updatedSession);
@@ -405,7 +406,7 @@ export async function handleRunStart(
               ...(providerRow?.env ? JSON.parse(providerRow.env) : {}),
             },
             model: message.model,
-          }, async () => ({ decision: 'allow', behavior: 'allow' } as any))) {
+          }, async () => ({ decision: 'allow' as const, behavior: 'allow' as const }))) {
             const msg = responseMessage as {
               type: string;
               content?: string;
@@ -513,7 +514,7 @@ export async function handleRunStart(
             : normalizedOverride;
         }
 
-        const _cmdPreview = isBashLikeTool(request.toolName) ? ` | cmd=${JSON.stringify((request.toolInput as any)?.command || request.detail).slice(0, 120)}` : '';
+        const _cmdPreview = isBashLikeTool(request.toolName) ? ` | cmd=${JSON.stringify((request.toolInput as Record<string, unknown>)?.command || request.detail).slice(0, 120)}` : '';
         console.log(`[Permission] Tool=${request.toolName}${_cmdPreview} | effective=${effectivePolicy?.enabled ? 'enabled' : 'null/disabled'} | sessionType=${sessionType}`);
         if (effectivePolicy?.enabled) {
           const evaluator = new PermissionEvaluator();
@@ -734,7 +735,7 @@ export async function handleRunStart(
           }
 
           const isAskUserQuestion = request.toolName === 'AskUserQuestion';
-          const toolInput = request.toolInput as any;
+          const toolInput = request.toolInput as Record<string, unknown>;
           const requiresCredential = !isAskUserQuestion && isSudoCommand(request.toolName, request.toolInput);
           activeRun.pendingPermissions.set(request.requestId, {
             resolve,
@@ -747,7 +748,7 @@ export async function handleRunStart(
               timeoutSeconds: effectiveTimeoutSeconds,
               sessionId: message.sessionId,
               ...(requiresCredential && { requiresCredential: true, credentialHint: 'sudo_password' }),
-              ...(isAskUserQuestion && { questions: toolInput.questions || [] }),
+              ...(isAskUserQuestion && { questions: (toolInput.questions as AskUserQuestionItem[]) || [] }),
               ...(aiInitiated && { aiInitiated: true }),
             }
           });
@@ -945,7 +946,7 @@ Use enter_plan_mode / exit_plan_mode for complex tasks that affect multiple file
           } catch { /* skill selector is best-effort */ }
         }
         // Use explicit contextTemplate if provided (from TaskOrchestrator), otherwise infer from session type
-        const template = (message as any)._contextTemplate || (sessionType === 'agent' ? 'agent' : 'coding');
+        const template = ((message as Record<string, unknown>)._contextTemplate || (sessionType === 'agent' ? 'agent' : 'coding')) as import('../context/types.js').ContextTemplate;
         return createContextEngine().assemble(template, {
           sessionId: message.sessionId,
           projectId: session.project_id,

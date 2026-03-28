@@ -681,7 +681,7 @@ export class SupervisorService {
     try {
       cm.loadAll();
       // Success — clear any error state
-      this.projectRepo.update(projectId, { contextSyncStatus: 'synced' as any });
+      this.projectRepo.update(projectId, { contextSyncStatus: 'synced' });
     } catch (err) {
       // Parse error — mark as error and pause agent
       console.error(`[Supervisor] Context reload failed for project ${projectId}:`, err);
@@ -1009,7 +1009,7 @@ export class SupervisorService {
           input: systemPrompt,
           workingDirectory,
         },
-        this.db as any,
+        this.db,
       );
     } catch (err) {
       console.error(`[Supervisor] Failed to initialize task ${task.id}:`, err);
@@ -1059,7 +1059,7 @@ export class SupervisorService {
       this.clearTaskSessionReadOnly(taskId);
 
       try {
-        const errorMsg = 'error' in msg ? (msg as any).error : 'Run failed';
+        const errorMsg = 'error' in msg ? (msg as import('@my-claudia/shared').RunFailedMessage).error : 'Run failed';
         this.taskRepo.updateStatus(taskId, 'failed', {
           result: { summary: `Run failed: ${errorMsg}`, filesChanged: [] },
         });
@@ -1156,7 +1156,7 @@ export class SupervisorService {
         input: task.description,
         workingDirectory,
       },
-      this.db as any,
+      this.db,
     );
   }
 
@@ -1198,7 +1198,7 @@ export class SupervisorService {
         const task = this.taskRepo.findById(taskId);
         if (!task) { this.virtualClients.delete(taskId); return; }
 
-        const errorMsg = 'error' in msg ? (msg as any).error : 'Run failed';
+        const errorMsg = 'error' in msg ? (msg as import('@my-claudia/shared').RunFailedMessage).error : 'Run failed';
         const newAttempt = task.attempt + 1;
 
         if (newAttempt > task.maxRetries + 1) {
@@ -1239,7 +1239,7 @@ export class SupervisorService {
       WHERE project_id = ? AND schedule_enabled = 1 AND schedule_next_run <= ?
         AND status IN ('completed', 'failed', 'cancelled')
       ORDER BY schedule_next_run ASC
-    `).all(projectId, now) as any[];
+    `).all(projectId, now) as Record<string, unknown>[];
 
     for (const row of rows) {
       const task = this.taskRepo.mapRow(row);
@@ -1486,15 +1486,15 @@ Complete the task described above. When finished, output your results in this ex
       WHERE project_id = ?
       ORDER BY created_at DESC
       LIMIT ?
-    `).all(projectId, limit) as any[];
+    `).all(projectId, limit) as Array<Record<string, unknown>>;
 
     return rows.map((row) => ({
-      id: row.id,
-      projectId: row.project_id,
-      taskId: row.task_id || undefined,
+      id: row.id as string,
+      projectId: row.project_id as string,
+      taskId: (row.task_id as string) || undefined,
       event: row.event as SupervisionLogEvent,
-      detail: row.detail ? JSON.parse(row.detail) : undefined,
-      createdAt: row.created_at,
+      detail: row.detail ? JSON.parse(row.detail as string) : undefined,
+      createdAt: row.created_at as number,
     }));
   }
 

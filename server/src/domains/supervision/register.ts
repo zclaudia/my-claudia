@@ -26,7 +26,8 @@ export interface SupervisionDomainDeps {
   authMiddleware: RequestHandler;
   clients: Map<string, ConnectedClient>;
   activeRuns: Map<string, ActiveRun>;
-  handleRunStart: (...args: any[]) => Promise<void>;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- handleRunStart accepts various message shapes from different callers
+  handleRunStart: (client: ConnectedClient, message: any, db: ReturnType<typeof initDatabase>, options?: Record<string, unknown>, clients?: Map<string, ConnectedClient>) => Promise<void>;
 }
 
 export interface SupervisionDomainResult {
@@ -87,6 +88,7 @@ export function registerSupervisionDomain(deps: SupervisionDomainDeps): Supervis
     },
     (projectId, data) => supervisorService.createTask(projectId, data),
     createVirtualClient,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CheckpointEngine expects (client: unknown, ...) but handleRunStart requires ConnectedClient
     handleRunStart as any,
   );
   supervisorService.setCheckpointEngine(checkpointEngine);

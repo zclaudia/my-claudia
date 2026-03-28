@@ -11,24 +11,25 @@ export class WorkflowStepRunRepository extends BaseRepository<WorkflowStepRun, S
     super(db, 'workflow_step_runs');
   }
 
-  mapRow(row: any): WorkflowStepRun {
+  mapRow(raw: unknown): WorkflowStepRun {
+    const row = raw as Record<string, unknown>;
     return {
-      id: row.id,
-      runId: row.run_id,
-      stepId: row.step_id,
+      id: row.id as string,
+      runId: row.run_id as string,
+      stepId: row.step_id as string,
       stepType: row.step_type as WorkflowStepType,
       status: row.status as WorkflowStepRunStatus,
-      input: row.input ? JSON.parse(row.input) : undefined,
-      output: row.output ? JSON.parse(row.output) : undefined,
-      error: row.error || undefined,
-      attempt: row.attempt,
-      sessionId: row.session_id || undefined,
-      startedAt: row.started_at || undefined,
-      completedAt: row.completed_at || undefined,
+      input: row.input ? JSON.parse(row.input as string) : undefined,
+      output: row.output ? JSON.parse(row.output as string) : undefined,
+      error: (row.error as string) || undefined,
+      attempt: row.attempt as number,
+      sessionId: (row.session_id as string) || undefined,
+      startedAt: (row.started_at as number) || undefined,
+      completedAt: (row.completed_at as number) || undefined,
     };
   }
 
-  createQuery(data: StepRunCreate): { sql: string; params: any[] } {
+  createQuery(data: StepRunCreate): { sql: string; params: unknown[] } {
     const id = uuidv4();
     return {
       sql: `INSERT INTO workflow_step_runs (
@@ -46,9 +47,9 @@ export class WorkflowStepRunRepository extends BaseRepository<WorkflowStepRun, S
     };
   }
 
-  updateQuery(id: string, data: StepRunUpdate): { sql: string; params: any[] } {
+  updateQuery(id: string, data: StepRunUpdate): { sql: string; params: unknown[] } {
     const sets: string[] = [];
-    const params: any[] = [];
+    const params: unknown[] = [];
 
     if (data.status !== undefined) { sets.push('status = ?'); params.push(data.status); }
     if (data.input !== undefined) { sets.push('input = ?'); params.push(JSON.stringify(data.input)); }

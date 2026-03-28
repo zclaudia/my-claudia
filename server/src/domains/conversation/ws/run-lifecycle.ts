@@ -210,7 +210,7 @@ export function upsertAssistantMessage(
     if (row) {
       // Clean previous index entries then re-extract
       removeIndexedMetadata(run.db, run.assistantMessageId);
-      extractAndIndexMetadata(run.db, run.assistantMessageId, row.rowid, run.sessionId, metadata as any, Date.now());
+      extractAndIndexMetadata(run.db, run.assistantMessageId, row.rowid, run.sessionId, metadata as Parameters<typeof extractAndIndexMetadata>[4], Date.now());
     }
   }
 }

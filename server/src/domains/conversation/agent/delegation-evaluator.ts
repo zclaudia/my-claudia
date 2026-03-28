@@ -33,7 +33,8 @@ function recordApproval(): void {
 
 /** Load delegation config from DB */
 export function getDelegationConfig(
-  db: { prepare: (sql: string) => { get: (...args: any[]) => any } }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- better-sqlite3 Statement.get() uses variadic params
+  db: { prepare: (sql: string) => { get: (...args: any[]) => Record<string, unknown> | undefined } }
 ): DelegationConfig {
   try {
     const row = db.prepare('SELECT config FROM delegation_config WHERE id = 1')

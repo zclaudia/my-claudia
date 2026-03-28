@@ -11,35 +11,36 @@ export class LocalPRRepository extends BaseRepository<LocalPR, LocalPRCreate, Lo
     super(db, 'local_prs');
   }
 
-  mapRow(row: any): LocalPR {
+  mapRow(raw: unknown): LocalPR {
+    const row = raw as Record<string, unknown>;
     return {
-      id: row.id,
-      projectId: row.project_id,
-      worktreePath: row.worktree_path,
-      branchName: row.branch_name,
-      baseBranch: row.base_branch,
-      title: row.title,
-      description: row.description || undefined,
+      id: row.id as string,
+      projectId: row.project_id as string,
+      worktreePath: row.worktree_path as string,
+      branchName: row.branch_name as string,
+      baseBranch: row.base_branch as string,
+      title: row.title as string,
+      description: (row.description as string) || undefined,
       status: row.status as LocalPRStatus,
-      commits: row.commits ? JSON.parse(row.commits) : undefined,
-      diffSummary: row.diff_summary || undefined,
-      reviewSessionId: row.review_session_id || undefined,
-      conflictSessionId: row.conflict_session_id || undefined,
-      reviewNotes: row.review_notes || undefined,
-      statusMessage: row.status_message || undefined,
+      commits: row.commits ? JSON.parse(row.commits as string) : undefined,
+      diffSummary: (row.diff_summary as string) || undefined,
+      reviewSessionId: (row.review_session_id as string) || undefined,
+      conflictSessionId: (row.conflict_session_id as string) || undefined,
+      reviewNotes: (row.review_notes as string) || undefined,
+      statusMessage: (row.status_message as string) || undefined,
       autoTriggered: row.auto_triggered === 1,
       autoReview: row.auto_review === 1,
-      createdAt: row.created_at,
-      updatedAt: row.updated_at,
-      mergedAt: row.merged_at || undefined,
-      mergeCommitSha: row.merged_commit_sha || undefined,
-      executionState: (row.execution_state || 'idle') as ExecutionState,
-      pendingAction: (row.pending_action || 'none') as PendingAction,
-      executionError: row.execution_error || undefined,
+      createdAt: row.created_at as number,
+      updatedAt: row.updated_at as number,
+      mergedAt: (row.merged_at as number) || undefined,
+      mergeCommitSha: (row.merged_commit_sha as string) || undefined,
+      executionState: ((row.execution_state as string) || 'idle') as ExecutionState,
+      pendingAction: ((row.pending_action as string) || 'none') as PendingAction,
+      executionError: (row.execution_error as string) || undefined,
     };
   }
 
-  createQuery(data: LocalPRCreate): { sql: string; params: any[] } {
+  createQuery(data: LocalPRCreate): { sql: string; params: unknown[] } {
     const id = uuidv4();
     const now = Date.now();
     return {
@@ -78,10 +79,10 @@ export class LocalPRRepository extends BaseRepository<LocalPR, LocalPRCreate, Lo
     };
   }
 
-  updateQuery(id: string, data: LocalPRUpdate): { sql: string; params: any[] } {
+  updateQuery(id: string, data: LocalPRUpdate): { sql: string; params: unknown[] } {
     const now = Date.now();
     const sets: string[] = ['updated_at = ?'];
-    const params: any[] = [now];
+    const params: unknown[] = [now];
 
     if (data.status !== undefined) { sets.push('status = ?'); params.push(data.status); }
     if (data.title !== undefined) { sets.push('title = ?'); params.push(data.title); }

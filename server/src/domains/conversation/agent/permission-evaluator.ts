@@ -874,7 +874,9 @@ interface PermissionMemoryRow {
 
 interface PermissionMemoryDb {
   prepare: (sql: string) => {
-    all: (...args: any[]) => any[];
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- better-sqlite3 Statement uses variadic params and returns row types vary by query
+    all: (...args: any[]) => Array<Record<string, unknown>>;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     run: (...args: any[]) => unknown;
   };
 }
@@ -890,7 +892,7 @@ export function loadSessionRememberedDecisions(
   const rows = db.prepare(
     'SELECT remember_key, decision FROM permission_memories WHERE session_id = ?'
   ).all(sessionId);
-  return new Map(rows.map((row) => [row.remember_key, row.decision]));
+  return new Map(rows.map((row) => [row.remember_key as string, row.decision as RememberedDecision]));
 }
 
 export function persistSessionRememberedDecision(
@@ -916,8 +918,8 @@ export function loadProjectAllowedOutsideWorkspaceRoots(
 ): Set<string> {
   const rows = db.prepare(
     'SELECT allowed_root FROM permission_outside_workspace_roots WHERE project_id = ?'
-  ).all(projectId) as OutsideWorkspaceMemoryRow[];
-  return new Set(rows.map((row) => row.allowed_root));
+  ).all(projectId);
+  return new Set(rows.map((row) => row.allowed_root as string));
 }
 
 export function persistProjectAllowedOutsideWorkspaceRoots(
@@ -1164,7 +1166,8 @@ export function mergePolicy(
  * Read agent permission policy from database (handles v1/v2/v3 formats, always returns v3).
  */
 export function getAgentPermissionPolicy(
-  db: { prepare: (sql: string) => { get: (...args: any[]) => any } }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- better-sqlite3 Statement.get() uses variadic params
+  db: { prepare: (sql: string) => { get: (...args: any[]) => Record<string, unknown> | undefined } }
 ): UnifiedPermissionPolicy | null {
   try {
     const row = db.prepare(
@@ -1184,7 +1187,8 @@ export function getAgentPermissionPolicy(
  * Read project-level agent permission override from database.
  */
 export function getProjectPermissionOverride(
-  db: { prepare: (sql: string) => { get: (...args: any[]) => any } },
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- better-sqlite3 Statement.get() uses variadic params
+  db: { prepare: (sql: string) => { get: (...args: any[]) => Record<string, unknown> | undefined } },
   projectId: string
 ): Partial<UnifiedPermissionPolicy> | null {
   try {

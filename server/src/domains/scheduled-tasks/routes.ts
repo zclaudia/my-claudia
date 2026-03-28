@@ -5,7 +5,7 @@
  */
 
 import { Router, Request, Response } from 'express';
-import type { ApiResponse, ScheduledTask, ScheduledTaskTemplate } from '@my-claudia/shared';
+import type { ApiResponse, ScheduledTask, ScheduledTaskTemplate, ScheduleType, ScheduledActionType } from '@my-claudia/shared';
 import type { ScheduledTaskService } from './service.js';
 import { isValidCron } from '../../utils/cron.js';
 import { BUILTIN_TEMPLATES } from './templates.js';
@@ -202,9 +202,22 @@ export function createScheduledTaskRoutes(service: ScheduledTaskService): Router
 
 // ── Helpers ─────────────────────────────────────────────────────
 
+interface CreateTaskBody {
+  name?: string;
+  description?: string;
+  enabled?: boolean;
+  scheduleType?: ScheduleType;
+  scheduleCron?: string;
+  scheduleIntervalMinutes?: number;
+  scheduleOnceAt?: number;
+  actionType?: ScheduledActionType;
+  actionConfig?: ScheduledTask['actionConfig'];
+  templateId?: string;
+}
+
 function createTask(
   service: ScheduledTaskService,
-  body: any,
+  body: CreateTaskBody,
   projectId: string | undefined,
 ): ScheduledTask {
   if (!body.name) throw new Error('Validation: name is required');
@@ -236,7 +249,7 @@ function createTask(
     scheduleOnceAt: body.scheduleOnceAt,
     nextRun: nextRun ?? undefined,
     actionType: body.actionType,
-    actionConfig: body.actionConfig ?? {},
+    actionConfig: body.actionConfig ?? {} as ScheduledTask['actionConfig'],
     templateId: body.templateId,
   });
 }

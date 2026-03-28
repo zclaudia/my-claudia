@@ -2,7 +2,7 @@ import * as os from 'os';
 import { ALL_SERVER_FEATURES } from '@my-claudia/shared';
 import type { ServerMessage } from '@my-claudia/shared';
 import type { SessionCatalogItem } from '@my-claudia/shared';
-import { GatewayClient } from './gateway-client.js';
+import { GatewayClient, type GatewayClientConfig } from './gateway-client.js';
 import { setGatewayClient } from './gateway-instance.js';
 import { cancelRunsForClosedChannel } from './gateway-channel-cleanup.js';
 import { EmbeddedBackendFacadeProvider } from './embedded-provider.js';
@@ -20,13 +20,33 @@ type FacadeProvider = {
   getWsHub(): FacadeWsHub;
 };
 
-type ActiveRunsMap = Map<string, any>;
+import type { ActiveRun, ConnectedClient as WsConnectedClient } from '../conversation/ws/types.js';
+
+type ActiveRunsMap = Map<string, ActiveRun>;
+
+/** DB row shape for session message catch-up queries. */
+interface MessageCatchUpRow {
+  messageId: string;
+  sessionId: string;
+  offset: number;
+  role: string;
+  createdAt: number;
+  content: string | null;
+}
+
+/** DB row shape for session catalog queries. */
+interface SessionCatalogRow {
+  id: string;
+  name: string | null;
+  createdAt: number;
+  updatedAt: number;
+}
 
 export interface GatewayManagerDeps {
   serverContext: ServerContext;
   activeRuns: ActiveRunsMap;
-  connectedClients: Map<string, any>;
-  createVirtualClient: (channelId: string, transport: { send: (msg: ServerMessage) => void }) => any;
+  connectedClients: Map<string, WsConnectedClient>;
+  createVirtualClient: (channelId: string, transport: { send: (msg: ServerMessage) => void }) => WsConnectedClient;
   cancelRun: (runId: string) => void;
   host: string;
 }
@@ -34,12 +54,13 @@ export interface GatewayManagerDeps {
 export class GatewayManager {
   private gatewayClient: GatewayClient | null = null;
   private facadeProvider: FacadeProvider | null = null;
-  private virtualClients = new Map<string, any>();
+  private virtualClients = new Map<string, WsConnectedClient>();
   private actualPort = 0;
+  private syncInterval: ReturnType<typeof setInterval> | null = null;
 
   private readonly serverContext: ServerContext;
   private readonly activeRuns: ActiveRunsMap;
-  private readonly connectedClients: Map<string, any>;
+  private readonly connectedClients: Map<string, WsConnectedClient>;
   private readonly createVirtualClient: GatewayManagerDeps['createVirtualClient'];
   private readonly cancelRun: GatewayManagerDeps['cancelRun'];
   private readonly host: string;
@@ -101,23 +122,23 @@ export class GatewayManager {
                created_at, updated_at
         FROM gateway_config
         WHERE id = 1
-      `).get() as any;
+      `).get() as Record<string, unknown> | undefined;
 
       if (!row) return null;
 
       return {
-        id: row.id,
+        id: row.id as number,
         enabled: row.enabled === 1,
-        gatewayUrl: row.gateway_url,
-        gatewaySecret: row.gateway_secret,
-        backendName: row.backend_name,
-        gatewayBackendId: row.backend_id,
+        gatewayUrl: row.gateway_url as string,
+        gatewaySecret: row.gateway_secret as string,
+        backendName: row.backend_name as string,
+        gatewayBackendId: row.backend_id as string,
         registerAsBackend: row.register_as_backend === 1,
-        proxyUrl: row.proxy_url,
-        proxyUsername: row.proxy_username,
-        proxyPassword: row.proxy_password,
-        createdAt: row.created_at,
-        updatedAt: row.updated_at
+        proxyUrl: row.proxy_url as string | undefined,
+        proxyUsername: row.proxy_username as string | undefined,
+        proxyPassword: row.proxy_password as string | undefined,
+        createdAt: row.created_at as number,
+        updatedAt: row.updated_at as number
       };
     } catch (error) {
       console.error('Failed to load gateway config:', error);
@@ -132,8 +153,8 @@ export class GatewayManager {
     }
 
     if (this.gatewayClient) {
-      const syncInterval = (this.gatewayClient as any)._syncInterval;
-      if (syncInterval) clearInterval(syncInterval);
+      if (this.syncInterval) clearInterval(this.syncInterval);
+      this.syncInterval = null;
       this.gatewayClient.commands.connection.disconnect();
     }
 
@@ -146,7 +167,7 @@ export class GatewayManager {
 
     const serverContext = this.serverContext;
 
-    const gatewayClientConfig: any = {
+    const gatewayClientConfig: GatewayClientConfig = {
       gatewayUrl: config.gatewayUrl,
       gatewaySecret: config.gatewaySecret,
       name: config.backendName || `Backend on ${os.hostname()}`,
@@ -208,13 +229,13 @@ export class GatewayManager {
           FROM messages
           WHERE session_id = ? AND offset > ?
           ORDER BY offset ASC
-        `).all(sessionId, afterOffset) as any[];
+        `).all(sessionId, afterOffset) as MessageCatchUpRow[];
 
-        return rows.map((r: any) => ({
+        return rows.map((r) => ({
           messageId: r.messageId,
           sessionId: r.sessionId,
           offset: r.offset,
-          role: r.role,
+          role: r.role as 'user' | 'assistant' | 'system' | 'tool',
           createdAt: r.createdAt,
           content: r.content ? JSON.parse(r.content) : null,
         }));
@@ -241,14 +262,14 @@ export class GatewayManager {
       }
     }, 2000);
 
-    (this.gatewayClient as any)._syncInterval = syncGatewayStatus;
+    this.syncInterval = syncGatewayStatus;
   }
 
   async disconnect(): Promise<void> {
     if (this.gatewayClient) {
       console.log('📡 Disconnecting from Gateway V2...');
-      const syncInterval = (this.gatewayClient as any)._syncInterval;
-      if (syncInterval) clearInterval(syncInterval);
+      if (this.syncInterval) clearInterval(this.syncInterval);
+      this.syncInterval = null;
       this.gatewayClient.commands.connection.disconnect();
       setGatewayClient(null);
       this.gatewayClient = null;
@@ -314,12 +335,12 @@ export class GatewayManager {
             FROM messages
             WHERE session_id = ? AND offset > ?
             ORDER BY offset ASC
-          `).all(sessionId, afterOffset) as any[];
-          return rows.map((r: any) => ({
+          `).all(sessionId, afterOffset) as MessageCatchUpRow[];
+          return rows.map((r) => ({
             messageId: r.messageId,
             sessionId: r.sessionId,
             offset: r.offset,
-            role: r.role,
+            role: r.role as 'user' | 'assistant' | 'system' | 'tool',
             createdAt: r.createdAt,
             content: r.content ? JSON.parse(r.content) : null,
           }));
@@ -339,8 +360,8 @@ export class GatewayManager {
           const sessions = serverContext.db.prepare(`
             SELECT s.id, s.name, s.created_at as createdAt, s.updated_at as updatedAt
             FROM sessions s ORDER BY s.updated_at DESC
-          `).all() as any[];
-          return sessions.map((s: any): SessionCatalogItem => ({
+          `).all() as SessionCatalogRow[];
+          return sessions.map((s): SessionCatalogItem => ({
             sessionId: s.id,
             title: s.name || undefined,
             createdAt: s.createdAt,

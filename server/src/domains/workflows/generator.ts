@@ -296,13 +296,14 @@ Generate a workflow definition based on the user's natural language description.
             resolve(allContent);
           } else if (msg.type === 'run_failed') {
             clearTimeout(timeout);
-            reject(new Error((msg as any).error ?? 'AI generation failed'));
+            const failedMsg = msg as import('@my-claudia/shared').RunFailedMessage;
+            reject(new Error(failedMsg.error ?? 'AI generation failed'));
           }
         },
       });
 
       handleRunStart(
-        { id: clientId, authenticated: true, ws: { send: () => {} } } as any,
+        createVirtualClient(clientId, { send: () => {} }),
         {
           type: 'run_start',
           clientRequestId: clientId,
@@ -312,7 +313,7 @@ Generate a workflow definition based on the user's natural language description.
           providerId,
           systemContext: systemPrompt,
         },
-        this.db as any,
+        this.db,
       );
     });
   }
@@ -329,7 +330,7 @@ Generate a workflow definition based on the user's natural language description.
     const jsonMatch = response.match(/```json\s*([\s\S]*?)```/);
     const jsonStr = jsonMatch ? jsonMatch[1].trim() : response.trim();
 
-    let parsed: any;
+    let parsed: { name?: string; description?: string; definition?: { nodes?: unknown[]; edges?: unknown[]; entryNodeId?: string; triggers?: unknown[] }; warnings?: string[] };
     try {
       parsed = JSON.parse(jsonStr);
     } catch {

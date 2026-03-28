@@ -46,7 +46,7 @@ export class ScheduledTaskService {
 
   constructor(
     private db: Database,
-    private broadcastFn: (message: ServerMessage) => void,
+    private broadcastFn: (message: ServerMessage | { type: string; [key: string]: unknown }) => void,
   ) {
     this.repo = new ScheduledTaskRepository(db);
     this.taskRunRepo = new TaskRunRepository(db);
@@ -214,7 +214,7 @@ export class ScheduledTaskService {
             resolve(`Prompt completed in session ${session.id}`);
           } else if (msg.type === 'run_failed') {
             clearTimeout(timeout);
-            reject(new Error((msg as any).error ?? 'Run failed'));
+            reject(new Error((msg as import('@my-claudia/shared').RunFailedMessage).error ?? 'Run failed'));
           }
         },
       });
@@ -229,7 +229,7 @@ export class ScheduledTaskService {
           workingDirectory,
           providerId,
         },
-        this.db as any,
+        this.db,
       );
     });
   }
@@ -335,7 +335,7 @@ export class ScheduledTaskService {
         type: 'scheduled_task_update',
         projectId: task.projectId,
         task,
-      } as any);
+      });
     }
   }
 
@@ -344,6 +344,6 @@ export class ScheduledTaskService {
       type: 'scheduled_task_deleted',
       projectId,
       taskId,
-    } as any);
+    });
   }
 }

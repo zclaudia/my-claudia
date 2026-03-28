@@ -412,7 +412,7 @@ export class LocalPRService {
         workingDirectory: pr.worktreePath,
         providerId,
       },
-      this.db as any,
+      this.db,
     );
 
     console.log(`[LocalPRService] Started review session ${session.id} for PR ${prId}`);
@@ -865,7 +865,7 @@ If you cannot resolve it, output: [CONFLICT_UNRESOLVED]`;
           workingDirectory: pr.worktreePath,
           providerId,
         },
-        this.db as any,
+        this.db,
       );
     } catch (err) {
       this.activeConflictClients.delete(prId);

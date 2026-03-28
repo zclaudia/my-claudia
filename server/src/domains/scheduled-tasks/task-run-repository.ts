@@ -11,22 +11,23 @@ export class TaskRunRepository extends BaseRepository<TaskRun, TaskRunCreate, Ta
     super(db, 'task_runs');
   }
 
-  mapRow(row: any): TaskRun {
+  mapRow(raw: unknown): TaskRun {
+    const row = raw as Record<string, unknown>;
     return {
-      id: row.id,
-      taskId: row.task_id,
+      id: row.id as string,
+      taskId: row.task_id as string,
       taskSource: row.task_source as TaskSource,
       status: row.status as TaskRunStatus,
-      startedAt: row.started_at,
-      completedAt: row.completed_at || undefined,
-      durationMs: row.duration_ms || undefined,
-      result: row.result || undefined,
-      error: row.error || undefined,
-      createdAt: row.created_at,
+      startedAt: row.started_at as number,
+      completedAt: (row.completed_at as number) || undefined,
+      durationMs: (row.duration_ms as number) || undefined,
+      result: (row.result as string) || undefined,
+      error: (row.error as string) || undefined,
+      createdAt: row.created_at as number,
     };
   }
 
-  createQuery(data: TaskRunCreate): { sql: string; params: any[] } {
+  createQuery(data: TaskRunCreate): { sql: string; params: unknown[] } {
     const id = uuidv4();
     const now = Date.now();
     return {
@@ -47,9 +48,9 @@ export class TaskRunRepository extends BaseRepository<TaskRun, TaskRunCreate, Ta
     };
   }
 
-  updateQuery(id: string, data: TaskRunUpdate): { sql: string; params: any[] } {
+  updateQuery(id: string, data: TaskRunUpdate): { sql: string; params: unknown[] } {
     const sets: string[] = [];
-    const params: any[] = [];
+    const params: unknown[] = [];
 
     if (data.status !== undefined) { sets.push('status = ?'); params.push(data.status); }
     if (data.completedAt !== undefined) { sets.push('completed_at = ?'); params.push(data.completedAt); }

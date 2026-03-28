@@ -82,8 +82,8 @@ export function registerTaskTools(orchestrator: TaskOrchestrator, getDb: () => D
       try {
         await orchestrator.steerTask(args.task_id as string, args.instruction as string);
         return JSON.stringify({ success: true });
-      } catch (err: any) {
-        return JSON.stringify({ error: err.message });
+      } catch (err: unknown) {
+        return JSON.stringify({ error: err instanceof Error ? err.message : String(err) });
       }
     },
   });
@@ -113,8 +113,8 @@ export function registerTaskTools(orchestrator: TaskOrchestrator, getDb: () => D
       try {
         await orchestrator.killTask(args.task_id as string);
         return JSON.stringify({ success: true, killed: args.task_id });
-      } catch (err: any) {
-        return JSON.stringify({ error: err.message });
+      } catch (err: unknown) {
+        return JSON.stringify({ error: err instanceof Error ? err.message : String(err) });
       }
     },
   });
@@ -183,8 +183,8 @@ export function registerTaskTools(orchestrator: TaskOrchestrator, getDb: () => D
         }
         const result = await orchestrator.getTaskResult(args.task_id as string);
         return JSON.stringify(result);
-      } catch (err: any) {
-        return JSON.stringify({ error: err.message });
+      } catch (err: unknown) {
+        return JSON.stringify({ error: err instanceof Error ? err.message : String(err) });
       }
     },
   });

@@ -17,6 +17,7 @@ import type {
   TaskStatus,
 } from './types.js';
 import { TaskRepository } from './repository.js';
+import { createVirtualClient, type ConnectedClient } from '../conversation/ws/types.js';
 
 const MAX_CONCURRENT_AGENT_TASKS = 3;
 const DEFAULT_WAIT_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
@@ -24,8 +25,9 @@ const MAX_WAITING_AGE_MS = 60 * 60 * 1000; // 1 hour — tasks waiting longer th
 
 export interface TaskOrchestratorDeps {
   db: Database.Database;
-  handleRunStart: (client: any, message: any, db: any, options: any, clients: any) => Promise<void>;
-  getClients: () => Map<string, any>;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- handleRunStart accepts various message shapes from different callers
+  handleRunStart: (client: ConnectedClient, message: any, db: Database.Database, options?: Record<string, unknown>, clients?: Map<string, ConnectedClient>) => Promise<void>;
+  getClients: () => Map<string, ConnectedClient>;
   serverPort: number | null;
   notificationService?: {
     postItem: (item: {
@@ -225,13 +227,11 @@ export function createTaskOrchestrator(deps: TaskOrchestratorDeps): TaskOrchestr
     let fullContent = '';
     let toolCount = 0;
 
-    const virtualWs = {
-      readyState: 1,
-      send: (data: string) => {
+    const virtualClient = createVirtualClient(clientId, {
+      send: (msg: import('@my-claudia/shared').ServerMessage) => {
         try {
-          const msg = JSON.parse(data);
           if (msg.type === 'delta') {
-            const text = msg.content || '';
+            const text = (msg as { content?: string }).content || '';
             fullContent += text;
             deps.onTaskDelta?.(task.id, text);
           } else if (msg.type === 'tool_use') {
@@ -248,7 +248,7 @@ export function createTaskOrchestrator(deps: TaskOrchestratorDeps): TaskOrchestr
             });
           } else if (msg.type === 'run_failed') {
             cleanupVirtualClient();
-            const errorMsg = msg.error || 'Task failed';
+            const errorMsg = (msg as import('@my-claudia/shared').RunFailedMessage).error || 'Task failed';
             // Retry logic
             if (task.retryCount < task.maxRetries) {
               repo.incrementRetry(task.id);
@@ -259,14 +259,7 @@ export function createTaskOrchestrator(deps: TaskOrchestratorDeps): TaskOrchestr
           }
         } catch { /* ignore parse errors */ }
       },
-    };
-    const virtualClient = {
-      id: clientId,
-      ws: virtualWs,
-      isAlive: true,
-      isLocal: true,
-      authenticated: true,
-    };
+    });
 
     // Register virtual client so handleRunStart can find it
     clients.set(clientId, virtualClient);
@@ -287,9 +280,9 @@ export function createTaskOrchestrator(deps: TaskOrchestratorDeps): TaskOrchestr
       deps.db,
       {},
       clients,
-    ).catch((err: any) => {
+    ).catch((err: unknown) => {
       cleanupVirtualClient();
-      settleTask(task.id, 'failed', { errorSummary: err.message || 'Failed to start task' });
+      settleTask(task.id, 'failed', { errorSummary: err instanceof Error ? err.message : 'Failed to start task' });
     });
   }
 

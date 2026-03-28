@@ -33,7 +33,7 @@ export class WorkflowService {
 
   constructor(
     private db: Database,
-    private broadcastFn: (projectId: string | undefined, message: any) => void,
+    private broadcastFn: (projectId: string | undefined, message: ServerMessage | { type: string; projectId?: string; [key: string]: unknown }) => void,
     notificationService?: { notify(event: { type: string; title: string; body: string; priority?: string; tags?: string[] }): Promise<void> },
   ) {
     this.workflowRepo = new WorkflowRepository(db);
@@ -300,9 +300,11 @@ export class WorkflowService {
     }
   }
 
-  private matchesFilter(data: any, filter: Record<string, unknown>): boolean {
+  private matchesFilter(data: unknown, filter: Record<string, unknown>): boolean {
+    if (!data || typeof data !== 'object') return false;
+    const record = data as Record<string, unknown>;
     for (const [key, value] of Object.entries(filter)) {
-      if (data[key] !== value) return false;
+      if (record[key] !== value) return false;
     }
     return true;
   }

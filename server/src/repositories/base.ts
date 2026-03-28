@@ -34,19 +34,21 @@ export abstract class BaseRepository<T, TCreate, TUpdate> implements Repository<
    * Map a database row to entity type
    * Subclasses must implement this to handle snake_case ↔ camelCase conversion
    */
-  abstract mapRow(row: any): T;
+  // Row parameter uses Record<string, unknown> but declared as `unknown` to avoid
+  // needing to cast every `.all()` / `.get()` call site in subclass finder methods.
+  abstract mapRow(row: unknown): T;
 
   /**
    * Generate SQL and parameters for create operation
    * Subclasses implement entity-specific field mapping
    */
-  abstract createQuery(data: TCreate): { sql: string; params: any[] };
+  abstract createQuery(data: TCreate): { sql: string; params: unknown[] };
 
   /**
    * Generate SQL and parameters for update operation
    * Subclasses implement entity-specific field mapping
    */
-  abstract updateQuery(id: string, data: TUpdate): { sql: string; params: any[] };
+  abstract updateQuery(id: string, data: TUpdate): { sql: string; params: unknown[] };
 
   /**
    * Find all entities

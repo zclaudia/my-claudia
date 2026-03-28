@@ -12,12 +12,13 @@ export interface WorkflowSchedule {
 export class WorkflowScheduleRepository {
   constructor(private db: Database) {}
 
-  private mapRow(row: any): WorkflowSchedule {
+  private mapRow(raw: unknown): WorkflowSchedule {
+    const row = raw as Record<string, unknown>;
     return {
-      id: row.id,
-      workflowId: row.workflow_id,
-      triggerIndex: row.trigger_index,
-      nextRun: row.next_run || null,
+      id: row.id as string,
+      workflowId: row.workflow_id as string,
+      triggerIndex: row.trigger_index as number,
+      nextRun: (row.next_run as number) || null,
       enabled: row.enabled === 1,
     };
   }

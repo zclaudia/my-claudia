@@ -17,10 +17,10 @@ export interface AgentTriggerServiceDeps {
   orchestrator: TaskOrchestrator;
   notificationService: NotificationFeedService;
   pluginEvents: {
-    on: (event: string, handler: (...args: any[]) => void) => (() => void) | void;
-    off: (event: string, handler: (...args: any[]) => void) => void;
-    onPattern?: (pattern: string, handler: (...args: any[]) => void) => (() => void) | void;
-    offPattern?: (pattern: string, handler: (...args: any[]) => void) => void;
+    on: (event: string, handler: (...args: unknown[]) => void) => (() => void) | void;
+    off: (event: string, handler: (...args: unknown[]) => void) => void;
+    onPattern?: (pattern: string, handler: (...args: unknown[]) => void) => (() => void) | void;
+    offPattern?: (pattern: string, handler: (...args: unknown[]) => void) => void;
   };
 }
 

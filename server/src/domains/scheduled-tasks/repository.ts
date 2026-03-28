@@ -16,32 +16,33 @@ export class ScheduledTaskRepository extends BaseRepository<ScheduledTask, Sched
     super(db, 'scheduled_tasks');
   }
 
-  mapRow(row: any): ScheduledTask {
+  mapRow(raw: unknown): ScheduledTask {
+    const row = raw as Record<string, unknown>;
     return {
-      id: row.id,
-      projectId: row.project_id || undefined,
-      name: row.name,
-      description: row.description || undefined,
+      id: row.id as string,
+      projectId: (row.project_id as string) || undefined,
+      name: row.name as string,
+      description: (row.description as string) || undefined,
       enabled: row.enabled === 1,
       scheduleType: row.schedule_type as ScheduleType,
-      scheduleCron: row.schedule_cron || undefined,
-      scheduleIntervalMinutes: row.schedule_interval_minutes || undefined,
-      scheduleOnceAt: row.schedule_once_at || undefined,
-      nextRun: row.next_run || undefined,
+      scheduleCron: (row.schedule_cron as string) || undefined,
+      scheduleIntervalMinutes: (row.schedule_interval_minutes as number) || undefined,
+      scheduleOnceAt: (row.schedule_once_at as number) || undefined,
+      nextRun: (row.next_run as number) || undefined,
       actionType: row.action_type as ScheduledActionType,
-      actionConfig: JSON.parse(row.action_config || '{}'),
+      actionConfig: JSON.parse((row.action_config as string) || '{}'),
       status: row.status as ScheduledTaskStatus,
-      lastRunAt: row.last_run_at || undefined,
-      lastRunResult: row.last_run_result || undefined,
-      lastError: row.last_error || undefined,
-      runCount: row.run_count,
-      templateId: row.template_id || undefined,
-      createdAt: row.created_at,
-      updatedAt: row.updated_at,
+      lastRunAt: (row.last_run_at as number) || undefined,
+      lastRunResult: (row.last_run_result as string) || undefined,
+      lastError: (row.last_error as string) || undefined,
+      runCount: row.run_count as number,
+      templateId: (row.template_id as string) || undefined,
+      createdAt: row.created_at as number,
+      updatedAt: row.updated_at as number,
     };
   }
 
-  createQuery(data: ScheduledTaskCreate): { sql: string; params: any[] } {
+  createQuery(data: ScheduledTaskCreate): { sql: string; params: unknown[] } {
     const id = uuidv4();
     const now = Date.now();
     return {
@@ -72,10 +73,10 @@ export class ScheduledTaskRepository extends BaseRepository<ScheduledTask, Sched
     };
   }
 
-  updateQuery(id: string, data: ScheduledTaskUpdate): { sql: string; params: any[] } {
+  updateQuery(id: string, data: ScheduledTaskUpdate): { sql: string; params: unknown[] } {
     const now = Date.now();
     const sets: string[] = ['updated_at = ?'];
-    const params: any[] = [now];
+    const params: unknown[] = [now];
 
     if (data.name !== undefined) { sets.push('name = ?'); params.push(data.name); }
     if (data.description !== undefined) { sets.push('description = ?'); params.push(data.description); }

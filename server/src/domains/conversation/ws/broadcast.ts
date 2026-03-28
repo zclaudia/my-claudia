@@ -105,7 +105,7 @@ export function broadcastHeartbeat(
 export function buildPluginStateMessage(): import('@my-claudia/shared').PluginStateMessage {
   const plugins = pluginLoader.getPlugins().map(p => {
     const contributes = p.manifest.contributes || {};
-    const panels = (contributes.panels || []).map((panel: any) => ({
+    const panels = (contributes.panels || []).map((panel: { id: string; label: string; icon?: string; order?: number; frontend?: string }) => ({
       id: panel.id,
       label: panel.label,
       icon: panel.icon,

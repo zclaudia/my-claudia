@@ -30,9 +30,9 @@ export interface ScheduledTaskDomainResult {
 export function registerScheduledTaskDomain(deps: ScheduledTaskDomainDeps): ScheduledTaskDomainResult {
   const { db, app, authMiddleware, clients } = deps;
 
-  const scheduledTaskService = new ScheduledTaskService(db, (message: ServerMessage) => {
+  const scheduledTaskService = new ScheduledTaskService(db, (message) => {
     clients.forEach((client) => {
-      if (client.authenticated) sendMessage(client.ws, message);
+      if (client.authenticated) sendMessage(client.ws, message as ServerMessage);
     });
   });
 

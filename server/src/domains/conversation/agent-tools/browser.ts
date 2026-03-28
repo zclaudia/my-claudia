@@ -83,8 +83,8 @@ export function registerBrowserTool(): void {
           default:
             return JSON.stringify({ url: urlStr, content: htmlToText(body).slice(0, 8000) });
         }
-      } catch (err: any) {
-        return JSON.stringify({ error: err.message, url: urlStr });
+      } catch (err: unknown) {
+        return JSON.stringify({ error: err instanceof Error ? err.message : String(err), url: urlStr });
       }
     },
   });

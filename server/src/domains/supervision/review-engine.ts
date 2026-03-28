@@ -92,7 +92,7 @@ export class ReviewEngine {
         input: reviewPrompt,
         workingDirectory: project.rootPath,
       },
-      this.db as any,
+      this.db,
     );
 
     this.logFn(
@@ -131,7 +131,7 @@ export class ReviewEngine {
 
     if (msg.type === 'run_failed') {
       try {
-        const errorMsg = 'error' in msg ? (msg as any).error : 'Review run failed';
+        const errorMsg = 'error' in msg ? (msg as import('@my-claudia/shared').RunFailedMessage).error : 'Review run failed';
         this.logFn(
           projectId,
           'review_failed',

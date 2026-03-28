@@ -11,22 +11,23 @@ export class WorkflowRunRepository extends BaseRepository<WorkflowRun, WorkflowR
     super(db, 'workflow_runs');
   }
 
-  mapRow(row: any): WorkflowRun {
+  mapRow(raw: unknown): WorkflowRun {
+    const row = raw as Record<string, unknown>;
     return {
-      id: row.id,
-      workflowId: row.workflow_id,
-      projectId: row.project_id ?? undefined,
+      id: row.id as string,
+      workflowId: row.workflow_id as string,
+      projectId: (row.project_id as string) ?? undefined,
       status: row.status as WorkflowRunStatus,
       triggerSource: row.trigger_source as WorkflowRunTriggerSource,
-      triggerDetail: row.trigger_detail || undefined,
-      currentStepId: row.current_step_id || undefined,
-      startedAt: row.started_at,
-      completedAt: row.completed_at || undefined,
-      error: row.error || undefined,
+      triggerDetail: (row.trigger_detail as string) || undefined,
+      currentStepId: (row.current_step_id as string) || undefined,
+      startedAt: row.started_at as number,
+      completedAt: (row.completed_at as number) || undefined,
+      error: (row.error as string) || undefined,
     };
   }
 
-  createQuery(data: WorkflowRunCreate): { sql: string; params: any[] } {
+  createQuery(data: WorkflowRunCreate): { sql: string; params: unknown[] } {
     const id = uuidv4();
     return {
       sql: `INSERT INTO workflow_runs (
@@ -46,9 +47,9 @@ export class WorkflowRunRepository extends BaseRepository<WorkflowRun, WorkflowR
     };
   }
 
-  updateQuery(id: string, data: WorkflowRunUpdate): { sql: string; params: any[] } {
+  updateQuery(id: string, data: WorkflowRunUpdate): { sql: string; params: unknown[] } {
     const sets: string[] = [];
-    const params: any[] = [];
+    const params: unknown[] = [];
 
     if (data.status !== undefined) { sets.push('status = ?'); params.push(data.status); }
     if (data.triggerDetail !== undefined) { sets.push('trigger_detail = ?'); params.push(data.triggerDetail); }

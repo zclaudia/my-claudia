@@ -24,7 +24,8 @@ import { sendMessage } from '../broadcast.js';
 interface ClaudiaHandlerContext {
   activeRuns: Map<string, ActiveRun>;
   connectedClients: Map<string, ConnectedClient>;
-  handleRunStart: (client: ConnectedClient, message: any, db: any, options: any, clients: Map<string, ConnectedClient>) => Promise<void>;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- handleRunStart accepts various message shapes from different callers
+  handleRunStart: (client: ConnectedClient, message: any, db: ReturnType<typeof initDatabase>, options?: Record<string, unknown>, clients?: Map<string, ConnectedClient>) => Promise<void>;
   notificationService?: NotificationFeedService;
   orchestrator?: TaskOrchestrator;
 }
@@ -318,7 +319,7 @@ export async function handleClaudiaMessage(
   const wrapperClientId = `claudia-inline-${clientReqId}`;
   const wrapperClient = {
     id: wrapperClientId,
-    ws: wrapperWs as any,
+    ws: wrapperWs as unknown as import('ws').WebSocket,
     isAlive: true,
     isLocal: true,
     authenticated: true,

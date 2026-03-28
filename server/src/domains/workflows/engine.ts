@@ -71,7 +71,7 @@ export class WorkflowEngine {
 
   constructor(
     private db: Database,
-    private broadcastFn: (projectId: string | undefined, message: any) => void,
+    private broadcastFn: (projectId: string | undefined, message: ServerMessage | { type: string; [key: string]: unknown }) => void,
     private notificationService?: { notify(event: { type: string; title: string; body: string; priority?: string; tags?: string[] }): Promise<void> },
   ) {
     this.runRepo = new WorkflowRunRepository(db);
@@ -417,7 +417,7 @@ export class WorkflowEngine {
         if (attempt === maxAttempts) {
           const failStatus = nodeDef.onError === 'skip' ? 'skipped' : 'failed';
           this.stepRunRepo.update(stepRun.id, {
-            status: failStatus as any,
+            status: failStatus as 'failed' | 'skipped',
             error: result.error,
             completedAt: Date.now(),
           });
@@ -429,7 +429,7 @@ export class WorkflowEngine {
         if (attempt === maxAttempts) {
           const failStatus = nodeDef.onError === 'skip' ? 'skipped' : 'failed';
           this.stepRunRepo.update(stepRun.id, {
-            status: failStatus as any,
+            status: failStatus as 'failed' | 'skipped',
             error: errorMsg,
             completedAt: Date.now(),
           });
@@ -536,14 +536,15 @@ export class WorkflowEngine {
         status: 'completed',
         output: { stdout: stdout.trim(), stderr: stderr.trim(), exitCode: 0 },
       };
-    } catch (err: any) {
-      if (err.code === undefined && err.killed) {
+    } catch (err: unknown) {
+      const execErr = err as { code?: number; killed?: boolean; stdout?: string; stderr?: string; message?: string };
+      if (execErr.code === undefined && execErr.killed) {
         return { status: 'failed', output: {}, error: 'Command timed out' };
       }
       return {
         status: 'failed',
-        output: { stdout: err.stdout ?? '', stderr: err.stderr ?? '', exitCode: err.code ?? 1 },
-        error: err.stderr || err.message,
+        output: { stdout: execErr.stdout ?? '', stderr: execErr.stderr ?? '', exitCode: execErr.code ?? 1 },
+        error: execErr.stderr || execErr.message,
       };
     }
   }
@@ -724,14 +725,14 @@ export class WorkflowEngine {
             resolve({
               status: 'failed',
               output: { sessionId: session.id },
-              error: (msg as any).error ?? 'AI prompt failed',
+              error: (msg as import('@my-claudia/shared').RunFailedMessage).error ?? 'AI prompt failed',
             });
           }
         },
       });
 
       handleRunStart(
-        { id: clientId, authenticated: true, ws: { send: () => {} } } as any,
+        createVirtualClient(clientId, { send: () => {} }),
         {
           type: 'run_start',
           clientRequestId: clientId,
@@ -740,7 +741,7 @@ export class WorkflowEngine {
           workingDirectory,
           providerId,
         },
-        this.db as any,
+        this.db,
       );
     });
   }
@@ -814,14 +815,14 @@ If there are critical issues, include ${failMarker} in your response and list th
             resolve({
               status: 'failed',
               output: { sessionId: session.id },
-              error: (msg as any).error ?? 'AI review failed',
+              error: (msg as import('@my-claudia/shared').RunFailedMessage).error ?? 'AI review failed',
             });
           }
         },
       });
 
       handleRunStart(
-        { id: clientId, authenticated: true, ws: { send: () => {} } } as any,
+        createVirtualClient(clientId, { send: () => {} }),
         {
           type: 'run_start',
           clientRequestId: clientId,
@@ -830,7 +831,7 @@ If there are critical issues, include ${failMarker} in your response and list th
           workingDirectory: worktreePath,
           providerId,
         },
-        this.db as any,
+        this.db,
       );
     });
   }
@@ -869,8 +870,8 @@ If there are critical issues, include ${failMarker} in your response and list th
         status: 'completed',
         output: { commitSha: sha.trim(), message },
       };
-    } catch (err: any) {
-      return { status: 'failed', output: {}, error: err.message };
+    } catch (err: unknown) {
+      return { status: 'failed', output: {}, error: err instanceof Error ? err.message : String(err) };
     }
   }
 
@@ -893,7 +894,7 @@ If there are critical issues, include ${failMarker} in your response and list th
       await execFileAsync('git', ['merge', branch, '--no-ff', '-m', `Merge branch '${branch}'`], { cwd });
 
       return { status: 'completed', output: { success: true, branch, baseBranch } };
-    } catch (err: any) {
+    } catch (err: unknown) {
       // Check for merge conflicts
       try {
         const { stdout } = await execFileAsync('git', ['diff', '--name-only', '--diff-filter=U'], { cwd });
@@ -906,7 +907,7 @@ If there are critical issues, include ${failMarker} in your response and list th
           };
         }
       } catch { /* ignore */ }
-      return { status: 'failed', output: {}, error: err.message };
+      return { status: 'failed', output: {}, error: err instanceof Error ? err.message : String(err) };
     }
   }
 
@@ -932,8 +933,8 @@ If there are critical issues, include ${failMarker} in your response and list th
         status: 'completed',
         output: { worktreePath, branch: branchName },
       };
-    } catch (err: any) {
-      return { status: 'failed', output: {}, error: err.message };
+    } catch (err: unknown) {
+      return { status: 'failed', output: {}, error: err instanceof Error ? err.message : String(err) };
     }
   }
 
@@ -973,8 +974,8 @@ If there are critical issues, include ${failMarker} in your response and list th
           diffSummary: diffStat.trim(),
         },
       };
-    } catch (err: any) {
-      return { status: 'failed', output: {}, error: err.message };
+    } catch (err: unknown) {
+      return { status: 'failed', output: {}, error: err instanceof Error ? err.message : String(err) };
     }
   }
 

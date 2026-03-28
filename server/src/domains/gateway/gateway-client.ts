@@ -107,7 +107,9 @@ export interface GatewayClientConfig {
   proxyAuth?: { username: string; password: string };
 }
 
-type Database = any;
+import type { Database as BetterDatabase } from 'better-sqlite3';
+type Database = BetterDatabase;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- ActiveRun is defined in ws/types and varies across callers
 type ActiveRunsMap = Map<string, any>;
 type ChannelMessageHandler = (channelId: string, message: ClientMessage) => Promise<void> | void;
 type ChannelClosedHandler = (channelId: string) => void;
@@ -168,9 +170,9 @@ export interface GatewayClientCommands {
     /** Publish a full catalog snapshot (backend-peer role). */
     publishSnapshot(): void;
     /** Publish a catalog event (backend-peer role). */
-    publishEvent(eventType: 'upsert' | 'remove', session: any): void;
+    publishEvent(eventType: 'upsert' | 'remove', session: { id: string; name?: string; createdAt?: number; created_at?: number; updatedAt?: number; updated_at?: number }): void;
     /** Compatibility alias for publishEvent. */
-    broadcastSessionEvent(eventType: 'created' | 'updated' | 'deleted', session: any): void;
+    broadcastSessionEvent(eventType: 'created' | 'updated' | 'deleted', session: { id: string; name?: string; createdAt?: number; created_at?: number; updatedAt?: number; updated_at?: number }): void;
     /** Subscribe to a remote backend's catalog (facade client role). */
     subscribeOutgoing(targetBackendId: string, epoch: number, lastRevision?: number): void;
     /** Unsubscribe from a remote backend's catalog. */
@@ -357,7 +359,7 @@ export class GatewayClient {
     const wsUrl = this.config.gatewayUrl.replace(/^http/, 'ws');
     console.log(`[Gateway] Connecting to ${wsUrl}...`);
 
-    const wsOptions: any = {};
+    const wsOptions: { agent?: SocksProxyAgent } = {};
     if (this.config.proxyUrl) {
       try {
         let proxyUrl = this.config.proxyUrl;
@@ -564,11 +566,11 @@ export class GatewayClient {
         SELECT s.id, s.name, s.created_at as createdAt, s.updated_at as updatedAt,
                (SELECT MAX(offset) FROM messages WHERE session_id = s.id) as lastMessageOffset
         FROM sessions s ORDER BY s.updated_at DESC
-      `).all();
-      const items: SessionCatalogItem[] = sessions.map((s: any) => ({
-        sessionId: s.id, title: s.name || undefined, createdAt: s.createdAt, updatedAt: s.updatedAt,
-        lastMessageAt: s.updatedAt,
-        activeRunStatus: hasForegroundActiveRunForSession(this.activeRuns!, s.id) ? 'running' as const : 'idle' as const,
+      `).all() as Array<Record<string, unknown>>;
+      const items: SessionCatalogItem[] = sessions.map((s) => ({
+        sessionId: s.id as string, title: (s.name as string) || undefined, createdAt: s.createdAt as number, updatedAt: s.updatedAt as number,
+        lastMessageAt: s.updatedAt as number,
+        activeRunStatus: hasForegroundActiveRunForSession(this.activeRuns!, s.id as string) ? 'running' as const : 'idle' as const,
       }));
       this.catalogRevision++;
       const msg: CatalogSnapshotMessage = { type: 'catalog_snapshot', epoch: this.epoch, revision: this.catalogRevision, items };
@@ -579,13 +581,13 @@ export class GatewayClient {
     }
   }
 
-  publishCatalogEvent(eventType: 'upsert' | 'remove', session: any): void {
+  publishCatalogEvent(eventType: 'upsert' | 'remove', session: { id: string; name?: string; createdAt?: number; created_at?: number; updatedAt?: number; updated_at?: number }): void {
     if (!this.ws || !this.isConnected || !this.epoch) return;
     this.catalogRevision++;
     if (eventType === 'upsert') {
       const item: SessionCatalogItem = {
         sessionId: session.id, title: session.name || undefined,
-        createdAt: session.createdAt ?? session.created_at,
+        createdAt: session.createdAt ?? session.created_at ?? Date.now(),
         updatedAt: session.updatedAt ?? session.updated_at ?? Date.now(),
         lastMessageAt: session.updatedAt ?? session.updated_at ?? Date.now(),
         activeRunStatus: this.activeRuns && hasForegroundActiveRunForSession(this.activeRuns, session.id) ? 'running' : 'idle',
@@ -603,7 +605,7 @@ export class GatewayClient {
   // ==========================================================================
 
   /** Compatibility alias for publishCatalogEvent — used by sessions routes and run handler. */
-  broadcastSessionEvent(eventType: 'created' | 'updated' | 'deleted', session: any): void {
+  broadcastSessionEvent(eventType: 'created' | 'updated' | 'deleted', session: { id: string; name?: string; createdAt?: number; created_at?: number; updatedAt?: number; updated_at?: number }): void {
     this.publishCatalogEvent(eventType === 'deleted' ? 'remove' : 'upsert', session);
   }
 
@@ -633,32 +635,34 @@ export class GatewayClient {
   // Internal — Message Router
   // ==========================================================================
 
-  private handleMessage(message: any): void {
-    switch (message.type) {
-      case 'peer_ready': this.handlePeerReady(message); break;
-      case 'registry_snapshot': this.handleRegistrySnapshot(message); break;
-      case 'registry_delta': this.handleRegistryDelta(message); break;
-      case 'registry_event': this.handleRegistryEvent(message); break;
-      case 'heartbeat_ack': this.handleHeartbeatAck(message); break;
-      case 'stream_demand': this.handleStreamDemand(message); break;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Message router dispatches to typed handlers via switch; each branch casts implicitly.
+  private handleMessage(message: Record<string, unknown>): void {
+    const msg = message as Record<string, unknown> & { type: string };
+    switch (msg.type) {
+      case 'peer_ready': this.handlePeerReady(msg as unknown as PeerReadyMessage); break;
+      case 'registry_snapshot': this.handleRegistrySnapshot(msg as unknown as RegistrySnapshotMessage); break;
+      case 'registry_delta': this.handleRegistryDelta(msg as unknown as RegistryDeltaMessage); break;
+      case 'registry_event': this.handleRegistryEvent(msg as unknown as RegistryEventMessage); break;
+      case 'heartbeat_ack': this.handleHeartbeatAck(msg as unknown as HeartbeatAckMessage); break;
+      case 'stream_demand': this.handleStreamDemand(msg as unknown as StreamDemandMessage); break;
       // Incoming channels (backend-peer role)
-      case 'channel_client_message': void this.handleChannelClientMessage(message); break;
-      case 'catch_up_session_content': this.handleCatchUpRequest(message); break;
-      case 'http_proxy_request': this.handleHttpProxyRequest(message); break;
+      case 'channel_client_message': void this.handleChannelClientMessage(msg as unknown as ChannelClientMessage); break;
+      case 'catch_up_session_content': this.handleCatchUpRequest(msg as unknown as CatchUpSessionContentMessage); break;
+      case 'http_proxy_request': this.handleHttpProxyRequest(msg as unknown as GatewayHttpProxyRequest); break;
       // Channel open/close/reject — route by backendId (incoming vs outgoing)
-      case 'backend_channel_opened': this.handleBackendChannelOpened(message); break;
-      case 'backend_channel_closed': this.handleBackendChannelClosedMsg(message); break;
-      case 'backend_channel_rejected': this.handleBackendChannelRejected(message); break;
+      case 'backend_channel_opened': this.handleBackendChannelOpened(msg as unknown as BackendChannelOpenedMessage); break;
+      case 'backend_channel_closed': this.handleBackendChannelClosedMsg(msg as unknown as BackendChannelClosedMessage); break;
+      case 'backend_channel_rejected': this.handleBackendChannelRejected(msg as unknown as BackendChannelRejectedMessage); break;
       // Outgoing catalog (subscribed to remote backend)
-      case 'backend_catalog_snapshot': this.handleOutgoingCatalogSnapshot(message); break;
-      case 'backend_catalog_event': this.handleOutgoingCatalogEvent(message); break;
-      case 'backend_catalog_reset': this.handleOutgoingCatalogReset(message); break;
+      case 'backend_catalog_snapshot': this.handleOutgoingCatalogSnapshot(msg as unknown as BackendCatalogSnapshotMessage); break;
+      case 'backend_catalog_event': this.handleOutgoingCatalogEvent(msg as unknown as BackendCatalogEventMessage); break;
+      case 'backend_catalog_reset': this.handleOutgoingCatalogReset(msg as unknown as BackendCatalogResetMessage); break;
       // Outgoing stream events (from remote backend)
-      case 'channel_server_message': this.handleOutgoingChannelServerMessage(message); break;
-      case 'session_stream_closed': this.handleOutgoingSessionStreamClosed(message); break;
-      case 'run_stream_event': this.handleOutgoingRunStreamEvent(message); break;
-      case 'session_content_patch': this.handleOutgoingContentPatch(message); break;
-      case 'gateway_error': console.error(`[Gateway] Error: ${message.code} — ${message.message}`); break;
+      case 'channel_server_message': this.handleOutgoingChannelServerMessage(msg as unknown as ChannelServerMessage); break;
+      case 'session_stream_closed': this.handleOutgoingSessionStreamClosed(msg as unknown as SessionStreamClosedMessage); break;
+      case 'run_stream_event': this.handleOutgoingRunStreamEvent(msg as unknown as RunStreamEvent); break;
+      case 'session_content_patch': this.handleOutgoingContentPatch(msg as unknown as SessionContentPatchMessage); break;
+      case 'gateway_error': console.error(`[Gateway] Error: ${msg.code} — ${msg.message}`); break;
     }
   }
 
@@ -777,7 +781,7 @@ export class GatewayClient {
   // Internal — Content Catch-Up
   // ==========================================================================
 
-  private async handleCatchUpRequest(msg: any): Promise<void> {
+  private async handleCatchUpRequest(msg: CatchUpSessionContentMessage): Promise<void> {
     if (!this.onCatchUpHandler) return;
     try {
       const messages = await this.onCatchUpHandler(msg.sessionId, msg.afterOffset);
@@ -859,11 +863,11 @@ export class GatewayClient {
     // Fix #5: Generic server messages lack sessionId — route as backend_message,
     // not run_event. Extract sessionId from payload if available.
     const backendId = this.findOutgoingBackendByChannel(msg.channelId) ?? '';
-    const payload = msg.message as any;
-    const sessionId = payload?.sessionId ?? '';
+    const payload = msg.message as unknown as Record<string, unknown>;
+    const sessionId = (payload?.sessionId as string) ?? '';
     if (sessionId) {
       // Session-specific message — route as run event
-      this.outgoingEvents.onOutgoingRunEvent?.(backendId, msg.channelId, sessionId, msg.message);
+      this.outgoingEvents.onOutgoingRunEvent?.(backendId, msg.channelId, sessionId, msg.message as unknown as ServerMessage);
     }
     // Always emit as generic backend message for non-session consumers
     // (The adapter will decide how to handle it)

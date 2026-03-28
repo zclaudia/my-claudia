@@ -38,7 +38,8 @@ export interface MessageHandlerContext {
   activeRuns: Map<string, ActiveRun>;
   connectedClients: Map<string, ConnectedClient>;
   processMonitor: ProcessMonitor | null;
-  handleRunStart: (client: ConnectedClient, message: any, db: any, options: any, clients: Map<string, ConnectedClient>) => Promise<void>;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- handleRunStart accepts various message shapes from different callers
+  handleRunStart: (client: ConnectedClient, message: any, db: ReturnType<typeof initDatabase>, options?: Record<string, unknown>, clients?: Map<string, ConnectedClient>) => Promise<void>;
   cancelRun: (runId: string) => void;
   broadcastPluginState: () => void;
   findProcessPidsByTaskCommand: (taskCommand?: string, excludedPids?: number[]) => Promise<number[]>;

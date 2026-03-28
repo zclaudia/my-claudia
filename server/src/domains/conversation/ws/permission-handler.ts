@@ -114,10 +114,10 @@ export function handlePermissionDecision(
         requestId: message.requestId,
         sessionId: run.sessionId,
         decision: message.allow ? 'allow' : 'deny',
-      } as any;
+      } as ServerMessage & { type: 'permission_resolved'; requestId: string; sessionId: string; decision: string };
       sendMessage(run.client.ws, resolvedEvent);
       if (connectedClients.size > 0) {
-        broadcastToOtherAuthenticatedClients(connectedClients, run.clientId, resolvedEvent as ServerMessage);
+        broadcastToOtherAuthenticatedClients(connectedClients, run.clientId, resolvedEvent);
       }
 
       console.log(`[Permission] ${message.requestId}: ${message.allow ? 'allowed' : 'denied'} - resolved!`);
@@ -133,10 +133,10 @@ export function handlePermissionDecision(
       type: 'permission_resolved',
       requestId: message.requestId,
       decision: message.allow ? 'allow' : 'deny',
-    } as any;
+    } as ServerMessage & { type: 'permission_resolved'; requestId: string; decision: string };
     sendMessage(run.client.ws, resolvedEvent);
     if (connectedClients.size > 0) {
-      broadcastToOtherAuthenticatedClients(connectedClients, run.clientId, resolvedEvent as ServerMessage);
+      broadcastToOtherAuthenticatedClients(connectedClients, run.clientId, resolvedEvent);
     }
     break;
   }
@@ -175,17 +175,14 @@ export function handlePromptAnswer(
         sessionId: run.sessionId,
       } as import('@my-claudia/shared').InteractionResolvedMessage;
 
-      sendMessage(run.client.ws, {
+      const promptResolvedEvent = {
         type: 'prompt_request_resolved',
         requestId: message.requestId,
         sessionId: run.sessionId,
-      } as any);
+      } as ServerMessage & { type: 'prompt_request_resolved'; requestId: string; sessionId: string };
+      sendMessage(run.client.ws, promptResolvedEvent);
       if (connectedClients.size > 0) {
-        broadcastToOtherAuthenticatedClients(connectedClients, run.clientId, {
-          type: 'prompt_request_resolved',
-          requestId: message.requestId,
-          sessionId: run.sessionId,
-        } as any);
+        broadcastToOtherAuthenticatedClients(connectedClients, run.clientId, promptResolvedEvent);
       }
 
       // Phase 1: Emit parallel interaction_resolved event
@@ -205,7 +202,7 @@ export function handlePromptAnswer(
     sendMessage(run.client.ws, {
       type: 'prompt_request_resolved',
       requestId: message.requestId,
-    } as any);
+    } as ServerMessage & { type: 'prompt_request_resolved'; requestId: string });
     sendMessage(run.client.ws, {
       type: 'interaction_resolved',
       interactionId: message.requestId,

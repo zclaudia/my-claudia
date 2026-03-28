@@ -118,11 +118,12 @@ export function registerAgentTools(config: { getDb: () => Database.Database }): 
           maxBuffer: 1024 * 1024,
         });
         return JSON.stringify({ stdout: stdout.slice(0, 4000), stderr: stderr.slice(0, 1000), exitCode: 0 });
-      } catch (err: any) {
+      } catch (err: unknown) {
+        const execErr = err as { stdout?: string; stderr?: string; message?: string; code?: number };
         return JSON.stringify({
-          stdout: (err.stdout || '').slice(0, 4000),
-          stderr: (err.stderr || err.message || '').slice(0, 1000),
-          exitCode: err.code ?? 1,
+          stdout: (execErr.stdout || '').slice(0, 4000),
+          stderr: (execErr.stderr || execErr.message || '').slice(0, 1000),
+          exitCode: execErr.code ?? 1,
         });
       } finally {
         activeShells--;
@@ -186,8 +187,8 @@ export function registerAgentTools(config: { getDb: () => Database.Database }): 
           default:
             return JSON.stringify({ error: `Unknown operation: ${args.operation}` });
         }
-      } catch (err: any) {
-        return JSON.stringify({ error: err.message });
+      } catch (err: unknown) {
+        return JSON.stringify({ error: err instanceof Error ? err.message : String(err) });
       }
     },
   });
@@ -261,8 +262,8 @@ export function registerAgentTools(config: { getDb: () => Database.Database }): 
           body: bodyText.slice(0, 8000),
           truncated,
         });
-      } catch (err: any) {
-        return JSON.stringify({ error: err.message });
+      } catch (err: unknown) {
+        return JSON.stringify({ error: err instanceof Error ? err.message : String(err) });
       }
     },
   });

@@ -1,5 +1,5 @@
 import { WebSocket } from 'ws';
-import type { ToolCall, ContentBlock, AgentPermissionPolicy, ServerMessage, PCPEffectiveProfile } from '@my-claudia/shared';
+import type { ToolCall, ContentBlock, AgentPermissionPolicy, ServerMessage, PCPEffectiveProfile, AskUserQuestionItem } from '@my-claudia/shared';
 import type { PermissionDecision, SystemInfo } from '../../../providers/claude-sdk.js';
 import type { initDatabase } from '../../../storage/db.js';
 import type { ProcessMonitor } from '../../../utils/process-monitor.js';
@@ -35,7 +35,7 @@ export interface ActiveRun {
       sessionId?: string;
       requiresCredential?: boolean;
       credentialHint?: string;
-      questions?: any[];
+      questions?: AskUserQuestionItem[];
       aiInitiated?: boolean;
     };
   }>;
