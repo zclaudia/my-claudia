@@ -5,7 +5,7 @@
 import { Router, Request, Response } from 'express';
 import type { ApiResponse, SystemTaskInfo, TaskRun } from '@my-claudia/shared';
 import { systemTaskRegistry } from '../services/system-task-registry.js';
-import type { TaskRunRepository } from '../repositories/task-run.js';
+import type { TaskRunRepository } from '../domains/scheduled-tasks/task-run-repository.js';
 
 export function createSystemTaskRoutes(taskRunRepo: TaskRunRepository): Router {
   const router = Router();

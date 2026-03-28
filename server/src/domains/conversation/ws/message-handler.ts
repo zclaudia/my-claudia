@@ -12,7 +12,7 @@ import type { ProcessMonitor } from '../../../utils/process-monitor.js';
 import type { initDatabase } from '../../../storage/db.js';
 import type { ConnectedClient, ActiveRun } from './types.js';
 import type { NotificationFeedService } from '../../../domains/notification-feed/service.js';
-import type { TaskOrchestrator } from '../../../orchestration/types.js';
+import type { TaskOrchestrator } from '../../orchestration/types.js';
 import { sendMessage } from './broadcast.js';
 
 // Domain handlers

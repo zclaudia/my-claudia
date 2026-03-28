@@ -16,7 +16,7 @@ import { createAutomationRoutes } from '../../routes/automations.js';
 import { systemTaskRegistry } from '../../services/system-task-registry.js';
 import { sendMessage } from '../conversation/ws/broadcast.js';
 import type { ConnectedClient } from '../conversation/ws/types.js';
-import type { NotificationService } from '../../services/notification-service.js';
+import type { NotificationService } from '../notification-feed/notification-service.js';
 
 export interface WorkflowDomainDeps {
   db: ReturnType<typeof initDatabase>;

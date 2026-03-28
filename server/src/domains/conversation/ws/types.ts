@@ -3,7 +3,7 @@ import type { ToolCall, ContentBlock, AgentPermissionPolicy, ServerMessage, PCPE
 import type { PermissionDecision, SystemInfo } from '../../../providers/claude-sdk.js';
 import type { initDatabase } from '../../../storage/db.js';
 import type { ProcessMonitor } from '../../../utils/process-monitor.js';
-import type { NotificationService } from '../../../services/notification-service.js';
+import type { NotificationService } from '../../notification-feed/notification-service.js';
 
 export interface ConnectedClient {
   id: string;

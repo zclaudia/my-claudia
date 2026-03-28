@@ -9,6 +9,7 @@ import type {
   ToolCall,
   ContentBlock,
 } from '@my-claudia/shared';
+import { DEFAULT_UNIFIED_POLICY } from '@my-claudia/shared';
 import { sendMessage, broadcastToOtherAuthenticatedClients } from './broadcast.js';
 import type { ConnectedClient, ActiveRun } from './types.js';
 import {
@@ -68,7 +69,7 @@ import { createTraceRecorder, summarizeProviderMessage, summarizeServerMessage }
 import { generateToolSignature, detectLoop } from '../../../loop-detection.js';
 import { getGatewayClient } from '../../../domains/gateway/gateway-instance.js';
 import { initDatabase } from '../../../storage/db.js';
-import { NotificationService } from '../../../services/notification-service.js';
+import { NotificationService } from '../../notification-feed/notification-service.js';
 import { ProcessMonitor } from '../../../utils/process-monitor.js';
 
 export interface RunHandlerContext {
@@ -503,7 +504,7 @@ export async function handleRunStart(
           ? mergePolicy(globalPolicy, projectOverride)
           : projectOverride
             ? normalizePolicy(projectOverride)
-            : null;
+            : DEFAULT_UNIFIED_POLICY;
 
         if (sessionPermissionOverride) {
           const normalizedOverride = normalizePolicy(sessionPermissionOverride);

@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import type { NotificationFeedService } from '../domains/notification-feed/service.js';
+import type { NotificationFeedService } from './service.js';
 
 export function createNotificationFeedRoutes(notificationService: NotificationFeedService): Router {
   const router = Router();

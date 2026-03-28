@@ -5,7 +5,7 @@
 
 import type Database from 'better-sqlite3';
 import { toolRegistry } from '../../../plugins/tool-registry.js';
-import type { TaskOrchestrator } from '../../../orchestration/types.js';
+import type { TaskOrchestrator } from '../../orchestration/types.js';
 
 export function registerTaskTools(orchestrator: TaskOrchestrator, getDb: () => Database.Database): void {
   // ============================================

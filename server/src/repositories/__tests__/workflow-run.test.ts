@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { WorkflowRunRepository } from '../workflow-run.js';
+import { WorkflowRunRepository } from '../../domains/workflows/workflow-run-repository.js';
 
 vi.mock('uuid', () => ({ v4: () => 'mock-uuid' }));
 

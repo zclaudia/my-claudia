@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { WorkflowScheduleRepository } from '../workflow-schedule.js';
+import { WorkflowScheduleRepository } from '../../domains/workflows/workflow-schedule-repository.js';
 
 vi.mock('uuid', () => ({ v4: () => 'mock-uuid' }));
 

@@ -1,6 +1,6 @@
 import Database from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { ClaudiaBranchService } from '../claudia-branch-service.js';
+import { ClaudiaBranchService } from '../../domains/orchestration/claudia-branch-service.js';
 
 function createTestDb(): Database.Database {
   const db = new Database(':memory:');

@@ -27,14 +27,14 @@ import { createGatewayRouter, type GatewayConfig, type GatewayStatus } from './r
 import { createImportRoutes } from './routes/import.js';
 import { createOpenCodeImportRoutes } from './routes/import-opencode.js';
 import { createAgentRoutes } from './routes/agent.js';
-import { createNotificationFeedRoutes } from './routes/notification-feed.js';
+import { createNotificationFeedRoutes } from './domains/notification-feed/routes.js';
 import { createClaudiaRoutes } from './routes/claudia.js';
 import { handleMcpRequest, handleMcpSse, handleMcpSessionClose, getMcpServerInfo } from './mcp/mcp-server.js';
 import { createAgentTriggerRoutes } from './routes/agent-triggers.js';
 import { NotificationFeedService } from './domains/notification-feed/service.js';
 import { AgentTriggerService } from './domains/agent-triggers/service.js';
 import { createDelegationRoutes } from './routes/delegation.js';
-import { createNotificationRoutes } from './routes/notifications.js';
+import { createNotificationRoutes } from './domains/notification-feed/notification-routes.js';
 import { createPluginToolsRoutes } from './routes/plugin-tools.js';
 import { createPluginRoutes } from './routes/plugins.js';
 import { createMcpServerRoutes } from './routes/mcp-servers.js';
@@ -46,11 +46,11 @@ import { createWorkspaceRoutes } from './routes/workspace.js';
 import type { LocalPRService } from './domains/local-pr/service.js';
 import { registerWorkflowDomain } from './domains/workflows/register.js';
 import type { SupervisorService } from './domains/supervision/supervisor-service.js';
-import { NotificationService } from './services/notification-service.js';
+import { NotificationService } from './domains/notification-feed/notification-service.js';
 import { registerInteractionTools } from './domains/conversation/interactions/interaction-tools.js';
 import { registerAgentTools } from './domains/conversation/agent-tools/index.js';
 import { registerTaskTools } from './domains/conversation/agent-tools/task-tools.js';
-import { createTaskOrchestrator } from './orchestration/task-orchestrator.js';
+import { createTaskOrchestrator } from './domains/orchestration/task-orchestrator.js';
 import { interactionDispatcher } from './domains/conversation/interactions/interaction-dispatcher.js';
 import { pluginEvents } from './events/index.js';
 import { pluginLoader } from './plugins/loader.js';
@@ -95,7 +95,7 @@ export interface SetupResult {
   notificationService: NotificationService;
   supervisorService: SupervisorService;
   notificationFeedService: NotificationFeedService;
-  orchestrator: import('./orchestration/types.js').TaskOrchestrator;
+  orchestrator: import('./domains/orchestration/types.js').TaskOrchestrator;
   /** Cleanup function: call when WebSocket server closes */
   onWssClose: () => void;
 }

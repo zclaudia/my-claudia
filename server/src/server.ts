@@ -20,8 +20,8 @@ import { TerminalManager } from './terminal-manager.js';
 import { generateKeyPair, getPublicKeyPem } from './utils/crypto.js';
 import { pluginLoader } from './plugins/loader.js';
 import type { ProcessMonitor } from './utils/process-monitor.js';
-import type { NotificationService } from './services/notification-service.js';
-import { ClaudiaBranchService } from './services/claudia-branch-service.js';
+import type { NotificationService } from './domains/notification-feed/notification-service.js';
+import { ClaudiaBranchService } from './domains/orchestration/claudia-branch-service.js';
 
 // Phase 2: Router architecture
 import { createRouter } from './router/index.js';
@@ -87,7 +87,7 @@ function buildClaudiaTaskSnapshot(): import('@my-claudia/shared').ClaudiaTaskSna
      WHERE session_id = ?`
   );
 
-  const collectTasks = (parentId?: string): import('./orchestration/types.js').OrchestratorTask[] => {
+  const collectTasks = (parentId?: string): import('./domains/orchestration/types.js').OrchestratorTask[] => {
     const direct = orch.listTasks(parentId);
     return direct.flatMap((task) => [task, ...collectTasks(task.id)]);
   };
@@ -139,7 +139,7 @@ let connectedClients = new Map<string, ConnectedClient>();
 let notificationService: NotificationService;
 let serverPort: number | null = null;
 let notificationFeedService: import('./domains/notification-feed/service.js').NotificationFeedService | undefined;
-let taskOrchestrator: import('./orchestration/types.js').TaskOrchestrator | undefined;
+let taskOrchestrator: import('./domains/orchestration/types.js').TaskOrchestrator | undefined;
 let facadeHubRef: import('./domains/gateway/ws-hub.js').FacadeWsHub | null = null;
 
 // Re-exports for backward compatibility

@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import type { NotificationService } from '../services/notification-service.js';
+import type { NotificationService } from './notification-service.js';
 import type { NotificationConfig } from '@my-claudia/shared';
 
 const NOTIFICATION_EVENT_KEYS: Array<keyof NotificationConfig['events']> = [

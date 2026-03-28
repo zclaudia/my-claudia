@@ -8,7 +8,7 @@
 
 import type Database from 'better-sqlite3';
 import type { AgentTrigger } from '@my-claudia/shared';
-import type { TaskOrchestrator } from '../../orchestration/types.js';
+import type { TaskOrchestrator } from '../orchestration/types.js';
 import type { NotificationFeedService } from '../notification-feed/service.js';
 import { AgentTriggerRepository } from './repository.js';
 
