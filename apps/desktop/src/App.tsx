@@ -1,5 +1,6 @@
 import { useEffect, useState, useRef, useMemo, useCallback } from 'react';
 import { Bot, ChevronsRight, ChevronsLeft, MessageSquare, Activity, Clock, Cloud, Gauge, StickyNote, Puzzle, type LucideIcon } from 'lucide-react';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import { Sidebar } from './components/Sidebar';
 import { ChatInterface } from './components/chat/ChatInterface';
 import { ServerSelector } from './components/ServerSelector';
@@ -820,13 +821,15 @@ function App() {
     const serverName = params.get('serverName') || undefined;
     return (
       <ThemeProvider defaultTheme="dark-neutral">
-        <FileViewerWindow
-          filePath={fileViewerPath}
-          projectRoot={fileViewerRoot}
-          serverUrl={serverUrl}
-          authToken={authToken}
-          serverName={serverName}
-        />
+        <ErrorBoundary label="FileViewer">
+          <FileViewerWindow
+            filePath={fileViewerPath}
+            projectRoot={fileViewerRoot}
+            serverUrl={serverUrl}
+            authToken={authToken}
+            serverName={serverName}
+          />
+        </ErrorBoundary>
       </ThemeProvider>
     );
   }
@@ -837,10 +840,9 @@ function App() {
     const authToken = params.get('authToken') || '';
     return (
       <ThemeProvider defaultTheme="dark-neutral">
-        <AutomationWindow
-          serverUrl={serverUrl}
-          authToken={authToken}
-        />
+        <ErrorBoundary label="Automation">
+          <AutomationWindow serverUrl={serverUrl} authToken={authToken} />
+        </ErrorBoundary>
       </ThemeProvider>
     );
   }
@@ -853,17 +855,19 @@ function App() {
     const workflowId = params.get('workflowId') || undefined;
     return (
       <ThemeProvider defaultTheme="dark-neutral">
-        <WorkflowEditorWindow
-          projectId={workflowEditorProjectId}
-          workflowId={workflowId}
-          serverUrl={serverUrl}
-          authToken={authToken}
-          serverId={params.get('serverId') || undefined}
-          serverName={params.get('serverName') || undefined}
-          gatewayUrl={params.get('gatewayUrl') || undefined}
-          gatewaySecret={params.get('gatewaySecret') || undefined}
-          initialMode={(params.get('initialMode') as 'toolbox' | 'ai') || undefined}
-        />
+        <ErrorBoundary label="WorkflowEditor">
+          <WorkflowEditorWindow
+            projectId={workflowEditorProjectId}
+            workflowId={workflowId}
+            serverUrl={serverUrl}
+            authToken={authToken}
+            serverId={params.get('serverId') || undefined}
+            serverName={params.get('serverName') || undefined}
+            gatewayUrl={params.get('gatewayUrl') || undefined}
+            gatewaySecret={params.get('gatewaySecret') || undefined}
+            initialMode={(params.get('initialMode') as 'toolbox' | 'ai') || undefined}
+          />
+        </ErrorBoundary>
       </ThemeProvider>
     );
   }
@@ -880,16 +884,18 @@ function App() {
     const gatewaySecret = params.get('gatewaySecret') || undefined;
     return (
       <ThemeProvider defaultTheme="dark-neutral">
-        <SessionChatWindow
-          sessionId={sessionWindowId}
-          projectId={projectId}
-          serverUrl={serverUrl}
-          authToken={authToken}
-          serverId={serverId}
-          serverName={serverName}
-          gatewayUrl={gatewayUrl}
-          gatewaySecret={gatewaySecret}
-        />
+        <ErrorBoundary label="SessionChat">
+          <SessionChatWindow
+            sessionId={sessionWindowId}
+            projectId={projectId}
+            serverUrl={serverUrl}
+            authToken={authToken}
+            serverId={serverId}
+            serverName={serverName}
+            gatewayUrl={gatewayUrl}
+            gatewaySecret={gatewaySecret}
+          />
+        </ErrorBoundary>
       </ThemeProvider>
     );
   }
@@ -905,15 +911,17 @@ function App() {
     const gatewaySecret = params.get('gatewaySecret') || undefined;
     return (
       <ThemeProvider defaultTheme="dark-neutral">
-        <DraftWindow
-          sessionId={draftSessionId}
-          serverUrl={serverUrl}
-          authToken={authToken}
-          serverId={serverId}
-          serverName={serverName}
-          gatewayUrl={gatewayUrl}
-          gatewaySecret={gatewaySecret}
-        />
+        <ErrorBoundary label="DraftEditor">
+          <DraftWindow
+            sessionId={draftSessionId}
+            serverUrl={serverUrl}
+            authToken={authToken}
+            serverId={serverId}
+            serverName={serverName}
+            gatewayUrl={gatewayUrl}
+            gatewaySecret={gatewaySecret}
+          />
+        </ErrorBoundary>
       </ThemeProvider>
     );
   }
@@ -930,16 +938,18 @@ function App() {
     const gatewaySecret = params.get('gatewaySecret') || undefined;
     return (
       <ThemeProvider defaultTheme="dark-neutral">
-        <TerminalWindow
-          terminalId={terminalWindowId}
-          projectId={projectId}
-          serverUrl={serverUrl}
-          authToken={authToken}
-          serverId={serverId}
-          serverName={serverName}
-          gatewayUrl={gatewayUrl}
-          gatewaySecret={gatewaySecret}
-        />
+        <ErrorBoundary label="Terminal">
+          <TerminalWindow
+            terminalId={terminalWindowId}
+            projectId={projectId}
+            serverUrl={serverUrl}
+            authToken={authToken}
+            serverId={serverId}
+            serverName={serverName}
+            gatewayUrl={gatewayUrl}
+            gatewaySecret={gatewaySecret}
+          />
+        </ErrorBoundary>
       </ThemeProvider>
     );
   }
@@ -970,16 +980,20 @@ function App() {
   if (pluginWindowId) {
     return (
       <ThemeProvider defaultTheme="dark-neutral">
-        <PluginWindow pluginId={pluginWindowId} params={params} />
+        <ErrorBoundary label="Plugin">
+          <PluginWindow pluginId={pluginWindowId} params={params} />
+        </ErrorBoundary>
       </ThemeProvider>
     );
   }
 
   return (
     <ThemeProvider defaultTheme="dark-neutral">
-      <ConnectionProvider>
-        <AppContent />
-      </ConnectionProvider>
+      <ErrorBoundary label="App">
+        <ConnectionProvider>
+          <AppContent />
+        </ConnectionProvider>
+      </ErrorBoundary>
     </ThemeProvider>
   );
 }
