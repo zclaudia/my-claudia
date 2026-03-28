@@ -13,6 +13,7 @@ vi.mock('../../hooks/useEmbeddedServer', () => ({
     port: null,
     status: 'disabled' as const,
     error: null,
+    restart: vi.fn(async () => {}),
   })),
 }));
 
@@ -141,6 +142,7 @@ describe('ConnectionContext', () => {
     expect(result.current.embeddedServerStatus).toBe('disabled');
     expect(result.current.embeddedServerError).toBeNull();
     expect(result.current.embeddedServerPort).toBeNull();
+    expect(typeof result.current.restartEmbeddedServer).toBe('function');
   });
 
   it('handlePermissionDecision sends message via socket', async () => {

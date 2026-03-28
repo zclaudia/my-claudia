@@ -8,6 +8,10 @@
 import type { DelegationConfig, DelegationDecision, PermissionCategory, CategoryPermissionPolicy, AIReviewConfig, AIReviewResult } from '@my-claudia/shared';
 import { DEFAULT_DELEGATION_CONFIG } from '@my-claudia/shared';
 import { classify } from './permission-evaluator.js';
+import {
+  getConfiguredLocalSensitivityReviewer,
+  type LocalSensitivityReviewResult,
+} from './local-sensitivity-reviewer.js';
 import type Database from 'better-sqlite3';
 import { readFileSync, existsSync } from 'fs';
 import { resolve, isAbsolute, basename, extname, sep, dirname } from 'path';
@@ -237,6 +241,22 @@ interface ReviewFileAccessResult {
   redacted?: boolean;
   truncated?: boolean;
   bytesReturned?: number;
+  localReviewerOutcome?: LocalSensitivityReviewResult['label'];
+}
+
+function normalizeReviewReason(
+  review: LocalSensitivityReviewResult,
+  redacted: boolean,
+): string {
+  if (review.label === 'sensitive') return review.reason;
+  if (review.label === 'suspicious') {
+    return redacted
+      ? `Local reviewer flagged the file as suspicious and sensitive patterns were redacted: ${review.reason}`
+      : `Local reviewer flagged the file as suspicious: ${review.reason}`;
+  }
+  return redacted
+    ? `Sensitive patterns were redacted after local review: ${review.reason}`
+    : `Allowed by workspace review policy: ${review.reason}`;
 }
 
 function isWithinRoot(root: string, target: string): boolean {
@@ -438,12 +458,13 @@ function collectCandidateScripts(command: string, cwd?: string): CandidateScript
   return candidates;
 }
 
-function readReviewFile(
+async function readReviewFile(
   requestPath: string,
   workspaceRoot: string,
   allowedFiles: Map<string, CandidateScript>,
   totalBytesUsed: number,
-): ReviewFileAccessResult {
+  commandContext: string,
+): Promise<ReviewFileAccessResult> {
   const resolvedPath = isAbsolute(requestPath) ? resolve(requestPath) : resolve(workspaceRoot, requestPath);
   const allowedCandidate = allowedFiles.get(resolvedPath);
 
@@ -482,16 +503,49 @@ function readReviewFile(
       content = `${content.slice(0, byteLimit)}\n... (truncated)`;
       truncated = true;
     }
+    const reviewer = getConfiguredLocalSensitivityReviewer();
+    let localReview: LocalSensitivityReviewResult | null = null;
+    if (reviewer) {
+      try {
+        localReview = await reviewer.reviewFile({
+          path: allowedCandidate.displayPath,
+          resolvedPath,
+          workspaceRoot,
+          contentPreview: content,
+          commandContext,
+        });
+      } catch (error) {
+        console.warn('[AI Review File] Local sensitivity reviewer failed:', error);
+      }
+    }
+
+    if (localReview?.label === 'sensitive') {
+      const denied = {
+        ok: false,
+        path: requestPath,
+        resolvedPath,
+        reason: `Local reviewer blocked the file: ${localReview.reason}`,
+        localReviewerOutcome: localReview.label,
+      };
+      auditReviewFileAccess(denied);
+      return denied;
+    }
+
     const redaction = redactReviewContent(content);
     const result: ReviewFileAccessResult = {
       ok: true,
       path: allowedCandidate.displayPath,
       resolvedPath,
       content: redaction.content,
-      reason: redaction.redacted ? 'Sensitive patterns were redacted' : 'Allowed by workspace review policy',
-      redacted: redaction.redacted,
+      reason: normalizeReviewReason(localReview ?? {
+        label: 'safe',
+        confidence: 1,
+        reason: 'No local reviewer configured',
+      }, redaction.redacted),
+      redacted: redaction.redacted || localReview?.label === 'suspicious',
       truncated,
       bytesReturned: redaction.content.length,
+      localReviewerOutcome: localReview?.label,
     };
     auditReviewFileAccess(result);
     return result;
@@ -611,6 +665,8 @@ async function analyzeLLMRisk(ctx: AIReviewContext): Promise<AIReviewResultWithS
   let totalBytesUsed = 0;
   let reviewPrompt = buildInitialReviewPrompt(ctx, candidateScripts);
   let currentSessionId = ctx.sessionId;
+  let localReviewerUsed = false;
+  let localReviewerOutcome: 'safe' | 'suspicious' | 'sensitive' | undefined;
 
   for (let turn = 0; turn < MAX_REVIEW_TURNS; turn += 1) {
     const { response, sessionId: returnedSessionId } = await ctx.analysisProvider!.runPrompt(reviewPrompt, currentSessionId);
@@ -618,7 +674,15 @@ async function analyzeLLMRisk(ctx: AIReviewContext): Promise<AIReviewResultWithS
 
     const parsed = parseAIReviewResponse(response);
     if (parsed.type === 'final') {
-      return { ...parsed, sessionId: currentSessionId };
+      return {
+        ...parsed,
+        sessionId: currentSessionId,
+        metadata: {
+          localReviewerUsed,
+          localReviewerOutcome,
+          reviewedFileCount: reviewedFiles.size,
+        },
+      };
     }
 
     const resolvedRequestedPath = isAbsolute(parsed.path)
@@ -643,7 +707,11 @@ async function analyzeLLMRisk(ctx: AIReviewContext): Promise<AIReviewResultWithS
       };
     }
 
-    const fileResult = readReviewFile(parsed.path, workspaceRoot, allowedFiles, totalBytesUsed);
+    const fileResult = await readReviewFile(parsed.path, workspaceRoot, allowedFiles, totalBytesUsed, command);
+    if (fileResult.localReviewerOutcome) {
+      localReviewerUsed = true;
+      localReviewerOutcome = fileResult.localReviewerOutcome;
+    }
     if (fileResult.ok && fileResult.bytesReturned) {
       reviewedFiles.add(fileResult.resolvedPath!);
       totalBytesUsed += fileResult.bytesReturned;
@@ -656,6 +724,11 @@ async function analyzeLLMRisk(ctx: AIReviewContext): Promise<AIReviewResultWithS
     reasoning: 'AI review exceeded the maximum analysis turns',
     confidence: 0,
     sessionId: currentSessionId,
+    metadata: {
+      localReviewerUsed,
+      localReviewerOutcome,
+      reviewedFileCount: reviewedFiles.size,
+    },
   };
 }
 

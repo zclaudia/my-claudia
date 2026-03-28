@@ -41,8 +41,7 @@
       "icons/icon.ico"
     ],
     "externalBin": [
-      "binaries/node",
-      "binaries/ollama"
+      "binaries/node"
     ],
     "macOS": {
       "signingIdentity": "MyClaudia Signing",

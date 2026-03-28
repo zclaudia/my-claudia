@@ -17,9 +17,10 @@ import { McpServerSettings } from './McpServerSettings';
 import { WorkspaceSkillsSettings } from './WorkspaceSkillsSettings';
 import { usePluginStore, selectPluginSettingsTabs } from '../stores/pluginStore';
 import { useProcessMonitorStore } from '../stores/processMonitorStore';
+import { useLocalReviewerStore } from '../stores/localReviewerStore';
 import * as api from '../services/api';
 import { exportLogs, getLogCount, clearLogs } from '../services/logger';
-import type { GatewayBackendInfo, SdkVersionReport } from '@my-claudia/shared';
+import type { GatewayBackendInfo, SdkVersionReport, ServerLocalReviewerInfo } from '@my-claudia/shared';
 import { AgentSettings } from './settings/AgentSettings';
 import { PermissionSettings } from './settings/PermissionSettings';
 import { NotificationSettingsInline } from './settings/NotificationSettings';
@@ -52,11 +53,20 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
     isConnected: isGatewayConnected,
     showLocalBackend,
   } = useGatewayStore();
-  const { sendMessage, connectServer, embeddedServerStatus, embeddedServerError, embeddedServerPort } = useConnection();
+  const { sendMessage, connectServer, embeddedServerStatus, embeddedServerError, embeddedServerPort, restartEmbeddedServer } = useConnection();
   const [leakCleanupRunning, setLeakCleanupRunning] = useState(false);
   const [leakCleanupResult, setLeakCleanupResult] = useState<{ ok: boolean; message: string } | null>(null);
   const cleanupResult = useProcessMonitorStore((state) => state.lastCleanupResult);
   const clearCleanupResult = useProcessMonitorStore((state) => state.clearCleanupResult);
+  const localReviewer = useLocalReviewerStore((state) => ({
+    enabled: state.enabled,
+    endpoint: state.endpoint,
+    model: state.model,
+    managedRuntime: state.managedRuntime,
+    autoStart: state.autoStart,
+    status: state.status,
+    setConfig: state.setConfig,
+  }));
 
   const facadeBackends = useFacadeStore((s) => s.backends);
   const localBackendId = useFacadeStore((s) => s.localBackendId);
@@ -75,12 +85,19 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
   // SDK version check
   const localServerPort = useServerStore((s) => s.localServerPort);
   const [sdkVersions, setSdkVersions] = useState<SdkVersionReport | null>(null);
+  const [serverLocalReviewerInfo, setServerLocalReviewerInfo] = useState<ServerLocalReviewerInfo | null>(null);
   useEffect(() => {
     if (!isOpen || !activeServer) return;
     const address = `localhost:${localServerPort || 3100}`;
     api.getServerInfo(address)
-      .then(info => setSdkVersions(info.sdkVersions ?? null))
-      .catch(() => {});
+      .then(info => {
+        setSdkVersions(info.sdkVersions ?? null);
+        setServerLocalReviewerInfo(info.localReviewer ?? null);
+      })
+      .catch(() => {
+        setSdkVersions(null);
+        setServerLocalReviewerInfo(null);
+      });
   }, [isOpen, activeServer, localServerPort]);
 
   const handleLeakCleanup = useCallback(() => {
@@ -504,6 +521,166 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
                         <span className="text-sm">Font Size</span>
                       </div>
                       <FontSizeToggle />
+                    </div>
+                  </div>
+                </div>
+
+                <div>
+                  <h3 className="text-sm font-medium mb-3">Local Reviewer</h3>
+                  <div className="space-y-3">
+                    <div className="p-3 bg-secondary/50 rounded-lg space-y-3">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <div className="text-sm">Enable Local File Sensitivity Review</div>
+                          <div className="text-xs text-muted-foreground mt-0.5">
+                            Use a local Ollama model to classify whether files are safe to send to AI review.
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          role="switch"
+                          aria-checked={localReviewer.enabled}
+                          onClick={() => localReviewer.setConfig({ enabled: !localReviewer.enabled })}
+                          className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                            localReviewer.enabled ? 'bg-primary' : 'bg-muted'
+                          }`}
+                        >
+                          <span
+                            className={`inline-block h-5 w-5 transform rounded-full bg-white transition-transform ${
+                              localReviewer.enabled ? 'translate-x-5' : 'translate-x-1'
+                            }`}
+                          />
+                        </button>
+                      </div>
+
+                      <div className="grid gap-3 md:grid-cols-2">
+                        <label className="space-y-1.5">
+                          <span className="text-xs text-muted-foreground">Endpoint</span>
+                          <input
+                            value={localReviewer.endpoint}
+                            onChange={(e) => localReviewer.setConfig({ endpoint: e.target.value })}
+                            className="w-full px-3 py-2 text-sm bg-background border border-border rounded-lg"
+                            placeholder="http://127.0.0.1:11434"
+                          />
+                        </label>
+                        <label className="space-y-1.5">
+                          <span className="text-xs text-muted-foreground">Model</span>
+                          <input
+                            value={localReviewer.model}
+                            onChange={(e) => localReviewer.setConfig({ model: e.target.value })}
+                            className="w-full px-3 py-2 text-sm bg-background border border-border rounded-lg"
+                            placeholder="qwen3:4b-instruct"
+                          />
+                        </label>
+                      </div>
+
+                      <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                        <label className="flex items-center gap-2 text-sm">
+                          <input
+                            type="checkbox"
+                            checked={localReviewer.managedRuntime}
+                            onChange={(e) => localReviewer.setConfig({ managedRuntime: e.target.checked })}
+                            className="rounded border-border"
+                          />
+                          <span>Managed runtime</span>
+                        </label>
+                        <label className="flex items-center gap-2 text-sm">
+                          <input
+                            type="checkbox"
+                            checked={localReviewer.autoStart}
+                            onChange={(e) => localReviewer.setConfig({ autoStart: e.target.checked })}
+                            className="rounded border-border"
+                          />
+                          <span>Auto-start on launch</span>
+                        </label>
+                      </div>
+
+                      <div className="p-3 bg-background/70 rounded-lg space-y-1.5">
+                        <div className="flex items-center justify-between text-sm">
+                          <span className="text-muted-foreground">Runtime status</span>
+                          <span className={
+                            localReviewer.status.state === 'ready'
+                              ? 'text-success'
+                              : localReviewer.status.state === 'error' || localReviewer.status.state === 'missing_binary' || localReviewer.status.state === 'missing_model'
+                                ? 'text-destructive'
+                                : 'text-muted-foreground'
+                          }>
+                            {localReviewer.status.state}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="text-muted-foreground">Server reachable</span>
+                          <span>{localReviewer.status.serverReachable ? 'Yes' : 'No'}</span>
+                        </div>
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="text-muted-foreground">Model available</span>
+                          <span>{localReviewer.status.modelAvailable ? 'Yes' : 'No'}</span>
+                        </div>
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="text-muted-foreground">Managed runtime active</span>
+                          <span>{localReviewer.status.managedRuntimeActive ? 'Yes' : 'No'}</span>
+                        </div>
+                        {localReviewer.status.lastError && (
+                          <div className="text-xs text-destructive break-all">
+                            {localReviewer.status.lastError}
+                          </div>
+                        )}
+                      </div>
+
+                      {serverLocalReviewerInfo && (
+                        <div className="p-3 bg-background/70 rounded-lg space-y-1.5">
+                          <div className="flex items-center justify-between text-sm">
+                            <span className="text-muted-foreground">Server-side status</span>
+                            <span className={
+                              serverLocalReviewerInfo.enabled && serverLocalReviewerInfo.serverReachable && serverLocalReviewerInfo.modelAvailable
+                                ? 'text-success'
+                                : serverLocalReviewerInfo.enabled
+                                  ? 'text-destructive'
+                                  : 'text-muted-foreground'
+                            }>
+                              {serverLocalReviewerInfo.enabled ? 'configured' : 'disabled'}
+                            </span>
+                          </div>
+                          <div className="flex items-center justify-between text-xs">
+                            <span className="text-muted-foreground">Endpoint</span>
+                            <span className="truncate max-w-[14rem]" title={serverLocalReviewerInfo.endpoint || '-'}>
+                              {serverLocalReviewerInfo.endpoint || '-'}
+                            </span>
+                          </div>
+                          <div className="flex items-center justify-between text-xs">
+                            <span className="text-muted-foreground">Model</span>
+                            <span>{serverLocalReviewerInfo.model || '-'}</span>
+                          </div>
+                          <div className="flex items-center justify-between text-xs">
+                            <span className="text-muted-foreground">Server reachable</span>
+                            <span>{serverLocalReviewerInfo.serverReachable ? 'Yes' : 'No'}</span>
+                          </div>
+                          <div className="flex items-center justify-between text-xs">
+                            <span className="text-muted-foreground">Model available</span>
+                            <span>{serverLocalReviewerInfo.modelAvailable ? 'Yes' : 'No'}</span>
+                          </div>
+                          {serverLocalReviewerInfo.lastError && (
+                            <div className="text-xs text-destructive break-all">
+                              {serverLocalReviewerInfo.lastError}
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      <div className="text-xs text-muted-foreground">
+                        Changes apply to the embedded server on next start. Existing Ollama connections update immediately in the desktop runtime.
+                      </div>
+
+                      {embeddedServerStatus !== 'disabled' && (
+                        <div className="flex justify-end">
+                          <button
+                            onClick={() => { void restartEmbeddedServer(); }}
+                            className="px-3 py-1 text-xs bg-primary hover:bg-primary/90 text-primary-foreground rounded-lg font-medium transition-colors"
+                          >
+                            Restart Embedded Server
+                          </button>
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>

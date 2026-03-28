@@ -29,9 +29,25 @@ import { useFilePushStore } from '../stores/filePushStore';
 import { useBackgroundTaskStore } from '../stores/backgroundTaskStore';
 import { useProcessMonitorStore } from '../stores/processMonitorStore';
 import { useClaudiaStore } from '../stores/claudiaStore';
+import { useToastStore } from '../stores/toastStore';
 import { downloadPushedFile } from './fileDownload';
 import { eagerSyncCurrentSession, recoverCurrentSessionTail } from './sessionSync';
 import { xtermRegistry } from '../utils/xtermRegistry';
+
+// Throttled lastActivityAt updater — avoids re-renders on every delta message.
+// Updates at most once per second per runId.
+const lastActivityUpdate = new Map<string, number>();
+function updateRunActivity(runId: string): void {
+  const now = Date.now();
+  const last = lastActivityUpdate.get(runId) || 0;
+  if (now - last < 1000) return; // throttle: 1 update per second
+  lastActivityUpdate.set(runId, now);
+  const chat = useChatStore.getState();
+  const health = chat.runHealth[runId];
+  if (health) {
+    chat.updateRunHealth(runId, { ...health, lastActivityAt: now });
+  }
+}
 
 export interface MessageHandlerContext {
   /** Virtual server ID (direct server ID or gateway-prefixed ID) */
@@ -185,6 +201,24 @@ function updateClaudiaTaskStatusBySessionId(
   claudiaStore.updateTask(task.id, { status, updatedAt: Date.now() });
 }
 
+function buildAIReviewToastMessage(aiMsg: import('@my-claudia/shared').AIReviewCompletedMessage): string | undefined {
+  const metadata = aiMsg.metadata;
+  if (!metadata?.localReviewerUsed) return undefined;
+
+  const outcome = metadata.localReviewerOutcome || 'unknown';
+  const files = metadata.reviewedFileCount ?? 0;
+  return `Local reviewer used (${outcome}); reviewed ${files} file${files === 1 ? '' : 's'}.`;
+}
+
+function buildAIReviewAutoResolveToastMessage(msg: import('@my-claudia/shared').PermissionAutoResolvedMessage): string | undefined {
+  const metadata = msg.metadata;
+  if (!metadata?.localReviewerUsed) return undefined;
+
+  const outcome = metadata.localReviewerOutcome || 'unknown';
+  const files = metadata.reviewedFileCount ?? 0;
+  return `AI review auto-approved with local reviewer (${outcome}); reviewed ${files} file${files === 1 ? '' : 's'}.`;
+}
+
 /**
  * Process a server message through the unified handler.
  * Handles all message types except `auth_result` (transport-specific).
@@ -196,6 +230,12 @@ export function handleServerMessage(
   const msg = unwrapMessage(rawMessage);
   const { serverId, backendId, serverRunsRef, logTag } = ctx;
   const activeServerId = useServerStore.getState().activeServerId;
+
+  // Update lastActivityAt for run activity messages (throttled to avoid excessive re-renders)
+  const runMsg = msg as { runId?: string; type: string };
+  if (runMsg.runId && (msg.type === 'delta' || msg.type === 'tool_use' || msg.type === 'tool_result' || msg.type === 'tool_activity')) {
+    updateRunActivity(runMsg.runId);
+  }
 
   switch (msg.type) {
     case 'pong':
@@ -230,6 +270,15 @@ export function handleServerMessage(
       if (targetSessionId) {
         const alreadyTrackingRun = chat.activeRuns[msg.runId] === targetSessionId;
         chat.startRun(msg.runId, targetSessionId, isBackground);
+        // Initialize runHealth immediately so timer shows from the start
+        // (don't wait for the first state_heartbeat which is 30s away)
+        const now = Date.now();
+        chat.updateRunHealth(msg.runId, {
+          sessionId: targetSessionId,
+          startedAt: now,
+          lastActivityAt: now,
+          health: 'healthy',
+        });
         if (serverId === activeServerId) {
           chat.clearSystemInfo(targetSessionId);
         }
@@ -291,6 +340,7 @@ export function handleServerMessage(
         void recoverCurrentSessionTail(serverId, completedSession);
       }
       recordTerminalRun(msg.runId, msg.seq);
+      lastActivityUpdate.delete(msg.runId);
       useChatStore.getState().endRun(msg.runId);
       serverRunsRef.get(serverId)?.delete(msg.runId);
       maxSeqByRun.delete(msg.runId);
@@ -320,6 +370,7 @@ export function handleServerMessage(
         void recoverCurrentSessionTail(serverId, failedSession);
       }
       recordTerminalRun(msg.runId, msg.seq);
+      lastActivityUpdate.delete(msg.runId);
       useChatStore.getState().endRun(msg.runId);
       serverRunsRef.get(serverId)?.delete(msg.runId);
       maxSeqByRun.delete(msg.runId);
@@ -404,10 +455,19 @@ export function handleServerMessage(
       usePermissionStore.getState().clearRequestById(msg.requestId);
       break;
 
-    case 'permission_auto_resolved':
+    case 'permission_auto_resolved': {
       updateClaudiaTaskStatusBySessionId((msg as import('@my-claudia/shared').PermissionAutoResolvedMessage).sessionId, 'running');
+      const autoResolveToast = buildAIReviewAutoResolveToastMessage(msg as import('@my-claudia/shared').PermissionAutoResolvedMessage);
+      if (autoResolveToast) {
+        useToastStore.getState().add({
+          title: 'Permission auto-approved',
+          message: autoResolveToast,
+          type: 'success',
+        });
+      }
       usePermissionStore.getState().clearRequestById(msg.requestId);
       break;
+    }
 
     case 'ai_review_completed': {
       const aiMsg = msg as import('@my-claudia/shared').AIReviewCompletedMessage;
@@ -415,7 +475,16 @@ export function handleServerMessage(
         decision: aiMsg.decision,
         reasoning: aiMsg.reasoning,
         confidence: aiMsg.confidence,
+        metadata: aiMsg.metadata,
       });
+      const toastMessage = buildAIReviewToastMessage(aiMsg);
+      if (toastMessage) {
+        useToastStore.getState().add({
+          title: 'AI review completed',
+          message: toastMessage,
+          type: aiMsg.decision === 'deny' ? 'error' : 'info',
+        });
+      }
       break;
     }
 

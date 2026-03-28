@@ -339,7 +339,7 @@ export class CodexAppServerClient {
   async ensureRunning(): Promise<void> {
     if (this.process && !this.process.killed) return;
 
-    const args = ['app-server', '--listen', 'stdio://', '--session-source', 'custom', ...this.extraArgs];
+    const args = ['app-server', '--listen', 'stdio://', ...this.extraArgs];
     debugLog(`[Codex AppServer] Spawning: ${this.cliPath} ${args.join(' ')}`);
 
     this.process = spawn(this.cliPath, args, {

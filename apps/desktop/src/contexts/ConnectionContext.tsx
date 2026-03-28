@@ -33,6 +33,7 @@ interface ConnectionContextValue {
   embeddedServerStatus: EmbeddedServerStatus;
   embeddedServerError: string | null;
   embeddedServerPort: number | null;
+  restartEmbeddedServer: () => Promise<void>;
 
   // WSL server (Windows only) — lives here so it survives WindowsSetup unmount
   wslServer: WslServerState & { start: () => void };
@@ -190,6 +191,7 @@ export function ConnectionProvider({
     embeddedServerStatus: embeddedServer.status,
     embeddedServerError: embeddedServer.error,
     embeddedServerPort: embeddedServer.port,
+    restartEmbeddedServer: embeddedServer.restart,
 
     // WSL server
     wslServer,

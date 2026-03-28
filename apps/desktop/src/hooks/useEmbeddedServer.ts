@@ -3,6 +3,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { Command, type Child } from '@tauri-apps/plugin-shell';
 import { appDataDir, resolveResource } from '@tauri-apps/api/path';
 import { invoke } from '@tauri-apps/api/core';
+import { useLocalReviewerStore } from '../stores/localReviewerStore';
 
 export type EmbeddedServerStatus = 'idle' | 'starting' | 'ready' | 'error' | 'disabled' | 'wsl-mode';
 
@@ -10,6 +11,7 @@ interface EmbeddedServerState {
   port: number | null;
   status: EmbeddedServerStatus;
   error: string | null;
+  restart: () => Promise<void>;
 }
 
 interface OpenCodeEndpointProbeResult {
@@ -47,6 +49,16 @@ async function resolveServerPath(): Promise<string> {
   return await resolveResource('server/server.mjs');
 }
 
+function getLocalReviewerServerEnv(): Record<string, string> {
+  const config = useLocalReviewerStore.getState();
+  return {
+    MY_CLAUDIA_LOCAL_REVIEWER_ENABLED: config.enabled ? '1' : '0',
+    MY_CLAUDIA_LOCAL_REVIEWER_PROVIDER: config.provider,
+    MY_CLAUDIA_LOCAL_REVIEWER_ENDPOINT: config.endpoint,
+    MY_CLAUDIA_LOCAL_REVIEWER_MODEL: config.model,
+  };
+}
+
 /**
  * Hook that spawns an embedded Node.js server process on a random available port.
  * Only active on desktop Tauri builds — on mobile/browser, returns { status: 'disabled' }.
@@ -74,6 +86,7 @@ export function useEmbeddedServer(options?: { disabled?: boolean }): EmbeddedSer
 
   const childRef = useRef<Child | null>(null);
   const mountedRef = useRef(true);
+  const [restartNonce, setRestartNonce] = useState(0);
 
   const registerManualEndpointProbe = useCallback(() => {
     const probeWindow = window as ProbeWindow;
@@ -156,6 +169,7 @@ export function useEmbeddedServer(options?: { disabled?: boolean }): EmbeddedSer
           SERVER_HOST: '127.0.0.1',
           MY_CLAUDIA_DATA_DIR: dataDir,
           MY_CLAUDIA_CHANNEL: 'dev',
+          ...getLocalReviewerServerEnv(),
           ...shellNetworkEnv,
         },
       });
@@ -245,6 +259,7 @@ export function useEmbeddedServer(options?: { disabled?: boolean }): EmbeddedSer
       const result = await invoke<{ port: number }>('start_server', {
         serverPath,
         dataDir,
+        localReviewerEnv: getLocalReviewerServerEnv(),
       });
 
       if (mountedRef.current) {
@@ -262,6 +277,29 @@ export function useEmbeddedServer(options?: { disabled?: boolean }): EmbeddedSer
       }
     }
   }, [registerManualEndpointProbe, runOpencodeEndpointProbe]);
+
+  const restart = useCallback(async () => {
+    if (disabled || !isDesktopTauriNonWindows()) return;
+
+    setState((prev) => ({
+      ...prev,
+      status: 'starting',
+      error: null,
+      port: null,
+    }));
+
+    if (import.meta.env.DEV) {
+      const child = childRef.current;
+      childRef.current = null;
+      if (child) {
+        await child.kill().catch(() => {});
+      }
+    } else {
+      await invoke('stop_server').catch(() => {});
+    }
+
+    setRestartNonce((value) => value + 1);
+  }, [disabled]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -288,7 +326,10 @@ export function useEmbeddedServer(options?: { disabled?: boolean }): EmbeddedSer
         invoke('stop_server').catch(() => {});
       }
     };
-  }, [startServerDev, startServerProd]);
+  }, [restartNonce, startServerDev, startServerProd]);
 
-  return state;
+  return {
+    ...state,
+    restart,
+  };
 }

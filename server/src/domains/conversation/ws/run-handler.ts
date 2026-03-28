@@ -72,14 +72,68 @@ import { generateToolSignature, detectLoop } from '../../../loop-detection.js';
 import { getGatewayClient } from '../../../domains/gateway/gateway-instance.js';
 import { initDatabase } from '../../../storage/db.js';
 import { NotificationService } from '../../notification-feed/notification-service.js';
+import type { NotificationFeedService } from '../../notification-feed/service.js';
 import { ProcessMonitor } from '../../../utils/process-monitor.js';
 
 export interface RunHandlerContext {
   activeRuns: Map<string, ActiveRun>;
   processMonitor: ProcessMonitor | null;
   notificationService: NotificationService;
+  notificationFeedService?: NotificationFeedService;
   serverPort: number | null;
   broadcastHeartbeat: () => void;
+}
+
+function buildAIReviewFeedSummary(aiResult: import('@my-claudia/shared').AIReviewResult): string {
+  const base = aiResult.reasoning;
+  if (!aiResult.metadata?.localReviewerUsed) return base;
+  const outcome = aiResult.metadata.localReviewerOutcome || 'used';
+  const reviewedFileCount = aiResult.metadata.reviewedFileCount ?? 0;
+  return `${base} Local reviewer: ${outcome}; files reviewed: ${reviewedFileCount}.`;
+}
+
+function postAIReviewFeedItem(
+  feedService: NotificationFeedService | undefined,
+  input: {
+    sessionId: string;
+    projectId: string;
+    requestId: string;
+    toolName: string;
+    detail: string;
+    result: import('@my-claudia/shared').AIReviewResult;
+  },
+): void {
+  if (!feedService) return;
+
+  const feedDecision = input.result.decision === 'approve' ? 'approve' : 'deny';
+  const status = input.result.decision === 'deny' ? 'failed' : 'completed';
+  const title = input.result.decision === 'approve'
+    ? `AI review approved ${input.toolName}`
+    : input.result.decision === 'deny'
+      ? `AI review denied ${input.toolName}`
+      : `AI review needs user decision for ${input.toolName}`;
+
+  feedService.postItem({
+    sessionId: input.sessionId,
+    projectId: input.projectId,
+    source: 'delegation',
+    title,
+    summary: buildAIReviewFeedSummary(input.result),
+    status,
+    error: status === 'failed' ? input.result.reasoning : undefined,
+    delegationContext: {
+      originalRequestId: input.requestId,
+      toolName: input.toolName,
+      detail: input.detail,
+      decision: feedDecision,
+      reasoning: input.result.reasoning,
+      confidence: input.result.confidence,
+      localReviewerUsed: input.result.metadata?.localReviewerUsed,
+      localReviewerOutcome: input.result.metadata?.localReviewerOutcome,
+      reviewedFileCount: input.result.metadata?.reviewedFileCount,
+    },
+    completedAt: Date.now(),
+  });
 }
 
 export async function handleRunStart(
@@ -106,6 +160,7 @@ export async function handleRunStart(
   const activeRuns = ctx!.activeRuns;
   const processMonitor = ctx!.processMonitor;
   const notificationService = ctx!.notificationService;
+  const notificationFeedService = ctx!.notificationFeedService;
   const serverPort = ctx!.serverPort;
   const broadcastHeartbeat = ctx!.broadcastHeartbeat;
   const connectedClients = clients ?? new Map<string, ConnectedClient>();
@@ -697,6 +752,14 @@ export async function handleRunStart(
                   if (!activeRun.pendingPermissions.has(request.requestId)) return;
 
                   if (aiResult.decision === 'approve') {
+                    postAIReviewFeedItem(notificationFeedService, {
+                      sessionId: message.sessionId,
+                      projectId: session.project_id,
+                      requestId: request.requestId,
+                      toolName: request.toolName,
+                      detail: request.detail,
+                      result: aiResult,
+                    });
                     // AI approved — resolve and notify
                     activeRun.pendingPermissions.delete(request.requestId);
                     const resolvedEvent = {
@@ -705,6 +768,7 @@ export async function handleRunStart(
                       sessionId: message.sessionId,
                       behavior: 'approve' as const,
                       reason: `AI review: ${aiResult.reasoning} (${Math.round(aiResult.confidence * 100)}%)`,
+                      metadata: aiResult.metadata,
                     } as import('@my-claudia/shared').PermissionAutoResolvedMessage;
                     sendMessage(client.ws, resolvedEvent);
                     if (connectedClients.size > 0) {
@@ -713,6 +777,14 @@ export async function handleRunStart(
                     console.log(`[AI Review] Approved ${request.requestId} (${request.toolName}): ${aiResult.reasoning}`);
                     resolve({ behavior: 'allow', updatedInput: request.toolInput });
                   } else {
+                    postAIReviewFeedItem(notificationFeedService, {
+                      sessionId: message.sessionId,
+                      projectId: session.project_id,
+                      requestId: request.requestId,
+                      toolName: request.toolName,
+                      detail: request.detail,
+                      result: aiResult,
+                    });
                     // AI denied, uncertain, or cancelled — notify but keep waiting for user
                     const reviewEvent = {
                       type: 'ai_review_completed',
@@ -721,6 +793,7 @@ export async function handleRunStart(
                       decision: aiResult.decision,
                       reasoning: aiResult.reasoning,
                       confidence: aiResult.confidence,
+                      metadata: aiResult.metadata,
                     } as import('@my-claudia/shared').AIReviewCompletedMessage;
                     sendMessage(client.ws, reviewEvent);
                     if (connectedClients.size > 0) {

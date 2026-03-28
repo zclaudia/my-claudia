@@ -210,6 +210,11 @@ export function InlinePermissionRequest({ request, onDecision }: InlinePermissio
                 : aiReviewResult.decision === 'uncertain'
                   ? `AI: uncertain (${Math.round(aiReviewResult.confidence * 100)}%)`
                   : `AI: safe (${Math.round(aiReviewResult.confidence * 100)}%)`}
+              {aiReviewResult.metadata?.localReviewerUsed && (
+                <span className="text-[10px] text-muted-foreground">
+                  · local reviewer {aiReviewResult.metadata.localReviewerOutcome || 'used'}
+                </span>
+              )}
             </span>
           ) : hasTimeout && remainingTime > 0 ? (
             <span className="text-xs text-muted-foreground flex items-center gap-1">

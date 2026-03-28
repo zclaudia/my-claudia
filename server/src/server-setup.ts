@@ -30,6 +30,7 @@ import { createAgentRoutes } from './routes/agent.js';
 import { createNotificationFeedRoutes } from './domains/notification-feed/routes.js';
 import { createClaudiaRoutes } from './routes/claudia.js';
 import { handleMcpRequest, handleMcpSse, handleMcpSessionClose, getMcpServerInfo } from './mcp/mcp-server.js';
+import { getConfiguredLocalSensitivityReviewerInfo } from './domains/conversation/agent/local-sensitivity-reviewer.js';
 import { createAgentTriggerRoutes } from './routes/agent-triggers.js';
 import { NotificationFeedService } from './domains/notification-feed/service.js';
 import { AgentTriggerService } from './domains/agent-triggers/service.js';
@@ -114,10 +115,11 @@ export function setupRoutesAndServices(deps: SetupDependencies): SetupResult {
   });
 
   // Get server info (public - no auth required)
-  app.get('/api/server/info', (req: Request, res: Response) => {
+  app.get('/api/server/info', async (req: Request, res: Response) => {
     const isLocal = isLocalhost(req);
     const publicKey = getPublicKeyPem();
     const sdkVersions = getSdkVersionReport();
+    const localReviewer = await getConfiguredLocalSensitivityReviewerInfo();
     res.json({
       success: true,
       data: {
@@ -126,6 +128,7 @@ export function setupRoutesAndServices(deps: SetupDependencies): SetupResult {
         features: ALL_SERVER_FEATURES,
         ...(publicKey && { publicKey }),
         ...(sdkVersions && { sdkVersions }),
+        localReviewer,
       }
     });
   });

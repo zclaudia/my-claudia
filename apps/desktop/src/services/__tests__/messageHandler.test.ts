@@ -36,10 +36,14 @@ const mockServerStore = {
 };
 
 const mockPermissionStore = {
+  aiReviewResults: {} as Record<string, any>,
   setPendingRequest: vi.fn(),
   clearRequestById: vi.fn(),
   clearStaleRequests: vi.fn(),
   hasRequest: vi.fn(() => false),
+  setAIReviewResult: vi.fn((requestId: string, result: any) => {
+    mockPermissionStore.aiReviewResults[requestId] = result;
+  }),
 };
 
 const mockPromptRequestStore = {
@@ -190,6 +194,7 @@ describe('handleServerMessage', () => {
     mockProjectStore.selectedSessionId = 'current-session';
     mockProjectStore.sessions = [];
     mockServerStore.activeServerId = 'server-1';
+    mockPermissionStore.aiReviewResults = {};
     useNotificationFeedStore.setState({ items: [], unreadCount: 0, hasMore: false, loading: false, hydrated: false });
     useToastStore.setState({ toasts: [] });
   });
@@ -419,6 +424,55 @@ describe('handleServerMessage', () => {
   it('handles permission_auto_resolved', () => {
     handleServerMessage({ type: 'permission_auto_resolved', requestId: 'pr1' }, makeCtx());
     expect(mockPermissionStore.clearRequestById).toHaveBeenCalledWith('pr1');
+  });
+
+  it('shows toast when permission_auto_resolved includes local reviewer metadata', () => {
+    handleServerMessage({
+      type: 'permission_auto_resolved',
+      requestId: 'pr1',
+      sessionId: 's1',
+      behavior: 'approve',
+      metadata: {
+        localReviewerUsed: true,
+        localReviewerOutcome: 'safe',
+        reviewedFileCount: 2,
+      },
+    }, makeCtx());
+
+    expect(useToastStore.getState().toasts[0]).toMatchObject({
+      title: 'Permission auto-approved',
+      type: 'success',
+    });
+    expect(useToastStore.getState().toasts[0]?.message).toContain('local reviewer');
+  });
+
+  it('stores ai_review_completed metadata and shows toast', () => {
+    handleServerMessage({
+      type: 'ai_review_completed',
+      requestId: 'pr2',
+      sessionId: 's1',
+      decision: 'uncertain',
+      reasoning: 'Need user input',
+      confidence: 0.42,
+      metadata: {
+        localReviewerUsed: true,
+        localReviewerOutcome: 'suspicious',
+        reviewedFileCount: 1,
+      },
+    }, makeCtx());
+
+    expect(mockPermissionStore.aiReviewResults.pr2).toMatchObject({
+      decision: 'uncertain',
+      metadata: {
+        localReviewerUsed: true,
+        localReviewerOutcome: 'suspicious',
+        reviewedFileCount: 1,
+      },
+    });
+    expect(useToastStore.getState().toasts[0]).toMatchObject({
+      title: 'AI review completed',
+      type: 'info',
+    });
   });
 
   it('handles prompt_request_resolved', () => {

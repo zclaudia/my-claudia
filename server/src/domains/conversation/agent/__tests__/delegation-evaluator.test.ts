@@ -1,9 +1,16 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { evaluateAIReview } from '../delegation-evaluator';
+import { resetConfiguredLocalSensitivityReviewerForTests } from '../local-sensitivity-reviewer';
 import * as fs from 'fs';
 
 afterEach(() => {
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+  delete process.env.MY_CLAUDIA_LOCAL_REVIEWER_ENABLED;
+  delete process.env.MY_CLAUDIA_LOCAL_REVIEWER_PROVIDER;
+  delete process.env.MY_CLAUDIA_LOCAL_REVIEWER_ENDPOINT;
+  delete process.env.MY_CLAUDIA_LOCAL_REVIEWER_MODEL;
+  resetConfiguredLocalSensitivityReviewerForTests();
 });
 
 describe('evaluateAIReview', () => {
@@ -138,4 +145,56 @@ describe('evaluateAIReview', () => {
     expect(result.decision).toBe('approve');
     expect(prompts).toHaveLength(2);
   });
-}
+
+  it('uses the configured local reviewer to block sensitive file content', async () => {
+    process.env.MY_CLAUDIA_LOCAL_REVIEWER_ENABLED = '1';
+    process.env.MY_CLAUDIA_LOCAL_REVIEWER_PROVIDER = 'ollama';
+    process.env.MY_CLAUDIA_LOCAL_REVIEWER_ENDPOINT = 'http://127.0.0.1:11434';
+    process.env.MY_CLAUDIA_LOCAL_REVIEWER_MODEL = 'qwen3:4b-instruct';
+
+    vi.spyOn(fs, 'existsSync').mockReturnValue(true);
+    vi.spyOn(fs, 'readFileSync').mockReturnValue('export API_TOKEN=abc123\n');
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        message: {
+          content: '{"label":"sensitive","confidence":0.98,"reason":"Contains a credential-like token"}',
+        },
+      }),
+    }));
+
+    let promptCount = 0;
+    const result = await evaluateAIReview(
+      {
+        enabled: true,
+        timeoutBeforeReview: 60,
+        confidenceThreshold: 0.7,
+        maxAutoApprovalsPerMinute: 10,
+      },
+      {
+        toolName: 'Bash',
+        toolInput: { command: 'bash scripts/deploy.sh' },
+        detail: 'bash scripts/deploy.sh',
+        cwd: '/workspace',
+        analysisProvider: {
+          runPrompt: async (_prompt: string, sessionId?: string) => {
+            promptCount += 1;
+            if (promptCount === 1) {
+              return {
+                response: '{"type":"read_file","path":"scripts/deploy.sh","reason":"Need to inspect the script"}',
+                sessionId: sessionId ?? 'review-session-4',
+              };
+            }
+            return {
+              response: '{"type":"final","decision":"uncertain","reasoning":"The requested file could not be reviewed safely.","confidence":0.1}',
+              sessionId: sessionId ?? 'review-session-4',
+            };
+          },
+        },
+      },
+    );
+
+    expect(result.decision).toBe('uncertain');
+    expect(promptCount).toBe(2);
+  });
+});

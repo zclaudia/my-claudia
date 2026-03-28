@@ -167,6 +167,7 @@ function getRunHandlerContext(): RunHandlerContext {
     activeRuns,
     processMonitor,
     notificationService,
+    notificationFeedService,
     serverPort,
     broadcastHeartbeat,
   };

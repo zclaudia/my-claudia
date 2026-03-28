@@ -4,6 +4,7 @@
  */
 
 import type { AskUserQuestionItem } from '../../interaction/forms.js';
+import type { AIReviewMetadata } from '../../interaction/permissions.js';
 
 // Client → Server
 
@@ -86,6 +87,7 @@ export interface PermissionAutoResolvedMessage {
   behavior: 'approve' | 'deny';
   /** Optional reason for the auto-resolution (e.g., AI review reasoning). */
   reason?: string;
+  metadata?: AIReviewMetadata;
 }
 
 // Server → Client: AI review completed for an escalated permission request
@@ -96,6 +98,7 @@ export interface AIReviewCompletedMessage {
   decision: 'approve' | 'deny' | 'uncertain';
   reasoning: string;
   confidence: number;
+  metadata?: AIReviewMetadata;
 }
 
 // Server → Client: a prompt_request has been resolved by another device

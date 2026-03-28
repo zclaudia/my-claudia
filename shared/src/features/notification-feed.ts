@@ -10,6 +10,9 @@ export interface DelegationContext {
   decision: 'approve' | 'deny';
   reasoning: string;
   confidence: number;
+  localReviewerUsed?: boolean;
+  localReviewerOutcome?: 'safe' | 'suspicious' | 'sensitive';
+  reviewedFileCount?: number;
 }
 
 export interface NotificationItem {

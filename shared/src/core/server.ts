@@ -51,6 +51,16 @@ export interface SdkVersionReport {
   sdks: SdkVersionInfo[];
 }
 
+export interface ServerLocalReviewerInfo {
+  enabled: boolean;
+  provider?: string;
+  endpoint?: string;
+  model?: string;
+  serverReachable: boolean;
+  modelAvailable: boolean;
+  lastError?: string;
+}
+
 export interface ServerInfo {
   version: string;
   isLocalConnection: boolean;  // Whether the client is connecting from localhost (determined by server)
@@ -59,6 +69,8 @@ export interface ServerInfo {
   publicKey?: string;
   /** SDK version check results (populated asynchronously after server startup) */
   sdkVersions?: SdkVersionReport;
+  /** Local reviewer config/status as seen by the server process */
+  localReviewer?: ServerLocalReviewerInfo;
 }
 
 // Gateway Backend Info (used by both server and gateway modules)

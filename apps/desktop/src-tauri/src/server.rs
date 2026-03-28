@@ -258,6 +258,7 @@ pub async fn start_server(
     _app: tauri::AppHandle,
     server_path: String,
     data_dir: String,
+    local_reviewer_env: Option<std::collections::BTreeMap<String, String>>,
 ) -> Result<ServerResult, String> {
     // Kill any orphaned server from a previous crash via pid file
     cleanup_stale_pid_file(&data_dir);
@@ -350,6 +351,11 @@ pub async fn start_server(
 
     for (key, value) in &shell_network_env {
         child.env(key, value);
+    }
+    if let Some(extra_env) = local_reviewer_env {
+        for (key, value) in extra_env {
+            child.env(key, value);
+        }
     }
 
     let mut child = child

@@ -88,10 +88,17 @@ export interface CategoryPermissionPolicy {
 // ============================================
 
 /** Result of an AI review for an escalated permission request */
+export interface AIReviewMetadata {
+  localReviewerUsed?: boolean;
+  localReviewerOutcome?: 'safe' | 'suspicious' | 'sensitive';
+  reviewedFileCount?: number;
+}
+
 export interface AIReviewResult {
   decision: 'approve' | 'deny' | 'uncertain';
   reasoning: string;
   confidence: number;
+  metadata?: AIReviewMetadata;
 }
 
 /** AI review configuration for blacklisted/escalated commands */
