@@ -1,5 +1,6 @@
 import { WebSocket } from 'ws';
 import type { ToolCall, ContentBlock, AgentPermissionPolicy, ServerMessage, PCPEffectiveProfile, AskUserQuestionItem } from '@my-claudia/shared';
+import type { AIReviewQueue } from '../agent/ai-review-queue.js';
 import type { PermissionDecision, SystemInfo } from '../../../providers/claude-sdk.js';
 import type { initDatabase } from '../../../storage/db.js';
 import type { ProcessMonitor } from '../../../utils/process-monitor.js';
@@ -67,6 +68,8 @@ export interface ActiveRun {
   eventSeq: number; // Monotonically increasing event sequence number (starts at 0, first event gets seq=1)
   /** PCP effective profile negotiated at run start */
   effectiveProfile?: PCPEffectiveProfile;
+  /** Serialized AI review queue — shared across all permission requests in this run */
+  aiReviewQueue?: AIReviewQueue;
 }
 
 // Message sender interface for abstraction

@@ -5,8 +5,6 @@ const CHECK_INTERVAL_MS = 4 * 60 * 60 * 1000; // 4 hours
 const INITIAL_DELAY_MS = 5000; // 5 seconds after startup
 const ANDROID_LATEST_URL =
   'https://github.com/zclaudia/my-claudia/releases/latest/download/android-latest.json';
-const DESKTOP_LATEST_URL =
-  'https://github.com/zclaudia/my-claudia/releases/latest/download/latest.json';
 
 import { isTauri, isAndroid, isDesktopTauri } from '../utils/platform';
 
@@ -38,18 +36,12 @@ function isNewerVersion(remote: string, local: string): boolean {
   return coreCompare > 0;
 }
 
-export async function hasDesktopUpdateCandidate(currentVersion: string): Promise<boolean> {
+export function hasDesktopUpdateCandidate(currentVersion: string): boolean {
   // Dev builds are local installs — never overwrite with a release version.
   // Only release builds should auto-update from GitHub.
-  if (isDevBuild(currentVersion)) return false;
-
-  const res = await fetch(DESKTOP_LATEST_URL);
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-
-  const latest: { version?: string } = await res.json();
-  if (!latest.version) return true;
-
-  return compareVersionCore(latest.version, currentVersion) > 0;
+  // (Actual version comparison is handled by the Tauri updater plugin
+  //  via native HTTP, bypassing WebView CORS restrictions.)
+  return !isDevBuild(currentVersion);
 }
 
 /**
@@ -193,7 +185,7 @@ export async function checkForUpdates(manual = false): Promise<void> {
     const currentVersion = await getVersion();
     useUpdateStore.setState({ currentVersion });
 
-    if (!(await hasDesktopUpdateCandidate(currentVersion))) {
+    if (!hasDesktopUpdateCandidate(currentVersion)) {
       if (manual) {
         store.setStatus('up-to-date');
         setTimeout(() => {

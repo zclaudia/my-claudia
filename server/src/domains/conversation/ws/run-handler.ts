@@ -54,6 +54,7 @@ import {
   resolveRememberedDecision,
 } from '../agent/permission-evaluator.js';
 import { evaluateAIReview } from '../agent/delegation-evaluator.js';
+import { AIReviewQueue } from '../agent/ai-review-queue.js';
 import type { PermissionDecision, SystemInfo } from '../../../providers/claude-sdk.js';
 import { providerRegistry } from '../../../providers/registry.js';
 import { negotiateProfile } from '../../../providers/pcp-negotiator.js';
@@ -347,6 +348,7 @@ export async function handleRunStart(
       });
       activeRun.completed = true;
       broadcastHeartbeat();
+      activeRun.aiReviewQueue?.cancelAll();
       activeRuns.delete(runId);
       return;
     }
@@ -396,10 +398,12 @@ export async function handleRunStart(
       if (!analysisAdapter) return undefined;
 
       return {
-        runPrompt: async (prompt: string): Promise<string> => {
+        runPrompt: async (prompt: string, sessionId?: string): Promise<{ response: string; sessionId?: string }> => {
           const collectedMessages: string[] = [];
+          let capturedSessionId: string | undefined = sessionId;
           for await (const responseMessage of analysisAdapter.run(prompt, {
             cwd,
+            sessionId,
             cliPath: providerRow?.cliPath || providerConfig?.cliPath,
             env: {
               ...(providerConfig?.env || {}),
@@ -411,7 +415,12 @@ export async function handleRunStart(
               type: string;
               content?: string;
               result?: string;
+              sessionId?: string;
             };
+            // Capture sessionId from init message for session reuse
+            if (msg.type === 'init' && msg.sessionId) {
+              capturedSessionId = msg.sessionId;
+            }
             if (msg.type === 'assistant' && msg.content) {
               collectedMessages.push(msg.content);
             } else if (msg.type === 'result' && msg.result) {
@@ -419,10 +428,19 @@ export async function handleRunStart(
             }
           }
 
-          return collectedMessages.join('\n').trim();
+          return {
+            response: collectedMessages.join('\n').trim(),
+            sessionId: capturedSessionId,
+          };
         },
       };
     };
+
+    // Initialize AI review queue with provider factory + cwd
+    activeRun.aiReviewQueue = new AIReviewQueue({
+      createProvider: (analysisProviderId) => createDelegationAnalysisProvider(analysisProviderId),
+      cwd,
+    });
 
     // Permission request callback (shared by claude and opencode)
     // Unified: ALL sessions (including agent sessions) go through the strategy chain.
@@ -661,15 +679,22 @@ export async function handleRunStart(
               if (!activeRun.pendingPermissions.has(request.requestId)) return;
 
               if (effectiveTimeoutBehavior === 'ai_review' && aiReviewConfig) {
-                // Trigger AI review instead of auto-deny
-                console.log(`[AI Review] Triggering AI review for ${request.requestId} (${request.toolName})`);
+                // Enqueue AI review (serialized via AIReviewQueue)
+                console.log(`[AI Review] Enqueuing review for ${request.requestId} (${request.toolName}), queue depth: ${activeRun.aiReviewQueue?.pendingCount ?? 0}`);
                 try {
-                  const aiResult = await evaluateAIReview(aiReviewConfig, {
-                    toolName: request.toolName,
-                    toolInput: request.toolInput,
-                    detail: request.detail,
-                    analysisProvider: createDelegationAnalysisProvider(aiReviewConfig.analysisProviderId),
-                  });
+                  const aiResult = await activeRun.aiReviewQueue!.enqueue(
+                    request.requestId,
+                    aiReviewConfig,
+                    {
+                      toolName: request.toolName,
+                      toolInput: request.toolInput,
+                      detail: request.detail,
+                      cwd,
+                    },
+                  );
+
+                  // Guard: user may have resolved while review was queued/in-flight
+                  if (!activeRun.pendingPermissions.has(request.requestId)) return;
 
                   if (aiResult.decision === 'approve') {
                     // AI approved — resolve and notify
@@ -688,7 +713,7 @@ export async function handleRunStart(
                     console.log(`[AI Review] Approved ${request.requestId} (${request.toolName}): ${aiResult.reasoning}`);
                     resolve({ behavior: 'allow', updatedInput: request.toolInput });
                   } else {
-                    // AI denied or uncertain — notify but keep waiting for user
+                    // AI denied, uncertain, or cancelled — notify but keep waiting for user
                     const reviewEvent = {
                       type: 'ai_review_completed',
                       requestId: request.requestId,
@@ -1347,7 +1372,8 @@ Use enter_plan_mode / exit_plan_mode for complex tasks that affect multiple file
             });
           }
           // Mark run as ended now; for-await loop exits on next iteration by guard.
-          activeRuns.delete(runId);
+          activeRun.aiReviewQueue?.cancelAll();
+      activeRuns.delete(runId);
           break;
         }
 
@@ -1445,6 +1471,7 @@ Use enter_plan_mode / exit_plan_mode for complex tasks that affect multiple file
         clearInterval(activeRun.saveInterval);
         activeRun.saveInterval = undefined;
       }
+      activeRun.aiReviewQueue?.cancelAll();
       activeRuns.delete(runId);
       broadcastHeartbeat();
 

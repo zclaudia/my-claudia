@@ -36,6 +36,8 @@ export function handlePermissionDecision(
       if (pending.timeout) {
         clearTimeout(pending.timeout);
       }
+      // Cancel any queued/in-flight AI review for this request
+      run.aiReviewQueue?.cancel(message.requestId);
       run.pendingPermissions.delete(message.requestId);
 
       // Revert to running status after permission resolved
