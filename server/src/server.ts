@@ -140,7 +140,7 @@ let notificationService: NotificationService;
 let serverPort: number | null = null;
 let notificationFeedService: import('./domains/notification-feed/service.js').NotificationFeedService | undefined;
 let taskOrchestrator: import('./orchestration/types.js').TaskOrchestrator | undefined;
-let facadeHubRef: import('./facade/ws-hub.js').FacadeWsHub | null = null;
+let facadeHubRef: import('./domains/gateway/ws-hub.js').FacadeWsHub | null = null;
 
 // Re-exports for backward compatibility
 export type { ConnectedClient, MessageSender };
@@ -188,7 +188,7 @@ export interface ServerContext {
   setGatewayConnector: (connector: (config: GatewayConfig) => Promise<void>) => void;
   setGatewayDisconnector: (disconnector: () => Promise<void>) => void;
   setServerPort: (port: number) => void;
-  setFacadeHub: (hub: import('./facade/ws-hub.js').FacadeWsHub | null) => void;
+  setFacadeHub: (hub: import('./domains/gateway/ws-hub.js').FacadeWsHub | null) => void;
 }
 
 export async function createServer(): Promise<ServerContext> {

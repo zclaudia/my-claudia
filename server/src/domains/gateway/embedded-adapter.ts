@@ -18,7 +18,7 @@ import type {
   FacadeRuntimeGatewayAdapter,
 } from '@my-claudia/shared';
 import type { BackendPresence, ClientMessage, SessionCatalogItem, SessionMessage, ServerMessage } from '@my-claudia/shared';
-import type { GatewayClient } from '../gateway-client.js';
+import type { GatewayClient } from './gateway-client.js';
 
 // ============================================================================
 // Local Backend Handler Interface

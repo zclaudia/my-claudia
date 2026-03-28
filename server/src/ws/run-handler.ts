@@ -66,7 +66,7 @@ import { toolRegistry as pluginToolRegistry } from '../plugins/tool-registry.js'
 import { resolveProviderCwd } from '../utils/provider-cwd.js';
 import { createTraceRecorder, summarizeProviderMessage, summarizeServerMessage } from '../utils/provider-trace.js';
 import { generateToolSignature, detectLoop } from '../loop-detection.js';
-import { getGatewayClient } from '../gateway-instance.js';
+import { getGatewayClient } from '../domains/gateway/gateway-instance.js';
 import { initDatabase } from '../storage/db.js';
 import { NotificationService } from '../services/notification-service.js';
 import { ProcessMonitor } from '../utils/process-monitor.js';

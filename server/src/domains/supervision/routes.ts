@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
 import type { ApiResponse, SupervisionTask, ProjectAgent } from '@my-claudia/shared';
-import type { SupervisorService } from '../../services/supervision/supervisor-service.js';
-import type { ContextDocument } from '../../services/supervision/context-manager.js';
+import type { SupervisorService } from './supervisor-service.js';
+import type { ContextDocument } from './context-manager.js';
 
 export function createSupervisionRoutes(service: SupervisorService): Router {
   const router = Router();

@@ -21,6 +21,12 @@ import type { Permission } from '@my-claudia/shared';
 // Types
 // ============================================
 
+interface PendingCall {
+  resolve: (value: any) => void;
+  timeout: NodeJS.Timeout;
+  cleanup: () => void; // remove message listener
+}
+
 interface WorkerEntry {
   worker: Worker;
   pluginId: string;
@@ -28,6 +34,7 @@ interface WorkerEntry {
   toolHandlers: Map<string, string>; // toolId → tool_call forwarding
   commandHandlers: Map<string, string>; // command → command_call forwarding
   eventListeners: Map<string, (data: any) => void>; // event → listener (for cleanup)
+  pendingCalls: Map<string, PendingCall>; // callId → pending call (for cleanup on exit)
 }
 
 interface RPCRequest {
@@ -87,6 +94,7 @@ export class WorkerHost {
       toolHandlers: new Map(),
       commandHandlers: new Map(),
       eventListeners: new Map(),
+      pendingCalls: new Map(),
     };
 
     // Set up the activation promise with timeout
@@ -130,6 +138,13 @@ export class WorkerHost {
       if (code !== 0) {
         console.error(`[WorkerHost] Worker for ${pluginId} exited with code ${code}`);
       }
+      // Resolve all pending tool/command/scheduler calls so callers don't hang
+      for (const [callId, pending] of entry.pendingCalls) {
+        clearTimeout(pending.timeout);
+        pending.cleanup();
+        pending.resolve(JSON.stringify({ error: `Worker for ${pluginId} exited (code ${code})` }));
+      }
+      entry.pendingCalls.clear();
       pluginScheduler.clearByPlugin(pluginId);
       this.workers.delete(pluginId);
     });
@@ -175,6 +190,14 @@ export class WorkerHost {
       console.warn(`[WorkerHost] Error during deactivation of ${pluginId}:`,
         error instanceof Error ? error.message : String(error));
     }
+
+    // Resolve any remaining pending calls before termination
+    for (const [, pending] of entry.pendingCalls) {
+      clearTimeout(pending.timeout);
+      pending.cleanup();
+      pending.resolve(JSON.stringify({ error: `Plugin ${pluginId} stopped` }));
+    }
+    entry.pendingCalls.clear();
 
     // Terminate worker
     await entry.worker.terminate();
@@ -503,10 +526,15 @@ export class WorkerHost {
     return new Promise((resolve) => {
       const callId = `tc_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 
+      const settled = () => {
+        entry.worker.off('message', onMessage);
+        entry.pendingCalls.delete(callId);
+      };
+
       const onMessage = (msg: any) => {
         if (msg.type === 'tool_result' && msg.id === callId) {
           clearTimeout(timeout);
-          entry.worker.off('message', onMessage);
+          settled();
           resolve(msg.error ? JSON.stringify({ error: msg.error }) : msg.result);
         }
       };
@@ -515,9 +543,11 @@ export class WorkerHost {
       entry.worker.on('message', onMessage);
 
       const timeout = setTimeout(() => {
-        entry.worker.off('message', onMessage);
+        settled();
         resolve(JSON.stringify({ error: `Tool call ${toolId} timed out` }));
       }, 30_000);
+
+      entry.pendingCalls.set(callId, { resolve, timeout, cleanup: () => entry.worker.off('message', onMessage) });
 
       entry.worker.postMessage({
         type: 'tool_call',
@@ -535,10 +565,15 @@ export class WorkerHost {
     return new Promise((resolve) => {
       const callId = `cc_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 
+      const settled = () => {
+        entry.worker.off('message', onMessage);
+        entry.pendingCalls.delete(callId);
+      };
+
       const onMessage = (msg: any) => {
         if (msg.type === 'command_result' && msg.id === callId) {
           clearTimeout(timeout);
-          entry.worker.off('message', onMessage);
+          settled();
           resolve(msg.result);
         }
       };
@@ -546,9 +581,11 @@ export class WorkerHost {
       entry.worker.on('message', onMessage);
 
       const timeout = setTimeout(() => {
-        entry.worker.off('message', onMessage);
+        settled();
         resolve({ type: 'builtin', command, error: `Command ${command} timed out` });
       }, 30_000);
+
+      entry.pendingCalls.set(callId, { resolve, timeout, cleanup: () => entry.worker.off('message', onMessage) });
 
       entry.worker.postMessage({
         type: 'command_call',
@@ -566,10 +603,15 @@ export class WorkerHost {
     return new Promise((resolve) => {
       const callId = `st_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 
+      const settled = () => {
+        entry.worker.off('message', onMessage);
+        entry.pendingCalls.delete(callId);
+      };
+
       const onMessage = (msg: any) => {
         if (msg.type === 'scheduler_tick_result' && msg.id === callId) {
           clearTimeout(timeout);
-          entry.worker.off('message', onMessage);
+          settled();
           if (msg.error) {
             console.error(`[WorkerHost] Scheduler tick ${taskId} error:`, msg.error);
           }
@@ -580,10 +622,12 @@ export class WorkerHost {
       entry.worker.on('message', onMessage);
 
       const timeout = setTimeout(() => {
-        entry.worker.off('message', onMessage);
+        settled();
         console.error(`[WorkerHost] Scheduler tick ${taskId} timed out`);
         resolve();
       }, 60_000);
+
+      entry.pendingCalls.set(callId, { resolve, timeout, cleanup: () => entry.worker.off('message', onMessage) });
 
       entry.worker.postMessage({
         type: 'scheduler_tick',

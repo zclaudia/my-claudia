@@ -2,7 +2,7 @@ import { Router, Request, Response } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import type Database from 'better-sqlite3';
 import type { Session, Message, ApiResponse } from '@my-claudia/shared';
-import { getGatewayClient } from '../gateway-instance.js';
+import { getGatewayClient } from '../domains/gateway/gateway-instance.js';
 import { hasForegroundActiveRunForSession, findForegroundActiveRunIdForSession, hasAnyActiveRunForSession } from '../utils/run-state.js';
 import { pluginEvents } from '../events/index.js';
 import { mountSearchRoutes } from './session-search.js';

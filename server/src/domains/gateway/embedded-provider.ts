@@ -17,7 +17,7 @@ import type {
   BackendFacadeSnapshot,
 } from '@my-claudia/shared';
 import type { ClientMessage } from '@my-claudia/shared';
-import type { GatewayClient } from '../gateway-client.js';
+import type { GatewayClient } from './gateway-client.js';
 import { EmbeddedGatewayAdapter } from './embedded-adapter.js';
 import type { LocalBackendHandler } from './embedded-adapter.js';
 import { FacadeWsHub } from './ws-hub.js';

@@ -59,7 +59,7 @@ import type {
   RunStreamEvent,
   CatchUpSessionContentMessage,
 } from '@my-claudia/shared';
-import { hasForegroundActiveRunForSession } from './utils/run-state.js';
+import { hasForegroundActiveRunForSession } from '../../utils/run-state.js';
 
 // ============================================================================
 // Config & Device ID
@@ -261,6 +261,10 @@ export class GatewayClient {
   private outgoingChannels = new Map<string, OutgoingChannel>();
   private outgoingEvents: GatewayClientOutgoingEvents = {};
 
+  // Message queue for channel messages during disconnection
+  private static readonly MAX_PENDING_MESSAGES = 200;
+  private pendingMessages: string[] = [];
+
   // ==========================================================================
   // CQE Interface
   // ==========================================================================
@@ -444,8 +448,7 @@ export class GatewayClient {
   }
 
   sendToChannel(channelId: string, message: ServerMessage): void {
-    if (!this.ws || !this.isConnected) return;
-    this.sendWs({ type: 'channel_server_message', channelId, message } satisfies ChannelServerMessage);
+    this.sendWs({ type: 'channel_server_message', channelId, message } satisfies ChannelServerMessage, true);
   }
 
   // ==========================================================================
@@ -675,6 +678,7 @@ export class GatewayClient {
     this.startHeartbeat();
     this.catalogRevision = 0;
     this.publishCatalogSnapshot();
+    this.flushPendingMessages();
     this.outgoingEvents.onConnectionStateChanged?.(true);
   }
 
@@ -988,8 +992,26 @@ export class GatewayClient {
   // Internal — Helpers
   // ==========================================================================
 
-  private sendWs(data: unknown): void {
-    if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify(data));
+  private sendWs(data: unknown, queueIfOffline = false): void {
+    const json = JSON.stringify(data);
+    if (this.ws?.readyState === WebSocket.OPEN) {
+      this.ws.send(json);
+    } else if (queueIfOffline) {
+      if (this.pendingMessages.length >= GatewayClient.MAX_PENDING_MESSAGES) {
+        this.pendingMessages.shift(); // drop oldest
+      }
+      this.pendingMessages.push(json);
+    }
+  }
+
+  private flushPendingMessages(): void {
+    if (this.pendingMessages.length === 0) return;
+    const msgs = this.pendingMessages.splice(0);
+    for (const json of msgs) {
+      if (this.ws?.readyState === WebSocket.OPEN) {
+        this.ws.send(json);
+      }
+    }
   }
 
   private cleanup(): void {

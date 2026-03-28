@@ -45,7 +45,7 @@ import { registerScheduledTaskDomain } from './domains/scheduled-tasks/register.
 import { createWorkspaceRoutes } from './routes/workspace.js';
 import type { LocalPRService } from './domains/local-pr/service.js';
 import { registerWorkflowDomain } from './domains/workflows/register.js';
-import type { SupervisorService } from './services/supervision/supervisor-service.js';
+import type { SupervisorService } from './domains/supervision/supervisor-service.js';
 import { NotificationService } from './services/notification-service.js';
 import { registerInteractionTools } from './interactions/interaction-tools.js';
 import { registerAgentTools } from './agent-tools/index.js';
@@ -59,7 +59,7 @@ import { isLocalhost, localOnlyMiddleware } from './middleware/local-only.js';
 import { createExpressAuthMiddleware } from './middleware/express-auth.js';
 import { getPublicKeyPem } from './utils/crypto.js';
 import { getSdkVersionReport } from './utils/sdk-version-check.js';
-import { getGatewayClient } from './gateway-instance.js';
+import { getGatewayClient } from './domains/gateway/gateway-instance.js';
 import { ProcessMonitor } from './utils/process-monitor.js';
 import { sendMessage, broadcastToOtherAuthenticatedClients, buildPluginStateMessage } from './ws/broadcast.js';
 import { getNextOffset } from './ws/run-lifecycle.js';

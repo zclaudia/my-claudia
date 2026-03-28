@@ -1,5 +1,5 @@
 import { execSync } from 'child_process';
-import { systemTaskRegistry } from '../system-task-registry.js';
+import { systemTaskRegistry } from '../../services/system-task-registry.js';
 import { v4 as uuidv4 } from 'uuid';
 import type { Database } from 'better-sqlite3';
 import type {

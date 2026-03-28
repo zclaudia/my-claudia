@@ -72,7 +72,7 @@ vi.mock('../../plugins/tool-registry.js', () => ({
   },
 }));
 
-vi.mock('../../gateway-instance.js', () => ({
+vi.mock('../../domains/gateway/gateway-instance.js', () => ({
   getGatewayClient: vi.fn(() => null),
 }));
 

@@ -65,21 +65,32 @@ interface AppServerItem {
 }
 
 // ── Mode → sandbox/approval config args ──────────────────────
+//
+// NOTE: `sandbox_permissions` via `-c` has no effect in app-server mode
+// (sandbox is always workspaceWrite). Instead, we control behavior through
+// `approval_policy`:
+//   - "never"      → auto-approve all operations within sandbox (bypass mode)
+//   - "on-request" → send approval requests to the client (default/supervised)
+//
+// For plan mode, we keep "on-request" and our handleServerRequest always
+// declines approvals, effectively making it read-only.
 
 function mapModeToConfigArgs(mode?: string): string[] {
   const args: string[] = [];
   switch (mode) {
     case 'plan':
-      args.push('-c', 'sandbox_permissions=["read-only"]');
+      // Keep on-request; our approval handler will decline all writes
+      args.push('-c', 'approval_policy="on-request"');
       break;
     case 'bypassPermissions':
-      args.push('-c', 'sandbox_permissions=["full-access"]');
+      // Skip all approval prompts — auto-approve everything
+      args.push('-c', 'approval_policy="never"');
       break;
     case 'acceptEdits':
     case 'default':
     default:
-      // Codex CLI defaults to a restrictive sandbox; explicitly allow workspace writes.
-      args.push('-c', 'sandbox_permissions=["workspace-write"]');
+      // Standard mode: approval requests forwarded to user
+      args.push('-c', 'approval_policy="on-request"');
       break;
   }
   return args;
@@ -305,6 +316,8 @@ export class CodexAppServerClient {
   private extraArgs: string[];
   // Active permission callback (set during runTurn)
   private permissionCallback: PermissionCallback | null = null;
+  /** Current mode — used to auto-accept file changes in acceptEdits mode */
+  currentMode: string | undefined;
 
   private processCwd: string | undefined;
 
@@ -376,6 +389,20 @@ export class CodexAppServerClient {
     this.readline?.close();
     this.process = null;
     this.initialized = false;
+  }
+
+  /**
+   * Update extraArgs (e.g., sandbox mode changed).
+   * If args differ, kill the running process so ensureRunning() respawns with new args.
+   */
+  updateExtraArgs(newArgs: string[]): void {
+    const oldStr = JSON.stringify(this.extraArgs);
+    const newStr = JSON.stringify(newArgs);
+    if (oldStr !== newStr) {
+      debugLog(`[Codex AppServer] ExtraArgs changed, restarting process: ${oldStr} → ${newStr}`);
+      this.extraArgs = newArgs;
+      this.destroy();
+    }
   }
 
   // ── JSON-RPC transport ──
@@ -453,57 +480,172 @@ export class CodexAppServerClient {
     debugLog(`[Codex AppServer] Server request: ${method}`);
     this.lastActivity = Date.now();
 
-    // Map approval requests to our permission callback
-    if (method.includes('Approval') || method.includes('approval')) {
+    // ── Approval requests ──
+    // Codex app-server protocol methods:
+    //   item/commandExecution/requestApproval → { decision: "accept"|"decline"|... }
+    //   item/fileChange/requestApproval       → { decision: "accept"|"decline"|... }
+    //   item/permissions/requestApproval      → { permissions: {...}, scope: "session"|"turn" }
+    if (method.includes('requestApproval') || method.includes('Approval') || method.includes('approval')) {
       debugLog(`[Codex AppServer] Approval request: method=${method} params=${JSON.stringify(params).slice(0, 500)}`);
+
+      // Handle permissions requests separately (different response schema)
+      if (method === 'item/permissions/requestApproval') {
+        await this.handlePermissionsApproval(id, params);
+        return;
+      }
+
+      // In acceptEdits mode: auto-accept file changes, only prompt for commands
+      if (this.currentMode === 'acceptEdits' && method === 'item/fileChange/requestApproval') {
+        debugLog(`[Codex AppServer] Auto-accepting file change in acceptEdits mode`);
+        this.sendResponse(id, { decision: 'accept' });
+        return;
+      }
+
+      // In plan mode: decline all write operations
+      if (this.currentMode === 'plan') {
+        debugLog(`[Codex AppServer] Declining in plan mode: ${method}`);
+        this.sendResponse(id, { decision: 'decline' });
+        return;
+      }
+
+      // Command execution / file change approvals — forward to user
       if (this.permissionCallback) {
         try {
           const permissionRequest = this.mapApprovalToPermissionRequest(method, params);
           const decision = await this.permissionCallback(permissionRequest);
           const approved = decision.behavior === 'allow';
           debugLog(`[Codex AppServer] Approval decision: ${approved} (behavior=${decision.behavior})`);
-          this.sendResponse(id, { approved });
+          // Codex expects { decision: "accept" | "decline" }, NOT { approved: bool }
+          this.sendResponse(id, { decision: approved ? 'accept' : 'decline' });
         } catch (error) {
           debugLog(`[Codex AppServer] ERROR: Permission callback error: ${error}`);
-          this.sendResponse(id, { approved: false });
+          this.sendResponse(id, { decision: 'decline' });
         }
       } else {
-        // No callback, auto-deny
-        debugLog(`[Codex AppServer] WARN: No permission callback, denying: ${method}`);
-        this.sendResponse(id, { approved: false });
+        debugLog(`[Codex AppServer] WARN: No permission callback, declining: ${method}`);
+        this.sendResponse(id, { decision: 'decline' });
       }
       return;
     }
 
-    // Unknown server request — respond with empty result
+    // ── Dynamic tool call (item/tool/call) ──
+    // Codex delegates a tool invocation to the client.
+    // Response: { success: bool, contentItems: [{ type: "inputText", text: "..." }] }
+    if (method === 'item/tool/call') {
+      debugLog(`[Codex AppServer] Dynamic tool call: tool=${params?.tool} callId=${params?.callId}`);
+      this.sendResponse(id, {
+        success: false,
+        contentItems: [{ type: 'inputText', text: 'Dynamic tool calls are not supported by this client.' }],
+      });
+      return;
+    }
+
+    // ── User input request (item/tool/requestUserInput) ──
+    // Codex asks the user to fill out a form/answer questions.
+    // Response: { answers: { [questionId]: { answers: string[] } } }
+    if (method === 'item/tool/requestUserInput') {
+      debugLog(`[Codex AppServer] User input request: ${JSON.stringify(params).slice(0, 300)}`);
+      // Return empty answers so Codex can continue instead of hanging
+      this.sendResponse(id, { answers: {} });
+      return;
+    }
+
+    // ── MCP server elicitation (mcpServer/elicitation/request) ──
+    // An MCP server is requesting user input (form or URL).
+    // Response: { action: "accept"|"decline"|"cancel", content?: ... }
+    if (method === 'mcpServer/elicitation/request') {
+      debugLog(`[Codex AppServer] MCP elicitation: server=${params?.serverName} mode=${params?.mode}`);
+      this.sendResponse(id, { action: 'decline' });
+      return;
+    }
+
+    // Unknown server request — log and respond with empty result to avoid hanging
+    debugLog(`[Codex AppServer] WARN: Unhandled server request: ${method}`);
     this.sendResponse(id, {});
   }
 
+  /**
+   * Handle item/permissions/requestApproval — Codex asks for additional sandbox permissions
+   * (e.g., write to a path outside workspace, enable network access).
+   * Response schema: { permissions: { fileSystem?: { write: [...] }, network?: { enabled: bool } }, scope: "session"|"turn" }
+   */
+  private async handlePermissionsApproval(id: number, params?: Record<string, unknown>): Promise<void> {
+    const requestedPermissions = params?.permissions as {
+      fileSystem?: { read?: string[] | null; write?: string[] | null };
+      network?: { enabled?: boolean | null };
+    } | undefined;
+
+    if (this.permissionCallback) {
+      try {
+        const detail = requestedPermissions
+          ? JSON.stringify(requestedPermissions)
+          : params?.reason as string || 'Additional permissions requested';
+        const permissionRequest: PermissionRequest = {
+          toolName: 'Permissions',
+          toolInput: requestedPermissions || {},
+          detail,
+          requestId: `codex-${Date.now()}`,
+          timeoutSeconds: 0,
+        };
+        const decision = await this.permissionCallback(permissionRequest);
+        const approved = decision.behavior === 'allow';
+        debugLog(`[Codex AppServer] Permissions approval: ${approved}`);
+
+        if (approved && requestedPermissions) {
+          // Grant exactly what was requested
+          this.sendResponse(id, {
+            permissions: {
+              fileSystem: requestedPermissions.fileSystem || undefined,
+              network: requestedPermissions.network || undefined,
+            },
+            scope: 'session',
+          });
+        } else {
+          // Deny: grant empty permissions
+          this.sendResponse(id, {
+            permissions: {},
+            scope: 'turn',
+          });
+        }
+      } catch (error) {
+        debugLog(`[Codex AppServer] ERROR: Permissions callback error: ${error}`);
+        this.sendResponse(id, { permissions: {}, scope: 'turn' });
+      }
+    } else {
+      debugLog(`[Codex AppServer] WARN: No permission callback, denying permissions`);
+      this.sendResponse(id, { permissions: {}, scope: 'turn' });
+    }
+  }
+
   private mapApprovalToPermissionRequest(method: string, params?: Record<string, unknown>): PermissionRequest {
-    // Map App Server approval methods to our PermissionRequest format
     const command = params?.command as string || '';
-    const filePath = (params?.path || params?.file || params?.file_path || '') as string;
     let toolName = 'Unknown';
     let toolInput: Record<string, unknown> = {};
     let detail = '';
 
-    const lowerMethod = method.toLowerCase();
-
-    if (lowerMethod.includes('commandexecution') || lowerMethod.includes('execcommand')) {
+    if (method === 'item/commandExecution/requestApproval') {
       toolName = 'Bash';
       toolInput = { command };
-      detail = command;
-    } else if (lowerMethod.includes('filechange') || lowerMethod.includes('applypatch') || lowerMethod.includes('filewrite')) {
+      detail = command || JSON.stringify(params?.commandActions || []).slice(0, 300);
+    } else if (method === 'item/fileChange/requestApproval') {
       toolName = 'Edit';
-      toolInput = { file_path: filePath, changes: params?.patch || params?.changes || '' };
-      detail = filePath || JSON.stringify(toolInput);
-    } else if (lowerMethod.includes('fileread') || lowerMethod.includes('readfile')) {
-      toolName = 'Read';
-      toolInput = { file_path: filePath };
-      detail = filePath || method;
+      const reason = params?.reason as string || '';
+      const grantRoot = params?.grantRoot as string || '';
+      toolInput = { grantRoot, reason };
+      detail = reason || grantRoot || `File change (item: ${params?.itemId || 'unknown'})`;
     } else {
-      // Fallback: try to infer from params
-      detail = command || filePath || JSON.stringify(params || {}).slice(0, 200);
+      // Legacy/fallback matching
+      const lowerMethod = method.toLowerCase();
+      if (lowerMethod.includes('commandexecution') || lowerMethod.includes('execcommand')) {
+        toolName = 'Bash';
+        toolInput = { command };
+        detail = command;
+      } else if (lowerMethod.includes('filechange') || lowerMethod.includes('applypatch')) {
+        toolName = 'Edit';
+        detail = params?.reason as string || JSON.stringify(params || {}).slice(0, 200);
+      } else {
+        detail = command || JSON.stringify(params || {}).slice(0, 200);
+      }
     }
 
     return {
@@ -679,6 +821,9 @@ export class CodexAppServerClient {
 
   // ── Notification → ClaudeMessage mapping ──
 
+  /** Track whether we are inside a reasoning block to avoid wrapping every delta */
+  private inReasoningBlock = false;
+
   private mapNotification(method: string, params: Record<string, unknown>): ClaudeMessage[] {
     switch (method) {
       case 'item/agentMessage/delta': {
@@ -689,24 +834,37 @@ export class CodexAppServerClient {
         return [];
       }
 
+      // ── Reasoning: open/close <think> once per block, not per delta ──
       case 'item/reasoning/textDelta':
       case 'item/reasoning/summaryTextDelta': {
         const delta = (params.delta || params.text || '') as string;
-        if (delta) {
-          return [{ type: 'assistant', content: `<think>${delta}</think>` }];
+        if (!delta) return [];
+        const msgs: ClaudeMessage[] = [];
+        if (!this.inReasoningBlock) {
+          msgs.push({ type: 'assistant', content: '<think>' });
+          this.inReasoningBlock = true;
         }
-        return [];
+        msgs.push({ type: 'assistant', content: delta });
+        return msgs;
       }
 
       case 'item/started': {
         const item = params.item as AppServerItem;
         if (!item) return [];
-        return this.mapItemStarted(item);
+        // Close reasoning block when a non-reasoning item starts
+        if (item.type !== 'reasoning') {
+          return [...this.closeReasoningBlock(), ...this.mapItemStarted(item)];
+        }
+        return [];
       }
 
       case 'item/completed': {
         const item = params.item as AppServerItem;
         if (!item) return [];
+        // Close reasoning block if reasoning item completes
+        if (item.type === 'reasoning') {
+          return this.closeReasoningBlock();
+        }
         return this.mapItemCompleted(item);
       }
 
@@ -718,9 +876,44 @@ export class CodexAppServerClient {
         return [];
       }
 
+      // File change incremental diff output
+      case 'item/fileChange/outputDelta': {
+        const delta = params.delta as string;
+        if (delta) {
+          return [{ type: 'tool_activity', content: delta }];
+        }
+        return [];
+      }
+
+      // MCP tool call progress
+      case 'item/mcpToolCall/progress': {
+        const progress = params.progress as string | undefined;
+        if (progress) {
+          return [{ type: 'tool_activity', content: progress }];
+        }
+        return [];
+      }
+
+      // Plan deltas (plan mode incremental output)
+      case 'item/plan/delta': {
+        const delta = (params.delta || '') as string;
+        if (delta) {
+          return [{ type: 'assistant', content: delta }];
+        }
+        return [];
+      }
+
       default:
         return [];
     }
+  }
+
+  private closeReasoningBlock(): ClaudeMessage[] {
+    if (this.inReasoningBlock) {
+      this.inReasoningBlock = false;
+      return [{ type: 'assistant', content: '</think>' }];
+    }
+    return [];
   }
 
   private mapItemStarted(item: AppServerItem): ClaudeMessage[] {
@@ -733,21 +926,45 @@ export class CodexAppServerClient {
           toolInput: { command: item.command || item.action || '' },
         }];
 
-      case 'fileChange':
+      case 'fileChange': {
+        // Extract file changes from the item when available
+        const fileChanges = item.fileChanges as Record<string, { type: string; content?: string; unified_diff?: string }> | undefined;
+        let changesSummary = '';
+        if (fileChanges) {
+          changesSummary = Object.entries(fileChanges).map(([path, change]) => {
+            if (change.unified_diff) return `${path}:\n${change.unified_diff}`;
+            if (change.type === 'add') return `${path}: (new file)`;
+            if (change.type === 'delete') return `${path}: (deleted)`;
+            return path;
+          }).join('\n');
+        }
         return [{
           type: 'tool_use',
           toolUseId: item.id,
           toolName: 'Edit',
-          toolInput: { changes: '' },
+          toolInput: { changes: changesSummary },
         }];
+      }
 
-      case 'mcpToolCall':
+      case 'mcpToolCall': {
+        let toolInput: Record<string, unknown> = {};
+        if (item.arguments) {
+          try {
+            toolInput = typeof item.arguments === 'string'
+              ? JSON.parse(item.arguments)
+              : item.arguments;
+          } catch {
+            debugLog(`[Codex AppServer] WARN: Failed to parse mcpToolCall arguments: ${String(item.arguments).slice(0, 200)}`);
+            toolInput = { _raw: String(item.arguments) };
+          }
+        }
         return [{
           type: 'tool_use',
           toolUseId: item.id,
           toolName: item.namespace ? `mcp:${item.namespace}:${item.name}` : item.name || 'Unknown',
-          toolInput: item.arguments ? JSON.parse(item.arguments) : {},
+          toolInput,
         }];
+      }
 
       case 'webSearch':
         return [{
@@ -758,6 +975,7 @@ export class CodexAppServerClient {
         }];
 
       default:
+        debugLog(`[Codex AppServer] Unhandled item/started type: ${item.type} (id=${item.id})`);
         return [];
     }
   }
@@ -769,18 +987,26 @@ export class CodexAppServerClient {
           type: 'tool_result',
           toolUseId: item.id,
           toolName: 'Bash',
-          toolResult: item.output || '',
+          toolResult: item.output || item.aggregatedOutput || '',
           isToolError: item.status === 'failed',
         }];
 
-      case 'fileChange':
+      case 'fileChange': {
+        // Include file paths and diff summary in the result
+        const fileChanges = item.fileChanges as Record<string, { type: string; unified_diff?: string }> | undefined;
+        let resultText = item.status === 'completed' ? 'Applied' : 'Failed';
+        if (fileChanges && item.status === 'completed') {
+          const paths = Object.keys(fileChanges);
+          resultText = `Applied changes to: ${paths.join(', ')}`;
+        }
         return [{
           type: 'tool_result',
           toolUseId: item.id,
           toolName: 'Edit',
-          toolResult: item.status === 'completed' ? 'Applied' : 'Failed',
+          toolResult: resultText,
           isToolError: item.status === 'failed',
         }];
+      }
 
       case 'mcpToolCall': {
         const resultText = item.output
@@ -795,15 +1021,21 @@ export class CodexAppServerClient {
         }];
       }
 
-      case 'webSearch':
+      case 'webSearch': {
+        // Capture actual search output instead of static text
+        const output = item.output
+          ? (typeof item.output === 'string' ? item.output : JSON.stringify(item.output))
+          : 'Search completed';
         return [{
           type: 'tool_result',
           toolUseId: item.id,
           toolName: 'WebSearch',
-          toolResult: 'Search completed',
+          toolResult: output,
         }];
+      }
 
       default:
+        debugLog(`[Codex AppServer] Unhandled item/completed type: ${item.type} (id=${item.id})`);
         return [];
     }
   }
@@ -852,6 +1084,10 @@ export function getOrCreateAppServerClient(options: CodexAppServerOptions): Code
   if (!client) {
     client = new CodexAppServerClient(options.cliPath, env, extraArgs, { processCwd: configDir });
     appServerClients.set(key, client);
+  } else {
+    // If sandbox/model args changed (e.g., mode switched from plan to default),
+    // kill the old process so it restarts with the correct sandbox permissions.
+    client.updateExtraArgs(extraArgs);
   }
   return client;
 }
@@ -878,6 +1114,7 @@ export async function* runCodexAppServer(
   onPermission: PermissionCallback,
 ): AsyncGenerator<ClaudeMessage, void, void> {
   const client = getOrCreateAppServerClient(options);
+  client.currentMode = options.mode;
 
   // Start or resume thread
   let threadId: string;

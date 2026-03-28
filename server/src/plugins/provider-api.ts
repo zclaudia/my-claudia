@@ -126,12 +126,13 @@ export class PluginProviderAPI implements ProviderAPI {
     // Build the prompt from messages
     const prompt = this.buildPromptFromMessages(messages, systemPrompt);
 
-    // Build run options
+    // Build run options — use 'plan' mode to prevent tool execution from plugins
     const runOptions: RunOptions = {
       cwd: process.cwd(),
       cliPath: providerRow.cli_path || undefined,
       env: providerRow.env ? JSON.parse(providerRow.env) : undefined,
       model: modelOverride,
+      mode: 'plan',
       systemPrompt,
     };
 
@@ -141,11 +142,10 @@ export class PluginProviderAPI implements ProviderAPI {
     let outputTokens = 0;
 
     try {
-      // Run the provider
+      // Run the provider — deny all tool execution requests as a safety net
+      // (plan mode should prevent tools, but deny is the fallback)
       for await (const msg of adapter.run(prompt, runOptions, async () => {
-        // Auto-allow supervision for plugin-initiated provider calls
-        // TODO: Route through proper supervision chain for production use
-        return { decision: 'allow', behavior: 'allow' } as any;
+        return { behavior: 'deny' } as any;
       })) {
         // Cast to access properties that may exist on different message types
         const m = msg as { type: string; content?: string; result?: string; usage?: { input_tokens?: number; output_tokens?: number } };
@@ -225,20 +225,21 @@ export class PluginProviderAPI implements ProviderAPI {
     // Build the prompt from messages
     const prompt = this.buildPromptFromMessages(messages, systemPrompt);
 
-    // Build run options
+    // Build run options — use 'plan' mode to prevent tool execution from plugins
     const runOptions: RunOptions = {
       cwd: process.cwd(),
       cliPath: providerRow.cli_path || undefined,
       env: providerRow.env ? JSON.parse(providerRow.env) : undefined,
       model: modelOverride,
+      mode: 'plan',
       systemPrompt,
     };
 
     try {
       let fullContent = '';
 
-      // Run the provider and stream messages
-      for await (const msg of adapter.run(prompt, runOptions, async () => ({ decision: 'allow', behavior: 'allow' } as any))) {
+      // Run the provider — deny all tool execution as safety net
+      for await (const msg of adapter.run(prompt, runOptions, async () => ({ behavior: 'deny' } as any))) {
         // Cast to access properties that may exist on different message types
         const m = msg as { type: string; content?: string; result?: string };
         if (m.type === 'assistant' && m.content) {
