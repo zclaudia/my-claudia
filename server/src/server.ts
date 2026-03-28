@@ -462,7 +462,7 @@ export async function createServer(): Promise<ServerContext> {
     updateGatewayConnected: setup.updateGatewayConnected,
     updateGatewayIdentity: setup.updateGatewayIdentity,
     updateGatewayBackendId: (backendId: string | null) => {
-      setup.gatewayStatus.backendId = backendId;
+      setup.gatewayStatus.gatewayBackendId = backendId;
       if (backendId) {
         db.prepare(`
           UPDATE gateway_config SET backend_id = ?, updated_at = ? WHERE id = 1

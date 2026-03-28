@@ -38,7 +38,7 @@ describe('Gateway API Integration Tests', () => {
     mockGetGatewayStatus = vi.fn().mockReturnValue({
       enabled: false,
       connected: false,
-      backendId: null,
+      gatewayBackendId: null,
       gatewayUrl: null,
       backendName: null
     });
@@ -75,7 +75,7 @@ describe('Gateway API Integration Tests', () => {
         gatewayUrl: null,
         gatewaySecret: null,
         backendName: null,
-        backendId: null,
+        gatewayBackendId: null,
         proxyUrl: null,
         proxyUsername: null,
         proxyPassword: null
@@ -489,7 +489,7 @@ describe('Gateway API Integration Tests', () => {
       mockGetGatewayStatus.mockReturnValue({
         enabled: true,
         connected: true,
-        backendId: 'backend-123',
+        gatewayBackendId: 'backend-123',
         gatewayUrl: 'https://gateway.example.com',
         backendName: 'Test Backend'
       });
@@ -502,7 +502,7 @@ describe('Gateway API Integration Tests', () => {
       expect(response.body.data).toMatchObject({
         enabled: true,
         connected: true,
-        backendId: 'backend-123',
+        gatewayBackendId: 'backend-123',
         gatewayUrl: 'https://gateway.example.com',
         backendName: 'Test Backend'
       });
@@ -512,7 +512,7 @@ describe('Gateway API Integration Tests', () => {
       mockGetGatewayStatus.mockReturnValue({
         enabled: false,
         connected: false,
-        backendId: null,
+        gatewayBackendId: null,
         gatewayUrl: null,
         backendName: null
       });
@@ -920,7 +920,7 @@ describe('Gateway API Integration Tests', () => {
       mockGetGatewayStatus.mockReturnValue({
         enabled: true,
         connected: true,
-        backendId: 'backend-123',
+        gatewayBackendId: 'backend-123',
         gatewayUrl: 'https://gateway.example.com',
         backendName: 'My Backend'
       });

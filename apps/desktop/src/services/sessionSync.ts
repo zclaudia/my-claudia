@@ -13,6 +13,7 @@ import { resolveGatewayBackendUrl, getGatewayAuthHeaders } from './gatewayProxy'
 import { useChatStore } from '../stores/chatStore';
 import { useProjectStore } from '../stores/projectStore';
 import * as api from './api';
+import { getControlPlaneMode, isLocalBackendId } from '../utils/controlPlane';
 
 interface BackendSyncState {
   lastSyncTime: number;
@@ -81,45 +82,51 @@ async function checkAndFillMessageGaps(sessions: RemoteSession[]): Promise<void>
  * For gateway targets this is a proxy URL, not the backend's raw origin.
  */
 function getSyncRequestBaseUrl(targetBackendId?: string): string | null {
+  const localPort = useServerStore.getState().localServerPort;
+  const controlPlaneMode = getControlPlaneMode();
+
   if (targetBackendId) {
-    if (targetBackendId) {
-      return resolveGatewayBackendUrl(targetBackendId);
+    if (controlPlaneMode === 'embedded-local' && isLocalBackendId(targetBackendId)) {
+      if (!localPort) return null;
+      return `http://localhost:${localPort}`;
     }
-    // Direct/local server: use localServerPort
-    const port = useServerStore.getState().localServerPort;
-    if (!port) return null;
-    return `http://localhost:${port}`;
+    return resolveGatewayBackendUrl(targetBackendId);
   }
 
   // Fallback: use active server
   const activeId = useServerStore.getState().activeServerId;
-  if (!activeId) return null;
-
   if (activeId) {
+    if (controlPlaneMode === 'embedded-local' && isLocalBackendId(activeId)) {
+      if (!localPort) return null;
+      return `http://localhost:${localPort}`;
+    }
     return resolveGatewayBackendUrl(activeId);
   }
 
-  // Direct/local server: use localServerPort
-  const port = useServerStore.getState().localServerPort;
-  if (!port) return null;
-  return `http://localhost:${port}`;
+  if (!localPort) return null;
+  return `http://localhost:${localPort}`;
 }
 
 /**
  * Get auth headers for API requests.
  */
 function getAuthHeaders(targetBackendId?: string): Record<string, string> {
+  const controlPlaneMode = getControlPlaneMode();
+
   if (targetBackendId) {
-    if (targetBackendId) {
-      return getGatewayAuthHeaders();
+    if (controlPlaneMode === 'embedded-local' && isLocalBackendId(targetBackendId)) {
+      return {};
     }
-    // Direct/local server: no auth needed
-    return {};
+    return getGatewayAuthHeaders();
   }
 
   // Fallback: infer from active server
   const activeId = useServerStore.getState().activeServerId;
   if (!activeId) return {};
+
+  if (controlPlaneMode === 'embedded-local' && isLocalBackendId(activeId)) {
+    return {};
+  }
 
   if (activeId) {
     return getGatewayAuthHeaders();

@@ -17,6 +17,8 @@ import {
 import { useState } from 'react';
 import { useLocalPRStore } from '../store';
 import { useProjectStore } from '../../../stores/projectStore';
+import { useProviderMetaStore } from '../../../stores/providerMetaStore';
+import { useServerStore } from '../../../stores/serverStore';
 import { useIsMobile } from '../../../hooks/useMediaQuery';
 import * as api from '../../../services/api';
 import { DiffViewerModal } from './DiffViewerModal';
@@ -60,7 +62,10 @@ export function LocalPRCard({ pr, projectId }: LocalPRCardProps) {
     reopenPR,
     revertMergedPR,
   } = useLocalPRStore();
-  const providers = useProjectStore((s) => s.providers);
+  const activeServerId = useServerStore((s) => s.activeServerId);
+  const legacyProviders = useProjectStore((s) => s.providers);
+  const scopedProviders = useProviderMetaStore((s) => s.getProviders(activeServerId));
+  const providers = scopedProviders.length > 0 ? scopedProviders : legacyProviders;
   const projects = useProjectStore((s) => s.projects);
   const sessions = useProjectStore((s) => s.sessions);
   const selectSession = useProjectStore((s) => s.selectSession);

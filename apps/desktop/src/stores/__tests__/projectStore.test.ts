@@ -2,6 +2,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { useProjectStore } from '../projectStore';
 import type { Project, Session } from '@my-claudia/shared';
 
+const mockSetActiveServer = vi.fn();
+
 vi.mock('../sessionsStore', () => ({
   useSessionsStore: {
     getState: () => ({
@@ -10,6 +12,19 @@ vi.mock('../sessionsStore', () => ({
       ]),
     }),
   },
+}));
+
+vi.mock('../serverStore', () => ({
+  useServerStore: {
+    getState: () => ({
+      setActiveServer: mockSetActiveServer,
+    }),
+  },
+}));
+
+vi.mock('../../utils/controlPlane', () => ({
+  getControlPlaneMode: () => 'embedded-local',
+  resolveLocalBackendId: () => 'local-backend-1',
 }));
 
 vi.mock('../chatStore', () => ({
@@ -23,6 +38,7 @@ vi.mock('../chatStore', () => ({
 
 describe('projectStore', () => {
   beforeEach(() => {
+    mockSetActiveServer.mockReset();
     useProjectStore.setState({
       projects: [],
       sessions: [],
@@ -220,6 +236,15 @@ describe('projectStore', () => {
       expect(useProjectStore.getState().selectedSessionId).toBe('s1');
     });
 
+    it('selectSession switches to local backend for local sessions in embedded mode', () => {
+      const session = createSession({ id: 's1', projectId: 'p1' });
+      useProjectStore.getState().setSessions([session]);
+
+      useProjectStore.getState().selectSession('s1');
+
+      expect(mockSetActiveServer).toHaveBeenCalledWith('local-backend-1');
+    });
+
     it('selectSession also updates selectedProjectId from session', () => {
       const session = createSession({ id: 's1', projectId: 'p1' });
       useProjectStore.getState().setSessions([session]);
@@ -240,6 +265,11 @@ describe('projectStore', () => {
     it('selectSession falls back to remote sessions for gateway', () => {
       useProjectStore.getState().selectSession('remote-s1');
       expect(useProjectStore.getState().selectedProjectId).toBe('p-remote');
+    });
+
+    it('selectSession switches to the owning remote backend for remote sessions', () => {
+      useProjectStore.getState().selectSession('remote-s1');
+      expect(mockSetActiveServer).toHaveBeenCalledWith('b1');
     });
   });
 

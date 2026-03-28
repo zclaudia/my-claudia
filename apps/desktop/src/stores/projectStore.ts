@@ -3,6 +3,9 @@ import type { Project, Session, SlashCommand, ProviderConfig, ProviderCapabiliti
 import { useSessionsStore } from './sessionsStore';
 import { useChatStore } from './chatStore';
 import { useProviderMetaStore } from './providerMetaStore';
+import { useServerStore } from './serverStore';
+import { useOwnershipStore } from './ownershipStore';
+import { getControlPlaneMode, resolveLocalBackendId } from '../utils/controlPlane';
 
 export type ProjectDashboardView =
   | 'home'
@@ -72,10 +75,23 @@ export const useProjectStore = create<ProjectState>((set) => ({
 
   // ── Project actions ──
 
-  setProjects: (projects) => set({ projects }),
+  setProjects: (projects) => {
+    const activeBackendId = useServerStore.getState().activeServerId;
+    if (activeBackendId) {
+      useOwnershipStore.getState().removeProjectOwnersByBackend(activeBackendId);
+      useOwnershipStore.getState().setProjectOwners(projects.map((p) => p.id), activeBackendId);
+    }
+    set({ projects });
+  },
 
   addProject: (project) =>
-    set((state) => ({ projects: [...state.projects, project] })),
+    set((state) => {
+      const activeBackendId = useServerStore.getState().activeServerId;
+      if (activeBackendId) {
+        useOwnershipStore.getState().setProjectOwner(project.id, activeBackendId);
+      }
+      return { projects: [...state.projects, project] };
+    }),
 
   updateProject: (id, updates) =>
     set((state) => ({
@@ -85,17 +101,20 @@ export const useProjectStore = create<ProjectState>((set) => ({
     })),
 
   deleteProject: (id) =>
-    set((state) => ({
-      projects: state.projects.filter((p) => p.id !== id),
-      sessions: state.sessions.filter((s) => s.projectId !== id),
-      selectedProjectId:
-        state.selectedProjectId === id ? null : state.selectedProjectId,
-      selectedSessionId:
-        state.sessions.find((s) => s.id === state.selectedSessionId)
-          ?.projectId === id
-          ? null
-          : state.selectedSessionId,
-    })),
+    set((state) => {
+      useOwnershipStore.getState().removeProjectOwner(id);
+      return {
+        projects: state.projects.filter((p) => p.id !== id),
+        sessions: state.sessions.filter((s) => s.projectId !== id),
+        selectedProjectId:
+          state.selectedProjectId === id ? null : state.selectedProjectId,
+        selectedSessionId:
+          state.sessions.find((s) => s.id === state.selectedSessionId)
+            ?.projectId === id
+            ? null
+            : state.selectedSessionId,
+      };
+    }),
 
   reorderProjects: (orderedIds) =>
     set((state) => {
@@ -111,10 +130,20 @@ export const useProjectStore = create<ProjectState>((set) => ({
 
   // ── Session actions ──
 
-  setSessions: (sessions) => set({ sessions }),
+  setSessions: (sessions) => {
+    const activeBackendId = useServerStore.getState().activeServerId;
+    if (activeBackendId) {
+      useOwnershipStore.getState().setSessionOwners(sessions.map((s) => s.id), activeBackendId);
+    }
+    set({ sessions });
+  },
 
   mergeSessions: (incoming) =>
     set((state) => {
+      const activeBackendId = useServerStore.getState().activeServerId;
+      if (activeBackendId) {
+        useOwnershipStore.getState().setSessionOwners(incoming.map((s) => s.id), activeBackendId);
+      }
       const merged = incoming.map((s) => {
         const existing = state.sessions.find((e) => e.id === s.id);
         if (!existing) {
@@ -144,7 +173,13 @@ export const useProjectStore = create<ProjectState>((set) => ({
     }),
 
   addSession: (session) =>
-    set((state) => ({ sessions: [...state.sessions, session] })),
+    set((state) => {
+      const activeBackendId = useServerStore.getState().activeServerId;
+      if (activeBackendId) {
+        useOwnershipStore.getState().setSessionOwner(session.id, activeBackendId);
+      }
+      return { sessions: [...state.sessions, session] };
+    }),
 
   updateSession: (id, updates) =>
     set((state) => ({
@@ -154,11 +189,14 @@ export const useProjectStore = create<ProjectState>((set) => ({
     })),
 
   deleteSession: (id) =>
-    set((state) => ({
-      sessions: state.sessions.filter((s) => s.id !== id),
-      selectedSessionId:
-        state.selectedSessionId === id ? null : state.selectedSessionId,
-    })),
+    set((state) => {
+      useOwnershipStore.getState().removeSessionOwner(id);
+      return {
+        sessions: state.sessions.filter((s) => s.id !== id),
+        selectedSessionId:
+          state.selectedSessionId === id ? null : state.selectedSessionId,
+      };
+    }),
 
   setSessionActive: (sessionId, isActive) =>
     set((state) => ({
@@ -200,7 +238,8 @@ export const useProjectStore = create<ProjectState>((set) => ({
   // ── Provider actions (synced to providerMetaStore) ──
 
   setProviders: (providers) => {
-    useProviderMetaStore.getState().setProviders(providers);
+    const getState = (useServerStore as { getState?: () => { activeServerId?: string | null } }).getState;
+    useProviderMetaStore.getState().setProviders(providers, getState?.().activeServerId);
     set({ providers });
   },
 
@@ -213,12 +252,29 @@ export const useProjectStore = create<ProjectState>((set) => ({
   selectSession: (id) =>
     set((state) => {
       let session = state.sessions.find((s) => s.id === id);
+      let targetBackendId: string | null = null;
       if (!session && id) {
-        for (const [, sessions] of useSessionsStore.getState().remoteSessions) {
+        for (const [backendId, sessions] of useSessionsStore.getState().remoteSessions) {
           const remote = sessions.find((s) => s.id === id);
-          if (remote) { session = remote; break; }
+          if (remote) {
+            session = remote;
+            targetBackendId = backendId;
+            break;
+          }
         }
       }
+
+      if (id) {
+        if (targetBackendId) {
+          useServerStore.getState().setActiveServer(targetBackendId);
+        } else if (session && getControlPlaneMode() === 'embedded-local') {
+          const localBackendId = resolveLocalBackendId();
+          if (localBackendId) {
+            useServerStore.getState().setActiveServer(localBackendId);
+          }
+        }
+      }
+
       return {
         selectedSessionId: id,
         selectedProjectId: session?.projectId || state.selectedProjectId,

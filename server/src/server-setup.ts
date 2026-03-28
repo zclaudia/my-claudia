@@ -134,7 +134,7 @@ export function setupRoutesAndServices(deps: SetupDependencies): SetupResult {
   let gatewayStatus: GatewayStatus = {
     enabled: false,
     connected: false,
-    backendId: null,
+    gatewayBackendId: null,
     gatewayUrl: null,
     gatewaySecret: null,
     backendName: null,
@@ -155,7 +155,7 @@ export function setupRoutesAndServices(deps: SetupDependencies): SetupResult {
     gatewayStatus = {
       enabled: true,
       connected: false,
-      backendId: null,
+      gatewayBackendId: null,
       gatewayUrl: config.gatewayUrl,
       gatewaySecret: config.gatewaySecret,
       backendName: config.backendName,
@@ -170,7 +170,7 @@ export function setupRoutesAndServices(deps: SetupDependencies): SetupResult {
     gatewayStatus = {
       enabled: false,
       connected: false,
-      backendId: null,
+      gatewayBackendId: null,
       gatewayUrl: null,
       gatewaySecret: null,
       backendName: null,
@@ -180,7 +180,7 @@ export function setupRoutesAndServices(deps: SetupDependencies): SetupResult {
   };
 
   const updateGatewayBackendId = (backendId: string | null) => {
-    gatewayStatus.backendId = backendId;
+    gatewayStatus.gatewayBackendId = backendId;
     if (backendId) {
       db.prepare(`
         UPDATE gateway_config SET backend_id = ?, updated_at = ? WHERE id = 1

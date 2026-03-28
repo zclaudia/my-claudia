@@ -3,6 +3,7 @@
  */
 
 import { openPopoutWindow } from '../../utils/popoutWindow';
+import { resolveLocalBackendId } from '../../utils/controlPlane';
 
 export async function openAutomationWindow(): Promise<string> {
   return openPopoutWindow({
@@ -10,5 +11,6 @@ export async function openAutomationWindow(): Promise<string> {
     params: { automationWindow: '1' },
     title: 'Automation',
     width: 1000,
+    connectionTarget: { backendId: resolveLocalBackendId() },
   });
 }

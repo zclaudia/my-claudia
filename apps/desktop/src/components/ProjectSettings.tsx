@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import type { Project, ProviderConfig, AgentPermissionPolicy } from '@my-claudia/shared';
 import { useServerStore } from '../stores/serverStore';
 import { useProjectStore } from '../stores/projectStore';
+import { useProviderMetaStore } from '../stores/providerMetaStore';
 import { useSupervisionStore } from '../stores/supervisionStore';
 import * as api from '../services/api';
 import { useAndroidBack } from '../hooks/useAndroidBack';
@@ -20,9 +21,12 @@ interface ProjectSettingsProps {
 }
 
 export function ProjectSettings({ project, isOpen, onClose }: ProjectSettingsProps) {
-  const { connectionStatus } = useServerStore();
+  const isConnected = useServerStore((s) => {
+    if (!s.activeServerId) return false;
+    return s.connections[s.activeServerId]?.status === 'connected';
+  });
+  const legacyProviders = useProjectStore((s) => s.providers);
   const { updateProject } = useProjectStore();
-  const isConnected = connectionStatus === 'connected';
 
   // Supervisor state
   const v2Agent = useSupervisionStore((s) => project ? s.agents[project.id] : undefined);
@@ -30,7 +34,9 @@ export function ProjectSettings({ project, isOpen, onClose }: ProjectSettingsPro
   const removeAgent = useSupervisionStore((s) => s.removeAgent);
   const [supervisorLoading, setSupervisorLoading] = useState(false);
 
-  const storeProviders = useProjectStore((s) => s.providers);
+  const activeServerId = useServerStore((s) => s.activeServerId);
+  const scopedProviders = useProviderMetaStore((s) => s.getProviders(activeServerId));
+  const storeProviders = scopedProviders.length > 0 ? scopedProviders : legacyProviders;
   const [providers, setProviders] = useState<ProviderConfig[]>(storeProviders);
   const [saving, setSaving] = useState(false);
   const [saveFeedback, setSaveFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
@@ -138,8 +144,7 @@ export function ProjectSettings({ project, isOpen, onClose }: ProjectSettingsPro
   }, [isOpen, project?.id, isConnected, setAgent, removeAgent, updateProject]);
 
   const loadProviders = async () => {
-    // Use store providers immediately if available
-    const current = useProjectStore.getState().providers;
+    const current = useProviderMetaStore.getState().getProviders(activeServerId);
     if (current.length > 0) {
       setProviders(current);
     }

@@ -5,6 +5,7 @@ import { useSessionsStore, LOCAL_BACKEND_KEY } from '../../stores/sessionsStore'
 import { useServerStore } from '../../stores/serverStore';
 import { useProjectStore } from '../../stores/projectStore';
 import { useGatewayStore, toGatewayServerId, parseBackendId } from '../../stores/gatewayStore';
+import { useFacadeStore } from '../../stores/facadeStore';
 
 describe('ActiveSessionsPanel', () => {
   beforeEach(() => {
@@ -21,7 +22,18 @@ describe('ActiveSessionsPanel', () => {
       isLocalConnection: true,
     });
     useProjectStore.setState({ sessions: [] });
-    useGatewayStore.setState({ discoveredBackends: [], gatewayUrl: null, gatewaySecret: null });
+    useGatewayStore.setState({ gatewayUrl: null, gatewaySecret: null, showLocalBackend: false } as any);
+    useFacadeStore.setState({
+      backends: [],
+      localBackendId: null,
+      currentInstanceId: null,
+      currentDeviceId: null,
+      connectionState: 'idle',
+      mode: null,
+      snapshotVersion: 0,
+      registryRevision: 0,
+      sessionStreams: {},
+    });
   });
 
   describe('gateway session navigation', () => {
@@ -38,12 +50,11 @@ describe('ActiveSessionsPanel', () => {
         },
         connectionStatus: 'connected',
       });
-      useGatewayStore.setState({
-        discoveredBackends: [
+      useFacadeStore.setState({
+        backends: [
           { backendId, name: 'Test Backend', online: true, isThisInstance: false } as any,
         ],
-        gatewayUrl: 'ws://gateway.test',
-        gatewaySecret: 'secret',
+        connectionState: 'connected',
       });
 
       // Add an active session from this backend
@@ -92,9 +103,9 @@ describe('ActiveSessionsPanel', () => {
         activeServerId: 'local',
         connectionStatus: 'connected',
       });
-      useGatewayStore.setState({
+      useFacadeStore.setState({
         localBackendId,
-        discoveredBackends: [
+        backends: [
           { backendId: localBackendId, name: 'My Local Backend', online: true, isThisInstance: true } as any,
         ],
       });
@@ -125,9 +136,7 @@ describe('ActiveSessionsPanel', () => {
         },
         connectionStatus: 'connected',
       });
-      useGatewayStore.setState({
-        localBackendId: null,
-      });
+      useFacadeStore.setState({ localBackendId: null });
       useProjectStore.setState({
         sessions: [
           { id: localSessionId, name: 'Direct Local Session', projectId: 'proj-1', isActive: true, createdAt: Date.now(), updatedAt: Date.now() } as any,
@@ -176,12 +185,11 @@ describe('ActiveSessionsPanel', () => {
         },
         connectionStatus: 'connected',
       });
-      useGatewayStore.setState({
-        discoveredBackends: [
+      useFacadeStore.setState({
+        backends: [
           { backendId, name: 'My Backend', online: true, isThisInstance: false } as any,
         ],
-        gatewayUrl: 'ws://gateway.test',
-        gatewaySecret: 'secret',
+        connectionState: 'connected',
       });
 
       const remoteSessions = new Map();
@@ -205,8 +213,8 @@ describe('ActiveSessionsPanel', () => {
         activeServerId: 'local',
         servers: [{ id: 'local', name: 'Local', address: 'localhost:3100', isDefault: true, createdAt: 0 }],
       });
-      useGatewayStore.setState({
-        discoveredBackends: [
+      useFacadeStore.setState({
+        backends: [
           { backendId, name: 'Mac Mini Agent', online: true, isThisInstance: false } as any,
         ],
       });
@@ -229,9 +237,11 @@ describe('ActiveSessionsPanel', () => {
       const backendId = 'self-backend-1';
 
       useGatewayStore.setState({
-        currentInstanceId: 'inst-1',
         showLocalBackend: false,
-        discoveredBackends: [
+      } as any);
+      useFacadeStore.setState({
+        currentInstanceId: 'inst-1',
+        backends: [
           { backendId, name: 'HomeMac', online: true, isThisInstance: true, instanceId: 'inst-1' } as any,
         ],
       });
@@ -246,6 +256,7 @@ describe('ActiveSessionsPanel', () => {
           {
             session: { id: 'done-1', name: 'Self Completed', projectId: 'proj-1', createdAt: Date.now(), updatedAt: Date.now() } as any,
             backendId,
+            ownerBackendId: backendId,
             completedAt: Date.now(),
           },
         ],
@@ -332,6 +343,7 @@ describe('ActiveSessionsPanel', () => {
           {
             session: { id: 'done-1', name: 'Done Session', projectId: 'p1', createdAt: Date.now(), updatedAt: Date.now() } as any,
             backendId: LOCAL_BACKEND_KEY,
+            ownerBackendId: LOCAL_BACKEND_KEY,
             completedAt: Date.now() - 30000,
           },
         ],
@@ -350,6 +362,7 @@ describe('ActiveSessionsPanel', () => {
           {
             session: { id: 'done-1', name: 'Done Session', projectId: 'p1', createdAt: Date.now(), updatedAt: Date.now() } as any,
             backendId: LOCAL_BACKEND_KEY,
+            ownerBackendId: LOCAL_BACKEND_KEY,
             completedAt: Date.now(),
           },
         ],
@@ -368,6 +381,7 @@ describe('ActiveSessionsPanel', () => {
           {
             session: { id: 'done-1', name: 'Done Session', projectId: 'p1', createdAt: Date.now(), updatedAt: Date.now() } as any,
             backendId: LOCAL_BACKEND_KEY,
+            ownerBackendId: LOCAL_BACKEND_KEY,
             completedAt: Date.now(),
           },
         ],
@@ -386,6 +400,7 @@ describe('ActiveSessionsPanel', () => {
           {
             session: { id: 'done-1', name: 'Completed Local', projectId: 'p1', createdAt: Date.now(), updatedAt: Date.now() } as any,
             backendId: LOCAL_BACKEND_KEY,
+            ownerBackendId: LOCAL_BACKEND_KEY,
             completedAt: Date.now(),
           },
         ],
@@ -403,6 +418,7 @@ describe('ActiveSessionsPanel', () => {
           {
             session: { id: 'done-1', name: 'Completed Remote', projectId: 'p1', createdAt: Date.now(), updatedAt: Date.now() } as any,
             backendId: 'remote-backend-1',
+            ownerBackendId: 'remote-backend-1',
             completedAt: Date.now(),
           },
         ],

@@ -22,6 +22,7 @@ import {
   listScheduledTaskTemplates,
   enableTemplateTask,
 } from '../../features/scheduled-tasks/api';
+import { useOwnershipStore } from '../ownershipStore';
 
 const makeTask = (id: string, name = 'Task') => ({
   id,
@@ -40,16 +41,24 @@ describe('scheduledTaskStore', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     useScheduledTaskStore.setState({ tasks: {}, templates: [] });
+    useOwnershipStore.setState({
+      sessionBackendIds: {},
+      projectBackendIds: {},
+      taskOwners: {},
+    } as any);
   });
 
   describe('loadTasks', () => {
     it('loads tasks for a project', async () => {
       const tasks = [makeTask('t1'), makeTask('t2')];
       vi.mocked(listScheduledTasks).mockResolvedValue(tasks as any);
+      useOwnershipStore.getState().setProjectOwner('proj-1', 'backend-1');
 
       await useScheduledTaskStore.getState().loadTasks('proj-1');
 
       expect(useScheduledTaskStore.getState().tasks['proj-1']).toEqual(tasks);
+      expect(useOwnershipStore.getState().getTaskBackendId('t1')).toBe('backend-1');
+      expect(useOwnershipStore.getState().getTaskProjectId('t1')).toBe('proj-1');
     });
   });
 
@@ -79,6 +88,7 @@ describe('scheduledTaskStore', () => {
     it('creates and prepends task', async () => {
       const newTask = makeTask('t-new');
       vi.mocked(createScheduledTask).mockResolvedValue(newTask as any);
+      useOwnershipStore.getState().setProjectOwner('proj-1', 'backend-1');
 
       useScheduledTaskStore.setState({ tasks: { 'proj-1': [makeTask('t-existing')] as any } });
       const result = await useScheduledTaskStore.getState().create('proj-1', { name: 'New' });
@@ -87,6 +97,7 @@ describe('scheduledTaskStore', () => {
       const tasks = useScheduledTaskStore.getState().tasks['proj-1'];
       expect(tasks[0].id).toBe('t-new');
       expect(tasks).toHaveLength(2);
+      expect(useOwnershipStore.getState().getTaskBackendId('t-new')).toBe('backend-1');
     });
 
     it('creates global task when projectId is undefined', async () => {
@@ -115,13 +126,15 @@ describe('scheduledTaskStore', () => {
   describe('remove', () => {
     it('deletes and removes task', async () => {
       vi.mocked(deleteScheduledTask).mockResolvedValue(undefined as any);
+      useOwnershipStore.getState().setTaskOwner('t1', 'backend-1', 'proj-1');
 
       useScheduledTaskStore.setState({ tasks: { 'proj-1': [makeTask('t1'), makeTask('t2')] as any } });
       await useScheduledTaskStore.getState().remove('t1', 'proj-1');
 
-      expect(deleteScheduledTask).toHaveBeenCalledWith('t1');
+      expect(deleteScheduledTask).toHaveBeenCalledWith('t1', 'backend-1');
       expect(useScheduledTaskStore.getState().tasks['proj-1']).toHaveLength(1);
       expect(useScheduledTaskStore.getState().tasks['proj-1'][0].id).toBe('t2');
+      expect(useOwnershipStore.getState().getTaskBackendId('t1')).toBeNull();
     });
   });
 

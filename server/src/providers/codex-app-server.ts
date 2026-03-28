@@ -76,10 +76,10 @@ function mapModeToConfigArgs(mode?: string): string[] {
       args.push('-c', 'sandbox_permissions=["full-access"]');
       break;
     case 'acceptEdits':
-      // Default workspace-write with auto-approve on failure
-      break;
     case 'default':
     default:
+      // Codex CLI defaults to a restrictive sandbox; explicitly allow workspace writes.
+      args.push('-c', 'sandbox_permissions=["workspace-write"]');
       break;
   }
   return args;
@@ -455,11 +455,14 @@ export class CodexAppServerClient {
 
     // Map approval requests to our permission callback
     if (method.includes('Approval') || method.includes('approval')) {
+      debugLog(`[Codex AppServer] Approval request: method=${method} params=${JSON.stringify(params).slice(0, 500)}`);
       if (this.permissionCallback) {
         try {
           const permissionRequest = this.mapApprovalToPermissionRequest(method, params);
           const decision = await this.permissionCallback(permissionRequest);
-          this.sendResponse(id, { approved: decision.behavior === 'allow' });
+          const approved = decision.behavior === 'allow';
+          debugLog(`[Codex AppServer] Approval decision: ${approved} (behavior=${decision.behavior})`);
+          this.sendResponse(id, { approved });
         } catch (error) {
           debugLog(`[Codex AppServer] ERROR: Permission callback error: ${error}`);
           this.sendResponse(id, { approved: false });

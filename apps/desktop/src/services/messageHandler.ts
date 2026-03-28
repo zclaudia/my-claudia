@@ -21,7 +21,7 @@ import { handleSupervisionMessage } from '../features/supervision/handlers';
 import { useSystemTaskStore } from '../stores/systemTaskStore';
 import { useInteractionStore } from '../stores/interactionStore';
 import { useSessionsStore } from '../stores/sessionsStore';
-import { LOCAL_BACKEND_KEY } from '../stores/sessionsStore';
+import { getSessionBucketKeyForBackend } from '../stores/sessionsStore';
 import { useTerminalStore } from '../stores/terminalStore';
 import { useBottomPanelStore } from '../stores/bottomPanelStore';
 import { usePluginStore } from '../stores/pluginStore';
@@ -255,7 +255,7 @@ export function handleServerMessage(
           useProjectStore.getState().setSessionActive(targetSessionId, true);
           // Update unified active-session index for both local and gateway contexts
           useSessionsStore.getState().setSessionActiveFlag(
-            backendId || LOCAL_BACKEND_KEY,
+            getSessionBucketKeyForBackend(backendId),
             targetSessionId,
             true
           );
@@ -282,7 +282,7 @@ export function handleServerMessage(
         }
         useProjectStore.getState().setSessionActive(completedSession, false);
         useSessionsStore.getState().setSessionActiveFlag(
-          backendId || LOCAL_BACKEND_KEY,
+          getSessionBucketKeyForBackend(backendId),
           completedSession,
           false
         );
@@ -311,7 +311,7 @@ export function handleServerMessage(
         useChatStore.getState().finalizeRunToMessage(msg.runId);
         useProjectStore.getState().setSessionActive(failedSession, false);
         useSessionsStore.getState().setSessionActiveFlag(
-          backendId || LOCAL_BACKEND_KEY,
+          getSessionBucketKeyForBackend(backendId),
           failedSession,
           false
         );
@@ -364,7 +364,7 @@ export function handleServerMessage(
     case 'mode_change':
       if (isRunEventGap(msg.runId, msg.seq)) recoverRunGap(ctx, msg.runId, msg.seq, msg.sessionId);
       if (isStaleRunEvent(msg.runId, msg.seq)) break;
-      useChatStore.getState().setMode(msg.sessionId, msg.mode);
+      useChatStore.getState().setRuntimeMode(msg.sessionId, msg.mode);
       break;
 
     case 'permission_request': {
@@ -739,7 +739,11 @@ export function handleServerMessage(
 
     case 'notification_update': {
       const { item } = msg as import('@my-claudia/shared').NotificationUpdateMessage;
-      import('../stores/notificationFeedStore').then(m => m.useNotificationFeedStore.getState().upsertItem(item));
+      const ownerBackendId = backendId || serverId;
+      import('../stores/notificationFeedStore').then(m => m.useNotificationFeedStore.getState().upsertItem({
+        ...item,
+        ownerBackendId: item.ownerBackendId ?? ownerBackendId,
+      }));
       // Toast notification for completed/failed feed items
       if (item.status === 'completed' || item.status === 'failed') {
         import('../stores/toastStore').then(m => {
@@ -755,9 +759,13 @@ export function handleServerMessage(
 
     case 'notification_list': {
       const feedMsg = msg as import('@my-claudia/shared').NotificationListMessage;
+      const ownerBackendId = backendId || serverId;
       import('../stores/notificationFeedStore').then(m => {
         m.useNotificationFeedStore.getState().setFeedList(
-          feedMsg.items,
+          feedMsg.items.map((item) => ({
+            ...item,
+            ownerBackendId: item.ownerBackendId ?? ownerBackendId,
+          })),
           feedMsg.hasMore,
           feedMsg.unreadCount,
           feedMsg.append,
@@ -824,7 +832,7 @@ export function handleServerMessage(
             if (sessionId) {
               useProjectStore.getState().setSessionActive(sessionId, false);
               useSessionsStore.getState().setSessionActiveFlag(
-                backendId || LOCAL_BACKEND_KEY,
+                getSessionBucketKeyForBackend(backendId),
                 sessionId,
                 false
               );
@@ -901,7 +909,7 @@ export function handleServerMessage(
             .filter(r => r.sessionType !== 'background')
             .map(r => r.sessionId)
         );
-        useSessionsStore.getState().setActiveSessionsForBackend(LOCAL_BACKEND_KEY, activeSessionIds);
+        useSessionsStore.getState().setActiveSessionsForBackend(getSessionBucketKeyForBackend(backendId), activeSessionIds);
       }
 
       // Sync feed unread count from heartbeat (covers offline/reconnect scenario)
@@ -1057,6 +1065,7 @@ export function handleServerMessage(
       const pluginMsg = msg as import('@my-claudia/shared').PluginNotificationMessage;
       import('../stores/notificationFeedStore').then(m => m.useNotificationFeedStore.getState().upsertItem({
         id: `plugin-${pluginMsg.pluginId}-${Date.now()}`,
+        ownerBackendId: backendId || serverId,
         source: 'trigger',
         title: pluginMsg.title,
         summary: pluginMsg.body,

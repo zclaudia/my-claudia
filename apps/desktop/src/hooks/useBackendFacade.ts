@@ -12,8 +12,7 @@
  */
 
 import { useEffect, useRef } from 'react';
-import type { BackendFacade, BackendFacadeEvent, BackendSnapshot } from '@my-claudia/shared';
-import type { GatewayBackendInfo, SessionMessage } from '@my-claudia/shared';
+import type { BackendFacade, BackendFacadeEvent, SessionMessage } from '@my-claudia/shared';
 import { useFacadeStore } from '../stores/facadeStore';
 import { EmbeddedFacadeClient } from '../facade/embedded-facade-client';
 import { DirectBackendFacadeProvider } from '../facade/direct-provider';
@@ -22,7 +21,23 @@ import { useServerStore } from '../stores/serverStore';
 import { useSessionsStore } from '../stores/sessionsStore';
 import { useChatStore, type MessageWithToolCalls } from '../stores/chatStore';
 import { handleServerMessage } from '../services/messageHandler';
-import { isAndroid } from '../utils/platform';
+import type { BackendRuntimeState } from '@my-claudia/shared';
+import type { ConnectionStatus } from '../stores/serverStore';
+import { isLegacyLocalBackendId } from '../utils/controlPlane';
+
+/** Map facade BackendRuntimeState to serverStore ConnectionStatus. */
+function runtimeStateToConnectionStatus(state: BackendRuntimeState): ConnectionStatus {
+  switch (state) {
+    case 'ready':
+      return 'connected';
+    case 'opening':
+      return 'connecting';
+    case 'error':
+      return 'error';
+    default:
+      return 'disconnected';
+  }
+}
 
 // Fix #21: use WeakRef-like pattern — clear on each facade lifecycle
 let facadeServerRuns = new Map<string, Set<string>>();
@@ -55,12 +70,14 @@ export function useBackendFacade(): void {
   const directGatewayUrl = useGatewayStore((s) => s.directGatewayUrl);
   const directGatewaySecret = useGatewayStore((s) => s.directGatewaySecret);
 
-  const isMobileDevice = isAndroid();
-
-  // Determine mode
-  const mode = isMobileDevice ? 'direct' : 'embedded';
+  // Determine mode by control-plane source, not platform.
+  const mode = directGatewayUrl && directGatewaySecret ? 'direct' : 'embedded';
 
   useEffect(() => {
+    const serverState = useServerStore.getState();
+    serverState.setControlPlaneMode(mode === 'embedded' ? 'embedded-local' : 'gateway-direct');
+    serverState.setControlPlaneState('connecting');
+
     // Cleanup previous facade
     if (facadeRef.current) {
       facadeRef.current.disconnect();
@@ -117,73 +134,51 @@ export function useBackendFacade(): void {
   }, [mode, embeddedPort, directGatewayUrl, directGatewaySecret]);
 }
 
-// ============================================================================
-// Sync Bridge: facade → gatewayStore (backward compatibility)
-// ============================================================================
-
 /**
- * Maps BackendSnapshot to GatewayBackendInfo for backward compatibility.
- * Existing components read `gatewayStore.discoveredBackends` (GatewayBackendInfo[]).
- * This bridge keeps that data in sync with the facade's BackendSnapshot[].
+ * Sync facade events to gatewayStore for gateway transport state only.
  */
-function backendSnapshotToGatewayInfo(b: BackendSnapshot): GatewayBackendInfo {
-  return {
-    backendId: b.backendId,
-    name: b.name,
-    online: b.online,
-    isThisInstance: b.isThisInstance,
-    isThisDevice: b.isThisDevice,
-    instanceId: b.instanceId,
-    deviceId: b.deviceId,
-    channel: b.channel,
-  };
-}
-
-/**
- * Sync facade events to gatewayStore so existing components (33 files)
- * continue to work without modification during the migration period.
- *
- * Once all components migrate to facadeStore, this bridge can be removed.
- */
-function syncToGatewayStore(event: BackendFacadeEvent): void {
+export function syncToGatewayStore(event: BackendFacadeEvent): void {
   const gwStore = useGatewayStore.getState();
 
   switch (event.type) {
     case 'snapshot_updated': {
       const snapshot = event.snapshot;
-      const backends = snapshot.backends.map(backendSnapshotToGatewayInfo);
-      gwStore.setDiscoveredBackends(backends);
       gwStore.setConnected(snapshot.connectionState === 'connected');
-      // Sync identity fields
-      useGatewayStore.setState({
-        localBackendId: snapshot.localBackendId,
-        currentInstanceId: snapshot.currentInstanceId,
-        currentDeviceId: snapshot.currentDeviceId,
-      });
-      // Auto-set activeServerId to local backend if not yet set or still 'local'
+      // Sync per-backend connection status to serverStore
       const serverState = useServerStore.getState();
-      if (snapshot.localBackendId && (!serverState.activeServerId || serverState.activeServerId === 'local')) {
-        serverState.setActiveServer(snapshot.localBackendId);
+      const resolvedLocalBackendId =
+        snapshot.localBackendId
+        || snapshot.backends.find((b) => b.isThisInstance)?.backendId
+        || null;
+      serverState.setControlPlaneState(snapshot.connectionState === 'connected' ? 'ready' : 'connecting');
+      for (const b of snapshot.backends) {
+        const status = runtimeStateToConnectionStatus(b.runtimeState);
+        serverState.setServerConnectionStatus(b.backendId, status, b.lastError ?? undefined);
+      }
+      // Auto-set or migrate activeServerId to the resolved local backend.
+      if (resolvedLocalBackendId && (!serverState.activeServerId || isLegacyLocalBackendId(serverState.activeServerId))) {
+        serverState.setActiveServer(resolvedLocalBackendId);
+      }
+      // Auto-open the local backend if it's visible but not yet opened
+      if (resolvedLocalBackendId) {
+        const localBackend = snapshot.backends.find(b => b.backendId === resolvedLocalBackendId);
+        if (localBackend && localBackend.openState === 'closed' && localBackend.runtimeState === 'visible') {
+          const facade = useFacadeStore.getState().facade;
+          facade?.openBackend(resolvedLocalBackendId);
+        }
       }
       break;
     }
 
     case 'connection_state_changed':
+      useServerStore.getState().setControlPlaneState(event.state === 'connected' ? 'ready' : event.state === 'error' ? 'error' : 'connecting');
       gwStore.setConnected(event.state === 'connected');
       break;
 
     case 'backend_state_changed': {
-      // Update the specific backend in discoveredBackends
-      const currentBackends = gwStore.discoveredBackends;
-      const idx = currentBackends.findIndex(b => b.backendId === event.backendId);
-      if (idx >= 0) {
-        const updated = [...currentBackends];
-        updated[idx] = {
-          ...updated[idx],
-          online: event.state !== 'offline' && event.state !== 'error',
-        };
-        gwStore.setDiscoveredBackends(updated);
-      }
+      // Sync to serverStore
+      const connStatus = runtimeStateToConnectionStatus(event.state);
+      useServerStore.getState().setServerConnectionStatus(event.backendId, connStatus, event.error);
       break;
     }
 
@@ -234,16 +229,13 @@ function syncToGatewayStore(event: BackendFacadeEvent): void {
     // --- Run events → message handler ---
     case 'run_event': {
       const { backendId, event: serverEvent } = event;
-      // Skip local backend messages (embedded server handles them via direct WS)
-      const { localBackendId } = useGatewayStore.getState();
-      if (localBackendId && backendId === localBackendId) break;
+      const { backends } = useFacadeStore.getState();
 
       handleServerMessage(serverEvent, {
         serverId: backendId,
         backendId,
         serverRunsRef: facadeServerRuns,
-        resolveBackendName: () =>
-          useGatewayStore.getState().discoveredBackends.find(b => b.backendId === backendId)?.name,
+        resolveBackendName: () => backends.find(b => b.backendId === backendId)?.name,
         logTag: `Facade:${backendId}`,
       });
       break;

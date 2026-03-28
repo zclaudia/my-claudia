@@ -3,6 +3,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { ProjectSettings } from '../ProjectSettings';
 import { useServerStore } from '../../stores/serverStore';
 import { useProjectStore } from '../../stores/projectStore';
+import { useProviderMetaStore } from '../../stores/providerMetaStore';
 import { useSupervisionStore } from '../../stores/supervisionStore';
 
 vi.mock('../../services/api', () => ({
@@ -42,7 +43,16 @@ describe('ProjectSettings', () => {
     vi.clearAllMocks();
 
     useServerStore.setState({
-      connectionStatus: 'connected',
+      activeServerId: 'local',
+      connections: {
+        local: { status: 'connected', error: null, isLocalConnection: true, features: [] },
+      },
+    } as any);
+
+    useProviderMetaStore.setState({
+      providersByBackend: {},
+      providerCommands: {},
+      providerCapabilities: {},
     } as any);
 
     useProjectStore.setState({
@@ -307,7 +317,12 @@ describe('ProjectSettings', () => {
   });
 
   it('shows disconnected state properly', () => {
-    useServerStore.setState({ connectionStatus: 'disconnected' } as any);
+    useServerStore.setState({
+      activeServerId: 'local',
+      connections: {
+        local: { status: 'disconnected', error: null, isLocalConnection: true, features: [] },
+      },
+    } as any);
     render(<ProjectSettings project={mockProject as any} isOpen={true} onClose={() => {}} />);
     // Component still renders but supervisor button may be disabled
     expect(screen.getByText('Project Settings')).toBeTruthy();

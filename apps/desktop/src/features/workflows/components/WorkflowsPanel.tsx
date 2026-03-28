@@ -8,8 +8,10 @@ import { WorkflowEditor } from './WorkflowEditor';
 import { WorkflowRunViewer } from './WorkflowRunViewer';
 import { isDesktopTauri } from '../../../utils/platform';
 import { openPopoutWindow } from '../../../utils/popoutWindow';
+import { useOwnershipStore } from '../../../stores/ownershipStore';
 
 async function openEditorInNewWindow(projectId: string, workflow?: Workflow) {
+  const backendId = useOwnershipStore.getState().getProjectBackendId(projectId);
   await openPopoutWindow({
     type: 'workflow-editor',
     params: {
@@ -18,6 +20,7 @@ async function openEditorInNewWindow(projectId: string, workflow?: Workflow) {
     },
     title: workflow ? `Edit: ${workflow.name}` : 'New Workflow',
     width: 1100,
+    connectionTarget: { backendId },
   });
 }
 

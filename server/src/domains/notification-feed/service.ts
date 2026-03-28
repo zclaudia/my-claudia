@@ -26,8 +26,11 @@ export class NotificationFeedService {
   }
 
   /** Post a new feed item — persists to DB, broadcasts to clients, optionally sends push notification */
-  postItem(item: Omit<NotificationItem, 'id' | 'createdAt'>): NotificationItem {
-    const created = this.repo.create(item);
+  postItem(item: Omit<NotificationItem, 'id' | 'createdAt' | 'ownerBackendId'> & { ownerBackendId?: string }): NotificationItem {
+    const created = this.repo.create({
+      ...item,
+      ownerBackendId: item.ownerBackendId ?? 'local-standalone',
+    });
 
     // Broadcast to all connected WS clients
     this.broadcastFn({

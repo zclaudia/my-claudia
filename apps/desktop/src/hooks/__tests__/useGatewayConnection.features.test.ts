@@ -113,7 +113,7 @@ vi.mock('../../services/api', () => ({
       gatewayUrl: null,
       gatewaySecret: null,
       discoveredBackends: [],
-      backendId: null,
+      gatewayBackendId: null,
       connected: false,
     }),
   ),

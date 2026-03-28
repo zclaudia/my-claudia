@@ -78,6 +78,7 @@ vi.mock('@my-claudia/shared', async (importOriginal) => {
 
 import { SettingsPanel } from '../SettingsPanel';
 import { useServerStore } from '../../stores/serverStore';
+import { useFacadeStore } from '../../stores/facadeStore';
 import { useGatewayStore } from '../../stores/gatewayStore';
 import { useUIStore } from '../../stores/uiStore';
 import { usePluginStore } from '../../stores/pluginStore';
@@ -87,23 +88,52 @@ import { clearLogs, getLogCount, exportLogs } from '../../services/logger';
 import { invoke } from '@tauri-apps/api/core';
 
 function setupStores(overrides: Record<string, any> = {}) {
+  const localBackend = {
+    backendId: 'local-standalone',
+    name: 'Local',
+    online: true,
+    runtimeState: 'ready',
+    isThisInstance: true,
+    instanceId: 'instance-local',
+  };
+  const remoteBackend = {
+    backendId: 'remote-1',
+    name: 'Remote',
+    online: true,
+    runtimeState: 'ready',
+    isThisInstance: false,
+    instanceId: 'instance-remote',
+  };
+
   useServerStore.setState({
-    servers: [{ id: 'local', name: 'Local', address: 'localhost:3100', isDefault: true, createdAt: 0 }],
-    activeServerId: 'local',
+    activeServerId: localBackend.backendId,
     connections: {
-      local: { status: 'connected', error: null, isLocalConnection: true, features: [] },
+      [localBackend.backendId]: { status: 'connected', error: null, isLocalConnection: true, features: [] },
+      [remoteBackend.backendId]: { status: 'connected', error: null, isLocalConnection: false, features: [] },
     },
-    connectionStatus: 'connected',
-    connectionError: null,
-    getActiveServer: () => ({ id: 'local', name: 'Local', address: 'localhost:3100', isDefault: true, createdAt: 0 }) as any,
+    localServerPort: 3100,
+    controlPlaneMode: 'embedded-local',
+    controlPlaneState: 'ready',
     setActiveServer: vi.fn(),
     ...overrides.serverStore,
   } as any);
 
+  useFacadeStore.setState({
+    facade: null,
+    mode: 'embedded',
+    connectionState: 'connected',
+    backends: [localBackend, remoteBackend],
+    sessionStreams: {},
+    localBackendId: localBackend.backendId,
+    currentInstanceId: 'instance-local',
+    currentDeviceId: 'device-local',
+    registryRevision: 1,
+    snapshotVersion: 1,
+    ...overrides.facadeStore,
+  } as any);
+
   useGatewayStore.setState({
     isConnected: false,
-    discoveredBackends: [],
-    localBackendId: null,
     showLocalBackend: false,
     directGatewayUrl: '',
     directGatewaySecret: '',
@@ -209,8 +239,10 @@ describe('SettingsPanel', () => {
     setupStores({
       serverStore: {
         activeServerId: 'remote-1',
-        servers: [{ id: 'remote-1', name: 'Remote', address: 'remote:3100', isDefault: false, createdAt: 0 }],
-        getActiveServer: () => ({ id: 'remote-1', name: 'Remote', address: 'remote:3100' }) as any,
+      },
+      gatewayStore: {
+        directGatewayUrl: 'https://gateway.test',
+        directGatewaySecret: 'secret',
       },
     });
     const { container } = render(<SettingsPanel isOpen={true} onClose={vi.fn()} />);
@@ -351,7 +383,14 @@ describe('SettingsPanel', () => {
   });
 
   it('shows disconnected status when not connected', () => {
-    setupStores({ serverStore: { connectionStatus: 'disconnected' } });
+    setupStores({
+      serverStore: {
+        connections: {
+          'local-standalone': { status: 'disconnected', error: null, isLocalConnection: true, features: [] },
+          'remote-1': { status: 'connected', error: null, isLocalConnection: false, features: [] },
+        },
+      },
+    });
     const { container } = render(<SettingsPanel isOpen={true} onClose={vi.fn()} />);
     expect(container.textContent).toContain('Disconnected');
   });
@@ -484,8 +523,26 @@ describe('SettingsPanel', () => {
     setupStores({
       serverStore: {
         activeServerId: 'remote-1',
-        servers: [{ id: 'remote-1', name: 'Remote Server', address: 'remote:3100', isDefault: false, createdAt: 0 }],
-        getActiveServer: () => ({ id: 'remote-1', name: 'Remote Server', address: 'remote:3100' }) as any,
+      },
+      facadeStore: {
+        backends: [
+          {
+            backendId: 'local-standalone',
+            name: 'Local',
+            online: true,
+            runtimeState: 'ready',
+            isThisInstance: true,
+            instanceId: 'instance-local',
+          },
+          {
+            backendId: 'remote-1',
+            name: 'Remote Server',
+            online: true,
+            runtimeState: 'ready',
+            isThisInstance: false,
+            instanceId: 'instance-remote',
+          },
+        ],
       },
     });
 
@@ -626,10 +683,27 @@ describe('SettingsPanel', () => {
 
   it('opens server picker dropdown', () => {
     setupStores({
-      serverStore: {
-        servers: [
-          { id: 'local', name: 'Local', address: 'localhost:3100', isDefault: true, createdAt: 0 },
-          { id: 'remote-1', name: 'Remote', address: 'remote:3100', isDefault: false, createdAt: 0 },
+      gatewayStore: {
+        isConnected: true,
+      },
+      facadeStore: {
+        backends: [
+          {
+            backendId: 'local-standalone',
+            name: 'Local',
+            online: true,
+            runtimeState: 'ready',
+            isThisInstance: true,
+            instanceId: 'instance-local',
+          },
+          {
+            backendId: 'remote-1',
+            name: 'Remote',
+            online: true,
+            runtimeState: 'ready',
+            isThisInstance: false,
+            instanceId: 'instance-remote',
+          },
         ],
       },
     });
@@ -650,11 +724,27 @@ describe('SettingsPanel', () => {
     const setActiveServer = vi.fn();
     setupStores({
       serverStore: {
-        servers: [
-          { id: 'local', name: 'Local', address: 'localhost:3100', isDefault: true, createdAt: 0 },
-          { id: 'remote-1', name: 'Remote', address: 'remote:3100', isDefault: false, createdAt: 0 },
-        ],
         setActiveServer,
+      },
+      facadeStore: {
+        backends: [
+          {
+            backendId: 'local-standalone',
+            name: 'Local',
+            online: true,
+            runtimeState: 'ready',
+            isThisInstance: true,
+            instanceId: 'instance-local',
+          },
+          {
+            backendId: 'remote-1',
+            name: 'Remote',
+            online: true,
+            runtimeState: 'ready',
+            isThisInstance: false,
+            instanceId: 'instance-remote',
+          },
+        ],
       },
     });
 
@@ -713,8 +803,10 @@ describe('SettingsPanel', () => {
     setupStores({
       serverStore: {
         activeServerId: 'remote-1',
-        servers: [{ id: 'remote-1', name: 'Remote', address: 'remote:3100', isDefault: false, createdAt: 0 }],
-        getActiveServer: () => ({ id: 'remote-1', name: 'Remote', address: 'remote:3100' }) as any,
+      },
+      gatewayStore: {
+        directGatewayUrl: 'https://gateway.test',
+        directGatewaySecret: 'secret',
       },
     });
 
@@ -745,11 +837,8 @@ describe('SettingsPanel', () => {
   it('shows correct status colors in server picker', () => {
     setupStores({
       serverStore: {
-        servers: [
-          { id: 'local', name: 'Local', address: 'localhost:3100', isDefault: true, createdAt: 0 },
-        ],
         connections: {
-          local: { status: 'connected', error: null, isLocalConnection: true, features: [] },
+          'local-standalone': { status: 'connected', error: null, isLocalConnection: true, features: [] },
         },
       },
     });

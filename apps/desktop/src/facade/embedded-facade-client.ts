@@ -118,6 +118,13 @@ export class EmbeddedFacadeClient implements BackendFacade {
         console.warn('[EmbeddedFacadeClient] Server error:', msg.message);
         break;
 
+      case 'snapshot_updated':
+        this.latestSnapshot = msg.snapshot;
+        for (const listener of this.eventListeners) {
+          try { listener(msg as BackendFacadeEvent); } catch { /* ignore */ }
+        }
+        break;
+
       default:
         // All other messages are BackendFacadeEvent
         for (const listener of this.eventListeners) {

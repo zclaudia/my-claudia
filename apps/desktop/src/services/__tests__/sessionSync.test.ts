@@ -17,8 +17,27 @@ vi.mock('../../stores/serverStore', () => ({
   useServerStore: {
     getState: vi.fn(() => ({
       activeServerId: null,
-      servers: [],
-      getActiveServer: vi.fn(),
+      connections: {},
+      localServerPort: 3100,
+      controlPlaneMode: 'embedded-local',
+    })),
+  },
+}));
+
+vi.mock('../../stores/facadeStore', () => ({
+  useFacadeStore: {
+    getState: vi.fn(() => ({
+      localBackendId: 'local-standalone',
+      backends: [
+        {
+          backendId: 'local-standalone',
+          name: 'Local',
+          online: true,
+          runtimeState: 'ready',
+          isThisInstance: true,
+          instanceId: 'instance-local',
+        },
+      ],
     })),
   },
 }));
@@ -28,6 +47,8 @@ vi.mock('../../stores/gatewayStore', () => ({
     getState: vi.fn(() => ({
       gatewayUrl: null,
       gatewaySecret: null,
+      directGatewayUrl: '',
+      directGatewaySecret: '',
     })),
   },
   isGatewayTarget: vi.fn(() => false),
@@ -631,7 +652,7 @@ describe('services/sessionSync', () => {
 
       if ((global.fetch as any).mock.calls.length > 0) {
         const fetchUrl = (global.fetch as any).mock.calls[0][0];
-        expect(fetchUrl).toContain('http://localhost:3100');
+        expect(fetchUrl).toContain('http://localhost:3000');
       }
 
       stopSessionSync();
@@ -639,7 +660,7 @@ describe('services/sessionSync', () => {
   });
 
   describe('getAuthHeaders variations', () => {
-    it('returns bearer token for direct server with clientId', async () => {
+    it('uses gateway auth headers for non-local backend sync', async () => {
       const { startSessionSync, stopSessionSync, eagerSyncAllBackends } = await import('../sessionSync.js');
       const { useServerStore } = await import('../../stores/serverStore.js');
       const { useProjectStore } = await import('../../stores/projectStore.js');
@@ -666,7 +687,7 @@ describe('services/sessionSync', () => {
 
       if ((global.fetch as any).mock.calls.length > 0) {
         const fetchHeaders = (global.fetch as any).mock.calls[0][1]?.headers;
-        expect(fetchHeaders?.Authorization).toBe('Bearer my-client-id');
+        expect(fetchHeaders?.Authorization).toBeUndefined();
       }
 
       stopSessionSync();
@@ -892,7 +913,7 @@ describe('services/sessionSync', () => {
       mod.stopSessionSync();
     });
 
-    it('returns early when no sync request URL is available', async () => {
+    it('does not log missing URL for remote backends without an active server', async () => {
       const consoleDebugSpy = vi.spyOn(console, 'debug').mockImplementation(() => {});
 
       const fetchMock = vi.fn().mockResolvedValue({
@@ -906,14 +927,13 @@ describe('services/sessionSync', () => {
       const mod = await setupAndTriggerFullSync(fetchMock, {
         serverStore: {
           activeServerId: null,
-          servers: [],
-          getActiveServer: () => null,
+          localServerPort: 3100,
+          connections: {},
         },
       });
 
-      expect(consoleDebugSpy).toHaveBeenCalledWith(
-        expect.stringContaining('[SessionSync] Skipping')
-      );
+      expect(consoleDebugSpy).not.toHaveBeenCalled();
+      expect(fetchMock).toHaveBeenCalled();
 
       mod.stopSessionSync();
       consoleDebugSpy.mockRestore();
@@ -1313,7 +1333,7 @@ describe('services/sessionSync', () => {
       vi.useRealTimers();
     });
 
-    it('returns null when no active server and no targetBackendId', async () => {
+    it('falls back to gateway proxy when syncing a remote backend without an active server', async () => {
       vi.useFakeTimers();
       const { startSessionSync, stopSessionSync } = await import('../sessionSync.js');
       const { useServerStore } = await import('../../stores/serverStore.js');
@@ -1322,8 +1342,8 @@ describe('services/sessionSync', () => {
 
       (useServerStore.getState as any).mockReturnValue({
         activeServerId: null,
-        servers: [],
-        getActiveServer: () => null,
+        localServerPort: 3100,
+        connections: {},
       });
       (useProjectStore.getState as any).mockReturnValue({ selectedSessionId: null, deleteSession: vi.fn() });
 
@@ -1333,17 +1353,14 @@ describe('services/sessionSync', () => {
       // Trigger incremental sync to exercise getSyncRequestBaseUrl
       await vi.advanceTimersByTimeAsync(30000);
 
-      // fetch should not have been called since no request URL
-      expect(global.fetch).not.toHaveBeenCalled();
-      expect(consoleDebugSpy).toHaveBeenCalledWith(
-        '[SessionSync] Skipping incremental sync for unknown-backend: no request URL available yet'
-      );
+      expect(global.fetch).toHaveBeenCalled();
+      expect(consoleDebugSpy).not.toHaveBeenCalled();
 
       stopSessionSync();
       consoleDebugSpy.mockRestore();
     });
 
-    it('uses address without protocol by prepending http://', async () => {
+    it('uses gateway proxy URL for remote backend fallback path', async () => {
       vi.useFakeTimers();
       const { startSessionSync, stopSessionSync } = await import('../sessionSync.js');
       const { useServerStore } = await import('../../stores/serverStore.js');
@@ -1376,7 +1393,7 @@ describe('services/sessionSync', () => {
       const fetchCalls = (global.fetch as any).mock.calls;
       expect(fetchCalls.length).toBeGreaterThan(0);
       const fetchUrl = fetchCalls[fetchCalls.length - 1][0];
-      expect(fetchUrl).toMatch(/^http:\/\/localhost:3100/);
+      expect(fetchUrl).toMatch(/^http:\/\/localhost:3000/);
 
       stopSessionSync();
     });
@@ -1435,9 +1452,7 @@ describe('services/sessionSync', () => {
       // Now try eager sync — incremental should be skipped due to activeSyncs lock
       eagerSyncAllBackends();
 
-      // The incremental sync from eagerSyncAllBackends should have been skipped
-      // because the interval-triggered one still holds the lock.
-      // Only 1 fetch call should exist (from the first incremental).
+      // eagerSyncAllBackends should not start a second incremental while one is already in flight.
       expect(fetchCallCount).toBe(1);
 
       // Clean up: resolve the slow fetch

@@ -33,6 +33,7 @@ export interface LocalBackendHandler {
   onStreamOpen(sessionId: string): void;
   onStreamClose(sessionId: string): void;
   onCatchUp(sessionId: string, afterOffset: number): Promise<SessionMessage[]>;
+  onServerEvent(listener: (message: ServerMessage) => void): () => void;
   getCatalogItems(): SessionCatalogItem[];
   getCapabilities(): string[];
 }
@@ -45,6 +46,7 @@ export class EmbeddedGatewayAdapter implements FacadeRuntimeGatewayAdapter {
   private listeners: Array<(event: FacadeAdapterEvent) => void> = [];
   private localBackendId: string | null = null;
   private serverPort: number;
+  private localChannelIds = new Map<string, string>();
 
   constructor(
     private readonly gatewayClient: GatewayClient,
@@ -53,6 +55,7 @@ export class EmbeddedGatewayAdapter implements FacadeRuntimeGatewayAdapter {
   ) {
     this.serverPort = serverPort;
     this.wireGatewayEvents();
+    this.wireLocalHandlerEvents();
   }
 
   // --------------------------------------------------------------------------
@@ -219,6 +222,7 @@ export class EmbeddedGatewayAdapter implements FacadeRuntimeGatewayAdapter {
 
   private handleLocalChannelOpen(backendId: string, epoch: number): void {
     const virtualChannelId = `local:${backendId}:${epoch}`;
+    this.localChannelIds.set(backendId, virtualChannelId);
     this.emit({
       type: 'backend_channel_opened',
       backendId,
@@ -235,6 +239,7 @@ export class EmbeddedGatewayAdapter implements FacadeRuntimeGatewayAdapter {
     const lastColon = channelId.lastIndexOf(':');
     if (firstColon > 0 && lastColon > firstColon) {
       const backendId = channelId.slice(firstColon + 1, lastColon);
+      this.localChannelIds.delete(backendId);
       this.emit({
         type: 'backend_channel_closed',
         backendId,
@@ -340,6 +345,27 @@ export class EmbeddedGatewayAdapter implements FacadeRuntimeGatewayAdapter {
         this.emit({ type: 'content_patch_received', backendId, channelId, sessionId, messages, latestOffset });
       },
     });
+  }
+
+  private wireLocalHandlerEvents(): void {
+    if (!this.localHandler) return;
+    this.localHandler.onServerEvent((message) => {
+      const sessionId = this.getSessionId(message);
+      if (!sessionId || !this.localBackendId) return;
+      const channelId = this.localChannelIds.get(this.localBackendId) ?? `local:${this.localBackendId}:0`;
+      this.emit({
+        type: 'run_event_received',
+        backendId: this.localBackendId,
+        channelId,
+        sessionId,
+        event: message,
+      });
+    });
+  }
+
+  private getSessionId(message: ServerMessage): string | null {
+    const candidate = (message as { sessionId?: unknown }).sessionId;
+    return typeof candidate === 'string' && candidate.length > 0 ? candidate : null;
   }
 
   // --------------------------------------------------------------------------

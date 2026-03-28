@@ -4,6 +4,8 @@ import type { ProjectAgent, AgentMode, SupervisorConfig, TrustLevel, ProviderCon
 import * as api from '../../../services/api';
 import { useSupervisionStore } from '../store';
 import { useProjectStore } from '../../../stores/projectStore';
+import { useProviderMetaStore } from '../../../stores/providerMetaStore';
+import { useServerStore } from '../../../stores/serverStore';
 
 interface AgentStatusBarProps {
   projectId: string;
@@ -40,11 +42,14 @@ export function AgentStatusBar({ projectId, agent, onOpenSession: _onOpenSession
 
   const setAgent = useSupervisionStore((s) => s.setAgent);
   const selectSession = useProjectStore((s) => s.selectSession);
+  const legacyProviders = useProjectStore((s) => s.providers);
+  const activeServerId = useServerStore((s) => s.activeServerId);
+  const scopedProviders = useProviderMetaStore((s) => s.getProviders(activeServerId));
+  const storeProviders = scopedProviders.length > 0 ? scopedProviders : legacyProviders;
 
   // Load providers when init form opens
   useEffect(() => {
     if (!showInitForm) return;
-    const storeProviders = useProjectStore.getState().providers;
     if (storeProviders.length > 0) {
       setProviders(storeProviders);
       const defaultProvider = storeProviders.find((p) => p.isDefault) ?? storeProviders[0];
@@ -56,7 +61,7 @@ export function AgentStatusBar({ projectId, agent, onOpenSession: _onOpenSession
         if (defaultProvider && !selectedProviderId) setSelectedProviderId(defaultProvider.id);
       }).catch(() => {});
     }
-  }, [showInitForm, selectedProviderId]);
+  }, [selectedProviderId, showInitForm, storeProviders]);
 
   const handleInit = async () => {
     setLoading(true);

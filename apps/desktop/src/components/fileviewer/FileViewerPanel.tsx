@@ -9,6 +9,8 @@ import { FileSearchInput } from './FileSearchInput';
 import { MarkdownFileContent } from './MarkdownFileContent';
 import { isDesktopTauri } from '../../utils/platform';
 import { openPopoutWindow, buildWindowTitle, getConnectionParams } from '../../utils/popoutWindow';
+import { useProjectStore } from '../../stores/projectStore';
+import { useOwnershipStore } from '../../stores/ownershipStore';
 
 const EXT_TO_LANG: Record<string, string> = {
   ts: 'typescript', tsx: 'tsx', js: 'javascript', jsx: 'jsx',
@@ -37,10 +39,18 @@ interface FileViewerPanelProps {
   projectRoot: string;
 }
 
+function resolveProjectBackendId(projectRoot: string): string | null {
+  const projects = useProjectStore.getState().projects;
+  const matchingProject = projects.find((project) => project.rootPath === projectRoot);
+  if (!matchingProject) return null;
+  return useOwnershipStore.getState().getProjectBackendId(matchingProject.id);
+}
+
 async function openFileInNewWindow(filePath: string, projectRoot: string) {
   const fileName = filePath.split('/').pop() || filePath;
   const projectName = projectRoot.split('/').pop() || projectRoot;
-  const conn = getConnectionParams();
+  const backendId = resolveProjectBackendId(projectRoot);
+  const conn = getConnectionParams({ backendId });
   await openPopoutWindow({
     type: 'file-viewer',
     params: { fileViewer: filePath, projectRoot },
@@ -48,6 +58,7 @@ async function openFileInNewWindow(filePath: string, projectRoot: string) {
     width: 800,
     height: 600,
     dragDropEnabled: true,
+    connectionTarget: { backendId },
   });
 }
 
@@ -128,6 +139,7 @@ export function FileViewerPanel({ projectRoot }: FileViewerPanelProps) {
     filePath, content, loading, error, searchOpen,
     openFile, setContent, setError, setSearchOpen,
   } = useFileViewerStore();
+  const fileBackendId = resolveProjectBackendId(projectRoot);
 
   const { resolvedTheme } = useTheme();
 
@@ -141,7 +153,7 @@ export function FileViewerPanel({ projectRoot }: FileViewerPanelProps) {
 
     (async () => {
       try {
-        const result = await api.getFileContent({ projectRoot, relativePath: filePath });
+        const result = await api.getFileContent({ projectRoot, relativePath: filePath, backendId: fileBackendId });
         if (!cancelled) setContent(result.content);
       } catch (err) {
         if (!cancelled) setError(err instanceof Error ? err.message : 'Failed to load file');
@@ -149,7 +161,7 @@ export function FileViewerPanel({ projectRoot }: FileViewerPanelProps) {
     })();
 
     return () => { cancelled = true; };
-  }, [filePath, projectRoot, setContent, setError]);
+  }, [fileBackendId, filePath, projectRoot, setContent, setError]);
 
   const handleSearchSelect = (relativePath: string) => {
     openFile(projectRoot, relativePath);
@@ -175,6 +187,7 @@ export function FileViewerPanel({ projectRoot }: FileViewerPanelProps) {
       {searchOpen && (
         <FileSearchInput
           projectRoot={projectRoot}
+          backendId={fileBackendId}
           onSelect={handleSearchSelect}
           onClose={() => setSearchOpen(false)}
         />

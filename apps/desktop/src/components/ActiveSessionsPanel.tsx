@@ -1,8 +1,16 @@
 import { useMemo, useState, useEffect } from 'react';
-import { useSessionsStore, type RemoteSession, LOCAL_BACKEND_KEY } from '../stores/sessionsStore';
+import {
+  useSessionsStore,
+  type RemoteSession,
+  LOCAL_BACKEND_KEY,
+  isLocalSessionBucketKey,
+  resolveSessionBucketBackendId,
+} from '../stores/sessionsStore';
 import { useServerStore } from '../stores/serverStore';
 import { useProjectStore } from '../stores/projectStore';
-import { shouldShowBackend, useGatewayStore } from '../stores/gatewayStore';
+import { parseBackendId, shouldShowNonCurrentInstanceBackend, useGatewayStore } from '../stores/gatewayStore';
+import { useFacadeStore } from '../stores/facadeStore';
+import { LEGACY_LOCAL_SERVER_ID } from '../utils/controlPlane';
 
 interface ActiveSessionsPanelProps {
   onSessionSelect?: (backendId: string, sessionId: string) => void;
@@ -23,7 +31,10 @@ export function ActiveSessionsPanel({ onSessionSelect }: ActiveSessionsPanelProp
   const { remoteSessions, activeSessionIdsByBackend, recentlyCompletedSessions, dismissRecentlyCompleted, clearAllRecentlyCompleted } = useSessionsStore();
   const { activeServerId, connections } = useServerStore();
   const { sessions: localSessions, projects } = useProjectStore();
-  const { localBackendId, discoveredBackends, currentInstanceId, showLocalBackend } = useGatewayStore();
+  const { showLocalBackend } = useGatewayStore();
+  const facadeBackends = useFacadeStore((s) => s.backends);
+  const localBackendId = useFacadeStore((s) => s.localBackendId);
+  const currentInstanceId = useFacadeStore((s) => s.currentInstanceId);
   const hasDirectLocalConnection = (connections.local?.status === 'connected' || connections.local?.status === 'connecting');
 
   // Refresh "X ago" timestamps every 30s
@@ -38,13 +49,13 @@ export function ActiveSessionsPanel({ onSessionSelect }: ActiveSessionsPanelProp
     if (!activeServerId) {
       return null;
     }
-    return activeServerId;
+    return parseBackendId(activeServerId) ?? activeServerId;
   }, [activeServerId]);
 
   const isVisibleGatewayBackend = (backendId: string): boolean => {
-    const backend = discoveredBackends.find((item) => item.backendId === backendId);
+    const backend = facadeBackends.find((item) => item.backendId === backendId);
     if (!backend) return true;
-    return shouldShowBackend(backend, currentInstanceId, showLocalBackend);
+    return shouldShowNonCurrentInstanceBackend(backend, currentInstanceId, showLocalBackend);
   };
 
   // Build active session groups from a single source of truth:
@@ -54,7 +65,7 @@ export function ActiveSessionsPanel({ onSessionSelect }: ActiveSessionsPanelProp
     const hasLocalBucket = activeSessionIdsByBackend.has(LOCAL_BACKEND_KEY);
     const localAliasBackendIds = new Set<string>();
     if (localBackendId) localAliasBackendIds.add(localBackendId);
-    if (hasDirectLocalConnection) localAliasBackendIds.add('local');
+    if (hasDirectLocalConnection) localAliasBackendIds.add(LEGACY_LOCAL_SERVER_ID);
 
     activeSessionIdsByBackend.forEach((activeIds, backendId) => {
       if (activeIds.size === 0) return;
@@ -136,7 +147,7 @@ export function ActiveSessionsPanel({ onSessionSelect }: ActiveSessionsPanelProp
     });
 
     return result;
-  }, [activeSessionIdsByBackend, remoteSessions, localSessions, localBackendId, hasDirectLocalConnection, discoveredBackends, currentInstanceId, showLocalBackend]);
+  }, [activeSessionIdsByBackend, remoteSessions, localSessions, localBackendId, hasDirectLocalConnection, facadeBackends, currentInstanceId, showLocalBackend]);
 
   // Don't show if not connected to any backend
   if (!activeServerId) {
@@ -150,8 +161,8 @@ export function ActiveSessionsPanel({ onSessionSelect }: ActiveSessionsPanelProp
     if (backendId === LOCAL_BACKEND_KEY) {
       return 'Local Backend';
     }
-    const discovered = discoveredBackends.find(b => b.backendId === backendId);
-    const baseName = discovered?.name || `Backend ${backendId.slice(0, 8)}`;
+    const backend = facadeBackends.find(b => b.backendId === backendId);
+    const baseName = backend?.name || `Backend ${backendId.slice(0, 8)}`;
     if (backendId === currentBackendId) {
       return `${baseName} (Current)`;
     }
@@ -168,9 +179,10 @@ export function ActiveSessionsPanel({ onSessionSelect }: ActiveSessionsPanelProp
   };
 
   const totalActive = Array.from(allActiveSessionsByBackend.values()).reduce((sum, s) => sum + s.length, 0);
-  const visibleRecentlyCompletedSessions = recentlyCompletedSessions.filter(({ backendId }) => (
-    backendId === LOCAL_BACKEND_KEY || isVisibleGatewayBackend(backendId)
-  ));
+  const visibleRecentlyCompletedSessions = recentlyCompletedSessions.filter(({ ownerBackendId, backendId }) => {
+    const resolvedOwnerBackendId = ownerBackendId ?? backendId;
+    return resolvedOwnerBackendId === LOCAL_BACKEND_KEY || isVisibleGatewayBackend(resolvedOwnerBackendId);
+  });
   const hasRecentlyCompleted = visibleRecentlyCompletedSessions.length > 0;
 
   return (
@@ -235,8 +247,9 @@ export function ActiveSessionsPanel({ onSessionSelect }: ActiveSessionsPanelProp
                       <li key={session.id}>
                         <button
                           onClick={() => {
-                            if (backendId === LOCAL_BACKEND_KEY) {
-                              onSessionSelect?.('local', session.id);
+                            if (isLocalSessionBucketKey(backendId)) {
+                              const resolvedBackendId = resolveSessionBucketBackendId(backendId, localBackendId);
+                              if (resolvedBackendId) onSessionSelect?.(resolvedBackendId, session.id);
                             } else {
                               onSessionSelect?.(backendId, session.id);
                             }
@@ -277,14 +290,16 @@ export function ActiveSessionsPanel({ onSessionSelect }: ActiveSessionsPanelProp
               </button>
             </div>
             <div className="max-h-[150px] overflow-y-auto space-y-0.5">
-              {visibleRecentlyCompletedSessions.map(({ session, backendId, completedAt }) => (
+              {visibleRecentlyCompletedSessions.map(({ session, ownerBackendId, backendId, completedAt }) => (
                 <div key={session.id} className="flex items-center gap-1">
                   <button
                     onClick={() => {
-                      if (backendId === LOCAL_BACKEND_KEY) {
-                        onSessionSelect?.('local', session.id);
+                      const resolvedOwnerBackendId = ownerBackendId ?? backendId;
+                      if (isLocalSessionBucketKey(resolvedOwnerBackendId)) {
+                        const resolvedBackendId = resolveSessionBucketBackendId(resolvedOwnerBackendId, localBackendId);
+                        if (resolvedBackendId) onSessionSelect?.(resolvedBackendId, session.id);
                       } else {
-                        onSessionSelect?.(backendId, session.id);
+                        onSessionSelect?.(resolvedOwnerBackendId, session.id);
                       }
                     }}
                     className="flex-1 min-w-0 text-left h-7 px-2 rounded-lg text-sm text-muted-foreground hover:bg-secondary hover:text-foreground transition-colors flex items-center gap-1.5"

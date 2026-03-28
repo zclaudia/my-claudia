@@ -1,6 +1,13 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { render, fireEvent, act, waitFor } from '@testing-library/react';
 
+const selectionMocks = {
+  selectProject: vi.fn(),
+  selectSession: vi.fn(),
+  selectSessionOnBackend: vi.fn(),
+  selectBackend: vi.fn(),
+};
+
 // Mock child components to isolate Sidebar
 vi.mock('../ProjectSettings', () => ({ ProjectSettings: ({ isOpen, onClose }: any) => isOpen ? <div data-testid="project-settings"><button onClick={onClose}>close-project-settings</button></div> : null }));
 vi.mock('../SettingsPanel', () => ({ SettingsPanel: ({ isOpen, onClose }: any) => isOpen ? <div data-testid="settings-panel"><button onClick={onClose}>close-settings</button></div> : null }));
@@ -29,6 +36,14 @@ vi.mock('../sidebar/SupervisorGroupItem', () => ({
 }));
 vi.mock('../sidebar/worktreeGrouping', () => ({ groupSessionsByWorktree: vi.fn().mockReturnValue([]) }));
 vi.mock('../../hooks/useSwipeBack', () => ({ useSwipeBack: vi.fn().mockReturnValue({ current: null }) }));
+vi.mock('../../hooks/useSelectionCoordinator', () => ({
+  useSelectionCoordinator: () => ({
+    selectProject: selectionMocks.selectProject,
+    selectSession: selectionMocks.selectSession,
+    selectSessionOnBackend: selectionMocks.selectSessionOnBackend,
+    selectBackend: selectionMocks.selectBackend,
+  }),
+}));
 
 // Mock services
 vi.mock('../../services/api', async (importOriginal) => {
@@ -50,6 +65,7 @@ vi.mock('../../services/api', async (importOriginal) => {
 
 import { Sidebar } from '../Sidebar';
 import { useProjectStore } from '../../stores/projectStore';
+import { useProviderMetaStore } from '../../stores/providerMetaStore';
 import { useServerStore } from '../../stores/serverStore';
 import { useSupervisionStore } from '../../stores/supervisionStore';
 import { usePermissionStore } from '../../stores/permissionStore';
@@ -64,6 +80,12 @@ const baseProject = { id: 'proj-1', name: 'Project One', rootPath: '/tmp/proj1',
 const baseSession = { id: 'sess-1', name: 'Session 1', projectId: 'proj-1', createdAt: Date.now(), updatedAt: Date.now() };
 
 function setupStores(overrides: Record<string, any> = {}) {
+  useProviderMetaStore.setState({
+    providersByBackend: {},
+    providerCommands: {},
+    providerCapabilities: {},
+  } as any);
+
   useProjectStore.setState({
     projects: [baseProject as any],
     sessions: [baseSession as any],
@@ -83,8 +105,6 @@ function setupStores(overrides: Record<string, any> = {}) {
     connections: {
       local: { status: 'connected', error: null, isLocalConnection: true, features: [] },
     },
-    connectionStatus: 'connected',
-    connectionError: null,
     setActiveServer: vi.fn(),
     getDefaultServer: vi.fn().mockReturnValue({ id: 'local', name: 'Local', address: 'localhost:3100' }),
     ...overrides.serverStore,
@@ -106,6 +126,10 @@ describe('Sidebar', () => {
   beforeEach(() => {
     setupStores();
     vi.clearAllMocks();
+    selectionMocks.selectProject.mockReset();
+    selectionMocks.selectSession.mockReset();
+    selectionMocks.selectSessionOnBackend.mockReset();
+    selectionMocks.selectBackend.mockReset();
   });
 
   afterEach(() => {
@@ -208,9 +232,6 @@ describe('Sidebar', () => {
   // ---- Session selection ----
 
   it('selects a session when clicked', () => {
-    const selectSession = vi.fn();
-    setupStores({ projectStore: { selectSession } });
-
     const { container } = render(<Sidebar collapsed={false} onToggle={vi.fn()} />);
     // Expand project
     const buttons = Array.from(container.querySelectorAll('button'));
@@ -223,7 +244,7 @@ describe('Sidebar', () => {
     const sessBtn = allButtons.find(b => b.textContent === 'select-sess-1');
     expect(sessBtn).toBeTruthy();
     fireEvent.click(sessBtn!);
-    expect(selectSession).toHaveBeenCalledWith('sess-1');
+    expect(selectionMocks.selectSession).toHaveBeenCalledWith('sess-1');
   });
 
   it('marks session pending for plan review interactions', () => {
@@ -403,7 +424,13 @@ describe('Sidebar', () => {
   });
 
   it('disables New Project button when disconnected', () => {
-    setupStores({ serverStore: { connectionStatus: 'disconnected' } });
+    setupStores({
+      serverStore: {
+        connections: {
+          local: { status: 'disconnected', error: null, isLocalConnection: true, features: [] },
+        },
+      },
+    });
     const { container } = render(<Sidebar collapsed={false} onToggle={vi.fn()} />);
     const buttons = Array.from(container.querySelectorAll('button'));
     const newProjectBtn = buttons.find(b => b.textContent?.includes('New Project'));
@@ -737,7 +764,7 @@ describe('Sidebar', () => {
 
   it('displays search results', async () => {
     (api.searchMessages as ReturnType<typeof vi.fn>).mockResolvedValue([
-      { id: 'r1', sessionId: 'sess-1', sessionName: 'Test Session', content: 'Hello world' },
+      { id: 'r1', sessionId: 'sess-1', sessionName: 'Test Session', content: 'Hello world', ownerBackendId: 'local' },
     ]);
     (api.getSearchHistory as ReturnType<typeof vi.fn>).mockResolvedValue([]);
 
@@ -757,11 +784,8 @@ describe('Sidebar', () => {
   });
 
   it('selects session from search results', async () => {
-    const selectSession = vi.fn();
-    setupStores({ projectStore: { selectSession } });
-
     (api.searchMessages as ReturnType<typeof vi.fn>).mockResolvedValue([
-      { id: 'r1', sessionId: 'sess-1', sessionName: 'Test Session', content: 'Hello world' },
+      { id: 'r1', sessionId: 'sess-1', sessionName: 'Test Session', content: 'Hello world', ownerBackendId: 'local' },
     ]);
     (api.getSearchHistory as ReturnType<typeof vi.fn>).mockResolvedValue([]);
 
@@ -779,13 +803,13 @@ describe('Sidebar', () => {
     const resultButtons = Array.from(container.querySelectorAll('button')).filter(b => b.textContent?.includes('Test Session'));
     if (resultButtons.length > 0) {
       fireEvent.click(resultButtons[0]);
-      expect(selectSession).toHaveBeenCalledWith('sess-1');
+      expect(selectionMocks.selectSession).toHaveBeenCalledWith('sess-1', { backendId: 'local' });
     }
   });
 
   it('shows search result type badge for file results', async () => {
     (api.searchMessages as ReturnType<typeof vi.fn>).mockResolvedValue([
-      { id: 'r1', sessionId: 'sess-1', sessionName: 'Sess', content: 'file content', resultType: 'file' },
+      { id: 'r1', sessionId: 'sess-1', sessionName: 'Sess', content: 'file content', resultType: 'file', ownerBackendId: 'local' },
     ]);
     (api.getSearchHistory as ReturnType<typeof vi.fn>).mockResolvedValue([]);
 
@@ -804,7 +828,7 @@ describe('Sidebar', () => {
 
   it('shows search result type badge for tool results', async () => {
     (api.searchMessages as ReturnType<typeof vi.fn>).mockResolvedValue([
-      { id: 'r1', sessionId: 'sess-1', sessionName: 'Sess', content: 'tool content', resultType: 'tool' },
+      { id: 'r1', sessionId: 'sess-1', sessionName: 'Sess', content: 'tool content', resultType: 'tool', ownerBackendId: 'local' },
     ]);
     (api.getSearchHistory as ReturnType<typeof vi.fn>).mockResolvedValue([]);
 
@@ -861,7 +885,13 @@ describe('Sidebar', () => {
   // ---- Disconnected state ----
 
   it('does not create session when disconnected', async () => {
-    setupStores({ serverStore: { connectionStatus: 'disconnected' } });
+    setupStores({
+      serverStore: {
+        connections: {
+          local: { status: 'disconnected', error: null, isLocalConnection: true, features: [] },
+        },
+      },
+    });
     const { container } = render(<Sidebar collapsed={false} onToggle={vi.fn()} />);
 
     // The New Project button should be disabled
@@ -944,14 +974,11 @@ describe('Sidebar', () => {
   });
 
   it('handles active session selection for local backend', () => {
-    const selectSession = vi.fn();
-    setupStores({ projectStore: { selectSession } });
-
     const { container } = render(<Sidebar collapsed={false} onToggle={vi.fn()} />);
     const localBtn = Array.from(container.querySelectorAll('button')).find(b => b.textContent === 'select-active');
     if (localBtn) {
       fireEvent.click(localBtn);
-      expect(selectSession).toHaveBeenCalledWith('sess-1');
+      expect(selectionMocks.selectSessionOnBackend).toHaveBeenCalledWith('local', 'sess-1');
     }
   });
 

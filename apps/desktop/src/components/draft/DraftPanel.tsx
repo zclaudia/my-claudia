@@ -1,6 +1,7 @@
 import { useCallback, useRef, useEffect } from 'react';
 import { useDraftEditorStore } from '../../stores/draftEditorStore';
 import { usePluginStore } from '../../stores/pluginStore';
+import { useOwnershipStore } from '../../stores/ownershipStore';
 import { useIsMobile } from '../../hooks/useMediaQuery';
 import { isDesktopTauri } from '../../utils/platform';
 import { openPopoutWindow, getConnectionParams } from '../../utils/popoutWindow';
@@ -8,7 +9,8 @@ import { openPopoutWindow, getConnectionParams } from '../../utils/popoutWindow'
 const MAX_CONTENT_BYTES = 100 * 1024;
 
 async function openDraftInNewWindow(sessionId: string) {
-  const conn = getConnectionParams();
+  const ownerBackendId = useOwnershipStore.getState().getSessionBackendId(sessionId);
+  const conn = getConnectionParams({ sessionId, backendId: ownerBackendId });
   const label = await openPopoutWindow({
     type: 'draft',
     params: { draftWindow: sessionId },
@@ -16,6 +18,7 @@ async function openDraftInNewWindow(sessionId: string) {
     width: 700,
     height: 500,
     dragDropEnabled: true,
+    connectionTarget: { sessionId, backendId: ownerBackendId },
   });
 
   useDraftEditorStore.getState().setPoppedOut(true, label);

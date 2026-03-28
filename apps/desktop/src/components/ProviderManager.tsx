@@ -3,6 +3,7 @@ import { ChevronDown, Check } from 'lucide-react';
 import type { ProviderConfig } from '@my-claudia/shared';
 import { useServerStore } from '../stores/serverStore';
 import { useProjectStore } from '../stores/projectStore';
+import { useProviderMetaStore } from '../stores/providerMetaStore';
 import * as api from '../services/api';
 import { useAndroidBack } from '../hooks/useAndroidBack';
 
@@ -59,8 +60,12 @@ interface ProviderManagerProps {
 }
 
 export function ProviderManager({ isOpen, onClose, inline = false }: ProviderManagerProps) {
-  const { connectionStatus } = useServerStore();
-  const isConnected = connectionStatus === 'connected';
+  const activeServerId = useServerStore((s) => s.activeServerId);
+  const isConnected = useServerStore((s) => {
+    if (!s.activeServerId) return false;
+    return s.connections[s.activeServerId]?.status === 'connected';
+  });
+  const storeProviders = useProviderMetaStore((s) => s.getProviders(activeServerId));
 
   const [providers, setProviders] = useState<ProviderConfig[]>([]);
   const [loading, setLoading] = useState(false);
@@ -80,6 +85,10 @@ export function ProviderManager({ isOpen, onClose, inline = false }: ProviderMan
 
   const loadProviders = async () => {
     if (!isConnected) return;
+    const current = useProviderMetaStore.getState().getProviders(activeServerId);
+    if (current.length > 0) {
+      setProviders(current);
+    }
     setLoading(true);
     try {
       const data = await api.getProviders();
@@ -92,6 +101,12 @@ export function ProviderManager({ isOpen, onClose, inline = false }: ProviderMan
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    if (storeProviders.length > 0) {
+      setProviders(storeProviders);
+    }
+  }, [storeProviders]);
 
   useEffect(() => {
     // For inline mode, always load when connected

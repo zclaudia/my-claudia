@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { useServerStore } from '../stores/serverStore';
 import { useFacadeStore } from '../stores/facadeStore';
-import { useGatewayStore, shouldShowBackend } from '../stores/gatewayStore';
+import { useGatewayStore, shouldShowNonCurrentInstanceBackend } from '../stores/gatewayStore';
 import { useUIStore, type FontSizePreset } from '../stores/uiStore';
 import { useConnection } from '../contexts/ConnectionContext';
 import { useIsMobile } from '../hooks/useMediaQuery';
@@ -25,6 +25,7 @@ import { PermissionSettings } from './settings/PermissionSettings';
 import { NotificationSettingsInline } from './settings/NotificationSettings';
 import { MobileGatewayConfig } from './settings/MobileGatewayConfig';
 import { isMacOS, isTauri } from '../utils/platform';
+import { useControlPlaneMode } from '../hooks/useControlPlaneMode';
 
 type SettingsTab = 'general' | 'agent' | 'permissions' | 'providers' | 'notifications' | 'gateway' | 'import' | 'plugins' | 'mcp-servers' | 'workspace' | 'debug' | `plugin:${string}`;
 
@@ -41,16 +42,14 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
   const [mobileShowContent, setMobileShowContent] = useState(false);
   const isMobile = useIsMobile();
   const pluginSettingsTabs = usePluginStore(selectPluginSettingsTabs);
+  const controlPlaneMode = useControlPlaneMode();
 
   const {
-    connectionStatus,
     activeServerId,
     setActiveServer
   } = useServerStore();
   const {
     isConnected: isGatewayConnected,
-    discoveredBackends,
-    currentInstanceId,
     showLocalBackend,
   } = useGatewayStore();
   const { sendMessage, connectServer, embeddedServerStatus, embeddedServerError, embeddedServerPort } = useConnection();
@@ -59,11 +58,19 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
   const cleanupResult = useProcessMonitorStore((state) => state.lastCleanupResult);
   const clearCleanupResult = useProcessMonitorStore((state) => state.clearCleanupResult);
 
-  const isConnected = connectionStatus === 'connected';
   const facadeBackends = useFacadeStore((s) => s.backends);
+  const localBackendId = useFacadeStore((s) => s.localBackendId);
+  const currentInstanceId = useFacadeStore((s) => s.currentInstanceId);
   const activeServer = facadeBackends.find(b => b.backendId === activeServerId) ?? null;
-  const isLocalServer = activeServerId === 'local';
-  const visibleGatewayBackends = discoveredBackends.filter(b => shouldShowBackend(b, currentInstanceId, showLocalBackend));
+  const isConnected = useServerStore((s) => {
+    if (!s.activeServerId) return false;
+    return s.connections[s.activeServerId]?.status === 'connected';
+  });
+  const isActiveLocalBackend = !!activeServerId && (
+    activeServerId === localBackendId || activeServer?.isThisInstance === true
+  );
+  const isEmbeddedLocalMode = controlPlaneMode === 'embedded-local';
+  const visibleGatewayBackends = facadeBackends.filter(b => shouldShowNonCurrentInstanceBackend(b, currentInstanceId, showLocalBackend));
 
   // SDK version check
   const localServerPort = useServerStore((s) => s.localServerPort);
@@ -137,10 +144,11 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
   // Reset tab if current tab is not available for the new server type
   // Note: 'gateway' tab is always available on mobile for editing gateway config
   useEffect(() => {
-    if (!isLocalServer && activeTab === 'import') {
+    if (isEmbeddedLocalMode) return;
+    if (activeTab === 'agent' || activeTab === 'workspace' || activeTab === 'mcp-servers' || activeTab === 'gateway' || activeTab === 'import') {
       setActiveTab('providers');
     }
-  }, [activeServerId, activeTab, isLocalServer]);
+  }, [activeTab, isEmbeddedLocalMode]);
 
   const handleBackendSwitch = (backend: GatewayBackendInfo) => {
     if (!backend.online) return;
@@ -176,7 +184,7 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
         </svg>
       )
     },
-    {
+    ...(isEmbeddedLocalMode ? [{
       id: 'agent' as SettingsTab,
       label: 'Claudia',
       icon: (
@@ -184,7 +192,7 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
         </svg>
       )
-    },
+    }] : []),
     {
       id: 'permissions' as SettingsTab,
       label: 'Permissions',
@@ -242,7 +250,7 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
         </svg>
       )
     },
-    {
+    ...(isEmbeddedLocalMode ? [{
       id: 'mcp-servers' as SettingsTab,
       label: 'MCP Servers',
       icon: (
@@ -259,7 +267,7 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
         </svg>
       )
-    },
+    }] : []),
     {
       id: 'notifications' as SettingsTab,
       label: 'Notifications',
@@ -269,7 +277,7 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
         </svg>
       )
     },
-    ...(isLocalServer ? [
+    ...(isEmbeddedLocalMode ? [
       {
         id: 'gateway' as SettingsTab,
         label: 'Gateway',
@@ -625,7 +633,7 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
 
             {activeTab === 'providers' && (
               <div className="space-y-4">
-                {!isLocalServer && activeServer && (
+                {!isActiveLocalBackend && activeServer && (
                   <div className="flex items-center gap-2 px-3 py-2 bg-primary/10 border border-primary/20 rounded-lg text-sm">
                     <svg className="w-4 h-4 text-primary shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />

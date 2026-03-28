@@ -2,6 +2,7 @@ import type { ServerInfo, ApiResponse } from '@my-claudia/shared';
 
 import { resolveGatewayBackendUrl } from '../gatewayProxy';
 import { useServerStore } from '../../stores/serverStore';
+import { getControlPlaneMode, isLocalBackendId } from '../../utils/controlPlane';
 
 /**
  * Get server info (including whether authentication is required).
@@ -18,14 +19,19 @@ export async function getServerInfo(address: string): Promise<ServerInfo> {
 }
 
 function resolveProbeBaseUrl(serverId: string): string | null {
+  const localPort = useServerStore.getState().localServerPort;
+  const controlPlaneMode = getControlPlaneMode();
+
   if (serverId) {
+    if (controlPlaneMode === 'embedded-local' && isLocalBackendId(serverId)) {
+      if (!localPort) return null;
+      return `http://localhost:${localPort}`;
+    }
     return resolveGatewayBackendUrl(serverId);
   }
 
-  // Local/direct server: use localServerPort
-  const port = useServerStore.getState().localServerPort;
-  if (!port) return null;
-  return `http://localhost:${port}`;
+  if (!localPort) return null;
+  return `http://localhost:${localPort}`;
 }
 
 export async function probeServerLatency(serverId: string, timeoutMs = 5000): Promise<number | null> {
@@ -72,8 +78,8 @@ export interface AgentConfig {
 }
 
 export async function getAgentConfig(): Promise<AgentConfig> {
-  const { fetchApi } = await import('./base');
-  const result = await fetchApi<AgentConfig>('/api/agent/config');
+  const { fetchLocalApi } = await import('./base');
+  const result = await fetchLocalApi<AgentConfig>('/api/agent/config');
   if (!result.success || !result.data) {
     throw new Error(result.error?.message || 'Failed to get agent config');
   }
@@ -85,8 +91,8 @@ export async function updateAgentConfig(config: {
   providerId?: string | null;
   permissionPolicy?: string | null;
 }): Promise<AgentConfig> {
-  const { fetchApi } = await import('./base');
-  const result = await fetchApi<AgentConfig>('/api/agent/config', {
+  const { fetchLocalApi } = await import('./base');
+  const result = await fetchLocalApi<AgentConfig>('/api/agent/config', {
     method: 'PUT',
     body: JSON.stringify(config)
   });

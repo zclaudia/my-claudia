@@ -5,7 +5,8 @@
 import { useServerStore } from '../stores/serverStore';
 import { useFacadeStore } from '../stores/facadeStore';
 import { useGatewayStore } from '../stores/gatewayStore';
-import { getBaseUrl, getAuthHeaders } from '../services/api/base';
+import { getBaseUrlForBackend, getAuthHeadersForBackend } from '../services/api/base';
+import { useOwnershipStore } from '../stores/ownershipStore';
 
 export interface ConnectionParams {
   serverUrl: string;
@@ -16,20 +17,33 @@ export interface ConnectionParams {
   gatewaySecret?: string;
 }
 
-/** Gather current connection params from stores (serverUrl, auth, gateway). */
-export function getConnectionParams(): ConnectionParams {
-  let serverUrl = '';
-  try { serverUrl = getBaseUrl(); } catch { /* no server */ }
-  const authToken = (getAuthHeaders() as Record<string, string>)['Authorization'] || '';
+interface ConnectionTargetOptions {
+  backendId?: string | null;
+  sessionId?: string | null;
+}
 
-  const serverState = useServerStore.getState();
-  const activeServerId = serverState.activeServerId || '';
-  const activeBackend = useFacadeStore.getState().backends.find(b => b.backendId === activeServerId);
+function resolveTargetBackendId(options?: ConnectionTargetOptions): string {
+  if (options?.backendId) return options.backendId;
+  if (options?.sessionId) {
+    const ownerBackendId = useOwnershipStore.getState().getSessionBackendId(options.sessionId);
+    if (ownerBackendId) return ownerBackendId;
+  }
+  return useServerStore.getState().activeServerId || '';
+}
+
+/** Gather current connection params from stores (serverUrl, auth, gateway). */
+export function getConnectionParams(options?: ConnectionTargetOptions): ConnectionParams {
+  const targetBackendId = resolveTargetBackendId(options);
+  let serverUrl = '';
+  try { serverUrl = getBaseUrlForBackend(targetBackendId); } catch { /* no server */ }
+  const authToken = (getAuthHeadersForBackend(targetBackendId) as Record<string, string>)['Authorization'] || '';
+
+  const activeBackend = useFacadeStore.getState().backends.find(b => b.backendId === targetBackendId);
   const serverName = activeBackend?.name || '';
   const gatewayState = useGatewayStore.getState();
 
-  const result: ConnectionParams = { serverUrl, authToken, serverId: activeServerId, serverName };
-  if (activeServerId && gatewayState.gatewayUrl && gatewayState.gatewaySecret) {
+  const result: ConnectionParams = { serverUrl, authToken, serverId: targetBackendId, serverName };
+  if (targetBackendId && gatewayState.gatewayUrl && gatewayState.gatewaySecret) {
     result.gatewayUrl = gatewayState.gatewayUrl;
     result.gatewaySecret = gatewayState.gatewaySecret;
   }
@@ -37,8 +51,8 @@ export function getConnectionParams(): ConnectionParams {
 }
 
 /** Build a pop-out window URL with connection params + custom params. */
-export function buildPopoutUrl(windowParams: Record<string, string>): string {
-  const conn = getConnectionParams();
+export function buildPopoutUrl(windowParams: Record<string, string>, options?: ConnectionTargetOptions): string {
+  const conn = getConnectionParams(options);
   const params = new URLSearchParams({ ...windowParams, serverUrl: conn.serverUrl });
   if (conn.authToken) params.set('authToken', conn.authToken);
   if (conn.serverId) params.set('serverId', conn.serverId);
@@ -57,6 +71,7 @@ export interface PopoutWindowOptions {
   width?: number;
   height?: number;
   dragDropEnabled?: boolean;
+  connectionTarget?: ConnectionTargetOptions;
 }
 
 /**
@@ -66,7 +81,7 @@ export interface PopoutWindowOptions {
 export async function openPopoutWindow(options: PopoutWindowOptions): Promise<string> {
   const { WebviewWindow } = await import('@tauri-apps/api/webviewWindow');
   const label = `${options.type}-${Date.now()}`;
-  const url = buildPopoutUrl(options.params);
+  const url = buildPopoutUrl(options.params, options.connectionTarget);
 
   new WebviewWindow(label, {
     url,

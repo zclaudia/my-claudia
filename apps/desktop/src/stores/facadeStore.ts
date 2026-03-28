@@ -22,6 +22,7 @@ interface FacadeState {
   facade: BackendFacade | null;
 
   // From BackendFacadeSnapshot
+  mode: BackendFacadeSnapshot['mode'] | null;
   connectionState: BackendConnectionState;
   backends: BackendSnapshot[];
   sessionStreams: Record<string, SessionStreamSnapshot>;
@@ -40,6 +41,7 @@ interface FacadeState {
 
 const initialState = {
   facade: null,
+  mode: null as BackendFacadeSnapshot['mode'] | null,
   connectionState: 'idle' as BackendConnectionState,
   backends: [],
   sessionStreams: {},
@@ -59,6 +61,7 @@ export const useFacadeStore = create<FacadeState>((set, get) => ({
 
   applySnapshot: (snapshot) =>
     set({
+      mode: snapshot.mode,
       connectionState: snapshot.connectionState,
       backends: snapshot.backends,
       sessionStreams: snapshot.sessionStreams,

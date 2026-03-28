@@ -2,10 +2,12 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { Bot, Monitor, ChevronRight, Terminal, RefreshCw, ExternalLink, Copy, Check, AlertCircle, Globe, ArrowLeft } from 'lucide-react';
 import { useWslDiscovery } from '../hooks/useWslDiscovery';
 import { useServerStore, type ConnectionStatus } from '../stores/serverStore';
-import { useGatewayStore, shouldShowBackend } from '../stores/gatewayStore';
+import { useGatewayStore, shouldShowNonCurrentInstanceBackend } from '../stores/gatewayStore';
+import { useFacadeStore } from '../stores/facadeStore';
 import { useConnection } from '../contexts/ConnectionContext';
 import { open } from '@tauri-apps/plugin-shell';
-import type { GatewayBackendInfo } from '@my-claudia/shared';
+import type { BackendSnapshot } from '@my-claudia/shared';
+import { LEGACY_LOCAL_SERVER_ID, resolveCanonicalBackendId, resolveLocalBackendId } from '../utils/controlPlane';
 
 type SetupPath = 'choose' | 'wsl' | 'gateway' | 'manual';
 
@@ -27,14 +29,14 @@ export function WindowsSetup() {
   const { setActiveServer, setLocalServerPort } = useServerStore();
 
   const {
-    isConnected: isGatewayConnected,
-    discoveredBackends,
     backendAuthStatus,
-    currentInstanceId,
     setDirectGatewayConfig,
     setLastActiveBackend,
     showLocalBackend,
   } = useGatewayStore();
+  const facadeConnectionState = useFacadeStore((s) => s.connectionState);
+  const backends = useFacadeStore((s) => s.backends);
+  const currentInstanceId = useFacadeStore((s) => s.currentInstanceId);
 
   const [path, setPath] = useState<SetupPath>('choose');
   const [manualAddress, setManualAddress] = useState(`localhost:${DEFAULT_PORT}`);
@@ -78,16 +80,25 @@ export function WindowsSetup() {
       const normalizedAddress = normalizeAddress(address);
       const port = parseInt(normalizedAddress.split(':')[1]) || DEFAULT_PORT;
       setLocalServerPort(port);
-      setActiveServer('local');
-      connectServer('local');
+      const initialLocalBackendId = resolveCanonicalBackendId(
+        resolveLocalBackendId(LEGACY_LOCAL_SERVER_ID) ?? LEGACY_LOCAL_SERVER_ID,
+        LEGACY_LOCAL_SERVER_ID,
+      ) || LEGACY_LOCAL_SERVER_ID;
+      setActiveServer(initialLocalBackendId);
+      connectServer(initialLocalBackendId);
 
       // Poll for connection
       let attempts = 0;
       await new Promise<void>((resolve, reject) => {
         const interval = setInterval(() => {
           attempts++;
-          const connectionStatus: ConnectionStatus = useServerStore.getState().connectionStatus;
-          if (connectionStatus === 'connected') {
+          const localBackendId = resolveCanonicalBackendId(
+            resolveLocalBackendId(LEGACY_LOCAL_SERVER_ID) ?? LEGACY_LOCAL_SERVER_ID,
+            LEGACY_LOCAL_SERVER_ID,
+          ) || LEGACY_LOCAL_SERVER_ID;
+          const localStatus: ConnectionStatus = useServerStore.getState().connections[localBackendId]?.status || 'disconnected';
+          if (localStatus === 'connected') {
+            useServerStore.getState().setActiveServer(localBackendId);
             clearInterval(interval);
             resolve();
           } else if (attempts >= 20) {
@@ -115,7 +126,7 @@ export function WindowsSetup() {
     setDirectGatewayConfig(url, secret);
 
     const checkInterval = setInterval(() => {
-      if (useGatewayStore.getState().isConnected) {
+      if (useFacadeStore.getState().connectionState === 'connected') {
         setGatewayConnecting(false);
         clearInterval(checkInterval);
       }
@@ -123,14 +134,14 @@ export function WindowsSetup() {
 
     setTimeout(() => {
       clearInterval(checkInterval);
-      if (!useGatewayStore.getState().isConnected) {
+      if (useFacadeStore.getState().connectionState !== 'connected') {
         setGatewayConnecting(false);
         setGatewayError('Connection timed out. Please check the URL and secret.');
       }
     }, 15000);
   }, [gatewayUrl, gatewaySecret, setDirectGatewayConfig]);
 
-  const handleBackendSelect = useCallback((backend: GatewayBackendInfo) => {
+  const handleBackendSelect = useCallback((backend: BackendSnapshot) => {
     if (!backend.online) return;
     const serverId = backend.backendId;
     setActiveServer(serverId);
@@ -153,8 +164,9 @@ export function WindowsSetup() {
   }, []);
 
   const runningDistros = distros.filter(d => d.state === 'Running');
-  const onlineBackends = discoveredBackends.filter(
-    b => b.online && shouldShowBackend(b, currentInstanceId, showLocalBackend)
+  const isGatewayConnected = facadeConnectionState === 'connected';
+  const onlineBackends = backends.filter(
+    b => b.online && shouldShowNonCurrentInstanceBackend(b, currentInstanceId, showLocalBackend)
   );
 
   // --- Layout wrapper ---

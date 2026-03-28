@@ -17,7 +17,7 @@ vi.mock('../../services/api', () => ({
   getServerGatewayStatus: vi.fn().mockResolvedValue({
     enabled: false,
     connected: false,
-    backendId: null,
+    gatewayBackendId: null,
     discoveredBackends: [],
   }),
   connectServerToGateway: vi.fn().mockResolvedValue({}),
@@ -60,7 +60,7 @@ describe('ServerGatewayConfig', () => {
     (apiModule.getServerGatewayStatus as any).mockResolvedValue({
       enabled: false,
       connected: false,
-      backendId: null,
+      gatewayBackendId: null,
       discoveredBackends: [],
     });
 
@@ -82,7 +82,7 @@ describe('ServerGatewayConfig', () => {
     (apiModule.getServerGatewayStatus as any).mockResolvedValue({
       enabled: true,
       connected: true,
-      backendId: 'backend-123',
+      gatewayBackendId: 'backend-123',
       discoveredBackends: [],
     });
 

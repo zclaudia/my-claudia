@@ -1,141 +1,73 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 import { useServerStore } from './serverStore';
 
 describe('serverStore', () => {
   beforeEach(() => {
-    // Reset store state before each test
     useServerStore.setState({
-      servers: [
-        {
-          id: 'local',
-          name: 'Local Server',
-          address: 'localhost:3100',
-          isDefault: true,
-          createdAt: Date.now(),
-        },
-        {
-          id: 'remote',
-          name: 'Remote Server',
-          address: '192.168.1.100:3100',
-          isDefault: false,
-          createdAt: Date.now(),
-        },
-      ],
-      activeServerId: 'local',
-      connectionStatus: 'disconnected',
-      connectionError: null,
+      activeServerId: null,
+      connections: {},
+      localServerPort: null,
+      controlPlaneMode: 'embedded-local',
+      controlPlaneState: 'connecting',
     });
   });
 
-  describe('setActiveServer', () => {
-    it('changes active server id', () => {
-      useServerStore.getState().setActiveServer('remote');
-      expect(useServerStore.getState().activeServerId).toBe('remote');
-    });
-
-    it('resets connection status', () => {
-      useServerStore.getState().setConnectionStatus('connected');
-      useServerStore.getState().setActiveServer('remote');
-
-      expect(useServerStore.getState().connectionStatus).toBe('disconnected');
-      expect(useServerStore.getState().connectionError).toBeNull();
-    });
+  it('sets active server id', () => {
+    useServerStore.getState().setActiveServer('backend-1');
+    expect(useServerStore.getState().activeServerId).toBe('backend-1');
   });
 
-  describe('setConnectionStatus', () => {
-    it('sets connection status', () => {
-      useServerStore.getState().setConnectionStatus('connecting');
-      expect(useServerStore.getState().connectionStatus).toBe('connecting');
+  it('stores per-backend connection status and error', () => {
+    useServerStore.getState().setServerConnectionStatus('backend-1', 'connecting');
+    expect(useServerStore.getState().connections['backend-1']?.status).toBe('connecting');
 
-      useServerStore.getState().setConnectionStatus('connected');
-      expect(useServerStore.getState().connectionStatus).toBe('connected');
-    });
-
-    it('sets connection error', () => {
-      useServerStore.getState().setConnectionStatus('error', 'Connection failed');
-
-      expect(useServerStore.getState().connectionStatus).toBe('error');
-      expect(useServerStore.getState().connectionError).toBe('Connection failed');
-    });
-
-    it('clears error when status changes', () => {
-      useServerStore.getState().setConnectionStatus('error', 'Connection failed');
-      useServerStore.getState().setConnectionStatus('connecting');
-
-      expect(useServerStore.getState().connectionError).toBeNull();
-    });
+    useServerStore.getState().setServerConnectionStatus('backend-1', 'error', 'Connection failed');
+    expect(useServerStore.getState().connections['backend-1']?.status).toBe('error');
+    expect(useServerStore.getState().connections['backend-1']?.error).toBe('Connection failed');
   });
 
-  describe('updateLastConnected', () => {
-    it('updates last connected timestamp', () => {
-      const before = Date.now();
-      useServerStore.getState().updateLastConnected('local');
-      const after = Date.now();
-
-      const server = useServerStore.getState().servers.find((s) => s.id === 'local');
-      expect(server?.lastConnected).toBeGreaterThanOrEqual(before);
-      expect(server?.lastConnected).toBeLessThanOrEqual(after);
-    });
+  it('stores local connection metadata per backend', () => {
+    useServerStore.getState().setServerLocalConnection('backend-1', true);
+    expect(useServerStore.getState().connections['backend-1']?.isLocalConnection).toBe(true);
   });
 
-  describe('getActiveServer', () => {
-    it('returns active server', () => {
-      const server = useServerStore.getState().getActiveServer();
-      expect(server?.id).toBe('local');
-    });
-
-    it('returns undefined when no active server', () => {
-      useServerStore.setState({ activeServerId: null });
-      expect(useServerStore.getState().getActiveServer()).toBeUndefined();
-    });
+  it('stores backend features', () => {
+    useServerStore.getState().setServerFeatures('backend-1', ['search', 'fileUpload']);
+    expect(useServerStore.getState().connections['backend-1']?.features).toEqual(['search', 'fileUpload']);
   });
 
-  describe('getDefaultServer', () => {
-    it('returns default server', () => {
-      const server = useServerStore.getState().getDefaultServer();
-      expect(server?.id).toBe('local');
-      expect(server?.isDefault).toBe(true);
-    });
+  it('stores backend public key', () => {
+    useServerStore.getState().setServerPublicKey('backend-1', 'pem-key');
+    expect(useServerStore.getState().connections['backend-1']?.publicKey).toBe('pem-key');
   });
 
-  describe('setServers', () => {
-    it('updates servers list from WebSocket', () => {
-      const newServers = [
-        {
-          id: 'server1',
-          name: 'Server 1',
-          address: 'host1:3100',
-          isDefault: true,
-          createdAt: Date.now(),
-        },
-      ];
-
-      useServerStore.getState().setServers(newServers);
-      expect(useServerStore.getState().servers).toEqual(newServers);
-    });
+  it('stores backend latency', () => {
+    useServerStore.getState().setServerLatency('backend-1', 123);
+    expect(useServerStore.getState().connections['backend-1']?.latencyMs).toBe(123);
+    expect(useServerStore.getState().connections['backend-1']?.lastLatencyProbeAt).toBeTypeOf('number');
   });
 
-  describe('local address override', () => {
-    it('reuses the local slot for a manual host:port address', () => {
-      useServerStore.getState().setLocalServerAddress('192.168.1.100:3100');
+  it('updates control plane state', () => {
+    useServerStore.getState().setControlPlaneMode('gateway-direct');
+    useServerStore.getState().setControlPlaneState('ready');
 
-      expect(useServerStore.getState().localServerPort).toBe(3100);
-      expect(useServerStore.getState().getActiveServer()?.address).toBe('192.168.1.100:3100');
-    });
+    const state = useServerStore.getState();
+    expect(state.controlPlaneMode).toBe('gateway-direct');
+    expect(state.controlPlaneState).toBe('ready');
+  });
 
-    it('keeps the override when servers refresh from the backend', () => {
-      useServerStore.getState().setLocalServerAddress('192.168.1.100:3100');
-      useServerStore.getState().setServers([
-        {
-          id: 'local',
-          name: 'Local Server',
-          address: 'localhost:3100',
-          isDefault: true,
-          createdAt: Date.now(),
-        },
-      ]);
+  it('returns active server connection', () => {
+    useServerStore.getState().setServerConnectionStatus('backend-1', 'connected');
+    useServerStore.getState().setActiveServer('backend-1');
 
-      expect(useServerStore.getState().servers[0].address).toBe('192.168.1.100:3100');
-    });
+    expect(useServerStore.getState().getActiveServerConnection()?.status).toBe('connected');
+  });
+
+  it('checks active server feature support', () => {
+    useServerStore.getState().setServerFeatures('backend-1', ['search']);
+    useServerStore.getState().setActiveServer('backend-1');
+
+    expect(useServerStore.getState().activeServerSupports('search')).toBe(true);
+    expect(useServerStore.getState().activeServerSupports('fileUpload')).toBe(false);
   });
 });

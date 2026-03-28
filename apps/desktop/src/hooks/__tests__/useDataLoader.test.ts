@@ -21,9 +21,15 @@ describe('useDataLoader', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     useServerStore.setState({
-      connectionStatus: 'disconnected',
-      activeServerId: 'local',
-      setServers: vi.fn(),
+      activeServerId: 'local-standalone',
+      connections: {
+        'local-standalone': {
+          status: 'disconnected',
+          error: null,
+          isLocalConnection: true,
+          features: [],
+        },
+      },
     } as any);
     useProjectStore.setState({
       selectedSessionId: null,
@@ -48,7 +54,16 @@ describe('useDataLoader', () => {
   });
 
   it('loads data when connected', async () => {
-    useServerStore.setState({ connectionStatus: 'connected' } as any);
+    useServerStore.setState({
+      connections: {
+        'local-standalone': {
+          status: 'connected',
+          error: null,
+          isLocalConnection: true,
+          features: [],
+        },
+      },
+    } as any);
     const { result } = renderHook(() => useDataLoader());
     await act(async () => {
       await result.current.loadData();

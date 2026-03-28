@@ -3,14 +3,17 @@ import { createPortal } from 'react-dom';
 import { Bell, Bot, FileText, Wrench } from 'lucide-react';
 import { isDesktopTauri } from '../utils/platform';
 import { openPopoutWindow } from '../utils/popoutWindow';
+import { useOwnershipStore } from '../stores/ownershipStore';
 
 async function openSessionInNewWindow(sessionId: string, projectId: string) {
   if (!isDesktopTauri()) return;
   try {
+    const ownerBackendId = useOwnershipStore.getState().getSessionBackendId(sessionId);
     const label = await openPopoutWindow({
       type: 'session-chat',
       params: { sessionWindow: sessionId, projectId },
       title: 'Session',
+      connectionTarget: { sessionId, backendId: ownerBackendId },
     });
     useUIStore.getState().addPoppedOutSession(sessionId, label);
     const { WebviewWindow } = await import('@tauri-apps/api/webviewWindow');
@@ -26,7 +29,9 @@ async function openSessionInNewWindow(sessionId: string, projectId: string) {
   }
 }
 import { useProjectStore } from '../stores/projectStore';
+import { useProviderMetaStore } from '../stores/providerMetaStore';
 import { useServerStore } from '../stores/serverStore';
+import { isLegacyLocalBackendId, resolveCanonicalBackendId } from '../utils/controlPlane';
 import { useSupervisionStore } from '../stores/supervisionStore';
 import { usePermissionStore } from '../stores/permissionStore';
 import { usePromptRequestStore } from '../stores/promptRequestStore';
@@ -37,6 +42,7 @@ import { useUIStore } from '../stores/uiStore';
 import { useClaudiaStore } from '../stores/claudiaStore';
 import { useNotificationFeedStore } from '../stores/notificationFeedStore';
 import { useClaudiaStatus } from '../hooks/useClaudiaStatus';
+import { useSelectionCoordinator } from '../hooks/useSelectionCoordinator';
 
 import { ProjectSettings } from './ProjectSettings';
 import { SettingsPanel } from './SettingsPanel';
@@ -107,10 +113,8 @@ export function Sidebar({
   const {
     projects = [],
     sessions = [],
-    providers = [],
+    providers: legacyProviders = [],
     selectedSessionId,
-    selectProject,
-    selectSession,
     addProject,
     addSession,
     deleteProject,
@@ -118,7 +122,18 @@ export function Sidebar({
     reorderSessions: storeReorderSessions,
   } = useProjectStore();
 
-  const { connectionStatus, setActiveServer } = useServerStore();
+  const isConnected = useServerStore((s) => {
+    if (!s.activeServerId) return false;
+    return s.connections[s.activeServerId]?.status === 'connected';
+  });
+  const activeServerId = useServerStore((s) => s.activeServerId);
+  const scopedProviders = useProviderMetaStore((s) => s.getProviders(activeServerId));
+  const providers = scopedProviders.length > 0 ? scopedProviders : legacyProviders;
+  const {
+    selectProject,
+    selectSession,
+    selectSessionOnBackend,
+  } = useSelectionCoordinator();
   const v2Agents = useSupervisionStore((s) => s.agents);
   const notificationUnreadCount = useNotificationFeedStore((s) => s.unreadCount);
   const { hasUnread: hasClaudiaUnread, hasRunning: hasClaudiaRunning, hasPermissionPending: hasClaudiaPermissionPending } = useClaudiaStatus();
@@ -297,30 +312,16 @@ export function Sidebar({
     // This prevents unnecessary re-renders of ChatInterface and MessageList
   };
 
-  const isConnected = connectionStatus === 'connected';
-
   const handleActiveSessionSelect = useCallback((backendId: string, sessionId: string) => {
     useUIStore.getState().requestForceScrollToBottom(sessionId);
-    const selectWithServerContext = (targetServerId: string) => {
-      const current = useServerStore.getState().activeServerId;
-      if (current === targetServerId) {
-        selectSession(sessionId);
-        return;
-      }
-      // Switch server first, then select session on next tick to reduce
-      // cross-server stale reads during context transitions.
-      setActiveServer(targetServerId);
-      setTimeout(() => selectSession(sessionId), 0);
-    };
-
-    // Switch to the matching server context first, then select session.
-    if (backendId === 'local' || backendId === '__local__') {
-      selectWithServerContext('local');
+    if (isLegacyLocalBackendId(backendId)) {
+      const resolvedBackendId = resolveCanonicalBackendId(backendId, backendId);
+      if (resolvedBackendId) selectSessionOnBackend(resolvedBackendId, sessionId);
       return;
     }
 
-    selectWithServerContext(backendId);
-  }, [setActiveServer, selectSession]);
+    selectSessionOnBackend(backendId, sessionId);
+  }, [selectSessionOnBackend, selectSession]);
 
   const handleCreateProject = async () => {
     if (!newProjectName.trim() || !isConnected) return;
@@ -575,7 +576,7 @@ export function Sidebar({
                       key={r.id}
                       onClick={() => {
                         requestMessageJump(r.sessionId, r.id);
-                        selectSession(r.sessionId);
+                        selectSession(r.sessionId, { backendId: r.ownerBackendId });
                         setSearchQuery('');
                         setSearchResults([]);
                         if (onClose) onClose();
@@ -1140,7 +1141,7 @@ export function Sidebar({
                   key={r.id}
                   onClick={() => {
                     requestMessageJump(r.sessionId, r.id);
-                    selectSession(r.sessionId);
+                    selectSession(r.sessionId, { backendId: r.ownerBackendId });
                     setSearchQuery('');
                     setSearchResults([]);
                   }}

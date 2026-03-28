@@ -1,6 +1,7 @@
 import { useCallback } from 'react';
 import { useProjectStore } from '../../stores/projectStore';
 import { useUIStore } from '../../stores/uiStore';
+import { useOwnershipStore } from '../../stores/ownershipStore';
 import * as api from '../../services/api';
 import type { Session, Project } from '@my-claudia/shared';
 import { isDesktopTauri } from '../../utils/platform';
@@ -69,7 +70,8 @@ export function useSessionActions({
   const handlePopOut = useCallback(async () => {
     if (!isDesktopTauri()) return;
     try {
-      const conn = getConnectionParams();
+      const ownerBackendId = useOwnershipStore.getState().getSessionBackendId(sessionId);
+      const conn = getConnectionParams({ sessionId, backendId: ownerBackendId });
       const sessionName = currentSession?.name || 'Session';
       const projectName = currentProject?.name || '';
       const title = buildWindowTitle(sessionName, conn.serverName, projectName);
@@ -78,6 +80,7 @@ export function useSessionActions({
         type: 'session-chat',
         params: { sessionWindow: sessionId, projectId: currentSession?.projectId || '' },
         title,
+        connectionTarget: { sessionId, backendId: ownerBackendId },
       });
       addPoppedOutSession(sessionId, label);
 

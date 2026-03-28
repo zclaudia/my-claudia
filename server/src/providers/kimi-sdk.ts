@@ -24,6 +24,7 @@ export interface KimiRunOptions {
   thinking?: boolean;
   serverPort?: number;        // For MCP bridge injection
   claudiaSessionId?: string;  // Session context for interaction tools
+  disableMcpBridge?: boolean; // Internal fallback when bridge injection fails
 }
 
 // ── Tool call mapping ────────────────────────────────────────
@@ -615,7 +616,7 @@ export async function* runKimi(
   args.push('--work-dir', options.cwd);
 
   // Inject MCP bridge for interaction tools
-  if (options.serverPort) {
+  if (options.serverPort && !options.disableMcpBridge) {
     const bridgeEntry = buildMcpBridgeEntry(options.serverPort, options.claudiaSessionId);
     if (bridgeEntry) {
       const mcpConfig = {
@@ -702,6 +703,7 @@ export async function* runKimi(
 
   let inThinkBlock = false;
   let yieldedResult = false;
+  let retryWithoutMcp = false;
 
   try {
     for await (const line of rl) {
@@ -721,6 +723,19 @@ export async function* runKimi(
 
       const msgs = mapKimiEvent(event, inThinkBlock);
       for (const { msg, updateThink } of msgs) {
+        if (
+          msg.type === 'error'
+          && !options.disableMcpBridge
+          && options.serverPort
+          && typeof msg.error === 'string'
+          && msg.error.includes('Failed to connect MCP servers')
+          && msg.error.includes('claudia-plugins')
+        ) {
+          trace.log('provider_raw', 'mcp_bridge_fallback', { error: msg.error }, 'kimi MCP bridge failed, retrying without MCP');
+          console.warn('[Kimi SDK] MCP bridge connection failed; retrying without claudia-plugins MCP bridge');
+          retryWithoutMcp = true;
+          break;
+        }
         if (msg.type === 'init' && msg.sessionId) {
           bindSessionToProcess(msg.sessionId, processKey);
           trace.setMeta({ sessionId: msg.sessionId });
@@ -730,28 +745,29 @@ export async function* runKimi(
         trace.log('provider_raw', 'mapped_message', msg, summarizeProviderMessage(msg as { type: string; [key: string]: unknown }));
         yield msg;
       }
+      if (retryWithoutMcp) break;
     }
 
-    if (inThinkBlock) {
+    if (!retryWithoutMcp && inThinkBlock) {
       const closeThink = { type: 'assistant', content: '</think>' } as ClaudeMessage;
       trace.log('provider_raw', 'close_think_block', closeThink, 'close dangling think block');
       yield closeThink;
     }
 
-    if (kimiSessionId !== options.sessionId) {
+    if (!retryWithoutMcp && kimiSessionId !== options.sessionId) {
       const sessionInitMsg = { type: 'init', sessionId: kimiSessionId } as ClaudeMessage;
       trace.log('provider_raw', 'session_persist', sessionInitMsg, `persist kimi session ${kimiSessionId}`);
       yield sessionInitMsg;
     }
 
-    if (!yieldedResult) {
+    if (!retryWithoutMcp && !yieldedResult) {
       const resultMsg = { type: 'result', isComplete: true } as ClaudeMessage;
       trace.log('provider_raw', 'synthetic_result', resultMsg, 'synthetic result (kimi lacks is_complete)');
       yield resultMsg;
       yieldedResult = true;
     }
 
-    if (spawnError) {
+    if (!retryWithoutMcp && spawnError) {
       const err = spawnError as NodeJS.ErrnoException;
       if (err.code === 'ENOENT') {
         const errorMsg = {
@@ -781,6 +797,14 @@ export async function* runKimi(
     unbindProcess(processKey);
     rl.close();
     proc.kill();
+  }
+
+  if (retryWithoutMcp) {
+    yield* runKimi(input, {
+      ...options,
+      sessionId: undefined,
+      disableMcpBridge: true,
+    }, _onPermission);
   }
 }
 

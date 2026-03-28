@@ -9,6 +9,7 @@
 
 import { create } from 'zustand';
 import type { ServerFeature } from '@my-claudia/shared';
+import type { ControlPlaneMode } from '../utils/controlPlane';
 
 // Per-backend connection metadata
 export interface ServerConnection {
@@ -38,11 +39,8 @@ interface ServerState {
   connections: Record<string, ServerConnection>;
   // Runtime port for the embedded local server
   localServerPort: number | null;
-
-  // Legacy global state (computed from active backend's connection)
-  connectionStatus: ConnectionStatus;
-  connectionError: string | null;
-  isLocalConnection: boolean | null;
+  controlPlaneMode: ControlPlaneMode;
+  controlPlaneState: 'connecting' | 'ready' | 'error';
 
   // Actions
   setActiveServer: (id: string | null) => void;
@@ -54,6 +52,8 @@ interface ServerState {
   setServerLatency: (serverId: string, latencyMs: number | null) => void;
   updateLastConnected: (id: string) => void;
   setLocalServerPort: (port: number) => void;
+  setControlPlaneMode: (mode: ControlPlaneMode) => void;
+  setControlPlaneState: (state: 'connecting' | 'ready' | 'error') => void;
 
   // Getters
   getServerConnection: (serverId: string) => ServerConnection | undefined;
@@ -62,22 +62,15 @@ interface ServerState {
 }
 
 export const useServerStore = create<ServerState>()((set, get) => ({
-  activeServerId: 'local',
+  activeServerId: null,
   connections: {},
   localServerPort: null,
-  // Legacy global state
-  connectionStatus: 'disconnected',
-  connectionError: null,
-  isLocalConnection: null,
+  controlPlaneMode: 'embedded-local',
+  controlPlaneState: 'connecting',
 
   setActiveServer: (id) => {
-    const state = get();
-    const connection = id ? state.connections[id] : undefined;
     set({
       activeServerId: id,
-      connectionStatus: connection?.status || 'disconnected',
-      connectionError: connection?.error || null,
-      isLocalConnection: connection?.isLocalConnection ?? null,
     });
   },
 
@@ -89,14 +82,9 @@ export const useServerStore = create<ServerState>()((set, get) => ({
       status,
       error: error || null,
     };
-    const updates: Partial<ServerState> = {
+    set({
       connections: { ...state.connections, [serverId]: newConnection },
-    };
-    if (serverId === state.activeServerId) {
-      updates.connectionStatus = status;
-      updates.connectionError = error || null;
-    }
-    set(updates);
+    });
   },
 
   setServerLocalConnection: (serverId, isLocal) => {
@@ -106,13 +94,9 @@ export const useServerStore = create<ServerState>()((set, get) => ({
       ...state.connections[serverId],
       isLocalConnection: isLocal,
     };
-    const updates: Partial<ServerState> = {
+    set({
       connections: { ...state.connections, [serverId]: newConnection },
-    };
-    if (serverId === state.activeServerId) {
-      updates.isLocalConnection = isLocal;
-    }
-    set(updates);
+    });
   },
 
   setServerFeatures: (serverId, features) => {
@@ -156,6 +140,14 @@ export const useServerStore = create<ServerState>()((set, get) => ({
 
   setLocalServerPort: (port) => {
     set({ localServerPort: port });
+  },
+
+  setControlPlaneMode: (mode) => {
+    set({ controlPlaneMode: mode });
+  },
+
+  setControlPlaneState: (state) => {
+    set({ controlPlaneState: state });
   },
 
   getServerConnection: (serverId) => {

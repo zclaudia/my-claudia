@@ -1,8 +1,8 @@
 import type { NotificationItem as NotificationItemData } from '@my-claudia/shared';
-import { useProjectStore } from '../../stores/projectStore';
 import { extractThinking } from '../chat/MessageList';
 import { useNotificationFeedStore } from '../../stores/notificationFeedStore';
 import { useConnection } from '../../contexts/ConnectionContext';
+import { useSelectionCoordinator } from '../../hooks/useSelectionCoordinator';
 
 function timeAgo(timestamp: number): string {
   const diff = Date.now() - timestamp;
@@ -31,7 +31,7 @@ interface NotificationItemProps {
 }
 
 export function NotificationItem({ item, onDismiss }: NotificationItemProps) {
-  const selectSession = useProjectStore((s) => s.selectSession);
+  const { selectSession } = useSelectionCoordinator();
   const { sendMessage } = useConnection();
   const statusStyle = STATUS_STYLES[item.status] || STATUS_STYLES.running;
   const isUnread = !item.readAt;
@@ -43,7 +43,7 @@ export function NotificationItem({ item, onDismiss }: NotificationItemProps) {
       useNotificationFeedStore.getState().markRead([item.id]);
     }
     if (item.sessionId) {
-      selectSession(item.sessionId);
+      selectSession(item.sessionId, { backendId: item.ownerBackendId });
     }
   };
 

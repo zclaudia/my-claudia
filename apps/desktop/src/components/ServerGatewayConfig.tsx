@@ -7,7 +7,7 @@ import {
   disconnectServerFromGateway
 } from '../services/api';
 import type { ServerGatewayConfig as GatewayConfig, ServerGatewayStatus } from '@my-claudia/shared';
-import { useGatewayStore, shouldShowBackend } from '../stores/gatewayStore';
+import { useGatewayStore, shouldShowNonCurrentInstanceBackend } from '../stores/gatewayStore';
 
 export function ServerGatewayConfig() {
   const [config, setConfig] = useState<GatewayConfig | null>(null);
@@ -28,7 +28,7 @@ export function ServerGatewayConfig() {
 
   const { showLocalBackend, setShowLocalBackend } = useGatewayStore();
   const visibleDiscoveredBackends = (status?.discoveredBackends || []).filter((b) =>
-    shouldShowBackend(b, status?.instanceId || null, showLocalBackend)
+    shouldShowNonCurrentInstanceBackend(b, status?.instanceId || null, showLocalBackend)
   );
 
   // Load config on mount
@@ -55,17 +55,18 @@ export function ServerGatewayConfig() {
       setConfig(configData);
       setStatus(statusData);
 
-      // Sync to gateway store on initial load
       if (statusData.enabled && statusData.gatewayUrl && statusData.gatewaySecret) {
-        useGatewayStore.getState().syncFromServer(
-          statusData.gatewayUrl,
-          statusData.gatewaySecret,
-          statusData.discoveredBackends,
-          statusData.backendId,
-          statusData.connected,
-          statusData.instanceId ?? null,
-          statusData.currentDeviceId ?? null
-        );
+        useGatewayStore.setState({
+          gatewayUrl: statusData.gatewayUrl,
+          gatewaySecret: statusData.gatewaySecret,
+          isConnected: statusData.connected,
+        });
+      } else {
+        useGatewayStore.setState({
+          gatewayUrl: null,
+          gatewaySecret: null,
+          isConnected: false,
+        });
       }
 
       // Update form state
@@ -90,18 +91,18 @@ export function ServerGatewayConfig() {
       const statusData = await getServerGatewayStatus();
       setStatus(statusData);
 
-      // Sync to gateway store so ServerSelector updates promptly
-      // (instead of waiting for its own 30s poll interval)
       if (statusData.enabled && statusData.gatewayUrl && statusData.gatewaySecret) {
-        useGatewayStore.getState().syncFromServer(
-          statusData.gatewayUrl,
-          statusData.gatewaySecret,
-          statusData.discoveredBackends,
-          statusData.backendId,
-          statusData.connected,
-          statusData.instanceId ?? null,
-          statusData.currentDeviceId ?? null
-        );
+        useGatewayStore.setState({
+          gatewayUrl: statusData.gatewayUrl,
+          gatewaySecret: statusData.gatewaySecret,
+          isConnected: statusData.connected,
+        });
+      } else {
+        useGatewayStore.setState({
+          gatewayUrl: null,
+          gatewaySecret: null,
+          isConnected: false,
+        });
       }
     } catch (err) {
       console.error('Failed to load status:', err);
@@ -225,10 +226,10 @@ export function ServerGatewayConfig() {
               {status.connected ? 'Connected' : status.enabled ? 'Connecting...' : 'Disabled'}
             </span>
           </div>
-          {status.backendId && (
+          {status.gatewayBackendId && (
             <div className="flex items-center justify-between">
-              <span className="text-sm font-medium text-foreground">Backend ID:</span>
-              <span className="text-sm font-mono text-muted-foreground">{status.backendId}</span>
+              <span className="text-sm font-medium text-foreground">Gateway Backend ID:</span>
+              <span className="text-sm font-mono text-muted-foreground">{status.gatewayBackendId}</span>
             </div>
           )}
         </div>
@@ -245,7 +246,7 @@ export function ServerGatewayConfig() {
               <div className="flex items-center gap-2">
                 <span className={`w-1.5 h-1.5 rounded-full ${b.online ? 'bg-success' : 'bg-muted-foreground'}`} />
                 <span className="text-foreground">{b.name}</span>
-                {b.backendId === status?.backendId && (
+                {b.backendId === status?.gatewayBackendId && (
                   <span className="px-1.5 py-0.5 bg-primary/20 text-primary text-xs rounded">Local</span>
                 )}
               </div>

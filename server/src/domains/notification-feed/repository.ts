@@ -19,6 +19,8 @@ interface FeedRow {
   read_at: number | null;
 }
 
+const LOCAL_NOTIFICATION_BACKEND_ID = 'local-standalone';
+
 function rowToItem(row: FeedRow): NotificationItem {
   return {
     id: row.id,
@@ -26,6 +28,7 @@ function rowToItem(row: FeedRow): NotificationItem {
     taskId: row.task_id ?? undefined,
     sessionId: row.session_id ?? undefined,
     projectId: row.project_id ?? undefined,
+    ownerBackendId: LOCAL_NOTIFICATION_BACKEND_ID,
     source: row.source as NotificationSource,
     title: row.title,
     summary: row.summary ?? undefined,
@@ -44,26 +47,30 @@ export class NotificationFeedRepository {
   create(item: Omit<NotificationItem, 'id' | 'createdAt'>): NotificationItem {
     const id = uuidv4();
     const now = Date.now();
+    const normalizedItem: Omit<NotificationItem, 'id' | 'createdAt'> = {
+      ...item,
+      ownerBackendId: item.ownerBackendId || LOCAL_NOTIFICATION_BACKEND_ID,
+    };
     this.db.prepare(`
       INSERT INTO notifications (id, trigger_id, task_id, session_id, project_id, source, title, summary, status, error, delegation_context, created_at, completed_at, read_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       id,
-      item.triggerId ?? null,
-      item.taskId ?? null,
-      item.sessionId ?? null,
-      item.projectId ?? null,
-      item.source,
-      item.title,
-      item.summary ?? null,
-      item.status,
-      item.error ?? null,
-      item.delegationContext ? JSON.stringify(item.delegationContext) : null,
+      normalizedItem.triggerId ?? null,
+      normalizedItem.taskId ?? null,
+      normalizedItem.sessionId ?? null,
+      normalizedItem.projectId ?? null,
+      normalizedItem.source,
+      normalizedItem.title,
+      normalizedItem.summary ?? null,
+      normalizedItem.status,
+      normalizedItem.error ?? null,
+      normalizedItem.delegationContext ? JSON.stringify(normalizedItem.delegationContext) : null,
       now,
-      item.completedAt ?? null,
-      item.readAt ?? null,
+      normalizedItem.completedAt ?? null,
+      normalizedItem.readAt ?? null,
     );
-    return { ...item, id, createdAt: now };
+    return { ...normalizedItem, id, createdAt: now };
   }
 
   updateStatus(id: string, status: NotificationStatus, extra?: { summary?: string; error?: string; completedAt?: number }): void {

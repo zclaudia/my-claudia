@@ -1,6 +1,8 @@
 import { useMemo } from 'react';
 import { useChatStore } from '../../stores/chatStore';
 import { useProjectStore } from '../../stores/projectStore';
+import { useProviderMetaStore } from '../../stores/providerMetaStore';
+import { useServerStore } from '../../stores/serverStore';
 import { useProviderCapabilities } from './useProviderCapabilities';
 import type { MessageWithToolCalls, ToolCallState } from '../../stores/chatStore';
 import type { ContentBlock } from '@my-claudia/shared';
@@ -52,6 +54,7 @@ export function useChatSession({ sessionId, isConnected }: UseChatSessionParams)
   const clearMessages = useChatStore((s) => s.clearMessages);
   const setMode = useChatStore((s) => s.setMode);
   const getMode = useChatStore((s) => s.getMode);
+  const getRuntimeMode = useChatStore((s) => s.getRuntimeMode);
   const getSystemInfo = useChatStore((s) => s.getSystemInfo);
   const setModelOverride = useChatStore((s) => s.setModelOverride);
   const getModelOverride = useChatStore((s) => s.getModelOverride);
@@ -60,7 +63,8 @@ export function useChatSession({ sessionId, isConnected }: UseChatSessionParams)
 
   // ── Derived values ──
   const useStreamingSegmented = isLoading && sessionContentBlocks.length > 1 && sessionToolCallHistory.length > 0;
-  const mode = getMode(sessionId);
+  const selectedMode = getMode(sessionId);
+  const runtimeMode = getRuntimeMode(sessionId);
   const modelOverride = getModelOverride(sessionId);
 
   const lastSessionMessage = sessionMessages.length > 0 ? sessionMessages[sessionMessages.length - 1] : null;
@@ -74,13 +78,18 @@ export function useChatSession({ sessionId, isConnected }: UseChatSessionParams)
   // ── Project store ──
   const sessions = useProjectStore((s) => s.sessions);
   const projects = useProjectStore((s) => s.projects);
-  const providers = useProjectStore((s) => s.providers);
+  const legacyProviders = useProjectStore((s) => s.providers);
+  const activeServerId = useServerStore((s) => s.activeServerId);
+  const scopedProviders = useProviderMetaStore((s) => s.getProviders(activeServerId));
+  const providers = scopedProviders.length > 0 ? scopedProviders : legacyProviders;
 
   const currentSession = sessions.find(s => s.id === sessionId);
   const currentProject = currentSession
     ? projects.find(p => p.id === currentSession.projectId) ?? null
     : null;
   const isForcedPlanSession = currentSession?.projectRole === 'task' && currentSession?.planStatus === 'planning';
+  const forcedMode = isForcedPlanSession ? 'plan' : '';
+  const effectiveMode = forcedMode || runtimeMode || selectedMode;
   const currentSystemInfo = getSystemInfo(sessionId);
   const usageOrDefault = currentUsage || {
     inputTokens: 0,
@@ -125,7 +134,11 @@ export function useChatSession({ sessionId, isConnected }: UseChatSessionParams)
     commandsCacheKey,
 
     // Mode / model / usage
-    mode,
+    mode: selectedMode,
+    selectedMode,
+    runtimeMode,
+    forcedMode,
+    effectiveMode,
     modelOverride,
     permissionOverride,
     currentUsage: usageOrDefault,

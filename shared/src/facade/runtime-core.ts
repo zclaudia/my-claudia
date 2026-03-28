@@ -41,6 +41,7 @@ export class BackendFacadeRuntimeCore implements BackendFacade {
     presence: BackendPresence,
     identity: { instanceId: string; deviceId: string },
   ) => boolean;
+  private readonly onLocalBackendIdChanged?: (backendId: string | null) => void;
 
   private readonly registryStore = new FacadeRegistryStore();
   private readonly streamManager = new FacadeStreamManager();
@@ -62,6 +63,7 @@ export class BackendFacadeRuntimeCore implements BackendFacade {
     this.adapter = options.adapter;
     this.mode = options.mode;
     this.localBackendMatcher = options.localBackendMatcher;
+    this.onLocalBackendIdChanged = options.onLocalBackendIdChanged;
   }
 
   // --------------------------------------------------------------------------
@@ -111,6 +113,9 @@ export class BackendFacadeRuntimeCore implements BackendFacade {
           break;
         }
       }
+    }
+    if (this.localBackendId && this.onLocalBackendIdChanged) {
+      this.onLocalBackendIdChanged(this.localBackendId);
     }
 
     // 6. Replay buffered events
@@ -194,7 +199,13 @@ export class BackendFacadeRuntimeCore implements BackendFacade {
 
     const diffs = this.registryStore.markChannelOpening(backendId, backend.presence.epoch);
     this.adapter.commands.channel.openBackendChannel(backendId, backend.presence.epoch);
-    this.emitBackendDiffs(diffs);
+    // For local backends, the channel open + catalog init may complete synchronously,
+    // advancing the state to 'ready'. Only emit the 'opening' diffs if the state
+    // hasn't already progressed beyond them.
+    const currentBackend = this.registryStore.getBackend(backendId);
+    if (currentBackend && currentBackend.runtimeState === 'opening') {
+      this.emitBackendDiffs(diffs);
+    }
   }
 
   closeBackend(backendId: string): void {
@@ -364,10 +375,15 @@ export class BackendFacadeRuntimeCore implements BackendFacade {
       event.backendId, event.channelId, event.epoch, event.capabilities,
     );
 
-    // Subscribe to catalog
+    // Subscribe to catalog (may complete synchronously for local backends)
     this.adapter.commands.catalog.subscribe(event.backendId, event.epoch);
 
-    this.emitBackendDiffs(diffs);
+    // Only emit channel-opened diffs if catalog subscribe hasn't already
+    // advanced the state to 'ready' synchronously.
+    const currentBackend = this.registryStore.getBackend(event.backendId);
+    if (!currentBackend || currentBackend.runtimeState !== 'ready') {
+      this.emitBackendDiffs(diffs);
+    }
   }
 
   private handleBackendChannelClosed(event: Extract<FacadeAdapterEvent, { type: 'backend_channel_closed' }>): void {
@@ -476,19 +492,27 @@ export class BackendFacadeRuntimeCore implements BackendFacade {
 
   private updateLocalBackendId(items: BackendPresence[]): void {
     if (!this.localBackendMatcher || !this.currentInstanceId || !this.currentDeviceId) return;
+    const prev = this.localBackendId;
     const identity = { instanceId: this.currentInstanceId, deviceId: this.currentDeviceId };
+    let matched = false;
     for (const item of items) {
       if (this.localBackendMatcher(item, identity)) {
         this.localBackendId = item.backendId;
-        return;
+        matched = true;
+        break;
       }
     }
-    // Fix #7: if no match found in current items, check if local backend still exists in registry
-    if (this.localBackendId) {
-      const stillExists = this.registryStore.getBackend(this.localBackendId);
-      if (!stillExists || !stillExists.presence) {
-        this.localBackendId = null;
+    if (!matched) {
+      // Fix #7: if no match found in current items, check if local backend still exists in registry
+      if (this.localBackendId) {
+        const stillExists = this.registryStore.getBackend(this.localBackendId);
+        if (!stillExists || !stillExists.presence) {
+          this.localBackendId = null;
+        }
       }
+    }
+    if (this.localBackendId !== prev && this.onLocalBackendIdChanged) {
+      this.onLocalBackendIdChanged(this.localBackendId);
     }
   }
 

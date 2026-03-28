@@ -3,6 +3,7 @@ import { useTerminalStore } from '../../stores/terminalStore';
 import { usePluginStore } from '../../stores/pluginStore';
 import { useIsMobile } from '../../hooks/useMediaQuery';
 import { useConnection } from '../../contexts/ConnectionContext';
+import { useServerStore } from '../../stores/serverStore';
 import { XTerminal } from './XTerminal';
 import { xtermRegistry } from '../../utils/xtermRegistry';
 import { isDesktopTauri } from '../../utils/platform';
@@ -22,13 +23,15 @@ interface TerminalPanelProps {
 }
 
 async function openTerminalInNewWindow(terminalId: string, projectId: string) {
-  const conn = getConnectionParams();
+  const backendId = useServerStore.getState().activeServerId;
+  const conn = getConnectionParams({ backendId });
   const label = await openPopoutWindow({
     type: 'terminal',
     params: { terminalWindow: terminalId, projectId },
     title: buildWindowTitle('Terminal', conn.serverName, projectId),
     width: 800,
     height: 500,
+    connectionTarget: { backendId },
   });
 
   // Track popped-out state and hide panel in main window

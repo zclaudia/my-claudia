@@ -157,4 +157,6 @@ export interface BackendFacadeRuntimeCoreOptions {
     presence: BackendPresence,
     identity: { instanceId: string; deviceId: string },
   ) => boolean;
+  /** Called whenever the resolved localBackendId changes (e.g. after registry updates). */
+  onLocalBackendIdChanged?: (backendId: string | null) => void;
 }

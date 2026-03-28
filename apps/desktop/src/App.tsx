@@ -22,7 +22,9 @@ import { ProjectDashboard } from './components/dashboard/ProjectDashboard';
 import { ThemeProvider } from './contexts/ThemeContext';
 import { ConnectionProvider, useConnection } from './contexts/ConnectionContext';
 import { useDataLoader } from './hooks/useDataLoader';
+import { useSelectionCoordinator } from './hooks/useSelectionCoordinator';
 import { useServerStore } from './stores/serverStore';
+import { useFacadeStore } from './stores/facadeStore';
 import { useGatewayStore } from './stores/gatewayStore';
 import { useProjectStore } from './stores/projectStore';
 import { useClaudiaStore } from './stores/claudiaStore';
@@ -36,6 +38,7 @@ import { useUIStore } from './stores/uiStore';
 import { useTerminalStore } from './stores/terminalStore';
 import { usePluginStore, selectPluginPanels } from './stores/pluginStore';
 import { useDraftEditorStore } from './stores/draftEditorStore';
+import { LEGACY_LOCAL_SERVER_ID, resolveCanonicalBackendId } from './utils/controlPlane';
 import { xtermRegistry } from './utils/xtermRegistry';
 import { initBuiltinPanels } from './plugins/builtinPanels';
 import { useAutoUpdate } from './hooks/useAutoUpdate';
@@ -45,6 +48,7 @@ import { BrandMark } from './components/BrandMark';
 import { useShortcutStore } from './stores/shortcutStore';
 import { useAgentConfigStore } from './stores/agentConfigStore';
 import { isDesktopTauri } from './utils/platform';
+import { isLocalBackendId, resolveLocalBackendId } from './utils/controlPlane';
 
 // ── Plugin Dock ─────────────────────────────────────────────────
 // Icon name → Lucide component mapping for plugin-declared icons.
@@ -132,13 +136,16 @@ function PluginWindowButtons() {
 
 function AppContent() {
   const { connectServer, embeddedServerStatus, embeddedServerError } = useConnection();
-  const { connectionStatus } = useServerStore();
-  const { selectedSessionId, selectedProjectId, sessions, projects, selectProject, selectSession, setDashboardView } = useProjectStore();
+  const { controlPlaneState } = useServerStore();
+  const { selectedSessionId, selectedProjectId, sessions, projects, selectSession, setDashboardView } = useProjectStore();
+  const { selectProject } = useSelectionCoordinator();
   const [dashboardProjectId, setDashboardProjectId] = useState<string | null>(null);
   const openAutomationWindowFn = useCallback(() => {
     import('./features/automation/openAutomationWindow').then(m => m.openAutomationWindow());
   }, []);
-  const { directGatewayUrl, lastActiveBackendId, isConnected: isGatewayConnected, discoveredBackends } = useGatewayStore();
+  const { directGatewayUrl, lastActiveBackendId } = useGatewayStore();
+  const facadeConnectionState = useFacadeStore((s) => s.connectionState);
+  const facadeBackends = useFacadeStore((s) => s.backends);
   const { isExpanded: isAgentExpanded, setExpanded: setAgentExpanded } = useClaudiaStore();
   const { hasUnread: hasClaudiaUnread, hasRunning: hasClaudiaRunning, hasPermissionPending: hasClaudiaPermissionPending } = useClaudiaStatus();
   const disabledBuiltinPanels = usePluginStore((s) => s.disabledBuiltinPanels);
@@ -173,6 +180,11 @@ function AppContent() {
   const agentConfigLoaded = useAgentConfigStore((s) => s.hasLoaded);
   const loadAgentConfig = useAgentConfigStore((s) => s.loadConfig);
   const localServerPort = useServerStore((s) => s.localServerPort);
+  const facadeLocalBackendId = useFacadeStore((s) => s.localBackendId);
+  const localBackendId = facadeLocalBackendId || resolveLocalBackendId();
+  const localBackendName = useFacadeStore((s) =>
+    s.backends.find((backend) => backend.backendId === (s.localBackendId || resolveLocalBackendId()))?.name
+  );
   const shortcut = useShortcutStore((s) => s.shortcut);
   const shortcutEnabled = useShortcutStore((s) => s.enabled);
   const claudiaServerUrl = useMemo(() => {
@@ -201,7 +213,7 @@ function AppContent() {
   const hasConnected = useRef(false);
 
   // Track if we've ever connected (to avoid showing loading on reconnect)
-  if (connectionStatus === 'connected') {
+  if (controlPlaneState === 'ready') {
     hasConnected.current = true;
   }
 
@@ -216,12 +228,12 @@ function AppContent() {
   }, []);
 
   useEffect(() => {
-    if (connectionStatus !== 'connected') return;
+    if (controlPlaneState !== 'ready') return;
     void loadAgentConfig();
-  }, [connectionStatus, loadAgentConfig]);
+  }, [controlPlaneState, loadAgentConfig]);
 
   useEffect(() => {
-    if (connectionStatus !== 'connected' || !agentConfigLoaded || !agentConfig?.enabled) return;
+    if (controlPlaneState !== 'ready' || !agentConfigLoaded || !agentConfig?.enabled) return;
     let cancelled = false;
 
     (async () => {
@@ -239,7 +251,7 @@ function AppContent() {
     return () => {
       cancelled = true;
     };
-  }, [agentConfig?.enabled, agentConfigLoaded, connectionStatus]);
+  }, [agentConfig?.enabled, agentConfigLoaded, controlPlaneState]);
 
   // Keep desktop floating ball visibility in sync with the Claudia master toggle.
   useEffect(() => {
@@ -266,8 +278,8 @@ function AppContent() {
 
         const { getCurrentWindow } = await import('@tauri-apps/api/window');
         const authToken = ''; // Local server trusts localhost connections
-        const serverId = 'local';
-        const serverName = 'Local Server';
+        const serverId = resolveCanonicalBackendId(localBackendId ?? LEGACY_LOCAL_SERVER_ID, localBackendId) || LEGACY_LOCAL_SERVER_ID;
+        const serverName = localBackendName || 'Local Server';
         const hostWindow = getCurrentWindow();
         const scale = typeof window.devicePixelRatio === 'number' && window.devicePixelRatio > 0
           ? window.devicePixelRatio
@@ -333,7 +345,7 @@ function AppContent() {
         console.warn('[App] Failed to create Claudia floating ball:', err);
       }
     })();
-  }, [agentConfig?.enabled, agentConfigLoaded, claudiaContextProjectId, claudiaProjectId, claudiaServerUrl, isMobile]);
+  }, [agentConfig?.enabled, agentConfigLoaded, claudiaContextProjectId, claudiaProjectId, claudiaServerUrl, isMobile, localBackendId, localBackendName]);
 
   useEffect(() => {
     if (!isDesktopTauri() || isMobile || !agentConfigLoaded) return;
@@ -420,7 +432,7 @@ function AppContent() {
     mobileInitDone.current = true;
 
     const { activeServerId } = useServerStore.getState();
-    if (activeServerId === 'local') {
+    if (isLocalBackendId(activeServerId)) {
       useServerStore.getState().setActiveServer(null);
     }
   }, [isMobile]);
@@ -430,11 +442,11 @@ function AppContent() {
   useEffect(() => {
     if (!isMobile || mobileAutoConnectDone.current) return;
     if (!lastActiveBackendId) return;
-    if (!isGatewayConnected) return;
+    if (facadeConnectionState !== 'connected') return;
 
     // Check if the last backend is online
-    const backendId = lastActiveBackendId.slice(3); // remove "gw:" prefix
-    const backendOnline = discoveredBackends.some(b => b.online && b.backendId === backendId);
+    const backendId = lastActiveBackendId;
+    const backendOnline = facadeBackends.some(b => b.online && b.backendId === backendId);
     if (!backendOnline) return;
 
     // Auto-connect once
@@ -442,7 +454,7 @@ function AppContent() {
     console.log('[App] Auto-reconnecting to last used backend:', lastActiveBackendId);
     useServerStore.getState().setActiveServer(lastActiveBackendId);
     connectServer(lastActiveBackendId);
-  }, [isMobile, lastActiveBackendId, isGatewayConnected, discoveredBackends, connectServer]);
+  }, [isMobile, lastActiveBackendId, facadeConnectionState, facadeBackends, connectServer]);
 
   // Eager sync when app comes back to foreground (e.g. returning to Mac after using mobile)
   useEffect(() => {
@@ -501,13 +513,13 @@ function AppContent() {
 
   // Windows: show setup screen when server is not configured
   const isWindows = typeof navigator !== 'undefined' && navigator.userAgent.includes('Windows');
-  const hasConnectedServer = connectionStatus === 'connected' || hasConnected.current;
+  const hasConnectedServer = controlPlaneState === 'ready' || hasConnected.current;
   if (isWindows && embeddedServerStatus === 'wsl-mode' && !hasConnectedServer) {
     return <WindowsSetup />;
   }
 
   // Desktop: show loading screen during initial startup
-  if (!isMobile && !hasConnected.current && connectionStatus !== 'connected') {
+  if (!isMobile && !hasConnected.current && controlPlaneState !== 'ready') {
     const statusText =
       embeddedServerStatus === 'error'
         ? embeddedServerError || 'Server failed to start'
@@ -825,7 +837,10 @@ function App() {
     const authToken = params.get('authToken') || '';
     return (
       <ThemeProvider defaultTheme="dark-neutral">
-        <AutomationWindow serverUrl={serverUrl} authToken={authToken} />
+        <AutomationWindow
+          serverUrl={serverUrl}
+          authToken={authToken}
+        />
       </ThemeProvider>
     );
   }

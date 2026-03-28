@@ -3,11 +3,18 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { ProviderManager } from '../ProviderManager';
 import * as api from '../../services/api';
 
-// Mock the serverStore
+const mockServerState = {
+  activeServerId: 'local',
+  connections: {
+    local: { status: 'connected', error: null, isLocalConnection: true, features: [] },
+  },
+};
+
+// Mock the serverStore with selector support
 vi.mock('../../stores/serverStore', () => ({
-  useServerStore: vi.fn(() => ({
-    connectionStatus: 'connected',
-  })),
+  useServerStore: vi.fn((selector?: (state: typeof mockServerState) => unknown) => (
+    typeof selector === 'function' ? selector(mockServerState) : mockServerState
+  )),
 }));
 
 // Mock the api module
@@ -51,7 +58,8 @@ describe('ProviderManager', () => {
     vi.mocked(api.updateProvider).mockResolvedValue(undefined);
     vi.mocked(api.deleteProvider).mockResolvedValue(undefined);
     vi.mocked(api.setDefaultProvider).mockResolvedValue(undefined);
-    vi.mocked(useServerStore).mockReturnValue({ connectionStatus: 'connected' });
+    mockServerState.activeServerId = 'local';
+    mockServerState.connections.local.status = 'connected';
   });
 
   afterEach(() => {
@@ -72,7 +80,7 @@ describe('ProviderManager', () => {
   });
 
   it('shows "Connect to a server first" when disconnected', () => {
-    vi.mocked(useServerStore).mockReturnValue({ connectionStatus: 'disconnected' });
+    mockServerState.connections.local.status = 'disconnected';
 
     render(<ProviderManager isOpen={true} onClose={mockOnClose} />);
 

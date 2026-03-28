@@ -1,19 +1,20 @@
 import { useState } from 'react';
 import { Bot, Monitor, ChevronRight } from 'lucide-react';
-import { useGatewayStore, shouldShowBackend } from '../stores/gatewayStore';
+import { useGatewayStore, shouldShowNonCurrentInstanceBackend } from '../stores/gatewayStore';
 import { useServerStore } from '../stores/serverStore';
+import { useFacadeStore } from '../stores/facadeStore';
 import { useConnection } from '../contexts/ConnectionContext';
-import type { GatewayBackendInfo } from '@my-claudia/shared';
+import type { BackendSnapshot } from '@my-claudia/shared';
 
 export function MobileSetup() {
   const {
-    isConnected: isGatewayConnected,
-    discoveredBackends,
     backendAuthStatus,
-    currentInstanceId,
     setDirectGatewayConfig,
     setLastActiveBackend,
   } = useGatewayStore();
+  const facadeConnectionState = useFacadeStore((s) => s.connectionState);
+  const backends = useFacadeStore((s) => s.backends);
+  const currentInstanceId = useFacadeStore((s) => s.currentInstanceId);
 
   const { setActiveServer } = useServerStore();
   const { connectServer } = useConnection();
@@ -42,8 +43,7 @@ export function MobileSetup() {
     // and create the transport automatically.
     // We give it a moment, then check connection status via polling.
     const checkInterval = setInterval(() => {
-      const state = useGatewayStore.getState();
-      if (state.isConnected) {
+      if (useFacadeStore.getState().connectionState === 'connected') {
         setConnecting(false);
         clearInterval(checkInterval);
       }
@@ -52,14 +52,14 @@ export function MobileSetup() {
     // Timeout after 15 seconds
     setTimeout(() => {
       clearInterval(checkInterval);
-      if (!useGatewayStore.getState().isConnected) {
+      if (useFacadeStore.getState().connectionState !== 'connected') {
         setConnecting(false);
         setError('Connection timed out. Please check the URL and secret.');
       }
     }, 15000);
   };
 
-  const handleBackendSelect = (backend: GatewayBackendInfo) => {
+  const handleBackendSelect = (backend: BackendSnapshot) => {
     if (!backend.online) return;
     const serverId = backend.backendId;
     setActiveServer(serverId);
@@ -68,8 +68,9 @@ export function MobileSetup() {
   };
 
   const { showLocalBackend } = useGatewayStore();
-  const onlineBackends = discoveredBackends.filter(
-    b => b.online && shouldShowBackend(b, currentInstanceId, showLocalBackend)
+  const isGatewayConnected = facadeConnectionState === 'connected';
+  const onlineBackends = backends.filter(
+    b => b.online && shouldShowNonCurrentInstanceBackend(b, currentInstanceId, showLocalBackend)
   );
 
   // Phase 2: Gateway connected — show backend selection

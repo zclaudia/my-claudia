@@ -1,22 +1,31 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { GatewayBackendInfo, BackendSnapshot } from '@my-claudia/shared';
+import { useFacadeStore } from './facadeStore';
 
 export type BackendAuthStatus = 'authenticated' | 'pending' | 'failed';
+export const GATEWAY_SERVER_PREFIX = 'gw:';
+
+export function toGatewayServerId(backendId: string): string {
+  return `${GATEWAY_SERVER_PREFIX}${backendId}`;
+}
+
+export function isGatewayTarget(serverId: string | null | undefined): boolean {
+  return !!serverId && serverId.startsWith(GATEWAY_SERVER_PREFIX);
+}
+
+export function parseBackendId(serverId: string | null | undefined): string | null {
+  if (!serverId) return null;
+  return isGatewayTarget(serverId) ? serverId.slice(GATEWAY_SERVER_PREFIX.length) : serverId;
+}
 
 interface GatewayState {
   // ---------------------------------------------------------------------------
-  // Runtime state — managed by facade sync bridge (NOT persisted)
-  // When facade is active, these fields are written by useBackendFacade's
-  // syncToGatewayStore(). Do NOT write to them from other sources.
+  // Runtime gateway transport state (NOT persisted)
   // ---------------------------------------------------------------------------
   gatewayUrl: string | null;
   gatewaySecret: string | null;
   isConnected: boolean;
-  localBackendId: string | null;
-  currentInstanceId: string | null;
-  currentDeviceId: string | null;
-  discoveredBackends: GatewayBackendInfo[];
   backendAuthStatus: Record<string, BackendAuthStatus>;
 
   // ---------------------------------------------------------------------------
@@ -32,9 +41,7 @@ interface GatewayState {
   // ---------------------------------------------------------------------------
   // Runtime state actions
   // ---------------------------------------------------------------------------
-  syncFromServer: (url: string | null, secret: string | null, backends: GatewayBackendInfo[], backendId?: string | null, connected?: boolean, instanceId?: string | null, deviceId?: string | null) => void;
   setConnected: (connected: boolean) => void;
-  setDiscoveredBackends: (backends: GatewayBackendInfo[]) => void;
   setBackendAuthStatus: (backendId: string, status: BackendAuthStatus) => void;
   clearGateway: () => void;
 
@@ -53,21 +60,12 @@ interface GatewayState {
   hasDirectConfig: () => boolean;
 }
 
-/** Mark identity flags on backends using instanceId/deviceId */
-function markIdentity(backends: GatewayBackendInfo[], currentInstanceId: string | null, currentDeviceId: string | null): GatewayBackendInfo[] {
-  return backends.map(b => ({
-    ...b,
-    isThisInstance: !!(currentInstanceId && b.instanceId === currentInstanceId),
-    isThisDevice: !!(currentDeviceId && b.deviceId === currentDeviceId),
-  }));
-}
-
 /**
  * Whether a backend should be shown in UI lists.
  * Hide "this instance" (the embedded server) unless showLocalBackend is on.
  * Accepts both GatewayBackendInfo and BackendSnapshot (facade model).
  */
-export function shouldShowBackend(
+export function shouldShowNonCurrentInstanceBackend(
   backend: GatewayBackendInfo | BackendSnapshot,
   currentInstanceId: string | null,
   showLocalBackend: boolean
@@ -81,17 +79,15 @@ export function shouldShowBackend(
   return !isThisInstance;
 }
 
+export const shouldShowBackend = shouldShowNonCurrentInstanceBackend;
+
 export const useGatewayStore = create<GatewayState>()(
   persist(
     (set, get) => ({
-      // Runtime state (synced from server)
+      // Runtime gateway state
       gatewayUrl: null,
       gatewaySecret: null,
       isConnected: false,
-      localBackendId: null,
-      currentInstanceId: null,
-      currentDeviceId: null,
-      discoveredBackends: [],
       backendAuthStatus: {},
 
       // Mobile direct config (persisted)
@@ -106,32 +102,11 @@ export const useGatewayStore = create<GatewayState>()(
       showLocalBackend: false,
       setShowLocalBackend: (show) => set({ showLocalBackend: show }),
 
-      syncFromServer: (url: string | null, secret: string | null, backends: GatewayBackendInfo[], backendId?: string | null, connected?: boolean, instanceId?: string | null, deviceId?: string | null) => {
-        const localId = backendId !== undefined ? backendId : get().localBackendId;
-        const curInstanceId = instanceId !== undefined ? instanceId : get().currentInstanceId;
-        const curDeviceId = deviceId !== undefined ? deviceId : get().currentDeviceId;
-        set({
-          gatewayUrl: url,
-          gatewaySecret: secret,
-          localBackendId: localId,
-          ...(instanceId !== undefined ? { currentInstanceId: instanceId } : {}),
-          ...(deviceId !== undefined ? { currentDeviceId: deviceId } : {}),
-          discoveredBackends: markIdentity(backends, curInstanceId, curDeviceId),
-          ...(connected !== undefined ? { isConnected: connected } : {}),
-        });
-      },
-
       setConnected: (connected) => {
         set({ isConnected: connected });
         if (!connected) {
-          // Clear auth status on disconnect (backends are managed by syncFromServer polling)
           set({ backendAuthStatus: {} });
         }
-      },
-
-      setDiscoveredBackends: (backends) => {
-        const { currentInstanceId, currentDeviceId } = get();
-        set({ discoveredBackends: markIdentity(backends, currentInstanceId, currentDeviceId) });
       },
 
       setBackendAuthStatus: (backendId, status) => {
@@ -145,10 +120,6 @@ export const useGatewayStore = create<GatewayState>()(
           gatewayUrl: null,
           gatewaySecret: null,
           isConnected: false,
-          localBackendId: null,
-          currentInstanceId: null,
-          currentDeviceId: null,
-          discoveredBackends: [],
           backendAuthStatus: {},
         });
       },
@@ -176,7 +147,6 @@ export const useGatewayStore = create<GatewayState>()(
           gatewayUrl: null,
           gatewaySecret: null,
           isConnected: false,
-          discoveredBackends: [],
           backendAuthStatus: {},
         });
       },
@@ -186,8 +156,8 @@ export const useGatewayStore = create<GatewayState>()(
           const current = state.subscribedBackendIds;
           if (current.length === 0) {
             // Currently "all subscribed" — switch to explicit list excluding this one
-            const allIds = state.discoveredBackends.map(b => b.backendId);
-            return { subscribedBackendIds: allIds.filter(id => id !== backendId) };
+            const facadeIds = useFacadeStore.getState().backends.map(b => b.backendId);
+            return { subscribedBackendIds: facadeIds.filter(id => id !== backendId) };
           }
           if (current.includes(backendId)) {
             // Unsubscribe

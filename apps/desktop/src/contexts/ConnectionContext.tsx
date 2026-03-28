@@ -95,14 +95,10 @@ export function ConnectionProvider({
   // connect immediately without waiting for local polling state to hydrate.
   useEffect(() => {
     if (!standaloneGatewayUrl || !standaloneGatewaySecret) return;
-    const gatewayState = useGatewayStore.getState();
-    gatewayState.syncFromServer(
-      standaloneGatewayUrl,
-      standaloneGatewaySecret,
-      gatewayState.discoveredBackends,
-      gatewayState.localBackendId,
-      gatewayState.isConnected,
-    );
+    useGatewayStore.setState({
+      gatewayUrl: standaloneGatewayUrl,
+      gatewaySecret: standaloneGatewaySecret,
+    });
   }, [standaloneGatewayUrl, standaloneGatewaySecret]);
 
   // Use the multi-server socket hook that manages multiple connections

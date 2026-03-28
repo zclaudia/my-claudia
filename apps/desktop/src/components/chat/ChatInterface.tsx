@@ -61,7 +61,7 @@ export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar }:
     lastStreamingBlock, streamingContentSignature,
     currentSession, currentProject, providers, isForcedPlanSession, fileReferenceRoot,
     providerId, capabilities, commands, commandsCacheKey,
-    mode, modelOverride, permissionOverride, currentUsage, currentSystemInfo,
+    effectiveMode, modelOverride, permissionOverride, currentUsage, currentSystemInfo,
     addMessage, clearMessages, setMode, setModelOverride, setPermissionOverride,
   } = session;
 
@@ -81,7 +81,7 @@ export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar }:
   // Message sending
   const send = useSendMessage({
     sessionId, isConnected, isLoading, sessionRunId, isSessionRunning, lastSessionMessage,
-    mode, modelOverride, permissionOverride, currentSession, addMessage, scrollToBottom, wsSendMessage,
+    mode: effectiveMode, modelOverride, permissionOverride, currentSession, addMessage, scrollToBottom, wsSendMessage,
   });
   const {
     handleSendMessage, handleCancelRun, handleSendNow, handleDismissQueue, handleResendLastMessage,
@@ -107,15 +107,15 @@ export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar }:
 
   // Task planning sessions are hard-locked to Plan mode.
   useEffect(() => {
-    if (isForcedPlanSession && mode !== 'plan') {
+    if (isForcedPlanSession && effectiveMode !== 'plan') {
       setMode(sessionId, 'plan');
     }
-  }, [isForcedPlanSession, mode, sessionId, setMode]);
+  }, [isForcedPlanSession, effectiveMode, sessionId, setMode]);
 
   // Command handler
   const { handleCommand, handleResetProviderSession, handleWorktreeChange } = useCommandHandler({
     sessionId, commands, currentSession, currentProject, isForcedPlanSession,
-    mode, modelOverride, addMessage, clearMessages, scrollToBottom, startRun,
+    mode: effectiveMode, modelOverride, addMessage, clearMessages, scrollToBottom, startRun,
     providerId, commandsCacheKey, setDrawerOpen, setBottomPanelTab,
   });
 
@@ -165,7 +165,7 @@ export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar }:
               clientRequestId: crypto.randomUUID(),
               sessionId,
               input: 'continue',
-              mode: mode || undefined,
+              mode: effectiveMode || undefined,
               workingDirectory: currentSession?.workingDirectory || undefined,
             });
           }}
@@ -295,7 +295,7 @@ export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar }:
           isLoading={isLoading}
           isConnected={isConnected}
           isForcedPlanSession={isForcedPlanSession}
-          mode={mode}
+          mode={effectiveMode}
           modelOverride={modelOverride}
           permissionOverride={permissionOverride}
           capabilities={capabilities}

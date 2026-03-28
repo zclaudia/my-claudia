@@ -39,6 +39,9 @@ export class EmbeddedBackendFacadeProvider implements BackendFacade {
       mode: 'embedded',
       localBackendMatcher: (presence, identity) =>
         presence.instanceId === identity.instanceId,
+      onLocalBackendIdChanged: (backendId) => {
+        this.adapter.setLocalBackendId(backendId);
+      },
     });
     this.hub = new FacadeWsHub(this.core);
   }

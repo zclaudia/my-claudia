@@ -18,6 +18,7 @@ import { useProjectStore } from '../../../stores/projectStore';
 import type { Node, Edge } from '@xyflow/react';
 import { isDesktopTauri } from '../../../utils/platform';
 import { openPopoutWindow } from '../../../utils/popoutWindow';
+import { useOwnershipStore } from '../../../stores/ownershipStore';
 
 interface WorkflowEditorProps {
   workflow?: Workflow;
@@ -214,6 +215,7 @@ export function WorkflowEditor({ workflow, projectId, onBack, onSaved, standalon
   const handlePopOut = async () => {
     if (!isDesktopTauri()) return;
     try {
+      const backendId = useOwnershipStore.getState().getProjectBackendId(projectId);
       await openPopoutWindow({
         type: 'workflow-editor',
         params: {
@@ -222,6 +224,7 @@ export function WorkflowEditor({ workflow, projectId, onBack, onSaved, standalon
         },
         title: workflow ? `Edit: ${workflow.name}` : 'New Workflow',
         width: 1100,
+        connectionTarget: { backendId },
       });
 
       // Go back to list in main window

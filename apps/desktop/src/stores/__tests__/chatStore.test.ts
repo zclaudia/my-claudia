@@ -22,6 +22,7 @@ describe('chatStore', () => {
       runContentBlocks: {},
       systemInfoBySession: {},
       modeOverrides: {},
+      runtimeModes: {},
       sessionUsage: {},
       modelOverrides: {},
       permissionOverrides: {},
@@ -375,6 +376,20 @@ describe('chatStore', () => {
 
     it('returns empty string for unknown session', () => {
       expect(useChatStore.getState().getMode('unknown')).toBe('');
+    });
+
+    it('tracks runtime mode separately and clears it when a run ends', () => {
+      useChatStore.getState().setMode('sess-1', 'default');
+      useChatStore.getState().setRuntimeMode('sess-1', 'plan');
+      useChatStore.getState().startRun('run-1', 'sess-1');
+
+      expect(useChatStore.getState().getMode('sess-1')).toBe('default');
+      expect(useChatStore.getState().getRuntimeMode('sess-1')).toBe('plan');
+
+      useChatStore.getState().endRun('run-1');
+
+      expect(useChatStore.getState().getMode('sess-1')).toBe('default');
+      expect(useChatStore.getState().getRuntimeMode('sess-1')).toBe('');
     });
   });
 

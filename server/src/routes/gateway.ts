@@ -8,7 +8,7 @@ export interface GatewayConfig {
   gatewayUrl: string | null;
   gatewaySecret: string | null;
   backendName: string | null;
-  backendId: string | null;
+  gatewayBackendId: string | null;
   registerAsBackend: boolean;
   proxyUrl?: string | null;
   proxyUsername?: string | null;
@@ -20,7 +20,7 @@ export interface GatewayConfig {
 export interface GatewayStatus {
   enabled: boolean;
   connected: boolean;
-  backendId: string | null;
+  gatewayBackendId: string | null;
   gatewayUrl: string | null;
   gatewaySecret: string | null;
   backendName: string | null;
@@ -63,7 +63,7 @@ export function createGatewayRouter(
         gatewayUrl: row.gateway_url,
         gatewaySecret: row.gateway_secret,
         backendName: row.backend_name,
-        backendId: row.backend_id,
+        gatewayBackendId: row.backend_id,
         registerAsBackend: row.register_as_backend === 1,
         proxyUrl: row.proxy_url,
         proxyUsername: row.proxy_username,
@@ -198,7 +198,7 @@ export function createGatewayRouter(
         gatewayUrl: row.gateway_url,
         gatewaySecret: row.gateway_secret,
         backendName: row.backend_name,
-        backendId: row.backend_id,
+        gatewayBackendId: row.backend_id,
         registerAsBackend: row.register_as_backend === 1,
         proxyUrl: row.proxy_url,
         proxyUsername: row.proxy_username,
@@ -276,7 +276,7 @@ export function createGatewayRouter(
         gatewayUrl: row.gateway_url,
         gatewaySecret: row.gateway_secret,
         backendName: row.backend_name,
-        backendId: row.backend_id,
+        gatewayBackendId: row.backend_id,
         registerAsBackend: row.register_as_backend === 1,
         proxyUrl: row.proxy_url,
         proxyUsername: row.proxy_username,

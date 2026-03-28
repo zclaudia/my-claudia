@@ -1,8 +1,11 @@
 import { apiCall, apiCallVoid } from './unwrap';
+import { useServerStore } from '../../stores/serverStore';
+import { resolveLocalBackendId } from '../../utils/controlPlane';
 
 export interface SearchResult {
   id: string;
   sessionId: string;
+  ownerBackendId: string;
   role: string;
   content: string;
   createdAt: number;
@@ -43,7 +46,14 @@ export async function searchMessages(query: string, filters?: SearchFilters): Pr
   }
 
   const data = await apiCall<{ results: SearchResult[] }>(`/api/sessions/search/messages?${params}`);
-  return data.results;
+  const activeBackendId = useServerStore.getState().activeServerId || resolveLocalBackendId();
+  if (!activeBackendId) {
+    throw new Error('No active backend available for search');
+  }
+  return data.results.map((result) => ({
+    ...result,
+    ownerBackendId: result.ownerBackendId ?? activeBackendId,
+  }));
 }
 
 export interface SearchHistoryEntry {

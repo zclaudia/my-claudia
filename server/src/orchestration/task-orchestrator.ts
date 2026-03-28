@@ -33,6 +33,7 @@ export interface TaskOrchestratorDeps {
       taskId?: string;
       sessionId?: string;
       projectId?: string;
+      ownerBackendId?: string;
       source: NotificationSource;
       title: string;
       summary?: string;

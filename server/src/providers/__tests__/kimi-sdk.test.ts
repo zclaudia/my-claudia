@@ -310,6 +310,46 @@ describe('kimi-sdk', () => {
     expect(messages[1].error).toContain('Failed to start kimi');
   });
 
+  it('retries without MCP bridge when claudia-plugins connection fails', async () => {
+    const first = createMockProc();
+    const second = createMockProc();
+    vi.mocked(spawn)
+      .mockReturnValueOnce(first.proc as any)
+      .mockReturnValueOnce(second.proc as any);
+
+    const messages: any[] = [];
+    const collect = (async () => {
+      for await (const msg of runKimi('hello', { cwd: '/tmp', serverPort: 3100 }, vi.fn())) {
+        messages.push(msg);
+      }
+    })();
+
+    await new Promise(resolve => setTimeout(resolve, 0));
+    first.stdout.push(JSON.stringify({
+      type: 'error',
+      message: "Unknown error: Failed to connect MCP servers: {'claudia-plugins': RuntimeError('Client failed to connect: Connection closed')}",
+    }) + '\n');
+    first.stdout.push(null);
+
+    await new Promise(resolve => setTimeout(resolve, 0));
+    second.stdout.push(JSON.stringify({ type: 'message', role: 'assistant', content: 'hello from retry' }) + '\n');
+    second.stdout.push(JSON.stringify({ type: 'complete' }) + '\n');
+    second.stdout.push(null);
+
+    await collect;
+
+    expect(vi.mocked(spawn)).toHaveBeenCalledTimes(2);
+    const firstArgs = vi.mocked(spawn).mock.calls[0]?.[1] as string[];
+    const secondArgs = vi.mocked(spawn).mock.calls[1]?.[1] as string[];
+    const firstSession = firstArgs[firstArgs.indexOf('--session') + 1];
+    const secondSession = secondArgs[secondArgs.indexOf('--session') + 1];
+    expect(firstSession).toBeTruthy();
+    expect(secondSession).toBeTruthy();
+    expect(secondSession).not.toBe(firstSession);
+    expect(messages.some((msg) => msg.type === 'assistant' && msg.content === 'hello from retry')).toBe(true);
+    expect(messages.some((msg) => msg.type === 'error' && String(msg.error).includes('Failed to connect MCP servers'))).toBe(false);
+  });
+
   it('yields assistant message event', async () => {
     const { proc, stdout } = createMockProc();
     vi.mocked(spawn).mockReturnValue(proc as any);

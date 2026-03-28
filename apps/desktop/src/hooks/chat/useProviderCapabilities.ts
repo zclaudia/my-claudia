@@ -4,6 +4,7 @@ import { useServerStore } from '../../stores/serverStore';
 import { useChatStore } from '../../stores/chatStore';
 import * as api from '../../services/api';
 import type { ProviderCapabilities, SlashCommand } from '@my-claudia/shared';
+import { LEGACY_LOCAL_SERVER_ID, resolveCanonicalBackendId } from '../../utils/controlPlane';
 
 interface UseProviderCapabilitiesOptions {
   sessionId: string;
@@ -28,7 +29,9 @@ export function useProviderCapabilities({ sessionId, isConnected }: UseProviderC
 
   const providerId = currentSession?.providerId || currentProject?.providerId;
   const isBackendDataReady = dataServerId != null && dataServerId === activeServerId;
-  const providerScopeKey = activeServerId || 'local';
+  const providerScopeKey =
+    resolveCanonicalBackendId(activeServerId ?? LEGACY_LOCAL_SERVER_ID, LEGACY_LOCAL_SERVER_ID)
+    || LEGACY_LOCAL_SERVER_ID;
   const capsCacheKey = `${providerScopeKey}:${providerId || '_default'}`;
   const commandsCacheKey = `${providerScopeKey}:${providerId || '_default'}`;
 

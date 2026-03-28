@@ -4,11 +4,12 @@ import type { FileEntry } from '@my-claudia/shared';
 
 interface FileSearchInputProps {
   projectRoot: string;
+  backendId?: string | null;
   onSelect: (relativePath: string) => void;
   onClose: () => void;
 }
 
-export function FileSearchInput({ projectRoot, onSelect, onClose }: FileSearchInputProps) {
+export function FileSearchInput({ projectRoot, backendId, onSelect, onClose }: FileSearchInputProps) {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<FileEntry[]>([]);
   const [selectedIndex, setSelectedIndex] = useState(0);
@@ -35,6 +36,7 @@ export function FileSearchInput({ projectRoot, onSelect, onClose }: FileSearchIn
       try {
         const result = await api.listDirectory({
           projectRoot,
+          backendId,
           query: query.trim(),
           maxResults: 20,
         });
@@ -50,7 +52,7 @@ export function FileSearchInput({ projectRoot, onSelect, onClose }: FileSearchIn
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
-  }, [query, projectRoot]);
+  }, [backendId, query, projectRoot]);
 
   const handleSelect = useCallback((entry: FileEntry) => {
     onSelect(entry.path);

@@ -5,6 +5,7 @@ import { ChatInterface } from './ChatInterface';
 import { useServerStore } from '../../stores/serverStore';
 import { useProjectStore } from '../../stores/projectStore';
 import * as api from '../../services/api';
+import { useSelectionCoordinator } from '../../hooks/useSelectionCoordinator';
 
 /** Compact context bar showing backend + project info for standalone windows */
 export function WindowContextBar({ serverName, projectId }: { serverName?: string; projectId?: string }) {
@@ -147,11 +148,15 @@ interface SessionChatContentProps {
 function SessionChatContent({ sessionId, projectId }: SessionChatContentProps) {
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const connectionStatus = useServerStore((s) => s.connectionStatus);
+  const { selectProject, selectSession } = useSelectionCoordinator();
+  const isConnected = useServerStore((s) => {
+    if (!s.activeServerId) return false;
+    return s.connections[s.activeServerId]?.status === 'connected';
+  });
 
   // Once WebSocket is connected, load project/session data into the stores
   useEffect(() => {
-    if (connectionStatus !== 'connected') return;
+    if (!isConnected) return;
 
     let cancelled = false;
     (async () => {
@@ -170,8 +175,8 @@ function SessionChatContent({ sessionId, projectId }: SessionChatContentProps) {
         store.setProviders(providers);
 
         // Select the target project and session
-        if (projectId) store.selectProject(projectId);
-        store.selectSession(sessionId);
+        if (projectId) selectProject(projectId);
+        selectSession(sessionId);
 
         setLoaded(true);
       } catch (err) {
@@ -182,7 +187,7 @@ function SessionChatContent({ sessionId, projectId }: SessionChatContentProps) {
     })();
 
     return () => { cancelled = true; };
-  }, [connectionStatus, sessionId, projectId]);
+  }, [isConnected, sessionId, projectId, selectProject, selectSession]);
 
   if (error) {
     return (

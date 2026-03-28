@@ -325,12 +325,44 @@ const createMockStore = (initialState: any) => {
 };
 
 // Mock serverStore
+const MOCK_LOCAL_BACKEND_ID = 'local-standalone';
 const mockServerStore = createMockStore({
   servers: [{ id: 'local', name: 'Local', address: 'localhost:3100', isDefault: true, createdAt: Date.now() }],
-  activeServerId: 'local',
+  activeServerId: MOCK_LOCAL_BACKEND_ID,
+  connections: {
+    [MOCK_LOCAL_BACKEND_ID]: {
+      status: 'connected',
+      error: null,
+      isLocalConnection: true,
+      features: [],
+    },
+  },
+  localServerPort: 3100,
+  controlPlaneMode: 'embedded-local',
+  controlPlaneState: 'ready',
+  setActiveServer: vi.fn(),
   setActiveServerId: vi.fn(),
+  setServers: vi.fn(),
+  setServerConnectionStatus: vi.fn(),
+  setServerLocalConnection: vi.fn(),
+  setServerFeatures: vi.fn(),
+  setServerPublicKey: vi.fn(),
+  setServerLatency: vi.fn(),
+  setLocalServerPort: vi.fn(),
+  setControlPlaneMode: vi.fn(),
+  setControlPlaneState: vi.fn(),
+  updateLastConnected: vi.fn(),
   getActiveServer: vi.fn(() => ({ id: 'local', name: 'Local', address: 'localhost:3100', isDefault: true, createdAt: Date.now() })),
-  activeServerSupports: vi.fn(() => true),
+  getServerConnection: vi.fn((serverId: string) => mockServerStore.getState().connections[serverId]),
+  getActiveServerConnection: vi.fn(() => {
+    const state = mockServerStore.getState();
+    return state.activeServerId ? state.connections[state.activeServerId] : undefined;
+  }),
+  activeServerSupports: vi.fn((feature: string) => {
+    const state = mockServerStore.getState();
+    if (!state.activeServerId) return false;
+    return state.connections[state.activeServerId]?.features?.includes(feature) ?? false;
+  }),
 });
 
 const useServerStoreMock = vi.fn((selector?: (state: any) => any) => {
@@ -345,6 +377,47 @@ vi.mock('@/stores/serverStore', () => ({
   useServerStore: useServerStoreMock,
   serverStore: mockServerStore,
   ...mockServerStore,
+}));
+
+// Mock facadeStore
+const mockFacadeStore = createMockStore({
+  facade: null,
+  mode: 'embedded',
+  connectionState: 'connected',
+  backends: [
+    {
+      backendId: MOCK_LOCAL_BACKEND_ID,
+      name: 'Local',
+      online: true,
+      runtimeState: 'ready',
+      isThisInstance: true,
+      instanceId: 'instance-local',
+    },
+  ],
+  sessionStreams: {},
+  localBackendId: MOCK_LOCAL_BACKEND_ID,
+  currentInstanceId: 'instance-local',
+  currentDeviceId: 'device-local',
+  registryRevision: 1,
+  snapshotVersion: 1,
+  setFacade: vi.fn(),
+  clearFacade: vi.fn(),
+  applySnapshot: vi.fn(),
+  applyEvent: vi.fn(),
+});
+
+const useFacadeStoreMock = vi.fn((selector?: (state: any) => any) => {
+  const state = mockFacadeStore.getState();
+  return selector ? selector(state) : state;
+});
+(useFacadeStoreMock as any).setState = mockFacadeStore.setState;
+(useFacadeStoreMock as any).getState = mockFacadeStore.getState;
+(useFacadeStoreMock as any).subscribe = mockFacadeStore.subscribe;
+
+vi.mock('@/stores/facadeStore', () => ({
+  useFacadeStore: useFacadeStoreMock,
+  facadeStore: mockFacadeStore,
+  ...mockFacadeStore,
 }));
 
 // Mock projectStore
@@ -437,10 +510,16 @@ vi.mock('@/stores/uiStore', () => ({
 
 // Mock gatewayStore
 const mockGatewayStore = createMockStore({
+  isConnected: false,
+  showLocalBackend: false,
+  directGatewayUrl: '',
+  directGatewaySecret: '',
   discoveredBackends: [],
   localBackendId: null,
   gateways: [],
   activeGatewayId: null,
+  setDirectGatewayConfig: vi.fn(),
+  clearDirectGatewayConfig: vi.fn(),
   getDiscoveredBackends: vi.fn(() => []),
 });
 
@@ -457,8 +536,9 @@ vi.mock('@/stores/gatewayStore', () => ({
   gatewayStore: mockGatewayStore,
   ...mockGatewayStore,
   toGatewayServerId: (backendId: string) => `gw:${backendId}`,
-  parseBackendId: (serverId: string) => serverId.startsWith('gw:') ? serverId.slice(3) : null,
+  parseBackendId: (serverId: string) => serverId.startsWith('gw:') ? serverId.slice(3) : serverId,
   isGatewayTarget: (serverId: string | null) => serverId?.startsWith('gw:') ?? false,
+  shouldShowNonCurrentInstanceBackend: () => true,
   shouldShowBackend: () => true,
 }));
 
@@ -469,7 +549,7 @@ vi.mock('@/stores/sessionsStore', async (importOriginal) => {
     ...actual,
     useSessionsStore: useSessionsStoreMock,
     sessionsStore: mockSessionsStore,
-    LOCAL_BACKEND_KEY: Symbol('local'),
+    LOCAL_BACKEND_KEY: '__local__',
   };
 });
 
@@ -546,6 +626,7 @@ afterEach(() => {
   
   // Reset stores to initial state
   mockServerStore.setState(mockServerStore.getInitialState());
+  mockFacadeStore.setState(mockFacadeStore.getInitialState());
   mockProjectStore.setState(mockProjectStore.getInitialState());
   mockSessionsStore.setState(mockSessionsStore.getInitialState());
   mockUIStore.setState(mockUIStore.getInitialState());

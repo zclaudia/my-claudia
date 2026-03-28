@@ -131,6 +131,7 @@ vi.mock('../../stores/serverStore', () => ({
   useServerStore: {
     getState: () => ({
       activeServerId: 'server-1',
+      localServerPort: 3100,
       getActiveServer: () => ({
         id: 'server-1',
         name: 'Test Server',
@@ -144,6 +145,27 @@ vi.mock('../../stores/serverStore', () => ({
       activeServerSupports: () => true,
     }),
   },
+}));
+
+vi.mock('../../stores/ownershipStore', () => ({
+  useOwnershipStore: {
+    getState: () => ({
+      getProjectBackendId: (projectId: string | null | undefined) => {
+        if (!projectId) return null;
+        return 'server-1';
+      },
+      getSessionBackendId: (sessionId: string | null | undefined) => {
+        if (!sessionId) return null;
+        return 'server-1';
+      },
+    }),
+  },
+}));
+
+vi.mock('../../utils/controlPlane', () => ({
+  getControlPlaneMode: () => 'embedded-local',
+  isLocalBackendId: (id: string | null | undefined) => id === 'server-1' || id === 'local',
+  resolveLocalBackendId: () => 'server-1',
 }));
 
 // Mock the gatewayStore
@@ -682,7 +704,7 @@ describe('api', () => {
     });
 
     it('updateAgentConfig', async () => {
-      mockResponse(undefined);
+      mockResponse({ enabled: true, projectId: 'p1', sessionId: 's1', providerId: null, permissionPolicy: null });
       await updateAgentConfig({ maxConcurrent: 5 } as any);
       expect(mockFetch).toHaveBeenCalledWith(
         expect.stringContaining('/api/agent/config'),
@@ -1271,7 +1293,7 @@ describe('api', () => {
       const results = [{ id: 'm1', content: 'hello' }];
       mockResponse({ results });
       const result = await searchMessages('hello', { projectId: 'p1' });
-      expect(result).toEqual(results);
+      expect(result).toEqual([{ ...results[0], ownerBackendId: 'server-1' }]);
     });
 
     it('clearSearchHistory clears history', async () => {

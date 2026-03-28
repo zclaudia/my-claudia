@@ -4,11 +4,15 @@ import { useProjectStore } from '../stores/projectStore';
 import * as api from '../services/api';
 
 export function useDataLoader() {
-  const { connectionStatus, activeServerId } = useServerStore();
+  const activeServerId = useServerStore((s) => s.activeServerId);
+  const isActiveConnected = useServerStore((s) => {
+    if (!s.activeServerId) return false;
+    return s.connections[s.activeServerId]?.status === 'connected';
+  });
   const setDataServerId = useProjectStore((s) => s.setDataServerId);
 
   const loadData = useCallback(async (signal?: AbortSignal) => {
-    if (connectionStatus !== 'connected') return;
+    if (!isActiveConnected) return;
 
     console.log(`[DataLoader] Loading data for server: ${activeServerId}`);
 
@@ -38,11 +42,11 @@ export function useDataLoader() {
       }
       console.error('[DataLoader] Error loading data:', err);
     }
-  }, [connectionStatus, activeServerId]);
+  }, [isActiveConnected, activeServerId]);
 
   // Load data when connected or server changes
   useEffect(() => {
-    if (connectionStatus === 'connected') {
+    if (isActiveConnected) {
       const controller = new AbortController();
       setDataServerId(null);
       const timer = setTimeout(() => {
@@ -53,7 +57,7 @@ export function useDataLoader() {
         controller.abort();
       };
     }
-  }, [loadData, activeServerId, connectionStatus, setDataServerId]);
+  }, [loadData, activeServerId, isActiveConnected, setDataServerId]);
 
   // Note: Session messages are loaded by ChatInterface with pagination support
 

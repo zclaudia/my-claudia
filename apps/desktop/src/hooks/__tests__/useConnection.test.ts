@@ -21,9 +21,11 @@ describe('useConnection', () => {
 
   it('returns context value when inside provider', () => {
     const mockContext = {
-      send: () => {},
-      connectionStatus: 'connected' as const,
-      serverVersion: '1.0.0',
+      sendMessage: () => {},
+      connectServer: () => {},
+      embeddedServerStatus: 'ready' as const,
+      embeddedServerError: null,
+      embeddedServerPort: 3100,
     };
 
     const wrapper = ({ children }: { children: React.ReactNode }) =>

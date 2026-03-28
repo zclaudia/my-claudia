@@ -18,6 +18,7 @@ const mockChatStore = {
   updateToolCallResult: vi.fn(),
   updateToolCallActivity: vi.fn(),
   setMode: vi.fn(),
+  setRuntimeMode: vi.fn(),
   setSystemInfo: vi.fn(),
   updateRunHealth: vi.fn(),
 };
@@ -126,6 +127,7 @@ vi.mock('../../features/supervision/handlers', () => ({
 vi.mock('../../stores/sessionsStore', () => ({
   useSessionsStore: { getState: () => mockSessionsStore },
   LOCAL_BACKEND_KEY: '__local__',
+  getSessionBucketKeyForBackend: (backendId: string | null | undefined) => backendId ?? '__local__',
 }));
 vi.mock('../../stores/terminalStore', () => ({
   useTerminalStore: { getState: () => mockTerminalStore },
@@ -166,6 +168,8 @@ vi.mock('../../utils/xtermRegistry', () => ({
 import { handleServerMessage } from '../messageHandler';
 import { downloadPushedFile } from '../fileDownload';
 import { xtermRegistry } from '../../utils/xtermRegistry';
+import { useNotificationFeedStore } from '../../stores/notificationFeedStore';
+import { useToastStore } from '../../stores/toastStore';
 
 function makeCtx(overrides?: Partial<MessageHandlerContext>): MessageHandlerContext {
   return {
@@ -186,6 +190,8 @@ describe('handleServerMessage', () => {
     mockProjectStore.selectedSessionId = 'current-session';
     mockProjectStore.sessions = [];
     mockServerStore.activeServerId = 'server-1';
+    useNotificationFeedStore.setState({ items: [], unreadCount: 0, hasMore: false, loading: false, hydrated: false });
+    useToastStore.setState({ toasts: [] });
   });
 
   it('handles pong (no-op)', () => {
@@ -382,7 +388,8 @@ describe('handleServerMessage', () => {
 
   it('handles mode_change', () => {
     handleServerMessage({ type: 'mode_change', sessionId: 's1', mode: 'plan' }, makeCtx());
-    expect(mockChatStore.setMode).toHaveBeenCalledWith('s1', 'plan');
+    expect(mockChatStore.setRuntimeMode).toHaveBeenCalledWith('s1', 'plan');
+    expect(mockChatStore.setMode).not.toHaveBeenCalled();
   });
 
   it('handles permission_request', () => {
@@ -873,11 +880,22 @@ describe('handleServerMessage', () => {
       expect(mockPluginStore.setPendingPermissionRequest).toHaveBeenCalled();
     });
 
-    it('handles plugin_notification', () => {
-      const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
-      handleServerMessage({ type: 'plugin_notification', title: 'Hello', body: 'World' }, makeCtx());
-      expect(logSpy).toHaveBeenCalled();
-      logSpy.mockRestore();
+    it('handles plugin_notification', async () => {
+      handleServerMessage({ type: 'plugin_notification', pluginId: 'p1', title: 'Hello', body: 'World' } as any, makeCtx());
+      await Promise.resolve();
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(useNotificationFeedStore.getState().items[0]).toMatchObject({
+        ownerBackendId: 'server-1',
+        title: 'Hello',
+        summary: 'World',
+        status: 'completed',
+      });
+      expect(useToastStore.getState().toasts[0]).toMatchObject({
+        title: 'Hello',
+        message: 'World',
+        type: 'info',
+      });
     });
 
     it('handles plugin_panel_registered', () => {

@@ -58,6 +58,8 @@ interface ChatState {
   systemInfoBySession: Record<string, SystemInfo>;
   // Mode per session (generic — permission mode for Claude, agent for OpenCode, etc.)
   modeOverrides: Record<string, string>;
+  // Runtime mode per session (provider-driven transient state, e.g. AI-entered plan mode)
+  runtimeModes: Record<string, string>;
   // Token usage per session (accumulated + latest run snapshot)
   sessionUsage: Record<string, {
     inputTokens: number;
@@ -111,6 +113,9 @@ interface ChatState {
   // Mode actions (per session)
   setMode: (sessionId: string, mode: string) => void;
   getMode: (sessionId: string) => string;
+  setRuntimeMode: (sessionId: string, mode: string) => void;
+  getRuntimeMode: (sessionId: string) => string;
+  clearRuntimeMode: (sessionId: string) => void;
 
   // Usage tracking
   addSessionUsage: (sessionId: string, usage: UsageInfo) => void;
@@ -167,6 +172,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   runContentBlocks: {},
   systemInfoBySession: {},
   modeOverrides: {},
+  runtimeModes: {},
   sessionUsage: {},
   modelOverrides: {},
   permissionOverrides: {},
@@ -362,11 +368,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   endRun: (runId) =>
     set((state) => {
+      const sessionId = state.activeRuns[runId];
       const { [runId]: _removedRun, ...remainingRuns } = state.activeRuns;
       const { [runId]: _removedTC, ...remainingTC } = state.activeToolCalls;
       const { [runId]: _removedHist, ...remainingHist } = state.toolCallsHistory;
       const { [runId]: _removedCB, ...remainingCB } = state.runContentBlocks;
       const { [runId]: _removedHealth, ...remainingHealth } = state.runHealth;
+      const runtimeModes = { ...state.runtimeModes };
+      if (sessionId) delete runtimeModes[sessionId];
       const newBackgroundRunIds = new Set(state.backgroundRunIds);
       newBackgroundRunIds.delete(runId);
       return {
@@ -376,6 +385,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         toolCallsHistory: remainingHist,
         runContentBlocks: remainingCB,
         runHealth: remainingHealth,
+        runtimeModes,
       };
     }),
 
@@ -548,6 +558,16 @@ export const useChatStore = create<ChatState>((set, get) => ({
       modeOverrides: { ...state.modeOverrides, [sessionId]: mode },
     })),
   getMode: (sessionId) => get().modeOverrides[sessionId] || '',
+  setRuntimeMode: (sessionId, mode) =>
+    set((state) => ({
+      runtimeModes: { ...state.runtimeModes, [sessionId]: mode },
+    })),
+  getRuntimeMode: (sessionId) => get().runtimeModes[sessionId] || '',
+  clearRuntimeMode: (sessionId) =>
+    set((state) => {
+      const { [sessionId]: _removedMode, ...remainingRuntimeModes } = state.runtimeModes;
+      return { runtimeModes: remainingRuntimeModes };
+    }),
 
   // Usage tracking
   addSessionUsage: (sessionId, usage) =>

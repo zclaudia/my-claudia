@@ -6,10 +6,15 @@ import type {
   WorkflowTemplate,
   WorkflowStepTypeMeta,
 } from '@my-claudia/shared';
-import { apiCall, apiCallVoid } from '../../services/api/unwrap';
+import { apiCall, apiCallForBackend, apiCallVoid } from '../../services/api/unwrap';
+import { useOwnershipStore } from '../../stores/ownershipStore';
+
+function getProjectOwnerBackendId(projectId: string): string | null {
+  return useOwnershipStore.getState().getProjectBackendId(projectId);
+}
 
 export async function listWorkflows(projectId: string): Promise<Workflow[]> {
-  return apiCall<Workflow[]>(`/api/projects/${projectId}/workflows`);
+  return apiCallForBackend<Workflow[]>(getProjectOwnerBackendId(projectId), `/api/projects/${projectId}/workflows`);
 }
 
 export async function listAllWorkflows(): Promise<Workflow[]> {
@@ -28,7 +33,7 @@ export async function getWorkflow(workflowId: string): Promise<Workflow> {
 }
 
 export async function createWorkflow(projectId: string, data: { name: string; description?: string; definition: WorkflowDefinition; status?: string }): Promise<Workflow> {
-  return apiCall<Workflow>(`/api/projects/${projectId}/workflows`, {
+  return apiCallForBackend<Workflow>(getProjectOwnerBackendId(projectId), `/api/projects/${projectId}/workflows`, {
     method: 'POST',
     body: JSON.stringify(data),
   });
@@ -54,7 +59,8 @@ export async function listWorkflowStepTypes(): Promise<WorkflowStepTypeMeta[]> {
 }
 
 export async function createWorkflowFromTemplate(projectId: string, templateId: string): Promise<Workflow> {
-  return apiCall<Workflow>(
+  return apiCallForBackend<Workflow>(
+    getProjectOwnerBackendId(projectId),
     `/api/projects/${projectId}/workflows/from-template/${templateId}`,
     { method: 'POST' },
   );
@@ -100,7 +106,8 @@ export async function generateWorkflowFromNL(
   description: string,
   providerId: string,
 ): Promise<WorkflowGenerateResult> {
-  return apiCall<WorkflowGenerateResult>(
+  return apiCallForBackend<WorkflowGenerateResult>(
+    getProjectOwnerBackendId(projectId),
     `/api/projects/${projectId}/workflows/generate`,
     { method: 'POST', body: JSON.stringify({ description, providerId }) },
   );
@@ -111,7 +118,8 @@ export async function refineGeneratedWorkflow(
   generationId: string,
   instruction: string,
 ): Promise<WorkflowGenerateResult> {
-  return apiCall<WorkflowGenerateResult>(
+  return apiCallForBackend<WorkflowGenerateResult>(
+    getProjectOwnerBackendId(projectId),
     `/api/projects/${projectId}/workflows/generate/refine`,
     { method: 'POST', body: JSON.stringify({ generationId, instruction }) },
   );

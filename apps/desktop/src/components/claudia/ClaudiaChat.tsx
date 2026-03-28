@@ -3,10 +3,12 @@ import { MessageInput } from '../chat/MessageInput';
 import { useClaudiaStore } from '../../stores/claudiaStore';
 import { usePermissionStore } from '../../stores/permissionStore';
 import { useProjectStore } from '../../stores/projectStore';
+import { useSelectionCoordinator } from '../../hooks/useSelectionCoordinator';
 import { useConnection } from '../../contexts/ConnectionContext';
 import { fetchApi } from '../../services/api';
 import { dismissInterrupted } from '../../services/api/sessions';
 import { openPopoutWindow } from '../../utils/popoutWindow';
+import { resolveLocalBackendId } from '../../utils/controlPlane';
 import { InlinePermissionRequest } from '../chat/InlinePermissionRequest';
 import { TaskCard } from './TaskCard';
 import { InlineResponse } from './InlineResponse';
@@ -47,7 +49,8 @@ export function ClaudiaChat({ isMobile = false, hostProjectId, contextProjectId 
     isConnected,
     handlePermissionDecision,
   } = useConnection();
-  const { selectedSessionId, selectedProjectId, sessions, projects, selectProject, updateSession } = useProjectStore();
+  const { selectedSessionId, selectedProjectId, sessions, projects, updateSession } = useProjectStore();
+  const { selectProject } = useSelectionCoordinator();
   const tasks = useClaudiaStore((s) => s.tasks);
   const addTask = useClaudiaStore((s) => s.addTask);
   const removeTask = useClaudiaStore((s) => s.removeTask);
@@ -226,6 +229,7 @@ export function ClaudiaChat({ isMobile = false, hostProjectId, contextProjectId 
           type: 'claudia-task',
           params: { sessionWindow: task.sessionId!, projectId: currentProject?.id || '' },
           title: `Claudia: ${task.title}`,
+          connectionTarget: { backendId: resolveLocalBackendId() },
         });
       } catch {
         // Not on desktop Tauri — ignore

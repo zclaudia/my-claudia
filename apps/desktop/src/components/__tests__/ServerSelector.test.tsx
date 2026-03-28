@@ -12,29 +12,32 @@ vi.mock('../../hooks/useMediaQuery', () => ({ useIsMobile: () => false }));
 import { ServerSelector } from '../ServerSelector';
 import { useServerStore } from '../../stores/serverStore';
 import { useGatewayStore } from '../../stores/gatewayStore';
+import { useFacadeStore } from '../../stores/facadeStore';
 
 describe('ServerSelector', () => {
   beforeEach(() => {
     useServerStore.setState({
-      servers: [
-        { id: 'local', name: 'Local Server', address: 'localhost:3100', isDefault: true, createdAt: 0 },
-      ],
       activeServerId: 'local',
       connections: {
         local: { status: 'connected', error: null, isLocalConnection: true, features: [] },
       },
-      connectionStatus: 'connected',
-      connectionError: null,
       setActiveServer: vi.fn(),
-      getActiveServer: () => ({ id: 'local', name: 'Local Server', address: 'localhost:3100', isDefault: true, createdAt: 0 }) as any,
     } as any);
+    useFacadeStore.setState({
+      backends: [{ backendId: 'local', name: 'Local Server', online: true, isThisInstance: true } as any],
+      localBackendId: 'local',
+      currentInstanceId: 'inst-local',
+      connectionState: 'connected',
+      mode: 'embedded',
+      sessionStreams: {},
+      snapshotVersion: 1,
+      registryRevision: 1,
+    });
 
     useGatewayStore.setState({
       gatewayUrl: null,
       gatewaySecret: null,
       isConnected: false,
-      discoveredBackends: [],
-      localBackendId: null,
       setLastActiveBackend: vi.fn(),
       toggleBackendSubscription: vi.fn(),
       isBackendSubscribed: () => false,
@@ -66,8 +69,12 @@ describe('ServerSelector', () => {
   it('shows "No Server" when no active server', () => {
     useServerStore.setState({
       activeServerId: null,
-      getActiveServer: () => null,
     } as any);
+    useFacadeStore.setState({
+      backends: [],
+      localBackendId: null,
+      currentInstanceId: null,
+    });
 
     const { container } = render(<ServerSelector />);
     expect(container.textContent).toContain('No Server');
@@ -83,7 +90,9 @@ describe('ServerSelector', () => {
 
   it('shows connecting status', () => {
     useServerStore.setState({
-      connectionStatus: 'connecting',
+      connections: {
+        local: { status: 'connecting', error: null, isLocalConnection: true, features: [] },
+      },
     } as any);
 
     const { container } = render(<ServerSelector />);

@@ -17,6 +17,7 @@ import {
 import type { Workflow, WorkflowTemplate, ScheduledTask, ScheduledTaskTemplate, SystemTaskInfo, TaskRun } from '@my-claudia/shared';
 import { isDesktopTauri } from '../../utils/platform';
 import { buildPopoutUrl, openPopoutWindow } from '../../utils/popoutWindow';
+import { useOwnershipStore } from '../../stores/ownershipStore';
 
 interface AutomationWindowProps {
   serverUrl: string;
@@ -33,10 +34,9 @@ interface ProjectInfo {
 // ── HTTP API helper ──────────────────────────────────────────
 
 function useApi(serverUrl: string, authToken: string) {
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-  if (authToken) headers['Authorization'] = authToken;
-
   const request = useCallback(async (path: string, method = 'GET', body?: unknown): Promise<any> => {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (authToken) headers.Authorization = authToken;
     const opts: RequestInit = { method, headers };
     if (body) opts.body = JSON.stringify(body);
     const resp = await fetch(`${serverUrl}${path}`, opts);
@@ -217,7 +217,13 @@ export function AutomationWindow({ serverUrl, authToken }: AutomationWindowProps
 
       {/* Content */}
       <div className="flex-1 overflow-auto p-4">
-        {tab === 'automations' && <AutomationsTab api={api} projects={projects} projectName={projectName} />}
+        {tab === 'automations' && (
+          <AutomationsTab
+            api={api}
+            projects={projects}
+            projectName={projectName}
+          />
+        )}
         {tab === 'workflows' && <WorkflowsTab api={api} projects={projects} projectName={projectName} />}
         {tab === 'system' && <SystemTasksTab api={api} />}
       </div>
@@ -227,7 +233,15 @@ export function AutomationWindow({ serverUrl, authToken }: AutomationWindowProps
 
 // ── Automations Tab (unified) ────────────────────────────────
 
-function AutomationsTab({ api, projects, projectName }: { api: ApiType; projects: ProjectInfo[]; projectName: (id?: string) => string }) {
+function AutomationsTab({
+  api,
+  projects,
+  projectName,
+}: {
+  api: ApiType;
+  projects: ProjectInfo[];
+  projectName: (id?: string) => string;
+}) {
   const [legacyTasks, setLegacyTasks] = useState<ScheduledTask[]>([]);
   const [simpleWorkflows, setSimpleWorkflows] = useState<Workflow[]>([]);
   const [templates, setTemplates] = useState<ScheduledTaskTemplate[]>([]);
@@ -645,6 +659,7 @@ function WorkflowsTab({ api, projects, projectName }: {
   };
 
   const handleEdit = (w: Workflow) => {
+    const backendId = useOwnershipStore.getState().getProjectBackendId(w.projectId);
     const params = new URLSearchParams({
       workflowEditor: w.projectId || '__global__',
       workflowId: w.id,
@@ -656,10 +671,11 @@ function WorkflowsTab({ api, projects, projectName }: {
         title: `Edit: ${w.name}`,
         width: 1200,
         height: 800,
+        connectionTarget: { backendId },
       });
       return;
     }
-    window.open(buildPopoutUrl(Object.fromEntries(params.entries())), '_blank', 'width=1200,height=800');
+    window.open(buildPopoutUrl(Object.fromEntries(params.entries()), { backendId }), '_blank', 'width=1200,height=800');
   };
 
   if (loading) return <LoadingState />;

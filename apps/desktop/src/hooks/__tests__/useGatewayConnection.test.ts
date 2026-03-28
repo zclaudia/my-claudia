@@ -98,7 +98,7 @@ vi.mock('../../services/api', () => ({
       gatewayUrl: null,
       gatewaySecret: null,
       discoveredBackends: [],
-      backendId: null,
+      gatewayBackendId: null,
       connected: false,
     }),
   ),
@@ -372,7 +372,7 @@ describe('hooks/useGatewayConnection', () => {
       gatewayUrl: 'https://gw.example.com',
       gatewaySecret: 'sec',
       discoveredBackends: [{ backendId: 'b1', name: 'B1', online: true }],
-      backendId: 'local-1',
+      gatewayBackendId: 'gateway-backend-1',
       connected: true,
     } as any);
 
@@ -387,7 +387,7 @@ describe('hooks/useGatewayConnection', () => {
       'https://gw.example.com',
       'sec',
       [{ backendId: 'b1', name: 'B1', online: true }],
-      'local-1',
+      'gateway-backend-1',
       true,
       null,
       null,
@@ -401,7 +401,7 @@ describe('hooks/useGatewayConnection', () => {
       gatewayUrl: null,
       gatewaySecret: null,
       discoveredBackends: [],
-      backendId: null,
+      gatewayBackendId: null,
       connected: false,
     } as any);
 
@@ -421,7 +421,7 @@ describe('hooks/useGatewayConnection', () => {
       gatewayUrl: null,
       gatewaySecret: null,
       discoveredBackends: [],
-      backendId: null,
+      gatewayBackendId: null,
       connected: false,
     } as any);
 

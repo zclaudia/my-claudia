@@ -1,14 +1,15 @@
 import { useState } from 'react';
 import { useGatewayStore } from '../../stores/gatewayStore';
+import { useFacadeStore } from '../../stores/facadeStore';
 
 export function MobileGatewayConfig() {
   const {
     directGatewayUrl,
     directGatewaySecret,
-    isConnected: isGatewayConnected,
     setDirectGatewayConfig,
     clearDirectGatewayConfig,
   } = useGatewayStore();
+  const isGatewayConnected = useFacadeStore((s) => s.connectionState === 'connected');
 
   const [url, setUrl] = useState(directGatewayUrl || '');
   const [secret, setSecret] = useState(directGatewaySecret || '');

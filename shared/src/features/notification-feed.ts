@@ -18,6 +18,7 @@ export interface NotificationItem {
   taskId?: string;
   sessionId?: string;
   projectId?: string;
+  ownerBackendId: string;
   source: NotificationSource;
   title: string;
   summary?: string;

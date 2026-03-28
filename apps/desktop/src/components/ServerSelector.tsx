@@ -1,10 +1,10 @@
 import { useState } from 'react';
 import { useServerStore } from '../stores/serverStore';
-import { useGatewayStore, shouldShowBackend } from '../stores/gatewayStore';
+import { useGatewayStore, shouldShowNonCurrentInstanceBackend } from '../stores/gatewayStore';
 import { useFacadeStore } from '../stores/facadeStore';
 import { useConnection } from '../contexts/ConnectionContext';
 import { useIsMobile } from '../hooks/useMediaQuery';
-import type { GatewayBackendInfo } from '@my-claudia/shared';
+import type { BackendSnapshot } from '@my-claudia/shared';
 
 function formatLatency(latencyMs?: number | null): string | null {
   if (latencyMs == null) return null;
@@ -15,8 +15,6 @@ export function ServerSelector() {
   const {
     activeServerId,
     connections,
-    connectionStatus,
-    connectionError,
     setActiveServer
   } = useServerStore();
 
@@ -24,8 +22,6 @@ export function ServerSelector() {
     gatewayUrl,
     gatewaySecret,
     isConnected: isGatewayConnected,
-    discoveredBackends,
-    currentInstanceId,
     setLastActiveBackend,
     toggleBackendSubscription,
     isBackendSubscribed,
@@ -38,11 +34,21 @@ export function ServerSelector() {
   const [isOpen, setIsOpen] = useState(false);
 
   const backends = useFacadeStore((s) => s.backends);
+  const localBackendId = useFacadeStore((s) => s.localBackendId);
+  const currentInstanceId = useFacadeStore((s) => s.currentInstanceId);
   const activeBackend = backends.find(b => b.backendId === activeServerId);
+  const fallbackBackend =
+    activeBackend
+    || (localBackendId ? backends.find((b) => b.backendId === localBackendId) : null)
+    || backends.find((b) => b.isThisInstance)
+    || null;
+  const activeConnection = activeServerId ? connections[activeServerId] : undefined;
+  const activeConnectionStatus = activeConnection?.status || 'disconnected';
+  const activeConnectionError = activeConnection?.error || null;
   const isGatewayConfigured = !!gatewayUrl && !!gatewaySecret;
-  const remoteBackends = discoveredBackends.filter(b => shouldShowBackend(b, currentInstanceId, showLocalBackend));
+  const remoteBackends = backends.filter(b => shouldShowNonCurrentInstanceBackend(b, currentInstanceId, showLocalBackend));
 
-  const handleBackendClick = (backend: GatewayBackendInfo) => {
+  const handleBackendClick = (backend: BackendSnapshot) => {
     if (!backend.online) return;
     const serverId = backend.backendId;
     setActiveServer(serverId);
@@ -55,7 +61,7 @@ export function ServerSelector() {
   };
 
   const getStatusColor = () => {
-    switch (connectionStatus) {
+    switch (activeConnectionStatus) {
       case 'connected':
         return 'bg-success';
       case 'connecting':
@@ -68,13 +74,13 @@ export function ServerSelector() {
   };
 
   const getStatusText = () => {
-    switch (connectionStatus) {
+    switch (activeConnectionStatus) {
       case 'connected':
         return 'Connected';
       case 'connecting':
         return 'Connecting...';
       case 'error':
-        return connectionError || 'Error';
+        return activeConnectionError || 'Error';
       default:
         return 'Disconnected';
     }
@@ -90,7 +96,7 @@ export function ServerSelector() {
       >
         <span className={`w-2 h-2 rounded-full ${getStatusColor()}`} />
         <span className="text-sm truncate max-w-[150px]">
-          {activeBackend?.name || (isMobile ? 'Select Server' : 'No Server')}
+          {fallbackBackend?.name || (isMobile ? 'Select Server' : 'No Server')}
         </span>
         <svg
           className={`w-4 h-4 transition-transform ${isOpen ? 'rotate-180' : ''}`}
@@ -136,7 +142,7 @@ export function ServerSelector() {
                 {(() => {
                   const sameDevice = remoteBackends.filter(b => b.isThisDevice);
                   const remote = remoteBackends.filter(b => !b.isThisDevice);
-                  const renderItem = (backend: GatewayBackendInfo) => (
+                  const renderItem = (backend: BackendSnapshot) => (
                     <GatewayBackendItem
                       key={backend.backendId}
                       backend={backend}
@@ -195,7 +201,7 @@ function GatewayBackendItem({
   onClick,
   onToggleSubscription
 }: {
-  backend: GatewayBackendInfo;
+  backend: BackendSnapshot;
   isActive: boolean;
   isSubscribed: boolean;
   latencyMs?: number | null;
@@ -251,4 +257,3 @@ function GatewayBackendItem({
     </div>
   );
 }
-

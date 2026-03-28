@@ -54,10 +54,13 @@ function WorkflowEditorWindowContent({ projectId, workflowId, serverUrl, authTok
   const [workflow, setWorkflow] = useState<Workflow | undefined>(undefined);
   const [loading, setLoading] = useState(!!workflowId);
   const [error, setError] = useState<string | null>(null);
-  const connectionStatus = useServerStore((s) => s.connectionStatus);
+  const isConnected = useServerStore((s) => {
+    if (!s.activeServerId) return false;
+    return s.connections[s.activeServerId]?.status === 'connected';
+  });
 
   useEffect(() => {
-    if (connectionStatus !== 'connected') return;
+    if (!isConnected) return;
 
     let cancelled = false;
     (async () => {
@@ -77,7 +80,7 @@ function WorkflowEditorWindowContent({ projectId, workflowId, serverUrl, authTok
     })();
 
     return () => { cancelled = true; };
-  }, [connectionStatus, projectId]);
+  }, [isConnected, projectId]);
 
   useEffect(() => {
     if (!serverUrl) {

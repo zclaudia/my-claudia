@@ -18,7 +18,7 @@ import type {
   FacadeRuntimeGatewayAdapter,
   BackendPresence,
 } from '@my-claudia/shared';
-import type { ClientMessage } from '@my-claudia/shared';
+import type { ClientMessage, ServerMessage } from '@my-claudia/shared';
 import type { LocalBackendHandler } from './embedded-adapter.js';
 
 export class StandaloneFacadeAdapter implements FacadeRuntimeGatewayAdapter {
@@ -28,6 +28,7 @@ export class StandaloneFacadeAdapter implements FacadeRuntimeGatewayAdapter {
   private readonly deviceId: string;
   private readonly backendId: string;
   private readonly localHandler: LocalBackendHandler | null;
+  private localChannelId: string | null = null;
 
   constructor(options: {
     serverPort: number;
@@ -40,6 +41,7 @@ export class StandaloneFacadeAdapter implements FacadeRuntimeGatewayAdapter {
     this.deviceId = options.deviceId;
     this.backendId = `local-${options.instanceId}`;
     this.localHandler = options.localHandler;
+    this.wireLocalHandlerEvents();
   }
 
   /** The backendId assigned to the local server. */
@@ -84,6 +86,7 @@ export class StandaloneFacadeAdapter implements FacadeRuntimeGatewayAdapter {
         if (backendId === this.backendId) {
           // Local backend — synthesize channel open
           const virtualChannelId = `local:${backendId}:${epoch}`;
+          this.localChannelId = virtualChannelId;
           this.emit({
             type: 'backend_channel_opened',
             backendId,
@@ -99,6 +102,9 @@ export class StandaloneFacadeAdapter implements FacadeRuntimeGatewayAdapter {
           const lastColon = channelId.lastIndexOf(':');
           if (firstColon > 0 && lastColon > firstColon) {
             const backendId = channelId.slice(firstColon + 1, lastColon);
+            if (backendId === this.backendId && this.localChannelId === channelId) {
+              this.localChannelId = null;
+            }
             this.emit({
               type: 'backend_channel_closed',
               backendId,
@@ -232,5 +238,26 @@ export class StandaloneFacadeAdapter implements FacadeRuntimeGatewayAdapter {
     } catch (error) {
       console.error('[StandaloneAdapter] Local catch-up error:', error);
     }
+  }
+
+  private wireLocalHandlerEvents(): void {
+    if (!this.localHandler) return;
+    this.localHandler.onServerEvent((message) => {
+      const sessionId = this.getSessionId(message);
+      if (!sessionId) return;
+      const channelId = this.localChannelId ?? `local:${this.backendId}:0`;
+      this.emit({
+        type: 'run_event_received',
+        backendId: this.backendId,
+        channelId,
+        sessionId,
+        event: message,
+      });
+    });
+  }
+
+  private getSessionId(message: ServerMessage): string | null {
+    const candidate = (message as { sessionId?: unknown }).sessionId;
+    return typeof candidate === 'string' && candidate.length > 0 ? candidate : null;
   }
 }

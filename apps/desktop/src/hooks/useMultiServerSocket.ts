@@ -15,31 +15,30 @@ import { useFacadeStore } from '../stores/facadeStore';
 export function useMultiServerSocket() {
   const gatewayConnection = useGatewayConnection();
   const { activeServerId } = useServerStore();
+  const facade = useFacadeStore((s) => s.facade);
+  const facadeBackends = useFacadeStore((s) => s.backends);
 
   const connectServer = useCallback((backendId: string) => {
-    const facade = useFacadeStore.getState().facade;
     if (facade) {
       facade.openBackend(backendId);
       return;
     }
     gatewayConnection.openChannel(backendId);
-  }, [gatewayConnection]);
+  }, [facade, gatewayConnection]);
 
   const disconnectServer = useCallback((backendId: string) => {
-    const facade = useFacadeStore.getState().facade;
     if (facade) {
       facade.closeBackend(backendId);
     }
-  }, []);
+  }, [facade]);
 
   const sendToServer = useCallback((backendId: string, message: ClientMessage) => {
-    const facade = useFacadeStore.getState().facade;
     if (facade) {
       facade.sendToBackend(backendId, message);
       return;
     }
     gatewayConnection.sendToBackend(backendId, message);
-  }, [gatewayConnection]);
+  }, [facade, gatewayConnection]);
 
   const sendMessage = useCallback((message: ClientMessage) => {
     if (!activeServerId) {
@@ -50,14 +49,12 @@ export function useMultiServerSocket() {
   }, [activeServerId, sendToServer]);
 
   const isServerConnected = useCallback((backendId: string) => {
-    const facade = useFacadeStore.getState().facade;
     if (facade) {
-      const snapshot = facade.getSnapshot();
-      const backend = snapshot.backends.find(b => b.backendId === backendId);
+      const backend = facadeBackends.find(b => b.backendId === backendId);
       return backend?.runtimeState === 'ready';
     }
     return gatewayConnection.isBackendConnected(backendId);
-  }, [gatewayConnection]);
+  }, [facade, facadeBackends, gatewayConnection]);
 
   const isConnected = useCallback(() => {
     if (!activeServerId) return false;
@@ -65,14 +62,13 @@ export function useMultiServerSocket() {
   }, [activeServerId, isServerConnected]);
 
   const getConnectedServers = useCallback(() => {
-    const facade = useFacadeStore.getState().facade;
     if (facade) {
-      return facade.getSnapshot().backends
+      return facadeBackends
         .filter(b => b.runtimeState === 'ready')
         .map(b => b.backendId);
     }
     return [];
-  }, []);
+  }, [facade, facadeBackends]);
 
   return {
     connectServer,

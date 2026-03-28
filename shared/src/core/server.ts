@@ -82,7 +82,7 @@ export interface ServerGatewayConfig {
   gatewayUrl: string | null;
   gatewaySecret: string | null;
   backendName: string | null;
-  backendId: string | null;
+  gatewayBackendId: string | null;
   registerAsBackend?: boolean;
   proxyUrl?: string | null;
   proxyUsername?: string | null;
@@ -94,7 +94,7 @@ export interface ServerGatewayConfig {
 export interface ServerGatewayStatus {
   enabled: boolean;
   connected: boolean;
-  backendId: string | null;
+  gatewayBackendId: string | null;
   gatewayUrl: string | null;
   gatewaySecret: string | null;
   backendName: string | null;

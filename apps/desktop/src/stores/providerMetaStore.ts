@@ -4,23 +4,46 @@
  */
 import { create } from 'zustand';
 import type { ProviderConfig, ProviderCapabilities, SlashCommand } from '@my-claudia/shared';
+import { useServerStore } from './serverStore';
 
 interface ProviderMetaState {
-  providers: ProviderConfig[];
+  providersByBackend: Record<string, ProviderConfig[]>;
   providerCommands: Record<string, SlashCommand[]>;
   providerCapabilities: Record<string, ProviderCapabilities>;
 
-  setProviders: (providers: ProviderConfig[]) => void;
+  setProviders: (providers: ProviderConfig[], backendId?: string | null) => void;
+  getProviders: (backendId?: string | null) => ProviderConfig[];
   setProviderCommands: (providerId: string, commands: SlashCommand[]) => void;
   setProviderCapabilities: (providerId: string, capabilities: ProviderCapabilities) => void;
 }
 
-export const useProviderMetaStore = create<ProviderMetaState>((set) => ({
-  providers: [],
+function resolveBackendId(backendId?: string | null): string | null {
+  if (backendId) return backendId;
+  const getState = (useServerStore as { getState?: () => { activeServerId?: string | null } }).getState;
+  return getState?.().activeServerId ?? null;
+}
+
+export const useProviderMetaStore = create<ProviderMetaState>((set, get) => ({
+  providersByBackend: {},
   providerCommands: {},
   providerCapabilities: {},
 
-  setProviders: (providers) => set({ providers }),
+  setProviders: (providers, backendId) => set((state) => {
+    const resolvedBackendId = resolveBackendId(backendId);
+    if (!resolvedBackendId) return state;
+    return {
+      providersByBackend: {
+        ...state.providersByBackend,
+        [resolvedBackendId]: providers,
+      },
+    };
+  }),
+
+  getProviders: (backendId) => {
+    const resolvedBackendId = resolveBackendId(backendId);
+    if (!resolvedBackendId) return [];
+    return get().providersByBackend[resolvedBackendId] ?? [];
+  },
 
   setProviderCommands: (providerId, commands) =>
     set((state) => ({

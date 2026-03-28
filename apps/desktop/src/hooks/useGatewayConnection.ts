@@ -15,13 +15,19 @@ import { getServerGatewayStatus } from '../services/api';
 import { useFacadeStore } from '../stores/facadeStore';
 
 export function useGatewayConnection() {
+  const facade = useFacadeStore((s) => s.facade);
+  const facadeBackends = useFacadeStore((s) => s.backends);
+
   // Poll server gateway status and sync to store
   // Skip when direct config is active (mobile mode — no local server to poll)
   useEffect(() => {
     const { directGatewayUrl, directGatewaySecret } = useGatewayStore.getState();
     if (directGatewayUrl && directGatewaySecret) {
-      // Mobile: use persisted direct config instead of polling server
-      useGatewayStore.getState().syncFromServer(directGatewayUrl, directGatewaySecret, []);
+      // Direct mode: seed runtime gateway config from persisted settings.
+      useGatewayStore.setState({
+        gatewayUrl: directGatewayUrl,
+        gatewaySecret: directGatewaySecret,
+      });
       return;
     }
 
@@ -32,17 +38,17 @@ export function useGatewayConnection() {
         const status = await getServerGatewayStatus();
         if (!mounted) return;
         if (status.enabled && status.gatewayUrl && status.gatewaySecret) {
-          useGatewayStore.getState().syncFromServer(
-            status.gatewayUrl,
-            status.gatewaySecret,
-            status.discoveredBackends,
-            status.backendId,
-            status.connected,
-            status.instanceId ?? null,
-            status.currentDeviceId ?? null
-          );
+          useGatewayStore.setState({
+            gatewayUrl: status.gatewayUrl,
+            gatewaySecret: status.gatewaySecret,
+            isConnected: status.connected,
+          });
         } else {
-          useGatewayStore.getState().syncFromServer(null, null, [], null, false);
+          useGatewayStore.setState({
+            gatewayUrl: null,
+            gatewaySecret: null,
+            isConnected: false,
+          });
         }
       } catch {
         // Server not reachable, skip
@@ -57,23 +63,22 @@ export function useGatewayConnection() {
 
   // Public API — delegates to facade
   const openChannel = useCallback((backendId: string) => {
-    useFacadeStore.getState().facade?.openBackend(backendId);
-  }, []);
+    facade?.openBackend(backendId);
+  }, [facade]);
 
   const sendToBackend = useCallback((backendId: string, message: ClientMessage) => {
-    useFacadeStore.getState().facade?.sendToBackend(backendId, message);
-  }, []);
+    facade?.sendToBackend(backendId, message);
+  }, [facade]);
 
   const isBackendConnected = useCallback((backendId: string) => {
-    const facade = useFacadeStore.getState().facade;
     if (!facade) return false;
-    const backend = facade.getSnapshot().backends.find(b => b.backendId === backendId);
+    const backend = facadeBackends.find(b => b.backendId === backendId);
     return backend?.runtimeState === 'ready';
-  }, []);
+  }, [facade, facadeBackends]);
 
   const disconnectGateway = useCallback(() => {
-    useFacadeStore.getState().facade?.disconnect();
-  }, []);
+    facade?.disconnect();
+  }, [facade]);
 
   return {
     openChannel,

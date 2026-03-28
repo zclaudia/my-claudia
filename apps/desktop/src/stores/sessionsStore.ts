@@ -3,6 +3,8 @@
  */
 import { create } from 'zustand';
 import type { Session } from '@my-claudia/shared';
+import { useOwnershipStore } from './ownershipStore';
+import { LEGACY_LOCAL_SERVER_ID, resolveCanonicalBackendId } from '../utils/controlPlane';
 
 export interface RemoteSession extends Session {
   isActive: boolean;  // Whether there's an active run
@@ -11,9 +13,28 @@ export interface RemoteSession extends Session {
 
 export const LOCAL_BACKEND_KEY = '__local__';
 
+export function isLocalSessionBucketKey(backendId: string | null | undefined): boolean {
+  return backendId === LOCAL_BACKEND_KEY;
+}
+
+export function getSessionBucketKeyForBackend(backendId: string | null | undefined): string {
+  return backendId ?? LOCAL_BACKEND_KEY;
+}
+
+export function resolveSessionBucketBackendId(
+  backendId: string | null | undefined,
+  localBackendId: string | null = null,
+): string | null {
+  if (backendId === LOCAL_BACKEND_KEY) {
+    return resolveCanonicalBackendId(localBackendId ?? LEGACY_LOCAL_SERVER_ID, localBackendId ?? LEGACY_LOCAL_SERVER_ID);
+  }
+  return backendId ?? null;
+}
+
 export interface RecentlyCompletedSession {
   session: RemoteSession;
   backendId: string;
+  ownerBackendId: string;
   completedAt: number;
 }
 
@@ -23,7 +44,7 @@ function addToRecentlyCompleted(
   backendId: string
 ): RecentlyCompletedSession[] {
   if (existing.some(r => r.session.id === session.id)) return existing;
-  return [{ session, backendId, completedAt: Date.now() }, ...existing].slice(0, 20);
+  return [{ session, backendId, ownerBackendId: backendId, completedAt: Date.now() }, ...existing].slice(0, 20);
 }
 
 interface SessionsState {
@@ -59,6 +80,8 @@ export const useSessionsStore = create<SessionsState>((set) => ({
   recentlyCompletedSessions: [],
 
   setRemoteSessions: (backendId: string, sessions: RemoteSession[]) => {
+    useOwnershipStore.getState().removeSessionOwnersByBackend(backendId);
+    useOwnershipStore.getState().setSessionOwners(sessions.map((s) => s.id), backendId);
     set((state) => {
       const newMap = new Map(state.remoteSessions);
       newMap.set(backendId, sessions);
@@ -80,6 +103,11 @@ export const useSessionsStore = create<SessionsState>((set) => ({
     eventType: 'created' | 'updated' | 'deleted',
     session: RemoteSession
   ) => {
+    if (eventType === 'deleted') {
+      useOwnershipStore.getState().removeSessionOwner(session.id);
+    } else {
+      useOwnershipStore.getState().setSessionOwner(session.id, backendId);
+    }
     set((state) => {
       const newMap = new Map(state.remoteSessions);
       const backendSessions = newMap.get(backendId) || [];
@@ -238,6 +266,7 @@ export const useSessionsStore = create<SessionsState>((set) => ({
   },
 
   clearBackendSessions: (backendId: string) => {
+    useOwnershipStore.getState().removeSessionOwnersByBackend(backendId);
     set((state) => {
       const newMap = new Map(state.remoteSessions);
       newMap.delete(backendId);
@@ -251,6 +280,7 @@ export const useSessionsStore = create<SessionsState>((set) => ({
   },
 
   clearAllSessions: () => {
+    useOwnershipStore.getState().clearSessionOwners();
     set({
       remoteSessions: new Map(),
       activeSessionIdsByBackend: new Map(),

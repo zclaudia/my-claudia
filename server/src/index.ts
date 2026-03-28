@@ -23,6 +23,7 @@ import { StandaloneBackendFacadeProvider } from './facade/standalone-provider.js
 import type { LocalBackendHandler } from './facade/embedded-adapter.js';
 import type { SessionCatalogItem } from '@my-claudia/shared';
 import { hasForegroundActiveRunForSession } from './utils/run-state.js';
+import type { FacadeWsHub } from './facade/ws-hub.js';
 
 const sanitizedEnv = sanitizeInheritedProviderEnv();
 if (sanitizedEnv.removedKeys.length > 0) {
@@ -61,10 +62,46 @@ const GATEWAY_NAME = process.env.GATEWAY_NAME || `Backend on ${os.hostname()}`;
 
 let gatewayClient: GatewayClient | null = null;
 let serverContext: ServerContext | null = null;
-let facadeProvider: EmbeddedBackendFacadeProvider | null = null;
+type FacadeProvider = {
+  connect(): void;
+  disconnect(): void;
+  getWsHub(): FacadeWsHub;
+};
+
+let facadeProvider: FacadeProvider | null = null;
 // Actual port the server is listening on (resolved after server.listen)
 let actualPort = PORT;
 const virtualClients = new Map<string, ReturnType<typeof createVirtualClient>>();
+
+function attachFacadeProvider(nextProvider: FacadeProvider): void {
+  if (facadeProvider === nextProvider) return;
+  facadeProvider?.disconnect();
+  facadeProvider = nextProvider;
+  facadeProvider.connect();
+  serverContext?.setFacadeHub(facadeProvider.getWsHub());
+}
+
+function ensureStandaloneFacade(): void {
+  const standaloneFacade = new StandaloneBackendFacadeProvider({
+    serverPort: actualPort,
+    instanceId: 'standalone',
+    deviceId: 'standalone',
+    localHandler: createLocalBackendHandler(),
+  });
+  attachFacadeProvider(standaloneFacade);
+  console.log(`📡 Facade WS endpoint: ws://${HOST}:${actualPort}/ws/backend-facade (standalone)`);
+}
+
+function ensureEmbeddedGatewayFacade(): void {
+  if (!gatewayClient) return;
+  const embeddedFacade = new EmbeddedBackendFacadeProvider(
+    gatewayClient,
+    createLocalBackendHandler(),
+    actualPort,
+  );
+  attachFacadeProvider(embeddedFacade);
+  console.log(`📡 Facade WS endpoint: ws://${HOST}:${actualPort}/ws/backend-facade`);
+}
 
 
 // Load Gateway configuration from database
@@ -88,7 +125,7 @@ function loadGatewayConfig(): GatewayConfig | null {
       gatewayUrl: row.gateway_url,
       gatewaySecret: row.gateway_secret,
       backendName: row.backend_name,
-      backendId: row.backend_id,
+      gatewayBackendId: row.backend_id,
       registerAsBackend: row.register_as_backend === 1,
       proxyUrl: row.proxy_url,
       proxyUsername: row.proxy_username,
@@ -150,6 +187,16 @@ async function connectToGateway(config: GatewayConfig): Promise<void> {
   gatewayClient = new GatewayClient(gatewayClientConfig, serverContext.db, activeRuns);
   setGatewayClient(gatewayClient);
 
+  gatewayClient.events.setOutgoingEvents({
+    onConnectionStateChanged: (connected) => {
+      if (connected) {
+        ensureEmbeddedGatewayFacade();
+      } else {
+        ensureStandaloneFacade();
+      }
+    },
+  });
+
   gatewayClient.commands.channel.onIncomingMessage(async (channelId, message) => {
     if (!serverContext) return;
 
@@ -200,15 +247,6 @@ async function connectToGateway(config: GatewayConfig): Promise<void> {
 
   gatewayClient.commands.connection.connect();
 
-  // Start facade provider (wraps gateway client for UI facade WS)
-  if (facadeProvider) {
-    facadeProvider.disconnect();
-  }
-  facadeProvider = new EmbeddedBackendFacadeProvider(gatewayClient, null, actualPort);
-  facadeProvider.connect();
-  serverContext.setFacadeHub(facadeProvider.getWsHub());
-  console.log(`   Facade WS endpoint: ws://${HOST}:${actualPort}/ws/backend-facade`);
-
   // Set identity immediately
   serverContext.updateGatewayIdentity(gatewayClient.queries.identity.getInstanceId(), gatewayClient.queries.identity.getDeviceId());
 
@@ -228,11 +266,6 @@ async function connectToGateway(config: GatewayConfig): Promise<void> {
 }
 
 async function disconnectFromGateway(): Promise<void> {
-  if (facadeProvider) {
-    facadeProvider.disconnect();
-    facadeProvider = null;
-    serverContext?.setFacadeHub(null);
-  }
   if (gatewayClient) {
     console.log('📡 Disconnecting from Gateway V2...');
     const syncInterval = (gatewayClient as any)._syncInterval;
@@ -251,6 +284,7 @@ async function disconnectFromGateway(): Promise<void> {
       serverContext.updateDiscoveredBackends([]);
     }
   }
+  ensureStandaloneFacade();
 }
 
 function autoDetectProviders(): void {
@@ -332,16 +366,21 @@ function probeMacOSFolderPermissions(): void {
 function createLocalBackendHandler(): LocalBackendHandler {
   // Virtual client for facade-routed messages (shares lifecycle with facade)
   let facadeVirtualClient: ReturnType<typeof createVirtualClient> | null = null;
+  const serverEventListeners = new Set<(message: ServerMessage) => void>();
 
   return {
     onMessage: async (message) => {
       if (!serverContext) return;
       if (!facadeVirtualClient) {
         facadeVirtualClient = createVirtualClient('facade-local', {
-          send: (_msg: ServerMessage) => {
-            // Responses to facade-routed messages go through the facade's event system,
-            // not back through this virtual client. The server's WS broadcast handlers
-            // and run event emitters will push to connected WS clients and gateway.
+          send: (msg: ServerMessage) => {
+            for (const listener of serverEventListeners) {
+              try {
+                listener(msg);
+              } catch {
+                // Ignore subscriber errors; facade runtime remains source of truth.
+              }
+            }
           },
         });
       }
@@ -374,6 +413,12 @@ function createLocalBackendHandler(): LocalBackendHandler {
         console.error('[LocalHandler] Catch-up error:', error);
         return [];
       }
+    },
+    onServerEvent: (listener) => {
+      serverEventListeners.add(listener);
+      return () => {
+        serverEventListeners.delete(listener);
+      };
     },
     getCatalogItems: () => {
       if (!serverContext) return [];
@@ -449,19 +494,8 @@ async function main() {
 
       // Start standalone facade immediately (no gateway required).
       // This ensures /ws/backend-facade is available even without gateway.
-      // Will be replaced by EmbeddedBackendFacadeProvider when gateway connects.
-      if (!facadeProvider) {
-        const standaloneFacade = new StandaloneBackendFacadeProvider({
-          serverPort: actualPort,
-          instanceId: 'standalone',
-          deviceId: 'standalone',
-          localHandler: createLocalBackendHandler(),
-        });
-        standaloneFacade.connect();
-        facadeProvider = standaloneFacade as any;
-        serverContext!.setFacadeHub(standaloneFacade.getWsHub());
-        console.log(`📡 Facade WS endpoint: ws://${HOST}:${actualPort}/ws/backend-facade (standalone)`);
-      }
+      // Will be upgraded to EmbeddedBackendFacadeProvider after gateway handshake succeeds.
+      ensureStandaloneFacade();
 
       // Probe TCC-protected folders so macOS consent dialogs appear now
       // (while user is at the keyboard) rather than during remote sessions.
@@ -476,7 +510,7 @@ async function main() {
           gatewayUrl: GATEWAY_URL,
           gatewaySecret: GATEWAY_SECRET,
           backendName: GATEWAY_NAME,
-          backendId: null,
+          gatewayBackendId: null,
           registerAsBackend: true,
           createdAt: Date.now(),
           updatedAt: Date.now()

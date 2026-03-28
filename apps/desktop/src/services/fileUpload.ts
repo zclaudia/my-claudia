@@ -1,4 +1,5 @@
 import { useServerStore } from '../stores/serverStore';
+import { getControlPlaneMode, isLocalBackendId } from '../utils/controlPlane';
 
 import { getBaseUrl, getAuthHeaders } from './api';
 
@@ -44,7 +45,8 @@ export async function uploadFile(
   const baseUrl = getBaseUrl();
   const authHeaders = getAuthHeaders();
   const activeId = useServerStore.getState().activeServerId;
-  const viaGateway = !!activeId;
+  const controlPlaneMode = getControlPlaneMode();
+  const viaGateway = !!activeId && !(controlPlaneMode === 'embedded-local' && isLocalBackendId(activeId));
 
   if (viaGateway) {
     // Gateway mode: send as JSON (gateway proxy can't forward multipart)

@@ -107,6 +107,15 @@ vi.mock('../../../services/api', () => ({
   getProviders: (...args: any[]) => mockGetProviders(...args),
 }));
 
+vi.mock('../../../hooks/useSelectionCoordinator', () => ({
+  useSelectionCoordinator: () => ({
+    selectProject: mockSelectProject,
+    selectSession: mockSelectSession,
+    selectSessionOnBackend: vi.fn(),
+    selectBackend: vi.fn(),
+  }),
+}));
+
 const mockSetProjects = vi.fn();
 const mockMergeSessions = vi.fn();
 const mockSetProviders = vi.fn();
@@ -120,7 +129,15 @@ let mockConnectionStatus = 'disconnected';
 vi.mock('../../../stores/serverStore', () => ({
   useServerStore: Object.assign(
     (selector: any) => selector({
-      connectionStatus: mockConnectionStatus,
+      activeServerId: 'backend-1',
+      connections: {
+        'backend-1': {
+          status: mockConnectionStatus,
+          error: null,
+          isLocalConnection: false,
+          features: [],
+        },
+      },
     } as any),
     {
       getState: () => ({

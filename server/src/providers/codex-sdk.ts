@@ -96,16 +96,19 @@ async function sleep(ms: number): Promise<void> {
 // ── Mode → Codex policy mapping ──────────────────────────────
 
 function mapModeToPolicies(mode?: string): Pick<ThreadOptions, 'approvalPolicy' | 'sandboxMode'> {
+  // Codex SDK does not expose approval request events, so interactive approval
+  // (on-request / on-failure) is non-functional — the CLI waits for a reply that
+  // never arrives.  Use 'never' for all modes and rely on sandboxMode for safety.
   switch (mode) {
     case 'plan':
-      return { approvalPolicy: 'on-request', sandboxMode: 'read-only' };
+      return { approvalPolicy: 'never', sandboxMode: 'read-only' };
     case 'bypassPermissions':
       return { approvalPolicy: 'never', sandboxMode: 'danger-full-access' };
     case 'acceptEdits':
-      return { approvalPolicy: 'on-failure', sandboxMode: 'workspace-write' };
+      return { approvalPolicy: 'never', sandboxMode: 'workspace-write' };
     case 'default':
     default:
-      return { approvalPolicy: 'on-request', sandboxMode: 'workspace-write' };
+      return { approvalPolicy: 'never', sandboxMode: 'workspace-write' };
   }
 }
 
