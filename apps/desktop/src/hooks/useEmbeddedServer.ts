@@ -7,10 +7,13 @@ import { useLocalReviewerStore } from '../stores/localReviewerStore';
 
 export type EmbeddedServerStatus = 'idle' | 'starting' | 'ready' | 'error' | 'disabled' | 'wsl-mode';
 
-interface EmbeddedServerState {
+interface EmbeddedServerCoreState {
   port: number | null;
   status: EmbeddedServerStatus;
   error: string | null;
+}
+
+export interface EmbeddedServerState extends EmbeddedServerCoreState {
   restart: () => Promise<void>;
 }
 
@@ -78,7 +81,7 @@ export function useEmbeddedServer(options?: { disabled?: boolean }): EmbeddedSer
     return 'starting';
   };
 
-  const [state, setState] = useState<EmbeddedServerState>(() => ({
+  const [state, setState] = useState<EmbeddedServerCoreState>(() => ({
     port: null,
     status: getInitialStatus(),
     error: null,
