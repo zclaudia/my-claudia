@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, useMemo, useCallback } from 'react';
+import { useEffect, useState, useRef, useMemo, useCallback, lazy, Suspense } from 'react';
 import { Bot, ChevronsRight, ChevronsLeft, MessageSquare, Activity, Clock, Cloud, Gauge, StickyNote, Puzzle, type LucideIcon } from 'lucide-react';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { Sidebar } from './components/Sidebar';
@@ -6,20 +6,24 @@ import { ChatInterface } from './components/chat/ChatInterface';
 import { ServerSelector } from './components/ServerSelector';
 import { MobileSetup } from './components/MobileSetup';
 import { WindowsSetup } from './components/WindowsSetup';
-import { ClaudiaBallWindow } from './components/claudia/ClaudiaBallWindow';
-import { ClaudiaChatWindow } from './components/claudia/ClaudiaChatWindow';
 import { ClaudiaChat } from './components/claudia/ClaudiaChat';
 import { NotificationsPanel } from './components/notifications/NotificationsPanel';
 import { useNotificationFeedStore } from './stores/notificationFeedStore';
 import { ToastContainer } from './components/ToastContainer';
-import { FileViewerWindow } from './components/fileviewer/FileViewerWindow';
-import { WorkflowEditorWindow } from './features/workflows/components/WorkflowEditorWindow';
-import { AutomationWindow } from './features/automation/AutomationWindow';
-import { SessionChatWindow } from './components/chat/SessionChatWindow';
-import { TerminalWindow } from './components/terminal/TerminalWindow';
-import { DraftWindow } from './components/draft/DraftWindow';
-import { PluginWindow } from './components/PluginWindow';
-import { ProjectDashboard } from './components/dashboard/ProjectDashboard';
+
+// Lazy-loaded popout windows (only loaded when the specific window type is opened)
+const FileViewerWindow = lazy(() => import('./components/fileviewer/FileViewerWindow').then(m => ({ default: m.FileViewerWindow })));
+const WorkflowEditorWindow = lazy(() => import('./features/workflows/components/WorkflowEditorWindow').then(m => ({ default: m.WorkflowEditorWindow })));
+const AutomationWindow = lazy(() => import('./features/automation/AutomationWindow').then(m => ({ default: m.AutomationWindow })));
+const SessionChatWindow = lazy(() => import('./components/chat/SessionChatWindow').then(m => ({ default: m.SessionChatWindow })));
+const TerminalWindow = lazy(() => import('./components/terminal/TerminalWindow').then(m => ({ default: m.TerminalWindow })));
+const DraftWindow = lazy(() => import('./components/draft/DraftWindow').then(m => ({ default: m.DraftWindow })));
+const PluginWindow = lazy(() => import('./components/PluginWindow').then(m => ({ default: m.PluginWindow })));
+const ClaudiaBallWindow = lazy(() => import('./components/claudia/ClaudiaBallWindow').then(m => ({ default: m.ClaudiaBallWindow })));
+const ClaudiaChatWindow = lazy(() => import('./components/claudia/ClaudiaChatWindow').then(m => ({ default: m.ClaudiaChatWindow })));
+
+// Lazy-loaded heavy feature components
+const ProjectDashboard = lazy(() => import('./components/dashboard/ProjectDashboard').then(m => ({ default: m.ProjectDashboard })));
 import { ThemeProvider } from './contexts/ThemeContext';
 import { ConnectionProvider, useConnection } from './contexts/ConnectionContext';
 import { useDataLoader } from './hooks/useDataLoader';
@@ -51,6 +55,7 @@ import { useShortcutStore } from './stores/shortcutStore';
 import { useAgentConfigStore } from './stores/agentConfigStore';
 import { isDesktopTauri } from './utils/platform';
 import { isLocalBackendId, resolveLocalBackendId } from './utils/controlPlane';
+import { shouldShowDirectGatewaySetup } from './utils/directGatewaySetup';
 
 // ── Plugin Dock ─────────────────────────────────────────────────
 // Icon name → Lucide component mapping for plugin-declared icons.
@@ -138,7 +143,7 @@ function PluginWindowButtons() {
 
 function AppContent() {
   const { connectServer, embeddedServerStatus, embeddedServerError } = useConnection();
-  const { controlPlaneState } = useServerStore();
+  const { activeServerId, controlPlaneState } = useServerStore();
   const { selectedSessionId, selectedProjectId, sessions, projects, selectSession, setDashboardView } = useProjectStore();
   const { selectProject } = useSelectionCoordinator();
   const [dashboardProjectId, setDashboardProjectId] = useState<string | null>(null);
@@ -510,15 +515,25 @@ function AppContent() {
     };
   }, [removePoppedOutSession]);
 
-  // Mobile: show setup screen when gateway is not configured
-  if (isMobile && !directGatewayUrl) {
+  const requiresDirectGatewaySetup = shouldShowDirectGatewaySetup({
+    directGatewayUrl,
+    activeServerId,
+    availableBackendIds: facadeBackends.map((backend) => backend.backendId),
+  });
+
+  // Mobile: require both gateway config and an available backend selection.
+  if (isMobile && requiresDirectGatewaySetup) {
     return <MobileSetup />;
   }
 
   // Windows: show setup screen when server is not configured
   const isWindows = typeof navigator !== 'undefined' && navigator.userAgent.includes('Windows');
   const hasConnectedServer = controlPlaneState === 'ready' || hasConnected.current;
-  if (isWindows && embeddedServerStatus === 'wsl-mode' && !hasConnectedServer) {
+  const shouldRenderWindowsSetup = isWindows
+    && embeddedServerStatus === 'wsl-mode'
+    && (!hasConnectedServer || (directGatewayUrl ? requiresDirectGatewaySetup : false));
+
+  if (shouldRenderWindowsSetup) {
     return <WindowsSetup />;
   }
 
@@ -753,11 +768,13 @@ function AppContent() {
 
             {/* Project Dashboard / Chat / Welcome */}
             {dashboardProject ? (
-              <ProjectDashboard
-                projectId={dashboardProject.id}
-                projectRootPath={dashboardProject.rootPath}
-                onOpenAutomations={openAutomationWindowFn}
-              />
+              <Suspense fallback={<LazyFallback />}>
+                <ProjectDashboard
+                  projectId={dashboardProject.id}
+                  projectRootPath={dashboardProject.rootPath}
+                  onOpenAutomations={openAutomationWindowFn}
+                />
+              </Suspense>
             ) : selectedSessionId ? (
               <ChatInterface
                 key={selectedSessionId}
@@ -812,6 +829,12 @@ function AppContent() {
   );
 }
 
+const LazyFallback = () => (
+  <div className="flex items-center justify-center h-full">
+    <div className="text-sm text-muted-foreground animate-pulse">Loading...</div>
+  </div>
+);
+
 function App() {
   // Check if this window is a standalone file viewer (opened via "Open in new window")
   const params = new URLSearchParams(window.location.search);
@@ -825,6 +848,7 @@ function App() {
     return (
       <ThemeProvider defaultTheme="dark-neutral">
         <ErrorBoundary label="FileViewer">
+          <Suspense fallback={<LazyFallback />}>
           <FileViewerWindow
             filePath={fileViewerPath}
             projectRoot={fileViewerRoot}
@@ -832,7 +856,8 @@ function App() {
             authToken={authToken}
             serverName={serverName}
           />
-        </ErrorBoundary>
+        </Suspense>
+          </ErrorBoundary>
       </ThemeProvider>
     );
   }
@@ -844,8 +869,10 @@ function App() {
     return (
       <ThemeProvider defaultTheme="dark-neutral">
         <ErrorBoundary label="Automation">
+          <Suspense fallback={<LazyFallback />}>
           <AutomationWindow serverUrl={serverUrl} authToken={authToken} />
-        </ErrorBoundary>
+        </Suspense>
+          </ErrorBoundary>
       </ThemeProvider>
     );
   }
@@ -859,6 +886,7 @@ function App() {
     return (
       <ThemeProvider defaultTheme="dark-neutral">
         <ErrorBoundary label="WorkflowEditor">
+          <Suspense fallback={<LazyFallback />}>
           <WorkflowEditorWindow
             projectId={workflowEditorProjectId}
             workflowId={workflowId}
@@ -870,7 +898,8 @@ function App() {
             gatewaySecret={params.get('gatewaySecret') || undefined}
             initialMode={(params.get('initialMode') as 'toolbox' | 'ai') || undefined}
           />
-        </ErrorBoundary>
+        </Suspense>
+          </ErrorBoundary>
       </ThemeProvider>
     );
   }
@@ -888,6 +917,7 @@ function App() {
     return (
       <ThemeProvider defaultTheme="dark-neutral">
         <ErrorBoundary label="SessionChat">
+          <Suspense fallback={<LazyFallback />}>
           <SessionChatWindow
             sessionId={sessionWindowId}
             projectId={projectId}
@@ -898,7 +928,8 @@ function App() {
             gatewayUrl={gatewayUrl}
             gatewaySecret={gatewaySecret}
           />
-        </ErrorBoundary>
+        </Suspense>
+          </ErrorBoundary>
       </ThemeProvider>
     );
   }
@@ -915,6 +946,7 @@ function App() {
     return (
       <ThemeProvider defaultTheme="dark-neutral">
         <ErrorBoundary label="DraftEditor">
+          <Suspense fallback={<LazyFallback />}>
           <DraftWindow
             sessionId={draftSessionId}
             serverUrl={serverUrl}
@@ -924,7 +956,8 @@ function App() {
             gatewayUrl={gatewayUrl}
             gatewaySecret={gatewaySecret}
           />
-        </ErrorBoundary>
+        </Suspense>
+          </ErrorBoundary>
       </ThemeProvider>
     );
   }
@@ -942,6 +975,7 @@ function App() {
     return (
       <ThemeProvider defaultTheme="dark-neutral">
         <ErrorBoundary label="Terminal">
+          <Suspense fallback={<LazyFallback />}>
           <TerminalWindow
             terminalId={terminalWindowId}
             projectId={projectId}
@@ -952,29 +986,32 @@ function App() {
             gatewayUrl={gatewayUrl}
             gatewaySecret={gatewaySecret}
           />
-        </ErrorBoundary>
+        </Suspense>
+          </ErrorBoundary>
       </ThemeProvider>
     );
   }
 
   // Check if this window is the Claudia floating ball
   if (params.get('claudiaBall')) {
-    return <ClaudiaBallWindow />;
+    return <Suspense fallback={<LazyFallback />}><ClaudiaBallWindow /></Suspense>;
   }
 
   // Check if this window is the standalone Claudia chat
   if (params.get('claudiaChat')) {
     return (
-      <ClaudiaChatWindow
-        serverUrl={params.get('serverUrl') || ''}
-        authToken={params.get('authToken') || ''}
-        serverId={params.get('serverId') || undefined}
-        serverName={params.get('serverName') || undefined}
-        gatewayUrl={params.get('gatewayUrl') || undefined}
-        gatewaySecret={params.get('gatewaySecret') || undefined}
-        projectId={params.get('projectId') || undefined}
-        contextProjectId={params.get('contextProjectId') || undefined}
-      />
+      <Suspense fallback={<LazyFallback />}>
+        <ClaudiaChatWindow
+          serverUrl={params.get('serverUrl') || ''}
+          authToken={params.get('authToken') || ''}
+          serverId={params.get('serverId') || undefined}
+          serverName={params.get('serverName') || undefined}
+          gatewayUrl={params.get('gatewayUrl') || undefined}
+          gatewaySecret={params.get('gatewaySecret') || undefined}
+          projectId={params.get('projectId') || undefined}
+          contextProjectId={params.get('contextProjectId') || undefined}
+        />
+      </Suspense>
     );
   }
 
@@ -984,8 +1021,10 @@ function App() {
     return (
       <ThemeProvider defaultTheme="dark-neutral">
         <ErrorBoundary label="Plugin">
+          <Suspense fallback={<LazyFallback />}>
           <PluginWindow pluginId={pluginWindowId} params={params} />
-        </ErrorBoundary>
+        </Suspense>
+          </ErrorBoundary>
       </ThemeProvider>
     );
   }
