@@ -242,6 +242,15 @@ describe('projectStore', () => {
       expect(useProjectStore.getState().selectedProjectId).toBeNull();
     });
 
+    it('selectProject is a no-op when selecting the same project again', () => {
+      useProjectStore.setState({ selectedProjectId: 'p1' });
+      const previousState = useProjectStore.getState();
+
+      useProjectStore.getState().selectProject('p1');
+
+      expect(useProjectStore.getState()).toBe(previousState);
+    });
+
     it('selectSession sets selectedSessionId', () => {
       const session = createSession({ id: 's1', projectId: 'p1' });
       useProjectStore.getState().setSessions([session]);
@@ -276,6 +285,20 @@ describe('projectStore', () => {
 
       expect(useProjectStore.getState().selectedSessionId).toBeNull();
       expect(useProjectStore.getState().selectedProjectId).toBe('p1');
+    });
+
+    it('selectSession is a no-op when selecting the same session again', () => {
+      useProjectStore.setState({
+        selectedSessionId: 's1',
+        selectedProjectId: 'p1',
+        sessions: [createSession({ id: 's1', projectId: 'p1' })],
+      });
+      const previousState = useProjectStore.getState();
+
+      useProjectStore.getState().selectSession('s1');
+
+      expect(useProjectStore.getState()).toBe(previousState);
+      expect(mockSetActiveServer).not.toHaveBeenCalled();
     });
 
     it('selectSession falls back to remote sessions for gateway', () => {

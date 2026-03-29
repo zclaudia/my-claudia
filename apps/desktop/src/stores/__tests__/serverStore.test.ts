@@ -18,6 +18,14 @@ describe('serverStore', () => {
       expect(useServerStore.getState().activeServerId).toBe('s1');
     });
 
+    it('is a no-op when setting the same active backend id', () => {
+      const previousState = useServerStore.getState();
+
+      useServerStore.getState().setActiveServer('local');
+
+      expect(useServerStore.getState()).toBe(previousState);
+    });
+
     it('sets null active server', () => {
       useServerStore.getState().setActiveServer(null);
       expect(useServerStore.getState().activeServerId).toBeNull();

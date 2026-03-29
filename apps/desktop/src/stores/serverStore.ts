@@ -70,12 +70,9 @@ export const useServerStore = create<ServerState>()((set, get) => ({
 
   setActiveServer: (id) => {
     const prev = get().activeServerId;
-    if (prev !== id) {
-      console.log(`[ServerStore] setActiveServer: ${prev} → ${id}`, new Error().stack?.split('\n').slice(1, 4).join(' | '));
-    }
-    set({
-      activeServerId: id,
-    });
+    if (prev === id) return;
+    console.log(`[ServerStore] setActiveServer: ${prev} → ${id}`, new Error().stack?.split('\n').slice(1, 4).join(' | '));
+    set({ activeServerId: id });
   },
 
   setServerConnectionStatus: (serverId, status, error) => {

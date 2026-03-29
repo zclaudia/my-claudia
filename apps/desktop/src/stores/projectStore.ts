@@ -248,10 +248,20 @@ export const useProjectStore = create<ProjectState>((set) => ({
 
   // ── Selection & UI actions ──
 
-  selectProject: (id) => set({ selectedProjectId: id }),
+  selectProject: (id) =>
+    set((state) => {
+      if (state.selectedProjectId === id) {
+        return state;
+      }
+      return { selectedProjectId: id };
+    }),
 
   selectSession: (id) =>
     set((state) => {
+      if (state.selectedSessionId === id) {
+        return state;
+      }
+
       let session = state.sessions.find((s) => s.id === id);
       let targetBackendId: string | null = null;
       if (!session && id) {

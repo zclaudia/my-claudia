@@ -11,15 +11,17 @@ interface SelectSessionOptions {
 
 export function useSelectionCoordinator() {
   const { connectServer } = useConnection();
+  const activeServerId = useServerStore((s) => s.activeServerId);
   const setActiveServer = useServerStore((s) => s.setActiveServer);
   const selectProjectInStore = useProjectStore((s) => s.selectProject);
   const selectSessionInStore = useProjectStore((s) => s.selectSession);
 
   const selectBackend = useCallback((backendId: string | null | undefined) => {
     if (!backendId) return;
+    if (activeServerId === backendId) return;
     setActiveServer(backendId);
     connectServer(backendId);
-  }, [connectServer, setActiveServer]);
+  }, [activeServerId, connectServer, setActiveServer]);
 
   const selectProject = useCallback((projectId: string | null) => {
     if (!projectId) {
