@@ -3,7 +3,6 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { Command, type Child } from '@tauri-apps/plugin-shell';
 import { appDataDir, resolveResource } from '@tauri-apps/api/path';
 import { invoke } from '@tauri-apps/api/core';
-import { useLocalReviewerStore } from '../stores/localReviewerStore';
 
 export type EmbeddedServerStatus = 'idle' | 'starting' | 'ready' | 'error' | 'disabled' | 'wsl-mode';
 
@@ -50,16 +49,6 @@ async function resolveServerPath(): Promise<string> {
     return '../../../server/dist/index.js';
   }
   return await resolveResource('server/server.mjs');
-}
-
-function getLocalReviewerServerEnv(): Record<string, string> {
-  const config = useLocalReviewerStore.getState();
-  return {
-    MY_CLAUDIA_LOCAL_REVIEWER_ENABLED: config.enabled ? '1' : '0',
-    MY_CLAUDIA_LOCAL_REVIEWER_PROVIDER: config.provider,
-    MY_CLAUDIA_LOCAL_REVIEWER_ENDPOINT: config.endpoint,
-    MY_CLAUDIA_LOCAL_REVIEWER_MODEL: config.model,
-  };
 }
 
 /**
@@ -172,7 +161,6 @@ export function useEmbeddedServer(options?: { disabled?: boolean }): EmbeddedSer
           SERVER_HOST: '127.0.0.1',
           MY_CLAUDIA_DATA_DIR: dataDir,
           MY_CLAUDIA_CHANNEL: 'dev',
-          ...getLocalReviewerServerEnv(),
           ...shellNetworkEnv,
         },
       });
@@ -262,7 +250,6 @@ export function useEmbeddedServer(options?: { disabled?: boolean }): EmbeddedSer
       const result = await invoke<{ port: number }>('start_server', {
         serverPath,
         dataDir,
-        localReviewerEnv: getLocalReviewerServerEnv(),
       });
 
       if (mountedRef.current) {

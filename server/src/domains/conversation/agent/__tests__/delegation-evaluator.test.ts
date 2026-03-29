@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { evaluateAIReview } from '../delegation-evaluator';
-import { resetConfiguredLocalSensitivityReviewerForTests } from '../local-sensitivity-reviewer';
 import { existsSync, readFileSync } from 'fs';
 
 vi.mock('fs', () => ({
@@ -13,21 +12,11 @@ beforeEach(() => {
   vi.mocked(readFileSync).mockReset();
   vi.mocked(existsSync).mockReturnValue(false);
   vi.mocked(readFileSync).mockReturnValue('' as never);
-  delete process.env.MY_CLAUDIA_LOCAL_REVIEWER_ENABLED;
-  delete process.env.MY_CLAUDIA_LOCAL_REVIEWER_PROVIDER;
-  delete process.env.MY_CLAUDIA_LOCAL_REVIEWER_ENDPOINT;
-  delete process.env.MY_CLAUDIA_LOCAL_REVIEWER_MODEL;
-  resetConfiguredLocalSensitivityReviewerForTests();
 });
 
 afterEach(() => {
   vi.clearAllMocks();
   vi.unstubAllGlobals();
-  delete process.env.MY_CLAUDIA_LOCAL_REVIEWER_ENABLED;
-  delete process.env.MY_CLAUDIA_LOCAL_REVIEWER_PROVIDER;
-  delete process.env.MY_CLAUDIA_LOCAL_REVIEWER_ENDPOINT;
-  delete process.env.MY_CLAUDIA_LOCAL_REVIEWER_MODEL;
-  resetConfiguredLocalSensitivityReviewerForTests();
 });
 
 describe('evaluateAIReview', () => {
@@ -80,8 +69,6 @@ describe('evaluateAIReview', () => {
   });
 
   it('denies access to sensitive files even when the model requests them', async () => {
-    const prompts: string[] = [];
-
     const result = await evaluateAIReview(
       {
         enabled: true,
@@ -95,26 +82,15 @@ describe('evaluateAIReview', () => {
         detail: 'bash .env',
         cwd: '/workspace',
         analysisProvider: {
-          runPrompt: async (prompt: string, sessionId?: string) => {
-            prompts.push(prompt);
-            if (prompts.length === 1) {
-              return {
-                response: '{"type":"read_file","path":".env","reason":"Need to inspect env file"}',
-                sessionId: sessionId ?? 'review-session-2',
-              };
-            }
-            expect(prompt).toContain('<status>denied</status>');
-            return {
-              response: '{"type":"final","decision":"uncertain","reasoning":"The requested file could not be reviewed safely.","confidence":0.2}',
-              sessionId: sessionId ?? 'review-session-2',
-            };
-          },
+          runPrompt: vi.fn(),
         },
       },
     );
 
     expect(result.decision).toBe('uncertain');
-    expect(prompts).toHaveLength(2);
+    expect(result.metadata).toMatchObject({
+      payloadDisposition: 'do_not_send',
+    });
   });
 
   it('includes one layer of local script dependencies in the reviewable file list', async () => {
@@ -168,22 +144,9 @@ describe('evaluateAIReview', () => {
     expect(prompts).toHaveLength(2);
   });
 
-  it('uses the configured local reviewer to block sensitive file content', async () => {
-    process.env.MY_CLAUDIA_LOCAL_REVIEWER_ENABLED = '1';
-    process.env.MY_CLAUDIA_LOCAL_REVIEWER_PROVIDER = 'ollama';
-    process.env.MY_CLAUDIA_LOCAL_REVIEWER_ENDPOINT = 'http://127.0.0.1:11434';
-    process.env.MY_CLAUDIA_LOCAL_REVIEWER_MODEL = 'qwen3:4b-instruct';
-
+  it('blocks sensitive file content via local payload guard rules', async () => {
     vi.mocked(existsSync).mockReturnValue(true);
-    vi.mocked(readFileSync).mockReturnValue('export API_TOKEN=abc123\n' as never);
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({
-        message: {
-          content: '{"label":"sensitive","confidence":0.98,"reason":"Contains a credential-like token"}',
-        },
-      }),
-    }));
+    vi.mocked(readFileSync).mockReturnValue('printenv\n' as never);
 
     let promptCount = 0;
     const result = await evaluateAIReview(
@@ -218,6 +181,72 @@ describe('evaluateAIReview', () => {
 
     expect(result.decision).toBe('uncertain');
     expect(promptCount).toBe(2);
+  });
+
+  it('redacts secret-like values before sending the initial review payload remotely', async () => {
+    const prompts: string[] = [];
+
+    const result = await evaluateAIReview(
+      {
+        enabled: true,
+        timeoutBeforeReview: 60,
+        confidenceThreshold: 0.7,
+        maxAutoApprovalsPerMinute: 10,
+      },
+      {
+        toolName: 'Bash',
+        toolInput: { command: 'curl https://api.example.com -H "Authorization: Bearer secret-token-1234567890"' },
+        detail: 'curl https://api.example.com -H "Authorization: Bearer secret-token-1234567890"',
+        cwd: '/workspace',
+        analysisProvider: {
+          runPrompt: async (prompt: string, sessionId?: string) => {
+            prompts.push(prompt);
+            return {
+              response: '{"type":"final","decision":"approve","reasoning":"Redacted network request.","confidence":0.86}',
+              sessionId: sessionId ?? 'review-session-redact',
+            };
+          },
+        },
+      },
+    );
+
+    expect(result.decision).toBe('approve');
+    expect(result.metadata).toMatchObject({
+      payloadDisposition: 'send_with_redaction',
+      redactionCount: 4,
+    });
+    expect(prompts[0]).toContain('[REDACTED_TOKEN]');
+    expect(prompts[0]).not.toContain('secret-token-1234567890');
+  });
+
+  it('skips remote AI review when the initial payload matches block rules', async () => {
+    const runPrompt = vi.fn();
+
+    const result = await evaluateAIReview(
+      {
+        enabled: true,
+        timeoutBeforeReview: 60,
+        confidenceThreshold: 0.7,
+        maxAutoApprovalsPerMinute: 10,
+      },
+      {
+        toolName: 'Bash',
+        toolInput: { command: 'printenv' },
+        detail: 'printenv',
+        cwd: '/workspace',
+        analysisProvider: {
+          runPrompt,
+        },
+      },
+    );
+
+    expect(runPrompt).not.toHaveBeenCalled();
+    expect(result).toMatchObject({
+      decision: 'uncertain',
+      metadata: {
+        payloadDisposition: 'do_not_send',
+      },
+    });
   });
 
   it('accepts pretty-printed JSON responses from the AI reviewer', async () => {

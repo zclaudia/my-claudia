@@ -107,6 +107,23 @@ interface ShellToken {
   value: string;
 }
 
+const OUTSIDE_WORKSPACE_EXECUTABLE_BASENAMES = new Set([
+  'bash',
+  'sh',
+  'zsh',
+  'fish',
+  'env',
+  'node',
+  'nodejs',
+  'python',
+  'python3',
+  'ruby',
+  'perl',
+  'pnpm',
+  'npm',
+  'yarn',
+]);
+
 const TEXT_VALUE_FLAGS_BY_COMMAND = new Map<string, Set<string>>([
   ['git commit', new Set(['-m', '--message'])],
 ]);
@@ -189,6 +206,16 @@ function shouldSkipTokenAsTextArgument(tokens: ShellToken[], index: number): boo
   return rules.has(previous);
 }
 
+function shouldIgnoreOutsideWorkspaceExecutable(tokens: ShellToken[], index: number): boolean {
+  const token = tokens[index]?.value;
+  if (!token?.startsWith('/')) return false;
+
+  const firstCommandIndex = tokens.findIndex((candidate) => candidate.value && !candidate.value.includes('='));
+  if (firstCommandIndex !== index) return false;
+
+  return OUTSIDE_WORKSPACE_EXECUTABLE_BASENAMES.has(path.basename(token).toLowerCase());
+}
+
 function extractPathsFromCommand(command: string): string[] {
   const paths = new Set<string>();
   for (const segment of splitCompoundCommand(command)) {
@@ -197,6 +224,7 @@ function extractPathsFromCommand(command: string): string[] {
       const token = tokens[i];
       if (!token.value.startsWith('/')) continue;
       if (shouldSkipTokenAsTextArgument(tokens, i)) continue;
+      if (shouldIgnoreOutsideWorkspaceExecutable(tokens, i)) continue;
       paths.add(token.value);
     }
   }

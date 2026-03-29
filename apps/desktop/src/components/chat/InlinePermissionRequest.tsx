@@ -8,6 +8,23 @@ interface InlinePermissionRequestProps {
   onDecision: (requestId: string, allow: boolean, remember?: boolean, credential?: string, feedback?: string) => void;
 }
 
+function buildAIReviewMetadataHint(result: ReturnType<typeof usePermissionStore.getState>['aiReviewResults'][string] | undefined): string | null {
+  const metadata = result?.metadata;
+  if (!metadata) return null;
+
+  if (metadata.payloadDisposition === 'do_not_send') {
+    return 'Remote AI review skipped because sensitive local material was detected.';
+  }
+
+  if (metadata.payloadDisposition === 'send_with_redaction') {
+    const files = metadata.reviewedFileCount ?? 0;
+    const redactions = metadata.redactionCount ?? 0;
+    return `Remote AI review used sanitized payload; redactions ${redactions}; reviewed ${files} file${files === 1 ? '' : 's'}.`;
+  }
+
+  return null;
+}
+
 export function InlinePermissionRequest({ request, onDecision }: InlinePermissionRequestProps) {
   const [remainingTime, setRemainingTime] = useState(0);
   const [remember, setRemember] = useState(false);
@@ -20,6 +37,7 @@ export function InlinePermissionRequest({ request, onDecision }: InlinePermissio
   const setFeedbackDraft = usePermissionStore((state) => state.setFeedbackDraft);
   const clearFeedbackDraft = usePermissionStore((state) => state.clearFeedbackDraft);
   const aiReviewResult = usePermissionStore((state) => state.aiReviewResults[request.requestId]);
+  const aiReviewMetadataHint = buildAIReviewMetadataHint(aiReviewResult);
   const isExitPlanModeRequest = request.toolName.toLowerCase().includes('exitplanmode');
 
   useEffect(() => {
@@ -201,21 +219,23 @@ export function InlinePermissionRequest({ request, onDecision }: InlinePermissio
         <div className="flex items-center gap-2 mt-2 flex-wrap">
           {/* Timer / AI Review status */}
           {aiReviewResult ? (
-            <span className={`text-xs flex items-center gap-1 ${
-              aiReviewResult.decision === 'deny' ? 'text-destructive' : 'text-muted-foreground'
-            }`}>
-              <Bot size={12} />
-              {aiReviewResult.decision === 'deny'
-                ? `AI: unsafe (${Math.round(aiReviewResult.confidence * 100)}%) — ${aiReviewResult.reasoning?.slice(0, 60) || ''}`
-                : aiReviewResult.decision === 'uncertain'
-                  ? `AI: uncertain — ${aiReviewResult.reasoning?.slice(0, 60) || `${Math.round(aiReviewResult.confidence * 100)}%`}`
-                  : `AI: safe (${Math.round(aiReviewResult.confidence * 100)}%) — ${aiReviewResult.reasoning?.slice(0, 60) || ''}`}
-              {aiReviewResult.metadata?.localReviewerUsed && (
-                <span className="text-[10px] text-muted-foreground">
-                  · local reviewer {aiReviewResult.metadata.localReviewerOutcome || 'used'}
+            <div className="flex flex-col gap-0.5">
+              <span className={`text-xs flex items-center gap-1 ${
+                aiReviewResult.decision === 'deny' ? 'text-destructive' : 'text-muted-foreground'
+              }`}>
+                <Bot size={12} />
+                {aiReviewResult.decision === 'deny'
+                  ? `AI: unsafe (${Math.round(aiReviewResult.confidence * 100)}%) — ${aiReviewResult.reasoning?.slice(0, 60) || ''}`
+                  : aiReviewResult.decision === 'uncertain'
+                    ? `AI: uncertain — ${aiReviewResult.reasoning?.slice(0, 60) || `${Math.round(aiReviewResult.confidence * 100)}%`}`
+                    : `AI: safe (${Math.round(aiReviewResult.confidence * 100)}%) — ${aiReviewResult.reasoning?.slice(0, 60) || ''}`}
+              </span>
+              {aiReviewMetadataHint && (
+                <span className="text-[11px] text-muted-foreground">
+                  {aiReviewMetadataHint}
                 </span>
               )}
-            </span>
+            </div>
           ) : hasTimeout && remainingTime > 0 ? (
             <span className="text-xs text-muted-foreground flex items-center gap-1">
               {request.aiInitiated && <span>Auto-approve:</span>}

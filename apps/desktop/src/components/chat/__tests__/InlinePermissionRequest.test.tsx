@@ -202,15 +202,15 @@ describe('InlinePermissionRequest', () => {
     expect(screen.getByText('3s')).toBeInTheDocument();
   });
 
-  it('auto-denies non-AI-initiated request when countdown reaches 0', () => {
+  it('does not auto-deny non-AI-initiated request when countdown reaches 0', () => {
     const onDecision = vi.fn();
     const request = makeRequest({ toolName: 'Bash', detail: '{}', timeoutSec: 2, aiInitiated: false });
     render(<InlinePermissionRequest request={request} onDecision={onDecision} />);
 
     act(() => { vi.advanceTimersByTime(2000); });
 
-    expect(onDecision).toHaveBeenCalledWith('req-exit-plan-1', false);
-    expect(screen.getByText(/Denied/)).toBeInTheDocument();
+    expect(onDecision).not.toHaveBeenCalled();
+    expect(screen.getByText('AI reviewing...')).toBeInTheDocument();
   });
 
   it('does not auto-deny AI-initiated request when countdown reaches 0', () => {
@@ -268,5 +268,48 @@ describe('InlinePermissionRequest', () => {
     fireEvent.click(screen.getByText('Deny + Comment'));
 
     expect(onDecision).not.toHaveBeenCalled();
+  });
+
+  it('shows sanitized payload metadata when AI review used redaction', () => {
+    usePermissionStore.setState((state) => ({
+      ...state,
+      aiReviewResults: {
+        'req-exit-plan-1': {
+          decision: 'approve',
+          reasoning: 'Looks safe after redaction',
+          confidence: 0.88,
+          metadata: {
+            payloadDisposition: 'send_with_redaction',
+            redactionCount: 2,
+            reviewedFileCount: 1,
+          },
+        },
+      },
+    }));
+
+    render(<InlinePermissionRequest request={makeRequest({ toolName: 'Bash', detail: '{}' })} onDecision={vi.fn()} />);
+
+    expect(screen.getByText(/Remote AI review used sanitized payload/)).toBeInTheDocument();
+  });
+
+  it('shows explicit skipped-remote-review metadata when sensitive local material was detected', () => {
+    usePermissionStore.setState((state) => ({
+      ...state,
+      aiReviewResults: {
+        'req-exit-plan-1': {
+          decision: 'uncertain',
+          reasoning: 'Sensitive local material detected',
+          confidence: 0,
+          metadata: {
+            payloadDisposition: 'do_not_send',
+            reviewedFileCount: 0,
+          },
+        },
+      },
+    }));
+
+    render(<InlinePermissionRequest request={makeRequest({ toolName: 'Bash', detail: '{}' })} onDecision={vi.fn()} />);
+
+    expect(screen.getByText('Remote AI review skipped because sensitive local material was detected.')).toBeInTheDocument();
   });
 });

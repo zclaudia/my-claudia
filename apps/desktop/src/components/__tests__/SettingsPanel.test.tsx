@@ -37,7 +37,7 @@ vi.mock('../../services/api', async (importOriginal) => {
   for (const key of Object.keys(mod)) {
     stubbed[key] = typeof mod[key] === 'function' ? vi.fn(() => Promise.resolve(null)) : mod[key];
   }
-  stubbed.getServerInfo = vi.fn().mockResolvedValue({ sdkVersions: null, localReviewer: null });
+  stubbed.getServerInfo = vi.fn().mockResolvedValue({ sdkVersions: null });
   stubbed.getAgentConfig = vi.fn().mockResolvedValue({});
   stubbed.updateAgentConfig = vi.fn().mockResolvedValue({});
   stubbed.getNotificationConfig = vi.fn().mockResolvedValue({
@@ -85,7 +85,6 @@ import { useGatewayStore } from '../../stores/gatewayStore';
 import { useUIStore } from '../../stores/uiStore';
 import { usePluginStore } from '../../stores/pluginStore';
 import { useProcessMonitorStore } from '../../stores/processMonitorStore';
-import { useLocalReviewerStore } from '../../stores/localReviewerStore';
 import * as api from '../../services/api';
 import { clearLogs, getLogCount, exportLogs } from '../../services/logger';
 import { invoke } from '@tauri-apps/api/core';
@@ -156,24 +155,6 @@ function setupStores(overrides: Record<string, any> = {}) {
     ...overrides.pluginStore,
   } as any);
 
-  useLocalReviewerStore.setState({
-    enabled: false,
-    provider: 'ollama',
-    endpoint: 'http://127.0.0.1:11434',
-    model: 'qwen3:4b-instruct',
-    managedRuntime: true,
-    autoStart: true,
-    managedPid: null,
-    status: {
-      state: 'disabled',
-      endpoint: 'http://127.0.0.1:11434',
-      model: 'qwen3:4b-instruct',
-      binaryAvailable: false,
-      serverReachable: false,
-      modelAvailable: false,
-      managedRuntimeActive: false,
-    },
-  } as any);
 }
 
 describe('SettingsPanel', () => {
@@ -203,12 +184,12 @@ describe('SettingsPanel', () => {
   it('renders General tab by default', () => {
     const { container } = render(<SettingsPanel isOpen={true} onClose={vi.fn()} />);
     expect(container.textContent).toContain('Appearance');
-    expect(container.textContent).toContain('Local Reviewer');
+    expect(container.textContent).toContain('Local Server');
     expect(container.textContent).toContain('Theme');
     expect(container.textContent).toContain('Font Size');
   });
 
-  it('restarts embedded server from local reviewer section', () => {
+  it('restarts embedded server from local server section', () => {
     const { getByText } = render(<SettingsPanel isOpen={true} onClose={vi.fn()} />);
     fireEvent.click(getByText('Restart Embedded Server'));
     expect(mockRestartEmbeddedServer).toHaveBeenCalledTimes(1);
@@ -447,29 +428,6 @@ describe('SettingsPanel', () => {
     });
 
     expect(container.textContent).toContain('sdk');
-  });
-
-  it('shows server-side local reviewer status when available', async () => {
-    (api.getServerInfo as ReturnType<typeof vi.fn>).mockResolvedValue({
-      sdkVersions: null,
-      localReviewer: {
-        enabled: true,
-        provider: 'ollama',
-        endpoint: 'http://127.0.0.1:11434',
-        model: 'qwen3:4b-instruct',
-        serverReachable: true,
-        modelAvailable: true,
-      },
-    });
-
-    const { container } = render(<SettingsPanel isOpen={true} onClose={vi.fn()} />);
-
-    await act(async () => {
-      await new Promise(r => setTimeout(r, 50));
-    });
-
-    expect(container.textContent).toContain('Server-side status');
-    expect(container.textContent).toContain('configured');
   });
 
   // ---- General tab: Diagnostics ----

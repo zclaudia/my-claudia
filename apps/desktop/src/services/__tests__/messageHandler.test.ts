@@ -4,6 +4,7 @@ import type { MessageHandlerContext } from '../messageHandler';
 // Mock all stores
 const mockChatStore = {
   activeRuns: {} as Record<string, string>,
+  runHealth: {} as Record<string, any>,
   appendToLastMessage: vi.fn(),
   appendTextBlock: vi.fn(),
   startRun: vi.fn(),
@@ -190,6 +191,7 @@ describe('handleServerMessage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockChatStore.activeRuns = {};
+    mockChatStore.runHealth = {};
     mockBackgroundTaskStore.tasks = {};
     mockProjectStore.selectedSessionId = 'current-session';
     mockProjectStore.sessions = [];
@@ -426,15 +428,15 @@ describe('handleServerMessage', () => {
     expect(mockPermissionStore.clearRequestById).toHaveBeenCalledWith('pr1');
   });
 
-  it('shows toast when permission_auto_resolved includes local reviewer metadata', () => {
+  it('shows toast when permission_auto_resolved includes redaction metadata', () => {
     handleServerMessage({
       type: 'permission_auto_resolved',
       requestId: 'pr1',
       sessionId: 's1',
       behavior: 'approve',
       metadata: {
-        localReviewerUsed: true,
-        localReviewerOutcome: 'safe',
+        payloadDisposition: 'send_with_redaction',
+        redactionCount: 2,
         reviewedFileCount: 2,
       },
     }, makeCtx());
@@ -443,7 +445,7 @@ describe('handleServerMessage', () => {
       title: 'Permission auto-approved',
       type: 'success',
     });
-    expect(useToastStore.getState().toasts[0]?.message).toContain('local reviewer');
+    expect(useToastStore.getState().toasts[0]?.message).toContain('sanitized local payload');
   });
 
   it('stores ai_review_completed metadata and shows toast', () => {
@@ -455,8 +457,8 @@ describe('handleServerMessage', () => {
       reasoning: 'Need user input',
       confidence: 0.42,
       metadata: {
-        localReviewerUsed: true,
-        localReviewerOutcome: 'suspicious',
+        payloadDisposition: 'send_with_redaction',
+        redactionCount: 1,
         reviewedFileCount: 1,
       },
     }, makeCtx());
@@ -464,14 +466,35 @@ describe('handleServerMessage', () => {
     expect(mockPermissionStore.aiReviewResults.pr2).toMatchObject({
       decision: 'uncertain',
       metadata: {
-        localReviewerUsed: true,
-        localReviewerOutcome: 'suspicious',
+        payloadDisposition: 'send_with_redaction',
+        redactionCount: 1,
         reviewedFileCount: 1,
       },
     });
     expect(useToastStore.getState().toasts[0]).toMatchObject({
       title: 'AI review completed',
       type: 'info',
+    });
+  });
+
+  it('shows toast when ai_review_completed skips remote analysis for sensitive local material', () => {
+    handleServerMessage({
+      type: 'ai_review_completed',
+      requestId: 'pr3',
+      sessionId: 's1',
+      decision: 'uncertain',
+      reasoning: 'Remote AI review skipped because the request payload may contain sensitive local material',
+      confidence: 0,
+      metadata: {
+        payloadDisposition: 'do_not_send',
+        reviewedFileCount: 0,
+      },
+    }, makeCtx());
+
+    expect(useToastStore.getState().toasts[0]).toMatchObject({
+      title: 'AI review completed',
+      type: 'info',
+      message: 'AI review skipped remote analysis because sensitive local material was detected.',
     });
   });
 

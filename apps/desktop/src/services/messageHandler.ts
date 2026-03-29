@@ -210,20 +210,24 @@ function updateClaudiaTaskStatusBySessionId(
 
 function buildAIReviewToastMessage(aiMsg: import('@my-claudia/shared').AIReviewCompletedMessage): string | undefined {
   const metadata = aiMsg.metadata;
-  if (!metadata?.localReviewerUsed) return undefined;
-
-  const outcome = metadata.localReviewerOutcome || 'unknown';
+  if (metadata?.payloadDisposition === 'do_not_send') {
+    return 'AI review skipped remote analysis because sensitive local material was detected.';
+  }
+  if (metadata?.payloadDisposition !== 'send_with_redaction') return undefined;
   const files = metadata.reviewedFileCount ?? 0;
-  return `Local reviewer used (${outcome}); reviewed ${files} file${files === 1 ? '' : 's'}.`;
+  const redactions = metadata.redactionCount ?? 0;
+  return `AI review used sanitized local payload; redactions ${redactions}; reviewed ${files} file${files === 1 ? '' : 's'}.`;
 }
 
 function buildAIReviewAutoResolveToastMessage(msg: import('@my-claudia/shared').PermissionAutoResolvedMessage): string | undefined {
   const metadata = msg.metadata;
-  if (!metadata?.localReviewerUsed) return undefined;
-
-  const outcome = metadata.localReviewerOutcome || 'unknown';
+  if (metadata?.payloadDisposition === 'do_not_send') {
+    return 'AI review skipped remote analysis because sensitive local material was detected.';
+  }
+  if (metadata?.payloadDisposition !== 'send_with_redaction') return undefined;
   const files = metadata.reviewedFileCount ?? 0;
-  return `AI review auto-approved with local reviewer (${outcome}); reviewed ${files} file${files === 1 ? '' : 's'}.`;
+  const redactions = metadata.redactionCount ?? 0;
+  return `AI review auto-approved with sanitized local payload; redactions ${redactions}; reviewed ${files} file${files === 1 ? '' : 's'}.`;
 }
 
 /**

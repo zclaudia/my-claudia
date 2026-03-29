@@ -10,8 +10,8 @@ export interface DelegationContext {
   decision: 'approve' | 'deny';
   reasoning: string;
   confidence: number;
-  localReviewerUsed?: boolean;
-  localReviewerOutcome?: 'safe' | 'suspicious' | 'sensitive';
+  payloadDisposition?: 'safe_to_send' | 'send_with_redaction' | 'do_not_send';
+  redactionCount?: number;
   reviewedFileCount?: number;
 }
 

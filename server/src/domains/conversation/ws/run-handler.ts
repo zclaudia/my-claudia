@@ -92,12 +92,28 @@ export interface RunHandlerContext {
   broadcastHeartbeat: () => void;
 }
 
+type ExtendedAIReviewMetadata = import('@my-claudia/shared').AIReviewMetadata & {
+  payloadDisposition?: 'safe_to_send' | 'send_with_redaction' | 'do_not_send';
+  redactionCount?: number;
+  reviewedFileCount?: number;
+};
+
+type ExtendedDelegationContext = import('@my-claudia/shared').NotificationItem['delegationContext'] & {
+  payloadDisposition?: 'safe_to_send' | 'send_with_redaction' | 'do_not_send';
+  redactionCount?: number;
+  reviewedFileCount?: number;
+};
+
 function buildAIReviewFeedSummary(aiResult: import('@my-claudia/shared').AIReviewResult): string {
+  const metadata = aiResult.metadata as ExtendedAIReviewMetadata | undefined;
   const base = aiResult.reasoning;
-  if (!aiResult.metadata?.localReviewerUsed) return base;
-  const outcome = aiResult.metadata.localReviewerOutcome || 'used';
-  const reviewedFileCount = aiResult.metadata.reviewedFileCount ?? 0;
-  return `${base} Local reviewer: ${outcome}; files reviewed: ${reviewedFileCount}.`;
+  if (metadata?.payloadDisposition === 'do_not_send') {
+    return `${base} Remote analysis skipped because sensitive local material was detected.`;
+  }
+  if (metadata?.payloadDisposition !== 'send_with_redaction') return base;
+  const reviewedFileCount = metadata.reviewedFileCount ?? 0;
+  const redactionCount = metadata.redactionCount ?? 0;
+  return `${base} Payload sanitized locally; redactions: ${redactionCount}; files reviewed: ${reviewedFileCount}.`;
 }
 
 function postAIReviewFeedItem(
@@ -120,6 +136,7 @@ function postAIReviewFeedItem(
     : input.result.decision === 'deny'
       ? `AI review denied ${input.toolName}`
       : `AI review needs user decision for ${input.toolName}`;
+  const metadata = input.result.metadata as ExtendedAIReviewMetadata | undefined;
 
   feedService.postItem({
     sessionId: input.sessionId,
@@ -136,10 +153,10 @@ function postAIReviewFeedItem(
       decision: feedDecision,
       reasoning: input.result.reasoning,
       confidence: input.result.confidence,
-      localReviewerUsed: input.result.metadata?.localReviewerUsed,
-      localReviewerOutcome: input.result.metadata?.localReviewerOutcome,
-      reviewedFileCount: input.result.metadata?.reviewedFileCount,
-    },
+      payloadDisposition: metadata?.payloadDisposition,
+      redactionCount: metadata?.redactionCount,
+      reviewedFileCount: metadata?.reviewedFileCount,
+    } as ExtendedDelegationContext,
     completedAt: Date.now(),
   });
 }

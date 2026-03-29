@@ -1,7 +1,6 @@
 import { createContext, useContext, useCallback, useEffect, type ReactNode } from 'react';
 import { useMultiServerSocket } from '../hooks/useMultiServerSocket';
 import { useEmbeddedServer, type EmbeddedServerStatus } from '../hooks/useEmbeddedServer';
-import { useManagedLocalReviewer } from '../hooks/useManagedLocalReviewer';
 import { useWslServer, type WslServerState } from '../hooks/useWslServer';
 import { useBackendFacade } from '../hooks/useBackendFacade';
 import { usePermissionStore } from '../stores/permissionStore';
@@ -65,7 +64,6 @@ export function ConnectionProvider({
   // WSL server hook — must live at this level (not in WindowsSetup) so the
   // spawned wsl.exe process and its event listeners survive component unmounts.
   const wslServer = useWslServer();
-  useManagedLocalReviewer();
 
   // Initialize BackendFacade — syncs facade state to gatewayStore for backward compat
   useBackendFacade();

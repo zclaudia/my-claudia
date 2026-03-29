@@ -23,8 +23,9 @@ run_check \
   src/domains/conversation/agent/__tests__/delegation-evaluator.test.ts
 
 run_check \
-  "Local sensitivity reviewer parser" \
-  src/domains/conversation/agent/__tests__/local-sensitivity-reviewer.test.ts
+  "Local payload guard rules" \
+  src/domains/conversation/agent/__tests__/review-payload-guard.test.ts \
+  src/domains/conversation/agent/__tests__/ai-review-queue.test.ts
 
 run_check \
   "OpenCode non-JSON HTTP response observability" \

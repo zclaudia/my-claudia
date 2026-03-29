@@ -9,9 +9,10 @@ import type { DelegationConfig, DelegationDecision, PermissionCategory, Category
 import { DEFAULT_DELEGATION_CONFIG } from '@my-claudia/shared';
 import { classify } from './permission-evaluator.js';
 import {
-  getConfiguredLocalSensitivityReviewer,
-  type LocalSensitivityReviewResult,
-} from './local-sensitivity-reviewer.js';
+  guardReviewFileContent,
+  guardReviewText,
+  type ReviewPayloadDisposition,
+} from './review-payload-guard.js';
 import type Database from 'better-sqlite3';
 import { readFileSync, existsSync, appendFileSync, mkdirSync } from 'fs';
 import { resolve, isAbsolute, basename, extname, sep, dirname } from 'path';
@@ -147,6 +148,12 @@ export type { AIReviewResult } from '@my-claudia/shared';
 export interface AIReviewResultWithSession extends AIReviewResult {
   sessionId?: string;
 }
+
+type ExtendedAIReviewMetadata = NonNullable<AIReviewResult['metadata']> & {
+  payloadDisposition?: 'safe_to_send' | 'send_with_redaction' | 'do_not_send';
+  redactionCount?: number;
+  reviewedFileCount?: number;
+};
 
 type AIReviewModelResponse =
   | {
@@ -291,6 +298,7 @@ export async function evaluateAIReview(
       reasoning: `LLM confidence ${(llmResult.confidence * 100).toFixed(0)}% below threshold ${(config.confidenceThreshold * 100).toFixed(0)}%: ${llmResult.reasoning}`,
       confidence: llmResult.confidence,
       sessionId: llmResult.sessionId,
+      metadata: llmResult.metadata,
     };
   } catch (err) {
     console.error(`[AI Review] LLM analysis failed:`, err);
@@ -347,16 +355,6 @@ const HARD_DENY_EXTENSIONS = new Set([
   '.der',
 ]);
 
-const REDACTION_PATTERNS: Array<{ pattern: RegExp; replacement: string }> = [
-  { pattern: /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g, replacement: '[REDACTED_PRIVATE_KEY]' },
-  { pattern: /\b(?:ghp|gho|ghu|ghs|github_pat)_[A-Za-z0-9_]+\b/g, replacement: '[REDACTED_GITHUB_TOKEN]' },
-  { pattern: /\bAKIA[0-9A-Z]{16}\b/g, replacement: '[REDACTED_AWS_KEY]' },
-  { pattern: /\b(?:AIza[0-9A-Za-z\-_]{20,})\b/g, replacement: '[REDACTED_API_KEY]' },
-  { pattern: /\b(?:sk|rk)-[A-Za-z0-9]{16,}\b/g, replacement: '[REDACTED_SECRET]' },
-  { pattern: /\bBearer\s+[A-Za-z0-9._\-+/=]{16,}\b/gi, replacement: 'Bearer [REDACTED_TOKEN]' },
-  { pattern: /(["']?(?:api[_-]?key|token|secret|password)["']?\s*[:=]\s*["']?)[^"'\n\r]+/gi, replacement: '$1[REDACTED_SECRET]' },
-];
-
 interface CandidateScript {
   displayPath: string;
   resolvedPath: string;
@@ -372,22 +370,6 @@ interface ReviewFileAccessResult {
   redacted?: boolean;
   truncated?: boolean;
   bytesReturned?: number;
-  localReviewerOutcome?: LocalSensitivityReviewResult['label'];
-}
-
-function normalizeReviewReason(
-  review: LocalSensitivityReviewResult,
-  redacted: boolean,
-): string {
-  if (review.label === 'sensitive') return review.reason;
-  if (review.label === 'suspicious') {
-    return redacted
-      ? `Local reviewer flagged the file as suspicious and sensitive patterns were redacted: ${review.reason}`
-      : `Local reviewer flagged the file as suspicious: ${review.reason}`;
-  }
-  return redacted
-    ? `Sensitive patterns were redacted after local review: ${review.reason}`
-    : `Allowed by workspace review policy: ${review.reason}`;
 }
 
 function isWithinRoot(root: string, target: string): boolean {
@@ -405,17 +387,6 @@ function hasSensitiveName(filePath: string): boolean {
 
 function hasSensitiveExtension(filePath: string): boolean {
   return HARD_DENY_EXTENSIONS.has(extname(filePath).toLowerCase());
-}
-
-function redactReviewContent(content: string): { content: string; redacted: boolean } {
-  let next = content;
-  let redacted = false;
-  for (const { pattern, replacement } of REDACTION_PATTERNS) {
-    const updated = next.replace(pattern, replacement);
-    if (updated !== next) redacted = true;
-    next = updated;
-  }
-  return { content: next, redacted };
 }
 
 function auditReviewFileAccess(result: ReviewFileAccessResult): void {
@@ -636,49 +607,27 @@ async function readReviewFile(
       content = `${content.slice(0, byteLimit)}\n... (truncated)`;
       truncated = true;
     }
-    const reviewer = getConfiguredLocalSensitivityReviewer();
-    let localReview: LocalSensitivityReviewResult | null = null;
-    if (reviewer) {
-      try {
-        localReview = await reviewer.reviewFile({
-          path: allowedCandidate.displayPath,
-          resolvedPath: candidateResolvedPath,
-          workspaceRoot,
-          contentPreview: content,
-          commandContext,
-        });
-      } catch (error) {
-        console.warn('[AI Review File] Local sensitivity reviewer failed:', error);
-      }
-    }
-
-    if (localReview?.label === 'sensitive') {
+    const guardResult = guardReviewFileContent(candidateResolvedPath, content);
+    if (guardResult.disposition === 'do_not_send') {
       const denied = {
         ok: false,
         path: requestPath,
         resolvedPath: candidateResolvedPath,
-        reason: `Local reviewer blocked the file: ${localReview.reason}`,
-        localReviewerOutcome: localReview.label,
+        reason: guardResult.reasons.join('; ') || 'Local rules blocked the file from remote review',
       };
       auditReviewFileAccess(denied);
       return denied;
     }
-
-    const redaction = redactReviewContent(content);
+    const effectiveContent = guardResult.text;
     const result: ReviewFileAccessResult = {
       ok: true,
       path: allowedCandidate.displayPath,
       resolvedPath: candidateResolvedPath,
-      content: redaction.content,
-      reason: normalizeReviewReason(localReview ?? {
-        label: 'safe',
-        confidence: 1,
-        reason: 'No local reviewer configured',
-      }, redaction.redacted),
-      redacted: redaction.redacted || localReview?.label === 'suspicious',
+      content: effectiveContent,
+      reason: guardResult.reasons.join('; ') || 'Allowed by local payload guard',
+      redacted: guardResult.disposition === 'send_with_redaction',
       truncated,
-      bytesReturned: redaction.content.length,
-      localReviewerOutcome: localReview?.label,
+      bytesReturned: effectiveContent.length,
     };
     auditReviewFileAccess(result);
     return result;
@@ -692,8 +641,9 @@ async function readReviewFile(
 function buildInitialReviewPrompt(
   ctx: AIReviewContext,
   candidateScripts: CandidateScript[],
+  detail: string,
+  inputJson: string,
 ): string {
-  const sanitizedInput = JSON.stringify(ctx.toolInput, null, 2).slice(0, 800);
   const fileList = candidateScripts.length > 0
     ? candidateScripts.map((item) => `- ${item.displayPath}${item.source === 'dependency' ? ' (dependency)' : ''}`).join('\n')
     : '- none';
@@ -702,8 +652,8 @@ function buildInitialReviewPrompt(
 
 <tool_call>
 <tool_name>${ctx.toolName}</tool_name>
-<detail>${ctx.detail}</detail>
-<input>${sanitizedInput}</input>
+<detail>${detail}</detail>
+<input>${inputJson}</input>
 </tool_call>
 
 You may inspect command-referenced workspace files before deciding.
@@ -961,10 +911,30 @@ async function analyzeLLMRisk(ctx: AIReviewContext): Promise<AIReviewResultWithS
   const allowedFiles = new Map(candidateScripts.map((item) => [item.resolvedPath, item]));
   const reviewedFiles = new Set<string>();
   let totalBytesUsed = 0;
-  let reviewPrompt = buildInitialReviewPrompt(ctx, candidateScripts);
+  const detailGuard = guardReviewText(ctx.detail);
+  const inputGuard = guardReviewText(JSON.stringify(ctx.toolInput, null, 2).slice(0, 800));
+  const payloadDisposition: ReviewPayloadDisposition =
+    detailGuard.disposition === 'do_not_send' || inputGuard.disposition === 'do_not_send'
+      ? 'do_not_send'
+      : detailGuard.disposition === 'send_with_redaction' || inputGuard.disposition === 'send_with_redaction'
+        ? 'send_with_redaction'
+        : 'safe_to_send';
+  const redactionCount = detailGuard.redactionCount + inputGuard.redactionCount;
+  if (payloadDisposition === 'do_not_send') {
+    return {
+      decision: 'uncertain',
+      reasoning: `Remote AI review skipped because the request payload may contain sensitive local material: ${[...detailGuard.reasons, ...inputGuard.reasons].join('; ')}`,
+      confidence: 0,
+      metadata: {
+        payloadDisposition,
+        redactionCount,
+        reviewedFileCount: 0,
+      } as ExtendedAIReviewMetadata,
+    };
+  }
+
+  let reviewPrompt = buildInitialReviewPrompt(ctx, candidateScripts, detailGuard.text, inputGuard.text);
   let currentSessionId = ctx.sessionId;
-  let localReviewerUsed = false;
-  let localReviewerOutcome: 'safe' | 'suspicious' | 'sensitive' | undefined;
   let attemptedFormatRepair = false;
 
   for (let turn = 0; turn < MAX_REVIEW_TURNS; turn += 1) {
@@ -997,10 +967,10 @@ async function analyzeLLMRisk(ctx: AIReviewContext): Promise<AIReviewResultWithS
         ...parsed,
         sessionId: currentSessionId,
         metadata: {
-          localReviewerUsed,
-          localReviewerOutcome,
+          payloadDisposition,
+          redactionCount,
           reviewedFileCount: reviewedFiles.size,
-        },
+        } as ExtendedAIReviewMetadata,
       };
     }
 
@@ -1027,10 +997,6 @@ async function analyzeLLMRisk(ctx: AIReviewContext): Promise<AIReviewResultWithS
     }
 
     const fileResult = await readReviewFile(parsed.path, workspaceRoot, allowedFiles, totalBytesUsed, command);
-    if (fileResult.localReviewerOutcome) {
-      localReviewerUsed = true;
-      localReviewerOutcome = fileResult.localReviewerOutcome;
-    }
     if (fileResult.ok && fileResult.bytesReturned) {
       reviewedFiles.add(fileResult.resolvedPath!);
       totalBytesUsed += fileResult.bytesReturned;
@@ -1044,10 +1010,10 @@ async function analyzeLLMRisk(ctx: AIReviewContext): Promise<AIReviewResultWithS
     confidence: 0,
     sessionId: currentSessionId,
     metadata: {
-      localReviewerUsed,
-      localReviewerOutcome,
+      payloadDisposition,
+      redactionCount,
       reviewedFileCount: reviewedFiles.size,
-    },
+    } as ExtendedAIReviewMetadata,
   };
 }
 

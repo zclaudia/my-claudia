@@ -89,8 +89,8 @@ export interface CategoryPermissionPolicy {
 
 /** Result of an AI review for an escalated permission request */
 export interface AIReviewMetadata {
-  localReviewerUsed?: boolean;
-  localReviewerOutcome?: 'safe' | 'suspicious' | 'sensitive';
+  payloadDisposition?: 'safe_to_send' | 'send_with_redaction' | 'do_not_send';
+  redactionCount?: number;
   reviewedFileCount?: number;
 }
 

@@ -451,6 +451,17 @@ describe('PermissionEvaluator', () => {
       const command = 'echo /etc/hosts | xargs cat';
       expect(evaluator.evaluate('Bash', { command }, command, policy, makeContext())).toBe('escalate');
     });
+
+    it('should not escalate shell wrapper executables outside workspace', () => {
+      const policy = makePolicy({
+        globalGuards: { blockSensitiveFiles: false, blockOutsideWorkspace: true },
+      });
+      const command = `/bin/zsh -lc '../node_modules/.bin/vitest run src/domains/conversation/agent/__tests__/review-payload-guard.test.ts src/domains/conversation/agent/__tests__/delegation-evaluator.test.ts src/domains/conversation/agent/__tests__/ai-review-queue.test.ts'`;
+      expect(evaluator.evaluate('Bash', { command }, command, policy, {
+        rootPath: '/Users/zhvala/SourceCode/my-claudia/server',
+        sessionType: 'regular',
+      })).toBe('approve');
+    });
   });
 
   // ------------------------------------------
@@ -830,6 +841,15 @@ describe('outside workspace allowlist', () => {
       { command: 'git commit -m "document /private/tmp/app/output.log in release notes"' },
       '',
       '/Users/zhvala/SourceCode/my-claudia'
+    )).toEqual([]);
+  });
+
+  it('ignores shell wrapper executable paths when checking outside workspace', () => {
+    expect(getOutsideWorkspacePaths(
+      'Bash',
+      { command: `/bin/zsh -lc '../node_modules/.bin/vitest run src/domains/conversation/agent/__tests__/review-payload-guard.test.ts'` },
+      '',
+      '/Users/zhvala/SourceCode/my-claudia/server'
     )).toEqual([]);
   });
 
