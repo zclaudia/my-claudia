@@ -58,63 +58,67 @@ export function ActiveSessionsPanel({ onSessionSelect }: ActiveSessionsPanelProp
     return shouldShowNonCurrentInstanceBackend(backend, currentInstanceId, showLocalBackend);
   };
 
+  const localAliasBackendIds = useMemo(() => {
+    const aliases = new Set<string>();
+    if (localBackendId) aliases.add(localBackendId);
+    if (hasDirectLocalConnection) aliases.add(LEGACY_LOCAL_SERVER_ID);
+    return aliases;
+  }, [localBackendId, hasDirectLocalConnection]);
+
+  const isLocalBucketOrAlias = (backendId: string | null | undefined): boolean => {
+    return !!backendId && (backendId === LOCAL_BACKEND_KEY || localAliasBackendIds.has(backendId));
+  };
+
   // Build active session groups from a single source of truth:
   // sessionsStore.activeSessionIdsByBackend
   const allActiveSessionsByBackend = useMemo(() => {
     const result = new Map<string, RemoteSession[]>();
-    const hasLocalBucket = activeSessionIdsByBackend.has(LOCAL_BACKEND_KEY);
-    const localAliasBackendIds = new Set<string>();
-    if (localBackendId) localAliasBackendIds.add(localBackendId);
-    if (hasDirectLocalConnection) localAliasBackendIds.add(LEGACY_LOCAL_SERVER_ID);
+    const localSourceBackendIds = [LOCAL_BACKEND_KEY, ...localAliasBackendIds]
+      .filter((backendId, index, list) => list.indexOf(backendId) === index)
+      .filter((backendId) => (activeSessionIdsByBackend.get(backendId)?.size ?? 0) > 0);
+
+    if (localSourceBackendIds.length > 0) {
+      const mergedActiveIds = new Set<string>();
+      for (const backendId of localSourceBackendIds) {
+        const activeIds = activeSessionIdsByBackend.get(backendId);
+        if (!activeIds) continue;
+        for (const sessionId of activeIds) mergedActiveIds.add(sessionId);
+      }
+
+      const localById = new Map(localSessions.map(s => [s.id, s]));
+      const gatewayById = new Map<string, RemoteSession>();
+      for (const aliasBackendId of localAliasBackendIds) {
+        const localFromGateway = remoteSessions.get(aliasBackendId) || [];
+        for (const s of localFromGateway) gatewayById.set(s.id, s);
+      }
+
+      const sessions: RemoteSession[] = [];
+      for (const sessionId of mergedActiveIds) {
+        const local = localById.get(sessionId);
+        const gw = gatewayById.get(sessionId);
+        const source = local || gw;
+        if (!source) {
+          sessions.push({
+            id: sessionId,
+            projectId: '',
+            name: `Session ${sessionId.slice(0, 8)}`,
+            createdAt: Date.now(),
+            updatedAt: Date.now(),
+            isActive: true,
+          } as RemoteSession);
+        } else {
+          sessions.push({ ...source, isActive: true } as RemoteSession);
+        }
+      }
+
+      if (sessions.length > 0) {
+        result.set(LOCAL_BACKEND_KEY, sessions);
+      }
+    }
 
     activeSessionIdsByBackend.forEach((activeIds, backendId) => {
       if (activeIds.size === 0) return;
-      if (
-        backendId !== LOCAL_BACKEND_KEY
-        && hasLocalBucket
-        && localAliasBackendIds.has(backendId)
-      ) {
-        return;
-      }
-
-      if (backendId === LOCAL_BACKEND_KEY) {
-        const mergedActiveIds = new Set(activeIds);
-        if (hasLocalBucket) {
-          for (const aliasBackendId of localAliasBackendIds) {
-            const aliasActive = activeSessionIdsByBackend.get(aliasBackendId);
-            if (!aliasActive) continue;
-            for (const sessionId of aliasActive) mergedActiveIds.add(sessionId);
-          }
-        }
-
-        const localById = new Map(localSessions.map(s => [s.id, s]));
-        const gatewayById = new Map<string, RemoteSession>();
-        for (const aliasBackendId of localAliasBackendIds) {
-          const localFromGateway = remoteSessions.get(aliasBackendId) || [];
-          for (const s of localFromGateway) gatewayById.set(s.id, s);
-        }
-
-        const sessions: RemoteSession[] = [];
-        for (const sessionId of mergedActiveIds) {
-          const local = localById.get(sessionId);
-          const gw = gatewayById.get(sessionId);
-          const source = local || gw;
-          if (!source) {
-            sessions.push({
-              id: sessionId,
-              projectId: '',
-              name: `Session ${sessionId.slice(0, 8)}`,
-              createdAt: Date.now(),
-              updatedAt: Date.now(),
-              isActive: true,
-            } as RemoteSession);
-          } else {
-            sessions.push({ ...source, isActive: true } as RemoteSession);
-          }
-        }
-        if (sessions.length > 0) {
-          result.set(LOCAL_BACKEND_KEY, sessions);
-        }
+      if (isLocalBucketOrAlias(backendId)) {
         return;
       }
 
@@ -147,7 +151,7 @@ export function ActiveSessionsPanel({ onSessionSelect }: ActiveSessionsPanelProp
     });
 
     return result;
-  }, [activeSessionIdsByBackend, remoteSessions, localSessions, localBackendId, hasDirectLocalConnection, facadeBackends, currentInstanceId, showLocalBackend]);
+  }, [activeSessionIdsByBackend, remoteSessions, localSessions, localAliasBackendIds, facadeBackends, currentInstanceId, showLocalBackend]);
 
   // Don't show if not connected to any backend
   if (!activeServerId) {
@@ -181,7 +185,7 @@ export function ActiveSessionsPanel({ onSessionSelect }: ActiveSessionsPanelProp
   const totalActive = Array.from(allActiveSessionsByBackend.values()).reduce((sum, s) => sum + s.length, 0);
   const visibleRecentlyCompletedSessions = recentlyCompletedSessions.filter(({ ownerBackendId, backendId }) => {
     const resolvedOwnerBackendId = ownerBackendId ?? backendId;
-    return resolvedOwnerBackendId === LOCAL_BACKEND_KEY || isVisibleGatewayBackend(resolvedOwnerBackendId);
+    return isLocalBucketOrAlias(resolvedOwnerBackendId) || isVisibleGatewayBackend(resolvedOwnerBackendId);
   });
   const hasRecentlyCompleted = visibleRecentlyCompletedSessions.length > 0;
 
@@ -247,7 +251,7 @@ export function ActiveSessionsPanel({ onSessionSelect }: ActiveSessionsPanelProp
                       <li key={session.id}>
                         <button
                           onClick={() => {
-                            if (isLocalSessionBucketKey(backendId)) {
+                            if (isLocalBucketOrAlias(backendId) || isLocalSessionBucketKey(backendId)) {
                               const resolvedBackendId = resolveSessionBucketBackendId(backendId, localBackendId);
                               if (resolvedBackendId) onSessionSelect?.(resolvedBackendId, session.id);
                             } else {
@@ -295,7 +299,7 @@ export function ActiveSessionsPanel({ onSessionSelect }: ActiveSessionsPanelProp
                   <button
                     onClick={() => {
                       const resolvedOwnerBackendId = ownerBackendId ?? backendId;
-                      if (isLocalSessionBucketKey(resolvedOwnerBackendId)) {
+                      if (isLocalBucketOrAlias(resolvedOwnerBackendId) || isLocalSessionBucketKey(resolvedOwnerBackendId)) {
                         const resolvedBackendId = resolveSessionBucketBackendId(resolvedOwnerBackendId, localBackendId);
                         if (resolvedBackendId) onSessionSelect?.(resolvedBackendId, session.id);
                       } else {

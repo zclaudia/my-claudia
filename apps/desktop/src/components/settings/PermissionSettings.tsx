@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { fetchApi } from '../../services/api';
+import { useProjectStore } from '../../stores/projectStore';
 import type {
   UnifiedPermissionPolicy,
   CategoryAction,
@@ -63,6 +64,33 @@ function CategoryRow({ category, value, onChange, disabled }: {
       >
         {ACTION_OPTIONS.map((opt) => (
           <option key={opt.value} value={opt.value}>{opt.label}</option>
+        ))}
+      </select>
+    </div>
+  );
+}
+
+function AIReviewProviderSelector({ value, onChange, disabled }: {
+  value?: string;
+  onChange: (id: string | undefined) => void;
+  disabled: boolean;
+}) {
+  const providers = useProjectStore((s) => s.providers);
+  return (
+    <div className="flex items-center justify-between">
+      <div>
+        <span className="text-xs font-medium">Review provider</span>
+        <p className="text-[10px] text-muted-foreground">Which provider runs the security analysis</p>
+      </div>
+      <select
+        value={value || ''}
+        onChange={(e) => onChange(e.target.value || undefined)}
+        disabled={disabled}
+        className="h-6 px-1.5 text-[11px] bg-background border border-border rounded-md focus:outline-none focus:ring-1 focus:ring-primary max-w-[120px]"
+      >
+        <option value="">Session default</option>
+        {providers.map((p) => (
+          <option key={p.id} value={p.id}>{p.name} ({p.type})</option>
         ))}
       </select>
     </div>
@@ -270,6 +298,11 @@ export function PermissionSettings() {
                     className="w-16 h-6 px-1.5 text-[11px] text-right bg-background border border-border rounded-md focus:outline-none focus:ring-1 focus:ring-primary"
                   />
                 </div>
+                <AIReviewProviderSelector
+                  value={policy.aiReview.analysisProviderId}
+                  onChange={(id) => updateAIReview({ analysisProviderId: id })}
+                  disabled={saving}
+                />
               </>
             )}
           </div>

@@ -10,7 +10,6 @@ import type {
   SupervisorConfig,
   SupervisionTask,
   TaskStatus,
-  TaskResult,
   ServerMessage,
   SupervisionLogEvent,
 } from '@my-claudia/shared';
@@ -22,18 +21,23 @@ import { TaskRunner } from './task-runner.js';
 import { ReviewEngine } from './review-engine.js';
 import { WorktreePool } from './worktree-pool.js';
 import type { CheckpointEngine } from './checkpoint-engine.js';
-import { createVirtualClient, handleRunStart, activeRuns } from '../../server.js';
+import { createVirtualClient, handleRunStart } from '../../server.js';
 import { computeNextCronRun } from '../../utils/cron.js';
 import { validatePlanFile, type PlanValidationResult } from './plan-validator.js';
+import { TaskScheduler } from './task-scheduler.js';
+import { SupervisorGuards } from './supervisor-guards.js';
+import { WorktreeManager } from './worktree-manager.js';
 
 export class SupervisorService {
   private pollInterval: NodeJS.Timeout | null = null;
   private contextManagers = new Map<string, ContextManager>();
   private virtualClients = new Map<string, any>(); // taskId → virtualClient
-  private worktreePools = new Map<string, WorktreePool>();
   private taskRunner: TaskRunner;
   private reviewEngine: ReviewEngine;
   private checkpointEngine?: CheckpointEngine;
+  private taskScheduler: TaskScheduler;
+  private guards: SupervisorGuards;
+  private worktreeManager: WorktreeManager;
 
   constructor(
     private db: Database,
@@ -77,8 +81,38 @@ export class SupervisorService {
       broadcastTaskUpdateFn,
       logFn,
       (cwd, baseCommit) => this.taskRunner.collectGitEvidence(cwd, baseCommit),
-      (projectId) => this.getWorktreePool(projectId),
+      (projectId) => this.worktreeManager.getWorktreePool(projectId),
     );
+
+    // Initialize sub-modules
+    this.guards = new SupervisorGuards({
+      db,
+      taskRepo,
+      projectRepo,
+      broadcastAgentUpdate: (projectId, agent) => this.broadcastAgentUpdate(projectId, agent),
+      log: logFn,
+    });
+
+    this.worktreeManager = new WorktreeManager({
+      projectRepo,
+      sessionRepo,
+      log: logFn,
+    });
+
+    this.taskScheduler = new TaskScheduler({
+      db,
+      taskRepo,
+      projectRepo,
+      sessionRepo,
+      broadcastTaskUpdate: broadcastTaskUpdateFn,
+      broadcastAgentUpdate: (projectId, agent) => this.broadcastAgentUpdate(projectId, agent),
+      broadcastSessionCreated: (session) => this.broadcastSessionCreated(session),
+      broadcastSessionUpdated: (session) => this.broadcastSessionUpdated(session),
+      log: logFn,
+      checkBudgetLimits: (projectId) => this.guards.checkBudgetLimits(projectId),
+      startTask: (task) => this.startTask(task),
+      startLiteTask: (task) => this.startLiteTask(task),
+    });
   }
 
   // ========================================
@@ -98,7 +132,7 @@ export class SupervisorService {
       systemTaskRegistry.markRunStart('system:supervisor_polling');
       const start = Date.now();
       try {
-        await this.tick();
+        this.tick();
         systemTaskRegistry.markRunComplete('system:supervisor_polling', Date.now() - start);
       } catch (err) {
         systemTaskRegistry.markRunComplete('system:supervisor_polling', Date.now() - start, String(err));
@@ -113,16 +147,13 @@ export class SupervisorService {
       this.pollInterval = null;
     }
     this.checkpointEngine?.stop();
-    // Best-effort cleanup of worktree pools
-    for (const [, pool] of this.worktreePools) {
-      pool.destroy().catch(() => {});
-    }
-    this.worktreePools.clear();
+    this.worktreeManager.destroyAllPools();
     console.log('[Supervisor] Stopped');
   }
 
   setCheckpointEngine(engine: CheckpointEngine): void {
     this.checkpointEngine = engine;
+    this.taskScheduler.setCheckpointEngine(engine);
   }
 
   // ========================================
@@ -225,7 +256,7 @@ export class SupervisorService {
         agent.phase = 'archived';
         agent.pausedReason = undefined;
         agent.pausedAt = undefined;
-        this.cleanupPool(projectId).catch((err) => {
+        this.worktreeManager.cleanupPool(projectId).catch((err) => {
           console.error(`[Supervisor] Failed to cleanup pool for ${projectId}:`, err);
         });
         break;
@@ -305,7 +336,7 @@ export class SupervisorService {
     if (project.agent.config.maxTotalTasks !== undefined) {
       const currentCount = this.taskRepo.countByProject(projectId);
       if (currentCount >= project.agent.config.maxTotalTasks) {
-        this.pauseAgent(projectId, 'budget');
+        this.guards.pauseAgent(projectId, 'budget');
         throw new Error(
           `Budget limit exceeded: maxTotalTasks=${project.agent.config.maxTotalTasks} reached. Agent paused.`,
         );
@@ -458,7 +489,7 @@ export class SupervisorService {
 
     if (isWorktreeTask) {
       // Parallel mode: attempt merge
-      const pool = this.getWorktreePool(task.projectId);
+      const pool = this.worktreeManager.getWorktreePool(task.projectId);
       this.log(task.projectId, 'merge_started', { taskId }, taskId);
 
       const result = await pool.mergeBack(task.id, task.attempt, session!.workingDirectory!);
@@ -513,7 +544,7 @@ export class SupervisorService {
     }
 
     // Release worktree if applicable
-    this.releaseTaskWorktree(task);
+    this.worktreeManager.releaseTaskWorktree(task);
 
     const newAttempt = task.attempt + 1;
     const maxRetries = task.maxRetries;
@@ -561,7 +592,7 @@ export class SupervisorService {
       throw new Error('No worktree found for this task');
     }
 
-    const pool = this.getWorktreePool(task.projectId);
+    const pool = this.worktreeManager.getWorktreePool(task.projectId);
     this.log(task.projectId, 'merge_started', { taskId, retry: true }, taskId);
 
     const result = await pool.mergeBack(task.id, task.attempt, session.workingDirectory);
@@ -687,7 +718,7 @@ export class SupervisorService {
       console.error(`[Supervisor] Context reload failed for project ${projectId}:`, err);
       this.projectRepo.update(projectId, { contextSyncStatus: 'error' });
       if (project.agent) {
-        this.pauseAgent(projectId, 'sync_error');
+        this.guards.pauseAgent(projectId, 'sync_error');
       }
       this.log(projectId, 'context_sync_error', {
         error: err instanceof Error ? err.message : String(err),
@@ -696,187 +727,24 @@ export class SupervisorService {
   }
 
   // ========================================
-  // Polling loop
+  // Polling loop (delegates to TaskScheduler)
   // ========================================
 
   private tick(): void {
-    try {
-      const projects = this.projectRepo.findAll();
-      for (const project of projects) {
-        if (!project.agent) continue;
-        if (project.agent.phase !== 'active' && project.agent.phase !== 'idle') continue;
-
-        try {
-          this.tickProject(project.id);
-        } catch (err) {
-          console.error(`[Supervisor] Error ticking project ${project.id}:`, err);
-        }
-      }
-    } catch (err) {
-      console.error('[Supervisor] Error in tick:', err);
-    }
+    this.taskScheduler.tick();
   }
 
-  private tickProject(projectId: string): void {
-    const project = this.projectRepo.findById(projectId);
-    if (!project?.agent) return;
-
-    const isLite = (project.agent.mode ?? 'full') === 'lite';
-
-    // 1. Check budget limits
-    if (!this.checkBudgetLimits(projectId)) {
-      return;
-    }
-
-    // 1b. Check main session overflow (full mode only)
-    if (!isLite) {
-      this.checkMainSessionOverflow(projectId);
-    }
-
-    // 1c. Check scheduled tasks (lite mode)
-    if (isLite) {
-      this.checkScheduledTasks(projectId);
-    }
-
-    // 2. Determine concurrency limits
-    let maxConcurrent: number;
-    if (isLite) {
-      maxConcurrent = 1; // Lite mode always serial
-    } else {
-      const isGit = project.rootPath ? this.isGitProject(project.rootPath) : false;
-      maxConcurrent = isGit ? project.agent.config.maxConcurrentTasks : 1;
-    }
-
-    // 3. Promote pending tasks → queued if dependencies met
-    const pendingTasks = this.taskRepo.findByStatus(projectId, 'pending');
-    for (const task of pendingTasks) {
-      if (this.areDependenciesMet(task, isLite)) {
-        this.taskRepo.updateStatus(task.id, 'queued');
-        this.broadcastTaskUpdate(task.id, projectId);
-        this.log(projectId, 'task_status_changed', {
-          taskId: task.id,
-          from: 'pending',
-          to: 'queued',
-        }, task.id);
-      }
-    }
-
-    // 4. Check cascading failures — mark blocked tasks
-    const queuedTasks = this.taskRepo.findByStatus(projectId, 'queued');
-    for (const task of queuedTasks) {
-      if (task.dependencies.length > 0 && !this.areDependenciesMet(task, isLite)) {
-        // areDependenciesMet already marks blocked tasks; nothing extra needed here
-      }
-    }
-
-    // 5. Schedule tasks based on concurrency mode
-    const runningTasks = this.taskRepo.findByStatus(projectId, 'running');
-    const reviewingTasks = this.taskRepo.findByStatus(projectId, 'reviewing');
-
-    let available: number;
-    if (maxConcurrent <= 1) {
-      // Serial mode: block if ANY task is running OR reviewing
-      available = (runningTasks.length === 0 && reviewingTasks.length === 0) ? 1 : 0;
-    } else {
-      // Parallel mode: only count running tasks against the limit
-      available = maxConcurrent - runningTasks.length;
-    }
-
-    if (available > 0) {
-      const readyTasks = this.taskRepo.findByStatus(projectId, 'queued');
-      const toStart = readyTasks.slice(0, available);
-      for (const task of toStart) {
-        if (isLite) {
-          this.startLiteTask(task).catch((err) => {
-            console.error(`[Supervisor] Failed to start lite task ${task.id}:`, err);
-          });
-        } else {
-          this.startTask(task).catch((err) => {
-            console.error(`[Supervisor] Failed to start task ${task.id}:`, err);
-          });
-        }
-      }
-    }
-
-    // 6. If no active tasks, transition to idle
-    const activeStatuses: TaskStatus[] = isLite
-      ? ['pending', 'queued', 'running']
-      : ['pending', 'queued', 'running', 'reviewing'];
-    const activeTasks = this.taskRepo.findByStatus(projectId, ...activeStatuses);
-    if (activeTasks.length === 0 && project.agent.phase === 'active') {
-      const agent = { ...project.agent, phase: 'idle' as const, updatedAt: Date.now() };
-      this.projectRepo.update(projectId, { agent });
-      this.broadcastAgentUpdate(projectId, agent);
-      this.log(projectId, 'phase_changed', { from: 'active', to: 'idle' });
-
-      // Trigger checkpoint on idle if configured (full mode only)
-      if (!isLite && this.checkpointEngine?.shouldTrigger(projectId, 'idle')) {
-        this.checkpointEngine.runCheckpoint(projectId).catch((err) => {
-          console.error(`[Supervisor] Idle checkpoint failed for ${projectId}:`, err);
-        });
-      }
-    }
-  }
-
-  // ========================================
-  // Dependency checking
-  // ========================================
-
+  // Keep these as private delegates so tests using (service as any) still work
   private areDependenciesMet(task: SupervisionTask, isLite = false): boolean {
-    if (!task.dependencies || task.dependencies.length === 0) {
-      return true;
-    }
+    return this.taskScheduler.areDependenciesMet(task, isLite);
+  }
 
-    const depTasks = task.dependencies.map((depId) => this.taskRepo.findById(depId));
-    const terminalStatuses: TaskStatus[] = ['integrated', 'completed', 'failed', 'cancelled'];
+  private checkBudgetLimits(projectId: string): boolean {
+    return this.guards.checkBudgetLimits(projectId);
+  }
 
-    // In lite mode, 'completed' is the success status; in full mode, 'integrated'
-    const isSuccess = (status: TaskStatus) =>
-      isLite ? (status === 'completed' || status === 'integrated')
-             : status === 'integrated';
-
-    if (task.dependencyMode === 'any') {
-      const anySuccess = depTasks.some((d) => d && isSuccess(d.status));
-      if (anySuccess) return true;
-
-      const allTerminal = depTasks.every(
-        (d) => d && terminalStatuses.includes(d.status),
-      );
-      if (allTerminal) {
-        this.taskRepo.updateStatus(task.id, 'blocked');
-        this.broadcastTaskUpdate(task.id, task.projectId);
-        this.log(task.projectId, 'task_status_changed', {
-          taskId: task.id,
-          from: task.status,
-          to: 'blocked',
-          reason: 'all_dependencies_terminal_none_succeeded',
-        }, task.id);
-        return false;
-      }
-
-      return false;
-    }
-
-    // 'all' mode: every dependency must succeed
-    const allSuccess = depTasks.every((d) => d && isSuccess(d.status));
-    if (allSuccess) return true;
-
-    const anyFailed = depTasks.some(
-      (d) => d && (d.status === 'failed' || d.status === 'cancelled'),
-    );
-    if (anyFailed) {
-      this.taskRepo.updateStatus(task.id, 'blocked');
-      this.broadcastTaskUpdate(task.id, task.projectId);
-      this.log(task.projectId, 'task_status_changed', {
-        taskId: task.id,
-        from: task.status,
-        to: 'blocked',
-        reason: 'dependency_failed_or_cancelled',
-      }, task.id);
-      return false;
-    }
-
-    return false;
+  private checkScheduledTasks(projectId: string): void {
+    this.taskScheduler.checkScheduledTasks(projectId);
   }
 
   // ========================================
@@ -890,7 +758,7 @@ export class SupervisorService {
       return;
     }
 
-    const isGit = this.isGitProject(project.rootPath);
+    const isGit = this.taskScheduler.isGitProject(project.rootPath);
     const maxConcurrent = project.agent?.config?.maxConcurrentTasks ?? 1;
     let workingDirectory = project.rootPath;
     let acquiredFromPool = false;
@@ -899,8 +767,8 @@ export class SupervisorService {
     // Acquire worktree for parallel git execution
     if (isGit && maxConcurrent > 1) {
       try {
-        await this.ensurePoolInitialized(task.projectId);
-        const pool = this.getWorktreePool(task.projectId);
+        await this.worktreeManager.ensurePoolInitialized(task.projectId);
+        const pool = this.worktreeManager.getWorktreePool(task.projectId);
         workingDirectory = await pool.acquire(task.id, task.attempt);
         acquiredFromPool = true;
         this.log(task.projectId, 'worktree_acquired', {
@@ -1014,7 +882,7 @@ export class SupervisorService {
     } catch (err) {
       console.error(`[Supervisor] Failed to initialize task ${task.id}:`, err);
       if (acquiredFromPool && !taskMarkedRunning) {
-        const pool = this.worktreePools.get(task.projectId);
+        const pool = this.worktreeManager.getPoolsMap().get(task.projectId);
         pool?.release(workingDirectory);
         this.log(task.projectId, 'worktree_released', {
           taskId: task.id,
@@ -1074,7 +942,7 @@ export class SupervisorService {
         // Release worktree if applicable
         const failedTask = this.taskRepo.findById(taskId);
         if (failedTask) {
-          this.releaseTaskWorktree(failedTask);
+          this.worktreeManager.releaseTaskWorktree(failedTask);
         }
       } catch (err) {
         console.error(`[Supervisor] Error handling run_failed for task ${taskId}:`, err);
@@ -1224,48 +1092,6 @@ export class SupervisorService {
         console.error(`[Supervisor] Error handling lite run_failed for task ${taskId}:`, err);
       } finally {
         this.virtualClients.delete(taskId);
-      }
-    }
-  }
-
-  // ========================================
-  // Lite mode — scheduling
-  // ========================================
-
-  private checkScheduledTasks(projectId: string): void {
-    const now = Date.now();
-    const rows = this.db.prepare(`
-      SELECT * FROM supervision_tasks
-      WHERE project_id = ? AND schedule_enabled = 1 AND schedule_next_run <= ?
-        AND status IN ('completed', 'failed', 'cancelled')
-      ORDER BY schedule_next_run ASC
-    `).all(projectId, now) as Record<string, unknown>[];
-
-    for (const row of rows) {
-      const task = this.taskRepo.mapRow(row);
-
-      // Reset task for re-execution
-      this.taskRepo.updateStatus(task.id, 'pending', { attempt: 1 });
-
-      // Compute next run time
-      if (task.scheduleCron) {
-        const nextRun = computeNextCronRun(task.scheduleCron, now);
-        this.db.prepare('UPDATE supervision_tasks SET schedule_next_run = ? WHERE id = ?')
-          .run(nextRun, task.id);
-      }
-
-      this.broadcastTaskUpdate(task.id, projectId);
-      this.log(projectId, 'task_status_changed', {
-        taskId: task.id, from: task.status, to: 'pending', trigger: 'schedule',
-      }, task.id);
-
-      // Transition agent to active if idle
-      const project = this.projectRepo.findById(projectId);
-      if (project?.agent?.phase === 'idle') {
-        const agent = { ...project.agent, phase: 'active' as const, updatedAt: Date.now() };
-        this.projectRepo.update(projectId, { agent });
-        this.broadcastAgentUpdate(projectId, agent);
-        this.log(projectId, 'phase_changed', { from: 'idle', to: 'active', reason: 'scheduled_task' });
       }
     }
   }
@@ -1499,207 +1325,46 @@ Complete the task described above. When finished, output your results in this ex
   }
 
   // ========================================
-  // Budget & guardrails
-  // ========================================
-
-  private checkBudgetLimits(projectId: string): boolean {
-    const project = this.projectRepo.findById(projectId);
-    if (!project?.agent) return false;
-
-    const { maxTotalTasks, maxTokenBudget } = project.agent.config;
-    if (maxTotalTasks !== undefined) {
-      const totalCount = this.taskRepo.countByProject(projectId);
-      if (totalCount >= maxTotalTasks) {
-        this.pauseAgent(projectId, 'budget');
-        return false;
-      }
-    }
-
-    if (maxTokenBudget !== undefined) {
-      const usage = this.getTokenUsage(projectId);
-      if (usage >= maxTokenBudget) {
-        this.pauseAgent(projectId, 'budget');
-        this.log(projectId, 'budget_paused', {
-          reason: 'token_budget_exceeded',
-          usage,
-          limit: maxTokenBudget,
-        });
-        return false;
-      }
-    }
-
-    return true;
-  }
-
-  private pauseAgent(
-    projectId: string,
-    reason: 'user' | 'budget' | 'sync_error',
-  ): void {
-    const project = this.projectRepo.findById(projectId);
-    if (!project?.agent) return;
-
-    const agent: ProjectAgent = {
-      ...project.agent,
-      phase: 'paused',
-      pausedReason: reason,
-      pausedAt: Date.now(),
-      updatedAt: Date.now(),
-    };
-
-    this.projectRepo.update(projectId, { agent });
-    this.broadcastAgentUpdate(projectId, agent);
-    this.log(projectId, 'phase_changed', {
-      from: project.agent.phase,
-      to: 'paused',
-      reason,
-    });
-  }
-
-  // ========================================
-  // Utility
-  // ========================================
-
-  // ========================================
-  // Worktree pool public accessors (for StateRecovery)
+  // Worktree pool public accessors (delegates to WorktreeManager)
   // ========================================
 
   hasWorktreePool(projectId: string): boolean {
-    return this.worktreePools.has(projectId);
+    return this.worktreeManager.hasWorktreePool(projectId);
   }
 
   getWorktreePoolIfExists(projectId: string): WorktreePool | undefined {
-    return this.worktreePools.get(projectId);
+    return this.worktreeManager.getWorktreePoolIfExists(projectId);
   }
 
   // ========================================
-  // Token budget
+  // Token budget (delegates to SupervisorGuards)
   // ========================================
 
   getTokenUsage(projectId: string): number {
-    const row = this.db.prepare(`
-      SELECT COALESCE(SUM(
-        COALESCE(json_extract(metadata, '$.usage.input_tokens'), 0) +
-        COALESCE(json_extract(metadata, '$.usage.output_tokens'), 0)
-      ), 0) as total
-      FROM messages
-      WHERE session_id IN (
-        SELECT id FROM sessions WHERE project_id = ?
-      )
-    `).get(projectId) as { total: number };
-    return row.total;
+    return this.guards.getTokenUsage(projectId);
   }
 
   // ========================================
-  // Main session overflow
+  // Main session overflow (delegates to TaskScheduler)
   // ========================================
 
   checkMainSessionOverflow(projectId: string): void {
-    const project = this.projectRepo.findById(projectId);
-    if (!project?.agent?.mainSessionId) return;
-
-    const row = this.db.prepare(`
-      SELECT COUNT(*) as count FROM messages
-      WHERE session_id = ?
-    `).get(project.agent.mainSessionId) as { count: number };
-
-    if (row.count > 200) {
-      this.rotateMainSession(projectId);
-    }
-  }
-
-  private rotateMainSession(projectId: string): void {
-    const project = this.projectRepo.findById(projectId);
-    if (!project?.agent?.mainSessionId) return;
-
-    // Archive old session
-    this.sessionRepo.update(project.agent.mainSessionId, {
-      archivedAt: Date.now(),
-    });
-    const archivedOld = this.sessionRepo.findById(project.agent.mainSessionId);
-    if (archivedOld) this.broadcastSessionUpdated(archivedOld);
-
-    // Create new main session
-    const newSession = this.sessionRepo.create({
-      projectId,
-      name: 'Main Session (rotated)',
-      type: 'background',
-      projectRole: 'main',
-    } as Omit<Session, 'id' | 'createdAt' | 'updatedAt'>);
-    this.broadcastSessionCreated(newSession);
-
-    // Update agent
-    const agent: ProjectAgent = {
-      ...project.agent,
-      mainSessionId: newSession.id,
-      updatedAt: Date.now(),
-    };
-    this.projectRepo.update(projectId, { agent });
-    this.broadcastAgentUpdate(projectId, agent);
-    this.log(projectId, 'main_session_rotated', {
-      oldSessionId: project.agent.mainSessionId,
-      newSessionId: newSession.id,
-    });
-  }
-
-  private isGitProject(rootPath: string): boolean {
-    try {
-      execSync('git rev-parse --is-inside-work-tree', {
-        cwd: rootPath,
-        encoding: 'utf-8',
-        stdio: 'pipe',
-      });
-      return true;
-    } catch {
-      return false;
-    }
+    this.taskScheduler.checkMainSessionOverflow(projectId);
   }
 
   // ========================================
-  // Worktree pool management
+  // Worktree pool management — private delegate for (service as any) test access
   // ========================================
 
   private getWorktreePool(projectId: string): WorktreePool {
-    if (!this.worktreePools.has(projectId)) {
-      const project = this.projectRepo.findById(projectId);
-      if (!project?.rootPath) {
-        throw new Error(`Project ${projectId} has no rootPath for worktree pool`);
-      }
-      const pool = new WorktreePool(project.rootPath);
-      this.worktreePools.set(projectId, pool);
-    }
-    return this.worktreePools.get(projectId)!;
+    return this.worktreeManager.getWorktreePool(projectId);
   }
 
-  private async ensurePoolInitialized(projectId: string): Promise<void> {
-    const pool = this.getWorktreePool(projectId);
-    if (!pool.isInitialized()) {
-      const project = this.projectRepo.findById(projectId);
-      const maxConcurrent = project?.agent?.config?.maxConcurrentTasks ?? 2;
-      await pool.init(maxConcurrent);
-    }
+  private get worktreePools(): Map<string, WorktreePool> {
+    return this.worktreeManager.getPoolsMap();
   }
 
-  private async cleanupPool(projectId: string): Promise<void> {
-    const pool = this.worktreePools.get(projectId);
-    if (pool) {
-      await pool.destroy();
-      this.worktreePools.delete(projectId);
-    }
-  }
-
-  private releaseTaskWorktree(task: SupervisionTask): void {
-    const session = task.sessionId ? this.sessionRepo.findById(task.sessionId) : undefined;
-    const project = this.projectRepo.findById(task.projectId);
-    if (
-      session?.workingDirectory &&
-      project?.rootPath &&
-      session.workingDirectory !== project.rootPath
-    ) {
-      const pool = this.worktreePools.get(task.projectId);
-      pool?.release(session.workingDirectory);
-      this.log(task.projectId, 'worktree_released', {
-        taskId: task.id, worktreePath: session.workingDirectory,
-      }, task.id);
-    }
+  private isGitProject(rootPath: string): boolean {
+    return this.taskScheduler.isGitProject(rootPath);
   }
 }

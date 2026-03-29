@@ -29,6 +29,8 @@ export function WindowsSetup() {
   const { setActiveServer, setLocalServerPort } = useServerStore();
 
   const {
+    directGatewayUrl,
+    directGatewaySecret,
     backendAuthStatus,
     setDirectGatewayConfig,
     setLastActiveBackend,
@@ -38,15 +40,15 @@ export function WindowsSetup() {
   const backends = useFacadeStore((s) => s.backends);
   const currentInstanceId = useFacadeStore((s) => s.currentInstanceId);
 
-  const [path, setPath] = useState<SetupPath>('choose');
+  const [path, setPath] = useState<SetupPath>(directGatewayUrl && directGatewaySecret ? 'gateway' : 'choose');
   const [manualAddress, setManualAddress] = useState(`localhost:${DEFAULT_PORT}`);
   const [connecting, setConnecting] = useState(false);
   const [connectError, setConnectError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
   // Gateway form
-  const [gatewayUrl, setGatewayUrl] = useState('');
-  const [gatewaySecret, setGatewaySecret] = useState('');
+  const [gatewayUrl, setGatewayUrl] = useState(directGatewayUrl || '');
+  const [gatewaySecret, setGatewaySecret] = useState(directGatewaySecret || '');
   const [gatewayConnecting, setGatewayConnecting] = useState(false);
   const [gatewayError, setGatewayError] = useState<string | null>(null);
 
@@ -54,6 +56,20 @@ export function WindowsSetup() {
   useEffect(() => {
     runDiscovery();
   }, [runDiscovery]);
+
+  useEffect(() => {
+    if (directGatewayUrl && directGatewaySecret) {
+      setPath('gateway');
+    }
+  }, [directGatewayUrl, directGatewaySecret]);
+
+  useEffect(() => {
+    setGatewayUrl(directGatewayUrl || '');
+  }, [directGatewayUrl]);
+
+  useEffect(() => {
+    setGatewaySecret(directGatewaySecret || '');
+  }, [directGatewaySecret]);
 
   // Auto-connect when WSL server becomes ready
   useEffect(() => {

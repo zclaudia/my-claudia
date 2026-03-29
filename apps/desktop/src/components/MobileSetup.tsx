@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Bot, Monitor, ChevronRight } from 'lucide-react';
 import { useGatewayStore, shouldShowNonCurrentInstanceBackend } from '../stores/gatewayStore';
 import { useServerStore } from '../stores/serverStore';
@@ -8,6 +8,8 @@ import type { BackendSnapshot } from '@my-claudia/shared';
 
 export function MobileSetup() {
   const {
+    directGatewayUrl,
+    directGatewaySecret,
     backendAuthStatus,
     setDirectGatewayConfig,
     setLastActiveBackend,
@@ -19,10 +21,18 @@ export function MobileSetup() {
   const { setActiveServer } = useServerStore();
   const { connectServer } = useConnection();
 
-  const [gatewayUrl, setGatewayUrl] = useState('');
-  const [gatewaySecret, setGatewaySecret] = useState('');
+  const [gatewayUrl, setGatewayUrl] = useState(directGatewayUrl || '');
+  const [gatewaySecret, setGatewaySecret] = useState(directGatewaySecret || '');
   const [connecting, setConnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setGatewayUrl(directGatewayUrl || '');
+  }, [directGatewayUrl]);
+
+  useEffect(() => {
+    setGatewaySecret(directGatewaySecret || '');
+  }, [directGatewaySecret]);
 
   const handleConnect = () => {
     const url = gatewayUrl.trim();

@@ -206,10 +206,10 @@ export function InlinePermissionRequest({ request, onDecision }: InlinePermissio
             }`}>
               <Bot size={12} />
               {aiReviewResult.decision === 'deny'
-                ? `AI: unsafe (${Math.round(aiReviewResult.confidence * 100)}%)`
+                ? `AI: unsafe (${Math.round(aiReviewResult.confidence * 100)}%) — ${aiReviewResult.reasoning?.slice(0, 60) || ''}`
                 : aiReviewResult.decision === 'uncertain'
-                  ? `AI: uncertain (${Math.round(aiReviewResult.confidence * 100)}%)`
-                  : `AI: safe (${Math.round(aiReviewResult.confidence * 100)}%)`}
+                  ? `AI: uncertain — ${aiReviewResult.reasoning?.slice(0, 60) || `${Math.round(aiReviewResult.confidence * 100)}%`}`
+                  : `AI: safe (${Math.round(aiReviewResult.confidence * 100)}%) — ${aiReviewResult.reasoning?.slice(0, 60) || ''}`}
               {aiReviewResult.metadata?.localReviewerUsed && (
                 <span className="text-[10px] text-muted-foreground">
                   · local reviewer {aiReviewResult.metadata.localReviewerOutcome || 'used'}

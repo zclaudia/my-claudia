@@ -174,6 +174,31 @@ describe('ActiveSessionsPanel', () => {
       expect(screen.getByText(`Session ${missingSessionId.slice(0, 8)}`)).toBeDefined();
     });
 
+    it('shows local active sessions keyed only by resolved localBackendId', () => {
+      const localBackendId = 'backend-local-only';
+      const sessionId = 'local-only-session';
+
+      useFacadeStore.setState({
+        localBackendId,
+        currentInstanceId: 'inst-1',
+        backends: [
+          { backendId: localBackendId, name: 'This Machine', online: true, isThisInstance: true, instanceId: 'inst-1' } as any,
+        ],
+      });
+
+      const remoteSessions = new Map();
+      remoteSessions.set(localBackendId, [
+        { id: sessionId, name: 'Recovered Local Only', projectId: 'proj-1', isActive: true, createdAt: Date.now(), updatedAt: Date.now() },
+      ]);
+      useSessionsStore.setState({ remoteSessions });
+      useSessionsStore.getState().setActiveSessionsForBackend(localBackendId, new Set([sessionId]));
+
+      render(<ActiveSessionsPanel />);
+
+      expect(screen.getByText('Local Backend')).toBeDefined();
+      expect(screen.getByText('Recovered Local Only')).toBeDefined();
+    });
+
     it('correctly parses currentBackendId from gateway activeServerId', () => {
       const backendId = 'my-backend-xyz';
       const serverId = toGatewayServerId(backendId);
@@ -427,6 +452,32 @@ describe('ActiveSessionsPanel', () => {
       render(<ActiveSessionsPanel onSessionSelect={onSessionSelect} />);
       fireEvent.click(screen.getByText('Completed Remote'));
       expect(onSessionSelect).toHaveBeenCalledWith('remote-backend-1', 'done-1');
+    });
+
+    it('shows recently completed local sessions keyed by resolved localBackendId', () => {
+      const localBackendId = 'backend-local-only';
+      useFacadeStore.setState({
+        localBackendId,
+        currentInstanceId: 'inst-1',
+        backends: [
+          { backendId: localBackendId, name: 'This Machine', online: true, isThisInstance: true, instanceId: 'inst-1' } as any,
+        ],
+      });
+      useSessionsStore.setState({
+        recentlyCompletedSessions: [
+          {
+            session: { id: 'done-local', name: 'Completed Local Hidden', projectId: 'p1', createdAt: Date.now(), updatedAt: Date.now() } as any,
+            backendId: localBackendId,
+            ownerBackendId: localBackendId,
+            completedAt: Date.now(),
+          },
+        ],
+      });
+
+      render(<ActiveSessionsPanel />);
+
+      expect(screen.getByText('Recently Completed')).toBeDefined();
+      expect(screen.getByText('Completed Local Hidden')).toBeDefined();
     });
   });
 
