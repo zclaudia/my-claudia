@@ -95,6 +95,30 @@ build() {
 }
 
 # ============================================================
+# Shared cleanup — always kill port 3100 on exit
+# ============================================================
+TAURI_PID=""
+SERVER_PID=""
+FRONTEND_PID=""
+
+cleanup() {
+  info "Cleaning up..."
+  # Kill tracked child processes
+  [[ -n "$TAURI_PID" ]]    && kill "$TAURI_PID" 2>/dev/null || true
+  [[ -n "$SERVER_PID" ]]   && kill "$SERVER_PID" 2>/dev/null || true
+  [[ -n "$FRONTEND_PID" ]] && kill "$FRONTEND_PID" 2>/dev/null || true
+  # Wait for children to exit gracefully (1s)
+  sleep 1
+  # Port-level fallback: kill anything still on 3100 and 1420
+  lsof -ti:3100 | xargs -r kill 2>/dev/null || true
+  lsof -ti:1420 | xargs -r kill 2>/dev/null || true
+  wait 2>/dev/null || true
+  ok "Dev processes stopped"
+}
+
+trap cleanup EXIT INT TERM
+
+# ============================================================
 # Tauri dev mode
 # ============================================================
 start_tauri() {
@@ -108,24 +132,16 @@ start_tauri() {
   info "Starting Tauri dev..."
   cd "$PROJECT_ROOT/apps/desktop"
   setup_node
-  exec pnpm exec tauri dev --config src-tauri/tauri.dev.conf.json
+  # Run in foreground (not exec) so trap cleanup fires on exit
+  pnpm exec tauri dev --config src-tauri/tauri.dev.conf.json &
+  TAURI_PID=$!
+  wait "$TAURI_PID" || true
 }
 
 # ============================================================
 # Standalone mode (separate server + vite)
 # ============================================================
-SERVER_PID=""
-FRONTEND_PID=""
-
-cleanup_standalone() {
-  [[ -n "$SERVER_PID" ]] && kill "$SERVER_PID" 2>/dev/null || true
-  [[ -n "$FRONTEND_PID" ]] && kill "$FRONTEND_PID" 2>/dev/null || true
-  wait 2>/dev/null || true
-}
-
 start_standalone() {
-  trap cleanup_standalone EXIT INT TERM
-
   kill_stale
 
   wait_port_free 3100
