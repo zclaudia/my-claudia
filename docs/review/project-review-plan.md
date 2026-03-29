@@ -1,25 +1,40 @@
 # MyClaudia 项目 Review & 优化计划
 
-日期：2026-03-28
+日期：2026-03-29
 状态：Ready for Execution
+
+## 批次编号校准（2026-03-29）
+
+仓库中的 `docs/review/batch-*.md` 历史报告仍沿用**旧的 13 批次编号体系**，而本计划采用的是**重新校准后的 15 批次执行体系**。两者不是一一同号对应关系，后续执行顺序应以**本文件**为准，不应仅凭历史报告文件名判断“下一批”。
+
+当前已确认的关键映射：
+- 历史报告 [batch-04-server-providers.md](./batch-04-server-providers.md) 对应的是**当前计划的 Batch 10: Server Infra — Providers**，不是当前计划里的 Batch 4。
+- 因此，当前计划里的 **Batch 4** 仍然是 `server/src/{router,routes,repositories}` 的 **API Surface** review，相关报告需要单独产出，不应复用 provider 报告。
+
+使用规则：
+- 看“执行顺序”与“下一步做什么”时，以本文件的批次编号为准。
+- 看某个历史 review 结论时，先确认它属于旧编号还是当前编号，再决定是否直接复用。
 
 ## 执行前说明
 
-这份文档已按当前代码树重新整理。现阶段项目结构不再适合用旧的“按历史文件路径”方式 review，尤其是 `server/` 已明显收敛为 `infra + domains` 双层结构：
+这份文档基于 2026-03-29 当前代码树重新校准。相比上一版，结构层级没有再次翻转，但代码量分布已经明显变化，因此本次调整重点不是“改命名”，而是“重估批次粒度与耗时”。
 
-- `server/src/domains/` 已成为主要业务边界，当前包含 `conversation`、`gateway`、`supervision`、`workflows`、`scheduled-tasks`、`local-pr`、`notification-feed`、`orchestration`、`agent-triggers`
-- 旧文档中提到的 `server/src/orchestration/` 已不存在，相关能力已迁入 `server/src/domains/orchestration/`
-- 旧文档中按 `ws/`、`services/supervision/`、`gateway-client.ts` 根目录文件组织的 review 范围已经过时，必须改为按当前 domain 边界和 infra 边界 review
+当前最重要的现实：
+- `server/` 仍然是 `infra + domains` 双层结构
+- `server/src/routes`、`providers`、`plugins` 体量持续增长，已经不适合放在一个宽泛的 infra 批次里一起 review
+- `server/src/domains/conversation`、`supervision` 仍是最重的业务域
+- `apps/desktop/src/components` 已达到桌面端最大代码块，`stores / hooks / services` 也已经形成独立大批次
+- `local-reviewer` 已经形成一条新的横切链路，跨越 `shared`、`server/src/domains/conversation/agent` 与 `apps/desktop/src/stores`
 
 执行原则：
 - 先做基线核对，再进入分批 review，避免按过期范围审查
 - 每个 Batch 同时关注代码质量、架构、性能、安全、可维护性
 - 对 1 行 store / service / re-export 文件，默认视为迁移兼容层候选，不直接判定为废弃代码
-- 当前 `server` 采用 “infra + domains” 结构，`desktop` 采用 “foundation + features + components” 结构，review 方案必须反映这个现实
+- Batch 粒度必须服从当前代码量现实，而不是服从历史目录印象
 
 ## Phase 0: Review Baseline（执行基线）
 
-**目标**: 在进入正式 review 前，先确认范围、热点和兼容层，确保后续结论基于当前代码现实。
+**目标**: 在进入正式 review 前，先确认范围、热点、兼容层和高变更区域，确保后续结论基于当前代码现实。
 
 **输出物**:
 - 各 Batch 的实际文件清单
@@ -32,34 +47,72 @@
 - 已识别需要后置 review 的高变更区域
 - 已区分“兼容层”与“废弃代码”
 
-## 当前结构概览
+## Phase 0 当前发现（2026-03-29）
 
-### Shared
+1. **计划缺口已确认**: `local-reviewer` 已进入共享契约与运行时实现，现有 review 计划必须显式覆盖这条链路。
+2. **高变更区域明确**: 最近 3 天改动主要集中在 `apps/desktop/src/components`、`stores`、`hooks`、`services`，以及 `server/src/domains/conversation`、`domains/gateway`、`domains/local-pr`。这些区域适合在基线完成后再进入深度审查。
+3. **兼容层候选已确认**: 当前至少存在 4 个明显的一行转发文件：
+   - `apps/desktop/src/services/api/local-prs.ts`
+   - `apps/desktop/src/services/api/scheduled-tasks.ts`
+   - `apps/desktop/src/services/api/workflows.ts`
+   - `apps/desktop/src/stores/supervisionStore.ts`
+4. **当前建议起点**: Phase 0 结束后，优先进入 `Batch 1` 或 `Batch 2`，暂缓直接进入 desktop foundation / UI shell。
 
-| 模块 | 当前结构 |
+## 当前规模概览
+
+### Server Domain 体量（当前）
+
+| Domain | 约代码量 |
+|--------|---------|
+| supervision | ~12.4k |
+| conversation | ~9.7k |
+| workflows | ~5.6k |
+| local-pr | ~4.0k |
+| gateway | ~3.4k |
+| scheduled-tasks | ~1.7k |
+| orchestration | ~1.4k |
+| notification-feed | ~1.1k |
+| agent-triggers | ~0.3k |
+
+### Server Infra 体量（当前）
+
+| Infra | 约代码量 |
+|-------|---------|
+| routes | ~21.0k |
+| providers | ~14.0k |
+| plugins | ~9.4k |
+| utils | ~5.4k |
+| storage | ~3.4k |
+| repositories | ~2.7k |
+| middleware | ~2.0k |
+| events / commands / router / services / mcp | ~3.1k 合计 |
+
+### Desktop 体量（当前）
+
+| 层级 | 约代码量 |
 |------|---------|
-| shared | `core/`、`features/`、`interaction/`、`protocol/`、`facade/` + 根级类型文件 |
+| components | ~43.3k |
+| features | ~12.9k |
+| stores | ~10.7k |
+| hooks | ~10.1k |
+| services | ~8.9k |
+| facade / contexts / utils / config / plugins | ~3.1k 合计 |
 
-### Gateway
+### 当前显著热点文件
 
-| 模块 | 当前结构 |
-|------|---------|
-| gateway | 独立 relay 服务，核心仍集中在 `gateway/src/server.ts`、`storage.ts`、`state.ts`、`proxy-body.ts` |
-
-### Server
-
-| 层级 | 当前结构 |
-|------|---------|
-| Domain 层 | `domains/conversation`、`gateway`、`supervision`、`workflows`、`scheduled-tasks`、`local-pr`、`notification-feed`、`orchestration`、`agent-triggers` |
-| Infra 层 | `providers`、`plugins`、`storage`、`middleware`、`routes`、`router`、`repositories`、`events`、`commands`、`mcp`、`utils`、`services` |
-
-### Desktop
-
-| 层级 | 当前结构 |
-|------|---------|
-| Foundation | `stores`、`services`、`hooks`、`facade`、`contexts`、`config`、`utils`、`plugins` |
-| Feature Domains | `features/workflows`、`supervision`、`local-pr`、`scheduled-tasks`、`automation` |
-| UI Shell | `components/chat`、`claudia`、`dashboard`、`draft`、`fileviewer`、`permission`、`settings`、`sidebar`、`terminal` 等 |
+| 文件 | 行数 |
+|------|------|
+| `server/src/providers/opencode-sdk.ts` | 1666 |
+| `server/src/domains/conversation/ws/run-handler.ts` | 1628 |
+| `server/src/plugins/loader.ts` | 1394 |
+| `server/src/domains/supervision/supervisor-service.ts` | 1370 |
+| `server/src/storage/db.ts` | 1343 |
+| `apps/desktop/src/services/messageHandler.ts` | 1187 |
+| `server/src/domains/local-pr/service.ts` | 1165 |
+| `server/src/domains/workflows/engine.ts` | 1099 |
+| `apps/desktop/src/components/SettingsPanel.tsx` | 1085 |
+| `apps/desktop/src/App.tsx` | 1043 |
+| `server/src/domains/gateway/gateway-client.ts` | 1041 |
 
 ---
 
@@ -69,20 +122,12 @@
 
 **范围**: `shared/src/`
 
-| 子模块 | 文件 | 职责 |
-|--------|------|------|
-| core/ | server, provider, session, message, project, api, mcp, pcp | 核心实体与协议基础类型 |
-| features/ | workflows, supervision, scheduled-tasks, local-pr, agent-triggers, delegation, commands, notification-feed, system-tasks | 跨端 feature 类型 |
-| interaction/ | permissions, forms, notifications | 用户交互类型 |
-| protocol/ | messages/*, correlation, gateway | WebSocket / Gateway 协议 |
-| facade/ | adapter, runtime-core, stream-manager, registry-store, snapshot, types | 共享 facade 运行时契约 |
-| 根级文件 | `plugin-types.ts`、`files.ts`、`index.ts` | 插件类型、文件类型、总导出 |
-
 **Review 重点**:
 - 类型命名一致性
 - `protocol/messages` 的消息分类是否合理
 - facade 对外契约是否稳定
 - shared 对外 export 是否干净
+- `features/local-reviewer.ts` 是否与 server / desktop 实现保持一致
 - 是否有 `any` 逃逸或过宽的类型守卫
 
 **预计耗时**: 1 天
@@ -92,14 +137,6 @@
 ### Batch 2: Gateway Relay Service（中继服务）
 
 **范围**: `gateway/src/`
-
-| 文件 | 职责 |
-|------|------|
-| `server.ts` | WebSocket relay、backend 注册、client 认证、消息转发 |
-| `storage.ts` | 设备 → backend ID 映射 |
-| `state.ts` | 连接状态管理 |
-| `proxy-body.ts` | HTTP 代理请求体处理 |
-| `index.ts` | 入口 |
 
 **Review 重点**:
 - 消息转发正确性与边界处理
@@ -112,71 +149,42 @@
 
 ---
 
-### Batch 3: Server Infra — Platform Core（平台基础设施）
+### Batch 3: Server Infra — Runtime Core（运行时基础设施）
 
-**范围**: `server/src/{storage,middleware,router,routes,repositories,events,commands,mcp,services,helpers,utils}` + 根级入口文件
-
-| 子模块 | 当前职责 |
-|--------|---------|
-| storage | SQLite 初始化、文件存储、schema 管理 |
-| middleware | HTTP / WS 认证、日志、错误处理 |
-| router + routes | REST / Phase 2 路由 |
-| repositories | 通用数据访问层 |
-| events | 事件总线 |
-| commands | 内置命令注册 |
-| mcp | MCP 服务能力 |
-| services | 现已收敛为少量平台 service（如 workspace、system-task-registry） |
-| utils / helpers | 通用基础工具 |
-| 根级入口 | `index.ts`、`server.ts`、`server-setup.ts`、`terminal-manager.ts` 等 |
+**范围**: `server/src/{storage,middleware,events,commands,mcp,services,helpers,utils}` + 根级入口文件
 
 **Review 重点**:
 - `server.ts` / `index.ts` 的模块级状态是否过多
-- `routes` 与 `router` 的职责边界
 - storage schema / migration 策略
-- repositories 抽象是否稳定
-- 事件总线、工具层、MCP、命令注册是否存在跨层耦合
+- middleware 的认证、日志、错误处理边界
+- utils / helpers 是否承载过多业务语义
+- events / commands / mcp / services 的平台角色是否清晰
 
 **预计耗时**: 1.5 天
 
 ---
 
-### Batch 4: Server Domain — Conversation（对话域）
+### Batch 4: Server Infra — API Surface（接口与路由层）
 
-**范围**: `server/src/domains/conversation/`
+**范围**: `server/src/{router,routes,repositories}`
 
-| 子模块 | 关键文件 | 职责 |
-|--------|---------|------|
-| ws/ | `run-handler.ts`, `message-handler.ts`, `run-lifecycle.ts`, `handlers/*` | 对话启动、消息分发、生命周期控制 |
-| context/ | `engine.ts`, `types.ts` | 上下文注入 |
-| interactions/ | `interaction-*`, `todo-normalizer.ts` | 交互链路 |
-| memory/ | `memory-store.ts`, `activity-log.ts` | 记忆与活动日志 |
-| agent/ | `permission-evaluator.ts`, `delegation-evaluator.ts` | 权限与委托评估 |
-| agent-tools/ | `browser.ts`, `network-guard.ts`, `task-tools.ts` | Agent 工具注册 |
+**文档说明**:
+- 当前仓库里**还没有**与本批次对应的独立历史报告。
+- 文件名为 [batch-04-server-providers.md](./batch-04-server-providers.md) 的报告属于旧编号体系，实际应归到当前计划的 **Batch 10**。
 
 **Review 重点**:
-- `run-handler.ts` 的复杂度、错误恢复、状态机
-- interaction 处理链路可靠性
-- conversation domain 是否真正内聚，还是仍依赖大量 infra 泄漏
-- memory / context / tools 的边界设计
-- `network-guard` 等安全边界
+- `routes` 与 `router` 的职责边界
+- repositories 是否为 domain 提供了稳定抽象
+- 是否存在过多“胖 route / 薄 domain”现象
+- API surface 是否与 domain 边界一致
 
-**预计耗时**: 1.5 天
+**预计耗时**: 2 天
 
 ---
 
 ### Batch 5: Server Domain — Gateway（服务端网关域）
 
 **范围**: `server/src/domains/gateway/`
-
-| 文件 | 职责 |
-|------|------|
-| `gateway-client.ts` | Gateway WebSocket 客户端 |
-| `manager.ts` | Gateway 管理协调 |
-| `gateway-instance.ts` | 全局实例 |
-| `gateway-channel-cleanup.ts` | channel 清理 |
-| `embedded-*` | 嵌入式模式接入 |
-| `standalone-*` | 独立模式接入 |
-| `ws-hub.ts` | WebSocket hub 协调 |
 
 **Review 重点**:
 - gateway domain 与 relay service 的协议一致性
@@ -188,21 +196,25 @@
 
 ---
 
-### Batch 6: Server Domain — Supervision（监督执行域）
+### Batch 6: Server Domain — Conversation（对话域）
+
+**范围**: `server/src/domains/conversation/`
+
+**Review 重点**:
+- `run-handler.ts` 的复杂度、错误恢复、状态机
+- interaction 处理链路可靠性
+- conversation domain 是否真正内聚
+- memory / context / tools 的边界设计
+- `ai-review-queue.ts`、`local-sensitivity-reviewer.ts` 与权限 / 委托评估链路是否一致
+- `network-guard` 等安全边界
+
+**预计耗时**: 1.5 天
+
+---
+
+### Batch 7: Server Domain — Supervision（监督执行域）
 
 **范围**: `server/src/domains/supervision/`
-
-| 文件 | 职责 |
-|------|------|
-| `supervisor-service.ts` | 监督执行主服务 |
-| `review-engine.ts` | 审查引擎 |
-| `context-manager.ts` | 上下文管理 |
-| `checkpoint-engine.ts` | 检查点与回滚 |
-| `state-recovery.ts` | 状态恢复 |
-| `task-runner.ts` | 子任务执行 |
-| `worktree-pool.ts` | Git worktree 池 |
-| `plan-validator.ts` | 计划验证 |
-| `routes.ts` / `register.ts` | 对外注册与路由 |
 
 **Review 重点**:
 - `supervisor-service.ts` 是否需要继续拆分
@@ -214,35 +226,23 @@
 
 ---
 
-### Batch 7: Server Domains — Workflow Automation（工作流自动化域）
+### Batch 8: Server Domains — Workflow Automation（工作流自动化域）
 
 **范围**: `server/src/domains/{workflows,scheduled-tasks,agent-triggers}`
-
-| 子域 | 当前职责 |
-|------|---------|
-| workflows | 工作流定义、生成、执行、模板、运行存储 |
-| scheduled-tasks | cron 调度、任务实例、模板 |
-| agent-triggers | 事件驱动触发 |
 
 **Review 重点**:
 - workflows / scheduled-tasks / agent-triggers 之间的职责边界
 - workflow engine / generator / template renderer 的安全性与恢复能力
-- automation 逻辑是否真正收敛到 domain 内，而不是散落在 infra 或 desktop
+- automation 逻辑是否真正收敛到 domain 内
 - repository、routes、register 的组织是否一致
 
 **预计耗时**: 1.5 天
 
 ---
 
-### Batch 8: Server Domains — Orchestration & Collaboration（编排与协作域）
+### Batch 9: Server Domains — Orchestration & Collaboration（编排与协作域）
 
 **范围**: `server/src/domains/{orchestration,local-pr,notification-feed}`
-
-| 子域 | 当前职责 |
-|------|---------|
-| orchestration | Claudia branch、task orchestrator、状态协调 |
-| local-pr | 本地 PR 流程、仓储、路由、注册 |
-| notification-feed | 通知流、service、repository、routes |
 
 **Review 重点**:
 - `domains/orchestration` 是否真正完成从旧路径迁移
@@ -250,62 +250,59 @@
 - notification-feed 的存储、广播、清理策略
 - 这三个 domain 是否存在过度耦合
 
-**预计耗时**: 1 天
+**预计耗时**: 1.5 天
 
 ---
 
-### Batch 9: Server Infra — Providers & Plugins（扩展基础设施）
+### Batch 10: Server Infra — Providers（模型接入基础设施）
 
-**范围**: `server/src/{providers,plugins}`
+**范围**: `server/src/providers/`
 
-| 子模块 | 当前职责 |
-|--------|---------|
-| providers | Claude / Codex / Kimi / Cursor / OpenCode 等 provider 适配与能力协商 |
-| plugins | 插件发现、加载、worker 宿主、权限、MCP bridge、工具注册 |
+**对应历史报告**:
+- [batch-04-server-providers.md](./batch-04-server-providers.md)（旧 13 批次体系中的 Batch 4）
 
 **Review 重点**:
-- providers 的适配器模式、超时、取消、重试策略是否一致
-- `opencode-sdk.ts` 等超大文件是否需要拆分
-- plugin loader / worker-host / provider-api 的边界是否清晰
-- 插件沙箱、安全隔离、动态注册、事件监听清理
-
-**预计耗时**: 2 天
-
----
-
-### Batch 10: Desktop Foundation（桌面端基础层）
-
-**范围**: `apps/desktop/src/{stores,services,hooks,facade,contexts,config,utils,plugins}`
-
-| 子模块 | 当前职责 |
-|--------|---------|
-| stores | 应用状态管理 |
-| services | API、messageHandler、sessionSync、文件传输等 |
-| hooks | 连接、数据加载、chat 行为、transport |
-| facade | embedded facade client |
-| contexts | 连接上下文等 |
-| config / utils / plugins | 配置、辅助能力、桌面端插件层 |
-
-**Review 重点**:
-- store / service / hook 的职责边界
-- 数据同步策略（WS push vs HTTP poll）
-- facade / transport / store 三层是否清晰
-- 1 行 store 是否仍是兼容导出层
+- provider 适配器模式、超时、取消、重试策略是否一致
+- `opencode-sdk.ts`、`codex-app-server.ts` 等超大文件是否需要拆分
+- PCP / capability 协商是否完整
+- provider 生命周期与切换策略是否清晰
 
 **预计耗时**: 1.5 天
 
 ---
 
-### Batch 11: Desktop UI Shell（桌面端壳层 UI）
+### Batch 11: Server Infra — Plugins（插件基础设施）
 
-**范围**: `apps/desktop/src/components/{chat,claudia,dashboard,draft,fileviewer,notifications,permission,settings,sidebar,terminal,ui}` + 顶层 `App.tsx`
+**范围**: `server/src/plugins/`
 
-| 子模块 | 当前职责 |
-|--------|---------|
-| chat | 聊天主界面 |
-| claudia | Claudia 元 Agent UI |
-| shell 组件 | dashboard、sidebar、settings、terminal、fileviewer、draft 等 |
-| ui | 基础 UI 组件 |
+**Review 重点**:
+- loader / worker-host / provider-api 的边界是否清晰
+- 插件沙箱、安全隔离、动态注册、事件监听清理
+- 插件生命周期是否可拆分
+- MCP bridge、skill-tools、tool-registry 的一致性
+
+**预计耗时**: 1.5 天
+
+---
+
+### Batch 12: Desktop Foundation — State & Data Flow（状态与数据流）
+
+**范围**: `apps/desktop/src/{stores,services,hooks,facade,contexts,config,utils,plugins}`
+
+**Review 重点**:
+- store / service / hook 的职责边界
+- 数据同步策略（WS push vs HTTP poll）
+- facade / transport / store 三层是否清晰
+- `localReviewerStore` 与 server conversation 侧的 AI review / local reviewer 链路是否对齐
+- 1 行 store 是否仍是兼容导出层
+
+**预计耗时**: 2 天
+
+---
+
+### Batch 13: Desktop UI Shell（桌面端壳层 UI）
+
+**范围**: `apps/desktop/src/components/{chat,claudia,dashboard,draft,fileviewer,notifications,permission,settings,sidebar,terminal,ui}` + `App.tsx`
 
 **Review 重点**:
 - Chat UI 的职责划分与性能
@@ -313,21 +310,13 @@
 - 壳层 UI 是否知道过多业务细节
 - 顶层布局是否存在状态耦合和渲染压力
 
-**预计耗时**: 1.5 天
+**预计耗时**: 2 天
 
 ---
 
-### Batch 12: Desktop Feature Domains（桌面端业务域）
+### Batch 14: Desktop Feature Domains（桌面端业务域）
 
 **范围**: `apps/desktop/src/features/{workflows,supervision,local-pr,scheduled-tasks,automation}`
-
-| Feature | 当前职责 |
-|---------|---------|
-| workflows | 工作流可视化编辑与管理 |
-| supervision | 监督执行 UI |
-| local-pr | 本地 PR UI |
-| scheduled-tasks | 定时任务 UI |
-| automation | 自动化面板与弹窗 |
 
 **Review 重点**:
 - feature 内部的 `api / handlers / store / components` 分层是否统一
@@ -339,7 +328,7 @@
 
 ---
 
-### Batch 13: E2E Tests & Scripts
+### Batch 15: E2E Tests & Scripts
 
 **范围**: `e2e/` + `scripts/`
 
@@ -355,24 +344,26 @@
 
 ## 推荐执行顺序
 
-优先按“共享契约 → gateway → server infra → server domains → desktop foundation → desktop features/UI → E2E”执行：
+优先按“共享契约 → gateway → server infra → server domains → provider/plugin infra → desktop foundation → desktop UI/features → E2E”执行：
 
 | 顺序 | 批次 | 模块 |
 |------|------|------|
 | 0 | Phase 0 | Review Baseline |
 | 1 | Batch 1 | Shared Contract & Facade |
 | 2 | Batch 2 | Gateway Relay Service |
-| 3 | Batch 3 | Server Infra — Platform Core |
-| 4 | Batch 5 | Server Domain — Gateway |
-| 5 | Batch 4 | Server Domain — Conversation |
-| 6 | Batch 6 | Server Domain — Supervision |
-| 7 | Batch 7 | Server Domains — Workflow Automation |
-| 8 | Batch 8 | Server Domains — Orchestration & Collaboration |
-| 9 | Batch 9 | Server Infra — Providers & Plugins |
-| 10 | Batch 10 | Desktop Foundation |
-| 11 | Batch 11 | Desktop UI Shell |
-| 12 | Batch 12 | Desktop Feature Domains |
-| 13 | Batch 13 | E2E Tests & Scripts |
+| 3 | Batch 3 | Server Infra — Runtime Core |
+| 4 | Batch 4 | Server Infra — API Surface |
+| 5 | Batch 5 | Server Domain — Gateway |
+| 6 | Batch 6 | Server Domain — Conversation |
+| 7 | Batch 7 | Server Domain — Supervision |
+| 8 | Batch 8 | Server Domains — Workflow Automation |
+| 9 | Batch 9 | Server Domains — Orchestration & Collaboration |
+| 10 | Batch 10 | Server Infra — Providers |
+| 11 | Batch 11 | Server Infra — Plugins |
+| 12 | Batch 12 | Desktop Foundation — State & Data Flow |
+| 13 | Batch 13 | Desktop UI Shell |
+| 14 | Batch 14 | Desktop Feature Domains |
+| 15 | Batch 15 | E2E Tests & Scripts |
 
 ## Review 总时间表
 
@@ -381,19 +372,21 @@
 | Phase 0 | Review Baseline | 0.5 天 | 0.5 天 |
 | Batch 1 | Shared Contract & Facade | 1 天 | 1.5 天 |
 | Batch 2 | Gateway Relay Service | 0.5 天 | 2 天 |
-| Batch 3 | Server Infra — Platform Core | 1.5 天 | 3.5 天 |
-| Batch 5 | Server Domain — Gateway | 1 天 | 4.5 天 |
-| Batch 4 | Server Domain — Conversation | 1.5 天 | 6 天 |
-| Batch 6 | Server Domain — Supervision | 1.5 天 | 7.5 天 |
-| Batch 7 | Server Domains — Workflow Automation | 1.5 天 | 9 天 |
-| Batch 8 | Server Domains — Orchestration & Collaboration | 1 天 | 10 天 |
-| Batch 9 | Server Infra — Providers & Plugins | 2 天 | 12 天 |
-| Batch 10 | Desktop Foundation | 1.5 天 | 13.5 天 |
-| Batch 11 | Desktop UI Shell | 1.5 天 | 15 天 |
-| Batch 12 | Desktop Feature Domains | 1.5 天 | 16.5 天 |
-| Batch 13 | E2E Tests & Scripts | 0.5 天 | 17 天 |
+| Batch 3 | Server Infra — Runtime Core | 1.5 天 | 3.5 天 |
+| Batch 4 | Server Infra — API Surface | 2 天 | 5.5 天 |
+| Batch 5 | Server Domain — Gateway | 1 天 | 6.5 天 |
+| Batch 6 | Server Domain — Conversation | 1.5 天 | 8 天 |
+| Batch 7 | Server Domain — Supervision | 1.5 天 | 9.5 天 |
+| Batch 8 | Server Domains — Workflow Automation | 1.5 天 | 11 天 |
+| Batch 9 | Server Domains — Orchestration & Collaboration | 1.5 天 | 12.5 天 |
+| Batch 10 | Server Infra — Providers | 1.5 天 | 14 天 |
+| Batch 11 | Server Infra — Plugins | 1.5 天 | 15.5 天 |
+| Batch 12 | Desktop Foundation — State & Data Flow | 2 天 | 17.5 天 |
+| Batch 13 | Desktop UI Shell | 2 天 | 19.5 天 |
+| Batch 14 | Desktop Feature Domains | 1.5 天 | 21 天 |
+| Batch 15 | E2E Tests & Scripts | 0.5 天 | 21.5 天 |
 
-**总计：约 17 个工作日**
+**总计：约 21.5 个工作日**
 
 ---
 
@@ -438,19 +431,20 @@
 ## 已知的潜在优化点（基于当前结构）
 
 ### 高优先级
-1. **Conversation 复杂度集中**: `domains/conversation/ws/run-handler.ts` 仍是核心复杂度热点
-2. **Supervision 复杂度集中**: `domains/supervision/supervisor-service.ts` 仍是超大文件
-3. **Providers / Plugins 仍是大型 infra**: 这两块尚未 domain 化，且文件规模大、接口复杂
-4. **旧路径认知需要清理**: 文档、认知和代码实际结构已发生偏移，后续 review 与重构都应统一采用当前 domain 视角
+1. **Server API Surface 过大**: `routes` 已接近 ~21k 行，不能继续作为“顺手带过”的 infra 角落
+2. **Conversation 复杂度仍在上升**: `run-handler.ts` 已增长到 1628 行
+3. **Providers / Plugins 仍是大型扩展基础设施**: 两者合计超过 ~23k 行，应拆成独立批次
+4. **Desktop Components 已成最大块**: `components` 超过 ~43k 行，不能再与 feature/domain review 混为一体
 
 ### 中优先级
-5. **Desktop foundation 边界需厘清**: `stores / services / hooks / facade` 可能存在职责交叠
-6. **Server infra 体量仍大**: `routes`、`utils`、`storage`、`repositories` 等仍是 review 大头
+5. **Desktop Foundation 边界需厘清**: `stores / hooks / services` 三块都已超过 ~8k 行
+6. **Supervision / Local-PR / Workflows 仍是稳定热点**: 这些域应保留独立审查优先级
 7. **兼容层清理策略**: 1 行导出文件需要先确认调用方，再决定删除
+8. **Local Reviewer 横切链路**: shared 类型、server agent 逻辑、desktop store 已形成新耦合点，应作为跨 batch 检查项
 
 ### 低优先级
 8. **Gateway relay 本身结构相对稳定**: 优先关注协议边界与恢复机制，不急于拆分
-9. **E2E / Scripts 需要在结构稳定后收尾 review**
+9. **E2E / Scripts 仍应放在结构收敛后收尾 review**
 
 ## 每个 Batch 的统一产出
 
@@ -465,3 +459,45 @@
 3. **Test Gaps**
    - 缺失的关键测试场景
    - 是否需要回归测试或补充集成测试
+
+---
+
+## 已记录 Findings
+
+### Batch 1: Shared Contract & Facade
+
+**Findings**
+
+1. `shared/src/protocol/correlation.ts` 的 `isEvent()` 会把合法 `Request` 误判为 `Event`，因为当前判断没有排除 request message，只排除了带 `metadata.requestId` 的响应类消息。
+2. `shared/src/interaction/permissions.ts` 的 `normalizeToUnifiedPolicy()` 在 fallback 分支直接返回 `DEFAULT_UNIFIED_POLICY` 对象引用，调用方若原地修改会污染全局默认配置。
+3. `shared/src/facade/stream-manager.ts` 在部分 close 路径把 stream 状态改为 `closed` 后，没有同步清空 `channelId`，会导致 facade snapshot 暴露状态不一致的数据。
+
+**Refactor Candidates**
+
+- `shared/src/index.ts` 当前通过大量 `export *` 暴露兼容层与 deprecated surface，公共 API 面积偏大，建议后续改成更显式的稳定导出面。
+- `local-reviewer` 契约分散在 `features/local-reviewer.ts`、`interaction/permissions.ts`、`features/notification-feed.ts`、`core/server.ts`，建议后续抽统一 reviewer result/status contract。
+- `shared/src/protocol/correlation.ts` 的 type guard 输入仍使用 `any`，建议后续收口到 `unknown` + 小型 shape guard。
+
+**Test Gaps**
+
+- 缺少 correlation type guard 的互斥性测试，尤其是 “Request 不应被识别为 Event”。
+- 缺少 `normalizeToUnifiedPolicy()` 返回值不污染默认对象的测试。
+- 缺少 facade stream close 场景的 snapshot 一致性测试，至少应覆盖 “closed stream 的 `channelId` 应为 null”。
+
+### Batch 2: Gateway Relay Service
+
+**Findings**
+
+1. `gateway/src/server.ts` 对首个 `peer_hello` 消息没有做健壮的运行时校验；当 `gatewaySecret` 等字段类型错误时，异常会被外层 `catch` 吞掉，只返回 `gateway_error`，但连接不会关闭，而认证超时已提前清除，导致未认证连接可以长期占用一个 WebSocket 槽位。
+2. `gateway/src/server.ts` 的流式 HTTP proxy 超时处理会直接 `res.end()` 结束响应，而不会向客户端返回明确错误，也不会标记为失败；一旦后端在 `http_proxy_response_start` 后长时间停顿，客户端会收到一个被静默截断的成功响应。
+
+**Refactor Candidates**
+
+- `handlePeerMessage(peerSessionId, message: any)` 仍使用 `any` 直接分发未校验消息，建议后续在 gateway 边界增加最小 schema 校验层。
+- `gateway/src/server.ts` 当前同时承载 HTTP auth、WebSocket auth、relay、catalog、channel、stream、proxy 流程，已接近 800+ 行，适合按 handshake / relay / proxy / cleanup 拆分。
+
+**Test Gaps**
+
+- 缺少 malformed `peer_hello` 场景测试，尤其是“字段类型错误时连接应立即关闭，而不是仅返回错误消息”。
+- 缺少 HTTP proxy 流式响应超时场景测试，尤其是“开始 streaming 后卡住”时的客户端可见行为。
+- 现有 `gateway/src/__tests__/server-auth.test.ts` 仍基于旧的 `peer_hello_result` 语义，和当前 `peer_ready` / `gateway_error` 协议存在明显偏差，应统一到现行握手协议。

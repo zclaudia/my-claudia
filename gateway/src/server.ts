@@ -63,6 +63,9 @@ import { encodeProxyRequestBody } from './proxy-body.js';
 
 interface GatewayConfig {
   gatewaySecret: string;
+  authTimeoutMs?: number;
+  proxyRequestTimeoutMs?: number;
+  proxyStreamingTimeoutMs?: number;
 }
 
 function safeCompare(a: string, b: string): boolean {
@@ -81,6 +84,30 @@ function sendToWs(ws: WebSocket, message: unknown): void {
   }
 }
 
+function validatePeerHelloMessage(message: unknown): string | null {
+  if (!message || typeof message !== 'object') return 'peer_hello must be an object';
+  const msg = message as Record<string, unknown>;
+  if (msg.type !== 'peer_hello') return 'First message must be peer_hello';
+  if (typeof msg.gatewaySecret !== 'string') return 'peer_hello.gatewaySecret must be a string';
+  if (msg.protocolVersion !== 2) return 'peer_hello.protocolVersion must be 2';
+  if (msg.peerType !== 'client-only' && msg.peerType !== 'client+backend') {
+    return 'peer_hello.peerType must be client-only or client+backend';
+  }
+  if (!msg.identity || typeof msg.identity !== 'object') return 'peer_hello.identity is required';
+  const identity = msg.identity as Record<string, unknown>;
+  if (typeof identity.deviceId !== 'string') return 'peer_hello.identity.deviceId must be a string';
+  if (typeof identity.instanceId !== 'string') return 'peer_hello.identity.instanceId must be a string';
+  if (identity.channel !== undefined && typeof identity.channel !== 'string') return 'peer_hello.identity.channel must be a string';
+  if (identity.name !== undefined && typeof identity.name !== 'string') return 'peer_hello.identity.name must be a string';
+  if (msg.peerType === 'client+backend') {
+    if (!msg.backend || typeof msg.backend !== 'object') return 'peer_hello.backend is required for client+backend peers';
+    const backend = msg.backend as Record<string, unknown>;
+    if (typeof backend.visible !== 'boolean') return 'peer_hello.backend.visible must be a boolean';
+    if (!Array.isArray(backend.capabilities)) return 'peer_hello.backend.capabilities must be an array';
+  }
+  return null;
+}
+
 // ============================================================================
 // Server Factory
 // ============================================================================
@@ -89,6 +116,9 @@ export function createGatewayServer(config: GatewayConfig): Server {
   const storage = new GatewayStorage();
   const state = new GatewayState();
   const recoveryTokens = new Map<string, string>();
+  const authTimeoutMs = config.authTimeoutMs ?? 10_000;
+  const proxyRequestTimeoutMs = config.proxyRequestTimeoutMs ?? 30_000;
+  const proxyStreamingTimeoutMs = config.proxyStreamingTimeoutMs ?? 60_000;
 
   const app = express();
 
@@ -233,6 +263,13 @@ export function createGatewayServer(config: GatewayConfig): Server {
     res: Response; resolve: () => void; timeout: NodeJS.Timeout;
   }>();
 
+  function abortStreamingResponse(requestId: string, res: Response, reason: string): void {
+    pendingStreamingRequests.delete(requestId);
+    if (!res.writableEnded && !res.destroyed) {
+      res.destroy(new Error(reason));
+    }
+  }
+
   app.all('/api/proxy/:backendId/*', async (req: Request, res: Response) => {
     try {
       const { backendId } = req.params;
@@ -286,7 +323,7 @@ export function createGatewayServer(config: GatewayConfig): Server {
       if (clientRequestId) proxyRequest.headers['x-request-id'] = clientRequestId as string;
 
       const response = await new Promise<GatewayHttpProxyResponse | null>((resolve, reject) => {
-        const timeout = setTimeout(() => { pendingHttpRequests.delete(requestId); reject(new Error('Proxy request timeout')); }, 30_000);
+        const timeout = setTimeout(() => { pendingHttpRequests.delete(requestId); reject(new Error('Proxy request timeout')); }, proxyRequestTimeoutMs);
         pendingHttpRequests.set(requestId, { resolve, reject, timeout, res });
         sendToWs(backendPeer.ws, proxyRequest);
       });
@@ -334,22 +371,30 @@ export function createGatewayServer(config: GatewayConfig): Server {
     if (currentCount >= MAX_WS_CONNECTIONS_PER_IP) { ws.close(1008, 'Too many connections'); return; }
     wsConnectionsPerIp.set(ip, currentCount + 1);
     let peerSessionId: string | null = null;
-    const authTimeout = setTimeout(() => { if (!peerSessionId) ws.close(1008, 'Authentication timeout'); }, 10_000);
+    const authTimeout = setTimeout(() => { if (!peerSessionId) ws.close(1008, 'Authentication timeout'); }, authTimeoutMs);
 
     ws.on('pong', () => { if (peerSessionId) { const peer = state.peers.get(peerSessionId); if (peer) peer.isAlive = true; } });
     ws.on('message', (data: Buffer) => {
       try {
         const message = JSON.parse(data.toString());
         if (!peerSessionId) {
+          const validationError = validatePeerHelloMessage(message);
+          if (validationError) {
+            sendToWs(ws, { type: 'gateway_error', code: 'INVALID_MESSAGE', message: validationError } satisfies GatewayErrorMessage);
+            ws.close(1008, 'Invalid peer_hello');
+            return;
+          }
           clearTimeout(authTimeout);
-          if (message.type === 'peer_hello') { peerSessionId = handlePeerHello(ws, message as PeerHelloMessage); }
-          else { sendToWs(ws, { type: 'gateway_error', code: 'INVALID_MESSAGE', message: 'First message must be peer_hello' } satisfies GatewayErrorMessage); ws.close(); }
+          peerSessionId = handlePeerHello(ws, message as PeerHelloMessage);
           return;
         }
         handlePeerMessage(peerSessionId, message);
       } catch (error) {
         console.error('[Gateway] Message parse error:', error);
         sendToWs(ws, { type: 'gateway_error', code: 'INVALID_MESSAGE', message: 'Invalid message format' } satisfies GatewayErrorMessage);
+        if (!peerSessionId) {
+          ws.close(1008, 'Invalid message format');
+        }
       }
     });
     ws.on('close', () => {
@@ -660,7 +705,13 @@ export function createGatewayServer(config: GatewayConfig): Server {
     const res = pending.res;
     if (msg.headers) { for (const [key, value] of Object.entries(msg.headers)) res.setHeader(key, value); }
     res.status(msg.statusCode);
-    const streamTimeout = setTimeout(() => { pendingStreamingRequests.delete(msg.requestId); if (!res.writableEnded) res.end(); }, 60_000);
+    const streamTimeout = setTimeout(() => { abortStreamingResponse(msg.requestId, res, 'Proxy streaming timeout'); }, proxyStreamingTimeoutMs);
+    res.once('close', () => {
+      const streaming = pendingStreamingRequests.get(msg.requestId);
+      if (!streaming) return;
+      clearTimeout(streaming.timeout);
+      pendingStreamingRequests.delete(msg.requestId);
+    });
     pendingStreamingRequests.set(msg.requestId, { res, resolve: pending.resolve as unknown as () => void, timeout: streamTimeout });
     pending.resolve(null);
   }
@@ -668,7 +719,7 @@ export function createGatewayServer(config: GatewayConfig): Server {
     const streaming = pendingStreamingRequests.get(msg.requestId);
     if (!streaming) return;
     clearTimeout(streaming.timeout);
-    streaming.timeout = setTimeout(() => { pendingStreamingRequests.delete(msg.requestId); if (!streaming.res.writableEnded) streaming.res.end(); }, 60_000);
+    streaming.timeout = setTimeout(() => { abortStreamingResponse(msg.requestId, streaming.res, 'Proxy streaming timeout'); }, proxyStreamingTimeoutMs);
     streaming.res.write(Buffer.from(msg.data, 'base64'));
   }
   function handleHttpProxyResponseEnd(msg: GatewayHttpProxyResponseEnd): void {

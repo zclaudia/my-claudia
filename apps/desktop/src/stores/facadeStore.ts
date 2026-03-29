@@ -24,6 +24,7 @@ interface FacadeState {
   // From BackendFacadeSnapshot
   mode: BackendFacadeSnapshot['mode'] | null;
   connectionState: BackendConnectionState;
+  connectionError: string | null;
   backends: BackendSnapshot[];
   sessionStreams: Record<string, SessionStreamSnapshot>;
   localBackendId: string | null;
@@ -43,6 +44,7 @@ const initialState = {
   facade: null,
   mode: null as BackendFacadeSnapshot['mode'] | null,
   connectionState: 'idle' as BackendConnectionState,
+  connectionError: null as string | null,
   backends: [],
   sessionStreams: {},
   localBackendId: null,
@@ -60,9 +62,10 @@ export const useFacadeStore = create<FacadeState>((set, get) => ({
   clearFacade: () => set({ ...initialState }),
 
   applySnapshot: (snapshot) =>
-    set({
+    set((state) => ({
       mode: snapshot.mode,
       connectionState: snapshot.connectionState,
+      connectionError: snapshot.connectionState === 'connected' ? null : state.connectionError,
       backends: snapshot.backends,
       sessionStreams: snapshot.sessionStreams,
       localBackendId: snapshot.localBackendId,
@@ -70,12 +73,15 @@ export const useFacadeStore = create<FacadeState>((set, get) => ({
       currentDeviceId: snapshot.currentDeviceId,
       registryRevision: snapshot.registryRevision ?? 0,
       snapshotVersion: snapshot.snapshotVersion,
-    }),
+    })),
 
   applyEvent: (event) => {
     switch (event.type) {
       case 'connection_state_changed':
-        set({ connectionState: event.state });
+        set({
+          connectionState: event.state,
+          connectionError: event.state === 'error' ? (event.error ?? 'Connection failed') : null,
+        });
         break;
 
       case 'snapshot_updated':

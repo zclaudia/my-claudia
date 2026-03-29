@@ -270,6 +270,29 @@ describe('BackendFacadeRuntimeCore', () => {
       expect(events.some(e => e.type === 'run_event')).toBe(true);
     });
 
+    it('content_patch_failed emits through facade', () => {
+      core.openSessionStream('b1', 's1');
+
+      emit({
+        type: 'content_patch_failed',
+        backendId: 'b1',
+        channelId: 'ch-1',
+        sessionId: 's1',
+        afterOffset: 12,
+        error: 'Catch-up failed',
+      });
+
+      expect(events).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          type: 'content_patch_failed',
+          backendId: 'b1',
+          sessionId: 's1',
+          afterOffset: 12,
+          error: 'Catch-up failed',
+        }),
+      ]));
+    });
+
     it('auto-resumes streams when backend becomes ready again', () => {
       core.openSessionStream('b1', 's1');
 

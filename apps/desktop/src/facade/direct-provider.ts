@@ -44,11 +44,13 @@ export class DirectBackendFacadeProvider implements BackendFacade {
 
   connect(): void {
     this.core.start();
+    this.adapter.commands.connection.connect();
     this.startGcTimer();
   }
 
   disconnect(): void {
     this.stopGcTimer();
+    this.adapter.commands.connection.disconnect();
     this.core.stop();
   }
 

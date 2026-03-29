@@ -196,6 +196,25 @@ export function isHardQuotaExceededError(raw: string): boolean {
   );
 }
 
+const INTERACTION_TOOL_DESCRIPTIONS: Record<string, string> = {
+  update_todo_list: '**update_todo_list**: Show/update a visible task list for the user. Call this to track progress on multi-step tasks. Each call replaces the previous list.',
+  ask_user_form: '**ask_user_form**: Present a structured form when you need specific input from the user — multiple fields, choices, or confirmations. The form blocks until the user responds.',
+  request_approval: '**request_approval**: Request user approval before proceeding with a destructive, irreversible, or high-impact action. Blocks until the user approves or rejects. The response contains { approved: true/false, reason?: string }.',
+  push_file: '**push_file**: Push a local file to the user\'s device. Use this when you build, generate, or export files (images, APKs, binaries, archives, documents, etc.) that the user needs. Images and small files (<500KB) auto-download; larger files show a download notification. Prefer this over curl to push files.',
+  enter_plan_mode: '**enter_plan_mode**: Enter plan mode to analyze and plan before executing. Use for complex multi-step tasks. In plan mode, only use read-only tools.',
+  exit_plan_mode: '**exit_plan_mode**: Exit plan mode with your completed plan for user review. Blocks until the user approves or denies. If denied, read the feedback and revise.',
+};
+
+export function buildInteractionToolPrompt(toolIds: string[]): string {
+  const descriptions = toolIds
+    .map(id => INTERACTION_TOOL_DESCRIPTIONS[id])
+    .filter(Boolean)
+    .map(d => `- ${d}`)
+    .join('\n');
+  if (!descriptions) return '';
+  return `## Interaction Tools\nYou have access to these interaction tools via MCP:\n${descriptions}`;
+}
+
 export function buildFilePushContext(apiUrl: string, sessionId: string): string {
   return `## File Push (send files to user's device)
 When you build or generate files (APK, image, binary, export, etc.) that the user needs, push them:

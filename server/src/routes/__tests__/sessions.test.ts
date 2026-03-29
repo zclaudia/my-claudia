@@ -188,6 +188,43 @@ describe('sessions routes', () => {
       expect(res.body.data[0].projectId).toBe('project-1');
     });
 
+    it('includes archived sessions when includeArchived=true', async () => {
+      const now = Date.now();
+      db.prepare(`
+        INSERT INTO sessions (id, project_id, name, archived_at, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).run('s1', 'project-1', 'Archived Session', now, now, now);
+
+      const res = await request(app).get('/api/sessions?includeArchived=true');
+
+      expect(res.status).toBe(200);
+      expect(res.body.data).toHaveLength(1);
+      expect(res.body.data[0].archivedAt).toBe(now);
+    });
+
+    it('includes archived project sessions when projectId and includeArchived=true are both provided', async () => {
+      const now = Date.now();
+      db.prepare(`
+        INSERT INTO projects (id, name, type, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?)
+      `).run('project-2', 'Another Project', 'code', now, now);
+
+      db.prepare(`
+        INSERT INTO sessions (id, project_id, name, archived_at, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).run('s1', 'project-1', 'Archived In Project 1', now, now, now);
+      db.prepare(`
+        INSERT INTO sessions (id, project_id, name, archived_at, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).run('s2', 'project-2', 'Archived In Project 2', now, now, now);
+
+      const res = await request(app).get('/api/sessions?projectId=project-1&includeArchived=true');
+
+      expect(res.status).toBe(200);
+      expect(res.body.data).toHaveLength(1);
+      expect(res.body.data[0].id).toBe('s1');
+    });
+
     it('orders by updated_at DESC', async () => {
       const now = Date.now();
       db.prepare(`

@@ -15,6 +15,7 @@ export function MobileSetup() {
     setLastActiveBackend,
   } = useGatewayStore();
   const facadeConnectionState = useFacadeStore((s) => s.connectionState);
+  const facadeConnectionError = useFacadeStore((s) => s.connectionError);
   const backends = useFacadeStore((s) => s.backends);
   const currentInstanceId = useFacadeStore((s) => s.currentInstanceId);
 
@@ -34,6 +35,21 @@ export function MobileSetup() {
     setGatewaySecret(directGatewaySecret || '');
   }, [directGatewaySecret]);
 
+  useEffect(() => {
+    if (!connecting) return;
+
+    if (facadeConnectionState === 'connected') {
+      setConnecting(false);
+      setError(null);
+      return;
+    }
+
+    if (facadeConnectionState === 'error') {
+      setConnecting(false);
+      setError(facadeConnectionError || 'Connection failed.');
+    }
+  }, [connecting, facadeConnectionState, facadeConnectionError]);
+
   const handleConnect = () => {
     const url = gatewayUrl.trim();
     const secret = gatewaySecret.trim();
@@ -45,6 +61,7 @@ export function MobileSetup() {
 
     setError(null);
     setConnecting(true);
+    useFacadeStore.setState({ connectionState: 'connecting', connectionError: null });
 
     // Save direct config (persisted) and set runtime values
     setDirectGatewayConfig(url, secret);

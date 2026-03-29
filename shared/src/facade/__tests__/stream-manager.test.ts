@@ -66,6 +66,7 @@ describe('FacadeStreamManager', () => {
 
       const stream = mgr.getStream('b1', 's1');
       expect(stream!.state).toBe('closed');
+      expect(stream!.channelId).toBeNull();
     });
 
     it('is a no-op for already closed stream', () => {
@@ -124,6 +125,7 @@ describe('FacadeStreamManager', () => {
 
       const stream = mgr.getStream('b1', 's1');
       expect(stream!.state).toBe('error');
+      expect(stream!.channelId).toBeNull();
     });
 
     it('closes streams with shouldBeOpen=false', () => {
@@ -136,6 +138,7 @@ describe('FacadeStreamManager', () => {
       const result = mgr.handleBackendLostChannel('b1', 'lost', { willAutoRecover: true });
       const stream = mgr.getStream('b1', 's1');
       expect(stream!.state).toBe('closed');
+      expect(stream!.channelId).toBeNull();
     });
   });
 
@@ -147,6 +150,7 @@ describe('FacadeStreamManager', () => {
 
       const stream = mgr.getStream('b1', 's1');
       expect(stream!.state).toBe('error');
+      expect(stream!.channelId).toBeNull();
       expect(stream!.lastError).toBe('epoch_changed');
     });
   });

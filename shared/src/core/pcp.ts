@@ -72,6 +72,13 @@ export interface PCPProviderManifest {
 
   /** PCP standard mode → provider native mode string */
   permissionModeMap?: Partial<Record<PCPPermissionMode, string>>;
+
+  /**
+   * Interaction tool IDs that this provider supports natively.
+   * Tools listed here will NOT be injected via MCP bridge (to avoid conflicts).
+   * Tools NOT listed here will be injected so the provider gains those capabilities.
+   */
+  nativeInteractionTools?: string[];
 }
 
 // === Effective Provider Profile ===

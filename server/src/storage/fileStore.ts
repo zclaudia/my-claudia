@@ -145,10 +145,14 @@ class FileStore {
     const destPath = path.join(this.storageDir, fileId);
     try {
       fs.renameSync(sourcePath, destPath);
-    } catch {
+    } catch (renameError) {
       // Cross-device fallback
       fs.copyFileSync(sourcePath, destPath);
-      fs.unlinkSync(sourcePath);
+      try {
+        fs.unlinkSync(sourcePath);
+      } catch (unlinkError) {
+        console.error('[FileStore] Failed to remove source file after copy fallback:', unlinkError);
+      }
     }
 
     this.db.prepare(
@@ -230,12 +234,18 @@ class FileStore {
 
 // Lazy singleton
 let instance: FileStore | null = null;
+let cleanupInterval: ReturnType<typeof setInterval> | null = null;
 
 export function initFileStore(db: Database.Database): void {
   const dataDir = process.env.MY_CLAUDIA_DATA_DIR
     ? path.resolve(process.env.MY_CLAUDIA_DATA_DIR)
     : path.join(os.homedir(), '.my-claudia');
   instance = new FileStore(db, path.join(dataDir, 'files'));
+
+  if (cleanupInterval) {
+    clearInterval(cleanupInterval);
+    cleanupInterval = null;
+  }
 
   // Cleanup every hour
   systemTaskRegistry.register({
@@ -245,7 +255,7 @@ export function initFileStore(db: Database.Database): void {
     category: 'maintenance',
     intervalMs: 60 * 60 * 1000,
   });
-  setInterval(() => {
+  cleanupInterval = setInterval(() => {
     systemTaskRegistry.markRunStart('system:filestore_cleanup');
     const start = Date.now();
     try {
@@ -258,6 +268,13 @@ export function initFileStore(db: Database.Database): void {
 
   const stats = instance.getStats();
   console.log(`[FileStore] Initialized: ${stats.count} files, ${stats.totalSizeMB} MB`);
+}
+
+export function stopFileStoreCleanup(): void {
+  if (cleanupInterval) {
+    clearInterval(cleanupInterval);
+    cleanupInterval = null;
+  }
 }
 
 export function getFileStore(): FileStore {

@@ -8,6 +8,7 @@ import { registerBuiltinCommands } from './commands/init.js';
 import { sanitizeInheritedProviderEnv } from './utils/startup-env.js';
 import { isIgnorableProcessError } from './utils/process-error-filter.js';
 import { GatewayManager } from './domains/gateway/manager.js';
+import { stopFileStoreCleanup } from './storage/fileStore.js';
 
 const sanitizedEnv = sanitizeInheritedProviderEnv();
 if (sanitizedEnv.removedKeys.length > 0) {
@@ -174,6 +175,8 @@ async function main() {
 
       // Stop all managed provider sub-processes
       await shutdownProviders();
+
+      stopFileStoreCleanup();
 
       // Destroy all terminal sessions
       serverContext.terminalManager.destroyAll();

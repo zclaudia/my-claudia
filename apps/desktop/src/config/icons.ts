@@ -133,6 +133,7 @@ export const ICONS = {
     cwd: Folder,
     tools: Wrench,
     mcpServers: Monitor,
+    slashCommands: Terminal,
     agents: Users,
     info: Info,
   },

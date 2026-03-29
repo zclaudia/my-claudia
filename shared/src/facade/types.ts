@@ -203,6 +203,7 @@ export type StreamCommand =
 export type StreamEvent =
   | { type: 'session_stream_state_changed'; stream: SessionStreamSnapshot }
   | { type: 'content_patch'; backendId: string; sessionId: string; messages: SessionMessage[]; latestOffset: number }
+  | { type: 'content_patch_failed'; backendId: string; sessionId: string; afterOffset: number; error: string }
   | { type: 'run_event'; backendId: string; sessionId: string; event: ServerMessage };
 
 /** Composite result from StreamManager operations. */
@@ -223,6 +224,7 @@ export type BackendFacadeEvent =
   | { type: 'catalog_event'; backendId: string; op: 'upsert' | 'remove'; item?: SessionCatalogItem; sessionId?: string }
   | { type: 'session_stream_state_changed'; stream: SessionStreamSnapshot }
   | { type: 'run_event'; backendId: string; sessionId: string; event: ServerMessage }
+  | { type: 'content_patch_failed'; backendId: string; sessionId: string; afterOffset: number; error: string }
   | { type: 'content_patch'; backendId: string; sessionId: string; messages: SessionMessage[]; latestOffset: number };
 
 // ============================================================================

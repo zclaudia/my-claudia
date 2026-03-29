@@ -44,6 +44,7 @@ export type FacadeAdapterEvent =
   | { type: 'catalog_reset_received'; backendId: string; epoch: number }
   | { type: 'session_stream_closed'; backendId: string; channelId: string; sessionId: string; reason: string }
   | { type: 'content_patch_received'; backendId: string; channelId: string; sessionId: string; messages: SessionMessage[]; latestOffset: number }
+  | { type: 'content_patch_failed'; backendId: string; channelId: string; sessionId: string; afterOffset: number; error: string }
   | { type: 'run_event_received'; backendId: string; channelId: string; sessionId: string; event: ServerMessage }
   | { type: 'backend_message_received'; backendId: string; channelId: string; message: ServerMessage };
 

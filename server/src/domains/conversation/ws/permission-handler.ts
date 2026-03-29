@@ -12,6 +12,24 @@ import { sendMessage, broadcastToOtherAuthenticatedClients } from './broadcast.j
 import type { ConnectedClient, ActiveRun } from './types.js';
 import type { ServerMessage } from '@my-claudia/shared';
 
+function broadcastPermissionResolved(
+  run: ActiveRun,
+  connectedClients: Map<string, ConnectedClient>,
+  requestId: string,
+  decision: 'allow' | 'deny',
+): void {
+  const resolvedEvent = {
+    type: 'permission_resolved',
+    requestId,
+    sessionId: run.sessionId,
+    decision,
+  } as ServerMessage & { type: 'permission_resolved'; requestId: string; sessionId: string; decision: string };
+  sendMessage(run.client.ws, resolvedEvent);
+  if (connectedClients.size > 0) {
+    broadcastToOtherAuthenticatedClients(connectedClients, run.clientId, resolvedEvent);
+  }
+}
+
 export function handlePermissionDecision(
   message: {
     type: 'permission_decision';
@@ -60,6 +78,7 @@ export function handlePermissionDecision(
         } catch (err) {
           console.error(`[Permission] Failed to decrypt credential for ${message.requestId}:`, err);
           pending.resolve({ behavior: 'deny', message: 'Failed to decrypt credential' });
+          broadcastPermissionResolved(run, connectedClients, message.requestId, 'deny');
           return;
         }
       }
@@ -111,16 +130,7 @@ export function handlePermissionDecision(
       pending.resolve(decision);
 
       // Broadcast resolution to all clients (so other devices close their modals)
-      const resolvedEvent = {
-        type: 'permission_resolved',
-        requestId: message.requestId,
-        sessionId: run.sessionId,
-        decision: message.allow ? 'allow' : 'deny',
-      } as ServerMessage & { type: 'permission_resolved'; requestId: string; sessionId: string; decision: string };
-      sendMessage(run.client.ws, resolvedEvent);
-      if (connectedClients.size > 0) {
-        broadcastToOtherAuthenticatedClients(connectedClients, run.clientId, resolvedEvent);
-      }
+      broadcastPermissionResolved(run, connectedClients, message.requestId, message.allow ? 'allow' : 'deny');
 
       console.log(`[Permission] ${message.requestId}: ${message.allow ? 'allowed' : 'denied'} - resolved!`);
       return;
@@ -131,15 +141,7 @@ export function handlePermissionDecision(
   console.warn(`[Permission] Request ${message.requestId} not found in any active run — broadcasting permission_resolved`);
   // Find any active run's client to broadcast through (they all share the same virtualClient in gateway mode)
   for (const [, run] of activeRuns.entries()) {
-    const resolvedEvent = {
-      type: 'permission_resolved',
-      requestId: message.requestId,
-      decision: message.allow ? 'allow' : 'deny',
-    } as ServerMessage & { type: 'permission_resolved'; requestId: string; decision: string };
-    sendMessage(run.client.ws, resolvedEvent);
-    if (connectedClients.size > 0) {
-      broadcastToOtherAuthenticatedClients(connectedClients, run.clientId, resolvedEvent);
-    }
+    broadcastPermissionResolved(run, connectedClients, message.requestId, message.allow ? 'allow' : 'deny');
     break;
   }
 }

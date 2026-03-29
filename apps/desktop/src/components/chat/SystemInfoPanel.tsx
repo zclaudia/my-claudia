@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Cpu, Package, Shield, Key, Folder, Wrench, Monitor, Users, ChevronDown, ChevronRight } from 'lucide-react';
+import { Cpu, Package, Shield, Key, Folder, Wrench, Monitor, Users, ChevronDown, ChevronRight, Terminal } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import type { SystemInfo } from '@my-claudia/shared';
 
@@ -89,6 +89,16 @@ export function SystemInfoPanel({ systemInfo }: SystemInfoPanelProps) {
               label="MCP Servers"
               items={systemInfo.mcpServers}
               maxVisible={3}
+            />
+          )}
+
+          {/* Slash commands */}
+          {systemInfo.slashCommands && systemInfo.slashCommands.length > 0 && (
+            <CollapsibleList
+              icon={Terminal}
+              label="Slash Commands"
+              items={systemInfo.slashCommands}
+              maxVisible={5}
             />
           )}
 

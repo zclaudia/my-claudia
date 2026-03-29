@@ -18,7 +18,7 @@ import {
   MAX_SESSION_RESET_RETRIES,
   PERIODIC_SAVE_INTERVAL_MS,
 } from './types.js';
-import { getNextOffset, upsertAssistantMessage, findProcessPidsByTaskCommand } from './run-lifecycle.js';
+import { cleanupPendingPermissions, getNextOffset, upsertAssistantMessage, findProcessPidsByTaskCommand } from './run-lifecycle.js';
 import { getDiscoveredSkills, loadSkillContent } from '../../../plugins/skill-tools.js';
 import { selectSkills } from '../../../plugins/skill-selector.js';
 import {
@@ -35,6 +35,7 @@ import {
   isHardQuotaExceededError,
   SYSTEM_INFO_COMMANDS,
   buildFilePushContext,
+  buildInteractionToolPrompt,
 } from '../../../helpers/server-utils.js';
 import {
   classify,
@@ -404,6 +405,7 @@ export async function handleRunStart(
       activeRun.completed = true;
       broadcastHeartbeat();
       activeRun.aiReviewQueue?.cancelAll();
+      cleanupPendingPermissions(activeRun, 'Project path does not exist');
       activeRuns.delete(runId);
       return;
     }
@@ -964,18 +966,24 @@ export async function handleRunStart(
       } as import('@my-claudia/shared').BackgroundTaskUpdateMessage);
     }
 
-    // Inject file push context (env vars + system prompt) so AI agents can push files to user's device
-    // When interaction tools are available, push_file tool replaces the curl-based prompt
+    // Inject interaction tools — filter out tools the provider already has natively.
+    // Each provider manifest declares nativeInteractionTools (e.g., Claude has TodoWrite ≈ update_todo_list).
+    // Only tools NOT in that list are injected via MCP bridge.
+    const nativeToolSet = new Set(adapter?.manifest?.nativeInteractionTools ?? []);
+    const allInteractionTools = pluginToolRegistry.getAll().filter(t => t.source === 'interaction');
+    const injectableInteractionTools = allInteractionTools.filter(t => !nativeToolSet.has(t.id));
+    const hasInteractionTools = injectableInteractionTools.length > 0;
+
+    // File push env vars (needed for both curl-based and MCP tool modes)
     const filePushEnv: Record<string, string> = {};
     let filePushContext: string | undefined;
-    const hasInteractionTools = providerType !== 'claude'
-      && pluginToolRegistry.getAll().some(t => t.source === 'interaction');
     if (serverPort) {
       const apiUrl = `http://127.0.0.1:${serverPort}`;
       filePushEnv.MY_CLAUDIA_API_URL = apiUrl;
       filePushEnv.MY_CLAUDIA_SESSION_ID = message.sessionId;
-      // Only inject curl-based prompt when interaction tools are NOT available (fallback)
-      if (!hasInteractionTools) {
+      // Only inject curl-based prompt when push_file tool is NOT being injected (fallback)
+      const hasPushFileTool = injectableInteractionTools.some(t => t.id === 'push_file');
+      if (!hasPushFileTool) {
         filePushContext = buildFilePushContext(apiUrl, message.sessionId);
       }
     }
@@ -988,22 +996,9 @@ export async function handleRunStart(
       ? buildPlanDocumentPrompt(session.task_id)
       : undefined;
 
-    // Interaction tool prompt (injected when interaction tools are registered)
+    // Interaction tool prompt — dynamically built from actually injected tools
     const interactionToolPrompt = hasInteractionTools
-      ? `## Interaction Tools
-You have access to these interaction tools via MCP:
-- **update_todo_list**: Show/update a visible task list for the user. Call this to track progress on multi-step tasks. Each call replaces the previous list.
-- **ask_user_form**: Present a structured form when you need specific input from the user — multiple fields, choices, or confirmations. The form blocks until the user responds.
-- **request_approval**: Request user approval before proceeding with a destructive, irreversible, or high-impact action. Blocks until the user approves or rejects. The response contains { approved: true/false, reason?: string }.
-- **push_file**: Push a local file to the user's device. Use this when you build, generate, or export files (images, APKs, binaries, archives, documents, etc.) that the user needs. Images and small files (<500KB) auto-download; larger files show a download notification. Prefer this over curl to push files.
-
-Prefer ask_user_form over AskUserQuestion when you need multiple pieces of information at once or want to offer specific options/choices.
-Use request_approval when an action is destructive or hard to reverse — do not just proceed without confirmation.
-Use push_file instead of curl to send files to the user — it is more reliable and works across all providers.
-- **enter_plan_mode**: Enter plan mode to analyze and plan before executing. Use for complex multi-step tasks. In plan mode, only use read-only tools.
-- **exit_plan_mode**: Exit plan mode with your completed plan for user review. Blocks until the user approves or denies. If denied, read the feedback and revise.
-
-Use enter_plan_mode / exit_plan_mode for complex tasks that affect multiple files or have ambiguous requirements. Flow: enter_plan_mode → analyze (read-only) → exit_plan_mode with plan → if approved, execute; if denied, revise and resubmit.`
+      ? buildInteractionToolPrompt(injectableInteractionTools.map(t => t.id))
       : undefined;
 
     // 🆕 Assemble workspace prompt (SOUL.md, AGENTS.md, TOOLS.md, skills)
@@ -1446,7 +1441,8 @@ Use enter_plan_mode / exit_plan_mode for complex tasks that affect multiple file
           }
           // Mark run as ended now; for-await loop exits on next iteration by guard.
           activeRun.aiReviewQueue?.cancelAll();
-      activeRuns.delete(runId);
+          cleanupPendingPermissions(activeRun, errorMessage);
+          activeRuns.delete(runId);
           break;
         }
 
@@ -1545,6 +1541,7 @@ Use enter_plan_mode / exit_plan_mode for complex tasks that affect multiple file
         activeRun.saveInterval = undefined;
       }
       activeRun.aiReviewQueue?.cancelAll();
+      cleanupPendingPermissions(activeRun, 'Session reset retry');
       activeRuns.delete(runId);
       broadcastHeartbeat();
 
@@ -1611,6 +1608,7 @@ Use enter_plan_mode / exit_plan_mode for complex tasks that affect multiple file
     }
 
     // Cleanup
+    cleanupPendingPermissions(activeRun);
     interactionDispatcher.cancelBySession(activeRun.sessionId);
     activeRuns.delete(runId);
     broadcastHeartbeat();

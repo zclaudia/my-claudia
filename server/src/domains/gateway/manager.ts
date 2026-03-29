@@ -82,6 +82,21 @@ export class GatewayManager {
     return this.gatewayClient;
   }
 
+  private clearSyncInterval(): void {
+    if (this.syncInterval) {
+      clearInterval(this.syncInterval);
+      this.syncInterval = null;
+    }
+  }
+
+  private cleanupVirtualClients(): void {
+    for (const channelId of this.virtualClients.keys()) {
+      this.connectedClients.delete(channelId);
+      this.serverContext.terminalManager.detachClient(channelId);
+    }
+    this.virtualClients.clear();
+  }
+
   private attachFacadeProvider(nextProvider: FacadeProvider): void {
     if (this.facadeProvider === nextProvider) return;
     this.facadeProvider?.disconnect();
@@ -153,8 +168,8 @@ export class GatewayManager {
     }
 
     if (this.gatewayClient) {
-      if (this.syncInterval) clearInterval(this.syncInterval);
-      this.syncInterval = null;
+      this.clearSyncInterval();
+      this.cleanupVirtualClients();
       this.gatewayClient.commands.connection.disconnect();
     }
 
@@ -195,6 +210,7 @@ export class GatewayManager {
         if (connected) {
           this.ensureEmbeddedGatewayFacade();
         } else {
+          this.cleanupVirtualClients();
           this.ensureStandaloneFacade();
         }
       },
@@ -268,16 +284,11 @@ export class GatewayManager {
   async disconnect(): Promise<void> {
     if (this.gatewayClient) {
       console.log('📡 Disconnecting from Gateway V2...');
-      if (this.syncInterval) clearInterval(this.syncInterval);
-      this.syncInterval = null;
+      this.clearSyncInterval();
       this.gatewayClient.commands.connection.disconnect();
       setGatewayClient(null);
       this.gatewayClient = null;
-      for (const channelId of this.virtualClients.keys()) {
-        this.connectedClients.delete(channelId);
-        this.serverContext.terminalManager.detachClient(channelId);
-      }
-      this.virtualClients.clear();
+      this.cleanupVirtualClients();
       this.serverContext.updateGatewayConnected(false);
       this.serverContext.updateGatewayBackendId(null);
       this.serverContext.updateDiscoveredBackends([]);
@@ -286,9 +297,15 @@ export class GatewayManager {
   }
 
   shutdown(): void {
+    this.clearSyncInterval();
+    this.cleanupVirtualClients();
     if (this.gatewayClient) {
       this.gatewayClient.commands.connection.disconnect();
+      setGatewayClient(null);
+      this.gatewayClient = null;
     }
+    this.facadeProvider?.disconnect();
+    this.facadeProvider = null;
   }
 
   /**

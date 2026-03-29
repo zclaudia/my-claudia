@@ -7,6 +7,9 @@ export const CLAUDE_MANIFEST: PCPProviderManifest = {
   apiVersion: 'pcp/v1',
   providerType: 'claude',
   runtime: 'cli',
+  // Claude has native: TodoWrite ≈ update_todo_list, AskUserQuestion ≈ ask_user_form/request_approval,
+  // plan mode ≈ enter/exit_plan_mode. Only push_file has no Claude equivalent.
+  nativeInteractionTools: ['update_todo_list', 'ask_user_form', 'request_approval', 'enter_plan_mode', 'exit_plan_mode'],
   capabilities: [
     { id: 'chat.generate', supported: false, notes: 'Not implemented yet, planned for plugin API' },
     { id: 'chat.stream', supported: true, mode: 'native', reliability: 'strict' },

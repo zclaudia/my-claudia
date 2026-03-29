@@ -318,6 +318,9 @@ export class BackendFacadeRuntimeCore implements BackendFacade {
       case 'content_patch_received':
         this.handleContentPatch(event);
         break;
+      case 'content_patch_failed':
+        this.handleContentPatchFailed(event);
+        break;
       case 'run_event_received':
         this.handleRunEvent(event);
         break;
@@ -469,6 +472,16 @@ export class BackendFacadeRuntimeCore implements BackendFacade {
     this.executeStreamResult(result);
   }
 
+  private handleContentPatchFailed(event: Extract<FacadeAdapterEvent, { type: 'content_patch_failed' }>): void {
+    this.emitFacadeEvent({
+      type: 'content_patch_failed',
+      backendId: event.backendId,
+      sessionId: event.sessionId,
+      afterOffset: event.afterOffset,
+      error: event.error,
+    });
+  }
+
   private handleRunEvent(event: Extract<FacadeAdapterEvent, { type: 'run_event_received' }>): void {
     const result = this.streamManager.handleRunEvent(
       event.backendId, event.channelId, event.sessionId, event.event,
@@ -477,13 +490,18 @@ export class BackendFacadeRuntimeCore implements BackendFacade {
   }
 
   private handleBackendMessage(event: Extract<FacadeAdapterEvent, { type: 'backend_message_received' }>): void {
-    // Backend messages that aren't run/content events — pass through as run_event
-    // for now, letting the UI decide how to handle them.
-    const backend = this.registryStore.getBackend(event.backendId);
-    if (!backend) return;
-
-    // Generic backend message — emit as-is for consumers that need raw messages
-    // This could be refined in the future to handle specific message types
+    // Pass through as run_event so the UI message handler can process it.
+    // This covers system_info, permission_request, prompt_request, and other
+    // non-stream messages that arrive via channel_server_message.
+    // Extract sessionId from message if available (many ServerMessage types carry it)
+    const msg = event.message as unknown as { sessionId?: string };
+    const sessionId = msg.sessionId ?? '';
+    this.emitFacadeEvent({
+      type: 'run_event',
+      backendId: event.backendId,
+      sessionId,
+      event: event.message,
+    });
   }
 
   // --------------------------------------------------------------------------

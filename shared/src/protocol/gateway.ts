@@ -410,6 +410,14 @@ export interface SessionContentPatchMessage {
   latestOffset: Offset;
 }
 
+export interface SessionContentPatchErrorMessage {
+  type: 'session_content_patch_error';
+  channelId: ChannelId;
+  sessionId: string;
+  afterOffset: Offset;
+  message: string;
+}
+
 // ============================================================================
 // Error Model
 // ============================================================================
@@ -482,6 +490,7 @@ export type GatewayToPeerMessage =
   | RunStreamEvent
   | SessionStreamClosedMessage
   | SessionContentPatchMessage
+  | SessionContentPatchErrorMessage
   | GatewayErrorMessage;
 
 export type BackendToGatewayMessage =
@@ -531,6 +540,7 @@ export type GatewayToClientMessage =
   | RunStreamEvent
   | SessionStreamClosedMessage
   | SessionContentPatchMessage
+  | SessionContentPatchErrorMessage
   | GatewayErrorMessage;
 
 // ============================================================================

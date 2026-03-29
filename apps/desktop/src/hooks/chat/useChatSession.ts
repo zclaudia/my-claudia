@@ -48,6 +48,7 @@ export function useChatSession({ sessionId, isConnected }: UseChatSessionParams)
     return s.toolCallsHistory[runId] || EMPTY_TOOL_CALLS;
   });
   const currentUsage = useChatStore((s) => s.sessionUsage[sessionId] || null);
+  const currentSystemInfo = useChatStore((s) => s.systemInfoBySession[sessionId] || null);
 
   // Store actions
   const addMessage = useChatStore((s) => s.addMessage);
@@ -55,7 +56,6 @@ export function useChatSession({ sessionId, isConnected }: UseChatSessionParams)
   const setMode = useChatStore((s) => s.setMode);
   const getMode = useChatStore((s) => s.getMode);
   const getRuntimeMode = useChatStore((s) => s.getRuntimeMode);
-  const getSystemInfo = useChatStore((s) => s.getSystemInfo);
   const setModelOverride = useChatStore((s) => s.setModelOverride);
   const getModelOverride = useChatStore((s) => s.getModelOverride);
   const permissionOverride = useChatStore((s) => s.getPermissionOverride(sessionId));
@@ -90,7 +90,6 @@ export function useChatSession({ sessionId, isConnected }: UseChatSessionParams)
   const isForcedPlanSession = currentSession?.projectRole === 'task' && currentSession?.planStatus === 'planning';
   const forcedMode = isForcedPlanSession ? 'plan' : '';
   const effectiveMode = forcedMode || runtimeMode || selectedMode;
-  const currentSystemInfo = getSystemInfo(sessionId);
   const usageOrDefault = currentUsage || {
     inputTokens: 0,
     outputTokens: 0,

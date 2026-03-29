@@ -75,6 +75,13 @@ describe('SystemInfoButton', () => {
     expect(getByTitle('View system info')).toBeTruthy();
   });
 
+  it('renders button when system info has slashCommands', () => {
+    const { getByTitle } = render(
+      <SystemInfoButton systemInfo={{ slashCommands: ['/status'] }} />
+    );
+    expect(getByTitle('View system info')).toBeTruthy();
+  });
+
   it('renders button when system info has agents', () => {
     const { getByTitle } = render(
       <SystemInfoButton systemInfo={{ agents: ['agent1'] }} />
@@ -92,6 +99,13 @@ describe('SystemInfoButton', () => {
   it('returns null when system info has empty mcpServers array', () => {
     const { container } = render(
       <SystemInfoButton systemInfo={{ mcpServers: [] }} />
+    );
+    expect(container.innerHTML).toBe('');
+  });
+
+  it('returns null when system info has empty slashCommands array', () => {
+    const { container } = render(
+      <SystemInfoButton systemInfo={{ slashCommands: [] }} />
     );
     expect(container.innerHTML).toBe('');
   });
@@ -227,6 +241,18 @@ describe('SystemInfoButton', () => {
     expect(screen.getByText('(2)')).toBeTruthy();
     expect(screen.getByText('server1')).toBeTruthy();
     expect(screen.getByText('server2')).toBeTruthy();
+  });
+
+  it('displays slash commands list', () => {
+    const { getByTitle } = render(<SystemInfoButton systemInfo={{ slashCommands: ['/status', '/review'] }} />);
+
+    const button = getByTitle('View system info');
+    fireEvent.click(button);
+
+    expect(screen.getByText('Slash Commands')).toBeTruthy();
+    expect(screen.getByText('(2)')).toBeTruthy();
+    expect(screen.getByText('/status')).toBeTruthy();
+    expect(screen.getByText('/review')).toBeTruthy();
   });
 
   it('displays agents list', () => {

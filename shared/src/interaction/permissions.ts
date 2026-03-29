@@ -163,6 +163,17 @@ export const DEFAULT_UNIFIED_POLICY: UnifiedPermissionPolicy = {
   aiReview: DEFAULT_AI_REVIEW_CONFIG,
 };
 
+function cloneUnifiedPolicy(policy: UnifiedPermissionPolicy): UnifiedPermissionPolicy {
+  return {
+    enabled: policy.enabled,
+    profile: { ...policy.profile },
+    globalGuards: { ...policy.globalGuards },
+    customRules: [...policy.customRules],
+    escalateAlways: [...policy.escalateAlways],
+    aiReview: { ...policy.aiReview },
+  };
+}
+
 /** @deprecated Use DEFAULT_UNIFIED_POLICY instead. */
 export const DEFAULT_CATEGORY_PROFILES: CategoryPermissionPolicy['profiles'] = {
   regular: {
@@ -213,7 +224,7 @@ export function ensureEscalateAlways(list?: string[]): string[] {
  * For full v1 trustLevel conversion, use the server's normalizePolicy instead.
  */
 export function normalizeToUnifiedPolicy(raw: unknown): UnifiedPermissionPolicy {
-  if (!raw || typeof raw !== 'object') return DEFAULT_UNIFIED_POLICY;
+  if (!raw || typeof raw !== 'object') return cloneUnifiedPolicy(DEFAULT_UNIFIED_POLICY);
 
   const obj = raw as Record<string, unknown>;
 
@@ -244,7 +255,7 @@ export function normalizeToUnifiedPolicy(raw: unknown): UnifiedPermissionPolicy 
   }
 
   // v1 (trustLevel) or unknown — use defaults
-  return DEFAULT_UNIFIED_POLICY;
+  return cloneUnifiedPolicy(DEFAULT_UNIFIED_POLICY);
 }
 
 /** Context passed to the permission evaluator for path-aware evaluation */

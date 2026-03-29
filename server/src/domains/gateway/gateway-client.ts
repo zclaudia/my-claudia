@@ -31,6 +31,7 @@ import type {
   RunStreamEventType,
   SessionMessage,
   SessionContentPatchMessage,
+  SessionContentPatchErrorMessage,
   GatewayBackendInfo,
   ChannelClientMessage,
   ChannelServerMessage,
@@ -136,6 +137,7 @@ export interface GatewayClientOutgoingEvents {
   onOutgoingSessionStreamClosed?: (backendId: string, channelId: string, sessionId: string, reason: string) => void;
   onOutgoingRunEvent?: (backendId: string, channelId: string, sessionId: string, event: ServerMessage) => void;
   onOutgoingContentPatch?: (backendId: string, channelId: string, sessionId: string, messages: SessionMessage[], latestOffset: number) => void;
+  onOutgoingContentPatchError?: (backendId: string, channelId: string, sessionId: string, afterOffset: number, error: string) => void;
   onRegistrySnapshotChanged?: (revision: number, items: BackendPresence[]) => void;
   onRegistryEventChanged?: (revision: number, op: 'upsert' | 'remove', item?: BackendPresence, backendId?: string) => void;
   onConnectionStateChanged?: (connected: boolean) => void;
@@ -662,6 +664,7 @@ export class GatewayClient {
       case 'session_stream_closed': this.handleOutgoingSessionStreamClosed(msg as unknown as SessionStreamClosedMessage); break;
       case 'run_stream_event': this.handleOutgoingRunStreamEvent(msg as unknown as RunStreamEvent); break;
       case 'session_content_patch': this.handleOutgoingContentPatch(msg as unknown as SessionContentPatchMessage); break;
+      case 'session_content_patch_error': this.handleOutgoingContentPatchError(msg as unknown as SessionContentPatchErrorMessage); break;
       case 'gateway_error': console.error(`[Gateway] Error: ${msg.code} — ${msg.message}`); break;
     }
   }
@@ -790,6 +793,13 @@ export class GatewayClient {
       this.sendWs(patch);
     } catch (error) {
       console.error('[Gateway] Catch-up error:', error);
+      this.sendWs({
+        type: 'session_content_patch_error',
+        channelId: msg.channelId,
+        sessionId: msg.sessionId,
+        afterOffset: msg.afterOffset,
+        message: error instanceof Error ? error.message : 'Catch-up failed',
+      } satisfies SessionContentPatchErrorMessage);
     }
   }
 
@@ -898,6 +908,16 @@ export class GatewayClient {
       msg.sessionId,
       msg.messages,
       msg.latestOffset,
+    );
+  }
+
+  private handleOutgoingContentPatchError(msg: SessionContentPatchErrorMessage): void {
+    this.outgoingEvents.onOutgoingContentPatchError?.(
+      this.findOutgoingBackendByChannel(msg.channelId) ?? '',
+      msg.channelId,
+      msg.sessionId,
+      msg.afterOffset,
+      msg.message,
     );
   }
 

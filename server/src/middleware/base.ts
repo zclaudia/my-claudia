@@ -25,7 +25,7 @@ export interface MessageContext {
   client: ConnectedClient;
   request: Request;
   db: Database;
-  metadata: Map<string, any>;
+  metadata: Map<string, unknown>;
 }
 
 /**

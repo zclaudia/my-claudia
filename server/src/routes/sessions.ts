@@ -30,27 +30,37 @@ export function createSessionRoutes(db: Database.Database, activeRuns: ActiveRun
   router.get('/', (req: Request, res: Response) => {
     try {
       const { projectId, includeArchived } = req.query;
+      const includeArchivedSessions = includeArchived === 'true';
 
-      const conditions: string[] = [];
-      const params: string[] = [];
-
-      if (projectId) {
-        conditions.push('project_id = ?');
-        params.push(projectId as string);
+      let sessions: Session[];
+      if (projectId && includeArchivedSessions) {
+        sessions = db.prepare(`
+          SELECT ${SESSION_SELECT}
+          FROM sessions
+          WHERE project_id = ?
+          ORDER BY sort_order ASC, updated_at DESC
+        `).all(projectId as string) as Session[];
+      } else if (projectId) {
+        sessions = db.prepare(`
+          SELECT ${SESSION_SELECT}
+          FROM sessions
+          WHERE project_id = ? AND archived_at IS NULL
+          ORDER BY sort_order ASC, updated_at DESC
+        `).all(projectId as string) as Session[];
+      } else if (includeArchivedSessions) {
+        sessions = db.prepare(`
+          SELECT ${SESSION_SELECT}
+          FROM sessions
+          ORDER BY sort_order ASC, updated_at DESC
+        `).all() as Session[];
+      } else {
+        sessions = db.prepare(`
+          SELECT ${SESSION_SELECT}
+          FROM sessions
+          WHERE archived_at IS NULL
+          ORDER BY sort_order ASC, updated_at DESC
+        `).all() as Session[];
       }
-
-      if (includeArchived !== 'true') {
-        conditions.push('archived_at IS NULL');
-      }
-
-      const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
-
-      const sessions = db.prepare(`
-        SELECT ${SESSION_SELECT}
-        FROM sessions
-        ${where}
-        ORDER BY sort_order ASC, updated_at DESC
-      `).all(...params) as Session[];
 
       res.json({ success: true, data: sessions } as ApiResponse<Session[]>);
     } catch (error) {

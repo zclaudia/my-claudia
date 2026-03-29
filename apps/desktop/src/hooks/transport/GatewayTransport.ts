@@ -41,6 +41,7 @@ import type {
   RunStreamEvent,
   CatchUpSessionContentMessage,
   SessionContentPatchMessage,
+  SessionContentPatchErrorMessage,
   SessionCatalogItem,
   SessionMessage,
   GatewayErrorMessage,
@@ -71,6 +72,7 @@ export interface GatewayTransportConfig {
   onRunStreamEvent: (channelId: string, sessionId: string, event: RunStreamEvent) => void;
   onSessionStreamClosed: (channelId: string, sessionId: string, reason: string) => void;
   onContentPatch: (channelId: string, sessionId: string, messages: SessionMessage[], latestOffset: number) => void;
+  onContentPatchError: (channelId: string, sessionId: string, afterOffset: number, error: string) => void;
 }
 
 // ============================================================================
@@ -89,6 +91,7 @@ export class GatewayTransport {
   private registryRevision: number = 0;
   private registryItems = new Map<string, BackendPresence>();
 
+  private resolvedUrl: string | null = null;
   private catalogRevisions = new Map<string, number>();
   private catalogEpochs = new Map<string, number>();
 
@@ -107,7 +110,22 @@ export class GatewayTransport {
     this.authenticated = false;
     this.channels.clear();
     this.backendToChannel.clear();
-    this.ws = new WebSocket(this.config.url);
+    // Normalize URL: ensure ws:// or wss:// protocol for WebSocket
+    let wsUrl = this.config.url;
+    if (wsUrl.startsWith('https://')) {
+      wsUrl = 'wss://' + wsUrl.slice(8);
+    } else if (wsUrl.startsWith('http://')) {
+      wsUrl = 'ws://' + wsUrl.slice(7);
+    } else if (!wsUrl.startsWith('ws://') && !wsUrl.startsWith('wss://')) {
+      wsUrl = 'ws://' + wsUrl;
+    }
+    // Append /ws path if not already present
+    if (!wsUrl.endsWith('/ws') && !wsUrl.includes('/ws?')) {
+      wsUrl = wsUrl.replace(/\/?$/, '/ws');
+    }
+    this.resolvedUrl = wsUrl;
+    console.log(`[GatewayTransport] Connecting to: ${wsUrl} (original: ${this.config.url})`);
+    this.ws = new WebSocket(wsUrl);
     this.setupWebSocket(this.ws);
   }
 
@@ -179,6 +197,8 @@ export class GatewayTransport {
   getRegistryItems(): Map<string, BackendPresence> { return this.registryItems; }
   getPeerSessionId(): string | null { return this.peerSessionId; }
   getRecoveryToken(): string | null { return this.recoveryToken; }
+  /** The actual WebSocket URL used in the last connect() call (after normalization). */
+  getResolvedUrl(): string | null { return this.resolvedUrl; }
 
   // ==========================================================================
   // Internal — WebSocket Setup
@@ -186,8 +206,8 @@ export class GatewayTransport {
 
   private setupWebSocket(ws: WebSocket): void {
     const currentWs = ws;
-    ws.onopen = () => { if (this.ws !== currentWs) return; this.sendPeerHello(); };
-    ws.onclose = () => {
+    ws.onopen = () => { console.log('[GatewayTransport] WebSocket opened'); if (this.ws !== currentWs) return; this.sendPeerHello(); };
+    ws.onclose = (event) => { console.log(`[GatewayTransport] WebSocket closed: code=${event.code} reason=${event.reason} wasClean=${event.wasClean}`);
       const expectedClose = this.expectedCloseWs === currentWs;
       if (expectedClose) {
         this.expectedCloseWs = null;
@@ -198,7 +218,7 @@ export class GatewayTransport {
         this.config.onDisconnected();
       }
     };
-    ws.onerror = (error) => { this.config.onError(error); };
+    ws.onerror = (error) => { console.error('[GatewayTransport] WebSocket error:', error); this.config.onError(error); };
     ws.onmessage = (event: MessageEvent) => {
       try { this.handleMessage(JSON.parse(event.data)); }
       catch (error) { console.error('[GatewayTransport] Failed to parse message:', error); }
@@ -235,6 +255,7 @@ export class GatewayTransport {
       case 'run_stream_event': this.handleRunStreamEvent(message); break;
       case 'session_stream_closed': this.handleSessionStreamClosed(message); break;
       case 'session_content_patch': this.handleContentPatch(message); break;
+      case 'session_content_patch_error': this.handleContentPatchError(message); break;
       case 'gateway_error': this.handleGatewayError(message); break;
       default: console.warn('[GatewayTransport] Unknown message type:', message.type);
     }
@@ -356,6 +377,9 @@ export class GatewayTransport {
 
   // --- Content ---
   private handleContentPatch(msg: SessionContentPatchMessage): void { this.config.onContentPatch(msg.channelId, msg.sessionId, msg.messages, msg.latestOffset); }
+  private handleContentPatchError(msg: SessionContentPatchErrorMessage): void {
+    this.config.onContentPatchError(msg.channelId, msg.sessionId, msg.afterOffset, msg.message);
+  }
 
   // --- Error ---
   private handleGatewayError(msg: GatewayErrorMessage): void {

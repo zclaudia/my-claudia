@@ -490,6 +490,29 @@ describe('GatewayClient', () => {
       expect(consoleErrorSpy).toHaveBeenCalled();
       consoleErrorSpy.mockRestore();
     });
+
+    it('sends session_content_patch_error when catch-up query fails', async () => {
+      const sendWsSpy = vi.spyOn(client as any, 'sendWs').mockImplementation(() => {});
+
+      client.commands.channel.onCatchUp(async () => {
+        throw new Error('catch-up query failed');
+      });
+
+      await (client as any).handleCatchUpRequest({
+        type: 'catch_up_session_content',
+        channelId: 'channel-1',
+        sessionId: 'session-1',
+        afterOffset: 7,
+      });
+
+      expect(sendWsSpy).toHaveBeenCalledWith(expect.objectContaining({
+        type: 'session_content_patch_error',
+        channelId: 'channel-1',
+        sessionId: 'session-1',
+        afterOffset: 7,
+        message: 'catch-up query failed',
+      }));
+    });
   });
 
   describe('reconnection logic', () => {

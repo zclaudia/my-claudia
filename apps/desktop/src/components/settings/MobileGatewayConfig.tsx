@@ -9,7 +9,13 @@ export function MobileGatewayConfig() {
     setDirectGatewayConfig,
     clearDirectGatewayConfig,
   } = useGatewayStore();
-  const isGatewayConnected = useFacadeStore((s) => s.connectionState === 'connected');
+  const connectionState = useFacadeStore((s) => s.connectionState);
+  const isGatewayConnected = connectionState === 'connected';
+  const controlPlaneError = useFacadeStore((s) => {
+    // Find any backend with an error
+    const errBackend = s.backends.find(b => b.lastError);
+    return errBackend?.lastError ?? null;
+  });
 
   const [url, setUrl] = useState(directGatewayUrl || '');
   const [secret, setSecret] = useState(directGatewaySecret || '');
@@ -37,11 +43,23 @@ export function MobileGatewayConfig() {
       </p>
 
       {/* Connection status */}
-      <div className="flex items-center gap-2 p-3 bg-secondary/50 rounded-lg">
-        <span className={`w-2 h-2 rounded-full ${isGatewayConnected ? 'bg-success' : 'bg-destructive'}`} />
-        <span className="text-sm">
-          {isGatewayConnected ? 'Gateway connected' : 'Gateway disconnected'}
-        </span>
+      <div className="p-3 bg-secondary/50 rounded-lg space-y-1">
+        <div className="flex items-center gap-2">
+          <span className={`w-2 h-2 rounded-full ${isGatewayConnected ? 'bg-success' : 'bg-destructive'}`} />
+          <span className="text-sm">
+            {isGatewayConnected ? 'Gateway connected' : `Gateway ${connectionState}`}
+          </span>
+        </div>
+        {directGatewayUrl && (
+          <p className="text-[10px] text-muted-foreground font-mono break-all">
+            Config: {directGatewayUrl}
+          </p>
+        )}
+        {controlPlaneError && (
+          <p className="text-[10px] text-destructive break-all">
+            Error: {controlPlaneError}
+          </p>
+        )}
       </div>
 
       {/* URL */}

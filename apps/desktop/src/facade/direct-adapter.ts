@@ -27,7 +27,7 @@ import type { GatewayTransportConfig } from '../hooks/transport/GatewayTransport
 export class DirectGatewayAdapter implements FacadeRuntimeGatewayAdapter {
   private listeners: Array<(event: FacadeAdapterEvent) => void> = [];
   private transport: GatewayTransport | null = null;
-  private transportConfig: Omit<GatewayTransportConfig, 'onConnected' | 'onDisconnected' | 'onError' | 'onRegistryChanged' | 'onCatalogSnapshot' | 'onCatalogEvent' | 'onCatalogReset' | 'onChannelOpened' | 'onChannelRejected' | 'onChannelClosed' | 'onChannelMessage' | 'onRunStreamEvent' | 'onSessionStreamClosed' | 'onContentPatch'>;
+  private transportConfig: Omit<GatewayTransportConfig, 'onConnected' | 'onDisconnected' | 'onError' | 'onRegistryChanged' | 'onCatalogSnapshot' | 'onCatalogEvent' | 'onCatalogReset' | 'onChannelOpened' | 'onChannelRejected' | 'onChannelClosed' | 'onChannelMessage' | 'onRunStreamEvent' | 'onSessionStreamClosed' | 'onContentPatch' | 'onContentPatchError'>;
   private gatewayHttpUrl: string;
   private gatewaySecret: string;
 
@@ -59,10 +59,12 @@ export class DirectGatewayAdapter implements FacadeRuntimeGatewayAdapter {
             this.emit({ type: 'connection_state_changed', state: 'reconnecting' });
           },
           onError: (error) => {
+            const resolvedUrl = this.transport?.getResolvedUrl() ?? this.transportConfig.url;
+            const errorMsg = typeof error === 'string' ? error : 'connection_error';
             this.emit({
               type: 'connection_state_changed',
               state: 'error',
-              error: typeof error === 'string' ? error : 'connection_error',
+              error: `${errorMsg} (url: ${resolvedUrl})`,
             });
           },
           onRegistryChanged: (items) => {
@@ -117,6 +119,10 @@ export class DirectGatewayAdapter implements FacadeRuntimeGatewayAdapter {
           onContentPatch: (channelId, sessionId, messages, latestOffset) => {
             const backendId = this.findBackendByChannel(channelId);
             this.emit({ type: 'content_patch_received', backendId, channelId, sessionId, messages, latestOffset });
+          },
+          onContentPatchError: (channelId, sessionId, afterOffset, error) => {
+            const backendId = this.findBackendByChannel(channelId);
+            this.emit({ type: 'content_patch_failed', backendId, channelId, sessionId, afterOffset, error });
           },
         });
         this.transport.connect();

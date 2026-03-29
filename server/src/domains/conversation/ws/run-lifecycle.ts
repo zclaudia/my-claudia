@@ -78,6 +78,14 @@ export interface CancelRunOptions {
   logLabel?: string;
 }
 
+export function cleanupPendingPermissions(run: ActiveRun, message = 'Run cancelled'): void {
+  run.pendingPermissions.forEach(({ resolve, timeout }) => {
+    if (timeout) clearTimeout(timeout);
+    resolve({ behavior: 'deny', message });
+  });
+  run.pendingPermissions.clear();
+}
+
 export function cancelRun(
   runId: string,
   ctx: CancelRunContext,
@@ -92,11 +100,7 @@ export function cancelRun(
     }
 
     // Reject all pending permissions
-    run.pendingPermissions.forEach(({ resolve, timeout }) => {
-      if (timeout) clearTimeout(timeout);
-      resolve({ behavior: 'deny', message: 'Run cancelled' });
-    });
-    run.pendingPermissions.clear();
+    cleanupPendingPermissions(run, 'Run cancelled');
 
     // Abort the active provider stream immediately even before a provider-level
     // session ID is known. This is the primary cleanup path for Claude SDK runs.

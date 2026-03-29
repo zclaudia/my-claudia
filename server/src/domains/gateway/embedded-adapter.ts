@@ -19,6 +19,7 @@ import type {
 } from '@my-claudia/shared';
 import type { BackendPresence, ClientMessage, SessionCatalogItem, SessionMessage, ServerMessage } from '@my-claudia/shared';
 import type { GatewayClient } from './gateway-client.js';
+import { parseLocalChannelId } from './channel-id.js';
 
 // ============================================================================
 // Local Backend Handler Interface
@@ -233,16 +234,12 @@ export class EmbeddedGatewayAdapter implements FacadeRuntimeGatewayAdapter {
   }
 
   private handleLocalChannelClose(channelId: string): void {
-    // Parse backendId from local:backendId:epoch format
-    // Fix #8: use indexOf to handle backendIds that may contain colons
-    const firstColon = channelId.indexOf(':');
-    const lastColon = channelId.lastIndexOf(':');
-    if (firstColon > 0 && lastColon > firstColon) {
-      const backendId = channelId.slice(firstColon + 1, lastColon);
-      this.localChannelIds.delete(backendId);
+    const parsed = parseLocalChannelId(channelId);
+    if (parsed) {
+      this.localChannelIds.delete(parsed.backendId);
       this.emit({
         type: 'backend_channel_closed',
-        backendId,
+        backendId: parsed.backendId,
         channelId,
         reason: 'client_closed',
       });
@@ -272,9 +269,7 @@ export class EmbeddedGatewayAdapter implements FacadeRuntimeGatewayAdapter {
       const maxOffset = messages.length > 0
         ? Math.max(...messages.map(m => m.offset))
         : afterOffset;
-      // Parse backendId from channelId
-      const parts = channelId.split(':');
-      const backendId = parts.length >= 2 ? parts[1] : '';
+      const backendId = parseLocalChannelId(channelId)?.backendId ?? '';
       this.emit({
         type: 'content_patch_received',
         backendId,
@@ -284,7 +279,16 @@ export class EmbeddedGatewayAdapter implements FacadeRuntimeGatewayAdapter {
         latestOffset: maxOffset,
       });
     } catch (error) {
+      const backendId = parseLocalChannelId(channelId)?.backendId ?? '';
       console.error('[EmbeddedAdapter] Local catch-up error:', error);
+      this.emit({
+        type: 'content_patch_failed',
+        backendId,
+        channelId,
+        sessionId,
+        afterOffset,
+        error: error instanceof Error ? error.message : 'Catch-up failed',
+      });
     }
   }
 
@@ -344,14 +348,17 @@ export class EmbeddedGatewayAdapter implements FacadeRuntimeGatewayAdapter {
       onOutgoingContentPatch: (backendId, channelId, sessionId, messages, latestOffset) => {
         this.emit({ type: 'content_patch_received', backendId, channelId, sessionId, messages, latestOffset });
       },
+      onOutgoingContentPatchError: (backendId, channelId, sessionId, afterOffset, error) => {
+        this.emit({ type: 'content_patch_failed', backendId, channelId, sessionId, afterOffset, error });
+      },
     });
   }
 
   private wireLocalHandlerEvents(): void {
     if (!this.localHandler) return;
     this.localHandler.onServerEvent((message) => {
-      const sessionId = this.getSessionId(message);
-      if (!sessionId || !this.localBackendId) return;
+      if (!this.localBackendId) return;
+      const sessionId = this.getSessionId(message) ?? '';
       const channelId = this.localChannelIds.get(this.localBackendId) ?? `local:${this.localBackendId}:0`;
       this.emit({
         type: 'run_event_received',

@@ -45,12 +45,19 @@ function createTestDb(): Database.Database {
 
 describe('fileStore', () => {
   let db: Database.Database;
+  let setIntervalSpy: ReturnType<typeof vi.spyOn>;
+  let clearIntervalSpy: ReturnType<typeof vi.spyOn>;
+  let fakeInterval: ReturnType<typeof setInterval>;
 
   beforeEach(() => {
     vi.clearAllMocks();
     db = createTestDb();
     vi.spyOn(console, 'log').mockImplementation(() => {});
     vi.spyOn(console, 'error').mockImplementation(() => {});
+    fakeInterval = setInterval(() => {}, 1);
+    clearInterval(fakeInterval);
+    setIntervalSpy = vi.spyOn(global, 'setInterval').mockReturnValue(fakeInterval);
+    clearIntervalSpy = vi.spyOn(global, 'clearInterval').mockImplementation(() => fakeInterval);
   });
 
   afterEach(() => {
@@ -234,6 +241,23 @@ describe('fileStore', () => {
     expect(fs.unlinkSync).toHaveBeenCalled();
   });
 
+  it('storeFileByMoving logs when fallback source cleanup fails', async () => {
+    vi.resetModules();
+    const fs = await import('fs');
+    vi.mocked(fs.existsSync).mockReturnValue(true);
+    vi.mocked(fs.statSync).mockReturnValue({ size: 42 } as any);
+    vi.mocked(fs.renameSync).mockImplementation(() => { throw new Error('EXDEV'); });
+    vi.mocked(fs.unlinkSync).mockImplementation(() => { throw new Error('EPERM'); });
+    const mod = await import('../fileStore.js');
+    mod.initFileStore(db);
+
+    expect(() => mod.getFileStore().storeFileByMoving('/tmp/upload', 'file.txt', 'text/plain')).not.toThrow();
+    expect(console.error).toHaveBeenCalledWith(
+      '[FileStore] Failed to remove source file after copy fallback:',
+      expect.any(Error)
+    );
+  });
+
   it('storeFileFromPath copies file', async () => {
     vi.resetModules();
     const fs = await import('fs');
@@ -318,5 +342,30 @@ describe('fileStore', () => {
 
     // The proxy should forward method calls to the singleton
     expect(mod.fileStore.getStats()).toBeDefined();
+  });
+
+  it('replaces the previous cleanup interval on re-init', async () => {
+    vi.resetModules();
+    const fs = await import('fs');
+    vi.mocked(fs.existsSync).mockReturnValue(true);
+    const mod = await import('../fileStore.js');
+
+    mod.initFileStore(db);
+    mod.initFileStore(db);
+
+    expect(setIntervalSpy).toHaveBeenCalledTimes(2);
+    expect(clearIntervalSpy).toHaveBeenCalledWith(fakeInterval);
+  });
+
+  it('stopFileStoreCleanup clears the registered cleanup interval', async () => {
+    vi.resetModules();
+    const fs = await import('fs');
+    vi.mocked(fs.existsSync).mockReturnValue(true);
+    const mod = await import('../fileStore.js');
+
+    mod.initFileStore(db);
+    mod.stopFileStoreCleanup();
+
+    expect(clearIntervalSpy).toHaveBeenCalledWith(fakeInterval);
   });
 });

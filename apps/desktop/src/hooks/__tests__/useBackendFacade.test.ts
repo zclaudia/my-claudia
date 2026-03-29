@@ -6,11 +6,13 @@ vi.mock('../../services/messageHandler', () => ({
 
 import { syncToGatewayStore } from '../useBackendFacade';
 import { useFacadeStore } from '../../stores/facadeStore';
+import { useToastStore } from '../../stores/toastStore';
 import { handleServerMessage } from '../../services/messageHandler';
 
 describe('useBackendFacade run_event forwarding', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    useToastStore.setState({ toasts: [] });
     useFacadeStore.setState({
       facade: null,
       mode: 'embedded',
@@ -59,5 +61,21 @@ describe('useBackendFacade run_event forwarding', () => {
         logTag: 'Facade:local-standalone',
       }),
     );
+  });
+
+  it('shows toast when content catch-up fails', () => {
+    syncToGatewayStore({
+      type: 'content_patch_failed',
+      backendId: 'local-standalone',
+      sessionId: 'session-1',
+      afterOffset: 12,
+      error: 'catch-up query failed',
+    } as any);
+
+    expect(useToastStore.getState().toasts[0]).toMatchObject({
+      type: 'error',
+      title: '消息同步失败',
+      message: 'catch-up query failed',
+    });
   });
 });

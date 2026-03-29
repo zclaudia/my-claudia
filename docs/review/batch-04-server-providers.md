@@ -1,7 +1,12 @@
-# Batch 4: Server — AI Provider Layer Review
+# Legacy Batch 4 / Current Plan Batch 10: Server — AI Provider Layer Review
 
 日期：2026-03-28
 状态：✅ 完成
+
+> 编号校准说明（2026-03-29）：
+> 本报告生成于旧的 13 批次 review 体系，因此文件名中的 `Batch 4` 是**历史编号**。
+> 在当前的 [project-review-plan.md](./project-review-plan.md) 中，本报告对应的是 **Batch 10: Server Infra — Providers**。
+> 当前计划里的 **Batch 4** 是 `server/src/{router,routes,repositories}` 的 API Surface review，不是 provider layer。
 
 ## 概览
 

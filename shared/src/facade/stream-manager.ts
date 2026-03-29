@@ -183,6 +183,7 @@ export class FacadeStreamManager {
 
     // Optimistic local close
     runtime.state = 'closed';
+    runtime.channelId = null;
     runtime.closedAt = now;
     runtime.updatedAt = now;
 
@@ -269,6 +270,7 @@ export class FacadeStreamManager {
       if (!shouldBeOpen) {
         // No desire to keep open → close
         runtime.state = 'closed';
+        runtime.channelId = null;
         runtime.closedAt = now;
         runtime.lastCloseReason = reason;
       } else if (context.willAutoRecover) {
@@ -278,6 +280,7 @@ export class FacadeStreamManager {
       } else {
         // Won't auto-recover → error
         runtime.state = 'error';
+        runtime.channelId = null;
         runtime.lastError = reason;
       }
 
@@ -317,9 +320,11 @@ export class FacadeStreamManager {
     if (desired?.shouldBeOpen) {
       // Desired open but stream was closed by gateway → error
       runtime.state = 'error';
+      runtime.channelId = null;
       runtime.lastError = reason;
     } else {
       runtime.state = 'closed';
+      runtime.channelId = null;
       runtime.closedAt = now;
       runtime.lastCloseReason = reason;
     }

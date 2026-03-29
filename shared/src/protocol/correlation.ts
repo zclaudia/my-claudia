@@ -127,6 +127,7 @@ export function isEvent(msg: any): msg is Event {
     'id' in msg &&
     'type' in msg &&
     'payload' in msg &&
+    !isRequest(msg) &&
     (!msg.metadata || !msg.metadata.requestId)
   );
 }

@@ -20,6 +20,7 @@ import { useGatewayStore } from '../stores/gatewayStore';
 import { useServerStore } from '../stores/serverStore';
 import { useSessionsStore } from '../stores/sessionsStore';
 import { useChatStore, type MessageWithToolCalls } from '../stores/chatStore';
+import { useToastStore } from '../stores/toastStore';
 import { handleServerMessage } from '../services/messageHandler';
 import type { BackendRuntimeState } from '@my-claudia/shared';
 import type { ConnectionStatus } from '../stores/serverStore';
@@ -261,6 +262,14 @@ export function syncToGatewayStore(event: BackendFacadeEvent): void {
       useChatStore.getState().appendMessages(sessionId, restoredMessages, { maxOffset: latestOffset });
       break;
     }
+
+    case 'content_patch_failed':
+      useToastStore.getState().add({
+        type: 'error',
+        title: '消息同步失败',
+        message: event.error,
+      });
+      break;
 
     default:
       break;

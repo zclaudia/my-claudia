@@ -25,6 +25,15 @@ describe('SystemInfoPanel', () => {
     expect(getByText('bash')).toBeTruthy();
   });
 
+  it('renders slash commands list', () => {
+    const { getByText } = render(
+      <SystemInfoPanel systemInfo={{ model: 'test', slashCommands: ['/status', '/review'] }} />
+    );
+    expect(getByText('Slash Commands')).toBeTruthy();
+    expect(getByText('/status')).toBeTruthy();
+    expect(getByText('/review')).toBeTruthy();
+  });
+
   it('collapses and expands on click', () => {
     const { getByText, queryByText } = render(
       <SystemInfoPanel systemInfo={{ model: 'test', cwd: '/home/user' }} />

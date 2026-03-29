@@ -82,7 +82,10 @@ describe('Gateway Proxy Streaming V2', () => {
     previousDataDir = process.env.MY_CLAUDIA_DATA_DIR;
     dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gateway-proxy-v2-'));
     process.env.MY_CLAUDIA_DATA_DIR = dataDir;
-    server = createGatewayServer({ gatewaySecret: GATEWAY_SECRET });
+    server = createGatewayServer({
+      gatewaySecret: GATEWAY_SECRET,
+      proxyStreamingTimeoutMs: 100,
+    });
     await new Promise<void>((resolve) => server.listen(TEST_PORT, '127.0.0.1', resolve));
   });
 
@@ -223,6 +226,37 @@ describe('Gateway Proxy Streaming V2', () => {
 
     const response = await responsePromise;
     expect(response.status).toBe(204);
+
+    await closeWs(backendWs);
+  });
+
+  test('fails the client request when a streaming response stalls after start', async () => {
+    const backendWs = new WebSocket(WS_URL);
+    await waitForOpen(backendWs);
+    const backendId = await registerBackend(backendWs, 'stalled-stream-backend');
+
+    backendWs.on('message', (data) => {
+      const msg = JSON.parse(data.toString());
+      if (msg.type !== 'http_proxy_request') return;
+
+      backendWs.send(JSON.stringify({
+        type: 'http_proxy_response_start',
+        requestId: msg.requestId,
+        statusCode: 200,
+        headers: {
+          'content-type': 'text/plain',
+        },
+      }));
+      backendWs.send(JSON.stringify({
+        type: 'http_proxy_response_chunk',
+        requestId: msg.requestId,
+        data: Buffer.from('partial').toString('base64'),
+      }));
+    });
+
+    await expect(fetch(`${HTTP_URL}/api/proxy/${backendId}/stall`, {
+      headers: { Authorization: `Bearer ${GATEWAY_SECRET}` },
+    })).rejects.toThrow();
 
     await closeWs(backendWs);
   });

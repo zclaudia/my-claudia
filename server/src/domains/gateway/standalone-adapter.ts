@@ -20,6 +20,7 @@ import type {
 } from '@my-claudia/shared';
 import type { ClientMessage, ServerMessage } from '@my-claudia/shared';
 import type { LocalBackendHandler } from './embedded-adapter.js';
+import { parseLocalChannelId } from './channel-id.js';
 
 export class StandaloneFacadeAdapter implements FacadeRuntimeGatewayAdapter {
   private listeners: Array<(event: FacadeAdapterEvent) => void> = [];
@@ -98,16 +99,14 @@ export class StandaloneFacadeAdapter implements FacadeRuntimeGatewayAdapter {
       },
       closeBackendChannel: (channelId) => {
         if (this.isLocalChannel(channelId)) {
-          const firstColon = channelId.indexOf(':');
-          const lastColon = channelId.lastIndexOf(':');
-          if (firstColon > 0 && lastColon > firstColon) {
-            const backendId = channelId.slice(firstColon + 1, lastColon);
-            if (backendId === this.backendId && this.localChannelId === channelId) {
+          const parsed = parseLocalChannelId(channelId);
+          if (parsed) {
+            if (parsed.backendId === this.backendId && this.localChannelId === channelId) {
               this.localChannelId = null;
             }
             this.emit({
               type: 'backend_channel_closed',
-              backendId,
+              backendId: parsed.backendId,
               channelId,
               reason: 'client_closed',
             });
@@ -222,11 +221,7 @@ export class StandaloneFacadeAdapter implements FacadeRuntimeGatewayAdapter {
       const maxOffset = messages.length > 0
         ? Math.max(...messages.map(m => m.offset))
         : afterOffset;
-      const firstColon = channelId.indexOf(':');
-      const lastColon = channelId.lastIndexOf(':');
-      const backendId = (firstColon > 0 && lastColon > firstColon)
-        ? channelId.slice(firstColon + 1, lastColon)
-        : this.backendId;
+      const backendId = parseLocalChannelId(channelId)?.backendId ?? this.backendId;
       this.emit({
         type: 'content_patch_received',
         backendId,
@@ -236,7 +231,16 @@ export class StandaloneFacadeAdapter implements FacadeRuntimeGatewayAdapter {
         latestOffset: maxOffset,
       });
     } catch (error) {
+      const backendId = parseLocalChannelId(channelId)?.backendId ?? this.backendId;
       console.error('[StandaloneAdapter] Local catch-up error:', error);
+      this.emit({
+        type: 'content_patch_failed',
+        backendId,
+        channelId,
+        sessionId,
+        afterOffset,
+        error: error instanceof Error ? error.message : 'Catch-up failed',
+      });
     }
   }
 

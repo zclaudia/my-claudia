@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { Info, FolderOpen, MessageSquare, Cpu, Package, Shield, Key, Folder, Wrench, Monitor, Users } from 'lucide-react';
+import { Info, FolderOpen, MessageSquare, Cpu, Package, Shield, Key, Folder, Wrench, Monitor, Users, Terminal } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import type { SystemInfo } from '@my-claudia/shared';
 
@@ -46,6 +46,7 @@ export function SystemInfoButton({ systemInfo, sessionInfo }: SystemInfoButtonPr
     systemInfo.apiKeySource ||
     (systemInfo.tools && systemInfo.tools.length > 0) ||
     (systemInfo.mcpServers && systemInfo.mcpServers.length > 0) ||
+    (systemInfo.slashCommands && systemInfo.slashCommands.length > 0) ||
     (systemInfo.agents && systemInfo.agents.length > 0)
   ));
 
@@ -145,6 +146,11 @@ export function SystemInfoButton({ systemInfo, sessionInfo }: SystemInfoButtonPr
             {/* MCP Servers */}
             {systemInfo?.mcpServers && systemInfo.mcpServers.length > 0 && (
               <InfoList icon={Monitor} label="MCP Servers" items={systemInfo.mcpServers} />
+            )}
+
+            {/* Slash commands */}
+            {systemInfo?.slashCommands && systemInfo.slashCommands.length > 0 && (
+              <InfoList icon={Terminal} label="Slash Commands" items={systemInfo.slashCommands} />
             )}
 
             {/* Agents */}
