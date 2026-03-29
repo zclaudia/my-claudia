@@ -107,20 +107,7 @@ export class GatewayTransport {
     this.authenticated = false;
     this.channels.clear();
     this.backendToChannel.clear();
-    // Normalize URL: ensure ws:// or wss:// protocol for WebSocket
-    let wsUrl = this.config.url;
-    if (wsUrl.startsWith('https://')) {
-      wsUrl = 'wss://' + wsUrl.slice(8);
-    } else if (wsUrl.startsWith('http://')) {
-      wsUrl = 'ws://' + wsUrl.slice(7);
-    } else if (!wsUrl.startsWith('ws://') && !wsUrl.startsWith('wss://')) {
-      wsUrl = 'ws://' + wsUrl;
-    }
-    // Append /ws path if not already present
-    if (!wsUrl.endsWith('/ws') && !wsUrl.includes('/ws?')) {
-      wsUrl = wsUrl.replace(/\/?$/, '/ws');
-    }
-    this.ws = new WebSocket(wsUrl);
+    this.ws = new WebSocket(this.config.url);
     this.setupWebSocket(this.ws);
   }
 
