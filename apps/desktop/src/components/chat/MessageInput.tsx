@@ -107,7 +107,6 @@ export function MessageInput({
   const [mentionState, setMentionState] = useState<MentionState>(initialMentionState);
   const [isComposing, setIsComposing] = useState(false); // Track IME composition state
   const [availableViewportHeight, setAvailableViewportHeight] = useState(getAvailableViewportHeight);
-  const compactRowHeightClass = isMobile ? 'h-16' : 'h-12';
   const controlIconSize = isMobile ? 18 : 20;
   const expandedInputMaxHeight = Math.max(
     EXPANDED_INPUT_MIN_HEIGHT_PX,
@@ -878,12 +877,12 @@ export function MessageInput({
         </div>
       ) : (
         /* Desktop: single-row layout */
-        <div className={`flex gap-2 ${advancedMode ? 'items-end' : `items-center ${compactRowHeightClass}`}`}>
+        <div className={`flex gap-2 items-end ${advancedMode ? '' : 'min-h-12'}`}>
           {/* Attachment button */}
           <button
             onClick={() => fileInputRef.current?.click()}
             disabled={disabled}
-            className={`${advancedMode ? 'h-12 w-12' : 'h-full aspect-square'} flex-shrink-0 flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted rounded-full transition-colors disabled:opacity-50 disabled:cursor-not-allowed`}
+            className="h-12 w-12 flex-shrink-0 flex items-center justify-center self-end text-muted-foreground hover:text-foreground hover:bg-muted rounded-full transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             title="Add attachment (images, files)"
           >
             <Paperclip size={controlIconSize} strokeWidth={1.75} />
@@ -898,7 +897,7 @@ export function MessageInput({
           />
 
           {/* Text input */}
-          <div className={`flex-1 relative ${advancedMode ? '' : 'h-full'}`}>
+          <div className="flex-1 relative self-end">
             <textarea
               data-testid="message-input"
               ref={textareaRef}
@@ -947,7 +946,7 @@ export function MessageInput({
           {isLoading && onCancel ? (
             <button
               onClick={onCancel}
-              className={`${advancedMode ? 'h-12 w-12' : 'h-full aspect-square'} flex-shrink-0 flex items-center justify-center bg-destructive text-destructive-foreground hover:bg-destructive/90 rounded-full transition-colors`}
+              className="h-12 w-12 flex-shrink-0 flex items-center justify-center self-end bg-destructive text-destructive-foreground hover:bg-destructive/90 rounded-full transition-colors"
               title="Cancel (Esc)"
             >
               <X size={controlIconSize} strokeWidth={2} />
@@ -956,7 +955,7 @@ export function MessageInput({
             <button
               onClick={handleSend}
               disabled={disabled || (!value.trim() && attachments.length === 0)}
-              className={`${advancedMode ? 'h-12 w-12' : 'h-full aspect-square'} flex-shrink-0 flex items-center justify-center bg-primary text-primary-foreground hover:bg-primary/90 disabled:bg-muted disabled:text-muted-foreground disabled:cursor-not-allowed rounded-full transition-colors`}
+              className="h-12 w-12 flex-shrink-0 flex items-center justify-center self-end bg-primary text-primary-foreground hover:bg-primary/90 disabled:bg-muted disabled:text-muted-foreground disabled:cursor-not-allowed rounded-full transition-colors"
               title={advancedMode
                 ? `Send message (${isMac ? 'Cmd' : 'Ctrl'}+Enter)`
                 : 'Send message (Enter)'}

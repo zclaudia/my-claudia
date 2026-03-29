@@ -93,10 +93,13 @@ describe('MessageInput', () => {
   });
 
   it('persists draft to store on change', () => {
+    vi.useFakeTimers();
     render(<MessageInput {...defaultProps} />);
     const textarea = screen.getByPlaceholderText(/Type a message/);
     fireEvent.change(textarea, { target: { value: 'draft text' } });
+    vi.advanceTimersByTime(300);
     expect(mockSetDraft).toHaveBeenCalledWith('session-1', 'draft text');
+    vi.useRealTimers();
   });
 
   it('renders with initialValue', () => {
@@ -399,8 +402,8 @@ describe('MessageInput', () => {
   describe('advanced mode', () => {
     it('renders larger textarea in advanced mode', () => {
       render(<MessageInput {...defaultProps} advancedMode />);
-      const textarea = screen.getByPlaceholderText(/Type a message/);
-      expect(textarea.className).toContain('min-h-[160px]');
+      const textarea = screen.getByPlaceholderText(/Type a message/) as HTMLTextAreaElement;
+      expect(textarea.style.minHeight).toBe('160px');
       expect(textarea.className).toContain('resize-none');
     });
 
@@ -410,6 +413,10 @@ describe('MessageInput', () => {
       expect(textarea.className).toContain('min-h-12');
       expect(textarea.className).not.toContain('min-h-[160px]');
       expect(textarea.className).toContain('resize-none');
+      const row = textarea.closest('div.flex.gap-2');
+      expect(row?.className).toContain('items-end');
+      expect(row?.className).toContain('min-h-12');
+      expect(row?.className).not.toContain('items-center');
     });
 
     it('does not send on plain Enter in advanced mode (desktop)', () => {
