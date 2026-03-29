@@ -38,7 +38,12 @@ export class DirectGatewayAdapter implements FacadeRuntimeGatewayAdapter {
     instanceId: string;
   }) {
     this.transportConfig = config;
-    this.gatewayHttpUrl = config.url.replace(/^ws/, 'http');
+    // Normalize to HTTP URL for proxy API calls
+    let httpUrl = config.url;
+    if (httpUrl.startsWith('wss://')) httpUrl = 'https://' + httpUrl.slice(6);
+    else if (httpUrl.startsWith('ws://')) httpUrl = 'http://' + httpUrl.slice(5);
+    else if (!httpUrl.startsWith('http://') && !httpUrl.startsWith('https://')) httpUrl = 'http://' + httpUrl;
+    this.gatewayHttpUrl = httpUrl.replace(/\/ws\/?$/, '');
     this.gatewaySecret = config.gatewaySecret;
   }
 
