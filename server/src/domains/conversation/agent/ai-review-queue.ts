@@ -145,6 +145,7 @@ export class AIReviewQueue {
 
       const provider = this.getProvider(entry.config.analysisProviderId);
       if (!provider) {
+        console.log(`[AI Review Queue] No provider available (analysisProviderId=${entry.config.analysisProviderId || 'default'})`);
         entry.resolve({ decision: 'uncertain', reasoning: 'No AI review provider available', confidence: 0 });
         return;
       }

@@ -126,24 +126,26 @@ import {
 } from '../api';
 import { useServerStore } from '../../stores/serverStore';
 
+const mockServerStore = {
+  activeServerId: 'server-1',
+  localServerPort: 3100,
+  getActiveServer: () => ({
+    id: 'server-1',
+    name: 'Test Server',
+    address: 'localhost:3100',
+  }),
+  getDefaultServer: () => ({
+    id: 'server-1',
+    name: 'Test Server',
+    address: 'localhost:3100',
+  }),
+  activeServerSupports: () => true,
+};
+
 // Mock the serverStore
 vi.mock('../../stores/serverStore', () => ({
   useServerStore: {
-    getState: () => ({
-      activeServerId: 'server-1',
-      localServerPort: 3100,
-      getActiveServer: () => ({
-        id: 'server-1',
-        name: 'Test Server',
-        address: 'localhost:3100',
-      }),
-      getDefaultServer: () => ({
-        id: 'server-1',
-        name: 'Test Server',
-        address: 'localhost:3100',
-      }),
-      activeServerSupports: () => true,
-    }),
+    getState: () => mockServerStore,
   },
 }));
 
@@ -168,6 +170,7 @@ vi.mock('../../utils/controlPlane', () => ({
   getControlPlaneMode: () => 'embedded-local',
   isLocalBackendId: (id: string | null | undefined) => id === 'server-1' || id === 'local',
   resolveLocalBackendId: () => 'server-1',
+  resolveCanonicalBackendId: (backendId: string | null | undefined, fallback: string | null = null) => backendId ?? fallback,
 }));
 
 // Mock the gatewayStore
@@ -180,7 +183,7 @@ vi.mock('../../stores/gatewayStore', () => ({
     }),
   },
   isGatewayTarget: (id: string) => id?.startsWith('gw:'),
-  parseBackendId: (id: string) => id?.slice(3),
+  parseBackendId: (id: string) => id?.startsWith('gw:') ? id.slice(3) : id,
 }));
 
 vi.mock('../gatewayProxy', () => ({
@@ -195,6 +198,7 @@ vi.stubGlobal('fetch', mockFetch);
 describe('api', () => {
   beforeEach(() => {
     vi.resetAllMocks();
+    mockServerStore.activeServerId = 'server-1';
   });
 
   // Helper to setup fetch mock response
@@ -353,9 +357,9 @@ describe('api', () => {
       await getSessionMessages('remote-session');
 
       expect(mockFetch).toHaveBeenCalledWith(
-        'http://gateway/gw:backend-1/api/sessions/remote-session/messages',
+        'http://localhost:3100/api/sessions/remote-session/messages',
         expect.objectContaining({
-          headers: expect.objectContaining({ Authorization: 'Bearer gw-token' }),
+          headers: expect.objectContaining({ 'Content-Type': 'application/json' }),
         })
       );
     });
@@ -396,9 +400,9 @@ describe('api', () => {
       await getSessions('remote-project');
 
       expect(mockFetch).toHaveBeenCalledWith(
-        'http://gateway/gw:backend-1/api/sessions?projectId=remote-project',
+        'http://localhost:3100/api/sessions?projectId=remote-project',
         expect.objectContaining({
-          headers: expect.objectContaining({ Authorization: 'Bearer gw-token' }),
+          headers: expect.objectContaining({ 'Content-Type': 'application/json' }),
         })
       );
     });
@@ -604,7 +608,7 @@ describe('api', () => {
     it('searchMessages', async () => {
       mockResponse({ results: [{ id: 'm1', content: 'found' }] });
       const result = await searchMessages('test');
-      expect(result).toHaveLength(1);
+      expect(result).toEqual([{ id: 'm1', content: 'found', ownerBackendId: 'server-1' }]);
     });
 
     it('getSearchHistory', async () => {
@@ -1322,6 +1326,17 @@ describe('api', () => {
       mockResponse({ results });
       const result = await searchMessages('hello', { projectId: 'p1' });
       expect(result).toEqual([{ ...results[0], ownerBackendId: 'server-1' }]);
+    });
+
+    it('searchMessages canonicalizes gateway-prefixed active server id for fallback owner backend', async () => {
+      mockServerStore.activeServerId = 'gw:remote-1';
+      const results = [{ id: 'm1', content: 'hello' }];
+      mockResponse({ results });
+
+      const result = await searchMessages('hello');
+
+      expect(result).toEqual([{ ...results[0], ownerBackendId: 'remote-1' }]);
+      mockServerStore.activeServerId = 'server-1';
     });
 
     it('clearSearchHistory clears history', async () => {

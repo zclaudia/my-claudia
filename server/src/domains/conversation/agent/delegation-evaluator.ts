@@ -139,16 +139,20 @@ export async function evaluateAIReview(
 ): Promise<AIReviewResultWithSession> {
   // 1. Rate limit
   if (isRateLimited(config.maxAutoApprovalsPerMinute)) {
+    console.log(`[AI Review] Skipped: rate limit exceeded`);
     return { decision: 'uncertain', reasoning: 'Rate limit exceeded', confidence: 0 };
   }
 
   // 2. LLM analysis
   if (!ctx.analysisProvider) {
+    console.log(`[AI Review] Skipped: no analysis provider available`);
     return { decision: 'uncertain', reasoning: 'No LLM provider for risk analysis', confidence: 0 };
   }
 
   try {
+    console.log(`[AI Review] Running LLM analysis for: ${ctx.toolName} (sessionId=${ctx.sessionId || 'new'})`);
     const llmResult = await analyzeLLMRisk(ctx);
+    console.log(`[AI Review] LLM result: decision=${llmResult.decision} confidence=${llmResult.confidence} reasoning=${llmResult.reasoning?.slice(0, 100)}`);
 
     if (llmResult.confidence >= config.confidenceThreshold) {
       if (llmResult.decision === 'approve') recordApproval();
@@ -163,6 +167,7 @@ export async function evaluateAIReview(
       sessionId: llmResult.sessionId,
     };
   } catch (err) {
+    console.error(`[AI Review] LLM analysis failed:`, err);
     return {
       decision: 'uncertain',
       reasoning: `LLM analysis failed: ${err instanceof Error ? err.message : 'unknown error'}`,

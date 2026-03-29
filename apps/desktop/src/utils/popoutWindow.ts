@@ -4,9 +4,10 @@
  */
 import { useServerStore } from '../stores/serverStore';
 import { useFacadeStore } from '../stores/facadeStore';
-import { useGatewayStore } from '../stores/gatewayStore';
+import { parseBackendId, useGatewayStore } from '../stores/gatewayStore';
 import { getBaseUrlForBackend, getAuthHeadersForBackend } from '../services/api/base';
 import { useOwnershipStore } from '../stores/ownershipStore';
+import { resolveCanonicalBackendId, resolveLocalBackendId } from './controlPlane';
 
 export interface ConnectionParams {
   serverUrl: string;
@@ -23,12 +24,12 @@ interface ConnectionTargetOptions {
 }
 
 function resolveTargetBackendId(options?: ConnectionTargetOptions): string {
-  if (options?.backendId) return options.backendId;
+  if (options?.backendId) return canonicalizeBackendId(options.backendId);
   if (options?.sessionId) {
     const ownerBackendId = useOwnershipStore.getState().getSessionBackendId(options.sessionId);
-    if (ownerBackendId) return ownerBackendId;
+    if (ownerBackendId) return canonicalizeBackendId(ownerBackendId);
   }
-  return useServerStore.getState().activeServerId || '';
+  return canonicalizeBackendId(useServerStore.getState().activeServerId || '');
 }
 
 /** Gather current connection params from stores (serverUrl, auth, gateway). */
@@ -113,4 +114,10 @@ export function parseWindowConnectionParams(): ConnectionParams {
     gatewayUrl: params.get('gatewayUrl') || undefined,
     gatewaySecret: params.get('gatewaySecret') || undefined,
   };
+}
+
+function canonicalizeBackendId(backendId: string | null | undefined): string {
+  if (!backendId) return '';
+  const parsedBackendId = parseBackendId(backendId) ?? backendId;
+  return resolveCanonicalBackendId(parsedBackendId, resolveLocalBackendId() ?? parsedBackendId) ?? parsedBackendId;
 }

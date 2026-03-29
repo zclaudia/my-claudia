@@ -1,6 +1,7 @@
 import { apiCall, apiCallVoid } from './unwrap';
 import { useServerStore } from '../../stores/serverStore';
-import { resolveLocalBackendId } from '../../utils/controlPlane';
+import { parseBackendId } from '../../stores/gatewayStore';
+import { resolveCanonicalBackendId, resolveLocalBackendId } from '../../utils/controlPlane';
 
 export interface SearchResult {
   id: string;
@@ -46,7 +47,7 @@ export async function searchMessages(query: string, filters?: SearchFilters): Pr
   }
 
   const data = await apiCall<{ results: SearchResult[] }>(`/api/sessions/search/messages?${params}`);
-  const activeBackendId = useServerStore.getState().activeServerId || resolveLocalBackendId();
+  const activeBackendId = resolveSearchOwnerBackendId();
   if (!activeBackendId) {
     throw new Error('No active backend available for search');
   }
@@ -87,4 +88,14 @@ export async function getSearchSuggestions(prefix: string, userId?: string, limi
 
   const data = await apiCall<{ suggestions: string[] }>(`/api/sessions/search/suggestions?${params}`);
   return data.suggestions;
+}
+
+function resolveSearchOwnerBackendId(): string | null {
+  const activeServerId = useServerStore.getState().activeServerId ?? null;
+  if (!activeServerId) {
+    return resolveLocalBackendId();
+  }
+
+  const parsedBackendId = parseBackendId(activeServerId) ?? activeServerId;
+  return resolveCanonicalBackendId(parsedBackendId, resolveLocalBackendId() ?? parsedBackendId);
 }

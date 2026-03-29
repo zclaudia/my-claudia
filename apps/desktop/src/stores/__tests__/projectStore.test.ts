@@ -1,8 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { useProjectStore } from '../projectStore';
+import { useOwnershipStore } from '../ownershipStore';
 import type { Project, Session } from '@my-claudia/shared';
 
 const mockSetActiveServer = vi.fn();
+const mockServerStoreState = {
+  activeServerId: 'local',
+  setActiveServer: mockSetActiveServer,
+};
 
 vi.mock('../sessionsStore', () => ({
   useSessionsStore: {
@@ -16,15 +21,14 @@ vi.mock('../sessionsStore', () => ({
 
 vi.mock('../serverStore', () => ({
   useServerStore: {
-    getState: () => ({
-      setActiveServer: mockSetActiveServer,
-    }),
+    getState: () => mockServerStoreState,
   },
 }));
 
 vi.mock('../../utils/controlPlane', () => ({
   getControlPlaneMode: () => 'embedded-local',
   resolveLocalBackendId: () => 'local-backend-1',
+  resolveCanonicalBackendId: (backendId: string | null | undefined, fallback: string | null = null) => backendId ?? fallback,
 }));
 
 vi.mock('../chatStore', () => ({
@@ -39,6 +43,7 @@ vi.mock('../chatStore', () => ({
 describe('projectStore', () => {
   beforeEach(() => {
     mockSetActiveServer.mockReset();
+    mockServerStoreState.activeServerId = 'local';
     useProjectStore.setState({
       projects: [],
       sessions: [],
@@ -49,6 +54,8 @@ describe('projectStore', () => {
       providerCommands: {},
       providerCapabilities: {},
     });
+    useOwnershipStore.getState().clearSessionOwners();
+    useOwnershipStore.getState().clearProjectOwners();
   });
 
   const createProject = (overrides: Partial<Project> = {}): Project => ({
@@ -162,6 +169,14 @@ describe('projectStore', () => {
       expect(useProjectStore.getState().sessions).toEqual(sessions);
     });
 
+    it('stores canonical backend ownership for gateway-prefixed active server ids', () => {
+      mockServerStoreState.activeServerId = 'gw:remote-1';
+
+      useProjectStore.getState().setSessions([createSession({ id: 's1' })]);
+
+      expect(useOwnershipStore.getState().getSessionBackendId('s1')).toBe('remote-1');
+    });
+
     it('addSession appends to sessions', () => {
       const s1 = createSession({ id: 's1' });
       const s2 = createSession({ id: 's2' });
@@ -237,6 +252,7 @@ describe('projectStore', () => {
     });
 
     it('selectSession switches to local backend for local sessions in embedded mode', () => {
+      mockServerStoreState.activeServerId = null;
       const session = createSession({ id: 's1', projectId: 'p1' });
       useProjectStore.getState().setSessions([session]);
 

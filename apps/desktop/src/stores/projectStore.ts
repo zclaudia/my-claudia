@@ -5,7 +5,8 @@ import { useChatStore } from './chatStore';
 import { useProviderMetaStore } from './providerMetaStore';
 import { useServerStore } from './serverStore';
 import { useOwnershipStore } from './ownershipStore';
-import { getControlPlaneMode, resolveLocalBackendId } from '../utils/controlPlane';
+import { parseBackendId } from './gatewayStore';
+import { getControlPlaneMode, resolveCanonicalBackendId, resolveLocalBackendId } from '../utils/controlPlane';
 
 export type ProjectDashboardView =
   | 'home'
@@ -76,7 +77,7 @@ export const useProjectStore = create<ProjectState>((set) => ({
   // ── Project actions ──
 
   setProjects: (projects) => {
-    const activeBackendId = useServerStore.getState().activeServerId;
+    const activeBackendId = resolveOwnershipBackendId();
     if (activeBackendId) {
       useOwnershipStore.getState().removeProjectOwnersByBackend(activeBackendId);
       useOwnershipStore.getState().setProjectOwners(projects.map((p) => p.id), activeBackendId);
@@ -86,7 +87,7 @@ export const useProjectStore = create<ProjectState>((set) => ({
 
   addProject: (project) =>
     set((state) => {
-      const activeBackendId = useServerStore.getState().activeServerId;
+      const activeBackendId = resolveOwnershipBackendId();
       if (activeBackendId) {
         useOwnershipStore.getState().setProjectOwner(project.id, activeBackendId);
       }
@@ -131,7 +132,7 @@ export const useProjectStore = create<ProjectState>((set) => ({
   // ── Session actions ──
 
   setSessions: (sessions) => {
-    const activeBackendId = useServerStore.getState().activeServerId;
+    const activeBackendId = resolveOwnershipBackendId();
     if (activeBackendId) {
       useOwnershipStore.getState().setSessionOwners(sessions.map((s) => s.id), activeBackendId);
     }
@@ -140,7 +141,7 @@ export const useProjectStore = create<ProjectState>((set) => ({
 
   mergeSessions: (incoming) =>
     set((state) => {
-      const activeBackendId = useServerStore.getState().activeServerId;
+      const activeBackendId = resolveOwnershipBackendId();
       if (activeBackendId) {
         useOwnershipStore.getState().setSessionOwners(incoming.map((s) => s.id), activeBackendId);
       }
@@ -174,7 +175,7 @@ export const useProjectStore = create<ProjectState>((set) => ({
 
   addSession: (session) =>
     set((state) => {
-      const activeBackendId = useServerStore.getState().activeServerId;
+      const activeBackendId = resolveOwnershipBackendId();
       if (activeBackendId) {
         useOwnershipStore.getState().setSessionOwner(session.id, activeBackendId);
       }
@@ -314,3 +315,15 @@ export const useProjectStore = create<ProjectState>((set) => ({
     }));
   },
 }));
+
+function resolveOwnershipBackendId(): string | null {
+  const activeServerId = useServerStore.getState().activeServerId ?? null;
+  if (!activeServerId) return null;
+
+  const parsedBackendId = parseBackendId(activeServerId) ?? activeServerId;
+  if (getControlPlaneMode() !== 'embedded-local') {
+    return parsedBackendId;
+  }
+
+  return resolveCanonicalBackendId(parsedBackendId, resolveLocalBackendId() ?? parsedBackendId);
+}
