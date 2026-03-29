@@ -120,7 +120,6 @@ export class GatewayTransport {
     if (!wsUrl.endsWith('/ws') && !wsUrl.includes('/ws?')) {
       wsUrl = wsUrl.replace(/\/?$/, '/ws');
     }
-    console.log(`[GatewayTransport] Connecting to: ${wsUrl} (original: ${this.config.url})`);
     this.ws = new WebSocket(wsUrl);
     this.setupWebSocket(this.ws);
   }
@@ -200,8 +199,8 @@ export class GatewayTransport {
 
   private setupWebSocket(ws: WebSocket): void {
     const currentWs = ws;
-    ws.onopen = () => { console.log('[GatewayTransport] WebSocket opened'); if (this.ws !== currentWs) return; this.sendPeerHello(); };
-    ws.onclose = (event) => { console.log(`[GatewayTransport] WebSocket closed: code=${event.code} reason=${event.reason} wasClean=${event.wasClean}`);
+    ws.onopen = () => { if (this.ws !== currentWs) return; this.sendPeerHello(); };
+    ws.onclose = () => {
       const expectedClose = this.expectedCloseWs === currentWs;
       if (expectedClose) {
         this.expectedCloseWs = null;
@@ -212,7 +211,7 @@ export class GatewayTransport {
         this.config.onDisconnected();
       }
     };
-    ws.onerror = (error) => { console.error('[GatewayTransport] WebSocket error:', error); this.config.onError(error); };
+    ws.onerror = (error) => { this.config.onError(error); };
     ws.onmessage = (event: MessageEvent) => {
       try { this.handleMessage(JSON.parse(event.data)); }
       catch (error) { console.error('[GatewayTransport] Failed to parse message:', error); }
