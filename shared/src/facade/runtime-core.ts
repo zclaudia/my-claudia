@@ -127,10 +127,7 @@ export class BackendFacadeRuntimeCore implements BackendFacade {
     }
 
     // 7. Emit initial snapshot
-    this.emitFacadeEvent({
-      type: 'snapshot_updated',
-      snapshot: this.getSnapshot(),
-    });
+    this.publishSnapshotUpdate();
   }
 
   stop(): void {
@@ -568,13 +565,24 @@ export class BackendFacadeRuntimeCore implements BackendFacade {
     }
   }
 
-  /** Increment version and notify snapshot listeners. */
-  private notifySnapshotListeners(): void {
+  /** Increment version and broadcast the latest snapshot to all consumers. */
+  private publishSnapshotUpdate(): void {
     this.snapshotVersion++;
     const snapshot = this.getSnapshot();
     for (const listener of this.snapshotListeners) {
       try {
         listener(snapshot);
+      } catch {
+        // Listener errors must not break dispatch
+      }
+    }
+
+    for (const listener of this.eventListeners) {
+      try {
+        listener({
+          type: 'snapshot_updated',
+          snapshot,
+        });
       } catch {
         // Listener errors must not break dispatch
       }
@@ -593,11 +601,10 @@ export class BackendFacadeRuntimeCore implements BackendFacade {
 
     // Fix #2: notify snapshot listeners on ALL state-changing events, not just snapshot_updated
     switch (event.type) {
-      case 'snapshot_updated':
       case 'connection_state_changed':
       case 'backend_state_changed':
       case 'session_stream_state_changed':
-        this.notifySnapshotListeners();
+        this.publishSnapshotUpdate();
         break;
       // catalog/run/content events don't change facade snapshot state
     }

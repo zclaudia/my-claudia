@@ -110,6 +110,26 @@ describe('BackendFacadeRuntimeCore', () => {
       expect(snapshot.backends).toHaveLength(2);
     });
 
+    it('emits snapshot_updated with the full registry snapshot after registry changes', () => {
+      emit({
+        type: 'registry_snapshot_received',
+        revision: 2,
+        items: [
+          makePresence({ backendId: 'b1' }),
+          makePresence({ backendId: 'b2' }),
+        ],
+      });
+
+      const snapshotEvent = [...events].reverse().find((event) => event.type === 'snapshot_updated');
+      expect(snapshotEvent).toBeDefined();
+      expect(snapshotEvent?.type).toBe('snapshot_updated');
+      expect((snapshotEvent as Extract<BackendFacadeEvent, { type: 'snapshot_updated' }>).snapshot.backends)
+        .toEqual(expect.arrayContaining([
+          expect.objectContaining({ backendId: 'b1' }),
+          expect.objectContaining({ backendId: 'b2' }),
+        ]));
+    });
+
     it('handles registry_event_received upsert', () => {
       emit({
         type: 'registry_event_received',
