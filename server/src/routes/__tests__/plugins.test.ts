@@ -17,8 +17,12 @@ vi.mock('../../plugins/loader.js', () => ({
     hasPlugin: vi.fn(),
     activate: vi.fn(),
     deactivate: vi.fn(),
+    reload: vi.fn(),
     discover: vi.fn(),
     remove: vi.fn(),
+    getPluginDirs: vi.fn(() => []),
+    getExtraDirsFromDb: vi.fn(() => []),
+    saveExtraDirs: vi.fn(),
   },
 }));
 
@@ -270,6 +274,27 @@ describe('plugin routes', () => {
     });
   });
 
+  describe('POST /api/plugins/:id/reload', () => {
+    it('returns 404 when plugin not found', async () => {
+      vi.mocked(pluginLoader.hasPlugin).mockReturnValue(false);
+
+      const res = await request(app).post('/api/plugins/nonexistent/reload');
+
+      expect(res.status).toBe(404);
+      expect(res.body.error.code).toBe('NOT_FOUND');
+    });
+
+    it('reloads plugin successfully', async () => {
+      vi.mocked(pluginLoader.hasPlugin).mockReturnValue(true);
+      vi.mocked(pluginLoader.reload).mockResolvedValue(true);
+
+      const res = await request(app).post('/api/plugins/test-plugin/reload');
+
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({ success: true, data: { reloaded: true } });
+    });
+  });
+
   describe('POST /api/plugins/:id/permissions/grant', () => {
     it('returns 400 when permissions not provided', async () => {
       const res = await request(app)
@@ -374,6 +399,49 @@ describe('plugin routes', () => {
     });
   });
 
+  describe('GET /api/plugins/dirs', () => {
+    it('returns current plugin directories', async () => {
+      vi.mocked(pluginLoader.getPluginDirs).mockReturnValue(['/plugins/default', '/plugins/custom']);
+      vi.mocked(pluginLoader.getExtraDirsFromDb).mockReturnValue(['/plugins/custom']);
+
+      const res = await request(app).get('/api/plugins/dirs');
+
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({
+        success: true,
+        data: {
+          dirs: ['/plugins/default', '/plugins/custom'],
+          extraDirs: ['/plugins/custom'],
+        },
+      });
+    });
+  });
+
+  describe('PUT /api/plugins/dirs', () => {
+    it('returns 400 for invalid dirs payload', async () => {
+      const res = await request(app).put('/api/plugins/dirs').send({ dirs: 'bad' });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error.code).toBe('INVALID_INPUT');
+    });
+
+    it('normalizes and saves extra dirs', async () => {
+      vi.mocked(pluginLoader.getPluginDirs).mockReturnValue(['/plugins/default', '/plugins/custom']);
+      vi.mocked(pluginLoader.discover).mockResolvedValue([]);
+
+      const res = await request(app)
+        .put('/api/plugins/dirs')
+        .send({ dirs: [' /plugins/custom ', '', '/plugins/custom'] });
+
+      expect(res.status).toBe(200);
+      expect(pluginLoader.saveExtraDirs).toHaveBeenCalledWith(['/plugins/custom']);
+      expect(res.body).toEqual({
+        success: true,
+        data: { dirs: ['/plugins/default', '/plugins/custom'] },
+      });
+    });
+  });
+
   describe('GET /api/plugins/styles/claudia-ui.css', () => {
     it('returns CSS with correct content-type', async () => {
       const res = await request(app).get('/api/plugins/styles/claudia-ui.css');
@@ -441,6 +509,20 @@ describe('plugin routes', () => {
       const res = await request(app).get('/api/plugins/test-plugin/frontend/missing.html');
 
       expect(res.status).toBe(404);
+    });
+
+    it('returns 500 when frontend resolver hits unexpected error', async () => {
+      vi.mocked(pluginLoader.getPlugin).mockReturnValue({
+        path: '/plugins/test-plugin',
+      } as any);
+      vi.mocked(fs.existsSync).mockImplementation(() => {
+        throw new Error('fs boom');
+      });
+
+      const res = await request(app).get('/api/plugins/test-plugin/frontend/index.html');
+
+      expect(res.status).toBe(500);
+      expect(res.text).toBe('fs boom');
     });
   });
 

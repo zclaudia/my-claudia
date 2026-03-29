@@ -23,7 +23,8 @@ import type { ProcessMonitor } from './utils/process-monitor.js';
 import type { NotificationService } from './domains/notification-feed/notification-service.js';
 import { ClaudiaBranchService } from './domains/orchestration/claudia-branch-service.js';
 
-// Phase 2: Router architecture
+// WebSocket message-router architecture.
+// This router is not the HTTP REST entrypoint; REST routes are mounted in server-setup.ts.
 import { createRouter } from './router/index.js';
 import { loggingMiddleware as routerLoggingMiddleware } from './middleware/logging.js';
 import { errorHandlingMiddleware as routerErrorMiddleware } from './middleware/error.js';
@@ -206,7 +207,8 @@ export async function createServer(): Promise<ServerContext> {
   // Generate ephemeral RSA keypair for E2E credential encryption
   generateKeyPair();
 
-  // Phase 2: Router (CRUD routes migrated to HTTP REST)
+  // Legacy/WS message router.
+  // CRUD-style WebSocket message handlers still register here, but HTTP API routes live in setupRoutesAndServices().
   const router = createRouter(db);
   router.use(routerLoggingMiddleware, routerErrorMiddleware);
 

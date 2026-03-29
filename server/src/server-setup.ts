@@ -1,6 +1,9 @@
 /**
- * Server route mounting and service initialization.
- * Extracted from createServer() to reduce file size.
+ * Server HTTP route mounting and service initialization.
+ *
+ * This file is the primary Express/REST API assembly point.
+ * It is intentionally separate from `server/src/router`, which is the WebSocket
+ * message router used for shared-protocol request.type dispatch.
  */
 import type { Express, Request, Response } from 'express';
 import { request as httpRequest, type IncomingMessage } from 'http';
@@ -203,7 +206,8 @@ export function setupRoutesAndServices(deps: SetupDependencies): SetupResult {
     return !!row?.client_id;
   });
 
-  // API routes (protected by auth middleware)
+  // HTTP API surface (protected by auth middleware).
+  // This is the canonical REST mounting point; do not confuse it with server/src/router.
   app.use('/api/projects', authMiddleware, createProjectRoutes(db));
   app.use('/api/sessions', authMiddleware, createSessionRoutes(db, activeRuns));
   app.use('/api/sessions', authMiddleware, createSessionDraftRoutes(db));

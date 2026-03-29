@@ -18,7 +18,7 @@ function ToastCard({ toast }: { toast: Toast }) {
       }}
       className={`flex items-start gap-2 p-3 rounded-lg border shadow-lg backdrop-blur-sm cursor-pointer
         animate-in slide-in-from-bottom-2 fade-in duration-200
-        ${style.bg} hover:opacity-90 transition-opacity max-w-[320px]`}
+        ${style.bg} hover:opacity-90 transition-opacity max-w-[320px] pointer-events-auto`}
     >
       <span className="text-sm flex-shrink-0 mt-0.5">{style.icon}</span>
       <div className="min-w-0 flex-1">
@@ -37,13 +37,16 @@ function ToastCard({ toast }: { toast: Toast }) {
   );
 }
 
-export function ToastContainer() {
+export function ToastContainer({ className }: { className?: string }) {
   const toasts = useToastStore((s) => s.toasts);
 
   if (toasts.length === 0) return null;
 
   return (
-    <div className="fixed bottom-4 right-4 z-50 flex flex-col gap-2">
+    <div
+      data-testid="toast-container"
+      className={className ?? 'fixed bottom-4 right-4 z-50 flex flex-col gap-2'}
+    >
       {toasts.map((toast) => (
         <ToastCard key={toast.id} toast={toast} />
       ))}

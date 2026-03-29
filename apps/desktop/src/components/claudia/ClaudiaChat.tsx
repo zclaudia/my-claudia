@@ -110,7 +110,10 @@ export function ClaudiaChat({ isMobile = false, hostProjectId, contextProjectId 
     if (selectedSessionId) return;
 
     if (projects.length > 0) {
-      selectProject(projects[0].id);
+      const fallbackProjectId = projects[0].id;
+      if (selectedProjectId !== fallbackProjectId) {
+        selectProject(fallbackProjectId);
+      }
     }
   }, [hostProjectId, projects, selectProject, selectedProjectId, selectedSessionId]);
 

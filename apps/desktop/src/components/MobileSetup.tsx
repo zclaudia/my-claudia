@@ -1,10 +1,15 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Bot, Monitor, ChevronRight } from 'lucide-react';
 import { useGatewayStore, shouldShowNonCurrentInstanceBackend } from '../stores/gatewayStore';
 import { useServerStore } from '../stores/serverStore';
 import { useFacadeStore } from '../stores/facadeStore';
 import { useConnection } from '../contexts/ConnectionContext';
 import type { BackendSnapshot } from '@my-claudia/shared';
+
+function shouldShowMobileDebug(): boolean {
+  if (typeof window === 'undefined') return false;
+  return new URLSearchParams(window.location.search).get('mobileDebug') === '1';
+}
 
 export function MobileSetup() {
   const {
@@ -26,6 +31,8 @@ export function MobileSetup() {
   const [gatewaySecret, setGatewaySecret] = useState(directGatewaySecret || '');
   const [connecting, setConnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [debugVisible, setDebugVisible] = useState(() => shouldShowMobileDebug());
+  const logoTapCountRef = useRef(0);
 
   useEffect(() => {
     setGatewayUrl(directGatewayUrl || '');
@@ -99,6 +106,15 @@ export function MobileSetup() {
   const onlineBackends = backends.filter(
     b => b.online && shouldShowNonCurrentInstanceBackend(b, currentInstanceId, showLocalBackend)
   );
+  const showDebug = debugVisible;
+
+  const handleLogoTap = () => {
+    logoTapCountRef.current += 1;
+    if (logoTapCountRef.current >= 5) {
+      logoTapCountRef.current = 0;
+      setDebugVisible((visible) => !visible);
+    }
+  };
 
   // Phase 2: Gateway connected — show backend selection
   if (isGatewayConnected && onlineBackends.length > 0) {
@@ -108,9 +124,13 @@ export function MobileSetup() {
           <div className="w-full max-w-sm space-y-6">
             {/* Logo */}
             <div className="text-center">
-              <div className="w-16 h-16 rounded-2xl bg-primary/10 flex items-center justify-center mx-auto mb-4">
+              <button
+                type="button"
+                onClick={handleLogoTap}
+                className="w-16 h-16 rounded-2xl bg-primary/10 flex items-center justify-center mx-auto mb-4"
+              >
                 <Bot size={32} strokeWidth={1.5} className="text-primary" />
-              </div>
+              </button>
               <h1 className="text-xl font-bold text-foreground">Select a Server</h1>
               <p className="text-sm text-muted-foreground mt-1">
                 Choose a backend to connect to
@@ -152,6 +172,32 @@ export function MobileSetup() {
               <span className="w-2 h-2 rounded-full bg-success" />
               <span>Gateway connected</span>
             </div>
+
+            {showDebug && (
+              <div
+                data-testid="mobile-debug-panel"
+                className="rounded-xl border border-border bg-card/70 p-3 text-left text-xs text-muted-foreground space-y-2"
+              >
+                <div className="font-medium text-foreground">Mobile Debug</div>
+                <div>connectionState: {facadeConnectionState}</div>
+                <div>connectionError: {facadeConnectionError || '-'}</div>
+                <div>currentInstanceId: {currentInstanceId || '-'}</div>
+                <div>showLocalBackend: {showLocalBackend ? 'true' : 'false'}</div>
+                <div>backends: {backends.length}</div>
+                <div>onlineBackends: {onlineBackends.length}</div>
+                <div className="space-y-1">
+                  {backends.map((backend) => (
+                    <div key={backend.backendId} className="rounded-lg border border-border/70 px-2 py-1">
+                      <div className="text-foreground">{backend.name} ({backend.backendId})</div>
+                      <div>
+                        online={String(backend.online)} runtime={backend.runtimeState} thisInstance={String(backend.isThisInstance)}
+                      </div>
+                      <div className="truncate">instanceId={backend.instanceId || '-'}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -165,9 +211,13 @@ export function MobileSetup() {
         <div className="w-full max-w-sm space-y-6">
           {/* Logo */}
           <div className="text-center">
-            <div className="w-16 h-16 rounded-2xl bg-primary/10 flex items-center justify-center mx-auto mb-4">
+            <button
+              type="button"
+              onClick={handleLogoTap}
+              className="w-16 h-16 rounded-2xl bg-primary/10 flex items-center justify-center mx-auto mb-4"
+            >
               <Bot size={32} strokeWidth={1.5} className="text-primary" />
-            </div>
+            </button>
             <h1 className="text-xl font-bold text-foreground">MyClaudia</h1>
             <p className="text-sm text-muted-foreground mt-1">
               Connect to your server via Gateway
@@ -246,6 +296,32 @@ export function MobileSetup() {
             <div className="text-center text-sm text-muted-foreground">
               <p>Gateway connected. Waiting for backends...</p>
               <p className="text-xs mt-1">Make sure your server is running and connected to the gateway.</p>
+            </div>
+          )}
+
+          {showDebug && (
+            <div
+              data-testid="mobile-debug-panel"
+              className="rounded-xl border border-border bg-card/70 p-3 text-left text-xs text-muted-foreground space-y-2"
+            >
+              <div className="font-medium text-foreground">Mobile Debug</div>
+              <div>connectionState: {facadeConnectionState}</div>
+              <div>connectionError: {facadeConnectionError || '-'}</div>
+              <div>currentInstanceId: {currentInstanceId || '-'}</div>
+              <div>showLocalBackend: {showLocalBackend ? 'true' : 'false'}</div>
+              <div>backends: {backends.length}</div>
+              <div>onlineBackends: {onlineBackends.length}</div>
+              <div className="space-y-1">
+                {backends.map((backend) => (
+                  <div key={backend.backendId} className="rounded-lg border border-border/70 px-2 py-1">
+                    <div className="text-foreground">{backend.name} ({backend.backendId})</div>
+                    <div>
+                      online={String(backend.online)} runtime={backend.runtimeState} thisInstance={String(backend.isThisInstance)}
+                    </div>
+                    <div className="truncate">instanceId={backend.instanceId || '-'}</div>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
         </div>

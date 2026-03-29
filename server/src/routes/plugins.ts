@@ -6,38 +6,22 @@
  */
 
 import { Router, Request, Response } from 'express';
-import * as fs from 'fs';
-import * as path from 'path';
 import { pluginLoader } from '../plugins/loader.js';
-import { permissionManager } from '../plugins/permissions.js';
-import { toolRegistry } from '../plugins/tool-registry.js';
-import { commandRegistry } from '../commands/registry.js';
-import type { Permission } from '@my-claudia/shared';
+import { PluginManagementError, PluginManagementService } from '../services/plugin-management-service.js';
+import { PluginFrontendError, PluginFrontendService } from '../services/plugin-frontend-service.js';
+import { sendApiError } from './response.js';
 
 export function createPluginRoutes(): Router {
   const router = Router();
+  const pluginManagementService = new PluginManagementService();
+  const pluginFrontendService = new PluginFrontendService();
 
   /**
    * GET /api/plugins
    * List all discovered plugins with their status and permissions.
    */
   router.get('/', (_req: Request, res: Response) => {
-    const plugins = pluginLoader.getPlugins().map(p => ({
-      id: p.manifest.id,
-      name: p.manifest.name,
-      version: p.manifest.version,
-      description: p.manifest.description,
-      author: p.manifest.author,
-      status: p.isActive ? 'active' : p.error ? 'error' : 'inactive',
-      enabled: p.isActive,
-      error: p.error,
-      permissions: p.manifest.permissions || [],
-      grantedPermissions: permissionManager.getGrantedPermissions(p.manifest.id),
-      pendingPermissions: p.pendingPermissions || [],
-      tools: toolRegistry.getByPlugin(p.manifest.id).map(t => t.definition.function.name),
-      commands: commandRegistry.getByPlugin(p.manifest.id).map(c => c.command),
-      path: p.path,
-    }));
+    const plugins = pluginManagementService.listPlugins();
     res.json({ success: true, data: plugins });
   });
 
@@ -46,29 +30,15 @@ export function createPluginRoutes(): Router {
    * Activate a plugin by ID.
    */
   router.post('/:id/activate', async (req: Request, res: Response) => {
-    const { id } = req.params;
-
-    if (!pluginLoader.hasPlugin(id)) {
-      res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: `Plugin not found: ${id}` } });
-      return;
-    }
-
     try {
-      const result = await pluginLoader.activate(id);
-      if (result) {
-        res.json({ success: true, data: { activated: true } });
-      } else {
-        const plugin = pluginLoader.getPlugin(id);
-        res.status(400).json({
-          success: false,
-          error: { code: 'ACTIVATION_FAILED', message: plugin?.error || 'Activation failed' },
-        });
-      }
+      const result = await pluginManagementService.activatePlugin(req.params.id);
+      res.json({ success: true, data: result });
     } catch (error) {
-      res.status(500).json({
-        success: false,
-        error: { code: 'INTERNAL_ERROR', message: error instanceof Error ? error.message : String(error) },
-      });
+      if (error instanceof PluginManagementError) {
+        sendApiError(res, error.status, error.code, error.message);
+        return;
+      }
+      sendApiError(res, 500, 'INTERNAL_ERROR', error instanceof Error ? error.message : String(error));
     }
   });
 
@@ -77,21 +47,15 @@ export function createPluginRoutes(): Router {
    * Deactivate a plugin by ID.
    */
   router.post('/:id/deactivate', async (req: Request, res: Response) => {
-    const { id } = req.params;
-
-    if (!pluginLoader.hasPlugin(id)) {
-      res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: `Plugin not found: ${id}` } });
-      return;
-    }
-
     try {
-      await pluginLoader.deactivate(id);
-      res.json({ success: true, data: { deactivated: true } });
+      const result = await pluginManagementService.deactivatePlugin(req.params.id);
+      res.json({ success: true, data: result });
     } catch (error) {
-      res.status(500).json({
-        success: false,
-        error: { code: 'INTERNAL_ERROR', message: error instanceof Error ? error.message : String(error) },
-      });
+      if (error instanceof PluginManagementError) {
+        sendApiError(res, error.status, error.code, error.message);
+        return;
+      }
+      sendApiError(res, 500, 'INTERNAL_ERROR', error instanceof Error ? error.message : String(error));
     }
   });
 
@@ -100,29 +64,15 @@ export function createPluginRoutes(): Router {
    * Hot-reload a plugin: deactivate → clear cache → re-read manifest → activate.
    */
   router.post('/:id/reload', async (req: Request, res: Response) => {
-    const { id } = req.params;
-
-    if (!pluginLoader.hasPlugin(id)) {
-      res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: `Plugin not found: ${id}` } });
-      return;
-    }
-
     try {
-      const result = await pluginLoader.reload(id);
-      if (result) {
-        res.json({ success: true, data: { reloaded: true } });
-      } else {
-        const plugin = pluginLoader.getPlugin(id);
-        res.status(400).json({
-          success: false,
-          error: { code: 'RELOAD_FAILED', message: plugin?.error || 'Reload failed' },
-        });
-      }
+      const result = await pluginManagementService.reloadPlugin(req.params.id);
+      res.json({ success: true, data: result });
     } catch (error) {
-      res.status(500).json({
-        success: false,
-        error: { code: 'INTERNAL_ERROR', message: error instanceof Error ? error.message : String(error) },
-      });
+      if (error instanceof PluginManagementError) {
+        sendApiError(res, error.status, error.code, error.message);
+        return;
+      }
+      sendApiError(res, 500, 'INTERNAL_ERROR', error instanceof Error ? error.message : String(error));
     }
   });
 
@@ -131,16 +81,16 @@ export function createPluginRoutes(): Router {
    * Grant permissions to a plugin.
    */
   router.post('/:id/permissions/grant', (req: Request, res: Response) => {
-    const { id } = req.params;
-    const { permissions } = req.body;
-
-    if (!permissions || !Array.isArray(permissions)) {
-      res.status(400).json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'permissions array required' } });
-      return;
+    try {
+      const result = pluginManagementService.grantPermissions(req.params.id, req.body?.permissions);
+      res.json({ success: true, data: result });
+    } catch (error) {
+      if (error instanceof PluginManagementError) {
+        sendApiError(res, error.status, error.code, error.message);
+        return;
+      }
+      sendApiError(res, 500, 'INTERNAL_ERROR', error instanceof Error ? error.message : String(error));
     }
-
-    permissionManager.grantAll(id, permissions as Permission[]);
-    res.json({ success: true, data: { granted: permissions } });
   });
 
   /**
@@ -148,18 +98,16 @@ export function createPluginRoutes(): Router {
    * Revoke permissions from a plugin.
    */
   router.post('/:id/permissions/revoke', (req: Request, res: Response) => {
-    const { id } = req.params;
-    const { permissions } = req.body;
-
-    if (!permissions || !Array.isArray(permissions)) {
-      res.status(400).json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'permissions array required' } });
-      return;
+    try {
+      const result = pluginManagementService.revokePermissions(req.params.id, req.body?.permissions);
+      res.json({ success: true, data: result });
+    } catch (error) {
+      if (error instanceof PluginManagementError) {
+        sendApiError(res, error.status, error.code, error.message);
+        return;
+      }
+      sendApiError(res, 500, 'INTERNAL_ERROR', error instanceof Error ? error.message : String(error));
     }
-
-    for (const perm of permissions) {
-      permissionManager.revoke(id, perm as Permission);
-    }
-    res.json({ success: true, data: { revoked: permissions } });
   });
 
   /**
@@ -167,13 +115,7 @@ export function createPluginRoutes(): Router {
    * List all plugin scan directories (default + user-configured).
    */
   router.get('/dirs', (_req: Request, res: Response) => {
-    res.json({
-      success: true,
-      data: {
-        dirs: pluginLoader.getPluginDirs(),
-        extraDirs: pluginLoader.getExtraDirsFromDb(),
-      },
-    });
+    res.json({ success: true, data: pluginManagementService.getPluginDirs() });
   });
 
   /**
@@ -181,33 +123,16 @@ export function createPluginRoutes(): Router {
    * Set user-configured extra plugin directories.
    */
   router.put('/dirs', (req: Request, res: Response) => {
-    const { dirs } = req.body;
-    if (!Array.isArray(dirs) || !dirs.every((d: unknown) => typeof d === 'string')) {
-      res.status(400).json({
-        success: false,
-        error: { code: 'INVALID_INPUT', message: 'dirs must be an array of strings' },
-      });
-      return;
-    }
-
-    // Normalize: resolve paths, deduplicate, filter empty
-    const normalized = [...new Set(
-      dirs.map((d: string) => d.trim()).filter(Boolean)
-    )];
-
-    pluginLoader.saveExtraDirs(normalized);
-
-    // Auto-discover and activate new plugins in the updated directories
-    pluginLoader.discover().then(async (manifests) => {
-      for (const manifest of manifests) {
-        const plugin = pluginLoader.getPlugin(manifest.id);
-        if (plugin && !plugin.isActive) {
-          pluginLoader.activate(manifest.id).catch(() => {});
-        }
+    try {
+      const result = pluginManagementService.updatePluginDirs(req.body?.dirs);
+      res.json({ success: true, data: result });
+    } catch (error) {
+      if (error instanceof PluginManagementError) {
+        sendApiError(res, error.status, error.code, error.message);
+        return;
       }
-    }).catch(() => {});
-
-    res.json({ success: true, data: { dirs: pluginLoader.getPluginDirs() } });
+      sendApiError(res, 500, 'INTERNAL_ERROR', error instanceof Error ? error.message : String(error));
+    }
   });
 
   /**
@@ -216,28 +141,14 @@ export function createPluginRoutes(): Router {
    */
   router.post('/discover', async (_req: Request, res: Response) => {
     try {
-      const manifests = await pluginLoader.discover();
-
-      // Activate newly discovered plugins
-      for (const manifest of manifests) {
-        const plugin = pluginLoader.getPlugin(manifest.id);
-        if (plugin && !plugin.isActive) {
-          pluginLoader.activate(manifest.id).catch(() => {});
-        }
-      }
-
-      res.json({
-        success: true,
-        data: {
-          discovered: manifests.length,
-          plugins: manifests.map(m => ({ id: m.id, name: m.name, version: m.version })),
-        },
-      });
+      const result = await pluginManagementService.discoverPlugins();
+      res.json({ success: true, data: result });
     } catch (error) {
-      res.status(500).json({
-        success: false,
-        error: { code: 'INTERNAL_ERROR', message: error instanceof Error ? error.message : String(error) },
-      });
+      if (error instanceof PluginManagementError) {
+        sendApiError(res, error.status, error.code, error.message);
+        return;
+      }
+      sendApiError(res, 500, 'INTERNAL_ERROR', error instanceof Error ? error.message : String(error));
     }
   });
 
@@ -491,34 +402,19 @@ body {
    * Only serves files within the plugin's own directory (path traversal safe).
    */
   router.get('/:id/frontend/*', (req: Request, res: Response) => {
-    const { id } = req.params;
-    const filePath = (req.params as any)[0] as string;
-
-    if (!/^[\w.-]+$/.test(id)) {
-      res.status(400).send('Invalid plugin ID');
-      return;
+    try {
+      const fullPath = pluginFrontendService.resolveFrontendFile(
+        req.params.id,
+        (req.params as any)[0] as string,
+      );
+      res.sendFile(fullPath);
+    } catch (error) {
+      if (error instanceof PluginFrontendError) {
+        res.status(error.status).send(error.message);
+        return;
+      }
+      res.status(500).send(error instanceof Error ? error.message : String(error));
     }
-
-    const instance = pluginLoader.getPlugin(id);
-    if (!instance) {
-      res.status(404).send('Plugin not found');
-      return;
-    }
-
-    // Prevent path traversal
-    const pluginDir = path.resolve(instance.path);
-    const fullPath = path.resolve(path.join(pluginDir, filePath));
-    if (!fullPath.startsWith(pluginDir + path.sep) && fullPath !== pluginDir) {
-      res.status(403).send('Forbidden');
-      return;
-    }
-
-    if (!fs.existsSync(fullPath)) {
-      res.status(404).send('File not found');
-      return;
-    }
-
-    res.sendFile(fullPath);
   });
 
   /**
@@ -526,21 +422,15 @@ body {
    * Deactivate and remove a plugin from the registry (does not delete files).
    */
   router.delete('/:id', async (req: Request, res: Response) => {
-    const { id } = req.params;
-
-    if (!pluginLoader.hasPlugin(id)) {
-      res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: `Plugin not found: ${id}` } });
-      return;
-    }
-
     try {
-      await pluginLoader.remove(id);
-      res.json({ success: true, data: { removed: true } });
+      const result = await pluginManagementService.removePlugin(req.params.id);
+      res.json({ success: true, data: result });
     } catch (error) {
-      res.status(500).json({
-        success: false,
-        error: { code: 'INTERNAL_ERROR', message: error instanceof Error ? error.message : String(error) },
-      });
+      if (error instanceof PluginManagementError) {
+        sendApiError(res, error.status, error.code, error.message);
+        return;
+      }
+      sendApiError(res, 500, 'INTERNAL_ERROR', error instanceof Error ? error.message : String(error));
     }
   });
 

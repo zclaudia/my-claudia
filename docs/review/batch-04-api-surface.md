@@ -1,7 +1,7 @@
 # Batch 4: Server — API Surface Review
 
 日期：2026-03-29
-状态：✅ 完成
+状态：✅ 已完成 review 与主要修复落地
 
 ## 概览
 
@@ -12,11 +12,29 @@
 | 最大路由文件 | `sessions.ts` (756 行), `files.ts` (705 行), `import.ts` (571 行), `plugins.ts` (548 行), `providers.ts` (353 行) |
 | repository 在 HTTP routes 中的直接使用 | 仅 `sessionDrafts.ts` 1 处 |
 
+## 实施结果
+
+Batch 4 已不只是 review，核心修复已经落地到代码：
+
+- `projects/providers/sessions` 的 partial update 语义已统一：
+  缺失字段 = 不修改，`null` = 显式清空。
+- `providers/projects/sessions` 主 CRUD 已收敛到 repository。
+- REST error builder 已落地到 `response.ts`，并统一到 `sessionDrafts/workspace/plugin-tools` 等路径。
+- `import.ts` / `import-opencode.ts` 已提炼出 `ImportService`。
+- `files.ts` 已拆成 `FileBrowseService` + `FileTransferService`。
+- `sessions.ts` 已拆出：
+  `SessionLifecycleService`、`SessionExportService`、`SessionQueryService`。
+- `mcp-servers.ts` 已拆出 `McpServerService`。
+- `plugins.ts` 已拆出：
+  `PluginManagementService`、`PluginFrontendService`。
+- `router/` 与 HTTP `routes/` 的职责说明已补齐。
+
 ## 发现
 
 ### 🔴 高优先级
 
 #### 1. 部分更新语义在多个 API 中已经失真（HIGH）
+- **当前状态**: 已修复
 - **影响文件**:
   - `server/src/routes/projects.ts:169-190`
   - `server/src/routes/providers.ts:182-199`
@@ -35,6 +53,7 @@
 ### 🟠 中优先级
 
 #### 2. repository 抽象没有成为 API Surface 的稳定入口（MEDIUM）
+- **当前状态**: 核心资源已修复，剩余少量非核心 route 仍可继续收敛
 - **影响文件**:
   - `server/src/routes/projects.ts`
   - `server/src/routes/providers.ts`
@@ -54,6 +73,7 @@
   - route 层只保留参数校验、鉴权、HTTP 状态码映射。
 
 #### 3. route 层承担了过多 domain / infra 侧效果，是典型“胖 route”（MEDIUM）
+- **当前状态**: 主要路径已拆分，剩余 route 体量风险已显著下降
 - **影响文件**:
   - `server/src/routes/sessions.ts:305-418`
   - `server/src/routes/files.ts:192-520`
@@ -70,6 +90,7 @@
   - route 只做 request/response 适配，复杂流程下沉。
 
 #### 4. API 错误响应格式已经分裂（MEDIUM）
+- **当前状态**: 主要 REST 路径已统一，剩余问题已不是 Batch 4 主风险
 - **影响文件**:
   - `server/src/routes/sessionDrafts.ts:55,79-81,109,132,145,150,163,168`
 - **问题**:
@@ -83,6 +104,7 @@
   - 把 repository/service 抛出的领域错误映射成稳定的 API 错误码。
 
 #### 5. `router/` 与 `routes/` 的职责命名已经混淆（MEDIUM）
+- **当前状态**: 已补文档与注释说明，命名仍可后续再做物理重命名
 - **影响文件**:
   - `server/src/router/index.ts`
   - `server/src/server.ts:209-211`
@@ -106,13 +128,24 @@
 ## 建议修复顺序
 
 ### Phase 1: 先修语义错误
-- [ ] 统一 `projects/providers/sessions` 的部分更新语义
-- [ ] 补“字段缺失不修改 / null 显式清空”的回归测试
+- [x] 统一 `projects/providers/sessions` 的部分更新语义
+- [x] 补“字段缺失不修改 / null 显式清空”的回归测试
 
 ### Phase 2: 收敛抽象边界
-- [ ] 让 `projects/providers/sessions` 三个 REST 资源复用 repository / service
-- [ ] 为 route 层补统一 error builder
+- [x] 让 `projects/providers/sessions` 三个 REST 资源复用 repository / service
+- [x] 为 route 层补统一 error builder
 
 ### Phase 3: 降低 route 膨胀
-- [ ] 从 `sessions.ts`、`files.ts`、`import.ts` 提炼应用服务
-- [ ] 明确 `router/` 与 HTTP `routes/` 的命名与职责说明
+- [x] 从 `sessions.ts`、`files.ts`、`import.ts` 提炼应用服务
+- [x] 明确 `router/` 与 HTTP `routes/` 的命名与职责说明
+
+### 已落实
+- 已在 `server/src/router/README.md`、`server/src/server.ts`、`server/src/server-setup.ts` 明确标注：
+  `server/src/router/` 是 WebSocket message router，不是 REST router；
+  HTTP API surface 的装配入口以 `server-setup.ts` 为准。
+- 已在 `server/src/services/` 落地的 Batch 4 相关服务包括：
+  `ImportService`、`FileBrowseService`、`FileTransferService`、
+  `SessionLifecycleService`、`SessionExportService`、`SessionQueryService`、
+  `McpServerService`、`PluginManagementService`、`PluginFrontendService`。
+- `sessions.ts`、`files.ts`、`import.ts`、`plugins.ts`、`mcp-servers.ts`
+  的核心业务逻辑都已从 route/controller 层下沉。

@@ -68,4 +68,81 @@ describe('MobileSetup', () => {
 
     expect(screen.getByText('UNAUTHORIZED: Invalid gateway secret')).toBeInTheDocument();
   });
+
+  it('renders the mobile debug panel when mobileDebug=1 is present', () => {
+    window.history.replaceState({}, '', '/?mobileDebug=1');
+
+    useGatewayStore.setState({
+      showLocalBackend: false,
+    } as any);
+
+    useFacadeStore.setState({
+      connectionState: 'connected',
+      connectionError: null,
+      currentInstanceId: 'inst-mobile',
+      backends: [
+        {
+          backendId: 'backend-1',
+          name: 'Backend 1',
+          online: true,
+          runtimeState: 'visible',
+          openState: 'closed',
+          channelId: null,
+          instanceId: 'inst-remote',
+          deviceId: 'dev-remote',
+          channel: 'prod',
+          isThisInstance: false,
+          isThisDevice: false,
+          capabilities: [],
+        },
+      ],
+    } as any);
+
+    render(<MobileSetup />);
+
+    expect(screen.getByTestId('mobile-debug-panel')).toBeInTheDocument();
+    expect(screen.getByText('backends: 1')).toBeInTheDocument();
+    expect(screen.getByText(/Backend 1 \(backend-1\)/)).toBeInTheDocument();
+
+    window.history.replaceState({}, '', '/');
+  });
+
+  it('toggles the mobile debug panel after tapping the logo five times', () => {
+    useGatewayStore.setState({
+      showLocalBackend: false,
+    } as any);
+
+    useFacadeStore.setState({
+      connectionState: 'connected',
+      connectionError: null,
+      currentInstanceId: 'inst-mobile',
+      backends: [
+        {
+          backendId: 'backend-1',
+          name: 'Backend 1',
+          online: true,
+          runtimeState: 'visible',
+          openState: 'closed',
+          channelId: null,
+          instanceId: 'inst-remote',
+          deviceId: 'dev-remote',
+          channel: 'prod',
+          isThisInstance: false,
+          isThisDevice: false,
+          capabilities: [],
+        },
+      ],
+    } as any);
+
+    render(<MobileSetup />);
+
+    expect(screen.queryByTestId('mobile-debug-panel')).not.toBeInTheDocument();
+
+    const logoButton = screen.getByRole('button', { name: '' });
+    for (let i = 0; i < 5; i += 1) {
+      fireEvent.click(logoButton);
+    }
+
+    expect(screen.getByTestId('mobile-debug-panel')).toBeInTheDocument();
+  });
 });

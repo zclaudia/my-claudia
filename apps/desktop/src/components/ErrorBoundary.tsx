@@ -9,6 +9,7 @@ interface Props {
 interface State {
   hasError: boolean;
   error: Error | null;
+  componentStack: string;
 }
 
 /**
@@ -18,18 +19,19 @@ interface State {
  * doesn't take down the entire application.
  */
 export class ErrorBoundary extends Component<Props, State> {
-  state: State = { hasError: false, error: null };
+  state: State = { hasError: false, error: null, componentStack: '' };
 
   static getDerivedStateFromError(error: Error): State {
-    return { hasError: true, error };
+    return { hasError: true, error, componentStack: '' };
   }
 
   componentDidCatch(error: Error, info: ErrorInfo) {
+    this.setState({ componentStack: info.componentStack || '' });
     console.error(`[ErrorBoundary${this.props.label ? `: ${this.props.label}` : ''}]`, error, info.componentStack);
   }
 
   private handleRetry = () => {
-    this.setState({ hasError: false, error: null });
+    this.setState({ hasError: false, error: null, componentStack: '' });
   };
 
   render() {
@@ -54,6 +56,11 @@ export class ErrorBoundary extends Component<Props, State> {
             <pre className="mt-2 p-2 bg-secondary rounded overflow-auto max-h-40 whitespace-pre-wrap">
               {this.state.error?.stack}
             </pre>
+            {this.state.componentStack && (
+              <pre className="mt-2 p-2 bg-secondary rounded overflow-auto max-h-40 whitespace-pre-wrap">
+                {this.state.componentStack}
+              </pre>
+            )}
           </details>
         </div>
       );

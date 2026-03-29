@@ -8,6 +8,7 @@ describe('hooks/useMediaQuery', () => {
 
   beforeEach(() => {
     listeners = new Map();
+    window.history.replaceState({}, '', '/');
 
     matchMediaMock = vi.fn((query: string) => {
       const mediaQueryList = {
@@ -143,6 +144,14 @@ describe('hooks/useMediaQuery', () => {
 
       expect(result.current).toBe(true);
     });
+
+    it('returns true when forceMobile=1 is present even on desktop-sized viewports', () => {
+      window.history.replaceState({}, '', '/?forceMobile=1');
+
+      const { result } = renderHook(() => useIsMobile());
+
+      expect(result.current).toBe(true);
+    });
   });
 
   describe('useIsTablet', () => {
@@ -169,6 +178,24 @@ describe('hooks/useMediaQuery', () => {
 
       expect(result.current).toBe(true);
     });
+
+    it('returns false when forceMobile=1 is present', () => {
+      window.history.replaceState({}, '', '/?forceMobile=1');
+      matchMediaMock.mockReturnValue({
+        matches: true,
+        media: '(min-width: 768px) and (max-width: 1023px)',
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+        dispatchEvent: vi.fn(),
+        onchange: null,
+      });
+
+      const { result } = renderHook(() => useIsTablet());
+
+      expect(result.current).toBe(false);
+    });
   });
 
   describe('useIsDesktop', () => {
@@ -194,6 +221,24 @@ describe('hooks/useMediaQuery', () => {
       const { result } = renderHook(() => useIsDesktop());
 
       expect(result.current).toBe(true);
+    });
+
+    it('returns false when forceMobile=1 is present', () => {
+      window.history.replaceState({}, '', '/?forceMobile=1');
+      matchMediaMock.mockReturnValue({
+        matches: true,
+        media: '(min-width: 1024px)',
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+        dispatchEvent: vi.fn(),
+        onchange: null,
+      });
+
+      const { result } = renderHook(() => useIsDesktop());
+
+      expect(result.current).toBe(false);
     });
   });
 });

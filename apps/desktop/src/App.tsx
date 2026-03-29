@@ -453,8 +453,15 @@ function AppContent() {
     if (!lastActiveBackendId) return;
     if (facadeConnectionState !== 'connected') return;
 
-    // Check if the last backend is online
     const backendId = lastActiveBackendId;
+    // Manual selection already chose the backend in this app lifetime.
+    // Only auto-reconnect when restoring from a cold start.
+    if (activeServerId === backendId) {
+      mobileAutoConnectDone.current = true;
+      return;
+    }
+
+    // Check if the last backend is online
     const backendOnline = facadeBackends.some(b => b.online && b.backendId === backendId);
     if (!backendOnline) return;
 
@@ -463,7 +470,7 @@ function AppContent() {
     console.log('[App] Auto-reconnecting to last used backend:', lastActiveBackendId);
     useServerStore.getState().setActiveServer(lastActiveBackendId);
     connectServer(lastActiveBackendId);
-  }, [isMobile, lastActiveBackendId, facadeConnectionState, facadeBackends, connectServer]);
+  }, [isMobile, lastActiveBackendId, facadeConnectionState, facadeBackends, activeServerId, connectServer]);
 
   // Eager sync when app comes back to foreground (e.g. returning to Mac after using mobile)
   useEffect(() => {
@@ -692,6 +699,10 @@ function AppContent() {
 
         {/* Main Content */}
         <main ref={swipeOpenClaudiaRef} className="flex-1 flex flex-col overflow-hidden relative">
+          {!isMobile && (
+            <ToastContainer className="absolute top-4 left-1/2 -translate-x-1/2 z-30 flex flex-col gap-2 pointer-events-none" />
+          )}
+
           {/* Chat Area */}
           <div className="flex-1 overflow-hidden relative">
             {isMobile && (isAgentExpanded || agentSwipePreview.mode === 'open' || agentSwipePreview.mode === 'close') && (
@@ -812,7 +823,7 @@ function AppContent() {
       </div>
 
       {/* Toast notifications */}
-      <ToastContainer />
+      {isMobile && <ToastContainer />}
 
       {/* Fullscreen file viewer overlay (mobile) */}
       {fileViewerFullscreen && fileViewerFilePath && fileViewerProjectRoot && (

@@ -1,5 +1,12 @@
 import { useState, useEffect } from 'react';
 
+function hasForcedMobileViewport(): boolean {
+  if (typeof window === 'undefined') return false;
+
+  const params = new URLSearchParams(window.location.search);
+  return params.get('forceMobile') === '1';
+}
+
 /**
  * Hook to detect if a media query matches
  * @param query - CSS media query string (e.g., '(max-width: 767px)')
@@ -31,7 +38,8 @@ export function useMediaQuery(query: string): boolean {
  * @returns boolean indicating if viewport is mobile
  */
 export function useIsMobile(): boolean {
-  return useMediaQuery('(max-width: 767px)');
+  const matchesMobile = useMediaQuery('(max-width: 767px)');
+  return hasForcedMobileViewport() || matchesMobile;
 }
 
 /**
@@ -39,7 +47,8 @@ export function useIsMobile(): boolean {
  * @returns boolean indicating if viewport is tablet
  */
 export function useIsTablet(): boolean {
-  return useMediaQuery('(min-width: 768px) and (max-width: 1023px)');
+  const matchesTablet = useMediaQuery('(min-width: 768px) and (max-width: 1023px)');
+  return !hasForcedMobileViewport() && matchesTablet;
 }
 
 /**
@@ -47,5 +56,6 @@ export function useIsTablet(): boolean {
  * @returns boolean indicating if viewport is desktop
  */
 export function useIsDesktop(): boolean {
-  return useMediaQuery('(min-width: 1024px)');
+  const matchesDesktop = useMediaQuery('(min-width: 1024px)');
+  return !hasForcedMobileViewport() && matchesDesktop;
 }

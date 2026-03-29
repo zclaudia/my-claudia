@@ -229,6 +229,34 @@ if [ -f "$GRADLE_FILE" ] && ! grep -q "pickFirsts" "$GRADLE_FILE"; then
   echo ""
 fi
 
+# --- Patch Android build.gradle.kts (dev/prod package separation) ---
+if [ -f "$GRADLE_FILE" ] && ! grep -q "isDevBuild" "$GRADLE_FILE"; then
+  echo "=== Patching Android build.gradle.kts for dev package separation ==="
+  TMP_GRADLE_FILE="$(mktemp)"
+  awk '
+    /^android \{/ {
+      print ""
+      print "val isDevBuild = providers.gradleProperty(\"isDev\").orNull == \"true\""
+      print ""
+      print
+      next
+    }
+    /getByName\("release"\) \{/ {
+      print
+      print "            if (isDevBuild) {"
+      print "                applicationIdSuffix = \".dev\""
+      print "                versionNameSuffix = \"-dev\""
+      print "                resValue(\"string\", \"app_name\", \"MyClaudia Dev\")"
+      print "            }"
+      next
+    }
+    { print }
+  ' "$GRADLE_FILE" > "$TMP_GRADLE_FILE"
+  mv "$TMP_GRADLE_FILE" "$GRADLE_FILE"
+  echo "  Added applicationIdSuffix .dev for dev builds"
+  echo ""
+fi
+
 # --- Build ---
 if [ "$INSTALL_ONLY" = false ]; then
   if [ "$DEV" = true ]; then
