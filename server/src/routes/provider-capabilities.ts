@@ -8,6 +8,7 @@ import type Database from 'better-sqlite3';
 import type { ApiResponse, ProviderCapabilities, ModeOption, ModelOption } from '@my-claudia/shared';
 import { openCodeServerManager } from '../providers/opencode-sdk.js';
 import { fetchClaudeModels } from '../providers/claude-sdk.js';
+import { supportsAIReviewCliJob } from '../providers/cli-jobs/review-job.js';
 
 const execFile = promisify(execFileCb);
 
@@ -495,17 +496,28 @@ async function getProviderCapabilities(
   cliPath?: string,
   env?: Record<string, string>
 ): Promise<ProviderCapabilities> {
+  let capabilities: ProviderCapabilities;
   switch (providerType) {
     case 'opencode':
-      return getOpenCodeCapabilities(cliPath, env);
+      capabilities = await getOpenCodeCapabilities(cliPath, env);
+      break;
     case 'codex':
-      return getCodexCapabilities(cliPath, env);
+      capabilities = await getCodexCapabilities(cliPath, env);
+      break;
     case 'cursor':
-      return getCursorCapabilities(cliPath, env);
+      capabilities = await getCursorCapabilities(cliPath, env);
+      break;
     case 'kimi':
-      return getKimiCapabilities();
+      capabilities = await getKimiCapabilities();
+      break;
     case 'claude':
     default:
-      return getClaudeCapabilities(cliPath, env);
+      capabilities = await getClaudeCapabilities(cliPath, env);
+      break;
   }
+
+  return {
+    ...capabilities,
+    supportsCliJobs: supportsAIReviewCliJob(providerType),
+  };
 }

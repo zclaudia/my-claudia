@@ -52,6 +52,17 @@ function createTestDb(): Database.Database {
       updated_at INTEGER NOT NULL,
       FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
     );
+
+    CREATE TABLE IF NOT EXISTS providers (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      type TEXT NOT NULL DEFAULT 'claude',
+      cli_path TEXT,
+      env TEXT,
+      is_default INTEGER DEFAULT 0,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
   `);
 
   return db;
@@ -88,6 +99,7 @@ describe('agent routes', () => {
   beforeEach(() => {
     db.exec('DELETE FROM sessions');
     db.exec('DELETE FROM projects');
+    db.exec('DELETE FROM providers');
     db.exec('DELETE FROM agent_config');
   });
 
@@ -327,6 +339,39 @@ describe('agent routes', () => {
       expect(res.body.data.enabled).toBe(false);
       expect(res.body.data.providerId).toBe('new-provider');
       expect(res.body.data.permissionPolicy).toBe(JSON.stringify({ trustLevel: 'strict' }));
+    });
+
+    it('rejects permissionPolicy when aiReview.analysisProviderId does not support cli-jobs', async () => {
+      seedDefaultConfig(db);
+      const now = Date.now();
+      db.prepare(`
+        INSERT INTO providers (id, name, type, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?)
+      `).run('p-legacy', 'Legacy Provider', 'unknown-type', now, now);
+
+      const res = await request(app)
+        .put('/api/agent/config')
+        .send({
+          permissionPolicy: {
+            enabled: true,
+            profile: {
+              fileRead: 'auto-approve',
+              fileWrite: 'auto-approve',
+              shellSafe: 'auto-approve',
+              networkOps: 'auto-approve',
+              destructiveOps: 'ask',
+              userQuestions: 'ask',
+            },
+            aiReview: {
+              enabled: true,
+              analysisProviderId: 'p-legacy',
+            },
+          },
+        });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error.code).toBe('VALIDATION_ERROR');
+      expect(res.body.error.message).toContain('does not support cli-jobs');
     });
 
     it('preserves unchanged fields when only updating one field', async () => {

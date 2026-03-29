@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { fetchApi } from '../../services/api';
+import * as providersApi from '../../services/api/providers';
 import { useProjectStore } from '../../stores/projectStore';
 import type {
   UnifiedPermissionPolicy,
@@ -76,23 +77,65 @@ function AIReviewProviderSelector({ value, onChange, disabled }: {
   disabled: boolean;
 }) {
   const providers = useProjectStore((s) => s.providers);
+  const [eligibleProviderIds, setEligibleProviderIds] = useState<Record<string, boolean>>({});
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadCapabilities = async () => {
+      const results = await Promise.all(providers.map(async (provider) => {
+        try {
+          const capabilities = await providersApi.getProviderCapabilities(provider.id);
+          return [provider.id, capabilities.supportsCliJobs === true] as const;
+        } catch {
+          return [provider.id, false] as const;
+        }
+      }));
+
+      if (!cancelled) {
+        setEligibleProviderIds(Object.fromEntries(results));
+      }
+    };
+
+    void loadCapabilities();
+    return () => {
+      cancelled = true;
+    };
+  }, [providers]);
+
+  const eligibleProviders = providers.filter((provider) => eligibleProviderIds[provider.id] === true);
+  const selectedProvider = value ? providers.find((provider) => provider.id === value) : undefined;
+  const selectedProviderSupported = selectedProvider ? eligibleProviderIds[selectedProvider.id] === true : true;
+
   return (
     <div className="flex items-center justify-between">
       <div>
         <span className="text-xs font-medium">Review provider</span>
-        <p className="text-[10px] text-muted-foreground">Which provider runs the security analysis</p>
+        <p className="text-[10px] text-muted-foreground">Only providers that support cli-jobs can run AI review</p>
       </div>
-      <select
-        value={value || ''}
-        onChange={(e) => onChange(e.target.value || undefined)}
-        disabled={disabled}
-        className="h-6 px-1.5 text-[11px] bg-background border border-border rounded-md focus:outline-none focus:ring-1 focus:ring-primary max-w-[120px]"
-      >
-        <option value="">Session default</option>
-        {providers.map((p) => (
-          <option key={p.id} value={p.id}>{p.name} ({p.type})</option>
-        ))}
-      </select>
+      <div className="flex flex-col items-end gap-1">
+        <select
+          value={value || ''}
+          onChange={(e) => onChange(e.target.value || undefined)}
+          disabled={disabled}
+          className="h-6 px-1.5 text-[11px] bg-background border border-border rounded-md focus:outline-none focus:ring-1 focus:ring-primary max-w-[220px]"
+        >
+          <option value="">Session default</option>
+          {selectedProvider && !selectedProviderSupported && (
+            <option value={selectedProvider.id}>
+              {selectedProvider.name} ({selectedProvider.type}) - unsupported
+            </option>
+          )}
+          {eligibleProviders.map((provider) => (
+            <option key={provider.id} value={provider.id}>{provider.name} ({provider.type})</option>
+          ))}
+        </select>
+        {selectedProvider && !selectedProviderSupported && (
+          <p className="text-[10px] text-amber-600">
+            The selected provider does not support cli-jobs and cannot be used for AI review.
+          </p>
+        )}
+      </div>
     </div>
   );
 }

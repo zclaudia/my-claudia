@@ -11,6 +11,7 @@
     "clean": "rm -rf dist bundle",
     "bundle": "node scripts/bundle.mjs",
     "trace:provider": "tsx scripts/trace-provider-session.ts",
+    "test:cli-review-jobs": "tsx scripts/test-cli-review-jobs.ts",
     "lint": "eslint src",
     "lint:fix": "eslint src --fix",
     "test": "vitest run",

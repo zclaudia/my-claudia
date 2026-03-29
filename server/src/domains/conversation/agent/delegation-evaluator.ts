@@ -304,7 +304,7 @@ export async function evaluateAIReview(
     console.error(`[AI Review] LLM analysis failed:`, err);
     return {
       decision: 'uncertain',
-      reasoning: `LLM analysis failed: ${err instanceof Error ? err.message : 'unknown error'}`,
+      reasoning: 'AI review could not produce a reliable result; keeping this request pending for user review',
       confidence: 0,
     };
   }
@@ -714,7 +714,8 @@ Reply with ONLY one JSON object:
 {"type":"read_file","path":"another/allowed/file","reason":"why you need it"}`;
 }
 
-function extractFirstJSONObject(response: string): string | null {
+function extractJSONObjects(response: string): string[] {
+  const objects: string[] = [];
   let start = -1;
   let depth = 0;
   let inString = false;
@@ -727,6 +728,8 @@ function extractFirstJSONObject(response: string): string | null {
       if (ch === '{') {
         start = i;
         depth = 1;
+        inString = false;
+        escaping = false;
       }
       continue;
     }
@@ -759,12 +762,13 @@ function extractFirstJSONObject(response: string): string | null {
     if (ch === '}') {
       depth -= 1;
       if (depth === 0) {
-        return response.slice(start, i + 1);
+        objects.push(response.slice(start, i + 1));
+        start = -1;
       }
     }
   }
 
-  return null;
+  return objects;
 }
 
 function sanitizeJSONControlCharsInStrings(json: string): string {
@@ -874,18 +878,11 @@ function salvageMalformedAIReviewResponse(text: string): AIReviewModelResponse |
   };
 }
 
-function parseAIReviewResponse(response: string): AIReviewModelResponse {
-  const jsonCandidate = extractFirstJSONObject(response);
-  if (!jsonCandidate) {
-    throw new Error('LLM response did not contain valid JSON');
-  }
-
+function parseCandidateJSONObject(jsonCandidate: string): AIReviewModelResponse {
   let parsed: Record<string, unknown>;
   try {
     parsed = JSON.parse(jsonCandidate) as Record<string, unknown>;
   } catch {
-    // Some models emit raw control characters inside string values. Repair those
-    // without corrupting pretty-printed whitespace between JSON tokens.
     try {
       parsed = JSON.parse(sanitizeJSONControlCharsInStrings(jsonCandidate)) as Record<string, unknown>;
     } catch {
@@ -901,6 +898,24 @@ function parseAIReviewResponse(response: string): AIReviewModelResponse {
   const salvaged = salvageMalformedAIReviewResponse(jsonCandidate);
   if (salvaged) return salvaged;
   throw new Error('LLM response did not match AI review schema');
+}
+
+function parseAIReviewResponse(response: string): AIReviewModelResponse {
+  const jsonCandidates = extractJSONObjects(response);
+  if (jsonCandidates.length === 0) {
+    throw new Error('LLM response did not contain valid JSON');
+  }
+
+  let lastError: Error | null = null;
+  for (let i = jsonCandidates.length - 1; i >= 0; i -= 1) {
+    try {
+      return parseCandidateJSONObject(jsonCandidates[i]);
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+    }
+  }
+
+  throw lastError ?? new Error('LLM response did not match AI review schema');
 }
 
 /** Call LLM to analyze the risk of a tool call */
@@ -1074,7 +1089,7 @@ export async function evaluateDelegation(
     } catch (err) {
       return {
         decision: 'escalate',
-        reasoning: `LLM analysis failed: ${err instanceof Error ? err.message : 'unknown error'}`,
+        reasoning: 'AI review could not produce a reliable result; escalating to the user',
         confidence: 0,
         source: 'llm',
       };

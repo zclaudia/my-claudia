@@ -39,6 +39,7 @@
     "fixtures:generate": "node e2e/fixtures/performance-data/generate-fixtures.js",
     "test:desktop": "pnpm --filter @my-claudia/desktop run test",
     "test:server": "pnpm --filter @my-claudia/server run test",
+    "test:cli-review-jobs": "pnpm --filter @my-claudia/server run test:cli-review-jobs",
     "test:ai-review-hardening": "bash scripts/diagnostics/verify-ai-review-hardening.sh",
     "test:file": "node scripts/test-file-by-file.mjs",
     "test:stores": "node scripts/test-file-by-file.mjs \"apps/desktop/src/stores\"",

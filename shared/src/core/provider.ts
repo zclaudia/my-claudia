@@ -41,4 +41,5 @@ export interface ProviderCapabilities {
   modeLabel?: string;     // Custom label: "Mode" (Claude) / "Agent" (OpenCode)
   modelLabel?: string;    // Custom label: "Model" for all
   defaultModeId?: string; // Which mode is selected by default
+  supportsCliJobs?: boolean; // Whether this provider supports single-shot cli-jobs such as AI review
 }

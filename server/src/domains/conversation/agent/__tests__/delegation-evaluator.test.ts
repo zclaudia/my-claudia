@@ -422,4 +422,72 @@ before approval","confidence":0.2}
       sessionId: 'review-session-9',
     });
   });
+
+  it('prefers the final review JSON over JSON fragments embedded in think text', async () => {
+    const result = await evaluateAIReview(
+      {
+        enabled: true,
+        timeoutBeforeReview: 60,
+        confidenceThreshold: 0.7,
+        maxAutoApprovalsPerMinute: 10,
+      },
+      {
+        toolName: 'Bash',
+        toolInput: { command: 'adb install app.apk' },
+        detail: 'adb install app.apk',
+        cwd: '/workspace',
+        analysisProvider: {
+          runPrompt: async () => ({
+            response: `<think>The tool call is:
+
+<tool_name>Bash</tool_name>
+<detail>adb install app.apk</detail>
+<input>{
+  "command": "adb install app.apk"
+}</input>
+
+This affects an external device and should be denied.</think>
+{"type":"final","decision":"deny","reasoning":"Installing APK files via adb affects external devices and the APK content is untrusted user data that could contain malicious code","confidence":0.9}`,
+            sessionId: 'review-session-think-json',
+          }),
+        },
+      },
+    );
+
+    expect(result).toMatchObject({
+      decision: 'deny',
+      confidence: 0.9,
+      reasoning: 'Installing APK files via adb affects external devices and the APK content is untrusted user data that could contain malicious code',
+      sessionId: 'review-session-think-json',
+    });
+  });
+
+  it('hides parser details from user-facing AI review failures', async () => {
+    const result = await evaluateAIReview(
+      {
+        enabled: true,
+        timeoutBeforeReview: 60,
+        confidenceThreshold: 0.7,
+        maxAutoApprovalsPerMinute: 10,
+      },
+      {
+        toolName: 'Bash',
+        toolInput: { command: 'adb install app.apk' },
+        detail: 'adb install app.apk',
+        cwd: '/workspace',
+        analysisProvider: {
+          runPrompt: async () => ({
+            response: '{"type":"final","decision":"approve" "reasoning":"broken","confidence":0.9',
+            sessionId: 'review-session-10',
+          }),
+        },
+      },
+    );
+
+    expect(result.decision).toBe('uncertain');
+    expect(result.confidence).toBe(0);
+    expect(result.reasoning).toContain('AI review could not produce a reliable result');
+    expect(result.reasoning).not.toContain('malformed JSON');
+    expect(result.reasoning).not.toContain('LLM analysis failed');
+  });
 });

@@ -2,9 +2,11 @@ import { Router, Request, Response } from 'express';
 import type Database from 'better-sqlite3';
 import { v4 as uuidv4 } from 'uuid';
 import type { ApiResponse } from '@my-claudia/shared';
+import { normalizeToUnifiedPolicy } from '@my-claudia/shared';
 import { toolRegistry } from '../plugins/tool-registry.js';
 import { getDiscoveredSkills } from '../plugins/skill-tools.js';
 import { CONTEXT_TEMPLATES } from '../domains/conversation/context/types.js';
+import { validateCliJobProviderId } from '../providers/cli-jobs/provider-validation.js';
 
 interface AgentConfig {
   id: number;
@@ -211,6 +213,21 @@ export function createAgentRoutes(db: Database.Database): Router {
     try {
       const { enabled, permissionPolicy, providerId } = req.body;
       const now = Date.now();
+      const serializedPermissionPolicy = permissionPolicy !== undefined
+        ? (typeof permissionPolicy === 'string' ? permissionPolicy : JSON.stringify(permissionPolicy))
+        : null;
+
+      if (serializedPermissionPolicy !== null) {
+        const normalizedPolicy = normalizeToUnifiedPolicy(JSON.parse(serializedPermissionPolicy));
+        const providerValidationError = validateCliJobProviderId(db, normalizedPolicy.aiReview.analysisProviderId);
+        if (providerValidationError) {
+          res.status(400).json({
+            success: false,
+            error: { code: 'VALIDATION_ERROR', message: providerValidationError },
+          });
+          return;
+        }
+      }
 
       db.prepare(`
         UPDATE agent_config SET
@@ -221,7 +238,7 @@ export function createAgentRoutes(db: Database.Database): Router {
         WHERE id = 1
       `).run(
         enabled !== undefined ? (enabled ? 1 : 0) : null,
-        permissionPolicy !== undefined ? (typeof permissionPolicy === 'string' ? permissionPolicy : JSON.stringify(permissionPolicy)) : null,
+        serializedPermissionPolicy,
         providerId !== undefined ? providerId : null,
         now
       );

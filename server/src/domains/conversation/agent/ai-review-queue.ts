@@ -1,18 +1,13 @@
 /**
- * AIReviewQueue — Serialized AI review with shared session reuse.
+ * AIReviewQueue — Serialized AI review queue.
  *
- * One queue per activeRun. Reviews are processed one at a time through a
- * shared provider session to avoid spawning multiple CLI processes.
+ * One queue per activeRun. Reviews are processed one at a time to avoid
+ * spawning multiple concurrent CLI review jobs for the same run.
  *
  * Session lifecycle:
- * - Each review request starts with a fresh provider session.
- * - Multi-turn follow-ups inside a single review still reuse the session ID
- *   returned by evaluateAIReview().
- *
- * Rationale:
- * - Reusing one provider conversation across unrelated permission requests
- *   makes structured JSON output drift over time, especially with CLI-backed
- *   providers such as Kimi.
+ * - Each queued review starts with a fresh review session.
+ * - Multi-turn follow-ups inside a single review may still reuse the
+ *   evaluation-local session ID returned by evaluateAIReview().
  *
  * Cancellation:
  * - cancel(requestId): marks a queued/in-flight review as cancelled.
@@ -48,7 +43,7 @@ export class AIReviewQueue {
   private processing = false;
   private currentEntry: QueueEntry | null = null;
 
-  /** Cached provider instance (created once from factory) */
+  /** Cached provider instance (created once per selected analysis provider) */
   private cachedProvider: AIReviewProvider | undefined;
   private cachedProviderId: string | undefined;
 

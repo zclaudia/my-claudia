@@ -54,10 +54,10 @@ import {
   loadSessionRememberedDecisions,
   resolveRememberedDecision,
 } from '../agent/permission-evaluator.js';
-import { evaluateAIReview } from '../agent/delegation-evaluator.js';
 import { AIReviewQueue } from '../agent/ai-review-queue.js';
 import type { PermissionDecision, SystemInfo } from '../../../providers/claude-sdk.js';
 import { providerRegistry } from '../../../providers/registry.js';
+import { runAIReviewCliJob, supportsAIReviewCliJob } from '../../../providers/cli-jobs/review-job.js';
 import { negotiateProfile } from '../../../providers/pcp-negotiator.js';
 import { mapPermissionMode } from '../../../providers/pcp-permission.js';
 import { createContextEngine } from '../context/engine.js';
@@ -474,20 +474,16 @@ export async function handleRunStart(
 
       const resolvedType = providerRow?.type || providerConfig?.type;
       if (!resolvedType) return undefined;
-
-      const analysisAdapter = providerRegistry.get(resolvedType);
-      if (!analysisAdapter) return undefined;
+      if (!supportsAIReviewCliJob(resolvedType)) return undefined;
       console.log(
         `[AI Review] Using analysis provider id=${resolvedProviderId} type=${resolvedType}${providerRow?.cliPath ? ` cli=${providerRow.cliPath}` : ''}`
       );
 
       return {
         runPrompt: async (prompt: string, sessionId?: string): Promise<{ response: string; sessionId?: string }> => {
-          const collectedMessages: string[] = [];
-          let capturedSessionId: string | undefined = sessionId;
-          for await (const responseMessage of analysisAdapter.run(prompt, {
+          const result = await runAIReviewCliJob(resolvedType, {
+            prompt,
             cwd,
-            sessionId,
             cliPath: providerRow?.cliPath || providerConfig?.cliPath,
             env: {
               ...(providerConfig?.env || {}),
@@ -495,27 +491,17 @@ export async function handleRunStart(
             },
             model: message.model,
             systemPrompt: AI_REVIEW_SYSTEM_PROMPT,
-          }, async () => ({ decision: 'allow' as const, behavior: 'allow' as const }))) {
-            const msg = responseMessage as {
-              type: string;
-              content?: string;
-              result?: string;
-              sessionId?: string;
-            };
-            // Capture sessionId from init message for session reuse
-            if (msg.type === 'init' && msg.sessionId) {
-              capturedSessionId = msg.sessionId;
-            }
-            if (msg.type === 'assistant' && msg.content) {
-              collectedMessages.push(msg.content);
-            } else if (msg.type === 'result' && msg.result) {
-              collectedMessages.push(msg.result);
-            }
-          }
+            timeoutMs: 120000,
+          });
 
           return {
-            response: collectedMessages.join('\n').trim(),
-            sessionId: capturedSessionId,
+            response: JSON.stringify({
+              type: 'final',
+              decision: result.decision,
+              reasoning: result.reasoning,
+              confidence: result.confidence,
+            }),
+            sessionId: undefined,
           };
         },
       };
