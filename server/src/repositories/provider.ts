@@ -29,7 +29,7 @@ export class ProviderRepository extends BaseRepository<
       id: row.id,
       name: row.name,
       type: row.type,
-      cliPath: row.cli_path,
+      cliPath: row.cli_path || undefined,
       env: row.env ? JSON.parse(row.env) : undefined,
       isDefault: row.is_default === 1,
       createdAt: row.created_at,
@@ -114,6 +114,31 @@ export class ProviderRepository extends BaseRepository<
       LIMIT 1
     `).get();
     return row ? this.mapRow(row) : null;
+  }
+
+  /**
+   * Find all providers using the API ordering contract.
+   */
+  findAllOrdered(): ProviderConfig[] {
+    const rows = this.db.prepare(`
+      SELECT * FROM providers
+      ORDER BY is_default DESC, name ASC
+    `).all();
+    return rows.map((row) => this.mapRow(row));
+  }
+
+  /**
+   * Clear the default flag for every provider.
+   */
+  clearAllDefaults(): void {
+    this.db.prepare('UPDATE providers SET is_default = 0').run();
+  }
+
+  /**
+   * Clear the default flag for all providers except the given one.
+   */
+  clearDefaultsExcept(id: string): void {
+    this.db.prepare('UPDATE providers SET is_default = 0 WHERE id != ?').run(id);
   }
 
   /**

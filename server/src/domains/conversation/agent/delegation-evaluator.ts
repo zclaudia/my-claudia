@@ -13,12 +13,40 @@ import {
   type LocalSensitivityReviewResult,
 } from './local-sensitivity-reviewer.js';
 import type Database from 'better-sqlite3';
-import { readFileSync, existsSync } from 'fs';
+import { readFileSync, existsSync, appendFileSync, mkdirSync } from 'fs';
 import { resolve, isAbsolute, basename, extname, sep, dirname } from 'path';
 
 // Rate limiter: circular buffer tracking approvals per minute
 let approvalTimestamps: number[] = [];
 let approvalStartIdx = 0;
+const AI_REVIEW_DEBUG_ENABLED = process.env.MY_CLAUDIA_AI_REVIEW_DEBUG === '1';
+const AI_REVIEW_LOG_PATH = process.env.MY_CLAUDIA_DATA_DIR
+  ? `${process.env.MY_CLAUDIA_DATA_DIR}/ai-review-debug.log`
+  : '/tmp/my-claudia-ai-review.log';
+
+function appendAIReviewDebugLog(message: string): void {
+  if (!AI_REVIEW_DEBUG_ENABLED) return;
+  try {
+    mkdirSync(dirname(AI_REVIEW_LOG_PATH), { recursive: true });
+    appendFileSync(AI_REVIEW_LOG_PATH, `[${new Date().toISOString()}] ${message}\n`);
+  } catch {
+    // Best-effort debug logging only.
+  }
+}
+
+function logAIReviewPayload(kind: 'prompt' | 'response', turn: number, sessionId: string | undefined, payload: string): void {
+  if (!AI_REVIEW_DEBUG_ENABLED) return;
+  appendAIReviewDebugLog(
+    [
+      `kind=${kind}`,
+      `turn=${turn}`,
+      `sessionId=${sessionId || 'new'}`,
+      `${kind.toUpperCase()}<<EOF`,
+      payload,
+      'EOF',
+    ].join('\n')
+  );
+}
 
 function isRateLimited(maxPerMinute: number): boolean {
   const now = Date.now();
@@ -132,6 +160,104 @@ type AIReviewModelResponse =
       path: string;
       reason?: string;
     };
+
+function summarizeAIReviewResponse(response: string): string {
+  return response.slice(0, 400).replace(/\s+/g, ' ').trim();
+}
+
+function normalizeAIReviewDecision(value: unknown): 'approve' | 'deny' | 'uncertain' | null {
+  if (typeof value !== 'string') return null;
+  switch (value.trim().toLowerCase()) {
+    case 'approve':
+    case 'approved':
+    case 'allow':
+    case 'allowed':
+    case 'safe':
+    case 'yes':
+      return 'approve';
+    case 'deny':
+    case 'denied':
+    case 'reject':
+    case 'rejected':
+    case 'block':
+    case 'blocked':
+    case 'unsafe':
+    case 'sensitive':
+      return 'deny';
+    case 'uncertain':
+    case 'unknown':
+    case 'unsure':
+    case 'maybe':
+    case 'suspicious':
+    case 'escalate':
+      return 'uncertain';
+    default:
+      return null;
+  }
+}
+
+function normalizeAIReviewModelResponse(parsed: Record<string, unknown>): AIReviewModelResponse | null {
+  const normalizedType = typeof parsed.type === 'string' ? parsed.type.trim().toLowerCase() : undefined;
+
+  if (
+    normalizedType === 'read_file'
+    || (typeof parsed.path === 'string' && normalizeAIReviewDecision(parsed.decision ?? parsed.label ?? parsed.verdict) === null)
+  ) {
+    if (typeof parsed.path !== 'string' || !parsed.path.trim()) return null;
+    const reason = typeof parsed.reason === 'string'
+      ? parsed.reason
+      : typeof parsed.reasoning === 'string'
+        ? parsed.reasoning
+        : undefined;
+    return {
+      type: 'read_file',
+      path: parsed.path.trim(),
+      reason,
+    };
+  }
+
+  const decision = normalizeAIReviewDecision(parsed.decision ?? parsed.label ?? parsed.verdict);
+  if (!decision) return null;
+
+  const reasoning = typeof parsed.reasoning === 'string'
+    ? parsed.reasoning
+    : typeof parsed.reason === 'string'
+      ? parsed.reason
+      : typeof parsed.explanation === 'string'
+        ? parsed.explanation
+        : 'No reasoning provided';
+
+  return {
+    type: 'final',
+    decision,
+    reasoning,
+    confidence: Math.max(0, Math.min(1, Number(parsed.confidence) || 0)),
+  };
+}
+
+function buildRepairPrompt(previousResponse: string, errorMessage: string): string {
+  return `Your previous reply for the AI security review was invalid.
+
+Validation error:
+${errorMessage}
+
+Previous reply:
+<previous_reply>
+${previousResponse.slice(0, 2000)}
+</previous_reply>
+
+Return ONLY one valid JSON object matching exactly one of these shapes:
+{"type":"final","decision":"approve"|"deny"|"uncertain","reasoning":"one sentence explanation","confidence":0.0}
+{"type":"read_file","path":"relative/path.sh","reason":"why you need it"}
+
+Rules:
+- No markdown
+- No code fences
+- No extra text before or after the JSON
+- Use "decision", not synonyms like "allow" or "reject"
+- Use "reasoning", not "reason"
+- "confidence" must be a number between 0 and 1`;
+}
 
 export async function evaluateAIReview(
   config: AIReviewConfig,
@@ -471,25 +597,27 @@ async function readReviewFile(
   commandContext: string,
 ): Promise<ReviewFileAccessResult> {
   const resolvedPath = isAbsolute(requestPath) ? resolve(requestPath) : resolve(workspaceRoot, requestPath);
-  const allowedCandidate = allowedFiles.get(resolvedPath);
+  const allowedCandidate = allowedFiles.get(resolvedPath)
+    ?? Array.from(allowedFiles.values()).find((candidate) => candidate.displayPath === requestPath);
+  const candidateResolvedPath = allowedCandidate?.resolvedPath ?? resolvedPath;
 
   if (!allowedCandidate) {
-    const denied = { ok: false, path: requestPath, resolvedPath, reason: 'Path is not in the command-referenced file list' };
+    const denied = { ok: false, path: requestPath, resolvedPath: candidateResolvedPath, reason: 'Path is not in the command-referenced file list' };
     auditReviewFileAccess(denied);
     return denied;
   }
-  if (!isWithinRoot(workspaceRoot, resolvedPath)) {
-    const denied = { ok: false, path: requestPath, resolvedPath, reason: 'Path is outside the workspace root' };
+  if (!isWithinRoot(workspaceRoot, candidateResolvedPath)) {
+    const denied = { ok: false, path: requestPath, resolvedPath: candidateResolvedPath, reason: 'Path is outside the workspace root' };
     auditReviewFileAccess(denied);
     return denied;
   }
-  if (hasHardDeniedPathSegment(resolvedPath) || hasSensitiveName(resolvedPath) || hasSensitiveExtension(resolvedPath)) {
-    const denied = { ok: false, path: requestPath, resolvedPath, reason: 'Path matched a sensitive file rule' };
+  if (hasHardDeniedPathSegment(candidateResolvedPath) || hasSensitiveName(candidateResolvedPath) || hasSensitiveExtension(candidateResolvedPath)) {
+    const denied = { ok: false, path: requestPath, resolvedPath: candidateResolvedPath, reason: 'Path matched a sensitive file rule' };
     auditReviewFileAccess(denied);
     return denied;
   }
-  if (!existsSync(resolvedPath)) {
-    const denied = { ok: false, path: requestPath, resolvedPath, reason: 'File does not exist' };
+  if (!existsSync(candidateResolvedPath)) {
+    const denied = { ok: false, path: requestPath, resolvedPath: candidateResolvedPath, reason: 'File does not exist' };
     auditReviewFileAccess(denied);
     return denied;
   }
@@ -497,12 +625,12 @@ async function readReviewFile(
   try {
     const budget = Math.max(0, MAX_TOTAL_BYTES - totalBytesUsed);
     if (budget <= 0) {
-      const denied = { ok: false, path: requestPath, resolvedPath, reason: 'Review file budget exhausted' };
+      const denied = { ok: false, path: requestPath, resolvedPath: candidateResolvedPath, reason: 'Review file budget exhausted' };
       auditReviewFileAccess(denied);
       return denied;
     }
     const byteLimit = Math.min(MAX_BYTES_PER_FILE, budget);
-    let content = readFileSync(resolvedPath, 'utf-8');
+    let content = readFileSync(candidateResolvedPath, 'utf-8');
     let truncated = false;
     if (content.length > byteLimit) {
       content = `${content.slice(0, byteLimit)}\n... (truncated)`;
@@ -514,7 +642,7 @@ async function readReviewFile(
       try {
         localReview = await reviewer.reviewFile({
           path: allowedCandidate.displayPath,
-          resolvedPath,
+          resolvedPath: candidateResolvedPath,
           workspaceRoot,
           contentPreview: content,
           commandContext,
@@ -528,7 +656,7 @@ async function readReviewFile(
       const denied = {
         ok: false,
         path: requestPath,
-        resolvedPath,
+        resolvedPath: candidateResolvedPath,
         reason: `Local reviewer blocked the file: ${localReview.reason}`,
         localReviewerOutcome: localReview.label,
       };
@@ -540,7 +668,7 @@ async function readReviewFile(
     const result: ReviewFileAccessResult = {
       ok: true,
       path: allowedCandidate.displayPath,
-      resolvedPath,
+      resolvedPath: candidateResolvedPath,
       content: redaction.content,
       reason: normalizeReviewReason(localReview ?? {
         label: 'safe',
@@ -555,7 +683,7 @@ async function readReviewFile(
     auditReviewFileAccess(result);
     return result;
   } catch {
-    const denied = { ok: false, path: requestPath, resolvedPath, reason: 'Failed to read file' };
+    const denied = { ok: false, path: requestPath, resolvedPath: candidateResolvedPath, reason: 'Failed to read file' };
     auditReviewFileAccess(denied);
     return denied;
   }
@@ -632,35 +760,196 @@ ${result.content}
 
 Reply with ONLY one JSON object:
 {"type":"final","decision":"approve"|"deny"|"uncertain","reasoning":"one sentence explanation","confidence":0.0}
-or
+  or
 {"type":"read_file","path":"another/allowed/file","reason":"why you need it"}`;
 }
 
-function parseAIReviewResponse(response: string): AIReviewModelResponse {
-  const jsonMatch = response.match(/\{[\s\S]*\}/);
-  if (!jsonMatch) {
-    throw new Error('LLM response did not contain valid JSON');
+function extractFirstJSONObject(response: string): string | null {
+  let start = -1;
+  let depth = 0;
+  let inString = false;
+  let escaping = false;
+
+  for (let i = 0; i < response.length; i += 1) {
+    const ch = response[i];
+
+    if (start === -1) {
+      if (ch === '{') {
+        start = i;
+        depth = 1;
+      }
+      continue;
+    }
+
+    if (inString) {
+      if (escaping) {
+        escaping = false;
+        continue;
+      }
+      if (ch === '\\') {
+        escaping = true;
+        continue;
+      }
+      if (ch === '"') {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (ch === '"') {
+      inString = true;
+      continue;
+    }
+
+    if (ch === '{') {
+      depth += 1;
+      continue;
+    }
+
+    if (ch === '}') {
+      depth -= 1;
+      if (depth === 0) {
+        return response.slice(start, i + 1);
+      }
+    }
   }
-  // Sanitize control characters inside JSON string values that LLMs sometimes produce
-  const sanitized = jsonMatch[0].replace(/[\x00-\x1f\x7f]/g, (ch) =>
-    ch === '\n' ? '\\n' : ch === '\r' ? '\\r' : ch === '\t' ? '\\t' : ''
+
+  return null;
+}
+
+function sanitizeJSONControlCharsInStrings(json: string): string {
+  let sanitized = '';
+  let inString = false;
+  let escaping = false;
+
+  for (const ch of json) {
+    if (inString) {
+      if (escaping) {
+        sanitized += ch;
+        escaping = false;
+        continue;
+      }
+
+      if (ch === '\\') {
+        sanitized += ch;
+        escaping = true;
+        continue;
+      }
+
+      if (ch === '"') {
+        sanitized += ch;
+        inString = false;
+        continue;
+      }
+
+      if (ch === '\n') {
+        sanitized += '\\n';
+        continue;
+      }
+
+      if (ch === '\r') {
+        sanitized += '\\r';
+        continue;
+      }
+
+      if (ch === '\t') {
+        sanitized += '\\t';
+        continue;
+      }
+
+      const code = ch.charCodeAt(0);
+      if ((code >= 0 && code < 0x20) || code === 0x7f) {
+        continue;
+      }
+
+      sanitized += ch;
+      continue;
+    }
+
+    if (ch === '"') {
+      sanitized += ch;
+      inString = true;
+      continue;
+    }
+
+    const code = ch.charCodeAt(0);
+    if ((code >= 0 && code < 0x20) || code === 0x7f) {
+      if (ch === '\n' || ch === '\r' || ch === '\t') {
+        sanitized += ch;
+      }
+      continue;
+    }
+
+    sanitized += ch;
+  }
+
+  return sanitized;
+}
+
+function extractLooseField(text: string, fieldNames: string[]): string | null {
+  for (const fieldName of fieldNames) {
+    const quoted = new RegExp(`["']${fieldName}["']\\s*:\\s*["']([^"']+)["']`, 'i').exec(text);
+    if (quoted?.[1]) return quoted[1].trim();
+
+    const bare = new RegExp(`["']${fieldName}["']\\s*:\\s*([^,}\\n\\r]+)`, 'i').exec(text);
+    if (bare?.[1]) return bare[1].trim().replace(/^["']|["']$/g, '');
+  }
+  return null;
+}
+
+function salvageMalformedAIReviewResponse(text: string): AIReviewModelResponse | null {
+  const path = extractLooseField(text, ['path']);
+  const decision = normalizeAIReviewDecision(
+    extractLooseField(text, ['decision', 'verdict', 'label'])
   );
-  const parsed = JSON.parse(sanitized) as Record<string, unknown>;
-  if (parsed.type === 'read_file' && typeof parsed.path === 'string') {
+  const reasoning = extractLooseField(text, ['reasoning', 'reason', 'explanation']);
+  const confidenceRaw = extractLooseField(text, ['confidence']);
+  const confidence = Math.max(0, Math.min(1, Number(confidenceRaw) || 0));
+
+  if (path && !decision) {
     return {
       type: 'read_file',
-      path: parsed.path,
-      reason: typeof parsed.reason === 'string' ? parsed.reason : undefined,
+      path,
+      reason: reasoning || undefined,
     };
   }
-  if (typeof parsed.decision === 'string') {
-    return {
-      type: 'final',
-      decision: parsed.decision === 'approve' ? 'approve' : parsed.decision === 'deny' ? 'deny' : 'uncertain',
-      reasoning: typeof parsed.reasoning === 'string' ? parsed.reasoning : 'No reasoning provided',
-      confidence: Math.max(0, Math.min(1, Number(parsed.confidence) || 0)),
-    };
+
+  if (!decision) return null;
+
+  return {
+    type: 'final',
+    decision,
+    reasoning: reasoning || 'No reasoning provided',
+    confidence,
+  };
+}
+
+function parseAIReviewResponse(response: string): AIReviewModelResponse {
+  const jsonCandidate = extractFirstJSONObject(response);
+  if (!jsonCandidate) {
+    throw new Error('LLM response did not contain valid JSON');
   }
+
+  let parsed: Record<string, unknown>;
+  try {
+    parsed = JSON.parse(jsonCandidate) as Record<string, unknown>;
+  } catch {
+    // Some models emit raw control characters inside string values. Repair those
+    // without corrupting pretty-printed whitespace between JSON tokens.
+    try {
+      parsed = JSON.parse(sanitizeJSONControlCharsInStrings(jsonCandidate)) as Record<string, unknown>;
+    } catch {
+      const salvaged = salvageMalformedAIReviewResponse(jsonCandidate);
+      if (salvaged) return salvaged;
+      throw new Error('LLM response contained malformed JSON');
+    }
+  }
+
+  const normalized = normalizeAIReviewModelResponse(parsed);
+  if (normalized) return normalized;
+
+  const salvaged = salvageMalformedAIReviewResponse(jsonCandidate);
+  if (salvaged) return salvaged;
   throw new Error('LLM response did not match AI review schema');
 }
 
@@ -676,12 +965,33 @@ async function analyzeLLMRisk(ctx: AIReviewContext): Promise<AIReviewResultWithS
   let currentSessionId = ctx.sessionId;
   let localReviewerUsed = false;
   let localReviewerOutcome: 'safe' | 'suspicious' | 'sensitive' | undefined;
+  let attemptedFormatRepair = false;
 
   for (let turn = 0; turn < MAX_REVIEW_TURNS; turn += 1) {
+    logAIReviewPayload('prompt', turn + 1, currentSessionId, reviewPrompt);
     const { response, sessionId: returnedSessionId } = await ctx.analysisProvider!.runPrompt(reviewPrompt, currentSessionId);
     currentSessionId = returnedSessionId || currentSessionId;
+    logAIReviewPayload('response', turn + 1, currentSessionId, response);
+    let parsed: AIReviewModelResponse;
+    try {
+      parsed = parseAIReviewResponse(response);
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'unknown error';
+      console.warn(
+        `[AI Review] Invalid LLM response on turn ${turn + 1}/${MAX_REVIEW_TURNS}: ${errorMessage}; response=${summarizeAIReviewResponse(response)}`
+      );
+      appendAIReviewDebugLog(
+        `kind=parse_error\nturn=${turn + 1}\nsessionId=${currentSessionId || 'new'}\nerror=${errorMessage}\nsummary=${summarizeAIReviewResponse(response)}`
+      );
+      if (!attemptedFormatRepair) {
+        attemptedFormatRepair = true;
+        reviewPrompt = buildRepairPrompt(response, errorMessage);
+        continue;
+      }
+      throw error;
+    }
+    attemptedFormatRepair = false;
 
-    const parsed = parseAIReviewResponse(response);
     if (parsed.type === 'final') {
       return {
         ...parsed,

@@ -951,6 +951,41 @@ describe('providers routes', () => {
       expect(JSON.parse(row.env)).toEqual(newEnv);
     });
 
+    it('preserves omitted nullable fields when updating another field', async () => {
+      const now = Date.now();
+      db.prepare(`
+        INSERT INTO providers (id, name, type, cli_path, env, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `).run('p-preserve', 'Original', 'claude', '/existing/path', JSON.stringify({ KEEP: '1' }), now, now);
+
+      const res = await request(app)
+        .put('/api/providers/p-preserve')
+        .send({ name: 'Renamed' });
+      expect(res.status).toBe(200);
+
+      const row = db.prepare('SELECT name, cli_path, env FROM providers WHERE id = ?').get('p-preserve') as any;
+      expect(row.name).toBe('Renamed');
+      expect(row.cli_path).toBe('/existing/path');
+      expect(JSON.parse(row.env)).toEqual({ KEEP: '1' });
+    });
+
+    it('clears nullable fields only when explicitly set to null', async () => {
+      const now = Date.now();
+      db.prepare(`
+        INSERT INTO providers (id, name, type, cli_path, env, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `).run('p-clear', 'Original', 'claude', '/existing/path', JSON.stringify({ KEEP: '1' }), now, now);
+
+      const res = await request(app)
+        .put('/api/providers/p-clear')
+        .send({ cliPath: null, env: null });
+      expect(res.status).toBe(200);
+
+      const row = db.prepare('SELECT cli_path, env FROM providers WHERE id = ?').get('p-clear') as any;
+      expect(row.cli_path).toBeNull();
+      expect(row.env).toBeNull();
+    });
+
     it('sets isDefault to false', async () => {
       const now = Date.now();
       db.prepare(`

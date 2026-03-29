@@ -714,6 +714,8 @@ export async function* runKimi(
       try {
         event = JSON.parse(line);
       } catch {
+        const snippet = line.slice(0, 200).replace(/\s+/g, ' ');
+        console.warn(`[Kimi SDK] Non-JSON stdout line, treating as assistant text: ${snippet}`);
         const fallbackMsg = { type: 'assistant', content: line } as ClaudeMessage;
         trace.log('provider_raw', 'non_json_output', fallbackMsg, summarizeProviderMessage(fallbackMsg as { type: string; [key: string]: unknown }));
         yield fallbackMsg;

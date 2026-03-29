@@ -27,12 +27,13 @@ export class SessionRepository extends BaseRepository<
     return {
       id: row.id,
       projectId: row.project_id,
-      name: row.name,
-      providerId: row.provider_id,
-      sdkSessionId: row.sdk_session_id,
+      name: row.name || undefined,
+      providerId: row.provider_id || undefined,
+      sdkSessionId: row.sdk_session_id || undefined,
       type: row.type || 'regular',
       parentSessionId: row.parent_session_id || undefined,
       workingDirectory: row.working_directory || undefined,
+      sortOrder: row.sort_order ?? undefined,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
       archivedAt: row.archived_at || undefined,
@@ -41,6 +42,7 @@ export class SessionRepository extends BaseRepository<
       taskId: row.task_id || undefined,
       planStatus: row.plan_status || undefined,
       isReadOnly: row.is_read_only === 1 ? true : undefined,
+      lastRunStatus: row.last_run_status || undefined,
     };
   }
 
@@ -53,8 +55,13 @@ export class SessionRepository extends BaseRepository<
 
     return {
       sql: `
-        INSERT INTO sessions (id, project_id, name, provider_id, sdk_session_id, type, parent_session_id, working_directory, project_role, task_id, plan_status, is_read_only, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO sessions (
+          id, project_id, name, provider_id, sdk_session_id, type,
+          parent_session_id, working_directory, sort_order,
+          project_role, task_id, plan_status, is_read_only, last_run_status,
+          created_at, updated_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `,
       params: [
         id,
@@ -65,10 +72,12 @@ export class SessionRepository extends BaseRepository<
         data.type || 'regular',
         data.parentSessionId || null,
         data.workingDirectory || null,
+        data.sortOrder ?? null,
         data.projectRole || null,
         data.taskId || null,
         data.planStatus || null,
         data.isReadOnly ? 1 : 0,
+        data.lastRunStatus || null,
         now,
         now
       ]
@@ -111,6 +120,10 @@ export class SessionRepository extends BaseRepository<
       updates.push('working_directory = ?');
       params.push(data.workingDirectory || null);
     }
+    if (data.sortOrder !== undefined) {
+      updates.push('sort_order = ?');
+      params.push(data.sortOrder ?? null);
+    }
     if (data.archivedAt !== undefined) {
       updates.push('archived_at = ?');
       params.push(data.archivedAt || null);
@@ -131,6 +144,10 @@ export class SessionRepository extends BaseRepository<
     if (data.isReadOnly !== undefined) {
       updates.push('is_read_only = ?');
       params.push(data.isReadOnly ? 1 : 0);
+    }
+    if (data.lastRunStatus !== undefined) {
+      updates.push('last_run_status = ?');
+      params.push(data.lastRunStatus || null);
     }
 
     // Always update timestamp
@@ -179,5 +196,12 @@ export class SessionRepository extends BaseRepository<
       WHERE sdk_session_id = ?
     `).get(sdkSessionId);
     return row ? this.mapRow(row) : null;
+  }
+
+  findNextSortOrder(projectId: string): number {
+    const row = this.db.prepare(
+      'SELECT COALESCE(MAX(sort_order), -1) + 1 as sortOrder FROM sessions WHERE project_id = ?'
+    ).get(projectId) as { sortOrder: number };
+    return row.sortOrder;
   }
 }

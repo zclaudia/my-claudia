@@ -1,51 +1,22 @@
 import { Router, Request, Response } from 'express';
-import { v4 as uuidv4 } from 'uuid';
 import type Database from 'better-sqlite3';
 import { PROVIDER_TYPES } from '@my-claudia/shared';
 import type { ProviderConfig, ApiResponse } from '@my-claudia/shared';
 import { toolRegistry } from '../plugins/tool-registry.js';
+import { ProviderRepository } from '../repositories/provider.js';
 import { mountCapabilityRoutes } from './provider-capabilities.js';
 import { mountCommandRoutes } from './provider-commands.js';
 
 const VALID_PROVIDER_TYPES = [...PROVIDER_TYPES] as ProviderConfig['type'][];
 
-// Database row type (different from ProviderConfig due to SQLite types)
-interface ProviderRow {
-  id: string;
-  name: string;
-  type: string;
-  cliPath: string | null;
-  env: string | null;
-  isDefault: number;
-  createdAt: number;
-  updatedAt: number;
-}
-
 export function createProviderRoutes(db: Database.Database): Router {
   const router = Router();
+  const repo = new ProviderRepository(db);
 
   // Get all providers
   router.get('/', (_req: Request, res: Response) => {
     try {
-      const providers = db.prepare(`
-        SELECT id, name, type, cli_path as cliPath, env,
-               is_default as isDefault, created_at as createdAt, updated_at as updatedAt
-        FROM providers
-        ORDER BY is_default DESC, name ASC
-      `).all() as ProviderRow[];
-
-      const result: ProviderConfig[] = providers.map(p => ({
-        id: p.id,
-        name: p.name,
-        type: p.type as ProviderConfig['type'],
-        cliPath: p.cliPath || undefined,
-        env: p.env ? JSON.parse(p.env) : undefined,
-        isDefault: p.isDefault === 1,
-        createdAt: p.createdAt,
-        updatedAt: p.updatedAt
-      }));
-
-      res.json({ success: true, data: result } as ApiResponse<ProviderConfig[]>);
+      res.json({ success: true, data: repo.findAllOrdered() } as ApiResponse<ProviderConfig[]>);
     } catch (error) {
       console.error('Error fetching providers:', error);
       res.status(500).json({
@@ -58,30 +29,15 @@ export function createProviderRoutes(db: Database.Database): Router {
   // Get single provider
   router.get('/:id', (req: Request, res: Response) => {
     try {
-      const row = db.prepare(`
-        SELECT id, name, type, cli_path as cliPath, env,
-               is_default as isDefault, created_at as createdAt, updated_at as updatedAt
-        FROM providers WHERE id = ?
-      `).get(req.params.id) as ProviderRow | undefined;
+      const provider = repo.findById(req.params.id);
 
-      if (!row) {
+      if (!provider) {
         res.status(404).json({
           success: false,
           error: { code: 'NOT_FOUND', message: 'Provider not found' }
         });
         return;
       }
-
-      const provider: ProviderConfig = {
-        id: row.id,
-        name: row.name,
-        type: row.type as ProviderConfig['type'],
-        cliPath: row.cliPath || undefined,
-        env: row.env ? JSON.parse(row.env) : undefined,
-        isDefault: row.isDefault === 1,
-        createdAt: row.createdAt,
-        updatedAt: row.updatedAt
-      };
 
       res.json({
         success: true,
@@ -117,38 +73,17 @@ export function createProviderRoutes(db: Database.Database): Router {
         return;
       }
 
-      const id = uuidv4();
-      const now = Date.now();
-
-      // If this provider is default, unset other defaults
       if (isDefault) {
-        db.prepare('UPDATE providers SET is_default = 0').run();
+        repo.clearAllDefaults();
       }
 
-      db.prepare(`
-        INSERT INTO providers (id, name, type, cli_path, env, is_default, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(
-        id,
-        name,
-        type,
-        cliPath || null,
-        env ? JSON.stringify(env) : null,
-        isDefault ? 1 : 0,
-        now,
-        now
-      );
-
-      const provider: ProviderConfig = {
-        id,
+      const provider = repo.create({
         name,
         type,
         cliPath,
         env,
-        isDefault: isDefault || false,
-        createdAt: now,
-        updatedAt: now
-      };
+        isDefault: Boolean(isDefault),
+      });
 
       res.status(201).json({ success: true, data: provider } as ApiResponse<ProviderConfig>);
     } catch (error) {
@@ -163,10 +98,9 @@ export function createProviderRoutes(db: Database.Database): Router {
   // Update provider
   router.put('/:id', (req: Request, res: Response) => {
     try {
-      const { name, type, cliPath, env, isDefault } = req.body;
-      const now = Date.now();
+      const body = req.body ?? {};
 
-      if (type && !VALID_PROVIDER_TYPES.includes(type as ProviderConfig['type'])) {
+      if (body.type && !VALID_PROVIDER_TYPES.includes(body.type as ProviderConfig['type'])) {
         res.status(400).json({
           success: false,
           error: { code: 'VALIDATION_ERROR', message: `Invalid provider type. Must be one of: ${VALID_PROVIDER_TYPES.join(', ')}` }
@@ -174,36 +108,28 @@ export function createProviderRoutes(db: Database.Database): Router {
         return;
       }
 
-      // If this provider is becoming default, unset other defaults
-      if (isDefault) {
-        db.prepare('UPDATE providers SET is_default = 0 WHERE id != ?').run(req.params.id);
+      if (body.isDefault === true) {
+        repo.clearDefaultsExcept(req.params.id);
       }
 
-      const result = db.prepare(`
-        UPDATE providers
-        SET name = COALESCE(?, name),
-            type = COALESCE(?, type),
-            cli_path = ?,
-            env = ?,
-            is_default = COALESCE(?, is_default),
-            updated_at = ?
-        WHERE id = ?
-      `).run(
-        name || null,
-        type || null,
-        cliPath !== undefined ? cliPath : null,
-        env ? JSON.stringify(env) : null,
-        isDefault !== undefined ? (isDefault ? 1 : 0) : null,
-        now,
-        req.params.id
-      );
+      const patch: Partial<ProviderConfig> = {};
+      if (Object.prototype.hasOwnProperty.call(body, 'name')) patch.name = body.name ?? null;
+      if (Object.prototype.hasOwnProperty.call(body, 'type')) patch.type = body.type ?? null;
+      if (Object.prototype.hasOwnProperty.call(body, 'cliPath')) patch.cliPath = body.cliPath ?? null;
+      if (Object.prototype.hasOwnProperty.call(body, 'env')) patch.env = body.env ?? null;
+      if (Object.prototype.hasOwnProperty.call(body, 'isDefault')) patch.isDefault = Boolean(body.isDefault);
 
-      if (result.changes === 0) {
-        res.status(404).json({
-          success: false,
-          error: { code: 'NOT_FOUND', message: 'Provider not found' }
-        });
-        return;
+      try {
+        repo.update(req.params.id, patch);
+      } catch (error) {
+        if (error instanceof Error && error.message.includes('not found')) {
+          res.status(404).json({
+            success: false,
+            error: { code: 'NOT_FOUND', message: 'Provider not found' }
+          });
+          return;
+        }
+        throw error;
       }
 
       res.json({ success: true } as ApiResponse<void>);
@@ -220,8 +146,7 @@ export function createProviderRoutes(db: Database.Database): Router {
   router.delete('/:id', (req: Request, res: Response) => {
     try {
       const providerId = req.params.id;
-      const existing = db.prepare('SELECT id, is_default as isDefault FROM providers WHERE id = ?')
-        .get(providerId) as { id: string; isDefault: number } | undefined;
+      const existing = repo.findById(providerId);
 
       if (!existing) {
         res.status(404).json({
@@ -254,14 +179,14 @@ export function createProviderRoutes(db: Database.Database): Router {
         }
 
         // Keep one default provider if any provider remains.
-        if (existing.isDefault === 1) {
+        if (existing.isDefault) {
           const replacement = db.prepare(`
             SELECT id FROM providers
             ORDER BY created_at ASC
             LIMIT 1
           `).get() as { id: string } | undefined;
           if (replacement) {
-            db.prepare('UPDATE providers SET is_default = 1 WHERE id = ?').run(replacement.id);
+            repo.setDefault(replacement.id);
           }
         }
       });
@@ -285,9 +210,7 @@ export function createProviderRoutes(db: Database.Database): Router {
   // Set provider as default
   router.post('/:id/set-default', (req: Request, res: Response) => {
     try {
-      // Verify provider exists
-      const provider = db.prepare('SELECT id FROM providers WHERE id = ?').get(req.params.id);
-      if (!provider) {
+      if (!repo.findById(req.params.id)) {
         res.status(404).json({
           success: false,
           error: { code: 'NOT_FOUND', message: 'Provider not found' }
@@ -295,34 +218,7 @@ export function createProviderRoutes(db: Database.Database): Router {
         return;
       }
 
-      // Clear existing defaults
-      db.prepare('UPDATE providers SET is_default = 0 WHERE is_default = 1').run();
-
-      // Set new default
-      const now = Date.now();
-      db.prepare('UPDATE providers SET is_default = 1, updated_at = ? WHERE id = ?')
-        .run(now, req.params.id);
-
-      // Return updated provider
-      const updated = db.prepare(`
-        SELECT id, name, type, cli_path as cliPath, env,
-               CASE WHEN is_default = 1 THEN 1 ELSE NULL END as isDefault,
-               created_at as createdAt, updated_at as updatedAt
-        FROM providers WHERE id = ?
-      `).get(req.params.id) as ProviderRow | undefined;
-
-      const mapped: ProviderConfig = {
-        id: updated!.id,
-        name: updated!.name,
-        type: updated!.type as ProviderConfig['type'],
-        cliPath: updated!.cliPath || undefined,
-        env: updated!.env ? JSON.parse(updated!.env) : undefined,
-        isDefault: !!updated!.isDefault,
-        createdAt: updated!.createdAt,
-        updatedAt: updated!.updatedAt,
-      };
-
-      res.json({ success: true, data: mapped } as ApiResponse<ProviderConfig>);
+      res.json({ success: true, data: repo.setDefault(req.params.id) } as ApiResponse<ProviderConfig>);
     } catch (error) {
       console.error('Error setting default provider:', error);
       res.status(500).json({

@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import type Database from 'better-sqlite3';
 import type { ApiResponse, SessionDraft } from '@my-claudia/shared';
 import { SessionDraftRepository } from '../repositories/sessionDraft.js';
+import { sendApiError } from './response.js';
 
 export function createSessionDraftRoutes(db: Database.Database): Router {
   const router = Router();
@@ -52,7 +53,7 @@ export function createSessionDraftRoutes(db: Database.Database): Router {
       const draft = repo.findBySessionId(req.params.id);
       res.json({ success: true, data: draft } as ApiResponse<SessionDraft | null>);
     } catch (error) {
-      res.status(500).json({ success: false, error: String(error) });
+      sendApiError(res, 500, 'INTERNAL_ERROR', 'Failed to load draft', String(error));
     }
   });
 
@@ -76,9 +77,9 @@ export function createSessionDraftRoutes(db: Database.Database): Router {
     } catch (error) {
       const msg = String(error);
       if (msg.includes('100KB')) {
-        res.status(413).json({ success: false, error: msg });
+        sendApiError(res, 413, 'DRAFT_TOO_LARGE', msg);
       } else {
-        res.status(500).json({ success: false, error: msg });
+        sendApiError(res, 500, 'INTERNAL_ERROR', 'Failed to save draft', msg);
       }
     }
   });
@@ -106,7 +107,7 @@ export function createSessionDraftRoutes(db: Database.Database): Router {
         res.json({ success: true, data: { locked: result.success, draft: result.draft } });
       }
     } catch (error) {
-      res.status(500).json({ success: false, error: String(error) });
+      sendApiError(res, 500, 'INTERNAL_ERROR', 'Failed to acquire draft lock', String(error));
     }
   });
 
@@ -129,7 +130,7 @@ export function createSessionDraftRoutes(db: Database.Database): Router {
       repo.releaseLock(req.params.id, deviceId);
       res.json({ success: true });
     } catch (error) {
-      res.status(500).json({ success: false, error: String(error) });
+      sendApiError(res, 500, 'INTERNAL_ERROR', 'Failed to release draft lock', String(error));
     }
   });
 
@@ -142,12 +143,12 @@ export function createSessionDraftRoutes(db: Database.Database): Router {
 
       const draft = repo.archive(_req.params.id);
       if (!draft) {
-        res.status(404).json({ success: false, error: 'No active draft found' });
+        sendApiError(res, 404, 'NOT_FOUND', 'No active draft found');
         return;
       }
       res.json({ success: true, data: draft } as ApiResponse<SessionDraft>);
     } catch (error) {
-      res.status(500).json({ success: false, error: String(error) });
+      sendApiError(res, 500, 'INTERNAL_ERROR', 'Failed to archive draft', String(error));
     }
   });
 
@@ -160,12 +161,12 @@ export function createSessionDraftRoutes(db: Database.Database): Router {
 
       const deleted = repo.delete(req.params.id);
       if (!deleted) {
-        res.status(404).json({ success: false, error: 'No draft found' });
+        sendApiError(res, 404, 'NOT_FOUND', 'No draft found');
         return;
       }
       res.json({ success: true });
     } catch (error) {
-      res.status(500).json({ success: false, error: String(error) });
+      sendApiError(res, 500, 'INTERNAL_ERROR', 'Failed to delete draft', String(error));
     }
   });
 

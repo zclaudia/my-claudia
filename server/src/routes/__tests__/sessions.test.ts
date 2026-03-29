@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeAll, afterAll, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeAll, afterAll, beforeEach, afterEach } from 'vitest';
 import express from 'express';
 import request from 'supertest';
 import Database from 'better-sqlite3';
@@ -371,6 +371,43 @@ describe('sessions routes', () => {
 
       expect(res.status).toBe(404);
       expect(res.body.success).toBe(false);
+    });
+
+    it('preserves omitted nullable fields when updating another field', async () => {
+      const now = Date.now();
+      db.prepare(`
+        INSERT INTO sessions (id, project_id, name, provider_id, sdk_session_id, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `).run('s1', 'project-1', 'Original', 'provider-1', 'sdk-123', now, now);
+
+      const res = await request(app)
+        .put('/api/sessions/s1')
+        .send({ name: 'Updated Name' });
+
+      expect(res.status).toBe(200);
+
+      const row = db.prepare('SELECT name, provider_id, sdk_session_id FROM sessions WHERE id = ?').get('s1') as any;
+      expect(row.name).toBe('Updated Name');
+      expect(row.provider_id).toBe('provider-1');
+      expect(row.sdk_session_id).toBe('sdk-123');
+    });
+
+    it('clears nullable fields only when explicitly set to null', async () => {
+      const now = Date.now();
+      db.prepare(`
+        INSERT INTO sessions (id, project_id, name, provider_id, sdk_session_id, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `).run('s1', 'project-1', 'Original', 'provider-1', 'sdk-123', now, now);
+
+      const res = await request(app)
+        .put('/api/sessions/s1')
+        .send({ providerId: null, sdkSessionId: null });
+
+      expect(res.status).toBe(200);
+
+      const row = db.prepare('SELECT provider_id, sdk_session_id FROM sessions WHERE id = ?').get('s1') as any;
+      expect(row.provider_id).toBeNull();
+      expect(row.sdk_session_id).toBeNull();
     });
   });
 

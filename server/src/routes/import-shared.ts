@@ -31,7 +31,13 @@ export function checkDuplicateSession(
 export interface ImportResult {
   imported: number;
   skipped: number;
-  errors: Array<{ sessionId: string; error: string }>;
+  errors: Array<{
+    sessionId: string;
+    error: {
+      code: string;
+      message: string;
+    };
+  }>;
 }
 
 export interface ScanResult {

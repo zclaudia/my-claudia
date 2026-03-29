@@ -10,6 +10,7 @@ import { Router, Request, Response } from 'express';
 import type { PCPEffectiveProfile } from '@my-claudia/shared';
 import { toolRegistry } from '../plugins/tool-registry.js';
 import { shouldExposeInteractionTool } from '../providers/pcp-capability.js';
+import { sendApiError } from './response.js';
 
 export interface PluginToolsRoutesDeps {
   /** Resolve the active PCP profile for a session (if a run is active) */
@@ -89,9 +90,12 @@ export function createPluginToolsRoutes(deps?: PluginToolsRoutesDeps): Router {
       res.json({ result });
     } catch (error) {
       console.error(`[PluginTools] execute failed name=${name} session=${sessionTag}:`, error);
-      res.status(500).json({
-        error: `Tool execution failed: ${error instanceof Error ? error.message : String(error)}`,
-      });
+      sendApiError(
+        res,
+        500,
+        'TOOL_EXECUTION_FAILED',
+        `Tool execution failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
     }
   });
 

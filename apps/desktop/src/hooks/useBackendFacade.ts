@@ -22,7 +22,7 @@ import { useSessionsStore } from '../stores/sessionsStore';
 import { useChatStore, type MessageWithToolCalls } from '../stores/chatStore';
 import { useToastStore } from '../stores/toastStore';
 import { handleServerMessage } from '../services/messageHandler';
-import type { BackendRuntimeState } from '@my-claudia/shared';
+import type { BackendRuntimeState, ServerFeature } from '@my-claudia/shared';
 import type { ConnectionStatus } from '../stores/serverStore';
 import { isLegacyLocalBackendId } from '../utils/controlPlane';
 
@@ -155,6 +155,7 @@ export function syncToGatewayStore(event: BackendFacadeEvent): void {
       for (const b of snapshot.backends) {
         const status = runtimeStateToConnectionStatus(b.runtimeState);
         serverState.setServerConnectionStatus(b.backendId, status, b.lastError ?? undefined);
+        serverState.setServerFeatures(b.backendId, b.capabilities as ServerFeature[]);
       }
       // Auto-set activeServerId to local backend ONLY on first boot or legacy migration.
       // Never override a user-selected remote backend.

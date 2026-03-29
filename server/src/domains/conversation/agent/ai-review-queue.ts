@@ -5,9 +5,14 @@
  * shared provider session to avoid spawning multiple CLI processes.
  *
  * Session lifecycle:
- * - First review creates a new session (no sessionId passed).
- * - Subsequent reviews reuse the same sessionId.
- * - After MAX_REVIEWS_PER_SESSION, the sessionId is reset (rotation).
+ * - Each review request starts with a fresh provider session.
+ * - Multi-turn follow-ups inside a single review still reuse the session ID
+ *   returned by evaluateAIReview().
+ *
+ * Rationale:
+ * - Reusing one provider conversation across unrelated permission requests
+ *   makes structured JSON output drift over time, especially with CLI-backed
+ *   providers such as Kimi.
  *
  * Cancellation:
  * - cancel(requestId): marks a queued/in-flight review as cancelled.
@@ -42,12 +47,6 @@ export class AIReviewQueue {
   private queue: QueueEntry[] = [];
   private processing = false;
   private currentEntry: QueueEntry | null = null;
-
-  /** Shared session ID reused across reviews */
-  private sharedSessionId: string | undefined;
-  /** Counter for session rotation */
-  private reviewCount = 0;
-  private static readonly MAX_REVIEWS_PER_SESSION = 20;
 
   /** Cached provider instance (created once from factory) */
   private cachedProvider: AIReviewProvider | undefined;
@@ -111,9 +110,6 @@ export class AIReviewQueue {
     }
     this.cachedProvider = this.options.createProvider(analysisProviderId);
     this.cachedProviderId = analysisProviderId || '__default__';
-    // New provider → reset session (different CLI process)
-    this.sharedSessionId = undefined;
-    this.reviewCount = 0;
     return this.cachedProvider;
   }
 
@@ -136,13 +132,6 @@ export class AIReviewQueue {
         return;
       }
 
-      // Rotate session if context bloat threshold reached
-      if (this.reviewCount >= AIReviewQueue.MAX_REVIEWS_PER_SESSION) {
-        console.log(`[AI Review Queue] Rotating session after ${this.reviewCount} reviews`);
-        this.sharedSessionId = undefined;
-        this.reviewCount = 0;
-      }
-
       const provider = this.getProvider(entry.config.analysisProviderId);
       if (!provider) {
         console.log(`[AI Review Queue] No provider available (analysisProviderId=${entry.config.analysisProviderId || 'default'})`);
@@ -153,14 +142,8 @@ export class AIReviewQueue {
       const result = await evaluateAIReview(entry.config, {
         ...entry.ctx,
         analysisProvider: provider,
-        sessionId: this.sharedSessionId,
+        sessionId: undefined,
       });
-
-      // Capture sessionId for reuse
-      if (result.sessionId) {
-        this.sharedSessionId = result.sessionId;
-      }
-      this.reviewCount++;
 
       // Check again — user might have resolved while LLM was thinking
       if (entry.cancelled) {

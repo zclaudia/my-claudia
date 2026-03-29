@@ -125,7 +125,13 @@ describe('plugin-tools routes', () => {
         .send({ arguments: {} });
 
       expect(res.status).toBe(500);
-      expect(res.body.error).toContain('tool failed');
+      expect(res.body).toEqual({
+        success: false,
+        error: {
+          code: 'TOOL_EXECUTION_FAILED',
+          message: 'Tool execution failed: tool failed',
+        },
+      });
     });
 
     it('rejects execution when PCP profile disables the interaction tool', async () => {

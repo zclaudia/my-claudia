@@ -13,6 +13,7 @@ import { workspaceService } from '../services/workspace.js';
 import { refreshSkillTools, getExternalSkillDirs, saveExternalSkillDirs } from '../plugins/skill-tools.js';
 import path from 'path';
 import fs from 'fs/promises';
+import { sendApiError } from './response.js';
 
 export function createWorkspaceRoutes(): ReturnType<typeof Router> {
   const router = Router();
@@ -30,10 +31,12 @@ router.get('/config', async (req: Request, res: Response) => {
     });
   } catch (error) {
     console.error('[Workspace API] Error getting config:', error);
-    res.status(500).json({
-      success: false,
-      error: error instanceof Error ? error.message : 'Failed to get workspace config',
-    });
+    sendApiError(
+      res,
+      500,
+      'INTERNAL_ERROR',
+      error instanceof Error ? error.message : 'Failed to get workspace config',
+    );
   }
 });
 
@@ -53,10 +56,7 @@ router.put('/config', async (req: Request, res: Response) => {
     if (tools !== undefined) updates.tools = tools;
 
     if (Object.keys(updates).length === 0) {
-      res.status(400).json({
-        success: false,
-        error: 'No configuration fields provided',
-      });
+      sendApiError(res, 400, 'VALIDATION_ERROR', 'No configuration fields provided');
       return;
     }
 
@@ -68,10 +68,12 @@ router.put('/config', async (req: Request, res: Response) => {
     });
   } catch (error) {
     console.error('[Workspace API] Error updating config:', error);
-    res.status(500).json({
-      success: false,
-      error: error instanceof Error ? error.message : 'Failed to update workspace config',
-    });
+    sendApiError(
+      res,
+      500,
+      'INTERNAL_ERROR',
+      error instanceof Error ? error.message : 'Failed to update workspace config',
+    );
   }
 });
 
@@ -88,10 +90,12 @@ router.get('/skills', async (req: Request, res: Response) => {
     });
   } catch (error) {
     console.error('[Workspace API] Error listing skills:', error);
-    res.status(500).json({
-      success: false,
-      error: error instanceof Error ? error.message : 'Failed to list skills',
-    });
+    sendApiError(
+      res,
+      500,
+      'INTERNAL_ERROR',
+      error instanceof Error ? error.message : 'Failed to list skills',
+    );
   }
 });
 
@@ -105,10 +109,7 @@ router.get('/skills/:skillId', async (req: Request, res: Response) => {
     const content = await workspaceService.loadSkill(skillId);
 
     if (content === null) {
-      res.status(404).json({
-        success: false,
-        error: `Skill not found: ${skillId}`,
-      });
+      sendApiError(res, 404, 'NOT_FOUND', `Skill not found: ${skillId}`);
       return;
     }
 
@@ -118,10 +119,12 @@ router.get('/skills/:skillId', async (req: Request, res: Response) => {
     });
   } catch (error) {
     console.error('[Workspace API] Error loading skill:', error);
-    res.status(500).json({
-      success: false,
-      error: error instanceof Error ? error.message : 'Failed to load skill',
-    });
+    sendApiError(
+      res,
+      500,
+      'INTERNAL_ERROR',
+      error instanceof Error ? error.message : 'Failed to load skill',
+    );
   }
 });
 
@@ -136,20 +139,14 @@ router.post('/skills/:skillId', async (req: Request, res: Response) => {
     const { content } = req.body;
 
     if (!content || typeof content !== 'string') {
-      res.status(400).json({
-        success: false,
-        error: 'Content is required and must be a string',
-      });
+      sendApiError(res, 400, 'VALIDATION_ERROR', 'Content is required and must be a string');
       return;
     }
 
     // Security check: prevent path traversal
     const normalizedId = path.basename(skillId);
     if (normalizedId !== skillId || skillId.includes('..')) {
-      res.status(400).json({
-        success: false,
-        error: 'Invalid skill ID',
-      });
+      sendApiError(res, 400, 'VALIDATION_ERROR', 'Invalid skill ID');
       return;
     }
 
@@ -167,10 +164,12 @@ router.post('/skills/:skillId', async (req: Request, res: Response) => {
     });
   } catch (error) {
     console.error('[Workspace API] Error saving skill:', error);
-    res.status(500).json({
-      success: false,
-      error: error instanceof Error ? error.message : 'Failed to save skill',
-    });
+    sendApiError(
+      res,
+      500,
+      'INTERNAL_ERROR',
+      error instanceof Error ? error.message : 'Failed to save skill',
+    );
   }
 });
 
@@ -185,10 +184,7 @@ router.delete('/skills/:skillId', async (req: Request, res: Response) => {
     // Security check: prevent path traversal
     const normalizedId = path.basename(skillId);
     if (normalizedId !== skillId || skillId.includes('..')) {
-      res.status(400).json({
-        success: false,
-        error: 'Invalid skill ID',
-      });
+      sendApiError(res, 400, 'VALIDATION_ERROR', 'Invalid skill ID');
       return;
     }
 
@@ -213,10 +209,12 @@ router.delete('/skills/:skillId', async (req: Request, res: Response) => {
     });
   } catch (error) {
     console.error('[Workspace API] Error deleting skill:', error);
-    res.status(500).json({
-      success: false,
-      error: error instanceof Error ? error.message : 'Failed to delete skill',
-    });
+    sendApiError(
+      res,
+      500,
+      'INTERNAL_ERROR',
+      error instanceof Error ? error.message : 'Failed to delete skill',
+    );
   }
 });
 
@@ -230,10 +228,12 @@ router.get('/skill-dirs', (req: Request, res: Response) => {
     res.json({ success: true, data: dirs });
   } catch (error) {
     console.error('[Workspace API] Error getting skill dirs:', error);
-    res.status(500).json({
-      success: false,
-      error: error instanceof Error ? error.message : 'Failed to get skill dirs',
-    });
+    sendApiError(
+      res,
+      500,
+      'INTERNAL_ERROR',
+      error instanceof Error ? error.message : 'Failed to get skill dirs',
+    );
   }
 });
 
@@ -246,7 +246,7 @@ router.put('/skill-dirs', async (req: Request, res: Response) => {
   try {
     const { dirs } = req.body;
     if (!Array.isArray(dirs) || !dirs.every((d: unknown) => typeof d === 'string')) {
-      res.status(400).json({ success: false, error: 'dirs must be an array of strings' });
+      sendApiError(res, 400, 'VALIDATION_ERROR', 'dirs must be an array of strings');
       return;
     }
 
@@ -259,10 +259,12 @@ router.put('/skill-dirs', async (req: Request, res: Response) => {
     });
   } catch (error) {
     console.error('[Workspace API] Error updating skill dirs:', error);
-    res.status(500).json({
-      success: false,
-      error: error instanceof Error ? error.message : 'Failed to update skill dirs',
-    });
+    sendApiError(
+      res,
+      500,
+      'INTERNAL_ERROR',
+      error instanceof Error ? error.message : 'Failed to update skill dirs',
+    );
   }
 });
 
@@ -294,10 +296,12 @@ router.get('/preview', async (req: Request, res: Response) => {
     });
   } catch (error) {
     console.error('[Workspace API] Error previewing prompt:', error);
-    res.status(500).json({
-      success: false,
-      error: error instanceof Error ? error.message : 'Failed to preview prompt',
-    });
+    sendApiError(
+      res,
+      500,
+      'INTERNAL_ERROR',
+      error instanceof Error ? error.message : 'Failed to preview prompt',
+    );
   }
 });
 
@@ -335,10 +339,12 @@ router.post('/reset', async (req: Request, res: Response) => {
     });
   } catch (error) {
     console.error('[Workspace API] Error resetting workspace:', error);
-    res.status(500).json({
-      success: false,
-      error: error instanceof Error ? error.message : 'Failed to reset workspace',
-    });
+    sendApiError(
+      res,
+      500,
+      'INTERNAL_ERROR',
+      error instanceof Error ? error.message : 'Failed to reset workspace',
+    );
   }
 });
 

@@ -35,7 +35,20 @@ describe('mcp-bridge-launch', () => {
     const result = resolveMcpBridgeLaunchConfig('file:///tmp/providers/kimi-sdk.js');
 
     expect(result.command).toBe(process.execPath);
-    expect(result.args).toEqual(['/tmp/plugins/mcp-bridge.js']);
+    expect(result.args).toEqual(['/dist/plugins/mcp-bridge.js']);
+  });
+
+  it('prefers server/dist js bridge over source ts bridge in dev', async () => {
+    existsSyncMock.mockImplementation((filePath) =>
+      filePath === '/repo/server/dist/plugins/mcp-bridge.js'
+      || filePath === '/repo/server/src/plugins/mcp-bridge.ts'
+    );
+
+    const { resolveMcpBridgeLaunchConfig } = await import('../mcp-bridge-launch.js');
+    const result = resolveMcpBridgeLaunchConfig('file:///repo/server/src/utils/mcp-bridge-launch.ts');
+
+    expect(result.command).toBe(process.execPath);
+    expect(result.args).toEqual(['/repo/server/dist/plugins/mcp-bridge.js']);
   });
 
   it('falls back to ts bridge with tsx loader in dev', async () => {

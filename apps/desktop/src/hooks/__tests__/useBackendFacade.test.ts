@@ -8,11 +8,19 @@ import { syncToGatewayStore } from '../useBackendFacade';
 import { useFacadeStore } from '../../stores/facadeStore';
 import { useToastStore } from '../../stores/toastStore';
 import { handleServerMessage } from '../../services/messageHandler';
+import { useServerStore } from '../../stores/serverStore';
 
 describe('useBackendFacade run_event forwarding', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     useToastStore.setState({ toasts: [] });
+    useServerStore.setState({
+      activeServerId: null,
+      connections: {},
+      localServerPort: null,
+      controlPlaneMode: 'embedded-local',
+      controlPlaneState: 'connecting',
+    });
     useFacadeStore.setState({
       facade: null,
       mode: 'embedded',
@@ -77,5 +85,44 @@ describe('useBackendFacade run_event forwarding', () => {
       title: '消息同步失败',
       message: 'catch-up query failed',
     });
+  });
+
+  it('syncs backend capabilities into server features on snapshot updates', () => {
+    syncToGatewayStore({
+      type: 'snapshot_updated',
+      snapshot: {
+        snapshotVersion: 2,
+        capturedAt: Date.now(),
+        mode: 'embedded',
+        connectionState: 'connected',
+        localBackendId: 'local-standalone',
+        currentInstanceId: 'instance-local',
+        currentDeviceId: 'device-local',
+        registryRevision: 2,
+        sessionStreams: {},
+        backends: [
+          {
+            backendId: 'local-standalone',
+            name: 'Local',
+            online: true,
+            runtimeState: 'ready',
+            openState: 'open',
+            channelId: 'ch-1',
+            instanceId: 'instance-local',
+            deviceId: 'device-local',
+            channel: 'local',
+            isThisInstance: true,
+            isThisDevice: true,
+            capabilities: ['remoteTerminal'],
+          },
+        ],
+      },
+    } as any);
+
+    expect(useServerStore.getState().connections['local-standalone']).toMatchObject({
+      status: 'connected',
+      features: ['remoteTerminal'],
+    });
+    expect(useServerStore.getState().activeServerSupports('remoteTerminal')).toBe(true);
   });
 });

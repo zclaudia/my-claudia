@@ -45,6 +45,141 @@ Rules:
 - "safe" for ordinary source code, tests, build scripts, and docs with no obvious sensitive content.
 - Be conservative: if unsure between safe and suspicious, choose suspicious.`;
 
+function extractFirstJSONObject(response: string): string | null {
+  let start = -1;
+  let depth = 0;
+  let inString = false;
+  let escaping = false;
+
+  for (let i = 0; i < response.length; i += 1) {
+    const ch = response[i];
+
+    if (start === -1) {
+      if (ch === '{') {
+        start = i;
+        depth = 1;
+      }
+      continue;
+    }
+
+    if (inString) {
+      if (escaping) {
+        escaping = false;
+        continue;
+      }
+      if (ch === '\\') {
+        escaping = true;
+        continue;
+      }
+      if (ch === '"') {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (ch === '"') {
+      inString = true;
+      continue;
+    }
+
+    if (ch === '{') {
+      depth += 1;
+      continue;
+    }
+
+    if (ch === '}') {
+      depth -= 1;
+      if (depth === 0) {
+        return response.slice(start, i + 1);
+      }
+    }
+  }
+
+  return null;
+}
+
+function sanitizeJSONControlCharsInStrings(json: string): string {
+  let sanitized = '';
+  let inString = false;
+  let escaping = false;
+
+  for (const ch of json) {
+    if (inString) {
+      if (escaping) {
+        sanitized += ch;
+        escaping = false;
+        continue;
+      }
+
+      if (ch === '\\') {
+        sanitized += ch;
+        escaping = true;
+        continue;
+      }
+
+      if (ch === '"') {
+        sanitized += ch;
+        inString = false;
+        continue;
+      }
+
+      if (ch === '\n') {
+        sanitized += '\\n';
+        continue;
+      }
+
+      if (ch === '\r') {
+        sanitized += '\\r';
+        continue;
+      }
+
+      if (ch === '\t') {
+        sanitized += '\\t';
+        continue;
+      }
+
+      const code = ch.charCodeAt(0);
+      if ((code >= 0 && code < 0x20) || code === 0x7f) {
+        continue;
+      }
+
+      sanitized += ch;
+      continue;
+    }
+
+    if (ch === '"') {
+      sanitized += ch;
+      inString = true;
+      continue;
+    }
+
+    const code = ch.charCodeAt(0);
+    if ((code >= 0 && code < 0x20) || code === 0x7f) {
+      if (ch === '\n' || ch === '\r' || ch === '\t') {
+        sanitized += ch;
+      }
+      continue;
+    }
+
+    sanitized += ch;
+  }
+
+  return sanitized;
+}
+
+function parseReviewerJSON(content: string): Record<string, unknown> {
+  const jsonCandidate = extractFirstJSONObject(content);
+  if (!jsonCandidate) {
+    throw new Error('Ollama review did not return valid JSON');
+  }
+
+  try {
+    return JSON.parse(jsonCandidate) as Record<string, unknown>;
+  } catch {
+    return JSON.parse(sanitizeJSONControlCharsInStrings(jsonCandidate)) as Record<string, unknown>;
+  }
+}
+
 export class OllamaSensitivityReviewer implements LocalSensitivityReviewer {
   constructor(
     private readonly endpoint: string,
@@ -93,12 +228,7 @@ ${input.contentPreview.slice(0, 8000)}
       throw new Error('Ollama review returned empty content');
     }
 
-    const jsonMatch = content.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) {
-      throw new Error('Ollama review did not return valid JSON');
-    }
-
-    const parsed = JSON.parse(jsonMatch[0]) as Record<string, unknown>;
+    const parsed = parseReviewerJSON(content);
     const label = parsed.label === 'sensitive'
       ? 'sensitive'
       : parsed.label === 'suspicious'

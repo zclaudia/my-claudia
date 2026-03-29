@@ -44,7 +44,7 @@ function createTestDb(): Database.Database {
 
 function createTestApp(db: Database.Database) {
   const app = express();
-  app.use(express.json());
+  app.use(express.json({ limit: '1mb' }));
   app.use('/api/sessions', createSessionDraftRoutes(db));
   return app;
 }
@@ -109,5 +109,43 @@ describe('sessionDrafts routes', () => {
     expect(res.body.success).toBe(false);
     expect(res.body.error.code).toBe('VALIDATION_ERROR');
     expect(res.body.error.message).toBe('deviceId is required');
+  });
+
+  it('returns structured 404 when archiving without an active draft', async () => {
+    const res = await request(app)
+      .post('/api/sessions/session-1/draft/archive');
+
+    expect(res.status).toBe(404);
+    expect(res.body.success).toBe(false);
+    expect(res.body.error).toEqual({
+      code: 'NOT_FOUND',
+      message: 'No active draft found',
+    });
+  });
+
+  it('returns structured 404 when deleting a missing draft', async () => {
+    const res = await request(app)
+      .delete('/api/sessions/session-1/draft');
+
+    expect(res.status).toBe(404);
+    expect(res.body.success).toBe(false);
+    expect(res.body.error).toEqual({
+      code: 'NOT_FOUND',
+      message: 'No draft found',
+    });
+  });
+
+  it('returns structured 413 when draft content exceeds size limit', async () => {
+    const res = await request(app)
+      .put('/api/sessions/session-1/draft')
+      .send({
+        content: 'x'.repeat(100 * 1024 + 1),
+        deviceId: 'device-a',
+      });
+
+    expect(res.status).toBe(413);
+    expect(res.body.success).toBe(false);
+    expect(res.body.error.code).toBe('DRAFT_TOO_LARGE');
+    expect(res.body.error.message).toContain('100KB');
   });
 });

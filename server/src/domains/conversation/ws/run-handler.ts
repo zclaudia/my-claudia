@@ -76,6 +76,13 @@ import { NotificationService } from '../../notification-feed/notification-servic
 import type { NotificationFeedService } from '../../notification-feed/service.js';
 import { ProcessMonitor } from '../../../utils/process-monitor.js';
 
+const AI_REVIEW_SYSTEM_PROMPT = [
+  'You are a machine-only security review helper for a coding assistant.',
+  'Follow the user prompt exactly.',
+  'Do not add markdown, commentary, prose, or code fences.',
+  'Return only the JSON object requested by the prompt.',
+].join(' ');
+
 export interface RunHandlerContext {
   activeRuns: Map<string, ActiveRun>;
   processMonitor: ProcessMonitor | null;
@@ -453,6 +460,9 @@ export async function handleRunStart(
 
       const analysisAdapter = providerRegistry.get(resolvedType);
       if (!analysisAdapter) return undefined;
+      console.log(
+        `[AI Review] Using analysis provider id=${resolvedProviderId} type=${resolvedType}${providerRow?.cliPath ? ` cli=${providerRow.cliPath}` : ''}`
+      );
 
       return {
         runPrompt: async (prompt: string, sessionId?: string): Promise<{ response: string; sessionId?: string }> => {
@@ -467,6 +477,7 @@ export async function handleRunStart(
               ...(providerRow?.env ? JSON.parse(providerRow.env) : {}),
             },
             model: message.model,
+            systemPrompt: AI_REVIEW_SYSTEM_PROMPT,
           }, async () => ({ decision: 'allow' as const, behavior: 'allow' as const }))) {
             const msg = responseMessage as {
               type: string;

@@ -28,18 +28,19 @@ export class ProjectRepository extends BaseRepository<
       id: row.id,
       name: row.name,
       type: row.type,
-      providerId: row.provider_id,
-      rootPath: row.root_path,
-      systemPrompt: row.system_prompt,
+      providerId: row.provider_id || undefined,
+      rootPath: row.root_path || undefined,
+      systemPrompt: row.system_prompt || undefined,
       permissionPolicy: row.permission_policy ? JSON.parse(row.permission_policy) : undefined,
+      agentPermissionOverride: row.agent_permission_override ? JSON.parse(row.agent_permission_override) : undefined,
       isInternal: row.is_internal === 1,
+      reviewProviderId: row.review_provider_id || undefined,
+      sortOrder: row.sort_order ?? undefined,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
       // Supervision v2
       agent: row.agent ? JSON.parse(row.agent) : undefined,
       contextSyncStatus: row.context_sync_status === 'error' ? 'error' : undefined,
-      // Local PR
-      reviewProviderId: row.review_provider_id || undefined,
     };
   }
 
@@ -52,8 +53,12 @@ export class ProjectRepository extends BaseRepository<
 
     return {
       sql: `
-        INSERT INTO projects (id, name, type, provider_id, root_path, system_prompt, permission_policy, agent, context_sync_status, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO projects (
+          id, name, type, provider_id, root_path, system_prompt,
+          permission_policy, agent_permission_override, agent, context_sync_status,
+          review_provider_id, sort_order, created_at, updated_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `,
       params: [
         id,
@@ -63,8 +68,11 @@ export class ProjectRepository extends BaseRepository<
         data.rootPath || null,
         data.systemPrompt || null,
         data.permissionPolicy ? JSON.stringify(data.permissionPolicy) : null,
+        data.agentPermissionOverride ? JSON.stringify(data.agentPermissionOverride) : null,
         data.agent ? JSON.stringify(data.agent) : null,
         data.contextSyncStatus || 'synced',
+        data.reviewProviderId || null,
+        data.sortOrder ?? null,
         now,
         now
       ]
@@ -103,6 +111,10 @@ export class ProjectRepository extends BaseRepository<
       updates.push('permission_policy = ?');
       params.push(data.permissionPolicy ? JSON.stringify(data.permissionPolicy) : null);
     }
+    if (data.agentPermissionOverride !== undefined) {
+      updates.push('agent_permission_override = ?');
+      params.push(data.agentPermissionOverride ? JSON.stringify(data.agentPermissionOverride) : null);
+    }
     // Supervision v2
     if (data.agent !== undefined) {
       updates.push('agent = ?');
@@ -118,6 +130,10 @@ export class ProjectRepository extends BaseRepository<
       updates.push('review_provider_id = ?');
       params.push(data.reviewProviderId || null);
     }
+    if (data.sortOrder !== undefined) {
+      updates.push('sort_order = ?');
+      params.push(data.sortOrder ?? null);
+    }
 
     // Always update timestamp
     updates.push('updated_at = ?');
@@ -130,5 +146,20 @@ export class ProjectRepository extends BaseRepository<
       sql: `UPDATE projects SET ${updates.join(', ')} WHERE id = ?`,
       params
     };
+  }
+
+  findAllOrdered(): Project[] {
+    const rows = this.db.prepare(`
+      SELECT * FROM projects
+      ORDER BY sort_order ASC, updated_at DESC
+    `).all();
+    return rows.map((row) => this.mapRow(row));
+  }
+
+  findNextSortOrder(): number {
+    const row = this.db.prepare(
+      'SELECT COALESCE(MAX(sort_order), -1) + 1 as sortOrder FROM projects'
+    ).get() as { sortOrder: number };
+    return row.sortOrder;
   }
 }

@@ -69,9 +69,9 @@ describe('ProjectRepository', () => {
 
       const result = repository.mapRow(row);
 
-      expect(result.providerId).toBeNull();
-      expect(result.rootPath).toBeNull();
-      expect(result.systemPrompt).toBeNull();
+      expect(result.providerId).toBeUndefined();
+      expect(result.rootPath).toBeUndefined();
+      expect(result.systemPrompt).toBeUndefined();
       expect(result.permissionPolicy).toBeUndefined();
       expect(result.isInternal).toBe(false);
     });
@@ -101,6 +101,18 @@ describe('ProjectRepository', () => {
         review_provider_id: 'rev-1',
       };
       expect(repository.mapRow(row).reviewProviderId).toBe('rev-1');
+    });
+
+    it('maps agentPermissionOverride JSON', () => {
+      const row = {
+        id: 'proj-1', name: 'Test', type: 'code',
+        created_at: 1000, updated_at: 2000,
+        agent_permission_override: '{"defaultDecision":"deny","rules":[]}',
+      };
+      expect(repository.mapRow(row).agentPermissionOverride).toEqual({
+        defaultDecision: 'deny',
+        rules: [],
+      });
     });
   });
 
@@ -152,10 +164,11 @@ describe('ProjectRepository', () => {
       const { params } = repository.createQuery(data);
       const after = Date.now();
 
-      // params: [id, name, type, providerId, rootPath, systemPrompt, permissionPolicy, agent, contextSyncStatus, createdAt, updatedAt]
-      expect(params[9]).toBeGreaterThanOrEqual(before);
-      expect(params[9]).toBeLessThanOrEqual(after);
-      expect(params[10]).toBe(params[9]); // createdAt === updatedAt
+      // params: [id, name, type, providerId, rootPath, systemPrompt, permissionPolicy,
+      // agentPermissionOverride, agent, contextSyncStatus, reviewProviderId, sortOrder, createdAt, updatedAt]
+      expect(params[12]).toBeGreaterThanOrEqual(before);
+      expect(params[12]).toBeLessThanOrEqual(after);
+      expect(params[13]).toBe(params[12]); // createdAt === updatedAt
     });
   });
 

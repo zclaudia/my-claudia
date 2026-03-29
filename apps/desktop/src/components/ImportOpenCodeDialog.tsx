@@ -34,7 +34,13 @@ interface ScanResult {
 interface ImportResult {
   imported: number;
   skipped: number;
-  errors: Array<{ sessionId: string; error: string }>;
+  errors: Array<{
+    sessionId: string;
+    error: {
+      code: string;
+      message: string;
+    };
+  }>;
 }
 
 const CREATE_PROJECT_VALUE = '__create__';
@@ -518,7 +524,7 @@ export function ImportOpenCodeDialog({ isOpen, onClose }: ImportOpenCodeDialogPr
                   <div className="space-y-1 text-xs text-destructive max-h-40 overflow-y-auto">
                     {importResult.errors.map((err, idx) => (
                       <div key={idx}>
-                        {err.sessionId}: {err.error}
+                        {err.sessionId}: {err.error.message}
                       </div>
                     ))}
                   </div>

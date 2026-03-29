@@ -468,6 +468,45 @@ describe('projects routes', () => {
       const row = db.prepare('SELECT name FROM projects WHERE id = ?').get('p1') as any;
       expect(row.name).toBe('Original Name');
     });
+
+    it('preserves omitted fields when updating a single field', async () => {
+      const now = Date.now();
+      db.prepare(`
+        INSERT INTO projects (id, name, type, root_path, system_prompt, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `).run('p1', 'Original', 'code', '/existing/path', 'Keep me', now, now);
+
+      const res = await request(app)
+        .put('/api/projects/p1')
+        .send({ name: 'Updated Only' });
+
+      expect(res.status).toBe(200);
+
+      const row = db.prepare('SELECT name, root_path, system_prompt FROM projects WHERE id = ?').get('p1') as any;
+      expect(row.name).toBe('Updated Only');
+      expect(row.root_path).toBe('/existing/path');
+      expect(row.system_prompt).toBe('Keep me');
+    });
+
+    it('clears nullable fields only when explicitly set to null', async () => {
+      const now = Date.now();
+      const policy = { defaultDecision: 'allow', rules: [] };
+      db.prepare(`
+        INSERT INTO projects (id, name, type, root_path, system_prompt, permission_policy, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `).run('p1', 'Original', 'code', '/existing/path', 'Keep me', JSON.stringify(policy), now, now);
+
+      const res = await request(app)
+        .put('/api/projects/p1')
+        .send({ rootPath: null, systemPrompt: null, permissionPolicy: null });
+
+      expect(res.status).toBe(200);
+
+      const row = db.prepare('SELECT root_path, system_prompt, permission_policy FROM projects WHERE id = ?').get('p1') as any;
+      expect(row.root_path).toBeNull();
+      expect(row.system_prompt).toBeNull();
+      expect(row.permission_policy).toBeNull();
+    });
   });
 
   describe('DELETE /api/projects/:id', () => {

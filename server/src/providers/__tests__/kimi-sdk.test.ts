@@ -468,16 +468,21 @@ describe('kimi-sdk', () => {
   it('handles non-JSON lines as assistant text', async () => {
     const { proc, stdout } = createMockProc();
     vi.mocked(spawn).mockReturnValue(proc as any);
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
-    const gen = runKimi('hello', { cwd: '/tmp' }, vi.fn());
-    await consumeInitMessage(gen);
-    const firstP = gen.next();
+    const messages: any[] = [];
+    const collect = (async () => {
+      for await (const msg of runKimi('hello', { cwd: '/tmp' }, vi.fn())) {
+        messages.push(msg);
+      }
+    })();
+
     stdout.push('This is plain text output\n');
-    const first = await firstP;
-    expect(first.value).toMatchObject({ type: 'assistant', content: 'This is plain text output' });
-
     stdout.push(null);
-    await gen.next();
+    await collect;
+
+    expect(messages.some((msg) => msg.type === 'assistant' && msg.content === 'This is plain text output')).toBe(true);
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('Non-JSON stdout line, treating as assistant text'));
   });
 
   it('skips empty lines', async () => {

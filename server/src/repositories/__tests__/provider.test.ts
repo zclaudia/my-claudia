@@ -61,7 +61,7 @@ describe('ProviderRepository', () => {
 
       const result = repository.mapRow(row);
 
-      expect(result.cliPath).toBeNull();
+      expect(result.cliPath).toBeUndefined();
       expect(result.env).toBeUndefined();
       expect(result.isDefault).toBe(false);
     });

@@ -74,9 +74,9 @@ describe('SessionRepository', () => {
 
       const result = repository.mapRow(row);
 
-      expect(result.name).toBeNull();
-      expect(result.providerId).toBeNull();
-      expect(result.sdkSessionId).toBeNull();
+      expect(result.name).toBeUndefined();
+      expect(result.providerId).toBeUndefined();
+      expect(result.sdkSessionId).toBeUndefined();
       expect(result.parentSessionId).toBeUndefined();
       expect(result.workingDirectory).toBeUndefined();
       expect(result.archivedAt).toBeUndefined();
@@ -147,10 +147,12 @@ describe('SessionRepository', () => {
       const { params } = repository.createQuery(data);
       const after = Date.now();
 
-      // params: [id, projectId, name, providerId, sdkSessionId, type, parentSessionId, workingDirectory, projectRole, taskId, planStatus, isReadOnly, createdAt, updatedAt]
-      expect(params[12]).toBeGreaterThanOrEqual(before);
-      expect(params[12]).toBeLessThanOrEqual(after);
-      expect(params[13]).toBe(params[12]); // createdAt === updatedAt
+      // params: [id, projectId, name, providerId, sdkSessionId, type, parentSessionId,
+      // workingDirectory, sortOrder, projectRole, taskId, planStatus, isReadOnly,
+      // lastRunStatus, createdAt, updatedAt]
+      expect(params[14]).toBeGreaterThanOrEqual(before);
+      expect(params[14]).toBeLessThanOrEqual(after);
+      expect(params[15]).toBe(params[14]); // createdAt === updatedAt
     });
   });
 

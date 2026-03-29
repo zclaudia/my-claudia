@@ -527,8 +527,11 @@ async function openCodeJsonRequest<T>(
   if (text) {
     try {
       data = JSON.parse(text) as T;
-    } catch {
-      // Keep data undefined and surface raw text if needed.
+    } catch (error) {
+      const snippet = text.slice(0, 200).replace(/\s+/g, ' ');
+      const warnMsg = `[OpenCode] Non-JSON response from ${method} ${url.pathname} (status=${response.status}): ${snippet}`;
+      console.warn(warnMsg);
+      ocImportantLog(`${warnMsg}${error instanceof Error ? ` parseError=${error.message}` : ''}`);
     }
   }
 

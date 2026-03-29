@@ -728,7 +728,11 @@ describe('ImportDialog', () => {
       .mockResolvedValueOnce({
         json: async () => ({
           success: true,
-          data: { imported: 5, skipped: 2, errors: [{ sessionId: 'err1', error: 'Test error' }] },
+          data: {
+            imported: 5,
+            skipped: 2,
+            errors: [{ sessionId: 'err1', error: { code: 'IMPORT_ERROR', message: 'Test error' } }],
+          },
         }),
       });
 

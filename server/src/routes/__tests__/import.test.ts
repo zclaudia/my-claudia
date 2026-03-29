@@ -352,7 +352,8 @@ describe('Import API Integration Tests', () => {
       expect(response.body.data.imported).toBe(0);
       expect(response.body.data.errors).toHaveLength(1);
       expect(response.body.data.errors[0].sessionId).toBe('non-existent-session');
-      expect(response.body.data.errors[0].error).toContain('not found');
+      expect(response.body.data.errors[0].error.code).toBe('IMPORT_ERROR');
+      expect(response.body.data.errors[0].error.message).toContain('not found');
     });
 
     it('should validate request parameters', async () => {
@@ -591,7 +592,8 @@ describe('Import API Integration Tests', () => {
 
       expect(response.body.success).toBe(true);
       expect(response.body.data.errors).toHaveLength(1);
-      expect(response.body.data.errors[0].error).toContain('No messages found');
+      expect(response.body.data.errors[0].error.code).toBe('IMPORT_ERROR');
+      expect(response.body.data.errors[0].error.message).toContain('No messages found');
     });
 
     it('should handle different_project conflict with overwrite strategy', async () => {

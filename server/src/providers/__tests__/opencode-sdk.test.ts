@@ -18,7 +18,18 @@ vi.mock('fs', async () => {
     ...actual,
     appendFileSync: vi.fn(),
     readdirSync: vi.fn().mockReturnValue([]),
-    readFileSync: vi.fn().mockReturnValue(Buffer.from('test-image-data')),
+    readFileSync: vi.fn().mockImplementation((filePath: import('fs').PathOrFileDescriptor, options?: any) => {
+      const pathValue = String(filePath);
+      if (pathValue === '/tmp/test-image.png') {
+        return Buffer.from('test-image-data');
+      }
+      if (pathValue.includes('/.config/opencode/opencode.json') || pathValue.includes('/.config/opencode/config.json')) {
+        const error = new Error(`ENOENT: no such file or directory, open '${pathValue}'`) as Error & { code?: string };
+        error.code = 'ENOENT';
+        throw error;
+      }
+      return actual.readFileSync(filePath as any, options);
+    }),
   };
 });
 
@@ -631,6 +642,29 @@ describe('runOpenCode full flow', () => {
     const errorMsg = messages.find(m => m.type === 'error');
     expect(errorMsg).toBeDefined();
     expect(errorMsg.error).toContain('Failed to create session');
+  });
+
+  it('warns when session creation returns non-JSON text', async () => {
+    vi.spyOn(openCodeServerManager, 'ensureServer').mockResolvedValue(fakeServer);
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input: any) => {
+      const urlStr = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input?.url ?? '';
+      if (/\/session(\?|$)/.test(urlStr) && !urlStr.includes('/message')) {
+        return new Response('Internal Server Error', { status: 500 });
+      }
+      return new Response(JSON.stringify({}), { status: 200 });
+    });
+
+    const messages = await collectMessages(
+      runOpenCode('hello', { cwd: '/project' })
+    );
+
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('Non-JSON response from POST /session'));
+    const errorMsg = messages.find(m => m.type === 'error');
+    expect(errorMsg).toBeDefined();
+    expect(errorMsg.error).toContain('Failed to create session');
+    expect(errorMsg.error).toContain('Internal Server Error');
   });
 
   it('yields error when session creation throws', async () => {
