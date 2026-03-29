@@ -33,6 +33,8 @@ import { useToastStore } from '../stores/toastStore';
 import { downloadPushedFile } from './fileDownload';
 import { eagerSyncCurrentSession, recoverCurrentSessionTail } from './sessionSync';
 import { xtermRegistry } from '../utils/xtermRegistry';
+import { parseBackendId } from '../stores/gatewayStore';
+import { resolveCanonicalBackendId, resolveLocalBackendId } from '../utils/controlPlane';
 
 // Throttled lastActivityAt updater — avoids re-renders on every delta message.
 // Updates at most once per second per runId.
@@ -87,6 +89,11 @@ function isCompletedBackgroundStatus(status: string | undefined): boolean {
 const maxSeqByRun = new Map<string, number>();
 const terminalRunSeqByRun = new Map<string, { seq?: number; endedAt: number }>();
 const TERMINAL_RUN_TOMBSTONE_MS = 60_000;
+
+function resolveOwnerBackendId(backendId: string | null, serverId: string): string {
+  const rawBackendId = backendId || parseBackendId(serverId) || serverId;
+  return resolveCanonicalBackendId(rawBackendId, resolveLocalBackendId() ?? rawBackendId) ?? rawBackendId;
+}
 
 function isStaleRunEvent(runId: string, seq?: number): boolean {
   if (seq == null || seq < 1) return false; // Old server without seq — pass through
@@ -808,7 +815,7 @@ export function handleServerMessage(
 
     case 'notification_update': {
       const { item } = msg as import('@my-claudia/shared').NotificationUpdateMessage;
-      const ownerBackendId = backendId || serverId;
+      const ownerBackendId = resolveOwnerBackendId(backendId, serverId);
       import('../stores/notificationFeedStore').then(m => m.useNotificationFeedStore.getState().upsertItem({
         ...item,
         ownerBackendId: item.ownerBackendId ?? ownerBackendId,
@@ -828,7 +835,7 @@ export function handleServerMessage(
 
     case 'notification_list': {
       const feedMsg = msg as import('@my-claudia/shared').NotificationListMessage;
-      const ownerBackendId = backendId || serverId;
+      const ownerBackendId = resolveOwnerBackendId(backendId, serverId);
       import('../stores/notificationFeedStore').then(m => {
         m.useNotificationFeedStore.getState().setFeedList(
           feedMsg.items.map((item) => ({
@@ -1134,7 +1141,7 @@ export function handleServerMessage(
       const pluginMsg = msg as import('@my-claudia/shared').PluginNotificationMessage;
       import('../stores/notificationFeedStore').then(m => m.useNotificationFeedStore.getState().upsertItem({
         id: `plugin-${pluginMsg.pluginId}-${Date.now()}`,
-        ownerBackendId: backendId || serverId,
+        ownerBackendId: resolveOwnerBackendId(backendId, serverId),
         source: 'trigger',
         title: pluginMsg.title,
         summary: pluginMsg.body,

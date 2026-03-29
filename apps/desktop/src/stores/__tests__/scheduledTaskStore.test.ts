@@ -11,7 +11,7 @@ vi.mock('../../features/scheduled-tasks/api', () => ({
   enableTemplateTask: vi.fn(),
 }));
 
-import { useScheduledTaskStore } from '../scheduledTaskStore';
+import { useScheduledTaskStore } from '../../features/scheduled-tasks/store';
 import {
   listScheduledTasks,
   listGlobalScheduledTasks,
@@ -23,6 +23,25 @@ import {
   enableTemplateTask,
 } from '../../features/scheduled-tasks/api';
 import { useOwnershipStore } from '../ownershipStore';
+
+const mockServerStoreState = {
+  activeServerId: 'local',
+};
+
+vi.mock('../serverStore', () => ({
+  useServerStore: {
+    getState: () => mockServerStoreState,
+  },
+}));
+
+vi.mock('../../stores/gatewayStore', () => ({
+  parseBackendId: (id: string | null | undefined) => id?.startsWith('gw:') ? id.slice(3) : id,
+}));
+
+vi.mock('../../utils/controlPlane', () => ({
+  resolveCanonicalBackendId: (backendId: string | null | undefined, fallback: string | null = null) => backendId ?? fallback,
+  resolveLocalBackendId: () => 'local-backend-1',
+}));
 
 const makeTask = (id: string, name = 'Task') => ({
   id,
@@ -40,6 +59,7 @@ const makeTask = (id: string, name = 'Task') => ({
 describe('scheduledTaskStore', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockServerStoreState.activeServerId = 'local';
     useScheduledTaskStore.setState({ tasks: {}, templates: [] });
     useOwnershipStore.setState({
       sessionBackendIds: {},
@@ -70,6 +90,17 @@ describe('scheduledTaskStore', () => {
       await useScheduledTaskStore.getState().loadGlobalTasks();
 
       expect(useScheduledTaskStore.getState().tasks['__global__']).toEqual(tasks);
+    });
+
+    it('canonicalizes gateway-prefixed active server id for global tasks', async () => {
+      const tasks = [makeTask('g1')];
+      mockServerStoreState.activeServerId = 'gw:remote-1';
+      vi.mocked(listGlobalScheduledTasks).mockResolvedValue(tasks as any);
+
+      await useScheduledTaskStore.getState().loadGlobalTasks();
+
+      expect(listGlobalScheduledTasks).toHaveBeenCalledWith('remote-1');
+      expect(useOwnershipStore.getState().getTaskBackendId('g1')).toBe('remote-1');
     });
   });
 

@@ -641,7 +641,11 @@ function parseAIReviewResponse(response: string): AIReviewModelResponse {
   if (!jsonMatch) {
     throw new Error('LLM response did not contain valid JSON');
   }
-  const parsed = JSON.parse(jsonMatch[0]) as Record<string, unknown>;
+  // Sanitize control characters inside JSON string values that LLMs sometimes produce
+  const sanitized = jsonMatch[0].replace(/[\x00-\x1f\x7f]/g, (ch) =>
+    ch === '\n' ? '\\n' : ch === '\r' ? '\\r' : ch === '\t' ? '\\t' : ''
+  );
+  const parsed = JSON.parse(sanitized) as Record<string, unknown>;
   if (parsed.type === 'read_file' && typeof parsed.path === 'string') {
     return {
       type: 'read_file',

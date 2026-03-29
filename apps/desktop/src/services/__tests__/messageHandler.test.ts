@@ -952,6 +952,20 @@ describe('handleServerMessage', () => {
       });
     });
 
+    it('canonicalizes gateway-prefixed owner backend ids for plugin notifications', async () => {
+      handleServerMessage(
+        { type: 'plugin_notification', pluginId: 'p1', title: 'Hello', body: 'World' } as any,
+        makeCtx({ serverId: 'gw:backend-1', backendId: null }),
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      expect(useNotificationFeedStore.getState().items[0]).toMatchObject({
+        ownerBackendId: 'backend-1',
+      });
+    });
+
     it('handles plugin_panel_registered', () => {
       handleServerMessage({
         type: 'plugin_panel_registered',

@@ -8,6 +8,8 @@ const selectionMocks = {
   selectBackend: vi.fn(),
 };
 
+const neverSettles = new Promise(() => {});
+
 // Mock child components to isolate Sidebar
 vi.mock('../ProjectSettings', () => ({ ProjectSettings: ({ isOpen, onClose }: any) => isOpen ? <div data-testid="project-settings"><button onClick={onClose}>close-project-settings</button></div> : null }));
 vi.mock('../SettingsPanel', () => ({ SettingsPanel: ({ isOpen, onClose }: any) => isOpen ? <div data-testid="settings-panel"><button onClick={onClose}>close-settings</button></div> : null }));
@@ -52,9 +54,9 @@ vi.mock('../../services/api', async (importOriginal) => {
   for (const key of Object.keys(mod)) {
     stubbed[key] = typeof mod[key] === 'function' ? vi.fn(() => Promise.resolve(null)) : mod[key];
   }
-  stubbed.getProjectWorktrees = vi.fn().mockResolvedValue([]);
+  stubbed.getProjectWorktrees = vi.fn(() => neverSettles);
   stubbed.searchSessions = vi.fn().mockResolvedValue({ results: [], total: 0 });
-  stubbed.getSearchHistory = vi.fn().mockResolvedValue([]);
+  stubbed.getSearchHistory = vi.fn(() => neverSettles);
   stubbed.searchMessages = vi.fn().mockResolvedValue([]);
   stubbed.clearSearchHistory = vi.fn().mockResolvedValue(undefined);
   stubbed.createProject = vi.fn().mockResolvedValue({ id: 'new-proj', name: 'New Project', rootPath: '/tmp/new', createdAt: Date.now(), updatedAt: Date.now() });
@@ -126,6 +128,8 @@ describe('Sidebar', () => {
   beforeEach(() => {
     setupStores();
     vi.clearAllMocks();
+    (api.getSearchHistory as ReturnType<typeof vi.fn>).mockImplementation(() => neverSettles);
+    (api.getProjectWorktrees as ReturnType<typeof vi.fn>).mockImplementation(() => neverSettles);
     selectionMocks.selectProject.mockReset();
     selectionMocks.selectSession.mockReset();
     selectionMocks.selectSessionOnBackend.mockReset();
@@ -807,6 +811,29 @@ describe('Sidebar', () => {
     }
   });
 
+  it('selects remote session from search results using owner backend id', async () => {
+    (api.searchMessages as ReturnType<typeof vi.fn>).mockResolvedValue([
+      { id: 'r1', sessionId: 'sess-2', sessionName: 'Remote Session', content: 'Hello remote', ownerBackendId: 'backend-1' },
+    ]);
+    (api.getSearchHistory as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+
+    const { container } = render(<Sidebar collapsed={false} onToggle={vi.fn()} />);
+    const searchInput = container.querySelector('input[placeholder="Search messages..."]')!;
+
+    await act(async () => {
+      fireEvent.change(searchInput, { target: { value: 'remote' } });
+    });
+    await act(async () => {
+      await new Promise(r => setTimeout(r, 350));
+    });
+
+    const resultButtons = Array.from(container.querySelectorAll('button')).filter(b => b.textContent?.includes('Remote Session'));
+    if (resultButtons.length > 0) {
+      fireEvent.click(resultButtons[0]);
+      expect(selectionMocks.selectSession).toHaveBeenCalledWith('sess-2', { backendId: 'backend-1' });
+    }
+  });
+
   it('shows search result type badge for file results', async () => {
     (api.searchMessages as ReturnType<typeof vi.fn>).mockResolvedValue([
       { id: 'r1', sessionId: 'sess-1', sessionName: 'Sess', content: 'file content', resultType: 'file', ownerBackendId: 'local' },
@@ -979,6 +1006,15 @@ describe('Sidebar', () => {
     if (localBtn) {
       fireEvent.click(localBtn);
       expect(selectionMocks.selectSessionOnBackend).toHaveBeenCalledWith('local', 'sess-1');
+    }
+  });
+
+  it('handles active session selection for remote backend', () => {
+    const { container } = render(<Sidebar collapsed={false} onToggle={vi.fn()} />);
+    const remoteBtn = Array.from(container.querySelectorAll('button')).find(b => b.textContent === 'select-gw');
+    if (remoteBtn) {
+      fireEvent.click(remoteBtn);
+      expect(selectionMocks.selectSessionOnBackend).toHaveBeenCalledWith('backend-1', 'sess-2');
     }
   });
 

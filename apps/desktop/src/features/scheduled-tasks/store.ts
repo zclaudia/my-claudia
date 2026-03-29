@@ -11,13 +11,25 @@ import {
   enableTemplateTask,
   listTaskRuns,
 } from './api';
+import { parseBackendId } from '../../stores/gatewayStore';
 import { useOwnershipStore } from '../../stores/ownershipStore';
 import { useServerStore } from '../../stores/serverStore';
+import { resolveCanonicalBackendId, resolveLocalBackendId } from '../../utils/controlPlane';
 
 const GLOBAL_KEY = '__global__';
 
 function toBackendArg(backendId: string | null | undefined): string | undefined {
   return backendId ?? undefined;
+}
+
+function resolveBackendId(backendId: string | null | undefined): string | null {
+  if (!backendId) return null;
+  const parsedBackendId = parseBackendId(backendId) ?? backendId;
+  return resolveCanonicalBackendId(parsedBackendId, resolveLocalBackendId() ?? parsedBackendId) ?? parsedBackendId;
+}
+
+function getActiveCanonicalBackendId(): string | null {
+  return resolveBackendId(useServerStore.getState().activeServerId);
 }
 
 interface ScheduledTaskState {
@@ -51,8 +63,8 @@ export const useScheduledTaskStore = create<ScheduledTaskState>((set, get) => ({
 
   loadTasks: async (projectId) => {
     const backendId =
-      useOwnershipStore.getState().getProjectBackendId(projectId)
-      ?? useServerStore.getState().activeServerId;
+      resolveBackendId(useOwnershipStore.getState().getProjectBackendId(projectId))
+      ?? getActiveCanonicalBackendId();
     const tasks = await listScheduledTasks(projectId, toBackendArg(backendId));
     if (backendId) {
       useOwnershipStore.getState().setTaskOwners(tasks.map((task) => task.id), backendId, projectId);
@@ -61,7 +73,7 @@ export const useScheduledTaskStore = create<ScheduledTaskState>((set, get) => ({
   },
 
   loadGlobalTasks: async () => {
-    const backendId = useServerStore.getState().activeServerId;
+    const backendId = getActiveCanonicalBackendId();
     const tasks = await listGlobalScheduledTasks(toBackendArg(backendId));
     if (backendId) {
       useOwnershipStore.getState().setTaskOwners(tasks.map((task) => task.id), backendId, null);
@@ -82,8 +94,8 @@ export const useScheduledTaskStore = create<ScheduledTaskState>((set, get) => ({
 
   create: async (projectId, data) => {
     const backendId = projectId
-      ? (useOwnershipStore.getState().getProjectBackendId(projectId) ?? useServerStore.getState().activeServerId)
-      : useServerStore.getState().activeServerId;
+      ? (resolveBackendId(useOwnershipStore.getState().getProjectBackendId(projectId)) ?? getActiveCanonicalBackendId())
+      : getActiveCanonicalBackendId();
     const task = await createScheduledTask(projectId, data, toBackendArg(backendId));
     const key = projectId ?? GLOBAL_KEY;
     if (backendId) {
@@ -98,38 +110,38 @@ export const useScheduledTaskStore = create<ScheduledTaskState>((set, get) => ({
 
   update: async (taskId, projectId, data) => {
     const backendId =
-      useOwnershipStore.getState().getTaskBackendId(taskId)
+      resolveBackendId(useOwnershipStore.getState().getTaskBackendId(taskId))
       ?? (projectId
-        ? (useOwnershipStore.getState().getProjectBackendId(projectId) ?? useServerStore.getState().activeServerId)
-        : useServerStore.getState().activeServerId);
+        ? (resolveBackendId(useOwnershipStore.getState().getProjectBackendId(projectId)) ?? getActiveCanonicalBackendId())
+        : getActiveCanonicalBackendId());
     const task = await updateScheduledTask(taskId, data, toBackendArg(backendId));
     get().upsertTask(projectId, task);
   },
 
   remove: async (taskId, projectId) => {
     const backendId =
-      useOwnershipStore.getState().getTaskBackendId(taskId)
+      resolveBackendId(useOwnershipStore.getState().getTaskBackendId(taskId))
       ?? (projectId
-        ? (useOwnershipStore.getState().getProjectBackendId(projectId) ?? useServerStore.getState().activeServerId)
-        : useServerStore.getState().activeServerId);
+        ? (resolveBackendId(useOwnershipStore.getState().getProjectBackendId(projectId)) ?? getActiveCanonicalBackendId())
+        : getActiveCanonicalBackendId());
     await deleteScheduledTask(taskId, toBackendArg(backendId));
     get().removeTask(projectId, taskId);
   },
 
   trigger: async (taskId, projectId) => {
     const backendId =
-      useOwnershipStore.getState().getTaskBackendId(taskId)
+      resolveBackendId(useOwnershipStore.getState().getTaskBackendId(taskId))
       ?? (projectId
-        ? (useOwnershipStore.getState().getProjectBackendId(projectId) ?? useServerStore.getState().activeServerId)
-        : useServerStore.getState().activeServerId);
+        ? (resolveBackendId(useOwnershipStore.getState().getProjectBackendId(projectId)) ?? getActiveCanonicalBackendId())
+        : getActiveCanonicalBackendId());
     const task = await triggerScheduledTask(taskId, toBackendArg(backendId));
     get().upsertTask(projectId, task);
   },
 
   enableTemplate: async (projectId, templateId) => {
     const backendId =
-      useOwnershipStore.getState().getProjectBackendId(projectId)
-      ?? useServerStore.getState().activeServerId;
+      resolveBackendId(useOwnershipStore.getState().getProjectBackendId(projectId))
+      ?? getActiveCanonicalBackendId();
     const task = await enableTemplateTask(projectId, templateId, toBackendArg(backendId));
     get().upsertTask(projectId, task);
     return task;
@@ -140,9 +152,9 @@ export const useScheduledTaskStore = create<ScheduledTaskState>((set, get) => ({
       const key = projectId ?? GLOBAL_KEY;
       const backendId =
         (projectId
-          ? (useOwnershipStore.getState().getProjectBackendId(projectId) ?? useServerStore.getState().activeServerId)
-          : useServerStore.getState().activeServerId)
-        ?? useOwnershipStore.getState().getTaskBackendId(task.id);
+          ? (resolveBackendId(useOwnershipStore.getState().getProjectBackendId(projectId)) ?? getActiveCanonicalBackendId())
+          : getActiveCanonicalBackendId())
+        ?? resolveBackendId(useOwnershipStore.getState().getTaskBackendId(task.id));
       if (backendId) {
         useOwnershipStore.getState().setTaskOwner(task.id, backendId, projectId ?? null);
       }
