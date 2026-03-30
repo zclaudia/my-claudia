@@ -21,6 +21,10 @@ import { useServerStore } from '../stores/serverStore';
 import { useSessionsStore } from '../stores/sessionsStore';
 import { useChatStore, type MessageWithToolCalls } from '../stores/chatStore';
 import { useToastStore } from '../stores/toastStore';
+import { useProjectStore } from '../stores/projectStore';
+import { usePromptRequestStore } from '../stores/promptRequestStore';
+import { useInteractionStore } from '../stores/interactionStore';
+import { useOwnershipStore } from '../stores/ownershipStore';
 import { handleServerMessage } from '../services/messageHandler';
 import type { BackendRuntimeState, ServerFeature } from '@my-claudia/shared';
 import type { ConnectionStatus } from '../stores/serverStore';
@@ -42,6 +46,68 @@ function runtimeStateToConnectionStatus(state: BackendRuntimeState): ConnectionS
 
 // Fix #21: use WeakRef-like pattern — clear on each facade lifecycle
 let facadeServerRuns = new Map<string, Set<string>>();
+
+function cleanupInterruptedRunsForBackend(backendId: string, reason?: string): void {
+  const chatStore = useChatStore.getState();
+  const projectStore = useProjectStore.getState();
+  const sessionsStore = useSessionsStore.getState();
+  const ownershipStore = useOwnershipStore.getState();
+  const activeRunsForBackend = facadeServerRuns.get(backendId);
+  const affectedRunIds = new Set<string>();
+
+  if (activeRunsForBackend) {
+    for (const runId of activeRunsForBackend) {
+      affectedRunIds.add(runId);
+    }
+  }
+
+  for (const [runId, sessionId] of Object.entries(chatStore.activeRuns)) {
+    const ownerBackendId = ownershipStore.getSessionBackendId(sessionId);
+    if (ownerBackendId === backendId) {
+      affectedRunIds.add(runId);
+    }
+  }
+
+  if (affectedRunIds.size === 0) return;
+
+  const interruptedSessionIds = new Set<string>();
+
+  for (const runId of affectedRunIds) {
+    const sessionId = chatStore.activeRuns[runId];
+    if (!sessionId) {
+      activeRunsForBackend?.delete(runId);
+      continue;
+    }
+
+    const ownerBackendId = ownershipStore.getSessionBackendId(sessionId);
+    if (ownerBackendId && ownerBackendId !== backendId) {
+      continue;
+    }
+
+    interruptedSessionIds.add(sessionId);
+    chatStore.finalizeRunToMessage(runId);
+    chatStore.endRun(runId);
+    usePromptRequestStore.getState().clearRequestsForSession(sessionId);
+    useInteractionStore.getState().clearSession(sessionId);
+    projectStore.setSessionActive(sessionId, false);
+    projectStore.updateSession(sessionId, { lastRunStatus: 'interrupted' });
+    sessionsStore.setSessionActiveFlag(backendId, sessionId, false);
+    sessionsStore.setSessionActiveById(backendId, sessionId, false);
+    activeRunsForBackend?.delete(runId);
+  }
+
+  if (interruptedSessionIds.size > 0) {
+    useToastStore.getState().add({
+      type: 'error',
+      title: '远程连接已中断',
+      message: `Backend ${backendId} 在运行中断开${reason ? `: ${reason}` : ''}`,
+    });
+  }
+
+  if (activeRunsForBackend && activeRunsForBackend.size === 0) {
+    facadeServerRuns.delete(backendId);
+  }
+}
 
 /** Persistent device ID for direct mode (survives across sessions). */
 function getOrCreateDirectDeviceId(): string {
@@ -185,6 +251,9 @@ export function syncToGatewayStore(event: BackendFacadeEvent): void {
       // Sync to serverStore
       const connStatus = runtimeStateToConnectionStatus(event.state);
       useServerStore.getState().setServerConnectionStatus(event.backendId, connStatus, event.error);
+      if (event.error && event.error !== 'user_closed' && event.state !== 'ready') {
+        cleanupInterruptedRunsForBackend(event.backendId, event.error);
+      }
       break;
     }
 

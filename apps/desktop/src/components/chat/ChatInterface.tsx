@@ -1,4 +1,4 @@
-import { useRef, useEffect, useState } from 'react';
+import { useRef, useEffect, useState, useCallback } from 'react';
 import { AlertTriangle } from 'lucide-react';
 import { ChatInputArea } from './ChatInputArea';
 import { ChatMessagePane } from './ChatMessagePane';
@@ -18,6 +18,7 @@ import { useBottomPanelStore } from '../../stores/bottomPanelStore';
 import { useUIStore } from '../../stores/uiStore';
 import { usePermissionStore } from '../../stores/permissionStore';
 import { useDraftEditorStore } from '../../stores/draftEditorStore';
+import { useOwnershipStore } from '../../stores/ownershipStore';
 import { useConnection } from '../../contexts/ConnectionContext';
 import { useIsMobile } from '../../hooks/useMediaQuery';
 import { useChatSession } from '../../hooks/chat/useChatSession';
@@ -28,6 +29,7 @@ import { useSessionActions } from '../../hooks/chat/useSessionActions';
 import { usePlanStatus } from '../../hooks/chat/usePlanStatus';
 import { useKeyboardShortcuts } from '../../hooks/chat/useKeyboardShortcuts';
 import { useMobileViewport } from '../../hooks/chat/useMobileViewport';
+import type { ClientMessage } from '@my-claudia/shared';
 
 interface ChatInterfaceProps {
   sessionId: string;
@@ -36,13 +38,36 @@ interface ChatInterfaceProps {
 }
 
 export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar }: ChatInterfaceProps) {
-  const { sendMessage: wsSendMessage, isConnected, handlePermissionDecision } = useConnection();
+  const {
+    sendMessage: activeServerSendMessage,
+    sendToServer,
+    isServerConnected,
+    connectServer,
+    handlePermissionDecision,
+  } = useConnection();
   const isMobile = useIsMobile();
   const activeServerId = useServerStore((s) => s.activeServerId);
+  const ownerBackendId = useOwnershipStore((s) => s.sessionBackendIds[sessionId] ?? null);
   const setDrawerOpen = useTerminalStore((s) => s.setDrawerOpen);
   const setBottomPanelTab = useBottomPanelStore((s) => s.setActiveTab);
   const advancedInput = useUIStore((s) => s.advancedInput);
   const poppedOutSessions = useUIStore((s) => s.poppedOutSessions);
+  const routedBackendId = ownerBackendId ?? activeServerId ?? null;
+  const isConnected = routedBackendId ? isServerConnected(routedBackendId) : false;
+
+  useEffect(() => {
+    if (!routedBackendId) return;
+    if (isServerConnected(routedBackendId)) return;
+    connectServer(routedBackendId);
+  }, [connectServer, isServerConnected, routedBackendId]);
+
+  const wsSendMessage = useCallback((message: ClientMessage) => {
+    if (routedBackendId) {
+      sendToServer(routedBackendId, message);
+      return;
+    }
+    activeServerSendMessage(message);
+  }, [activeServerSendMessage, routedBackendId, sendToServer]);
 
   // Draft editor state
   const draftShowLockPrompt = useDraftEditorStore((s) => s.showLockPrompt);

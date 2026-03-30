@@ -3,6 +3,7 @@ import type { AgentPermissionPolicy, ClientMessage, MessageAttachment, MessageIn
 import type { Attachment } from '../../components/chat/MessageInput';
 import type { MessageWithToolCalls } from '../../stores/chatStore';
 import { useProjectStore } from '../../stores/projectStore';
+import { useToastStore } from '../../stores/toastStore';
 import { uploadFile } from '../../services/fileUpload';
 import * as api from '../../services/api';
 
@@ -104,6 +105,11 @@ export function useSendMessage({
 
     if (!isConnected) {
       setQueuedMessage({ content, attachments });
+      useToastStore.getState().add({
+        type: 'info',
+        title: '后端未连接',
+        message: '消息已排队，正在尝试重新连接远程后端。',
+      });
       return;
     }
 

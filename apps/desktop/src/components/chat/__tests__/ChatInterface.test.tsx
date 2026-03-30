@@ -8,6 +8,7 @@ import { useUIStore } from '../../../stores/uiStore';
 import { usePermissionStore } from '../../../stores/permissionStore';
 import { useServerStore } from '../../../stores/serverStore';
 import { useFileViewerStore } from '../../../stores/fileViewerStore';
+import { useOwnershipStore } from '../../../stores/ownershipStore';
 
 // Mock Tauri APIs
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
@@ -108,7 +109,7 @@ vi.mock('../TokenUsageDisplay', () => ({
 vi.mock('../../BottomPanel', () => ({
   BottomPanel: (props: any) => <div data-testid="bottom-panel" data-project-id={props.projectId || ''} />,
 }));
-vi.mock('../../supervision/TaskCardStrip', () => ({
+vi.mock('../../../features/supervision/components/TaskCardStrip', () => ({
   TaskCardStrip: (props: any) => <div data-testid="task-card-strip" data-project-id={props.projectId} />,
 }));
 vi.mock('../../BackgroundTaskPanel', () => ({
@@ -129,6 +130,9 @@ vi.mock('../../BackgroundTaskPanel', () => ({
 
 // Mock services - use importOriginal to auto-stub all exports
 const mockSendMessage = vi.fn();
+const mockSendToServer = vi.fn();
+const mockIsServerConnected = vi.fn(() => true);
+const mockConnectServer = vi.fn();
 const mockHandlePermissionDecision = vi.fn();
 const mockHandleAskUserAnswer = vi.fn();
 
@@ -170,6 +174,9 @@ vi.mock('../../../contexts/ConnectionContext', () => ({
     activeBackend: 'local',
     setActiveBackend: vi.fn(),
     sendMessage: mockSendMessage,
+    sendToServer: mockSendToServer,
+    isServerConnected: mockIsServerConnected,
+    connectServer: mockConnectServer,
     handlePermissionDecision: mockHandlePermissionDecision,
     handlePromptAnswer: mockHandleAskUserAnswer,
   }),
@@ -265,6 +272,30 @@ function setDefaultStores(overrides?: {
     activeServerSupports: () => false,
     ...overrides?.serverStore,
   } as any);
+  useOwnershipStore.setState({
+    sessionBackendIds: {},
+    projectBackendIds: {},
+    taskOwners: {},
+    setSessionOwner: vi.fn(),
+    setSessionOwners: vi.fn(),
+    removeSessionOwner: vi.fn(),
+    removeSessionOwnersByBackend: vi.fn(),
+    clearSessionOwners: vi.fn(),
+    getSessionBackendId: (sessionId: string) => useOwnershipStore.getState().sessionBackendIds[sessionId] ?? null,
+    setProjectOwner: vi.fn(),
+    setProjectOwners: vi.fn(),
+    removeProjectOwner: vi.fn(),
+    removeProjectOwnersByBackend: vi.fn(),
+    clearProjectOwners: vi.fn(),
+    getProjectBackendId: () => null,
+    setTaskOwner: vi.fn(),
+    setTaskOwners: vi.fn(),
+    removeTaskOwner: vi.fn(),
+    removeTaskOwnersByBackend: vi.fn(),
+    clearTaskOwners: vi.fn(),
+    getTaskBackendId: () => null,
+    getTaskProjectId: () => null,
+  } as any);
   useFileViewerStore.setState({
     isOpen: false,
     searchOpen: false,
@@ -279,6 +310,7 @@ function setDefaultStores(overrides?: {
 describe('ChatInterface', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockIsServerConnected.mockReturnValue(true);
     setDefaultStores();
   });
 
@@ -576,13 +608,40 @@ describe('ChatInterface', () => {
     const sendBtn = container.querySelector('[data-testid="send-btn"]');
     fireEvent.click(sendBtn!);
     await waitFor(() => {
-      expect(mockSendMessage).toHaveBeenCalledWith(
+      expect(mockSendToServer).toHaveBeenCalledWith(
+        'local',
         expect.objectContaining({
           type: 'run_start',
           sessionId: 'sess-1',
         })
       );
     });
+  });
+
+  it('routes session messages to the owner backend instead of the active server', async () => {
+    setDefaultStores({
+      serverStore: {
+        activeServerId: 'local',
+      },
+    });
+    useOwnershipStore.setState({
+      ...useOwnershipStore.getState(),
+      sessionBackendIds: { 'sess-1': 'backend-1' },
+    });
+
+    const { container } = render(<ChatInterface sessionId="sess-1" />);
+    fireEvent.click(container.querySelector('[data-testid="send-btn"]')!);
+
+    await waitFor(() => {
+      expect(mockSendToServer).toHaveBeenCalledWith(
+        'backend-1',
+        expect.objectContaining({
+          type: 'run_start',
+          sessionId: 'sess-1',
+        }),
+      );
+    });
+    expect(mockSendMessage).not.toHaveBeenCalled();
   });
 
   it('does not send empty messages', async () => {
@@ -595,8 +654,8 @@ describe('ChatInterface', () => {
     const { container } = render(<ChatInterface sessionId="sess-1" />);
     const sendEmptyBtn = container.querySelector('[data-testid="send-empty-btn"]');
     fireEvent.click(sendEmptyBtn!);
-    // Should not call sendMessage for empty input
     expect(mockSendMessage).not.toHaveBeenCalled();
+    expect(mockSendToServer).not.toHaveBeenCalled();
   });
 
   it('includes mode in run_start message when mode is set', async () => {
@@ -611,7 +670,8 @@ describe('ChatInterface', () => {
     const sendBtn = container.querySelector('[data-testid="send-btn"]');
     fireEvent.click(sendBtn!);
     await waitFor(() => {
-      expect(mockSendMessage).toHaveBeenCalledWith(
+      expect(mockSendToServer).toHaveBeenCalledWith(
+        'local',
         expect.objectContaining({
           type: 'run_start',
           mode: 'plan',
@@ -632,7 +692,8 @@ describe('ChatInterface', () => {
     const sendBtn = container.querySelector('[data-testid="send-btn"]');
     fireEvent.click(sendBtn!);
     await waitFor(() => {
-      expect(mockSendMessage).toHaveBeenCalledWith(
+      expect(mockSendToServer).toHaveBeenCalledWith(
+        'local',
         expect.objectContaining({
           type: 'run_start',
           model: 'gpt-4',
@@ -654,11 +715,39 @@ describe('ChatInterface', () => {
     const cancelBtn = container.querySelector('[data-testid="loading-cancel"]');
     expect(cancelBtn).toBeTruthy();
     fireEvent.click(cancelBtn!);
-    expect(mockSendMessage).toHaveBeenCalledWith(
+    expect(mockSendToServer).toHaveBeenCalledWith(
+      'local',
       expect.objectContaining({
         type: 'run_cancel',
         runId: 'run-1',
       })
+    );
+  });
+
+  it('routes cancel to the owner backend for remote sessions', () => {
+    setDefaultStores({
+      serverStore: {
+        activeServerId: 'local',
+      },
+      chatStore: {
+        activeRuns: { 'run-1': 'sess-1' },
+        backgroundRunIds: new Set(),
+      },
+    });
+    useOwnershipStore.setState({
+      ...useOwnershipStore.getState(),
+      sessionBackendIds: { 'sess-1': 'backend-1' },
+    });
+
+    const { container } = render(<ChatInterface sessionId="sess-1" />);
+    fireEvent.click(container.querySelector('[data-testid="loading-cancel"]')!);
+
+    expect(mockSendToServer).toHaveBeenCalledWith(
+      'backend-1',
+      expect.objectContaining({
+        type: 'run_cancel',
+        runId: 'run-1',
+      }),
     );
   });
 
@@ -797,7 +886,8 @@ describe('ChatInterface', () => {
     const resumeBtn = Array.from(buttons).find(b => b.textContent?.includes('Resume'));
     fireEvent.click(resumeBtn!);
     await waitFor(() => {
-      expect(mockSendMessage).toHaveBeenCalledWith(
+      expect(mockSendToServer).toHaveBeenCalledWith(
+        'local',
         expect.objectContaining({
           type: 'run_start',
           sessionId: 'sess-1',
@@ -1232,7 +1322,7 @@ describe('ChatInterface', () => {
   it('sends stop_background_task when BackgroundTaskPanel requests stop', () => {
     const { getByTestId } = render(<ChatInterface sessionId="sess-1" />);
     fireEvent.click(getByTestId('bg-task-stop'));
-    expect(mockSendMessage).toHaveBeenCalledWith({
+    expect(mockSendToServer).toHaveBeenCalledWith('local', {
       type: 'stop_background_task',
       sessionId: 'sess-1',
       taskId: 'task-123',
@@ -1329,7 +1419,8 @@ describe('ChatInterface', () => {
     const sendBtn = container.querySelector('[data-testid="send-btn"]');
     fireEvent.click(sendBtn!);
     await waitFor(() => {
-      expect(mockSendMessage).toHaveBeenCalledWith(
+      expect(mockSendToServer).toHaveBeenCalledWith(
+        'local',
         expect.objectContaining({
           type: 'run_start',
           workingDirectory: '/test/worktree',
@@ -1437,7 +1528,8 @@ describe('ChatInterface', () => {
     const sendBtn = container.querySelector('[data-testid="send-btn"]');
     fireEvent.click(sendBtn!);
     await waitFor(() => {
-      expect(mockSendMessage).toHaveBeenCalledWith(
+      expect(mockSendToServer).toHaveBeenCalledWith(
+        'local',
         expect.objectContaining({
           type: 'run_start',
           permissionOverride: 'auto-approve',

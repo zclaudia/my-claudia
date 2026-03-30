@@ -9,6 +9,10 @@ import { useFacadeStore } from '../../stores/facadeStore';
 import { useToastStore } from '../../stores/toastStore';
 import { handleServerMessage } from '../../services/messageHandler';
 import { useServerStore } from '../../stores/serverStore';
+import { useChatStore } from '../../stores/chatStore';
+import { useProjectStore } from '../../stores/projectStore';
+import { useSessionsStore } from '../../stores/sessionsStore';
+import { useOwnershipStore } from '../../stores/ownershipStore';
 
 describe('useBackendFacade run_event forwarding', () => {
   beforeEach(() => {
@@ -43,6 +47,47 @@ describe('useBackendFacade run_event forwarding', () => {
       registryRevision: 1,
       snapshotVersion: 1,
     });
+    useChatStore.setState({
+      messages: {},
+      pagination: {},
+      activeRuns: {},
+      backgroundRunIds: new Set(),
+      runHealth: {},
+      activeToolCalls: {},
+      toolCallsHistory: {},
+      runContentBlocks: {},
+      systemInfoBySession: {},
+      modeOverrides: {},
+      runtimeModes: {},
+      sessionUsage: {},
+      modelOverrides: {},
+      permissionOverrides: {},
+      worktreeOverrides: {},
+      drafts: {},
+    } as any);
+    useProjectStore.setState({
+      projects: [],
+      sessions: [{ id: 'session-1', projectId: 'project-1', name: 'Session 1', isActive: true }],
+      dataServerId: null,
+      selectedProjectId: null,
+      selectedSessionId: null,
+      dashboardViews: {},
+      providers: [],
+      providerCommands: {},
+      providerCapabilities: {},
+    } as any);
+    useSessionsStore.setState({
+      remoteSessions: new Map([
+        ['remote-1', [{ id: 'session-1', projectId: '', name: 'Session 1', createdAt: 1, updatedAt: 1, isActive: true, type: 'regular' }]],
+      ]),
+      activeSessionIdsByBackend: new Map([['remote-1', new Set(['session-1'])]]),
+      recentlyCompletedSessions: [],
+    } as any);
+    useOwnershipStore.setState({
+      sessionBackendIds: { 'session-1': 'remote-1' },
+      projectBackendIds: {},
+      taskOwners: {},
+    } as any);
   });
 
   it('forwards local backend run events to the shared message handler', () => {
@@ -124,5 +169,38 @@ describe('useBackendFacade run_event forwarding', () => {
       features: ['remoteTerminal'],
     });
     expect(useServerStore.getState().activeServerSupports('remoteTerminal')).toBe(true);
+  });
+
+  it('cleans up active runs when a backend disconnects unexpectedly', () => {
+    useChatStore.setState({
+      ...useChatStore.getState(),
+      activeRuns: { 'run-1': 'session-1' },
+    });
+
+    syncToGatewayStore({
+      type: 'run_event',
+      backendId: 'remote-1',
+      event: {
+        type: 'run_started',
+        runId: 'run-1',
+        sessionId: 'session-1',
+        assistantMessageId: 'assistant-1',
+      },
+    } as any);
+
+    syncToGatewayStore({
+      type: 'backend_state_changed',
+      backendId: 'remote-1',
+      state: 'opening',
+      error: 'peer_disconnected',
+    } as any);
+
+    expect(useChatStore.getState().activeRuns['run-1']).toBeUndefined();
+    expect(useProjectStore.getState().sessions.find((s) => s.id === 'session-1')?.lastRunStatus).toBe('interrupted');
+    expect(Array.from(useSessionsStore.getState().activeSessionIdsByBackend.get('remote-1') ?? [])).toEqual([]);
+    expect(useToastStore.getState().toasts.at(-1)).toMatchObject({
+      type: 'error',
+      title: '远程连接已中断',
+    });
   });
 });
