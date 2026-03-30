@@ -175,4 +175,17 @@ describe('GatewayManager', () => {
     expect(connectedClients.has('ch-1')).toBe(false);
     expect(terminalManager.detachClient).toHaveBeenCalledWith('ch-1');
   });
+
+  it('local backend catch-up rethrows DB errors instead of returning empty patches', async () => {
+    const { manager, serverContext } = createManager();
+    serverContext.db.prepare = vi.fn().mockReturnValue({
+      all: vi.fn(() => {
+        throw new Error('db failed');
+      }),
+    });
+
+    const localHandler = (manager as any).createLocalBackendHandler();
+
+    await expect(localHandler.onCatchUp('session-1', 5)).rejects.toThrow('db failed');
+  });
 });

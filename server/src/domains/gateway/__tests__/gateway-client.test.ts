@@ -513,6 +513,120 @@ describe('GatewayClient', () => {
         message: 'catch-up query failed',
       }));
     });
+
+    it('does not delete a newer outgoing channel when stale close ack arrives', () => {
+      const onOutgoingChannelClosed = vi.fn();
+      client.events.setOutgoingEvents({ onOutgoingChannelClosed });
+      (client as any).backendId = 'local-backend';
+
+      (client as any).outgoingChannels.set('remote-backend', {
+        backendId: 'remote-backend',
+        channelId: 'channel-new',
+        epoch: 2,
+        capabilities: [],
+      });
+
+      (client as any).handleBackendChannelClosedMsg({
+        type: 'backend_channel_closed',
+        backendId: 'remote-backend',
+        channelId: 'channel-old',
+        reason: 'peer_closed',
+      });
+
+      expect((client as any).outgoingChannels.get('remote-backend')).toEqual({
+        backendId: 'remote-backend',
+        channelId: 'channel-new',
+        epoch: 2,
+        capabilities: [],
+      });
+      expect(onOutgoingChannelClosed).toHaveBeenCalledWith('remote-backend', 'channel-old', 'peer_closed');
+    });
+
+    it('ignores stale outgoing catalog messages with mismatched epoch', () => {
+      const onOutgoingCatalogSnapshot = vi.fn();
+      const onOutgoingCatalogEvent = vi.fn();
+      const onOutgoingCatalogReset = vi.fn();
+      client.events.setOutgoingEvents({
+        onOutgoingCatalogSnapshot,
+        onOutgoingCatalogEvent,
+        onOutgoingCatalogReset,
+      });
+
+      (client as any).outgoingChannels.set('remote-backend', {
+        backendId: 'remote-backend',
+        channelId: 'channel-current',
+        epoch: 3,
+        capabilities: [],
+      });
+
+      (client as any).handleOutgoingCatalogSnapshot({
+        type: 'backend_catalog_snapshot',
+        backendId: 'remote-backend',
+        epoch: 2,
+        revision: 10,
+        items: [],
+      });
+      (client as any).handleOutgoingCatalogEvent({
+        type: 'backend_catalog_event',
+        backendId: 'remote-backend',
+        epoch: 2,
+        revision: 11,
+        op: 'remove',
+        sessionId: 'session-1',
+      });
+      (client as any).handleOutgoingCatalogReset({
+        type: 'backend_catalog_reset',
+        backendId: 'remote-backend',
+        epoch: 2,
+      });
+
+      expect(onOutgoingCatalogSnapshot).not.toHaveBeenCalled();
+      expect(onOutgoingCatalogEvent).not.toHaveBeenCalled();
+      expect(onOutgoingCatalogReset).not.toHaveBeenCalled();
+    });
+
+    it('forwards outgoing catalog messages for current epoch', () => {
+      const onOutgoingCatalogSnapshot = vi.fn();
+      const onOutgoingCatalogEvent = vi.fn();
+      const onOutgoingCatalogReset = vi.fn();
+      client.events.setOutgoingEvents({
+        onOutgoingCatalogSnapshot,
+        onOutgoingCatalogEvent,
+        onOutgoingCatalogReset,
+      });
+
+      (client as any).outgoingChannels.set('remote-backend', {
+        backendId: 'remote-backend',
+        channelId: 'channel-current',
+        epoch: 3,
+        capabilities: [],
+      });
+
+      (client as any).handleOutgoingCatalogSnapshot({
+        type: 'backend_catalog_snapshot',
+        backendId: 'remote-backend',
+        epoch: 3,
+        revision: 10,
+        items: [],
+      });
+      (client as any).handleOutgoingCatalogEvent({
+        type: 'backend_catalog_event',
+        backendId: 'remote-backend',
+        epoch: 3,
+        revision: 11,
+        op: 'remove',
+        sessionId: 'session-1',
+      });
+      (client as any).handleOutgoingCatalogReset({
+        type: 'backend_catalog_reset',
+        backendId: 'remote-backend',
+        epoch: 3,
+      });
+
+      expect(onOutgoingCatalogSnapshot).toHaveBeenCalledWith('remote-backend', 3, 10, []);
+      expect(onOutgoingCatalogEvent).toHaveBeenCalledWith('remote-backend', 3, 11, 'remove', undefined, 'session-1');
+      expect(onOutgoingCatalogReset).toHaveBeenCalledWith('remote-backend', 3);
+    });
   });
 
   describe('reconnection logic', () => {

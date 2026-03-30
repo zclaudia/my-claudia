@@ -1,7 +1,25 @@
 # MyClaudia 项目 Review & 优化计划
 
-日期：2026-03-29
-状态：Ready for Execution
+日期：2026-03-30
+状态：In Progress
+
+## 当前执行进度（2026-03-30）
+
+已完成：
+- Phase 0: Review Baseline
+- Batch 1: Shared Contract & Facade
+- Batch 2: Gateway Relay Service
+- Batch 3: Server Infra — Runtime Core
+- Batch 4: Server Infra — API Surface
+- Batch 5: Server Domain — Gateway
+
+当前下一批：
+- Batch 6: Server Domain — Conversation
+
+说明：
+- Batch 4 不只是完成 review，相关主路径修复也已经落地，详见 [batch-04-api-surface.md](./batch-04-api-surface.md)。
+- Batch 5 也已完成 review 与首轮关键修复，详见 [batch-05-gateway-domain.md](./batch-05-gateway-domain.md)。
+- 历史编号文件 [batch-04-server-providers.md](./batch-04-server-providers.md) 仍然对应当前计划的 Batch 10，不影响下一步顺序判断。
 
 ## 批次编号校准（2026-03-29）
 
@@ -364,6 +382,19 @@
 | 13 | Batch 13 | Desktop UI Shell |
 | 14 | Batch 14 | Desktop Feature Domains |
 | 15 | Batch 15 | E2E Tests & Scripts |
+
+## 当前建议顺序
+
+基于最新项目状态，接下来按下面顺序继续最稳：
+
+1. Batch 6: Server Domain — Conversation
+2. Batch 7: Server Domain — Supervision
+3. Batch 8: Server Domains — Workflow Automation
+
+原因：
+- Batch 1-5 已经把 shared、gateway relay、server infra、API surface、gateway domain 这五层基座收了一遍。
+- 下一步自然进入最重的核心业务域：`conversation`。
+- `supervision` 与 `workflow automation` 紧随其后，都是高复杂度 server domain，适合连续处理。
 
 ## Review 总时间表
 

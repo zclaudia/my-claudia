@@ -841,7 +841,10 @@ export class GatewayClient {
 
   private handleBackendChannelClosedMsg(msg: BackendChannelClosedMessage): void {
     if (this.isOutgoingChannel(msg.backendId)) {
-      this.outgoingChannels.delete(msg.backendId);
+      const currentChannel = this.outgoingChannels.get(msg.backendId);
+      if (currentChannel?.channelId === msg.channelId) {
+        this.outgoingChannels.delete(msg.backendId);
+      }
       this.outgoingEvents.onOutgoingChannelClosed?.(msg.backendId, msg.channelId, msg.reason);
     } else {
       // Incoming channel closed
@@ -854,10 +857,12 @@ export class GatewayClient {
   }
 
   private handleOutgoingCatalogSnapshot(msg: BackendCatalogSnapshotMessage): void {
+    if (!this.isCurrentOutgoingEpoch(msg.backendId, msg.epoch)) return;
     this.outgoingEvents.onOutgoingCatalogSnapshot?.(msg.backendId, msg.epoch, msg.revision, msg.items);
   }
 
   private handleOutgoingCatalogEvent(msg: BackendCatalogEventMessage): void {
+    if (!this.isCurrentOutgoingEpoch(msg.backendId, msg.epoch)) return;
     if (msg.op === 'upsert') {
       this.outgoingEvents.onOutgoingCatalogEvent?.(msg.backendId, msg.epoch, msg.revision, 'upsert', msg.item);
     } else {
@@ -866,6 +871,7 @@ export class GatewayClient {
   }
 
   private handleOutgoingCatalogReset(msg: BackendCatalogResetMessage): void {
+    if (!this.isCurrentOutgoingEpoch(msg.backendId, msg.epoch)) return;
     this.outgoingEvents.onOutgoingCatalogReset?.(msg.backendId, msg.epoch);
   }
 
@@ -926,6 +932,11 @@ export class GatewayClient {
       if (ch.channelId === channelId) return ch.backendId;
     }
     return undefined;
+  }
+
+  private isCurrentOutgoingEpoch(backendId: string, epoch: number): boolean {
+    const currentChannel = this.outgoingChannels.get(backendId);
+    return currentChannel?.epoch === epoch;
   }
 
   // ==========================================================================

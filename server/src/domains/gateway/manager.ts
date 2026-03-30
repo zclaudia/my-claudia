@@ -363,7 +363,7 @@ export class GatewayManager {
           }));
         } catch (error) {
           console.error('[LocalHandler] Catch-up error:', error);
-          return [];
+          throw error;
         }
       },
       onServerEvent: (listener) => {
