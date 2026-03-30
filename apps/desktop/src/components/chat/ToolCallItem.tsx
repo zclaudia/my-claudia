@@ -214,13 +214,13 @@ function RunInTerminalButton({ command }: { command: string }) {
         if (!session?.projectId) return;
 
         const store = useTerminalStore.getState();
-        if (!store.terminals[session.projectId]) {
+        if (!store.getTerminalId(session.projectId)) {
           store.openTerminal(session.projectId);
         }
         store.setDrawerOpen(session.projectId, true);
         useBottomPanelStore.getState().setActiveTab('terminal');
 
-        const terminalId = useTerminalStore.getState().terminals[session.projectId];
+        const terminalId = useTerminalStore.getState().getTerminalId(session.projectId);
         if (terminalId) {
           await useTerminalStore.getState().waitForReady(terminalId);
           sendMessage({ type: 'terminal_input', terminalId, data: command });

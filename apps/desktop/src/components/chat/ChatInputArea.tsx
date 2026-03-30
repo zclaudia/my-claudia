@@ -86,7 +86,7 @@ export function ChatInputArea({
   onCommand,
 }: ChatInputAreaProps) {
   const setDrawerOpen = useTerminalStore((s) => s.setDrawerOpen);
-  const drawerOpen = useTerminalStore((s) => s.drawerOpen);
+  const isDrawerOpen = useTerminalStore((s) => s.isDrawerOpen);
   const bottomPanelTab = useBottomPanelStore((s) => s.activeTab);
   const setBottomPanelTab = useBottomPanelStore((s) => s.setActiveTab);
   const disabledBuiltinPanels = usePluginStore((s) => s.disabledBuiltinPanels);
@@ -264,7 +264,7 @@ export function ChatInputArea({
         {/* Desktop: Terminal button */}
         {!isMobile && !disabledBuiltinPanels.includes('terminal') && useServerStore.getState().activeServerSupports('remoteTerminal') && currentSession?.projectId && (() => {
           const pid = currentSession.projectId;
-          const isOpen = !!drawerOpen[pid];
+          const isOpen = isDrawerOpen(pid);
           return (
             <button
               onClick={() => {
@@ -274,7 +274,7 @@ export function ChatInputArea({
                   setBottomPanelTab('terminal');
                 } else {
                   const store = useTerminalStore.getState();
-                  if (!store.terminals[pid]) {
+                  if (!store.getTerminalId(pid)) {
                     store.openTerminal(pid);
                   }
                   setDrawerOpen(pid, true);
@@ -368,7 +368,7 @@ export function ChatInputArea({
 
           if (!disabledBuiltinPanels.includes('terminal') && useServerStore.getState().activeServerSupports('remoteTerminal') && currentSession?.projectId) {
             const pid = currentSession.projectId;
-            const isOpen = !!drawerOpen[pid];
+            const isOpen = isDrawerOpen(pid);
             const isActive = isOpen && bottomPanelTab === 'terminal';
             toolItems.push({
               key: 'terminal',
@@ -382,7 +382,7 @@ export function ChatInputArea({
                   setBottomPanelTab('terminal');
                 } else {
                   const store = useTerminalStore.getState();
-                  if (!store.terminals[pid]) {
+                  if (!store.getTerminalId(pid)) {
                     store.openTerminal(pid);
                   }
                   setDrawerOpen(pid, true);

@@ -1,9 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { ToolCallItem, ToolCallList } from '../ToolCallItem';
 import type { ToolCallState } from '../../../stores/chatStore';
 
 const mockSendMessage = vi.fn();
+const mockSetDrawerOpen = vi.fn();
+const mockOpenTerminal = vi.fn();
+const mockWaitForReady = vi.fn();
+const terminalIdsByBackend = new Map<string, string>();
 
 // Mock heavy sub-components
 vi.mock('../DiffViewer', () => ({
@@ -31,8 +35,28 @@ vi.mock('../../../contexts/ConnectionContext', () => ({
 
 vi.mock('../../../stores/terminalStore', () => ({
   useTerminalStore: Object.assign(
-    (selector: any) => selector({ terminals: {} }),
-    { getState: () => ({ terminals: {}, waitForReady: vi.fn() }) },
+    (selector: any) => selector({
+      terminals: {},
+      getTerminalId: vi.fn((projectId: string) => {
+        const backendId = (globalThis as any).__toolCallTestActiveBackend ?? 'backend-1';
+        return terminalIdsByBackend.get(`${backendId}:${projectId}`);
+      }),
+      openTerminal: mockOpenTerminal,
+      setDrawerOpen: mockSetDrawerOpen,
+      waitForReady: mockWaitForReady,
+    }),
+    {
+      getState: () => ({
+        terminals: {},
+        getTerminalId: (projectId: string) => {
+          const backendId = (globalThis as any).__toolCallTestActiveBackend ?? 'backend-1';
+          return terminalIdsByBackend.get(`${backendId}:${projectId}`);
+        },
+        openTerminal: mockOpenTerminal,
+        setDrawerOpen: mockSetDrawerOpen,
+        waitForReady: mockWaitForReady,
+      }),
+    },
   ),
 }));
 
@@ -51,7 +75,14 @@ vi.mock('../../../stores/projectStore', () => ({
 vi.mock('../../../stores/serverStore', () => ({
   useServerStore: Object.assign(
     (selector: any) => selector({}),
-    { getState: () => ({ activeServerSupports: () => false }) },
+    {
+      getState: () => ({
+        activeServerSupports: (feature: string) => feature === 'remoteTerminal',
+      }),
+    },
+    {
+      setState: vi.fn(),
+    },
   ),
 }));
 
@@ -86,6 +117,18 @@ describe('ToolCallItem', () => {
     mockProjectState.selectedSessionId = null;
     mockProjectState.sessions = [];
     mockSendMessage.mockReset();
+    mockSetDrawerOpen.mockReset();
+    mockOpenTerminal.mockReset();
+    mockWaitForReady.mockReset();
+    terminalIdsByBackend.clear();
+    (globalThis as any).__toolCallTestActiveBackend = 'backend-1';
+    mockOpenTerminal.mockImplementation((projectId: string) => {
+      const backendId = (globalThis as any).__toolCallTestActiveBackend ?? 'backend-1';
+      const terminalId = `term-${backendId}-${projectId}`;
+      terminalIdsByBackend.set(`${backendId}:${projectId}`, terminalId);
+      return terminalId;
+    });
+    mockWaitForReady.mockResolvedValue(true);
   });
 
   // ── Basic display ─────────────────────────────────────────────────────────
@@ -425,6 +468,35 @@ describe('ToolCallItem', () => {
       expect(container.textContent).toContain('$ ');
       expect(container.textContent).toContain('npm test');
       expect(screen.getByTestId('tool-result').textContent).toContain('PASS all tests');
+    });
+
+    it('sends Bash command to the scoped terminal after backend switch', async () => {
+      mockProjectState.selectedSessionId = 's1';
+      mockProjectState.sessions = [{ id: 's1', projectId: 'proj-1' }];
+      terminalIdsByBackend.set('backend-1:proj-1', 'term-backend-1-proj-1');
+
+      render(<ToolCallItem toolCall={createToolCall({
+        toolName: 'Bash',
+        toolInput: { command: 'npm test' },
+        status: 'completed',
+        result: 'PASS all tests',
+      })} />);
+      fireEvent.click(screen.getByRole('button'));
+
+      (globalThis as any).__toolCallTestActiveBackend = 'backend-2';
+
+      fireEvent.click(screen.getByTitle('Paste to terminal'));
+
+      expect(mockOpenTerminal).toHaveBeenCalledWith('proj-1');
+      expect(mockSetDrawerOpen).toHaveBeenCalledWith('proj-1', true);
+      expect(mockWaitForReady).toHaveBeenCalledWith('term-backend-2-proj-1');
+      await waitFor(() => {
+        expect(mockSendMessage).toHaveBeenCalledWith({
+          type: 'terminal_input',
+          terminalId: 'term-backend-2-proj-1',
+          data: 'npm test',
+        });
+      });
     });
 
     it('shows Bash error result with error styling', () => {

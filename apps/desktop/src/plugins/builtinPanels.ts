@@ -36,10 +36,14 @@ export function initBuiltinPanels() {
     alwaysMount: true,
     visible: false,
     onClose: () => {
-      // Find the active project and close its terminal drawer
-      const { drawerOpen, setDrawerOpen } = useTerminalStore.getState();
-      for (const [pid, open] of Object.entries(drawerOpen)) {
-        if (open) setDrawerOpen(pid, false);
+      // Close all open terminal drawers across backend/project scopes.
+      const { drawerOpen } = useTerminalStore.getState();
+      for (const scopeKey of Object.keys(drawerOpen)) {
+        if (!drawerOpen[scopeKey]) continue;
+        const separatorIndex = scopeKey.indexOf('::');
+        const projectId = separatorIndex >= 0 ? scopeKey.slice(separatorIndex + 2) : scopeKey;
+        const backendId = separatorIndex >= 0 ? scopeKey.slice(0, separatorIndex) : undefined;
+        useTerminalStore.getState().setDrawerOpen(projectId, false, backendId === 'no-backend' ? null : backendId);
       }
     },
   });

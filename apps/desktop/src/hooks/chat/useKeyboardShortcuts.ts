@@ -22,7 +22,7 @@ export function useKeyboardShortcuts({ projectId, projectRoot }: UseKeyboardShor
         } else if (store.isDrawerOpen(projectId)) {
           bpStore.setActiveTab('terminal');
         } else {
-          if (!store.terminals[projectId]) {
+          if (!store.getTerminalId(projectId)) {
             store.openTerminal(projectId);
           }
           store.setDrawerOpen(projectId, true);

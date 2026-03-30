@@ -1,12 +1,17 @@
 import { create } from 'zustand';
 import { usePluginStore } from './pluginStore';
+import { useServerStore } from './serverStore';
+
+export function getTerminalScopeKey(projectId: string, backendId: string | null | undefined): string {
+  return `${backendId ?? 'no-backend'}::${projectId}`;
+}
 
 interface TerminalState {
-  // Active terminal per project (projectId → terminalId)
+  // Active terminal per backend/project scope (backendId::projectId → terminalId)
   terminals: Record<string, string>;
   // Terminals that have received first output (shell prompt ready)
   readyTerminals: Set<string>;
-  // Drawer open state per project (projectId → boolean)
+  // Drawer open state per backend/project scope (backendId::projectId → boolean)
   drawerOpen: Record<string, boolean>;
   // Sticky Ctrl key per terminal (auto-disables after one keystroke)
   ctrlActive: Record<string, boolean>;
@@ -14,13 +19,13 @@ interface TerminalState {
   poppedOutTerminals: Record<string, string>;
   // Existing PTYs that should be reattached instead of reopened
   reattachTerminals: Record<string, boolean>;
-  openTerminal: (projectId: string) => string;
+  openTerminal: (projectId: string, backendId?: string | null) => string;
   closeTerminal: (terminalId: string) => void;
-  setDrawerOpen: (projectId: string, open: boolean) => void;
-  isDrawerOpen: (projectId: string) => boolean;
+  setDrawerOpen: (projectId: string, open: boolean, backendId?: string | null) => void;
+  isDrawerOpen: (projectId: string, backendId?: string | null) => boolean;
   toggleCtrl: (terminalId: string) => void;
   handleTerminalExited: (terminalId: string) => void;
-  getTerminalId: (projectId: string) => string | undefined;
+  getTerminalId: (projectId: string, backendId?: string | null) => string | undefined;
   markReady: (terminalId: string) => void;
   isReady: (terminalId: string) => boolean;
   /** Returns a promise that resolves when the terminal is ready (shell loaded). */
@@ -40,12 +45,13 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
   ctrlActive: {},
   poppedOutTerminals: {},
   reattachTerminals: {},
-  openTerminal: (projectId: string) => {
-    const existing = get().terminals[projectId];
+  openTerminal: (projectId: string, backendId) => {
+    const scopeKey = getTerminalScopeKey(projectId, backendId ?? useServerStore.getState().activeServerId);
+    const existing = get().terminals[scopeKey];
     if (existing) return existing;
     const terminalId = crypto.randomUUID();
     set((state) => ({
-      terminals: { ...state.terminals, [projectId]: terminalId },
+      terminals: { ...state.terminals, [scopeKey]: terminalId },
     }));
     return terminalId;
   },
@@ -65,13 +71,15 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
     });
   },
 
-  setDrawerOpen: (projectId: string, open: boolean) => {
-    set((state) => ({ drawerOpen: { ...state.drawerOpen, [projectId]: open } }));
+  setDrawerOpen: (projectId: string, open: boolean, backendId) => {
+    const scopeKey = getTerminalScopeKey(projectId, backendId ?? useServerStore.getState().activeServerId);
+    set((state) => ({ drawerOpen: { ...state.drawerOpen, [scopeKey]: open } }));
     // Sync terminal panel visibility in pluginStore
     usePluginStore.getState().updatePanelVisibility('terminal', open);
   },
 
-  isDrawerOpen: (projectId: string) => !!get().drawerOpen[projectId],
+  isDrawerOpen: (projectId: string, backendId) =>
+    !!get().drawerOpen[getTerminalScopeKey(projectId, backendId ?? useServerStore.getState().activeServerId)],
 
   toggleCtrl: (terminalId: string) =>
     set((state) => ({ ctrlActive: { ...state.ctrlActive, [terminalId]: !state.ctrlActive[terminalId] } })),
@@ -92,9 +100,8 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
     });
   },
 
-  getTerminalId: (projectId: string) => {
-    return get().terminals[projectId];
-  },
+  getTerminalId: (projectId: string, backendId) =>
+    get().terminals[getTerminalScopeKey(projectId, backendId ?? useServerStore.getState().activeServerId)],
 
   markReady: (terminalId: string) => {
     const ready = get().readyTerminals;

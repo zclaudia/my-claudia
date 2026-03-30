@@ -41,7 +41,8 @@ async function openTerminalInNewWindow(terminalId: string, projectId: string) {
 
 /** Terminal toolbar actions (reload + pop-out buttons) rendered in the shared BottomPanel header */
 export function TerminalActions({ projectId }: { projectId: string }) {
-  const terminalId = useTerminalStore((s) => s.terminals[projectId]);
+  const activeServerId = useServerStore((s) => s.activeServerId);
+  const terminalId = useTerminalStore((s) => s.getTerminalId(projectId, activeServerId));
   const isPoppedOut = useTerminalStore((s) => terminalId ? !!s.poppedOutTerminals[terminalId] : false);
   const { sendMessage } = useConnection();
 
@@ -68,7 +69,7 @@ export function TerminalActions({ projectId }: { projectId: string }) {
           sendMessage({ type: 'terminal_close', terminalId });
           xtermRegistry.delete(terminalId);
           useTerminalStore.getState().closeTerminal(terminalId);
-          useTerminalStore.getState().openTerminal(projectId);
+          useTerminalStore.getState().openTerminal(projectId, activeServerId);
         }}
         className="p-1 rounded hover:bg-secondary text-muted-foreground hover:text-foreground"
         title="Reload terminal"
@@ -84,9 +85,10 @@ export function TerminalActions({ projectId }: { projectId: string }) {
 
 /** Terminal content (renders inside the shared BottomPanel) */
 export function TerminalPanel({ projectId, workingDirectory }: TerminalPanelProps) {
-  const { terminals, ctrlActive, toggleCtrl } = useTerminalStore();
+  const { ctrlActive, toggleCtrl } = useTerminalStore();
   const isMobile = useIsMobile();
-  const terminalId = terminals[projectId];
+  const activeServerId = useServerStore((s) => s.activeServerId);
+  const terminalId = useTerminalStore((s) => s.getTerminalId(projectId, activeServerId));
   const shouldReattach = useTerminalStore((s) => terminalId ? s.shouldReattach(terminalId) : false);
   const isCtrl = !!(terminalId && ctrlActive[terminalId]);
   const { sendMessage } = useConnection();

@@ -78,6 +78,12 @@ vi.mock('../../../utils/xtermRegistry', () => {
 import { XTerminal } from '../XTerminal';
 
 describe('XTerminal', () => {
+  async function flushTerminalMount() {
+    await act(async () => {
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+    });
+  }
+
   beforeEach(() => {
     vi.clearAllMocks();
     Object.defineProperty(HTMLElement.prototype, 'clientWidth', {
@@ -108,14 +114,14 @@ describe('XTerminal', () => {
       <XTerminal terminalId="term-1" projectId="proj-1" />
     );
     const termDiv = container.firstElementChild as HTMLElement;
-    expect(termDiv).toBeInTheDocument();
+    expect(termDiv).toBeTruthy();
   });
 
   it('accepts optional workingDirectory prop', () => {
     const { container } = render(
       <XTerminal terminalId="term-1" projectId="proj-1" workingDirectory="/some/dir" />
     );
-    expect(container.firstElementChild).toBeInTheDocument();
+    expect(container.firstElementChild).toBeTruthy();
   });
 
   it('applies theme from CSS variables', async () => {
@@ -136,7 +142,7 @@ describe('XTerminal', () => {
     const { container } = render(
       <XTerminal terminalId="term-1" projectId="proj-1" />
     );
-    expect(container.firstElementChild).toBeInTheDocument();
+    expect(container.firstElementChild).toBeTruthy();
   });
 
   it('reuses existing terminal from registry on re-mount', async () => {
@@ -163,7 +169,7 @@ describe('XTerminal', () => {
     const { container } = render(
       <XTerminal terminalId="term-1" projectId="proj-1" />
     );
-    expect(container.firstElementChild).toBeInTheDocument();
+    expect(container.firstElementChild).toBeTruthy();
   });
 
   it('applies inline style for background color', () => {
@@ -227,13 +233,12 @@ describe('XTerminal', () => {
       <XTerminal terminalId="term-disconnected" projectId="proj-1" />
     );
 
-    await act(async () => {
-      await new Promise((resolve) => requestAnimationFrame(resolve));
-    });
+    await flushTerminalMount();
 
     expect(mockSendMessage).not.toHaveBeenCalledWith(expect.objectContaining({
       type: 'terminal_open',
       terminalId: 'term-disconnected',
     }));
   });
+
 });

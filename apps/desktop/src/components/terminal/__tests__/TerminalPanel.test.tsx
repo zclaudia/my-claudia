@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, cleanup } from '@testing-library/react';
 import { TerminalPanel, TerminalActions } from '../TerminalPanel';
+import { useServerStore } from '../../../stores/serverStore';
 
 const mockSendMessage = vi.fn();
 
@@ -37,6 +38,7 @@ vi.mock('../../../stores/terminalStore', () => {
       terminals: {} as Record<string, string>,
       ctrlActive: {} as Record<string, boolean>,
       poppedOutTerminals: {} as Record<string, string>,
+      getTerminalId: vi.fn(() => undefined),
       shouldReattach: vi.fn(() => false),
       clearNeedsReattach: vi.fn(),
       toggleCtrl: mockToggleCtrl,
@@ -49,6 +51,7 @@ vi.mock('../../../stores/terminalStore', () => {
     terminals: {},
     ctrlActive: {},
     poppedOutTerminals: {},
+    getTerminalId: vi.fn(() => undefined),
     shouldReattach: vi.fn(() => false),
     clearNeedsReattach: vi.fn(),
     toggleCtrl: mockToggleCtrl,
@@ -62,21 +65,33 @@ vi.mock('../XTerminal', () => ({
 
 beforeEach(() => {
   vi.clearAllMocks();
+  cleanup();
+  useServerStore.setState({
+    activeServerId: 'backend-1',
+    connections: {},
+    localServerPort: null,
+    controlPlaneMode: 'gateway-direct',
+    controlPlaneState: 'ready',
+  });
 });
 
 describe('TerminalPanel', () => {
   it('renders "No terminal session" when no terminal exists', () => {
     render(<TerminalPanel projectId="proj-1" />);
-    expect(screen.getByText('No terminal session')).toBeInTheDocument();
+    expect(screen.getByText('No terminal session')).toBeTruthy();
   });
 
   it('renders XTerminal when terminal exists', async () => {
     const { useTerminalStore } = await import('../../../stores/terminalStore');
+    const getTerminalId = vi.fn((projectId: string, backendId?: string | null) =>
+      projectId === 'proj-1' && backendId === 'backend-1' ? 'term-1' : undefined
+    );
     (useTerminalStore as any).mockImplementation((selector?: (s: any) => any) => {
       const state = {
         terminals: { 'proj-1': 'term-1' },
         ctrlActive: {},
         poppedOutTerminals: {},
+        getTerminalId,
         shouldReattach: vi.fn(() => false),
         clearNeedsReattach: vi.fn(),
         toggleCtrl: mockToggleCtrl,
@@ -85,8 +100,45 @@ describe('TerminalPanel', () => {
     });
 
     render(<TerminalPanel projectId="proj-1" />);
-    expect(screen.getByTestId('xterminal')).toBeInTheDocument();
-    expect(screen.getByText('XTerminal: term-1')).toBeInTheDocument();
+    expect(screen.getByTestId('xterminal')).toBeTruthy();
+    expect(screen.getByText('XTerminal: term-1')).toBeTruthy();
+    expect(getTerminalId).toHaveBeenCalledWith('proj-1', 'backend-1');
+  });
+
+  it('switches to the scoped terminal for the new active backend', async () => {
+    const { useTerminalStore } = await import('../../../stores/terminalStore');
+    const getTerminalId = vi.fn((projectId: string, backendId?: string | null) => {
+      if (projectId !== 'proj-1') return undefined;
+      return backendId === 'backend-2' ? 'term-2' : 'term-1';
+    });
+
+    (useTerminalStore as any).mockImplementation((selector?: (s: any) => any) => {
+      const state = {
+        terminals: {},
+        ctrlActive: {},
+        poppedOutTerminals: {},
+        getTerminalId,
+        shouldReattach: vi.fn(() => false),
+        clearNeedsReattach: vi.fn(),
+        toggleCtrl: mockToggleCtrl,
+      };
+      return selector ? selector(state) : state;
+    });
+
+    const { rerender } = render(<TerminalPanel projectId="proj-1" />);
+    expect(screen.getByText('XTerminal: term-1')).toBeTruthy();
+
+    useServerStore.setState({
+      activeServerId: 'backend-2',
+      connections: {},
+      localServerPort: null,
+      controlPlaneMode: 'gateway-direct',
+      controlPlaneState: 'ready',
+    });
+
+    rerender(<TerminalPanel projectId="proj-1" />);
+    expect(screen.getByText('XTerminal: term-2')).toBeTruthy();
+    expect(getTerminalId).toHaveBeenCalledWith('proj-1', 'backend-2');
   });
 });
 
@@ -94,7 +146,7 @@ describe('TerminalActions', () => {
   it('renders a reload button', () => {
     const { container } = render(<TerminalActions projectId="proj-1" />);
     const button = Array.from(container.querySelectorAll('button')).find((el) => el.title === 'Reload terminal');
-    expect(button).toBeInTheDocument();
+    expect(button).toBeTruthy();
     expect(button?.title).toBe('Reload terminal');
   });
 
@@ -107,6 +159,7 @@ describe('TerminalActions', () => {
         terminals: { 'proj-1': 'term-1' },
         ctrlActive: {},
         poppedOutTerminals: {},
+        getTerminalId: vi.fn(() => 'term-1'),
         shouldReattach: vi.fn(() => false),
         clearNeedsReattach: vi.fn(),
         toggleCtrl: mockToggleCtrl,
@@ -117,6 +170,7 @@ describe('TerminalActions', () => {
         terminals: { 'proj-1': 'term-1' },
         ctrlActive: {},
         poppedOutTerminals: {},
+        getTerminalId: vi.fn(() => 'term-1'),
         shouldReattach: vi.fn(() => false),
         clearNeedsReattach: vi.fn(),
       });
@@ -131,7 +185,7 @@ describe('TerminalActions', () => {
       expect.objectContaining({ type: 'terminal_close', terminalId: 'term-1' })
     );
     expect(mockCloseTerminal).toHaveBeenCalledWith('term-1');
-    expect(mockOpenTerminal).toHaveBeenCalledWith('proj-1');
+    expect(mockOpenTerminal).toHaveBeenCalledWith('proj-1', 'backend-1');
   });
 
   it('does nothing if no terminal exists for project', async () => {
@@ -141,6 +195,7 @@ describe('TerminalActions', () => {
         terminals: {},
         ctrlActive: {},
         poppedOutTerminals: {},
+        getTerminalId: vi.fn(() => undefined),
         shouldReattach: vi.fn(() => false),
         clearNeedsReattach: vi.fn(),
         toggleCtrl: mockToggleCtrl,
@@ -151,6 +206,7 @@ describe('TerminalActions', () => {
         terminals: {},
         ctrlActive: {},
         poppedOutTerminals: {},
+        getTerminalId: vi.fn(() => undefined),
         shouldReattach: vi.fn(() => false),
         clearNeedsReattach: vi.fn(),
       });

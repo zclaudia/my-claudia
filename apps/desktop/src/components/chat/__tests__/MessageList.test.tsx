@@ -1,9 +1,16 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, cleanup, fireEvent } from '@testing-library/react';
+import { render, screen, cleanup, fireEvent, waitFor } from '@testing-library/react';
 import type { MessageWithToolCalls, ToolCallState } from '../../../stores/chatStore';
 import type { ContentBlock } from '@my-claudia/shared';
 
 // ── Mocks ──────────────────────────────────────────────────────────────────────
+
+const mockSendMessage = vi.fn();
+const mockSetDrawerOpen = vi.fn();
+const mockOpenTerminal = vi.fn();
+const mockWaitForReady = vi.fn();
+const mockSetActiveTab = vi.fn();
+const terminalIdsByBackend = new Map<string, string>();
 
 vi.mock('../../../contexts/ThemeContext', () => ({
   useTheme: () => ({ resolvedTheme: 'dark' }),
@@ -11,7 +18,7 @@ vi.mock('../../../contexts/ThemeContext', () => ({
 }));
 
 vi.mock('../../../contexts/ConnectionContext', () => ({
-  useConnection: () => ({ sendMessage: vi.fn() }),
+  useConnection: () => ({ sendMessage: mockSendMessage }),
 }));
 
 vi.mock('../../../stores/filePushStore', () => ({
@@ -23,8 +30,28 @@ vi.mock('../../../stores/filePushStore', () => ({
 
 vi.mock('../../../stores/terminalStore', () => ({
   useTerminalStore: Object.assign(
-    (selector: any) => selector({ terminals: {} }),
-    { getState: () => ({ terminals: {} }) },
+    (selector: any) => selector({
+      terminals: {},
+      getTerminalId: (projectId: string) => {
+        const backendId = (globalThis as any).__messageListTestActiveBackend ?? 'backend-1';
+        return terminalIdsByBackend.get(`${backendId}:${projectId}`);
+      },
+      openTerminal: mockOpenTerminal,
+      setDrawerOpen: mockSetDrawerOpen,
+      waitForReady: mockWaitForReady,
+    }),
+    {
+      getState: () => ({
+        terminals: {},
+        getTerminalId: (projectId: string) => {
+          const backendId = (globalThis as any).__messageListTestActiveBackend ?? 'backend-1';
+          return terminalIdsByBackend.get(`${backendId}:${projectId}`);
+        },
+        openTerminal: mockOpenTerminal,
+        setDrawerOpen: mockSetDrawerOpen,
+        waitForReady: mockWaitForReady,
+      }),
+    },
   ),
 }));
 
@@ -38,13 +65,29 @@ vi.mock('../../../stores/projectStore', () => ({
 vi.mock('../../../stores/serverStore', () => ({
   useServerStore: Object.assign(
     (selector: any) => selector({}),
-    { getState: () => ({ activeServerSupports: () => false }) },
+    { getState: () => ({ activeServerSupports: (feature: string) => feature === 'remoteTerminal' }) },
   ),
+}));
+
+vi.mock('../../../stores/bottomPanelStore', () => ({
+  useBottomPanelStore: {
+    getState: () => ({ setActiveTab: mockSetActiveTab }),
+  },
 }));
 
 // Simplify markdown rendering
 vi.mock('react-markdown', () => ({
-  default: ({ children }: { children: string }) => <div data-testid="markdown">{children}</div>,
+  default: ({ children, components }: { children: string; components?: Record<string, any> }) => {
+    const content = String(children ?? '');
+    const fencedCodeMatch = /^```(\w+)?\n([\s\S]*?)\n```$/m.exec(content.trim());
+    if (fencedCodeMatch && components?.code) {
+      const language = fencedCodeMatch[1] || 'text';
+      const code = fencedCodeMatch[2];
+      const Code = components.code;
+      return <Code className={`language-${language}`}>{code}</Code>;
+    }
+    return <div data-testid="markdown">{children}</div>;
+  },
 }));
 
 vi.mock('remark-gfm', () => ({ default: () => {} }));
@@ -179,6 +222,20 @@ describe('extractThinking', () => {
 let MessageList: typeof import('../MessageList').MessageList;
 
 beforeEach(async () => {
+  mockSendMessage.mockReset();
+  mockSetDrawerOpen.mockReset();
+  mockOpenTerminal.mockReset();
+  mockWaitForReady.mockReset();
+  mockSetActiveTab.mockReset();
+  terminalIdsByBackend.clear();
+  (globalThis as any).__messageListTestActiveBackend = 'backend-1';
+  mockOpenTerminal.mockImplementation((projectId: string) => {
+    const backendId = (globalThis as any).__messageListTestActiveBackend ?? 'backend-1';
+    const terminalId = `term-${backendId}-${projectId}`;
+    terminalIdsByBackend.set(`${backendId}:${projectId}`, terminalId);
+    return terminalId;
+  });
+  mockWaitForReady.mockResolvedValue(true);
   const mod = await import('../MessageList');
   MessageList = mod.MessageList;
 });
@@ -693,6 +750,42 @@ describe('MessageList', () => {
     // The markdown mock wraps content in a div with data-testid="markdown"
     expect(screen.getByTestId('markdown')).toBeInTheDocument();
     expect(screen.getByTestId('markdown').textContent).toContain('Hello **bold**');
+  });
+
+  it('sends shell code to the scoped terminal after backend switch', async () => {
+    const messages = [
+      makeMessage({
+        id: 'msg-shell',
+        role: 'assistant',
+        content: '```bash\nnpm test\n```',
+      }),
+    ];
+    const { useProjectStore } = await import('../../../stores/projectStore');
+    (useProjectStore as any).getState = () => ({
+      selectedSessionId: 'session-1',
+      sessions: [{ id: 'session-1', projectId: 'proj-1' }],
+    });
+
+    terminalIdsByBackend.set('backend-1:proj-1', 'term-backend-1-proj-1');
+
+    render(<MessageList messages={messages} />);
+    expect(screen.getByText('Run in terminal')).toBeTruthy();
+
+    (globalThis as any).__messageListTestActiveBackend = 'backend-2';
+
+    fireEvent.click(screen.getByText('Run in terminal'));
+
+    expect(mockOpenTerminal).toHaveBeenCalledWith('proj-1');
+    expect(mockSetDrawerOpen).toHaveBeenCalledWith('proj-1', true);
+    expect(mockSetActiveTab).toHaveBeenCalledWith('terminal');
+    expect(mockWaitForReady).toHaveBeenCalledWith('term-backend-2-proj-1');
+    await waitFor(() => {
+      expect(mockSendMessage).toHaveBeenCalledWith({
+        type: 'terminal_input',
+        terminalId: 'term-backend-2-proj-1',
+        data: 'npm test',
+      });
+    });
   });
 
   // ── Non-virtualised list structure ────────────────────────────────────────

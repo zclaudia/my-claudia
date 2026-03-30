@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { useTerminalStore } from '../terminalStore';
+import { getTerminalScopeKey, useTerminalStore } from '../terminalStore';
 import { usePluginStore } from '../pluginStore';
+import { useServerStore } from '../serverStore';
 
 describe('terminalStore', () => {
   beforeEach(() => {
@@ -9,6 +10,13 @@ describe('terminalStore', () => {
       readyTerminals: new Set(),
       drawerOpen: {},
       ctrlActive: {},
+    });
+    useServerStore.setState({
+      activeServerId: 'backend-1',
+      connections: {},
+      localServerPort: null,
+      controlPlaneMode: 'gateway-direct',
+      controlPlaneState: 'ready',
     });
     // Register terminal panel for visibility sync tests
     usePluginStore.setState({ panels: [] });
@@ -27,7 +35,7 @@ describe('terminalStore', () => {
       const terminalId = useTerminalStore.getState().openTerminal('project-1');
 
       expect(terminalId).toBeTruthy();
-      expect(useTerminalStore.getState().terminals['project-1']).toBe(terminalId);
+      expect(useTerminalStore.getState().terminals[getTerminalScopeKey('project-1', 'backend-1')]).toBe(terminalId);
     });
 
     it('returns existing terminal if project already has one', () => {
@@ -44,6 +52,15 @@ describe('terminalStore', () => {
       expect(id1).not.toBe(id2);
       expect(Object.keys(useTerminalStore.getState().terminals)).toHaveLength(2);
     });
+
+    it('creates separate terminals for the same project on different backends', () => {
+      const id1 = useTerminalStore.getState().openTerminal('project-1', 'backend-1');
+      const id2 = useTerminalStore.getState().openTerminal('project-1', 'backend-2');
+
+      expect(id1).not.toBe(id2);
+      expect(useTerminalStore.getState().getTerminalId('project-1', 'backend-1')).toBe(id1);
+      expect(useTerminalStore.getState().getTerminalId('project-1', 'backend-2')).toBe(id2);
+    });
   });
 
   describe('closeTerminal', () => {
@@ -51,7 +68,7 @@ describe('terminalStore', () => {
       const terminalId = useTerminalStore.getState().openTerminal('project-1');
       useTerminalStore.getState().closeTerminal(terminalId);
 
-      expect(useTerminalStore.getState().terminals['project-1']).toBeUndefined();
+      expect(useTerminalStore.getState().terminals[getTerminalScopeKey('project-1', 'backend-1')]).toBeUndefined();
     });
 
     it('does not affect other terminals', () => {
@@ -60,8 +77,8 @@ describe('terminalStore', () => {
 
       useTerminalStore.getState().closeTerminal(id1);
 
-      expect(useTerminalStore.getState().terminals['project-1']).toBeUndefined();
-      expect(useTerminalStore.getState().terminals['project-2']).toBeTruthy();
+      expect(useTerminalStore.getState().terminals[getTerminalScopeKey('project-1', 'backend-1')]).toBeUndefined();
+      expect(useTerminalStore.getState().terminals[getTerminalScopeKey('project-2', 'backend-1')]).toBeTruthy();
     });
 
     it('is safe to call with non-existent terminal ID', () => {
@@ -90,6 +107,13 @@ describe('terminalStore', () => {
       expect(useTerminalStore.getState().isDrawerOpen('project-1')).toBe(true);
       expect(useTerminalStore.getState().isDrawerOpen('project-2')).toBe(false);
     });
+
+    it('keeps drawer state independent per backend for the same project', () => {
+      useTerminalStore.getState().setDrawerOpen('project-1', true, 'backend-1');
+      useTerminalStore.getState().setDrawerOpen('project-1', false, 'backend-2');
+      expect(useTerminalStore.getState().isDrawerOpen('project-1', 'backend-1')).toBe(true);
+      expect(useTerminalStore.getState().isDrawerOpen('project-1', 'backend-2')).toBe(false);
+    });
   });
 
   describe('handleTerminalExited', () => {
@@ -97,7 +121,7 @@ describe('terminalStore', () => {
       const terminalId = useTerminalStore.getState().openTerminal('project-1');
       useTerminalStore.getState().handleTerminalExited(terminalId);
 
-      expect(useTerminalStore.getState().terminals['project-1']).toBeUndefined();
+      expect(useTerminalStore.getState().terminals[getTerminalScopeKey('project-1', 'backend-1')]).toBeUndefined();
     });
 
     it('allows opening a new terminal for the same project after exit', () => {
@@ -106,7 +130,7 @@ describe('terminalStore', () => {
 
       const second = useTerminalStore.getState().openTerminal('project-1');
       expect(second).not.toBe(first);
-      expect(useTerminalStore.getState().terminals['project-1']).toBe(second);
+      expect(useTerminalStore.getState().terminals[getTerminalScopeKey('project-1', 'backend-1')]).toBe(second);
     });
 
     it('is safe to call with non-existent terminal ID', () => {
