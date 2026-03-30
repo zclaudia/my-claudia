@@ -19,54 +19,32 @@ import {
   PERIODIC_SAVE_INTERVAL_MS,
 } from './types.js';
 import { cleanupPendingPermissions, getNextOffset, upsertAssistantMessage, findProcessPidsByTaskCommand } from './run-lifecycle.js';
-import { getDiscoveredSkills, loadSkillContent } from '../../../plugins/skill-tools.js';
-import { selectSkills } from '../../../plugins/skill-selector.js';
 import {
   normalizeSessionWorkingDirectory,
   isSlashCommand,
   isSudoCommand,
   isBashLikeTool,
-  providerSupportsNativePlanMode,
-  buildNonNativePlanPrompt,
-  buildPlanDocumentPrompt,
   processAtMentions,
   buildStatusOutput,
   formatProviderErrorMessage,
   isHardQuotaExceededError,
   SYSTEM_INFO_COMMANDS,
-  buildFilePushContext,
-  buildInteractionToolPrompt,
 } from '../../../helpers/server-utils.js';
 import {
   classify,
-  getMatchedPermissionRule,
-  getOutsideWorkspacePaths,
   isInternalInteractionTool,
-  PermissionEvaluator,
   isUnifiedPolicy,
-  getAgentPermissionPolicy,
-  getProjectPermissionOverride,
-  isOutsideWorkspacePathAllowed,
   loadProjectAllowedOutsideWorkspaceRoots,
-  mergePolicy,
-  normalizePolicy,
-  buildRememberKey,
   loadSessionRememberedDecisions,
-  resolveRememberedDecision,
 } from '../agent/permission-evaluator.js';
 import { AIReviewQueue } from '../agent/ai-review-queue.js';
 import type { PermissionDecision, SystemInfo } from '../../../providers/claude-sdk.js';
 import { providerRegistry } from '../../../providers/registry.js';
 import { runAIReviewCliJob, supportsAIReviewCliJob } from '../../../providers/cli-jobs/review-job.js';
 import { negotiateProfile } from '../../../providers/pcp-negotiator.js';
-import { mapPermissionMode } from '../../../providers/pcp-permission.js';
-import { createContextEngine } from '../context/engine.js';
 import { interactionDispatcher } from '../interactions/interaction-dispatcher.js';
 import { normalizeFromToolUse, normalizeFromAskUser } from '../interactions/interaction-normalizer.js';
 import { pluginEvents } from '../../../events/index.js';
-import { workspaceService } from '../../../services/workspace.js';
-import { buildSkillDirectoryHint } from '../../../plugins/skill-tools.js';
-import { toolRegistry as pluginToolRegistry } from '../../../plugins/tool-registry.js';
 import { resolveProviderCwd } from '../../../utils/provider-cwd.js';
 import { createTraceRecorder, summarizeProviderMessage, summarizeServerMessage } from '../../../utils/provider-trace.js';
 import { generateToolSignature, detectLoop } from '../../../loop-detection.js';
@@ -75,6 +53,9 @@ import { initDatabase } from '../../../storage/db.js';
 import { NotificationService } from '../../notification-feed/notification-service.js';
 import type { NotificationFeedService } from '../../notification-feed/service.js';
 import { ProcessMonitor } from '../../../utils/process-monitor.js';
+import { buildRunContext } from './run-context.js';
+import { createPermissionCallback } from './run-permissions.js';
+import { finalizeRun, handleRunException } from './run-recovery.js';
 
 const AI_REVIEW_SYSTEM_PROMPT = [
   'You are a machine-only security review helper for a coding assistant.',
@@ -369,6 +350,7 @@ export async function handleRunStart(
 
   let sdkSessionId = session.sdk_session_id || undefined;
   let persistedWorkingDirectory = normalizeSessionWorkingDirectory(session.working_directory, session.root_path);
+  let handedOffToRetry = false;
   trace.setMeta({
     provider: providerConfig?.type,
     cwd: message.workingDirectory || persistedWorkingDirectory || session.root_path || undefined,
@@ -406,6 +388,39 @@ export async function handleRunStart(
 
     if (updatedSession) {
       gatewayClient.commands.catalog.broadcastSessionEvent('updated', updatedSession);
+    }
+  };
+
+  const broadcastSessionCatalogUpdate = () => {
+    const gatewayClient = getGatewayClient();
+    if (!gatewayClient) return;
+
+    const updatedSession = db.prepare(`
+      SELECT s.id, s.name, s.updated_at as updatedAt, s.archived_at as archivedAt
+      FROM sessions s
+      WHERE s.id = ?
+    `).get(message.sessionId) as {
+      id: string;
+      name?: string;
+      updatedAt?: number;
+      archivedAt?: number | null;
+    } | undefined;
+
+    if (updatedSession) {
+      gatewayClient.commands.catalog.broadcastSessionEvent('updated', updatedSession);
+    }
+  };
+
+  const markPendingResolutionResumed = () => {
+    db.prepare('UPDATE sessions SET last_run_status = ?, updated_at = ? WHERE id = ?')
+      .run('running', Date.now(), activeRun.sessionId);
+
+    if (sessionType === 'background') {
+      sendMessage(client.ws, {
+        type: 'background_task_update',
+        sessionId: message.sessionId,
+        status: 'running',
+      } as import('@my-claudia/shared').BackgroundTaskUpdateMessage);
     }
   };
 
@@ -513,426 +528,40 @@ export async function handleRunStart(
       cwd,
     });
 
-    // Permission request callback (shared by claude and opencode)
-    // Unified: ALL sessions (including agent sessions) go through the strategy chain.
-    const sessionPermissionOverride = message.permissionOverride;
-    const permissionCallback = async (request: import('@my-claudia/shared').PermissionRequest) => {
-      return new Promise<PermissionDecision>((resolve) => {
-        // Strict plan guard is only for Supervisor-forced planning sessions.
-        // Normal user-selected plan mode must still allow ExitPlanMode approval flow.
-        if (forcedPlanBySession && modeValue === 'plan') {
-          const planReadOnlyTools = new Set([
-            'read', 'glob', 'grep', 'webfetch', 'websearch', 'todowrite', 'ls', 'askuserquestion',
-          ]);
-          const normalizedTool = request.toolName.toLowerCase();
-          const isAllowedReadTool = planReadOnlyTools.has(normalizedTool);
-          const shouldDeny = isBashLikeTool(request.toolName) || !isAllowedReadTool;
-          if (shouldDeny) {
-            const reason = `Denied by strict Plan Mode: ${request.toolName} is not allowed.`;
-            sendMessage(client.ws, {
-              type: 'agent_permission_intercepted',
-              toolName: request.toolName,
-              decision: 'deny',
-              reason,
-              sessionId: message.sessionId,
-              runId,
-            } as import('@my-claudia/shared').AgentPermissionInterceptedMessage);
-            resolve({ behavior: 'deny', message: reason });
-            return;
-          }
-        }
-
-        // --- Check remembered decisions cache ---
-        const rememberKey = buildRememberKey(request.toolName, request.toolInput, request.detail);
-        const remembered = resolveRememberedDecision(
-          activeRun.rememberedDecisions,
-          request.toolName,
-          request.toolInput,
-          request.detail
-        );
-        if (remembered) {
-          sendMessage(client.ws, {
-            type: 'agent_permission_intercepted',
-            toolName: request.toolName,
-            decision: remembered === 'allow' ? 'approve' : 'deny',
-            reason: `Remembered decision (${remembered}) for "${rememberKey}"`,
-            sessionId: message.sessionId,
-            runId,
-          } as import('@my-claudia/shared').AgentPermissionInterceptedMessage);
-          resolve({ behavior: remembered, message: remembered === 'deny' ? 'Denied (remembered)' : undefined });
-          return;
-        }
-
-        if (
-          classify(request.toolName, request.toolInput, request.detail) === 'fileRead'
-          && isOutsideWorkspacePathAllowed(
-            request.toolName,
-            request.toolInput,
-            request.detail,
-            activeRun.workspaceRoot,
-            activeRun.allowedOutsideWorkspaceRoots
-          )
-        ) {
-          sendMessage(client.ws, {
-            type: 'agent_permission_intercepted',
-            toolName: request.toolName,
-            decision: 'approve',
-            reason: 'Auto-approved for remembered outside-workspace directory',
-            sessionId: message.sessionId,
-            runId,
-          } as import('@my-claudia/shared').AgentPermissionInterceptedMessage);
-          resolve({ behavior: 'allow', updatedInput: request.toolInput });
-          return;
-        }
-
-        // --- Unified permission strategy chain ---
-        const globalPolicy = getAgentPermissionPolicy(db);
-        const projectOverride = getProjectPermissionOverride(db, session.project_id);
-
-        // Merge: global → project �� session
-        let effectivePolicy = globalPolicy
-          ? mergePolicy(globalPolicy, projectOverride)
-          : projectOverride
-            ? normalizePolicy(projectOverride)
-            : DEFAULT_UNIFIED_POLICY;
-
-        if (sessionPermissionOverride) {
-          const normalizedOverride = normalizePolicy(sessionPermissionOverride);
-          effectivePolicy = effectivePolicy
-            ? mergePolicy(effectivePolicy, normalizedOverride)
-            : normalizedOverride;
-        }
-
-        const _cmdPreview = isBashLikeTool(request.toolName) ? ` | cmd=${JSON.stringify((request.toolInput as Record<string, unknown>)?.command || request.detail).slice(0, 120)}` : '';
-        console.log(`[Permission] Tool=${request.toolName}${_cmdPreview} | effective=${effectivePolicy?.enabled ? 'enabled' : 'null/disabled'} | sessionType=${sessionType}`);
-        if (effectivePolicy?.enabled) {
-          const evaluator = new PermissionEvaluator();
-          const decision = evaluator.evaluate(
-            request.toolName, request.toolInput, request.detail,
-            effectivePolicy,
-            { rootPath: cwd, sessionType }
-          );
-          if (decision === 'approve') {
-            sendMessage(client.ws, {
-              type: 'agent_permission_intercepted',
-              toolName: request.toolName,
-              decision: 'approve',
-              reason: 'Auto-approved by category policy',
-              sessionId: message.sessionId,
-              runId,
-            } as import('@my-claudia/shared').AgentPermissionInterceptedMessage);
-            resolve({ behavior: 'allow', updatedInput: request.toolInput });
-            return;
-          }
-          if (decision === 'deny') {
-            sendMessage(client.ws, {
-              type: 'agent_permission_intercepted',
-              toolName: request.toolName,
-              decision: 'deny',
-              reason: 'Blocked by category policy',
-              sessionId: message.sessionId,
-              runId,
-            } as import('@my-claudia/shared').AgentPermissionInterceptedMessage);
-            resolve({ behavior: 'deny', message: 'Denied by policy' });
-            return;
-          }
-          // 'escalate' → fall through to user UI flow
-        }
-        // --- End strategy chain ---
-
-        const matchedRule = effectivePolicy?.enabled
-          ? getMatchedPermissionRule(
-            request.toolName,
-            request.toolInput,
-            request.detail,
-            effectivePolicy,
-            { rootPath: cwd, sessionType }
-          ) || undefined
-          : undefined;
-
-        if (matchedRule === 'Outside workspace access') {
-          const outsidePaths = getOutsideWorkspacePaths(
-            request.toolName,
-            request.toolInput,
-            request.detail,
-            cwd
-          );
-          const bashCommand = isBashLikeTool(request.toolName)
-            ? ((request.toolInput as { command?: unknown } | undefined)?.command ?? request.detail)
-            : undefined;
-          console.warn('[Permission] Outside workspace access detected', {
-            sessionId: message.sessionId,
-            runId,
-            toolName: request.toolName,
-            rootPath: cwd,
-            command: bashCommand,
-            outsidePaths,
-          });
-        }
-
-        const continueWithUserFlow = () => {
-          if (isInternalInteractionTool(request.toolName)) {
-            sendMessage(client.ws, {
-              type: 'agent_permission_intercepted',
-              toolName: request.toolName,
-              decision: 'approve',
-              reason: 'Internal interaction tool handles its own user flow',
-              sessionId: message.sessionId,
-              runId,
-            } as import('@my-claudia/shared').AgentPermissionInterceptedMessage);
-            resolve({ behavior: 'allow', updatedInput: request.toolInput });
-            return;
-          }
-
-          // For background sessions, escalate sends a notification instead of blocking UI
-          if (sessionType === 'background') {
-            sendMessage(client.ws, {
-              type: 'background_permission_pending',
-              sessionId: message.sessionId,
-              requestId: request.requestId,
-              toolName: request.toolName,
-              detail: request.detail,
-              timeoutSeconds: request.timeoutSeconds,
-            } as import('@my-claudia/shared').BackgroundPermissionPendingMessage);
-
-            sendMessage(client.ws, {
-              type: 'background_task_update',
-              sessionId: message.sessionId,
-              status: 'paused',
-              reason: `Permission needed: ${request.toolName}`,
-            } as import('@my-claudia/shared').BackgroundTaskUpdateMessage);
-
-            notificationService.notify({
-              type: 'background_permission',
-              title: 'Background task needs attention',
-              body: `${request.toolName}: ${request.detail.slice(0, 200)}`,
-              priority: 'urgent',
-              tags: ['rotating_light'],
-            });
-          }
-
-          // Determine effective timeout behavior
-          // For escalateAlways tools: use hardcoded PERMISSION_TIMEOUT_POLICIES (e.g., ExitPlanMode auto-approve)
-          // For other escalated tools: use AI review timeout from policy
-          const isEscalateAlways = effectivePolicy?.escalateAlways?.includes(request.toolName);
-          const timeoutPolicy = PERMISSION_TIMEOUT_POLICIES.get(request.toolName);
-          const policyApplies = timeoutPolicy && (!timeoutPolicy.condition || timeoutPolicy.condition(activeRun));
-
-          // Resolve AI review config from unified policy
-          const aiReviewConfig = effectivePolicy && isUnifiedPolicy(effectivePolicy)
-            ? effectivePolicy.aiReview
-            : undefined;
-
-          let effectiveTimeoutSeconds: number;
-          let effectiveTimeoutBehavior: 'approve' | 'deny' | 'ai_review';
-          let aiInitiated = false;
-
-          if (policyApplies) {
-            // Hardcoded timeout policy (e.g., ExitPlanMode)
-            effectiveTimeoutBehavior = timeoutPolicy!.behavior;
-            effectiveTimeoutSeconds = request.timeoutSeconds || timeoutPolicy!.timeoutSeconds || 0;
-            aiInitiated = timeoutPolicy!.behavior === 'approve';
-          } else if (!isEscalateAlways && aiReviewConfig?.enabled) {
-            // AI review timeout for non-escalateAlways tools
-            effectiveTimeoutBehavior = 'ai_review';
-            effectiveTimeoutSeconds = aiReviewConfig.timeoutBeforeReview;
-          } else {
-            // escalateAlways tools or no AI review: no timeout, wait for user
-            effectiveTimeoutBehavior = 'deny';
-            effectiveTimeoutSeconds = request.timeoutSeconds;
-          }
-
-          let timeout: ReturnType<typeof setTimeout> | null = null;
-          if (effectiveTimeoutSeconds > 0) {
-            const timeoutMs = effectiveTimeoutSeconds * 1000;
-            timeout = setTimeout(() => void (async () => {
-              // Guard: if user already resolved this permission, skip
-              if (!activeRun.pendingPermissions.has(request.requestId)) return;
-
-              if (effectiveTimeoutBehavior === 'ai_review' && aiReviewConfig) {
-                // Enqueue AI review (serialized via AIReviewQueue)
-                console.log(`[AI Review] Enqueuing review for ${request.requestId} (${request.toolName}), queue depth: ${activeRun.aiReviewQueue?.pendingCount ?? 0}`);
-                try {
-                  const aiResult = await activeRun.aiReviewQueue!.enqueue(
-                    request.requestId,
-                    aiReviewConfig,
-                    {
-                      toolName: request.toolName,
-                      toolInput: request.toolInput,
-                      detail: request.detail,
-                      cwd,
-                    },
-                  );
-
-                  // Guard: user may have resolved while review was queued/in-flight
-                  if (!activeRun.pendingPermissions.has(request.requestId)) return;
-
-                  if (aiResult.decision === 'approve') {
-                    postAIReviewFeedItem(notificationFeedService, {
-                      sessionId: message.sessionId,
-                      projectId: session.project_id,
-                      requestId: request.requestId,
-                      toolName: request.toolName,
-                      detail: request.detail,
-                      result: aiResult,
-                    });
-                    // AI approved — resolve and notify
-                    activeRun.pendingPermissions.delete(request.requestId);
-                    const resolvedEvent = {
-                      type: 'permission_auto_resolved',
-                      requestId: request.requestId,
-                      sessionId: message.sessionId,
-                      behavior: 'approve' as const,
-                      reason: `AI review: ${aiResult.reasoning} (${Math.round(aiResult.confidence * 100)}%)`,
-                      metadata: aiResult.metadata,
-                    } as import('@my-claudia/shared').PermissionAutoResolvedMessage;
-                    sendMessage(client.ws, resolvedEvent);
-                    if (connectedClients.size > 0) {
-                      broadcastToOtherAuthenticatedClients(connectedClients, client.id, resolvedEvent);
-                    }
-                    console.log(`[AI Review] Approved ${request.requestId} (${request.toolName}): ${aiResult.reasoning}`);
-                    resolve({ behavior: 'allow', updatedInput: request.toolInput });
-                  } else {
-                    postAIReviewFeedItem(notificationFeedService, {
-                      sessionId: message.sessionId,
-                      projectId: session.project_id,
-                      requestId: request.requestId,
-                      toolName: request.toolName,
-                      detail: request.detail,
-                      result: aiResult,
-                    });
-                    // AI denied, uncertain, or cancelled — notify but keep waiting for user
-                    const reviewEvent = {
-                      type: 'ai_review_completed',
-                      requestId: request.requestId,
-                      sessionId: message.sessionId,
-                      decision: aiResult.decision,
-                      reasoning: aiResult.reasoning,
-                      confidence: aiResult.confidence,
-                      metadata: aiResult.metadata,
-                    } as import('@my-claudia/shared').AIReviewCompletedMessage;
-                    sendMessage(client.ws, reviewEvent);
-                    if (connectedClients.size > 0) {
-                      broadcastToOtherAuthenticatedClients(connectedClients, client.id, reviewEvent);
-                    }
-                    console.log(`[AI Review] ${aiResult.decision} ${request.requestId} (${request.toolName}): ${aiResult.reasoning} — keeping pending for user`);
-                  }
-                } catch (err) {
-                  console.error('[AI Review] Failed:', err);
-                  // Keep waiting for user on failure
-                }
-              } else {
-                // Non-AI-review timeout (e.g., ExitPlanMode auto-approve, or legacy deny)
-                activeRun.pendingPermissions.delete(request.requestId);
-                const behavior = effectiveTimeoutBehavior === 'ai_review' ? 'deny' : effectiveTimeoutBehavior;
-                const resolvedEvent = {
-                  type: 'permission_auto_resolved',
-                  requestId: request.requestId,
-                  sessionId: message.sessionId,
-                  behavior,
-                } as import('@my-claudia/shared').PermissionAutoResolvedMessage;
-                sendMessage(client.ws, resolvedEvent);
-                if (connectedClients.size > 0) {
-                  broadcastToOtherAuthenticatedClients(connectedClients, client.id, resolvedEvent);
-                }
-                if (behavior === 'approve') {
-                  console.log(`[Permission] Auto-approved ${request.requestId} (${request.toolName}) on timeout`);
-                  resolve({ behavior: 'allow', updatedInput: request.toolInput });
-                } else {
-                  console.log(`[Permission] Auto-denied ${request.requestId} (${request.toolName}) on timeout`);
-                  resolve({ behavior: 'deny', message: 'Permission request timed out' });
-                }
-              }
-            })().catch((err) => {
-              console.error(`[Permission] Timeout handler error for ${request.requestId}:`, err);
-            }), timeoutMs);
-          }
-
-          const isAskUserQuestion = request.toolName === 'AskUserQuestion';
-          const toolInput = request.toolInput as Record<string, unknown>;
-          const requiresCredential = !isAskUserQuestion && isSudoCommand(request.toolName, request.toolInput);
-          activeRun.pendingPermissions.set(request.requestId, {
-            resolve,
-            timeout,
-            originalToolInput: request.toolInput,
-            originalRequest: {
-              toolName: request.toolName,
-              detail: request.detail,
-              ...(matchedRule && { matchedRule }),
-              timeoutSeconds: effectiveTimeoutSeconds,
-              sessionId: message.sessionId,
-              ...(requiresCredential && { requiresCredential: true, credentialHint: 'sudo_password' }),
-              ...(isAskUserQuestion && { questions: (toolInput.questions as AskUserQuestionItem[]) || [] }),
-              ...(aiInitiated && { aiInitiated: true }),
-            }
-          });
-          console.log(`[Permission] Stored pending permission ${request.requestId} in run ${runId} (timeout: ${effectiveTimeoutSeconds > 0 ? effectiveTimeoutSeconds + 's' : 'none'}, behavior: ${effectiveTimeoutBehavior}, aiInitiated: ${aiInitiated}, session: ${sessionType})`);
-
-          // Persist waiting status for crash recovery
-          db.prepare('UPDATE sessions SET last_run_status = ?, updated_at = ? WHERE id = ?')
-            .run('waiting', Date.now(), activeRun.sessionId);
-
-          // For regular sessions: send UI prompts as before
-          if (sessionType !== 'background') {
-            if (request.toolName === 'AskUserQuestion') {
-              const toolInput = request.toolInput as { questions?: Array<any> };
-              sendMessage(client.ws, {
-                type: 'prompt_request',
-                requestId: request.requestId,
-                sessionId: message.sessionId,
-                questions: toolInput.questions || [],
-              } as import('@my-claudia/shared').PromptRequestMessage);
-              console.log(`[Permission] Sent prompt_request ${request.requestId} to client (${(toolInput.questions || []).length} questions)`);
-              // Emit a parallel unified interaction_prompt event for the chat UI
-              const askUserInteraction = normalizeFromAskUser({
-                requestId: request.requestId,
-                sessionId: message.sessionId,
-                runId,
-                providerType,
-                questions: toolInput.questions || [],
-              });
-              sendRunEvent(askUserInteraction);
-              const firstQuestion = (toolInput.questions || [])[0];
-              notificationService.notify({
-                type: 'prompt_request',
-                title: 'Claude has a question',
-                body: firstQuestion?.question?.slice(0, 200) || 'Interactive question',
-                priority: 'high',
-                tags: ['question'],
-              });
-            } else {
-              // Detect sudo commands and flag for credential input
-              const requiresCredential = isSudoCommand(request.toolName, request.toolInput);
-              sendMessage(client.ws, {
-                type: 'permission_request',
-                requestId: request.requestId,
-                sessionId: message.sessionId,
-                toolName: request.toolName,
-                detail: request.detail,
-                ...(matchedRule && { matchedRule }),
-                timeoutSeconds: effectiveTimeoutSeconds,
-                ...(requiresCredential && {
-                  requiresCredential: true,
-                  credentialHint: 'sudo_password',
-                }),
-                ...(aiInitiated && { aiInitiated: true }),
-              });
-              console.log(`[Permission] Sent permission request ${request.requestId} to client${requiresCredential ? ' (requires sudo credential)' : ''}${aiInitiated ? ' (ai-initiated, auto-approve on timeout)' : ''}`);
-              notificationService.notify({
-                type: 'permission_request',
-                title: 'Permission Required',
-                body: `${matchedRule ? `[${matchedRule}] ` : ''}${request.toolName}: ${request.detail.slice(0, 200)}`,
-                priority: 'urgent',
-                tags: ['warning'],
-              });
-            }
-          }
-        };
-
-        // AI review is now handled via timeout, no pre-check delegation needed
-        continueWithUserFlow();
-      });
-    };
+    const permissionCallback = createPermissionCallback({
+      activeRun,
+      client,
+      connectedClients,
+      cwd,
+      db,
+      forcedPlanBySession,
+      markPendingResolutionResumed,
+      message: {
+        sessionId: message.sessionId,
+        permissionOverride: message.permissionOverride,
+      },
+      modeValue,
+      notificationService,
+      onAIReviewResolved: ({ requestId, toolName, detail, result }) => {
+        postAIReviewFeedItem(notificationFeedService, {
+          sessionId: message.sessionId,
+          projectId: session.project_id,
+          requestId,
+          toolName,
+          detail,
+          result,
+        });
+      },
+      providerType,
+      runId,
+      sendMessage,
+      sendRunEvent,
+      broadcastToOtherAuthenticatedClients,
+      session: {
+        project_id: session.project_id,
+      },
+      sessionType,
+    });
 
     // PCP: negotiate effective profile before emitting run_started
     if (adapter.manifest) {
@@ -961,6 +590,7 @@ export async function handleRunStart(
       sessionType,
       effectiveProfile: activeRun.effectiveProfile,
     });
+    broadcastSessionCatalogUpdate();
 
     // Emit plugin event
     pluginEvents.emit('run.started', {
@@ -980,100 +610,20 @@ export async function handleRunStart(
       } as import('@my-claudia/shared').BackgroundTaskUpdateMessage);
     }
 
-    // Inject interaction tools — filter out tools the provider already has natively.
-    // Each provider manifest declares nativeInteractionTools (e.g., Claude has TodoWrite ≈ update_todo_list).
-    // Only tools NOT in that list are injected via MCP bridge.
-    const nativeToolSet = new Set(adapter?.manifest?.nativeInteractionTools ?? []);
-    const allInteractionTools = pluginToolRegistry.getAll().filter(t => t.source === 'interaction');
-    const injectableInteractionTools = allInteractionTools.filter(t => !nativeToolSet.has(t.id));
-    const hasInteractionTools = injectableInteractionTools.length > 0;
-
-    // File push env vars (needed for both curl-based and MCP tool modes)
-    const filePushEnv: Record<string, string> = {};
-    let filePushContext: string | undefined;
-    if (serverPort) {
-      const apiUrl = `http://127.0.0.1:${serverPort}`;
-      filePushEnv.MY_CLAUDIA_API_URL = apiUrl;
-      filePushEnv.MY_CLAUDIA_SESSION_ID = message.sessionId;
-      // Only inject curl-based prompt when push_file tool is NOT being injected (fallback)
-      const hasPushFileTool = injectableInteractionTools.some(t => t.id === 'push_file');
-      if (!hasPushFileTool) {
-        filePushContext = buildFilePushContext(apiUrl, message.sessionId);
-      }
-    }
-
-    const injectNonNativePlanPrompt = modeValue === 'plan' && !providerSupportsNativePlanMode(providerType);
-    const nonNativePlanPrompt = injectNonNativePlanPrompt
-      ? buildNonNativePlanPrompt(providerType)
-      : undefined;
-    const planDocumentPrompt = forcedPlanBySession && session.task_id
-      ? buildPlanDocumentPrompt(session.task_id)
-      : undefined;
-
-    // Interaction tool prompt — dynamically built from actually injected tools
-    const interactionToolPrompt = hasInteractionTools
-      ? buildInteractionToolPrompt(injectableInteractionTools.map(t => t.id))
-      : undefined;
-
-    // 🆕 Assemble workspace prompt (SOUL.md, AGENTS.md, TOOLS.md, skills)
-    const workspacePrompt = await workspaceService.assembleSystemPrompt({
-      projectId: session.project_id || undefined,
-      projectPath: session.root_path || undefined,
-      skills: [], // TODO: Load from project.agentConfig.skills when database schema is updated
-    });
-
-    // Skill directory hint — lightweight listing of available skill tools
-    const skillDirectoryHint = buildSkillDirectoryHint();
-
-    // PCP: map permission mode to provider-native mode
-    const nativeMode = adapter.manifest
-      ? mapPermissionMode(adapter.manifest, modeValue)
-      : modeValue;
-
-    const runOptions = {
+    const { runOptions } = await buildRunContext({
+      adapter,
       cwd,
-      sessionId: sdkSessionId,
-      cliPath: providerConfig?.cliPath,
-      env: { ...(providerConfig?.env || {}), ...filePushEnv },
-      mode: nativeMode,
-      model: message.model,
-      systemPrompt: (() => {
-        // For agent sessions, auto-inject matching skills content
-        let activeSkillsContent: string | undefined;
-        if (sessionType === 'agent') {
-          try {
-            const allSkills = getDiscoveredSkills();
-            const matched = selectSkills(allSkills, { userInput: message.input, os: process.platform });
-            if (matched.length > 0) {
-              activeSkillsContent = matched
-                .map((s) => loadSkillContent(s.dirPath))
-                .filter(Boolean)
-                .join('\n\n---\n\n');
-            }
-          } catch { /* skill selector is best-effort */ }
-        }
-        // Use explicit contextTemplate if provided (from TaskOrchestrator), otherwise infer from session type
-        const template = ((message as Record<string, unknown>)._contextTemplate || (sessionType === 'agent' ? 'agent' : 'coding')) as import('../context/types.js').ContextTemplate;
-        return createContextEngine().assemble(template, {
-          sessionId: message.sessionId,
-          projectId: session.project_id,
-          cwd,
-          workspacePrompt,
-          skillDirectoryHint,
-          systemContext: message.systemContext,
-          activeSkillsContent,
-          nonNativePlanPrompt,
-          planDocumentPrompt,
-          filePushContext,
-          interactionToolPrompt,
-          sessionSystemPrompt: session.system_prompt || undefined,
-        }) || undefined;
-      })(),
-      sessionTitle: session.name || undefined,
-      serverPort: serverPort || undefined,
-      claudiaSessionId: message.sessionId,
       db,
-    };
+      forcedPlanBySession,
+      message,
+      modeValue,
+      providerConfig,
+      providerType,
+      sdkSessionId,
+      serverPort,
+      session,
+      sessionType,
+    });
 
     // Debug: log all run parameters for 403 diagnosis
     console.log(`[Run Debug] session=${message.sessionId} sdk_session=${sdkSessionId || 'NEW'} provider=${providerType} mode=${modeValue} model=${message.model || 'default'} cwd=${cwd} cliPath=${providerConfig?.cliPath || 'default'}`);
@@ -1520,121 +1070,47 @@ export async function handleRunStart(
       }
     }
   } catch (error) {
-    console.error('Run error:', error);
-    trace.log('server_norm', 'run_exception', error, 'handleRunStart exception');
-
-    const errMsg = error instanceof Error ? error.message : '';
-    const formattedErrMsg = formatProviderErrorMessage(errMsg, activeRun.providerType);
-
-    // If the Claude CLI process crashed (exit code 1) and we were resuming an
-    // existing SDK session, the session is likely corrupted. Auto-reset and retry
-    // once instead of failing immediately — this saves the user a manual retry.
-    const sessionResetRetryCount = recoveryState.sessionResetRetryCount || 0;
-    if (
-      errMsg.includes('process exited with code') &&
-      sdkSessionId &&
-      sessionResetRetryCount < MAX_SESSION_RESET_RETRIES &&
-      !isHardQuotaExceededError(errMsg)
-    ) {
-      console.log(`[Recovery] Auto-resetting corrupted sdk_session_id ${sdkSessionId} for session ${message.sessionId}`);
-      db.prepare(`UPDATE sessions SET sdk_session_id = NULL, updated_at = ? WHERE id = ?`)
-        .run(Date.now(), message.sessionId);
-
-      // Notify the user visually that a reset is happening
-      const resetNotice = `⚠️ Claude session crashed (corrupted underlying session \`${sdkSessionId.slice(0, 8)}…\`). Resetting session and retrying automatically…`;
-      sendRunEvent({
-        type: 'delta',
-        runId,
-        sessionId: activeRun.sessionId,
-        content: resetNotice,
-      });
-
-      // Clean up current run state before retrying
-      if (activeRun.saveInterval) {
-        clearInterval(activeRun.saveInterval);
-        activeRun.saveInterval = undefined;
-      }
-      activeRun.aiReviewQueue?.cancelAll();
-      cleanupPendingPermissions(activeRun, 'Session reset retry');
-      activeRuns.delete(runId);
-      broadcastHeartbeat();
-
-      // Re-invoke handleRunStart with a fresh run (sdk_session_id is now NULL)
-      try {
+    const recoveryResult = await handleRunException({
+      activeRun,
+      activeRuns,
+      broadcastHeartbeat,
+      client,
+      ctx,
+      db,
+      error,
+      formatProviderErrorMessage,
+      handleRetry: async () => {
         await handleRunStart(
           client,
           { ...message, resend: true },
           db,
-          { sessionResetRetryCount: sessionResetRetryCount + 1 },
+          { sessionResetRetryCount: (recoveryState.sessionResetRetryCount || 0) + 1 },
           clients,
           ctx,
         );
-        return; // retry succeeded — skip the error path below
-      } catch (retryError) {
-        console.error('[Recovery] Auto-retry after session reset also failed:', retryError);
-        // Fall through to normal error handling
-      }
-    }
-
-    // Save any accumulated content before reporting failure
-    try {
-      upsertAssistantMessage(activeRun, { indexMetadata: true });
-    } catch (saveErr) {
-      console.error(`[Error Save] Failed for run ${runId}:`, saveErr);
-    }
-    sendRunEvent({
-      type: 'run_failed',
+      },
+      isHardQuotaExceededError,
+      message,
+      notificationService,
+      processMonitor,
+      recoveryState,
       runId,
-      sessionId: activeRun.sessionId,
-      error: formattedErrMsg
+      sdkSessionId,
+      sendRunEvent,
+      sessionType,
+      trace,
     });
-    activeRun.completed = true;
-    broadcastHeartbeat();
-    notificationService.notify({
-      type: 'run_failed',
-      title: 'Run failed',
-      body: formattedErrMsg.slice(0, 200),
-      priority: 'high',
-      tags: ['x'],
-    });
-    // Notify background task failure
-    if (sessionType === 'background') {
-      sendMessage(client.ws, {
-        type: 'background_task_update',
-        sessionId: message.sessionId,
-        status: 'failed',
-        reason: formattedErrMsg,
-      } as import('@my-claudia/shared').BackgroundTaskUpdateMessage);
-    }
+    handedOffToRetry = recoveryResult.handedOffToRetry;
   } finally {
-    trace.log('server_norm', 'run_finalized', {
+    finalizeRun({
+      activeRun,
+      activeRuns,
+      broadcastHeartbeat,
+      handedOffToRetry,
+      message,
+      processMonitor,
+      trace,
       runId,
-      sessionId: message.sessionId,
-      completed: activeRun.completed === true,
-      providerType: activeRun.providerType,
-      contentChars: activeRun.fullContent.length,
-      collectedToolCalls: activeRun.collectedToolCalls.length,
-    }, 'run finalized');
-    // Stop periodic save
-    if (activeRun.saveInterval) {
-      clearInterval(activeRun.saveInterval);
-      activeRun.saveInterval = undefined;
-    }
-
-    // Cleanup
-    cleanupPendingPermissions(activeRun);
-    interactionDispatcher.cancelBySession(activeRun.sessionId);
-    activeRuns.delete(runId);
-    broadcastHeartbeat();
-
-    // Trigger deferred leak check — give child processes a few seconds to exit gracefully
-    if (processMonitor && activeRuns.size === 0) {
-      setTimeout(() => processMonitor?.check(), 5_000);
-    }
-
-    // Clear run status and update session updated_at
-    db.prepare(`
-      UPDATE sessions SET last_run_status = NULL, updated_at = ? WHERE id = ?
-    `).run(Date.now(), message.sessionId);
+    });
   }
 }

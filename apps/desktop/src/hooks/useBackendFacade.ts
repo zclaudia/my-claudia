@@ -260,7 +260,9 @@ export function syncToGatewayStore(event: BackendFacadeEvent): void {
     // --- Catalog events → sessionsStore ---
     case 'catalog_snapshot': {
       const { backendId, items } = event;
-      useSessionsStore.getState().setRemoteSessions(backendId, items.map(item => ({
+      useSessionsStore.getState().setRemoteSessions(backendId, items
+        .filter((item) => !item.archived)
+        .map(item => ({
         id: item.sessionId,
         projectId: '',
         name: item.title || '',
@@ -275,6 +277,17 @@ export function syncToGatewayStore(event: BackendFacadeEvent): void {
     case 'catalog_event': {
       const { backendId, op, item, sessionId } = event;
       if (op === 'upsert' && item) {
+        if (item.archived) {
+          useSessionsStore.getState().handleSessionEvent(backendId, 'deleted', {
+            id: item.sessionId,
+            projectId: '',
+            isActive: false,
+            type: 'regular' as const,
+            createdAt: item.createdAt,
+            updatedAt: item.updatedAt,
+          });
+          break;
+        }
         const sessionStore = useSessionsStore.getState();
         const existingSessions = sessionStore.remoteSessions.get(backendId) || [];
         const eventType = existingSessions.some(s => s.id === item.sessionId)

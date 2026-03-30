@@ -6,6 +6,7 @@ const broadcastToOthersMock = vi.fn();
 const getNextOffsetMock = vi.fn(() => 0);
 const upsertAssistantMessageMock = vi.fn();
 const findProcessPidsByTaskCommandMock = vi.fn();
+const cleanupPendingPermissionsMock = vi.fn();
 const selectSkillsMock = vi.fn();
 const getDiscoveredSkillsMock = vi.fn();
 const loadSkillContentMock = vi.fn();
@@ -16,6 +17,7 @@ const providerRunMock = vi.fn();
 const pluginEventsEmitMock = vi.fn(async () => {});
 const toolRegistryGetAllMock = vi.fn(() => []);
 const cancelBySessionMock = vi.fn();
+const getGatewayClientMock = vi.fn(() => null);
 
 vi.mock('../broadcast.js', () => ({
   sendMessage: sendMessageMock,
@@ -26,6 +28,7 @@ vi.mock('../run-lifecycle.js', () => ({
   getNextOffset: getNextOffsetMock,
   upsertAssistantMessage: upsertAssistantMessageMock,
   findProcessPidsByTaskCommand: findProcessPidsByTaskCommandMock,
+  cleanupPendingPermissions: cleanupPendingPermissionsMock,
 }));
 
 vi.mock('../../../../plugins/skill-tools.js', () => ({
@@ -73,7 +76,7 @@ vi.mock('../../../../plugins/tool-registry.js', () => ({
 }));
 
 vi.mock('../../../../domains/gateway/gateway-instance.js', () => ({
-  getGatewayClient: vi.fn(() => null),
+  getGatewayClient: getGatewayClientMock,
 }));
 
 vi.mock('../../interactions/interaction-dispatcher.js', () => ({
@@ -125,16 +128,20 @@ function createDb(): Database.Database {
       id TEXT PRIMARY KEY,
       project_id TEXT NOT NULL,
       name TEXT,
+      created_at INTEGER,
       sdk_session_id TEXT,
       type TEXT,
+      parent_session_id TEXT,
       working_directory TEXT,
       project_role TEXT,
       plan_status TEXT,
       task_id TEXT,
       provider_id TEXT,
       system_prompt TEXT,
+      is_read_only INTEGER,
       last_run_status TEXT,
-      updated_at INTEGER
+      updated_at INTEGER,
+      archived_at INTEGER
     );
 
     CREATE TABLE messages (
@@ -178,15 +185,20 @@ function createDb(): Database.Database {
 
 function insertSession(db: Database.Database, values: {
   id: string;
-  type: 'agent' | 'regular';
+  type: 'agent' | 'regular' | 'background';
+  sdkSessionId?: string | null;
 }) {
   db.prepare(`
     INSERT INTO sessions (
-      id, project_id, name, sdk_session_id, type, working_directory, project_role,
-      plan_status, task_id, provider_id, system_prompt, last_run_status, updated_at
+      id, project_id, name, sdk_session_id, type, parent_session_id, working_directory, project_role,
+      plan_status, task_id, provider_id, system_prompt, is_read_only, last_run_status, created_at, updated_at, archived_at
     )
-    VALUES (?, 'project-1', 'Test Session', NULL, ?, NULL, NULL, NULL, NULL, NULL, NULL, NULL, ?)
-  `).run(values.id, values.type, Date.now());
+    VALUES (?, 'project-1', 'Test Session', NULL, ?, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, ?, ?, NULL)
+  `).run(values.id, values.type, Date.now(), Date.now());
+
+  if (values.sdkSessionId !== undefined) {
+    db.prepare(`UPDATE sessions SET sdk_session_id = ? WHERE id = ?`).run(values.sdkSessionId, values.id);
+  }
 }
 
 async function* createProviderStream() {
@@ -212,6 +224,7 @@ async function* createProviderStream() {
 describe('ws/run-handler', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    getGatewayClientMock.mockReturnValue(null);
     providerRunMock.mockReturnValue(createProviderStream());
     assembleContextMock.mockReturnValue('assembled system prompt');
     assembleSystemPromptMock.mockResolvedValue('workspace prompt');
@@ -324,5 +337,197 @@ describe('ws/run-handler', () => {
         activeSkillsContent: undefined,
       }),
     );
+  });
+
+  it('broadcasts session catalog updates when a run starts and finishes', async () => {
+    const db = createDb();
+    insertSession(db, { id: 'session-1', type: 'regular' });
+    const broadcastSessionEvent = vi.fn();
+    getGatewayClientMock.mockReturnValue({
+      commands: {
+        catalog: {
+          broadcastSessionEvent,
+        },
+      },
+    });
+
+    const { handleRunStart } = await import('../run-handler.js');
+
+    await handleRunStart(
+      {
+        id: 'client-1',
+        ws: {} as any,
+        isAlive: true,
+        isLocal: true,
+        authenticated: true,
+      },
+      {
+        type: 'run_start',
+        clientRequestId: 'req-3',
+        sessionId: 'session-1',
+        input: 'hello',
+      },
+      db as any,
+      {},
+      undefined,
+      {
+        activeRuns: new Map(),
+        processMonitor: null,
+        notificationService: { notify: vi.fn() } as any,
+        serverPort: null,
+        broadcastHeartbeat: vi.fn(),
+      },
+    );
+
+    expect(broadcastSessionEvent.mock.calls.length).toBeGreaterThanOrEqual(2);
+    expect(broadcastSessionEvent.mock.calls[0]).toEqual([
+      'updated',
+      expect.objectContaining({ id: 'session-1', archivedAt: null }),
+    ]);
+    expect(broadcastSessionEvent.mock.calls.at(-1)).toEqual([
+      'updated',
+      expect.objectContaining({ id: 'session-1', archivedAt: null }),
+    ]);
+  });
+
+  it('does not run session-scoped final cleanup twice after auto-reset retry handoff', async () => {
+    const db = createDb();
+    insertSession(db, { id: 'session-retry', type: 'regular', sdkSessionId: 'corrupted-session' });
+
+    async function* crashStream() {
+      throw new Error('process exited with code 1');
+    }
+
+    providerRunMock
+      .mockReturnValueOnce(crashStream())
+      .mockReturnValueOnce(createProviderStream());
+
+    const { handleRunStart } = await import('../run-handler.js');
+
+    await handleRunStart(
+      {
+        id: 'client-1',
+        ws: {} as any,
+        isAlive: true,
+        isLocal: true,
+        authenticated: true,
+      },
+      {
+        type: 'run_start',
+        clientRequestId: 'req-retry',
+        sessionId: 'session-retry',
+        input: 'retry this run',
+      },
+      db as any,
+      {},
+      undefined,
+      {
+        activeRuns: new Map(),
+        processMonitor: null,
+        notificationService: { notify: vi.fn() } as any,
+        serverPort: null,
+        broadcastHeartbeat: vi.fn(),
+      },
+    );
+
+    expect(providerRunMock).toHaveBeenCalledTimes(2);
+    expect(cancelBySessionMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('restores running state before continuing after auto-resolved permission timeout', async () => {
+    vi.useFakeTimers();
+    const db = createDb();
+    insertSession(db, { id: 'session-background', type: 'background' });
+
+    let observedStatusDuringResume: string | null = null;
+    providerRunMock.mockImplementation(async function* (
+      _input: string,
+      _options: Record<string, unknown>,
+      permissionCallback: (request: {
+        requestId: string;
+        toolName: string;
+        toolInput: Record<string, unknown>;
+        detail: string;
+        timeoutSeconds: number;
+      }) => Promise<{ behavior: 'allow' | 'deny'; message?: string }>
+    ) {
+      const decision = await permissionCallback({
+        requestId: 'perm-timeout-1',
+        toolName: 'Bash',
+        toolInput: { command: 'ls' },
+        detail: 'ls',
+        timeoutSeconds: 1,
+      });
+
+      observedStatusDuringResume = (
+        db.prepare('SELECT last_run_status FROM sessions WHERE id = ?').get('session-background') as { last_run_status: string | null }
+      ).last_run_status;
+
+      yield {
+        type: 'result',
+        content: decision.behavior,
+        usage: { inputTokens: 1, outputTokens: 1 },
+      };
+    });
+
+    const handleRunStartPromise = (await import('../run-handler.js')).handleRunStart(
+      {
+        id: 'client-1',
+        ws: {} as any,
+        isAlive: true,
+        isLocal: true,
+        authenticated: true,
+      },
+      {
+        type: 'run_start',
+        clientRequestId: 'req-timeout',
+        sessionId: 'session-background',
+        input: 'run background command',
+        permissionOverride: {
+          profile: {
+            shellSafe: 'ask',
+          },
+          aiReview: {
+            enabled: false,
+          },
+        },
+      },
+      db as any,
+      {},
+      undefined,
+      {
+        activeRuns: new Map(),
+        processMonitor: null,
+        notificationService: { notify: vi.fn() } as any,
+        serverPort: null,
+        broadcastHeartbeat: vi.fn(),
+      },
+    );
+
+    await vi.advanceTimersByTimeAsync(1000);
+    await handleRunStartPromise;
+
+    const sentMessages = sendMessageMock.mock.calls.map(([_, payload]) => payload);
+    expect(observedStatusDuringResume).toBe('running');
+    expect(sentMessages).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: 'background_task_update',
+        sessionId: 'session-background',
+        status: 'paused',
+      }),
+      expect.objectContaining({
+        type: 'background_task_update',
+        sessionId: 'session-background',
+        status: 'running',
+      }),
+      expect.objectContaining({
+        type: 'permission_auto_resolved',
+        requestId: 'perm-timeout-1',
+        sessionId: 'session-background',
+        behavior: 'deny',
+      }),
+    ]));
+
+    vi.useRealTimers();
   });
 });

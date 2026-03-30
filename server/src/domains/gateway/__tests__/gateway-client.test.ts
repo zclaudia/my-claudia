@@ -737,6 +737,29 @@ describe('GatewayClient', () => {
       );
     });
 
+    it('broadcastSessionEvent removes archived sessions from the catalog', () => {
+      client = new GatewayClient(mockConfig);
+      client.connect();
+      const mockWs = (client as any).ws;
+      mockWs.readyState = WebSocket.OPEN;
+      (client as any).backendId = 'backend-123';
+      (client as any).epoch = 1;
+      (client as any).isConnected = true;
+
+      client.commands.catalog.broadcastSessionEvent('updated', {
+        id: 'session-1',
+        name: 'Archived Session',
+        archivedAt: Date.now(),
+      });
+
+      const sent = JSON.parse(mockWs.send.mock.calls[0][0]);
+      expect(sent).toMatchObject({
+        type: 'catalog_event',
+        op: 'remove',
+        sessionId: 'session-1',
+      });
+    });
+
     it('does not publish catalog event when disconnected', () => {
       client = new GatewayClient(mockConfig);
       (client as any).ws = null;

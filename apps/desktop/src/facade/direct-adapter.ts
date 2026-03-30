@@ -27,6 +27,7 @@ import type { GatewayTransportConfig } from '../hooks/transport/GatewayTransport
 export class DirectGatewayAdapter implements FacadeRuntimeGatewayAdapter {
   private listeners: Array<(event: FacadeAdapterEvent) => void> = [];
   private transport: GatewayTransport | null = null;
+  private knownChannels = new Map<string, { backendId: string; epoch: number }>();
   private transportConfig: Omit<GatewayTransportConfig, 'onConnected' | 'onDisconnected' | 'onError' | 'onRegistryChanged' | 'onCatalogSnapshot' | 'onCatalogEvent' | 'onCatalogReset' | 'onChannelOpened' | 'onChannelRejected' | 'onChannelClosed' | 'onChannelMessage' | 'onRunStreamEvent' | 'onSessionStreamClosed' | 'onContentPatch' | 'onContentPatchError'>;
   private gatewayHttpUrl: string;
   private gatewaySecret: string;
@@ -56,6 +57,15 @@ export class DirectGatewayAdapter implements FacadeRuntimeGatewayAdapter {
             this.emit({ type: 'connection_state_changed', state: 'connected' });
           },
           onDisconnected: () => {
+            for (const [channelId, info] of this.knownChannels) {
+              this.emit({
+                type: 'backend_channel_closed',
+                backendId: info.backendId,
+                channelId,
+                reason: 'transport_disconnected',
+              });
+            }
+            this.knownChannels.clear();
             this.emit({ type: 'connection_state_changed', state: 'reconnecting' });
           },
           onError: (error) => {
@@ -84,12 +94,14 @@ export class DirectGatewayAdapter implements FacadeRuntimeGatewayAdapter {
             this.emit({ type: 'catalog_reset_received', backendId, epoch });
           },
           onChannelOpened: (backendId, channelId, epoch, capabilities) => {
+            this.knownChannels.set(channelId, { backendId, epoch });
             this.emit({ type: 'backend_channel_opened', backendId, channelId, epoch, capabilities });
           },
           onChannelRejected: (backendId, reason) => {
             this.emit({ type: 'backend_channel_rejected', backendId, reason });
           },
           onChannelClosed: (channelId, backendId, reason) => {
+            this.knownChannels.delete(channelId);
             this.emit({ type: 'backend_channel_closed', backendId, channelId, reason });
           },
           onChannelMessage: (backendId, message) => {
@@ -131,6 +143,7 @@ export class DirectGatewayAdapter implements FacadeRuntimeGatewayAdapter {
         if (this.transport) {
           this.transport.disconnect();
           this.transport = null;
+          this.knownChannels.clear();
           this.emit({ type: 'connection_state_changed', state: 'disconnected' });
           // Fix #13: clear listeners to prevent stale callbacks on reuse
           this.listeners = [];
@@ -259,6 +272,8 @@ export class DirectGatewayAdapter implements FacadeRuntimeGatewayAdapter {
   // --------------------------------------------------------------------------
 
   private findBackendByChannel(channelId: string): string {
+    const cached = this.knownChannels.get(channelId);
+    if (cached) return cached.backendId;
     if (!this.transport) return '';
     const entry = this.transport.channels.get(channelId);
     return entry?.backendId ?? '';

@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import type { AgentPermissionPolicy, ClientMessage, MessageAttachment, MessageInput as MessageInputData } from '@my-claudia/shared';
 import type { Attachment } from '../../components/chat/MessageInput';
 import type { MessageWithToolCalls } from '../../stores/chatStore';
+import { useChatStore } from '../../stores/chatStore';
 import { useProjectStore } from '../../stores/projectStore';
 import { useToastStore } from '../../stores/toastStore';
 import { uploadFile } from '../../services/fileUpload';
@@ -35,6 +36,37 @@ interface UseSendMessageParams {
   addMessage: (sessionId: string, message: MessageWithToolCalls) => void;
   scrollToBottom: (instant?: boolean) => void;
   wsSendMessage: (msg: ClientMessage) => void;
+}
+
+interface ReconcileStaleRunParams {
+  sessionId: string;
+  sessionRunId: string | null;
+  isLoading: boolean;
+  getSessionRunState: typeof api.getSessionRunState;
+  clearLocalRun: (runId: string) => void;
+  clearSessionActive: (sessionId: string) => void;
+}
+
+export async function reconcileStaleLoadingRun({
+  sessionId,
+  sessionRunId,
+  isLoading,
+  getSessionRunState,
+  clearLocalRun,
+  clearSessionActive,
+}: ReconcileStaleRunParams): Promise<boolean> {
+  if (!isLoading || !sessionRunId) return false;
+
+  const runState = await getSessionRunState(sessionId);
+  if (runState.isRunning) return false;
+
+  console.warn('[useSendMessage] Clearing stale local run state:', {
+    sessionId,
+    localRunId: sessionRunId,
+  });
+  clearLocalRun(sessionRunId);
+  clearSessionActive(sessionId);
+  return true;
 }
 
 export function useSendMessage({
@@ -114,8 +146,24 @@ export function useSendMessage({
     }
 
     if (isLoading) {
-      setQueuedMessage({ content, attachments });
-      return;
+      try {
+        const recovered = await reconcileStaleLoadingRun({
+          sessionId,
+          sessionRunId,
+          isLoading,
+          getSessionRunState: api.getSessionRunState,
+          clearLocalRun: (runId) => useChatStore.getState().endRun(runId),
+          clearSessionActive: (staleSessionId) => useProjectStore.getState().setSessionActive(staleSessionId, false),
+        });
+        if (!recovered) {
+          setQueuedMessage({ content, attachments });
+          return;
+        }
+      } catch (error) {
+        console.warn('[useSendMessage] Failed to reconcile local run state before queueing:', error);
+        setQueuedMessage({ content, attachments });
+        return;
+      }
     }
 
     setLastSentMessage({ content, attachments });
@@ -175,7 +223,7 @@ export function useSendMessage({
     await startRun(runStartMsg);
 
     setTimeout(() => scrollToBottom(), 100);
-  }, [sessionId, isConnected, isLoading, mode, modelOverride, permissionOverride, currentSession, addMessage, startRun, scrollToBottom]);
+  }, [sessionId, isConnected, isLoading, sessionRunId, mode, modelOverride, permissionOverride, currentSession, addMessage, startRun, scrollToBottom]);
 
   // ── Auto-send queued message when the current run finishes ──
   const queuedMessageRef = useRef(queuedMessage);

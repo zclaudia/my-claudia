@@ -40,6 +40,7 @@ interface SessionCatalogRow {
   name: string | null;
   createdAt: number;
   updatedAt: number;
+  archivedAt: number | null;
 }
 
 export interface GatewayManagerDeps {
@@ -375,8 +376,10 @@ export class GatewayManager {
       getCatalogItems: () => {
         try {
           const sessions = serverContext.db.prepare(`
-            SELECT s.id, s.name, s.created_at as createdAt, s.updated_at as updatedAt
-            FROM sessions s ORDER BY s.updated_at DESC
+            SELECT s.id, s.name, s.created_at as createdAt, s.updated_at as updatedAt, s.archived_at as archivedAt
+            FROM sessions s
+            WHERE s.archived_at IS NULL
+            ORDER BY s.updated_at DESC
           `).all() as SessionCatalogRow[];
           return sessions.map((s): SessionCatalogItem => ({
             sessionId: s.id,

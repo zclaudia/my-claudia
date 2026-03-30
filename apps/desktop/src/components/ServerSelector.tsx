@@ -97,15 +97,15 @@ export function ServerSelector() {
       {/* Current Server Button */}
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-secondary hover:bg-muted transition-colors"
+        className="flex w-full min-w-0 items-center gap-2 px-3 py-1.5 rounded-lg bg-secondary hover:bg-muted transition-colors"
         data-testid="server-selector"
       >
-        <span className={`w-2 h-2 rounded-full ${getStatusColor()}`} />
-        <span className="text-sm truncate max-w-[150px]">
+        <span className={`w-2 h-2 rounded-full flex-shrink-0 ${getStatusColor()}`} />
+        <span className="flex-1 min-w-0 text-left text-sm truncate">
           {displayedBackend?.name || (isMobile ? 'Select Server' : 'No Server')}
         </span>
         <svg
-          className={`w-4 h-4 transition-transform ${isOpen ? 'rotate-180' : ''}`}
+          className={`w-4 h-4 flex-shrink-0 transition-transform ${isOpen ? 'rotate-180' : ''}`}
           fill="none"
           stroke="currentColor"
           viewBox="0 0 24 24"

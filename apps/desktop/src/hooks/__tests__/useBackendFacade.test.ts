@@ -203,4 +203,50 @@ describe('useBackendFacade run_event forwarding', () => {
       title: '远程连接已中断',
     });
   });
+
+  it('filters archived sessions out of catalog snapshots', () => {
+    syncToGatewayStore({
+      type: 'catalog_snapshot',
+      backendId: 'remote-1',
+      items: [
+        { sessionId: 'session-1', title: 'Active', createdAt: 1, updatedAt: 2, activeRunStatus: 'idle' },
+        { sessionId: 'session-archived', title: 'Archived', createdAt: 3, updatedAt: 4, activeRunStatus: 'idle', archived: true },
+      ],
+    } as any);
+
+    expect(useSessionsStore.getState().remoteSessions.get('remote-1')).toEqual([
+      expect.objectContaining({ id: 'session-1', name: 'Active' }),
+    ]);
+  });
+
+  it('removes archived sessions on catalog upsert events', () => {
+    useSessionsStore.setState({
+      ...useSessionsStore.getState(),
+      remoteSessions: new Map([
+        ['remote-1', [
+          { id: 'session-1', projectId: '', name: 'Session 1', createdAt: 1, updatedAt: 1, isActive: false, type: 'regular' },
+          { id: 'session-2', projectId: '', name: 'Session 2', createdAt: 2, updatedAt: 2, isActive: false, type: 'regular' },
+        ]],
+      ]),
+      activeSessionIdsByBackend: new Map([['remote-1', new Set()]]),
+    } as any);
+
+    syncToGatewayStore({
+      type: 'catalog_event',
+      backendId: 'remote-1',
+      op: 'upsert',
+      item: {
+        sessionId: 'session-2',
+        title: 'Session 2',
+        createdAt: 2,
+        updatedAt: 3,
+        activeRunStatus: 'idle',
+        archived: true,
+      },
+    } as any);
+
+    expect(useSessionsStore.getState().remoteSessions.get('remote-1')).toEqual([
+      expect.objectContaining({ id: 'session-1', name: 'Session 1' }),
+    ]);
+  });
 });

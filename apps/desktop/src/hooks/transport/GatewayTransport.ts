@@ -83,6 +83,8 @@ export class GatewayTransport {
   private ws: WebSocket | null = null;
   private config: GatewayTransportConfig;
   private expectedCloseWs: WebSocket | null = null;
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private intentionalClose = false;
 
   private peerSessionId: string | null = null;
   private recoveryToken: string | null = null;
@@ -103,6 +105,11 @@ export class GatewayTransport {
   }
 
   connect(): void {
+    this.intentionalClose = false;
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
     if (this.ws) {
       this.expectedCloseWs = this.ws;
       this.ws.close();
@@ -130,6 +137,11 @@ export class GatewayTransport {
   }
 
   disconnect(): void {
+    this.intentionalClose = true;
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
     if (this.ws) {
       this.expectedCloseWs = this.ws;
       this.ws.close();
@@ -216,6 +228,7 @@ export class GatewayTransport {
       this.ws = null; this.authenticated = false; this.channels.clear(); this.backendToChannel.clear();
       if (!expectedClose) {
         this.config.onDisconnected();
+        this.scheduleReconnect();
       }
     };
     ws.onerror = (error) => { console.error('[GatewayTransport] WebSocket error:', error); this.config.onError(error); };
@@ -223,6 +236,16 @@ export class GatewayTransport {
       try { this.handleMessage(JSON.parse(event.data)); }
       catch (error) { console.error('[GatewayTransport] Failed to parse message:', error); }
     };
+  }
+
+  private scheduleReconnect(): void {
+    if (this.reconnectTimer || this.intentionalClose) return;
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
+      if (!this.intentionalClose && !this.ws) {
+        this.connect();
+      }
+    }, 2000);
   }
 
   private sendPeerHello(): void {

@@ -25,10 +25,12 @@ describe('GatewayTransport lifecycle', () => {
   beforeEach(() => {
     MockWebSocket.instances = [];
     vi.stubGlobal('WebSocket', MockWebSocket as any);
+    vi.useFakeTimers();
   });
 
   afterEach(() => {
     vi.unstubAllGlobals();
+    vi.useRealTimers();
   });
 
   it('does not trigger reconnect callbacks on intentional disconnect', () => {
@@ -57,8 +59,42 @@ describe('GatewayTransport lifecycle', () => {
     transport.connect();
     const ws = MockWebSocket.instances[0];
     transport.disconnect();
-    ws.onclose?.();
+    ws.onclose?.({ code: 1000, reason: '', wasClean: true } as CloseEvent);
 
     expect(onDisconnected).not.toHaveBeenCalled();
+  });
+
+  it('reconnects after an unexpected close', () => {
+    const transport = new GatewayTransport({
+      url: 'ws://gateway.example.com/ws',
+      gatewaySecret: 'secret',
+      deviceId: 'device-1',
+      instanceId: 'instance-1',
+      onConnected: vi.fn(),
+      onDisconnected: vi.fn(),
+      onError: vi.fn(),
+      onRegistryChanged: vi.fn(),
+      onCatalogSnapshot: vi.fn(),
+      onCatalogEvent: vi.fn(),
+      onCatalogReset: vi.fn(),
+      onChannelOpened: vi.fn(),
+      onChannelRejected: vi.fn(),
+      onChannelClosed: vi.fn(),
+      onChannelMessage: vi.fn(),
+      onRunStreamEvent: vi.fn(),
+      onSessionStreamClosed: vi.fn(),
+      onContentPatch: vi.fn(),
+      onContentPatchError: vi.fn(),
+    });
+
+    transport.connect();
+    const firstWs = MockWebSocket.instances[0];
+    firstWs.onclose?.({ code: 1006, reason: 'network', wasClean: false } as CloseEvent);
+
+    expect(MockWebSocket.instances).toHaveLength(1);
+
+    vi.advanceTimersByTime(2000);
+
+    expect(MockWebSocket.instances).toHaveLength(2);
   });
 });

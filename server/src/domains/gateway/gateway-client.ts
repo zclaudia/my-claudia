@@ -566,8 +566,11 @@ export class GatewayClient {
     try {
       const sessions = this.db.prepare(`
         SELECT s.id, s.name, s.created_at as createdAt, s.updated_at as updatedAt,
+               s.archived_at as archivedAt,
                (SELECT MAX(offset) FROM messages WHERE session_id = s.id) as lastMessageOffset
-        FROM sessions s ORDER BY s.updated_at DESC
+        FROM sessions s
+        WHERE s.archived_at IS NULL
+        ORDER BY s.updated_at DESC
       `).all() as Array<Record<string, unknown>>;
       const items: SessionCatalogItem[] = sessions.map((s) => ({
         sessionId: s.id as string, title: (s.name as string) || undefined, createdAt: s.createdAt as number, updatedAt: s.updatedAt as number,
@@ -583,10 +586,23 @@ export class GatewayClient {
     }
   }
 
-  publishCatalogEvent(eventType: 'upsert' | 'remove', session: { id: string; name?: string; createdAt?: number; created_at?: number; updatedAt?: number; updated_at?: number }): void {
+  publishCatalogEvent(
+    eventType: 'upsert' | 'remove',
+    session: {
+      id: string;
+      name?: string;
+      createdAt?: number;
+      created_at?: number;
+      updatedAt?: number;
+      updated_at?: number;
+      archivedAt?: number | null;
+      archived_at?: number | null;
+    }
+  ): void {
     if (!this.ws || !this.isConnected || !this.epoch) return;
     this.catalogRevision++;
-    if (eventType === 'upsert') {
+    const isArchived = session.archivedAt != null || session.archived_at != null;
+    if (eventType === 'upsert' && !isArchived) {
       const item: SessionCatalogItem = {
         sessionId: session.id, title: session.name || undefined,
         createdAt: session.createdAt ?? session.created_at ?? Date.now(),
@@ -607,7 +623,19 @@ export class GatewayClient {
   // ==========================================================================
 
   /** Compatibility alias for publishCatalogEvent — used by sessions routes and run handler. */
-  broadcastSessionEvent(eventType: 'created' | 'updated' | 'deleted', session: { id: string; name?: string; createdAt?: number; created_at?: number; updatedAt?: number; updated_at?: number }): void {
+  broadcastSessionEvent(
+    eventType: 'created' | 'updated' | 'deleted',
+    session: {
+      id: string;
+      name?: string;
+      createdAt?: number;
+      created_at?: number;
+      updatedAt?: number;
+      updated_at?: number;
+      archivedAt?: number | null;
+      archived_at?: number | null;
+    }
+  ): void {
     this.publishCatalogEvent(eventType === 'deleted' ? 'remove' : 'upsert', session);
   }
 

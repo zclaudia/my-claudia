@@ -55,6 +55,29 @@ describe('ServerSelector', () => {
     expect(container.textContent).toContain('Local Server');
   });
 
+  it('keeps the trigger shrinkable for long backend names', () => {
+    useFacadeStore.setState({
+      backends: [{
+        backendId: 'local',
+        name: 'Backend on zhanghai-super-long-hostname-with-extra-labels',
+        online: true,
+        isThisInstance: true,
+      } as any],
+    });
+
+    const { container } = render(<ServerSelector />);
+    const button = container.querySelector('[data-testid="server-selector"]') as HTMLButtonElement;
+    const label = button.querySelector('span.text-sm') as HTMLSpanElement;
+    const chevron = button.querySelector('svg') as SVGElement;
+
+    expect(button.className).toContain('w-full');
+    expect(button.className).toContain('min-w-0');
+    expect(label.className).toContain('flex-1');
+    expect(label.className).toContain('min-w-0');
+    expect(label.className).toContain('truncate');
+    expect(chevron.getAttribute('class')).toContain('flex-shrink-0');
+  });
+
   it('opens dropdown when clicked', () => {
     const { container } = render(<ServerSelector />);
     const button = container.querySelector('[data-testid="server-selector"]')!;
