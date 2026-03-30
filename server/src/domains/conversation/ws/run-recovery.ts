@@ -7,6 +7,7 @@ import type { NotificationService } from '../../notification-feed/notification-s
 import { sendMessage } from './broadcast.js';
 import { MAX_SESSION_RESET_RETRIES } from './types.js';
 import { getGatewayClient } from '../../gateway/gateway-instance.js';
+import type { TraceRecorder } from '../../../utils/provider-trace.js';
 
 interface HandleRunExceptionInput {
   activeRun: ActiveRun;
@@ -29,9 +30,7 @@ interface HandleRunExceptionInput {
   sdkSessionId?: string;
   sendRunEvent: (event: import('@my-claudia/shared').ServerMessage) => void;
   sessionType: 'regular' | 'background' | 'agent';
-  trace: {
-    log: (channel: string, event: string, payload: unknown, summary?: string) => void;
-  };
+  trace: TraceRecorder;
 }
 
 export async function handleRunException(input: HandleRunExceptionInput): Promise<{ handedOffToRetry: boolean }> {
@@ -135,9 +134,7 @@ interface FinalizeRunInput {
   handedOffToRetry: boolean;
   message: { sessionId: string };
   processMonitor: ProcessMonitor | null;
-  trace: {
-    log: (channel: string, event: string, payload: unknown, summary?: string) => void;
-  };
+  trace: TraceRecorder;
   runId: string;
 }
 
