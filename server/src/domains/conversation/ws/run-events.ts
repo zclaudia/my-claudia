@@ -402,22 +402,29 @@ export function handleProviderEvent({
 
       if (msg.taskId && msg.taskStatus === 'started' && !taskProcInfo?.rootPid) {
         const timer = setTimeout(async () => {
-          const refreshed = buildTaskNotificationEvent();
-          let resolvedRootPid = refreshed.taskProcInfo?.rootPid;
+          try {
+            const refreshed = buildTaskNotificationEvent();
+            let resolvedRootPid = refreshed.taskProcInfo?.rootPid;
 
-          if (!resolvedRootPid && refreshed.event.taskCommand) {
-            const matchedPids = await findProcessPidsByTaskCommand(
-              refreshed.event.taskCommand,
-              [refreshed.event.cliPid, refreshed.event.taskRootPid].filter((pid): pid is number => typeof pid === 'number'),
+            if (!resolvedRootPid && refreshed.event.taskCommand) {
+              const matchedPids = await findProcessPidsByTaskCommand(
+                refreshed.event.taskCommand,
+                [refreshed.event.cliPid, refreshed.event.taskRootPid].filter((pid): pid is number => typeof pid === 'number'),
+              );
+              resolvedRootPid = matchedPids[0];
+            }
+
+            if (resolvedRootPid && resolvedRootPid !== taskProcInfo?.rootPid) {
+              sendRunEvent({
+                ...refreshed.event,
+                taskRootPid: resolvedRootPid,
+              });
+            }
+          } catch (error) {
+            console.warn(
+              `[Task Notification] Failed to backfill PID for taskId=${msg.taskId}:`,
+              error instanceof Error ? error.message : error
             );
-            resolvedRootPid = matchedPids[0];
-          }
-
-          if (resolvedRootPid && resolvedRootPid !== taskProcInfo?.rootPid) {
-            sendRunEvent({
-              ...refreshed.event,
-              taskRootPid: resolvedRootPid,
-            });
           }
         }, 1800);
         timer.unref();
