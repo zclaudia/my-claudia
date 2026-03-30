@@ -38,7 +38,9 @@ describe('useSelectionCoordinator', () => {
     mockGetSessionBackendId.mockReturnValue('backend-1');
     useServerStore.setState({
       activeServerId: 'backend-1',
-      connections: {},
+      connections: {
+        'backend-1': { status: 'connected', error: null, isLocalConnection: false, features: [] },
+      },
       localServerPort: null,
       controlPlaneMode: 'gateway-direct',
       controlPlaneState: 'ready',
@@ -88,5 +90,23 @@ describe('useSelectionCoordinator', () => {
     expect(useServerStore.getState().activeServerId).toBe('backend-1');
     expect(useProjectStore.getState().selectedSessionId).toBe('session-1');
     expect(mockConnectServer).not.toHaveBeenCalled();
+  });
+
+  it('reconnects when selecting on the same backend but the connection is down', () => {
+    useServerStore.setState({
+      connections: {
+        'backend-1': { status: 'disconnected', error: null, isLocalConnection: false, features: [] },
+      },
+    });
+
+    const { result } = renderHook(() => useSelectionCoordinator());
+
+    act(() => {
+      result.current.selectProject('project-1');
+    });
+
+    expect(useServerStore.getState().activeServerId).toBe('backend-1');
+    expect(useProjectStore.getState().selectedProjectId).toBe('project-1');
+    expect(mockConnectServer).toHaveBeenCalledWith('backend-1');
   });
 });

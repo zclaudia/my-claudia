@@ -1,6 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { fireEvent, render } from '@testing-library/react';
+import { act, fireEvent, render } from '@testing-library/react';
 import { useTerminalStore } from '../../../stores/terminalStore';
+import { useServerStore } from '../../../stores/serverStore';
+
+const mockSendMessage = vi.fn();
+const mockConnectServer = vi.fn();
 
 // Polyfill ResizeObserver for jsdom
 globalThis.ResizeObserver = class ResizeObserver {
@@ -16,7 +20,8 @@ vi.mock('../../../contexts/ConnectionContext', () => ({
     isConnected: true,
     activeBackend: 'local',
     setActiveBackend: vi.fn(),
-    sendMessage: vi.fn(),
+    sendMessage: mockSendMessage,
+    connectServer: mockConnectServer,
   }),
 }));
 
@@ -75,10 +80,27 @@ import { XTerminal } from '../XTerminal';
 describe('XTerminal', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    Object.defineProperty(HTMLElement.prototype, 'clientWidth', {
+      configurable: true,
+      get: () => 800,
+    });
+    Object.defineProperty(HTMLElement.prototype, 'clientHeight', {
+      configurable: true,
+      get: () => 400,
+    });
     useTerminalStore.setState({
       terminals: {},
       ctrlActive: {},
     } as any);
+    useServerStore.setState({
+      activeServerId: 'backend-1',
+      connections: {
+        'backend-1': { status: 'connected', error: null, isLocalConnection: false, features: [] },
+      },
+      localServerPort: null,
+      controlPlaneMode: 'gateway-direct',
+      controlPlaneState: 'ready',
+    });
   });
 
   it('renders a container div', () => {
@@ -191,5 +213,27 @@ describe('XTerminal', () => {
     await new Promise((resolve) => requestAnimationFrame(resolve));
 
     expect(mockTerminal.focus).toHaveBeenCalled();
+  });
+
+  it('does not send terminal_open before the active backend is connected', async () => {
+    useServerStore.setState({
+      activeServerId: 'backend-1',
+      connections: {
+        'backend-1': { status: 'disconnected', error: null, isLocalConnection: false, features: [] },
+      },
+    });
+
+    render(
+      <XTerminal terminalId="term-disconnected" projectId="proj-1" />
+    );
+
+    await act(async () => {
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+    });
+
+    expect(mockSendMessage).not.toHaveBeenCalledWith(expect.objectContaining({
+      type: 'terminal_open',
+      terminalId: 'term-disconnected',
+    }));
   });
 });

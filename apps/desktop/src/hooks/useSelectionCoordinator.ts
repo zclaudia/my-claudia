@@ -12,16 +12,24 @@ interface SelectSessionOptions {
 export function useSelectionCoordinator() {
   const { connectServer } = useConnection();
   const activeServerId = useServerStore((s) => s.activeServerId);
+  const activeServerStatus = useServerStore((s) =>
+    s.activeServerId ? s.connections[s.activeServerId]?.status ?? 'disconnected' : 'disconnected'
+  );
   const setActiveServer = useServerStore((s) => s.setActiveServer);
   const selectProjectInStore = useProjectStore((s) => s.selectProject);
   const selectSessionInStore = useProjectStore((s) => s.selectSession);
 
   const selectBackend = useCallback((backendId: string | null | undefined) => {
     if (!backendId) return;
-    if (activeServerId === backendId) return;
-    setActiveServer(backendId);
+    const isSameBackend = activeServerId === backendId;
+    if (isSameBackend && (activeServerStatus === 'connected' || activeServerStatus === 'connecting')) {
+      return;
+    }
+    if (!isSameBackend) {
+      setActiveServer(backendId);
+    }
     connectServer(backendId);
-  }, [activeServerId, connectServer, setActiveServer]);
+  }, [activeServerId, activeServerStatus, connectServer, setActiveServer]);
 
   const selectProject = useCallback((projectId: string | null) => {
     if (!projectId) {

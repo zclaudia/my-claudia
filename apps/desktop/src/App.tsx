@@ -454,9 +454,11 @@ function AppContent() {
     if (facadeConnectionState !== 'connected') return;
 
     const backendId = lastActiveBackendId;
+    const activeBackend = facadeBackends.find((b) => b.backendId === activeServerId);
+    const activeBackendReady = activeBackend?.runtimeState === 'ready' || activeBackend?.runtimeState === 'opening';
     // Manual selection already chose the backend in this app lifetime.
     // Only auto-reconnect when restoring from a cold start.
-    if (activeServerId === backendId) {
+    if (activeServerId === backendId && activeBackendReady) {
       mobileAutoConnectDone.current = true;
       return;
     }

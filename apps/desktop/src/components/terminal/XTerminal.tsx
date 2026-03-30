@@ -7,6 +7,7 @@ import { useConnection } from '../../contexts/ConnectionContext';
 import { useTheme } from '../../contexts/ThemeContext';
 import { xtermRegistry } from '../../utils/xtermRegistry';
 import { useTerminalStore } from '../../stores/terminalStore';
+import { useServerStore } from '../../stores/serverStore';
 
 /** Convert CSS HSL string "H S% L%" to hex "#rrggbb" */
 function hslToHex(hsl: string): string {
@@ -64,12 +65,18 @@ interface XTerminalProps {
 
 export function XTerminal({ terminalId, projectId, workingDirectory, mode = 'open' }: XTerminalProps) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const { sendMessage } = useConnection();
+  const { sendMessage, connectServer } = useConnection();
   const { resolvedTheme } = useTheme();
   const terminalRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
   const resizeObserverRef = useRef<ResizeObserver | null>(null);
   const clearNeedsReattach = useTerminalStore((s) => s.clearNeedsReattach);
+  const { activeServerId, activeServerStatus } = useServerStore((state) => ({
+    activeServerId: state.activeServerId,
+    activeServerStatus: state.activeServerId
+      ? state.connections[state.activeServerId]?.status ?? 'disconnected'
+      : 'disconnected',
+  }));
 
   const focusTerminal = (requireVisible = true) => {
     const terminal = terminalRef.current;
@@ -140,6 +147,13 @@ export function XTerminal({ terminalId, projectId, workingDirectory, mode = 'ope
       fitAddon.fit();
       const reg = xtermRegistry.get(terminalId);
       if (reg && !reg.serverOpened) {
+        if (!activeServerId) return true;
+        if (activeServerStatus !== 'connected') {
+          if (activeServerStatus === 'disconnected' || activeServerStatus === 'error') {
+            connectServer(activeServerId);
+          }
+          return true;
+        }
         reg.serverOpened = true;
 
         if (mode === 'attach') {
@@ -216,7 +230,17 @@ export function XTerminal({ terminalId, projectId, workingDirectory, mode = 'ope
       resizeObserver.disconnect();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [terminalId, projectId, workingDirectory, mode, clearNeedsReattach]);
+  }, [
+    terminalId,
+    projectId,
+    workingDirectory,
+    mode,
+    clearNeedsReattach,
+    activeServerId,
+    activeServerStatus,
+    connectServer,
+    sendMessage,
+  ]);
 
   return (
     <div
