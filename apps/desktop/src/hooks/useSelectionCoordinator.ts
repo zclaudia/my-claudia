@@ -12,9 +12,6 @@ interface SelectSessionOptions {
 export function useSelectionCoordinator() {
   const { connectServer } = useConnection();
   const activeServerId = useServerStore((s) => s.activeServerId);
-  const activeServerStatus = useServerStore((s) =>
-    s.activeServerId ? s.connections[s.activeServerId]?.status ?? 'disconnected' : 'disconnected'
-  );
   const setActiveServer = useServerStore((s) => s.setActiveServer);
   const selectProjectInStore = useProjectStore((s) => s.selectProject);
   const selectSessionInStore = useProjectStore((s) => s.selectSession);
@@ -22,15 +19,17 @@ export function useSelectionCoordinator() {
   const selectBackend = useCallback((backendId: string | null | undefined) => {
     const canonicalBackendId = resolveCanonicalBackendId(backendId, resolveLocalBackendId() ?? backendId ?? null);
     if (!canonicalBackendId) return;
-    const isSameBackend = activeServerId === canonicalBackendId;
-    if (isSameBackend && (activeServerStatus === 'connected' || activeServerStatus === 'connecting')) {
+    if (activeServerId === canonicalBackendId) {
+      const currentStatus = useServerStore.getState().connections[canonicalBackendId]?.status ?? 'disconnected';
+      if (currentStatus === 'connected') {
+        return;
+      }
+      connectServer(canonicalBackendId);
       return;
     }
-    if (!isSameBackend) {
-      setActiveServer(canonicalBackendId);
-    }
+    setActiveServer(canonicalBackendId);
     connectServer(canonicalBackendId);
-  }, [activeServerId, activeServerStatus, connectServer, setActiveServer]);
+  }, [activeServerId, connectServer, setActiveServer]);
 
   const selectProject = useCallback((projectId: string | null) => {
     if (!projectId) {

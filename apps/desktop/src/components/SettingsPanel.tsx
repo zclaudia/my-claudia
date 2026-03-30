@@ -20,6 +20,7 @@ import { useProcessMonitorStore } from '../stores/processMonitorStore';
 import * as api from '../services/api';
 import { exportLogs, getLogCount, clearLogs } from '../services/logger';
 import type { GatewayBackendInfo, SdkVersionReport } from '@my-claudia/shared';
+import type { CrashReportEntry } from '../services/api/debug';
 import { AgentSettings } from './settings/AgentSettings';
 import { PermissionSettings } from './settings/PermissionSettings';
 import { NotificationSettingsInline } from './settings/NotificationSettings';
@@ -55,6 +56,10 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
   const { sendMessage, connectServer, embeddedServerStatus, embeddedServerError, embeddedServerPort, restartEmbeddedServer } = useConnection();
   const [leakCleanupRunning, setLeakCleanupRunning] = useState(false);
   const [leakCleanupResult, setLeakCleanupResult] = useState<{ ok: boolean; message: string } | null>(null);
+  const [crashReports, setCrashReports] = useState<CrashReportEntry[]>([]);
+  const [crashReportsPath, setCrashReportsPath] = useState<string | null>(null);
+  const [crashReportsLoading, setCrashReportsLoading] = useState(false);
+  const [crashReportsError, setCrashReportsError] = useState<string | null>(null);
   const cleanupResult = useProcessMonitorStore((state) => state.lastCleanupResult);
   const clearCleanupResult = useProcessMonitorStore((state) => state.clearCleanupResult);
 
@@ -135,6 +140,27 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
         : `Cleanup completed, but none of the ${cleanupResult.leakedCount} leaked process(es) could be terminated.`,
     });
   }, [cleanupResult]);
+
+  const loadCrashReports = useCallback(async () => {
+    setCrashReportsLoading(true);
+    setCrashReportsError(null);
+    try {
+      const result = await api.getCrashReports();
+      setCrashReports(result.reports);
+      setCrashReportsPath(result.filePath);
+    } catch (err) {
+      setCrashReports([]);
+      setCrashReportsPath(null);
+      setCrashReportsError(err instanceof Error ? err.message : 'Failed to load crash reports');
+    } finally {
+      setCrashReportsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!isOpen || activeTab !== 'debug' || embeddedServerStatus === 'disabled') return;
+    void loadCrashReports();
+  }, [activeTab, embeddedServerStatus, isOpen, loadCrashReports]);
 
   // macOS permission checks
   const [fdaGranted, setFdaGranted] = useState<boolean | null>(null);
@@ -819,6 +845,73 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
                 </p>
 
                 <div className="space-y-3">
+                  <div className="p-3 bg-secondary/50 rounded-lg space-y-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <div className="text-sm">Crash Reports</div>
+                        <div className="text-xs text-muted-foreground">
+                          Recent embedded server fatal crashes stored on disk.
+                        </div>
+                      </div>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => { void loadCrashReports(); }}
+                          disabled={crashReportsLoading || embeddedServerStatus === 'disabled'}
+                          className="px-2 py-1 text-xs bg-secondary hover:bg-secondary/80 disabled:bg-muted disabled:text-muted-foreground text-secondary-foreground rounded-md transition-colors"
+                        >
+                          {crashReportsLoading ? 'Refreshing…' : 'Refresh'}
+                        </button>
+                        <button
+                          onClick={async () => {
+                            try {
+                              await navigator.clipboard.writeText(JSON.stringify(crashReports, null, 2));
+                            } catch (err) {
+                              console.error('[Settings] Failed to copy crash reports:', err);
+                            }
+                          }}
+                          disabled={crashReports.length === 0}
+                          className="px-2 py-1 text-xs bg-primary hover:bg-primary/90 disabled:bg-muted disabled:text-muted-foreground text-primary-foreground rounded-md transition-colors"
+                        >
+                          Copy JSON
+                        </button>
+                      </div>
+                    </div>
+                    {crashReportsPath && (
+                      <div className="text-[11px] text-muted-foreground break-all">
+                        {crashReportsPath}
+                      </div>
+                    )}
+                    {crashReportsError && (
+                      <div className="text-xs text-destructive">{crashReportsError}</div>
+                    )}
+                    {!crashReportsError && crashReports.length === 0 && !crashReportsLoading && (
+                      <div className="text-xs text-muted-foreground">No crash reports recorded.</div>
+                    )}
+                    {crashReports.length > 0 && (
+                      <div className="space-y-2">
+                        {crashReports.map((report) => (
+                          <div key={report.id} className="p-3 bg-background/70 rounded-lg space-y-1.5">
+                            <div className="flex items-center justify-between gap-3">
+                              <div className="text-xs font-medium">{report.event}</div>
+                              <div className="text-[11px] text-muted-foreground">
+                                {new Date(report.ts).toLocaleString()}
+                              </div>
+                            </div>
+                            <div className="text-xs break-words">{report.message}</div>
+                            <div className="text-[11px] text-muted-foreground">
+                              v{report.version} • pid {report.pid} • {report.platform}
+                            </div>
+                            {report.stack && (
+                              <pre className="mt-2 max-h-32 overflow-auto rounded bg-card px-2 py-1.5 text-[11px] text-muted-foreground whitespace-pre-wrap break-words">
+                                {report.stack}
+                              </pre>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
                   <div className="p-3 bg-secondary/50 rounded-lg space-y-2">
                     <div className="flex items-center justify-between">
                       <div>

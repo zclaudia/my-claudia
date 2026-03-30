@@ -113,6 +113,22 @@ describe('useSelectionCoordinator', () => {
     expect(mockConnectServer).toHaveBeenCalledWith('backend-1');
   });
 
+  it('reissues connect intent when the same backend is still marked connecting', () => {
+    useServerStore.setState({
+      connections: {
+        'backend-1': { status: 'connecting', error: null, isLocalConnection: false, features: [] },
+      },
+    });
+
+    const { result } = renderHook(() => useSelectionCoordinator());
+
+    act(() => {
+      result.current.selectSession('session-1', { backendId: 'backend-1' });
+    });
+
+    expect(mockConnectServer).toHaveBeenCalledWith('backend-1');
+  });
+
   it('canonicalizes legacy local backend ids before connecting', () => {
     mockGetSessionBackendId.mockReturnValue('local');
     mockResolveCanonicalBackendId.mockImplementation((backendId: string | null | undefined) =>

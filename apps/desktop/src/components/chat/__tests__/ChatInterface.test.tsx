@@ -268,7 +268,9 @@ function setDefaultStores(overrides?: {
   useServerStore.setState({
     activeServerId: 'local',
     servers: [],
-    connections: {},
+    connections: {
+      local: { status: 'connected', error: null, isLocalConnection: true, features: [] },
+    },
     activeServerSupports: () => false,
     ...overrides?.serverStore,
   } as any);
@@ -622,6 +624,10 @@ describe('ChatInterface', () => {
     setDefaultStores({
       serverStore: {
         activeServerId: 'local',
+        connections: {
+          local: { status: 'connected', error: null, isLocalConnection: true, features: [] },
+          'backend-1': { status: 'connected', error: null, isLocalConnection: false, features: [] },
+        },
       },
     });
     useOwnershipStore.setState({

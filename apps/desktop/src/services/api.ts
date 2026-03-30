@@ -22,3 +22,4 @@ export * from './api/gateway';
 export * from './api/notifications';
 export * from './api/files';
 export * from './api/commands';
+export * from './api/debug';

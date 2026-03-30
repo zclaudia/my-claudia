@@ -332,6 +332,22 @@ describe('handleServerMessage', () => {
       );
       expect(mockSessionsStore.setSessionActiveById).toHaveBeenCalledWith('b1', 's1', false);
     });
+
+    it('completes a run normally after a temporary reconnect gap', () => {
+      const ctx = makeCtx({ backendId: 'remote-1' });
+      ctx.serverRunsRef.set('server-1', new Set(['r1']));
+      mockChatStore.activeRuns = { r1: 's1' };
+
+      handleServerMessage({ type: 'run_completed', runId: 'r1', sessionId: 's1', seq: 2 }, ctx);
+
+      expect(mockChatStore.finalizeRunToMessage).toHaveBeenCalledWith('r1');
+      expect(mockChatStore.endRun).toHaveBeenCalledWith('r1');
+      expect(mockProjectStore.setSessionActive).toHaveBeenCalledWith('s1', false);
+      expect(mockSessionsStore.setSessionActiveFlag).toHaveBeenCalledWith('remote-1', 's1', false);
+      expect(mockSessionsStore.setSessionActiveById).toHaveBeenCalledWith('remote-1', 's1', false);
+      expect(mockRecoverCurrentSessionTail).toHaveBeenCalledWith('server-1', 's1');
+      expect(ctx.serverRunsRef.get('server-1')?.has('r1')).toBe(false);
+    });
   });
 
   describe('run_failed', () => {

@@ -80,6 +80,7 @@ describe('useActiveSessionStream', () => {
   it('opens the selected session stream and closes it on unmount', () => {
     const { unmount } = renderHook(() => useActiveSessionStream());
 
+    expect(facade.openBackend).toHaveBeenCalledWith('backend-1');
     expect(facade.openSessionStream).toHaveBeenCalledWith('backend-1', 'session-1');
 
     unmount();
@@ -139,6 +140,7 @@ describe('useActiveSessionStream', () => {
     rerender();
 
     expect(facade.closeSessionStream).toHaveBeenCalledWith('backend-1', 'session-1');
+    expect(facade.openBackend).toHaveBeenCalledWith('backend-2');
     expect(facade.openSessionStream).toHaveBeenCalledWith('backend-2', 'session-2');
   });
 });

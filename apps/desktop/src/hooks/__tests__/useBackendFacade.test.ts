@@ -171,7 +171,7 @@ describe('useBackendFacade run_event forwarding', () => {
     expect(useServerStore.getState().activeServerSupports('remoteTerminal')).toBe(true);
   });
 
-  it('cleans up active runs when a backend disconnects unexpectedly', () => {
+  it('keeps active runs alive while a backend reconnects unexpectedly', () => {
     useChatStore.setState({
       ...useChatStore.getState(),
       activeRuns: { 'run-1': 'session-1' },
@@ -195,12 +195,13 @@ describe('useBackendFacade run_event forwarding', () => {
       error: 'peer_disconnected',
     } as any);
 
-    expect(useChatStore.getState().activeRuns['run-1']).toBeUndefined();
-    expect(useProjectStore.getState().sessions.find((s) => s.id === 'session-1')?.lastRunStatus).toBe('interrupted');
-    expect(Array.from(useSessionsStore.getState().activeSessionIdsByBackend.get('remote-1') ?? [])).toEqual([]);
+    expect(useChatStore.getState().activeRuns['run-1']).toBe('session-1');
+    expect(useProjectStore.getState().sessions.find((s) => s.id === 'session-1')?.lastRunStatus).toBeUndefined();
+    expect(Array.from(useSessionsStore.getState().activeSessionIdsByBackend.get('remote-1') ?? [])).toEqual(['session-1']);
     expect(useToastStore.getState().toasts.at(-1)).toMatchObject({
       type: 'error',
       title: '远程连接已中断',
+      message: expect.stringContaining('正在等待恢复'),
     });
   });
 

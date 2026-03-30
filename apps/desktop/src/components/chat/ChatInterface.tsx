@@ -18,7 +18,6 @@ import { useBottomPanelStore } from '../../stores/bottomPanelStore';
 import { useUIStore } from '../../stores/uiStore';
 import { usePermissionStore } from '../../stores/permissionStore';
 import { useDraftEditorStore } from '../../stores/draftEditorStore';
-import { useOwnershipStore } from '../../stores/ownershipStore';
 import { useConnection } from '../../contexts/ConnectionContext';
 import { useIsMobile } from '../../hooks/useMediaQuery';
 import { useChatSession } from '../../hooks/chat/useChatSession';
@@ -29,8 +28,8 @@ import { useSessionActions } from '../../hooks/chat/useSessionActions';
 import { usePlanStatus } from '../../hooks/chat/usePlanStatus';
 import { useKeyboardShortcuts } from '../../hooks/chat/useKeyboardShortcuts';
 import { useMobileViewport } from '../../hooks/chat/useMobileViewport';
+import { useSessionRoute } from '../../hooks/chat/useSessionRoute';
 import type { ClientMessage } from '@my-claudia/shared';
-import { resolveCanonicalBackendId, resolveLocalBackendId } from '../../utils/controlPlane';
 
 interface ChatInterfaceProps {
   sessionId: string;
@@ -42,29 +41,17 @@ export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar }:
   const {
     sendMessage: activeServerSendMessage,
     sendToServer,
-    isServerConnected,
-    connectServer,
     handlePermissionDecision,
   } = useConnection();
   const isMobile = useIsMobile();
   const activeServerId = useServerStore((s) => s.activeServerId);
-  const ownerBackendId = useOwnershipStore((s) => {
-    const backendId = s.sessionBackendIds[sessionId] ?? null;
-    if (!backendId) return null;
-    return resolveCanonicalBackendId(backendId, resolveLocalBackendId() ?? backendId);
-  });
   const setDrawerOpen = useTerminalStore((s) => s.setDrawerOpen);
   const setBottomPanelTab = useBottomPanelStore((s) => s.setActiveTab);
   const advancedInput = useUIStore((s) => s.advancedInput);
   const poppedOutSessions = useUIStore((s) => s.poppedOutSessions);
-  const routedBackendId = ownerBackendId ?? activeServerId ?? null;
-  const isConnected = routedBackendId ? isServerConnected(routedBackendId) : false;
-
-  useEffect(() => {
-    if (!routedBackendId) return;
-    if (isServerConnected(routedBackendId)) return;
-    connectServer(routedBackendId);
-  }, [connectServer, isServerConnected, routedBackendId]);
+  const route = useSessionRoute(sessionId);
+  const routedBackendId = route.backendId;
+  const isConnected = route.canSend;
 
   const wsSendMessage = useCallback((message: ClientMessage) => {
     if (routedBackendId) {

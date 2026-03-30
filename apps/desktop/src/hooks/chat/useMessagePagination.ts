@@ -162,13 +162,6 @@ export function useMessagePagination({
         syncFilePushMessages(restoredOlder);
       } else {
         // Initial load via HTTP
-        if (!isConnected) {
-          console.warn('Cannot load messages: not connected');
-          setMessages(sessionId, [], { total: 0, hasMore: false });
-          setInitialLoadDone(true);
-          return;
-        }
-
         setLoadError(null);
         const result = await api.getSessionMessages(
           sessionId,

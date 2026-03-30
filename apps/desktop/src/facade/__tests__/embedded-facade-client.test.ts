@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { EmbeddedFacadeClient } from '../embedded-facade-client';
 
 class MockWebSocket {
@@ -22,7 +22,12 @@ class MockWebSocket {
 describe('EmbeddedFacadeClient', () => {
   beforeEach(() => {
     MockWebSocket.instances = [];
+    vi.useFakeTimers();
     vi.stubGlobal('WebSocket', MockWebSocket as any);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it('updates getSnapshot() when receiving snapshot_updated events', () => {
@@ -86,5 +91,65 @@ describe('EmbeddedFacadeClient', () => {
 
     expect(client.getSnapshot().snapshotVersion).toBe(2);
     expect(client.getSnapshot().backends[0]?.runtimeState).toBe('ready');
+  });
+
+  it('replays open backend and session stream state after reconnect', () => {
+    const client = new EmbeddedFacadeClient(3100);
+    client.connect();
+
+    const firstWs = MockWebSocket.instances[0];
+    firstWs.onopen?.();
+
+    client.openBackend('backend-1');
+    client.openSessionStream('backend-1', 'session-1');
+
+    expect(firstWs.send).toHaveBeenCalledWith(JSON.stringify({
+      type: 'open_backend',
+      backendId: 'backend-1',
+    }));
+    expect(firstWs.send).toHaveBeenCalledWith(JSON.stringify({
+      type: 'open_session_stream',
+      backendId: 'backend-1',
+      sessionId: 'session-1',
+    }));
+
+    firstWs.onclose?.();
+    vi.runAllTimers();
+
+    const secondWs = MockWebSocket.instances[1];
+    expect(secondWs).toBeTruthy();
+
+    secondWs.onopen?.();
+
+    expect(secondWs.send).toHaveBeenCalledWith(JSON.stringify({
+      type: 'open_backend',
+      backendId: 'backend-1',
+    }));
+    expect(secondWs.send).toHaveBeenCalledWith(JSON.stringify({
+      type: 'open_session_stream',
+      backendId: 'backend-1',
+      sessionId: 'session-1',
+    }));
+  });
+
+  it('emits reconnecting and connected connection state events across reconnects', () => {
+    const client = new EmbeddedFacadeClient(3100);
+    const events: string[] = [];
+    client.onEvent((event) => {
+      if (event.type === 'connection_state_changed') {
+        events.push(event.state);
+      }
+    });
+
+    client.connect();
+    const firstWs = MockWebSocket.instances[0];
+    firstWs.onopen?.();
+    firstWs.onclose?.();
+    vi.runAllTimers();
+
+    const secondWs = MockWebSocket.instances[1];
+    secondWs.onopen?.();
+
+    expect(events).toEqual(['connected', 'reconnecting', 'connected']);
   });
 });

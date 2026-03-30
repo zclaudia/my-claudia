@@ -26,6 +26,8 @@ export class EmbeddedFacadeClient implements BackendFacade {
   private latestSnapshot: BackendFacadeSnapshot | null = null;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private intentionalClose = false;
+  private desiredOpenBackends = new Set<string>();
+  private desiredSessionStreams = new Map<string, { backendId: string; sessionId: string }>();
 
   constructor(serverPort: number) {
     this.url = `ws://localhost:${serverPort}/ws/backend-facade`;
@@ -63,7 +65,9 @@ export class EmbeddedFacadeClient implements BackendFacade {
 
     ws.onopen = () => {
       this.ws = ws;
+      this.emitEvent({ type: 'connection_state_changed', state: 'connected' });
       // Server sends facade_snapshot on connect automatically
+      this.replayDesiredState();
       this.flushPendingMessages();
     };
 
@@ -79,7 +83,10 @@ export class EmbeddedFacadeClient implements BackendFacade {
     ws.onclose = () => {
       if (this.ws === ws) this.ws = null;
       if (!this.intentionalClose) {
+        this.emitEvent({ type: 'connection_state_changed', state: 'reconnecting' });
         this.scheduleReconnect();
+      } else {
+        this.emitEvent({ type: 'connection_state_changed', state: 'disconnected' });
       }
     };
 
@@ -173,10 +180,12 @@ export class EmbeddedFacadeClient implements BackendFacade {
   // --------------------------------------------------------------------------
 
   openBackend(backendId: string): void {
+    this.desiredOpenBackends.add(backendId);
     this.send({ type: 'open_backend', backendId });
   }
 
   closeBackend(backendId: string): void {
+    this.desiredOpenBackends.delete(backendId);
     this.send({ type: 'close_backend', backendId });
   }
 
@@ -185,10 +194,12 @@ export class EmbeddedFacadeClient implements BackendFacade {
   }
 
   openSessionStream(backendId: string, sessionId: string): void {
+    this.desiredSessionStreams.set(`${backendId}:${sessionId}`, { backendId, sessionId });
     this.send({ type: 'open_session_stream', backendId, sessionId });
   }
 
   closeSessionStream(backendId: string, sessionId: string): void {
+    this.desiredSessionStreams.delete(`${backendId}:${sessionId}`);
     this.send({ type: 'close_session_stream', backendId, sessionId });
   }
 
@@ -232,5 +243,20 @@ export class EmbeddedFacadeClient implements BackendFacade {
       this.ws.send(JSON.stringify(msg));
     }
     this.pendingMessages = [];
+  }
+
+  private replayDesiredState(): void {
+    for (const backendId of this.desiredOpenBackends) {
+      this.send({ type: 'open_backend', backendId });
+    }
+    for (const { backendId, sessionId } of this.desiredSessionStreams.values()) {
+      this.send({ type: 'open_session_stream', backendId, sessionId });
+    }
+  }
+
+  private emitEvent(event: BackendFacadeEvent): void {
+    for (const listener of this.eventListeners) {
+      try { listener(event); } catch { /* ignore */ }
+    }
   }
 }
