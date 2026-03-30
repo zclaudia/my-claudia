@@ -139,6 +139,7 @@ function createTestDb(): Database.Database {
       type TEXT DEFAULT 'regular',
       parent_session_id TEXT,
       working_directory TEXT,
+      sort_order INTEGER,
       project_role TEXT,
       task_id TEXT,
       archived_at INTEGER,

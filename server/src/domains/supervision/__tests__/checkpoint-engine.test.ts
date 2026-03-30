@@ -35,11 +35,13 @@ function createTestDb(): Database.Database {
       type TEXT DEFAULT 'regular',
       parent_session_id TEXT,
       working_directory TEXT,
+      sort_order INTEGER,
       project_role TEXT,
       task_id TEXT,
       archived_at INTEGER,
       plan_status TEXT,
       is_read_only INTEGER DEFAULT 0,
+      last_run_status TEXT,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL,
       FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE

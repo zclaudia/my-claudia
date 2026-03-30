@@ -27,6 +27,7 @@ import { validatePlanFile, type PlanValidationResult } from './plan-validator.js
 import { TaskScheduler } from './task-scheduler.js';
 import { SupervisorGuards } from './supervisor-guards.js';
 import { WorktreeManager } from './worktree-manager.js';
+import { TaskLifecycle } from './task-lifecycle.js';
 
 export class SupervisorService {
   private pollInterval: NodeJS.Timeout | null = null;
@@ -38,6 +39,7 @@ export class SupervisorService {
   private taskScheduler: TaskScheduler;
   private guards: SupervisorGuards;
   private worktreeManager: WorktreeManager;
+  private taskLifecycle: TaskLifecycle;
 
   constructor(
     private db: Database,
@@ -96,6 +98,19 @@ export class SupervisorService {
     this.worktreeManager = new WorktreeManager({
       projectRepo,
       sessionRepo,
+      log: logFn,
+    });
+
+    this.taskLifecycle = new TaskLifecycle({
+      taskRepo,
+      projectRepo,
+      sessionRepo,
+      taskRunner: this.taskRunner,
+      worktreeManager: this.worktreeManager,
+      virtualClients: this.virtualClients,
+      getCheckpointEngine: () => this.checkpointEngine,
+      tick: () => this.tick(),
+      broadcastTaskUpdate: broadcastTaskUpdateFn,
       log: logFn,
     });
 
@@ -471,146 +486,15 @@ export class SupervisorService {
   }
 
   async approveTaskResult(taskId: string): Promise<SupervisionTask> {
-    const task = this.taskRepo.findById(taskId);
-    if (!task) {
-      throw new Error(`Task not found: ${taskId}`);
-    }
-    if (task.status !== 'reviewing') {
-      throw new Error(
-        `Cannot approve result for task in status '${task.status}'; must be 'reviewing'`,
-      );
-    }
-
-    const project = this.projectRepo.findById(task.projectId);
-    const session = task.sessionId ? this.sessionRepo.findById(task.sessionId) : undefined;
-    const isWorktreeTask =
-      session?.workingDirectory && project?.rootPath &&
-      session.workingDirectory !== project.rootPath;
-
-    if (isWorktreeTask) {
-      // Parallel mode: attempt merge
-      const pool = this.worktreeManager.getWorktreePool(task.projectId);
-      this.log(task.projectId, 'merge_started', { taskId }, taskId);
-
-      const result = await pool.mergeBack(task.id, task.attempt, session!.workingDirectory!);
-
-      if (result.success) {
-        pool.release(session!.workingDirectory!);
-        this.taskRepo.updateStatus(taskId, 'integrated');
-        this.broadcastTaskUpdate(taskId, task.projectId);
-        this.log(task.projectId, 'merge_completed', { taskId }, taskId);
-        this.log(task.projectId, 'worktree_released', {
-          taskId, worktreePath: session!.workingDirectory,
-        }, taskId);
-      } else {
-        this.taskRepo.updateStatus(taskId, 'merge_conflict', {
-          result: {
-            ...(task.result ?? { summary: '', filesChanged: [] }),
-            reviewNotes: `Merge conflicts: ${result.conflicts?.join(', ')}`,
-          },
-        });
-        this.broadcastTaskUpdate(taskId, task.projectId);
-        this.log(task.projectId, 'merge_conflict', {
-          taskId, conflicts: result.conflicts,
-        }, taskId);
-        // Don't release worktree — keep for manual resolution
-      }
-    } else {
-      // Serial mode: approved = integrated directly
-      this.taskRepo.updateStatus(taskId, 'integrated');
-      this.broadcastTaskUpdate(taskId, task.projectId);
-      this.log(task.projectId, 'task_status_changed', {
-        taskId,
-        from: 'reviewing',
-        to: 'integrated',
-      }, taskId);
-    }
-
-    // Trigger tick to process next tasks
-    this.tick();
-
-    return this.taskRepo.findById(taskId)!;
+    return this.taskLifecycle.approveTaskResult(taskId);
   }
 
   rejectTaskResult(taskId: string, reviewNotes: string): SupervisionTask {
-    const task = this.taskRepo.findById(taskId);
-    if (!task) {
-      throw new Error(`Task not found: ${taskId}`);
-    }
-    if (task.status !== 'reviewing') {
-      throw new Error(
-        `Cannot reject result for task in status '${task.status}'; must be 'reviewing'`,
-      );
-    }
-
-    // Release worktree if applicable
-    this.worktreeManager.releaseTaskWorktree(task);
-
-    const newAttempt = task.attempt + 1;
-    const maxRetries = task.maxRetries;
-
-    if (newAttempt > maxRetries + 1) {
-      // Exceeded max retries — mark as failed
-      this.taskRepo.updateStatus(taskId, 'failed', {
-        result: { ...(task.result ?? { summary: '', filesChanged: [] }), reviewNotes },
-        attempt: newAttempt,
-      });
-      this.broadcastTaskUpdate(taskId, task.projectId);
-      this.log(task.projectId, 'task_status_changed', {
-        taskId,
-        from: 'reviewing',
-        to: 'failed',
-        reason: 'max_retries_exceeded',
-      }, taskId);
-    } else {
-      // Re-queue with review notes injected
-      this.taskRepo.updateStatus(taskId, 'queued', {
-        result: { ...(task.result ?? { summary: '', filesChanged: [] }), reviewNotes },
-        attempt: newAttempt,
-      });
-      this.broadcastTaskUpdate(taskId, task.projectId);
-      this.log(task.projectId, 'task_status_changed', {
-        taskId,
-        from: 'reviewing',
-        to: 'queued',
-        attempt: newAttempt,
-        reviewNotes,
-      }, taskId);
-    }
-
-    return this.taskRepo.findById(taskId)!;
+    return this.taskLifecycle.rejectTaskResult(taskId, reviewNotes);
   }
 
   async resolveConflict(taskId: string): Promise<SupervisionTask> {
-    const task = this.taskRepo.findById(taskId);
-    if (!task || task.status !== 'merge_conflict') {
-      throw new Error('Task not in merge_conflict state');
-    }
-
-    const session = task.sessionId ? this.sessionRepo.findById(task.sessionId) : undefined;
-    if (!session?.workingDirectory) {
-      throw new Error('No worktree found for this task');
-    }
-
-    const pool = this.worktreeManager.getWorktreePool(task.projectId);
-    this.log(task.projectId, 'merge_started', { taskId, retry: true }, taskId);
-
-    const result = await pool.mergeBack(task.id, task.attempt, session.workingDirectory);
-
-    if (result.success) {
-      this.taskRepo.updateStatus(taskId, 'integrated');
-      pool.release(session.workingDirectory);
-      this.broadcastTaskUpdate(taskId, task.projectId);
-      this.log(task.projectId, 'merge_completed', { taskId }, taskId);
-      this.log(task.projectId, 'worktree_released', {
-        taskId, worktreePath: session.workingDirectory,
-      }, taskId);
-    } else {
-      throw new Error(`Still has conflicts: ${result.conflicts?.join(', ')}`);
-    }
-
-    this.tick();
-    return this.taskRepo.findById(taskId)!;
+    return this.taskLifecycle.resolveConflict(taskId);
   }
 
   getTasks(projectId: string): SupervisionTask[] {
@@ -898,75 +782,14 @@ export class SupervisorService {
     projectId: string,
     msg: ServerMessage,
   ): void {
-    if (msg.type === 'run_completed') {
-      // Clear read-only on the task session
-      this.clearTaskSessionReadOnly(taskId);
-
-      // Delegate to TaskRunner (handles parsing, workflow, auto-commit, review trigger)
-      this.taskRunner.onTaskComplete(taskId, projectId).catch((err) => {
-        console.error(`[Supervisor] TaskRunner.onTaskComplete failed for ${taskId}:`, err);
-        // Fallback: mark as reviewing without review (can be manually reviewed)
-        this.taskRepo.updateStatus(taskId, 'reviewing', {
-          result: { summary: 'Task completed but review pipeline failed', filesChanged: [] },
-        });
-        this.broadcastTaskUpdate(taskId, projectId);
-      });
-      this.virtualClients.delete(taskId);
-
-      // Trigger checkpoint if configured
-      if (this.checkpointEngine?.shouldTrigger(projectId, 'task_complete')) {
-        this.checkpointEngine.runCheckpoint(projectId).catch((err) => {
-          console.error(`[Supervisor] Checkpoint failed after task ${taskId}:`, err);
-        });
-      }
-      return;
-    }
-
-    if (msg.type === 'run_failed') {
-      // Clear read-only on the task session
-      this.clearTaskSessionReadOnly(taskId);
-
-      try {
-        const errorMsg = 'error' in msg ? (msg as import('@my-claudia/shared').RunFailedMessage).error : 'Run failed';
-        this.taskRepo.updateStatus(taskId, 'failed', {
-          result: { summary: `Run failed: ${errorMsg}`, filesChanged: [] },
-        });
-        this.broadcastTaskUpdate(taskId, projectId);
-        this.log(projectId, 'task_status_changed', {
-          taskId,
-          from: 'running',
-          to: 'failed',
-          error: errorMsg,
-        }, taskId);
-
-        // Release worktree if applicable
-        const failedTask = this.taskRepo.findById(taskId);
-        if (failedTask) {
-          this.worktreeManager.releaseTaskWorktree(failedTask);
-        }
-      } catch (err) {
-        console.error(`[Supervisor] Error handling run_failed for task ${taskId}:`, err);
-      } finally {
-        this.virtualClients.delete(taskId);
-      }
-    }
+    this.taskLifecycle.handleTaskRunMessage(taskId, projectId, msg);
   }
 
   /**
    * Clear read-only flag on a task's session when execution ends.
    */
   private clearTaskSessionReadOnly(taskId: string): void {
-    try {
-      const task = this.taskRepo.findById(taskId);
-      if (task?.sessionId) {
-        this.sessionRepo.update(task.sessionId, {
-          isReadOnly: false,
-          planStatus: null,
-        } as Partial<Omit<Session, 'id' | 'createdAt' | 'updatedAt'>>);
-      }
-    } catch (err) {
-      console.error(`[Supervisor] Failed to clear read-only for task ${taskId}:`, err);
-    }
+    this.taskLifecycle.clearTaskSessionReadOnly(taskId);
   }
 
   // ========================================
@@ -1046,54 +869,7 @@ export class SupervisorService {
     projectId: string,
     msg: ServerMessage,
   ): void {
-    if (msg.type === 'run_completed') {
-      // Lite mode: skip review, go straight to completed
-      this.taskRepo.updateStatus(taskId, 'completed', {
-        result: { summary: 'Task completed', filesChanged: [] },
-      });
-      this.broadcastTaskUpdate(taskId, projectId);
-      this.log(projectId, 'task_status_changed', {
-        taskId,
-        from: 'running',
-        to: 'completed',
-      }, taskId);
-      this.virtualClients.delete(taskId);
-      return;
-    }
-
-    if (msg.type === 'run_failed') {
-      try {
-        const task = this.taskRepo.findById(taskId);
-        if (!task) { this.virtualClients.delete(taskId); return; }
-
-        const errorMsg = 'error' in msg ? (msg as import('@my-claudia/shared').RunFailedMessage).error : 'Run failed';
-        const newAttempt = task.attempt + 1;
-
-        if (newAttempt > task.maxRetries + 1) {
-          // Max retries exceeded
-          this.taskRepo.updateStatus(taskId, 'failed', {
-            result: { summary: `Failed after ${task.maxRetries} retries: ${errorMsg}`, filesChanged: [] },
-            attempt: newAttempt,
-          });
-          this.log(projectId, 'task_status_changed', {
-            taskId, from: 'running', to: 'failed', error: errorMsg,
-          }, taskId);
-        } else {
-          // Re-queue for retry
-          this.taskRepo.updateStatus(taskId, 'pending', { attempt: newAttempt });
-          this.log(projectId, 'task_status_changed', {
-            taskId, from: 'running', to: 'pending',
-            reason: 'retry', attempt: newAttempt,
-          }, taskId);
-        }
-
-        this.broadcastTaskUpdate(taskId, projectId);
-      } catch (err) {
-        console.error(`[Supervisor] Error handling lite run_failed for task ${taskId}:`, err);
-      } finally {
-        this.virtualClients.delete(taskId);
-      }
-    }
+    this.taskLifecycle.handleLiteTaskMessage(taskId, projectId, msg);
   }
 
   // ========================================
