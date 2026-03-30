@@ -3,7 +3,7 @@ import { useConnection } from '../contexts/ConnectionContext';
 import { useOwnershipStore } from '../stores/ownershipStore';
 import { useProjectStore } from '../stores/projectStore';
 import { useServerStore } from '../stores/serverStore';
-import { getControlPlaneMode, resolveLocalBackendId } from '../utils/controlPlane';
+import { getControlPlaneMode, resolveCanonicalBackendId, resolveLocalBackendId } from '../utils/controlPlane';
 
 interface SelectSessionOptions {
   backendId?: string | null;
@@ -20,15 +20,16 @@ export function useSelectionCoordinator() {
   const selectSessionInStore = useProjectStore((s) => s.selectSession);
 
   const selectBackend = useCallback((backendId: string | null | undefined) => {
-    if (!backendId) return;
-    const isSameBackend = activeServerId === backendId;
+    const canonicalBackendId = resolveCanonicalBackendId(backendId, resolveLocalBackendId() ?? backendId ?? null);
+    if (!canonicalBackendId) return;
+    const isSameBackend = activeServerId === canonicalBackendId;
     if (isSameBackend && (activeServerStatus === 'connected' || activeServerStatus === 'connecting')) {
       return;
     }
     if (!isSameBackend) {
-      setActiveServer(backendId);
+      setActiveServer(canonicalBackendId);
     }
-    connectServer(backendId);
+    connectServer(canonicalBackendId);
   }, [activeServerId, activeServerStatus, connectServer, setActiveServer]);
 
   const selectProject = useCallback((projectId: string | null) => {

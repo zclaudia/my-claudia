@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { resolveCanonicalBackendId, resolveLocalBackendId } from '../utils/controlPlane';
 
 interface OwnershipState {
   sessionBackendIds: Record<string, string>;
@@ -70,7 +71,9 @@ export const useOwnershipStore = create<OwnershipState>()((set, get) => ({
 
   getSessionBackendId: (sessionId) => {
     if (!sessionId) return null;
-    return get().sessionBackendIds[sessionId] ?? null;
+    const backendId = get().sessionBackendIds[sessionId] ?? null;
+    if (!backendId) return null;
+    return resolveCanonicalBackendId(backendId, resolveLocalBackendId() ?? backendId);
   },
 
   setProjectOwner: (projectId, backendId) => set((state) => ({
@@ -113,7 +116,9 @@ export const useOwnershipStore = create<OwnershipState>()((set, get) => ({
 
   getProjectBackendId: (projectId) => {
     if (!projectId) return null;
-    return get().projectBackendIds[projectId] ?? null;
+    const backendId = get().projectBackendIds[projectId] ?? null;
+    if (!backendId) return null;
+    return resolveCanonicalBackendId(backendId, resolveLocalBackendId() ?? backendId);
   },
 
   setTaskOwner: (taskId, backendId, projectId = null) => set((state) => ({
@@ -155,7 +160,9 @@ export const useOwnershipStore = create<OwnershipState>()((set, get) => ({
 
   getTaskBackendId: (taskId) => {
     if (!taskId) return null;
-    return get().taskOwners[taskId]?.backendId ?? null;
+    const backendId = get().taskOwners[taskId]?.backendId ?? null;
+    if (!backendId) return null;
+    return resolveCanonicalBackendId(backendId, resolveLocalBackendId() ?? backendId);
   },
 
   getTaskProjectId: (taskId) => {

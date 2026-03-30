@@ -2,10 +2,11 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import { useSelectionCoordinator } from '../useSelectionCoordinator';
 
-const { mockConnectServer, mockGetProjectBackendId, mockGetSessionBackendId } = vi.hoisted(() => ({
+const { mockConnectServer, mockGetProjectBackendId, mockGetSessionBackendId, mockResolveCanonicalBackendId } = vi.hoisted(() => ({
   mockConnectServer: vi.fn(),
   mockGetProjectBackendId: vi.fn(() => 'backend-1'),
   mockGetSessionBackendId: vi.fn(() => 'backend-1'),
+  mockResolveCanonicalBackendId: vi.fn((backendId: string | null | undefined) => backendId),
 }));
 
 vi.mock('../../contexts/ConnectionContext', () => ({
@@ -26,6 +27,7 @@ vi.mock('../../stores/ownershipStore', () => ({
 vi.mock('../../utils/controlPlane', () => ({
   getControlPlaneMode: () => 'gateway-direct',
   resolveLocalBackendId: () => 'local',
+  resolveCanonicalBackendId: mockResolveCanonicalBackendId,
 }));
 
 import { useServerStore } from '../../stores/serverStore';
@@ -36,6 +38,7 @@ describe('useSelectionCoordinator', () => {
     mockConnectServer.mockReset();
     mockGetProjectBackendId.mockReturnValue('backend-1');
     mockGetSessionBackendId.mockReturnValue('backend-1');
+    mockResolveCanonicalBackendId.mockImplementation((backendId: string | null | undefined) => backendId);
     useServerStore.setState({
       activeServerId: 'backend-1',
       connections: {
@@ -108,5 +111,27 @@ describe('useSelectionCoordinator', () => {
     expect(useServerStore.getState().activeServerId).toBe('backend-1');
     expect(useProjectStore.getState().selectedProjectId).toBe('project-1');
     expect(mockConnectServer).toHaveBeenCalledWith('backend-1');
+  });
+
+  it('canonicalizes legacy local backend ids before connecting', () => {
+    mockGetSessionBackendId.mockReturnValue('local');
+    mockResolveCanonicalBackendId.mockImplementation((backendId: string | null | undefined) =>
+      backendId === 'local' ? 'local-backend-1' : backendId
+    );
+    useServerStore.setState({
+      activeServerId: 'local-backend-1',
+      connections: {
+        'local-backend-1': { status: 'disconnected', error: null, isLocalConnection: true, features: [] },
+      },
+      controlPlaneMode: 'embedded-local',
+    });
+
+    const { result } = renderHook(() => useSelectionCoordinator());
+
+    act(() => {
+      result.current.selectSession('session-1');
+    });
+
+    expect(mockConnectServer).toHaveBeenCalledWith('local-backend-1');
   });
 });

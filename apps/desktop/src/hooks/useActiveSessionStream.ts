@@ -4,6 +4,7 @@ import { useProjectStore } from '../stores/projectStore';
 import { useServerStore } from '../stores/serverStore';
 import { useOwnershipStore } from '../stores/ownershipStore';
 import { useChatStore } from '../stores/chatStore';
+import { resolveCanonicalBackendId, resolveLocalBackendId } from '../utils/controlPlane';
 
 function getStreamKey(backendId: string, sessionId: string): string {
   return `${backendId}:${sessionId}`;
@@ -20,9 +21,12 @@ export function useActiveSessionStream(): void {
   const sessionStreams = useFacadeStore((s) => s.sessionStreams);
   const selectedSessionId = useProjectStore((s) => s.selectedSessionId);
   const activeServerId = useServerStore((s) => s.activeServerId);
-  const ownedBackendId = useOwnershipStore((s) =>
-    selectedSessionId ? s.sessionBackendIds[selectedSessionId] ?? null : null
-  );
+  const ownedBackendId = useOwnershipStore((s) => {
+    if (!selectedSessionId) return null;
+    const backendId = s.sessionBackendIds[selectedSessionId] ?? null;
+    if (!backendId) return null;
+    return resolveCanonicalBackendId(backendId, resolveLocalBackendId() ?? backendId);
+  });
   const maxOffset = useChatStore((s) =>
     selectedSessionId ? s.pagination[selectedSessionId]?.maxOffset ?? 0 : 0
   );

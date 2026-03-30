@@ -30,6 +30,7 @@ import { usePlanStatus } from '../../hooks/chat/usePlanStatus';
 import { useKeyboardShortcuts } from '../../hooks/chat/useKeyboardShortcuts';
 import { useMobileViewport } from '../../hooks/chat/useMobileViewport';
 import type { ClientMessage } from '@my-claudia/shared';
+import { resolveCanonicalBackendId, resolveLocalBackendId } from '../../utils/controlPlane';
 
 interface ChatInterfaceProps {
   sessionId: string;
@@ -47,7 +48,11 @@ export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar }:
   } = useConnection();
   const isMobile = useIsMobile();
   const activeServerId = useServerStore((s) => s.activeServerId);
-  const ownerBackendId = useOwnershipStore((s) => s.sessionBackendIds[sessionId] ?? null);
+  const ownerBackendId = useOwnershipStore((s) => {
+    const backendId = s.sessionBackendIds[sessionId] ?? null;
+    if (!backendId) return null;
+    return resolveCanonicalBackendId(backendId, resolveLocalBackendId() ?? backendId);
+  });
   const setDrawerOpen = useTerminalStore((s) => s.setDrawerOpen);
   const setBottomPanelTab = useBottomPanelStore((s) => s.setActiveTab);
   const advancedInput = useUIStore((s) => s.advancedInput);
