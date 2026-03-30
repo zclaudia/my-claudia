@@ -815,7 +815,9 @@ export class CodexAppServerClient {
       this.activeTurns = Math.max(0, this.activeTurns - 1);
       this.emitter.off('notification', onNotification);
       this.emitter.off('exit', onExit);
-      this.permissionCallback = null;
+      // Keep permissionCallback alive — Codex may send approval requests
+      // between turns (e.g., deferred file-change approvals). The callback
+      // will be overwritten by the next runTurn call.
     }
   }
 
