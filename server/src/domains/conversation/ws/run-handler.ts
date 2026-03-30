@@ -53,6 +53,7 @@ import { initDatabase } from '../../../storage/db.js';
 import { NotificationService } from '../../notification-feed/notification-service.js';
 import type { NotificationFeedService } from '../../notification-feed/service.js';
 import { ProcessMonitor } from '../../../utils/process-monitor.js';
+import { initializeRunBootstrap, type RunStartMessage } from './run-bootstrap.js';
 import { buildRunContext } from './run-context.js';
 import { createPermissionCallback } from './run-permissions.js';
 import { finalizeRun, handleRunException } from './run-recovery.js';
@@ -144,20 +145,7 @@ function postAIReviewFeedItem(
 
 export async function handleRunStart(
   client: ConnectedClient,
-  message: {
-    type: 'run_start';
-    clientRequestId: string;
-    sessionId: string;
-    input: string;
-    providerId?: string;
-    permissionMode?: 'default' | 'acceptEdits' | 'bypassPermissions' | 'plan';
-    mode?: string;   // Generic mode/agent ID (new unified field)
-    model?: string;
-    permissionOverride?: Partial<import('@my-claudia/shared').AgentPermissionPolicy>;
-    systemContext?: string;
-    workingDirectory?: string;  // Optional working directory override
-    resend?: boolean;  // True when resending — skip inserting duplicate user message
-  },
+  message: RunStartMessage,
   db: ReturnType<typeof initDatabase>,
   recoveryState: { sessionResetRetryCount?: number } = {},
   clients?: Map<string, ConnectedClient>,
@@ -169,8 +157,6 @@ export async function handleRunStart(
   const notificationFeedService = ctx!.notificationFeedService;
   const serverPort = ctx!.serverPort;
   const broadcastHeartbeat = ctx!.broadcastHeartbeat;
-  const connectedClients = clients ?? new Map<string, ConnectedClient>();
-
   const runId = uuidv4();
   const trace = createTraceRecorder({
     runId,
@@ -186,243 +172,38 @@ export async function handleRunStart(
     workingDirectory: message.workingDirectory,
     resend: message.resend,
   }, 'run_start requested');
-
-  // Get session info
-  const session = db.prepare(`
-    SELECT s.id, s.project_id, s.name, s.sdk_session_id, s.type as session_type,
-           s.working_directory, s.project_role, s.plan_status, s.task_id,
-           p.root_path, COALESCE(s.provider_id, p.provider_id) as provider_id, p.system_prompt
-    FROM sessions s
-    LEFT JOIN projects p ON s.project_id = p.id
-    WHERE s.id = ?
-  `).get(message.sessionId) as {
-    id: string;
-    project_id: string;
-    name: string | null;
-    sdk_session_id: string | null;
-    session_type: 'regular' | 'background' | 'agent' | null;
-    working_directory: string | null;
-    project_role: string | null;
-    plan_status: string | null;
-    task_id: string | null;
-    root_path: string | null;
-    provider_id: string | null;
-    system_prompt: string | null;
-  } | undefined;
-
-  if (!session) {
-    trace.log('server_norm', 'run_start_rejected', { reason: 'SESSION_NOT_FOUND' }, 'session not found');
-    sendMessage(client.ws, {
-      type: 'error',
-      code: 'SESSION_NOT_FOUND',
-      message: 'Session not found'
-    } as ErrorMessage);
-    return;
-  }
-
-  // Hard guard: never allow overlapping runs in the same session.
-  const existingRunId = (() => {
-    for (const [id, run] of activeRuns.entries()) {
-      if (run.sessionId === message.sessionId && !run.completed) return id;
-    }
-    return null;
-  })();
-  if (existingRunId) {
-    trace.log('server_norm', 'run_start_rejected', { reason: 'SESSION_BUSY', existingRunId }, 'session busy');
-    sendMessage(client.ws, {
-      type: 'error',
-      code: 'SESSION_BUSY',
-      message: `Session is already running (runId: ${existingRunId})`,
-    } as ErrorMessage);
-    return;
-  }
-
-  // Get provider config: message override → session → project → system default
-  const explicitProviderId = message.providerId || session.provider_id;
-  const providerId = explicitProviderId || (() => {
-    const defaultRow = db.prepare(`SELECT id FROM providers WHERE is_default = 1 LIMIT 1`).get() as { id: string } | undefined;
-    return defaultRow?.id || null;
-  })();
-  let providerConfig: ProviderConfig | undefined;
-
-  if (providerId) {
-    const providerRow = db.prepare(`
-      SELECT id, name, type, cli_path as cliPath, env, is_default as isDefault,
-             created_at as createdAt, updated_at as updatedAt
-      FROM providers WHERE id = ?
-    `).get(providerId) as {
-      id: string;
-      name: string;
-      type: string;
-      cliPath: string | null;
-      env: string | null;
-      isDefault: number;
-      createdAt: number;
-      updatedAt: number;
-    } | undefined;
-
-    if (providerRow) {
-      providerConfig = {
-        id: providerRow.id,
-        name: providerRow.name,
-        type: providerRow.type as ProviderConfig['type'],
-        cliPath: providerRow.cliPath || undefined,
-        env: providerRow.env ? JSON.parse(providerRow.env) : undefined,
-        isDefault: providerRow.isDefault === 1,
-        createdAt: providerRow.createdAt,
-        updatedAt: providerRow.updatedAt
-      };
-      trace.setMeta({ provider: providerConfig.type });
-    }
-  }
-
-  // Session type
-  const sessionType = (session.session_type || 'regular') as 'regular' | 'background' | 'agent';
-  const projectId = session.project_id || message.sessionId;
-  const requestedCwd = message.workingDirectory
-    || session.working_directory
-    || session.root_path
-    || process.cwd();
-  const cwd = resolveProviderCwd({
-    providerType: providerConfig?.type || 'claude',
-    sdkSessionId: session.sdk_session_id || undefined,
-    requestedCwd,
-    sessionRootPath: session.root_path,
-    persistedWorkingDirectory: session.working_directory,
-  });
-
-  // Create active run tracking (includes streaming state for message persistence)
-  const activeRun: ActiveRun = {
-    runId,
-    clientId: client.id,
+  const bootstrap = initializeRunBootstrap({
+    activeRuns,
     client,
-    pendingPermissions: new Map(),
+    clients,
     db,
-    sessionId: message.sessionId,
-    projectId,
-    assistantMessageId: uuidv4(),
-    fullContent: '',
-    collectedToolCalls: [],
-    contentBlocks: [],
-    startedAt: Date.now(),
-    lastActivityAt: Date.now(),
-    recentToolCalls: [],
-    loopHeartbeatStreak: 0,
-    sessionType,
-    workspaceRoot: cwd,
-    rememberedDecisions: loadSessionRememberedDecisions(db, message.sessionId),
-    allowedOutsideWorkspaceRoots: loadProjectAllowedOutsideWorkspaceRoots(db, projectId),
-    aiInitiatedPlanMode: false,
-    eventSeq: 0,
-  };
-  activeRuns.set(runId, activeRun);
-
-  // Persist run status for crash recovery
-  db.prepare('UPDATE sessions SET last_run_status = ?, updated_at = ? WHERE id = ?')
-    .run('running', Date.now(), message.sessionId);
-
-  // Track tool_use_id to tool_name mapping for this run
-  const toolUseIdToName = new Map<string, string>();
-
-  // Save user message to database (before sending run_started so IDs are available)
-  // Skip when resending — the user message already exists in the DB
-  let userMessageId: string | undefined;
-  if (!message.resend) {
-    userMessageId = uuidv4();
-    const userOffset = getNextOffset(db, message.sessionId);
-    db.prepare(`
-      INSERT INTO messages (id, session_id, role, content, created_at, offset)
-      VALUES (?, ?, 'user', ?, ?, ?)
-    `).run(userMessageId, message.sessionId, message.input, Date.now(), userOffset);
-  }
-
-  // Send run started (include real DB message IDs for client-side dedup)
-  const sendRunEvent = (event: ServerMessage) => {
-    // Inject monotonically increasing seq for run-scoped events (for client-side dedup)
-    if ('runId' in event) {
-      activeRun.eventSeq += 1;
-      (event as ServerMessage & { seq?: number }).seq = activeRun.eventSeq;
-    }
-    trace.log('server_norm', event.type, event, summarizeServerMessage(event as { type: string; [key: string]: unknown }));
-    sendMessage(client.ws, event);
-    if (clients) broadcastToOtherAuthenticatedClients(clients, client.id, event);
-  };
-
-  let sdkSessionId = session.sdk_session_id || undefined;
-  let persistedWorkingDirectory = normalizeSessionWorkingDirectory(session.working_directory, session.root_path);
-  let handedOffToRetry = false;
-  trace.setMeta({
-    provider: providerConfig?.type,
-    cwd: message.workingDirectory || persistedWorkingDirectory || session.root_path || undefined,
+    message,
+    runId,
+    trace,
   });
+  if (!bootstrap) return;
 
-  const persistSessionWorkingDirectory = (nextWorkingDirectory: string | null | undefined) => {
-    const normalizedNext = normalizeSessionWorkingDirectory(nextWorkingDirectory, session.root_path);
-    if (normalizedNext === persistedWorkingDirectory) return;
+  const {
+    activeRun,
+    broadcastSessionCatalogUpdate,
+    connectedClients,
+    cwd,
+    markPendingResolutionResumed,
+    persistSessionWorkingDirectory,
+    projectId,
+    providerConfig,
+    providerEventState,
+    providerId,
+    requestedCwd,
+    sendRunEvent,
+    session,
+    sessionType,
+    userMessageId,
+  } = bootstrap;
 
-    const now = Date.now();
-    db.prepare(`
-      UPDATE sessions
-      SET working_directory = ?, updated_at = ?
-      WHERE id = ?
-    `).run(normalizedNext, now, message.sessionId);
-
-    persistedWorkingDirectory = normalizedNext;
-
-    const gatewayClient = getGatewayClient();
-    if (!gatewayClient) return;
-
-    const updatedSession = db.prepare(`
-      SELECT s.id, s.project_id as projectId, s.name, s.provider_id as providerId,
-             s.sdk_session_id as sdkSessionId, s.type, s.parent_session_id as parentSessionId,
-             s.working_directory as workingDirectory,
-             s.archived_at as archivedAt,
-             s.project_role as projectRole, s.task_id as taskId,
-             s.plan_status as planStatus,
-             s.last_run_status as lastRunStatus,
-             CASE WHEN s.is_read_only = 1 THEN 1 ELSE NULL END as isReadOnly,
-             s.created_at as createdAt, s.updated_at as updatedAt
-      FROM sessions s
-      WHERE s.id = ?
-    `).get(message.sessionId) as { id: string; name?: string; createdAt?: number; updatedAt?: number } | undefined;
-
-    if (updatedSession) {
-      gatewayClient.commands.catalog.broadcastSessionEvent('updated', updatedSession);
-    }
-  };
-
-  const broadcastSessionCatalogUpdate = () => {
-    const gatewayClient = getGatewayClient();
-    if (!gatewayClient) return;
-
-    const updatedSession = db.prepare(`
-      SELECT s.id, s.name, s.updated_at as updatedAt, s.archived_at as archivedAt
-      FROM sessions s
-      WHERE s.id = ?
-    `).get(message.sessionId) as {
-      id: string;
-      name?: string;
-      updatedAt?: number;
-      archivedAt?: number | null;
-    } | undefined;
-
-    if (updatedSession) {
-      gatewayClient.commands.catalog.broadcastSessionEvent('updated', updatedSession);
-    }
-  };
-
-  const markPendingResolutionResumed = () => {
-    db.prepare('UPDATE sessions SET last_run_status = ?, updated_at = ? WHERE id = ?')
-      .run('running', Date.now(), activeRun.sessionId);
-
-    if (sessionType === 'background') {
-      sendMessage(client.ws, {
-        type: 'background_task_update',
-        sessionId: message.sessionId,
-        status: 'running',
-      } as import('@my-claudia/shared').BackgroundTaskUpdateMessage);
-    }
-  };
+  const toolUseIdToName = new Map<string, string>();
+  let sdkSessionId = providerEventState.sdkSessionId;
+  let handedOffToRetry = false;
 
   try {
     const providerType = providerConfig?.type || 'claude';
