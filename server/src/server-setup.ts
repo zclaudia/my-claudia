@@ -42,6 +42,7 @@ import { createPluginToolsRoutes } from './routes/plugin-tools.js';
 import { createPluginRoutes } from './routes/plugins.js';
 import { createMcpServerRoutes } from './routes/mcp-servers.js';
 import { createSystemStatsRoutes } from './routes/system-stats.js';
+import { createDebugRoutes } from './routes/debug.js';
 import { registerLocalPRDomain } from './domains/local-pr/register.js';
 import { registerSupervisionDomain } from './domains/supervision/register.js';
 import { registerScheduledTaskDomain } from './domains/scheduled-tasks/register.js';
@@ -345,6 +346,7 @@ export function setupRoutesAndServices(deps: SetupDependencies): SetupResult {
 
   // System stats + plugin storage reader (local only)
   app.use('/api/system', localOnlyMiddleware, createSystemStatsRoutes());
+  app.use('/api/debug', localOnlyMiddleware, createDebugRoutes());
 
   // Workspace routes (Agent personality configuration)
   app.use('/api/workspace', authMiddleware, createWorkspaceRoutes());

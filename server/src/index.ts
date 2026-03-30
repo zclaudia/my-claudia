@@ -9,6 +9,7 @@ import { sanitizeInheritedProviderEnv } from './utils/startup-env.js';
 import { isIgnorableProcessError } from './utils/process-error-filter.js';
 import { GatewayManager } from './domains/gateway/manager.js';
 import { stopFileStoreCleanup } from './storage/fileStore.js';
+import { writeCrashReportSync } from './utils/crash-log.js';
 
 const sanitizedEnv = sanitizeInheritedProviderEnv();
 if (sanitizedEnv.removedKeys.length > 0) {
@@ -21,6 +22,14 @@ process.on('uncaughtException', (error) => {
     return;
   }
   console.error('[Process] Uncaught exception:', error);
+  writeCrashReportSync({
+    event: 'uncaughtException',
+    error,
+    context: {
+      cwd: process.cwd(),
+      argv: process.argv,
+    },
+  });
   process.exit(1);
 });
 
@@ -191,6 +200,14 @@ async function main() {
     process.on('SIGTERM', shutdown);
   } catch (error) {
     console.error('❌ Failed to start server:', error);
+    writeCrashReportSync({
+      event: 'startup_failure',
+      error,
+      context: {
+        cwd: process.cwd(),
+        argv: process.argv,
+      },
+    });
     process.exit(1);
   }
 }
