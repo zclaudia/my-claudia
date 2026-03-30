@@ -53,7 +53,7 @@ function hasActiveRunsForBackend(backendId: string): boolean {
     return true;
   }
 
-  for (const [runId, sessionId] of Object.entries(chatStore.activeRuns)) {
+  for (const [, sessionId] of Object.entries(chatStore.activeRuns)) {
     const ownerBackendId = ownershipStore.getSessionBackendId(sessionId);
     if (ownerBackendId === backendId) {
       return true;
