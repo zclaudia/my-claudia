@@ -1,7 +1,7 @@
 # Batch 13: Desktop UI Shell — Chat & Core UI Review
 
 日期：2026-03-28
-状态：✅ Review 完成（修复延迟至 UI 重构迭代）
+状态：✅ Completed
 
 ## 概览
 

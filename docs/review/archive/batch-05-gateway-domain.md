@@ -1,7 +1,7 @@
 # Batch 5: Server Domain — Gateway Review
 
 日期：2026-03-30
-状态：✅ 已完成 review 与关键修复落地
+状态：✅ Completed
 
 ## 概览
 

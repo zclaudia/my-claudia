@@ -1,7 +1,7 @@
 # Batch 4: Server — API Surface Review
 
 日期：2026-03-29
-状态：✅ 已完成 review 与主要修复落地
+状态：✅ Completed
 
 ## 概览
 
