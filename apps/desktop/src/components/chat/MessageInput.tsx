@@ -54,8 +54,7 @@ const initialMentionState: MentionState = {
 };
 
 const DRAFT_PERSIST_DEBOUNCE_MS = 300;
-const COLLAPSED_INPUT_BASELINE_HEIGHT_PX = 48;
-const COLLAPSED_INPUT_TALL_TOLERANCE_PX = 4;
+const COLLAPSED_CONTROL_SIZE_PX = 48;
 const EXPANDED_INPUT_DEFAULT_HEIGHT_PX = 160;
 const EXPANDED_INPUT_MIN_HEIGHT_PX = 120;
 
@@ -109,7 +108,6 @@ export function MessageInput({
   const [mentionState, setMentionState] = useState<MentionState>(initialMentionState);
   const [isComposing, setIsComposing] = useState(false); // Track IME composition state
   const [availableViewportHeight, setAvailableViewportHeight] = useState(getAvailableViewportHeight);
-  const [isTallCollapsedComposer, setIsTallCollapsedComposer] = useState(false);
   const controlIconSize = isMobile ? 18 : 20;
   const expandedInputMaxHeight = Math.max(
     EXPANDED_INPUT_MIN_HEIGHT_PX,
@@ -297,23 +295,28 @@ export function MessageInput({
     if (!textarea) return;
 
     if (!advancedMode) {
-      // Keep the collapsed composer from growing taller than the expanded composer baseline.
-      const maxHeight = expandedInputHeight;
-      const shouldAutoExpand = !isMobile && textarea.scrollHeight > maxHeight;
-      const singleLineThreshold = COLLAPSED_INPUT_BASELINE_HEIGHT_PX + COLLAPSED_INPUT_TALL_TOLERANCE_PX;
-      const nextIsTallCollapsedComposer = textarea.scrollHeight > singleLineThreshold;
-
-      if (shouldAutoExpand && !isTallCollapsedComposer) {
-        onRequestAdvancedMode?.();
+      if (!isMobile) {
+        // Desktop collapsed mode is intentionally fixed-height. As soon as content
+        // needs more than a single line, switch to advanced mode instead of
+        // stretching the baseline row and risking visual misalignment.
+        textarea.style.height = '24px';
+        textarea.style.maxHeight = '24px';
+        textarea.style.overflowY = 'hidden';
+        if (textarea.scrollHeight > textarea.clientHeight + 1) {
+          onRequestAdvancedMode?.();
+        }
+        return;
       }
 
+      // Mobile collapsed composer can grow within the available viewport.
+      const maxHeight = expandedInputHeight;
       textarea.style.height = 'auto';
-      textarea.style.height = `${Math.min(textarea.scrollHeight, maxHeight)}px`;
+      textarea.style.height = `${Math.max(
+        COLLAPSED_CONTROL_SIZE_PX,
+        Math.min(textarea.scrollHeight, maxHeight)
+      )}px`;
       textarea.style.maxHeight = `${maxHeight}px`;
       textarea.style.overflowY = textarea.scrollHeight > maxHeight ? 'auto' : 'hidden';
-      if (nextIsTallCollapsedComposer !== isTallCollapsedComposer) {
-        setIsTallCollapsedComposer(nextIsTallCollapsedComposer);
-      }
 
       if (isMobile) {
         textarea.scrollTop = textarea.scrollHeight;
@@ -322,11 +325,8 @@ export function MessageInput({
       // Advanced mode: clear inline styles so CSS min/max + overflow takes effect
       textarea.style.height = '';
       textarea.style.overflowY = 'auto';
-      if (isTallCollapsedComposer) {
-        setIsTallCollapsedComposer(false);
-      }
     }
-  }, [value, advancedMode, expandedInputHeight, isMobile, availableViewportHeight, isTallCollapsedComposer, onRequestAdvancedMode]);
+  }, [value, advancedMode, expandedInputHeight, isMobile, availableViewportHeight, onRequestAdvancedMode]);
 
   useEffect(() => {
     if (!isMobile) return;
@@ -911,12 +911,12 @@ export function MessageInput({
         </div>
       ) : (
         /* Desktop: single-row layout */
-        <div className={`flex gap-2 ${advancedMode || isTallCollapsedComposer ? 'items-end' : 'items-center'} ${advancedMode ? '' : 'min-h-12'}`}>
+        <div className={`flex gap-2 ${advancedMode ? 'items-end' : 'items-center min-h-12'}`}>
           {/* Attachment button */}
           <button
             onClick={() => fileInputRef.current?.click()}
             disabled={disabled}
-            className={`h-12 w-12 flex-shrink-0 flex items-center justify-center ${advancedMode || isTallCollapsedComposer ? 'self-end' : ''} text-muted-foreground hover:text-foreground hover:bg-muted rounded-full transition-colors disabled:opacity-50 disabled:cursor-not-allowed`}
+            className={`h-12 w-12 flex-shrink-0 flex items-center justify-center ${advancedMode ? 'self-end' : ''} text-muted-foreground hover:text-foreground hover:bg-muted rounded-full transition-colors disabled:opacity-50 disabled:cursor-not-allowed`}
             title="Add attachment (images, files)"
           >
             <Paperclip size={controlIconSize} strokeWidth={1.75} />
@@ -931,56 +931,83 @@ export function MessageInput({
           />
 
           {/* Text input */}
-          <div className={`flex-1 relative ${advancedMode || isTallCollapsedComposer ? 'self-end' : ''}`}>
-            <textarea
-              data-testid="message-input"
-              ref={textareaRef}
-              value={value}
-              onChange={handleChange}
-              onKeyDown={handleKeyDown}
-              onPaste={handlePaste}
-              onCompositionStart={() => {
-                if (compositionTimeoutRef.current) {
-                  clearTimeout(compositionTimeoutRef.current);
-                  compositionTimeoutRef.current = null;
-                }
-                setIsComposing(true);
-              }}
-              onCompositionEnd={() => {
-                compositionTimeoutRef.current = setTimeout(() => {
-                  setIsComposing(false);
-                  compositionTimeoutRef.current = null;
-                }, 50);
-              }}
-              disabled={disabled}
-              placeholder={placeholder}
-              spellCheck={false}
-              autoCorrect="off"
-              autoCapitalize="off"
-              autoComplete="off"
-              rows={1}
-              className={`w-full bg-input border border-border rounded-xl px-4 py-3 text-foreground placeholder-muted-foreground/60 focus:outline-none focus:border-primary/60 focus:shadow-apple-md disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-200 ${
-                advancedMode
-                  ? 'resize-none overflow-auto'
-                  : 'resize-none min-h-12 overflow-y-auto'
-              }`}
-              style={{
-                fontSize: 'var(--chat-font-input, 0.875rem)',
-                ...(advancedMode
-                  ? {
-                      minHeight: `${expandedInputHeight}px`,
-                      maxHeight: `${expandedInputMaxHeight}px`,
+          <div className={`flex-1 relative ${advancedMode ? 'self-end' : ''}`}>
+            {advancedMode ? (
+              <textarea
+                data-testid="message-input"
+                ref={textareaRef}
+                value={value}
+                onChange={handleChange}
+                onKeyDown={handleKeyDown}
+                onPaste={handlePaste}
+                onCompositionStart={() => {
+                  if (compositionTimeoutRef.current) {
+                    clearTimeout(compositionTimeoutRef.current);
+                    compositionTimeoutRef.current = null;
+                  }
+                  setIsComposing(true);
+                }}
+                onCompositionEnd={() => {
+                  compositionTimeoutRef.current = setTimeout(() => {
+                    setIsComposing(false);
+                    compositionTimeoutRef.current = null;
+                  }, 50);
+                }}
+                disabled={disabled}
+                placeholder={placeholder}
+                spellCheck={false}
+                autoCorrect="off"
+                autoCapitalize="off"
+                autoComplete="off"
+                rows={1}
+                className="w-full resize-none overflow-auto rounded-xl border border-border bg-input px-4 py-3 text-foreground leading-6 placeholder-muted-foreground/60 focus:outline-none focus:border-primary/60 focus:shadow-apple-md disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-200"
+                style={{
+                  fontSize: 'var(--chat-font-input, 0.875rem)',
+                  minHeight: `${expandedInputHeight}px`,
+                  maxHeight: `${expandedInputMaxHeight}px`,
+                }}
+              />
+            ) : (
+              <div className="flex h-12 items-center rounded-xl border border-border bg-input px-4 transition-colors duration-200 focus-within:border-primary/60 focus-within:shadow-apple-md">
+                <textarea
+                  data-testid="message-input"
+                  ref={textareaRef}
+                  value={value}
+                  onChange={handleChange}
+                  onKeyDown={handleKeyDown}
+                  onPaste={handlePaste}
+                  onCompositionStart={() => {
+                    if (compositionTimeoutRef.current) {
+                      clearTimeout(compositionTimeoutRef.current);
+                      compositionTimeoutRef.current = null;
                     }
-                  : null),
-              }}
-            />
+                    setIsComposing(true);
+                  }}
+                  onCompositionEnd={() => {
+                    compositionTimeoutRef.current = setTimeout(() => {
+                      setIsComposing(false);
+                      compositionTimeoutRef.current = null;
+                    }, 50);
+                  }}
+                  disabled={disabled}
+                  placeholder={placeholder}
+                  spellCheck={false}
+                  autoCorrect="off"
+                  autoCapitalize="off"
+                  autoComplete="off"
+                  rows={1}
+                  className="block h-6 w-full resize-none overflow-hidden border-0 bg-transparent p-0 text-foreground leading-6 placeholder-muted-foreground/60 focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
+                  style={{ fontSize: 'var(--chat-font-input, 0.875rem)' }}
+                />
+              </div>
+            )}
           </div>
 
           {/* Send/Cancel button */}
           {isLoading && onCancel ? (
             <button
               onClick={onCancel}
-              className={`h-12 w-12 flex-shrink-0 flex items-center justify-center ${advancedMode || isTallCollapsedComposer ? 'self-end' : ''} bg-destructive text-destructive-foreground hover:bg-destructive/90 rounded-full transition-colors`}
+              className={`h-12 w-12 flex-shrink-0 flex items-center justify-center ${advancedMode ? 'self-end' : ''} bg-destructive text-destructive-foreground hover:bg-destructive/90 rounded-full transition-colors`}
               title="Cancel (Esc)"
             >
               <X size={controlIconSize} strokeWidth={2} />
@@ -989,7 +1016,7 @@ export function MessageInput({
             <button
               onClick={handleSend}
               disabled={disabled || (!value.trim() && attachments.length === 0)}
-              className={`h-12 w-12 flex-shrink-0 flex items-center justify-center ${advancedMode || isTallCollapsedComposer ? 'self-end' : ''} bg-primary text-primary-foreground hover:bg-primary/90 disabled:bg-muted disabled:text-muted-foreground disabled:cursor-not-allowed rounded-full transition-colors`}
+              className={`h-12 w-12 flex-shrink-0 flex items-center justify-center ${advancedMode ? 'self-end' : ''} bg-primary text-primary-foreground hover:bg-primary/90 disabled:bg-muted disabled:text-muted-foreground disabled:cursor-not-allowed rounded-full transition-colors`}
               title={advancedMode
                 ? `Send message (${isMac ? 'Cmd' : 'Ctrl'}+Enter)`
                 : 'Send message (Enter)'}

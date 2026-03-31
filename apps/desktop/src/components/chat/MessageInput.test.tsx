@@ -339,8 +339,11 @@ describe('MessageInput', () => {
     it('renders normal textarea when not in advanced mode', () => {
       render(<MessageInput {...defaultProps} />);
       const textarea = screen.getByPlaceholderText(/Type a message/);
-      expect(textarea.className).toContain('min-h-12');
-      expect(textarea.className).not.toContain('min-h-[160px]');
+      expect(textarea.className).toContain('h-6');
+      expect(textarea.className).toContain('leading-6');
+      const shell = textarea.parentElement;
+      expect(shell?.className).toContain('h-12');
+      expect(shell?.className).toContain('items-center');
     });
 
     it('does not send on plain Enter in advanced mode', () => {
@@ -383,18 +386,31 @@ describe('MessageInput', () => {
 
     it('restores scrolling when switching to advanced mode', () => {
       const { rerender } = render(<MessageInput {...defaultProps} />);
-      const textarea = screen.getByPlaceholderText(/Type a message/) as HTMLTextAreaElement;
-      fireEvent.change(textarea, { target: { value: 'short' } });
-      expect(textarea.style.overflowY).toBe('hidden');
+      const collapsedTextarea = screen.getByPlaceholderText(/Type a message/) as HTMLTextAreaElement;
+      fireEvent.change(collapsedTextarea, { target: { value: 'short' } });
+      expect(collapsedTextarea.style.overflowY).toBe('hidden');
       rerender(<MessageInput {...defaultProps} advancedMode />);
-      expect(textarea.style.overflowY).toBe('auto');
+      const advancedTextarea = screen.getByPlaceholderText(/Type a message/) as HTMLTextAreaElement;
+      expect(advancedTextarea.style.overflowY).toBe('auto');
     });
 
-    it('caps collapsed auto-resize at the expanded input height baseline', () => {
+    it('keeps collapsed desktop textarea capped to a single-line height', () => {
       render(<MessageInput {...defaultProps} />);
       const textarea = screen.getByPlaceholderText(/Type a message/) as HTMLTextAreaElement;
       fireEvent.change(textarea, { target: { value: 'long content that should still cap the collapsed composer height' } });
-      expect(textarea.style.maxHeight).toBe('160px');
+      expect(textarea.style.maxHeight).toBe('24px');
+    });
+
+    it('pins single-line collapsed composer height to the shared control size', () => {
+      render(<MessageInput {...defaultProps} />);
+      const textarea = screen.getByPlaceholderText(/Type a message/) as HTMLTextAreaElement;
+      Object.defineProperty(textarea, 'scrollHeight', {
+        configurable: true,
+        value: 40,
+      });
+      fireEvent.change(textarea, { target: { value: 'short' } });
+      expect(textarea.parentElement?.className).toContain('h-12');
+      expect(textarea.style.height).toBe('24px');
     });
 
     it('requests advanced mode when collapsed desktop input exceeds the max height', () => {
@@ -409,14 +425,17 @@ describe('MessageInput', () => {
       expect(onRequestAdvancedMode).toHaveBeenCalledTimes(1);
     });
 
-    it('keeps single-line desktop controls center-aligned near the collapsed baseline height', () => {
+    it('keeps collapsed desktop controls center-aligned even when the textarea grows taller', () => {
       render(<MessageInput {...defaultProps} />);
       const textarea = screen.getByPlaceholderText(/Type a message/) as HTMLTextAreaElement;
       Object.defineProperty(textarea, 'scrollHeight', {
         configurable: true,
-        value: 52,
+        value: 72,
       });
-      fireEvent.change(textarea, { target: { value: 'single line content' } });
+      fireEvent.change(textarea, { target: { value: 'line 1\nline 2' } });
+      const row = textarea.closest('div.flex.gap-2');
+      expect(row?.className).toContain('items-center');
+      expect(row?.className).not.toContain('items-end');
       expect(screen.getByTitle('Add attachment (images, files)').className).not.toContain('self-end');
       expect(screen.getByTestId('send-button').className).not.toContain('self-end');
     });
