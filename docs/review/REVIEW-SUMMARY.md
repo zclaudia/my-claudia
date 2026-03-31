@@ -213,7 +213,7 @@
 | [batch-06-conversation-engine.md](batch-06-conversation-engine.md) | Batch 6: Conversation Engine |
 | [batch-07-supervision.md](batch-07-supervision.md) | Batch 7: Supervision |
 | [batch-08-automation.md](batch-08-automation.md) | Batch 8: Workflow Automation |
-| [batch-09-orchestration-collab.md](batch-09-orchestration-collab.md) | Batch 9: Orchestration & Collaboration (Preliminary) |
+| [batch-09-orchestration-collab.md](batch-09-orchestration-collab.md) | Batch 9: Orchestration & Collaboration |
 | [batch-10-server-providers.md](batch-10-server-providers.md) | Batch 10: Server AI Providers |
 | [batch-11-plugin-system.md](batch-11-plugin-system.md) | Batch 11: Plugin System |
 | [batch-12-desktop-stores-api.md](batch-12-desktop-stores-api.md) | Batch 12: Desktop Stores & API |

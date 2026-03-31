@@ -20,7 +20,6 @@ import {
   abortMerge,
   removeWorktree,
 } from '../../utils/git-operations.js';
-import { createVirtualClient, handleRunStart } from '../../server.js';
 
 // Regex to detect review outcome from AI session messages
 const REVIEW_PASSED_RE = /\[REVIEW_PASSED\]/i;
@@ -45,6 +44,19 @@ const LOCAL_PR_SESSION_STREAM_MESSAGE_TYPES = new Set<ServerMessage['type']>([
   'run_failed',
 ]);
 
+export interface LocalPRAIDeps {
+  /** Start an AI session: creates a virtual client internally and calls handleRunStart. */
+  startAISession: (opts: {
+    clientId: string;
+    sessionId: string;
+    input: string;
+    workingDirectory?: string;
+    providerId?: string;
+    onMessage: (msg: ServerMessage) => void;
+  }) => void;
+  isProjectSlotAvailable?: (projectId: string) => boolean;
+}
+
 export class LocalPRService {
   private prRepo: LocalPRRepository;
   private projectRepo: ProjectRepository;
@@ -52,14 +64,21 @@ export class LocalPRService {
   private sessionRepo: SessionRepository;
   private wtConfigRepo: WorktreeConfigRepository;
   private mergeLock = new Mutex();
-  private activeReviewClients = new Map<string, unknown>(); // prId → virtualClient
-  private activeConflictClients = new Map<string, unknown>(); // prId → virtualClient
+  private activeReviewIds = new Set<string>();
+  private activeConflictIds = new Set<string>();
+  private aiDeps?: LocalPRAIDeps;
 
   constructor(
     private db: Database,
     private broadcastToProject: (projectId: string, message: ServerMessage) => void,
-    private isProjectSlotAvailable?: (projectId: string) => boolean,
+    deps?: LocalPRAIDeps | ((projectId: string) => boolean),
   ) {
+    // Backward compat: accept a bare function as isProjectSlotAvailable
+    if (typeof deps === 'function') {
+      this.aiDeps = { startAISession: () => { throw new Error('AI session not configured'); }, isProjectSlotAvailable: deps };
+    } else {
+      this.aiDeps = deps;
+    }
     this.prRepo = new LocalPRRepository(db);
     this.projectRepo = new ProjectRepository(db);
     this.providerRepo = new ProviderRepository(db);
@@ -364,7 +383,7 @@ export class LocalPRService {
       pendingAction: 'review',
     });
 
-    if (this.activeReviewClients.has(prId)) {
+    if (this.activeReviewIds.has(prId)) {
       console.log(`[LocalPRService] Review already in progress for PR ${prId}`);
       return;
     }
@@ -381,39 +400,28 @@ export class LocalPRService {
     } as Omit<Session, 'id' | 'createdAt' | 'updatedAt'>);
 
     this.prRepo.update(prId, { status: 'reviewing', reviewSessionId: session.id });
-    // Broadcast new session so the frontend store includes it immediately
     this.broadcastToProject(pr.projectId, { type: 'sessions_created', session });
     this.broadcastPRUpdate(this.prRepo.findById(prId)!);
 
     const reviewPrompt = await this.buildReviewPrompt(pr);
-    const clientId = `localpr_review_${prId}`;
+    this.activeReviewIds.add(prId);
 
-    const virtualClient = createVirtualClient(clientId, {
-      send: (msg: ServerMessage) => {
+    this.aiDeps!.startAISession({
+      clientId: `localpr_review_${prId}`,
+      sessionId: session.id,
+      input: reviewPrompt,
+      workingDirectory: pr.worktreePath,
+      providerId,
+      onMessage: (msg: ServerMessage) => {
         this.forwardSessionStream(pr.projectId, session.id, msg);
         if (msg.type === 'run_completed' || msg.type === 'run_failed') {
           this.onReviewSessionComplete(prId, session.id, msg.type === 'run_failed').catch((err) =>
             console.error(`[LocalPRService] Review completion error for PR ${prId}:`, err),
           );
-          this.activeReviewClients.delete(prId);
+          this.activeReviewIds.delete(prId);
         }
       },
     });
-
-    this.activeReviewClients.set(prId, virtualClient);
-
-    handleRunStart(
-      virtualClient,
-      {
-        type: 'run_start',
-        clientRequestId: `localpr_review_${prId}_${Date.now()}`,
-        sessionId: session.id,
-        input: reviewPrompt,
-        workingDirectory: pr.worktreePath,
-        providerId,
-      },
-      this.db,
-    );
 
     console.log(`[LocalPRService] Started review session ${session.id} for PR ${prId}`);
   }
@@ -800,7 +808,7 @@ Be thorough but pragmatic. Minor style issues do not warrant REVIEW_FAILED.`;
       console.warn(`[LocalPRService] No provider for conflict resolution on PR ${prId}`);
       return;
     }
-    if (this.activeConflictClients.has(prId)) {
+    if (this.activeConflictIds.has(prId)) {
       console.log(`[LocalPRService] Conflict resolution already in progress for PR ${prId}`);
       return;
     }
@@ -839,36 +847,27 @@ IMPORTANT: Do NOT merge into ${pr.baseBranch}. Only rebase this branch. The merg
 If the rebase succeeds, output: [CONFLICT_RESOLVED]
 If you cannot resolve it, output: [CONFLICT_UNRESOLVED]`;
 
-    const clientId = `localpr_conflict_${prId}`;
-
-    const virtualClient = createVirtualClient(clientId, {
-      send: (msg: ServerMessage) => {
-        this.forwardSessionStream(pr.projectId, session.id, msg);
-        if (msg.type === 'run_completed' || msg.type === 'run_failed') {
-          this.onConflictSessionComplete(prId, session.id).catch((err) =>
-            console.error(`[LocalPRService] Conflict completion error for PR ${prId}:`, err),
-          );
-          this.activeConflictClients.delete(prId);
-        }
-      },
-    });
-    this.activeConflictClients.set(prId, virtualClient);
+    this.activeConflictIds.add(prId);
 
     try {
-      handleRunStart(
-        virtualClient,
-        {
-          type: 'run_start',
-          clientRequestId: `localpr_conflict_${prId}_${Date.now()}`,
-          sessionId: session.id,
-          input: conflictPrompt,
-          workingDirectory: pr.worktreePath,
-          providerId,
+      this.aiDeps!.startAISession({
+        clientId: `localpr_conflict_${prId}`,
+        sessionId: session.id,
+        input: conflictPrompt,
+        workingDirectory: pr.worktreePath,
+        providerId,
+        onMessage: (msg: ServerMessage) => {
+          this.forwardSessionStream(pr.projectId, session.id, msg);
+          if (msg.type === 'run_completed' || msg.type === 'run_failed') {
+            this.onConflictSessionComplete(prId, session.id).catch((err) =>
+              console.error(`[LocalPRService] Conflict completion error for PR ${prId}:`, err),
+            );
+            this.activeConflictIds.delete(prId);
+          }
         },
-        this.db,
-      );
+      });
     } catch (err) {
-      this.activeConflictClients.delete(prId);
+      this.activeConflictIds.delete(prId);
       const message = err instanceof Error ? err.message : 'Unknown startup error';
       this.prRepo.update(prId, {
         statusMessage: `Failed to start AI conflict resolution: ${message}`,
@@ -943,7 +942,7 @@ If you cannot resolve it, output: [CONFLICT_UNRESOLVED]`;
       if (!this.hasAvailableSlot(pr.projectId)) continue;
 
       // Check if already running
-      if (pr.pendingAction === 'review' && this.activeReviewClients.has(pr.id)) continue;
+      if (pr.pendingAction === 'review' && this.activeReviewIds.has(pr.id)) continue;
       if (pr.pendingAction === 'merge' && this.mergeLock.isLocked()) continue;
 
       console.log(`[LocalPRService] Starting queued PR ${pr.id} (${pr.pendingAction})`);
@@ -1004,7 +1003,7 @@ If you cannot resolve it, output: [CONFLICT_UNRESOLVED]`;
         executionState: 'idle',
         pendingAction: 'none',
       });
-      this.activeReviewClients.delete(pr.id);
+      this.activeReviewIds.delete(pr.id);
       this.broadcastPRUpdate(this.prRepo.findById(pr.id)!);
       console.log(
         `[LocalPRService] Reset stale PR ${pr.id} (${pr.status} → ${resetStatus})`,
@@ -1018,7 +1017,7 @@ If you cannot resolve it, output: [CONFLICT_UNRESOLVED]`;
     const pending = this.prRepo.findPendingAutoReview();
 
     for (const pr of pending) {
-      if (this.activeReviewClients.has(pr.id)) continue; // already running
+      if (this.activeReviewIds.has(pr.id)) continue; // already running
 
       await this.startReview(pr.id).catch((err) =>
         console.error(`[LocalPRService] Failed to start review for PR ${pr.id}:`, err),
@@ -1132,11 +1131,10 @@ If you cannot resolve it, output: [CONFLICT_UNRESOLVED]`;
   }
 
   private hasAvailableSlot(projectId: string): boolean {
-    if (!this.isProjectSlotAvailable) return true;
+    if (!this.aiDeps?.isProjectSlotAvailable) return true;
     try {
-      return this.isProjectSlotAvailable(projectId);
+      return this.aiDeps.isProjectSlotAvailable(projectId);
     } catch {
-      // Fail-open: do not block PR flow if slot probe itself fails.
       return true;
     }
   }

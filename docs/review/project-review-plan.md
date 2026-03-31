@@ -15,13 +15,14 @@
 - Batch 6: Server Domain — Conversation — [batch-06-conversation-engine.md](./batch-06-conversation-engine.md)
 - Batch 7: Server Domain — Supervision — [batch-07-supervision.md](./batch-07-supervision.md)
 - Batch 8: Server Domains — Workflow Automation — [batch-08-automation.md](./batch-08-automation.md)（第二轮修复 + DDD P1 重构已落地）
+- Batch 9: Server Domains — Orchestration & Collaboration — [batch-09-orchestration-collab.md](./batch-09-orchestration-collab.md)
 
 当前下一批：
-- Batch 9: Server Domains — Orchestration & Collaboration
+- Batch 10: Server Infra — Providers & Plugin System
 
 说明：
 - Batch 8 完成内容：6 项 bug 修复、1 项降级、DDD P1（Engine step handler 拆分 + Port/Adapter 注入），详见报告。
-- Batch 9 有初步 review（旧编号遗留），见 [batch-09-orchestration-collab.md](./batch-09-orchestration-collab.md)。
+- Batch 9 完成内容：3 项 HIGH（反向依赖×2、裸 SQL 绕过 repo）、7 项 MEDIUM、5 项 refactor candidate，详见报告。
 
 ## 编号对齐说明（2026-03-31）
 

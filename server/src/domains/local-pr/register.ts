@@ -7,7 +7,6 @@
 
 import type { Express } from 'express';
 import type { RequestHandler } from 'express';
-import type { WebSocket } from 'ws';
 import type { ServerMessage } from '@my-claudia/shared';
 import type { initDatabase } from '../../storage/db.js';
 import { LocalPRService } from './service.js';
@@ -24,6 +23,15 @@ export interface LocalPRDomainDeps {
   clients: Map<string, ConnectedClient>;
   /** Check if a worktree slot is available for a project */
   isWorktreeAvailable: (projectId: string) => boolean;
+  /** Start an AI session (virtual client + handleRunStart) — injected from server layer */
+  startAISession: (opts: {
+    clientId: string;
+    sessionId: string;
+    input: string;
+    workingDirectory?: string;
+    providerId?: string;
+    onMessage: (msg: ServerMessage) => void;
+  }) => void;
 }
 
 export interface LocalPRDomainResult {
@@ -31,7 +39,7 @@ export interface LocalPRDomainResult {
 }
 
 export function registerLocalPRDomain(deps: LocalPRDomainDeps): LocalPRDomainResult {
-  const { db, app, authMiddleware, clients, isWorktreeAvailable } = deps;
+  const { db, app, authMiddleware, clients, isWorktreeAvailable, startAISession } = deps;
 
   const broadcast = (projectId: string, message: ServerMessage) => {
     clients.forEach((client) => {
@@ -39,7 +47,10 @@ export function registerLocalPRDomain(deps: LocalPRDomainDeps): LocalPRDomainRes
     });
   };
 
-  const localPRService = new LocalPRService(db, broadcast, isWorktreeAvailable);
+  const localPRService = new LocalPRService(db, broadcast, {
+    startAISession,
+    isProjectSlotAvailable: isWorktreeAvailable,
+  });
 
   // Mount routes
   app.use('/api', authMiddleware, createLocalPRRoutes(localPRService, db));

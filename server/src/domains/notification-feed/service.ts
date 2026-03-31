@@ -40,7 +40,9 @@ export class NotificationFeedService {
 
     // Push notification for completed items
     if (created.status === 'completed' || created.status === 'failed') {
-      void this.notifyFn?.(created);
+      this.notifyFn?.(created)?.catch(err =>
+        console.error('[NotificationFeedService] notifyFn error:', err),
+      );
     }
 
     return created;
@@ -61,7 +63,9 @@ export class NotificationFeedService {
       } as NotificationUpdateMessage);
 
       if (status === 'completed' || status === 'failed') {
-        void this.notifyFn?.(updated);
+        this.notifyFn?.(updated)?.catch(err =>
+          console.error('[NotificationFeedService] notifyFn error:', err),
+        );
       }
     }
   }

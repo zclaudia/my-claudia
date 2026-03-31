@@ -7,7 +7,7 @@
 
 import { v4 as uuidv4 } from 'uuid';
 import type Database from 'better-sqlite3';
-import type { NotificationSource } from '@my-claudia/shared';
+import type { NotificationSource, ServerMessage } from '@my-claudia/shared';
 import type {
   TaskOrchestrator,
   SpawnTaskConfig,
@@ -17,18 +17,28 @@ import type {
   TaskStatus,
 } from './types.js';
 import { TaskRepository } from './repository.js';
-import { createVirtualClient, type ConnectedClient } from '../conversation/ws/types.js';
+import { ClaudiaBranchService } from './claudia-branch-service.js';
 
 const MAX_CONCURRENT_AGENT_TASKS = 3;
 const DEFAULT_WAIT_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
 const MAX_WAITING_AGE_MS = 60 * 60 * 1000; // 1 hour — tasks waiting longer than this are failed
 
+/** Minimal virtual client handle for the orchestrator — decouples from conversation domain types. */
+export interface VirtualClient {
+  readonly id: string;
+}
+
 export interface TaskOrchestratorDeps {
   db: Database.Database;
+  /** Factory to create a virtual client with a message handler. */
+  createVirtualClient: (clientId: string, ws: { send: (msg: ServerMessage) => void }) => VirtualClient;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- handleRunStart accepts various message shapes from different callers
-  handleRunStart: (client: ConnectedClient, message: any, db: Database.Database, options?: Record<string, unknown>, clients?: Map<string, ConnectedClient>) => Promise<void>;
-  getClients: () => Map<string, ConnectedClient>;
+  handleRunStart: (client: VirtualClient, message: any, db: Database.Database, options?: Record<string, unknown>, clients?: Map<string, VirtualClient>) => Promise<void>;
+  getClients: () => Map<string, VirtualClient>;
   serverPort: number | null;
+  /** Session management — avoids raw SQL on sessions table. */
+  createSession: (opts: { projectId: string | null; name: string; type: string }) => { id: string };
+  sessionExists: (id: string) => boolean;
   notificationService?: {
     postItem: (item: {
       triggerId?: string;
@@ -146,38 +156,28 @@ export function createTaskOrchestrator(deps: TaskOrchestratorDeps): TaskOrchestr
     }
   }
 
+  const branchService = new ClaudiaBranchService(deps.db);
+
   function executeAgentTask(task: OrchestratorTask): void {
     const now = Date.now();
     let sessionId: string;
+    const sessionName = `Agent Task: ${task.task.slice(0, 50)}`;
 
-    // If task has a branch with an existing session, try to reuse it
     if (task.branchId) {
-      const branch = deps.db.prepare(
-        'SELECT active_session_id FROM claudia_branches WHERE id = ?'
-      ).get(task.branchId) as { active_session_id: string | null } | undefined;
-      const existingSession = branch?.active_session_id
-        ? deps.db.prepare('SELECT 1 FROM sessions WHERE id = ?').get(branch.active_session_id)
-        : null;
-      if (branch?.active_session_id && existingSession) {
-        sessionId = branch.active_session_id;
+      const branch = branchService.findById(task.branchId);
+      const existingSession = branch?.activeSessionId
+        ? deps.sessionExists(branch.activeSessionId)
+        : false;
+      if (branch?.activeSessionId && existingSession) {
+        sessionId = branch.activeSessionId;
       } else {
-        // Branch exists but no session — create new
-        sessionId = uuidv4();
-        deps.db.prepare(`
-          INSERT INTO sessions (id, project_id, name, type, parent_session_id, created_at, updated_at)
-          VALUES (?, ?, ?, 'agent', NULL, ?, ?)
-        `).run(sessionId, task.projectId, `Agent Task: ${task.task.slice(0, 50)}`, now, now);
-        deps.db.prepare(
-          'UPDATE claudia_branches SET active_session_id = ?, updated_at = ? WHERE id = ?'
-        ).run(sessionId, now, task.branchId);
+        const session = deps.createSession({ projectId: task.projectId, name: sessionName, type: 'agent' });
+        sessionId = session.id;
+        branchService.attachSession(task.branchId, sessionId);
       }
     } else {
-      // No branch — create new session as before
-      sessionId = uuidv4();
-      deps.db.prepare(`
-        INSERT INTO sessions (id, project_id, name, type, parent_session_id, created_at, updated_at)
-        VALUES (?, ?, ?, 'agent', NULL, ?, ?)
-      `).run(sessionId, task.projectId, `Agent Task: ${task.task.slice(0, 50)}`, now, now);
+      const session = deps.createSession({ projectId: task.projectId, name: sessionName, type: 'agent' });
+      sessionId = session.id;
     }
 
     repo.updateStatus(task.id, 'running', { startedAt: now, sessionId });
@@ -227,8 +227,8 @@ export function createTaskOrchestrator(deps: TaskOrchestratorDeps): TaskOrchestr
     let fullContent = '';
     let toolCount = 0;
 
-    const virtualClient = createVirtualClient(clientId, {
-      send: (msg: import('@my-claudia/shared').ServerMessage) => {
+    const virtualClient = deps.createVirtualClient(clientId, {
+      send: (msg: ServerMessage) => {
         try {
           if (msg.type === 'delta') {
             const text = (msg as { content?: string }).content || '';
@@ -248,7 +248,7 @@ export function createTaskOrchestrator(deps: TaskOrchestratorDeps): TaskOrchestr
             });
           } else if (msg.type === 'run_failed') {
             cleanupVirtualClient();
-            const errorMsg = (msg as import('@my-claudia/shared').RunFailedMessage).error || 'Task failed';
+            const errorMsg = (msg as { error?: string }).error || 'Task failed';
             // Retry logic
             if (task.retryCount < task.maxRetries) {
               repo.incrementRetry(task.id);
@@ -257,7 +257,9 @@ export function createTaskOrchestrator(deps: TaskOrchestratorDeps): TaskOrchestr
               settleTask(task.id, 'failed', { errorSummary: errorMsg });
             }
           }
-        } catch { /* ignore parse errors */ }
+        } catch (err) {
+          console.error(`[TaskOrchestrator] Error in virtual client send for task ${task.id}:`, err);
+        }
       },
     });
 

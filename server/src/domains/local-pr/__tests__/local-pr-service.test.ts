@@ -42,27 +42,22 @@ vi.mock('../../../utils/git-operations.js', () => ({
 
 const mockBroadcast = vi.fn();
 
-const { mockCreateVirtualClient, mockHandleRunStart } = vi.hoisted(() => ({
-  mockCreateVirtualClient: vi.fn((clientId: string, opts: any) => ({
-    id: clientId,
-    ws: { send: vi.fn() },
-    isAlive: true,
-    isLocal: true,
-    authenticated: true,
-    ...opts,
-  })),
-  mockHandleRunStart: vi.fn(),
-}));
-
-vi.mock('../../../server.js', () => ({
-  createVirtualClient: mockCreateVirtualClient,
-  handleRunStart: mockHandleRunStart,
-  sendMessage: vi.fn(),
-}));
+const mockHandleRunStart = vi.fn();
+const mockStartAISession = vi.fn((opts: any) => {
+  mockHandleRunStart(opts);
+});
 
 import { LocalPRService } from '../service.js';
+import type { LocalPRAIDeps } from '../service.js';
 import { LocalPRRepository } from '../repository.js';
 import type { LocalPR, ServerMessage } from '@my-claudia/shared';
+
+function createAIDeps(overrides?: Partial<LocalPRAIDeps>): LocalPRAIDeps {
+  return {
+    startAISession: overrides?.startAISession ?? mockStartAISession,
+    isProjectSlotAvailable: overrides?.isProjectSlotAvailable,
+  };
+}
 
 // ========================================
 // Test DB setup
@@ -130,6 +125,8 @@ function createTestDb(): Database.Database {
       archived_at INTEGER,
       plan_status TEXT,
       is_read_only INTEGER DEFAULT 0,
+      sort_order INTEGER,
+      last_run_status TEXT,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
     );
@@ -270,14 +267,10 @@ describe('LocalPRService', () => {
 
   beforeEach(() => {
     mockBroadcast.mockClear();
-    mockCreateVirtualClient.mockClear();
     mockHandleRunStart.mockClear();
+    mockStartAISession.mockClear();
 
-    service = new LocalPRService(
-      db,
-      mockBroadcast,
-      undefined // isProjectSlotAvailable
-    );
+    service = new LocalPRService(db, mockBroadcast, createAIDeps());
   });
 
   // ========================================
@@ -491,24 +484,24 @@ describe('LocalPRService', () => {
   // activeConflictClients tests
   // ========================================
 
-  describe('activeConflictClients', () => {
-    it('tracks active conflict clients', () => {
-      const clients = (service as any).activeConflictClients;
-      expect(clients).toBeInstanceOf(Map);
+  describe('activeConflictIds', () => {
+    it('tracks active conflict ids', () => {
+      const ids = (service as any).activeConflictIds;
+      expect(ids).toBeInstanceOf(Set);
     });
 
-    it('cleans up conflict client state when conflict resolution startup fails', async () => {
+    it('cleans up conflict id state when conflict resolution startup fails', async () => {
       const projectId = createTestProject(db, { rootPath: '/test/root' });
       const pr = createTestLocalPR(db, projectId, { status: 'conflict' });
       createTestProvider(db, 'conflict-provider');
-      mockHandleRunStart.mockImplementationOnce(() => {
+      mockStartAISession.mockImplementationOnce(() => {
         throw new Error('provider unavailable');
       });
 
       await expect((service as any).startConflictResolution(pr.id, 'conflict-provider'))
         .rejects.toThrow('provider unavailable');
 
-      expect((service as any).activeConflictClients.has(pr.id)).toBe(false);
+      expect((service as any).activeConflictIds.has(pr.id)).toBe(false);
       const updated = service.getRepo().findById(pr.id);
       expect(updated?.statusMessage).toContain('Failed to start AI conflict resolution: provider unavailable');
       expect(mockBroadcast).toHaveBeenCalledWith(
@@ -696,8 +689,7 @@ describe('LocalPRService', () => {
 
       await service.startReview(pr.id);
 
-      expect(mockCreateVirtualClient).toHaveBeenCalled();
-      expect(mockHandleRunStart).toHaveBeenCalled();
+      expect(mockStartAISession).toHaveBeenCalled();
 
       // PR should be in 'reviewing' status
       const updated = service.getRepo().findById(pr.id);
@@ -709,7 +701,7 @@ describe('LocalPRService', () => {
       const slotsService = new LocalPRService(
         db,
         mockBroadcast,
-        () => false, // no slots available
+        createAIDeps({ isProjectSlotAvailable: () => false }),
       );
 
       const projectId = createTestProject(db, { rootPath: '/test/root', providerId: 'test-provider' });
@@ -734,12 +726,11 @@ describe('LocalPRService', () => {
 
       // Start first review
       await service.startReview(pr.id);
-      mockCreateVirtualClient.mockClear();
-      mockHandleRunStart.mockClear();
+      mockStartAISession.mockClear();
 
       // Try to start second review
       await service.startReview(pr.id);
-      expect(mockCreateVirtualClient).not.toHaveBeenCalled();
+      expect(mockStartAISession).not.toHaveBeenCalled();
     });
   });
 
@@ -800,7 +791,7 @@ describe('LocalPRService', () => {
       const slotsService = new LocalPRService(
         db,
         mockBroadcast,
-        () => false,
+        createAIDeps({ isProjectSlotAvailable: () => false }),
       );
 
       const projectId = createTestProject(db, { rootPath: '/test/root' });
@@ -880,7 +871,7 @@ describe('LocalPRService', () => {
         CREATE TABLE providers (id TEXT PRIMARY KEY, name TEXT, type TEXT, api_key TEXT, base_url TEXT, model TEXT, is_default INTEGER DEFAULT 0, created_at INTEGER, updated_at INTEGER);
         CREATE TABLE worktree_configs (id TEXT PRIMARY KEY, project_id TEXT, worktree_path TEXT, auto_create_pr INTEGER DEFAULT 0, auto_review INTEGER DEFAULT 0, created_at INTEGER, updated_at INTEGER);
       `);
-      const emptyService = new LocalPRService(emptyDb, mockBroadcast);
+      const emptyService = new LocalPRService(emptyDb, mockBroadcast, createAIDeps());
       const result = (emptyService as any).resolveAvailableProviderId('nonexistent');
       expect(result).toBeNull();
       emptyDb.close();
@@ -897,14 +888,12 @@ describe('LocalPRService', () => {
     });
 
     it('returns value from callback', () => {
-      const slotsService = new LocalPRService(db, mockBroadcast, () => false);
+      const slotsService = new LocalPRService(db, mockBroadcast, createAIDeps({ isProjectSlotAvailable: () => false }));
       expect((slotsService as any).hasAvailableSlot('any-project')).toBe(false);
     });
 
     it('returns true when callback throws (fail-open)', () => {
-      const slotsService = new LocalPRService(db, mockBroadcast, () => {
-        throw new Error('probe error');
-      });
+      const slotsService = new LocalPRService(db, mockBroadcast, createAIDeps({ isProjectSlotAvailable: () => { throw new Error('probe error'); } }));
       expect((slotsService as any).hasAvailableSlot('any-project')).toBe(true);
     });
   });
@@ -1445,12 +1434,11 @@ describe('LocalPRService', () => {
 
       await (service as any).processQueue();
 
-      // startReview should have been called (it calls handleRunStart)
-      expect(mockHandleRunStart).toHaveBeenCalled();
+      expect(mockStartAISession).toHaveBeenCalled();
     });
 
     it('skips queued PR when no slot available', async () => {
-      const noSlotService = new LocalPRService(db, mockBroadcast, () => false);
+      const noSlotService = new LocalPRService(db, mockBroadcast, createAIDeps({ isProjectSlotAvailable: () => false }));
       const projectId = createTestProject(db, { rootPath: '/test/root', providerId: 'test-provider' });
       const pr = createTestLocalPR(db, projectId, {
         worktreePath: `/test/wt-queue-noslot-${Date.now()}`,
@@ -1459,10 +1447,10 @@ describe('LocalPRService', () => {
       db.prepare('UPDATE local_prs SET execution_state = ?, pending_action = ? WHERE id = ?')
         .run('queued', 'review', pr.id);
 
-      mockHandleRunStart.mockClear();
+      mockStartAISession.mockClear();
       await (noSlotService as any).processQueue();
 
-      expect(mockHandleRunStart).not.toHaveBeenCalled();
+      expect(mockStartAISession).not.toHaveBeenCalled();
     });
   });
 
@@ -1487,7 +1475,7 @@ describe('LocalPRService', () => {
     });
 
     it('skips failed PRs when no slot available', async () => {
-      const noSlotService = new LocalPRService(db, mockBroadcast, () => false);
+      const noSlotService = new LocalPRService(db, mockBroadcast, createAIDeps({ isProjectSlotAvailable: () => false }));
       const projectId = createTestProject(db, { rootPath: '/test/root' });
       const pr = createTestLocalPR(db, projectId, {
         worktreePath: `/test/wt-failed-noslot-${Date.now()}`,
@@ -1621,9 +1609,8 @@ describe('LocalPRService', () => {
     });
 
     it('throws when no provider available', async () => {
-      // Create a project referencing a non-existent provider, in a DB with no default
       const emptyDb = createTestDb();
-      const emptyService = new LocalPRService(emptyDb, mockBroadcast);
+      const emptyService = new LocalPRService(emptyDb, mockBroadcast, createAIDeps());
       const projId = `proj-noprov-${Date.now()}`;
       const now = Date.now();
       emptyDb.prepare(`INSERT INTO projects (id, name, type, provider_id, root_path, created_at, updated_at) VALUES (?, 'No Prov', 'code', 'missing-provider', '/test/root', ?, ?)`).run(projId, now, now);
@@ -1713,7 +1700,7 @@ describe('LocalPRService', () => {
     });
 
     it('queues when no slot available', async () => {
-      const noSlotService = new LocalPRService(db, mockBroadcast, () => false);
+      const noSlotService = new LocalPRService(db, mockBroadcast, createAIDeps({ isProjectSlotAvailable: () => false }));
       const projectId = createTestProject(db, { rootPath: '/test/root' });
       const pr = createTestLocalPR(db, projectId, {
         worktreePath: `/test/wt-conflict-noslot-${Date.now()}`,
@@ -1737,8 +1724,7 @@ describe('LocalPRService', () => {
 
       await service.triggerConflictResolution(pr.id);
 
-      expect(mockCreateVirtualClient).toHaveBeenCalled();
-      expect(mockHandleRunStart).toHaveBeenCalled();
+      expect(mockStartAISession).toHaveBeenCalled();
     });
   });
 
@@ -1755,25 +1741,22 @@ describe('LocalPRService', () => {
       });
       db.prepare('UPDATE local_prs SET status = ? WHERE id = ?').run('conflict', pr.id);
 
-      // Start first conflict resolution
       await (service as any).startConflictResolution(pr.id, 'test-provider');
-      mockCreateVirtualClient.mockClear();
-      mockHandleRunStart.mockClear();
+      mockStartAISession.mockClear();
 
-      // Try to start second one
       await (service as any).startConflictResolution(pr.id, 'test-provider');
-      expect(mockCreateVirtualClient).not.toHaveBeenCalled();
+      expect(mockStartAISession).not.toHaveBeenCalled();
     });
 
     it('returns early when PR not found', async () => {
-      mockCreateVirtualClient.mockClear();
+      mockStartAISession.mockClear();
       await (service as any).startConflictResolution('nonexistent', 'test-provider');
-      expect(mockCreateVirtualClient).not.toHaveBeenCalled();
+      expect(mockStartAISession).not.toHaveBeenCalled();
     });
 
     it('returns early when no provider available', async () => {
       const emptyDb = createTestDb();
-      const emptyService = new LocalPRService(emptyDb, mockBroadcast);
+      const emptyService = new LocalPRService(emptyDb, mockBroadcast, createAIDeps());
       const projId = `proj-noprov-conflict-${Date.now()}`;
       const now = Date.now();
       emptyDb.prepare(`INSERT INTO projects (id, name, type, provider_id, root_path, created_at, updated_at) VALUES (?, 'NoProv', 'code', 'missing', '/test/root', ?, ?)`).run(projId, now, now);
@@ -1782,9 +1765,9 @@ describe('LocalPRService', () => {
         status: 'conflict',
       });
 
-      mockCreateVirtualClient.mockClear();
+      mockStartAISession.mockClear();
       await (emptyService as any).startConflictResolution(pr.id);
-      expect(mockCreateVirtualClient).not.toHaveBeenCalled();
+      expect(mockStartAISession).not.toHaveBeenCalled();
       emptyDb.close();
     });
   });

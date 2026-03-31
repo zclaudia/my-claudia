@@ -1,7 +1,7 @@
 # Batch 8: Server Domains — Workflow Automation Review
 
-日期：2026-03-31（第二轮）
-状态：✅ 修复完成
+日期：2026-03-31（第二轮 + DDD P1）
+状态：✅ 收尾完成
 
 ## 概览
 
@@ -95,8 +95,26 @@
 | 新增架构候选 | 6 |
 | 测试缺口 | 6 |
 
+## DDD P1 重构（2026-03-31）
+
+在第二轮修复基础上执行了 DDD Phase 1 — 从 WorkflowEngine 提取 Step Handler：
+
+- 定义 `StepExecutorPort`, `ApprovalPort`, `AIRunnerPort`, `NotificationPort` 接口（`ports/step-executor.ts`）
+- 提取 11 个 handler 到独立 executor 类（`step-executors/` 目录）
+- 新增 `CompositeStepExecutor` 统一分发 + 超时包装
+- 新增 `VirtualClientAIRunner` 作为 `AIRunnerPort` 基础设施适配器
+- Engine 从 ~1130 行瘦身到 ~380 行，仅依赖端口接口
+- DI 组装集中在 `register.ts`
+- 157 个 workflow 测试全部通过
+
+**架构候选完成状态**：
+- ✅ A1（Engine God Object）— DDD P1 已解决
+- ✅ A2（Domain→server.js 反向依赖）— Port/Adapter 注入已解决
+- 🟡 A3~A6 — 中长期优化，不阻塞
+
 ## 核心建议
 
-1. **本轮 8 项修复已落地**，剩余 3 项低优先级不阻塞
-2. 架构改进优先推荐 **A1（Engine 拆分 step handler）** 和 **A2（DI 注入替代 server.js import）**，这两项可在后续 batch 中独立执行
+1. **8 项 bug 修复 + DDD P1 重构已落地**，Batch 8 收尾
+2. 剩余 3 项低优先级不阻塞
 3. **A3（旧域下线）** 是中期目标，需先确认前端是否仍调用 scheduled-tasks / agent-triggers API
+4. **A4（Orchestration 职责分离）** 可在 Batch 9 中处理

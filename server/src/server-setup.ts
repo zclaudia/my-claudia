@@ -67,7 +67,8 @@ import { getGatewayClient } from './domains/gateway/gateway-instance.js';
 import { ProcessMonitor } from './utils/process-monitor.js';
 import { sendMessage, broadcastToOtherAuthenticatedClients, buildPluginStateMessage } from './domains/conversation/ws/broadcast.js';
 import { getNextOffset } from './domains/conversation/ws/run-lifecycle.js';
-import type { ConnectedClient, ActiveRun } from './domains/conversation/ws/types.js';
+import { createVirtualClient, type ConnectedClient, type ActiveRun } from './domains/conversation/ws/types.js';
+import { SessionRepository } from './repositories/session.js';
 import type { createRouter } from './router/index.js';
 
 export interface SetupDependencies {
@@ -268,6 +269,17 @@ export function setupRoutesAndServices(deps: SetupDependencies): SetupResult {
       const pool = supervisorService.getWorktreePoolIfExists(projectId);
       if (!pool) return true;
       return pool.getStatus().available > 0;
+    },
+    startAISession: (opts) => {
+      const virtualClient = createVirtualClient(opts.clientId, { send: opts.onMessage });
+      handleRunStart(virtualClient, {
+        type: 'run_start',
+        clientRequestId: `${opts.clientId}_${Date.now()}`,
+        sessionId: opts.sessionId,
+        input: opts.input,
+        workingDirectory: opts.workingDirectory,
+        providerId: opts.providerId,
+      }, db);
     },
   });
 
@@ -499,11 +511,19 @@ export function setupRoutesAndServices(deps: SetupDependencies): SetupResult {
   import('./domains/conversation/agent-tools/browser.js').then(m => m.registerBrowserTool());
 
   // TaskOrchestrator — unified task orchestration (Phase 2: agent tasks only)
+  const sessionRepo = new SessionRepository(db);
   const orchestrator = createTaskOrchestrator({
     db,
+    createVirtualClient,
     handleRunStart,
     getClients: () => clients,
     serverPort: getServerPort(),
+    createSession: (opts) => sessionRepo.create({
+      projectId: opts.projectId,
+      name: opts.name,
+      type: opts.type,
+    } as any),
+    sessionExists: (id) => !!sessionRepo.findById(id),
     notificationService: notificationFeedService,
     onTaskStatusChange: (task, extra) => {
       if (task.initiator !== 'claudia') return;

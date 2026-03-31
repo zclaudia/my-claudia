@@ -71,6 +71,23 @@ describe('orchestration/task-orchestrator', () => {
     vi.restoreAllMocks();
   });
 
+  function mockCreateVirtualClient(clientId: string, ws: any) {
+    return { id: clientId, ws, authenticated: true, isAlive: true, isLocal: true, subscriptions: new Set() };
+  }
+
+  function mockSessionDeps() {
+    return {
+      createVirtualClient: mockCreateVirtualClient as any,
+      createSession: (opts: any) => {
+        const id = `session-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+        const now = Date.now();
+        db.prepare('INSERT INTO sessions (id, project_id, name, type, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)').run(id, opts.projectId, opts.name, opts.type, now, now);
+        return { id };
+      },
+      sessionExists: (id: string) => !!db.prepare('SELECT 1 FROM sessions WHERE id = ?').get(id),
+    };
+  }
+
   it('passes the task contextTemplate through to handleRunStart', async () => {
     const clients = new Map<string, any>();
     const handleRunStart = vi.fn(async () => {});
@@ -79,6 +96,7 @@ describe('orchestration/task-orchestrator', () => {
       handleRunStart,
       getClients: () => clients,
       serverPort: null,
+      ...mockSessionDeps(),
     });
 
     const taskId = await orchestrator.spawnTask(null, {
@@ -116,6 +134,7 @@ describe('orchestration/task-orchestrator', () => {
       handleRunStart: vi.fn(async () => {}),
       getClients: () => new Map(),
       serverPort: null,
+      ...mockSessionDeps(),
     });
 
     const dependencyId = await orchestrator.spawnTask(null, {
@@ -144,6 +163,7 @@ describe('orchestration/task-orchestrator', () => {
       handleRunStart: vi.fn(async () => {}),
       getClients: () => new Map(),
       serverPort: null,
+      ...mockSessionDeps(),
     });
 
     const dependencyId = await orchestrator.spawnTask(null, {
@@ -175,6 +195,7 @@ describe('orchestration/task-orchestrator', () => {
       handleRunStart: vi.fn(async () => {}),
       getClients: () => new Map(),
       serverPort: null,
+      ...mockSessionDeps(),
     });
 
     const taskId = await orchestrator.spawnTask(null, {
