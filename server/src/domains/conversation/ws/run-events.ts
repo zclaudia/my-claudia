@@ -7,6 +7,7 @@ import {
   SYSTEM_INFO_COMMANDS,
 } from '../../../helpers/server-utils.js';
 import { normalizeFromToolUse } from '../interactions/interaction-normalizer.js';
+import { trackAndAutoComplete, finalizeSession, clearSession } from '../interactions/todo-state-tracker.js';
 import { pluginEvents } from '../../../events/index.js';
 import { generateToolSignature } from '../../../loop-detection.js';
 import { providerRegistry } from '../../../providers/registry.js';
@@ -16,11 +17,6 @@ import type { NotificationService } from '../../notification-feed/notification-s
 export interface ProviderEventState {
   sdkSessionId?: string;
   systemInfo?: SystemInfo;
-  /** Track previous todo interactions for auto-completion of disappeared items */
-  previousTodoInteractions?: Array<{
-    interactionId: string;
-    todos: import('@my-claudia/shared').NormalizedTodoItem[];
-  }>;
 }
 
 interface HandleProviderEventParams {
@@ -166,6 +162,19 @@ export function handleProviderEvent({
         toolInput: msg.toolInput,
       });
       if (todoInteraction) {
+        // Auto-complete items in previous todo lists that disappeared from the new list
+        for (const update of trackAndAutoComplete(sessionId, todoInteraction.interactionId, todoInteraction.todos)) {
+          sendRunEvent({
+            type: 'interaction_todo_update',
+            interactionId: update.interactionId,
+            sessionId: activeRun.sessionId,
+            runId,
+            provider: providerType,
+            source: 'tool_call',
+            createdAt: Date.now(),
+            todos: update.todos,
+          });
+        }
         sendRunEvent(todoInteraction);
       }
       break;
@@ -293,6 +302,20 @@ export function handleProviderEvent({
         indexMetadata: true,
       });
 
+      // Auto-complete all remaining pending/in_progress todo items on run completion
+      for (const update of finalizeSession(sessionId)) {
+        sendRunEvent({
+          type: 'interaction_todo_update',
+          interactionId: update.interactionId,
+          sessionId: activeRun.sessionId,
+          runId,
+          provider: providerType,
+          source: 'tool_call',
+          createdAt: Date.now(),
+          todos: update.todos,
+        });
+      }
+
       if (activeRun.completed) {
         if (msg.usage) {
           sendRunEvent({
@@ -372,6 +395,7 @@ export function handleProviderEvent({
         });
       }
 
+      clearSession(sessionId);
       activeRun.aiReviewQueue?.cancelAll();
       cleanupPendingPermissions(activeRun, errorMessage);
       activeRuns.delete(runId);
