@@ -11,7 +11,7 @@ import { BottomPanel } from '../BottomPanel';
 import { BackgroundTaskPanel } from '../BackgroundTaskPanel';
 import { DraftLockPrompt } from '../draft/DraftLockPrompt';
 import { TaskCardStrip } from '../../features/supervision/components/TaskCardStrip';
-import { useChatStore } from '../../stores/chatStore';
+import { useChatStore, type SessionDraft } from '../../stores/chatStore';
 import { useServerStore } from '../../stores/serverStore';
 import { useTerminalStore } from '../../stores/terminalStore';
 import { useBottomPanelStore } from '../../stores/bottomPanelStore';
@@ -111,7 +111,7 @@ export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar }:
   const [showSessionMenu, setShowSessionMenu] = useState(false);
   const [isRenamingSession, setIsRenamingSession] = useState(false);
   const [renameValue, setRenameValue] = useState('');
-  const [initialDraft, setInitialDraft] = useState<string | undefined>(undefined);
+  const [initialDraft, setInitialDraft] = useState<SessionDraft | undefined>(undefined);
 
   // Reset per-session ephemeral state when switching sessions
   useEffect(() => {

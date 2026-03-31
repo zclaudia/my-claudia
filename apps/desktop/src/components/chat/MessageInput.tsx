@@ -5,7 +5,7 @@ import { getFileIcon } from '../../config/icons';
 import type { SlashCommand, FileEntry } from '@my-claudia/shared';
 import * as api from '../../services/api';
 import { useIsMobile } from '../../hooks/useMediaQuery';
-import { useChatStore } from '../../stores/chatStore';
+import { useChatStore, type SessionDraft } from '../../stores/chatStore';
 
 export interface Attachment {
   id: string;
@@ -54,6 +54,8 @@ const initialMentionState: MentionState = {
 };
 
 const DRAFT_PERSIST_DEBOUNCE_MS = 300;
+const COLLAPSED_INPUT_BASELINE_HEIGHT_PX = 48;
+const COLLAPSED_INPUT_TALL_TOLERANCE_PX = 4;
 const EXPANDED_INPUT_DEFAULT_HEIGHT_PX = 160;
 const EXPANDED_INPUT_MIN_HEIGHT_PX = 120;
 
@@ -122,6 +124,12 @@ export function MessageInput({
   const compositionTimeoutRef = useRef<number | null>(null); // Timer for composition end delay
   const draftPersistTimeoutRef = useRef<number | null>(null);
   const pendingDraftValueRef = useRef('');
+  const pendingDraftAttachmentsRef = useRef<Attachment[]>([]);
+
+  const getPendingDraft = useCallback((): SessionDraft => ({
+    content: pendingDraftValueRef.current,
+    attachments: pendingDraftAttachmentsRef.current,
+  }), []);
 
   const flushDraftPersistence = useCallback(() => {
     if (draftPersistTimeoutRef.current) {
@@ -129,8 +137,8 @@ export function MessageInput({
       draftPersistTimeoutRef.current = null;
     }
 
-    setDraft(sessionId, pendingDraftValueRef.current);
-  }, [sessionId, setDraft]);
+    setDraft(sessionId, getPendingDraft());
+  }, [getPendingDraft, sessionId, setDraft]);
 
   const clearDraftPersistence = useCallback(() => {
     if (draftPersistTimeoutRef.current) {
@@ -138,27 +146,32 @@ export function MessageInput({
       draftPersistTimeoutRef.current = null;
     }
     pendingDraftValueRef.current = '';
+    pendingDraftAttachmentsRef.current = [];
   }, []);
 
-  // Update value and persist draft to store
-  const updateValue = useCallback((newValue: string) => {
-    setValue(newValue);
-    pendingDraftValueRef.current = newValue;
-
+  const scheduleDraftPersistence = useCallback(() => {
     if (draftPersistTimeoutRef.current) {
       clearTimeout(draftPersistTimeoutRef.current);
     }
 
     draftPersistTimeoutRef.current = window.setTimeout(() => {
       draftPersistTimeoutRef.current = null;
-      setDraft(sessionId, pendingDraftValueRef.current);
+      setDraft(sessionId, getPendingDraft());
     }, DRAFT_PERSIST_DEBOUNCE_MS);
-  }, [sessionId, setDraft]);
+  }, [getPendingDraft, sessionId, setDraft]);
+
+  // Update value and persist draft to store
+  const updateValue = useCallback((newValue: string) => {
+    setValue(newValue);
+    pendingDraftValueRef.current = newValue;
+    scheduleDraftPersistence();
+  }, [scheduleDraftPersistence]);
 
   // Update value when initialValue changes (e.g., after cancel to restore previous message)
   useEffect(() => {
     if (initialValue !== undefined) {
       setValue(initialValue);
+      pendingDraftValueRef.current = initialValue;
       // Focus textarea after setting value
       setTimeout(() => textareaRef.current?.focus(), 0);
     }
@@ -168,6 +181,7 @@ export function MessageInput({
   useEffect(() => {
     if (initialAttachments !== undefined) {
       setAttachments(initialAttachments);
+      pendingDraftAttachmentsRef.current = initialAttachments;
     }
   }, [initialAttachments]);
 
@@ -286,9 +300,10 @@ export function MessageInput({
       // Keep the collapsed composer from growing taller than the expanded composer baseline.
       const maxHeight = expandedInputHeight;
       const shouldAutoExpand = !isMobile && textarea.scrollHeight > maxHeight;
-      const singleLineThreshold = 48;
+      const singleLineThreshold = COLLAPSED_INPUT_BASELINE_HEIGHT_PX + COLLAPSED_INPUT_TALL_TOLERANCE_PX;
+      const nextIsTallCollapsedComposer = textarea.scrollHeight > singleLineThreshold;
 
-      if (shouldAutoExpand) {
+      if (shouldAutoExpand && !isTallCollapsedComposer) {
         onRequestAdvancedMode?.();
       }
 
@@ -296,7 +311,9 @@ export function MessageInput({
       textarea.style.height = `${Math.min(textarea.scrollHeight, maxHeight)}px`;
       textarea.style.maxHeight = `${maxHeight}px`;
       textarea.style.overflowY = textarea.scrollHeight > maxHeight ? 'auto' : 'hidden';
-      setIsTallCollapsedComposer(textarea.scrollHeight > singleLineThreshold);
+      if (nextIsTallCollapsedComposer !== isTallCollapsedComposer) {
+        setIsTallCollapsedComposer(nextIsTallCollapsedComposer);
+      }
 
       if (isMobile) {
         textarea.scrollTop = textarea.scrollHeight;
@@ -622,7 +639,12 @@ export function MessageInput({
           data: reader.result as string,
           mimeType: file.type,
         };
-        setAttachments((prev) => [...prev, attachment]);
+        setAttachments((prev) => {
+          const nextAttachments = [...prev, attachment];
+          pendingDraftAttachmentsRef.current = nextAttachments;
+          scheduleDraftPersistence();
+          return nextAttachments;
+        });
         resolve();
       };
       reader.readAsDataURL(file);
@@ -644,7 +666,12 @@ export function MessageInput({
   };
 
   const removeAttachment = (id: string) => {
-    setAttachments((prev) => prev.filter((a) => a.id !== id));
+    setAttachments((prev) => {
+      const nextAttachments = prev.filter((a) => a.id !== id);
+      pendingDraftAttachmentsRef.current = nextAttachments;
+      scheduleDraftPersistence();
+      return nextAttachments;
+    });
   };
 
   const handleSend = () => {
@@ -678,6 +705,7 @@ export function MessageInput({
       setValue('');
       clearDraft(sessionId);
       setAttachments([]);
+      pendingDraftAttachmentsRef.current = [];
     }
   };
 

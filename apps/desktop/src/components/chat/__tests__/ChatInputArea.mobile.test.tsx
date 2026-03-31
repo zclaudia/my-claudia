@@ -50,11 +50,14 @@ const terminalStoreState = {
   terminals: {} as Record<string, string>,
   setDrawerOpen: vi.fn(),
   openTerminal: vi.fn(() => 'term-1'),
+  isDrawerOpen: vi.fn((projectId: string) => Boolean(terminalStoreState.drawerOpen[projectId])),
+  getTerminalId: vi.fn((projectId: string) => terminalStoreState.terminals[projectId]),
 };
 
 vi.mock('../../../stores/terminalStore', () => ({
   useTerminalStore: Object.assign(
-    vi.fn(() => terminalStoreState),
+    vi.fn((selector?: (state: typeof terminalStoreState) => unknown) =>
+      selector ? selector(terminalStoreState) : terminalStoreState),
     {
       getState: () => terminalStoreState,
     },
@@ -173,7 +176,7 @@ const baseProps = {
   currentSystemInfo: null,
   advancedInput: false,
   restoreMessage: null,
-  initialDraft: '',
+  initialDraft: { content: '', attachments: [] },
   queuedMessage: null,
   draftExists: false,
   onSetMode: vi.fn(),

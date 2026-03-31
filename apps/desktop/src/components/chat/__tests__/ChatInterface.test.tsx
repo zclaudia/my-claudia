@@ -47,6 +47,7 @@ vi.mock('../MessageInput', () => ({
       data-placeholder={props.placeholder}
       data-advanced={props.advancedMode}
       data-initial-value={props.initialValue || ''}
+      data-initial-attachments={JSON.stringify(props.initialAttachments || [])}
     >
       <button data-testid="send-btn" onClick={() => props.onSend?.('hello')}>Send</button>
       <button data-testid="send-empty-btn" onClick={() => props.onSend?.('')}>SendEmpty</button>
@@ -1204,6 +1205,25 @@ describe('ChatInterface', () => {
     const { container } = render(<ChatInterface sessionId="sess-1" />);
     const input = container.querySelector('[data-testid="message-input"]');
     expect(input?.getAttribute('data-placeholder')).toContain('Type next message to queue');
+  });
+
+  it('restores session draft attachments into MessageInput', () => {
+    setDefaultStores({
+      chatStore: {
+        drafts: {
+          'sess-1': {
+            content: '',
+            attachments: [
+              { id: 'att-1', type: 'image', name: 'draft.png', data: 'data:image/png;base64,aaa', mimeType: 'image/png' },
+            ],
+          },
+        },
+        pagination: { 'sess-1': { total: 0, hasMore: false } },
+      },
+    });
+    const { container } = render(<ChatInterface sessionId="sess-1" />);
+    const input = container.querySelector('[data-testid="message-input"]');
+    expect(input?.getAttribute('data-initial-attachments')).toContain('draft.png');
   });
 
   // ─── Load More Messages ───────────────────────────────────────────────

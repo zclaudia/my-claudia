@@ -91,7 +91,7 @@ describe('MessageInput', () => {
     fireEvent.change(textarea, { target: { value: 'draft text' } });
     expect(mockSetDraft).not.toHaveBeenCalled();
     vi.advanceTimersByTime(300);
-    expect(mockSetDraft).toHaveBeenCalledWith('session-1', 'draft text');
+    expect(mockSetDraft).toHaveBeenCalledWith('session-1', { content: 'draft text', attachments: [] });
   });
 
   it('renders with initialValue', () => {
@@ -408,6 +408,18 @@ describe('MessageInput', () => {
       fireEvent.change(textarea, { target: { value: 'content that exceeds collapsed height' } });
       expect(onRequestAdvancedMode).toHaveBeenCalledTimes(1);
     });
+
+    it('keeps single-line desktop controls center-aligned near the collapsed baseline height', () => {
+      render(<MessageInput {...defaultProps} />);
+      const textarea = screen.getByPlaceholderText(/Type a message/) as HTMLTextAreaElement;
+      Object.defineProperty(textarea, 'scrollHeight', {
+        configurable: true,
+        value: 52,
+      });
+      fireEvent.change(textarea, { target: { value: 'single line content' } });
+      expect(screen.getByTitle('Add attachment (images, files)').className).not.toContain('self-end');
+      expect(screen.getByTestId('send-button').className).not.toContain('self-end');
+    });
   });
 
   // ── Attachments ───────────────────────────────────────────────────────────
@@ -452,6 +464,17 @@ describe('MessageInput', () => {
       expect(sendBtn).not.toBeDisabled();
       fireEvent.click(sendBtn);
       expect(onSend).toHaveBeenCalledWith('', initialAttachments);
+    });
+
+    it('persists attachment-only draft after debounce', () => {
+      vi.useFakeTimers();
+      const initialAttachments = [
+        { id: 'att-1', type: 'image' as const, name: 'photo.png', data: 'data:image/png;base64,abc', mimeType: 'image/png' },
+      ];
+      render(<MessageInput {...defaultProps} initialAttachments={initialAttachments} />);
+      fireEvent.click(screen.getByLabelText('Remove attachment photo.png'));
+      vi.advanceTimersByTime(300);
+      expect(mockSetDraft).toHaveBeenLastCalledWith('session-1', { content: '', attachments: [] });
     });
   });
 

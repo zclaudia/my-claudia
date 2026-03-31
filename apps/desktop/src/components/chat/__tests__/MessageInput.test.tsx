@@ -98,7 +98,7 @@ describe('MessageInput', () => {
     const textarea = screen.getByPlaceholderText(/Type a message/);
     fireEvent.change(textarea, { target: { value: 'draft text' } });
     vi.advanceTimersByTime(300);
-    expect(mockSetDraft).toHaveBeenCalledWith('session-1', 'draft text');
+    expect(mockSetDraft).toHaveBeenCalledWith('session-1', { content: 'draft text', attachments: [] });
     vi.useRealTimers();
   });
 
@@ -588,6 +588,18 @@ describe('MessageInput', () => {
       expect(sendBtn).not.toBeDisabled();
       fireEvent.click(sendBtn);
       expect(onSend).toHaveBeenCalledWith('', initialAttachments);
+    });
+
+    it('persists attachment-only draft after removing attachments', () => {
+      vi.useFakeTimers();
+      const initialAttachments = [
+        { id: 'att-1', type: 'image' as const, name: 'photo.png', data: 'data:image/png;base64,abc', mimeType: 'image/png' },
+      ];
+      render(<MessageInput {...defaultProps} initialAttachments={initialAttachments} />);
+      fireEvent.click(screen.getByLabelText('Remove attachment photo.png'));
+      vi.advanceTimersByTime(300);
+      expect(mockSetDraft).toHaveBeenLastCalledWith('session-1', { content: '', attachments: [] });
+      vi.useRealTimers();
     });
   });
 

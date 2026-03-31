@@ -37,6 +37,19 @@ export interface RunHealth {
   loopPattern?: string;
 }
 
+export interface DraftAttachment {
+  id: string;
+  type: 'image' | 'file';
+  name: string;
+  data: string;
+  mimeType: string;
+}
+
+export interface SessionDraft {
+  content: string;
+  attachments: DraftAttachment[];
+}
+
 interface ChatState {
   // Messages grouped by session ID
   messages: Record<string, MessageWithToolCalls[]>;
@@ -75,7 +88,7 @@ interface ChatState {
   // Worktree override per session (user-selected working directory, empty = use project root)
   worktreeOverrides: Record<string, string>;
   // Input drafts per session (preserved across session switches)
-  drafts: Record<string, string>;
+  drafts: Record<string, SessionDraft>;
 
   // Actions — Messages
   setMessages: (sessionId: string, messages: MessageWithToolCalls[], pagination?: Partial<Omit<PaginationInfo, 'isLoadingMore'>>) => void;
@@ -135,7 +148,7 @@ interface ChatState {
   clearWorktreeOverride: (sessionId: string) => void;
 
   // Draft actions
-  setDraft: (sessionId: string, content: string) => void;
+  setDraft: (sessionId: string, draft: SessionDraft) => void;
   clearDraft: (sessionId: string) => void;
 
   // Getters
@@ -626,13 +639,15 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }),
 
   // Draft actions
-  setDraft: (sessionId, content) =>
+  setDraft: (sessionId, draft) =>
     set((state) => {
-      if (!content) {
+      const hasContent = draft.content.trim().length > 0;
+      const hasAttachments = draft.attachments.length > 0;
+      if (!hasContent && !hasAttachments) {
         const { [sessionId]: _, ...rest } = state.drafts;
         return { drafts: rest };
       }
-      return { drafts: { ...state.drafts, [sessionId]: content } };
+      return { drafts: { ...state.drafts, [sessionId]: draft } };
     }),
 
   clearDraft: (sessionId) =>

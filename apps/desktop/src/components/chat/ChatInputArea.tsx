@@ -17,6 +17,7 @@ import { useDraftEditorStore } from '../../stores/draftEditorStore';
 import { useUIStore } from '../../stores/uiStore';
 import * as api from '../../services/api';
 import type { AgentPermissionPolicy, ProviderCapabilities, SlashCommand, Session, Project, SystemInfo } from '@my-claudia/shared';
+import type { SessionDraft } from '../../stores/chatStore';
 
 interface ChatInputAreaProps {
   sessionId: string;
@@ -43,7 +44,7 @@ interface ChatInputAreaProps {
   currentSystemInfo: SystemInfo | null;
   advancedInput: boolean;
   restoreMessage: { content: string; attachments?: Attachment[] } | null;
-  initialDraft: string | undefined;
+  initialDraft: SessionDraft | undefined;
   queuedMessage: { content: string; attachments?: Attachment[] } | null;
   draftExists: boolean;
   onSetMode: (sessionId: string, modeId: string) => void;
@@ -316,8 +317,8 @@ export function ChatInputArea({
         projectRoot={fileReferenceRoot}
         disabled={!isConnected}
         isLoading={isLoading}
-        initialValue={restoreMessage?.content ?? initialDraft}
-        initialAttachments={restoreMessage?.attachments}
+        initialValue={restoreMessage?.content ?? initialDraft?.content}
+        initialAttachments={restoreMessage?.attachments ?? initialDraft?.attachments}
         advancedMode={advancedInput}
         onRequestAdvancedMode={!isMobile && !advancedInput ? () => setAdvancedInput(true) : undefined}
         mobileToolbarSlot={isMobile ? (() => {
