@@ -7,10 +7,13 @@
 
 import type Database from 'better-sqlite3';
 import { detectCliProvidersSync } from '../utils/cli-detect.js';
-import { checkVersionCompatibility } from './claude-sdk.js';
+import { checkVersionCompatibility, cleanupOldTempFiles } from './claude-sdk.js';
 import { checkSdkVersions } from '../utils/sdk-version-check.js';
 import { openCodeServerManager } from './opencode-sdk.js';
 import { destroyAllAppServerClients } from './codex-app-server.js';
+import { systemTaskRegistry } from '../services/system-task-registry.js';
+
+let tempFileCleanupTimer: ReturnType<typeof setInterval> | null = null;
 
 /**
  * If no providers exist in the database, probe the local system for known
@@ -55,6 +58,31 @@ export function autoDetectProviders(db: Database.Database): void {
 }
 
 /**
+ * Start periodic temp file cleanup (moved from claude-sdk.ts to avoid module-level side effects).
+ */
+export function startTempFileCleanup(): void {
+  cleanupOldTempFiles();
+  systemTaskRegistry.register({
+    id: 'system:temp_file_cleanup',
+    name: 'Temp File Cleanup',
+    description: 'Cleans old temporary upload files',
+    category: 'maintenance',
+    intervalMs: 30 * 60 * 1000,
+  });
+  tempFileCleanupTimer = setInterval(() => {
+    systemTaskRegistry.markRunStart('system:temp_file_cleanup');
+    const start = Date.now();
+    try {
+      cleanupOldTempFiles();
+      systemTaskRegistry.markRunComplete('system:temp_file_cleanup', Date.now() - start);
+    } catch (err) {
+      systemTaskRegistry.markRunComplete('system:temp_file_cleanup', Date.now() - start, String(err));
+    }
+  }, 30 * 60 * 1000);
+  tempFileCleanupTimer.unref();
+}
+
+/**
  * Run non-blocking version compatibility and SDK freshness checks.
  */
 export function checkProviderVersions(): void {
@@ -74,6 +102,10 @@ export function checkProviderVersions(): void {
  * Gracefully stop all managed provider sub-processes.
  */
 export async function shutdownProviders(): Promise<void> {
+  if (tempFileCleanupTimer) {
+    clearInterval(tempFileCleanupTimer);
+    tempFileCleanupTimer = null;
+  }
   await openCodeServerManager.stopAll();
   destroyAllAppServerClients();
 }

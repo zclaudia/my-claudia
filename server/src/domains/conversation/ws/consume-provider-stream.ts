@@ -1,4 +1,4 @@
-import type { ClaudeMessage } from '../../../providers/claude-sdk.js';
+import type { ClaudeMessage } from '../../../providers/types.js';
 import type { NotificationService } from '../../notification-feed/notification-service.js';
 import { summarizeProviderMessage, type TraceRecorder } from '../../../utils/provider-trace.js';
 import type { ActiveRun } from './types.js';

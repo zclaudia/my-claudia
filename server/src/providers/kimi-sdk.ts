@@ -4,7 +4,7 @@ import path from 'path';
 import { writeFileSync, mkdirSync } from 'fs';
 import { tmpdir } from 'os';
 import type { MessageInput } from '@my-claudia/shared';
-import type { ClaudeMessage, SystemInfo, PermissionCallback } from './claude-sdk.js';
+import type { ClaudeMessage, SystemInfo, PermissionCallback } from './message-types.js';
 import { buildNonImageAttachmentNotes } from './attachment-utils.js';
 import { sanitizeInheritedProviderEnv } from '../utils/startup-env.js';
 import { createTraceRecorder, summarizeProviderMessage } from '../utils/provider-trace.js';
@@ -815,30 +815,16 @@ export async function* runKimi(
 export async function abortKimiSession(sessionId: string): Promise<void> {
   const processKey = sessionToProcessKey.get(sessionId) || sessionId;
   const proc = activeProcesses.get(processKey);
+  // Always clean up mappings, even if process is already dead
+  sessionToProcessKey.delete(sessionId);
+  activeProcesses.delete(processKey);
+  unbindProcess(processKey);
   if (proc) {
     proc.kill('SIGTERM');
-    activeProcesses.delete(processKey);
-    unbindProcess(processKey);
-
-    // Give it a moment to terminate gracefully
     await new Promise((resolve) => setTimeout(resolve, 500));
-
     if (!proc.killed) {
       proc.kill('SIGKILL');
     }
   }
 }
 
-// ── Adapter factory (for compatibility with existing code) ─────
-
-export function createKimiAdapter(options: KimiRunOptions) {
-  return {
-    async *run(
-      input: string,
-      onPermission: PermissionCallback
-    ): AsyncGenerator<ClaudeMessage, void, void> {
-      yield* runKimi(input, options, onPermission);
-    },
-    abort: () => abortKimiSession(options.sessionId || ''),
-  };
-}

@@ -25,7 +25,7 @@ import {
   resolveRememberedDecision,
 } from '../agent/permission-evaluator.js';
 import { isBashLikeTool, isSudoCommand } from '../../../helpers/server-utils.js';
-import type { PermissionDecision } from '../../../providers/claude-sdk.js';
+import type { PermissionDecision } from '../../../providers/types.js';
 import { PERMISSION_TIMEOUT_POLICIES, type ActiveRun } from './types.js';
 import { broadcastRunMessage } from './broadcast.js';
 import { normalizeFromAskUser } from '../interactions/interaction-normalizer.js';

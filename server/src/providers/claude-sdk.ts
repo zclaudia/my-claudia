@@ -1,7 +1,8 @@
 import { query } from '@anthropic-ai/claude-agent-sdk';
-import { systemTaskRegistry } from '../services/system-task-registry.js';
 import type { ModelInfo } from '@anthropic-ai/claude-agent-sdk';
 import type { ProviderConfig, PermissionRequest, PermissionMode, MessageInput, MessageAttachment } from '@my-claudia/shared';
+import type { PermissionDecision, PermissionCallback, SystemInfo, ClaudeMessage } from './message-types.js';
+export type { PermissionDecision, PermissionCallback, SystemInfo, ClaudeMessage };
 import { fileStore } from '../storage/fileStore.js';
 import { loadMcpServers, loadPlugins } from '../utils/claude-config.js';
 import { loadMcpServersFromDb } from '../utils/mcp-config.js';
@@ -40,15 +41,7 @@ export interface ClaudeRunOptions {
   onSessionId?: (sessionId: string) => void;  // Called when SDK reports the active session ID
 }
 
-export interface PermissionDecision {
-  behavior: 'allow' | 'deny';
-  updatedInput?: unknown;
-  message?: string;
-}
-
-export type PermissionCallback = (
-  request: PermissionRequest
-) => Promise<PermissionDecision>;
+// PermissionDecision and PermissionCallback are now defined in message-types.ts
 
 /**
  * Get the on-disk storage path for an uploaded file.
@@ -113,27 +106,6 @@ export function cleanupOldTempFiles() {
   } catch { /* ignore */ }
 }
 
-// Run cleanup at startup
-cleanupOldTempFiles();
-
-// Run cleanup every 30 minutes
-systemTaskRegistry.register({
-  id: 'system:temp_file_cleanup',
-  name: 'Temp File Cleanup',
-  description: 'Cleans old temporary upload files',
-  category: 'maintenance',
-  intervalMs: 30 * 60 * 1000,
-});
-setInterval(async () => {
-  systemTaskRegistry.markRunStart('system:temp_file_cleanup');
-  const start = Date.now();
-  try {
-    cleanupOldTempFiles();
-    systemTaskRegistry.markRunComplete('system:temp_file_cleanup', Date.now() - start);
-  } catch (err) {
-    systemTaskRegistry.markRunComplete('system:temp_file_cleanup', Date.now() - start, String(err));
-  }
-}, 30 * 60 * 1000).unref();
 
 interface PreparedInput {
   text: string;
@@ -494,40 +466,7 @@ export async function* runClaude(
   }
 }
 
-export interface SystemInfo {
-  model?: string;
-  claudeCodeVersion?: string;
-  cwd?: string;
-  tools?: string[];
-  mcpServers?: { name: string; status: string }[];
-  permissionMode?: string;
-  apiKeySource?: string;
-  slashCommands?: string[];
-  agents?: string[];
-}
-
-export interface ClaudeMessage {
-  type: 'init' | 'assistant' | 'result' | 'tool_use' | 'tool_result' | 'error' | 'task_notification' | 'tool_activity';
-  sessionId?: string;
-  content?: string;
-  systemInfo?: SystemInfo;  // System info from init message
-  toolUseId?: string;       // Unique ID for tool use (for matching tool_use and tool_result)
-  toolName?: string;
-  toolInput?: unknown;
-  toolResult?: unknown;
-  isToolError?: boolean;
-  error?: string;
-  usage?: {
-    inputTokens: number;
-    outputTokens: number;
-    contextWindow?: number;
-  };
-  isComplete?: boolean;
-  taskId?: string;          // Background task ID (for task_notification)
-  taskStatus?: string;      // Background task status (e.g. 'completed', 'failed')
-  taskMessage?: string;     // Background task notification message
-  taskToolUseId?: string;   // tool_use_id that spawned this background task
-}
+// SystemInfo and ClaudeMessage are now defined in message-types.ts
 
 // Transform a single message from SDK format to our internal format
 // Returns an array because assistant messages may contain multiple tool_use blocks
@@ -895,25 +834,3 @@ export async function checkVersionCompatibility(cliPath?: string): Promise<void>
   }
 }
 
-/**
- * Create a Claude provider adapter from a ProviderConfig
- */
-export function createClaudeAdapter(provider: ProviderConfig) {
-  return {
-    async *run(
-      input: string,
-      cwd: string,
-      sessionId?: string,
-      onPermissionRequest?: PermissionCallback
-    ) {
-      const options: ClaudeRunOptions = {
-        cwd,
-        sessionId,
-        cliPath: provider.cliPath,
-        env: provider.env,
-      };
-
-      yield* runClaude(input, options, onPermissionRequest);
-    },
-  };
-}

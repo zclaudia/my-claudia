@@ -1,7 +1,6 @@
 import { pluginEvents } from '../../../events/index.js';
 import { negotiateProfile } from '../../../providers/pcp-negotiator.js';
-import type { ClaudeMessage } from '../../../providers/claude-sdk.js';
-import type { ProviderAdapter } from '../../../providers/types.js';
+import type { ClaudeMessage, ProviderAdapter } from '../../../providers/types.js';
 import { buildRunContext } from './run-context.js';
 import { upsertAssistantMessage } from './run-lifecycle.js';
 import { PERIODIC_SAVE_INTERVAL_MS, type ActiveRun, type ConnectedClient } from './types.js';

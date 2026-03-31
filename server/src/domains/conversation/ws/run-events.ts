@@ -10,12 +10,17 @@ import { normalizeFromToolUse } from '../interactions/interaction-normalizer.js'
 import { pluginEvents } from '../../../events/index.js';
 import { generateToolSignature } from '../../../loop-detection.js';
 import { providerRegistry } from '../../../providers/registry.js';
-import type { ClaudeMessage, SystemInfo } from '../../../providers/claude-sdk.js';
+import type { ClaudeMessage, SystemInfo } from '../../../providers/types.js';
 import type { NotificationService } from '../../notification-feed/notification-service.js';
 
 export interface ProviderEventState {
   sdkSessionId?: string;
   systemInfo?: SystemInfo;
+  /** Track previous todo interactions for auto-completion of disappeared items */
+  previousTodoInteractions?: Array<{
+    interactionId: string;
+    todos: import('@my-claudia/shared').NormalizedTodoItem[];
+  }>;
 }
 
 interface HandleProviderEventParams {

@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { spawn } from 'child_process';
 import { EventEmitter } from 'events';
 import { Readable } from 'stream';
-import { runKimi, abortKimiSession, createKimiAdapter } from '../kimi-sdk.js';
+import { runKimi, abortKimiSession } from '../kimi-sdk.js';
 
 vi.mock('child_process', async (importOriginal) => {
   const actual = await importOriginal<typeof import('child_process')>();
@@ -609,25 +609,3 @@ describe('abortKimiSession', () => {
   });
 });
 
-describe('createKimiAdapter', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
-
-  it('creates adapter with run and abort methods', () => {
-    const adapter = createKimiAdapter({ cwd: '/tmp' });
-    expect(typeof adapter.run).toBe('function');
-    expect(typeof adapter.abort).toBe('function');
-  });
-
-  it('run is an async generator', () => {
-    const { proc, stdout } = createMockProc();
-    vi.mocked(spawn).mockReturnValue(proc as any);
-
-    const adapter = createKimiAdapter({ cwd: '/tmp' });
-    const gen = adapter.run('hello', vi.fn());
-    expect(gen[Symbol.asyncIterator]).toBeDefined();
-
-    stdout.push(null);
-  });
-});

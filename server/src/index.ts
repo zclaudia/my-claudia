@@ -2,7 +2,7 @@ import * as os from 'os';
 import * as fs from 'fs';
 import * as path from 'path';
 import { createServer, createVirtualClient, activeRuns, connectedClients, cancelRun } from './server.js';
-import { autoDetectProviders, checkProviderVersions, shutdownProviders } from './providers/initializer.js';
+import { autoDetectProviders, checkProviderVersions, startTempFileCleanup, shutdownProviders } from './providers/initializer.js';
 import { pluginLoader } from './plugins/loader.js';
 import { registerBuiltinCommands } from './commands/init.js';
 import { sanitizeInheritedProviderEnv } from './utils/startup-env.js';
@@ -97,6 +97,7 @@ async function main() {
 
     checkProviderVersions();
     autoDetectProviders(serverContext.db);
+    startTempFileCleanup();
 
     // Initialize plugin system (discover only — activation deferred until server is listening)
     console.log('\n🔌 Initializing plugin system...');

@@ -1,7 +1,7 @@
 # Batch 10: Server Infra — Providers Review
 
 日期：2026-03-28
-状态：✅ 完成
+状态：✅ Review + 修复完成
 
 > 编号校准说明（2026-03-29）：
 > 本报告生成于旧的 13 批次 review 体系，因此文件名中的 `Batch 4` 是**历史编号**。
@@ -110,3 +110,71 @@
 | MEDIUM | 9 |
 | LOW | 3 |
 | **总计** | **15** |
+
+## DDD 架构 Review（2026-03-31）
+
+### Bounded Context 评估
+
+providers/ 域本质上是一个 **Port/Adapter** 边界，将外部 CLI 工具适配为统一的 `ProviderAdapter` 接口。
+
+#### 子模块划分
+
+| 子模块 | 文件 | 评价 |
+|--------|------|------|
+| Port 接口 | types.ts, message-types.ts | ✅ 清晰（修复后） |
+| Adapter 实现 | claude-adapter, opencode-adapter, 等 | ✅ 一致的模式 |
+| SDK 通信层 | claude-sdk, opencode-sdk, 等 | 🟡 文件偏大 |
+| PCP 协商 | pcp-negotiator, pcp-capability, pcp-permission | ✅ 优秀，纯函数 |
+| Manifest | manifests.ts | ✅ 声明式配置 |
+| CLI Jobs | cli-jobs/ | ✅ 内聚的子域 |
+| 生命周期 | initializer.ts, registry.ts | ✅ 修复后无副作用 |
+
+### 发现的 DDD 问题
+
+| # | 问题 | 优先级 | 状态 |
+|---|------|--------|------|
+| A | ClaudeMessage/SystemInfo 等核心类型定义在 claude-sdk.ts | HIGH | ✅ 提取到 message-types.ts |
+| B | claude-sdk.ts 模块级副作用（定时器 + 文件操作） | MEDIUM | ✅ 移至 initializer.ts |
+| C | Route 层穿透到 opencode-sdk/claude-sdk 具体实现 | MEDIUM | 🟡 后续优化 |
+| D | 死代码：createClaudeAdapter, createKimiAdapter | LOW | ✅ 已删除 |
+| E | Adapter/SDK 职责分裂不一致 | LOW | 📝 记录为设计约束 |
+
+## 修复记录（2026-03-31）
+
+### 已修复
+
+| # | 问题 | 修复方式 |
+|---|------|---------|
+| #1 | 全局 Map 无清理策略 | sessionServerMap/mcpBridgeInjected 在 stopServer/stopAll 时清理；sessionServerMap 添加 1h TTL |
+| #2 | Session abort 清理不完整 | Kimi: 无条件清理 sessionToProcessKey + activeProcesses；Cursor: 添加 SIGKILL fallback |
+| #3 | OpenCode session 竞态 | sessionServerMap 添加 updatedAt 时间戳 + SESSION_MAP_STALE_MS 过期检查 |
+| #7 | 临时文件清理副作用 | 定时器从 claude-sdk.ts 模块级移至 initializer.ts 显式调用 |
+| #8 | `any` 类型逃逸 | opencode-sdk.ts: 添加 OpenCodeProviderInfo 类型 + SSE event 类型断言 |
+| #9 | Manifest 缺少 notes | Kimi manifest: chat.stream 和 input.image 添加 notes |
+| #10 | Cursor 静默丢弃解析失败 | 添加 console.warn 记录 JSON 解析失败行 |
+| #11 | 环境变量注入顺序 | sanitize 在 spread user env 之前执行 |
+| #13 | 死代码 | 删除 createClaudeAdapter + createKimiAdapter 及其测试 |
+| DDD-A | 核心类型错放在 claude-sdk.ts | 提取 message-types.ts，types.ts 改为从 message-types 导入 |
+| DDD-B | 模块级副作用 | 清理定时器移至 initializer.ts.startTempFileCleanup() |
+| DDD-D | 外部域导入 claude-sdk.ts | 7 个文件改为从 types.js 导入（Port 接口层） |
+
+### 未修复（后续优化）
+
+| # | 问题 | 原因 |
+|---|------|------|
+| #4 | 错误处理策略不统一 | 需要共享 RetryStrategy 基类，规模较大 |
+| #5 | Adapter abort 接口不一致 | OpenCode 需要 cwd 参数，breaking change |
+| #6 | 子进程泄漏风险 | stopAll 已在 shutdownProviders 中调用 |
+| #12 | Session ID 格式不统一 | 各 provider 各有合理选择 |
+| #14 | 日志前缀不统一 | 不影响功能 |
+| #15 | Kimi 图片实际支持 | reliability 已降级为 best_effort |
+| DDD-C | Route 穿透到具体 SDK | 需要 ProviderAdapter 接口扩展，规模较大 |
+
+### 修复后依赖状态
+
+- **message-types.ts**: 零外部依赖（仅 `@my-claudia/shared`）
+- **types.ts**: 从 message-types.ts 导入（不再依赖 claude-sdk.ts）
+- **claude-sdk.ts**: 无模块级副作用（定时器移至 initializer.ts）
+- **conversation/ws/\***: 全部改为从 `providers/types.js` 导入（不再穿透到 claude-sdk.js）
+
+309 个 provider 测试全部通过，TypeScript 零错误。

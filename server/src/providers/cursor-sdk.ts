@@ -4,7 +4,7 @@ import path from 'path';
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'fs';
 import { tmpdir } from 'os';
 import type { MessageInput } from '@my-claudia/shared';
-import type { ClaudeMessage, SystemInfo, PermissionCallback } from './claude-sdk.js';
+import type { ClaudeMessage, SystemInfo, PermissionCallback } from './message-types.js';
 import { buildNonImageAttachmentNotes } from './attachment-utils.js';
 import { sanitizeInheritedProviderEnv } from '../utils/startup-env.js';
 import { buildMcpBridgeEntry } from '../utils/mcp-bridge-launch.js';
@@ -245,6 +245,7 @@ export async function* runCursor(
       try {
         event = JSON.parse(line);
       } catch {
+        console.warn('[Cursor SDK] Failed to parse JSON line:', line.slice(0, 200));
         continue;
       }
 
@@ -419,8 +420,12 @@ function mapCursorEvent(
 
 export async function abortCursorSession(sessionId: string): Promise<void> {
   const proc = activeProcesses.get(sessionId);
+  activeProcesses.delete(sessionId);
   if (proc) {
     proc.kill('SIGTERM');
-    activeProcesses.delete(sessionId);
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    if (!proc.killed) {
+      proc.kill('SIGKILL');
+    }
   }
 }

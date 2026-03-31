@@ -1,8 +1,8 @@
 import type { PermissionRequest, PCPProviderManifest } from '@my-claudia/shared';
 import type Database from 'better-sqlite3';
 
-// Re-export types from claude-sdk that are shared across providers
-export type { ClaudeMessage, SystemInfo, PermissionDecision, PermissionCallback } from './claude-sdk.js';
+// Re-export core provider message types (shared across all providers)
+export type { ClaudeMessage, SystemInfo, PermissionDecision, PermissionCallback } from './message-types.js';
 
 /** Options for starting a provider run */
 export interface RunOptions {

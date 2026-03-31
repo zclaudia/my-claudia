@@ -1,7 +1,7 @@
 import { WebSocket } from 'ws';
 import type { ToolCall, ContentBlock, AgentPermissionPolicy, ServerMessage, PCPEffectiveProfile, AskUserQuestionItem } from '@my-claudia/shared';
 import type { AIReviewQueue } from '../agent/ai-review-queue.js';
-import type { PermissionDecision, SystemInfo } from '../../../providers/claude-sdk.js';
+import type { PermissionDecision, SystemInfo } from '../../../providers/types.js';
 import type { initDatabase } from '../../../storage/db.js';
 import type { ProcessMonitor } from '../../../utils/process-monitor.js';
 import type { NotificationService } from '../../notification-feed/notification-service.js';

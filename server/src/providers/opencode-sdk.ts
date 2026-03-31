@@ -3,7 +3,7 @@ import path from 'path';
 import { appendFileSync, readFileSync, writeFileSync, mkdirSync, readdirSync } from 'fs';
 import { tmpdir } from 'os';
 import type { PermissionRequest, MessageInput } from '@my-claudia/shared';
-import type { ClaudeMessage, SystemInfo, PermissionDecision, PermissionCallback } from './claude-sdk.js';
+import type { ClaudeMessage, SystemInfo, PermissionDecision, PermissionCallback } from './message-types.js';
 import { fileStore } from '../storage/fileStore.js';
 import { buildNonImageAttachmentNotes } from './attachment-utils.js';
 import { sanitizeInheritedProviderEnv } from '../utils/startup-env.js';
@@ -247,7 +247,7 @@ import {
   type SessionStatus,
 } from '@opencode-ai/sdk';
 
-export { type ClaudeMessage, type PermissionDecision, type PermissionCallback };
+export type { ClaudeMessage, PermissionDecision, PermissionCallback };
 
 export interface OpenCodeRunOptions {
   cwd: string;
@@ -264,12 +264,14 @@ export interface OpenCodeRunOptions {
 
 // ============================================
 // Session-to-server tracking
-// Maps sdk_session_id → server baseUrl as a cache so we can skip session.get()
+// Maps sdk_session_id → { baseUrl, timestamp } so we can skip session.get()
 // validation when the session was created on the same server instance.
 // After app restart this map is empty; we then validate via session.get()
 // before reusing old sessions (OpenCode persists sessions across server restarts).
 // ============================================
-const sessionServerMap = new Map<string, string>();
+interface SessionServerEntry { baseUrl: string; updatedAt: number; }
+const sessionServerMap = new Map<string, SessionServerEntry>();
+const SESSION_MAP_STALE_MS = 60 * 60 * 1000; // 1 hour
 
 // ============================================
 // MCP Bridge injection tracking
@@ -406,10 +408,10 @@ class OpenCodeServerManager {
 
     console.log(`[OpenCode] Starting server on port ${port} for ${cwd}`);
 
-    // Filter out model-related env vars to ensure UI model selection takes precedence
-    const baseEnv = { ...process.env, ...(options.env || {}) };
+    // Sanitize inherited env first, then apply user overrides
+    const baseEnv = { ...process.env };
     sanitizeInheritedProviderEnv(baseEnv);
-    const childEnv = baseEnv;
+    const childEnv = { ...baseEnv, ...(options.env || {}) };
 
     const child = spawn(cliPath, ['serve', '--port', String(port), '--hostname', '127.0.0.1'], {
       cwd,
@@ -478,6 +480,11 @@ class OpenCodeServerManager {
       server.process.kill('SIGTERM');
       server.ready = false;
       this.servers.delete(cwd);
+      // Clean up maps keyed by this server's baseUrl
+      mcpBridgeInjected.delete(server.baseUrl);
+      for (const [sid, entry] of sessionServerMap) {
+        if (entry.baseUrl === server.baseUrl) sessionServerMap.delete(sid);
+      }
     }
   }
 
@@ -485,6 +492,8 @@ class OpenCodeServerManager {
     for (const [cwd] of this.servers) {
       await this.stopServer(cwd);
     }
+    sessionServerMap.clear();
+    mcpBridgeInjected.clear();
   }
 
   getServer(cwd: string): OpenCodeServer | undefined {
@@ -1077,11 +1086,14 @@ export async function* runOpenCode(
   // If the session no longer exists, we fall back to creating a new one.
   let sessionId = options.sessionId;
   if (sessionId) {
-    const knownServer = sessionServerMap.get(sessionId);
-    if (knownServer && knownServer === server.baseUrl) {
+    const entry = sessionServerMap.get(sessionId);
+    const isStale = entry && (Date.now() - entry.updatedAt > SESSION_MAP_STALE_MS);
+    if (entry && entry.baseUrl === server.baseUrl && !isStale) {
       // Session was created on this exact server instance — safe to reuse without validation
       ocLog(`Resuming session ${sessionId} on same server ${server.baseUrl}`);
+      entry.updatedAt = Date.now();
     } else {
+      if (isStale) sessionServerMap.delete(sessionId);
       // Unknown origin (app restarted, map empty) or different server port.
       // Validate the session still exists on the (possibly new) server.
       try {
@@ -1091,8 +1103,8 @@ export async function* runOpenCode(
           `/session/${encodeURIComponent(sessionId)}`,
         );
         if (getResult.ok && getResult.data) {
-          ocLog(`Session ${sessionId} validated on server ${server.baseUrl} (was: ${knownServer || 'unknown'})`);
-          sessionServerMap.set(sessionId, server.baseUrl);
+          ocLog(`Session ${sessionId} validated on server ${server.baseUrl} (was: ${entry?.baseUrl || 'unknown'})`);
+          sessionServerMap.set(sessionId, { baseUrl: server.baseUrl, updatedAt: Date.now() });
           trace.log('provider_raw', 'session_validated', { sessionId, baseUrl: server.baseUrl }, 'session validated');
         } else {
           ocLog(`Session ${sessionId} not found (status=${getResult.status}), creating new`);
@@ -1120,7 +1132,7 @@ export async function* runOpenCode(
       }
       sessionId = result.data.id;
       createdNewSession = true;
-      sessionServerMap.set(sessionId, server.baseUrl);
+      sessionServerMap.set(sessionId, { baseUrl: server.baseUrl, updatedAt: Date.now() });
       trace.setMeta({ sessionId });
       trace.log('provider_raw', 'session_created', { sessionId, baseUrl: server.baseUrl }, 'session created');
       ocLog(`Created new session: ${sessionId} on server ${server.baseUrl}`);
@@ -1159,7 +1171,9 @@ export async function* runOpenCode(
     }
 
     // Parse provider data
-    const providerData = (providersResult?.data as any)?.all || [];
+    interface OpenCodeProviderInfo { id: string; models?: Record<string, { name?: string }>; }
+    const providerResult = providersResult?.data as { all?: OpenCodeProviderInfo[] } | undefined;
+    const providerData: OpenCodeProviderInfo[] = providerResult?.all || [];
 
     // Derive model name when no explicit model is set
     if (!options.model) {
@@ -1168,7 +1182,7 @@ export async function* runOpenCode(
         : agents[0];
       const agentModel = activeAgent?.model;
       if (agentModel?.providerID && agentModel?.modelID) {
-        const provider = providerData.find((p: any) => p.id === agentModel.providerID);
+        const provider = providerData.find((p) => p.id === agentModel.providerID);
         const modelInfo = provider?.models?.[agentModel.modelID];
         systemInfo.model = modelInfo?.name || `${agentModel.providerID}/${agentModel.modelID}`;
       }
@@ -1357,11 +1371,11 @@ export async function* runOpenCode(
           break;
         }
 
-        const event = raceResult.value;
-        trace.log('provider_raw', 'sse_event', event, `sse ${String((event as { type?: string }).type || 'unknown')}`);
+        const event = raceResult.value as { type?: string; properties?: Record<string, unknown> };
+        trace.log('provider_raw', 'sse_event', event, `sse ${String(event.type || 'unknown')}`);
         eventIdx++;
-        const _et = (event as any).type as string;
-        const _ep = (event as any).properties || {};
+        const _et = event.type || '';
+        const _ep = (event.properties || {}) as Record<string, unknown> & { sessionID?: string; part?: Record<string, unknown>; field?: string; delta?: string };
         const _eSid = _ep.sessionID || _ep.part?.sessionID;
 
         if (_eSid === sessionId) {
@@ -1436,7 +1450,7 @@ async function* mapOpenCodeEvent(
   onPermissionRequest?: PermissionCallback
 ): AsyncGenerator<ClaudeMessage> {
   const eventType = event.type;
-  const props = (event as any).properties || {};
+  const props = ((event as { properties?: Record<string, unknown> }).properties || {}) as Record<string, unknown> & { sessionID?: string; part?: Record<string, unknown>; info?: Record<string, unknown>; field?: string; delta?: string };
 
   // Extract session ID from various event shapes to filter
   const eventSessionId =

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { runClaude, createClaudeAdapter, prepareInput, cleanupOldTempFiles, clearCommandCache, fetchClaudeModels, fetchClaudeCommands, checkVersionCompatibility, type ClaudeMessage } from '../claude-sdk.js';
+import { runClaude, prepareInput, cleanupOldTempFiles, clearCommandCache, fetchClaudeModels, fetchClaudeCommands, checkVersionCompatibility, type ClaudeMessage } from '../claude-sdk.js';
 
 // Mock the claude-agent-sdk
 vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
@@ -771,66 +771,6 @@ describe('claude-sdk', () => {
     });
   });
 
-  describe('createClaudeAdapter', () => {
-    it('creates adapter with provider config', async () => {
-      vi.mocked(query).mockReturnValue({
-        async *[Symbol.asyncIterator]() {
-          yield { type: 'result' };
-        }
-      } as unknown as ReturnType<typeof query>);
-
-      const adapter = createClaudeAdapter({
-        id: 'provider-1',
-        name: 'My Provider',
-        type: 'claude',
-        cliPath: '/custom/claude-cli',
-        env: { ANTHROPIC_API_KEY: 'test-key' },
-        isDefault: true,
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-      });
-
-      const generator = adapter.run('Hello', '/project');
-      for await (const _ of generator) { /* consume */ }
-
-      expect(query).toHaveBeenCalledWith({
-        prompt: 'Hello',
-        options: expect.objectContaining({
-          cwd: '/project',
-          pathToClaudeCodeExecutable: '/custom/claude-cli',
-          env: expect.objectContaining({ ANTHROPIC_API_KEY: 'test-key' }),
-        })
-      });
-    });
-
-    it('passes sessionId for resume', async () => {
-      vi.mocked(query).mockReturnValue({
-        async *[Symbol.asyncIterator]() {
-          yield { type: 'result' };
-        }
-      } as unknown as ReturnType<typeof query>);
-
-      const adapter = createClaudeAdapter({
-        id: 'provider-1',
-        name: 'My Provider',
-        type: 'claude',
-        isDefault: false,
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-      });
-
-      const generator = adapter.run('Hello', '/project', 'session-to-resume');
-      for await (const _ of generator) { /* consume */ }
-
-      expect(query).toHaveBeenCalledWith({
-        prompt: 'Hello',
-        options: expect.objectContaining({
-          cwd: '/project',
-          resume: 'session-to-resume',
-        })
-      });
-    });
-  });
 });
 
 describe('prepareInput', () => {
