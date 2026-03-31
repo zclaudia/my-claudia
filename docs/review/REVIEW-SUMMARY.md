@@ -205,19 +205,21 @@
 
 | 文件 | 内容 |
 |------|------|
-| [batch-01-shared-types.md](batch-01-shared-types.md) | Shared Types & Protocol |
-| [batch-02-gateway.md](batch-02-gateway.md) | Gateway |
-| [batch-03-server-core.md](batch-03-server-core.md) | Server Core Platform |
-| [batch-04-server-providers.md](batch-04-server-providers.md) | Server AI Provider |
-| [batch-05-conversation-engine.md](batch-05-conversation-engine.md) | Conversation Engine |
-| [batch-06-supervision.md](batch-06-supervision.md) | Supervision |
-| [batch-07-automation.md](batch-07-automation.md) | Automation |
-| [batch-08-plugin-system.md](batch-08-plugin-system.md) | Plugin System |
-| [batch-09-gateway-client-misc.md](batch-09-gateway-client-misc.md) | Gateway Client & 其余 |
-| [batch-10-desktop-stores-api.md](batch-10-desktop-stores-api.md) | Desktop Stores & API |
-| [batch-11-desktop-chat-ui.md](batch-11-desktop-chat-ui.md) | Desktop Chat Core UI |
-| [batch-12-desktop-features-ui.md](batch-12-desktop-features-ui.md) | Desktop Features & UI |
-| [batch-13-e2e-scripts.md](batch-13-e2e-scripts.md) | E2E Tests & Scripts |
+| [batch-01-shared-types.md](batch-01-shared-types.md) | Batch 1: Shared Types & Protocol |
+| [batch-02-gateway.md](batch-02-gateway.md) | Batch 2: Gateway |
+| [batch-03-server-core.md](batch-03-server-core.md) | Batch 3: Server Core Platform |
+| [batch-04-api-surface.md](batch-04-api-surface.md) | Batch 4: Server API Surface |
+| [batch-05-gateway-domain.md](batch-05-gateway-domain.md) | Batch 5: Server Domain — Gateway |
+| [batch-06-conversation-engine.md](batch-06-conversation-engine.md) | Batch 6: Conversation Engine |
+| [batch-07-supervision.md](batch-07-supervision.md) | Batch 7: Supervision |
+| [batch-08-automation.md](batch-08-automation.md) | Batch 8: Workflow Automation |
+| [batch-09-orchestration-collab.md](batch-09-orchestration-collab.md) | Batch 9: Orchestration & Collaboration (Preliminary) |
+| [batch-10-server-providers.md](batch-10-server-providers.md) | Batch 10: Server AI Providers |
+| [batch-11-plugin-system.md](batch-11-plugin-system.md) | Batch 11: Plugin System |
+| [batch-12-desktop-stores-api.md](batch-12-desktop-stores-api.md) | Batch 12: Desktop Stores & API |
+| [batch-13-desktop-chat-ui.md](batch-13-desktop-chat-ui.md) | Batch 13: Desktop Chat Core UI |
+| [batch-14-desktop-features-ui.md](batch-14-desktop-features-ui.md) | Batch 14: Desktop Features & UI |
+| [batch-15-e2e-scripts.md](batch-15-e2e-scripts.md) | Batch 15: E2E Tests & Scripts |
 
 ---
 

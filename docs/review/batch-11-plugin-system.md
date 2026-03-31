@@ -1,4 +1,4 @@
-# Batch 8: Server — Plugin System Review
+# Batch 11: Server Infra — Plugin System Review
 
 日期：2026-03-28
 状态：✅ 完成

@@ -1,4 +1,4 @@
-# Batch 10: Desktop — Stores & API Layer Review
+# Batch 12: Desktop Foundation — Stores & API Layer Review
 
 日期：2026-03-28
 状态：✅ 完成

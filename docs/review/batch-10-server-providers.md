@@ -1,4 +1,4 @@
-# Legacy Batch 4 / Current Plan Batch 10: Server — AI Provider Layer Review
+# Batch 10: Server Infra — Providers Review
 
 日期：2026-03-28
 状态：✅ 完成

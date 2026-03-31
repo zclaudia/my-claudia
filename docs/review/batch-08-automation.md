@@ -1,4 +1,4 @@
-# Batch 7: Server — Automation Review
+# Batch 8: Server Domains — Workflow Automation Review
 
 日期：2026-03-31（第二轮）
 状态：✅ 修复完成

@@ -1,4 +1,8 @@
-# Batch 9: Server — Gateway Client & 其余 Review
+# Batch 9: Server Domains — Orchestration & Collaboration Review (Preliminary)
+
+> **注意**: 本报告源自旧编号体系的 Batch 9，覆盖范围包含 gateway-client、local-pr、notification-feed 等。
+> 在新计划中，gateway-client 已归入 Batch 5（Server Domain — Gateway），其余 local-pr / notification-feed 归入本 Batch 9。
+> 后续正式 review 可在此基础上补充 orchestration 域内容。
 
 日期：2026-03-28
 状态：✅ 完成

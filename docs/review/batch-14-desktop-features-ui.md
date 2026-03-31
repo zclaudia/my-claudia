@@ -1,4 +1,4 @@
-# Batch 12: Desktop — Features & UI Review
+# Batch 14: Desktop Feature Domains Review
 
 日期：2026-03-28
 状态：✅ 完成

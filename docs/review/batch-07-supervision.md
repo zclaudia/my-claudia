@@ -1,4 +1,4 @@
-# Batch 6: Server — Supervision Review
+# Batch 7: Server Domain — Supervision Review
 
 日期：2026-03-31
 状态：✅ 收尾完成

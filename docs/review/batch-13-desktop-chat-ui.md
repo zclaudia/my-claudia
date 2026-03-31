@@ -1,4 +1,4 @@
-# Batch 11: Desktop — Chat & Core UI Review
+# Batch 13: Desktop UI Shell — Chat & Core UI Review
 
 日期：2026-03-28
 状态：✅ 完成

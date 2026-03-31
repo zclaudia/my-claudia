@@ -1,41 +1,31 @@
 # MyClaudia 项目 Review & 优化计划
 
-日期：2026-03-30
+日期：2026-03-31
 状态：In Progress
 
-## 当前执行进度（2026-03-30）
+## 当前执行进度（2026-03-31）
 
 已完成：
 - Phase 0: Review Baseline
-- Batch 1: Shared Contract & Facade
-- Batch 2: Gateway Relay Service
-- Batch 3: Server Infra — Runtime Core
-- Batch 4: Server Infra — API Surface
-- Batch 5: Server Domain — Gateway
-- Batch 6: Server Domain — Conversation（对应报告 [batch-05-conversation-engine.md](./batch-05-conversation-engine.md)）
-- Batch 7: Server Domain — Supervision（对应报告 [batch-06-supervision.md](./batch-06-supervision.md)）
-- Batch 8: Server Domains — Workflow Automation（对应报告 [batch-07-automation.md](./batch-07-automation.md)，第二轮修复已落地）
+- Batch 1: Shared Contract & Facade — [batch-01-shared-types.md](./batch-01-shared-types.md)
+- Batch 2: Gateway Relay Service — [batch-02-gateway.md](./batch-02-gateway.md)
+- Batch 3: Server Infra — Runtime Core — [batch-03-server-core.md](./batch-03-server-core.md)
+- Batch 4: Server Infra — API Surface — [batch-04-api-surface.md](./batch-04-api-surface.md)
+- Batch 5: Server Domain — Gateway — [batch-05-gateway-domain.md](./batch-05-gateway-domain.md)
+- Batch 6: Server Domain — Conversation — [batch-06-conversation-engine.md](./batch-06-conversation-engine.md)
+- Batch 7: Server Domain — Supervision — [batch-07-supervision.md](./batch-07-supervision.md)
+- Batch 8: Server Domains — Workflow Automation — [batch-08-automation.md](./batch-08-automation.md)（第二轮修复 + DDD P1 重构已落地）
 
 当前下一批：
 - Batch 9: Server Domains — Orchestration & Collaboration
 
 说明：
-- Batch 4 不只是完成 review，相关主路径修复也已经落地，详见 [batch-04-api-surface.md](./batch-04-api-surface.md)。
-- Batch 5 也已完成 review 与首轮关键修复，详见 [batch-05-gateway-domain.md](./batch-05-gateway-domain.md)。
-- Batch 8 (Automation) 第二轮 review 修复了 6 项 bug + 降级 1 项 + 新增 6 项架构候选，详见 [batch-07-automation.md](./batch-07-automation.md)。
-- 历史编号文件 [batch-04-server-providers.md](./batch-04-server-providers.md) 仍然对应当前计划的 Batch 10，不影响下一步顺序判断。
+- Batch 8 完成内容：6 项 bug 修复、1 项降级、DDD P1（Engine step handler 拆分 + Port/Adapter 注入），详见报告。
+- Batch 9 有初步 review（旧编号遗留），见 [batch-09-orchestration-collab.md](./batch-09-orchestration-collab.md)。
 
-## 批次编号校准（2026-03-29）
+## 编号对齐说明（2026-03-31）
 
-仓库中的 `docs/review/batch-*.md` 历史报告仍沿用**旧的 13 批次编号体系**，而本计划采用的是**重新校准后的 15 批次执行体系**。两者不是一一同号对应关系，后续执行顺序应以**本文件**为准，不应仅凭历史报告文件名判断“下一批”。
-
-当前已确认的关键映射：
-- 历史报告 [batch-04-server-providers.md](./batch-04-server-providers.md) 对应的是**当前计划的 Batch 10: Server Infra — Providers**，不是当前计划里的 Batch 4。
-- 因此，当前计划里的 **Batch 4** 仍然是 `server/src/{router,routes,repositories}` 的 **API Surface** review，相关报告需要单独产出，不应复用 provider 报告。
-
-使用规则：
-- 看“执行顺序”与“下一步做什么”时，以本文件的批次编号为准。
-- 看某个历史 review 结论时，先确认它属于旧编号还是当前编号，再决定是否直接复用。
+所有 `docs/review/batch-*.md` 报告文件已统一重命名，**文件编号与本计划的批次编号一一对应**，不再存在新旧编号错位问题。
 
 ## 执行前说明
 
@@ -190,9 +180,7 @@
 
 **范围**: `server/src/{router,routes,repositories}`
 
-**文档说明**:
-- 当前仓库里**还没有**与本批次对应的独立历史报告。
-- 文件名为 [batch-04-server-providers.md](./batch-04-server-providers.md) 的报告属于旧编号体系，实际应归到当前计划的 **Batch 10**。
+**报告**: [batch-04-api-surface.md](./batch-04-api-surface.md)
 
 **Review 重点**:
 - `routes` 与 `router` 的职责边界
@@ -280,8 +268,7 @@
 
 **范围**: `server/src/providers/`
 
-**对应历史报告**:
-- [batch-04-server-providers.md](./batch-04-server-providers.md)（旧 13 批次体系中的 Batch 4）
+**报告**: [batch-10-server-providers.md](./batch-10-server-providers.md)
 
 **Review 重点**:
 - provider 适配器模式、超时、取消、重试策略是否一致
