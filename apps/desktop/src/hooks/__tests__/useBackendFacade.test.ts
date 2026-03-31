@@ -239,6 +239,44 @@ describe('useBackendFacade run_event forwarding', () => {
     });
   });
 
+  it('downgrades local backend on snapshot updates while embedded transport is connecting', () => {
+    syncToGatewayStore({
+      type: 'snapshot_updated',
+      snapshot: {
+        snapshotVersion: 2,
+        capturedAt: Date.now(),
+        mode: 'embedded',
+        connectionState: 'connecting',
+        localBackendId: 'local-standalone',
+        currentInstanceId: 'instance-local',
+        currentDeviceId: 'device-local',
+        registryRevision: 2,
+        sessionStreams: {},
+        backends: [
+          {
+            backendId: 'local-standalone',
+            name: 'Local',
+            online: true,
+            runtimeState: 'ready',
+            openState: 'open',
+            channelId: 'ch-1',
+            instanceId: 'instance-local',
+            deviceId: 'device-local',
+            channel: 'local',
+            isThisInstance: true,
+            isThisDevice: true,
+            capabilities: ['remoteTerminal'],
+          },
+        ],
+      },
+    } as any);
+
+    expect(useServerStore.getState().connections['local-standalone']).toMatchObject({
+      status: 'connecting',
+      features: ['remoteTerminal'],
+    });
+  });
+
   it('keeps active runs alive while a backend reconnects unexpectedly', () => {
     useChatStore.setState({
       ...useChatStore.getState(),

@@ -108,6 +108,13 @@ export class EmbeddedFacadeClient implements BackendFacade {
   // --------------------------------------------------------------------------
 
   private handleMessage(msg: any): void {
+    // Diagnostic: log state-changing events in dev to debug periodic connecting/connected flapping.
+    if (
+      import.meta.env.DEV &&
+      (msg.type === 'backend_state_changed' || msg.type === 'connection_state_changed')
+    ) {
+      console.log(`[EmbeddedFacadeClient] ${msg.type}:`, msg.type === 'backend_state_changed' ? `backend=${msg.backendId} state=${msg.state} error=${msg.error}` : `state=${msg.state}`);
+    }
     switch (msg.type) {
       case 'facade_snapshot':
         this.latestSnapshot = msg.snapshot;

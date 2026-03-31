@@ -4,6 +4,8 @@ use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
 
 static SERVER_PROCESS: Mutex<Option<Child>> = Mutex::new(None);
+static SERVER_PORT: Mutex<Option<u16>> = Mutex::new(None);
+static SERVER_CONFIG: Mutex<Option<ServerLaunchConfig>> = Mutex::new(None);
 /// PID of a dev-mode server spawned from JS (not in SERVER_PROCESS).
 static DEV_SERVER_PID: Mutex<Option<u32>> = Mutex::new(None);
 /// Data directory path, set once at start_server for use by cleanup functions.
@@ -22,6 +24,30 @@ const SHELL_NETWORK_ENV_KEYS: [&str; 8] = [
 #[derive(serde::Serialize)]
 pub struct ServerResult {
     pub port: u16,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct ServerLaunchConfig {
+    server_path: String,
+    data_dir: String,
+    local_reviewer_env: Option<BTreeMap<String, String>>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ExistingServerAction {
+    Reuse,
+    Restart,
+}
+
+fn decide_existing_server_action(
+    existing_config: Option<&ServerLaunchConfig>,
+    requested_config: &ServerLaunchConfig,
+) -> ExistingServerAction {
+    if existing_config == Some(requested_config) {
+        ExistingServerAction::Reuse
+    } else {
+        ExistingServerAction::Restart
+    }
 }
 
 /// Write a debug log line to a file in the data directory for troubleshooting.
@@ -260,6 +286,71 @@ pub async fn start_server(
     data_dir: String,
     local_reviewer_env: Option<std::collections::BTreeMap<String, String>>,
 ) -> Result<ServerResult, String> {
+    let requested_config = ServerLaunchConfig {
+        server_path: server_path.clone(),
+        data_dir: data_dir.clone(),
+        local_reviewer_env: local_reviewer_env.clone(),
+    };
+    let mut should_restart_existing = false;
+
+    if let Ok(mut guard) = SERVER_PROCESS.lock() {
+        if let Some(existing_child) = guard.as_mut() {
+            match existing_child.try_wait() {
+                Ok(None) => {
+                    let existing_config =
+                        SERVER_CONFIG.lock().map_err(|e| e.to_string())?.clone();
+                    if decide_existing_server_action(
+                        existing_config.as_ref(),
+                        &requested_config,
+                    ) == ExistingServerAction::Reuse
+                    {
+                        let existing_port = SERVER_PORT
+                            .lock()
+                            .ok()
+                            .and_then(|guard| *guard)
+                            .ok_or_else(|| {
+                                "Server process is running but port is unknown".to_string()
+                            })?;
+                        eprintln!(
+                            "[EmbeddedServer/Rust] Reusing existing server (pid={}, port={})",
+                            existing_child.id(),
+                            existing_port
+                        );
+                        return Ok(ServerResult {
+                            port: existing_port,
+                        });
+                    }
+
+                    eprintln!(
+                        "[EmbeddedServer/Rust] Existing server config differs; restarting (pid={})",
+                        existing_child.id()
+                    );
+                    should_restart_existing = true;
+                }
+                Ok(Some(status)) => {
+                    eprintln!(
+                        "[EmbeddedServer/Rust] Removing exited server process before restart (status={})",
+                        status
+                    );
+                    *guard = None;
+                    if let Ok(mut port_guard) = SERVER_PORT.lock() {
+                        *port_guard = None;
+                    }
+                    if let Ok(mut config_guard) = SERVER_CONFIG.lock() {
+                        *config_guard = None;
+                    }
+                }
+                Err(e) => {
+                    return Err(format!("Failed to inspect existing server process: {}", e));
+                }
+            }
+        }
+    }
+
+    if should_restart_existing {
+        stop_server().await?;
+    }
+
     // Kill any orphaned server from a previous crash via pid file
     cleanup_stale_pid_file(&data_dir);
 
@@ -422,12 +513,22 @@ pub async fn start_server(
             // Store the child process for cleanup
             let mut guard = SERVER_PROCESS.lock().map_err(|e| e.to_string())?;
             *guard = Some(child);
+            let mut port_guard = SERVER_PORT.lock().map_err(|e| e.to_string())?;
+            *port_guard = Some(p);
+            let mut config_guard = SERVER_CONFIG.lock().map_err(|e| e.to_string())?;
+            *config_guard = Some(requested_config);
             eprintln!("[EmbeddedServer/Rust] Server ready on port {}", p);
             Ok(ServerResult { port: p })
         }
         None => {
             // Process exited before outputting SERVER_READY
             remove_pid_file(&data_dir);
+            if let Ok(mut port_guard) = SERVER_PORT.lock() {
+                *port_guard = None;
+            }
+            if let Ok(mut config_guard) = SERVER_CONFIG.lock() {
+                *config_guard = None;
+            }
             let status = child.wait().map_err(|e| e.to_string())?;
             Err(format!(
                 "Server process exited without SERVER_READY (status={})",
@@ -498,6 +599,12 @@ pub async fn stop_server() -> Result<(), String> {
                 remove_pid_file(dir);
             }
         }
+        if let Ok(mut port_guard) = SERVER_PORT.lock() {
+            *port_guard = None;
+        }
+        if let Ok(mut config_guard) = SERVER_CONFIG.lock() {
+            *config_guard = None;
+        }
         eprintln!("[EmbeddedServer/Rust] Server stopped");
     }
     Ok(())
@@ -541,7 +648,7 @@ fn kill_dev_server() {
 }
 
 /// Kill the server process synchronously (for use in exit hooks).
-/// Spawns a background thread to wait for graceful exit without blocking app shutdown.
+/// Blocks until the server process exits to prevent orphaned processes.
 pub fn stop_server_sync() {
     // Kill dev-mode server (spawned from JS, tracked by PID only)
     kill_dev_server();
@@ -550,57 +657,86 @@ pub fn stop_server_sync() {
     if let Ok(mut guard) = SERVER_PROCESS.lock() {
         if let Some(mut child) = guard.take() {
             let pid = child.id();
-            let data_dir = DATA_DIR.lock().ok().and_then(|g| g.clone());
+            eprintln!("[EmbeddedServer/Rust] Exit hook: stopping server (pid={})...", pid);
+            graceful_kill(&mut child, 3);
 
-            // Send SIGTERM immediately
-            #[cfg(unix)]
-            unsafe {
-                libc::kill(pid as i32, libc::SIGTERM);
+            // Clean up pid file
+            if let Some(dir) = DATA_DIR.lock().ok().and_then(|g| g.clone()) {
+                remove_pid_file(&dir);
             }
-            #[cfg(not(unix))]
-            {
-                let _ = child.kill();
+            if let Ok(mut port_guard) = SERVER_PORT.lock() {
+                *port_guard = None;
             }
-
-            eprintln!("[EmbeddedServer/Rust] Exit hook: server signaled (pid={}), spawning cleanup thread", pid);
-
-            // Spawn background thread to wait for process exit without blocking main thread
-            std::thread::spawn(move || {
-                let start = std::time::Instant::now();
-                let timeout = std::time::Duration::from_secs(3);
-
-                loop {
-                    match child.try_wait() {
-                        Ok(Some(status)) => {
-                            eprintln!("[EmbeddedServer/Rust] Cleanup thread: server exited gracefully (status={})", status);
-                            break;
-                        }
-                        Ok(None) => {
-                            if start.elapsed() > timeout {
-                                eprintln!("[EmbeddedServer/Rust] Cleanup thread: timeout, sending SIGKILL");
-                                let _ = child.kill();
-                                let _ = child.wait();
-                                break;
-                            }
-                            std::thread::sleep(std::time::Duration::from_millis(100));
-                        }
-                        Err(e) => {
-                            eprintln!("[EmbeddedServer/Rust] Cleanup thread: error waiting for process: {}", e);
-                            break;
-                        }
-                    }
-                }
-
-                // Clean up pid file after process exits
-                if let Some(dir) = data_dir {
-                    remove_pid_file(&dir);
-                }
-                eprintln!("[EmbeddedServer/Rust] Cleanup thread: done");
-            });
-
-            eprintln!(
-                "[EmbeddedServer/Rust] Exit hook: returning immediately (cleanup in background)"
-            );
+            if let Ok(mut config_guard) = SERVER_CONFIG.lock() {
+                *config_guard = None;
+            }
+            eprintln!("[EmbeddedServer/Rust] Exit hook: server stopped");
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        decide_existing_server_action, ExistingServerAction, ServerLaunchConfig,
+    };
+    use std::collections::BTreeMap;
+
+    fn make_config(
+        server_path: &str,
+        data_dir: &str,
+        env: Option<&[(&str, &str)]>,
+    ) -> ServerLaunchConfig {
+        let local_reviewer_env = env.map(|pairs| {
+            pairs
+                .iter()
+                .map(|(key, value)| (key.to_string(), value.to_string()))
+                .collect::<BTreeMap<_, _>>()
+        });
+        ServerLaunchConfig {
+            server_path: server_path.to_string(),
+            data_dir: data_dir.to_string(),
+            local_reviewer_env,
+        }
+    }
+
+    #[test]
+    fn reuses_existing_server_when_launch_config_matches() {
+        let requested = make_config(
+            "/app/server.mjs",
+            "/tmp/my-claudia",
+            Some(&[("OPENAI_API_KEY", "a"), ("HTTP_PROXY", "http://proxy")]),
+        );
+        let existing = make_config(
+            "/app/server.mjs",
+            "/tmp/my-claudia",
+            Some(&[("HTTP_PROXY", "http://proxy"), ("OPENAI_API_KEY", "a")]),
+        );
+
+        assert_eq!(
+            decide_existing_server_action(Some(&existing), &requested),
+            ExistingServerAction::Reuse
+        );
+    }
+
+    #[test]
+    fn restarts_existing_server_when_data_dir_differs() {
+        let existing = make_config("/app/server.mjs", "/tmp/my-claudia-a", None);
+        let requested = make_config("/app/server.mjs", "/tmp/my-claudia-b", None);
+
+        assert_eq!(
+            decide_existing_server_action(Some(&existing), &requested),
+            ExistingServerAction::Restart
+        );
+    }
+
+    #[test]
+    fn restarts_existing_server_when_cached_config_is_missing() {
+        let requested = make_config("/app/server.mjs", "/tmp/my-claudia", None);
+
+        assert_eq!(
+            decide_existing_server_action(None, &requested),
+            ExistingServerAction::Restart
+        );
     }
 }
