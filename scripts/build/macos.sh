@@ -183,6 +183,10 @@ else
   echo "Local build → deriving dev version from latest release tag"
   eval "$(./scripts/version-bump.sh --platform macos --dev-suffix)"
 fi
+export UPDATES_ENABLED="${UPDATES_ENABLED:-${RELEASE_VERSION:+true}}"
+if [ -z "${RELEASE_VERSION:-}" ] || [ -z "${RELEASE_BUILD:-}" ]; then
+  export UPDATES_ENABLED="${UPDATES_ENABLED:-false}"
+fi
 
 ARCH=$(uname -m)
 # Map uname -m to Tauri platform identifier

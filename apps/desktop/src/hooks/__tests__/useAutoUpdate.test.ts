@@ -19,6 +19,11 @@ describe('useAutoUpdate helpers', () => {
     expect(hasDesktopUpdateCandidate('0.1.280-dev')).toBe(false);
   });
 
+  it('suppresses desktop update when build config disables updates', () => {
+    expect(hasDesktopUpdateCandidate('0.1.280', false)).toBe(false);
+    expect(hasDesktopUpdateCandidate('0.1.280-dev', false)).toBe(false);
+  });
+
   it('identifies dev app identities even without a dev version suffix', () => {
     expect(isDevAppIdentity('com.myClaudia.desktop.dev', 'MyClaudia')).toBe(true);
     expect(isDevAppIdentity('com.myClaudia.desktop', 'MyClaudia Dev')).toBe(true);

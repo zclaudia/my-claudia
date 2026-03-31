@@ -181,6 +181,64 @@ describe('useBackendFacade run_event forwarding', () => {
     expect(useServerStore.getState().activeServerSupports('remoteTerminal')).toBe(true);
   });
 
+  it('downgrades backend connection status while transport is reconnecting', () => {
+    useServerStore.setState({
+      ...useServerStore.getState(),
+      connections: {
+        'local-standalone': { status: 'connected', error: null, isLocalConnection: true, features: [] },
+      },
+    });
+
+    syncToGatewayStore({
+      type: 'connection_state_changed',
+      state: 'reconnecting',
+    } as any);
+
+    expect(useServerStore.getState().controlPlaneState).toBe('connecting');
+    expect(useServerStore.getState().connections['local-standalone']).toMatchObject({
+      status: 'connecting',
+      error: null,
+    });
+  });
+
+  it('does not keep backend connected on snapshot updates while transport is connecting', () => {
+    syncToGatewayStore({
+      type: 'snapshot_updated',
+      snapshot: {
+        snapshotVersion: 2,
+        capturedAt: Date.now(),
+        mode: 'direct',
+        connectionState: 'connecting',
+        localBackendId: null,
+        currentInstanceId: 'instance-local',
+        currentDeviceId: 'device-local',
+        registryRevision: 2,
+        sessionStreams: {},
+        backends: [
+          {
+            backendId: 'remote-1',
+            name: 'Remote',
+            online: true,
+            runtimeState: 'ready',
+            openState: 'open',
+            channelId: 'ch-1',
+            instanceId: 'instance-remote',
+            deviceId: 'device-remote',
+            channel: 'prod',
+            isThisInstance: false,
+            isThisDevice: false,
+            capabilities: ['remoteTerminal'],
+          },
+        ],
+      },
+    } as any);
+
+    expect(useServerStore.getState().connections['remote-1']).toMatchObject({
+      status: 'connecting',
+      features: ['remoteTerminal'],
+    });
+  });
+
   it('keeps active runs alive while a backend reconnects unexpectedly', () => {
     useChatStore.setState({
       ...useChatStore.getState(),

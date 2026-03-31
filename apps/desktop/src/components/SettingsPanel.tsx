@@ -27,6 +27,7 @@ import { NotificationSettingsInline } from './settings/NotificationSettings';
 import { MobileGatewayConfig } from './settings/MobileGatewayConfig';
 import { isMacOS, isTauri } from '../utils/platform';
 import { useControlPlaneMode } from '../hooks/useControlPlaneMode';
+import { canReachBackend, getEffectiveBackendStatus } from '../utils/backendConnection';
 
 type SettingsTab = 'general' | 'agent' | 'permissions' | 'providers' | 'notifications' | 'gateway' | 'import' | 'plugins' | 'mcp-servers' | 'workspace' | 'debug' | `plugin:${string}`;
 
@@ -64,6 +65,7 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
   const clearCleanupResult = useProcessMonitorStore((state) => state.clearCleanupResult);
 
   const facadeBackends = useFacadeStore((s) => s.backends);
+  const facadeConnectionState = useFacadeStore((s) => s.connectionState);
   const localBackendId = useFacadeStore((s) => s.localBackendId);
   const currentInstanceId = useFacadeStore((s) => s.currentInstanceId);
   const activeServer = facadeBackends.find(b => b.backendId === activeServerId) ?? null;
@@ -181,7 +183,7 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
   }, [activeTab, isEmbeddedLocalMode]);
 
   const handleBackendSwitch = (backend: GatewayBackendInfo) => {
-    if (!backend.online) return;
+    if (!canReachBackend(facadeConnectionState, backend as any)) return;
     const serverId = backend.backendId;
     setActiveServer(serverId);
     connectServer(serverId);
@@ -474,16 +476,24 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
                           {visibleGatewayBackends.map((backend) => {
                             const gwId = backend.backendId;
                             const isActive = activeServerId === gwId;
-                            const statusColor = backend.online ? 'bg-success' : 'bg-muted-foreground';
+                            const effectiveStatus = getEffectiveBackendStatus(facadeConnectionState, backend as any);
+                            const isReachable = canReachBackend(facadeConnectionState, backend as any);
+                            const statusColor = effectiveStatus === 'connected'
+                              ? 'bg-success'
+                              : effectiveStatus === 'connecting'
+                              ? 'bg-warning animate-pulse'
+                              : effectiveStatus === 'error'
+                              ? 'bg-destructive'
+                              : 'bg-muted-foreground';
 
                             return (
                               <button
                                 key={backend.backendId}
                                 onClick={() => handleBackendSwitch(backend)}
-                                disabled={!backend.online}
+                                disabled={!isReachable}
                                 className={`w-full px-3 py-2 text-left hover:bg-muted flex items-center gap-2 text-sm ${
                                   isActive ? 'bg-muted' : ''
-                                } ${!backend.online ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                } ${!isReachable ? 'opacity-50 cursor-not-allowed' : ''}`}
                               >
                                 <span className={`w-2 h-2 rounded-full flex-shrink-0 ${statusColor}`} />
                                 <span className="truncate flex-1" title={backend.name}>{backend.name}</span>
@@ -492,8 +502,10 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
                                     Active
                                   </span>
                                 )}
-                                {!backend.online && (
-                                  <span className="text-[10px] text-muted-foreground flex-shrink-0">Offline</span>
+                                {!isReachable && (
+                                  <span className="text-[10px] text-muted-foreground flex-shrink-0">
+                                    {effectiveStatus === 'connecting' ? 'Connecting' : effectiveStatus === 'error' ? 'Error' : 'Offline'}
+                                  </span>
                                 )}
                               </button>
                             );

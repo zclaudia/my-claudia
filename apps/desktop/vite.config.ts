@@ -15,6 +15,7 @@ export default defineConfig({
       (process.env.TAURI_CONFIG ? JSON.parse(process.env.TAURI_CONFIG).version : null) ||
       pkg.version
     ),
+    __UPDATES_ENABLED__: JSON.stringify(process.env.UPDATES_ENABLED !== 'false'),
   },
   resolve: {
     alias: {

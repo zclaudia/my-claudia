@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useUpdateStore } from '../stores/updateStore';
-import { checkForUpdates, downloadAndInstallApk, isDevAppIdentity, isDevBuild } from '../hooks/useAutoUpdate';
+import { areUpdatesEnabledForBuild, checkForUpdates, downloadAndInstallApk, isDevAppIdentity, isDevBuild } from '../hooks/useAutoUpdate';
 import { isDesktopTauri } from '../utils/platform';
 
 export function UpdateBanner() {
@@ -120,8 +120,16 @@ export function CheckForUpdatesButton() {
       return;
     }
 
-    const currentVersion = useUpdateStore.getState().currentVersion;
-    if (currentVersion && isDevBuild(currentVersion)) {
+    if (!areUpdatesEnabledForBuild()) {
+      setUpdatesEnabled(false);
+      return;
+    }
+
+    const effectiveVersion = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : useUpdateStore.getState().currentVersion;
+    if (effectiveVersion) {
+      useUpdateStore.setState({ currentVersion: effectiveVersion });
+    }
+    if (effectiveVersion && isDevBuild(effectiveVersion)) {
       setUpdatesEnabled(false);
       return;
     }
@@ -131,8 +139,9 @@ export function CheckForUpdatesButton() {
         const { getIdentifier, getName, getVersion } = await import('@tauri-apps/api/app');
         const [identifier, appName, version] = await Promise.all([getIdentifier(), getName(), getVersion()]);
         if (!cancelled) {
-          useUpdateStore.setState({ currentVersion: version });
-          setUpdatesEnabled(!isDevBuild(version) && !isDevAppIdentity(identifier, appName));
+          const currentVersion = effectiveVersion || version;
+          useUpdateStore.setState({ currentVersion });
+          setUpdatesEnabled(areUpdatesEnabledForBuild() && !isDevBuild(currentVersion) && !isDevAppIdentity(identifier, appName));
         }
       } catch {
         if (!cancelled) setUpdatesEnabled(true);

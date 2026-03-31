@@ -17,6 +17,10 @@ export function isDevBuild(version: string): boolean {
   return version.includes('-dev');
 }
 
+export function areUpdatesEnabledForBuild(): boolean {
+  return typeof __UPDATES_ENABLED__ !== 'undefined' ? __UPDATES_ENABLED__ : true;
+}
+
 export function isDevAppIdentity(identifier: string | null | undefined, appName?: string | null): boolean {
   const normalizedIdentifier = identifier?.toLowerCase() ?? '';
   const normalizedName = appName?.toLowerCase() ?? '';
@@ -42,15 +46,20 @@ function isNewerVersion(remote: string, local: string): boolean {
   return coreCompare > 0;
 }
 
-export function hasDesktopUpdateCandidate(currentVersion: string): boolean {
+export function hasDesktopUpdateCandidate(currentVersion: string, updatesEnabled = areUpdatesEnabledForBuild()): boolean {
   // Dev builds are local installs — never overwrite with a release version.
   // Only release builds should auto-update from GitHub.
   // (Actual version comparison is handled by the Tauri updater plugin
   //  via native HTTP, bypassing WebView CORS restrictions.)
-  return !isDevBuild(currentVersion);
+  return updatesEnabled && !isDevBuild(currentVersion);
+}
+
+function getDesktopAppVersion(): string {
+  return typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '';
 }
 
 async function shouldCheckDesktopUpdates(currentVersion: string): Promise<boolean> {
+  if (!areUpdatesEnabledForBuild()) return false;
   if (!hasDesktopUpdateCandidate(currentVersion)) return false;
 
   const { getIdentifier, getName } = await import('@tauri-apps/api/app');
@@ -196,7 +205,7 @@ export async function checkForUpdates(manual = false): Promise<void> {
     const { check } = await import('@tauri-apps/plugin-updater');
     const { getVersion } = await import('@tauri-apps/api/app');
 
-    const currentVersion = await getVersion();
+    const currentVersion = getDesktopAppVersion() || await getVersion();
     useUpdateStore.setState({ currentVersion });
 
     if (!(await shouldCheckDesktopUpdates(currentVersion))) {

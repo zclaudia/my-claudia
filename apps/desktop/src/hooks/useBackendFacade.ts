@@ -23,7 +23,7 @@ import { useChatStore, type MessageWithToolCalls } from '../stores/chatStore';
 import { useToastStore } from '../stores/toastStore';
 import { useOwnershipStore } from '../stores/ownershipStore';
 import { handleServerMessage } from '../services/messageHandler';
-import type { BackendRuntimeState, ServerFeature } from '@my-claudia/shared';
+import type { BackendConnectionState, BackendRuntimeState, ServerFeature } from '@my-claudia/shared';
 import type { ConnectionStatus } from '../stores/serverStore';
 import { isLegacyLocalBackendId } from '../utils/controlPlane';
 import { useTerminalStore } from '../stores/terminalStore';
@@ -40,6 +40,19 @@ function runtimeStateToConnectionStatus(state: BackendRuntimeState): ConnectionS
       return 'error';
     default:
       return 'disconnected';
+  }
+}
+
+function transportStateToConnectionStatus(state: BackendConnectionState): ConnectionStatus {
+  switch (state) {
+    case 'connected':
+      return 'connected';
+    case 'error':
+      return 'error';
+    case 'disconnected':
+      return 'disconnected';
+    default:
+      return 'connecting';
   }
 }
 
@@ -162,20 +175,22 @@ export function useBackendFacade(): void {
  */
 export function syncToGatewayStore(event: BackendFacadeEvent): void {
   const gwStore = useGatewayStore.getState();
+  const serverState = useServerStore.getState();
 
   switch (event.type) {
     case 'snapshot_updated': {
       const snapshot = event.snapshot;
       gwStore.setConnected(snapshot.connectionState === 'connected');
       // Sync per-backend connection status to serverStore
-      const serverState = useServerStore.getState();
       const resolvedLocalBackendId =
         snapshot.localBackendId
         || snapshot.backends.find((b) => b.isThisInstance)?.backendId
         || null;
       serverState.setControlPlaneState(snapshot.connectionState === 'connected' ? 'ready' : 'connecting');
       for (const b of snapshot.backends) {
-        const status = runtimeStateToConnectionStatus(b.runtimeState);
+        const status = snapshot.connectionState === 'connected'
+          ? runtimeStateToConnectionStatus(b.runtimeState)
+          : transportStateToConnectionStatus(snapshot.connectionState);
         serverState.setServerConnectionStatus(b.backendId, status, b.lastError ?? undefined);
         serverState.setServerFeatures(b.backendId, b.capabilities as ServerFeature[]);
       }
@@ -209,6 +224,12 @@ export function syncToGatewayStore(event: BackendFacadeEvent): void {
     case 'connection_state_changed':
       useServerStore.getState().setControlPlaneState(event.state === 'connected' ? 'ready' : event.state === 'error' ? 'error' : 'connecting');
       gwStore.setConnected(event.state === 'connected');
+      if (event.state !== 'connected') {
+        const downgradedStatus = transportStateToConnectionStatus(event.state);
+        for (const backend of useFacadeStore.getState().backends) {
+          serverState.setServerConnectionStatus(backend.backendId, downgradedStatus, event.error);
+        }
+      }
       break;
 
     case 'backend_state_changed': {

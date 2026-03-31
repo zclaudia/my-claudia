@@ -5,6 +5,7 @@ import { useServerStore } from '../stores/serverStore';
 import { useFacadeStore } from '../stores/facadeStore';
 import { useConnection } from '../contexts/ConnectionContext';
 import type { BackendSnapshot } from '@my-claudia/shared';
+import { canReachBackend } from '../utils/backendConnection';
 
 function shouldShowMobileDebug(): boolean {
   if (typeof window === 'undefined') return false;
@@ -94,7 +95,7 @@ export function MobileSetup() {
   };
 
   const handleBackendSelect = (backend: BackendSnapshot) => {
-    if (!backend.online) return;
+    if (!canReachBackend(facadeConnectionState, backend)) return;
     const serverId = backend.backendId;
     setActiveServer(serverId);
     setLastActiveBackend(serverId);
@@ -104,7 +105,7 @@ export function MobileSetup() {
   const { showLocalBackend } = useGatewayStore();
   const isGatewayConnected = facadeConnectionState === 'connected';
   const onlineBackends = backends.filter(
-    b => b.online && shouldShowNonCurrentInstanceBackend(b, currentInstanceId, showLocalBackend)
+    b => canReachBackend(facadeConnectionState, b) && shouldShowNonCurrentInstanceBackend(b, currentInstanceId, showLocalBackend)
   );
   const showDebug = debugVisible;
 

@@ -11,12 +11,14 @@ import type { ClientMessage } from '@my-claudia/shared';
 import { useServerStore } from '../stores/serverStore';
 import { useGatewayConnection } from './useGatewayConnection';
 import { useFacadeStore } from '../stores/facadeStore';
+import { isBackendReady } from '../utils/backendConnection';
 
 export function useMultiServerSocket() {
   const gatewayConnection = useGatewayConnection();
   const { activeServerId } = useServerStore();
   const facade = useFacadeStore((s) => s.facade);
   const facadeBackends = useFacadeStore((s) => s.backends);
+  const connectionState = useFacadeStore((s) => s.connectionState);
 
   const connectServer = useCallback((backendId: string) => {
     if (facade) {
@@ -51,10 +53,10 @@ export function useMultiServerSocket() {
   const isServerConnected = useCallback((backendId: string) => {
     if (facade) {
       const backend = facadeBackends.find(b => b.backendId === backendId);
-      return backend?.runtimeState === 'ready';
+      return backend ? isBackendReady(connectionState, backend) : false;
     }
     return gatewayConnection.isBackendConnected(backendId);
-  }, [facade, facadeBackends, gatewayConnection]);
+  }, [connectionState, facade, facadeBackends, gatewayConnection]);
 
   const isConnected = useCallback(() => {
     if (!activeServerId) return false;
@@ -64,11 +66,11 @@ export function useMultiServerSocket() {
   const getConnectedServers = useCallback(() => {
     if (facade) {
       return facadeBackends
-        .filter(b => b.runtimeState === 'ready')
+        .filter(b => isBackendReady(connectionState, b))
         .map(b => b.backendId);
     }
     return [];
-  }, [facade, facadeBackends]);
+  }, [connectionState, facade, facadeBackends]);
 
   return {
     connectServer,

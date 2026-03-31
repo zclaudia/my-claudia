@@ -22,6 +22,7 @@ $releaseBuild = $env:RELEASE_BUILD
 if ($releaseVersion -and $releaseBuild) {
     $env:VERSION = $releaseVersion
     $env:BUILD = $releaseBuild
+    if (-not $env:UPDATES_ENABLED) { $env:UPDATES_ENABLED = "true" }
     Write-Host "Using externally provided release version: $releaseVersion (build $releaseBuild)"
 } else {
     Write-Host "Local build -> deriving dev version from latest release tag"
@@ -35,6 +36,7 @@ if ($releaseVersion -and $releaseBuild) {
         Write-Error "Failed to derive VERSION from scripts/release/version-bump.sh"
         exit 1
     }
+    if (-not $env:UPDATES_ENABLED) { $env:UPDATES_ENABLED = "false" }
 }
 $appVersion = $env:VERSION
 # Tauri requires strict semver (MAJOR.MINOR.PATCH) — strip v prefix, prerelease suffixes, and whitespace

@@ -34,6 +34,7 @@ import { useGatewayStore } from './stores/gatewayStore';
 import { useProjectStore } from './stores/projectStore';
 import { useClaudiaStore } from './stores/claudiaStore';
 import { useIsMobile } from './hooks/useMediaQuery';
+import { canReachBackend } from './utils/backendConnection';
 import { useClaudiaStatus } from './hooks/useClaudiaStatus';
 import { useAndroidBack } from './hooks/useAndroidBack';
 import { useSwipeBack } from './hooks/useSwipeBack';
@@ -464,7 +465,7 @@ function AppContent() {
     }
 
     // Check if the last backend is online
-    const backendOnline = facadeBackends.some(b => b.online && b.backendId === backendId);
+    const backendOnline = facadeBackends.some((b) => b.backendId === backendId && canReachBackend(facadeConnectionState, b));
     if (!backendOnline) return;
 
     // Auto-connect once

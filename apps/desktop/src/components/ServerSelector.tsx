@@ -5,6 +5,7 @@ import { useFacadeStore } from '../stores/facadeStore';
 import { useConnection } from '../contexts/ConnectionContext';
 import { useIsMobile } from '../hooks/useMediaQuery';
 import type { BackendSnapshot } from '@my-claudia/shared';
+import { canReachBackend, getEffectiveBackendStatus } from '../utils/backendConnection';
 
 function formatLatency(latencyMs?: number | null): string | null {
   if (latencyMs == null) return null;
@@ -34,6 +35,7 @@ export function ServerSelector() {
   const [isOpen, setIsOpen] = useState(false);
 
   const backends = useFacadeStore((s) => s.backends);
+  const facadeConnectionState = useFacadeStore((s) => s.connectionState);
   const localBackendId = useFacadeStore((s) => s.localBackendId);
   const currentInstanceId = useFacadeStore((s) => s.currentInstanceId);
   const activeBackend = backends.find(b => b.backendId === activeServerId);
@@ -55,7 +57,7 @@ export function ServerSelector() {
   const remoteBackends = backends.filter(b => shouldShowNonCurrentInstanceBackend(b, currentInstanceId, effectiveShowLocal));
 
   const handleBackendClick = (backend: BackendSnapshot) => {
-    if (!backend.online) return;
+    if (!canReachBackend(facadeConnectionState, backend)) return;
     const serverId = backend.backendId;
     setActiveServer(serverId);
     connectServer(serverId);
@@ -155,6 +157,7 @@ export function ServerSelector() {
                       isActive={activeServerId === backend.backendId}
                       isSubscribed={isBackendSubscribed(backend.backendId)}
                       latencyMs={connections[backend.backendId]?.latencyMs}
+                      connectionState={facadeConnectionState}
                       onClick={() => handleBackendClick(backend)}
                       onToggleSubscription={() => toggleBackendSubscription(backend.backendId)}
                     />
@@ -204,6 +207,7 @@ function GatewayBackendItem({
   isActive,
   isSubscribed,
   latencyMs,
+  connectionState,
   onClick,
   onToggleSubscription
 }: {
@@ -211,15 +215,24 @@ function GatewayBackendItem({
   isActive: boolean;
   isSubscribed: boolean;
   latencyMs?: number | null;
+  connectionState: import('@my-claudia/shared').BackendConnectionState;
   onClick: () => void;
   onToggleSubscription: () => void;
 }) {
-  const statusColor = backend.online ? 'bg-success' : 'bg-muted-foreground';
+  const effectiveStatus = getEffectiveBackendStatus(connectionState, backend);
+  const isReachable = canReachBackend(connectionState, backend);
+  const statusColor = effectiveStatus === 'connected'
+    ? 'bg-success'
+    : effectiveStatus === 'connecting'
+    ? 'bg-warning animate-pulse'
+    : effectiveStatus === 'error'
+    ? 'bg-destructive'
+    : 'bg-muted-foreground';
   const isNonProdChannel = backend.channel && backend.channel !== 'prod';
 
   return (
     <div
-      className={`px-3 py-2 hover:bg-muted cursor-pointer ${isActive ? 'bg-muted' : ''} ${!backend.online ? 'opacity-50' : ''}`}
+      className={`px-3 py-2 hover:bg-muted cursor-pointer ${isActive ? 'bg-muted' : ''} ${!isReachable ? 'opacity-50' : ''}`}
       onClick={onClick}
     >
       <div className="flex items-center gap-2">
@@ -240,8 +253,10 @@ function GatewayBackendItem({
             Active
           </span>
         )}
-        {!backend.online && (
-          <span className="text-xs text-muted-foreground flex-shrink-0">Offline</span>
+        {!isReachable && (
+          <span className="text-xs text-muted-foreground flex-shrink-0">
+            {effectiveStatus === 'connecting' ? 'Connecting' : effectiveStatus === 'error' ? 'Error' : 'Offline'}
+          </span>
         )}
         <button
           onClick={(e) => { e.stopPropagation(); onToggleSubscription(); }}

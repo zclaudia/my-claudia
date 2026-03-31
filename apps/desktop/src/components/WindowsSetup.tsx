@@ -7,6 +7,7 @@ import { useFacadeStore } from '../stores/facadeStore';
 import { useConnection } from '../contexts/ConnectionContext';
 import { open } from '@tauri-apps/plugin-shell';
 import type { BackendSnapshot } from '@my-claudia/shared';
+import { canReachBackend } from '../utils/backendConnection';
 import { LEGACY_LOCAL_SERVER_ID, resolveCanonicalBackendId, resolveLocalBackendId } from '../utils/controlPlane';
 
 type SetupPath = 'choose' | 'wsl' | 'gateway' | 'manual';
@@ -158,12 +159,12 @@ export function WindowsSetup() {
   }, [gatewayUrl, gatewaySecret, setDirectGatewayConfig]);
 
   const handleBackendSelect = useCallback((backend: BackendSnapshot) => {
-    if (!backend.online) return;
+    if (!canReachBackend(facadeConnectionState, backend)) return;
     const serverId = backend.backendId;
     setActiveServer(serverId);
     setLastActiveBackend(serverId);
     connectServer(serverId);
-  }, [setActiveServer, setLastActiveBackend, connectServer]);
+  }, [connectServer, facadeConnectionState, setActiveServer, setLastActiveBackend]);
 
   const copyToClipboard = useCallback((text: string) => {
     navigator.clipboard.writeText(text);
@@ -182,7 +183,7 @@ export function WindowsSetup() {
   const runningDistros = distros.filter(d => d.state === 'Running');
   const isGatewayConnected = facadeConnectionState === 'connected';
   const onlineBackends = backends.filter(
-    b => b.online && shouldShowNonCurrentInstanceBackend(b, currentInstanceId, showLocalBackend)
+    b => canReachBackend(facadeConnectionState, b) && shouldShowNonCurrentInstanceBackend(b, currentInstanceId, showLocalBackend)
   );
 
   // --- Layout wrapper ---
