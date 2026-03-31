@@ -6,8 +6,9 @@ import { extractAndIndexMetadata } from '../storage/metadata-extractor.js';
 import { findForegroundActiveRunIdForSession } from '../utils/run-state.js';
 import { parsePersistedMessageMetadata } from '../utils/persisted-message.js';
 import { SessionMessageRepository } from '../repositories/session-message.js';
+import type { ActiveRun } from '../domains/conversation/ws/types.js';
 
-type ActiveRunsMap = Map<string, any>;
+type ActiveRunsMap = Map<string, ActiveRun>;
 
 export function mountMessageRoutes(router: Router, db: Database.Database, activeRuns: ActiveRunsMap): void {
   const repo = new SessionMessageRepository(db);

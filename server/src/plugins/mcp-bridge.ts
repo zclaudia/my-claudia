@@ -212,15 +212,19 @@ function pumpMessages(): void {
   }
 }
 
+const HTTP_TIMEOUT_MS = 30_000;
+
 function httpGet(urlPath: string): Promise<string> {
   return new Promise((resolve, reject) => {
     const url = new URL(urlPath, SERVER_URL);
-    http.get(url, (res) => {
+    const req = http.get({ ...url, timeout: HTTP_TIMEOUT_MS }, (res) => {
       let data = '';
       res.on('data', (chunk) => { data += chunk; });
       res.on('end', () => resolve(data));
       res.on('error', reject);
-    }).on('error', reject);
+    });
+    req.on('timeout', () => { req.destroy(new Error('HTTP GET timeout')); });
+    req.on('error', reject);
   });
 }
 
@@ -233,6 +237,7 @@ function httpPost(urlPath: string, body: unknown): Promise<string> {
       port: url.port,
       path: url.pathname,
       method: 'POST',
+      timeout: HTTP_TIMEOUT_MS,
       headers: {
         'Content-Type': 'application/json',
         'Content-Length': Buffer.byteLength(postData),
@@ -245,6 +250,7 @@ function httpPost(urlPath: string, body: unknown): Promise<string> {
       res.on('end', () => resolve(data));
       res.on('error', reject);
     });
+    req.on('timeout', () => { req.destroy(new Error('HTTP POST timeout')); });
     req.on('error', reject);
     req.write(postData);
     req.end();

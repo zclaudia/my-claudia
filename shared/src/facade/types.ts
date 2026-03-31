@@ -113,6 +113,8 @@ export interface BackendFacadeSnapshot {
  *
  * Tracks the full lifecycle state of a single backend, derived from
  * registry presence, channel, catalog, and epoch alignment.
+ *
+ * @internal Not exported from the public facade API.
  */
 export interface BackendRuntimeRecord {
   backendId: string;
@@ -157,7 +159,7 @@ export interface BackendStateDiff {
 // Session Stream Internal Models
 // ============================================================================
 
-/** Business intent: should this stream be open? */
+/** Business intent: should this stream be open? @internal */
 export interface DesiredSessionStream {
   streamKey: string;
   backendId: string;
@@ -168,7 +170,7 @@ export interface DesiredSessionStream {
   updatedAt: number;
 }
 
-/** Current runtime state of a session stream. */
+/** Current runtime state of a session stream. @internal */
 export interface SessionStreamRuntime {
   streamKey: string;
   backendId: string;

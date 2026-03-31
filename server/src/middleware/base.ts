@@ -7,7 +7,7 @@ import type { Request, Response } from '@my-claudia/shared';
  */
 export interface ConnectedClient {
   id: string;
-  ws: any;  // WebSocket instance
+  ws: unknown;
   authenticated: boolean;
   isLocal: boolean;
 }

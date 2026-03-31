@@ -1,7 +1,7 @@
 # Batch 11: Server Infra — Plugin System Review
 
 日期：2026-03-28
-状态：✅ 完成
+状态：✅ Review + 修复完成
 
 ## 概览
 
@@ -99,3 +99,26 @@
 1. **立即**: 修复 RPC 路由竞态、supervision 绕过、TOCTOU 漏洞
 2. **短期**: 拆分 loader.ts、添加 HTTP timeout、修复并发问题
 3. **中期**: 实现插件生命周期状态机、添加 observability hooks
+
+## 修复记录（2026-03-31）
+
+### 已修复（之前/本轮）
+
+| # | 问题 | 状态 |
+|---|------|------|
+| 1 | Worker RPC 消息路由竞态 | ✅ 校验修订确认为误报 |
+| 2 | Worker 崩溃时事件监听器累积 | ✅ `worker.on('exit')` handler 正确调用 `pending.cleanup()` 清理所有 listener |
+| 3 | Tool/Command 调用永不 reject | ✅ exit handler resolve 所有 pending calls with error |
+| 4 | Provider API supervision 绕过 | ✅ 校验修订：plan mode 使用 `{ behavior: 'deny' }` 是正确的安全兜底，非绕过 |
+| 5 | Loader 注册非事务性 | ✅ 校验修订：每项独立 try/catch + `unregisterContributions` 清理 |
+| 6 | Skill 符号链接 TOCTOU | ✅ 校验修订确认为误报 |
+| 15 | MCP bridge HTTP 无 timeout | ✅ **本轮修复**: httpGet/httpPost 添加 30s timeout + `req.on('timeout')` |
+| 17 | Storage size 检查顺序 | ✅ set-then-check-then-rollback 模式功能正确 |
+
+### 未修复（架构/低优先级）
+
+| # | 问题 | 原因 |
+|---|------|------|
+| 7 | loader.ts SRP | 架构重构，规模较大 |
+| 8-14, 16, 18-19 | MEDIUM 项 | 边界情况，不影响核心功能 |
+| 20-26 | LOW 项 | 代码质量改进 |

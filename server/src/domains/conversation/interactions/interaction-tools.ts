@@ -16,6 +16,7 @@ import http from 'http';
 import { toolRegistry } from '../../../plugins/tool-registry.js';
 import { interactionDispatcher } from './interaction-dispatcher.js';
 import { normalizeTodoItems } from './todo-normalizer.js';
+import { trackAndAutoComplete } from './todo-state-tracker.js';
 import type { TodoUpdateInteractionMessage, InteractionPromptMessage, ApprovalInteractionMessage, PlanReviewInteractionMessage } from '@my-claudia/shared';
 
 export interface InteractionToolsConfig {
@@ -23,7 +24,7 @@ export interface InteractionToolsConfig {
 }
 
 /** HTTP POST to self (localhost) — reuses existing route handlers. */
-function selfPost(port: number, path: string, body: Record<string, unknown>): Promise<{ status: number; body: Record<string, unknown> }> {
+function selfPost(port: number, path: string, body: Record<string, unknown>, timeoutMs = 30_000): Promise<{ status: number; body: Record<string, unknown> }> {
   return new Promise((resolve, reject) => {
     const data = JSON.stringify(body);
     const req = http.request({
@@ -32,6 +33,7 @@ function selfPost(port: number, path: string, body: Record<string, unknown>): Pr
       path,
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(data) },
+      timeout: timeoutMs,
     }, (res) => {
       let raw = '';
       res.on('data', (c) => { raw += c; });
@@ -40,6 +42,7 @@ function selfPost(port: number, path: string, body: Record<string, unknown>): Pr
         catch { resolve({ status: res.statusCode || 500, body: { raw } }); }
       });
     });
+    req.on('timeout', () => { req.destroy(new Error('selfPost timeout')); });
     req.on('error', reject);
     req.write(data);
     req.end();
@@ -82,6 +85,18 @@ export function registerInteractionTools(config?: InteractionToolsConfig): void 
       const sessionId = (context?.sessionId as string) || '';
       const interactionId = uuidv4();
       const todos = normalizeTodoItems(args.todos);
+
+      // Auto-complete items in previous todo lists that disappeared from the new list
+      for (const update of trackAndAutoComplete(sessionId, interactionId, todos)) {
+        interactionDispatcher.dispatchFireAndForget(sessionId, {
+          type: 'interaction_todo_update',
+          interactionId: update.interactionId,
+          sessionId,
+          source: 'tool_call',
+          createdAt: Date.now(),
+          todos: update.todos,
+        });
+      }
 
       const event: TodoUpdateInteractionMessage = {
         type: 'interaction_todo_update',

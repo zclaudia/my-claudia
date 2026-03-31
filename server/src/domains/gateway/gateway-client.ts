@@ -110,8 +110,8 @@ export interface GatewayClientConfig {
 
 import type { Database as BetterDatabase } from 'better-sqlite3';
 type Database = BetterDatabase;
-// eslint-disable-next-line @typescript-eslint/no-explicit-any -- ActiveRun is defined in ws/types and varies across callers
-type ActiveRunsMap = Map<string, any>;
+import type { ActiveRun } from '../conversation/ws/types.js';
+type ActiveRunsMap = Map<string, ActiveRun>;
 type ChannelMessageHandler = (channelId: string, message: ClientMessage) => Promise<void> | void;
 type ChannelClosedHandler = (channelId: string) => void;
 

@@ -360,6 +360,17 @@ export function createPermissionCallback(input: CreatePermissionCallbackInput) {
                 }
               } catch (err) {
                 console.error('[AI Review] Failed:', err);
+                if (activeRun.pendingPermissions.has(request.requestId)) {
+                  const failEvent: import('@my-claudia/shared').AIReviewCompletedMessage = {
+                    type: 'ai_review_completed',
+                    requestId: request.requestId,
+                    sessionId: message.sessionId,
+                    decision: 'uncertain',
+                    reasoning: `AI review failed: ${err instanceof Error ? err.message : String(err)}`,
+                    confidence: 0,
+                  };
+                  broadcastRunMessage(activeRun, failEvent);
+                }
               }
             } else {
               activeRun.pendingPermissions.delete(request.requestId);

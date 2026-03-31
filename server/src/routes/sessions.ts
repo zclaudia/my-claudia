@@ -10,8 +10,9 @@ import { SessionLifecycleError, SessionLifecycleService } from '../services/sess
 import { SessionExportError, SessionExportService } from '../services/session-export-service.js';
 import { SessionQueryError, SessionQueryService } from '../services/session-query-service.js';
 import { sendApiError } from './response.js';
+import type { ActiveRun } from '../domains/conversation/ws/types.js';
 
-type ActiveRunsMap = Map<string, any>;
+type ActiveRunsMap = Map<string, ActiveRun>;
 
 export function createSessionRoutes(db: Database.Database, activeRuns: ActiveRunsMap): Router {
   const router = Router();

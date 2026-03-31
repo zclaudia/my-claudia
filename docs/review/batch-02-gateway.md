@@ -1,7 +1,7 @@
 # Batch 2: Gateway Review
 
 日期：2026-03-28
-状态：✅ 完成
+状态：✅ Review + 修复完成
 
 ## 概览
 
@@ -77,3 +77,25 @@
 
 1. **本迭代**: 速率限制检查顺序、health check 增强、端口验证
 2. **下迭代**: peer 断连时主动 reject pending 请求、重连测试补充
+
+## 修复记录（2026-03-31）
+
+| # | 问题 | 修复 |
+|---|------|------|
+| 3 | pendingHttpRequests 清理缺口（降级为 LOW） | 新增 `rejectPendingProxyRequests()`，在 peer 断连和 lease 过期时主动 reject 所有 pending 请求，不再需要等待 30s 超时。 |
+| 4 | Rate limit 检查顺序 | HTTP proxy handler 改为先调用 `checkRateLimit(clientIp)` 再解析和校验凭据，避免被限流的 IP 仍能触发 `safeCompare`。 |
+| 5 | IP 提取信任 X-Forwarded-For | 新增 `trustProxy` 配置项（默认 `false`），仅在启用时读取 `X-Forwarded-For`。`index.ts` 通过 `GATEWAY_TRUST_PROXY=true` 环境变量控制。抽取 `extractIp()` 统一 IP 获取逻辑。 |
+| 8 | 流式响应超时与并发写入 | `handleHttpProxyResponseChunk` 在写入前检查 `res.writableEnded || res.destroyed`，若流已关闭则清理 pending 状态。 |
+| 10 | GATEWAY_PORT 未验证范围 | `index.ts` 新增 `isNaN` 和 `[1, 65535]` 范围校验，无效值时进程退出。 |
+| 11 | WS 连接计数器 double-close | 验证已有逻辑安全：`count <= 1 ? delete : count - 1` 防御，`decrementChannelCount` 使用 `Math.max(0, ...)`。无需修改。 |
+
+### 未修复项（低优先级/文档类）
+
+| # | 问题 | 原因 |
+|---|------|------|
+| 6 | Channel ownership 竞态 | Node.js 单线程，同步 handler 内无真实竞态。已有 `?.` 防御。 |
+| 7 | Backend 重连旧 channel 处理 | `handleBackendOwnerReplaced` 已正确处理：先清 channel，再清 peer.backendId，最后 terminate。 |
+| 9 | Health check 不够全面 | Docker healthcheck 功能有限，当前 HTTP 200 + peer/backend 计数足够。 |
+| 12 | Event log 丢弃无日志 | 事件窗口 overflow 是正常行为，静默丢弃合理。 |
+| 13 | 重连测试不完整 | 测试扩展，非 bug 修复。 |
+| 14 | DB 无备份策略 | 文档/运维类，非代码修复。 |

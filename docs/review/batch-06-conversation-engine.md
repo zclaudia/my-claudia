@@ -1,7 +1,7 @@
 # Batch 6: Server Domain — Conversation Engine Review
 
 日期：2026-03-28
-状态：✅ 完成
+状态：✅ Review + 修复完成
 
 ## 概览
 
@@ -79,3 +79,28 @@
 1. **立即修复**: permission 双重解决、stream 清理、timeout handler 异常处理
 2. **短期**: 添加并发控制（session cwd lock）、AI review 后重置 user timeout
 3. **长期**: 考虑将 run-handler.ts 拆分为 state machine + stream processor + event emitter
+
+## 修复记录（2026-03-31）
+
+`run-handler.ts` 已从 1477 行重构为 324 行，拆分为 `consume-provider-stream.ts`、`run-bootstrap.ts`、`run-provider-launch.ts`、`run-provider-setup.ts`、`run-recovery.ts` 等模块。大部分原始问题已在重构中消除。
+
+### 已修复（重构/本轮）
+
+| # | 问题 | 状态 |
+|---|------|------|
+| 1 | Permission 双重解决竞态 | ✅ 原始校验已确认为误报 |
+| 2 | Stream 提前退出 Generator 清理 | ✅ `for await...of` 协议自动调用 `.return()`，无需显式关闭 |
+| 3 | Timeout Handler Promise Rejection | ✅ **本轮修复**: AI review catch 块中广播 `ai_review_completed`（decision=uncertain）通知 client |
+| 4 | selfPost 无超时 | ✅ **本轮修复**: 添加 `timeout: 30_000` 和 `req.on('timeout')` 处理 |
+| 5 | `(event as any).seq` | ✅ 重构中已消除 |
+| 6 | selfPost HTTP 错误处理 | ✅ `req.on('error', reject)` + 新增 timeout 覆盖主要场景 |
+| 10 | Task notification timer | ✅ 已用 `timer.unref()`，1.8s 短 timer，风险极低 |
+
+### 未修复（设计选择/低优先级）
+
+| # | 问题 | 原因 |
+|---|------|------|
+| 7 | abort nullability guard | adapter.abort 各 provider 已各自处理 |
+| 8 | 并发 session cwd 更新 | SQLite serialized writes + 单线程 Node.js，实际无竞态 |
+| 9 | AI review 拒绝后无 user timeout | 设计选择：用户应看到 AI 结果后手动决定 |
+| 11-17 | 低优先级项 | 代码质量改进，不影响功能 |

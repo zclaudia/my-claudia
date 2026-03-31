@@ -20,7 +20,9 @@ export * from './features/scheduled-tasks.js';
 export * from './features/system-tasks.js';
 export * from './features/workflows.js';
 export * from './features/notification-feed.js';
+/** @deprecated Use Workflows with event triggers instead. See agent-triggers.ts header. */
 export * from './features/agent-triggers.js';
+/** @deprecated Use AIReviewConfig in UnifiedPermissionPolicy instead. */
 export * from './features/delegation.js';
 
 // Interaction types

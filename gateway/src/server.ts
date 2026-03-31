@@ -66,6 +66,8 @@ interface GatewayConfig {
   authTimeoutMs?: number;
   proxyRequestTimeoutMs?: number;
   proxyStreamingTimeoutMs?: number;
+  /** Trust X-Forwarded-For header for IP extraction. Only enable behind a trusted reverse proxy. */
+  trustProxy?: boolean;
 }
 
 function safeCompare(a: string, b: string): boolean {
@@ -119,6 +121,7 @@ export function createGatewayServer(config: GatewayConfig): Server {
   const authTimeoutMs = config.authTimeoutMs ?? 10_000;
   const proxyRequestTimeoutMs = config.proxyRequestTimeoutMs ?? 30_000;
   const proxyStreamingTimeoutMs = config.proxyStreamingTimeoutMs ?? 60_000;
+  const trustProxy = config.trustProxy ?? false;
 
   const app = express();
 
@@ -274,9 +277,12 @@ export function createGatewayServer(config: GatewayConfig): Server {
     try {
       const { backendId } = req.params;
       const clientIp = req.ip || req.socket.remoteAddress || 'unknown';
+      if (!checkRateLimit(clientIp)) {
+        res.status(429).json({ success: false, error: { code: 'RATE_LIMITED', message: 'Too many requests' } });
+        return;
+      }
       const authHeader = req.headers.authorization;
       if (!authHeader || !authHeader.startsWith('Bearer ')) {
-        checkRateLimit(clientIp);
         res.status(401).json({ success: false, error: { code: 'UNAUTHORIZED', message: 'Authorization required' } });
         return;
       }
@@ -284,10 +290,6 @@ export function createGatewayServer(config: GatewayConfig): Server {
       const colonIndex = token.indexOf(':');
       const gwSecret = colonIndex !== -1 ? token.slice(0, colonIndex) : token;
       if (!safeCompare(gwSecret, config.gatewaySecret)) {
-        if (!checkRateLimit(clientIp)) {
-          res.status(429).json({ success: false, error: { code: 'RATE_LIMITED', message: 'Too many requests' } });
-          return;
-        }
         res.status(401).json({ success: false, error: { code: 'UNAUTHORIZED', message: 'Invalid credentials' } });
         return;
       }
@@ -365,8 +367,16 @@ export function createGatewayServer(config: GatewayConfig): Server {
     }
   }, 5_000);
 
+  function extractIp(req: IncomingMessage): string {
+    if (trustProxy) {
+      const forwarded = req.headers['x-forwarded-for']?.toString().split(',')[0].trim();
+      if (forwarded) return forwarded;
+    }
+    return req.socket.remoteAddress || 'unknown';
+  }
+
   wss.on('connection', (ws: WebSocket, req: IncomingMessage) => {
-    const ip = req.headers['x-forwarded-for']?.toString().split(',')[0].trim() || req.socket.remoteAddress || 'unknown';
+    const ip = extractIp(req);
     const currentCount = wsConnectionsPerIp.get(ip) || 0;
     if (currentCount >= MAX_WS_CONNECTIONS_PER_IP) { ws.close(1008, 'Too many connections'); return; }
     wsConnectionsPerIp.set(ip, currentCount + 1);
@@ -718,6 +728,11 @@ export function createGatewayServer(config: GatewayConfig): Server {
   function handleHttpProxyResponseChunk(msg: GatewayHttpProxyResponseChunk): void {
     const streaming = pendingStreamingRequests.get(msg.requestId);
     if (!streaming) return;
+    if (streaming.res.writableEnded || streaming.res.destroyed) {
+      pendingStreamingRequests.delete(msg.requestId);
+      clearTimeout(streaming.timeout);
+      return;
+    }
     clearTimeout(streaming.timeout);
     streaming.timeout = setTimeout(() => { abortStreamingResponse(msg.requestId, streaming.res, 'Proxy streaming timeout'); }, proxyStreamingTimeoutMs);
     streaming.res.write(Buffer.from(msg.data, 'base64'));
@@ -737,6 +752,7 @@ export function createGatewayServer(config: GatewayConfig): Server {
     const lease = state.leases.get(backendId);
     if (!lease) return;
     const peer = state.peers.get(lease.peerSessionId);
+    rejectPendingProxyRequests(backendId);
     notifyChannelsClosed(backendId, 'backend_offline');
     state.registryRemove(backendId);
     broadcastRegistryEvent({ revision: state.registry.revision, op: 'remove', backendId });
@@ -751,11 +767,28 @@ export function createGatewayServer(config: GatewayConfig): Server {
     }
   }
 
+  function rejectPendingProxyRequests(backendId: string): void {
+    for (const [requestId, pending] of pendingHttpRequests) {
+      if (pending.res) {
+        const lease = state.leases.get(backendId);
+        if (!lease) {
+          clearTimeout(pending.timeout);
+          pendingHttpRequests.delete(requestId);
+          pending.reject(new Error('Backend disconnected'));
+        }
+      }
+    }
+    for (const [requestId, streaming] of pendingStreamingRequests) {
+      abortStreamingResponse(requestId, streaming.res, 'Backend disconnected');
+    }
+  }
+
   function handlePeerDisconnect(peerSessionId: string): void {
     const peer = state.peers.get(peerSessionId);
     if (!peer) return;
     console.log(`[Gateway] Peer ${peerSessionId} disconnected`);
     if (peer.backendId && isCurrentBackendOwner(peer)) {
+      rejectPendingProxyRequests(peer.backendId);
       notifyChannelsClosed(peer.backendId, 'backend_offline');
       state.registryRemove(peer.backendId);
       broadcastRegistryEvent({ revision: state.registry.revision, op: 'remove', backendId: peer.backendId });

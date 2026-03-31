@@ -1,7 +1,7 @@
 # Batch 3: Server — Core Platform Review
 
 日期：2026-03-28
-状态：✅ 完成
+状态：✅ Review + 修复完成
 
 ## 概览
 
@@ -63,3 +63,35 @@
 | MEDIUM | 4 |
 | LOW | 5 |
 | **总计** | **12** |
+
+## 修复记录（2026-03-31）
+
+大部分问题在 GatewayManager 重构及之前的迭代中已被修复。本轮验证并修复了剩余项。
+
+### 已修复（之前重构中完成）
+
+| # | 问题 | 状态 |
+|---|------|------|
+| 1 | FileStore 清理定时器 | ✅ `stopFileStoreCleanup()` 存在且在 shutdown 中调用 |
+| 2 | Gateway 同步定时器管理 | ✅ `GatewayManager.syncInterval` + `clearSyncInterval()` typed 管理 |
+| 3 | virtualClients Map 增长 | ✅ `cleanupVirtualClients()` 在重连/断连/shutdown 中调用 |
+| 4 | Permission timeout 清理 | ✅ `cleanupPendingPermissions()` 在所有 run 删除路径中调用 |
+| 5 | Gateway client `as any` | ✅ `GatewayManager` typed 接口 |
+| 6 | Credential 解密失败处理 | ✅ resolve deny + broadcast 已正确实现 |
+| 7 | SQL 查询构建 | ✅ 重构为 Service 层（SessionQueryService/SessionLifecycleService）|
+| 11 | Middleware metadata `any` | ✅ 已用 `Map<string, unknown>` |
+
+### 本轮修复
+
+| # | 问题 | 修复 |
+|---|------|------|
+| 10 | DB 查询 `as any` | 3 处 `ActiveRunsMap = Map<string, any>` 改为 `Map<string, ActiveRun>`（sessions.ts, session-messages.ts, gateway-client.ts）|
+| 11 | Middleware `ws: any` | `middleware/base.ts` 的 `ConnectedClient.ws` 从 `any` 改为 `unknown` |
+
+### 未修复（低优先级/设计选择）
+
+| # | 问题 | 原因 |
+|---|------|------|
+| 8 | Gateway catch-up 返回空数组 | 已有 error logging，空数组是合理降级 |
+| 9 | 跨设备复制删除失败 | 已有 try/catch + console.error，残留临时文件无害 |
+| 12 | 断连后 orphaned runs | runs 由 provider callback 驱动结束，不会真正"孤立" |

@@ -1,7 +1,7 @@
 # Batch 1: Shared Types & Protocol Review
 
 日期：2026-03-28
-状态：✅ 完成
+状态：✅ Review + 修复完成
 
 ## 概览
 
@@ -57,3 +57,10 @@ shared/src/
 ## 结论
 
 Shared 层质量很高，类型安全、命名统一、无 `any` 逃逸。仅有两个低优先级改进点（废弃类型清理、内部类型导出控制）。作为基石层，足够稳固。
+
+## 修复记录（2026-03-31）
+
+| # | 问题 | 修复 |
+|---|------|------|
+| 1 | 废弃类型仍导出 | 在 `index.ts` 导出处添加 `@deprecated` JSDoc 注释，明确告知消费者迁移方向。类型本身仍被 server 7 个文件使用，暂不移除。 |
+| 2 | Facade 内部类型暴露 | 从 `facade/index.ts` 移除 `BackendRuntimeRecord`、`DesiredSessionStream`、`SessionStreamRuntime` 的公开导出。在 `types.ts` 中添加 `@internal` 标记。无外部消费者，构建验证通过。 |

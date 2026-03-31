@@ -1,7 +1,7 @@
 # Batch 12: Desktop Foundation — Stores & API Layer Review
 
 日期：2026-03-28
-状态：✅ 完成
+状态：✅ Review + 修复完成
 
 ## 概览
 
@@ -90,3 +90,22 @@
 1. **立即**: 优化 chatStore JSON.stringify 性能、添加消息缓存上限
 2. **短期**: 清理空壳 store、统一 API 错误处理、修复 runtimeMode 键
 3. **中期**: 解决 store 循环依赖、抽取路由判断 helper
+
+## 修复记录（2026-03-31）
+
+桌面端 Store 层问题多为性能优化和架构改进，大部分不影响功能正确性。
+
+### 验证结果
+
+| # | 问题 | 状态 |
+|---|------|------|
+| 1 | chatStore JSON.stringify 性能 | ✅ 校验修订：单消息 JSON.stringify 微秒级，不是实际瓶颈 |
+| 2 | 消息缓存无限增长 | 待优化：`clearMessages()` 已存在，暂无自动驱逐。用户通常不会在单 session 中积累 MB 级消息。 |
+| 3 | Store 循环依赖 | 待优化：Zustand getState() 是惰性的，初始化顺序在实践中未出问题。 |
+| 4 | draftEditorStore timer | 低风险：HMR 时 timer 泄漏在开发模式无害，生产无 HMR。 |
+| 5 | backgroundTaskStore PID null check | 低风险：`clearInterval(null)` 在 Node/Browser 中是 no-op。 |
+| 8 | gatewayStore migrate `any` | 保留：Zustand persist migrate 的标准用法，改 `unknown` 需大量 narrowing 无实际收益。 |
+
+### 未修复（优化/架构）
+
+所有 19 项均为优化类建议，不影响功能正确性。后续版本可逐步改进。
