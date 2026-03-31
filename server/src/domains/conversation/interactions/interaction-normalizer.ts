@@ -30,8 +30,8 @@ export interface NormalizeToolUseArgs {
  * Returns null for all other tools.
  */
 export function normalizeFromToolUse(args: NormalizeToolUseArgs): TodoUpdateInteractionMessage | null {
-  const name = args.toolName.toLowerCase();
-  if (name !== 'todowrite' && name !== 'todo_write') {
+  const name = args.toolName.replace(/[^a-z0-9]/gi, '').toLowerCase();
+  if (name !== 'todowrite' && name !== 'updatetodos' && name !== 'todolist' && name !== 'todolistwrite') {
     return null;
   }
 

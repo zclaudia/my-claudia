@@ -43,9 +43,18 @@ function hasInteractionToolSuffix(toolName: string, suffix: string): boolean {
     || toolName.endsWith(`:${suffix}`);
 }
 
+function normalizeToolName(toolName: string): string {
+  return toolName.replace(/[^a-z0-9]/gi, '').toLowerCase();
+}
+
 // Check if tool is a todo-list tool (built-in TodoWrite or MCP update_todo_list)
 function isTodoTool(toolName: string): boolean {
-  return toolName === 'TodoWrite' || hasInteractionToolSuffix(toolName, 'update_todo_list');
+  const normalized = normalizeToolName(toolName);
+  return toolName === 'TodoWrite'
+    || hasInteractionToolSuffix(toolName, 'update_todo_list')
+    || normalized === 'updatetodos'
+    || normalized === 'todolist'
+    || normalized === 'todolistwrite';
 }
 
 // Check if tool is an ask_user_form tool (MCP)

@@ -13,6 +13,7 @@ import { initDatabase } from '../../storage/db.js';
 import type { GatewayConfig } from '../../routes/gateway.js';
 import type { ServerContext } from '../../server.js';
 import { hasForegroundActiveRunForSession } from '../../utils/run-state.js';
+import { parsePersistedMessageContent } from '../../utils/persisted-message.js';
 
 type FacadeProvider = {
   connect(): void;
@@ -262,7 +263,7 @@ export class GatewayManager {
           offset: r.offset,
           role: r.role as 'user' | 'assistant' | 'system' | 'tool',
           createdAt: r.createdAt,
-          content: r.content ? JSON.parse(r.content) : null,
+          content: parsePersistedMessageContent(r.content),
         }));
       } catch (error) {
         console.error('[Gateway] Catch-up query error:', error);
@@ -368,7 +369,7 @@ export class GatewayManager {
             offset: r.offset,
             role: r.role as 'user' | 'assistant' | 'system' | 'tool',
             createdAt: r.createdAt,
-            content: r.content ? JSON.parse(r.content) : null,
+            content: parsePersistedMessageContent(r.content),
           }));
         } catch (error) {
           console.error('[LocalHandler] Catch-up error:', error);

@@ -4,6 +4,7 @@ import type Database from 'better-sqlite3';
 import type { Message, ApiResponse, MessageRole, MessageMetadata } from '@my-claudia/shared';
 import { extractAndIndexMetadata } from '../storage/metadata-extractor.js';
 import { findForegroundActiveRunIdForSession } from '../utils/run-state.js';
+import { parsePersistedMessageMetadata } from '../utils/persisted-message.js';
 import { SessionMessageRepository } from '../repositories/session-message.js';
 
 type ActiveRunsMap = Map<string, any>;
@@ -64,7 +65,7 @@ export function mountMessageRoutes(router: Router, db: Database.Database, active
 
       const result = trimmed.map(m => ({
         ...m,
-        metadata: m.metadata ? JSON.parse(m.metadata) : undefined
+        metadata: parsePersistedMessageMetadata<MessageMetadata>(m.metadata)
       }));
 
       const total = repo.countBySession(req.params.id);

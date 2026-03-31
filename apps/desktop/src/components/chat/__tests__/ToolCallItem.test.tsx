@@ -367,6 +367,14 @@ describe('ToolCallItem', () => {
       expect(screen.getByText('Update task list')).toBeInTheDocument();
     });
 
+    it('formats Cursor updateTodos tool', () => {
+      render(<ToolCallItem toolCall={createToolCall({
+        toolName: 'updateTodos',
+        toolInput: { todos: [{ content: 'Task 1', status: 'pending' }] },
+      })} />);
+      expect(screen.getByText('Update task list')).toBeInTheDocument();
+    });
+
     it('formats plain-name ask_user_form tool', () => {
       render(<ToolCallItem toolCall={createToolCall({
         toolName: 'ask_user_form',
@@ -608,6 +616,22 @@ describe('ToolCallItem', () => {
       expect(screen.getByText('Write tests')).toBeInTheDocument();
     });
 
+    it('shows Cursor updateTodos with task list when expanded', () => {
+      render(<ToolCallItem toolCall={createToolCall({
+        toolName: 'updateTodos',
+        toolInput: {
+          todos: [
+            { content: 'Fix bug', status: 'completed' },
+            { content: 'Write tests', status: 'in_progress' },
+          ],
+        },
+        status: 'completed',
+      })} />);
+      fireEvent.click(screen.getByRole('button'));
+      expect(screen.getByText('Fix bug')).toBeInTheDocument();
+      expect(screen.getByText('Write tests')).toBeInTheDocument();
+    });
+
     it('shows completed todo with strikethrough', () => {
       const { container } = render(<ToolCallItem toolCall={createToolCall({
         toolName: 'TodoWrite',
@@ -668,6 +692,27 @@ describe('ToolCallItem', () => {
 
       expect(screen.getByText('Task List')).toBeInTheDocument();
       expect(screen.getByText('Render MCP todo list')).toBeInTheDocument();
+      expect(screen.queryByText('Stale raw todo')).not.toBeInTheDocument();
+    });
+
+    it('renders InteractionItem for Cursor updateTodos', () => {
+      mockInteractionState.interactions['tool-1'] = {
+        type: 'interaction_todo_update',
+        interactionId: 'tool-1',
+        sessionId: 's1',
+        source: 'tool_call',
+        createdAt: Date.now(),
+        todos: [{ content: 'Render Cursor todo list', status: 'in_progress' }],
+      };
+
+      render(<ToolCallItem toolCall={createToolCall({
+        toolName: 'updateTodos',
+        toolInput: { todos: [{ content: 'Stale raw todo', status: 'pending' }] },
+        status: 'completed',
+      })} />);
+
+      expect(screen.getByText('Task List')).toBeInTheDocument();
+      expect(screen.getByText('Render Cursor todo list')).toBeInTheDocument();
       expect(screen.queryByText('Stale raw todo')).not.toBeInTheDocument();
     });
 

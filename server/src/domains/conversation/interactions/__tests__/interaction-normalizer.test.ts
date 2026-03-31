@@ -30,6 +30,34 @@ describe('normalizeFromToolUse', () => {
     });
   });
 
+  it('returns normalized todo interaction for Cursor updateTodos input', () => {
+    const result = normalizeFromToolUse({
+      sessionId: 'session-1',
+      runId: 'run-1',
+      providerType: 'cursor',
+      toolUseId: 'tool-2',
+      toolName: 'updateTodos',
+      toolInput: {
+        todos: [
+          { content: '扫描 orchestration 代码', status: 'completed' },
+          { content: '执行 review', status: 'in_progress' },
+        ],
+      },
+    });
+
+    expect(result).toMatchObject({
+      type: 'interaction_todo_update',
+      interactionId: 'tool-2',
+      sessionId: 'session-1',
+      runId: 'run-1',
+      provider: 'cursor',
+      todos: [
+        { content: '扫描 orchestration 代码', status: 'completed' },
+        { content: '执行 review', status: 'in_progress' },
+      ],
+    });
+  });
+
   it('returns null when TodoWrite payload cannot be normalized', () => {
     const result = normalizeFromToolUse({
       sessionId: 'session-1',
