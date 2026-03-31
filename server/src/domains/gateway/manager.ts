@@ -4,7 +4,7 @@ import type { ServerMessage } from '@my-claudia/shared';
 import type { SessionCatalogItem } from '@my-claudia/shared';
 import { GatewayClient, type GatewayClientConfig } from './gateway-client.js';
 import { setGatewayClient } from './gateway-instance.js';
-import { cancelRunsForClosedChannel } from './gateway-channel-cleanup.js';
+import { handleChannelClosed } from './gateway-channel-cleanup.js';
 import { EmbeddedBackendFacadeProvider } from './embedded-provider.js';
 import { StandaloneBackendFacadeProvider } from './standalone-provider.js';
 import type { LocalBackendHandler } from './embedded-adapter.js';
@@ -226,13 +226,21 @@ export class GatewayManager {
           }
         });
         this.virtualClients.set(channelId, virtualClient);
+
+        // Send initial state so the client doesn't have to wait up to 30s for
+        // the next periodic heartbeat. Run events are broadcast to ALL connected
+        // clients (via activeRun.broadcast), so no orphan adoption is needed —
+        // this new virtual client will receive events through broadcast once it
+        // joins connectedClients.
+        const heartbeat = serverContext.getStateHeartbeat();
+        this.gatewayClient?.commands.channel.sendToIncoming(channelId, heartbeat);
       }
 
       await serverContext.handleMessage(virtualClient, message);
     });
 
     this.gatewayClient.commands.channel.onIncomingClosed((channelId) => {
-      cancelRunsForClosedChannel(channelId, this.activeRuns, this.cancelRun);
+      handleChannelClosed(channelId, this.activeRuns);
       this.virtualClients.delete(channelId);
       this.connectedClients.delete(channelId);
       serverContext.terminalManager.detachClient(channelId);

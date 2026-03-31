@@ -160,8 +160,6 @@ export function prepareProviderRun(input: PrepareProviderRunInput): PreparedProv
 
   const permissionCallback = createPermissionCallback({
     activeRun,
-    client,
-    connectedClients,
     cwd,
     db,
     forcedPlanBySession,
@@ -175,9 +173,7 @@ export function prepareProviderRun(input: PrepareProviderRunInput): PreparedProv
     onAIReviewResolved,
     providerType,
     runId,
-    sendMessage,
     sendRunEvent,
-    broadcastToOtherAuthenticatedClients,
     session: {
       project_id: session.project_id,
     },

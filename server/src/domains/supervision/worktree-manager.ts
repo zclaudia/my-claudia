@@ -14,6 +14,7 @@ export interface WorktreeManagerDeps {
 
 export class WorktreeManager {
   private worktreePools = new Map<string, WorktreePool>();
+  private poolInitPromises = new Map<string, Promise<void>>();
   private deps: WorktreeManagerDeps;
 
   constructor(deps: WorktreeManagerDeps) {
@@ -34,14 +35,33 @@ export class WorktreeManager {
 
   async ensurePoolInitialized(projectId: string): Promise<void> {
     const pool = this.getWorktreePool(projectId);
-    if (!pool.isInitialized()) {
+    if (pool.isInitialized()) {
+      return;
+    }
+
+    const existingInit = this.poolInitPromises.get(projectId);
+    if (existingInit) {
+      await existingInit;
+      return;
+    }
+
+    const initPromise = (async () => {
       const project = this.deps.projectRepo.findById(projectId);
       const maxConcurrent = project?.agent?.config?.maxConcurrentTasks ?? 2;
       await pool.init(maxConcurrent);
+    })();
+
+    this.poolInitPromises.set(projectId, initPromise);
+
+    try {
+      await initPromise;
+    } finally {
+      this.poolInitPromises.delete(projectId);
     }
   }
 
   async cleanupPool(projectId: string): Promise<void> {
+    this.poolInitPromises.delete(projectId);
     const pool = this.worktreePools.get(projectId);
     if (pool) {
       await pool.destroy();
@@ -50,6 +70,7 @@ export class WorktreeManager {
   }
 
   destroyAllPools(): void {
+    this.poolInitPromises.clear();
     for (const [, pool] of this.worktreePools) {
       pool.destroy().catch(() => {});
     }

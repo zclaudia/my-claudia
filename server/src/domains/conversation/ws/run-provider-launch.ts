@@ -102,7 +102,7 @@ export async function launchProviderRun(input: LaunchProviderRunInput): Promise<
   });
 
   if (sessionType === 'background') {
-    sendMessage(client.ws, {
+    sendRunEvent({
       type: 'background_task_update',
       sessionId: message.sessionId,
       status: 'running',

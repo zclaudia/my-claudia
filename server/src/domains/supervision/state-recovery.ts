@@ -6,7 +6,7 @@ import { ProjectRepository } from '../../repositories/project.js';
 import type { SupervisorService } from './supervisor-service.js';
 
 export interface RecoveryAction {
-  type: 'task_requeued' | 'task_failed' | 'worktree_released' | 'session_archived' | 'agent_idle' | 'run_interrupted';
+  type: 'task_requeued' | 'task_failed' | 'worktree_released' | 'session_archived' | 'agent_idle' | 'run_interrupted' | 'recovery_error';
   id: string;
   detail?: string;
 }
@@ -29,20 +29,11 @@ export class StateRecovery {
   recover(): RecoveryReport {
     const actions: RecoveryAction[] = [];
 
-    // 0. Detect sessions interrupted by server restart
-    actions.push(...this.recoverInterruptedRuns());
-
-    // 1. Recover stuck running tasks
-    actions.push(...this.recoverStuckTasks());
-
-    // 2. Release orphaned worktrees
-    actions.push(...this.releaseOrphanedWorktrees());
-
-    // 3. Archive orphaned checkpoint/review sessions
-    actions.push(...this.archiveOrphanedSessions());
-
-    // 4. Fix agents stuck in active with no tasks
-    actions.push(...this.fixIdleAgents());
+    actions.push(...this.safeRecover('recoverInterruptedRuns', () => this.recoverInterruptedRuns()));
+    actions.push(...this.safeRecover('recoverStuckTasks', () => this.recoverStuckTasks()));
+    actions.push(...this.safeRecover('releaseOrphanedWorktrees', () => this.releaseOrphanedWorktrees()));
+    actions.push(...this.safeRecover('archiveOrphanedSessions', () => this.archiveOrphanedSessions()));
+    actions.push(...this.safeRecover('fixIdleAgents', () => this.fixIdleAgents()));
 
     const report: RecoveryReport = {
       actions,
@@ -228,5 +219,20 @@ export class StateRecovery {
     }
 
     return actions;
+  }
+
+  private safeRecover(
+    step: string,
+    fn: () => RecoveryAction[],
+  ): RecoveryAction[] {
+    try {
+      return fn();
+    } catch (err) {
+      return [{
+        type: 'recovery_error',
+        id: step,
+        detail: err instanceof Error ? err.message : String(err),
+      }];
+    }
   }
 }

@@ -16,9 +16,12 @@ import type { WorktreePool } from './worktree-pool.js';
 import { createVirtualClient, handleRunStart } from '../../server.js';
 
 const REVIEW_VERDICT_REGEX = /\[REVIEW_VERDICT\]([\s\S]*?)\[\/REVIEW_VERDICT\]/;
+const REVIEW_EVIDENCE_TIMEOUT_MS = 15_000;
+const REVIEW_RUN_TIMEOUT_MS = 5 * 60 * 1000;
 
 export class ReviewEngine {
   private reviewClients = new Map<string, unknown>(); // taskId → virtualClient
+  private reviewTimeouts = new Map<string, NodeJS.Timeout>();
 
   constructor(
     private db: Database,
@@ -68,7 +71,16 @@ export class ReviewEngine {
 
     let evidence = '(no git evidence available)';
     if (task.baseCommit) {
-      evidence = await this.collectGitEvidence(evidenceCwd, task.baseCommit);
+      try {
+        evidence = await this.withTimeout(
+          this.collectGitEvidence(evidenceCwd, task.baseCommit),
+          REVIEW_EVIDENCE_TIMEOUT_MS,
+          'collectGitEvidence timed out',
+        );
+      } catch (err) {
+        console.error(`[ReviewEngine] Failed to collect evidence for task ${task.id}:`, err);
+        evidence = '(git evidence unavailable: collection failed or timed out)';
+      }
     }
 
     // 3. Build review prompt
@@ -95,6 +107,8 @@ export class ReviewEngine {
       this.db,
     );
 
+    this.armReviewTimeout(task.id, task.projectId, session.id);
+
     this.logFn(
       task.projectId,
       'review_started',
@@ -113,6 +127,7 @@ export class ReviewEngine {
     msg: ServerMessage,
   ): void {
     if (msg.type === 'run_completed') {
+      this.clearReviewTimeout(taskId);
       (async () => {
         try {
           const task = this.taskRepo.findById(taskId);
@@ -130,6 +145,7 @@ export class ReviewEngine {
     }
 
     if (msg.type === 'run_failed') {
+      this.clearReviewTimeout(taskId);
       try {
         const errorMsg = 'error' in msg ? (msg as import('@my-claudia/shared').RunFailedMessage).error : 'Review run failed';
         this.logFn(
@@ -178,20 +194,15 @@ export class ReviewEngine {
       if (!match) return null;
 
       const block = match[1].trim();
-      const approved = /approved:\s*true/i.test(block);
+      const approvedMatch = block.match(/^\s*approved\s*:\s*(true|false)\s*$/im);
+      const approved = approvedMatch ? approvedMatch[1].toLowerCase() === 'true' : false;
 
-      const notesMatch = block.match(
-        /notes:\s*\|?\s*\n([\s\S]*?)(?=suggested_changes:|$)/,
-      );
-      const notes = notesMatch ? notesMatch[1].trim() : '';
-
-      const suggestionsMatch = block.match(
-        /suggested_changes:\s*\n([\s\S]*?)$/,
-      );
-      const suggestedChanges = suggestionsMatch
-        ? suggestionsMatch[1]
+      const notes = this.extractMultilineField(block, 'notes') ?? '';
+      const suggestedChangesBlock = this.extractMultilineField(block, 'suggested_changes');
+      const suggestedChanges = suggestedChangesBlock
+        ? suggestedChangesBlock
             .split('\n')
-            .map((l) => l.trim().replace(/^-\s*/, ''))
+            .map((line) => line.trim().replace(/^-\s*/, ''))
             .filter(Boolean)
         : undefined;
 
@@ -199,6 +210,28 @@ export class ReviewEngine {
     } catch {
       return null;
     }
+  }
+
+  private extractMultilineField(block: string, fieldName: 'notes' | 'suggested_changes'): string | undefined {
+    const fieldHeader = new RegExp(`^\\s*${fieldName}\\s*:\\s*(\\|)?\\s*$`, 'i');
+    const anyHeader = /^\s*(approved|notes|suggested_changes)\s*:/i;
+    const lines = block.split('\n');
+    const startIndex = lines.findIndex((line) => fieldHeader.test(line));
+    if (startIndex === -1) {
+      return undefined;
+    }
+
+    const collected: string[] = [];
+    for (let index = startIndex + 1; index < lines.length; index += 1) {
+      const line = lines[index];
+      if (anyHeader.test(line)) {
+        break;
+      }
+      collected.push(line.replace(/^\s{2}/, ''));
+    }
+
+    const value = collected.join('\n').trim();
+    return value || undefined;
   }
 
   /**
@@ -451,9 +484,68 @@ suggested_changes:
    */
   archiveReviewSession(sessionId: string): void {
     try {
+      if (!this.sessionRepo.findById(sessionId)) {
+        return;
+      }
       this.sessionRepo.update(sessionId, { archivedAt: Date.now() });
     } catch (err) {
       console.error(`[ReviewEngine] Failed to archive review session ${sessionId}:`, err);
     }
+  }
+
+  private armReviewTimeout(taskId: string, projectId: string, reviewSessionId: string): void {
+    this.clearReviewTimeout(taskId);
+    const timer = setTimeout(() => {
+      try {
+        const task = this.taskRepo.findById(taskId);
+        if (!task || task.status !== 'reviewing') {
+          return;
+        }
+
+        const updatedResult: TaskResult = {
+          ...(task.result ?? { summary: '', filesChanged: [] }),
+          reviewSessionId,
+          reviewNotes: 'Review timed out; manual intervention required.',
+        };
+
+        this.taskRepo.updateStatus(taskId, 'reviewing', { result: updatedResult });
+        this.broadcastTaskUpdate(taskId, projectId);
+        this.logFn(projectId, 'review_completed', {
+          taskId,
+          verdictParsed: false,
+          timedOut: true,
+        }, taskId);
+      } finally {
+        this.reviewClients.delete(taskId);
+        this.archiveReviewSession(reviewSessionId);
+        this.clearReviewTimeout(taskId);
+      }
+    }, REVIEW_RUN_TIMEOUT_MS);
+
+    this.reviewTimeouts.set(taskId, timer);
+  }
+
+  private clearReviewTimeout(taskId: string): void {
+    const timer = this.reviewTimeouts.get(taskId);
+    if (timer) {
+      clearTimeout(timer);
+      this.reviewTimeouts.delete(taskId);
+    }
+  }
+
+  private withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error(message)), timeoutMs);
+      promise.then(
+        (value) => {
+          clearTimeout(timer);
+          resolve(value);
+        },
+        (err) => {
+          clearTimeout(timer);
+          reject(err);
+        },
+      );
+    });
   }
 }

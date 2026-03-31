@@ -323,7 +323,7 @@ export function handleProviderEvent({
       }
 
       if (sessionType === 'background') {
-        sendMessage(client.ws, {
+        sendRunEvent({
           type: 'background_task_update',
           sessionId,
           status: 'completed',

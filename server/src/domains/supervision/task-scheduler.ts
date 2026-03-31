@@ -132,10 +132,12 @@ export class TaskScheduler {
         if (isLite) {
           this.deps.startLiteTask(task).catch((err) => {
             console.error(`[Supervisor] Failed to start lite task ${task.id}:`, err);
+            this.handleTaskStartFailure(task, 'start_lite_failed');
           });
         } else {
           this.deps.startTask(task).catch((err) => {
             console.error(`[Supervisor] Failed to start task ${task.id}:`, err);
+            this.handleTaskStartFailure(task, 'start_task_failed');
           });
         }
       }
@@ -216,6 +218,30 @@ export class TaskScheduler {
     }
 
     return false;
+  }
+
+  private handleTaskStartFailure(
+    task: SupervisionTask,
+    reason: 'start_lite_failed' | 'start_task_failed',
+  ): void {
+    const currentTask = this.deps.taskRepo.findById(task.id);
+    if (!currentTask || currentTask.status !== 'queued') {
+      return;
+    }
+
+    this.deps.taskRepo.updateStatus(task.id, 'failed', {
+      result: {
+        summary: `Task failed to start: ${reason}`,
+        filesChanged: [],
+      },
+    });
+    this.deps.broadcastTaskUpdate(task.id, task.projectId);
+    this.deps.log(task.projectId, 'task_status_changed', {
+      taskId: task.id,
+      from: 'queued',
+      to: 'failed',
+      reason,
+    }, task.id);
   }
 
   checkScheduledTasks(projectId: string): void {

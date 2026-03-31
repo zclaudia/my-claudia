@@ -3,12 +3,13 @@ import Database from 'better-sqlite3';
 import { v4 as uuidv4 } from 'uuid';
 
 // Hoist mocks so they are available before module imports
-const { mockActiveRuns, mockExecSync, mockContextManagerLoadAll, mockValidatePlanFile, mockComputeNextCronRun } = vi.hoisted(() => ({
+const { mockActiveRuns, mockExecSync, mockContextManagerLoadAll, mockValidatePlanFile, mockComputeNextCronRun, mockHandleRunStart } = vi.hoisted(() => ({
   mockActiveRuns: new Map(),
   mockExecSync: vi.fn(),
   mockContextManagerLoadAll: vi.fn().mockReturnValue({ documents: [], workflow: { onTaskComplete: [], onCheckpoint: [], checkpointTrigger: { type: 'on_task_complete' } } }),
   mockValidatePlanFile: vi.fn().mockReturnValue({ exists: true, ready: true, score: 100, missing: [], path: '/tmp/test-project/.supervision/plans/task-xxx.plan.md' }),
   mockComputeNextCronRun: vi.fn().mockReturnValue(Date.now() + 3600000),
+  mockHandleRunStart: vi.fn(),
 }));
 
 vi.mock('child_process', () => ({
@@ -24,7 +25,7 @@ vi.mock('../../../server.js', () => ({
     authenticated: true,
     ...opts,
   })),
-  handleRunStart: vi.fn(),
+  handleRunStart: mockHandleRunStart,
   activeRuns: mockActiveRuns,
   sendMessage: vi.fn(),
 }));
@@ -2972,6 +2973,100 @@ describe('SupervisorService', () => {
       // Should not start because one is already running (serial)
       const found = taskRepo.findById(q1.id)!;
       expect(found.status).toBe('queued');
+    });
+
+    it('marks lite task as failed when startup throws synchronously', async () => {
+      mockHandleRunStart.mockImplementationOnce(() => {
+        throw new Error('provider launch failed');
+      });
+
+      const projectId = seedProject(db, {
+        agent: makeAgent({
+          phase: 'active',
+          mode: 'lite',
+          config: {
+            maxConcurrentTasks: 1,
+            trustLevel: 'low',
+            autoDiscoverTasks: false,
+          },
+        }),
+      });
+
+      const task = taskRepo.create({
+        projectId,
+        title: 'Lite task fails to start',
+        description: 'Do something',
+        source: 'user',
+        status: 'queued',
+      });
+
+      (service as any).tick();
+      await flushPromises();
+
+      const found = taskRepo.findById(task.id)!;
+      expect(found.status).toBe('failed');
+      expect(found.result?.summary).toContain('provider launch failed');
+    });
+
+    it('marks full task as failed when worktree acquisition fails', async () => {
+      mockExecSync.mockReturnValue('true\n');
+      mockWorktreePoolInstance.acquire.mockRejectedValueOnce(new Error('worktree busy'));
+
+      const projectId = seedProject(db, {
+        agent: makeAgent({
+          phase: 'active',
+          config: {
+            maxConcurrentTasks: 2,
+            trustLevel: 'low',
+            autoDiscoverTasks: false,
+          },
+        }),
+      });
+
+      const task = taskRepo.create({
+        projectId,
+        title: 'Worktree acquisition fails',
+        description: 'Do something',
+        source: 'user',
+        status: 'queued',
+      });
+
+      (service as any).tick();
+      await flushPromises();
+
+      const found = taskRepo.findById(task.id)!;
+      expect(found.status).toBe('failed');
+      expect(found.result?.summary).toContain('worktree busy');
+    });
+
+    it('marks lite task as failed when project has no rootPath', async () => {
+      const projectId = seedProject(db, {
+        rootPath: '',
+        agent: makeAgent({
+          phase: 'active',
+          mode: 'lite',
+          config: {
+            maxConcurrentTasks: 1,
+            trustLevel: 'low',
+            autoDiscoverTasks: false,
+          },
+        }),
+      });
+
+      const task = taskRepo.create({
+        projectId,
+        title: 'Missing rootPath',
+        description: 'Do something',
+        source: 'user',
+        status: 'queued',
+      });
+
+      (service as any).tick();
+      await flushPromises();
+
+      const found = taskRepo.findById(task.id)!;
+      expect(found.status).toBe('failed');
+      expect(found.result?.summary).toContain('has no rootPath');
     });
   });
 

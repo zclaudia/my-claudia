@@ -10,7 +10,7 @@ import type { ConnectedClient, ActiveRun } from '../types.js';
 import { handlePermissionDecision, handlePromptAnswer } from '../permission-handler.js';
 import { interactionDispatcher } from '../../interactions/interaction-dispatcher.js';
 import { permissionManager as pluginPermissionManager } from '../../../../plugins/permissions.js';
-import { sendMessage, broadcastToOtherAuthenticatedClients } from '../broadcast.js';
+import { broadcastRunMessage } from '../broadcast.js';
 
 export function handlePermission(
   message: PermissionDecisionMessage,
@@ -42,8 +42,7 @@ export function handleInteractionResponse(
           interactionId: message.interactionId,
           sessionId: message.sessionId,
         };
-        sendMessage(run.client.ws, resolvedEvent as InteractionResolvedMessage);
-        if (clients) broadcastToOtherAuthenticatedClients(clients, run.clientId, resolvedEvent as ServerMessage);
+        broadcastRunMessage(run, resolvedEvent as InteractionResolvedMessage);
         break;
       }
     }

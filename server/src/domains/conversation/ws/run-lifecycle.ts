@@ -6,7 +6,7 @@ import { isRequest } from '@my-claudia/shared';
 import { providerRegistry } from '../../../providers/registry.js';
 import { interactionDispatcher } from '../interactions/interaction-dispatcher.js';
 import { extractAndIndexMetadata, removeIndexedMetadata } from '../../../storage/metadata-extractor.js';
-import { sendMessage } from './broadcast.js';
+import { broadcastRunMessage, sendMessage } from './broadcast.js';
 import type { ConnectedClient, ActiveRun } from './types.js';
 
 const execFileAsync = promisify(execFile);
@@ -126,10 +126,9 @@ export function cancelRun(
       console.error(`[Cancel] Failed to save partial message for run ${runId}:`, err);
     }
 
-    // Notify client that run was cancelled (uses stored client ref — works for both
-    // real WebSocket clients and virtual gateway clients)
+    // Broadcast run_failed to ALL connected clients so every device updates its UI.
     run.eventSeq += 1;
-    sendMessage(run.client.ws, {
+    broadcastRunMessage(run, {
       type: 'run_failed',
       runId,
       sessionId: run.sessionId,

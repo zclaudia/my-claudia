@@ -344,6 +344,10 @@ Only include sections that have actual updates. If nothing needs updating, outpu
     this.stopInterval(projectId);
     const ms = minutes * 60 * 1000;
     const timer = setInterval(() => {
+      if (!this.projectRepo.findById(projectId)) {
+        this.stopInterval(projectId);
+        return;
+      }
       if (this.shouldTrigger(projectId, 'task_complete')) {
         this.runCheckpoint(projectId).catch((err) => {
           console.error(`[CheckpointEngine] Interval checkpoint failed for ${projectId}:`, err);

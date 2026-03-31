@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, vi } from 'vitest';
 import Database from 'better-sqlite3';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -313,6 +313,10 @@ describe('TaskRunner', () => {
     );
   });
 
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   // ========================================
   // parseTaskResult
   // ========================================
@@ -393,6 +397,20 @@ describe('TaskRunner', () => {
       expect(result!.workflowOutputs).toEqual([
         { action: 'tests', output: 'All 12 tests passed', success: true },
       ]);
+    });
+
+    it('returns null when required fields are missing', () => {
+      const projectId = seedProject(db);
+      const sessionId = seedSession(db, projectId);
+      seedMessage(db, sessionId, 'assistant', [
+        '[TASK_RESULT]',
+        '- summary: Added unit tests',
+        '[/TASK_RESULT]',
+      ].join('\n'));
+
+      const result = runner.parseTaskResult(sessionId);
+
+      expect(result).toBeNull();
     });
   });
 
@@ -829,6 +847,52 @@ describe('TaskRunner', () => {
 
       const updated = taskRepo.findById(task.id)!;
       expect(updated.status).toBe('reviewing');
+    });
+
+    it('does not hang forever when onReadyForReview times out', async () => {
+      vi.useFakeTimers();
+      onReadyForReview = vi.fn().mockImplementation(() => new Promise(() => {}));
+      runner = new TaskRunner(
+        db,
+        taskRepo,
+        projectRepo,
+        (_projectId: string) => contextManager,
+        broadcastFn,
+        logFn,
+        onReadyForReview,
+      );
+
+      const projectId = seedProject(db, '/tmp/test-project');
+      const sessionId = seedSession(db, projectId);
+      seedMessage(db, sessionId, 'assistant', [
+        '[TASK_RESULT]',
+        '- summary: Built the feature',
+        '- files_changed: src/feature.ts',
+        '[/TASK_RESULT]',
+      ].join('\n'));
+
+      const task = taskRepo.create({
+        projectId,
+        title: 'Timeout review start',
+        description: 'Build the feature',
+        source: 'user',
+        status: 'running',
+      });
+      taskRepo.updateStatus(task.id, 'running', { sessionId });
+      mockExecSync.mockReturnValue('true\n');
+      mockExecResolves('', '');
+
+      const completion = runner.onTaskComplete(task.id, projectId);
+      await vi.advanceTimersByTimeAsync(15_000);
+      await completion;
+
+      expect(taskRepo.findById(task.id)!.status).toBe('reviewing');
+      expect(logFn).toHaveBeenCalledWith(
+        projectId,
+        'review_started',
+        expect.objectContaining({ taskId: task.id, timedOut: true }),
+        task.id,
+      );
     });
   });
 

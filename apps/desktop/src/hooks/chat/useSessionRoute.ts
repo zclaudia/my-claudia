@@ -78,10 +78,14 @@ export function useSessionRoute(
     catchUpSignatureRef.current = null;
   }, [streamKey]);
 
+  // Re-open backend when it becomes visible again after disconnect/reconnect.
+  // backend?.openState changes from 'open' → 'closed' on disconnect, and the
+  // backend reappears as 'visible' on reconnect — we need to re-trigger openBackend.
+  const backendOpenState = backend?.openState;
   useEffect(() => {
     if (!maintainDesiredState || !facade || !backendId) return;
     facade.openBackend(backendId);
-  }, [backendId, facade, maintainDesiredState]);
+  }, [backendId, backendOpenState, facade, maintainDesiredState]);
 
   useEffect(() => {
     if (!maintainDesiredState || !facade || !backendId || !sessionId) return;

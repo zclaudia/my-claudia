@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
-import { cancelRunsForClosedChannel } from '../gateway-channel-cleanup.js';
-import type { ActiveRun } from '../../../ws/types.js';
+import { handleChannelClosed } from '../gateway-channel-cleanup.js';
+import type { ActiveRun } from '../../conversation/ws/types.js';
 
-function createRun(clientId: string): ActiveRun {
+function createRun(clientId: string, completed = false): ActiveRun {
   return {
     runId: `run-${clientId}`,
     clientId,
@@ -30,23 +30,60 @@ function createRun(clientId: string): ActiveRun {
     recentToolCalls: [],
     loopHeartbeatStreak: 0,
     eventSeq: 0,
+    completed,
   };
 }
 
-describe('cancelRunsForClosedChannel', () => {
-  it('cancels only runs bound to the closed channel with gateway-specific reason', () => {
+describe('handleChannelClosed', () => {
+  it('keeps active runs alive (does not remove them from activeRuns)', () => {
     const activeRuns = new Map<string, ActiveRun>([
       ['run-1', createRun('channel-1')],
       ['run-2', createRun('channel-2')],
     ]);
-    const cancelRun = vi.fn();
 
-    cancelRunsForClosedChannel('channel-1', activeRuns, cancelRun);
+    handleChannelClosed('channel-1', activeRuns);
 
-    expect(cancelRun).toHaveBeenCalledTimes(1);
-    expect(cancelRun).toHaveBeenCalledWith('run-1', {
-      clientError: 'Gateway connection was interrupted',
-      logLabel: 'Gateway-disconnected run',
-    });
+    // Run should still be in the map — not cancelled
+    expect(activeRuns.has('run-1')).toBe(true);
+    expect(activeRuns.has('run-2')).toBe(true);
+    expect(activeRuns.size).toBe(2);
+  });
+
+  it('logs orphaned runs', () => {
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const activeRuns = new Map<string, ActiveRun>([
+      ['run-1', createRun('channel-1')],
+    ]);
+
+    handleChannelClosed('channel-1', activeRuns);
+
+    expect(logSpy).toHaveBeenCalledWith(
+      expect.stringContaining('keeping alive for reconnect'),
+    );
+    logSpy.mockRestore();
+  });
+
+  it('does not log when no active runs for channel', () => {
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const activeRuns = new Map<string, ActiveRun>([
+      ['run-1', createRun('channel-2')],
+    ]);
+
+    handleChannelClosed('channel-1', activeRuns);
+
+    expect(logSpy).not.toHaveBeenCalled();
+    logSpy.mockRestore();
+  });
+
+  it('ignores completed runs', () => {
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const activeRuns = new Map<string, ActiveRun>([
+      ['run-1', createRun('channel-1', true)],
+    ]);
+
+    handleChannelClosed('channel-1', activeRuns);
+
+    expect(logSpy).not.toHaveBeenCalled();
+    logSpy.mockRestore();
   });
 });

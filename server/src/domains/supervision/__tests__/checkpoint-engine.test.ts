@@ -178,6 +178,7 @@ describe('CheckpointEngine', () => {
 
   afterEach(() => {
     // cleanup timers
+    vi.useRealTimers();
   });
 
   function createEngine(): CheckpointEngine {
@@ -791,6 +792,20 @@ discovered_tasks:
 
       expect((engine as any).intervalTimers.size).toBe(0);
       expect((engine as any).runningCheckpoints.size).toBe(0);
+    });
+
+    it('auto-cleans interval when project is deleted', () => {
+      vi.useFakeTimers();
+      const projectId = seedProject(db, { agent: makeAgent() });
+      const engine = createEngine();
+
+      engine.startInterval(projectId, 1);
+      expect((engine as any).intervalTimers.has(projectId)).toBe(true);
+
+      db.prepare('DELETE FROM projects WHERE id = ?').run(projectId);
+      vi.advanceTimersByTime(60_000);
+
+      expect((engine as any).intervalTimers.has(projectId)).toBe(false);
     });
   });
 });

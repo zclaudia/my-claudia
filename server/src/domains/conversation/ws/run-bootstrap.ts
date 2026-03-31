@@ -204,14 +204,20 @@ export function initializeRunBootstrap(input: InitializeRunBootstrapInput): RunB
     `).run(userMessageId, message.sessionId, message.input, Date.now(), userOffset);
   }
 
+  // Wire broadcast: sends to ALL connected clients (originating + others).
+  // Used by run-lifecycle, run-permissions, etc. via activeRun.broadcast.
+  activeRun.broadcast = (msg: ServerMessage) => {
+    sendMessage(client.ws, msg);
+    if (connectedClients.size > 0) broadcastToOtherAuthenticatedClients(connectedClients, client.id, msg);
+  };
+
   const sendRunEvent = (event: ServerMessage) => {
     if ('runId' in event) {
       activeRun.eventSeq += 1;
       (event as ServerMessage & { seq?: number }).seq = activeRun.eventSeq;
     }
     trace.log('server_norm', event.type, event);
-    sendMessage(client.ws, event);
-    if (clients) broadcastToOtherAuthenticatedClients(clients, client.id, event);
+    activeRun.broadcast!(event);
   };
 
   const providerEventState: RunProviderEventState = {
@@ -284,7 +290,7 @@ export function initializeRunBootstrap(input: InitializeRunBootstrapInput): RunB
       .run('running', Date.now(), activeRun.sessionId);
 
     if (sessionType === 'background') {
-      sendMessage(client.ws, {
+      activeRun.broadcast!({
         type: 'background_task_update',
         sessionId: message.sessionId,
         status: 'running',

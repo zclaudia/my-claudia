@@ -1,4 +1,5 @@
 import type {
+  ProjectAgent,
   RunFailedMessage,
   ServerMessage,
   Session,
@@ -21,6 +22,12 @@ interface TaskLifecycleDeps {
   getCheckpointEngine: () => CheckpointEngine | undefined;
   tick: () => void;
   broadcastTaskUpdate: (taskId: string, projectId: string) => void;
+  broadcastAgentUpdate: (projectId: string, agent: ProjectAgent) => void;
+  getTaskPlanStatus: (taskId: string) => {
+    ready: boolean;
+    missing: string[];
+    path?: string;
+  };
   log: (
     projectId: string,
     event: SupervisionLogEvent,
@@ -161,6 +168,111 @@ export class TaskLifecycle {
     }
   }
 
+  submitTaskPlan(taskId: string): { task: import('@my-claudia/shared').SupervisionTask; sessionId: string } {
+    const task = this.deps.taskRepo.findById(taskId);
+    if (!task) {
+      throw new Error(`Task not found: ${taskId}`);
+    }
+    if (task.status !== 'planning') {
+      throw new Error(`Task ${taskId} is not in planning status`);
+    }
+    if (!task.sessionId) {
+      throw new Error(`Task ${taskId} has no planning session`);
+    }
+
+    const session = this.deps.sessionRepo.findById(task.sessionId);
+    if (!session) {
+      throw new Error(`Planning session not found for task ${taskId}`);
+    }
+
+    const planStatus = this.deps.getTaskPlanStatus(taskId);
+    if (!planStatus.ready) {
+      throw new Error(`Plan is incomplete: missing ${planStatus.missing.join(', ')}`);
+    }
+
+    this.deps.sessionRepo.update(session.id, {
+      planStatus: 'planned',
+      isReadOnly: true,
+    } as Partial<Omit<Session, 'id' | 'createdAt' | 'updatedAt'>>);
+
+    this.deps.taskRepo.updateStatus(task.id, 'queued');
+    this.deps.broadcastTaskUpdate(task.id, task.projectId);
+    this.deps.log(task.projectId, 'task_plan_submitted', {
+      taskId: task.id,
+      sessionId: session.id,
+      planPath: planStatus.path,
+    }, task.id);
+
+    this.deps.tick();
+    return { task: this.deps.taskRepo.findById(task.id)!, sessionId: session.id };
+  }
+
+  retryTask(taskId: string): import('@my-claudia/shared').SupervisionTask {
+    const task = this.deps.taskRepo.findById(taskId);
+    if (!task) {
+      throw new Error(`Task not found: ${taskId}`);
+    }
+    if (!['failed', 'cancelled', 'completed', 'blocked'].includes(task.status)) {
+      throw new Error(`Cannot retry task in status '${task.status}'`);
+    }
+
+    this.deps.taskRepo.updateStatus(taskId, 'pending', { attempt: 1 });
+    this.deps.broadcastTaskUpdate(taskId, task.projectId);
+    this.deps.log(task.projectId, 'task_status_changed', {
+      taskId,
+      from: task.status,
+      to: 'pending',
+      reason: 'manual_retry',
+    }, taskId);
+
+    this.transitionAgentToActive(task.projectId, 'manual_retry');
+    return this.deps.taskRepo.findById(taskId)!;
+  }
+
+  cancelTask(taskId: string): import('@my-claudia/shared').SupervisionTask {
+    const task = this.deps.taskRepo.findById(taskId);
+    if (!task) {
+      throw new Error(`Task not found: ${taskId}`);
+    }
+
+    if (this.deps.virtualClients.has(taskId)) {
+      this.deps.virtualClients.delete(taskId);
+    }
+
+    this.deps.taskRepo.updateStatus(taskId, 'cancelled');
+    this.deps.broadcastTaskUpdate(taskId, task.projectId);
+    this.deps.log(task.projectId, 'task_status_changed', {
+      taskId,
+      from: task.status,
+      to: 'cancelled',
+      reason: 'manual_cancel',
+    }, taskId);
+
+    return this.deps.taskRepo.findById(taskId)!;
+  }
+
+  runTaskNow(taskId: string): import('@my-claudia/shared').SupervisionTask {
+    const task = this.deps.taskRepo.findById(taskId);
+    if (!task) {
+      throw new Error(`Task not found: ${taskId}`);
+    }
+    if (!['completed', 'failed', 'cancelled'].includes(task.status)) {
+      throw new Error(`Cannot run-now task in status '${task.status}'; must be terminal`);
+    }
+
+    this.deps.taskRepo.updateStatus(taskId, 'pending', { attempt: 1 });
+    this.deps.broadcastTaskUpdate(taskId, task.projectId);
+    this.deps.log(task.projectId, 'task_status_changed', {
+      taskId,
+      from: task.status,
+      to: 'pending',
+      reason: 'run_now',
+    }, taskId);
+
+    this.transitionAgentToActive(task.projectId, 'run_now');
+    return this.deps.taskRepo.findById(taskId)!;
+  }
+
   async approveTaskResult(taskId: string): Promise<import('@my-claudia/shared').SupervisionTask> {
     const task = this.deps.taskRepo.findById(taskId);
     if (!task) {
@@ -294,5 +406,21 @@ export class TaskLifecycle {
 
     this.deps.tick();
     return this.deps.taskRepo.findById(taskId)!;
+  }
+
+  private transitionAgentToActive(projectId: string, reason: 'manual_retry' | 'run_now'): void {
+    const project = this.deps.projectRepo.findById(projectId);
+    if (project?.agent?.phase !== 'idle') {
+      return;
+    }
+
+    const agent = { ...project.agent, phase: 'active' as const, updatedAt: Date.now() };
+    this.deps.projectRepo.update(projectId, { agent });
+    this.deps.broadcastAgentUpdate(projectId, agent);
+    this.deps.log(projectId, 'phase_changed', {
+      from: 'idle',
+      to: 'active',
+      reason,
+    });
   }
 }

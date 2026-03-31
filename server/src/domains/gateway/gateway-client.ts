@@ -136,6 +136,8 @@ export interface GatewayClientOutgoingEvents {
   onOutgoingCatalogReset?: (backendId: string, epoch: number) => void;
   onOutgoingSessionStreamClosed?: (backendId: string, channelId: string, sessionId: string, reason: string) => void;
   onOutgoingRunEvent?: (backendId: string, channelId: string, sessionId: string, event: ServerMessage) => void;
+  /** Generic backend message (no sessionId) — terminal output, heartbeats, etc. */
+  onOutgoingBackendMessage?: (backendId: string, channelId: string, message: ServerMessage) => void;
   onOutgoingContentPatch?: (backendId: string, channelId: string, sessionId: string, messages: SessionMessage[], latestOffset: number) => void;
   onOutgoingContentPatchError?: (backendId: string, channelId: string, sessionId: string, afterOffset: number, error: string) => void;
   onRegistrySnapshotChanged?: (revision: number, items: BackendPresence[]) => void;
@@ -904,17 +906,17 @@ export class GatewayClient {
   }
 
   private handleOutgoingChannelServerMessage(msg: ChannelServerMessage): void {
-    // Fix #5: Generic server messages lack sessionId — route as backend_message,
-    // not run_event. Extract sessionId from payload if available.
     const backendId = this.findOutgoingBackendByChannel(msg.channelId) ?? '';
     const payload = msg.message as unknown as Record<string, unknown>;
     const sessionId = (payload?.sessionId as string) ?? '';
     if (sessionId) {
       // Session-specific message — route as run event
       this.outgoingEvents.onOutgoingRunEvent?.(backendId, msg.channelId, sessionId, msg.message as unknown as ServerMessage);
+    } else {
+      // Non-session message (terminal output, heartbeats, etc.) — emit as
+      // generic backend message so the adapter can forward it to the UI.
+      this.outgoingEvents.onOutgoingBackendMessage?.(backendId, msg.channelId, msg.message as unknown as ServerMessage);
     }
-    // Always emit as generic backend message for non-session consumers
-    // (The adapter will decide how to handle it)
   }
 
   private handleOutgoingSessionStreamClosed(msg: SessionStreamClosedMessage): void {

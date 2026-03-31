@@ -26,6 +26,8 @@ import { handleServerMessage } from '../services/messageHandler';
 import type { BackendRuntimeState, ServerFeature } from '@my-claudia/shared';
 import type { ConnectionStatus } from '../stores/serverStore';
 import { isLegacyLocalBackendId } from '../utils/controlPlane';
+import { useTerminalStore } from '../stores/terminalStore';
+import { xtermRegistry } from '../utils/xtermRegistry';
 
 /** Map facade BackendRuntimeState to serverStore ConnectionStatus. */
 function runtimeStateToConnectionStatus(state: BackendRuntimeState): ConnectionStatus {
@@ -185,12 +187,20 @@ export function syncToGatewayStore(event: BackendFacadeEvent): void {
         // First boot: no active server yet
         serverState.setActiveServer(resolvedLocalBackendId);
       }
-      // Auto-open the local backend if it's visible but not yet opened
-      if (resolvedLocalBackendId) {
-        const localBackend = snapshot.backends.find(b => b.backendId === resolvedLocalBackendId);
-        if (localBackend && localBackend.openState === 'closed' && localBackend.runtimeState === 'visible') {
-          const facade = useFacadeStore.getState().facade;
-          facade?.openBackend(resolvedLocalBackendId);
+      // Auto-open backends that should be open:
+      // 1. Local backend if visible but closed
+      // 2. Active remote backend if visible but closed (handles reconnect)
+      const facade = useFacadeStore.getState().facade;
+      if (facade) {
+        const backendsToAutoOpen = new Set<string>();
+        if (resolvedLocalBackendId) backendsToAutoOpen.add(resolvedLocalBackendId);
+        if (serverState.activeServerId) backendsToAutoOpen.add(serverState.activeServerId);
+
+        for (const bid of backendsToAutoOpen) {
+          const b = snapshot.backends.find(item => item.backendId === bid);
+          if (b && b.openState === 'closed' && b.runtimeState === 'visible') {
+            facade.openBackend(bid);
+          }
         }
       }
       break;
@@ -205,7 +215,26 @@ export function syncToGatewayStore(event: BackendFacadeEvent): void {
       // Sync to serverStore
       const connStatus = runtimeStateToConnectionStatus(event.state);
       useServerStore.getState().setServerConnectionStatus(event.backendId, connStatus, event.error);
-      if (event.error && event.error !== 'user_closed' && event.state !== 'ready' && hasActiveRunsForBackend(event.backendId)) {
+
+      // When a backend goes offline, mark its terminals for reattach so they
+      // auto-recover when the backend comes back.
+      const shouldMarkTerminalsForReattach =
+        (event.state === 'offline' || event.state === 'error')
+        && event.error !== 'user_closed';
+      if (shouldMarkTerminalsForReattach) {
+        const termStore = useTerminalStore.getState();
+        for (const [scopeKey, terminalId] of Object.entries(termStore.terminals)) {
+          if (scopeKey.startsWith(`${event.backendId}::`)) {
+            termStore.markNeedsReattach(terminalId);
+            xtermRegistry.markDetached(terminalId);
+          }
+        }
+      }
+
+      // Only show error toast for permanent failures, not transient disconnects
+      // (transport_disconnected is emitted during auto-reconnect and resolves on its own)
+      const isTransient = event.error === 'user_closed' || event.error === 'transport_disconnected';
+      if (event.error && !isTransient && event.state !== 'ready' && hasActiveRunsForBackend(event.backendId)) {
         useToastStore.getState().add({
           type: 'error',
           title: '远程连接已中断',

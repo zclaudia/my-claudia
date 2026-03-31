@@ -26,7 +26,8 @@ import {
 } from '../agent/permission-evaluator.js';
 import { isBashLikeTool, isSudoCommand } from '../../../helpers/server-utils.js';
 import type { PermissionDecision } from '../../../providers/claude-sdk.js';
-import { PERMISSION_TIMEOUT_POLICIES, type ActiveRun, type ConnectedClient } from './types.js';
+import { PERMISSION_TIMEOUT_POLICIES, type ActiveRun } from './types.js';
+import { broadcastRunMessage } from './broadcast.js';
 import { normalizeFromAskUser } from '../interactions/interaction-normalizer.js';
 import type { NotificationService } from '../../notification-feed/notification-service.js';
 
@@ -41,8 +42,6 @@ interface MessageContext {
 
 export interface CreatePermissionCallbackInput {
   activeRun: ActiveRun;
-  client: ConnectedClient;
-  connectedClients: Map<string, ConnectedClient>;
   cwd: string;
   db: ActiveRun['db'];
   forcedPlanBySession: boolean;
@@ -58,13 +57,7 @@ export interface CreatePermissionCallbackInput {
   }) => void;
   providerType: string;
   runId: string;
-  sendMessage: (ws: ConnectedClient['ws'], message: import('@my-claudia/shared').ServerMessage) => void;
   sendRunEvent: (event: import('@my-claudia/shared').ServerMessage) => void;
-  broadcastToOtherAuthenticatedClients: (
-    clients: Map<string, ConnectedClient>,
-    originClientId: string,
-    message: import('@my-claudia/shared').ServerMessage,
-  ) => void;
   session: SessionContext;
   sessionType: 'regular' | 'background' | 'agent';
 }
@@ -72,9 +65,6 @@ export interface CreatePermissionCallbackInput {
 export function createPermissionCallback(input: CreatePermissionCallbackInput) {
   const {
     activeRun,
-    broadcastToOtherAuthenticatedClients,
-    client,
-    connectedClients,
     cwd,
     db,
     forcedPlanBySession,
@@ -85,7 +75,6 @@ export function createPermissionCallback(input: CreatePermissionCallbackInput) {
     onAIReviewResolved,
     providerType,
     runId,
-    sendMessage,
     sendRunEvent,
     session,
     sessionType,
@@ -104,7 +93,7 @@ export function createPermissionCallback(input: CreatePermissionCallbackInput) {
         const shouldDeny = isBashLikeTool(request.toolName) || !isAllowedReadTool;
         if (shouldDeny) {
           const reason = `Denied by strict Plan Mode: ${request.toolName} is not allowed.`;
-          sendMessage(client.ws, {
+          broadcastRunMessage(activeRun, {
             type: 'agent_permission_intercepted',
             toolName: request.toolName,
             decision: 'deny',
@@ -125,7 +114,7 @@ export function createPermissionCallback(input: CreatePermissionCallbackInput) {
         request.detail,
       );
       if (remembered) {
-        sendMessage(client.ws, {
+        broadcastRunMessage(activeRun, {
           type: 'agent_permission_intercepted',
           toolName: request.toolName,
           decision: remembered === 'allow' ? 'approve' : 'deny',
@@ -147,7 +136,7 @@ export function createPermissionCallback(input: CreatePermissionCallbackInput) {
           activeRun.allowedOutsideWorkspaceRoots,
         )
       ) {
-        sendMessage(client.ws, {
+        broadcastRunMessage(activeRun, {
           type: 'agent_permission_intercepted',
           toolName: request.toolName,
           decision: 'approve',
@@ -190,7 +179,7 @@ export function createPermissionCallback(input: CreatePermissionCallbackInput) {
           { rootPath: cwd, sessionType },
         );
         if (decision === 'approve') {
-          sendMessage(client.ws, {
+          broadcastRunMessage(activeRun, {
             type: 'agent_permission_intercepted',
             toolName: request.toolName,
             decision: 'approve',
@@ -202,7 +191,7 @@ export function createPermissionCallback(input: CreatePermissionCallbackInput) {
           return;
         }
         if (decision === 'deny') {
-          sendMessage(client.ws, {
+          broadcastRunMessage(activeRun, {
             type: 'agent_permission_intercepted',
             toolName: request.toolName,
             decision: 'deny',
@@ -247,7 +236,7 @@ export function createPermissionCallback(input: CreatePermissionCallbackInput) {
 
       const continueWithUserFlow = () => {
         if (isInternalInteractionTool(request.toolName)) {
-          sendMessage(client.ws, {
+          broadcastRunMessage(activeRun, {
             type: 'agent_permission_intercepted',
             toolName: request.toolName,
             decision: 'approve',
@@ -260,7 +249,7 @@ export function createPermissionCallback(input: CreatePermissionCallbackInput) {
         }
 
         if (sessionType === 'background') {
-          sendMessage(client.ws, {
+          broadcastRunMessage(activeRun, {
             type: 'background_permission_pending',
             sessionId: message.sessionId,
             requestId: request.requestId,
@@ -269,7 +258,7 @@ export function createPermissionCallback(input: CreatePermissionCallbackInput) {
             timeoutSeconds: request.timeoutSeconds,
           } as BackgroundPermissionPendingMessage);
 
-          sendMessage(client.ws, {
+          broadcastRunMessage(activeRun, {
             type: 'background_task_update',
             sessionId: message.sessionId,
             status: 'paused',
@@ -346,10 +335,7 @@ export function createPermissionCallback(input: CreatePermissionCallbackInput) {
                     reason: `AI review: ${aiResult.reasoning} (${Math.round(aiResult.confidence * 100)}%)`,
                     metadata: aiResult.metadata,
                   } as PermissionAutoResolvedMessage;
-                  sendMessage(client.ws, resolvedEvent);
-                  if (connectedClients.size > 0) {
-                    broadcastToOtherAuthenticatedClients(connectedClients, client.id, resolvedEvent);
-                  }
+                  broadcastRunMessage(activeRun, resolvedEvent);
                   console.log(`[AI Review] Approved ${request.requestId} (${request.toolName}): ${aiResult.reasoning}`);
                   markPendingResolutionResumed();
                   resolve({ behavior: 'allow', updatedInput: request.toolInput });
@@ -369,10 +355,7 @@ export function createPermissionCallback(input: CreatePermissionCallbackInput) {
                     confidence: aiResult.confidence,
                     metadata: aiResult.metadata,
                   } as import('@my-claudia/shared').AIReviewCompletedMessage;
-                  sendMessage(client.ws, reviewEvent);
-                  if (connectedClients.size > 0) {
-                    broadcastToOtherAuthenticatedClients(connectedClients, client.id, reviewEvent);
-                  }
+                  broadcastRunMessage(activeRun, reviewEvent);
                   console.log(`[AI Review] ${aiResult.decision} ${request.requestId} (${request.toolName}): ${aiResult.reasoning} — keeping pending for user`);
                 }
               } catch (err) {
@@ -387,10 +370,7 @@ export function createPermissionCallback(input: CreatePermissionCallbackInput) {
                 sessionId: message.sessionId,
                 behavior,
               } as PermissionAutoResolvedMessage;
-              sendMessage(client.ws, resolvedEvent);
-              if (connectedClients.size > 0) {
-                broadcastToOtherAuthenticatedClients(connectedClients, client.id, resolvedEvent);
-              }
+              broadcastRunMessage(activeRun, resolvedEvent);
               markPendingResolutionResumed();
               if (behavior === 'approve') {
                 console.log(`[Permission] Auto-approved ${request.requestId} (${request.toolName}) on timeout`);
@@ -431,7 +411,7 @@ export function createPermissionCallback(input: CreatePermissionCallbackInput) {
         if (sessionType !== 'background') {
           if (request.toolName === 'AskUserQuestion') {
             const askUserInput = request.toolInput as { questions?: AskUserQuestionItem[] };
-            sendMessage(client.ws, {
+            broadcastRunMessage(activeRun, {
               type: 'prompt_request',
               requestId: request.requestId,
               sessionId: message.sessionId,
@@ -456,7 +436,7 @@ export function createPermissionCallback(input: CreatePermissionCallbackInput) {
             });
           } else {
             const requestRequiresCredential = isSudoCommand(request.toolName, request.toolInput);
-            sendMessage(client.ws, {
+            broadcastRunMessage(activeRun, {
               type: 'permission_request',
               requestId: request.requestId,
               sessionId: message.sessionId,

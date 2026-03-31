@@ -189,7 +189,16 @@ export class ContextManager {
           source = parsed.data.source;
         }
       } catch {
-        // If parsing fails, start fresh with version 1
+        const fallback = this.extractDocumentMetaFallback(filePath);
+        if (fallback.version !== undefined) {
+          version = fallback.version + 1;
+        }
+        if (!meta?.category && fallback.category) {
+          category = fallback.category;
+        }
+        if (!meta?.source && fallback.source) {
+          source = fallback.source;
+        }
       }
     }
 
@@ -201,6 +210,27 @@ export class ContextManager {
 
     const frontmatter = makeFrontmatter({ category, source, version, updated: now });
     fs.writeFileSync(filePath, frontmatter + content, 'utf-8');
+  }
+
+  private extractDocumentMetaFallback(filePath: string): {
+    version?: number;
+    category?: string;
+    source?: string;
+  } {
+    try {
+      const raw = fs.readFileSync(filePath, 'utf-8');
+      const versionMatch = raw.match(/^\s*version:\s*(\d+)\s*$/mi);
+      const categoryMatch = raw.match(/^\s*category:\s*(.+)\s*$/mi);
+      const sourceMatch = raw.match(/^\s*source:\s*(.+)\s*$/mi);
+
+      return {
+        version: versionMatch ? Number(versionMatch[1]) : undefined,
+        category: categoryMatch?.[1]?.trim(),
+        source: sourceMatch?.[1]?.trim(),
+      };
+    } catch {
+      return {};
+    }
   }
 
   /**

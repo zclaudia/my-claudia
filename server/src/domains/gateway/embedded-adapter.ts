@@ -351,6 +351,13 @@ export class EmbeddedGatewayAdapter implements FacadeRuntimeGatewayAdapter {
       onOutgoingContentPatchError: (backendId, channelId, sessionId, afterOffset, error) => {
         this.emit({ type: 'content_patch_failed', backendId, channelId, sessionId, afterOffset, error });
       },
+
+      onOutgoingBackendMessage: (backendId, channelId, message) => {
+        // Non-session messages (terminal output, heartbeats, etc.) from remote
+        // backends — emit as backend_message_received so the runtime core
+        // forwards them to the UI via run_event.
+        this.emit({ type: 'backend_message_received', backendId, channelId, message });
+      },
     });
   }
 

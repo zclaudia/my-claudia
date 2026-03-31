@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, vi } from 'vitest';
 import Database from 'better-sqlite3';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -315,6 +315,10 @@ describe('ReviewEngine', () => {
     );
   });
 
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   // ========================================
   // parseVerdict
   // ========================================
@@ -436,6 +440,32 @@ notes: |
       expect(verdict!.notes).toContain('Line 1 of the review.');
       expect(verdict!.notes).toContain('Line 2 of the review.');
       expect(verdict!.notes).toContain('Line 3 of the review.');
+    });
+
+    it('parses verdict fields case-insensitively', () => {
+      const projectId = seedProject(db);
+      const session = sessionRepo.create({
+        projectId,
+        name: 'Review session',
+        type: 'background',
+      } as any);
+
+      insertMessage(db, session.id, 'assistant', `
+[REVIEW_VERDICT]
+Approved: true
+Notes: |
+  Looks good overall.
+Suggested_Changes:
+  - Tighten one edge case
+[/REVIEW_VERDICT]
+      `);
+
+      const verdict = engine.parseVerdict(session.id);
+
+      expect(verdict).not.toBeNull();
+      expect(verdict!.approved).toBe(true);
+      expect(verdict!.notes).toBe('Looks good overall.');
+      expect(verdict!.suggestedChanges).toEqual(['Tighten one edge case']);
     });
   });
 
@@ -963,6 +993,24 @@ notes: |
       // The review prompt should contain the fallback evidence text
       const runStartCall = mockHandleRunStart.mock.calls[0];
       expect(runStartCall[1].input).toContain('(no git evidence available)');
+    });
+
+    it('marks review as timed out when provider never completes', async () => {
+      vi.useFakeTimers();
+      const projectId = seedProject(db, {
+        agent: makeAgent(),
+      });
+      const task = seedTask(db, taskRepo, {
+        projectId,
+        status: 'reviewing',
+      });
+
+      await engine.createReview(task);
+      await vi.advanceTimersByTimeAsync(5 * 60 * 1000);
+
+      const updated = taskRepo.findById(task.id)!;
+      expect(updated.status).toBe('reviewing');
+      expect(updated.result?.reviewNotes).toContain('Review timed out');
     });
   });
 

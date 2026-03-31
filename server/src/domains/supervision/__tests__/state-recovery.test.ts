@@ -214,6 +214,23 @@ describe('StateRecovery', () => {
 
       expect(report.actions).toHaveLength(0);
     });
+
+    it('records recovery_error and continues with later steps when one step throws', () => {
+      const projectId = seedProject(db, { agent: makeAgent() });
+      const task = taskRepo.create({
+        projectId, title: 'Stuck', description: 'd', source: 'user', status: 'running', maxRetries: 2,
+      });
+
+      const recovery = createRecovery() as any;
+      recovery.recoverInterruptedRuns = vi.fn(() => {
+        throw new Error('boom');
+      });
+
+      const report = recovery.recover();
+
+      expect(report.actions.some((action: any) => action.type === 'recovery_error')).toBe(true);
+      expect(taskRepo.findById(task.id)!.status).toBe('queued');
+    });
   });
 
   // ========================================

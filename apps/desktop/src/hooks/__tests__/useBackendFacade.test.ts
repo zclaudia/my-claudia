@@ -13,6 +13,8 @@ import { useChatStore } from '../../stores/chatStore';
 import { useProjectStore } from '../../stores/projectStore';
 import { useSessionsStore } from '../../stores/sessionsStore';
 import { useOwnershipStore } from '../../stores/ownershipStore';
+import { useTerminalStore } from '../../stores/terminalStore';
+import { xtermRegistry } from '../../utils/xtermRegistry';
 
 describe('useBackendFacade run_event forwarding', () => {
   beforeEach(() => {
@@ -87,6 +89,14 @@ describe('useBackendFacade run_event forwarding', () => {
       sessionBackendIds: { 'session-1': 'remote-1' },
       projectBackendIds: {},
       taskOwners: {},
+    } as any);
+    useTerminalStore.setState({
+      terminals: {},
+      readyTerminals: new Set(),
+      drawerOpen: {},
+      ctrlActive: {},
+      poppedOutTerminals: {},
+      reattachTerminals: {},
     } as any);
   });
 
@@ -249,5 +259,49 @@ describe('useBackendFacade run_event forwarding', () => {
     expect(useSessionsStore.getState().remoteSessions.get('remote-1')).toEqual([
       expect.objectContaining({ id: 'session-1', name: 'Session 1' }),
     ]);
+  });
+
+  it('marks remote terminals for reattach on transport disconnect', () => {
+    const markDetachedSpy = vi.spyOn(xtermRegistry, 'markDetached').mockImplementation(() => {});
+    useTerminalStore.setState({
+      ...useTerminalStore.getState(),
+      terminals: {
+        'remote-1::project-1': 'terminal-1',
+        'remote-2::project-1': 'terminal-2',
+      },
+    });
+
+    syncToGatewayStore({
+      type: 'backend_state_changed',
+      backendId: 'remote-1',
+      state: 'offline',
+      error: 'transport_disconnected',
+    } as any);
+
+    expect(useTerminalStore.getState().shouldReattach('terminal-1')).toBe(true);
+    expect(useTerminalStore.getState().shouldReattach('terminal-2')).toBe(false);
+    expect(markDetachedSpy).toHaveBeenCalledWith('terminal-1');
+    markDetachedSpy.mockRestore();
+  });
+
+  it('does not mark terminals for reattach when backend was user-closed', () => {
+    const markDetachedSpy = vi.spyOn(xtermRegistry, 'markDetached').mockImplementation(() => {});
+    useTerminalStore.setState({
+      ...useTerminalStore.getState(),
+      terminals: {
+        'remote-1::project-1': 'terminal-1',
+      },
+    });
+
+    syncToGatewayStore({
+      type: 'backend_state_changed',
+      backendId: 'remote-1',
+      state: 'offline',
+      error: 'user_closed',
+    } as any);
+
+    expect(useTerminalStore.getState().shouldReattach('terminal-1')).toBe(false);
+    expect(markDetachedSpy).not.toHaveBeenCalled();
+    markDetachedSpy.mockRestore();
   });
 });

@@ -4,7 +4,7 @@ import type { ActiveRun } from './types.js';
 import type { ProcessMonitor } from '../../../utils/process-monitor.js';
 import type { ConnectedClient } from './types.js';
 import type { NotificationService } from '../../notification-feed/notification-service.js';
-import { sendMessage } from './broadcast.js';
+import { broadcastRunMessage, sendMessage } from './broadcast.js';
 import { MAX_SESSION_RESET_RETRIES } from './types.js';
 import { getGatewayClient } from '../../gateway/gateway-instance.js';
 import type { TraceRecorder } from '../../../utils/provider-trace.js';
@@ -116,7 +116,7 @@ export async function handleRunException(input: HandleRunExceptionInput): Promis
   });
 
   if (sessionType === 'background') {
-    sendMessage(activeRun.client.ws, {
+    broadcastRunMessage(activeRun, {
       type: 'background_task_update',
       sessionId: message.sessionId,
       status: 'failed',

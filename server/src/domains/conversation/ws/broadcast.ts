@@ -20,6 +20,19 @@ export function sendMessage(ws: WebSocket, message: ServerMessage): void {
   }
 }
 
+/**
+ * Broadcast a run-related message to ALL connected clients.
+ * Uses `activeRun.broadcast` if wired (normal run flow), otherwise falls back
+ * to sending only to the run's originating client (supervision / legacy).
+ */
+export function broadcastRunMessage(run: ActiveRun, message: ServerMessage): void {
+  if (run.broadcast) {
+    run.broadcast(message);
+  } else {
+    sendMessage(run.client.ws, message);
+  }
+}
+
 export function broadcastToOtherAuthenticatedClients(
   clients: Map<string, ConnectedClient>,
   originClientId: string,

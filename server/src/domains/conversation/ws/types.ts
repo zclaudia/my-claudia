@@ -70,6 +70,11 @@ export interface ActiveRun {
   effectiveProfile?: PCPEffectiveProfile;
   /** Serialized AI review queue — shared across all permission requests in this run */
   aiReviewQueue?: AIReviewQueue;
+  /**
+   * Broadcast a message to ALL connected clients (not just the run's originating client).
+   * Set up in run-bootstrap.ts. Falls back to run.client.ws if not wired (e.g. supervision).
+   */
+  broadcast?: (message: ServerMessage) => void;
 }
 
 // Message sender interface for abstraction

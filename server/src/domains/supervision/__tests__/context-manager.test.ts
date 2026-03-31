@@ -182,6 +182,28 @@ describe('ContextManager', () => {
       expect(doc!.version).toBe(1);
       expect(doc!.content).toContain('# API Spec');
     });
+
+    it('preserves version metadata when existing frontmatter is malformed', () => {
+      cm.scaffold('TestProj');
+      const goalPath = path.join((cm as any).rootPath, '.supervision', 'goal.md');
+
+      fs.writeFileSync(goalPath, [
+        '---',
+        'category: goal',
+        'source: user',
+        'version: 7',
+        'updated: broken',
+        '',
+        '# Corrupted frontmatter body',
+      ].join('\n'));
+
+      cm.updateDocument('goal.md', '# Recovered Goal');
+
+      const doc = cm.getDocument('goal.md');
+      expect(doc!.version).toBe(8);
+      expect(doc!.category).toBe('goal');
+      expect(doc!.source).toBe('user');
+    });
   });
 
   describe('getProjectSummary() / updateProjectSummary()', () => {

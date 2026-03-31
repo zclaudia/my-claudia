@@ -13,6 +13,7 @@ import type { ContextManager, WorkflowAction } from './context-manager.js';
 
 const execAsync = promisify(exec);
 const TASK_RESULT_REGEX = /\[TASK_RESULT\]([\s\S]*?)\[\/TASK_RESULT\]/;
+const REVIEW_TRIGGER_TIMEOUT_MS = 15_000;
 
 export class TaskRunner {
   constructor(
@@ -89,7 +90,24 @@ export class TaskRunner {
 
     // 6. Trigger review
     const updatedTask = this.taskRepo.findById(taskId)!;
-    await this.onReadyForReview(updatedTask);
+    try {
+      await this.withTimeout(
+        this.onReadyForReview(updatedTask),
+        REVIEW_TRIGGER_TIMEOUT_MS,
+        'onReadyForReview timed out',
+      );
+    } catch (err) {
+      this.logFn(
+        projectId,
+        'review_started',
+        {
+          taskId,
+          timedOut: true,
+          error: err instanceof Error ? err.message : String(err),
+        },
+        taskId,
+      );
+    }
   }
 
   /**
@@ -109,13 +127,17 @@ export class TaskRunner {
         const match = TASK_RESULT_REGEX.exec(msg.content);
         if (match) {
           const block = match[1].trim();
-          const summaryMatch = /- summary:\s*(.+)/i.exec(block);
-          const filesMatch = /- files_changed:\s*(.+)/i.exec(block);
-          const testsMatch = /- tests:\s*(.+)/i.exec(block);
+          const summaryMatch = /^\s*-\s*summary:\s*(.+)\s*$/im.exec(block);
+          const filesMatch = /^\s*-\s*files_changed:\s*(.*)\s*$/im.exec(block);
+          const testsMatch = /^\s*-\s*tests:\s*(.+)\s*$/im.exec(block);
+
+          if (!summaryMatch || !filesMatch) {
+            return null;
+          }
 
           return {
-            summary: summaryMatch?.[1]?.trim() ?? 'Task completed',
-            filesChanged: filesMatch
+            summary: summaryMatch[1].trim(),
+            filesChanged: filesMatch[1].trim()
               ? filesMatch[1]
                   .split(',')
                   .map((f) => f.trim())
@@ -242,5 +264,21 @@ export class TaskRunner {
     }
 
     return content;
+  }
+
+  private withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error(message)), timeoutMs);
+      promise.then(
+        (value) => {
+          clearTimeout(timer);
+          resolve(value);
+        },
+        (err) => {
+          clearTimeout(timer);
+          reject(err);
+        },
+      );
+    });
   }
 }

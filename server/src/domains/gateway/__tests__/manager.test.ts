@@ -63,7 +63,7 @@ vi.mock('../gateway-instance.js', () => ({
 }));
 
 vi.mock('../gateway-channel-cleanup.js', () => ({
-  cancelRunsForClosedChannel: vi.fn(),
+  handleChannelClosed: vi.fn(),
 }));
 
 vi.mock('../embedded-provider.js', () => ({
@@ -103,6 +103,7 @@ describe('GatewayManager', () => {
     const serverContext = {
       db: { prepare: vi.fn() },
       handleMessage: vi.fn(),
+      getStateHeartbeat: vi.fn(() => ({ type: 'state_heartbeat', activeRuns: [], pendingPermissions: [], pendingQuestions: [] })),
       setFacadeHub: vi.fn(),
       updateGatewayIdentity: vi.fn(),
       updateGatewayConnected: vi.fn(),

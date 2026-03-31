@@ -1,17 +1,14 @@
-import { execSync } from 'child_process';
 import { systemTaskRegistry } from '../../services/system-task-registry.js';
 import { v4 as uuidv4 } from 'uuid';
 import type { Database } from 'better-sqlite3';
 import type {
-  Project,
+  AgentMode,
   Session,
   ProjectAgent,
-  AgentMode,
-  SupervisorConfig,
   SupervisionTask,
-  TaskStatus,
   ServerMessage,
   SupervisionLogEvent,
+  SupervisorConfig,
 } from '@my-claudia/shared';
 import { SupervisionTaskRepository } from '../../repositories/supervision-task.js';
 import { ProjectRepository } from '../../repositories/project.js';
@@ -21,18 +18,22 @@ import { TaskRunner } from './task-runner.js';
 import { ReviewEngine } from './review-engine.js';
 import { WorktreePool } from './worktree-pool.js';
 import type { CheckpointEngine } from './checkpoint-engine.js';
-import { createVirtualClient, handleRunStart } from '../../server.js';
-import { computeNextCronRun } from '../../utils/cron.js';
 import { validatePlanFile, type PlanValidationResult } from './plan-validator.js';
 import { TaskScheduler } from './task-scheduler.js';
 import { SupervisorGuards } from './supervisor-guards.js';
 import { WorktreeManager } from './worktree-manager.js';
 import { TaskLifecycle } from './task-lifecycle.js';
+import { TaskExecution } from './task-execution.js';
+import { TaskAdmin } from './task-admin.js';
+import { SupervisorAgentManager } from './supervisor-agent.js';
+import { SupervisorContextService } from './supervisor-context.js';
+import { buildTaskPrompt as buildSupervisedTaskPrompt } from './task-prompt.js';
 
 export class SupervisorService {
+  private static cleanupHooksInstalled = false;
+  private static activeServices = new Set<SupervisorService>();
   private pollInterval: NodeJS.Timeout | null = null;
-  private contextManagers = new Map<string, ContextManager>();
-  private virtualClients = new Map<string, any>(); // taskId → virtualClient
+  private virtualClients = new Map<string, unknown>(); // taskId → virtualClient
   private taskRunner: TaskRunner;
   private reviewEngine: ReviewEngine;
   private checkpointEngine?: CheckpointEngine;
@@ -40,6 +41,10 @@ export class SupervisorService {
   private guards: SupervisorGuards;
   private worktreeManager: WorktreeManager;
   private taskLifecycle: TaskLifecycle;
+  private taskExecution: TaskExecution;
+  private taskAdmin: TaskAdmin;
+  private agentManager: SupervisorAgentManager;
+  private contextService: SupervisorContextService;
 
   constructor(
     private db: Database,
@@ -48,6 +53,8 @@ export class SupervisorService {
     private sessionRepo: SessionRepository,
     private broadcastFn: (msg: ServerMessage) => void,
   ) {
+    SupervisorService.installCleanupHooks();
+
     const getContextManagerFn = (projectId: string) => {
       const project = this.projectRepo.findById(projectId);
       if (!project?.rootPath) throw new Error(`Project ${projectId} has no rootPath`);
@@ -111,6 +118,8 @@ export class SupervisorService {
       getCheckpointEngine: () => this.checkpointEngine,
       tick: () => this.tick(),
       broadcastTaskUpdate: broadcastTaskUpdateFn,
+      broadcastAgentUpdate: (projectId, agent) => this.broadcastAgentUpdate(projectId, agent),
+      getTaskPlanStatus: (taskId) => this.getTaskPlanStatus(taskId),
       log: logFn,
     });
 
@@ -128,6 +137,53 @@ export class SupervisorService {
       startTask: (task) => this.startTask(task),
       startLiteTask: (task) => this.startLiteTask(task),
     });
+
+    this.taskAdmin = new TaskAdmin({
+      taskRepo,
+      projectRepo,
+      sessionRepo,
+      pauseAgent: (projectId, reason) => this.guards.pauseAgent(projectId, reason),
+      broadcastTaskUpdate: broadcastTaskUpdateFn,
+      broadcastAgentUpdate: (projectId, agent) => this.broadcastAgentUpdate(projectId, agent),
+      log: logFn,
+    });
+
+    this.contextService = new SupervisorContextService({
+      projectRepo,
+      pauseAgent: (projectId, reason) => this.guards.pauseAgent(projectId, reason),
+      log: logFn,
+    });
+
+    this.agentManager = new SupervisorAgentManager({
+      taskRepo,
+      projectRepo,
+      sessionRepo,
+      worktreeManager: this.worktreeManager,
+      getContextManager: (projectId, rootPath) => this.getContextManager(projectId, rootPath),
+      broadcastSessionCreated: (session) => this.broadcastSessionCreated(session),
+      broadcastAgentUpdate: (projectId, agent) => this.broadcastAgentUpdate(projectId, agent),
+      log: logFn,
+    });
+
+    this.taskExecution = new TaskExecution({
+      db,
+      taskRepo,
+      projectRepo,
+      sessionRepo,
+      taskScheduler: this.taskScheduler,
+      worktreeManager: this.worktreeManager,
+      virtualClients: this.virtualClients,
+      broadcast: this.broadcastFn,
+      handleTaskRunMessage: (taskId, projectId, msg) =>
+        this.handleTaskRunMessage(taskId, projectId, msg),
+      handleLiteTaskMessage: (taskId, projectId, msg) =>
+        this.handleLiteTaskMessage(taskId, projectId, msg),
+      getContextManager: (projectId, rootPath) => this.getContextManager(projectId, rootPath),
+      buildTaskPrompt: (task, projectName, contextInjection) =>
+        this.buildTaskPrompt(task, projectName, contextInjection),
+      broadcastTaskUpdate: broadcastTaskUpdateFn,
+      log: logFn,
+    });
   }
 
   // ========================================
@@ -136,6 +192,7 @@ export class SupervisorService {
 
   start(intervalMs = 5000): void {
     if (this.pollInterval) return;
+    SupervisorService.activeServices.add(this);
     systemTaskRegistry.register({
       id: 'system:supervisor_polling',
       name: 'Supervisor Polling',
@@ -157,12 +214,14 @@ export class SupervisorService {
   }
 
   stop(): void {
+    SupervisorService.activeServices.delete(this);
     if (this.pollInterval) {
       clearInterval(this.pollInterval);
       this.pollInterval = null;
     }
     this.checkpointEngine?.stop();
     this.worktreeManager.destroyAllPools();
+    this.contextService.clearAll();
     console.log('[Supervisor] Stopped');
   }
 
@@ -175,134 +234,24 @@ export class SupervisorService {
   // Agent management
   // ========================================
 
-  initAgent(projectId: string, config?: Partial<SupervisorConfig>, providerId?: string, mode?: AgentMode): ProjectAgent {
-    const project = this.projectRepo.findById(projectId);
-    if (!project) {
-      throw new Error(`Project not found: ${projectId}`);
-    }
-    if (!project.rootPath) {
-      throw new Error(`Project ${projectId} has no rootPath configured`);
-    }
-
-    const agentMode = mode ?? 'full';
-    const sessionName = agentMode === 'lite' ? 'Workflow Runner' : 'Supervisor';
-
-    // Create the supervisor main session (visible, user-navigable)
-    const mainSession = this.sessionRepo.create({
-      projectId,
-      name: sessionName,
-      type: 'regular',
-      projectRole: 'main',
-      providerId: providerId ?? project.providerId,
-      workingDirectory: project.rootPath,
-    } as Omit<Session, 'id' | 'createdAt' | 'updatedAt'>);
-    this.broadcastSessionCreated(mainSession);
-
-    const now = Date.now();
-    const agent: ProjectAgent = {
-      type: 'supervisor',
-      mode: agentMode,
-      phase: 'idle',  // Skip initializing/setup — go straight to idle
-      config: {
-        maxConcurrentTasks: agentMode === 'lite' ? 1 : (config?.maxConcurrentTasks ?? 1),
-        trustLevel: config?.trustLevel ?? 'low',
-        autoDiscoverTasks: false,
-        ...config,
-      },
-      mainSessionId: mainSession.id,
-      createdAt: now,
-      updatedAt: now,
-    };
-
-    this.projectRepo.update(projectId, { agent });
-
-    // Initialize ContextManager and scaffold if needed (full mode only)
-    if (agentMode === 'full') {
-      const cm = this.getContextManager(projectId, project.rootPath);
-      if (!cm.isInitialized()) {
-        cm.scaffold(project.name);
-      }
-    }
-
-    this.broadcastAgentUpdate(projectId, agent);
-    this.log(projectId, 'agent_initialized', {
-      config: agent.config,
-      mode: agentMode,
-      mainSessionId: mainSession.id,
-    });
-
-    return agent;
+  initAgent(
+    projectId: string,
+    config?: Partial<SupervisorConfig>,
+    providerId?: string,
+    mode?: AgentMode,
+  ): ProjectAgent {
+    return this.agentManager.initAgent(projectId, config, providerId, mode);
   }
 
   updateAgentPhase(
     projectId: string,
     action: 'pause' | 'resume' | 'archive' | 'approve_setup',
   ): ProjectAgent {
-    const project = this.projectRepo.findById(projectId);
-    if (!project?.agent) {
-      throw new Error(`No agent found for project: ${projectId}`);
-    }
-
-    const agent = { ...project.agent };
-    const previousPhase = agent.phase;
-
-    switch (action) {
-      case 'pause': {
-        if (agent.phase !== 'active' && agent.phase !== 'idle') {
-          throw new Error(
-            `Cannot pause agent in phase '${agent.phase}'; must be 'active' or 'idle'`,
-          );
-        }
-        agent.phase = 'paused';
-        agent.pausedReason = 'user';
-        agent.pausedAt = Date.now();
-        break;
-      }
-      case 'resume': {
-        if (agent.phase !== 'paused') {
-          throw new Error(`Cannot resume agent in phase '${agent.phase}'; must be 'paused'`);
-        }
-        agent.phase = 'active';
-        agent.pausedReason = undefined;
-        agent.pausedAt = undefined;
-        break;
-      }
-      case 'archive': {
-        agent.phase = 'archived';
-        agent.pausedReason = undefined;
-        agent.pausedAt = undefined;
-        this.worktreeManager.cleanupPool(projectId).catch((err) => {
-          console.error(`[Supervisor] Failed to cleanup pool for ${projectId}:`, err);
-        });
-        break;
-      }
-      case 'approve_setup': {
-        if (agent.phase !== 'setup' && agent.phase !== 'initializing') {
-          throw new Error(
-            `Cannot approve setup for agent in phase '${agent.phase}'; must be 'setup' or 'initializing'`,
-          );
-        }
-        // Transition to active or idle depending on whether tasks exist
-        const tasks = this.taskRepo.findByStatus(projectId, 'pending', 'queued', 'running');
-        agent.phase = tasks.length > 0 ? 'active' : 'idle';
-        break;
-      }
-    }
-
-    agent.updatedAt = Date.now();
-    this.projectRepo.update(projectId, { agent });
-    this.broadcastAgentUpdate(projectId, agent);
-    this.log(projectId, 'phase_changed', {
-      from: previousPhase,
-      to: agent.phase,
-      action,
-    });
-
-    return agent;
+    return this.agentManager.updateAgentPhase(projectId, action);
   }
 
   getAgent(projectId: string): ProjectAgent | undefined {
-    return this.projectRepo.findById(projectId)?.agent;
+    return this.agentManager.getAgent(projectId);
   }
 
   // ========================================
@@ -328,79 +277,7 @@ export class SupervisorService {
       retryDelayMs?: number;
     },
   ): SupervisionTask {
-    const project = this.projectRepo.findById(projectId);
-    if (!project?.agent) {
-      throw new Error(`No agent found for project: ${projectId}`);
-    }
-
-    const source = data.source ?? 'user';
-    const trustLevel = project.agent.config.trustLevel;
-
-    // Determine initial status based on source and trust level
-    let status: TaskStatus;
-    if (source === 'user') {
-      status = 'pending';
-    } else if (source === 'agent_discovered' && trustLevel === 'high') {
-      status = 'pending';
-    } else {
-      // agent_discovered + low/medium trust → proposed (needs user approval)
-      status = 'proposed';
-    }
-
-    // Check budget limits
-    if (project.agent.config.maxTotalTasks !== undefined) {
-      const currentCount = this.taskRepo.countByProject(projectId);
-      if (currentCount >= project.agent.config.maxTotalTasks) {
-        this.guards.pauseAgent(projectId, 'budget');
-        throw new Error(
-          `Budget limit exceeded: maxTotalTasks=${project.agent.config.maxTotalTasks} reached. Agent paused.`,
-        );
-      }
-    }
-
-    // Compute initial scheduleNextRun if cron is provided
-    let scheduleNextRun: number | undefined;
-    if (data.scheduleCron && data.scheduleEnabled) {
-      scheduleNextRun = computeNextCronRun(data.scheduleCron);
-    }
-
-    const task = this.taskRepo.create({
-      projectId,
-      title: data.title,
-      description: data.description,
-      source,
-      status,
-      priority: data.priority,
-      dependencies: data.dependencies,
-      dependencyMode: data.dependencyMode,
-      relevantDocIds: data.relevantDocIds,
-      taskSpecificContext: data.taskSpecificContext,
-      scope: data.scope,
-      acceptanceCriteria: data.acceptanceCriteria,
-      maxRetries: data.maxRetries,
-      scheduleCron: data.scheduleCron,
-      scheduleEnabled: data.scheduleEnabled,
-      scheduleNextRun,
-      retryDelayMs: data.retryDelayMs,
-    });
-
-    // Session is NOT created here — it's created lazily when user opens the task
-    // or when startTask() begins execution. This prevents session count explosion.
-
-    this.broadcastTaskUpdate(task.id, projectId);
-    this.log(projectId, 'task_created', {
-      taskId: task.id, title: task.title, status,
-    }, task.id);
-
-    // If agent is idle, transition to active (newly created tasks are either 'pending' or 'proposed')
-    if (project.agent.phase === 'idle' && status === 'pending') {
-      const agent = { ...project.agent, phase: 'active' as const, updatedAt: Date.now() };
-      this.projectRepo.update(projectId, { agent });
-      this.broadcastAgentUpdate(projectId, agent);
-      this.log(projectId, 'phase_changed', { from: 'idle', to: 'active', reason: 'new_task' });
-    }
-
-    return task;
+    return this.taskAdmin.createTask(projectId, data);
   }
 
   /**
@@ -408,81 +285,15 @@ export class SupervisorService {
    * Called when user clicks "Edit" on a task card.
    */
   openTaskSession(taskId: string): { sessionId: string } {
-    const task = this.taskRepo.findById(taskId);
-    if (!task) {
-      throw new Error(`Task not found: ${taskId}`);
-    }
-
-    // If session already exists, return it
-    if (task.sessionId) {
-      const existing = this.sessionRepo.findById(task.sessionId);
-      if (existing) {
-        return { sessionId: existing.id };
-      }
-    }
-
-    // Create session on demand
-    const project = this.projectRepo.findById(task.projectId);
-    const taskSession = this.sessionRepo.create({
-      projectId: task.projectId,
-      name: `Task: ${task.title}`,
-      type: 'regular',
-      projectRole: 'task',
-      taskId: task.id,
-      parentSessionId: project?.agent?.mainSessionId,
-      providerId: project?.providerId,
-      workingDirectory: project?.rootPath,
-      planStatus: 'planning',
-    } as Omit<Session, 'id' | 'createdAt' | 'updatedAt'>);
-
-    // Link session to task and set status to planning
-    this.taskRepo.updateStatus(task.id, 'planning', { sessionId: taskSession.id });
-
-    this.log(task.projectId, 'task_session_opened', {
-      taskId: task.id, sessionId: taskSession.id,
-    }, task.id);
-
-    return { sessionId: taskSession.id };
+    return this.taskAdmin.openTaskSession(taskId);
   }
 
   approveTask(taskId: string): SupervisionTask {
-    const task = this.taskRepo.findById(taskId);
-    if (!task) {
-      throw new Error(`Task not found: ${taskId}`);
-    }
-    if (task.status !== 'proposed') {
-      throw new Error(`Cannot approve task in status '${task.status}'; must be 'proposed'`);
-    }
-
-    this.taskRepo.updateStatus(taskId, 'pending');
-    this.broadcastTaskUpdate(taskId, task.projectId);
-    this.log(task.projectId, 'task_status_changed', {
-      taskId,
-      from: 'proposed',
-      to: 'pending',
-    }, taskId);
-
-    return this.taskRepo.findById(taskId)!;
+    return this.taskAdmin.approveTask(taskId);
   }
 
   rejectTask(taskId: string): SupervisionTask {
-    const task = this.taskRepo.findById(taskId);
-    if (!task) {
-      throw new Error(`Task not found: ${taskId}`);
-    }
-    if (task.status !== 'proposed') {
-      throw new Error(`Cannot reject task in status '${task.status}'; must be 'proposed'`);
-    }
-
-    this.taskRepo.updateStatus(taskId, 'cancelled');
-    this.broadcastTaskUpdate(taskId, task.projectId);
-    this.log(task.projectId, 'task_status_changed', {
-      taskId,
-      from: 'proposed',
-      to: 'cancelled',
-    }, taskId);
-
-    return this.taskRepo.findById(taskId)!;
+    return this.taskAdmin.rejectTask(taskId);
   }
 
   async approveTaskResult(taskId: string): Promise<SupervisionTask> {
@@ -514,55 +325,14 @@ export class SupervisorService {
   }
 
   submitTaskPlan(taskId: string): { task: SupervisionTask; sessionId: string } {
-    const task = this.taskRepo.findById(taskId);
-    if (!task) {
-      throw new Error(`Task not found: ${taskId}`);
-    }
-    if (task.status !== 'planning') {
-      throw new Error(`Task ${taskId} is not in planning status`);
-    }
-    if (!task.sessionId) {
-      throw new Error(`Task ${taskId} has no planning session`);
-    }
-
-    const session = this.sessionRepo.findById(task.sessionId);
-    if (!session) {
-      throw new Error(`Planning session not found for task ${taskId}`);
-    }
-
-    const planStatus = this.getTaskPlanStatus(taskId);
-    if (!planStatus.ready) {
-      throw new Error(`Plan is incomplete: missing ${planStatus.missing.join(', ')}`);
-    }
-
-    this.sessionRepo.update(session.id, {
-      planStatus: 'planned',
-      isReadOnly: true,
-    } as Partial<Omit<Session, 'id' | 'createdAt' | 'updatedAt'>>);
-
-    this.taskRepo.updateStatus(task.id, 'queued');
-    this.broadcastTaskUpdate(task.id, task.projectId);
-    this.log(task.projectId, 'task_plan_submitted', {
-      taskId: task.id,
-      sessionId: session.id,
-      planPath: planStatus.path,
-    }, task.id);
-
-    // Prompt scheduler to pick it up quickly
-    this.tick();
-
-    return { task: this.taskRepo.findById(task.id)!, sessionId: session.id };
+    return this.taskLifecycle.submitTaskPlan(taskId);
   }
 
   updateTask(taskId: string, data: Partial<Pick<SupervisionTask,
     'title' | 'description' | 'priority' | 'dependencies' | 'dependencyMode' |
     'acceptanceCriteria' | 'relevantDocIds' | 'scope' | 'taskSpecificContext'
   >>): SupervisionTask | undefined {
-    const task = this.taskRepo.update(taskId, data);
-    if (task) {
-      this.broadcastTaskUpdate(task.id, task.projectId);
-    }
-    return task;
+    return this.taskAdmin.updateTask(taskId, data);
   }
 
   // ========================================
@@ -570,44 +340,11 @@ export class SupervisorService {
   // ========================================
 
   getContextDocuments(projectId: string): ContextDocument[] {
-    const project = this.projectRepo.findById(projectId);
-    if (!project?.rootPath) {
-      return [];
-    }
-
-    const cm = this.getContextManager(projectId, project.rootPath);
-    try {
-      return cm.loadAll().documents;
-    } catch {
-      return [];
-    }
+    return this.contextService.getContextDocuments(projectId);
   }
 
   reloadContext(projectId: string): void {
-    const project = this.projectRepo.findById(projectId);
-    if (!project?.rootPath) {
-      throw new Error(`Project ${projectId} has no rootPath`);
-    }
-
-    // Delete cached ContextManager and re-create
-    this.contextManagers.delete(projectId);
-    const cm = this.getContextManager(projectId, project.rootPath);
-
-    try {
-      cm.loadAll();
-      // Success — clear any error state
-      this.projectRepo.update(projectId, { contextSyncStatus: 'synced' });
-    } catch (err) {
-      // Parse error — mark as error and pause agent
-      console.error(`[Supervisor] Context reload failed for project ${projectId}:`, err);
-      this.projectRepo.update(projectId, { contextSyncStatus: 'error' });
-      if (project.agent) {
-        this.guards.pauseAgent(projectId, 'sync_error');
-      }
-      this.log(projectId, 'context_sync_error', {
-        error: err instanceof Error ? err.message : String(err),
-      });
-    }
+    this.contextService.reloadContext(projectId);
   }
 
   // ========================================
@@ -636,145 +373,7 @@ export class SupervisorService {
   // ========================================
 
   private async startTask(task: SupervisionTask): Promise<void> {
-    const project = this.projectRepo.findById(task.projectId);
-    if (!project?.rootPath) {
-      console.error(`[Supervisor] Cannot start task ${task.id}: project has no rootPath`);
-      return;
-    }
-
-    const isGit = this.taskScheduler.isGitProject(project.rootPath);
-    const maxConcurrent = project.agent?.config?.maxConcurrentTasks ?? 1;
-    let workingDirectory = project.rootPath;
-    let acquiredFromPool = false;
-    let taskMarkedRunning = false;
-
-    // Acquire worktree for parallel git execution
-    if (isGit && maxConcurrent > 1) {
-      try {
-        await this.worktreeManager.ensurePoolInitialized(task.projectId);
-        const pool = this.worktreeManager.getWorktreePool(task.projectId);
-        workingDirectory = await pool.acquire(task.id, task.attempt);
-        acquiredFromPool = true;
-        this.log(task.projectId, 'worktree_acquired', {
-          taskId: task.id, worktreePath: workingDirectory,
-        }, task.id);
-      } catch (err) {
-        console.error(`[Supervisor] Failed to acquire worktree for task ${task.id}:`, err);
-        return; // Don't start the task if we can't get a worktree
-      }
-    }
-
-    try {
-      // 1. Reuse existing child session (created by createTask) or create a new one
-      let session: Session;
-      if (task.sessionId) {
-        const existing = this.sessionRepo.findById(task.sessionId);
-        if (existing) {
-          // Update session: set to executing, read-only, and assign worktree
-          this.sessionRepo.update(existing.id, {
-            workingDirectory,
-            planStatus: 'executing',
-            isReadOnly: true,
-          } as Partial<Omit<Session, 'id' | 'createdAt' | 'updatedAt'>>);
-          session = { ...existing, workingDirectory, planStatus: 'executing', isReadOnly: true };
-        } else {
-          // Fallback: create new session if linked one was deleted
-          session = this.sessionRepo.create({
-            projectId: task.projectId,
-            name: `Task: ${task.title}`,
-            type: 'regular',
-            projectRole: 'task',
-            taskId: task.id,
-            workingDirectory,
-            planStatus: 'executing',
-            isReadOnly: true,
-          } as Omit<Session, 'id' | 'createdAt' | 'updatedAt'>);
-        }
-      } else {
-        // Legacy path: task was created without a child session
-        session = this.sessionRepo.create({
-          projectId: task.projectId,
-          name: `Task: ${task.title}`,
-          type: 'regular',
-          projectRole: 'task',
-          taskId: task.id,
-          workingDirectory,
-          planStatus: 'executing',
-          isReadOnly: true,
-        } as Omit<Session, 'id' | 'createdAt' | 'updatedAt'>);
-      }
-
-      // 2. Update task status → running with sessionId
-      const extra: { sessionId: string; baseCommit?: string } = {
-        sessionId: session.id,
-      };
-
-      // 3. Record baseCommit if git project
-      if (isGit) {
-        try {
-          const commit = execSync('git rev-parse HEAD', {
-            cwd: workingDirectory,
-            encoding: 'utf-8',
-          }).trim();
-          extra.baseCommit = commit;
-        } catch {
-          // Not critical if we can't get the commit
-        }
-      }
-
-      this.taskRepo.updateStatus(task.id, 'running', extra);
-      taskMarkedRunning = true;
-      this.broadcastTaskUpdate(task.id, task.projectId);
-      this.log(task.projectId, 'task_status_changed', {
-        taskId: task.id,
-        from: task.status,
-        to: 'running',
-        sessionId: session.id,
-        workingDirectory,
-      }, task.id);
-
-      // 4. Build task system prompt with context injection
-      const cm = this.getContextManager(task.projectId, project.rootPath);
-      const contextInjection = cm.getContextForTask(task.relevantDocIds);
-      const systemPrompt = this.buildTaskPrompt(task, project.name, contextInjection);
-
-      // 5. Create virtual client and trigger run
-      const clientId = `supervisor_task_${task.id}`;
-      const virtualClient = createVirtualClient(clientId, {
-        send: (msg: ServerMessage) => {
-          this.handleTaskRunMessage(task.id, task.projectId, msg);
-          // Forward streaming messages to connected clients
-          this.broadcastFn(msg);
-        },
-      });
-      this.virtualClients.set(task.id, virtualClient);
-
-      const clientRequestId = `sv2_${task.id}_${Date.now()}`;
-
-      // Fire and forget — results come via virtual client callback
-      handleRunStart(
-        virtualClient,
-        {
-          type: 'run_start',
-          clientRequestId,
-          sessionId: session.id,
-          input: systemPrompt,
-          workingDirectory,
-        },
-        this.db,
-      );
-    } catch (err) {
-      console.error(`[Supervisor] Failed to initialize task ${task.id}:`, err);
-      if (acquiredFromPool && !taskMarkedRunning) {
-        const pool = this.worktreeManager.getPoolsMap().get(task.projectId);
-        pool?.release(workingDirectory);
-        this.log(task.projectId, 'worktree_released', {
-          taskId: task.id,
-          worktreePath: workingDirectory,
-          reason: 'start_task_failed_before_running',
-        }, task.id);
-      }
-    }
+    return this.taskExecution.startTask(task);
   }
 
   private handleTaskRunMessage(
@@ -797,71 +396,7 @@ export class SupervisorService {
   // ========================================
 
   private async startLiteTask(task: SupervisionTask): Promise<void> {
-    const project = this.projectRepo.findById(task.projectId);
-    if (!project?.rootPath) {
-      console.error(`[Supervisor] Cannot start lite task ${task.id}: project has no rootPath`);
-      return;
-    }
-
-    const workingDirectory = project.rootPath;
-
-    // Reuse or create session
-    let session: Session;
-    if (task.sessionId) {
-      const existing = this.sessionRepo.findById(task.sessionId);
-      if (existing) {
-        session = existing;
-      } else {
-        session = this.createLiteTaskSession(task, project);
-      }
-    } else {
-      session = this.createLiteTaskSession(task, project);
-    }
-
-    // Update task → running
-    this.taskRepo.updateStatus(task.id, 'running', { sessionId: session.id });
-    this.broadcastTaskUpdate(task.id, task.projectId);
-    this.log(task.projectId, 'task_status_changed', {
-      taskId: task.id,
-      from: task.status,
-      to: 'running',
-      sessionId: session.id,
-    }, task.id);
-
-    // Create virtual client and fire prompt
-    const clientId = `lite_task_${task.id}`;
-    const virtualClient = createVirtualClient(clientId, {
-      send: (msg: ServerMessage) => {
-        this.handleLiteTaskMessage(task.id, task.projectId, msg);
-        this.broadcastFn(msg);
-      },
-    });
-    this.virtualClients.set(task.id, virtualClient);
-
-    handleRunStart(
-      virtualClient,
-      {
-        type: 'run_start',
-        clientRequestId: `lite_${task.id}_${Date.now()}`,
-        sessionId: session.id,
-        input: task.description,
-        workingDirectory,
-      },
-      this.db,
-    );
-  }
-
-  private createLiteTaskSession(task: SupervisionTask, project: Project): Session {
-    return this.sessionRepo.create({
-      projectId: task.projectId,
-      name: `Task: ${task.title}`,
-      type: 'regular',
-      projectRole: 'task',
-      taskId: task.id,
-      parentSessionId: project.agent?.mainSessionId,
-      providerId: project.providerId,
-      workingDirectory: project.rootPath,
-    } as Omit<Session, 'id' | 'createdAt' | 'updatedAt'>);
+    return this.taskExecution.startLiteTask(task);
   }
 
   private handleLiteTaskMessage(
@@ -877,72 +412,15 @@ export class SupervisorService {
   // ========================================
 
   retryTask(taskId: string): SupervisionTask {
-    const task = this.taskRepo.findById(taskId);
-    if (!task) throw new Error(`Task not found: ${taskId}`);
-    if (!['failed', 'cancelled', 'completed', 'blocked'].includes(task.status)) {
-      throw new Error(`Cannot retry task in status '${task.status}'`);
-    }
-
-    this.taskRepo.updateStatus(taskId, 'pending', { attempt: 1 });
-    this.broadcastTaskUpdate(taskId, task.projectId);
-    this.log(task.projectId, 'task_status_changed', {
-      taskId, from: task.status, to: 'pending', reason: 'manual_retry',
-    }, taskId);
-
-    // Transition agent to active if idle
-    const project = this.projectRepo.findById(task.projectId);
-    if (project?.agent?.phase === 'idle') {
-      const agent = { ...project.agent, phase: 'active' as const, updatedAt: Date.now() };
-      this.projectRepo.update(task.projectId, { agent });
-      this.broadcastAgentUpdate(task.projectId, agent);
-      this.log(task.projectId, 'phase_changed', { from: 'idle', to: 'active', reason: 'manual_retry' });
-    }
-
-    return this.taskRepo.findById(taskId)!;
+    return this.taskLifecycle.retryTask(taskId);
   }
 
   cancelTask(taskId: string): SupervisionTask {
-    const task = this.taskRepo.findById(taskId);
-    if (!task) throw new Error(`Task not found: ${taskId}`);
-
-    // If running, kill the virtual client
-    const vc = this.virtualClients.get(taskId);
-    if (vc) {
-      this.virtualClients.delete(taskId);
-    }
-
-    this.taskRepo.updateStatus(taskId, 'cancelled');
-    this.broadcastTaskUpdate(taskId, task.projectId);
-    this.log(task.projectId, 'task_status_changed', {
-      taskId, from: task.status, to: 'cancelled', reason: 'manual_cancel',
-    }, taskId);
-
-    return this.taskRepo.findById(taskId)!;
+    return this.taskLifecycle.cancelTask(taskId);
   }
 
   runTaskNow(taskId: string): SupervisionTask {
-    const task = this.taskRepo.findById(taskId);
-    if (!task) throw new Error(`Task not found: ${taskId}`);
-    if (!['completed', 'failed', 'cancelled'].includes(task.status)) {
-      throw new Error(`Cannot run-now task in status '${task.status}'; must be terminal`);
-    }
-
-    this.taskRepo.updateStatus(taskId, 'pending', { attempt: 1 });
-    this.broadcastTaskUpdate(taskId, task.projectId);
-    this.log(task.projectId, 'task_status_changed', {
-      taskId, from: task.status, to: 'pending', reason: 'run_now',
-    }, taskId);
-
-    // Transition agent to active if idle
-    const project = this.projectRepo.findById(task.projectId);
-    if (project?.agent?.phase === 'idle') {
-      const agent = { ...project.agent, phase: 'active' as const, updatedAt: Date.now() };
-      this.projectRepo.update(task.projectId, { agent });
-      this.broadcastAgentUpdate(task.projectId, agent);
-      this.log(task.projectId, 'phase_changed', { from: 'idle', to: 'active', reason: 'run_now' });
-    }
-
-    return this.taskRepo.findById(taskId)!;
+    return this.taskLifecycle.runTaskNow(taskId);
   }
 
   // ========================================
@@ -954,45 +432,7 @@ export class SupervisorService {
     projectName: string,
     contextInjection: string,
   ): string {
-    let prompt = `[SUPERVISED TASK]
-Project: ${projectName}
-Task: ${task.title}
-Attempt: ${task.attempt}
-
-== Project Context ==
-${contextInjection || '(no project context available)'}
-
-== Task Description ==
-${task.description}
-`;
-
-    if (task.acceptanceCriteria && task.acceptanceCriteria.length > 0) {
-      prompt += `\n== Acceptance Criteria ==\n`;
-      for (const ac of task.acceptanceCriteria) {
-        prompt += `- ${ac}\n`;
-      }
-    }
-
-    if (task.taskSpecificContext) {
-      prompt += `\n== Additional Context ==\n${task.taskSpecificContext}\n`;
-    }
-
-    if (task.attempt > 1 && task.result?.reviewNotes) {
-      prompt += `\n== Previous Review Feedback ==\n${task.result.reviewNotes}\n`;
-    }
-
-    prompt += `
-== Instructions ==
-Complete the task described above. When finished, output your results in this exact format:
-
-[TASK_RESULT]
-- summary: <brief summary of what was done>
-- files_changed: <comma-separated list of files modified>
-- tests: <test results if applicable>
-[/TASK_RESULT]
-`;
-
-    return prompt;
+    return buildSupervisedTaskPrompt(task, projectName, contextInjection);
   }
 
   // ========================================
@@ -1000,12 +440,7 @@ Complete the task described above. When finished, output your results in this ex
   // ========================================
 
   private getContextManager(projectId: string, rootPath: string): ContextManager {
-    let cm = this.contextManagers.get(projectId);
-    if (!cm) {
-      cm = new ContextManager(rootPath);
-      this.contextManagers.set(projectId, cm);
-    }
-    return cm;
+    return this.contextService.getContextManager(projectId, rootPath);
   }
 
   // ========================================
@@ -1142,5 +577,33 @@ Complete the task described above. When finished, output your results in this ex
 
   private isGitProject(rootPath: string): boolean {
     return this.taskScheduler.isGitProject(rootPath);
+  }
+
+  private static installCleanupHooks(): void {
+    if (SupervisorService.cleanupHooksInstalled) {
+      return;
+    }
+
+    const cleanup = () => {
+      for (const service of SupervisorService.activeServices) {
+        try {
+          service.stop();
+        } catch (err) {
+          console.error('[Supervisor] Failed during process cleanup:', err);
+        }
+      }
+    };
+
+    process.once('exit', cleanup);
+    process.once('SIGINT', () => {
+      cleanup();
+      process.exit(0);
+    });
+    process.once('SIGTERM', () => {
+      cleanup();
+      process.exit(0);
+    });
+
+    SupervisorService.cleanupHooksInstalled = true;
   }
 }
