@@ -27,6 +27,7 @@ const mockChatStore = {
 const mockProjectStore = {
   selectedSessionId: 'current-session',
   setSessionActive: vi.fn(),
+  replaceProjectsForBackend: vi.fn(),
   addSession: vi.fn(),
   updateSession: vi.fn(),
   sessions: [] as any[],
@@ -101,6 +102,7 @@ const mockInteractionStore = {
 };
 const mockEagerSyncCurrentSession = vi.fn(() => Promise.resolve());
 const mockRecoverCurrentSessionTail = vi.fn(() => Promise.resolve());
+const mockGetProjectsForBackend = vi.fn();
 
 vi.mock('../../stores/chatStore', () => ({
   useChatStore: { getState: () => mockChatStore },
@@ -159,6 +161,9 @@ vi.mock('../sessionSync', () => ({
   eagerSyncCurrentSession: (...args: any[]) => mockEagerSyncCurrentSession(...args),
   recoverCurrentSessionTail: (...args: any[]) => mockRecoverCurrentSessionTail(...args),
 }));
+vi.mock('../api/projects', () => ({
+  getProjectsForBackend: (...args: any[]) => mockGetProjectsForBackend(...args),
+}));
 
 const mockXtermEntry = {
   terminal: { write: vi.fn(), writeln: vi.fn() },
@@ -170,7 +175,7 @@ vi.mock('../../utils/xtermRegistry', () => ({
   },
 }));
 
-import { handleServerMessage } from '../messageHandler';
+import { cleanupServerSyncState, handleServerMessage } from '../messageHandler';
 import { downloadPushedFile } from '../fileDownload';
 import { xtermRegistry } from '../../utils/xtermRegistry';
 import { useNotificationFeedStore } from '../../stores/notificationFeedStore';
@@ -190,6 +195,7 @@ function makeCtx(overrides?: Partial<MessageHandlerContext>): MessageHandlerCont
 describe('handleServerMessage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockGetProjectsForBackend.mockReset();
     mockChatStore.activeRuns = {};
     mockChatStore.runHealth = {};
     mockBackgroundTaskStore.tasks = {};
@@ -894,6 +900,111 @@ describe('handleServerMessage', () => {
         'background:bg-1',
         expect.objectContaining({ status: 'stopped' })
       );
+    });
+
+    it('replaces only the current backend project subset when project versions change', async () => {
+      mockGetProjectsForBackend.mockResolvedValue([{ id: 'p1', name: 'Project 1' }]);
+
+      handleServerMessage(makeHeartbeat({
+        versions: { projects: 2 },
+      }), makeCtx({ serverId: 'gw:remote-1', backendId: 'remote-1' }));
+
+      await Promise.resolve();
+
+      expect(mockGetProjectsForBackend).toHaveBeenCalledWith('remote-1');
+      expect(mockProjectStore.replaceProjectsForBackend).toHaveBeenCalledWith('remote-1', [{ id: 'p1', name: 'Project 1' }]);
+    });
+
+    it('retries project reconciliation after a failed fetch because the cached version is not advanced', async () => {
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      mockGetProjectsForBackend
+        .mockRejectedValueOnce(new Error('boom'))
+        .mockResolvedValueOnce([{ id: 'p2', name: 'Project 2' }]);
+
+      const ctx = makeCtx({ serverId: 'gw:remote-2', backendId: 'remote-2' });
+      const heartbeat = makeHeartbeat({ versions: { projects: 3 } });
+
+      handleServerMessage(heartbeat, ctx);
+      await Promise.resolve();
+      await Promise.resolve();
+      handleServerMessage(heartbeat, ctx);
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(mockGetProjectsForBackend).toHaveBeenCalledTimes(2);
+      expect(mockProjectStore.replaceProjectsForBackend).toHaveBeenCalledWith('remote-2', [{ id: 'p2', name: 'Project 2' }]);
+      errorSpy.mockRestore();
+    });
+
+    it('does not issue duplicate project fetches while the same version fetch is still in flight', async () => {
+      let resolveFetch: ((projects: Array<{ id: string; name: string }>) => void) | undefined;
+      mockGetProjectsForBackend.mockImplementation(
+        () => new Promise((resolve) => {
+          resolveFetch = resolve;
+        })
+      );
+
+      const ctx = makeCtx({ serverId: 'gw:remote-3', backendId: 'remote-3' });
+      const heartbeat = makeHeartbeat({ versions: { projects: 4 } });
+
+      handleServerMessage(heartbeat, ctx);
+      handleServerMessage(heartbeat, ctx);
+      await Promise.resolve();
+
+      expect(mockGetProjectsForBackend).toHaveBeenCalledTimes(1);
+
+      resolveFetch?.([{ id: 'p3', name: 'Project 3' }]);
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(mockProjectStore.replaceProjectsForBackend).toHaveBeenCalledWith('remote-3', [{ id: 'p3', name: 'Project 3' }]);
+    });
+
+    it('ignores stale project fetch results that resolve after a newer version has already applied', async () => {
+      let resolveV4: ((projects: Array<{ id: string; name: string }>) => void) | undefined;
+      let resolveV5: ((projects: Array<{ id: string; name: string }>) => void) | undefined;
+      mockGetProjectsForBackend
+        .mockImplementationOnce(() => new Promise((resolve) => { resolveV4 = resolve; }))
+        .mockImplementationOnce(() => new Promise((resolve) => { resolveV5 = resolve; }));
+
+      const ctx = makeCtx({ serverId: 'gw:remote-4', backendId: 'remote-4' });
+      handleServerMessage(makeHeartbeat({ versions: { projects: 4 } }), ctx);
+      handleServerMessage(makeHeartbeat({ versions: { projects: 5 } }), ctx);
+
+      resolveV5?.([{ id: 'p5', name: 'Project 5' }]);
+      await Promise.resolve();
+      await Promise.resolve();
+      resolveV4?.([{ id: 'p4', name: 'Project 4' }]);
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(mockProjectStore.replaceProjectsForBackend).toHaveBeenCalledTimes(1);
+      expect(mockProjectStore.replaceProjectsForBackend).toHaveBeenCalledWith('remote-4', [{ id: 'p5', name: 'Project 5' }]);
+    });
+
+    it('ignores stale project fetch results from a previous disconnected generation even at the same version', async () => {
+      let resolveOld: ((projects: Array<{ id: string; name: string }>) => void) | undefined;
+      let resolveNew: ((projects: Array<{ id: string; name: string }>) => void) | undefined;
+      mockGetProjectsForBackend
+        .mockImplementationOnce(() => new Promise((resolve) => { resolveOld = resolve; }))
+        .mockImplementationOnce(() => new Promise((resolve) => { resolveNew = resolve; }));
+
+      const ctx = makeCtx({ serverId: 'remote-5', backendId: 'remote-5' });
+      const heartbeat = makeHeartbeat({ versions: { projects: 6 } });
+
+      handleServerMessage(heartbeat, ctx);
+      cleanupServerSyncState('remote-5');
+      handleServerMessage(heartbeat, ctx);
+
+      resolveNew?.([{ id: 'p6-new', name: 'Project 6 New' }]);
+      await Promise.resolve();
+      await Promise.resolve();
+      resolveOld?.([{ id: 'p6-old', name: 'Project 6 Old' }]);
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(mockProjectStore.replaceProjectsForBackend).toHaveBeenCalledTimes(1);
+      expect(mockProjectStore.replaceProjectsForBackend).toHaveBeenCalledWith('remote-5', [{ id: 'p6-new', name: 'Project 6 New' }]);
     });
   });
 

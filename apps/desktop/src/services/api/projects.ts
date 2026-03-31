@@ -11,6 +11,10 @@ export async function getProjects(options?: RequestInit): Promise<Project[]> {
   return apiCall<Project[]>('/api/projects', options);
 }
 
+export async function getProjectsForBackend(backendId: string | null): Promise<Project[]> {
+  return apiCallForBackend<Project[]>(backendId, '/api/projects');
+}
+
 export async function createProject(data: {
   name: string;
   type?: 'chat_only' | 'code';

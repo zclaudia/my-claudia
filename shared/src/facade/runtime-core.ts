@@ -48,6 +48,7 @@ export class BackendFacadeRuntimeCore implements BackendFacade {
 
   private connectionState: BackendConnectionState = 'idle';
   private localBackendId: string | null = null;
+  private desiredOpenBackends = new Set<string>();
   private currentInstanceId: string | null = null;
   private currentDeviceId: string | null = null;
 
@@ -191,6 +192,7 @@ export class BackendFacadeRuntimeCore implements BackendFacade {
   // --------------------------------------------------------------------------
 
   openBackend(backendId: string): void {
+    this.desiredOpenBackends.add(backendId);
     const backend = this.registryStore.getBackend(backendId);
     if (!backend || !backend.presence) return;
 
@@ -206,6 +208,7 @@ export class BackendFacadeRuntimeCore implements BackendFacade {
   }
 
   closeBackend(backendId: string): void {
+    this.desiredOpenBackends.delete(backendId);
     const backend = this.registryStore.getBackend(backendId);
     if (!backend || !backend.channelId) return;
 
@@ -351,6 +354,9 @@ export class BackendFacadeRuntimeCore implements BackendFacade {
     this.updateLocalBackendId(event.items);
 
     this.emitBackendDiffs(diffs);
+
+    // Auto-reopen desired backends that became visible after reconnect
+    this.reopenDesiredBackends();
   }
 
   private handleRegistryEvent(event: Extract<FacadeAdapterEvent, { type: 'registry_event_received' }>): void {
@@ -504,6 +510,21 @@ export class BackendFacadeRuntimeCore implements BackendFacade {
   // --------------------------------------------------------------------------
   // Internal Helpers
   // --------------------------------------------------------------------------
+
+  /** Reopen backends the user previously opened that are now visible but closed (e.g. after reconnect). */
+  private reopenDesiredBackends(): void {
+    for (const backendId of this.desiredOpenBackends) {
+      const backend = this.registryStore.getBackend(backendId);
+      if (backend && backend.presence && backend.openState === 'closed') {
+        this.openBackend(backendId);
+      }
+    }
+  }
+
+  /** Clear desired state. Call on intentional disconnect to prevent stale state on next connect. */
+  clearDesiredState(): void {
+    this.desiredOpenBackends.clear();
+  }
 
   private updateLocalBackendId(items: BackendPresence[]): void {
     if (!this.localBackendMatcher || !this.currentInstanceId || !this.currentDeviceId) return;

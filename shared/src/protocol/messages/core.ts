@@ -95,4 +95,10 @@ export interface StateHeartbeatMessage {
   }>;
   /** Unread Agent Feed item count — for badge display on reconnect */
   unreadFeedCount?: number;
+  /** Version counters for stable application-layer entities.
+   *  Client compares with its local cache and fetches via REST if stale. */
+  versions?: {
+    projects?: number;
+    plugins?: number;
+  };
 }

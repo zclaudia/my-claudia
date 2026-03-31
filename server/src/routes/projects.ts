@@ -25,7 +25,10 @@ function ensureWorktreesGitignore(repoPath: string): void {
   }
 }
 
-export function createProjectRoutes(db: Database.Database): Router {
+export function createProjectRoutes(
+  db: Database.Database,
+  onProjectChanged?: () => void,
+): Router {
   const router = Router();
   const repo = new ProjectRepository(db);
 
@@ -92,6 +95,7 @@ export function createProjectRoutes(db: Database.Database): Router {
         sortOrder,
       });
 
+      onProjectChanged?.();
       res.status(201).json({ success: true, data: project } as ApiResponse<Project>);
     } catch (error) {
       console.error('Error creating project:', error);
@@ -129,6 +133,7 @@ export function createProjectRoutes(db: Database.Database): Router {
         throw error;
       }
 
+      onProjectChanged?.();
       res.json({ success: true } as ApiResponse<void>);
     } catch (error) {
       console.error('Error updating project:', error);
@@ -165,6 +170,7 @@ export function createProjectRoutes(db: Database.Database): Router {
       }
 
       console.log(`[Delete Project] Successfully deleted project ${projectId}`);
+      onProjectChanged?.();
       res.json({ success: true } as ApiResponse<void>);
     } catch (error) {
       console.error('Error deleting project:', error);
@@ -254,6 +260,7 @@ export function createProjectRoutes(db: Database.Database): Router {
         }
       })();
 
+      onProjectChanged?.();
       res.json({ success: true } as ApiResponse<void>);
     } catch (error) {
       console.error('Error reordering projects:', error);

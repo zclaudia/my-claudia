@@ -32,6 +32,7 @@ import { useClaudiaStore } from '../stores/claudiaStore';
 import { useToastStore } from '../stores/toastStore';
 import { downloadPushedFile } from './fileDownload';
 import { eagerSyncCurrentSession, recoverCurrentSessionTail } from './sessionSync';
+import { getProjectsForBackend } from './api/projects';
 import { xtermRegistry } from '../utils/xtermRegistry';
 import { parseBackendId } from '../stores/gatewayStore';
 import { resolveCanonicalBackendId, resolveLocalBackendId } from '../utils/controlPlane';
@@ -87,6 +88,10 @@ function isCompletedBackgroundStatus(status: string | undefined): boolean {
  * Events without seq (old servers) always pass through.
  */
 const maxSeqByRun = new Map<string, number>();
+/** Per-server entity version cache for state_sync reconciliation. */
+const entityVersions = new Map<string, { projects: number; plugins: number }>();
+const projectFetchInFlight = new Map<string, { version: number; generation: number; promise: Promise<void> }>();
+const serverSyncGenerations = new Map<string, number>();
 const terminalRunSeqByRun = new Map<string, { seq?: number; endedAt: number }>();
 const TERMINAL_RUN_TOMBSTONE_MS = 60_000;
 
@@ -228,6 +233,16 @@ function buildAIReviewAutoResolveToastMessage(msg: import('@my-claudia/shared').
   const files = metadata.reviewedFileCount ?? 0;
   const redactions = metadata.redactionCount ?? 0;
   return `AI review auto-approved with sanitized local payload; redactions ${redactions}; reviewed ${files} file${files === 1 ? '' : 's'}.`;
+}
+
+/**
+ * Clean up per-server state caches when a server disconnects.
+ * Ensures the next heartbeat after reconnect triggers a full reconciliation.
+ */
+export function cleanupServerSyncState(serverId: string): void {
+  entityVersions.delete(serverId);
+  projectFetchInFlight.delete(serverId);
+  serverSyncGenerations.set(serverId, (serverSyncGenerations.get(serverId) ?? 0) + 1);
 }
 
 /**
@@ -1000,6 +1015,57 @@ export function handleServerMessage(
             m.useNotificationFeedStore.setState({ unreadCount: heartbeat.unreadFeedCount! });
           }
         });
+      }
+
+      // Version-based reconciliation for stable entities (projects, plugins).
+      // Client compares server versions with local cache; fetches via REST if stale.
+      // A version *lower* than cached means server restarted — treat as stale too.
+      if (heartbeat.versions) {
+        const cached = entityVersions.get(serverId) ?? { projects: 0, plugins: 0 };
+        const generation = serverSyncGenerations.get(serverId) ?? 0;
+
+        if (heartbeat.versions.projects && heartbeat.versions.projects !== cached.projects) {
+          const targetVersion = heartbeat.versions.projects;
+          const pendingFetch = projectFetchInFlight.get(serverId);
+          if (pendingFetch?.version !== targetVersion || pendingFetch.generation !== generation) {
+            console.log(`[${logTag}] Projects version ${cached.projects} → ${targetVersion}, fetching`);
+            const ownerBackendId = resolveOwnerBackendId(backendId, serverId);
+            const fetchPromise = getProjectsForBackend(backendId ?? null)
+              .then((projects) => {
+                const current = projectFetchInFlight.get(serverId);
+                const latestKnownVersion = entityVersions.get(serverId)?.projects ?? 0;
+                const latestGeneration = serverSyncGenerations.get(serverId) ?? 0;
+                if (
+                  current?.version !== targetVersion
+                  || current.generation !== generation
+                  || latestKnownVersion > targetVersion
+                  || latestGeneration !== generation
+                ) {
+                  return;
+                }
+                useProjectStore.getState().replaceProjectsForBackend(ownerBackendId, projects);
+                cached.projects = targetVersion;
+                entityVersions.set(serverId, cached);
+                if (current?.version === targetVersion && current.generation === generation) {
+                  projectFetchInFlight.delete(serverId);
+                }
+              })
+              .catch(err => {
+                const current = projectFetchInFlight.get(serverId);
+                if (current?.version === targetVersion && current.generation === generation) {
+                  projectFetchInFlight.delete(serverId);
+                }
+                console.error(`[${logTag}] Project fetch failed:`, err);
+              });
+            projectFetchInFlight.set(serverId, { version: targetVersion, generation, promise: fetchPromise });
+          }
+        }
+
+        if (heartbeat.versions.plugins) {
+          cached.plugins = heartbeat.versions.plugins;
+        }
+
+        entityVersions.set(serverId, cached);
       }
       break;
     }

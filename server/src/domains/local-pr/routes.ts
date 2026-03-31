@@ -5,7 +5,11 @@ import { ProjectRepository } from '../../repositories/project.js';
 import { WorktreeConfigRepository } from '../../repositories/worktree-config.js';
 import type { Database } from 'better-sqlite3';
 
-export function createLocalPRRoutes(localPRService: LocalPRService, db: Database): Router {
+export function createLocalPRRoutes(
+  localPRService: LocalPRService,
+  db: Database,
+  onProjectChanged?: () => void,
+): Router {
   const router = Router();
   const projectRepo = new ProjectRepository(db);
   const wtConfigRepo = new WorktreeConfigRepository(db);
@@ -308,6 +312,7 @@ export function createLocalPRRoutes(localPRService: LocalPRService, db: Database
       }
 
       const updated = projectRepo.update(projectId, { reviewProviderId: providerId });
+      onProjectChanged?.();
       res.json({ success: true, data: updated });
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to set review provider';

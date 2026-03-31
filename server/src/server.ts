@@ -307,6 +307,29 @@ export async function createServer(): Promise<ServerContext> {
     });
   }, 30000);
 
+  // Periodic state heartbeat as fallback sync mechanism.
+  // Ensures remote clients eventually converge on correct state even if
+  // individual events were lost during a transport glitch (e.g. mobile disconnect).
+  // Active runs → 5s (run state is volatile, clients need timely updates).
+  // Idle        → 30s (only version reconciliation for projects/plugins).
+  const HEARTBEAT_ACTIVE_MS = 5_000;
+  const HEARTBEAT_IDLE_MS = 30_000;
+  let stateHeartbeatInterval = setInterval(tickHeartbeat, HEARTBEAT_ACTIVE_MS);
+  let lastHeartbeatHadRuns = true; // start in active cadence
+
+  function tickHeartbeat(): void {
+    if (clients.size > 0) {
+      broadcastHeartbeat();
+    }
+    // Switch cadence when run presence changes
+    const hasRuns = activeRuns.size > 0;
+    if (hasRuns !== lastHeartbeatHadRuns) {
+      lastHeartbeatHadRuns = hasRuns;
+      clearInterval(stateHeartbeatInterval);
+      stateHeartbeatInterval = setInterval(tickHeartbeat, hasRuns ? HEARTBEAT_ACTIVE_MS : HEARTBEAT_IDLE_MS);
+    }
+  }
+
   wss.on('connection', (ws: WebSocket, req: IncomingMessage) => {
     const clientId = uuidv4();
     const clientIsLocal = isLocalhost(req);
@@ -422,6 +445,7 @@ export async function createServer(): Promise<ServerContext> {
 
   wss.on('close', () => {
     clearInterval(pingInterval);
+    clearInterval(stateHeartbeatInterval);
     setup.onWssClose();
   });
 

@@ -35,6 +35,7 @@ interface ProjectState {
 
   // Actions — projects
   setProjects: (projects: Project[]) => void;
+  replaceProjectsForBackend: (backendId: string, projects: Project[]) => void;
   addProject: (project: Project) => void;
   updateProject: (id: string, updates: Partial<Project>) => void;
   deleteProject: (id: string) => void;
@@ -84,6 +85,29 @@ export const useProjectStore = create<ProjectState>((set) => ({
     }
     set({ projects });
   },
+
+  replaceProjectsForBackend: (backendId, projects) =>
+    set((state) => {
+      const ownership = useOwnershipStore.getState();
+      const currentBackendProjects = state.projects.filter(
+        (project) => ownership.getProjectBackendId(project.id) === backendId
+      );
+
+      // Shallow equality check: skip update if the project set is identical
+      if (
+        currentBackendProjects.length === projects.length &&
+        currentBackendProjects.every((cur, i) => cur.id === projects[i].id && cur.updatedAt === projects[i].updatedAt)
+      ) {
+        return state;
+      }
+
+      const otherProjects = state.projects.filter(
+        (project) => ownership.getProjectBackendId(project.id) !== backendId
+      );
+      ownership.removeProjectOwnersByBackend(backendId);
+      ownership.setProjectOwners(projects.map((project) => project.id), backendId);
+      return { projects: [...otherProjects, ...projects] };
+    }),
 
   addProject: (project) =>
     set((state) => {

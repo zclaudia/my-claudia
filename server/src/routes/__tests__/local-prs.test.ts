@@ -54,6 +54,7 @@ function createMockService() {
 describe('local-prs routes', () => {
   let app: express.Express;
   let service: ReturnType<typeof createMockService>;
+  const onProjectChanged = vi.fn();
   const mockDb = {} as any;
 
   beforeEach(() => {
@@ -61,7 +62,7 @@ describe('local-prs routes', () => {
     service = createMockService();
     app = express();
     app.use(express.json());
-    app.use('/api', createLocalPRRoutes(service as any, mockDb));
+    app.use('/api', createLocalPRRoutes(service as any, mockDb, onProjectChanged));
   });
 
   describe('GET /api/projects/:projectId/local-prs', () => {
@@ -304,6 +305,7 @@ describe('local-prs routes', () => {
         .patch('/api/projects/proj-1/review-provider')
         .send({ providerId: 'provider-1' });
       expect(res.status).toBe(200);
+      expect(onProjectChanged).toHaveBeenCalledTimes(1);
     });
 
     it('returns 400 without providerId', async () => {
@@ -311,6 +313,7 @@ describe('local-prs routes', () => {
         .patch('/api/projects/proj-1/review-provider')
         .send({});
       expect(res.status).toBe(400);
+      expect(onProjectChanged).not.toHaveBeenCalled();
     });
   });
 

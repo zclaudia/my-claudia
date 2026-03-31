@@ -21,6 +21,7 @@ export interface LocalPRDomainDeps {
   app: Express;
   authMiddleware: RequestHandler;
   clients: Map<string, ConnectedClient>;
+  onProjectChanged?: () => void;
   /** Check if a worktree slot is available for a project */
   isWorktreeAvailable: (projectId: string) => boolean;
   /** Start an AI session (virtual client + handleRunStart) — injected from server layer */
@@ -39,7 +40,7 @@ export interface LocalPRDomainResult {
 }
 
 export function registerLocalPRDomain(deps: LocalPRDomainDeps): LocalPRDomainResult {
-  const { db, app, authMiddleware, clients, isWorktreeAvailable, startAISession } = deps;
+  const { db, app, authMiddleware, clients, isWorktreeAvailable, startAISession, onProjectChanged } = deps;
 
   const broadcast = (projectId: string, message: ServerMessage) => {
     clients.forEach((client) => {
@@ -53,7 +54,7 @@ export function registerLocalPRDomain(deps: LocalPRDomainDeps): LocalPRDomainRes
   });
 
   // Mount routes
-  app.use('/api', authMiddleware, createLocalPRRoutes(localPRService, db));
+  app.use('/api', authMiddleware, createLocalPRRoutes(localPRService, db, onProjectChanged));
 
   // Auto-trigger Local PR when a regular session completes
   pluginEvents.on('run.completed', async (data) => {

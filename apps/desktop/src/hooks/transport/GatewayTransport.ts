@@ -85,6 +85,7 @@ export class GatewayTransport {
   private expectedCloseWs: WebSocket | null = null;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private intentionalClose = false;
+  private reconnectAttempt = 0;
 
   private peerSessionId: string | null = null;
   private recoveryToken: string | null = null;
@@ -240,12 +241,20 @@ export class GatewayTransport {
 
   private scheduleReconnect(): void {
     if (this.reconnectTimer || this.intentionalClose) return;
+    const base = 1000;
+    const max = 30_000;
+    const delay = Math.min(base * Math.pow(2, this.reconnectAttempt), max);
+    // Add jitter: ±25% to prevent thundering herd
+    const jitter = delay * 0.25 * (Math.random() * 2 - 1);
+    const finalDelay = Math.max(500, delay + jitter);
+    this.reconnectAttempt++;
+    console.log(`[GatewayTransport] Reconnecting in ${Math.round(finalDelay)}ms (attempt ${this.reconnectAttempt})`);
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;
       if (!this.intentionalClose && !this.ws) {
         this.connect();
       }
-    }, 2000);
+    }, finalDelay);
   }
 
   private sendPeerHello(): void {
@@ -286,6 +295,7 @@ export class GatewayTransport {
 
   // --- Handshake ---
   private handlePeerReady(msg: PeerReadyMessage): void {
+    this.reconnectAttempt = 0;
     this.authenticated = true; this.peerSessionId = msg.peerSessionId; this.recoveryToken = msg.recoveryToken;
     this.applyRegistrySync(msg.registrySync);
     this.config.onConnected(msg.peerSessionId, msg.recoveryToken);

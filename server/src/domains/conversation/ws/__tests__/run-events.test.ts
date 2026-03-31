@@ -182,11 +182,52 @@ describe('ws/run-events', () => {
       type: 'run_completed',
       body: 'Session: session-1',
     }));
-    expect(sendMessageMock).toHaveBeenCalledWith({}, {
+    expect(sendRunEventMock).toHaveBeenCalledWith({
       type: 'background_task_update',
       sessionId: 'session-1',
       status: 'completed',
     });
+  });
+
+  it('marks heartbeat dirty before broadcasting completion state', async () => {
+    const sendRunEventMock = vi.fn();
+    const broadcastHeartbeatMock = vi.fn();
+    const notifyMock = vi.fn();
+    const activeRun = {
+      sessionId: 'session-1',
+      providerType: 'claude',
+      completed: false,
+      aiReviewQueue: { cancelAll: vi.fn() },
+      collectedToolCalls: [],
+      contentBlocks: [],
+      fullContent: '',
+      pendingPermissions: new Map(),
+      recentToolCalls: [],
+    } as any;
+
+    const { handleProviderEvent } = await import('../run-events.js');
+
+    handleProviderEvent({
+      activeRun,
+      activeRuns: new Map([['run-1', activeRun]]),
+      broadcastHeartbeat: broadcastHeartbeatMock,
+      client: { ws: {} as any } as any,
+      db: {} as any,
+      input: 'hello',
+      modeValue: 'default',
+      msg: { type: 'result', subtype: 'success', usage: { inputTokens: 1, outputTokens: 2 } } as any,
+      notificationService: { notify: notifyMock } as any,
+      persistSessionWorkingDirectory: vi.fn(),
+      providerType: 'claude',
+      runId: 'run-1',
+      sendRunEvent: sendRunEventMock,
+      sessionId: 'session-1',
+      sessionType: 'regular',
+      state: {},
+      toolUseIdToName: new Map(),
+    });
+
+    expect(broadcastHeartbeatMock).toHaveBeenCalledTimes(1);
   });
 
   it('fails runs on provider error and removes them from activeRuns', async () => {

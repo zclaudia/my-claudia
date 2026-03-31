@@ -65,7 +65,7 @@ import { getPublicKeyPem } from './utils/crypto.js';
 import { getSdkVersionReport } from './utils/sdk-version-check.js';
 import { getGatewayClient } from './domains/gateway/gateway-instance.js';
 import { ProcessMonitor } from './utils/process-monitor.js';
-import { sendMessage, broadcastToOtherAuthenticatedClients, buildPluginStateMessage } from './domains/conversation/ws/broadcast.js';
+import { sendMessage, broadcastToOtherAuthenticatedClients, buildPluginStateMessage, bumpProjectsVersion, bumpPluginsVersion } from './domains/conversation/ws/broadcast.js';
 import { getNextOffset } from './domains/conversation/ws/run-lifecycle.js';
 import { createVirtualClient, type ConnectedClient, type ActiveRun } from './domains/conversation/ws/types.js';
 import { SessionRepository } from './repositories/session.js';
@@ -208,9 +208,14 @@ export function setupRoutesAndServices(deps: SetupDependencies): SetupResult {
     return !!row?.client_id;
   });
 
+  const handleProjectChanged = () => {
+    bumpProjectsVersion();
+    broadcastHeartbeat();
+  };
+
   // HTTP API surface (protected by auth middleware).
   // This is the canonical REST mounting point; do not confuse it with server/src/router.
-  app.use('/api/projects', authMiddleware, createProjectRoutes(db));
+  app.use('/api/projects', authMiddleware, createProjectRoutes(db, handleProjectChanged));
   app.use('/api/sessions', authMiddleware, createSessionRoutes(db, activeRuns));
   app.use('/api/sessions', authMiddleware, createSessionDraftRoutes(db));
   app.use('/api/providers', authMiddleware, createProviderRoutes(db));
@@ -265,6 +270,7 @@ export function setupRoutesAndServices(deps: SetupDependencies): SetupResult {
   // Local PR domain
   const { localPRService } = registerLocalPRDomain({
     db, app, authMiddleware, clients,
+    onProjectChanged: handleProjectChanged,
     isWorktreeAvailable: (projectId) => {
       const pool = supervisorService.getWorktreePoolIfExists(projectId);
       if (!pool) return true;
@@ -606,9 +612,9 @@ export function setupRoutesAndServices(deps: SetupDependencies): SetupResult {
   });
 
   // Broadcast plugin state when plugins are activated/deactivated/errored
-  pluginEvents.on('plugin.activated', () => broadcastPluginState());
-  pluginEvents.on('plugin.deactivated', () => broadcastPluginState());
-  pluginEvents.on('plugin.error', () => broadcastPluginState());
+  pluginEvents.on('plugin.activated', () => { bumpPluginsVersion(); broadcastPluginState(); });
+  pluginEvents.on('plugin.deactivated', () => { bumpPluginsVersion(); broadcastPluginState(); });
+  pluginEvents.on('plugin.error', () => { bumpPluginsVersion(); broadcastPluginState(); });
 
   // Forward permission requests to connected frontends
   pluginPermissionManager.onRequest((request) => {

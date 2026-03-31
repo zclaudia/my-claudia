@@ -189,4 +189,42 @@ describe('GatewayManager', () => {
 
     await expect(localHandler.onCatchUp('session-1', 5)).rejects.toThrow('db failed');
   });
+
+  it('does not reattach orphaned runs to an unrelated incoming channel', async () => {
+    const { manager } = createManager();
+    const orphanedClient = { id: 'old-channel', ws: { send: vi.fn() } };
+    const run = {
+      runId: 'run-1',
+      sessionId: 'session-1',
+      clientId: 'old-channel',
+      client: orphanedClient,
+      completed: false,
+      broadcast: vi.fn(),
+      pendingPermissions: new Map(),
+      recentToolCalls: [],
+      loopHeartbeatStreak: 0,
+      eventSeq: 0,
+      startedAt: Date.now(),
+      lastActivityAt: Date.now(),
+    };
+    (manager as any).activeRuns.set('run-1', run);
+
+    await manager.connect({
+      id: 1,
+      enabled: true,
+      gatewayUrl: 'ws://gateway.example.com',
+      gatewaySecret: 'secret',
+      backendName: 'backend',
+      gatewayBackendId: null,
+      registerAsBackend: true,
+      createdAt: 0,
+      updatedAt: 0,
+    });
+
+    const client = gatewayClientInstances.at(-1)!;
+    await client.onIncomingMessage?.('new-channel', { type: 'ping' });
+
+    expect(run.clientId).toBe('old-channel');
+    expect(run.client).toBe(orphanedClient);
+  });
 });

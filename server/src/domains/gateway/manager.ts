@@ -228,11 +228,8 @@ export class GatewayManager {
         });
         this.virtualClients.set(channelId, virtualClient);
 
-        // Send initial state so the client doesn't have to wait up to 30s for
-        // the next periodic heartbeat. Run events are broadcast to ALL connected
-        // clients (via activeRun.broadcast), so no orphan adoption is needed —
-        // this new virtual client will receive events through broadcast once it
-        // joins connectedClients.
+        // Send initial state so a reconnected client learns about active runs
+        // without guessing ownership of orphaned runs.
         const heartbeat = serverContext.getStateHeartbeat();
         this.gatewayClient?.commands.channel.sendToIncoming(channelId, heartbeat);
       }

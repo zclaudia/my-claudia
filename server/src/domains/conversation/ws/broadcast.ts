@@ -8,6 +8,21 @@ import { toolRegistry as pluginToolRegistry } from '../../../plugins/tool-regist
 import { commandRegistry as pluginCommandRegistry } from '../../../commands/registry.js';
 import type { ConnectedClient, ActiveRun } from './types.js';
 
+// ---------------------------------------------------------------------------
+// Application-layer entity version counters (monotonic, in-memory).
+// Start at 1 so the first heartbeat always triggers a fetch on a fresh client
+// (whose cached version defaults to 0).
+// ---------------------------------------------------------------------------
+
+let projectsVersion = 1;
+let pluginsVersion = 1;
+
+export function bumpProjectsVersion(): number { return ++projectsVersion; }
+export function bumpPluginsVersion(): number { return ++pluginsVersion; }
+export function getEntityVersions(): { projects: number; plugins: number } {
+  return { projects: projectsVersion, plugins: pluginsVersion };
+}
+
 export function sendMessage(ws: WebSocket, message: ServerMessage): void {
   // Check readyState as number to support both real WebSocket and virtual clients
   // WebSocket.OPEN === 1, but virtual clients may have readyState typed differently
@@ -98,7 +113,13 @@ export function buildStateHeartbeat(activeRuns: Map<string, ActiveRun>): StateHe
     }
   }
 
-  return { type: 'state_heartbeat', activeRuns: runs, pendingPermissions: permissions, pendingQuestions: questions };
+  return {
+    type: 'state_heartbeat',
+    activeRuns: runs,
+    pendingPermissions: permissions,
+    pendingQuestions: questions,
+    versions: getEntityVersions(),
+  };
 }
 
 /** Broadcast a state heartbeat to all authenticated clients immediately. */

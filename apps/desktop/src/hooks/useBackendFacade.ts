@@ -22,7 +22,7 @@ import { useSessionsStore } from '../stores/sessionsStore';
 import { useChatStore, type MessageWithToolCalls } from '../stores/chatStore';
 import { useToastStore } from '../stores/toastStore';
 import { useOwnershipStore } from '../stores/ownershipStore';
-import { handleServerMessage } from '../services/messageHandler';
+import { handleServerMessage, cleanupServerSyncState } from '../services/messageHandler';
 import type { BackendConnectionState, BackendRuntimeState, ServerFeature } from '@my-claudia/shared';
 import type { ConnectionStatus } from '../stores/serverStore';
 import { isLegacyLocalBackendId } from '../utils/controlPlane';
@@ -228,6 +228,10 @@ export function syncToGatewayStore(event: BackendFacadeEvent): void {
         const downgradedStatus = transportStateToConnectionStatus(event.state);
         for (const backend of useFacadeStore.getState().backends) {
           serverState.setServerConnectionStatus(backend.backendId, downgradedStatus, event.error);
+          // Clear per-server version caches so reconnect triggers full reconciliation
+          // in both direct (`backendId`) and gateway-prefixed (`gw:${backendId}`) contexts.
+          cleanupServerSyncState(backend.backendId);
+          cleanupServerSyncState(`gw:${backend.backendId}`);
         }
       }
       break;
@@ -236,6 +240,11 @@ export function syncToGatewayStore(event: BackendFacadeEvent): void {
       // Sync to serverStore
       const connStatus = runtimeStateToConnectionStatus(event.state);
       useServerStore.getState().setServerConnectionStatus(event.backendId, connStatus, event.error);
+
+      if (event.state === 'offline' || event.state === 'error') {
+        cleanupServerSyncState(event.backendId);
+        cleanupServerSyncState(`gw:${event.backendId}`);
+      }
 
       // When a backend goes offline, mark its terminals for reattach so they
       // auto-recover when the backend comes back.

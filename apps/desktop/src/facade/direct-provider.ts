@@ -51,6 +51,7 @@ export class DirectBackendFacadeProvider implements BackendFacade {
   disconnect(): void {
     this.stopGcTimer();
     this.adapter.commands.connection.disconnect();
+    this.core.clearDesiredState();
     this.core.stop();
   }
 

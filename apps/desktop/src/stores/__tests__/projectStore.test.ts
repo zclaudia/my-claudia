@@ -85,6 +85,27 @@ describe('projectStore', () => {
       expect(useProjectStore.getState().projects).toEqual(projects);
     });
 
+    it('replaceProjectsForBackend only replaces the target backend subset', () => {
+      const localOld = createProject({ id: 'local-p1', name: 'Local Old' });
+      const remoteKeep = createProject({ id: 'remote-p1', name: 'Remote Keep' });
+      const localNew = createProject({ id: 'local-p2', name: 'Local New' });
+      useOwnershipStore.getState().setProjectOwner('local-p1', 'local-backend-1');
+      useOwnershipStore.getState().setProjectOwner('remote-p1', 'remote-1');
+      useProjectStore.setState({
+        projects: [localOld, remoteKeep],
+      });
+
+      useProjectStore.getState().replaceProjectsForBackend('local-backend-1', [localNew]);
+
+      expect(useProjectStore.getState().projects).toEqual([
+        remoteKeep,
+        localNew,
+      ]);
+      expect(useOwnershipStore.getState().getProjectBackendId('remote-p1')).toBe('remote-1');
+      expect(useOwnershipStore.getState().getProjectBackendId('local-p1')).toBeNull();
+      expect(useOwnershipStore.getState().getProjectBackendId('local-p2')).toBe('local-backend-1');
+    });
+
     it('addProject appends to projects', () => {
       const p1 = createProject({ id: 'p1' });
       const p2 = createProject({ id: 'p2' });
