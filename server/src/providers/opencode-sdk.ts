@@ -1385,7 +1385,7 @@ export async function* runOpenCode(
           ocLog(`SSE[${eventIdx}] type=${_et} otherSID=${_eSid || 'none'} (ours=${sessionId})`);
         }
 
-        const messages = mapOpenCodeEvent(event, sessionId, streamState, server, trace, onPermissionRequest);
+        const messages = mapOpenCodeEvent(event as OpenCodeEvent, sessionId, streamState, server, trace, onPermissionRequest);
         for await (const msg of messages) {
           trace.log('provider_raw', 'mapped_message', msg, summarizeProviderMessage(msg as { type: string; [key: string]: unknown }));
           yield msg;
@@ -1467,7 +1467,7 @@ async function* mapOpenCodeEvent(
 
   switch (eventType) {
     case 'message.part.updated': {
-      const part: OpenCodePart | undefined = props.part;
+      const part = props.part as unknown as OpenCodePart | undefined;
       const delta: string | undefined = props.delta;
       if (!part) break;
 
@@ -1550,7 +1550,7 @@ async function* mapOpenCodeEvent(
       // Log all session.status events to understand OpenCode status transitions
       ocLog(`session.status: sessionID=${props.sessionID} ours=${sessionId} status=${JSON.stringify(props.status || props).slice(0, 200)}`);
       if (props.sessionID !== sessionId) break;
-      const status: SessionStatus | undefined = props.status;
+      const status = props.status as SessionStatus | undefined;
 
       if (status?.type === 'idle') {
         if (!streamState.hasAnyAssistantOutput) {
@@ -1578,7 +1578,7 @@ async function* mapOpenCodeEvent(
 
     case 'session.error': {
       if (props.sessionID && props.sessionID !== sessionId) break;
-      const error = props.error;
+      const error = props.error as { data?: { message?: string }; name?: string } | undefined;
       const errorMessage = enrichOpenCodeErrorMessage(
         error?.data?.message || error?.name || 'OpenCode session error',
       );
@@ -1591,7 +1591,7 @@ async function* mapOpenCodeEvent(
 
     case 'permission.updated': {
       if (onPermissionRequest) {
-        const permission: OpenCodePermission = props;
+        const permission = props as unknown as OpenCodePermission;
         if (permission.sessionID !== sessionId) break;
 
         const decision = await onPermissionRequest({
@@ -1634,7 +1634,7 @@ async function* mapOpenCodeEvent(
             if (streamState.lastTextPartId && props.partID !== streamState.lastTextPartId) {
               yield { type: 'assistant', content: '\n\n' };
             }
-            streamState.lastTextPartId = props.partID;
+            streamState.lastTextPartId = props.partID as string;
             streamState.lastField = 'text';
             streamState.hasAnyAssistantOutput = true;
             yield { type: 'assistant', content: delta };
