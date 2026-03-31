@@ -116,7 +116,14 @@ export class WorkflowGeneratorService {
     const systemPrompt = this.buildSystemPrompt();
     const userPrompt = `Here is the current workflow definition:\n\`\`\`json\n${JSON.stringify({ name: session.name, description: session.description, definition: session.currentDefinition }, null, 2)}\n\`\`\`\n\nPlease modify it according to this instruction: ${instruction}`;
 
-    const aiResponse = await this.callAI(projectId, session.providerId, systemPrompt, userPrompt);
+    let aiResponse: string;
+    try {
+      aiResponse = await this.callAI(projectId, session.providerId, systemPrompt, userPrompt);
+    } catch (err) {
+      this.destroySession(generationId);
+      throw err;
+    }
+
     const parsed = this.parseResponse(aiResponse);
 
     const validated = await this.validateOrRetry(parsed, projectId, session.providerId, systemPrompt, userPrompt, aiResponse);
@@ -483,6 +490,14 @@ Generate a workflow definition based on the user's natural language description.
     };
     this.sessions.set(id, session);
     return session;
+  }
+
+  private destroySession(id: string): void {
+    const session = this.sessions.get(id);
+    if (session) {
+      clearTimeout(session.timer);
+      this.sessions.delete(id);
+    }
   }
 
   private resetSessionTimer(session: GenerationSession): void {

@@ -59,6 +59,7 @@ export interface SpawnTaskConfig {
   worktree?: boolean;
   checkpoint?: boolean;
   maxTurns?: number;
+  maxRetries?: number;
   schedule?: {
     type: 'cron' | 'interval' | 'once';
     cron?: string;

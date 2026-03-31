@@ -12,13 +12,17 @@
 - Batch 3: Server Infra — Runtime Core
 - Batch 4: Server Infra — API Surface
 - Batch 5: Server Domain — Gateway
+- Batch 6: Server Domain — Conversation（对应报告 [batch-05-conversation-engine.md](./batch-05-conversation-engine.md)）
+- Batch 7: Server Domain — Supervision（对应报告 [batch-06-supervision.md](./batch-06-supervision.md)）
+- Batch 8: Server Domains — Workflow Automation（对应报告 [batch-07-automation.md](./batch-07-automation.md)，第二轮修复已落地）
 
 当前下一批：
-- Batch 6: Server Domain — Conversation
+- Batch 9: Server Domains — Orchestration & Collaboration
 
 说明：
 - Batch 4 不只是完成 review，相关主路径修复也已经落地，详见 [batch-04-api-surface.md](./batch-04-api-surface.md)。
 - Batch 5 也已完成 review 与首轮关键修复，详见 [batch-05-gateway-domain.md](./batch-05-gateway-domain.md)。
+- Batch 8 (Automation) 第二轮 review 修复了 6 项 bug + 降级 1 项 + 新增 6 项架构候选，详见 [batch-07-automation.md](./batch-07-automation.md)。
 - 历史编号文件 [batch-04-server-providers.md](./batch-04-server-providers.md) 仍然对应当前计划的 Batch 10，不影响下一步顺序判断。
 
 ## 批次编号校准（2026-03-29）

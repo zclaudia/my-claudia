@@ -1,14 +1,14 @@
 /**
  * Workflow domain registration.
  *
- * Encapsulates all wiring needed to bootstrap the workflow domain:
- * service creation, initialization, generator service, route mounting, and scheduler.
+ * Assembles step executors (DI), wires engine + service, mounts routes, starts scheduler.
  */
 
 import type { Express } from 'express';
 import type { RequestHandler } from 'express';
 import type { ServerMessage } from '@my-claudia/shared';
 import type { initDatabase } from '../../storage/db.js';
+import { WorkflowEngine } from './engine.js';
 import { WorkflowService } from './service.js';
 import { WorkflowGeneratorService } from './generator.js';
 import { createWorkflowRoutes } from './routes.js';
@@ -17,6 +17,21 @@ import { systemTaskRegistry } from '../../services/system-task-registry.js';
 import { sendMessage } from '../conversation/ws/broadcast.js';
 import type { ConnectedClient } from '../conversation/ws/types.js';
 import type { NotificationService } from '../notification-feed/notification-service.js';
+import { workflowStepRegistry } from '../../plugins/workflow-step-registry.js';
+
+import {
+  CompositeStepExecutor,
+  ShellStepExecutor,
+  WebhookStepExecutor,
+  NotifyStepExecutor,
+  ConditionStepExecutor,
+  WaitStepExecutor,
+  AIPromptStepExecutor,
+  AIReviewStepExecutor,
+  GitStepExecutor,
+  PluginStepExecutor,
+} from './step-executors/index.js';
+import { VirtualClientAIRunner } from './step-executors/virtual-client-ai-runner.js';
 
 export interface WorkflowDomainDeps {
   db: ReturnType<typeof initDatabase>;
@@ -40,16 +55,36 @@ export function registerWorkflowDomain(deps: WorkflowDomainDeps): WorkflowDomain
     });
   };
 
-  const workflowService = new WorkflowService(db, broadcast, notificationService);
+  // -- Assemble step executors --
+  const aiRunner = new VirtualClientAIRunner(db);
+  const composite = new CompositeStepExecutor();
+
+  composite.register(new ShellStepExecutor());
+  composite.register(new WebhookStepExecutor());
+  composite.register(new NotifyStepExecutor(notificationService));
+  composite.register(new ConditionStepExecutor());
+  composite.register(new AIPromptStepExecutor(aiRunner));
+  composite.register(new AIReviewStepExecutor(aiRunner));
+  composite.register(new GitStepExecutor());
+  composite.registerPlugin(new PluginStepExecutor(workflowStepRegistry));
+
+  // -- Build engine --
+  const engine = new WorkflowEngine(db, broadcast, composite);
+
+  // WaitStepExecutor needs the engine (which implements ApprovalPort)
+  composite.register(new WaitStepExecutor(engine));
+
+  // -- Build service --
+  const workflowService = new WorkflowService(db, broadcast, engine);
   workflowService.initialize();
 
   const workflowGeneratorService = new WorkflowGeneratorService(db);
 
-  // Mount routes
+  // -- Mount routes --
   app.use('/api', authMiddleware, createWorkflowRoutes(workflowService, workflowGeneratorService));
   app.use('/api/automations', authMiddleware, createAutomationRoutes(workflowService));
 
-  // Register and start scheduler
+  // -- Scheduler --
   systemTaskRegistry.register({
     id: 'system:workflow_scheduler',
     name: 'Workflow Scheduler',

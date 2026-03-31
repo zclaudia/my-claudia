@@ -45,6 +45,7 @@ export class AgentTriggerService {
   private repo: AgentTriggerRepository;
   private deps: AgentTriggerServiceDeps;
   private activeListeners = new Map<string, () => void>();
+  private reloadTimer: NodeJS.Timeout | null = null;
 
   constructor(deps: AgentTriggerServiceDeps) {
     this.deps = deps;
@@ -64,6 +65,10 @@ export class AgentTriggerService {
 
   /** Unsubscribe all event listeners */
   stop(): void {
+    if (this.reloadTimer) {
+      clearTimeout(this.reloadTimer);
+      this.reloadTimer = null;
+    }
     for (const [, unsubscribe] of this.activeListeners) {
       unsubscribe();
     }
@@ -173,10 +178,14 @@ export class AgentTriggerService {
     this.repo.deleteByPluginId(pluginId);
   }
 
-  /** Reload: stop all, re-read from DB, re-subscribe */
+  /** Reload: stop all, re-read from DB, re-subscribe. Debounced to coalesce batch updates. */
   reload(): void {
-    this.stop();
-    this.start();
+    if (this.reloadTimer) clearTimeout(this.reloadTimer);
+    this.reloadTimer = setTimeout(() => {
+      this.reloadTimer = null;
+      this.stop();
+      this.start();
+    }, 100);
   }
 
   // CRUD pass-through for REST routes

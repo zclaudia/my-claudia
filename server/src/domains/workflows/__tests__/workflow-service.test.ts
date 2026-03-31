@@ -43,9 +43,7 @@ vi.mock('../workflow-step-run-repository.js', () => ({
 vi.mock('../workflow-schedule-repository.js', () => ({
   WorkflowScheduleRepository: class { constructor() { Object.assign(this, mockScheduleRepo); } },
 }));
-vi.mock('../engine.js', () => ({
-  WorkflowEngine: class { constructor() { Object.assign(this, mockEngine); } },
-}));
+vi.mock('../engine.js', () => ({}));
 vi.mock('../../../utils/cron.js', () => ({
   computeNextCronRun: vi.fn().mockReturnValue(99999),
 }));
@@ -78,7 +76,7 @@ describe('WorkflowService', () => {
     mockEngine.isRunning.mockReturnValue(false);
 
     mockBroadcast = vi.fn();
-    service = new WorkflowService({} as any, mockBroadcast);
+    service = new WorkflowService({} as any, mockBroadcast, mockEngine as any);
   });
 
   describe('listWorkflows', () => {

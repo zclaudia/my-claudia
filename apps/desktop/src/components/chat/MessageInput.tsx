@@ -107,6 +107,7 @@ export function MessageInput({
   const [mentionState, setMentionState] = useState<MentionState>(initialMentionState);
   const [isComposing, setIsComposing] = useState(false); // Track IME composition state
   const [availableViewportHeight, setAvailableViewportHeight] = useState(getAvailableViewportHeight);
+  const [isTallCollapsedComposer, setIsTallCollapsedComposer] = useState(false);
   const controlIconSize = isMobile ? 18 : 20;
   const expandedInputMaxHeight = Math.max(
     EXPANDED_INPUT_MIN_HEIGHT_PX,
@@ -285,6 +286,7 @@ export function MessageInput({
       // Keep the collapsed composer from growing taller than the expanded composer baseline.
       const maxHeight = expandedInputHeight;
       const shouldAutoExpand = !isMobile && textarea.scrollHeight > maxHeight;
+      const singleLineThreshold = 48;
 
       if (shouldAutoExpand) {
         onRequestAdvancedMode?.();
@@ -294,6 +296,7 @@ export function MessageInput({
       textarea.style.height = `${Math.min(textarea.scrollHeight, maxHeight)}px`;
       textarea.style.maxHeight = `${maxHeight}px`;
       textarea.style.overflowY = textarea.scrollHeight > maxHeight ? 'auto' : 'hidden';
+      setIsTallCollapsedComposer(textarea.scrollHeight > singleLineThreshold);
 
       if (isMobile) {
         textarea.scrollTop = textarea.scrollHeight;
@@ -302,8 +305,11 @@ export function MessageInput({
       // Advanced mode: clear inline styles so CSS min/max + overflow takes effect
       textarea.style.height = '';
       textarea.style.overflowY = 'auto';
+      if (isTallCollapsedComposer) {
+        setIsTallCollapsedComposer(false);
+      }
     }
-  }, [value, advancedMode, expandedInputHeight, isMobile, availableViewportHeight, onRequestAdvancedMode]);
+  }, [value, advancedMode, expandedInputHeight, isMobile, availableViewportHeight, isTallCollapsedComposer, onRequestAdvancedMode]);
 
   useEffect(() => {
     if (!isMobile) return;
@@ -877,12 +883,12 @@ export function MessageInput({
         </div>
       ) : (
         /* Desktop: single-row layout */
-        <div className={`flex gap-2 items-end ${advancedMode ? '' : 'min-h-12'}`}>
+        <div className={`flex gap-2 ${advancedMode || isTallCollapsedComposer ? 'items-end' : 'items-center'} ${advancedMode ? '' : 'min-h-12'}`}>
           {/* Attachment button */}
           <button
             onClick={() => fileInputRef.current?.click()}
             disabled={disabled}
-            className="h-12 w-12 flex-shrink-0 flex items-center justify-center self-end text-muted-foreground hover:text-foreground hover:bg-muted rounded-full transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            className={`h-12 w-12 flex-shrink-0 flex items-center justify-center ${advancedMode || isTallCollapsedComposer ? 'self-end' : ''} text-muted-foreground hover:text-foreground hover:bg-muted rounded-full transition-colors disabled:opacity-50 disabled:cursor-not-allowed`}
             title="Add attachment (images, files)"
           >
             <Paperclip size={controlIconSize} strokeWidth={1.75} />
@@ -897,7 +903,7 @@ export function MessageInput({
           />
 
           {/* Text input */}
-          <div className="flex-1 relative self-end">
+          <div className={`flex-1 relative ${advancedMode || isTallCollapsedComposer ? 'self-end' : ''}`}>
             <textarea
               data-testid="message-input"
               ref={textareaRef}
@@ -946,7 +952,7 @@ export function MessageInput({
           {isLoading && onCancel ? (
             <button
               onClick={onCancel}
-              className="h-12 w-12 flex-shrink-0 flex items-center justify-center self-end bg-destructive text-destructive-foreground hover:bg-destructive/90 rounded-full transition-colors"
+              className={`h-12 w-12 flex-shrink-0 flex items-center justify-center ${advancedMode || isTallCollapsedComposer ? 'self-end' : ''} bg-destructive text-destructive-foreground hover:bg-destructive/90 rounded-full transition-colors`}
               title="Cancel (Esc)"
             >
               <X size={controlIconSize} strokeWidth={2} />
@@ -955,7 +961,7 @@ export function MessageInput({
             <button
               onClick={handleSend}
               disabled={disabled || (!value.trim() && attachments.length === 0)}
-              className="h-12 w-12 flex-shrink-0 flex items-center justify-center self-end bg-primary text-primary-foreground hover:bg-primary/90 disabled:bg-muted disabled:text-muted-foreground disabled:cursor-not-allowed rounded-full transition-colors"
+              className={`h-12 w-12 flex-shrink-0 flex items-center justify-center ${advancedMode || isTallCollapsedComposer ? 'self-end' : ''} bg-primary text-primary-foreground hover:bg-primary/90 disabled:bg-muted disabled:text-muted-foreground disabled:cursor-not-allowed rounded-full transition-colors`}
               title={advancedMode
                 ? `Send message (${isMac ? 'Cmd' : 'Ctrl'}+Enter)`
                 : 'Send message (Enter)'}

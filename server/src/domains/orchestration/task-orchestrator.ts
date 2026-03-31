@@ -331,7 +331,7 @@ export function createTaskOrchestrator(deps: TaskOrchestratorDeps): TaskOrchestr
         initiator: config.initiator ?? 'system',
         dependsOn: config.dependsOn,
         providerId: config.providerId,
-        maxRetries: 0,
+        maxRetries: config.maxRetries ?? 0,
         scheduleType: config.schedule?.type,
         scheduleConfig: config.schedule ? JSON.stringify(config.schedule) : undefined,
         id,

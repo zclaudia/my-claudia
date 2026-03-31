@@ -18,7 +18,7 @@ import { WorkflowRepository } from './repository.js';
 import { WorkflowRunRepository } from './workflow-run-repository.js';
 import { WorkflowStepRunRepository } from './workflow-step-run-repository.js';
 import { WorkflowScheduleRepository } from './workflow-schedule-repository.js';
-import { WorkflowEngine } from './engine.js';
+import type { WorkflowEngine } from './engine.js';
 import { computeNextCronRun } from '../../utils/cron.js';
 import { pluginEvents } from '../../events/index.js';
 import { BUILTIN_WORKFLOW_TEMPLATES } from './templates.js';
@@ -28,19 +28,17 @@ export class WorkflowService {
   private runRepo: WorkflowRunRepository;
   private stepRunRepo: WorkflowStepRunRepository;
   private scheduleRepo: WorkflowScheduleRepository;
-  private engine: WorkflowEngine;
   private eventSubscriptions: Array<() => void> = [];
 
   constructor(
     private db: Database,
     private broadcastFn: (projectId: string | undefined, message: ServerMessage | { type: string; projectId?: string; [key: string]: unknown }) => void,
-    notificationService?: { notify(event: { type: string; title: string; body: string; priority?: string; tags?: string[] }): Promise<void> },
+    private engine: WorkflowEngine,
   ) {
     this.workflowRepo = new WorkflowRepository(db);
     this.runRepo = new WorkflowRunRepository(db);
     this.stepRunRepo = new WorkflowStepRunRepository(db);
     this.scheduleRepo = new WorkflowScheduleRepository(db);
-    this.engine = new WorkflowEngine(db, broadcastFn, notificationService);
   }
 
   // ── Initialization ────────────────────────────────────────────

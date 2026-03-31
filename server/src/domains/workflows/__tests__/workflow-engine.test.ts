@@ -56,6 +56,36 @@ vi.mock('util', () => ({
 import { WorkflowEngine, type StepResult } from '../engine.js';
 import { createVirtualClient, handleRunStart } from '../../../server.js';
 import { workflowStepRegistry } from '../../../plugins/workflow-step-registry.js';
+import {
+  CompositeStepExecutor,
+  ShellStepExecutor,
+  WebhookStepExecutor,
+  NotifyStepExecutor,
+  ConditionStepExecutor,
+  WaitStepExecutor,
+  AIPromptStepExecutor,
+  AIReviewStepExecutor,
+  GitStepExecutor,
+  PluginStepExecutor,
+} from '../step-executors/index.js';
+import { VirtualClientAIRunner } from '../step-executors/virtual-client-ai-runner.js';
+
+function createEngineWithDb(mockDb: any, mockBroadcast: ReturnType<typeof vi.fn>): WorkflowEngine {
+  const aiRunner = new VirtualClientAIRunner(mockDb);
+  const composite = new CompositeStepExecutor();
+  composite.register(new ShellStepExecutor());
+  composite.register(new WebhookStepExecutor());
+  composite.register(new NotifyStepExecutor());
+  composite.register(new ConditionStepExecutor());
+  composite.register(new AIPromptStepExecutor(aiRunner));
+  composite.register(new AIReviewStepExecutor(aiRunner));
+  composite.register(new GitStepExecutor());
+  composite.registerPlugin(new PluginStepExecutor(workflowStepRegistry as any));
+
+  const workflowEngine = new WorkflowEngine(mockDb, mockBroadcast, composite);
+  composite.register(new WaitStepExecutor(workflowEngine));
+  return workflowEngine;
+}
 
 describe('WorkflowEngine', () => {
   let engine: WorkflowEngine;
@@ -74,7 +104,9 @@ describe('WorkflowEngine', () => {
     mockSessionRepo.create.mockReturnValue({ id: 'sess1' });
 
     mockBroadcast = vi.fn();
-    engine = new WorkflowEngine({} as any, mockBroadcast);
+
+    const mockDb = { prepare: vi.fn().mockReturnValue({ all: vi.fn().mockReturnValue([]) }) } as any;
+    engine = createEngineWithDb(mockDb, mockBroadcast);
   });
 
   afterEach(() => {
@@ -1168,9 +1200,18 @@ describe('WorkflowEngine', () => {
       await vi.advanceTimersByTimeAsync(200);
 
       expect(mockStepRunRepo.update).toHaveBeenCalledWith('sr1', expect.objectContaining({
+        sessionId: 'sess1',
+      }));
+      expect(mockStepRunRepo.update).toHaveBeenCalledWith('sr1', expect.objectContaining({
         status: 'completed',
         output: expect.objectContaining({ sessionId: 'sess1' }),
       }));
+      expect(handleRunStart).toHaveBeenCalledWith(
+        expect.objectContaining({ id: expect.stringContaining('workflow_ai_sess1_') }),
+        expect.any(Object),
+        expect.anything(),
+      );
+      expect(createVirtualClient).toHaveBeenCalledTimes(1);
     });
 
     it('fails when run_failed message received', async () => {
@@ -1231,7 +1272,7 @@ describe('WorkflowEngine', () => {
         }),
       };
       // Re-create engine with mockDb
-      const engineWithDb = new WorkflowEngine(mockDb as any, mockBroadcast);
+      const engineWithDb = createEngineWithDb(mockDb as any, mockBroadcast);
 
       const { createVirtualClient: mockCreateVirtualClient } = await import('../../../server.js');
       (mockCreateVirtualClient as any).mockImplementation((_clientId: string, handlers: any) => {
@@ -1239,8 +1280,19 @@ describe('WorkflowEngine', () => {
         return { id: _clientId };
       });
 
-      const run = await engineWithDb.startRun('wf-review-pass', 'p1', def as any, 'manual');
+      await engineWithDb.startRun('wf-review-pass', 'p1', def as any, 'manual');
       await vi.advanceTimersByTimeAsync(200);
+
+      expect(mockStepRunRepo.update).toHaveBeenCalledWith('sr1', expect.objectContaining({
+        sessionId: 'sess1',
+      }));
+      expect(mockStepRunRepo.update).toHaveBeenCalledWith('sr1', expect.objectContaining({
+        status: 'completed',
+        output: expect.objectContaining({
+          reviewPassed: true,
+          sessionId: 'sess1',
+        }),
+      }));
     });
   });
 

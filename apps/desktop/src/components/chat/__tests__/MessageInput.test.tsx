@@ -414,8 +414,26 @@ describe('MessageInput', () => {
       expect(textarea.className).not.toContain('min-h-[160px]');
       expect(textarea.className).toContain('resize-none');
       const row = textarea.closest('div.flex.gap-2');
-      expect(row?.className).toContain('items-end');
+      expect(row?.className).toContain('items-center');
       expect(row?.className).toContain('min-h-12');
+      expect(row?.className).not.toContain('items-end');
+    });
+
+    it('keeps desktop advanced mode bottom-aligned so taller composer grows upward', () => {
+      render(<MessageInput {...defaultProps} advancedMode />);
+      const textarea = screen.getByPlaceholderText(/Type a message/);
+      const row = textarea.closest('div.flex.gap-2');
+      expect(row?.className).toContain('items-end');
+      expect(row?.className).not.toContain('items-center');
+    });
+
+    it('bottom-aligns collapsed desktop composer once content exceeds a single line', () => {
+      render(<MessageInput {...defaultProps} />);
+      const textarea = screen.getByPlaceholderText(/Type a message/) as HTMLTextAreaElement;
+      Object.defineProperty(textarea, 'scrollHeight', { configurable: true, value: 72 });
+      fireEvent.change(textarea, { target: { value: 'line 1\nline 2' } });
+      const row = textarea.closest('div.flex.gap-2');
+      expect(row?.className).toContain('items-end');
       expect(row?.className).not.toContain('items-center');
     });
 

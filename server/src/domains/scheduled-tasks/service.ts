@@ -201,18 +201,23 @@ export class ScheduledTaskService {
     } as Omit<Session, 'id' | 'createdAt' | 'updatedAt'>);
 
     return new Promise<string>((resolve, reject) => {
+      let settled = false;
       const timeout = setTimeout(() => {
-        this.activeRuns.delete(task.id);
+        if (settled) return;
+        settled = true;
         reject(new Error('Prompt execution timed out after 10 minutes'));
       }, PROMPT_TIMEOUT_MS);
 
       const clientId = `scheduled_${task.id}_${Date.now()}`;
       const virtualClient = createVirtualClient(clientId, {
         send: (msg: ServerMessage) => {
+          if (settled) return;
           if (msg.type === 'run_completed') {
+            settled = true;
             clearTimeout(timeout);
             resolve(`Prompt completed in session ${session.id}`);
           } else if (msg.type === 'run_failed') {
+            settled = true;
             clearTimeout(timeout);
             reject(new Error((msg as import('@my-claudia/shared').RunFailedMessage).error ?? 'Run failed'));
           }
