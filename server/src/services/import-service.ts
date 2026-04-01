@@ -3,7 +3,7 @@ import * as path from 'path';
 import BetterSqlite3 from 'better-sqlite3';
 import type Database from 'better-sqlite3';
 import type { Message } from '@my-claudia/shared';
-import { checkDuplicateSession, type ImportResult, type ScanResult } from '../routes/import-shared.js';
+import { checkDuplicateSession, convertOpenCodeMessage, type ImportResult, type ScanResult, type OpenCodePartRow } from '../routes/import-shared.js';
 
 interface ClaudeSessionEntry {
   sessionId: string;
@@ -702,69 +702,6 @@ export class ImportService {
     return toolCalls;
   }
 
-  private convertOpenCodeMessage(
-    messageId: string,
-    msgData: OpenCodeMessageData,
-    rawParts: OpenCodePartRow[],
-  ): ConvertedMessage | null {
-    const parsedParts: OpenCodePartData[] = [];
-    for (const part of rawParts) {
-      try {
-        parsedParts.push(JSON.parse(part.data) as OpenCodePartData);
-      } catch {
-        // Skip malformed parts
-      }
-    }
-
-    const textParts = parsedParts.filter(
-      (part): part is OpenCodeTextPart => part.type === 'text' && !part.synthetic && !part.ignored,
-    );
-    const content = textParts.map(part => part.text).join('\n');
-
-    const toolParts = parsedParts.filter(
-      (part): part is OpenCodeToolPart => part.type === 'tool',
-    );
-    const toolCalls = toolParts.map(tool => ({
-      name: tool.tool,
-      input: tool.state.input,
-      output: tool.state.output,
-      isError: tool.state.status === 'error' || !!tool.state.error,
-    }));
-
-    const metadata: ConvertedMessage['metadata'] = {};
-    if (toolCalls.length > 0) {
-      metadata.toolCalls = toolCalls;
-    }
-
-    if (msgData.role === 'assistant' && msgData.tokens) {
-      metadata.usage = {
-        inputTokens: (msgData.tokens.input || 0) + (msgData.tokens.cache?.read || 0),
-        outputTokens: msgData.tokens.output || 0,
-      };
-    }
-
-    let createdAt: number;
-    if (msgData.role === 'assistant' && typeof msgData.time === 'object') {
-      createdAt = msgData.time.created;
-    } else if (msgData.role === 'user' && typeof msgData.time === 'number') {
-      createdAt = msgData.time;
-    } else {
-      createdAt = Date.now();
-    }
-
-    if (!content && toolCalls.length === 0) {
-      return null;
-    }
-
-    return {
-      id: messageId,
-      role: msgData.role,
-      content,
-      metadata: (metadata.usage || metadata.toolCalls) ? metadata : undefined,
-      createdAt,
-    };
-  }
-
   private parseOpenCodeSession(
     extDb: Database.Database,
     sessionId: string,
@@ -802,7 +739,7 @@ export class ImportService {
         if (msgData.role !== 'user' && msgData.role !== 'assistant') continue;
 
         const parts = partsByMessage.get(rawMsg.id) || [];
-        const converted = this.convertOpenCodeMessage(rawMsg.id, msgData, parts);
+        const converted = convertOpenCodeMessage(rawMsg.id, msgData, parts);
         if (converted) {
           messages.push(converted);
         }

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { useWorkflowStore } from '../workflowStore';
+import { useWorkflowStore } from '../../features/workflows/store';
 
 vi.mock('../../features/workflows/api', () => ({
   listWorkflows: vi.fn(),

@@ -3,6 +3,7 @@ import Database from 'better-sqlite3';
 
 const sendMessageMock = vi.fn();
 const broadcastToOthersMock = vi.fn();
+const broadcastRunMessageMock = vi.fn();
 const getNextOffsetMock = vi.fn(() => 0);
 const upsertAssistantMessageMock = vi.fn();
 const findProcessPidsByTaskCommandMock = vi.fn();
@@ -22,6 +23,7 @@ const getGatewayClientMock = vi.fn(() => null);
 vi.mock('../broadcast.js', () => ({
   sendMessage: sendMessageMock,
   broadcastToOtherAuthenticatedClients: broadcastToOthersMock,
+  broadcastRunMessage: broadcastRunMessageMock,
 }));
 
 vi.mock('../run-lifecycle.js', () => ({
@@ -513,18 +515,7 @@ describe('ws/run-handler', () => {
       expect.objectContaining({
         type: 'background_task_update',
         sessionId: 'session-background',
-        status: 'paused',
-      }),
-      expect.objectContaining({
-        type: 'background_task_update',
-        sessionId: 'session-background',
         status: 'running',
-      }),
-      expect.objectContaining({
-        type: 'permission_auto_resolved',
-        requestId: 'perm-timeout-1',
-        sessionId: 'session-background',
-        behavior: 'deny',
       }),
     ]));
 

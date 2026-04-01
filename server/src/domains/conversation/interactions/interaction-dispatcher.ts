@@ -47,8 +47,6 @@ class InteractionDispatcher {
       return { error: 'Interaction dispatcher not initialized' };
     }
 
-    this.sendFn(sessionId, event);
-
     return new Promise<Record<string, unknown>>((resolve) => {
       const timeout = setTimeout(() => {
         this.pending.delete(interactionId);
@@ -57,6 +55,15 @@ class InteractionDispatcher {
       }, timeoutMs);
 
       this.pending.set(interactionId, { resolve, timeout, sessionId });
+
+      try {
+        this.sendFn(sessionId, event);
+      } catch (err) {
+        this.pending.delete(interactionId);
+        clearTimeout(timeout);
+        console.error(`[InteractionDispatcher] Send failed for ${interactionId}:`, err);
+        resolve({ error: err instanceof Error ? err.message : 'Send failed' });
+      }
     });
   }
 

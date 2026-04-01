@@ -4,7 +4,6 @@ const buildRunContextMock = vi.fn();
 const negotiateProfileMock = vi.fn();
 const upsertAssistantMessageMock = vi.fn();
 const pluginEventsEmitMock = vi.fn(async () => {});
-const sendMessageMock = vi.fn();
 
 vi.mock('../run-context.js', () => ({
   buildRunContext: buildRunContextMock,
@@ -22,10 +21,6 @@ vi.mock('../../../../events/index.js', () => ({
   pluginEvents: {
     emit: pluginEventsEmitMock,
   },
-}));
-
-vi.mock('../broadcast.js', () => ({
-  sendMessage: sendMessageMock,
 }));
 
 async function* providerStream() {
@@ -137,7 +132,7 @@ describe('ws/run-provider-launch', () => {
       providerId: 'provider-1',
       providerType: 'claude',
     }));
-    expect(sendMessageMock).toHaveBeenCalledWith({}, {
+    expect(sendRunEventMock).toHaveBeenCalledWith({
       type: 'background_task_update',
       sessionId: 'session-1',
       status: 'running',

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { useLocalPRStore } from '../localPRStore';
+import { useLocalPRStore } from '../../features/local-pr/store';
 
 vi.mock('../../features/local-pr/api', () => ({
   listLocalPRs: vi.fn(),

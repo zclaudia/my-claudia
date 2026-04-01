@@ -8,6 +8,15 @@ vi.mock('../../../../utils/crypto.js', () => ({
   }),
 }));
 
+// Mock broadcast.ts to just forward to run.broadcast if available
+vi.mock('../broadcast.js', () => ({
+  broadcastRunMessage: vi.fn((run: ActiveRun, message: any) => {
+    if (run.broadcast) {
+      run.broadcast(message);
+    }
+  }),
+}));
+
 describe('permission-handler', () => {
   let sendPrimary: ReturnType<typeof vi.fn>;
   let sendSecondary: ReturnType<typeof vi.fn>;
@@ -74,6 +83,12 @@ describe('permission-handler', () => {
       ['client-1', client],
       ['client-2', otherClient],
     ]);
+
+    // Set up run.broadcast to send to all clients
+    run.broadcast = (message: any) => {
+      sendPrimary(JSON.stringify(message));
+      sendSecondary(JSON.stringify(message));
+    };
   });
 
   it('broadcasts permission_resolved when credential decrypt fails', () => {
