@@ -126,25 +126,47 @@ export function createGatewayServer(config: GatewayConfig): Server {
   const app = express();
 
   // --- Rate limiting ---
-  const authAttempts = new Map<string, { count: number; resetAt: number }>();
-  const AUTH_RATE_LIMIT = 10;
-  const AUTH_RATE_WINDOW = 60_000;
+  // Strict limit for failed auth attempts (brute-force protection)
+  const authFailures = new Map<string, { count: number; resetAt: number }>();
+  const AUTH_FAIL_LIMIT = 10;
+  const AUTH_FAIL_WINDOW = 60_000;
 
-  function checkRateLimit(ip: string): boolean {
+  // Generous limit for authenticated proxy requests (normal app usage)
+  const proxyRequests = new Map<string, { count: number; resetAt: number }>();
+  const PROXY_RATE_LIMIT = 200;
+  const PROXY_RATE_WINDOW = 60_000;
+
+  function checkLimit(
+    map: Map<string, { count: number; resetAt: number }>,
+    key: string,
+    limit: number,
+    window: number,
+  ): boolean {
     const now = Date.now();
-    const entry = authAttempts.get(ip);
+    const entry = map.get(key);
     if (!entry || now > entry.resetAt) {
-      authAttempts.set(ip, { count: 1, resetAt: now + AUTH_RATE_WINDOW });
+      map.set(key, { count: 1, resetAt: now + window });
       return true;
     }
-    if (++entry.count > AUTH_RATE_LIMIT) return false;
+    if (++entry.count > limit) return false;
     return true;
+  }
+
+  function checkAuthFailLimit(ip: string): boolean {
+    return checkLimit(authFailures, ip, AUTH_FAIL_LIMIT, AUTH_FAIL_WINDOW);
+  }
+
+  function checkProxyRateLimit(ip: string): boolean {
+    return checkLimit(proxyRequests, ip, PROXY_RATE_LIMIT, PROXY_RATE_WINDOW);
   }
 
   const rateLimitCleanup = setInterval(() => {
     const now = Date.now();
-    for (const [ip, entry] of authAttempts) {
-      if (now > entry.resetAt) authAttempts.delete(ip);
+    for (const [ip, entry] of authFailures) {
+      if (now > entry.resetAt) authFailures.delete(ip);
+    }
+    for (const [ip, entry] of proxyRequests) {
+      if (now > entry.resetAt) proxyRequests.delete(ip);
     }
   }, 5 * 60_000);
 
@@ -277,12 +299,14 @@ export function createGatewayServer(config: GatewayConfig): Server {
     try {
       const { backendId } = req.params;
       const clientIp = req.ip || req.socket.remoteAddress || 'unknown';
-      if (!checkRateLimit(clientIp)) {
-        res.status(429).json({ success: false, error: { code: 'RATE_LIMITED', message: 'Too many requests' } });
-        return;
-      }
+
+      // Check auth first, then apply appropriate rate limit
       const authHeader = req.headers.authorization;
       if (!authHeader || !authHeader.startsWith('Bearer ')) {
+        if (!checkAuthFailLimit(clientIp)) {
+          res.status(429).json({ success: false, error: { code: 'RATE_LIMITED', message: 'Too many requests' } });
+          return;
+        }
         res.status(401).json({ success: false, error: { code: 'UNAUTHORIZED', message: 'Authorization required' } });
         return;
       }
@@ -290,7 +314,17 @@ export function createGatewayServer(config: GatewayConfig): Server {
       const colonIndex = token.indexOf(':');
       const gwSecret = colonIndex !== -1 ? token.slice(0, colonIndex) : token;
       if (!safeCompare(gwSecret, config.gatewaySecret)) {
+        if (!checkAuthFailLimit(clientIp)) {
+          res.status(429).json({ success: false, error: { code: 'RATE_LIMITED', message: 'Too many requests' } });
+          return;
+        }
         res.status(401).json({ success: false, error: { code: 'UNAUTHORIZED', message: 'Invalid credentials' } });
+        return;
+      }
+
+      // Authenticated — apply generous proxy rate limit
+      if (!checkProxyRateLimit(clientIp)) {
+        res.status(429).json({ success: false, error: { code: 'RATE_LIMITED', message: 'Too many requests' } });
         return;
       }
       const lease = state.leases.get(backendId);
