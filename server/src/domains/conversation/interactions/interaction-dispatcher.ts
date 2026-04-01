@@ -42,7 +42,8 @@ class InteractionDispatcher {
     event: ServerMessage,
     timeoutMs = DEFAULT_TIMEOUT_MS,
   ): Promise<Record<string, unknown>> {
-    if (!this.sendFn) {
+    const sendFn = this.sendFn;
+    if (!sendFn) {
       console.warn('[InteractionDispatcher] No send function set, cannot dispatch');
       return { error: 'Interaction dispatcher not initialized' };
     }
@@ -57,7 +58,7 @@ class InteractionDispatcher {
       this.pending.set(interactionId, { resolve, timeout, sessionId });
 
       try {
-        this.sendFn(sessionId, event);
+        sendFn(sessionId, event);
       } catch (err) {
         this.pending.delete(interactionId);
         clearTimeout(timeout);
