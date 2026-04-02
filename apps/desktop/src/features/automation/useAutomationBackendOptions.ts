@@ -2,7 +2,7 @@ import { useMemo } from 'react';
 import type { BackendSnapshot } from '@my-claudia/shared';
 import { useFacadeStore } from '../../stores/facadeStore';
 import { useServerStore } from '../../stores/serverStore';
-import { getEffectiveBackendStatus, canReachBackend } from '../../utils/backendConnection';
+import { getEffectiveBackendStatus, canReachBackend, type EffectiveBackendStatus } from '../../utils/backendConnection';
 import { isLocalBackendId } from '../../utils/controlPlane';
 
 export interface AutomationBackendOption {
@@ -10,7 +10,7 @@ export interface AutomationBackendOption {
   name: string;
   isLocal: boolean;
   isReachable: boolean;
-  status: 'connected' | 'connecting' | 'disconnected' | 'error';
+  status: EffectiveBackendStatus;
   latencyMs?: number | null;
   isThisInstance: boolean;
   backend: BackendSnapshot;

@@ -1,6 +1,6 @@
 import type { BackendConnectionState, BackendSnapshot } from '@my-claudia/shared';
 
-export type EffectiveBackendStatus = 'connected' | 'connecting' | 'disconnected' | 'error';
+export type EffectiveBackendStatus = 'connected' | 'connecting' | 'idle' | 'disconnected' | 'error';
 
 export function canReachBackend(
   connectionState: BackendConnectionState,
@@ -33,10 +33,10 @@ export function getEffectiveBackendStatus(
       return 'error';
     case 'offline':
       return 'disconnected';
-    case 'visible':
     case 'opening':
-    case 'degraded':
       return 'connecting';
+    case 'visible':
+      return 'idle';
     default:
       return backend.openState === 'open' ? 'connecting' : 'disconnected';
   }

@@ -39,4 +39,20 @@ describe('backendConnection', () => {
       openState: 'error',
     } as any)).toBe('error');
   });
+
+  it('maps visible backend to idle (not connecting)', () => {
+    expect(getEffectiveBackendStatus('connected', {
+      online: true,
+      runtimeState: 'visible',
+      openState: 'closed',
+    } as any)).toBe('idle');
+  });
+
+  it('maps offline backend to disconnected', () => {
+    expect(getEffectiveBackendStatus('connected', {
+      online: false,
+      runtimeState: 'offline',
+      openState: 'closed',
+    } as any)).toBe('disconnected');
+  });
 });

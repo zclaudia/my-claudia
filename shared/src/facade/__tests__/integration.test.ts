@@ -393,8 +393,100 @@ describe('Integration: epoch change invalidation', () => {
     const b = snap.backends.find(b => b.backendId === 'b1')!;
     // Channel and catalog should be invalidated
     expect(b.channelId).toBeNull();
-    // Backend goes to error state because channel was open when epoch changed
-    expect(b.runtimeState).toBe('error');
+    // Backend was desired (openBackend called in beforeEach), so auto-reopen
+    // triggers immediately after epoch invalidation → state is 'opening'
+    expect(b.runtimeState).toBe('opening');
+  });
+
+  it('auto-reopens desired backend after epoch change via registry event', () => {
+    // b1 is ready and in desiredOpenBackends (openBackend was called in beforeEach)
+    expect(core.getSnapshot().backends.find(b => b.backendId === 'b1')!.runtimeState).toBe('ready');
+
+    // Backend restarts → new epoch arrives via incremental registry event
+    emit({
+      type: 'registry_event_received',
+      revision: 2,
+      op: 'upsert',
+      item: makePresence({ backendId: 'b1', epoch: 2 }),
+    });
+
+    // Should be in error momentarily, but auto-reopen triggers openBackend
+    // which sends channel.openBackendChannel command
+    const snap = core.getSnapshot();
+    const b = snap.backends.find(b => b.backendId === 'b1')!;
+    // The backend should be in 'opening' state (auto-reopen triggered)
+    expect(b.runtimeState).toBe('opening');
+  });
+
+  it('auto-reopens desired backend after epoch change via registry snapshot', () => {
+    expect(core.getSnapshot().backends.find(b => b.backendId === 'b1')!.runtimeState).toBe('ready');
+
+    // Full registry snapshot with new epoch (e.g. gateway reconnect after backend restart)
+    emit({
+      type: 'registry_snapshot_received',
+      revision: 3,
+      items: [makePresence({ backendId: 'b1', epoch: 2 })],
+    });
+
+    const snap = core.getSnapshot();
+    const b = snap.backends.find(b => b.backendId === 'b1')!;
+    // reopenDesiredBackends should trigger since openState is 'error' and b1 is desired
+    expect(b.runtimeState).toBe('opening');
+  });
+});
+
+describe('Integration: backend offline → online recovery', () => {
+  let core: BackendFacadeRuntimeCore;
+  let emit: ReturnType<typeof createMockAdapter>['emit'];
+  let commandLog: CommandLog[];
+
+  beforeEach(() => {
+    const mock = createMockAdapter({
+      registryItems: [makePresence({ backendId: 'b1', epoch: 1 })],
+    });
+    emit = mock.emit;
+    commandLog = mock.commandLog;
+
+    core = new BackendFacadeRuntimeCore({
+      adapter: mock.adapter,
+      mode: 'direct',
+    });
+    core.start();
+
+    // Bring to ready
+    core.openBackend('b1');
+    emit({ type: 'backend_channel_opened', backendId: 'b1', channelId: 'ch-1', epoch: 1, capabilities: [] });
+    emit({ type: 'catalog_snapshot_received', backendId: 'b1', epoch: 1, revision: 1, items: [] });
+    commandLog.length = 0;
+  });
+
+  it('recovers when backend goes offline then comes back online', () => {
+    // Backend removed from registry
+    emit({
+      type: 'registry_event_received',
+      revision: 2,
+      op: 'remove',
+      backendId: 'b1',
+    });
+
+    let snap = core.getSnapshot();
+    // Offline backends (presence=null) are excluded from the snapshot
+    expect(snap.backends.find(b => b.backendId === 'b1')).toBeUndefined();
+    commandLog.length = 0;
+
+    // Backend comes back with new epoch
+    emit({
+      type: 'registry_event_received',
+      revision: 3,
+      op: 'upsert',
+      item: makePresence({ backendId: 'b1', epoch: 2 }),
+    });
+
+    snap = core.getSnapshot();
+    const b = snap.backends.find(b => b.backendId === 'b1')!;
+    // Should auto-reopen since b1 is in desiredOpenBackends
+    expect(b.runtimeState).toBe('opening');
+    expect(commandLog.some(c => c.method === 'channel.openBackendChannel')).toBe(true);
   });
 });
 

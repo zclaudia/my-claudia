@@ -482,6 +482,8 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
                               ? 'bg-success'
                               : effectiveStatus === 'connecting'
                               ? 'bg-warning animate-pulse'
+                              : effectiveStatus === 'idle'
+                              ? 'bg-warning'
                               : effectiveStatus === 'error'
                               ? 'bg-destructive'
                               : 'bg-muted-foreground';
@@ -504,7 +506,7 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
                                 )}
                                 {!isReachable && (
                                   <span className="text-[10px] text-muted-foreground flex-shrink-0">
-                                    {effectiveStatus === 'connecting' ? 'Connecting' : effectiveStatus === 'error' ? 'Error' : 'Offline'}
+                                    {effectiveStatus === 'connecting' ? 'Connecting' : effectiveStatus === 'idle' ? 'Idle' : effectiveStatus === 'error' ? 'Error' : 'Offline'}
                                   </span>
                                 )}
                               </button>

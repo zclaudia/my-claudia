@@ -370,6 +370,20 @@ export class BackendFacadeRuntimeCore implements BackendFacade {
     }
 
     this.emitBackendDiffs(diffs);
+
+    // A registry upsert with a new epoch invalidates the channel, pushing the
+    // backend into 'error'. Re-open it if it was previously desired.
+    if (event.op === 'upsert' && event.item) {
+      const backend = this.registryStore.getBackend(event.item.backendId);
+      if (
+        backend
+        && backend.presence
+        && (backend.openState === 'closed' || backend.openState === 'error')
+        && this.desiredOpenBackends.has(event.item.backendId)
+      ) {
+        this.openBackend(event.item.backendId);
+      }
+    }
   }
 
   // --------------------------------------------------------------------------
@@ -515,7 +529,7 @@ export class BackendFacadeRuntimeCore implements BackendFacade {
   private reopenDesiredBackends(): void {
     for (const backendId of this.desiredOpenBackends) {
       const backend = this.registryStore.getBackend(backendId);
-      if (backend && backend.presence && backend.openState === 'closed') {
+      if (backend && backend.presence && (backend.openState === 'closed' || backend.openState === 'error')) {
         this.openBackend(backendId);
       }
     }

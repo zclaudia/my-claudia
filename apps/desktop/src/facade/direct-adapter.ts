@@ -272,6 +272,19 @@ export class DirectGatewayAdapter implements FacadeRuntimeGatewayAdapter {
   // --------------------------------------------------------------------------
 
   forceReconnect(): void {
+    // transport.connect() marks the old WS as expectedClose, so onDisconnected
+    // never fires. Emit channel closures + reconnecting state explicitly to keep
+    // RuntimeCore and UI in sync.
+    for (const [channelId, info] of this.knownChannels) {
+      this.emit({
+        type: 'backend_channel_closed',
+        backendId: info.backendId,
+        channelId,
+        reason: 'transport_disconnected',
+      });
+    }
+    this.knownChannels.clear();
+    this.emit({ type: 'connection_state_changed', state: 'reconnecting' });
     this.transport?.forceReconnect();
   }
 

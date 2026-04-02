@@ -37,7 +37,6 @@ export type BackendRuntimeState =
   | 'visible'
   | 'opening'
   | 'ready'
-  | 'degraded'
   | 'error';
 
 /** Backend channel lifecycle state. */
@@ -45,7 +44,6 @@ export type BackendOpenState =
   | 'closed'
   | 'opening'
   | 'open'
-  | 'closing'
   | 'error';
 
 /** Session stream lifecycle state. */
