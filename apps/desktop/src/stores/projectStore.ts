@@ -12,7 +12,6 @@ export type ProjectDashboardView =
   | 'home'
   | 'tasks'
   | 'local-prs'
-  | 'scheduled'
   | 'workflows'
   | 'supervisor';
 

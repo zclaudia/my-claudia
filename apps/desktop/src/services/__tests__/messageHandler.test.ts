@@ -58,7 +58,6 @@ const mockPromptRequestStore = {
 
 const mockHandleLocalPRMessage = vi.fn().mockReturnValue(true);
 const mockHandleWorkflowMessage = vi.fn().mockReturnValue(true);
-const mockHandleScheduledTaskMessage = vi.fn().mockReturnValue(true);
 const mockHandleSupervisionMessage = vi.fn().mockReturnValue(true);
 
 const mockSessionsStore = {
@@ -124,9 +123,6 @@ vi.mock('../../features/local-pr/handlers', () => ({
 }));
 vi.mock('../../features/workflows/handlers', () => ({
   handleWorkflowMessage: (...args: any[]) => mockHandleWorkflowMessage(...args),
-}));
-vi.mock('../../features/scheduled-tasks/handlers', () => ({
-  handleScheduledTaskMessage: (...args: any[]) => mockHandleScheduledTaskMessage(...args),
 }));
 vi.mock('../../features/supervision/handlers', () => ({
   handleSupervisionMessage: (...args: any[]) => mockHandleSupervisionMessage(...args),
@@ -704,18 +700,6 @@ describe('handleServerMessage', () => {
     const msg = { type: 'local_pr_deleted', projectId: 'p1', prId: 'pr1' };
     handleServerMessage(msg, makeCtx());
     expect(mockHandleLocalPRMessage).toHaveBeenCalledWith(msg);
-  });
-
-  it('handles scheduled_task_update', () => {
-    const msg = { type: 'scheduled_task_update', projectId: 'p1', task: { id: 'st1' } };
-    handleServerMessage(msg, makeCtx());
-    expect(mockHandleScheduledTaskMessage).toHaveBeenCalledWith(msg);
-  });
-
-  it('handles scheduled_task_deleted', () => {
-    const msg = { type: 'scheduled_task_deleted', projectId: 'p1', taskId: 'st1' };
-    handleServerMessage(msg, makeCtx());
-    expect(mockHandleScheduledTaskMessage).toHaveBeenCalledWith(msg);
   });
 
   it('handles workflow_update', () => {

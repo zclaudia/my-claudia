@@ -10,7 +10,7 @@ import { normalizeFromToolUse } from '../interactions/interaction-normalizer.js'
 import { trackAndAutoComplete, finalizeSession, clearSession } from '../interactions/todo-state-tracker.js';
 import { pluginEvents } from '../../../events/index.js';
 import { generateToolSignature } from '../../../loop-detection.js';
-import { providerRegistry } from '../../../providers/registry.js';
+import type { ProviderRegistryPort } from '../../../providers/registry.js';
 import type { ClaudeMessage, SystemInfo } from '../../../providers/types.js';
 import type { NotificationService } from '../../notification-feed/notification-service.js';
 
@@ -37,6 +37,7 @@ interface HandleProviderEventParams {
   toolUseIdToName: Map<string, string>;
   msg: ClaudeMessage;
   broadcastHeartbeat: () => void;
+  providerRegistry: ProviderRegistryPort;
 }
 
 export function handleProviderEvent({
@@ -50,6 +51,7 @@ export function handleProviderEvent({
   msg,
   notificationService,
   persistSessionWorkingDirectory,
+  providerRegistry,
   providerType,
   runId,
   sendRunEvent,

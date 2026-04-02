@@ -153,7 +153,7 @@ import type {
 } from './claudia.js';
 import type {
   WorkflowRunUpdateMessage, WorkflowUpdateMessage, WorkflowDeletedMessage,
-  WorkflowStepTypesChangedMessage, ScheduledTaskUpdateMessage, ScheduledTaskDeletedMessage,
+  WorkflowStepTypesChangedMessage, WorkflowTriggerSourcesChangedMessage,
   SystemTaskUpdateMessage, LocalPRUpdateMessage, LocalPRDeletedMessage,
 } from './workflow.js';
 import type {
@@ -231,13 +231,12 @@ export type ServerMessage =
   | PluginPanelUnregisteredMessage
   | LocalPRUpdateMessage
   | LocalPRDeletedMessage
-  | ScheduledTaskUpdateMessage
-  | ScheduledTaskDeletedMessage
   | SystemTaskUpdateMessage
   | WorkflowUpdateMessage
   | WorkflowDeletedMessage
   | WorkflowRunUpdateMessage
   | WorkflowStepTypesChangedMessage
+  | WorkflowTriggerSourcesChangedMessage
   // Unified interaction events
   | InteractionPromptMessage
   | TodoUpdateInteractionMessage

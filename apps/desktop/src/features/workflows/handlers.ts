@@ -38,6 +38,10 @@ export function handleWorkflowMessage(msg: ServerMessage): boolean {
       useWorkflowStore.getState().loadStepTypes();
       return true;
 
+    case 'workflow_trigger_sources_changed':
+      useWorkflowStore.getState().loadTriggerSources();
+      return true;
+
     default:
       return false;
   }

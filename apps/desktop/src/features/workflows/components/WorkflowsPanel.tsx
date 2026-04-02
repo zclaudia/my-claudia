@@ -59,7 +59,8 @@ export function WorkflowsPanel({ projectId, onViewModeChange, onOpenAutomations 
     loadWorkflows(projectId).finally(() => setLoading(false));
   }, [projectId, loadWorkflows]);
 
-  const projectWorkflows = workflows[projectId] ?? [];
+  // Exclude simple automations — they are managed in the Automations tab
+  const projectWorkflows = (workflows[projectId] ?? []).filter(w => w.authoringMode !== 'simple');
 
   const activeWorkflows = useMemo(
     () => projectWorkflows.filter((w) => w.status === 'active'),

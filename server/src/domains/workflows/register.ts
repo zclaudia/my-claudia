@@ -12,12 +12,11 @@ import { WorkflowEngine } from './engine.js';
 import { WorkflowService } from './service.js';
 import { WorkflowGeneratorService } from './generator.js';
 import { createWorkflowRoutes } from './routes.js';
-import { createAutomationRoutes } from '../../routes/automations.js';
-import { systemTaskRegistry } from '../../services/system-task-registry.js';
 import { sendMessage } from '../conversation/ws/broadcast.js';
 import type { ConnectedClient } from '../conversation/ws/types.js';
 import type { NotificationService } from '../notification-feed/notification-service.js';
 import { workflowStepRegistry } from '../../plugins/workflow-step-registry.js';
+import type { SystemTaskRegistryPort } from '../../services/system-task-registry.js';
 
 import {
   CompositeStepExecutor,
@@ -39,6 +38,7 @@ export interface WorkflowDomainDeps {
   authMiddleware: RequestHandler;
   clients: Map<string, ConnectedClient>;
   notificationService: NotificationService;
+  systemTaskRegistry: SystemTaskRegistryPort;
 }
 
 export interface WorkflowDomainResult {
@@ -47,7 +47,7 @@ export interface WorkflowDomainResult {
 }
 
 export function registerWorkflowDomain(deps: WorkflowDomainDeps): WorkflowDomainResult {
-  const { db, app, authMiddleware, clients, notificationService } = deps;
+  const { db, app, authMiddleware, clients, notificationService, systemTaskRegistry } = deps;
 
   const broadcast = (projectId: string | undefined, message: ServerMessage | { type: string; [key: string]: unknown }) => {
     clients.forEach((client) => {
@@ -82,7 +82,6 @@ export function registerWorkflowDomain(deps: WorkflowDomainDeps): WorkflowDomain
 
   // -- Mount routes --
   app.use('/api', authMiddleware, createWorkflowRoutes(workflowService, workflowGeneratorService));
-  app.use('/api/automations', authMiddleware, createAutomationRoutes(workflowService));
 
   // -- Scheduler --
   systemTaskRegistry.register({

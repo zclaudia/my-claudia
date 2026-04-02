@@ -17,9 +17,10 @@ ok()   { echo -e "\033[0;32m+\033[0m $*"; }
 warn() { echo -e "\033[0;33m!\033[0m $*"; }
 die()  { echo -e "\033[0;31mx\033[0m $*" >&2; exit 1; }
 
-# Ensure fnm is available
+# Ensure fnm is available and uses the project's .node-version
 setup_node() {
-  eval "$(fnm env)" 2>/dev/null || die "fnm not found. Install fnm first."
+  eval "$(fnm env --use-on-cd)" 2>/dev/null || die "fnm not found. Install fnm first."
+  fnm use --silent-if-unchanged 2>/dev/null || true
 }
 
 # Determine mode from argument
@@ -83,8 +84,29 @@ wait_for_url() {
   die "$label did not become ready at $url within ${timeout}s"
 }
 
+# --- Ensure native modules work with the Tauri sidecar Node ---
+ensure_native_modules() {
+  local sidecar
+  sidecar=$(ls "$PROJECT_ROOT/apps/desktop/src-tauri/binaries/node-"* 2>/dev/null | head -1)
+
+  if [[ -n "$sidecar" && -x "$sidecar" ]]; then
+    if ! "$sidecar" -e "require('module').createRequire(process.cwd()+'/package.json')('better-sqlite3')" 2>/dev/null; then
+      info "Rebuilding native modules for sidecar Node ($("$sidecar" --version))..."
+      (cd "$PROJECT_ROOT" && pnpm rebuild better-sqlite3)
+      if "$sidecar" -e "require('module').createRequire(process.cwd()+'/package.json')('better-sqlite3')" 2>/dev/null; then
+        ok "Native modules rebuilt for sidecar"
+      else
+        warn "Native module rebuild may not have matched sidecar ABI — app might fail to start"
+      fi
+    fi
+  fi
+}
+
 # --- Build shared + server ---
 build() {
+  setup_node
+  ensure_native_modules
+
   info "Building shared..."
   (cd "$PROJECT_ROOT/shared" && setup_node && pnpm build)
   ok "Shared built"
@@ -128,6 +150,22 @@ start_tauri() {
   wait_port_free 3100
 
   build
+
+  # Pre-start the server so the Tauri app reuses it via health check,
+  # bypassing the sidecar native module check entirely.
+  info "Starting server (pre-launch)..."
+  (
+    cd "$PROJECT_ROOT"
+    setup_node
+    MY_CLAUDIA_DATA_DIR=/tmp/my-claudia-dev/ \
+    MY_CLAUDIA_CHANNEL=dev \
+    PORT=3100 \
+    SERVER_HOST=127.0.0.1 \
+    node server/dist/index.js
+  ) &
+  SERVER_PID=$!
+
+  wait_for_url "http://127.0.0.1:3100/health" 15 "Backend"
 
   info "Starting Tauri dev..."
   cd "$PROJECT_ROOT/apps/desktop"

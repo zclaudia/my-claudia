@@ -1,4 +1,3 @@
-import { systemTaskRegistry } from '../../services/system-task-registry.js';
 import { v4 as uuidv4 } from 'uuid';
 import type { Database } from 'better-sqlite3';
 import type {
@@ -28,6 +27,7 @@ import { TaskAdmin } from './task-admin.js';
 import { SupervisorAgentManager } from './supervisor-agent.js';
 import { SupervisorContextService } from './supervisor-context.js';
 import { buildTaskPrompt as buildSupervisedTaskPrompt } from './task-prompt.js';
+import type { SystemTaskRegistryPort } from '../../services/system-task-registry.js';
 
 export class SupervisorService {
   private static cleanupHooksInstalled = false;
@@ -190,10 +190,10 @@ export class SupervisorService {
   // Lifecycle
   // ========================================
 
-  start(intervalMs = 5000): void {
+  start(intervalMs = 5000, registry?: SystemTaskRegistryPort): void {
     if (this.pollInterval) return;
     SupervisorService.activeServices.add(this);
-    systemTaskRegistry.register({
+    registry?.register({
       id: 'system:supervisor_polling',
       name: 'Supervisor Polling',
       description: 'Task queue management, dependency checking, and execution scheduling',
@@ -201,13 +201,13 @@ export class SupervisorService {
       intervalMs,
     });
     this.pollInterval = setInterval(async () => {
-      systemTaskRegistry.markRunStart('system:supervisor_polling');
+      registry?.markRunStart('system:supervisor_polling');
       const start = Date.now();
       try {
         this.tick();
-        systemTaskRegistry.markRunComplete('system:supervisor_polling', Date.now() - start);
+        registry?.markRunComplete('system:supervisor_polling', Date.now() - start);
       } catch (err) {
-        systemTaskRegistry.markRunComplete('system:supervisor_polling', Date.now() - start, String(err));
+        registry?.markRunComplete('system:supervisor_polling', Date.now() - start, String(err));
       }
     }, intervalMs);
     console.log('[Supervisor] Started polling');

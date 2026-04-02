@@ -3,7 +3,7 @@ import { promisify } from 'util';
 import { v4 as uuidv4 } from 'uuid';
 import type { Request as CorrelatedRequest } from '@my-claudia/shared';
 import { isRequest } from '@my-claudia/shared';
-import { providerRegistry } from '../../../providers/registry.js';
+import type { ProviderRegistryPort } from '../../../providers/registry.js';
 import { interactionDispatcher } from '../interactions/interaction-dispatcher.js';
 import { extractAndIndexMetadata, removeIndexedMetadata } from '../../../storage/metadata-extractor.js';
 import { broadcastRunMessage, sendMessage } from './broadcast.js';
@@ -71,6 +71,7 @@ export interface CancelRunContext {
   activeRuns: Map<string, ActiveRun>;
   processMonitor: { check: () => void } | null;
   broadcastHeartbeat: () => void;
+  providerRegistry: ProviderRegistryPort;
 }
 
 export interface CancelRunOptions {
@@ -110,7 +111,7 @@ export function cancelRun(
 
     // Abort provider session if applicable
     if (run.providerSessionId && run.providerCwd && run.providerType) {
-      const adapter = providerRegistry.get(run.providerType);
+      const adapter = ctx.providerRegistry.get(run.providerType);
       adapter?.abort?.(run.providerSessionId, run.providerCwd).catch(err => {
         console.error(`Failed to abort provider session: ${err}`);
       });

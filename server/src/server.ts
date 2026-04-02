@@ -22,6 +22,7 @@ import { pluginLoader } from './plugins/loader.js';
 import type { ProcessMonitor } from './utils/process-monitor.js';
 import type { NotificationService } from './domains/notification-feed/notification-service.js';
 import { ClaudiaBranchService } from './domains/orchestration/claudia-branch-service.js';
+import { providerRegistry } from './providers/registry.js';
 
 // WebSocket message-router architecture.
 // This router is not the HTTP REST entrypoint; REST routes are mounted in server-setup.ts.
@@ -141,6 +142,7 @@ let notificationService: NotificationService;
 let serverPort: number | null = null;
 let notificationFeedService: import('./domains/notification-feed/service.js').NotificationFeedService | undefined;
 let taskOrchestrator: import('./domains/orchestration/types.js').TaskOrchestrator | undefined;
+let branchAllocator: ClaudiaBranchService | undefined;
 let facadeHubRef: import('./domains/gateway/ws-hub.js').FacadeWsHub | null = null;
 
 // Re-exports for backward compatibility
@@ -159,6 +161,8 @@ function getMessageHandlerContext(): MessageHandlerContext {
     findProcessPidsByTaskCommand,
     notificationService: notificationFeedService,
     orchestrator: taskOrchestrator,
+    branchAllocator,
+    providerRegistry,
   };
 }
 
@@ -171,6 +175,7 @@ function getRunHandlerContext(): RunHandlerContext {
     notificationFeedService,
     serverPort,
     broadcastHeartbeat,
+    providerRegistry,
   };
 }
 
@@ -197,6 +202,7 @@ export async function createServer(): Promise<ServerContext> {
   // Initialize database
   const db = initDatabase();
   database = db;
+  branchAllocator = new ClaudiaBranchService(db);
 
   // Initialize file store (DB + disk persistence)
   initFileStore(db);
@@ -508,7 +514,7 @@ export async function createServer(): Promise<ServerContext> {
 
 // Thin wrapper that delegates to extracted cancelRun
 function cancelRun(runId: string, options?: CancelRunOptions): void {
-  _cancelRun(runId, { activeRuns, processMonitor, broadcastHeartbeat }, options);
+  _cancelRun(runId, { activeRuns, processMonitor, broadcastHeartbeat, providerRegistry }, options);
 }
 
 // Thin wrapper that delegates to the extracted message handler

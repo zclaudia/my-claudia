@@ -13,6 +13,8 @@ import type { initDatabase } from '../../../storage/db.js';
 import type { ConnectedClient, ActiveRun } from './types.js';
 import type { NotificationFeedService } from '../../../domains/notification-feed/service.js';
 import type { TaskOrchestrator } from '../../orchestration/types.js';
+import type { BranchAllocatorPort } from '../../orchestration/claudia-branch-service.js';
+import type { ProviderRegistryPort } from '../../../providers/registry.js';
 import { sendMessage } from './broadcast.js';
 
 // Domain handlers
@@ -45,6 +47,8 @@ export interface MessageHandlerContext {
   findProcessPidsByTaskCommand: (taskCommand?: string, excludedPids?: number[]) => Promise<number[]>;
   notificationService?: NotificationFeedService;
   orchestrator?: TaskOrchestrator;
+  branchAllocator?: BranchAllocatorPort;
+  providerRegistry?: ProviderRegistryPort;
 }
 
 export async function handleClientMessage(
@@ -93,7 +97,11 @@ export async function handleClientMessage(
       break;
 
     case 'stop_background_task':
-      await handleStopBackgroundTask(client, message, db, ctx.activeRuns, ctx.findProcessPidsByTaskCommand);
+      if (!ctx.providerRegistry) {
+        sendMessage(client.ws, { type: 'error', code: 'NOT_READY', message: 'Provider registry not available' } as ErrorMessage);
+        break;
+      }
+      await handleStopBackgroundTask(client, message, db, ctx.activeRuns, ctx.findProcessPidsByTaskCommand, ctx.providerRegistry);
       break;
 
     // ── Notifications ──
@@ -119,19 +127,19 @@ export async function handleClientMessage(
       break;
 
     case 'claudia_task_submit':
-      if (!ctx.orchestrator) {
-        sendMessage(client.ws, { type: 'error', code: 'NO_ORCHESTRATOR', message: 'Task orchestrator not available' } as ErrorMessage);
+      if (!ctx.orchestrator || !ctx.branchAllocator) {
+        sendMessage(client.ws, { type: 'error', code: 'NO_ORCHESTRATOR', message: 'Task orchestrator or branch allocator not available' } as ErrorMessage);
         break;
       }
-      await handleClaudiaTaskSubmit(client, message, db, ctx.orchestrator);
+      await handleClaudiaTaskSubmit(client, message, db, ctx.orchestrator, ctx.branchAllocator);
       break;
 
     case 'claudia_task_continue':
-      if (!ctx.orchestrator) {
-        sendMessage(client.ws, { type: 'error', code: 'NO_ORCHESTRATOR', message: 'Task orchestrator not available' } as ErrorMessage);
+      if (!ctx.orchestrator || !ctx.branchAllocator) {
+        sendMessage(client.ws, { type: 'error', code: 'NO_ORCHESTRATOR', message: 'Task orchestrator or branch allocator not available' } as ErrorMessage);
         break;
       }
-      await handleClaudiaTaskContinue(client, message, db, ctx.orchestrator);
+      await handleClaudiaTaskContinue(client, message, db, ctx.orchestrator, ctx.branchAllocator);
       break;
 
     case 'claudia_task_cancel':

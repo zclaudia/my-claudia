@@ -31,6 +31,9 @@ type ProbeWindow = typeof window & {
 
 const DEV_HEALTHCHECK_URL = 'http://127.0.0.1:3100/health';
 const DEV_HEALTHCHECK_RETRY_DELAYS_MS = [150, 300, 500, 750, 1000, 1500];
+const DEV_SERVER_PATH = '../../../server/dist/index.js';
+const DEV_REPO_ROOT = '../../..';
+const DEV_NATIVE_MODULE_CHECKER = '../../../scripts/check-native-modules.mjs';
 
 function sleep(ms: number): Promise<void> {
   return new Promise(resolve => window.setTimeout(resolve, ms));
@@ -46,7 +49,7 @@ import { isDesktopTauriNonWindows, isWindows as isWindowsTauri } from '../utils/
 async function resolveServerPath(): Promise<string> {
   if (import.meta.env.DEV) {
     // Tauri dev cwd is apps/desktop/src-tauri/, so we need 3 levels up
-    return '../../../server/dist/index.js';
+    return DEV_SERVER_PATH;
   }
   return await resolveResource('server/server.mjs');
 }
@@ -154,8 +157,26 @@ export function useEmbeddedServer(options?: { disabled?: boolean }): EmbeddedSer
 
       console.log(`[EmbeddedServer] DEV mode: serverPath=${serverPath}, dataDir=${dataDir}`);
 
+      // The sidecar Node version may differ from the user's current workspace
+      // install. Re-run the existing ABI self-check before loading native modules
+      // from server/dist in dev mode.
+      const nativeModuleCheck = await Command.sidecar('binaries/node', [DEV_NATIVE_MODULE_CHECKER], {
+        cwd: DEV_REPO_ROOT,
+        env: shellNetworkEnv,
+      }).execute();
+      if (nativeModuleCheck.stdout.trim()) {
+        console.log(`[EmbeddedServer] Native module check:\n${nativeModuleCheck.stdout.trim()}`);
+      }
+      if (nativeModuleCheck.stderr.trim()) {
+        console.warn(`[EmbeddedServer] Native module check stderr:\n${nativeModuleCheck.stderr.trim()}`);
+      }
+      if (nativeModuleCheck.code !== 0) {
+        throw new Error('Native module compatibility check failed. Try running `pnpm rebuild` in the workspace.');
+      }
+
       // Use sidecar to avoid env var space issues with shell execute
       const command = Command.sidecar('binaries/node', [serverPath], {
+        cwd: DEV_REPO_ROOT,
         env: {
           PORT: '3100',
           SERVER_HOST: '127.0.0.1',

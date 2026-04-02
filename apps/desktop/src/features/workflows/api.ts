@@ -5,6 +5,7 @@ import type {
   WorkflowStepRun,
   WorkflowTemplate,
   WorkflowStepTypeMeta,
+  WorkflowTriggerSourceMeta,
 } from '@my-claudia/shared';
 import { apiCall, apiCallForBackend, apiCallVoid } from '../../services/api/unwrap';
 import { useOwnershipStore } from '../../stores/ownershipStore';
@@ -56,6 +57,10 @@ export async function listWorkflowTemplates(): Promise<WorkflowTemplate[]> {
 
 export async function listWorkflowStepTypes(): Promise<WorkflowStepTypeMeta[]> {
   return apiCall<WorkflowStepTypeMeta[]>('/api/workflow-step-types');
+}
+
+export async function listTriggerSources(): Promise<WorkflowTriggerSourceMeta[]> {
+  return apiCall<WorkflowTriggerSourceMeta[]>('/api/workflow-trigger-sources');
 }
 
 export async function createWorkflowFromTemplate(projectId: string, templateId: string): Promise<Workflow> {

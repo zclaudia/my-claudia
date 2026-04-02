@@ -59,8 +59,8 @@ if [[ "$(uname)" == "Darwin" ]]; then
   export ANDROID_HOME="${ANDROID_HOME:-/opt/homebrew/share/android-commandlinetools}"
   # Prefer rustup-managed toolchain over Homebrew Rust
   export PATH="$HOME/.cargo/bin:$PATH"
-  # Ensure Node.js is available (fnm / nvm)
-  if command -v fnm >/dev/null 2>&1; then eval "$(fnm env)"; fi
+  # Ensure Node.js is available (fnm / nvm) and matches .node-version
+  if command -v fnm >/dev/null 2>&1; then eval "$(fnm env --use-on-cd)"; fnm use --silent-if-unchanged 2>/dev/null || true; fi
   if command -v nvm >/dev/null 2>&1; then nvm use 2>/dev/null || true; fi
 else
   export JAVA_HOME="${JAVA_HOME:-/usr/lib/jvm/java-17-openjdk-amd64}"

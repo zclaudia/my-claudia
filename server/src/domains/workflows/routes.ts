@@ -10,6 +10,7 @@ import type { WorkflowGeneratorService } from './generator.js';
 import { normalizeWorkflowDefinition, type WorkflowStepTypeMeta, type WorkflowDefinition, type WorkflowNodeDef } from '@my-claudia/shared';
 import { isValidCron } from '../../utils/cron.js';
 import { workflowStepRegistry } from '../../plugins/workflow-step-registry.js';
+import { workflowTriggerRegistry } from '../../plugins/workflow-trigger-registry.js';
 
 function validateWorkflowDefinition(res: Response, definition: unknown): definition is WorkflowDefinition {
   const workflowDefinition = normalizeWorkflowDefinition(definition);
@@ -400,6 +401,11 @@ export function createWorkflowRoutes(service: WorkflowService, generatorService?
         error: { code: 'GENERATION_ERROR', message: error instanceof Error ? error.message : String(error) },
       });
     }
+  });
+
+  // GET /api/workflow-trigger-sources
+  router.get('/workflow-trigger-sources', (_req: Request, res: Response) => {
+    res.json({ success: true, data: workflowTriggerRegistry.getAll() });
   });
 
   // GET /api/workflow-step-types

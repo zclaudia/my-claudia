@@ -6,6 +6,7 @@ import type {
   WorkflowTemplate,
   WorkflowDefinition,
   WorkflowStepTypeMeta,
+  WorkflowTriggerSourceMeta,
 } from '@my-claudia/shared';
 import {
   listWorkflows,
@@ -22,6 +23,7 @@ import {
   approveWorkflowStep,
   rejectWorkflowStep,
   listWorkflowStepTypes,
+  listTriggerSources,
 } from './api';
 
 const ALL_KEY = '__all__';
@@ -36,12 +38,15 @@ interface WorkflowState {
   templates: WorkflowTemplate[];
   /** Available step types (builtin + plugin) */
   stepTypes: WorkflowStepTypeMeta[];
+  /** Available trigger sources (builtin + plugin) */
+  triggerSources: WorkflowTriggerSourceMeta[];
 
   // CRUD
   loadWorkflows: (projectId: string) => Promise<void>;
   loadAllWorkflows: () => Promise<void>;
   loadTemplates: () => Promise<void>;
   loadStepTypes: () => Promise<void>;
+  loadTriggerSources: () => Promise<void>;
   createWorkflow: (projectId: string, data: { name: string; description?: string; definition: WorkflowDefinition }) => Promise<Workflow>;
   updateWorkflow: (workflowId: string, projectId: string, data: Partial<Workflow>) => Promise<void>;
   deleteWorkflow: (workflowId: string, projectId: string) => Promise<void>;
@@ -67,6 +72,7 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
   stepRuns: {},
   templates: [],
   stepTypes: [],
+  triggerSources: [],
 
   loadWorkflows: async (projectId) => {
     const workflows = await listWorkflows(projectId);
@@ -86,6 +92,11 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
   loadStepTypes: async () => {
     const stepTypes = await listWorkflowStepTypes();
     set({ stepTypes });
+  },
+
+  loadTriggerSources: async () => {
+    const triggerSources = await listTriggerSources();
+    set({ triggerSources });
   },
 
   createWorkflow: async (projectId, data) => {

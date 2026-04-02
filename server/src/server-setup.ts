@@ -33,9 +33,7 @@ import { createAgentRoutes } from './routes/agent.js';
 import { createNotificationFeedRoutes } from './domains/notification-feed/routes.js';
 import { createClaudiaRoutes } from './routes/claudia.js';
 import { handleMcpRequest, handleMcpSse, handleMcpSessionClose, getMcpServerInfo } from './mcp/mcp-server.js';
-import { createAgentTriggerRoutes } from './routes/agent-triggers.js';
 import { NotificationFeedService } from './domains/notification-feed/service.js';
-import { AgentTriggerService } from './domains/agent-triggers/service.js';
 import { createDelegationRoutes } from './routes/delegation.js';
 import { createNotificationRoutes } from './domains/notification-feed/notification-routes.js';
 import { createPluginToolsRoutes } from './routes/plugin-tools.js';
@@ -43,12 +41,14 @@ import { createPluginRoutes } from './routes/plugins.js';
 import { createMcpServerRoutes } from './routes/mcp-servers.js';
 import { createSystemStatsRoutes } from './routes/system-stats.js';
 import { createDebugRoutes } from './routes/debug.js';
+import { createSystemTaskRoutes } from './routes/system-tasks.js';
 import { registerLocalPRDomain } from './domains/local-pr/register.js';
 import { registerSupervisionDomain } from './domains/supervision/register.js';
-import { registerScheduledTaskDomain } from './domains/scheduled-tasks/register.js';
 import { createWorkspaceRoutes } from './routes/workspace.js';
 import type { LocalPRService } from './domains/local-pr/service.js';
 import { registerWorkflowDomain } from './domains/workflows/register.js';
+import { createAutomationRoutes } from './routes/automations.js';
+import { systemTaskRegistry } from './services/system-task-registry.js';
 import type { SupervisorService } from './domains/supervision/supervisor-service.js';
 import { NotificationService } from './domains/notification-feed/notification-service.js';
 import { registerInteractionTools } from './domains/conversation/interactions/interaction-tools.js';
@@ -289,20 +289,16 @@ export function setupRoutesAndServices(deps: SetupDependencies): SetupResult {
     },
   });
 
-  // Scheduled tasks domain
-  const { scheduledTaskService } = registerScheduledTaskDomain({
-    db, app, authMiddleware, clients,
-  });
-
   // Notification routes + service
   notificationService = new NotificationService(db);
   setNotificationService(notificationService);
   app.use('/api/notifications', authMiddleware, createNotificationRoutes(notificationService));
 
   // Workflow domain
-  registerWorkflowDomain({
-    db, app, authMiddleware, clients, notificationService,
+  const { workflowService } = registerWorkflowDomain({
+    db, app, authMiddleware, clients, notificationService, systemTaskRegistry,
   });
+  app.use('/api/automations', authMiddleware, createAutomationRoutes(workflowService));
 
   // Plugin routes
   app.use('/api/plugins', authMiddleware, createPluginRoutes());
@@ -365,6 +361,7 @@ export function setupRoutesAndServices(deps: SetupDependencies): SetupResult {
   // System stats + plugin storage reader (local only)
   app.use('/api/system', localOnlyMiddleware, createSystemStatsRoutes());
   app.use('/api/debug', localOnlyMiddleware, createDebugRoutes());
+  app.use('/api', authMiddleware, createSystemTaskRoutes());
 
   // Workspace routes (Agent personality configuration)
   app.use('/api/workspace', authMiddleware, createWorkspaceRoutes());
@@ -571,17 +568,6 @@ export function setupRoutesAndServices(deps: SetupDependencies): SetupResult {
   // Start orchestrator ticker (10s, agent tasks only)
   orchestrator.start(10000);
 
-  // Agent Trigger Service — bridges events and schedules to agent tasks
-  const agentTriggerService = new AgentTriggerService({
-    db,
-    orchestrator,
-    notificationService: notificationFeedService,
-    pluginEvents,
-  });
-  agentTriggerService.start();
-  app.use('/api/agent-triggers', authMiddleware, createAgentTriggerRoutes(agentTriggerService));
-  pluginLoader.agentTriggerService = agentTriggerService;
-
   // Record activity log on run completion (Layer 1 — session-level summaries)
   pluginEvents.on('run.completed', (event: any) => {
     try {
@@ -668,7 +654,6 @@ export function setupRoutesAndServices(deps: SetupDependencies): SetupResult {
     clearInterval(heartbeatInterval);
     processMonitor.stop();
     supervisorService.stop();
-    agentTriggerService.stop();
   };
 
   return {

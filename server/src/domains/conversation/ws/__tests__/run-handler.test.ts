@@ -43,15 +43,14 @@ vi.mock('../../../../plugins/skill-selector.js', () => ({
   selectSkills: selectSkillsMock,
 }));
 
-vi.mock('../../../../providers/registry.js', () => ({
-  providerRegistry: {
-    getOrDefault: vi.fn(() => ({
-      run: providerRunMock,
-      manifest: undefined,
-      getRunState: vi.fn(() => ({})),
-    })),
-  },
-}));
+const mockProviderRegistry = {
+  getOrDefault: vi.fn(() => ({
+    run: providerRunMock,
+    manifest: undefined,
+    getRunState: vi.fn(() => ({})),
+  })),
+  get: vi.fn(),
+};
 
 vi.mock('../../context/engine.js', () => ({
   createContextEngine: vi.fn(() => ({
@@ -273,6 +272,7 @@ describe('ws/run-handler', () => {
         notificationService: { notify: vi.fn() } as any,
         serverPort: null,
         broadcastHeartbeat: vi.fn(),
+        providerRegistry: mockProviderRegistry,
       },
     );
 
@@ -330,6 +330,7 @@ describe('ws/run-handler', () => {
         notificationService: { notify: vi.fn() } as any,
         serverPort: null,
         broadcastHeartbeat: vi.fn(),
+        providerRegistry: mockProviderRegistry,
       },
     );
 
@@ -378,6 +379,7 @@ describe('ws/run-handler', () => {
         notificationService: { notify: vi.fn() } as any,
         serverPort: null,
         broadcastHeartbeat: vi.fn(),
+        providerRegistry: mockProviderRegistry,
       },
     );
 
@@ -429,6 +431,7 @@ describe('ws/run-handler', () => {
         notificationService: { notify: vi.fn() } as any,
         serverPort: null,
         broadcastHeartbeat: vi.fn(),
+        providerRegistry: mockProviderRegistry,
       },
     );
 
@@ -503,6 +506,7 @@ describe('ws/run-handler', () => {
         notificationService: { notify: vi.fn() } as any,
         serverPort: null,
         broadcastHeartbeat: vi.fn(),
+        providerRegistry: mockProviderRegistry,
       },
     );
 

@@ -6,7 +6,13 @@ import { CodexAppServerAdapter } from './codex-app-server-adapter.js';
 import { CursorAdapter } from './cursor-adapter.js';
 import { KimiAdapter } from './kimi-adapter.js';
 
-class ProviderRegistry {
+/** Port interface — conversation domain depends on this, not on the concrete registry. */
+export interface ProviderRegistryPort {
+  get(type: string): ProviderAdapter | undefined;
+  getOrDefault(type: string): ProviderAdapter;
+}
+
+class ProviderRegistry implements ProviderRegistryPort {
   private adapters = new Map<string, ProviderAdapter>();
   private defaultType = 'claude';
 

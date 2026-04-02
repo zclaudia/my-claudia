@@ -4,24 +4,31 @@
  * Tabs:
  *   - Workflows: full DAG workflows (graph editor)
  *   - Automations: simple single-action automations (schedule/event + prompt/shell/webhook)
- *     Combines legacy scheduled tasks, agent triggers, and new workflow-backed simple automations.
  *   - System: internal system tasks (readonly)
  */
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Loader2, Zap, Clock, Server, RefreshCw, Play, Pause, Trash2,
-  Globe, FolderOpen, ChevronDown, ChevronRight, Plus, Pencil,
+  Globe, FolderOpen, Plus, Pencil, ChevronDown,
   CheckCircle2, XCircle,
 } from 'lucide-react';
-import type { Workflow, WorkflowTemplate, ScheduledTask, ScheduledTaskTemplate, SystemTaskInfo, TaskRun } from '@my-claudia/shared';
+import type { Workflow, WorkflowTemplate, SystemTaskInfo } from '@my-claudia/shared';
 import { isDesktopTauri } from '../../utils/platform';
 import { buildPopoutUrl, openPopoutWindow } from '../../utils/popoutWindow';
-import { useOwnershipStore } from '../../stores/ownershipStore';
+import { getAuthHeadersForBackend, getBaseUrlForBackend } from '../../services/api/base';
+import { useFacadeStore } from '../../stores/facadeStore';
+import { useServerStore } from '../../stores/serverStore';
+import {
+  resolveInitialAutomationBackendId,
+  useAutomationBackendOptions,
+  type AutomationBackendOption,
+} from './useAutomationBackendOptions';
 
 interface AutomationWindowProps {
   serverUrl: string;
   authToken: string;
+  serverId?: string;
 }
 
 type Tab = 'workflows' | 'automations' | 'system';
@@ -33,19 +40,38 @@ interface ProjectInfo {
 
 // ── HTTP API helper ──────────────────────────────────────────
 
-function useApi(serverUrl: string, authToken: string) {
+function useApi(selectedBackendId: string | null, fallbackServerUrl: string, fallbackAuthToken: string) {
   const request = useCallback(async (path: string, method = 'GET', body?: unknown): Promise<any> => {
+    let baseUrl = fallbackServerUrl;
+    let authorization = fallbackAuthToken;
+
+    if (selectedBackendId) {
+      try {
+        baseUrl = getBaseUrlForBackend(selectedBackendId);
+      } catch {
+        // Fall back to the URL passed at window creation time until facade state is ready.
+      }
+
+      try {
+        const resolvedAuth = (getAuthHeadersForBackend(selectedBackendId) as Record<string, string>)['Authorization'] || '';
+        if (resolvedAuth) authorization = resolvedAuth;
+      } catch {
+        // Same as above — keep fallback auth while the shared registry is still warming up.
+      }
+    }
+
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-    if (authToken) headers.Authorization = authToken;
+    if (authorization) headers.Authorization = authorization;
     const opts: RequestInit = { method, headers };
     if (body) opts.body = JSON.stringify(body);
-    const resp = await fetch(`${serverUrl}${path}`, opts);
+    if (!baseUrl) throw new Error('No backend connection available');
+    const resp = await fetch(`${baseUrl}${path}`, opts);
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
     if (method === 'DELETE') return;
     const json = await resp.json();
     if (!json.success) throw new Error(json.error?.message || 'Request failed');
     return json.data;
-  }, [serverUrl, authToken]);
+  }, [fallbackAuthToken, fallbackServerUrl, selectedBackendId]);
 
   return useMemo(() => ({
     get: (path: string) => request(path),
@@ -110,7 +136,6 @@ const CATEGORY_COLORS: Record<string, string> = {
 };
 
 // ── Unified Automation Item ──────────────────────────────────
-// Normalized view that can represent a legacy ScheduledTask or a simple Workflow.
 
 interface AutomationItem {
   id: string;
@@ -120,29 +145,10 @@ interface AutomationItem {
   projectId?: string;
   triggerSummary: string;
   actionSummary: string;
-  source: 'legacy-scheduled' | 'legacy-trigger' | 'workflow';
+  source: 'workflow';
   status: string;
   runCount: number;
   lastError?: string;
-}
-
-function scheduledTaskToItem(t: ScheduledTask): AutomationItem {
-  const trigger = t.scheduleType === 'cron' ? `cron: ${t.scheduleCron}`
-    : t.scheduleType === 'interval' ? `every ${t.scheduleIntervalMinutes}m`
-    : t.scheduleType;
-  return {
-    id: t.id,
-    name: t.name,
-    description: t.description,
-    enabled: t.enabled,
-    projectId: t.projectId,
-    triggerSummary: trigger,
-    actionSummary: t.actionType,
-    source: 'legacy-scheduled',
-    status: t.status,
-    runCount: t.runCount,
-    lastError: t.lastError,
-  };
 }
 
 function simpleWorkflowToItem(w: Workflow): AutomationItem {
@@ -170,12 +176,31 @@ function simpleWorkflowToItem(w: Workflow): AutomationItem {
 
 // ── Main Component ───────────────────────────────────────────
 
-export function AutomationWindow({ serverUrl, authToken }: AutomationWindowProps) {
+export function AutomationWindow({ serverUrl, authToken, serverId }: AutomationWindowProps) {
   const [tab, setTab] = useState<Tab>('automations');
-  const api = useApi(serverUrl, authToken);
+  const backendOptions = useAutomationBackendOptions();
+  const localBackendId = useFacadeStore((state) => state.localBackendId);
+  const activeServerId = useServerStore((state) => state.activeServerId);
+  const [selectedBackendId, setSelectedBackendId] = useState<string | null>(null);
+
+  useEffect(() => {
+    setSelectedBackendId((prev) => {
+      const resolved = resolveInitialAutomationBackendId({
+        preferredBackendId: prev || serverId,
+        activeServerId,
+        localBackendId,
+        options: backendOptions,
+      });
+      return resolved !== prev ? resolved : prev;
+    });
+  }, [activeServerId, backendOptions, localBackendId, serverId]);
+
+  const selectedBackend = backendOptions.find((option) => option.backendId === selectedBackendId) ?? null;
+  const api = useApi(selectedBackend?.backendId ?? null, serverUrl, authToken);
 
   const [projects, setProjects] = useState<ProjectInfo[]>([]);
   useEffect(() => {
+    setProjects([]);
     api.get('/api/projects').then(setProjects).catch(() => {});
   }, [api]);
 
@@ -191,13 +216,21 @@ export function AutomationWindow({ serverUrl, authToken }: AutomationWindowProps
     { key: 'workflows', label: 'Workflows', icon: <Clock size={14} /> },
     { key: 'system', label: 'System', icon: <Server size={14} /> },
   ];
+  const scopeKey = selectedBackendId || 'fallback';
 
   return (
     <div className="flex flex-col h-screen bg-background text-foreground">
       {/* Header */}
       <div className="flex items-center gap-3 px-4 py-3 border-b border-border bg-card/50">
         <Zap size={18} className="text-primary" />
-        <h1 className="text-sm font-semibold">Automation</h1>
+        <h1 className="text-sm font-semibold">
+          Automation{selectedBackend ? ` · ${selectedBackend.name}` : ''}
+        </h1>
+        <AutomationBackendSelector
+          options={backendOptions}
+          selectedBackendId={selectedBackendId}
+          onSelect={setSelectedBackendId}
+        />
         <div className="flex-1" />
         <div className="flex gap-1 bg-secondary/50 rounded-lg p-0.5">
           {tabs.map(t => (
@@ -219,13 +252,23 @@ export function AutomationWindow({ serverUrl, authToken }: AutomationWindowProps
       <div className="flex-1 overflow-auto p-4">
         {tab === 'automations' && (
           <AutomationsTab
+            key={`automations-${scopeKey}`}
             api={api}
             projects={projects}
             projectName={projectName}
           />
         )}
-        {tab === 'workflows' && <WorkflowsTab api={api} projects={projects} projectName={projectName} />}
-        {tab === 'system' && <SystemTasksTab api={api} />}
+        {tab === 'workflows' && (
+          <WorkflowsTab
+            key={`workflows-${scopeKey}`}
+            api={api}
+            projects={projects}
+            projectName={projectName}
+            serverUrl={serverUrl}
+            selectedBackendId={selectedBackendId}
+          />
+        )}
+        {tab === 'system' && <SystemTasksTab key={`system-${scopeKey}`} api={api} />}
       </div>
     </div>
   );
@@ -242,9 +285,7 @@ function AutomationsTab({
   projects: ProjectInfo[];
   projectName: (id?: string) => string;
 }) {
-  const [legacyTasks, setLegacyTasks] = useState<ScheduledTask[]>([]);
   const [simpleWorkflows, setSimpleWorkflows] = useState<Workflow[]>([]);
-  const [templates, setTemplates] = useState<ScheduledTaskTemplate[]>([]);
   const [loading, setLoading] = useState(true);
 
   // Create form state
@@ -262,27 +303,12 @@ function AutomationsTab({
   const [createError, setCreateError] = useState<string | null>(null);
 
   const effectiveProjectId = createProjectId || projects[0]?.id || '';
-  const selectedProject = projects.find(p => p.id === effectiveProjectId);
-  const selectedIsGlobal = selectedProject ? isInternalProject(selectedProject.name) : false;
 
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
-      // Load legacy scheduled tasks
-      const [globalTasks, projectsResp, tpls] = await Promise.all([
-        api.get('/api/scheduled-tasks/global').catch(() => []),
-        api.get('/api/projects').catch(() => []),
-        api.get('/api/scheduled-task-templates').catch(() => []),
-      ]);
-      const projectTasks = await Promise.all(
-        projectsResp.map((p: { id: string }) => api.get(`/api/projects/${p.id}/scheduled-tasks`).catch(() => []))
-      );
-      setLegacyTasks([...globalTasks, ...projectTasks.flat()]);
-      setTemplates(tpls);
-
-      // Load simple workflow-backed automations
       const allWorkflows: Workflow[] = await api.get('/api/automations').catch(() => []);
-      setSimpleWorkflows(allWorkflows.filter(w => w.authoringMode === 'simple'));
+      setSimpleWorkflows(allWorkflows);
     } catch { /* ignore */ }
     setLoading(false);
   }, [api]);
@@ -291,12 +317,10 @@ function AutomationsTab({
 
   // Build unified list
   const items: AutomationItem[] = useMemo(() => {
-    const fromLegacy = legacyTasks.map(scheduledTaskToItem);
-    const fromWorkflow = simpleWorkflows.map(simpleWorkflowToItem);
-    return [...fromWorkflow, ...fromLegacy].sort((a, b) =>
+    return simpleWorkflows.map(simpleWorkflowToItem).sort((a, b) =>
       (b.enabled ? 1 : 0) - (a.enabled ? 1 : 0)
     );
-  }, [legacyTasks, simpleWorkflows]);
+  }, [simpleWorkflows]);
 
   // ── Handlers ──
 
@@ -343,34 +367,17 @@ function AutomationsTab({
   };
 
   const handleToggle = async (item: AutomationItem) => {
-    if (item.source === 'legacy-scheduled') {
-      await api.patch(`/api/scheduled-tasks/${item.id}`, { enabled: !item.enabled }).catch(() => {});
-    } else {
-      await api.patch(`/api/workflows/${item.id}`, { status: item.enabled ? 'disabled' : 'active' }).catch(() => {});
-    }
+    await api.patch(`/api/workflows/${item.id}`, { status: item.enabled ? 'disabled' : 'active' }).catch(() => {});
     refresh();
   };
 
   const handleTriggerNow = async (item: AutomationItem) => {
-    if (item.source === 'legacy-scheduled') {
-      await api.post(`/api/scheduled-tasks/${item.id}/trigger`).catch(() => {});
-    } else {
-      await api.post(`/api/automations/${item.id}/trigger`).catch(() => {});
-    }
+    await api.post(`/api/automations/${item.id}/trigger`).catch(() => {});
     refresh();
   };
 
   const handleDelete = async (item: AutomationItem) => {
-    if (item.source === 'legacy-scheduled') {
-      await api.del(`/api/scheduled-tasks/${item.id}`).catch(() => {});
-    } else {
-      await api.del(`/api/workflows/${item.id}`).catch(() => {});
-    }
-    refresh();
-  };
-
-  const handleEnableTemplate = async (templateId: string, projectId: string) => {
-    await api.post(`/api/projects/${projectId}/scheduled-tasks/from-template/${templateId}`).catch(() => {});
+    await api.del(`/api/workflows/${item.id}`).catch(() => {});
     refresh();
   };
 
@@ -387,7 +394,7 @@ function AutomationsTab({
           {items.length} automation{items.length !== 1 ? 's' : ''}
         </h2>
         <div className="flex items-center gap-1.5">
-          {projects.length > 1 && (
+          {projects.length > 0 && (
             <select
               value={effectiveProjectId}
               onChange={(e) => setCreateProjectId(e.target.value)}
@@ -483,44 +490,6 @@ function AutomationsTab({
         </div>
       )}
 
-      {/* Quick Start Templates */}
-      {templates.length > 0 && !selectedIsGlobal && (
-        <div>
-          <h3 className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider mb-2">Quick Start</h3>
-          <div className="grid grid-cols-2 gap-2">
-            {templates.map(t => {
-              const enabled = legacyTasks.some(task => task.templateId === t.id);
-              return (
-                <div key={t.id} className="rounded-lg border border-border bg-card p-3 flex flex-col gap-2">
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0">
-                      <div className="text-xs font-medium">{t.name}</div>
-                      {t.description && <div className="text-[10px] text-muted-foreground mt-0.5 line-clamp-2">{t.description}</div>}
-                    </div>
-                    {t.category && (
-                      <span className={`px-1.5 py-0.5 rounded text-[9px] font-medium shrink-0 ${CATEGORY_COLORS[t.category] ?? 'bg-muted text-muted-foreground'}`}>
-                        {t.category}
-                      </span>
-                    )}
-                  </div>
-                  {effectiveProjectId && (
-                    <button
-                      onClick={() => handleEnableTemplate(t.id, effectiveProjectId)}
-                      disabled={enabled}
-                      className={`self-start text-[10px] px-2 py-0.5 rounded transition-colors ${
-                        enabled ? 'bg-success/15 text-success' : 'bg-primary/10 text-primary hover:bg-primary/20'
-                      }`}
-                    >
-                      {enabled ? 'Enabled' : 'Enable'}
-                    </button>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
       {/* Enabled Automations */}
       {enabledItems.length > 0 && (
         <div>
@@ -569,9 +538,6 @@ function AutomationCard({ item, projectName, onToggle, onTrigger, onDelete }: {
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
           <span className="text-sm font-medium truncate">{item.name}</span>
-          {item.source === 'legacy-scheduled' && (
-            <span className="text-[8px] text-muted-foreground/50 bg-muted/40 px-1 py-0.5 rounded">legacy</span>
-          )}
         </div>
         <div className="flex items-center gap-2 text-[11px] text-muted-foreground mt-0.5">
           <span className="flex items-center gap-1">
@@ -605,8 +571,8 @@ function AutomationCard({ item, projectName, onToggle, onTrigger, onDelete }: {
 
 // ── Workflows Tab ────────────────────────────────────────────
 
-function WorkflowsTab({ api, projects, projectName }: {
-  api: ApiType; projects: ProjectInfo[]; projectName: (id?: string) => string;
+function WorkflowsTab({ api, projects, projectName, serverUrl, selectedBackendId }: {
+  api: ApiType; projects: ProjectInfo[]; projectName: (id?: string) => string; serverUrl: string; selectedBackendId: string | null;
 }) {
   const [workflows, setWorkflows] = useState<Workflow[]>([]);
   const [templates, setTemplates] = useState<WorkflowTemplate[]>([]);
@@ -653,29 +619,31 @@ function WorkflowsTab({ api, projects, projectName }: {
     const name = `New Workflow ${new Date().toLocaleTimeString()}`;
     await api.post(`/api/projects/${effectiveProjectId}/workflows`, {
       name,
-      definition: { steps: [], triggers: [{ type: 'manual' }] },
+      definition: { nodes: [], edges: [], entryNodeId: '', triggers: [{ type: 'manual' }] },
     }).catch(() => {});
     refresh();
   };
 
   const handleEdit = (w: Workflow) => {
-    const backendId = useOwnershipStore.getState().getProjectBackendId(w.projectId);
-    const params = new URLSearchParams({
-      workflowEditor: w.projectId || '__global__',
+    // Include serverUrl as fallback for standalone windows where stores are empty
+    const params: Record<string, string> = {
+      // Use workflow's own project; fall back to selected project so editor has a real project for AI generation
+      workflowEditor: w.projectId || effectiveProjectId,
       workflowId: w.id,
-    });
+      ...(serverUrl ? { serverUrl } : {}),
+    };
     if (isDesktopTauri()) {
       void openPopoutWindow({
         type: 'workflow-editor',
-        params: Object.fromEntries(params.entries()),
+        params,
         title: `Edit: ${w.name}`,
         width: 1200,
         height: 800,
-        connectionTarget: { backendId },
+        connectionTarget: { backendId: selectedBackendId },
       });
       return;
     }
-    window.open(buildPopoutUrl(Object.fromEntries(params.entries()), { backendId }), '_blank', 'width=1200,height=800');
+    window.open(buildPopoutUrl(params, { backendId: selectedBackendId }), '_blank', 'width=1200,height=800');
   };
 
   if (loading) return <LoadingState />;
@@ -686,7 +654,7 @@ function WorkflowsTab({ api, projects, projectName }: {
       <div className="flex items-center justify-between">
         <h2 className="text-sm font-medium text-muted-foreground">{workflows.length} workflow{workflows.length !== 1 ? 's' : ''}</h2>
         <div className="flex items-center gap-1.5">
-          {projects.length > 1 && (
+          {projects.length > 0 && (
             <select
               value={effectiveProjectId}
               onChange={(e) => setCreateProjectId(e.target.value)}
@@ -795,7 +763,6 @@ function WorkflowsTab({ api, projects, projectName }: {
 function SystemTasksTab({ api }: { api: ApiType }) {
   const [tasks, setTasks] = useState<SystemTaskInfo[]>([]);
   const [loading, setLoading] = useState(true);
-  const [expandedId, setExpandedId] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -820,13 +787,7 @@ function SystemTasksTab({ api }: { api: ApiType }) {
       ) : (
         <div className="space-y-1.5">
           {tasks.map(t => (
-            <SystemTaskCard
-              key={t.id}
-              task={t}
-              api={api}
-              expanded={expandedId === t.id}
-              onToggleExpand={() => setExpandedId(prev => prev === t.id ? null : t.id)}
-            />
+            <SystemTaskCard key={t.id} task={t} />
           ))}
         </div>
       )}
@@ -834,26 +795,12 @@ function SystemTasksTab({ api }: { api: ApiType }) {
   );
 }
 
-function SystemTaskCard({ task, api, expanded, onToggleExpand }: {
+function SystemTaskCard({ task }: {
   task: SystemTaskInfo;
-  api: ApiType;
-  expanded: boolean;
-  onToggleExpand: () => void;
 }) {
-  const [runs, setRuns] = useState<TaskRun[]>([]);
-
-  useEffect(() => {
-    if (expanded) {
-      api.get(`/api/task-runs?taskId=${encodeURIComponent(task.id)}&limit=10`).then(setRuns).catch(() => {});
-    }
-  }, [expanded, api, task.id]);
-
   return (
     <div className="rounded-lg border border-border bg-card">
       <div className="flex items-center gap-3 px-3 py-2.5">
-        <button onClick={onToggleExpand} className="shrink-0 text-muted-foreground hover:text-foreground p-0.5">
-          {expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-        </button>
         <div className="shrink-0">
           {task.status === 'running' ? (
             <Loader2 size={14} className="text-primary animate-spin" />
@@ -885,19 +832,6 @@ function SystemTaskCard({ task, api, expanded, onToggleExpand }: {
         </div>
         <span className="text-[9px] text-muted-foreground/60 bg-muted/40 px-1.5 py-0.5 rounded shrink-0">System</span>
       </div>
-      {expanded && runs.length > 0 && (
-        <div className="px-3 pb-3 space-y-1">
-          {runs.map(r => (
-            <div key={r.id} className="flex items-center justify-between text-[10px] text-muted-foreground py-0.5">
-              <span className={r.status === 'failed' ? 'text-destructive' : r.status === 'completed' ? 'text-success' : ''}>
-                {r.status}
-              </span>
-              <span>{r.durationMs ? `${r.durationMs}ms` : '-'}</span>
-              <span>{new Date(r.startedAt).toLocaleTimeString()}</span>
-            </div>
-          ))}
-        </div>
-      )}
     </div>
   );
 }
@@ -918,6 +852,79 @@ function EmptyState({ message, subtitle }: { message: string; subtitle?: string 
       <Zap size={24} className="mb-2 opacity-40" />
       <p className="text-sm">{message}</p>
       {subtitle && <p className="text-xs mt-1 opacity-60">{subtitle}</p>}
+    </div>
+  );
+}
+
+function AutomationBackendSelector({
+  options,
+  selectedBackendId,
+  onSelect,
+}: {
+  options: AutomationBackendOption[];
+  selectedBackendId: string | null;
+  onSelect: (backendId: string) => void;
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+  const selected = options.find((option) => option.backendId === selectedBackendId) ?? options[0] ?? null;
+
+  if (!selected) return null;
+
+  const getStatusColor = (option: AutomationBackendOption) => {
+    switch (option.status) {
+      case 'connected':
+        return 'bg-success';
+      case 'connecting':
+        return 'bg-warning animate-pulse';
+      case 'error':
+        return 'bg-destructive';
+      default:
+        return 'bg-muted-foreground';
+    }
+  };
+
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        onClick={() => setIsOpen((open) => !open)}
+        className="flex items-center gap-2 rounded-full bg-secondary px-3 py-1.5 text-sm hover:bg-muted transition-colors"
+        data-testid="automation-backend-selector"
+      >
+        <span className={`h-2.5 w-2.5 rounded-full ${getStatusColor(selected)}`} />
+        <span className="max-w-[180px] truncate">{selected.name}</span>
+        <ChevronDown className={`h-4 w-4 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+      </button>
+
+      {isOpen && (
+        <>
+          <div className="absolute left-0 top-full z-[70] mt-2 w-72 rounded-xl border border-border bg-card p-1 shadow-xl">
+            {options.map((option) => (
+              <button
+                key={option.backendId}
+                type="button"
+                onClick={() => {
+                  onSelect(option.backendId);
+                  setIsOpen(false);
+                }}
+                className={`flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left transition-colors ${
+                  option.backendId === selected.backendId ? 'bg-secondary' : 'hover:bg-secondary/60'
+                }`}
+              >
+                <span className={`h-2.5 w-2.5 rounded-full shrink-0 ${getStatusColor(option)}`} />
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-sm font-medium">{option.name}</div>
+                  <div className="text-[11px] text-muted-foreground">
+                    {option.isLocal ? 'Local' : 'Remote'}
+                    {option.latencyMs != null ? ` · ${option.latencyMs}ms` : ''}
+                  </div>
+                </div>
+              </button>
+            ))}
+          </div>
+          <div className="fixed inset-0 z-[65]" onClick={() => setIsOpen(false)} />
+        </>
+      )}
     </div>
   );
 }

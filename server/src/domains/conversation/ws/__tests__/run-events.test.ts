@@ -12,17 +12,16 @@ vi.mock('../run-lifecycle.js', () => ({
   upsertAssistantMessage: upsertAssistantMessageMock,
 }));
 
-vi.mock('../../../../providers/registry.js', () => ({
-  providerRegistry: {
-    get: vi.fn(() => ({
-      getCliPid: vi.fn(() => 111),
-      getTaskProcessInfo: vi.fn(() => ({
-        command: 'sleep 30',
-        rootPid: undefined,
-      })),
+const mockProviderRegistry = {
+  get: vi.fn(() => ({
+    getCliPid: vi.fn(() => 111),
+    getTaskProcessInfo: vi.fn(() => ({
+      command: 'sleep 30',
+      rootPid: undefined,
     })),
-  },
-}));
+  })),
+  getOrDefault: vi.fn(),
+};
 
 vi.mock('../../../../events/index.js', () => ({
   pluginEvents: {
@@ -94,6 +93,7 @@ describe('ws/run-events', () => {
       sessionType: 'regular',
       state,
       toolUseIdToName: new Map(),
+      providerRegistry: mockProviderRegistry as any,
     });
 
     expect(persistSessionWorkingDirectoryMock).toHaveBeenCalledWith('/tmp/project');
@@ -154,6 +154,7 @@ describe('ws/run-events', () => {
       sessionType: 'background',
       state: {},
       toolUseIdToName: new Map(),
+      providerRegistry: mockProviderRegistry as any,
     });
 
     expect(activeRun.fullContent).toBe('done');
@@ -225,6 +226,7 @@ describe('ws/run-events', () => {
       sessionType: 'regular',
       state: {},
       toolUseIdToName: new Map(),
+      providerRegistry: mockProviderRegistry as any,
     });
 
     expect(broadcastHeartbeatMock).toHaveBeenCalledTimes(1);
@@ -271,6 +273,7 @@ describe('ws/run-events', () => {
       sessionType: 'regular',
       state: {},
       toolUseIdToName: new Map(),
+      providerRegistry: mockProviderRegistry as any,
     });
 
     expect(upsertAssistantMessageMock).toHaveBeenCalledWith(activeRun, { indexMetadata: true });
@@ -329,6 +332,7 @@ describe('ws/run-events', () => {
       sessionType: 'background',
       state: {},
       toolUseIdToName: new Map(),
+      providerRegistry: mockProviderRegistry as any,
     });
 
     await vi.runAllTimersAsync();

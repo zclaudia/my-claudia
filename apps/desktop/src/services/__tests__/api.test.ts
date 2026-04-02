@@ -60,13 +60,6 @@ import {
   closeLocalPR,
   reviewLocalPR,
   mergeLocalPR,
-  listScheduledTasks,
-  createScheduledTask,
-  updateScheduledTask,
-  deleteScheduledTask,
-  triggerScheduledTask,
-  listScheduledTaskTemplates,
-  enableTemplateTask,
   listWorkflows,
   createWorkflow,
   updateWorkflow,
@@ -121,8 +114,6 @@ import {
   listWorkflowTemplates,
   listWorkflowStepTypes,
   createWorkflowFromTemplate,
-  // Scheduled tasks
-  listGlobalScheduledTasks,
 } from '../api';
 import { useServerStore } from '../../stores/serverStore';
 
@@ -862,53 +853,6 @@ describe('api', () => {
     });
   });
 
-  describe('Scheduled Tasks API', () => {
-    it('listScheduledTasks', async () => {
-      mockResponse([{ id: 'st1' }]);
-      const result = await listScheduledTasks('p1');
-      expect(result).toHaveLength(1);
-    });
-
-    it('createScheduledTask', async () => {
-      mockResponse({ id: 'st1' });
-      const result = await createScheduledTask('p1', { name: 'Task' } as any);
-      expect(result.id).toBe('st1');
-    });
-
-    it('updateScheduledTask', async () => {
-      mockResponse({ id: 'st1' });
-      const result = await updateScheduledTask('st1', { name: 'Updated' } as any);
-      expect(result.id).toBe('st1');
-    });
-
-    it('deleteScheduledTask', async () => {
-      mockResponse(undefined);
-      await deleteScheduledTask('st1');
-      expect(mockFetch).toHaveBeenCalledWith(
-        expect.stringContaining('/api/scheduled-tasks/st1'),
-        expect.objectContaining({ method: 'DELETE' })
-      );
-    });
-
-    it('triggerScheduledTask', async () => {
-      mockResponse({ id: 'st1' });
-      const result = await triggerScheduledTask('st1');
-      expect(result.id).toBe('st1');
-    });
-
-    it('listScheduledTaskTemplates', async () => {
-      mockResponse([{ id: 'tpl1' }]);
-      const result = await listScheduledTaskTemplates();
-      expect(result).toHaveLength(1);
-    });
-
-    it('enableTemplateTask', async () => {
-      mockResponse({ id: 'st1' });
-      const result = await enableTemplateTask('p1', 'tpl1');
-      expect(result.id).toBe('st1');
-    });
-  });
-
   describe('Workflows API', () => {
     it('listWorkflows', async () => {
       mockResponse([{ id: 'w1' }]);
@@ -1355,19 +1299,6 @@ describe('api', () => {
       expect(result).toEqual(config);
     });
 
-    it('listGlobalScheduledTasks returns tasks', async () => {
-      const tasks = [{ id: 'st1', name: 'Daily task' }];
-      mockResponse(tasks);
-      const result = await listGlobalScheduledTasks();
-      expect(result).toEqual(tasks);
-    });
-
-    it('enableTemplateTask enables template', async () => {
-      const task = { id: 'st1', enabled: true };
-      mockResponse(task);
-      const result = await enableTemplateTask('p1', 'tmpl1');
-      expect(result).toEqual(task);
-    });
   });
 
   describe('fetchLocalApi', () => {

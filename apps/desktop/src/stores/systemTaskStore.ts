@@ -1,13 +1,11 @@
 import { create } from 'zustand';
-import type { SystemTaskInfo, TaskRun } from '@my-claudia/shared';
-import { listSystemTasks, listTaskRuns } from '../services/api';
+import type { SystemTaskInfo } from '@my-claudia/shared';
+import { fetchLocalApi } from '../services/api';
 
 interface SystemTaskState {
   tasks: SystemTaskInfo[];
-  taskRuns: Record<string, TaskRun[]>; // taskId → runs
 
   loadTasks: () => Promise<void>;
-  loadTaskRuns: (taskId: string) => Promise<void>;
 
   // Called from WebSocket handler
   updateTask: (task: SystemTaskInfo) => void;
@@ -15,16 +13,10 @@ interface SystemTaskState {
 
 export const useSystemTaskStore = create<SystemTaskState>((set) => ({
   tasks: [],
-  taskRuns: {},
 
   loadTasks: async () => {
-    const tasks = await listSystemTasks();
-    set({ tasks });
-  },
-
-  loadTaskRuns: async (taskId) => {
-    const runs = await listTaskRuns(taskId);
-    set((state) => ({ taskRuns: { ...state.taskRuns, [taskId]: runs } }));
+    const res = await fetchLocalApi<SystemTaskInfo[]>('/api/system-tasks');
+    if (res.success) set({ tasks: res.data });
   },
 
   updateTask: (task) =>

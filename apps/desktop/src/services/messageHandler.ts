@@ -16,7 +16,6 @@ import { usePermissionStore } from '../stores/permissionStore';
 import { usePromptRequestStore } from '../stores/promptRequestStore';
 import { handleLocalPRMessage } from '../features/local-pr/handlers';
 import { handleWorkflowMessage } from '../features/workflows/handlers';
-import { handleScheduledTaskMessage } from '../features/scheduled-tasks/handlers';
 import { handleSupervisionMessage } from '../features/supervision/handlers';
 import { useSystemTaskStore } from '../stores/systemTaskStore';
 import { useInteractionStore } from '../stores/interactionStore';
@@ -659,11 +658,6 @@ export function handleServerMessage(
     case 'local_pr_update':
     case 'local_pr_deleted':
       handleLocalPRMessage(msg);
-      break;
-
-    case 'scheduled_task_update':
-    case 'scheduled_task_deleted':
-      handleScheduledTaskMessage(msg);
       break;
 
     case 'system_task_update': {

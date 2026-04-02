@@ -1,8 +1,10 @@
 // @vitest-environment jsdom
 
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AutomationWindow } from '../AutomationWindow';
+import { useFacadeStore } from '../../../stores/facadeStore';
+import { useServerStore } from '../../../stores/serverStore';
 
 const mockFetch = vi.fn();
 vi.stubGlobal('fetch', mockFetch);
@@ -20,24 +22,30 @@ describe('AutomationWindow', () => {
   });
 
   beforeEach(() => {
+    useFacadeStore.setState({
+      backends: [],
+      localBackendId: null,
+      connectionState: 'connected',
+      currentInstanceId: null,
+      currentDeviceId: null,
+      mode: 'embedded',
+      sessionStreams: {},
+      registryRevision: 0,
+      snapshotVersion: 0,
+    });
+    useServerStore.setState({
+      activeServerId: null,
+      connections: {},
+      localServerPort: 3100,
+      controlPlaneMode: 'embedded-local',
+      controlPlaneState: 'ready',
+    } as any);
     mockFetch.mockReset();
     mockFetch.mockImplementation(async (input: RequestInfo | URL) => {
       const url = String(input);
 
       if (url.endsWith('/api/projects')) {
         return ok([{ id: 'p1', name: 'Project 1' }]);
-      }
-
-      if (url.endsWith('/api/scheduled-tasks/global')) {
-        return ok([]);
-      }
-
-      if (url.endsWith('/api/projects/p1/scheduled-tasks')) {
-        return ok([]);
-      }
-
-      if (url.endsWith('/api/scheduled-task-templates')) {
-        return ok([{ id: 'tpl1', name: 'Template 1' }]);
       }
 
       if (url.endsWith('/api/automations')) {
@@ -64,14 +72,10 @@ describe('AutomationWindow', () => {
 
     await waitFor(() => {
       expect(screen.getByText('Build')).toBeTruthy();
-      expect(screen.getByText('Template 1')).toBeTruthy();
     });
 
     const automationCalls = mockFetch.mock.calls.filter(([input]) => String(input).endsWith('/api/automations'));
-    const templateCalls = mockFetch.mock.calls.filter(([input]) => String(input).endsWith('/api/scheduled-task-templates'));
-
     expect(automationCalls).toHaveLength(1);
-    expect(templateCalls).toHaveLength(1);
   });
 
   it('sends onceAt when creating a one-time automation', async () => {
@@ -79,9 +83,6 @@ describe('AutomationWindow', () => {
       const url = String(input);
 
       if (url.endsWith('/api/projects')) return ok([{ id: 'p1', name: 'Project 1' }]);
-      if (url.endsWith('/api/scheduled-tasks/global')) return ok([]);
-      if (url.endsWith('/api/projects/p1/scheduled-tasks')) return ok([]);
-      if (url.endsWith('/api/scheduled-task-templates')) return ok([]);
       if (url.endsWith('/api/automations') && init?.method === 'POST') return ok({ id: 'created' });
       if (url.endsWith('/api/automations')) return ok([]);
 
@@ -98,7 +99,9 @@ describe('AutomationWindow', () => {
     fireEvent.change(screen.getByPlaceholderText('Automation name'), { target: { value: 'One shot' } });
 
     const selects = screen.getAllByRole('combobox');
-    fireEvent.change(selects[0], { target: { value: 'once' } });
+    const triggerSelect = selects.find((select) => within(select).queryByRole('option', { name: 'Once' }));
+    expect(triggerSelect).toBeTruthy();
+    fireEvent.change(triggerSelect as HTMLSelectElement, { target: { value: 'once' } });
     const onceInput = document.querySelector('input[type="datetime-local"]');
     expect(onceInput).not.toBeNull();
     fireEvent.change(onceInput as HTMLInputElement, { target: { value: '2026-03-25T09:30' } });

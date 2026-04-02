@@ -2,10 +2,9 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, fireEvent } from '@testing-library/react';
 import { DashboardHome } from '../DashboardHome';
 import { useProjectStore } from '../../../stores/projectStore';
-import { useSupervisionStore } from '../../../stores/supervisionStore';
-import { useLocalPRStore } from '../../../stores/localPRStore';
-import { useScheduledTaskStore } from '../../../stores/scheduledTaskStore';
-import { useWorkflowStore } from '../../../stores/workflowStore';
+import { useSupervisionStore } from '../../../features/supervision/store';
+import { useLocalPRStore } from '../../../features/local-pr/store';
+import { useWorkflowStore } from '../../../features/workflows/store';
 
 describe('DashboardHome', () => {
   const projectId = 'p1';
@@ -18,7 +17,6 @@ describe('DashboardHome', () => {
     } as any);
     useSupervisionStore.setState({ tasks: {}, agents: {}, lastCheckpoint: {} });
     useLocalPRStore.setState({ prs: {}, loadPRs: vi.fn().mockResolvedValue(undefined) } as any);
-    useScheduledTaskStore.setState({ tasks: {}, loadTasks: vi.fn().mockResolvedValue(undefined) } as any);
     useWorkflowStore.setState({ workflows: {}, runs: {}, loadWorkflows: vi.fn().mockResolvedValue(undefined) } as any);
   });
 
@@ -36,7 +34,6 @@ describe('DashboardHome', () => {
     expect(container.textContent).toContain('Supervisor');
     expect(container.textContent).toContain('Tasks');
     expect(container.textContent).toContain('Local Pull Requests');
-    expect(container.textContent).toContain('Scheduled');
     expect(container.textContent).toContain('Workflows');
   });
 
@@ -84,9 +81,7 @@ describe('DashboardHome', () => {
       <DashboardHome projectId={projectId} onNavigate={onNavigate} />,
     );
     const buttons = container.querySelectorAll('button');
-    const tasksBtn = Array.from(buttons).find(
-      (b) => b.textContent?.includes('Tasks') && !b.textContent?.includes('Scheduled'),
-    );
+    const tasksBtn = Array.from(buttons).find((b) => b.textContent?.includes('Tasks'));
     fireEvent.click(tasksBtn!);
     expect(onNavigate).toHaveBeenCalledWith('tasks');
   });

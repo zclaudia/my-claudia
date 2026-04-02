@@ -14,8 +14,8 @@ fi
 # Prefer rustup-managed toolchain over Homebrew Rust
 export PATH="$HOME/.cargo/bin:$PATH"
 
-# Ensure Node.js is available (fnm / nvm)
-if command -v fnm >/dev/null 2>&1; then eval "$(fnm env)"; fi
+# Ensure Node.js is available (fnm / nvm) and matches .node-version
+if command -v fnm >/dev/null 2>&1; then eval "$(fnm env --use-on-cd)"; fnm use --silent-if-unchanged 2>/dev/null || true; fi
 if command -v nvm >/dev/null 2>&1; then nvm use 2>/dev/null || true; fi
 
 # Load .env if present (for TAURI_SIGNING_PRIVATE_KEY_PATH, etc.)
@@ -155,6 +155,33 @@ sign_updater_artifact() {
   return 1
 }
 
+verify_release_bundle() {
+  local app_bundle="$1"
+  local resources_dir="$app_bundle/Contents/Resources"
+  local bundled_server="$resources_dir/server/server.mjs"
+
+  echo "=== Verifying release bundle ==="
+
+  if [ ! -d "$app_bundle" ]; then
+    echo "ERROR: App bundle not found: $app_bundle"
+    exit 1
+  fi
+
+  if [ ! -f "$bundled_server" ]; then
+    echo "ERROR: Bundled server entry missing: $bundled_server"
+    exit 1
+  fi
+
+  if rg -n --hidden --no-ignore "server/dist/index.js" "$resources_dir" >/dev/null 2>&1; then
+    echo "ERROR: Release bundle still references dev server path: server/dist/index.js"
+    rg -n --hidden --no-ignore "server/dist/index.js" "$resources_dir" || true
+    exit 1
+  fi
+
+  echo "Release bundle verified"
+  echo ""
+}
+
 # Release target: prefer the repository that triggered the GitHub Actions run.
 # Fallback to a git remote only for local/manual releases.
 RELEASE_REMOTE="${RELEASE_REMOTE:-origin}"
@@ -176,13 +203,17 @@ if [ -n "${RELEASE_VERSION:-}" ] && [ -n "${RELEASE_BUILD:-}" ]; then
   VERSION="$RELEASE_VERSION"
   BUILD="$RELEASE_BUILD"
   VERSION_CODE="${RELEASE_VERSION_CODE:-0}"
-  MAJOR=$(echo "$VERSION" | cut -d. -f1)
-  MINOR=$(echo "$VERSION" | cut -d. -f2)
   echo "Using CI-provided version: $VERSION (build $BUILD)"
 else
   echo "Local build → deriving dev version from latest release tag"
   eval "$(./scripts/version-bump.sh --platform macos --dev-suffix)"
 fi
+
+# Derive major/minor from VERSION for both CI and local dev builds.
+VERSION_CORE="$(echo "$VERSION" | sed 's/^v//; s/-.*//')"
+MAJOR="$(echo "$VERSION_CORE" | cut -d. -f1)"
+MINOR="$(echo "$VERSION_CORE" | cut -d. -f2)"
+
 export UPDATES_ENABLED="${UPDATES_ENABLED:-${RELEASE_VERSION:+true}}"
 if [ -z "${RELEASE_VERSION:-}" ] || [ -z "${RELEASE_BUILD:-}" ]; then
   export UPDATES_ENABLED="${UPDATES_ENABLED:-false}"
@@ -206,6 +237,12 @@ echo ""
 # --- Server bundle ---
 echo "=== Building server bundle ==="
 export APP_VERSION="$VERSION"
+
+# Clean release outputs first so Tauri cannot package stale frontend or app artifacts.
+echo "=== Cleaning release outputs ==="
+rm -rf apps/desktop/dist
+rm -rf apps/desktop/src-tauri/target/release
+
 pnpm -r run build
 pnpm --filter @my-claudia/server run bundle
 echo ""
@@ -276,6 +313,8 @@ pnpm --filter @my-claudia/desktop exec tauri build --bundles app,updater --confi
 }
 rm -f "$TAURI_CONFIG_FILE"
 echo ""
+
+verify_release_bundle "$BUNDLE_DIR/macos/MyClaudia.app"
 
 # --- Re-sign native modules and node sidecar ---
 # Tauri signs the node sidecar with hardened runtime, but self-signed certificates

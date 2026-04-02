@@ -7,7 +7,7 @@ import type { ConnectedClient, ActiveRun } from '../types.js';
 import type { ProcessMonitor } from '../../../../utils/process-monitor.js';
 import type { initDatabase } from '../../../../storage/db.js';
 import { isProcessAlive, killProcessTree } from '../../../../utils/process-tree.js';
-import { providerRegistry } from '../../../../providers/registry.js';
+import type { ProviderRegistryPort } from '../../../../providers/registry.js';
 import { sendMessage } from '../broadcast.js';
 
 export async function handleKillLeakedProcesses(
@@ -31,6 +31,7 @@ export async function handleStopBackgroundTask(
   db: ReturnType<typeof initDatabase>,
   activeRuns: Map<string, ActiveRun>,
   findProcessPidsByTaskCommand: (taskCommand?: string, excludedPids?: number[]) => Promise<number[]>,
+  providerRegistry: ProviderRegistryPort,
 ): Promise<void> {
   const { sessionId: targetSessionId, taskId, taskRootPid, cliPid, taskCommand } = message;
 

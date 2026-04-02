@@ -880,13 +880,23 @@ function App() {
   if (params.get('automationWindow')) {
     const serverUrl = params.get('serverUrl') || '';
     const authToken = params.get('authToken') || '';
+    const serverId = params.get('serverId') || undefined;
+    const gatewayUrl = params.get('gatewayUrl') || undefined;
+    const gatewaySecret = params.get('gatewaySecret') || undefined;
     return (
       <ThemeProvider defaultTheme="dark-neutral">
         <ErrorBoundary label="Automation">
-          <Suspense fallback={<LazyFallback />}>
-          <AutomationWindow serverUrl={serverUrl} authToken={authToken} />
-        </Suspense>
-          </ErrorBoundary>
+          <ConnectionProvider
+            standaloneServerUrl={serverUrl}
+            standaloneServerId={serverId}
+            standaloneGatewayUrl={gatewayUrl}
+            standaloneGatewaySecret={gatewaySecret}
+          >
+            <Suspense fallback={<LazyFallback />}>
+              <AutomationWindow serverUrl={serverUrl} authToken={authToken} serverId={serverId} />
+            </Suspense>
+          </ConnectionProvider>
+        </ErrorBoundary>
       </ThemeProvider>
     );
   }

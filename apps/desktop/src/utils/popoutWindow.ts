@@ -54,7 +54,12 @@ export function getConnectionParams(options?: ConnectionTargetOptions): Connecti
 /** Build a pop-out window URL with connection params + custom params. */
 export function buildPopoutUrl(windowParams: Record<string, string>, options?: ConnectionTargetOptions): string {
   const conn = getConnectionParams(options);
-  const params = new URLSearchParams({ ...windowParams, serverUrl: conn.serverUrl });
+  // Prefer resolved serverUrl; fall back to caller-provided serverUrl if resolution failed
+  const resolvedServerUrl = conn.serverUrl || windowParams.serverUrl || '';
+  if (!resolvedServerUrl) {
+    console.warn('[popoutWindow] No serverUrl resolved — pop-out window may not be able to connect to a backend.');
+  }
+  const params = new URLSearchParams({ ...windowParams, serverUrl: resolvedServerUrl });
   if (conn.authToken) params.set('authToken', conn.authToken);
   if (conn.serverId) params.set('serverId', conn.serverId);
   if (conn.serverName) params.set('serverName', conn.serverName);

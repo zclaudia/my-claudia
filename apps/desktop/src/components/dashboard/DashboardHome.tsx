@@ -1,9 +1,8 @@
 import { useEffect } from 'react';
-import { Bot, ClipboardList, GitPullRequest, Calendar, Workflow, ChevronRight } from 'lucide-react';
+import { Bot, ClipboardList, GitPullRequest, Workflow, ChevronRight, Zap } from 'lucide-react';
 import { useProjectStore } from '../../stores/projectStore';
 import { useSupervisionStore } from '../../features/supervision/store';
 import { useLocalPRStore } from '../../features/local-pr/store';
-import { useScheduledTaskStore } from '../../features/scheduled-tasks/store';
 import { useWorkflowStore } from '../../features/workflows/store';
 import type { DashboardView } from './ProjectDashboard';
 
@@ -11,6 +10,7 @@ interface DashboardHomeProps {
   projectId: string;
   projectRootPath?: string;
   onNavigate: (view: DashboardView) => void;
+  onOpenAutomations?: () => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -53,16 +53,6 @@ function StatusBadge({ status, colors }: { status: string; colors: Record<string
   );
 }
 
-function formatRelativeTime(ts: number): string {
-  const diff = ts - Date.now();
-  if (diff < 0) return 'overdue';
-  const minutes = Math.floor(diff / 60000);
-  if (minutes < 60) return `${minutes}m`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h`;
-  return `${Math.floor(hours / 24)}d`;
-}
-
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
@@ -76,7 +66,7 @@ const PHASE_CONFIG: Record<string, { label: string; color: string }> = {
   archived: { label: 'Archived', color: 'text-gray-500' },
 };
 
-export function DashboardHome({ projectId, onNavigate }: DashboardHomeProps) {
+export function DashboardHome({ projectId, onNavigate, onOpenAutomations }: DashboardHomeProps) {
   const project = useProjectStore((s) => s.projects.find((p) => p.id === projectId));
 
   // Supervisor agent
@@ -103,25 +93,18 @@ export function DashboardHome({ projectId, onNavigate }: DashboardHomeProps) {
     ['review_failed', 'conflict'].includes(pr.status),
   );
 
-  // Scheduled Tasks
-  const scheduledTasks = useScheduledTaskStore((s) => s.tasks[projectId] ?? []);
-  const loadScheduledTasks = useScheduledTaskStore((s) => s.loadTasks);
-  const enabledScheduled = scheduledTasks.filter((t) => t.enabled);
-  const runningScheduled = scheduledTasks.filter((t) => t.status === 'running');
-  const nextRun = enabledScheduled
-    .filter((t) => t.nextRun)
-    .sort((a, b) => (a.nextRun ?? 0) - (b.nextRun ?? 0))[0]?.nextRun;
-
-  // Workflows
-  const workflows = useWorkflowStore((s) => s.workflows[projectId] ?? []);
+  // Workflows (DAG only) + Automations (simple)
+  const allWorkflows = useWorkflowStore((s) => s.workflows[projectId] ?? []);
   const loadWorkflows = useWorkflowStore((s) => s.loadWorkflows);
+  const workflows = allWorkflows.filter(w => w.authoringMode !== 'simple');
+  const simpleAutomations = allWorkflows.filter(w => w.authoringMode === 'simple');
   const activeWorkflows = workflows.filter((w) => w.status === 'active');
+  const activeAutomations = simpleAutomations.filter((w) => w.status === 'active');
   const runs = useWorkflowStore((s) => s.runs);
 
   // Load data on mount
   useEffect(() => {
     loadPRs(projectId).catch(() => {});
-    loadScheduledTasks(projectId).catch(() => {});
     loadWorkflows(projectId).catch(() => {});
   }, [projectId]);
 
@@ -208,30 +191,6 @@ export function DashboardHome({ projectId, onNavigate }: DashboardHomeProps) {
           </div>
         </button>
 
-        {/* Scheduled Card */}
-        <button
-          onClick={() => onNavigate('scheduled')}
-          className="text-left bg-card border border-border rounded-lg p-4 hover:border-primary/40 transition-colors group"
-        >
-          <div className="flex items-center justify-between mb-2">
-            <div className="flex items-center gap-2">
-              <Calendar className="w-4 h-4 text-muted-foreground" />
-              <span className="text-sm font-medium">Scheduled</span>
-            </div>
-            <ChevronRight className="w-3.5 h-3.5 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
-          </div>
-          <div className="space-y-1">
-            <div className="text-2xl font-bold">{enabledScheduled.length}</div>
-            <div className="text-xs text-muted-foreground">enabled</div>
-            {runningScheduled.length > 0 && (
-              <div className="text-xs text-green-500">{runningScheduled.length} running</div>
-            )}
-            {nextRun && (
-              <div className="text-xs text-muted-foreground">next: {formatRelativeTime(nextRun)}</div>
-            )}
-          </div>
-        </button>
-
         {/* Workflows Card */}
         <button
           onClick={() => onNavigate('workflows')}
@@ -249,6 +208,27 @@ export function DashboardHome({ projectId, onNavigate }: DashboardHomeProps) {
             <div className="text-xs text-muted-foreground">active</div>
             {workflows.length > activeWorkflows.length && (
               <div className="text-xs text-muted-foreground">{workflows.length - activeWorkflows.length} disabled</div>
+            )}
+          </div>
+        </button>
+
+        {/* Automations Card */}
+        <button
+          onClick={() => onOpenAutomations?.()}
+          className="text-left bg-card border border-border rounded-lg p-4 hover:border-primary/40 transition-colors group"
+        >
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center gap-2">
+              <Zap className="w-4 h-4 text-muted-foreground" />
+              <span className="text-sm font-medium">Automations</span>
+            </div>
+            <ChevronRight className="w-3.5 h-3.5 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+          </div>
+          <div className="space-y-1">
+            <div className="text-2xl font-bold">{activeAutomations.length}</div>
+            <div className="text-xs text-muted-foreground">active</div>
+            {simpleAutomations.length > activeAutomations.length && (
+              <div className="text-xs text-muted-foreground">{simpleAutomations.length - activeAutomations.length} disabled</div>
             )}
           </div>
         </button>
@@ -293,29 +273,6 @@ export function DashboardHome({ projectId, onNavigate }: DashboardHomeProps) {
         </PreviewSection>
       )}
 
-      {/* Scheduled Tasks Preview */}
-      {enabledScheduled.length > 0 && (
-        <PreviewSection
-          title="Scheduled Tasks"
-          onViewAll={() => onNavigate('scheduled')}
-        >
-          {enabledScheduled.slice(0, 3).map((task) => (
-            <div key={task.id} className="flex items-center justify-between py-1.5">
-              <div className="flex items-center gap-2 min-w-0">
-                <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${
-                  task.status === 'running' ? 'bg-green-500' :
-                  task.status === 'error' ? 'bg-red-500' : 'bg-gray-400'
-                }`} />
-                <span className="text-sm truncate">{task.name}</span>
-              </div>
-              <span className="text-xs text-muted-foreground">
-                {task.nextRun ? `next: ${formatRelativeTime(task.nextRun)}` : ''}
-              </span>
-            </div>
-          ))}
-        </PreviewSection>
-      )}
-
       {/* Workflows Preview */}
       {activeWorkflows.length > 0 && (
         <PreviewSection
@@ -347,11 +304,11 @@ export function DashboardHome({ projectId, onNavigate }: DashboardHomeProps) {
       )}
 
       {/* Empty state */}
-      {tasks.length === 0 && prs.length === 0 && scheduledTasks.length === 0 && workflows.length === 0 && (
+      {tasks.length === 0 && prs.length === 0 && allWorkflows.length === 0 && (
         <div className="text-center py-12 text-muted-foreground">
           <p className="text-sm">No activity yet.</p>
           <p className="text-xs mt-1">
-            Create tasks, local PRs, or scheduled automations to see them here.
+            Create tasks, local PRs, or workflow automations to see them here.
           </p>
         </div>
       )}

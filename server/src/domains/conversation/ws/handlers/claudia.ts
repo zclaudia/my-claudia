@@ -18,7 +18,7 @@ import type { ConnectedClient, ActiveRun } from '../types.js';
 import type { initDatabase } from '../../../../storage/db.js';
 import type { NotificationFeedService } from '../../../../domains/notification-feed/service.js';
 import type { TaskOrchestrator } from '../../../orchestration/types.js';
-import { ClaudiaBranchService } from '../../../../domains/orchestration/claudia-branch-service.js';
+import type { BranchAllocatorPort } from '../../../../domains/orchestration/claudia-branch-service.js';
 import { sendMessage } from '../broadcast.js';
 
 interface ClaudiaHandlerContext {
@@ -28,6 +28,7 @@ interface ClaudiaHandlerContext {
   handleRunStart: (client: ConnectedClient, message: any, db: ReturnType<typeof initDatabase>, options?: Record<string, unknown>, clients?: Map<string, ConnectedClient>) => Promise<void>;
   notificationService?: NotificationFeedService;
   orchestrator?: TaskOrchestrator;
+  branchAllocator?: BranchAllocatorPort;
 }
 
 export async function handleClaudiaMessage(
@@ -112,7 +113,11 @@ export async function handleClaudiaMessage(
   const inlineTitle = inlineInput.replace(/\s+/g, ' ').slice(0, 80);
 
   // Branch allocation
-  const branchService = new ClaudiaBranchService(db);
+  if (!ctx.branchAllocator) {
+    sendMessage(client.ws, { type: 'error', code: 'NOT_READY', message: 'Branch allocator not available' });
+    return;
+  }
+  const branchService = ctx.branchAllocator;
   const freshSessionId = uuidv4();
   const allocation = branchService.allocateBranch({
     hostProjectId: inlineProjectId,
@@ -352,6 +357,7 @@ export async function handleClaudiaTaskSubmit(
   message: ClaudiaTaskSubmitMessage,
   db: ReturnType<typeof initDatabase>,
   orchestrator: TaskOrchestrator,
+  branchAllocator: BranchAllocatorPort,
 ): Promise<void> {
   const taskInput = message.input?.trim();
   if (!taskInput) return;
@@ -371,7 +377,7 @@ export async function handleClaudiaTaskSubmit(
 
   const title = taskInput.replace(/\s+/g, ' ').slice(0, 80);
   try {
-    const submitBranchService = new ClaudiaBranchService(db);
+    const submitBranchService = branchAllocator;
     const submitSessionId = uuidv4();
     const submitAllocation = submitBranchService.allocateBranch({
       hostProjectId: message.projectId,
@@ -422,6 +428,7 @@ export async function handleClaudiaTaskContinue(
   message: ClaudiaTaskContinueMessage,
   db: ReturnType<typeof initDatabase>,
   orchestrator: TaskOrchestrator,
+  branchAllocator: BranchAllocatorPort,
 ): Promise<void> {
   const continueInput = message.input?.trim();
   if (!continueInput) return;
@@ -438,7 +445,7 @@ export async function handleClaudiaTaskContinue(
 
   const title = continueInput.replace(/\s+/g, ' ').slice(0, 80);
   try {
-    const continueBranchService = new ClaudiaBranchService(db);
+    const continueBranchService = branchAllocator;
     const continueSessionId = uuidv4();
     const continueAllocation = continueBranchService.allocateForContinue({
       taskBranchId: parentTask.branchId,

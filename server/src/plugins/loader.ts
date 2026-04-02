@@ -38,6 +38,7 @@ import { pluginStorageManager } from './storage.js';
 import { createProviderAPI } from './provider-api.js';
 import { workerHost } from './worker-host.js';
 import { workflowStepRegistry } from './workflow-step-registry.js';
+import { workflowTriggerRegistry } from './workflow-trigger-registry.js';
 import { pluginScheduler } from './scheduler.js';
 import { mcpClientManager } from '../utils/mcp-client-manager.js';
 import type { McpRequirement, CapabilityNegotiationResult, McpCapabilityStatus } from '@my-claudia/shared';
@@ -64,7 +65,6 @@ export class PluginLoader {
   private pluginAPIs = new Map<string, unknown>();
   private broadcastFn: ((msg: any) => void) | null = null;
   private skillContentCache = new Map<string, { content: string; mtime: number }>();
-  agentTriggerService?: import('../domains/agent-triggers/service.js').AgentTriggerService;
 
   constructor(options: PluginLoaderOptions = {}) {
     // Default plugin directory: $MY_CLAUDIA_DATA_DIR/plugins (same base as database).
@@ -705,6 +705,22 @@ export class PluginLoader {
       this.broadcastFn?.({ type: 'workflow_step_types_changed' });
     }
 
+    // Register trigger sources
+    if (contributes.triggerSources) {
+      for (const src of contributes.triggerSources) {
+        workflowTriggerRegistry.register({
+          id: `${manifest.id}/${src.id}`,
+          name: src.name,
+          description: src.description,
+          eventPattern: src.eventPattern,
+          category: src.category ?? 'Plugins',
+          icon: src.icon,
+          source: manifest.id,
+        });
+      }
+      this.broadcastFn?.({ type: 'workflow_trigger_sources_changed' });
+    }
+
     // Register plugin-contributed skills
     if (contributes.skills) {
       const pluginInfo = this.plugins.get(manifest.id);
@@ -775,18 +791,6 @@ export class PluginLoader {
       }
     }
 
-    // Register plugin-contributed agent triggers
-    if (contributes.agentTriggers && this.agentTriggerService) {
-      for (const triggerContrib of contributes.agentTriggers) {
-        try {
-          this.agentTriggerService.registerPluginTrigger(manifest.id, triggerContrib);
-          console.log(`[PluginLoader] Registered agent trigger "${triggerContrib.name}" from plugin "${manifest.id}"`);
-        } catch (err) {
-          console.warn(`[PluginLoader] Failed to register agent trigger from ${manifest.id}:`, err);
-        }
-      }
-    }
-
     // Broadcast panel registrations to connected frontends
     if (contributes.panels) {
       for (const panel of contributes.panels) {
@@ -822,11 +826,14 @@ export class PluginLoader {
       this.broadcastFn?.({ type: 'workflow_step_types_changed' });
     }
 
+    // Clear trigger sources
+    if (workflowTriggerRegistry.getByPlugin(pluginId).length > 0) {
+      workflowTriggerRegistry.clearByPlugin(pluginId);
+      this.broadcastFn?.({ type: 'workflow_trigger_sources_changed' });
+    }
+
     // Clear event listeners
     pluginEvents.clearByPlugin(pluginId);
-
-    // Clear plugin-contributed agent triggers
-    this.agentTriggerService?.unregisterPluginTriggers(pluginId);
 
     // Clear scheduled tasks
     pluginScheduler.clearByPlugin(pluginId);

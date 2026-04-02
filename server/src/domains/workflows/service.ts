@@ -267,9 +267,10 @@ export class WorkflowService {
       }
     }
 
-    // Subscribe once per event type
+    // Subscribe once per event pattern (supports exact matches and globs)
     for (const [event, wfs] of eventWorkflows) {
-      const unsub = pluginEvents.on(event, async (data) => {
+      const isPattern = event.includes('*');
+      const handler = async (data: unknown, _sourcePluginId?: string) => {
         for (const wf of wfs) {
           if (wf.status !== 'active') continue;
           if (this.engine.isRunning(wf.id)) continue;
@@ -292,7 +293,11 @@ export class WorkflowService {
             console.error(`[Workflow] Event trigger failed for ${wf.id}:`, err);
           }
         }
-      }, 'workflow-engine');
+      };
+
+      const unsub = isPattern
+        ? pluginEvents.onPattern(event, handler, 'workflow-engine')
+        : pluginEvents.on(event, handler, 'workflow-engine');
 
       this.eventSubscriptions.push(unsub);
     }

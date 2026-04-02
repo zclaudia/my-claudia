@@ -9,7 +9,7 @@ import { EmbeddedBackendFacadeProvider } from './embedded-provider.js';
 import { StandaloneBackendFacadeProvider } from './standalone-provider.js';
 import type { LocalBackendHandler } from './embedded-adapter.js';
 import type { FacadeWsHub } from './ws-hub.js';
-import { initDatabase } from '../../storage/db.js';
+import type Database from 'better-sqlite3';
 import type { GatewayConfig } from '../../routes/gateway.js';
 import type { ServerContext } from '../../server.js';
 import { hasForegroundActiveRunForSession } from '../../utils/run-state.js';
@@ -45,6 +45,7 @@ interface SessionCatalogRow {
 }
 
 export interface GatewayManagerDeps {
+  db: Database.Database;
   serverContext: ServerContext;
   activeRuns: ActiveRunsMap;
   connectedClients: Map<string, WsConnectedClient>;
@@ -60,6 +61,7 @@ export class GatewayManager {
   private actualPort = 0;
   private syncInterval: ReturnType<typeof setInterval> | null = null;
 
+  private readonly db: Database.Database;
   private readonly serverContext: ServerContext;
   private readonly activeRuns: ActiveRunsMap;
   private readonly connectedClients: Map<string, WsConnectedClient>;
@@ -68,6 +70,7 @@ export class GatewayManager {
   private readonly host: string;
 
   constructor(deps: GatewayManagerDeps) {
+    this.db = deps.db;
     this.serverContext = deps.serverContext;
     this.activeRuns = deps.activeRuns;
     this.connectedClients = deps.connectedClients;
@@ -131,7 +134,7 @@ export class GatewayManager {
 
   loadConfig(): GatewayConfig | null {
     try {
-      const db = initDatabase();
+      const db = this.db;
       const row = db.prepare(`
         SELECT id, enabled, gateway_url, gateway_secret, backend_name, backend_id,
                register_as_backend,

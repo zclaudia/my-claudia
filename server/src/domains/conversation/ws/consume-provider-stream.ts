@@ -1,4 +1,5 @@
 import type { ClaudeMessage } from '../../../providers/types.js';
+import type { ProviderRegistryPort } from '../../../providers/registry.js';
 import type { NotificationService } from '../../notification-feed/notification-service.js';
 import { summarizeProviderMessage, type TraceRecorder } from '../../../utils/provider-trace.js';
 import type { ActiveRun } from './types.js';
@@ -24,6 +25,7 @@ interface ConsumeProviderStreamInput {
   state: ProviderEventState;
   toolUseIdToName: Map<string, string>;
   trace: TraceRecorder;
+  providerRegistry: ProviderRegistryPort;
 }
 
 export async function consumeProviderStream(input: ConsumeProviderStreamInput): Promise<void> {
@@ -39,6 +41,7 @@ export async function consumeProviderStream(input: ConsumeProviderStreamInput): 
     notificationService,
     persistSessionWorkingDirectory,
     providerRunner,
+    providerRegistry,
     providerType,
     runId,
     sendRunEvent,
@@ -74,6 +77,7 @@ export async function consumeProviderStream(input: ConsumeProviderStreamInput): 
       msg,
       notificationService,
       persistSessionWorkingDirectory,
+      providerRegistry,
       providerType,
       runId,
       sendRunEvent,

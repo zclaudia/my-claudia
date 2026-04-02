@@ -16,6 +16,7 @@ import { SupervisionTaskRepository } from '../../repositories/supervision-task.j
 import { ProjectRepository } from '../../repositories/project.js';
 import { SessionRepository } from '../../repositories/session.js';
 import { createSupervisionRoutes } from './routes.js';
+import { systemTaskRegistry } from '../../services/system-task-registry.js';
 import { sendMessage } from '../conversation/ws/broadcast.js';
 import { createVirtualClient } from '../conversation/ws/types.js';
 import type { ConnectedClient, ActiveRun } from '../conversation/ws/types.js';
@@ -94,7 +95,7 @@ export function registerSupervisionDomain(deps: SupervisionDomainDeps): Supervis
   supervisorService.setCheckpointEngine(checkpointEngine);
 
   // Start supervision polling
-  supervisorService.start(5000);
+  supervisorService.start(5000, systemTaskRegistry);
 
   return { supervisorService };
 }

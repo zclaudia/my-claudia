@@ -51,7 +51,8 @@ export function WorkflowEditor({ workflow, projectId, onBack, onSaved, standalon
   const { createWorkflow, updateWorkflow, loadStepTypes } = useWorkflowStore();
   const projects = useProjectStore(s => s.projects);
   const project = projects.find(p => p.id === projectId);
-  const providerId = project?.providerId ?? '';
+  // Fall back to any project with a configured provider (e.g. global workflows have no projectId)
+  const providerId = project?.providerId ?? projects.find(p => p.providerId)?.providerId ?? '';
 
   useEffect(() => {
     if (!standalone) loadStepTypes();

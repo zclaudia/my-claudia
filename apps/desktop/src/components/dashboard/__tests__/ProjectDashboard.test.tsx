@@ -15,14 +15,9 @@ vi.mock('../DashboardHome', () => ({
       <button onClick={() => props.onNavigate('tasks')}>go-tasks</button>
       <button onClick={() => props.onNavigate('supervisor')}>go-supervisor</button>
       <button onClick={() => props.onNavigate('local-prs')}>go-local-prs</button>
-      <button onClick={() => props.onNavigate('scheduled')}>go-scheduled</button>
       <button onClick={() => props.onNavigate('workflows')}>go-workflows</button>
     </div>
   ),
-}));
-
-vi.mock('../../../features/supervision/components/AgentStatusBar', () => ({
-  AgentStatusBar: (props: any) => <div data-testid="agent-status-bar" />,
 }));
 
 vi.mock('../../../features/supervision/components/TaskBoard', () => ({
@@ -45,10 +40,6 @@ vi.mock('../../../features/local-pr/components/LocalPRsPanel', () => ({
   LocalPRsPanel: () => <div data-testid="local-prs-panel" />,
 }));
 
-vi.mock('../../../features/scheduled-tasks/components/ScheduledTasksPanel', () => ({
-  ScheduledTasksPanel: () => <div data-testid="scheduled-tasks-panel" />,
-}));
-
 vi.mock('../../../features/workflows/components/WorkflowsPanel', () => ({
   WorkflowsPanel: () => <div data-testid="workflows-panel" />,
 }));
@@ -63,11 +54,6 @@ describe('ProjectDashboard', () => {
       dashboardViews: {},
       setDashboardView: vi.fn(),
     } as any);
-  });
-
-  it('renders agent status bar', () => {
-    const { container } = render(<ProjectDashboard projectId={projectId} />);
-    expect(container.querySelector('[data-testid="agent-status-bar"]')).toBeTruthy();
   });
 
   it('renders dashboard home by default', () => {
@@ -92,14 +78,6 @@ describe('ProjectDashboard', () => {
     );
     fireEvent.click(getByText('go-local-prs'));
     expect(container.querySelector('[data-testid="local-prs-panel"]')).toBeTruthy();
-  });
-
-  it('navigates to scheduled view', () => {
-    const { container, getByText } = render(
-      <ProjectDashboard projectId={projectId} />,
-    );
-    fireEvent.click(getByText('go-scheduled'));
-    expect(container.querySelector('[data-testid="scheduled-tasks-panel"]')).toBeTruthy();
   });
 
   it('navigates to workflows view', () => {

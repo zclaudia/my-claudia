@@ -37,6 +37,19 @@ export interface WorkflowStepTypeMeta {
   source: string;
 }
 
+export interface WorkflowTriggerSourceMeta {
+  /** Unique ID: 'builtin/run.completed' or 'pluginId/my-event' */
+  id: string;
+  name: string;
+  description: string;
+  /** The event pattern this source emits (supports globs: 'run.*', '**') */
+  eventPattern: string;
+  category: string;
+  icon?: string;
+  /** 'builtin' or pluginId */
+  source: string;
+}
+
 export type WorkflowStepOnError = 'abort' | 'skip' | 'retry' | 'route';
 
 // ── Workflow Graph Model ──────────────────────────────────────

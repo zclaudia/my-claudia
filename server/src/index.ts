@@ -84,6 +84,7 @@ async function main() {
     const { server, connectGateway, disconnectGateway } = serverContext;
 
     const gatewayManager = new GatewayManager({
+      db: serverContext.db,
       serverContext,
       activeRuns,
       connectedClients,

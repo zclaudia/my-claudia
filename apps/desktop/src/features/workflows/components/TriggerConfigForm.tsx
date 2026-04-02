@@ -1,6 +1,7 @@
 import { Plus, X, Clock, Timer, Zap, MousePointer, CalendarClock } from 'lucide-react';
 import type { WorkflowTrigger, WorkflowTriggerType } from '@my-claudia/shared';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { useWorkflowStore } from '../store';
 
 interface TriggerConfigFormProps {
   triggers: WorkflowTrigger[];
@@ -23,7 +24,8 @@ const TRIGGER_LABELS: Record<WorkflowTriggerType, string> = {
   event: 'Event',
 };
 
-const KNOWN_EVENTS = ['run.completed', 'run.failed', 'plugin.activated'];
+// Fallback while trigger sources are loading
+const FALLBACK_EVENTS = ['run.completed', 'run.error', 'run.started', 'plugin.activated'];
 
 const CRON_PRESETS = [
   { label: 'Every hour', cron: '0 * * * *' },
@@ -40,10 +42,57 @@ function formatDateTimeLocal(timestamp?: number): string {
   return local.toISOString().slice(0, 16);
 }
 
-function TriggerCard({ trigger, onUpdate, onRemove }: {
+const CUSTOM_VALUE = '__custom__';
+
+function EventTriggerInput({ value, availableEvents, onChange }: {
+  value: string;
+  availableEvents: { value: string; label: string; category?: string }[];
+  onChange: (v: string) => void;
+}) {
+  const isPreset = availableEvents.some((e) => e.value === value);
+  const isCustom = !isPreset && value !== '';
+  const selectValue = isCustom ? CUSTOM_VALUE : value;
+
+  const handleSelectChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    if (e.target.value === CUSTOM_VALUE) {
+      onChange('');
+    } else {
+      onChange(e.target.value);
+    }
+  };
+
+  return (
+    <div className="space-y-1">
+      <select
+        value={selectValue}
+        onChange={handleSelectChange}
+        className="w-full px-2.5 py-1.5 text-sm rounded-md border border-border bg-background"
+      >
+        <option value="">Select event...</option>
+        {availableEvents.map((evt) => (
+          <option key={evt.value} value={evt.value}>{evt.label}</option>
+        ))}
+        <option value={CUSTOM_VALUE}>Custom pattern...</option>
+      </select>
+      {(isCustom || selectValue === CUSTOM_VALUE) && (
+        <input
+          type="text"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder="e.g. run.* or my-plugin.event"
+          autoFocus
+          className="w-full px-2.5 py-1.5 text-xs rounded-md border border-border bg-background focus:outline-none focus:border-primary font-mono"
+        />
+      )}
+    </div>
+  );
+}
+
+function TriggerCard({ trigger, onUpdate, onRemove, availableEvents }: {
   trigger: WorkflowTrigger;
   onUpdate: (t: WorkflowTrigger) => void;
   onRemove: () => void;
+  availableEvents: { value: string; label: string; category?: string }[];
 }) {
   return (
     <div className="border border-border rounded-lg p-3 space-y-2">
@@ -110,16 +159,11 @@ function TriggerCard({ trigger, onUpdate, onRemove }: {
       )}
 
       {trigger.type === 'event' && (
-        <select
+        <EventTriggerInput
           value={trigger.event ?? ''}
-          onChange={(e) => onUpdate({ ...trigger, event: e.target.value })}
-          className="w-full px-2.5 py-1.5 text-sm rounded-md border border-border bg-background"
-        >
-          <option value="">Select event...</option>
-          {KNOWN_EVENTS.map((evt) => (
-            <option key={evt} value={evt}>{evt}</option>
-          ))}
-        </select>
+          availableEvents={availableEvents}
+          onChange={(event) => onUpdate({ ...trigger, event })}
+        />
       )}
     </div>
   );
@@ -127,13 +171,25 @@ function TriggerCard({ trigger, onUpdate, onRemove }: {
 
 export function TriggerConfigForm({ triggers, onChange }: TriggerConfigFormProps) {
   const [showAdd, setShowAdd] = useState(false);
+  const { triggerSources, loadTriggerSources } = useWorkflowStore();
+
+  useEffect(() => {
+    if (triggerSources.length === 0) {
+      loadTriggerSources();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- load once on mount
+  }, []);
+
+  const availableEvents = triggerSources.length > 0
+    ? triggerSources.map((src) => ({ value: src.eventPattern, label: `${src.name} (${src.eventPattern})`, category: src.category }))
+    : FALLBACK_EVENTS.map((e) => ({ value: e, label: e }));
 
   const addTrigger = (type: WorkflowTriggerType) => {
     const newTrigger: WorkflowTrigger = { type };
     if (type === 'cron') newTrigger.cron = '0 9 * * *';
     if (type === 'interval') newTrigger.intervalMinutes = 30;
     if (type === 'once') newTrigger.onceAt = Date.now() + 60 * 60 * 1000;
-    if (type === 'event') newTrigger.event = 'run.completed';
+    if (type === 'event') newTrigger.event = availableEvents[0]?.value ?? 'run.completed';
     onChange([...triggers, newTrigger]);
     setShowAdd(false);
   };
@@ -160,6 +216,7 @@ export function TriggerConfigForm({ triggers, onChange }: TriggerConfigFormProps
           trigger={trigger}
           onUpdate={(t) => updateTrigger(i, t)}
           onRemove={() => removeTrigger(i)}
+          availableEvents={availableEvents}
         />
       ))}
 

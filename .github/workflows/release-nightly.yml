@@ -126,7 +126,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v5
         with:
-          node-version: 20
+          node-version-file: '.node-version'
           cache: pnpm
 
       - name: Setup Rust
@@ -211,7 +211,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v5
         with:
-          node-version: 20
+          node-version-file: '.node-version'
           cache: pnpm
 
       - name: Install dependencies
@@ -262,7 +262,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v5
         with:
-          node-version: 20
+          node-version-file: '.node-version'
           cache: pnpm
 
       - name: Install dependencies
@@ -321,7 +321,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v5
         with:
-          node-version: 20
+          node-version-file: '.node-version'
           cache: pnpm
 
       - name: Install dependencies
@@ -386,7 +386,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v5
         with:
-          node-version: 20
+          node-version-file: '.node-version'
           cache: pnpm
 
       - name: Setup Java

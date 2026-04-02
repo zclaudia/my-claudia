@@ -7,6 +7,10 @@ cd "$(dirname "$0")/../.."
 # --- Preflight checks ---
 export PATH="$HOME/.cargo/bin:$PATH"
 
+# Ensure Node.js is available (fnm / nvm) and matches .node-version
+if command -v fnm >/dev/null 2>&1; then eval "$(fnm env --use-on-cd)"; fnm use --silent-if-unchanged 2>/dev/null || true; fi
+if command -v nvm >/dev/null 2>&1; then nvm use 2>/dev/null || true; fi
+
 for cmd in rustup pnpm; do
   command -v "$cmd" >/dev/null || { echo "ERROR: $cmd not found"; exit 1; }
 done

@@ -120,10 +120,10 @@ export function createAutomationRoutes(workflowService: WorkflowService): Router
     }
   });
 
-  // GET /api/automations — list all workflows (alias for /api/workflows)
+  // GET /api/automations — list simple automations only
   router.get('/', (_req: Request, res: Response) => {
     try {
-      const workflows = workflowService.listAllWorkflows();
+      const workflows = workflowService.listAllWorkflows().filter((w) => w.authoringMode === 'simple');
       res.json({ success: true, data: workflows });
     } catch (error) {
       res.status(500).json({

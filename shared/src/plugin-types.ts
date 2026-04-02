@@ -138,6 +138,17 @@ export interface WorkflowStepContribution {
   configSchema?: Record<string, unknown>;
 }
 
+export interface TriggerSourceContribution {
+  /** Local ID within the plugin (will be namespaced as 'pluginId/id') */
+  id: string;
+  name: string;
+  description: string;
+  /** Event pattern this source emits (supports globs: 'run.*', '**') */
+  eventPattern: string;
+  category?: string;
+  icon?: string;
+}
+
 export type WorkflowStepHandler = (
   config: Record<string, unknown>,
   context: {
@@ -164,15 +175,8 @@ export interface PluginContributes {
   menus?: MenuContribution[];
   keybindings?: KeybindingContribution[];
   workflowSteps?: WorkflowStepContribution[];
+  triggerSources?: TriggerSourceContribution[];
   skills?: SkillContribution[];
-  agentTriggers?: AgentTriggerContribution[];
-}
-
-export interface AgentTriggerContribution {
-  event: string;
-  promptTemplate: string;
-  name: string;
-  description?: string;
 }
 
 export type ExecutionMode = 'main' | 'worker' | 'sandbox';

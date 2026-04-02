@@ -8,12 +8,14 @@ let stdoutHandlers: Map<string, EventHandler>;
 let stderrHandlers: Map<string, EventHandler>;
 let commandHandlers: Map<string, EventHandler>;
 let mockSpawnFn: ReturnType<typeof vi.fn>;
+let mockExecuteFn: ReturnType<typeof vi.fn>;
 
 function createMockCommand() {
   stdoutHandlers = new Map();
   stderrHandlers = new Map();
   commandHandlers = new Map();
   mockSpawnFn = vi.fn().mockResolvedValue({ pid: 12345 });
+  mockExecuteFn = vi.fn().mockResolvedValue({ code: 0, signal: null, stdout: '', stderr: '' });
 
   return {
     stdout: {
@@ -30,6 +32,7 @@ function createMockCommand() {
       commandHandlers.set(event, handler);
     }),
     spawn: mockSpawnFn,
+    execute: mockExecuteFn,
   };
 }
 
@@ -305,6 +308,8 @@ describe('hooks/useEmbeddedServer', () => {
         await vi.runAllTimersAsync();
       });
 
+      const { Command } = await import('@tauri-apps/plugin-shell');
+      expect(Command.sidecar).toHaveBeenCalledTimes(2);
       expect(mockSpawnFn).toHaveBeenCalled();
     });
 
@@ -318,6 +323,8 @@ describe('hooks/useEmbeddedServer', () => {
         await vi.runAllTimersAsync();
       });
 
+      const { Command } = await import('@tauri-apps/plugin-shell');
+      expect(Command.sidecar).toHaveBeenCalledTimes(2);
       expect(mockSpawnFn).toHaveBeenCalled();
     });
   });
@@ -435,7 +442,9 @@ describe('hooks/useEmbeddedServer', () => {
 
       // Make sidecar's spawn reject
       const { Command } = await import('@tauri-apps/plugin-shell');
-      (Command.sidecar as ReturnType<typeof vi.fn>).mockImplementationOnce(() => {
+      (Command.sidecar as ReturnType<typeof vi.fn>)
+        .mockImplementationOnce(() => createMockCommand())
+        .mockImplementationOnce(() => {
         const cmd = createMockCommand();
         cmd.spawn = vi.fn().mockRejectedValue(new Error('Failed to spawn process'));
         latestMockCommand = cmd;
@@ -458,7 +467,9 @@ describe('hooks/useEmbeddedServer', () => {
       mockFetch.mockRejectedValue(new Error('Not running'));
 
       const { Command } = await import('@tauri-apps/plugin-shell');
-      (Command.sidecar as ReturnType<typeof vi.fn>).mockImplementationOnce(() => {
+      (Command.sidecar as ReturnType<typeof vi.fn>)
+        .mockImplementationOnce(() => createMockCommand())
+        .mockImplementationOnce(() => {
         const cmd = createMockCommand();
         cmd.spawn = vi.fn().mockRejectedValue('string error');
         latestMockCommand = cmd;
@@ -632,10 +643,20 @@ describe('hooks/useEmbeddedServer', () => {
       });
 
       const { Command } = await import('@tauri-apps/plugin-shell');
-      expect(Command.sidecar).toHaveBeenCalledWith(
+      expect(Command.sidecar).toHaveBeenNthCalledWith(
+        1,
+        'binaries/node',
+        ['../../../scripts/check-native-modules.mjs'],
+        expect.objectContaining({
+          cwd: '../../..',
+        })
+      );
+      expect(Command.sidecar).toHaveBeenNthCalledWith(
+        2,
         'binaries/node',
         ['../../../server/dist/index.js'],
         expect.objectContaining({
+          cwd: '../../..',
           env: expect.objectContaining({
             PORT: '3100',
             SERVER_HOST: '127.0.0.1',

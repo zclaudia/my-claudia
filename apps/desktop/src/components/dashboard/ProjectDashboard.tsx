@@ -8,18 +8,16 @@ import { ContextBrowser } from '../../features/supervision/components/ContextBro
 import { CheckpointFeed } from '../../features/supervision/components/CheckpointFeed';
 import { ChatInterface } from '../chat/ChatInterface';
 import { LocalPRsPanel } from '../../features/local-pr/components/LocalPRsPanel';
-import { ScheduledTasksPanel } from '../../features/scheduled-tasks/components/ScheduledTasksPanel';
 import { WorkflowsPanel } from '../../features/workflows/components/WorkflowsPanel';
 import { DashboardHome } from './DashboardHome';
 import { useProjectStore } from '../../stores/projectStore';
 
-export type DashboardView = 'home' | 'tasks' | 'local-prs' | 'scheduled' | 'workflows' | 'supervisor';
+export type DashboardView = 'home' | 'tasks' | 'local-prs' | 'workflows' | 'supervisor';
 
 const VIEW_LABELS: Record<DashboardView, string> = {
   home: 'Dashboard',
   tasks: 'Tasks',
   'local-prs': 'Local Pull Requests',
-  scheduled: 'Scheduled Tasks',
   workflows: 'Workflows',
   supervisor: 'Supervisor Chat',
 };
@@ -92,6 +90,7 @@ export function ProjectDashboard({ projectId, projectRootPath, onOpenAutomations
           projectId={projectId}
           projectRootPath={projectRootPath}
           onNavigate={navigate}
+          onOpenAutomations={onOpenAutomations}
         />
       )}
 
@@ -114,12 +113,6 @@ export function ProjectDashboard({ projectId, projectRootPath, onOpenAutomations
       {view === 'local-prs' && (
         <div className="flex-1 overflow-hidden">
           <LocalPRsPanel projectId={projectId} projectRootPath={projectRootPath} />
-        </div>
-      )}
-
-      {view === 'scheduled' && (
-        <div className="flex-1 overflow-hidden">
-          <ScheduledTasksPanel projectId={projectId} onOpenAutomations={onOpenAutomations} />
         </div>
       )}
 

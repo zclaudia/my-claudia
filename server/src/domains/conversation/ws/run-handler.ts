@@ -4,9 +4,9 @@ import { sendMessage, broadcastToOtherAuthenticatedClients } from './broadcast.j
 import type { ConnectedClient, ActiveRun } from './types.js';
 import { cleanupPendingPermissions } from './run-lifecycle.js';
 import { formatProviderErrorMessage, isHardQuotaExceededError } from '../../../helpers/server-utils.js';
-import { providerRegistry } from '../../../providers/registry.js';
+import type { ProviderRegistryPort } from '../../../providers/registry.js';
 import { createTraceRecorder } from '../../../utils/provider-trace.js';
-import { initDatabase } from '../../../storage/db.js';
+import type { initDatabase } from '../../../storage/db.js';
 import { NotificationService } from '../../notification-feed/notification-service.js';
 import type { NotificationFeedService } from '../../notification-feed/service.js';
 import { ProcessMonitor } from '../../../utils/process-monitor.js';
@@ -30,6 +30,7 @@ export interface RunHandlerContext {
   notificationFeedService?: NotificationFeedService;
   serverPort: number | null;
   broadcastHeartbeat: () => void;
+  providerRegistry: ProviderRegistryPort;
 }
 
 type ExtendedAIReviewMetadata = import('@my-claudia/shared').AIReviewMetadata & {
@@ -165,7 +166,7 @@ export async function handleRunStart(
 
   try {
     const providerType = providerConfig?.type || 'claude';
-    const adapter = providerRegistry.getOrDefault(providerType);
+    const adapter = ctx!.providerRegistry.getOrDefault(providerType);
 
     // Kimi stores session state under the work_dir scope. Resuming the same
     // session ID under a different directory creates a fresh empty context,
@@ -266,6 +267,7 @@ export async function handleRunStart(
       modeValue,
       notificationService,
       persistSessionWorkingDirectory,
+      providerRegistry: ctx!.providerRegistry,
       providerRunner,
       providerType,
       runId,
