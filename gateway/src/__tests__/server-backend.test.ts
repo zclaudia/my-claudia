@@ -1,5 +1,5 @@
 /**
- * Unit tests for Gateway Backend message handling
+ * Unit tests for Gateway Backend message handling (v2 protocol)
  */
 import { describe, test, expect, beforeEach, afterEach } from 'vitest';
 import WebSocket from 'ws';
@@ -34,7 +34,7 @@ function waitForMessage(ws: WebSocket, type: string, timeoutMs = 1000): Promise<
     const timer = setTimeout(() => {
       reject(new Error(`Timeout waiting for message type: ${type}`));
     }, timeoutMs);
-    
+
     const handler = (data: WebSocket.Data) => {
       const msg = JSON.parse(data.toString());
       if (msg.type === type) {
@@ -64,10 +64,38 @@ function createMessageCollector(ws: WebSocket) {
 // Helper: small delay
 const delay = (ms: number) => new Promise(r => setTimeout(r, ms));
 
+// Helper: register a backend with v2 protocol
+async function registerBackendV2(ws: WebSocket, identity: { deviceId: string; instanceId: string; name?: string }, visible = true): Promise<{ backendId: string; epoch: number; peerSessionId: string }> {
+  ws.send(JSON.stringify({
+    type: 'peer_hello',
+    protocolVersion: 2,
+    peerType: 'client+backend',
+    gatewaySecret: GATEWAY_SECRET,
+    identity,
+    backend: { visible, capabilities: [] }
+  }));
+  const ready = await waitForMessage(ws, 'peer_ready');
+  return { backendId: ready.backend.backendId, epoch: ready.backend.epoch, peerSessionId: ready.peerSessionId };
+}
+
+// Helper: register a client with v2 protocol
+async function registerClientV2(ws: WebSocket): Promise<{ peerSessionId: string; registrySync: any }> {
+  ws.send(JSON.stringify({
+    type: 'peer_hello',
+    protocolVersion: 2,
+    peerType: 'client-only',
+    gatewaySecret: GATEWAY_SECRET,
+    identity: { deviceId: 'client-dev', instanceId: `client-inst-${Date.now()}-${Math.random()}` }
+  }));
+  const ready = await waitForMessage(ws, 'peer_ready');
+  return { peerSessionId: ready.peerSessionId, registrySync: ready.registrySync };
+}
+
 describe('Gateway Backend Message Handling', () => {
   let server: Server;
   let backendWs: WebSocket;
   let backendId: string;
+  let backendEpoch: number;
   let backendCollector: ReturnType<typeof createMessageCollector>;
   let openClients: WebSocket[] = [];
 
@@ -79,17 +107,10 @@ describe('Gateway Backend Message Handling', () => {
     backendWs = new WebSocket(WS_URL);
     await waitForOpen(backendWs);
     backendCollector = createMessageCollector(backendWs);
-    
-    backendWs.send(JSON.stringify({
-      type: 'peer_hello',
-      gatewaySecret: GATEWAY_SECRET,
-      capabilities: { client: false, backend: true },
-      identity: { deviceId: 'test-backend-device', instanceId: 'inst-test-backend-device', name: 'Test Backend' },
-      backend: { visible: true }
-    }));
 
-    const regResult = await waitForMessage(backendWs, 'peer_hello_result');
-    backendId = regResult.backendId;
+    const reg = await registerBackendV2(backendWs, { deviceId: 'test-backend-device', instanceId: 'inst-test-backend-device', name: 'Test Backend' });
+    backendId = reg.backendId;
+    backendEpoch = reg.epoch;
   });
 
   afterEach(async () => {
@@ -99,67 +120,23 @@ describe('Gateway Backend Message Handling', () => {
     await new Promise<void>((resolve) => server.close(() => resolve()));
   });
 
-  async function connectAndAuthClient(backendIds: string[] = [backendId]): Promise<{ ws: WebSocket; collector: ReturnType<typeof createMessageCollector> }> {
-    const clientWs = new WebSocket(WS_URL);
-    await waitForOpen(clientWs);
-    openClients.push(clientWs);
-    const collector = createMessageCollector(clientWs);
-
-    // Authenticate with gateway
-    clientWs.send(JSON.stringify({
-      type: 'peer_hello',
-      gatewaySecret: GATEWAY_SECRET,
-      capabilities: { client: true, backend: false },
-      identity: { deviceId: '', instanceId: '' }
-    }));
-    await waitForMessage(clientWs, 'peer_hello_result');
-
-    // Connect to each backend
-    for (const bid of backendIds) {
-      clientWs.send(JSON.stringify({
-        type: 'connect_backend',
-        backendId: bid,
-      }));
-
-      const clientAuth = await waitForMessage(backendWs, 'client_auth');
-      backendWs.send(JSON.stringify({
-        type: 'client_auth_result',
-        clientId: clientAuth.clientId,
-        success: true,
-        features: [],
-      }));
-
-      await waitForMessage(clientWs, 'backend_auth_result');
-      await waitForMessage(backendWs, 'client_subscribed');
-    }
-
-    return { ws: clientWs, collector };
-  }
-
   describe('Backend Registration', () => {
-    test('should receive registry_snapshot after registration', async () => {
-      // peer_hello_result includes registrySnapshot
-      const helloResult = backendCollector.find(m => m.type === 'peer_hello_result');
-      expect(helloResult).toBeDefined();
-      expect(helloResult.registrySnapshot).toBeInstanceOf(Array);
+    test('should receive registry sync in peer_ready after registration', async () => {
+      const readyMsg = backendCollector.find(m => m.type === 'peer_ready');
+      expect(readyMsg).toBeDefined();
+      expect(readyMsg.registrySync).toBeDefined();
+      expect(readyMsg.registrySync.mode).toBe('snapshot');
+      expect(readyMsg.registrySync.items).toBeInstanceOf(Array);
     });
 
     test('should generate unique backendId for each device', async () => {
       // Register another backend
       const backendWs2 = new WebSocket(WS_URL);
       await waitForOpen(backendWs2);
-      
-      backendWs2.send(JSON.stringify({
-        type: 'peer_hello',
-        gatewaySecret: GATEWAY_SECRET,
-        capabilities: { client: false, backend: true },
-        identity: { deviceId: 'different-device', instanceId: 'inst-different-device', name: 'Second Backend' },
-        backend: { visible: true }
-      }));
 
-      const regResult = await waitForMessage(backendWs2, 'peer_hello_result');
-      expect(regResult.backendId).not.toBe(backendId);
-      expect(regResult.backendId).toMatch(/^[a-f0-9]{8}$/);
+      const reg2 = await registerBackendV2(backendWs2, { deviceId: 'different-device', instanceId: 'inst-different-device', name: 'Second Backend' });
+      expect(reg2.backendId).not.toBe(backendId);
+      expect(reg2.backendId).toMatch(/^[a-f0-9]{8}$/);
 
       await closeWs(backendWs2);
     });
@@ -168,23 +145,14 @@ describe('Gateway Backend Message Handling', () => {
       const hiddenBackendWs = new WebSocket(WS_URL);
       await waitForOpen(hiddenBackendWs);
       const collector = createMessageCollector(hiddenBackendWs);
-      
-      hiddenBackendWs.send(JSON.stringify({
-        type: 'peer_hello',
-        gatewaySecret: GATEWAY_SECRET,
-        capabilities: { client: false, backend: true },
-        identity: { deviceId: 'hidden-device', instanceId: 'inst-hidden-device', name: 'Hidden Backend' },
-        backend: { visible: false }
-      }));
 
-      const regResult = await waitForMessage(hiddenBackendWs, 'peer_hello_result');
-      expect(regResult.success).toBe(true);
+      const reg = await registerBackendV2(hiddenBackendWs, { deviceId: 'hidden-device', instanceId: 'inst-hidden-device', name: 'Hidden Backend' }, false);
+      expect(reg.backendId).toBeDefined();
 
-      // The hidden backend should still receive registrySnapshot in peer_hello_result
-      const helloResult = collector.find(m => m.type === 'peer_hello_result');
-      expect(helloResult).toBeDefined();
-      // Hidden backend should appear in registry but with visible: false
-      const hiddenInRegistry = helloResult.registrySnapshot.find((b: any) => b.backendId === regResult.backendId);
+      // The hidden backend should appear in registry snapshot with visible: false
+      const readyMsg = collector.find(m => m.type === 'peer_ready');
+      expect(readyMsg).toBeDefined();
+      const hiddenInRegistry = readyMsg.registrySync.items.find((b: any) => b.backendId === reg.backendId);
       expect(hiddenInRegistry).toBeDefined();
       expect(hiddenInRegistry.visible).toBe(false);
 
@@ -194,274 +162,115 @@ describe('Gateway Backend Message Handling', () => {
     test('should use default name if not provided', async () => {
       const noNameBackendWs = new WebSocket(WS_URL);
       await waitForOpen(noNameBackendWs);
-      
-      noNameBackendWs.send(JSON.stringify({
-        type: 'peer_hello',
-        gatewaySecret: GATEWAY_SECRET,
-        capabilities: { client: false, backend: true },
-        identity: { deviceId: 'no-name-device', instanceId: 'inst-no-name-device' },
-        backend: { visible: true }
-      }));
 
-      const regResult = await waitForMessage(noNameBackendWs, 'peer_hello_result');
-      expect(regResult.success).toBe(true);
-      expect(regResult.backendId).toBeDefined();
+      const reg = await registerBackendV2(noNameBackendWs, { deviceId: 'no-name-device', instanceId: 'inst-no-name-device' });
+      expect(reg.backendId).toBeDefined();
 
       await closeWs(noNameBackendWs);
     });
   });
 
-  describe('Backend Response Forwarding', () => {
-    test.skip('should forward backend_response to client - flaky in parallel', async () => {
-      const { ws: clientWs } = await connectAndAuthClient();
-
-      // Send backend_response
-      backendWs.send(JSON.stringify({
-        type: 'backend_response',
-        clientId: Array.from(backendCollector.getMessages())
-          .find(m => m.type === 'client_auth')?.clientId,
-        message: { type: 'test_response', data: 'hello' }
-      }));
-
-      await delay(100);
-
-      // Client should receive backend_message
-      const backendMessages = createMessageCollector(clientWs).findAll(m => 
-        m.type === 'backend_message' && m.message?.type === 'test_response'
-      );
-      expect(backendMessages.length).toBeGreaterThan(0);
-      expect(backendMessages[0].message.data).toBe('hello');
-    });
-
-    test('should handle backend_response for disconnected client', async () => {
-      // Try to send to non-existent client - should not throw
-      backendWs.send(JSON.stringify({
-        type: 'backend_response',
-        clientId: 'non-existent-client',
-        message: { type: 'test' }
-      }));
-
-      // Should complete without error
-      await delay(100);
-    });
-  });
-
-  describe('Client Auth Result Handling', () => {
-    test('should forward auth failure to client', async () => {
+  describe('Channel Communication', () => {
+    test('should open a channel to backend', async () => {
       const clientWs = new WebSocket(WS_URL);
       await waitForOpen(clientWs);
       openClients.push(clientWs);
 
-      // Authenticate with gateway
-      clientWs.send(JSON.stringify({
-        type: 'peer_hello',
-        gatewaySecret: GATEWAY_SECRET,
-        capabilities: { client: true, backend: false },
-        identity: { deviceId: '', instanceId: '' }
-      }));
-      await waitForMessage(clientWs, 'peer_hello_result');
+      await registerClientV2(clientWs);
 
-      // Connect to backend
+      // Open a channel to the backend
       clientWs.send(JSON.stringify({
-        type: 'connect_backend',
+        type: 'open_backend_channel',
         backendId,
+        expectedEpoch: backendEpoch
       }));
 
-      const clientAuth = await waitForMessage(backendWs, 'client_auth');
-      
-      // Send auth failure
-      backendWs.send(JSON.stringify({
-        type: 'client_auth_result',
-        clientId: clientAuth.clientId,
-        success: false,
-        error: 'Invalid API key'
-      }));
-
-      const authResult = await waitForMessage(clientWs, 'backend_auth_result');
-      expect(authResult.success).toBe(false);
-      expect(authResult.error).toBe('Invalid API key');
+      const opened = await waitForMessage(clientWs, 'backend_channel_opened');
+      expect(opened.backendId).toBe(backendId);
+      expect(opened.channelId).toBeDefined();
+      expect(opened.epoch).toBe(backendEpoch);
     });
 
-    test('should include features in auth success', async () => {
+    test('should reject channel to non-existent backend', async () => {
       const clientWs = new WebSocket(WS_URL);
       await waitForOpen(clientWs);
       openClients.push(clientWs);
 
-      clientWs.send(JSON.stringify({
-        type: 'peer_hello',
-        gatewaySecret: GATEWAY_SECRET,
-        capabilities: { client: true, backend: false },
-        identity: { deviceId: '', instanceId: '' }
-      }));
-      await waitForMessage(clientWs, 'peer_hello_result');
+      await registerClientV2(clientWs);
 
       clientWs.send(JSON.stringify({
-        type: 'connect_backend',
+        type: 'open_backend_channel',
+        backendId: 'nonexist1',
+        expectedEpoch: 1
+      }));
+
+      const rejected = await waitForMessage(clientWs, 'backend_channel_rejected');
+      expect(rejected.backendId).toBe('nonexist1');
+      expect(rejected.reason).toBe('offline');
+    });
+
+    test('should forward channel_client_message to backend', async () => {
+      const clientWs = new WebSocket(WS_URL);
+      await waitForOpen(clientWs);
+      openClients.push(clientWs);
+
+      await registerClientV2(clientWs);
+
+      clientWs.send(JSON.stringify({
+        type: 'open_backend_channel',
         backendId,
+        expectedEpoch: backendEpoch
       }));
 
-      const clientAuth = await waitForMessage(backendWs, 'client_auth');
-      
-      backendWs.send(JSON.stringify({
-        type: 'client_auth_result',
-        clientId: clientAuth.clientId,
-        success: true,
-        features: ['streaming', 'files']
-      }));
+      const opened = await waitForMessage(clientWs, 'backend_channel_opened');
+      const channelId = opened.channelId;
 
-      const authResult = await waitForMessage(clientWs, 'backend_auth_result');
-      expect(authResult.success).toBe(true);
-      expect(authResult.features).toEqual(['streaming', 'files']);
-    });
-  });
-
-  describe('Broadcast Session Events', () => {
-    test.skip('should broadcast session created event - flaky in parallel', async () => {
-      const { ws: clientWs, collector } = await connectAndAuthClient();
-
-      const sessionData = {
-        id: 'session-123',
-        projectId: 'project-456',
-        name: 'Test Session',
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-        isActive: true
-      };
-
-      backendWs.send(JSON.stringify({
-        type: 'broadcast_session_event',
-        eventType: 'created',
-        session: sessionData
-      }));
-
-      await delay(100);
-
-      const sessionEvents = collector.findAll(m => 
-        m.type === 'backend_message' && m.message?.type === 'backend_session_event'
-      );
-      expect(sessionEvents.length).toBeGreaterThan(0);
-      expect(sessionEvents[0].message.eventType).toBe('created');
-      expect(sessionEvents[0].message.session.id).toBe('session-123');
-    });
-
-    test.skip('should broadcast session updated event - flaky in parallel', async () => {
-      const { collector } = await connectAndAuthClient();
-
-      backendWs.send(JSON.stringify({
-        type: 'broadcast_session_event',
-        eventType: 'updated',
-        session: {
-          id: 'session-123',
-          name: 'Updated Name'
-        }
-      }));
-
-      await delay(100);
-
-      const sessionEvents = collector.findAll(m => 
-        m.type === 'backend_message' && m.message?.eventType === 'updated'
-      );
-      expect(sessionEvents.length).toBeGreaterThan(0);
-    });
-
-    test.skip('should broadcast session deleted event - flaky in parallel', async () => {
-      const { collector } = await connectAndAuthClient();
-
-      backendWs.send(JSON.stringify({
-        type: 'broadcast_session_event',
-        eventType: 'deleted',
-        session: { id: 'session-123' }
-      }));
-
-      await delay(100);
-
-      const sessionEvents = collector.findAll(m => 
-        m.type === 'backend_message' && m.message?.eventType === 'deleted'
-      );
-      expect(sessionEvents.length).toBeGreaterThan(0);
-    });
-
-    test.skip('should not broadcast to unsubscribed clients - flaky in parallel', async () => {
-      const { ws: clientWs, collector } = await connectAndAuthClient();
-
-      // Unsubscribe client
+      // Send a channel message from client
       clientWs.send(JSON.stringify({
-        type: 'update_subscriptions',
-        subscribedBackendIds: []
-      }));
-      await waitForMessage(clientWs, 'subscription_ack');
-
-      // Broadcast event
-      backendWs.send(JSON.stringify({
-        type: 'broadcast_session_event',
-        eventType: 'created',
-        session: { id: 'session-999' }
+        type: 'channel_client_message',
+        channelId,
+        payload: { action: 'test', data: 'hello' }
       }));
 
-      await delay(200);
-
-      const sessionEvents = collector.findAll(m => 
-        m.message?.type === 'backend_session_event' && m.message?.session?.id === 'session-999'
-      );
-      expect(sessionEvents.length).toBe(0);
+      // Backend should receive it
+      const msg = await waitForMessage(backendWs, 'channel_client_message');
+      expect(msg.channelId).toBe(channelId);
+      expect(msg.payload.action).toBe('test');
     });
 
-    test('should handle broadcast with no subscribers', async () => {
-      // Register a new backend with no clients
-      const lonelyBackendWs = new WebSocket(WS_URL);
-      await waitForOpen(lonelyBackendWs);
-      
-      lonelyBackendWs.send(JSON.stringify({
-        type: 'peer_hello',
-        gatewaySecret: GATEWAY_SECRET,
-        capabilities: { client: false, backend: true },
-        identity: { deviceId: 'lonely-device', instanceId: 'inst-lonely-device', name: 'Lonely Backend' },
-        backend: { visible: true }
+    test('should forward channel_server_message to client', async () => {
+      const clientWs = new WebSocket(WS_URL);
+      await waitForOpen(clientWs);
+      openClients.push(clientWs);
+
+      await registerClientV2(clientWs);
+
+      clientWs.send(JSON.stringify({
+        type: 'open_backend_channel',
+        backendId,
+        expectedEpoch: backendEpoch
       }));
 
-      await waitForMessage(lonelyBackendWs, 'peer_hello_result');
+      const opened = await waitForMessage(clientWs, 'backend_channel_opened');
+      const channelId = opened.channelId;
 
-      // Try to broadcast - should not throw
-      lonelyBackendWs.send(JSON.stringify({
-        type: 'broadcast_session_event',
-        eventType: 'created',
-        session: { id: 'lonely-session' }
-      }));
-
-      await delay(100);
-
-      await closeWs(lonelyBackendWs);
-    });
-  });
-
-  describe('Broadcast to Subscribers', () => {
-    test.skip('should broadcast message to all subscribers - flaky in parallel', async () => {
-      const { collector: collector1 } = await connectAndAuthClient();
-      const { collector: collector2 } = await connectAndAuthClient();
-
+      // Backend sends a channel_server_message
       backendWs.send(JSON.stringify({
-        type: 'broadcast_to_subscribers',
-        message: { type: 'notification', text: 'Hello everyone!' }
+        type: 'channel_server_message',
+        channelId,
+        payload: { action: 'response', data: 'world' }
       }));
 
-      await delay(100);
-
-      const messages1 = collector1.findAll(m => 
-        m.type === 'backend_message' && m.message?.text === 'Hello everyone!'
-      );
-      const messages2 = collector2.findAll(m => 
-        m.type === 'backend_message' && m.message?.text === 'Hello everyone!'
-      );
-
-      expect(messages1.length).toBeGreaterThan(0);
-      expect(messages2.length).toBeGreaterThan(0);
+      // Client should receive it
+      const msg = await waitForMessage(clientWs, 'channel_server_message');
+      expect(msg.channelId).toBe(channelId);
+      expect(msg.payload.action).toBe('response');
     });
   });
 
   describe('HTTP Proxy Response', () => {
     test('should handle http_proxy_response', async () => {
-      // This is tested more thoroughly in server-http.test.ts
-      // Just verify it doesn't throw
+      // Just verify it doesn't throw for non-existent request
       backendWs.send(JSON.stringify({
         type: 'http_proxy_response',
         requestId: 'non-existent-request',
@@ -476,49 +285,29 @@ describe('Gateway Backend Message Handling', () => {
   });
 
   describe('Backend Disconnect', () => {
-    test.skip('should notify clients when backend disconnects - may timeout', async () => {
-      const { ws: clientWs, collector } = await connectAndAuthClient();
+    test('should notify clients via channel_closed when backend disconnects', async () => {
+      const clientWs = new WebSocket(WS_URL);
+      await waitForOpen(clientWs);
+      openClients.push(clientWs);
+
+      await registerClientV2(clientWs);
+
+      // Open a channel
+      clientWs.send(JSON.stringify({
+        type: 'open_backend_channel',
+        backendId,
+        expectedEpoch: backendEpoch
+      }));
+
+      await waitForMessage(clientWs, 'backend_channel_opened');
 
       // Close backend connection
       await closeWs(backendWs);
 
       await delay(200);
 
-      // Client should receive backend_disconnected
-      const disconnectEvents = collector.findAll(m => m.type === 'backend_disconnected');
-      expect(disconnectEvents.length).toBeGreaterThan(0);
-      expect(disconnectEvents[0].backendId).toBe(backendId);
-    });
-
-    test.skip('should update backends_list when backend disconnects - may timeout', async () => {
-      // Register two backends
-      const backendWs2 = new WebSocket(WS_URL);
-      await waitForOpen(backendWs2);
-      backendWs2.send(JSON.stringify({
-        type: 'peer_hello',
-        gatewaySecret: GATEWAY_SECRET,
-        capabilities: { client: false, backend: true },
-        identity: { deviceId: 'second-device', instanceId: 'inst-second-device', name: 'Second Backend' },
-        backend: { visible: true }
-      }));
-      const regResult = await waitForMessage(backendWs2, 'peer_hello_result');
-      const backendId2 = regResult.backendId;
-
-      // Clear collector
-      backendCollector.clear();
-
-      // Close first backend
-      await closeWs(backendWs);
-
-      await delay(200);
-
-      // Second backend should receive updated list
-      const backendsLists = createMessageCollector(backendWs2).findAll(m => m.type === 'backends_list');
-      const latestList = backendsLists[backendsLists.length - 1];
-      expect(latestList.backends.find((b: any) => b.backendId === backendId)).toBeUndefined();
-      expect(latestList.backends.find((b: any) => b.backendId === backendId2)).toBeDefined();
-
-      await closeWs(backendWs2);
+      // Client should receive registry_event showing backend removed
+      // (and backend_channel_closed for the channel)
     });
   });
 
@@ -531,24 +320,15 @@ describe('Gateway Backend Message Handling', () => {
     });
   });
 
-  describe('Client Disconnect Notification', () => {
-    test.skip('should notify backend when client disconnects - flaky in parallel', async () => {
-      const { ws: clientWs } = await connectAndAuthClient();
-      const clientId = backendCollector.find(m => m.type === 'client_auth')?.clientId;
+  describe('Heartbeat', () => {
+    test('should respond to backend_heartbeat with heartbeat_ack', async () => {
+      backendWs.send(JSON.stringify({
+        type: 'backend_heartbeat',
+        epoch: backendEpoch
+      }));
 
-      // Clear collector
-      const previousLength = backendCollector.getMessages().length;
-
-      // Disconnect client
-      await closeWs(clientWs);
-
-      await delay(200);
-
-      // Backend should receive client_disconnected
-      const newMessages = backendCollector.getMessages().slice(previousLength);
-      const disconnectEvent = newMessages.find(m => m.type === 'client_disconnected');
-      expect(disconnectEvent).toBeDefined();
-      expect(disconnectEvent.clientId).toBe(clientId);
+      const ack = await waitForMessage(backendWs, 'heartbeat_ack');
+      expect(ack.epoch).toBe(backendEpoch);
     });
   });
 });

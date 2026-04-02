@@ -252,11 +252,17 @@ describe('Gateway Proxy Streaming V2', () => {
         requestId: msg.requestId,
         data: Buffer.from('partial').toString('base64'),
       }));
+      // Intentionally do NOT send http_proxy_response_end — stream stalls
     });
 
-    await expect(fetch(`${HTTP_URL}/api/proxy/${backendId}/stall`, {
+    // fetch() itself resolves (headers arrived), but reading the body should fail
+    // because the server destroys the stream after proxyStreamingTimeoutMs (100ms)
+    const response = await fetch(`${HTTP_URL}/api/proxy/${backendId}/stall`, {
       headers: { Authorization: `Bearer ${GATEWAY_SECRET}` },
-    })).rejects.toThrow();
+    });
+    expect(response.status).toBe(200);
+
+    await expect(response.text()).rejects.toThrow();
 
     await closeWs(backendWs);
   });

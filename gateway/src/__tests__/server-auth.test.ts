@@ -35,7 +35,7 @@ function waitForMessage(ws: WebSocket, type: string, timeoutMs = 1000): Promise<
     const timer = setTimeout(() => {
       reject(new Error(`Timeout waiting for message type: ${type}`));
     }, timeoutMs);
-    
+
     const handler = (data: WebSocket.Data) => {
       const msg = JSON.parse(data.toString());
       if (msg.type === type) {
@@ -46,6 +46,29 @@ function waitForMessage(ws: WebSocket, type: string, timeoutMs = 1000): Promise<
     };
     ws.on('message', handler);
   });
+}
+
+// Helper: send a v2 backend peer_hello
+function sendBackendHello(ws: WebSocket, secret: string | null, identity: { deviceId: string; instanceId: string; name?: string }, visible = true) {
+  ws.send(JSON.stringify({
+    type: 'peer_hello',
+    protocolVersion: 2,
+    peerType: 'client+backend',
+    gatewaySecret: secret,
+    identity,
+    backend: { visible, capabilities: [] }
+  }));
+}
+
+// Helper: send a v2 client peer_hello
+function sendClientHello(ws: WebSocket, secret: string | null) {
+  ws.send(JSON.stringify({
+    type: 'peer_hello',
+    protocolVersion: 2,
+    peerType: 'client-only',
+    gatewaySecret: secret,
+    identity: { deviceId: 'client-dev', instanceId: 'client-inst' }
+  }));
 }
 
 describe('Gateway Authentication', () => {
@@ -65,17 +88,11 @@ describe('Gateway Authentication', () => {
       const ws = new WebSocket(WS_URL);
       await waitForOpen(ws);
 
-      ws.send(JSON.stringify({
-        type: 'peer_hello',
-        gatewaySecret: 'wrong-secret',
-        capabilities: { client: false, backend: true },
-        identity: { deviceId: 'test-device', instanceId: 'inst-test-device', name: 'Test Backend' },
-        backend: { visible: true }
-      }));
+      sendBackendHello(ws, 'wrong-secret', { deviceId: 'test-device', instanceId: 'inst-test-device', name: 'Test Backend' });
 
-      const result = await waitForMessage(ws, 'peer_hello_result');
-      expect(result.success).toBe(false);
-      expect(result.error).toContain('Invalid');
+      const result = await waitForMessage(ws, 'gateway_error');
+      expect(result.code).toBe('UNAUTHORIZED');
+      expect(result.message).toContain('Invalid');
 
       await closeWs(ws);
     });
@@ -84,17 +101,11 @@ describe('Gateway Authentication', () => {
       const ws = new WebSocket(WS_URL);
       await waitForOpen(ws);
 
-      ws.send(JSON.stringify({
-        type: 'peer_hello',
-        gatewaySecret: GATEWAY_SECRET,
-        capabilities: { client: false, backend: true },
-        identity: { deviceId: 'test-device-valid', instanceId: 'inst-test-device-valid', name: 'Test Backend' },
-        backend: { visible: true }
-      }));
+      sendBackendHello(ws, GATEWAY_SECRET, { deviceId: 'test-device-valid', instanceId: 'inst-test-device-valid', name: 'Test Backend' });
 
-      const result = await waitForMessage(ws, 'peer_hello_result');
-      expect(result.success).toBe(true);
-      expect(result.backendId).toMatch(/^[a-f0-9]{8}$/);
+      const result = await waitForMessage(ws, 'peer_ready');
+      expect(result.backend).toBeDefined();
+      expect(result.backend.backendId).toMatch(/^[a-f0-9]{8}$/);
 
       await closeWs(ws);
     });
@@ -103,33 +114,21 @@ describe('Gateway Authentication', () => {
       const ws1 = new WebSocket(WS_URL);
       await waitForOpen(ws1);
 
-      ws1.send(JSON.stringify({
-        type: 'peer_hello',
-        gatewaySecret: GATEWAY_SECRET,
-        capabilities: { client: false, backend: true },
-        identity: { deviceId: 'test-device-reconnect', instanceId: 'inst-test-device-reconnect', name: 'Test Backend' },
-        backend: { visible: true }
-      }));
+      sendBackendHello(ws1, GATEWAY_SECRET, { deviceId: 'test-device-reconnect', instanceId: 'inst-test-device-reconnect', name: 'Test Backend' });
 
-      const result1 = await waitForMessage(ws1, 'peer_hello_result');
-      expect(result1.success).toBe(true);
-      const backendId = result1.backendId;
+      const result1 = await waitForMessage(ws1, 'peer_ready');
+      expect(result1.backend).toBeDefined();
+      const backendId = result1.backend.backendId;
 
       // Connect second WebSocket with same instanceId
       const ws2 = new WebSocket(WS_URL);
       await waitForOpen(ws2);
 
-      ws2.send(JSON.stringify({
-        type: 'peer_hello',
-        gatewaySecret: GATEWAY_SECRET,
-        capabilities: { client: false, backend: true },
-        identity: { deviceId: 'test-device-reconnect', instanceId: 'inst-test-device-reconnect', name: 'Test Backend' },
-        backend: { visible: true }
-      }));
+      sendBackendHello(ws2, GATEWAY_SECRET, { deviceId: 'test-device-reconnect', instanceId: 'inst-test-device-reconnect', name: 'Test Backend' });
 
-      const result2 = await waitForMessage(ws2, 'peer_hello_result');
-      expect(result2.success).toBe(true);
-      expect(result2.backendId).toBe(backendId);
+      const result2 = await waitForMessage(ws2, 'peer_ready');
+      expect(result2.backend).toBeDefined();
+      expect(result2.backend.backendId).toBe(backendId);
 
       // First connection should be closed
       await new Promise<void>((resolve) => {
@@ -143,17 +142,11 @@ describe('Gateway Authentication', () => {
       const ws = new WebSocket(WS_URL);
       await waitForOpen(ws);
 
-      // Send peer_hello with null secret
-      ws.send(JSON.stringify({
-        type: 'peer_hello',
-        gatewaySecret: null,
-        capabilities: { client: false, backend: true },
-        identity: { deviceId: 'test-device-null', instanceId: 'inst-test-device-null', name: 'Test Backend' },
-        backend: { visible: true }
-      }));
+      // Send peer_hello with null secret — validation rejects non-string gatewaySecret
+      sendBackendHello(ws, null, { deviceId: 'test-device-null', instanceId: 'inst-test-device-null', name: 'Test Backend' });
 
-      const result = await waitForMessage(ws, 'peer_hello_result');
-      expect(result.success).toBe(false);
+      const result = await waitForMessage(ws, 'gateway_error');
+      expect(result.code).toBe('INVALID_MESSAGE');
 
       await closeWs(ws);
     });
@@ -164,16 +157,11 @@ describe('Gateway Authentication', () => {
       const ws = new WebSocket(WS_URL);
       await waitForOpen(ws);
 
-      ws.send(JSON.stringify({
-        type: 'peer_hello',
-        gatewaySecret: 'wrong-secret',
-        capabilities: { client: true, backend: false },
-        identity: { deviceId: '', instanceId: '' }
-      }));
+      sendClientHello(ws, 'wrong-secret');
 
-      const result = await waitForMessage(ws, 'peer_hello_result');
-      expect(result.success).toBe(false);
-      expect(result.error).toContain('Invalid');
+      const result = await waitForMessage(ws, 'gateway_error');
+      expect(result.code).toBe('UNAUTHORIZED');
+      expect(result.message).toContain('Invalid');
 
       await closeWs(ws);
     });
@@ -182,16 +170,10 @@ describe('Gateway Authentication', () => {
       const ws = new WebSocket(WS_URL);
       await waitForOpen(ws);
 
-      ws.send(JSON.stringify({
-        type: 'peer_hello',
-        gatewaySecret: GATEWAY_SECRET,
-        capabilities: { client: true, backend: false },
-        identity: { deviceId: '', instanceId: '' }
-      }));
+      sendClientHello(ws, GATEWAY_SECRET);
 
-      const result = await waitForMessage(ws, 'peer_hello_result');
-      expect(result.success).toBe(true);
-      expect(result.registrySnapshot).toBeDefined();
+      const result = await waitForMessage(ws, 'peer_ready');
+      expect(result.registrySync).toBeDefined();
 
       await closeWs(ws);
     });
@@ -229,15 +211,9 @@ describe('Gateway Authentication', () => {
       // First register a backend
       const backendWs = new WebSocket(WS_URL);
       await waitForOpen(backendWs);
-      backendWs.send(JSON.stringify({
-        type: 'peer_hello',
-        gatewaySecret: GATEWAY_SECRET,
-        capabilities: { client: false, backend: true },
-        identity: { deviceId: 'http-test-device', instanceId: 'inst-http-test-device', name: 'HTTP Test Backend' },
-        backend: { visible: true }
-      }));
-      const regResult = await waitForMessage(backendWs, 'peer_hello_result');
-      const backendId = regResult.backendId;
+      sendBackendHello(backendWs, GATEWAY_SECRET, { deviceId: 'http-test-device', instanceId: 'inst-http-test-device', name: 'HTTP Test Backend' });
+      const regResult = await waitForMessage(backendWs, 'peer_ready');
+      const backendId = regResult.backend.backendId;
 
       // Handle proxy request - respond immediately
       backendWs.once('message', (data) => {
@@ -290,7 +266,7 @@ describe('Gateway Rate Limiting', () => {
   test('should rate limit after 10 failed attempts', async () => {
     const testPort = 9011;
     const testUrl = `http://localhost:${testPort}`;
-    
+
     // Make 10 failed requests first
     for (let i = 0; i < 10; i++) {
       const response = await fetch(`${testUrl}/api/proxy/test-id/path`, {
@@ -334,7 +310,7 @@ describe('Invalid First Messages', () => {
     }));
 
     const error = await waitForMessage(ws, 'gateway_error');
-    expect(error.code).toBe('INVALID_FIRST_MESSAGE');
+    expect(error.code).toBe('INVALID_MESSAGE');
 
     await closeWs(ws);
   });
