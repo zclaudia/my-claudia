@@ -74,6 +74,9 @@ export class DirectBackendFacadeProvider implements BackendFacade {
   getHttpBaseUrl(backendId: string): string | null { return this.core.getHttpBaseUrl(backendId); }
   getHttpHeaders(): Record<string, string> { return this.core.getHttpHeaders(); }
 
+  forceReconnect(): void { this.adapter.forceReconnect(); }
+  probeHealth(): void { this.adapter.probeHealth(); }
+
   // --------------------------------------------------------------------------
   // GC Timer
   // --------------------------------------------------------------------------

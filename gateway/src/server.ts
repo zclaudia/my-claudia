@@ -536,6 +536,7 @@ export function createGatewayServer(config: GatewayConfig): Server {
       case 'http_proxy_response_start': handleHttpProxyResponseStart(message); break;
       case 'http_proxy_response_chunk': handleHttpProxyResponseChunk(message); break;
       case 'http_proxy_response_end': handleHttpProxyResponseEnd(message); break;
+      case 'ping': sendToWs(peer.ws, { type: 'pong', ts: message.ts, registryRevision: state.registry.revision }); break;
       default: sendToWs(peer.ws, { type: 'gateway_error', code: 'INVALID_MESSAGE', message: `Unknown message type: ${message.type}` } satisfies GatewayErrorMessage);
     }
   }

@@ -253,4 +253,9 @@ export interface BackendFacade {
 
   getHttpBaseUrl(backendId: string): string | null;
   getHttpHeaders(): Record<string, string>;
+
+  /** Force an immediate reconnect if the transport is disconnected or stale. */
+  forceReconnect?(): void;
+  /** Send a health probe to detect half-dead connections (direct gateway mode only). */
+  probeHealth?(): void;
 }

@@ -39,6 +39,7 @@ import { useClaudiaStatus } from './hooks/useClaudiaStatus';
 import { useAndroidBack } from './hooks/useAndroidBack';
 import { useSwipeBack } from './hooks/useSwipeBack';
 import { eagerSyncAllBackends } from './services/sessionSync';
+import { appLifecycleManager } from './services/appLifecycleManager';
 import { useFileViewerStore } from './stores/fileViewerStore';
 import { useUIStore } from './stores/uiStore';
 import { useTerminalStore } from './stores/terminalStore';
@@ -152,6 +153,7 @@ function AppContent() {
     import('./features/automation/openAutomationWindow').then(m => m.openAutomationWindow());
   }, []);
   const { directGatewayUrl, lastActiveBackendId } = useGatewayStore();
+  const facade = useFacadeStore((s) => s.facade);
   const facadeConnectionState = useFacadeStore((s) => s.connectionState);
   const facadeBackends = useFacadeStore((s) => s.backends);
   const { isExpanded: isAgentExpanded, setExpanded: setAgentExpanded } = useClaudiaStore();
@@ -475,17 +477,18 @@ function AppContent() {
     connectServer(lastActiveBackendId);
   }, [isMobile, lastActiveBackendId, facadeConnectionState, facadeBackends, activeServerId, connectServer]);
 
-  // Eager sync when app comes back to foreground (e.g. returning to Mac after using mobile)
+  // App lifecycle manager: handles visibility changes, network changes, and health probing.
+  // Replaces the previous simple visibilitychange listener with three-layer reconnection:
+  // 1. Foreground detection → force reconnect if backgrounded > 5s
+  // 2. Network online → force reconnect
+  // 3. Health probe every 25s → detect half-dead connections (direct gateway mode only)
   useEffect(() => {
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible') {
-        console.log('[App] App became visible, triggering eager sync');
-        eagerSyncAllBackends();
-      }
-    };
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
-  }, []);
+    if (!facade) return;
+    appLifecycleManager.start(facade, {
+      onResume: () => eagerSyncAllBackends(),
+    });
+    return () => appLifecycleManager.stop();
+  }, [facade]);
 
   useEffect(() => {
     if (typeof window === 'undefined' || new URLSearchParams(window.location.search).has('sessionWindow')) {

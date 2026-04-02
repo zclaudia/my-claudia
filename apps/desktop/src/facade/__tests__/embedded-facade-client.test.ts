@@ -152,4 +152,24 @@ describe('EmbeddedFacadeClient', () => {
 
     expect(events).toEqual(['connected', 'reconnecting', 'connected']);
   });
+
+  it('forceReconnect does not schedule a second reconnect from the old socket close', () => {
+    const client = new EmbeddedFacadeClient(3100);
+    client.connect();
+
+    const firstWs = MockWebSocket.instances[0];
+    firstWs.onopen?.();
+
+    client.forceReconnect();
+
+    expect(MockWebSocket.instances).toHaveLength(2);
+
+    const secondWs = MockWebSocket.instances[1];
+    secondWs.onopen?.();
+
+    firstWs.onclose?.();
+    vi.advanceTimersByTime(2500);
+
+    expect(MockWebSocket.instances).toHaveLength(2);
+  });
 });

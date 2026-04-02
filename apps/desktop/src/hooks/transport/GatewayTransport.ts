@@ -86,6 +86,7 @@ export class GatewayTransport {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private intentionalClose = false;
   private reconnectAttempt = 0;
+  private healthProbeTimeout: ReturnType<typeof setTimeout> | null = null;
 
   private peerSessionId: string | null = null;
   private recoveryToken: string | null = null;
@@ -205,6 +206,40 @@ export class GatewayTransport {
     this.send({ type: 'catch_up_session_content', channelId, sessionId, afterOffset } satisfies CatchUpSessionContentMessage);
   }
 
+  // --- Reconnect & Health ---
+
+  /** Force an immediate reconnect, bypassing exponential backoff. */
+  forceReconnect(): void {
+    console.log('[GatewayTransport] Force reconnect requested');
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+    this.clearHealthProbe();
+    this.reconnectAttempt = 0;
+    this.intentionalClose = false;
+    this.connect();
+  }
+
+  /** Send an application-level ping to detect half-dead connections. */
+  probeHealth(): void {
+    if (!this.isConnected()) return;
+    if (this.healthProbeTimeout) return; // Probe already in-flight
+    this.send({ type: 'ping', ts: Date.now() });
+    this.healthProbeTimeout = setTimeout(() => {
+      this.healthProbeTimeout = null;
+      console.warn('[GatewayTransport] Health probe timeout — closing stale connection');
+      this.ws?.close(4000, 'health probe timeout');
+    }, 10_000);
+  }
+
+  private clearHealthProbe(): void {
+    if (this.healthProbeTimeout) {
+      clearTimeout(this.healthProbeTimeout);
+      this.healthProbeTimeout = null;
+    }
+  }
+
   // --- Accessors ---
   getRegistryRevision(): number { return this.registryRevision; }
   getRegistryItems(): Map<string, BackendPresence> { return this.registryItems; }
@@ -221,6 +256,7 @@ export class GatewayTransport {
     const currentWs = ws;
     ws.onopen = () => { console.log('[GatewayTransport] WebSocket opened'); if (this.ws !== currentWs) return; this.sendPeerHello(); };
     ws.onclose = (event) => { console.log(`[GatewayTransport] WebSocket closed: code=${event.code} reason=${event.reason} wasClean=${event.wasClean}`);
+      this.clearHealthProbe();
       const expectedClose = this.expectedCloseWs === currentWs;
       if (expectedClose) {
         this.expectedCloseWs = null;
@@ -288,6 +324,7 @@ export class GatewayTransport {
       case 'session_stream_closed': this.handleSessionStreamClosed(message); break;
       case 'session_content_patch': this.handleContentPatch(message); break;
       case 'session_content_patch_error': this.handleContentPatchError(message); break;
+      case 'pong': this.handlePong(message); break;
       case 'gateway_error': this.handleGatewayError(message); break;
       default: console.warn('[GatewayTransport] Unknown message type:', message.type);
     }
@@ -414,6 +451,16 @@ export class GatewayTransport {
     this.config.onContentPatchError(msg.channelId, msg.sessionId, msg.afterOffset, msg.message);
   }
 
+  // --- Pong ---
+  private handlePong(msg: { ts: number; registryRevision?: number }): void {
+    this.clearHealthProbe();
+    // Registry consistency check: if revision differs, request resync
+    if (msg.registryRevision !== undefined && msg.registryRevision !== this.registryRevision) {
+      console.warn(`[GatewayTransport] Registry revision mismatch: local=${this.registryRevision} gateway=${msg.registryRevision}, requesting resync`);
+      this.send({ type: 'resync_registry', lastRevision: this.registryRevision } satisfies ResyncRegistryMessage);
+    }
+  }
+
   // --- Error ---
   private handleGatewayError(msg: GatewayErrorMessage): void {
     console.error(`[GatewayTransport] Error: ${msg.code} — ${msg.message}`);
@@ -434,5 +481,5 @@ export class GatewayTransport {
 
   // --- Helpers ---
   private send(msg: unknown): void { if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify(msg)); }
-  private cleanup(): void { this.authenticated = false; this.peerSessionId = null; this.recoveryToken = null; this.channels.clear(); this.backendToChannel.clear(); }
+  private cleanup(): void { this.authenticated = false; this.peerSessionId = null; this.recoveryToken = null; this.channels.clear(); this.backendToChannel.clear(); this.clearHealthProbe(); }
 }

@@ -97,4 +97,83 @@ describe('GatewayTransport lifecycle', () => {
 
     expect(MockWebSocket.instances).toHaveLength(2);
   });
+
+  it('forceReconnect replaces an authenticated socket immediately', () => {
+    const transport = new GatewayTransport({
+      url: 'ws://gateway.example.com/ws',
+      gatewaySecret: 'secret',
+      deviceId: 'device-1',
+      instanceId: 'instance-1',
+      onConnected: vi.fn(),
+      onDisconnected: vi.fn(),
+      onError: vi.fn(),
+      onRegistryChanged: vi.fn(),
+      onCatalogSnapshot: vi.fn(),
+      onCatalogEvent: vi.fn(),
+      onCatalogReset: vi.fn(),
+      onChannelOpened: vi.fn(),
+      onChannelRejected: vi.fn(),
+      onChannelClosed: vi.fn(),
+      onChannelMessage: vi.fn(),
+      onRunStreamEvent: vi.fn(),
+      onSessionStreamClosed: vi.fn(),
+      onContentPatch: vi.fn(),
+      onContentPatchError: vi.fn(),
+    });
+
+    transport.connect();
+    const firstWs = MockWebSocket.instances[0];
+    firstWs.readyState = MockWebSocket.OPEN;
+    firstWs.onopen?.();
+    (transport as any).authenticated = true;
+
+    transport.forceReconnect();
+
+    expect(firstWs.close).toHaveBeenCalled();
+    expect(MockWebSocket.instances).toHaveLength(2);
+  });
+
+  it('clears an in-flight health probe when the old socket closes', () => {
+    const transport = new GatewayTransport({
+      url: 'ws://gateway.example.com/ws',
+      gatewaySecret: 'secret',
+      deviceId: 'device-1',
+      instanceId: 'instance-1',
+      onConnected: vi.fn(),
+      onDisconnected: vi.fn(),
+      onError: vi.fn(),
+      onRegistryChanged: vi.fn(),
+      onCatalogSnapshot: vi.fn(),
+      onCatalogEvent: vi.fn(),
+      onCatalogReset: vi.fn(),
+      onChannelOpened: vi.fn(),
+      onChannelRejected: vi.fn(),
+      onChannelClosed: vi.fn(),
+      onChannelMessage: vi.fn(),
+      onRunStreamEvent: vi.fn(),
+      onSessionStreamClosed: vi.fn(),
+      onContentPatch: vi.fn(),
+      onContentPatchError: vi.fn(),
+    });
+
+    transport.connect();
+    const firstWs = MockWebSocket.instances[0];
+    firstWs.readyState = MockWebSocket.OPEN;
+    firstWs.onopen?.();
+    (transport as any).authenticated = true;
+
+    transport.probeHealth();
+    firstWs.onclose?.({ code: 1006, reason: 'network', wasClean: false } as CloseEvent);
+
+    vi.advanceTimersByTime(2000);
+
+    const secondWs = MockWebSocket.instances[1];
+    secondWs.readyState = MockWebSocket.OPEN;
+    secondWs.onopen?.();
+    (transport as any).authenticated = true;
+
+    vi.advanceTimersByTime(10_000);
+
+    expect(secondWs.close).not.toHaveBeenCalledWith(4000, 'health probe timeout');
+  });
 });

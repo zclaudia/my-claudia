@@ -20,6 +20,7 @@ import type {
 
 export class EmbeddedFacadeClient implements BackendFacade {
   private ws: WebSocket | null = null;
+  private expectedCloseWs: WebSocket | null = null;
   private readonly url: string;
   private snapshotListeners: Array<(snapshot: BackendFacadeSnapshot) => void> = [];
   private eventListeners: Array<(event: BackendFacadeEvent) => void> = [];
@@ -50,6 +51,7 @@ export class EmbeddedFacadeClient implements BackendFacade {
       this.reconnectTimer = null;
     }
     if (this.ws) {
+      this.expectedCloseWs = this.ws;
       this.ws.close();
       this.ws = null;
     }
@@ -57,6 +59,7 @@ export class EmbeddedFacadeClient implements BackendFacade {
 
   private doConnect(): void {
     if (this.ws) {
+      this.expectedCloseWs = this.ws;
       this.ws.close();
       this.ws = null;
     }
@@ -81,7 +84,14 @@ export class EmbeddedFacadeClient implements BackendFacade {
     };
 
     ws.onclose = () => {
+      const expectedClose = this.expectedCloseWs === ws;
+      if (expectedClose) {
+        this.expectedCloseWs = null;
+      }
       if (this.ws === ws) this.ws = null;
+      if (expectedClose && !this.intentionalClose) {
+        return;
+      }
       if (!this.intentionalClose) {
         this.emitEvent({ type: 'connection_state_changed', state: 'reconnecting' });
         this.scheduleReconnect();
@@ -226,6 +236,18 @@ export class EmbeddedFacadeClient implements BackendFacade {
 
   getHttpHeaders(): Record<string, string> {
     return {};
+  }
+
+  /** Force an immediate reconnect if disconnected (bypasses 2s delay). */
+  forceReconnect(): void {
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) return;
+    console.log('[EmbeddedFacadeClient] Force reconnect requested');
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+    this.intentionalClose = false;
+    this.doConnect();
   }
 
   // --------------------------------------------------------------------------

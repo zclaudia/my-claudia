@@ -268,6 +268,18 @@ export class DirectGatewayAdapter implements FacadeRuntimeGatewayAdapter {
   };
 
   // --------------------------------------------------------------------------
+  // Reconnect & Health
+  // --------------------------------------------------------------------------
+
+  forceReconnect(): void {
+    this.transport?.forceReconnect();
+  }
+
+  probeHealth(): void {
+    this.transport?.probeHealth();
+  }
+
+  // --------------------------------------------------------------------------
   // Helpers
   // --------------------------------------------------------------------------
 
