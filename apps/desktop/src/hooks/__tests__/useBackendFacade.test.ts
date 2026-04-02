@@ -277,6 +277,62 @@ describe('useBackendFacade run_event forwarding', () => {
     });
   });
 
+  it('migrates a stale local backend selection to the current local backend id', () => {
+    useFacadeStore.setState({
+      ...useFacadeStore.getState(),
+      localBackendId: 'local-embedded',
+      backends: [
+        {
+          backendId: 'local-embedded',
+          name: 'Local',
+          online: true,
+          runtimeState: 'ready',
+          openState: 'open',
+          isThisInstance: true,
+          instanceId: 'instance-local',
+          channel: 'local',
+        } as any,
+      ],
+    });
+    useServerStore.setState({
+      ...useServerStore.getState(),
+      activeServerId: 'local-standalone',
+    });
+
+    syncToGatewayStore({
+      type: 'snapshot_updated',
+      snapshot: {
+        snapshotVersion: 4,
+        capturedAt: Date.now(),
+        mode: 'embedded',
+        connectionState: 'connected',
+        localBackendId: 'local-embedded',
+        currentInstanceId: 'instance-local',
+        currentDeviceId: 'device-local',
+        registryRevision: 4,
+        sessionStreams: {},
+        backends: [
+          {
+            backendId: 'local-embedded',
+            name: 'Local',
+            online: true,
+            runtimeState: 'ready',
+            openState: 'open',
+            channelId: 'ch-local',
+            instanceId: 'instance-local',
+            deviceId: 'device-local',
+            channel: 'local',
+            isThisInstance: true,
+            isThisDevice: true,
+            capabilities: [],
+          },
+        ],
+      },
+    } as any);
+
+    expect(useServerStore.getState().activeServerId).toBe('local-embedded');
+  });
+
   it('keeps active runs alive while a backend reconnects unexpectedly', () => {
     useChatStore.setState({
       ...useChatStore.getState(),

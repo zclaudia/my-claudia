@@ -194,12 +194,22 @@ export function syncToGatewayStore(event: BackendFacadeEvent): void {
         serverState.setServerConnectionStatus(b.backendId, status, b.lastError ?? undefined);
         serverState.setServerFeatures(b.backendId, b.capabilities as ServerFeature[]);
       }
-      // Auto-set activeServerId to local backend ONLY on first boot or legacy migration.
-      // Never override a user-selected remote backend.
+      // Auto-set activeServerId to local backend ONLY on first boot, legacy migration,
+      // or when the current activeServerId no longer exists (e.g. facade swap from
+      // standalone → embedded-gateway changes the local backend ID).
       if (resolvedLocalBackendId && isLegacyLocalBackendId(serverState.activeServerId)) {
         serverState.setActiveServer(resolvedLocalBackendId);
       } else if (resolvedLocalBackendId && !serverState.activeServerId) {
         // First boot: no active server yet
+        serverState.setActiveServer(resolvedLocalBackendId);
+      } else if (
+        resolvedLocalBackendId
+        && serverState.activeServerId
+        && !snapshot.backends.some(b => b.backendId === serverState.activeServerId)
+      ) {
+        // Active backend no longer exists in the registry-backed snapshot.
+        // This covers local backend ID migration and backend removal; fall
+        // back to the current local backend so the UI keeps a valid target.
         serverState.setActiveServer(resolvedLocalBackendId);
       }
       // Auto-open backends that should be open:
