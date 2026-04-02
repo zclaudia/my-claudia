@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { describe, it, expect, beforeEach } from 'vitest';
 import { toolRendererRegistry, type ToolRendererProps } from '../toolRendererRegistry';
 

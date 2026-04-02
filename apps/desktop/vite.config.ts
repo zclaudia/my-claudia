@@ -70,11 +70,20 @@ export default defineConfig({
       ignored: ['**/src-tauri/**'],
     },
   },
+  // Exclude Rust build artifacts (10GB, 100K+ files) from vite's file system scan
+  exclude: ['src-tauri/target/**'],
   test: {
     globals: true,
     environment: 'jsdom',
+    // Pure logic tests (.test.ts) run in node — no jsdom overhead.
+    // Component tests (.test.tsx) keep jsdom. The 15 .test.ts files that
+    // need DOM opt in via `// @vitest-environment jsdom` docblock.
+    environmentMatchGlobs: [
+      ['src/**/*.test.ts', 'node'],
+    ],
     setupFiles: ['./src/test/setup.ts'],
     include: ['src/**/*.{test,spec}.{ts,tsx}'],
+    exclude: ['src-tauri/**', 'node_modules/**', 'dist/**'],
     server: {
       deps: {
         // Allow vitest to mock these Tauri-specific packages that aren't installed

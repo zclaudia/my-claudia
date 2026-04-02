@@ -45,45 +45,48 @@ Object.defineProperty(globalThis, 'crypto', {
   configurable: true,
 });
 
-// Mock localStorage for zustand persist
-const localStorageMock = (() => {
-  let store: Record<string, string> = {};
-  return {
-    getItem: (key: string) => store[key] || null,
-    setItem: (key: string, value: string) => {
-      store[key] = value;
-    },
-    removeItem: (key: string) => {
-      delete store[key];
-    },
-    clear: () => {
-      store = {};
-    },
-    get length() {
-      return Object.keys(store).length;
-    },
-    key: (index: number) => Object.keys(store)[index] || null,
-  };
-})();
+// DOM-specific mocks — only when running in jsdom (skipped in node environment)
+if (typeof window !== 'undefined') {
+  // Mock localStorage for zustand persist
+  const localStorageMock = (() => {
+    let store: Record<string, string> = {};
+    return {
+      getItem: (key: string) => store[key] || null,
+      setItem: (key: string, value: string) => {
+        store[key] = value;
+      },
+      removeItem: (key: string) => {
+        delete store[key];
+      },
+      clear: () => {
+        store = {};
+      },
+      get length() {
+        return Object.keys(store).length;
+      },
+      key: (index: number) => Object.keys(store)[index] || null,
+    };
+  })();
 
-Object.defineProperty(window, 'localStorage', {
-  value: localStorageMock,
-});
+  Object.defineProperty(window, 'localStorage', {
+    value: localStorageMock,
+  });
 
-// Mock matchMedia
-Object.defineProperty(window, 'matchMedia', {
-  writable: true,
-  value: vi.fn().mockImplementation((query: string) => ({
-    matches: false,
-    media: query,
-    onchange: null,
-    addListener: vi.fn(),
-    removeListener: vi.fn(),
-    addEventListener: vi.fn(),
-    removeEventListener: vi.fn(),
-    dispatchEvent: vi.fn(),
-  })),
-});
+  // Mock matchMedia
+  Object.defineProperty(window, 'matchMedia', {
+    writable: true,
+    value: vi.fn().mockImplementation((query: string) => ({
+      matches: false,
+      media: query,
+      onchange: null,
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    })),
+  });
+}
 
 // Mock IndexedDB for agentStorage tests
 // 优化：使用同步/微任务替代 setTimeout，减少等待时间
@@ -171,9 +174,11 @@ vi.stubGlobal('indexedDB', mockIndexedDB);
 const mockFetch = vi.fn();
 vi.stubGlobal('fetch', mockFetch);
 
-// Mock scrollIntoView for DOM elements
-Element.prototype.scrollTo = vi.fn();
-Element.prototype.scrollIntoView = vi.fn();
+// Mock scrollIntoView for DOM elements (jsdom only)
+if (typeof Element !== 'undefined') {
+  Element.prototype.scrollTo = vi.fn();
+  Element.prototype.scrollIntoView = vi.fn();
+}
 
 // Mock ThemeContext — needed by components that use useTheme (e.g. BrandMark → LoadingIndicator)
 vi.mock('@/contexts/ThemeContext', () => ({
