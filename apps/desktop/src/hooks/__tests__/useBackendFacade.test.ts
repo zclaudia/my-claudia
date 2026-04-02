@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('../../services/messageHandler', () => ({
   handleServerMessage: vi.fn(),
+  cleanupServerSyncState: vi.fn(),
 }));
 
 import { syncToGatewayStore } from '../useBackendFacade';

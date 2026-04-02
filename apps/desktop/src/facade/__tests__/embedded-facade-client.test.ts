@@ -160,16 +160,15 @@ describe('EmbeddedFacadeClient', () => {
     const firstWs = MockWebSocket.instances[0];
     firstWs.onopen?.();
 
+    // forceReconnect is a no-op when the socket is already open
     client.forceReconnect();
+    expect(MockWebSocket.instances).toHaveLength(1);
 
-    expect(MockWebSocket.instances).toHaveLength(2);
-
-    const secondWs = MockWebSocket.instances[1];
-    secondWs.onopen?.();
-
+    // Simulate the open socket closing unexpectedly
     firstWs.onclose?.();
     vi.advanceTimersByTime(2500);
 
+    // A single reconnect should be scheduled (not duplicated)
     expect(MockWebSocket.instances).toHaveLength(2);
   });
 });

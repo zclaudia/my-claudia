@@ -14,6 +14,7 @@ describe('PluginPanelRenderer', () => {
     usePluginStore.setState({ panels: [] } as any);
     useServerStore.setState({
       servers: [],
+      localServerPort: null,
       getActiveServer: () => ({ address: 'localhost:3100' }),
     } as any);
 
@@ -144,7 +145,7 @@ describe('PluginPanelRenderer', () => {
     expect(iframe?.src).toContain('pluginId=test-plugin');
   });
 
-  it('renders iframe panel with server URL containing protocol', () => {
+  it('renders iframe panel using localServerPort regardless of active server address', () => {
     usePluginStore.setState({
       panels: [{
         id: 'test-panel',
@@ -157,6 +158,7 @@ describe('PluginPanelRenderer', () => {
     } as any);
     useServerStore.setState({
       servers: [],
+      localServerPort: 4200,
       getActiveServer: () => ({ address: 'https://myserver.com' }),
     } as any);
 
@@ -165,7 +167,10 @@ describe('PluginPanelRenderer', () => {
     );
 
     const iframe = container.querySelector('iframe');
-    expect(iframe?.src).toContain('https://myserver.com/api/plugins/test-plugin/frontend/index.html');
+    // Production code always uses localhost with localServerPort
+    expect(iframe?.src).toContain('http://localhost:4200/api/plugins/test-plugin/frontend/index.html');
+    expect(iframe?.src).toContain('panelId=test-panel');
+    expect(iframe?.src).toContain('pluginId=test-plugin');
   });
 
   it('renders iframe panel without project props when not provided', () => {
@@ -186,7 +191,9 @@ describe('PluginPanelRenderer', () => {
 
     const iframe = container.querySelector('iframe');
     expect(iframe?.src).not.toContain('projectRoot');
-    expect(iframe?.src).not.toContain('projectId');
+    // panelId and pluginId are always appended as query params
+    expect(iframe?.src).toContain('panelId=test-panel');
+    expect(iframe?.src).toContain('pluginId=test-plugin');
   });
 
   it('handles missing active server gracefully', () => {

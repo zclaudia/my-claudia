@@ -5,15 +5,12 @@ import {
   downloadFile,
   readFileAsBase64,
 } from '../fileUpload.js';
-import { isGatewayTarget } from '../../stores/gatewayStore';
-
 const mockServerStoreState = {
   activeServerId: 'local',
 };
 
-const mockGatewayStoreState = {
-  gatewayUrl: 'http://localhost:3100',
-};
+let mockControlPlaneMode = 'embedded-local';
+let mockIsLocalBackendId = true;
 
 vi.mock('../../stores/serverStore', () => ({
   useServerStore: {
@@ -21,13 +18,9 @@ vi.mock('../../stores/serverStore', () => ({
   },
 }));
 
-vi.mock('../../stores/gatewayStore', () => ({
-  useGatewayStore: {
-    getState: () => mockGatewayStoreState,
-  },
-  isGatewayTarget: vi.fn(() => false),
-  parseBackendId: vi.fn((id: string) => id),
-  toGatewayServerId: vi.fn((id: string) => `gateway:${id}`),
+vi.mock('../../utils/controlPlane', () => ({
+  getControlPlaneMode: vi.fn(() => mockControlPlaneMode),
+  isLocalBackendId: vi.fn(() => mockIsLocalBackendId),
 }));
 
 vi.mock('../api', () => ({
@@ -104,7 +97,9 @@ describe('services/fileUpload', () => {
       success: true,
       data: { fileId: 'file-123', name: 'test.txt', mimeType: 'text/plain', size: 100 },
     });
-    vi.mocked(isGatewayTarget).mockReturnValue(false);
+    mockControlPlaneMode = 'embedded-local';
+    mockIsLocalBackendId = true;
+    mockFetch.mockReset();
     consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
   });
 
@@ -174,14 +169,14 @@ describe('services/fileUpload', () => {
   });
 
   it('uploads file in gateway mode', async () => {
-    const { isGatewayTarget } = await import('../../stores/gatewayStore');
-    vi.mocked(isGatewayTarget).mockReturnValue(true);
+    mockControlPlaneMode = 'gateway-direct';
+    mockIsLocalBackendId = false;
     mockFetch.mockResolvedValueOnce({
       ok: true,
       json: () =>
         Promise.resolve({
           success: true,
-          data: { fileId: 'gw-file-123', name: 'test.txt', mimeType: 'text/plain', size: 100 },
+          data: { fileId: 'file-123', name: 'test.txt', mimeType: 'text/plain', size: 100 },
         }),
     });
 
@@ -189,7 +184,7 @@ describe('services/fileUpload', () => {
     const progressCallback = vi.fn();
     const result = await uploadFile(file, progressCallback);
 
-    expect(result.fileId).toBe('gw-file-123');
+    expect(result.fileId).toBe('file-123');
     expect(mockFetch).toHaveBeenCalledWith(
       'http://localhost:3100/api/files/upload-json',
       expect.objectContaining({ method: 'POST' }),
@@ -212,8 +207,8 @@ describe('services/fileUpload', () => {
   });
 
   it('handles gateway mode upload failure', async () => {
-    const { isGatewayTarget } = await import('../../stores/gatewayStore');
-    vi.mocked(isGatewayTarget).mockReturnValue(true);
+    mockControlPlaneMode = 'gateway-direct';
+    mockIsLocalBackendId = false;
     mockFetch.mockResolvedValueOnce({
       ok: false,
       status: 500,

@@ -3,107 +3,69 @@
 import { renderHook, act } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useGatewayConnection } from '../useGatewayConnection';
-import { startSessionSync, stopSessionSync } from '../../services/sessionSync';
-import { isGatewayTarget } from '../../stores/gatewayStore';
 
-const { mockTransportInstance, MockGatewayTransport } = vi.hoisted(() => {
-  const mockTransportInstance = {
-    connect: vi.fn(),
-    disconnect: vi.fn(),
-    isConnected: vi.fn(() => true),
-    getRegistryItems: vi.fn(() => new Map()),
-    getChannelId: vi.fn(() => undefined),
-    openChannel: vi.fn(),
-    openSessionStream: vi.fn(),
-    closeSessionStream: vi.fn(),
-    catchUpContent: vi.fn(),
-    subscribeCatalog: vi.fn(),
+// ---------------------------------------------------------------------------
+// Hoisted mocks
+// ---------------------------------------------------------------------------
+const {
+  mockFacade,
+  mockFacadeStoreState,
+  mockGatewayStoreState,
+  mockSetState,
+  mockIsBackendReady,
+} = vi.hoisted(() => {
+  const mockFacade = {
+    openBackend: vi.fn(),
     sendToBackend: vi.fn(),
+    disconnect: vi.fn(),
   };
 
-  return {
-    mockTransportInstance,
-    MockGatewayTransport: vi.fn(function MockGatewayTransport() {
-      return mockTransportInstance;
-    }),
+  const mockFacadeStoreState = {
+    facade: mockFacade as any,
+    backends: [] as any[],
+    connectionState: 'connected' as string,
   };
+
+  const mockGatewayStoreState: Record<string, any> = {
+    gatewayUrl: null,
+    gatewaySecret: null,
+    isConnected: false,
+    directGatewayUrl: null,
+    directGatewaySecret: null,
+  };
+
+  const mockSetState = vi.fn((partial: any) => {
+    const updates = typeof partial === 'function' ? partial(mockGatewayStoreState) : partial;
+    Object.assign(mockGatewayStoreState, updates);
+  });
+
+  const mockIsBackendReady = vi.fn(() => false);
+
+  return { mockFacade, mockFacadeStoreState, mockGatewayStoreState, mockSetState, mockIsBackendReady };
 });
 
-vi.mock('../transport/GatewayTransport', () => ({
-  GatewayTransport: MockGatewayTransport,
+// ---------------------------------------------------------------------------
+// Mocks
+// ---------------------------------------------------------------------------
+vi.mock('../../stores/facadeStore', () => ({
+  useFacadeStore: vi.fn((selector?: any) =>
+    selector ? selector(mockFacadeStoreState) : mockFacadeStoreState,
+  ),
 }));
-
-const gatewayStoreState = {
-  gatewayUrl: 'http://gateway.example.com',
-  gatewaySecret: 'secret',
-  isConnected: false,
-  localBackendId: null as string | null,
-  discoveredBackends: [] as Array<{ backendId: string; name: string }>,
-  setConnected: vi.fn(),
-  setDiscoveredBackends: vi.fn(),
-  setBackendAuthStatus: vi.fn(),
-  syncFromServer: vi.fn(),
-  directGatewayUrl: null as string | null,
-  directGatewaySecret: null as string | null,
-};
 
 vi.mock('../../stores/gatewayStore', () => ({
   useGatewayStore: Object.assign(
-    vi.fn(() => gatewayStoreState),
+    vi.fn(() => mockGatewayStoreState),
     {
-      getState: () => gatewayStoreState,
+      getState: () => mockGatewayStoreState,
+      setState: mockSetState,
+      subscribe: vi.fn(() => vi.fn()),
     },
   ),
-  toGatewayServerId: vi.fn((id: string) => `gateway:${id}`),
-  isGatewayTarget: vi.fn(() => false),
-  parseBackendId: vi.fn((id: string) => id.replace('gateway:', '')),
-}));
-
-const serverStoreState = {
-  activeServerId: null as string | null,
-  setServerConnectionStatus: vi.fn(),
-  setServerLocalConnection: vi.fn(),
-  setServerFeatures: vi.fn(),
-  setServerPublicKey: vi.fn(),
-  updateLastConnected: vi.fn(),
-};
-
-const sessionsStoreState = {
-  remoteSessions: new Map<string, any[]>(),
-  setRemoteSessions: vi.fn(),
-  handleSessionEvent: vi.fn(),
-  clearBackendSessions: vi.fn(),
-  clearAllSessions: vi.fn(),
-};
-const projectStoreState = {
-  selectedSessionId: null as string | null,
-};
-const chatStoreState = {
-  pagination: {} as Record<string, { maxOffset?: number }>,
-  appendMessages: vi.fn(),
-};
-
-vi.mock('../../stores/serverStore', () => ({
-  useServerStore: Object.assign(
-    vi.fn(() => serverStoreState),
-    {
-      getState: () => serverStoreState,
-    },
-  ),
-}));
-
-vi.mock('../../stores/sessionsStore', () => ({
-  useSessionsStore: {
-    getState: () => sessionsStoreState,
-  },
-}));
-vi.mock('../../stores/projectStore', () => ({
-  useProjectStore: vi.fn((selector?: any) => selector ? selector(projectStoreState) : projectStoreState),
-}));
-vi.mock('../../stores/chatStore', () => ({
-  useChatStore: {
-    getState: () => chatStoreState,
-  },
+  toGatewayServerId: vi.fn((id: string) => `gw:${id}`),
+  isGatewayTarget: vi.fn((id: string) => id.startsWith('gw:')),
+  parseBackendId: vi.fn((id: string) => id.replace('gw:', '')),
+  GATEWAY_SERVER_PREFIX: 'gw:',
 }));
 
 vi.mock('../../services/api', () => ({
@@ -112,125 +74,75 @@ vi.mock('../../services/api', () => ({
       enabled: false,
       gatewayUrl: null,
       gatewaySecret: null,
-      discoveredBackends: [],
-      gatewayBackendId: null,
       connected: false,
     }),
   ),
 }));
 
-vi.mock('../../services/messageHandler', () => ({
-  handleServerMessage: vi.fn(),
+vi.mock('../../utils/backendConnection', () => ({
+  isBackendReady: (...args: any[]) => mockIsBackendReady(...args),
 }));
 
-vi.mock('../../services/sessionSync', () => ({
-  startSessionSync: vi.fn(),
-  stopSessionSync: vi.fn(),
-}));
-
-describe('useGatewayConnection feature propagation', () => {
+describe('useGatewayConnection facade delegation', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockTransportInstance.isConnected.mockReturnValue(true);
-    gatewayStoreState.discoveredBackends = [];
-    serverStoreState.activeServerId = null;
-    sessionsStoreState.remoteSessions = new Map();
-    projectStoreState.selectedSessionId = null;
-    chatStoreState.pagination = {};
-    vi.mocked(isGatewayTarget).mockReturnValue(false);
+
+    mockGatewayStoreState.gatewayUrl = null;
+    mockGatewayStoreState.gatewaySecret = null;
+    mockGatewayStoreState.isConnected = false;
+    mockGatewayStoreState.directGatewayUrl = null;
+    mockGatewayStoreState.directGatewaySecret = null;
+
+    mockFacadeStoreState.facade = mockFacade as any;
+    mockFacadeStoreState.backends = [];
+    mockFacadeStoreState.connectionState = 'connected';
+
+    mockIsBackendReady.mockReturnValue(false);
   });
 
   afterEach(() => {
     vi.restoreAllMocks();
   });
 
-  it('stores gateway backend capabilities as server features when a channel opens', () => {
-    renderHook(() => useGatewayConnection());
-
-    const transportConfig = MockGatewayTransport.mock.calls[0]?.[0];
-    expect(transportConfig).toBeDefined();
+  it('delegates openChannel to facade.openBackend', () => {
+    const { result } = renderHook(() => useGatewayConnection());
 
     act(() => {
-      transportConfig.onChannelOpened('backend-1', 'channel-1', 1, ['providerCommands', 'providerCapabilities']);
+      result.current.openChannel('backend-1');
     });
 
-    expect(serverStoreState.setServerFeatures).toHaveBeenCalledWith('gateway:backend-1', [
-      'providerCommands',
-      'providerCapabilities',
-    ]);
-    expect(startSessionSync).toHaveBeenCalledWith('gateway:backend-1');
+    expect(mockFacade.openBackend).toHaveBeenCalledWith('backend-1');
   });
 
-  it('creates missing sessions for catalog upserts and stops sync on channel close', () => {
-    const remoteSessions = new Map<string, any[]>();
-    remoteSessions.set('backend-1', []);
-    sessionsStoreState.remoteSessions = remoteSessions;
+  it('delegates sendToBackend to facade.sendToBackend', () => {
+    const { result } = renderHook(() => useGatewayConnection());
 
-    renderHook(() => useGatewayConnection());
-
-    const transportConfig = MockGatewayTransport.mock.calls[0]?.[0];
-    expect(transportConfig).toBeDefined();
-
+    const message = { type: 'init' as const, projectId: 'p1' };
     act(() => {
-      transportConfig.onCatalogEvent('backend-1', 1, 'upsert', {
-        sessionId: 'session-1',
-        title: 'New Session',
-        createdAt: 1,
-        updatedAt: 2,
-        activeRunStatus: 'idle',
-      });
+      result.current.sendToBackend('backend-1', message as any);
     });
 
-    expect(sessionsStoreState.handleSessionEvent).toHaveBeenCalledWith(
-      'backend-1',
-      'created',
-      expect.objectContaining({ id: 'session-1', name: 'New Session' }),
-    );
-
-    act(() => {
-      transportConfig.onChannelClosed('channel-1', 'backend-1', 'backend_offline');
-    });
-
-    expect(stopSessionSync).toHaveBeenCalledWith('gateway:backend-1');
+    expect(mockFacade.sendToBackend).toHaveBeenCalledWith('backend-1', message);
   });
 
-  it('opens a session stream and requests catch-up for the selected gateway session', () => {
-    serverStoreState.activeServerId = 'gateway:backend-1';
-    projectStoreState.selectedSessionId = 'session-1';
-    chatStoreState.pagination = { 'session-1': { maxOffset: 12 } };
-    mockTransportInstance.getChannelId.mockReturnValue('channel-1');
-    vi.mocked(isGatewayTarget).mockReturnValue(true);
+  it('isBackendConnected checks facade backends via isBackendReady', () => {
+    const backendSnapshot = { backendId: 'b1', online: true, runtimeState: 'ready' };
+    mockFacadeStoreState.backends = [backendSnapshot];
+    mockIsBackendReady.mockReturnValue(true);
 
-    renderHook(() => useGatewayConnection());
+    const { result } = renderHook(() => useGatewayConnection());
 
-    const transportConfig = MockGatewayTransport.mock.calls[0]?.[0];
-    act(() => {
-      transportConfig.onChannelOpened('backend-1', 'channel-1', 1, []);
-    });
-
-    expect(mockTransportInstance.openSessionStream).toHaveBeenCalledWith('channel-1', 'session-1');
-    expect(mockTransportInstance.catchUpContent).toHaveBeenCalledWith('channel-1', 'session-1', 12);
+    expect(result.current.isBackendConnected('b1')).toBe(true);
+    expect(mockIsBackendReady).toHaveBeenCalledWith('connected', backendSnapshot);
   });
 
-  it('applies content patches to the chat store', () => {
-    renderHook(() => useGatewayConnection());
+  it('disconnectGateway delegates to facade.disconnect', () => {
+    const { result } = renderHook(() => useGatewayConnection());
 
-    const transportConfig = MockGatewayTransport.mock.calls[0]?.[0];
     act(() => {
-      transportConfig.onContentPatch('channel-1', 'session-1', [{
-        messageId: 'm-1',
-        sessionId: 'session-1',
-        offset: 9,
-        role: 'assistant',
-        createdAt: 123,
-        content: 'tail',
-      }], 9);
+      result.current.disconnectGateway();
     });
 
-    expect(chatStoreState.appendMessages).toHaveBeenCalledWith(
-      'session-1',
-      [expect.objectContaining({ id: 'm-1', sessionId: 'session-1', role: 'assistant', createdAt: 123, content: 'tail' })],
-      { maxOffset: 9 },
-    );
+    expect(mockFacade.disconnect).toHaveBeenCalled();
   });
 });

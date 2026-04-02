@@ -66,6 +66,7 @@ vi.mock('@my-claudia/shared', async () => {
       catchUpContent = vi.fn();
       getHttpBaseUrl = vi.fn(() => null);
       getHttpHeaders = vi.fn(() => ({}));
+      clearDesiredState = vi.fn();
     },
   };
 });

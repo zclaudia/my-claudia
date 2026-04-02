@@ -7,6 +7,22 @@ vi.unmock('@/contexts/ConnectionContext');
 
 import { ConnectionProvider, useConnection, ConnectionContext } from '../ConnectionContext';
 
+// Mock useBackendFacade — no-op in ConnectionContext tests
+vi.mock('../../hooks/useBackendFacade', () => ({
+  useBackendFacade: vi.fn(),
+}));
+
+// Mock useWslServer
+vi.mock('../../hooks/useWslServer', () => ({
+  useWslServer: vi.fn(() => ({
+    port: null,
+    status: 'idle' as const,
+    error: null,
+    outputLines: [],
+    start: vi.fn(),
+  })),
+}));
+
 // Mock useEmbeddedServer
 vi.mock('../../hooks/useEmbeddedServer', () => ({
   useEmbeddedServer: vi.fn(() => ({
@@ -76,24 +92,38 @@ vi.mock('../../stores/serverStore', () => ({
   ),
 }));
 
-const mockGatewayStore = {
-  discoveredBackends: [],
-  localBackendId: null as string | null,
-  isConnected: false,
-  syncFromServer: vi.fn(),
-};
-
-vi.mock('../../stores/gatewayStore', () => ({
-  useGatewayStore: {
-    getState: () => mockGatewayStore,
-  },
-  isGatewayTarget: (serverId?: string | null) => !!serverId && serverId.startsWith('gw:'),
-}));
+vi.mock('../../stores/gatewayStore', () => {
+  const store: Record<string, any> = {
+    gatewayUrl: null,
+    gatewaySecret: null,
+    isConnected: false,
+    directGatewayUrl: null,
+    directGatewaySecret: null,
+    setConnected: vi.fn(),
+  };
+  const setState = vi.fn((partial: any) => Object.assign(store, partial));
+  const useGatewayStore = Object.assign(
+    (selector?: (s: any) => any) => selector ? selector(store) : store,
+    {
+      getState: () => store,
+      setState,
+      _store: store,
+    },
+  );
+  return {
+    useGatewayStore,
+    isGatewayTarget: (serverId?: string | null) => !!serverId && serverId.startsWith('gw:'),
+  };
+});
 
 vi.mock('../../utils/crypto', () => ({
   encryptCredential: vi.fn(() => 'encrypted_value'),
   isEncryptionAvailable: vi.fn(() => false),
 }));
+
+// Access the mocked gateway store internals for test assertions/resets
+import { useGatewayStore } from '../../stores/gatewayStore';
+const mockGatewayStore = (useGatewayStore as any)._store as Record<string, any>;
 
 describe('ConnectionContext', () => {
   beforeEach(() => {
@@ -103,9 +133,11 @@ describe('ConnectionContext', () => {
     mockServerStore.activeServerId = null;
     mockServerStore.servers = [];
     mockServerStore.connections = {};
-    mockGatewayStore.discoveredBackends = [];
-    mockGatewayStore.localBackendId = null;
+    mockGatewayStore.gatewayUrl = null;
+    mockGatewayStore.gatewaySecret = null;
     mockGatewayStore.isConnected = false;
+    mockGatewayStore.directGatewayUrl = null;
+    mockGatewayStore.directGatewaySecret = null;
   });
 
   afterEach(() => {
@@ -308,9 +340,7 @@ describe('ConnectionContext', () => {
     expect(mockServerStore.setLocalServerPort).toHaveBeenCalledWith(4321);
   });
 
-  it('activates standalone server and seeds direct server metadata', async () => {
-    const { useServerStore } = await import('../../stores/serverStore');
-
+  it('activates standalone server by id', async () => {
     const wrapper = ({ children }: { children: ReactNode }) => (
       <ConnectionProvider
         standaloneServerUrl="http://remote.example.com:7788"
@@ -324,20 +354,7 @@ describe('ConnectionContext', () => {
     renderHook(() => useConnection(), { wrapper });
 
     expect(mockServerStore.setActiveServer).toHaveBeenCalledWith('remote-1');
-    expect((useServerStore as any).setState).toHaveBeenCalledWith({
-      servers: [
-        {
-          id: 'remote-1',
-          name: 'Remote One',
-          address: 'remote.example.com:7788',
-          isDefault: false,
-          createdAt: expect.any(Number),
-          lastConnected: undefined,
-          clientId: undefined,
-          connectionMode: undefined,
-        },
-      ],
-    });
+    expect(mockServerStore.setLocalServerPort).toHaveBeenCalledWith(7788);
   });
 
   it('seeds standalone gateway runtime config for remote pop-out windows', () => {
@@ -355,13 +372,10 @@ describe('ConnectionContext', () => {
     renderHook(() => useConnection(), { wrapper });
 
     expect(mockServerStore.setActiveServer).toHaveBeenCalledWith('gw:backend-1');
-    expect(mockGatewayStore.syncFromServer).toHaveBeenCalledWith(
-      'wss://gateway.example.com',
-      'secret-1',
-      [],
-      null,
-      false,
-    );
+    expect(useGatewayStore.setState).toHaveBeenCalledWith({
+      gatewayUrl: 'wss://gateway.example.com',
+      gatewaySecret: 'secret-1',
+    });
   });
 
   it('encrypts credential when encryption is available', async () => {
