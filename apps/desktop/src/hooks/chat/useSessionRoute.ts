@@ -73,10 +73,23 @@ export function useSessionRoute(
   const stream = streamKey ? sessionStreams[streamKey] ?? null : null;
   const serverConnection = backendId ? serverConnections[backendId] ?? null : null;
   const catchUpSignatureRef = useRef<string | null>(null);
+  const prevStreamStateRef = useRef<string | undefined>();
 
   useEffect(() => {
     catchUpSignatureRef.current = null;
   }, [streamKey]);
+
+  // Reset catch-up signature when stream transitions back to 'open' (e.g. after reconnect).
+  // Without this, a reconnect with unchanged maxOffset would skip the catch-up request
+  // because the signature (streamKey + maxOffset) hasn't changed.
+  useEffect(() => {
+    const prev = prevStreamStateRef.current;
+    const curr = stream?.state;
+    prevStreamStateRef.current = curr;
+    if (prev && prev !== 'open' && curr === 'open') {
+      catchUpSignatureRef.current = null;
+    }
+  }, [stream?.state]);
 
   // Re-open backend when it becomes visible again after disconnect/reconnect.
   // backend?.openState changes from 'open' → 'closed' on disconnect, and the
