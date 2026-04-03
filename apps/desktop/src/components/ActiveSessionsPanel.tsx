@@ -7,6 +7,7 @@ import {
   resolveSessionBucketBackendId,
 } from '../stores/sessionsStore';
 import { useServerStore } from '../stores/serverStore';
+import { useRecoveryStore } from '../stores/recoveryStore';
 import { useProjectStore } from '../stores/projectStore';
 import { parseBackendId, shouldShowNonCurrentInstanceBackend, useGatewayStore } from '../stores/gatewayStore';
 import { useFacadeStore } from '../stores/facadeStore';
@@ -29,13 +30,14 @@ export function ActiveSessionsPanel({ onSessionSelect }: ActiveSessionsPanelProp
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [, forceUpdate] = useState(0);
   const { remoteSessions, activeSessionIdsByBackend, recentlyCompletedSessions, dismissRecentlyCompleted, clearAllRecentlyCompleted } = useSessionsStore();
-  const { activeServerId, connections } = useServerStore();
+  const { activeServerId } = useServerStore();
   const { sessions: localSessions, projects } = useProjectStore();
   const { showLocalBackend } = useGatewayStore();
   const facadeBackends = useFacadeStore((s) => s.backends);
   const localBackendId = useFacadeStore((s) => s.localBackendId);
   const currentInstanceId = useFacadeStore((s) => s.currentInstanceId);
-  const hasDirectLocalConnection = (connections.local?.status === 'connected' || connections.local?.status === 'connecting');
+  const localRecoveryStatus = useRecoveryStore((s) => s.backends['local']?.status);
+  const hasDirectLocalConnection = (localRecoveryStatus === 'ready' || localRecoveryStatus === 'opening');
 
   // Refresh "X ago" timestamps every 30s
   useEffect(() => {

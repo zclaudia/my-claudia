@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { fireEvent, render, waitFor } from '@testing-library/react';
+import { getCurrentWindow } from '@tauri-apps/api/window';
 
 // Mock Tauri APIs with all required exports
 const SERIALIZE_TO_IPC_FN = Symbol('SERIALIZE_TO_IPC_FN');
@@ -123,7 +124,7 @@ const mockSelectProject = vi.fn();
 const mockSelectSession = vi.fn();
 const mockSetActiveServer = vi.fn();
 
-let mockConnectionStatus = 'disconnected';
+let mockRecoveryStatus = 'disconnected';
 
 // Mock stores
 vi.mock('../../../stores/serverStore', () => ({
@@ -132,8 +133,6 @@ vi.mock('../../../stores/serverStore', () => ({
       activeServerId: 'backend-1',
       connections: {
         'backend-1': {
-          status: mockConnectionStatus,
-          error: null,
           isLocalConnection: false,
           features: [],
         },
@@ -145,6 +144,16 @@ vi.mock('../../../stores/serverStore', () => ({
       }),
     },
   ),
+}));
+
+vi.mock('../../../stores/recoveryStore', () => ({
+  useRecoveryStore: (selector: any) => selector({
+    backends: {
+      'backend-1': {
+        status: mockRecoveryStatus,
+      },
+    },
+  } as any),
 }));
 
 vi.mock('../../../stores/projectStore', () => ({
@@ -172,12 +181,18 @@ import { SessionChatWindow } from '../SessionChatWindow';
 describe('SessionChatWindow', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockConnectionStatus = 'disconnected';
+    mockRecoveryStatus = 'disconnected';
     mockGetProjects.mockResolvedValue([]);
     mockGetSessions.mockResolvedValue([]);
     mockGetProviders.mockResolvedValue([]);
     mockWindowClose.mockClear();
     mockSetActiveServer.mockClear();
+    vi.mocked(getCurrentWindow).mockReturnValue({
+      show: vi.fn(),
+      setFocus: vi.fn(),
+      close: mockWindowClose,
+      onCloseRequested: vi.fn(() => Promise.resolve(vi.fn())),
+    } as any);
   });
 
   it('renders without crashing', () => {
@@ -253,7 +268,7 @@ describe('SessionChatWindow', () => {
   });
 
   it('loads data and renders ChatInterface when connected', async () => {
-    mockConnectionStatus = 'connected';
+    mockRecoveryStatus = 'ready';
 
     const { container } = render(
       <SessionChatWindow
@@ -280,7 +295,7 @@ describe('SessionChatWindow', () => {
   });
 
   it('passes sessionId to ChatInterface', async () => {
-    mockConnectionStatus = 'connected';
+    mockRecoveryStatus = 'ready';
 
     const { container } = render(
       <SessionChatWindow
@@ -297,7 +312,7 @@ describe('SessionChatWindow', () => {
   });
 
   it('shows error state when API calls fail', async () => {
-    mockConnectionStatus = 'connected';
+    mockRecoveryStatus = 'ready';
     mockGetProjects.mockRejectedValueOnce(new Error('Server unreachable'));
 
     const { container } = render(
@@ -315,7 +330,7 @@ describe('SessionChatWindow', () => {
   });
 
   it('shows Close Window button on error', async () => {
-    mockConnectionStatus = 'connected';
+    mockRecoveryStatus = 'ready';
     mockGetProjects.mockRejectedValueOnce(new Error('Failed'));
 
     const { container } = render(
@@ -333,7 +348,7 @@ describe('SessionChatWindow', () => {
   });
 
   it('uses tauri window close for error action', async () => {
-    mockConnectionStatus = 'connected';
+    mockRecoveryStatus = 'ready';
     mockGetProjects.mockRejectedValueOnce(new Error('Failed'));
 
     const { findByText } = render(

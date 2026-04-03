@@ -38,7 +38,6 @@ describe('AutomationWindow', () => {
       connections: {},
       localServerPort: 3100,
       controlPlaneMode: 'embedded-local',
-      controlPlaneState: 'ready',
     } as any);
     mockFetch.mockReset();
     mockFetch.mockImplementation(async (input: RequestInfo | URL) => {

@@ -16,7 +16,6 @@ describe('terminalStore', () => {
       connections: {},
       localServerPort: null,
       controlPlaneMode: 'gateway-direct',
-      controlPlaneState: 'ready',
     });
     // Register terminal panel for visibility sync tests
     usePluginStore.setState({ panels: [] });

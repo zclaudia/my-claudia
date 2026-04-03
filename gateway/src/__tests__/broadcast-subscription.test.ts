@@ -87,6 +87,8 @@ function closeWs(ws: WebSocket): Promise<void> {
 
 // Helper: small delay
 const delay = (ms: number) => new Promise(r => setTimeout(r, ms));
+const DELIVERY_SETTLE_MS = 20;
+const UNSUBSCRIBE_SETTLE_MS = 5;
 
 describe('Gateway v2 catalog subscriptions', () => {
   let server: Server;
@@ -230,7 +232,7 @@ describe('Gateway v2 catalog subscriptions', () => {
       item: { sessionId: 'sess-2', name: 'Session 2', createdAt: Date.now(), updatedAt: Date.now() }
     }));
 
-    await delay(200);
+    await delay(DELIVERY_SETTLE_MS);
 
     const eventsA = clientA.collector.findAll(m => m.type === 'backend_catalog_event');
     const eventsB = clientB.collector.findAll(m => m.type === 'backend_catalog_event');
@@ -257,7 +259,7 @@ describe('Gateway v2 catalog subscriptions', () => {
       expectedEpoch: backendEpoch
     }));
 
-    await delay(50);
+    await delay(UNSUBSCRIBE_SETTLE_MS);
 
     // Backend publishes a catalog event
     backendWs.send(JSON.stringify({
@@ -268,7 +270,7 @@ describe('Gateway v2 catalog subscriptions', () => {
       item: { sessionId: 'sess-2', name: 'Session 2', createdAt: Date.now(), updatedAt: Date.now() }
     }));
 
-    await delay(200);
+    await delay(DELIVERY_SETTLE_MS);
 
     const events = client.collector.findAll(m => m.type === 'backend_catalog_event');
     expect(events).toHaveLength(0);
@@ -369,7 +371,7 @@ describe('Gateway v2 channel communication', () => {
       payload: { action: 'test', data: 'for A only' }
     }));
 
-    await delay(200);
+    await delay(DELIVERY_SETTLE_MS);
 
     const msgsA = clientA.collector.findAll(m => m.type === 'channel_server_message' && m.payload?.data === 'for A only');
     const msgsB = clientB.collector.findAll(m => m.type === 'channel_server_message' && m.payload?.data === 'for A only');
@@ -396,7 +398,7 @@ describe('Gateway v2 channel communication', () => {
       payload: { from: 'B' }
     }));
 
-    await delay(200);
+    await delay(DELIVERY_SETTLE_MS);
 
     const fromA = clientChannelA.collector.findAll(m => m.type === 'channel_server_message' && m.payload?.from === 'A');
     const fromB = clientChannelB.collector.findAll(m => m.type === 'channel_server_message' && m.payload?.from === 'B');
@@ -426,7 +428,7 @@ describe('Gateway v2 channel communication', () => {
       payload: { data: 'should not arrive' }
     }));
 
-    await delay(200);
+    await delay(DELIVERY_SETTLE_MS);
 
     const msgs = client.collector.findAll(m => m.type === 'channel_server_message' && m.payload?.data === 'should not arrive');
     expect(msgs).toHaveLength(0);

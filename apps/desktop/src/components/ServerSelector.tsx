@@ -5,7 +5,6 @@ import { useFacadeStore } from '../stores/facadeStore';
 import { useConnection } from '../contexts/ConnectionContext';
 import { useIsMobile } from '../hooks/useMediaQuery';
 import type { BackendSnapshot } from '@my-claudia/shared';
-import { canReachBackend, getEffectiveBackendStatus } from '../utils/backendConnection';
 import { useRecoveryStore, type BackendRecoveryViewState } from '../stores/recoveryStore';
 
 function formatLatency(latencyMs?: number | null): string | null {
@@ -37,7 +36,6 @@ export function ServerSelector() {
   const recoveryState = useRecoveryStore((s) => s);
 
   const backends = useFacadeStore((s) => s.backends);
-  const facadeConnectionState = useFacadeStore((s) => s.connectionState);
   const localBackendId = useFacadeStore((s) => s.localBackendId);
   const currentInstanceId = useFacadeStore((s) => s.currentInstanceId);
   const activeBackend = backends.find(b => b.backendId === activeServerId);
@@ -48,10 +46,10 @@ export function ServerSelector() {
     || null;
   const displayedBackend = activeBackend || fallbackBackend;
   const displayedBackendId = displayedBackend?.backendId ?? activeServerId ?? null;
-  const activeConnection = displayedBackendId ? connections[displayedBackendId] : undefined;
-  const activeConnectionStatus = activeConnection?.status || 'disconnected';
-  const activeConnectionError = activeConnection?.error || null;
   const activeRecoveryState = recoveryState.getBackendViewState(displayedBackendId);
+  const activeRecoveryError = displayedBackendId
+    ? (recoveryState.backends[displayedBackendId]?.lastError ?? recoveryState.transport.error)
+    : null;
   const isGatewayConfigured = !!gatewayUrl && !!gatewaySecret;
   // Show all backends in the dropdown. When the active server is remote,
   // the local backend must be visible so the user can switch back.
@@ -60,7 +58,7 @@ export function ServerSelector() {
   const remoteBackends = backends.filter(b => shouldShowNonCurrentInstanceBackend(b, currentInstanceId, effectiveShowLocal));
 
   const handleBackendClick = (backend: BackendSnapshot) => {
-    if (!canReachBackend(facadeConnectionState, backend)) return;
+    if (recoveryState.getBackendViewState(backend.backendId) === 'offline') return;
     const serverId = backend.backendId;
     setActiveServer(serverId);
     connectServer(serverId);
@@ -71,7 +69,7 @@ export function ServerSelector() {
     setIsOpen(false);
   };
 
-  const getStatusColor = (viewState: BackendRecoveryViewState, fallbackStatus: string) => {
+  const getStatusColor = (viewState: BackendRecoveryViewState) => {
     switch (viewState) {
       case 'ready':
         return 'bg-success';
@@ -86,21 +84,12 @@ export function ServerSelector() {
       case 'backend_visible':
         return 'bg-warning';
       case 'offline':
-        break;
-    }
-    switch (fallbackStatus) {
-      case 'connected':
-        return 'bg-success';
-      case 'connecting':
-        return 'bg-warning animate-pulse';
-      case 'error':
-        return 'bg-destructive';
       default:
         return 'bg-muted-foreground';
     }
   };
 
-  const getStatusText = (viewState: BackendRecoveryViewState, fallbackStatus: string) => {
+  const getStatusText = (viewState: BackendRecoveryViewState) => {
     switch (viewState) {
       case 'ready':
         return 'Connected';
@@ -117,17 +106,8 @@ export function ServerSelector() {
       case 'backend_visible':
         return 'Available';
       case 'error':
-        return activeConnectionError || 'Error';
+        return activeRecoveryError || 'Error';
       case 'offline':
-        break;
-    }
-    switch (fallbackStatus) {
-      case 'connected':
-        return 'Connected';
-      case 'connecting':
-        return 'Connecting...';
-      case 'error':
-        return activeConnectionError || 'Error';
       default:
         return 'Disconnected';
     }
@@ -141,7 +121,7 @@ export function ServerSelector() {
         className="flex w-full min-w-0 items-center gap-2 px-3 py-1.5 rounded-lg bg-secondary hover:bg-muted transition-colors"
         data-testid="server-selector"
       >
-        <span className={`w-2 h-2 rounded-full flex-shrink-0 ${getStatusColor(activeRecoveryState, activeConnectionStatus)}`} />
+        <span className={`w-2 h-2 rounded-full flex-shrink-0 ${getStatusColor(activeRecoveryState)}`} />
         <span className="flex-1 min-w-0 text-left text-sm truncate">
           {displayedBackend?.name || (isMobile ? 'Select Server' : 'No Server')}
         </span>
@@ -161,8 +141,8 @@ export function ServerSelector() {
           {/* Status */}
           <div className="px-3 py-2 border-b border-border">
             <div className="flex items-center gap-2 text-sm">
-              <span className={`w-2 h-2 rounded-full ${getStatusColor(activeRecoveryState, activeConnectionStatus)}`} />
-              <span className="text-muted-foreground" data-testid="connection-status">{getStatusText(activeRecoveryState, activeConnectionStatus)}</span>
+              <span className={`w-2 h-2 rounded-full ${getStatusColor(activeRecoveryState)}`} />
+              <span className="text-muted-foreground" data-testid="connection-status">{getStatusText(activeRecoveryState)}</span>
             </div>
           </div>
 
@@ -196,7 +176,6 @@ export function ServerSelector() {
                       isActive={activeServerId === backend.backendId}
                       isSubscribed={isBackendSubscribed(backend.backendId)}
                       latencyMs={connections[backend.backendId]?.latencyMs}
-                      connectionState={facadeConnectionState}
                       recoveryViewState={recoveryState.getBackendViewState(backend.backendId)}
                       onClick={() => handleBackendClick(backend)}
                       onToggleSubscription={() => toggleBackendSubscription(backend.backendId)}
@@ -247,7 +226,6 @@ function GatewayBackendItem({
   isActive,
   isSubscribed,
   latencyMs,
-  connectionState,
   recoveryViewState,
   onClick,
   onToggleSubscription
@@ -256,13 +234,11 @@ function GatewayBackendItem({
   isActive: boolean;
   isSubscribed: boolean;
   latencyMs?: number | null;
-  connectionState: import('@my-claudia/shared').BackendConnectionState;
   recoveryViewState: BackendRecoveryViewState;
   onClick: () => void;
   onToggleSubscription: () => void;
 }) {
-  const effectiveStatus = getEffectiveBackendStatus(connectionState, backend);
-  const isReachable = canReachBackend(connectionState, backend);
+  const isReachable = recoveryViewState !== 'offline';
   const statusColor = recoveryViewState === 'ready'
     ? 'bg-success'
     : ['transport_reconnecting', 'backend_opening', 'backend_recovering', 'catalog_syncing', 'session_syncing'].includes(recoveryViewState)
@@ -271,16 +247,19 @@ function GatewayBackendItem({
     ? 'bg-warning'
     : recoveryViewState === 'error'
     ? 'bg-destructive'
-    : effectiveStatus === 'connected'
-    ? 'bg-success'
-    : effectiveStatus === 'connecting'
-    ? 'bg-warning animate-pulse'
-    : effectiveStatus === 'idle'
-    ? 'bg-warning'
-    : effectiveStatus === 'error'
-    ? 'bg-destructive'
     : 'bg-muted-foreground';
   const isNonProdChannel = backend.channel && backend.channel !== 'prod';
+
+  const offlineLabel = (() => {
+    switch (recoveryViewState) {
+      case 'backend_recovering': return 'Recovering';
+      case 'catalog_syncing': return 'Syncing';
+      case 'backend_opening': return 'Connecting';
+      case 'backend_visible': return 'Idle';
+      case 'error': return 'Error';
+      default: return 'Offline';
+    }
+  })();
 
   return (
     <div
@@ -307,17 +286,7 @@ function GatewayBackendItem({
         )}
         {!isReachable && (
           <span className="text-xs text-muted-foreground flex-shrink-0">
-            {recoveryViewState === 'backend_recovering'
-              ? 'Recovering'
-              : recoveryViewState === 'catalog_syncing'
-              ? 'Syncing'
-              : effectiveStatus === 'connecting'
-              ? 'Connecting'
-              : effectiveStatus === 'idle'
-              ? 'Idle'
-              : effectiveStatus === 'error'
-              ? 'Error'
-              : 'Offline'}
+            {offlineLabel}
           </span>
         )}
         <button

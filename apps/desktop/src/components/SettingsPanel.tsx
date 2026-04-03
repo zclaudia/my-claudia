@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { useServerStore } from '../stores/serverStore';
+import { useRecoveryStore } from '../stores/recoveryStore';
 import { useFacadeStore } from '../stores/facadeStore';
 import { useGatewayStore, shouldShowNonCurrentInstanceBackend } from '../stores/gatewayStore';
 import { useUIStore, type FontSizePreset } from '../stores/uiStore';
@@ -27,7 +28,27 @@ import { NotificationSettingsInline } from './settings/NotificationSettings';
 import { MobileGatewayConfig } from './settings/MobileGatewayConfig';
 import { isMacOS, isTauri } from '../utils/platform';
 import { useControlPlaneMode } from '../hooks/useControlPlaneMode';
-import { canReachBackend, getEffectiveBackendStatus } from '../utils/backendConnection';
+import type { BackendRecoveryViewState } from '../stores/recoveryStore';
+
+function getViewStateLabel(viewState: BackendRecoveryViewState): string | null {
+  switch (viewState) {
+    case 'transport_reconnecting':
+    case 'backend_recovering':
+      return 'Reconnecting';
+    case 'backend_opening':
+    case 'catalog_syncing':
+    case 'session_syncing':
+      return 'Connecting';
+    case 'backend_visible':
+      return 'Idle';
+    case 'error':
+      return 'Error';
+    case 'offline':
+      return 'Offline';
+    default:
+      return null;
+  }
+}
 
 type SettingsTab = 'general' | 'agent' | 'permissions' | 'providers' | 'notifications' | 'gateway' | 'import' | 'plugins' | 'mcp-servers' | 'workspace' | 'debug' | `plugin:${string}`;
 
@@ -68,14 +89,14 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
   const clearCleanupResult = useProcessMonitorStore((state) => state.clearCleanupResult);
 
   const facadeBackends = useFacadeStore((s) => s.backends);
-  const facadeConnectionState = useFacadeStore((s) => s.connectionState);
   const localBackendId = useFacadeStore((s) => s.localBackendId);
   const currentInstanceId = useFacadeStore((s) => s.currentInstanceId);
   const activeServer = facadeBackends.find(b => b.backendId === activeServerId) ?? null;
-  const isConnected = useServerStore((s) => {
-    if (!s.activeServerId) return false;
-    return s.connections[s.activeServerId]?.status === 'connected';
+  const isConnected = useRecoveryStore((s) => {
+    if (!activeServerId) return false;
+    return s.backends[activeServerId]?.status === 'ready';
   });
+  const recoveryState = useRecoveryStore((s) => s);
   const isActiveLocalBackend = !!activeServerId && (
     activeServerId === localBackendId || activeServer?.isThisInstance === true
   );
@@ -221,7 +242,7 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
   }, [activeTab, isEmbeddedLocalMode]);
 
   const handleBackendSwitch = (backend: GatewayBackendInfo) => {
-    if (!canReachBackend(facadeConnectionState, backend as any)) return;
+    if (recoveryState.getBackendViewState(backend.backendId) !== 'ready') return;
     const serverId = backend.backendId;
     setActiveServer(serverId);
     connectServer(serverId);
@@ -514,17 +535,18 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
                           {visibleGatewayBackends.map((backend) => {
                             const gwId = backend.backendId;
                             const isActive = activeServerId === gwId;
-                            const effectiveStatus = getEffectiveBackendStatus(facadeConnectionState, backend as any);
-                            const isReachable = canReachBackend(facadeConnectionState, backend as any);
-                            const statusColor = effectiveStatus === 'connected'
+                            const viewState = recoveryState.getBackendViewState(gwId);
+                            const isReachable = viewState === 'ready';
+                            const statusColor = viewState === 'ready'
                               ? 'bg-success'
-                              : effectiveStatus === 'connecting'
+                              : viewState === 'transport_reconnecting' || viewState === 'backend_opening' || viewState === 'catalog_syncing' || viewState === 'session_syncing' || viewState === 'backend_recovering'
                               ? 'bg-warning animate-pulse'
-                              : effectiveStatus === 'idle'
+                              : viewState === 'backend_visible'
                               ? 'bg-warning'
-                              : effectiveStatus === 'error'
+                              : viewState === 'error'
                               ? 'bg-destructive'
                               : 'bg-muted-foreground';
+                            const statusLabel = getViewStateLabel(viewState);
 
                             return (
                               <button
@@ -542,9 +564,9 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
                                     Active
                                   </span>
                                 )}
-                                {!isReachable && (
+                                {!isReachable && statusLabel && (
                                   <span className="text-[10px] text-muted-foreground flex-shrink-0">
-                                    {effectiveStatus === 'connecting' ? 'Connecting' : effectiveStatus === 'idle' ? 'Idle' : effectiveStatus === 'error' ? 'Error' : 'Offline'}
+                                    {statusLabel}
                                   </span>
                                 )}
                               </button>

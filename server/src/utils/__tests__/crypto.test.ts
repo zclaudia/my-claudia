@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeAll } from 'vitest';
 import * as crypto from 'crypto';
 import { generateKeyPair, getPublicKeyPem, decryptCredential } from '../crypto.js';
 
@@ -19,8 +19,8 @@ function encryptWithPublicKey(publicKeyPem: string, plaintext: string): string {
 }
 
 describe('crypto', () => {
-  beforeEach(() => {
-    // Generate a fresh keypair for each test to avoid cross-test state leakage
+  beforeAll(() => {
+    // Reuse one keypair for the suite; per-test regeneration dominates runtime.
     generateKeyPair();
   });
 

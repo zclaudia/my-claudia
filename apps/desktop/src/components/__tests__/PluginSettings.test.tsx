@@ -1,5 +1,5 @@
-import { describe, it, expect, vi } from 'vitest';
-import { render } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { render, act } from '@testing-library/react';
 import { PluginSettings } from '../PluginSettings';
 import { usePluginStore } from '../../stores/pluginStore';
 
@@ -9,7 +9,26 @@ vi.mock('../../services/api', () => ({
 }));
 
 describe('PluginSettings', () => {
-  it('shows loading state', () => {
+  const originalFetch = globalThis.fetch;
+
+  beforeEach(() => {
+    globalThis.fetch = vi.fn(() => new Promise(() => {})) as any;
+  });
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  async function renderSettings() {
+    let view!: ReturnType<typeof render>;
+    await act(async () => {
+      view = render(<PluginSettings />);
+      await Promise.resolve();
+    });
+    return view;
+  }
+
+  it('shows loading state', async () => {
     usePluginStore.setState({
       plugins: [],
       isLoading: true,
@@ -17,11 +36,11 @@ describe('PluginSettings', () => {
       removePlugin: vi.fn(),
       setError: vi.fn(),
     } as any);
-    const { getByText } = render(<PluginSettings />);
+    const { getByText } = await renderSettings();
     expect(getByText('Loading plugins...')).toBeTruthy();
   });
 
-  it('shows error state', () => {
+  it('shows error state', async () => {
     usePluginStore.setState({
       plugins: [],
       isLoading: false,
@@ -29,11 +48,11 @@ describe('PluginSettings', () => {
       removePlugin: vi.fn(),
       setError: vi.fn(),
     } as any);
-    const { getByText } = render(<PluginSettings />);
+    const { getByText } = await renderSettings();
     expect(getByText('Failed to load')).toBeTruthy();
   });
 
-  it('shows empty state when no plugins', () => {
+  it('shows empty state when no plugins', async () => {
     usePluginStore.setState({
       plugins: [],
       isLoading: false,
@@ -41,11 +60,11 @@ describe('PluginSettings', () => {
       removePlugin: vi.fn(),
       setError: vi.fn(),
     } as any);
-    const { getByText } = render(<PluginSettings />);
+    const { getByText } = await renderSettings();
     expect(getByText('No plugins installed')).toBeTruthy();
   });
 
-  it('renders plugin cards', () => {
+  it('renders plugin cards', async () => {
     usePluginStore.setState({
       plugins: [{
         manifest: {
@@ -62,7 +81,7 @@ describe('PluginSettings', () => {
       removePlugin: vi.fn(),
       setError: vi.fn(),
     } as any);
-    const { getByText, container } = render(<PluginSettings />);
+    const { getByText, container } = await renderSettings();
     expect(getByText('Test Plugin')).toBeTruthy();
     expect(container.textContent).toContain('Active');
   });

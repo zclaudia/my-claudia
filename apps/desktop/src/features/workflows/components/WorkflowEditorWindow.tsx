@@ -3,6 +3,7 @@ import { Loader2 } from 'lucide-react';
 import type { Workflow } from '@my-claudia/shared';
 import { ConnectionProvider } from '../../../contexts/ConnectionContext';
 import { useServerStore } from '../../../stores/serverStore';
+import { useRecoveryStore } from '../../../stores/recoveryStore';
 import { useProjectStore } from '../../../stores/projectStore';
 import * as api from '../../../services/api';
 import { WorkflowEditor } from './WorkflowEditor';
@@ -54,9 +55,10 @@ function WorkflowEditorWindowContent({ projectId, workflowId, serverUrl, authTok
   const [workflow, setWorkflow] = useState<Workflow | undefined>(undefined);
   const [loading, setLoading] = useState(!!workflowId);
   const [error, setError] = useState<string | null>(null);
-  const isConnected = useServerStore((s) => {
-    if (!s.activeServerId) return false;
-    return s.connections[s.activeServerId]?.status === 'connected';
+  const activeServerId = useServerStore((s) => s.activeServerId);
+  const isConnected = useRecoveryStore((s) => {
+    if (!activeServerId) return false;
+    return s.backends[activeServerId]?.status === 'ready';
   });
 
   useEffect(() => {

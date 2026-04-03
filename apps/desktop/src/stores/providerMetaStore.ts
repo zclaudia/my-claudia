@@ -17,6 +17,8 @@ interface ProviderMetaState {
   setProviderCapabilities: (providerId: string, capabilities: ProviderCapabilities) => void;
 }
 
+const EMPTY_PROVIDERS: ProviderConfig[] = [];
+
 function resolveBackendId(backendId?: string | null): string | null {
   if (backendId) return backendId;
   const getState = (useServerStore as { getState?: () => { activeServerId?: string | null } }).getState;
@@ -41,8 +43,8 @@ export const useProviderMetaStore = create<ProviderMetaState>((set, get) => ({
 
   getProviders: (backendId) => {
     const resolvedBackendId = resolveBackendId(backendId);
-    if (!resolvedBackendId) return [];
-    return get().providersByBackend[resolvedBackendId] ?? [];
+    if (!resolvedBackendId) return EMPTY_PROVIDERS;
+    return get().providersByBackend[resolvedBackendId] ?? EMPTY_PROVIDERS;
   },
 
   setProviderCommands: (providerId, commands) =>

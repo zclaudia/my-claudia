@@ -39,6 +39,8 @@ export interface TransportState {
   generation: number;
   error: string | null;
   peerSessionId: string | null;
+  retryCount: number;
+  lastMessageAt: number | null;
   statusEnteredAt: number;
 }
 
@@ -46,6 +48,9 @@ export interface BackendRecoveryState {
   backendId: string;
   status: BackendRecoveryStatus;
   desiredOpen: boolean;
+  channelReady: boolean;
+  catalogReady: boolean;
+  retryCount: number;
   lastError: string | null;
   lastCloseReason: string | null;
   statusEnteredAt: number;
@@ -55,6 +60,7 @@ export interface CatalogRecoveryState {
   backendId: string;
   status: CatalogRecoveryStatus;
   ownershipVersion: number;
+  retryCount: number;
   lastError: string | null;
   lastSyncAt: number | null;
   statusEnteredAt: number;
@@ -65,8 +71,10 @@ export interface ActiveSessionRecoveryState {
   status: ActiveSessionRecoveryStatus;
   backendId: string | null;
   ownershipVersion: number | null;
+  retryCount: number;
   lastError: string | null;
   hasGapMarker: boolean;
+  lastMessageAt: number | null;
   statusEnteredAt: number;
 }
 
@@ -81,6 +89,8 @@ function initialTransport(): TransportState {
     generation: 0,
     error: null,
     peerSessionId: null,
+    retryCount: 0,
+    lastMessageAt: null,
     statusEnteredAt: now(),
   };
 }
@@ -91,8 +101,10 @@ function initialActiveSession(): ActiveSessionRecoveryState {
     status: 'idle',
     backendId: null,
     ownershipVersion: null,
+    retryCount: 0,
     lastError: null,
     hasGapMarker: false,
+    lastMessageAt: null,
     statusEnteredAt: now(),
   };
 }
@@ -117,20 +129,31 @@ function mapTransportStatus(state: BackendConnectionState): TransportStatus {
 function mapBackendStatus(
   runtimeState: BackendRuntimeState,
   current: BackendRecoveryState | undefined,
-): BackendRecoveryStatus {
+): { status: BackendRecoveryStatus; channelReady: boolean } {
   switch (runtimeState) {
-    case 'ready':
-      return 'ready';
+    case 'ready': {
+      const channelReady = true;
+      const catalogReady = current?.catalogReady ?? false;
+      return {
+        status: channelReady && catalogReady ? 'ready' : 'opening',
+        channelReady,
+      };
+    }
     case 'opening':
-      return 'opening';
-    case 'visible':
-      return current?.status === 'ready' || current?.status === 'degraded' ? 'degraded' : 'visible';
+      return { status: 'opening', channelReady: false };
+    case 'visible': {
+      const wasPreviouslyActive = current?.status === 'ready' || current?.status === 'degraded';
+      return { status: wasPreviouslyActive ? 'degraded' : 'visible', channelReady: false };
+    }
     case 'offline':
-      return current?.desiredOpen || current?.status === 'ready' ? 'degraded' : 'absent';
+      return {
+        status: current?.desiredOpen || current?.status === 'ready' ? 'degraded' : 'absent',
+        channelReady: false,
+      };
     case 'error':
-      return 'error';
+      return { status: 'error', channelReady: false };
     default:
-      return 'absent';
+      return { status: 'absent', channelReady: false };
   }
 }
 
@@ -143,6 +166,9 @@ function upsertBackendState(
   const enteredAt = current?.status === status ? current.statusEnteredAt : now();
   return {
     desiredOpen: current?.desiredOpen ?? false,
+    channelReady: current?.channelReady ?? false,
+    catalogReady: current?.catalogReady ?? false,
+    retryCount: current?.retryCount ?? 0,
     lastError: current?.lastError ?? null,
     lastCloseReason: current?.lastCloseReason ?? null,
     ...current,
@@ -162,6 +188,7 @@ function upsertCatalogState(
   const enteredAt = current?.status === status ? current.statusEnteredAt : now();
   return {
     ownershipVersion: current?.ownershipVersion ?? 0,
+    retryCount: current?.retryCount ?? 0,
     lastError: current?.lastError ?? null,
     lastSyncAt: current?.lastSyncAt ?? null,
     ...current,
@@ -186,6 +213,26 @@ function updateActiveSession(
   };
 }
 
+export const RECOVERY_TIMEOUTS = {
+  TRANSPORT_CONNECT: 10_000,
+  BACKEND_OPEN: 15_000,
+  CATALOG_SYNC: 10_000,
+  SESSION_STREAM_OPEN: 10_000,
+  SESSION_CATCHUP: 15_000,
+  RECONCILE_INTERVAL: 30_000,
+  CATALOG_STALENESS_ACTIVE: 5 * 60_000,
+  CATALOG_STALENESS_INACTIVE: 15 * 60_000,
+} as const;
+
+export const RECOVERY_MAX_RETRIES = {
+  TRANSPORT: 5,
+  BACKEND: 3,
+  CATALOG_FULL: 3,
+  CATALOG_DELTA: 1,
+  SESSION_STREAM: 2,
+  SESSION_CATCHUP: 2,
+} as const;
+
 interface RecoveryState {
   coordinator: RecoveryCoordinatorStatus;
   transport: TransportState;
@@ -200,6 +247,7 @@ interface RecoveryState {
   setSelection: (activeBackendId: string | null, selectedSessionId: string | null) => void;
   noteBackground: () => void;
   startRecovery: (mode?: BackendFacadeMode) => void;
+  startBackendRecovery: (backendId: string) => void;
   setTransportState: (state: BackendConnectionState, error?: string | null) => void;
   applySnapshot: (snapshot: BackendFacadeSnapshot) => void;
   noteBackendDesiredOpen: (backendId: string) => void;
@@ -215,6 +263,12 @@ interface RecoveryState {
   noteActiveSessionLive: (sessionId: string, backendId: string) => void;
   noteActiveSessionStale: () => void;
   noteActiveSessionError: (error: string) => void;
+  noteTransportMessage: () => void;
+  noteActiveSessionMessage: () => void;
+  noteTransportTimeout: () => void;
+  noteBackendTimeout: (backendId: string) => void;
+  noteCatalogSyncTimeout: (backendId: string) => void;
+  noteActiveSessionTimeout: () => void;
   completeRecoveryIfPossible: () => void;
   markReady: () => void;
   getVerifiedSessionBackendId: (sessionId: string | null | undefined) => string | null;
@@ -253,8 +307,10 @@ export const useRecoveryStore = create<RecoveryState>()((set, get) => ({
         status: state.coordinator === 'recovering' ? 'stale' : 'idle',
         backendId: null,
         ownershipVersion: null,
+        retryCount: 0,
         lastError: null,
         hasGapMarker: false,
+        lastMessageAt: null,
         statusEnteredAt: now(),
       };
     }
@@ -278,6 +334,9 @@ export const useRecoveryStore = create<RecoveryState>()((set, get) => ({
       backends[backendId] = {
         ...backend,
         status: backend.status === 'ready' ? 'degraded' : backend.status,
+        channelReady: false,
+        catalogReady: false,
+        retryCount: 0,
         lastCloseReason: backend.status === 'ready' ? 'transport_reconnecting' : backend.lastCloseReason,
         statusEnteredAt: now(),
       };
@@ -288,6 +347,7 @@ export const useRecoveryStore = create<RecoveryState>()((set, get) => ({
       catalogs[backendId] = {
         ...catalog,
         status: backendId === state.activeBackendId ? 'stale' : catalog.status,
+        retryCount: 0,
         statusEnteredAt: backendId === state.activeBackendId ? now() : catalog.statusEnteredAt,
       };
     }
@@ -297,6 +357,7 @@ export const useRecoveryStore = create<RecoveryState>()((set, get) => ({
           ...state.activeSession,
           sessionId: state.selectedSessionId,
           status: 'stale' as const,
+          retryCount: 0,
           lastError: null,
           statusEnteredAt: now(),
         }
@@ -310,12 +371,57 @@ export const useRecoveryStore = create<RecoveryState>()((set, get) => ({
         generation: nextGeneration,
         status: state.transport.status === 'connected' ? 'reconnecting' : 'connecting',
         error: null,
+        retryCount: 0,
         statusEnteredAt: now(),
       },
       backends,
       catalogs,
       activeSession,
       backgroundAt: null,
+    };
+  }),
+
+  startBackendRecovery: (backendId) => set((state) => {
+    if (state.coordinator === 'recovering') return state;
+    if (state.transport.status !== 'connected') return state;
+    if (state.activeBackendId !== backendId) return state;
+
+    const backend = state.backends[backendId];
+    if (!backend) return state;
+
+    const catalogNeedsSync = !state.catalogs[backendId]
+      || state.catalogs[backendId].status !== 'ready';
+    const sessionNeedsRecovery = state.selectedSessionId
+      && state.activeSession.status !== 'live';
+
+    if (!catalogNeedsSync && !sessionNeedsRecovery) return state;
+
+    const catalogs = { ...state.catalogs };
+    if (catalogs[backendId]) {
+      catalogs[backendId] = {
+        ...catalogs[backendId],
+        status: 'stale',
+        retryCount: 0,
+        lastError: null,
+        statusEnteredAt: now(),
+      };
+    }
+
+    const activeSession = state.selectedSessionId
+      ? {
+          ...state.activeSession,
+          sessionId: state.selectedSessionId,
+          status: 'stale' as const,
+          retryCount: 0,
+          lastError: null,
+          statusEnteredAt: now(),
+        }
+      : state.activeSession;
+
+    return {
+      coordinator: 'recovering',
+      catalogs,
+      activeSession,
     };
   }),
 
@@ -343,17 +449,25 @@ export const useRecoveryStore = create<RecoveryState>()((set, get) => ({
     for (const backend of snapshot.backends) {
       seen.add(backend.backendId);
       const current = backends[backend.backendId];
+      const mapped = mapBackendStatus(backend.runtimeState, current);
       backends[backend.backendId] = upsertBackendState(
         current,
         backend.backendId,
-        mapBackendStatus(backend.runtimeState, current),
-        { lastError: backend.lastError ?? current?.lastError ?? null },
+        mapped.status,
+        {
+          lastError: backend.lastError ?? current?.lastError ?? null,
+          channelReady: mapped.channelReady,
+          catalogReady: mapped.channelReady ? (current?.catalogReady ?? false) : false,
+        },
       );
     }
 
     for (const backendId of Object.keys(backends)) {
       if (!seen.has(backendId)) {
-        backends[backendId] = upsertBackendState(backends[backendId], backendId, 'absent');
+        backends[backendId] = upsertBackendState(backends[backendId], backendId, 'absent', {
+          channelReady: false,
+          catalogReady: false,
+        });
       }
     }
 
@@ -368,6 +482,7 @@ export const useRecoveryStore = create<RecoveryState>()((set, get) => ({
         ...state.transport,
         mode: snapshot.mode,
         status: mapTransportStatus(snapshot.connectionState),
+        lastMessageAt: now(),
       },
       backends,
     };
@@ -395,33 +510,54 @@ export const useRecoveryStore = create<RecoveryState>()((set, get) => ({
     },
   })),
 
-  noteCatalogSyncFailed: (backendId, error) => set((state) => ({
-    coordinator: state.coordinator === 'recovering' ? 'error' : state.coordinator,
-    catalogs: {
-      ...state.catalogs,
-      [backendId]: upsertCatalogState(state.catalogs[backendId], backendId, 'error', { lastError: error }),
-    },
-  })),
+  noteCatalogSyncFailed: (backendId, error) => set((state) => {
+    const current = state.catalogs[backendId];
+    const retryCount = (current?.retryCount ?? 0) + 1;
+    const maxRetries = current?.status === 'syncing_delta'
+      ? RECOVERY_MAX_RETRIES.CATALOG_DELTA
+      : RECOVERY_MAX_RETRIES.CATALOG_FULL;
+    const retriesExhausted = retryCount >= maxRetries;
+    const nextStatus: CatalogRecoveryStatus = retriesExhausted
+      ? 'error'
+      : current?.status === 'syncing_delta' ? 'stale' : (current?.status ?? 'error');
+    return {
+      coordinator: retriesExhausted && state.coordinator === 'recovering' ? 'error' : state.coordinator,
+      catalogs: {
+        ...state.catalogs,
+        [backendId]: upsertCatalogState(current, backendId, nextStatus, {
+          lastError: error,
+          retryCount,
+        }),
+      },
+    };
+  }),
 
   noteCatalogSyncSucceeded: (backendId) => {
     const ownershipVersion = get().nextOwnershipVersion;
-    set((state) => ({
-      catalogs: {
-        ...state.catalogs,
-        [backendId]: upsertCatalogState(state.catalogs[backendId], backendId, 'ready', {
-          ownershipVersion,
-          lastError: null,
-          lastSyncAt: now(),
-        }),
-      },
-      nextOwnershipVersion: ownershipVersion + 1,
-      backends: {
-        ...state.backends,
-        [backendId]: upsertBackendState(state.backends[backendId], backendId, 'ready', {
-          desiredOpen: state.backends[backendId]?.desiredOpen ?? true,
-        }),
-      },
-    }));
+    set((state) => {
+      const backend = state.backends[backendId];
+      const channelReady = backend?.channelReady ?? false;
+      const backendStatus = channelReady ? 'ready' as const : (backend?.status ?? 'opening' as const);
+      return {
+        catalogs: {
+          ...state.catalogs,
+          [backendId]: upsertCatalogState(state.catalogs[backendId], backendId, 'ready', {
+            ownershipVersion,
+            retryCount: 0,
+            lastError: null,
+            lastSyncAt: now(),
+          }),
+        },
+        nextOwnershipVersion: ownershipVersion + 1,
+        backends: {
+          ...state.backends,
+          [backendId]: upsertBackendState(backend, backendId, backendStatus, {
+            desiredOpen: backend?.desiredOpen ?? true,
+            catalogReady: true,
+          }),
+        },
+      };
+    });
     return ownershipVersion;
   },
 
@@ -490,6 +626,91 @@ export const useRecoveryStore = create<RecoveryState>()((set, get) => ({
     coordinator: state.coordinator === 'recovering' ? 'error' : state.coordinator,
     activeSession: updateActiveSession(state.activeSession, 'error', { lastError: error }),
   })),
+
+  noteTransportMessage: () => set((state) => ({
+    transport: { ...state.transport, lastMessageAt: now() },
+  })),
+
+  noteActiveSessionMessage: () => set((state) => ({
+    activeSession: { ...state.activeSession, lastMessageAt: now() },
+  })),
+
+  noteTransportTimeout: () => set((state) => {
+    const retryCount = state.transport.retryCount + 1;
+    const retriesExhausted = retryCount >= RECOVERY_MAX_RETRIES.TRANSPORT;
+    return {
+      coordinator: retriesExhausted && state.coordinator === 'recovering' ? 'error' : state.coordinator,
+      transport: {
+        ...state.transport,
+        status: 'error' as const,
+        retryCount,
+        error: `Transport connect timeout (attempt ${retryCount}/${RECOVERY_MAX_RETRIES.TRANSPORT})`,
+        statusEnteredAt: now(),
+      },
+    };
+  }),
+
+  noteBackendTimeout: (backendId) => set((state) => {
+    const backend = state.backends[backendId];
+    if (!backend) return state;
+    const retryCount = backend.retryCount + 1;
+    return {
+      backends: {
+        ...state.backends,
+        [backendId]: upsertBackendState(backend, backendId, 'error', {
+          retryCount,
+          lastError: `Backend open timeout (attempt ${retryCount}/${RECOVERY_MAX_RETRIES.BACKEND})`,
+          channelReady: false,
+          catalogReady: false,
+        }),
+      },
+    };
+  }),
+
+  noteCatalogSyncTimeout: (backendId) => set((state) => {
+    const catalog = state.catalogs[backendId];
+    if (!catalog) return state;
+    const retryCount = catalog.retryCount + 1;
+    const wasDelta = catalog.status === 'syncing_delta';
+    const maxRetries = wasDelta ? RECOVERY_MAX_RETRIES.CATALOG_DELTA : RECOVERY_MAX_RETRIES.CATALOG_FULL;
+    const retriesExhausted = retryCount >= maxRetries;
+    const nextStatus: CatalogRecoveryStatus = wasDelta
+      ? 'stale'
+      : (retriesExhausted ? 'error' : catalog.status);
+    return {
+      coordinator: retriesExhausted && !wasDelta && state.coordinator === 'recovering' ? 'error' : state.coordinator,
+      catalogs: {
+        ...state.catalogs,
+        [backendId]: upsertCatalogState(catalog, backendId, nextStatus, {
+          retryCount,
+          lastError: `Catalog sync timeout (attempt ${retryCount}/${maxRetries})`,
+        }),
+      },
+    };
+  }),
+
+  noteActiveSessionTimeout: () => set((state) => {
+    const session = state.activeSession;
+    const retryCount = session.retryCount + 1;
+    const inCatchUpPhase = session.status === 'catching_up' || session.status === 'hydrating_tail';
+    if (inCatchUpPhase) {
+      return {
+        activeSession: updateActiveSession(session, 'live', {
+          retryCount,
+          hasGapMarker: true,
+          lastError: null,
+        }),
+      };
+    }
+    const retriesExhausted = retryCount >= RECOVERY_MAX_RETRIES.SESSION_STREAM;
+    return {
+      coordinator: retriesExhausted && state.coordinator === 'recovering' ? 'error' : state.coordinator,
+      activeSession: updateActiveSession(session, 'error', {
+        retryCount,
+        lastError: `Active session recovery timeout (attempt ${retryCount}/${RECOVERY_MAX_RETRIES.SESSION_STREAM})`,
+      }),
+    };
+  }),
 
   completeRecoveryIfPossible: () => set((state) => {
     if (state.coordinator !== 'recovering') return state;
@@ -574,4 +795,13 @@ export function getRecoverySessionStream(
 ): SessionStreamSnapshot | null {
   if (!backendId || !sessionId) return null;
   return streams[`${backendId}:${sessionId}`] ?? null;
+}
+
+export function isBackendReady(backendId: string | null | undefined): boolean {
+  if (!backendId) return false;
+  return useRecoveryStore.getState().backends[backendId]?.status === 'ready';
+}
+
+export function isTransportReady(): boolean {
+  return useRecoveryStore.getState().transport.status === 'connected';
 }

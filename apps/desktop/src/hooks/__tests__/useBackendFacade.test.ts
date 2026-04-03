@@ -26,7 +26,6 @@ describe('useBackendFacade run_event forwarding', () => {
       connections: {},
       localServerPort: null,
       controlPlaneMode: 'embedded-local',
-      controlPlaneState: 'connecting',
     });
     useFacadeStore.setState({
       facade: null,
@@ -176,106 +175,9 @@ describe('useBackendFacade run_event forwarding', () => {
     } as any);
 
     expect(useServerStore.getState().connections['local-standalone']).toMatchObject({
-      status: 'connected',
       features: ['remoteTerminal'],
     });
     expect(useServerStore.getState().activeServerSupports('remoteTerminal')).toBe(true);
-  });
-
-  it('downgrades backend connection status while transport is reconnecting', () => {
-    useServerStore.setState({
-      ...useServerStore.getState(),
-      connections: {
-        'local-standalone': { status: 'connected', error: null, isLocalConnection: true, features: [] },
-      },
-    });
-
-    syncToGatewayStore({
-      type: 'connection_state_changed',
-      state: 'reconnecting',
-    } as any);
-
-    expect(useServerStore.getState().controlPlaneState).toBe('connecting');
-    expect(useServerStore.getState().connections['local-standalone']).toMatchObject({
-      status: 'connecting',
-      error: null,
-    });
-  });
-
-  it('does not keep backend connected on snapshot updates while transport is connecting', () => {
-    syncToGatewayStore({
-      type: 'snapshot_updated',
-      snapshot: {
-        snapshotVersion: 2,
-        capturedAt: Date.now(),
-        mode: 'direct',
-        connectionState: 'connecting',
-        localBackendId: null,
-        currentInstanceId: 'instance-local',
-        currentDeviceId: 'device-local',
-        registryRevision: 2,
-        sessionStreams: {},
-        backends: [
-          {
-            backendId: 'remote-1',
-            name: 'Remote',
-            online: true,
-            runtimeState: 'ready',
-            openState: 'open',
-            channelId: 'ch-1',
-            instanceId: 'instance-remote',
-            deviceId: 'device-remote',
-            channel: 'prod',
-            isThisInstance: false,
-            isThisDevice: false,
-            capabilities: ['remoteTerminal'],
-          },
-        ],
-      },
-    } as any);
-
-    expect(useServerStore.getState().connections['remote-1']).toMatchObject({
-      status: 'connecting',
-      features: ['remoteTerminal'],
-    });
-  });
-
-  it('downgrades local backend on snapshot updates while embedded transport is connecting', () => {
-    syncToGatewayStore({
-      type: 'snapshot_updated',
-      snapshot: {
-        snapshotVersion: 2,
-        capturedAt: Date.now(),
-        mode: 'embedded',
-        connectionState: 'connecting',
-        localBackendId: 'local-standalone',
-        currentInstanceId: 'instance-local',
-        currentDeviceId: 'device-local',
-        registryRevision: 2,
-        sessionStreams: {},
-        backends: [
-          {
-            backendId: 'local-standalone',
-            name: 'Local',
-            online: true,
-            runtimeState: 'ready',
-            openState: 'open',
-            channelId: 'ch-1',
-            instanceId: 'instance-local',
-            deviceId: 'device-local',
-            channel: 'local',
-            isThisInstance: true,
-            isThisDevice: true,
-            capabilities: ['remoteTerminal'],
-          },
-        ],
-      },
-    } as any);
-
-    expect(useServerStore.getState().connections['local-standalone']).toMatchObject({
-      status: 'connecting',
-      features: ['remoteTerminal'],
-    });
   });
 
   it('migrates a stale local backend selection to the current local backend id', () => {

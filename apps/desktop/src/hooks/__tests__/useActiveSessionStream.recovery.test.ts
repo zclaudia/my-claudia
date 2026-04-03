@@ -55,7 +55,6 @@ describe('useActiveSessionStream recovery gating', () => {
       connections: {},
       localServerPort: null,
       controlPlaneMode: 'gateway-direct',
-      controlPlaneState: 'ready',
     } as any);
     useOwnershipStore.setState({
       sessionBackendIds: { 'session-1': 'backend-1' },

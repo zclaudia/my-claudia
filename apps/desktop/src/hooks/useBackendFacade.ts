@@ -23,39 +23,11 @@ import { useChatStore, type MessageWithToolCalls } from '../stores/chatStore';
 import { useToastStore } from '../stores/toastStore';
 import { useOwnershipStore } from '../stores/ownershipStore';
 import { handleServerMessage, cleanupServerSyncState } from '../services/messageHandler';
-import type { BackendConnectionState, BackendRuntimeState, ServerFeature } from '@my-claudia/shared';
-import type { ConnectionStatus } from '../stores/serverStore';
+import type { ServerFeature } from '@my-claudia/shared';
 import { isLegacyLocalBackendId } from '../utils/controlPlane';
 import { useTerminalStore } from '../stores/terminalStore';
 import { xtermRegistry } from '../utils/xtermRegistry';
 import { useRecoveryStore } from '../stores/recoveryStore';
-
-/** Map facade BackendRuntimeState to serverStore ConnectionStatus. */
-function runtimeStateToConnectionStatus(state: BackendRuntimeState): ConnectionStatus {
-  switch (state) {
-    case 'ready':
-      return 'connected';
-    case 'opening':
-      return 'connecting';
-    case 'error':
-      return 'error';
-    default:
-      return 'disconnected';
-  }
-}
-
-function transportStateToConnectionStatus(state: BackendConnectionState): ConnectionStatus {
-  switch (state) {
-    case 'connected':
-      return 'connected';
-    case 'error':
-      return 'error';
-    case 'disconnected':
-      return 'disconnected';
-    default:
-      return 'connecting';
-  }
-}
 
 // Fix #21: use WeakRef-like pattern — clear on each facade lifecycle
 let facadeServerRuns = new Map<string, Set<string>>();
@@ -113,7 +85,6 @@ export function useBackendFacade(): void {
   useEffect(() => {
     const serverState = useServerStore.getState();
     serverState.setControlPlaneMode(mode === 'embedded' ? 'embedded-local' : 'gateway-direct');
-    serverState.setControlPlaneState('connecting');
 
     // Cleanup previous facade
     if (facadeRef.current) {
@@ -151,6 +122,7 @@ export function useBackendFacade(): void {
     // Subscribe to events → update facadeStore + sync bridge to gatewayStore
     unsubEventRef.current = facade.onEvent((event: BackendFacadeEvent) => {
       useFacadeStore.getState().applyEvent(event);
+      useRecoveryStore.getState().noteTransportMessage();
       syncToGatewayStore(event);
     });
 
@@ -183,17 +155,11 @@ export function syncToGatewayStore(event: BackendFacadeEvent): void {
       const snapshot = event.snapshot;
       useRecoveryStore.getState().applySnapshot(snapshot);
       gwStore.setConnected(snapshot.connectionState === 'connected');
-      // Sync per-backend connection status to serverStore
       const resolvedLocalBackendId =
         snapshot.localBackendId
         || snapshot.backends.find((b) => b.isThisInstance)?.backendId
         || null;
-      serverState.setControlPlaneState(snapshot.connectionState === 'connected' ? 'ready' : 'connecting');
       for (const b of snapshot.backends) {
-        const status = snapshot.connectionState === 'connected'
-          ? runtimeStateToConnectionStatus(b.runtimeState)
-          : transportStateToConnectionStatus(snapshot.connectionState);
-        serverState.setServerConnectionStatus(b.backendId, status, b.lastError ?? undefined);
         serverState.setServerFeatures(b.backendId, b.capabilities as ServerFeature[]);
       }
       // Auto-set activeServerId to local backend ONLY on first boot, legacy migration,
@@ -235,14 +201,9 @@ export function syncToGatewayStore(event: BackendFacadeEvent): void {
 
     case 'connection_state_changed':
       useRecoveryStore.getState().setTransportState(event.state, event.error ?? null);
-      useServerStore.getState().setControlPlaneState(event.state === 'connected' ? 'ready' : event.state === 'error' ? 'error' : 'connecting');
       gwStore.setConnected(event.state === 'connected');
       if (event.state !== 'connected') {
-        const downgradedStatus = transportStateToConnectionStatus(event.state);
         for (const backend of useFacadeStore.getState().backends) {
-          serverState.setServerConnectionStatus(backend.backendId, downgradedStatus, event.error);
-          // Clear per-server version caches so reconnect triggers full reconciliation
-          // in both direct (`backendId`) and gateway-prefixed (`gw:${backendId}`) contexts.
           cleanupServerSyncState(backend.backendId);
           cleanupServerSyncState(`gw:${backend.backendId}`);
         }
@@ -264,10 +225,8 @@ export function syncToGatewayStore(event: BackendFacadeEvent): void {
           sessionStreams: useFacadeStore.getState().sessionStreams,
           registryRevision: useFacadeStore.getState().registryRevision,
         });
+        recoveryStore.startBackendRecovery(event.backendId);
       }
-      // Sync to serverStore
-      const connStatus = runtimeStateToConnectionStatus(event.state);
-      useServerStore.getState().setServerConnectionStatus(event.backendId, connStatus, event.error);
 
       if (event.state === 'offline' || event.state === 'error') {
         cleanupServerSyncState(event.backendId);
@@ -388,6 +347,7 @@ export function syncToGatewayStore(event: BackendFacadeEvent): void {
           : JSON.stringify(msg.content),
       }));
       useChatStore.getState().appendMessages(sessionId, restoredMessages, { maxOffset: latestOffset });
+      useRecoveryStore.getState().noteActiveSessionMessage();
       break;
     }
 

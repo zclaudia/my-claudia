@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor, fireEvent } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent, act } from '@testing-library/react';
 import { FileSearchInput } from '../FileSearchInput';
 
 vi.mock('../../../services/api', () => ({
@@ -63,20 +63,28 @@ describe('FileSearchInput', () => {
   });
 
   it('displays search results', async () => {
-    const { listDirectory } = await import('../../../services/api');
-    (listDirectory as any).mockResolvedValueOnce({ entries: mockEntries });
+    vi.useFakeTimers();
+    try {
+      const { listDirectory } = await import('../../../services/api');
+      (listDirectory as any).mockResolvedValueOnce({ entries: mockEntries });
 
-    render(
-      <FileSearchInput projectRoot="/root" onSelect={() => {}} onClose={() => {}} />
-    );
+      render(
+        <FileSearchInput projectRoot="/root" onSelect={() => {}} onClose={() => {}} />
+      );
 
-    const input = screen.getByPlaceholderText('Search files by name...');
-    fireEvent.change(input, { target: { value: 'ts' } });
+      const input = screen.getByPlaceholderText('Search files by name...');
+      fireEvent.change(input, { target: { value: 'ts' } });
 
-    // Wait for API to be called and results to render
-    await new Promise(resolve => setTimeout(resolve, 200));
-    expect(screen.getByText('src/index.ts')).toBeInTheDocument();
-    expect(screen.getByText('src/app.ts')).toBeInTheDocument();
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(150);
+      });
+
+      expect(listDirectory).toHaveBeenCalled();
+      expect(screen.getByText('src/index.ts')).toBeInTheDocument();
+      expect(screen.getByText('src/app.ts')).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('calls onSelect when a result is clicked', () => {

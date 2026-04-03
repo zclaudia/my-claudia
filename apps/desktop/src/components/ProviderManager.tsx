@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { ChevronDown, Check } from 'lucide-react';
 import type { ProviderConfig } from '@my-claudia/shared';
 import { useServerStore } from '../stores/serverStore';
+import { useRecoveryStore } from '../stores/recoveryStore';
 import { useProjectStore } from '../stores/projectStore';
 import { useProviderMetaStore } from '../stores/providerMetaStore';
 import * as api from '../services/api';
@@ -61,9 +62,9 @@ interface ProviderManagerProps {
 
 export function ProviderManager({ isOpen, onClose, inline = false }: ProviderManagerProps) {
   const activeServerId = useServerStore((s) => s.activeServerId);
-  const isConnected = useServerStore((s) => {
-    if (!s.activeServerId) return false;
-    return s.connections[s.activeServerId]?.status === 'connected';
+  const isConnected = useRecoveryStore((s) => {
+    if (!activeServerId) return false;
+    return s.backends[activeServerId]?.status === 'ready';
   });
   const storeProviders = useProviderMetaStore((s) => s.getProviders(activeServerId));
 

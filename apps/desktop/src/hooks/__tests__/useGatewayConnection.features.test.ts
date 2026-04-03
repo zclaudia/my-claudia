@@ -79,7 +79,7 @@ vi.mock('../../services/api', () => ({
   ),
 }));
 
-vi.mock('../../utils/backendConnection', () => ({
+vi.mock('../../stores/recoveryStore', () => ({
   isBackendReady: (...args: any[]) => mockIsBackendReady(...args),
 }));
 
@@ -126,14 +126,12 @@ describe('useGatewayConnection facade delegation', () => {
   });
 
   it('isBackendConnected checks facade backends via isBackendReady', () => {
-    const backendSnapshot = { backendId: 'b1', online: true, runtimeState: 'ready' };
-    mockFacadeStoreState.backends = [backendSnapshot];
     mockIsBackendReady.mockReturnValue(true);
 
     const { result } = renderHook(() => useGatewayConnection());
 
     expect(result.current.isBackendConnected('b1')).toBe(true);
-    expect(mockIsBackendReady).toHaveBeenCalledWith('connected', backendSnapshot);
+    expect(mockIsBackendReady).toHaveBeenCalledWith('b1');
   });
 
   it('disconnectGateway delegates to facade.disconnect', () => {

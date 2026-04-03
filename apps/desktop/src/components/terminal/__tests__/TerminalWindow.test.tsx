@@ -1,9 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 
-vi.mock('@tauri-apps/api/core', () => ({
-  invoke: vi.fn().mockResolvedValue({}),
-}));
+vi.mock('@tauri-apps/api/core', async (importOriginal) => {
+  const mod = await importOriginal<typeof import('@tauri-apps/api/core')>();
+  return {
+    ...mod,
+    invoke: vi.fn().mockResolvedValue({}),
+  };
+});
 
 vi.mock('@tauri-apps/api/event', () => ({
   emitTo: vi.fn(),

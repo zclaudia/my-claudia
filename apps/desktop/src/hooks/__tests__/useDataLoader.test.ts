@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import { useServerStore } from '../../stores/serverStore';
 import { useProjectStore } from '../../stores/projectStore';
+import { useRecoveryStore } from '../../stores/recoveryStore';
 
 vi.mock('../../services/api', () => ({
   getServers: vi.fn().mockResolvedValue([]),
@@ -37,7 +38,15 @@ describe('useDataLoader', () => {
       setProjects: vi.fn(),
       mergeSessions: vi.fn(),
       setProviders: vi.fn(),
+      setDataServerId: vi.fn(),
       selectSession: vi.fn(),
+    } as any);
+    useRecoveryStore.setState({
+      backends: {
+        'local-standalone': {
+          status: 'offline',
+        },
+      },
     } as any);
   });
 
@@ -55,13 +64,10 @@ describe('useDataLoader', () => {
   });
 
   it('loads data when connected', async () => {
-    useServerStore.setState({
-      connections: {
+    useRecoveryStore.setState({
+      backends: {
         'local-standalone': {
-          status: 'connected',
-          error: null,
-          isLocalConnection: true,
-          features: [],
+          status: 'ready',
         },
       },
     } as any);

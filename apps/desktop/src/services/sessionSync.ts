@@ -17,8 +17,6 @@ import { getControlPlaneMode, isLocalBackendId } from '../utils/controlPlane';
 
 interface BackendSyncState {
   lastSyncTime: number;
-  incrementalInterval: ReturnType<typeof setInterval>;
-  fullSyncInterval: ReturnType<typeof setInterval>;
   missingSyncRequestUrlLogged: boolean;
 }
 
@@ -27,10 +25,6 @@ const syncStates = new Map<string, BackendSyncState>();
 
 // Prevent concurrent sync operations per backend (skip-if-busy)
 const activeSyncs = new Set<string>();
-
-// Sync configuration
-const INCREMENTAL_SYNC_INTERVAL = 30000; // 30 seconds
-const FULL_SYNC_INTERVAL = 300000; // 5 minutes
 
 /**
  * Check if the currently viewed session has missing messages and fetch them.
@@ -303,8 +297,6 @@ export async function syncBackendCatalog(
   if (!syncStates.has(backendId)) {
     syncStates.set(backendId, {
       lastSyncTime: 0,
-      incrementalInterval: null as unknown as ReturnType<typeof setInterval>,
-      fullSyncInterval: null as unknown as ReturnType<typeof setInterval>,
       missingSyncRequestUrlLogged: false,
     });
   }
@@ -391,98 +383,3 @@ export async function recoverCurrentSessionTail(targetServerId: string, sessionI
   pendingRecovery.set(key, promise);
 }
 
-/**
- * Trigger immediate gap-fill for a pushed session snapshot.
- * Used by WebSocket session events so cross-device messages appear without waiting
- * for the 30s incremental sync cycle or a manual session switch.
- */
-export async function eagerSyncSessionUpdate(session: RemoteSession): Promise<void> {
-  await fillMessageGapForSession(session);
-}
-
-/**
- * Trigger immediate sync across all active backends.
- * Called on visibility change (app comes to foreground) to catch up on missed messages.
- */
-export function eagerSyncAllBackends(): void {
-  if (syncStates.size === 0) return;
-
-  console.log(`[SessionSync] Eager sync triggered for ${syncStates.size} backend(s)`);
-  for (const backendId of syncStates.keys()) {
-    incrementalSync(backendId);
-    eagerSyncCurrentSession(backendId);
-  }
-}
-
-/**
- * Start periodic session synchronization for a specific backend
- */
-export function startSessionSync(
-  backendId: string,
-  options?: { skipInitialFullSync?: boolean }
-): void {
-  // Stop any existing sync for this backend first
-  stopSessionSync(backendId);
-
-  console.log(`[SessionSync] Starting sync for backend ${backendId}`);
-
-  // Initial full sync overlaps with useDataLoader() for the currently active backend.
-  // Allow callers to skip it to avoid a redundant `/sessions` + `/sessions/sync?since=0`
-  // burst during server switching.
-  if (!options?.skipInitialFullSync) {
-    fullSync(backendId);
-  }
-
-  // Schedule incremental sync every 30 seconds
-  const incrementalInterval = setInterval(() => {
-    incrementalSync(backendId);
-  }, INCREMENTAL_SYNC_INTERVAL);
-
-  // Schedule full sync every 5 minutes
-  const fullSyncInterval = setInterval(() => {
-    fullSync(backendId);
-  }, FULL_SYNC_INTERVAL);
-
-  // Store sync state for this backend
-  syncStates.set(backendId, {
-    lastSyncTime: 0,
-    incrementalInterval,
-    fullSyncInterval,
-    missingSyncRequestUrlLogged: false,
-  });
-}
-
-/**
- * Stop periodic session synchronization for a specific backend
- * If backendId is not provided, stops all syncs
- */
-export function stopSessionSync(backendId?: string): void {
-  if (backendId) {
-    const state = syncStates.get(backendId);
-    if (state) {
-      clearInterval(state.incrementalInterval);
-      clearInterval(state.fullSyncInterval);
-      syncStates.delete(backendId);
-      console.log(`[SessionSync] Stopped sync for backend ${backendId}`);
-    }
-  } else {
-    // Stop all syncs
-    syncStates.forEach((state, id) => {
-      clearInterval(state.incrementalInterval);
-      clearInterval(state.fullSyncInterval);
-      console.log(`[SessionSync] Stopped sync for backend ${id}`);
-    });
-    syncStates.clear();
-    console.log('[SessionSync] Stopped all syncs');
-  }
-}
-
-/**
- * Check if sync is currently running for a specific backend
- */
-export function isSyncRunning(backendId?: string): boolean {
-  if (backendId) {
-    return syncStates.has(backendId);
-  }
-  return syncStates.size > 0;
-}

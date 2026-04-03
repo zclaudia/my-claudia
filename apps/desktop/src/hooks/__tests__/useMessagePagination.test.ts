@@ -4,6 +4,7 @@ import { renderHook, waitFor } from '@testing-library/react';
 import { useMessagePagination } from '../chat/useMessagePagination';
 import { useChatStore } from '../../stores/chatStore';
 import { useUIStore } from '../../stores/uiStore';
+import { useFilePushStore } from '../../stores/filePushStore';
 
 vi.mock('../../services/api', () => ({
   getSessionMessages: vi.fn(),
@@ -37,6 +38,7 @@ describe('useMessagePagination', () => {
       pendingMessageJump: null,
       poppedOutSessions: new Map(),
     });
+    useFilePushStore.setState({ items: [] });
   });
 
   it('loads initial messages via HTTP even before websocket reports connected', async () => {
@@ -81,5 +83,108 @@ describe('useMessagePagination', () => {
     });
 
     expect(useChatStore.getState().messages['session-1']).toHaveLength(1);
+  });
+
+  it('sets a friendly offline error when the initial fetch fails with backend offline', async () => {
+    vi.mocked(api.getSessionMessages).mockRejectedValue(new Error('BACKEND_OFFLINE'));
+
+    const { result } = renderHook(() =>
+      useMessagePagination({
+        sessionId: 'session-1',
+        isConnected: true,
+        isMobile: false,
+      })
+    );
+
+    await waitFor(() => {
+      expect(result.current.initialLoadDone).toBe(true);
+    });
+
+    expect(result.current.loadError).toContain('Backend is offline');
+    expect(useChatStore.getState().messages['session-1']).toEqual([]);
+  });
+
+  it('uses aroundMessageId when a pending message jump targets the session', async () => {
+    vi.mocked(api.getSessionMessages).mockResolvedValue({
+      messages: [],
+      pagination: {
+        total: 0,
+        hasMore: false,
+      },
+      activeRun: null,
+    });
+    useUIStore.setState({
+      ...useUIStore.getState(),
+      pendingMessageJump: {
+        sessionId: 'session-1',
+        messageId: 'msg-42',
+      },
+    });
+
+    renderHook(() =>
+      useMessagePagination({
+        sessionId: 'session-1',
+        isConnected: true,
+        isMobile: false,
+      })
+    );
+
+    await waitFor(() => {
+      expect(api.getSessionMessages).toHaveBeenCalledWith('session-1', {
+        limit: 50,
+        aroundMessageId: 'msg-42',
+        signal: expect.any(AbortSignal),
+      });
+    });
+  });
+
+  it('syncs file push metadata from loaded messages into filePushStore', async () => {
+    vi.mocked(api.getSessionMessages).mockResolvedValue({
+      messages: [
+        {
+          id: 'msg-1',
+          sessionId: 'session-1',
+          role: 'assistant',
+          content: 'download ready',
+          createdAt: 1,
+          metadata: {
+            filePush: {
+              fileId: 'file-1',
+              fileName: 'report.txt',
+              mimeType: 'text/plain',
+              fileSize: 128,
+              description: 'Generated report',
+            },
+          },
+        } as any,
+      ],
+      pagination: {
+        total: 1,
+        hasMore: false,
+        maxOffset: 1,
+      },
+      activeRun: null,
+    });
+
+    renderHook(() =>
+      useMessagePagination({
+        sessionId: 'session-1',
+        isConnected: true,
+        isMobile: false,
+      })
+    );
+
+    await waitFor(() => {
+      expect(useFilePushStore.getState().items).toHaveLength(1);
+    });
+
+    expect(useFilePushStore.getState().items[0]).toEqual(
+      expect.objectContaining({
+        fileId: 'file-1',
+        fileName: 'report.txt',
+        sessionId: 'session-1',
+        status: 'pending',
+      })
+    );
   });
 });

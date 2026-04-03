@@ -2,7 +2,7 @@ import { useMemo } from 'react';
 import type { BackendSnapshot } from '@my-claudia/shared';
 import { useFacadeStore } from '../../stores/facadeStore';
 import { useServerStore } from '../../stores/serverStore';
-import { getEffectiveBackendStatus, canReachBackend, type EffectiveBackendStatus } from '../../utils/backendConnection';
+import { useRecoveryStore, type BackendRecoveryViewState } from '../../stores/recoveryStore';
 import { isLocalBackendId } from '../../utils/controlPlane';
 
 export interface AutomationBackendOption {
@@ -10,7 +10,7 @@ export interface AutomationBackendOption {
   name: string;
   isLocal: boolean;
   isReachable: boolean;
-  status: EffectiveBackendStatus;
+  status: BackendRecoveryViewState;
   latencyMs?: number | null;
   isThisInstance: boolean;
   backend: BackendSnapshot;
@@ -36,22 +36,25 @@ export function resolveInitialAutomationBackendId(params: {
 }
 
 export function useAutomationBackendOptions(): AutomationBackendOption[] {
-  const facadeConnectionState = useFacadeStore((state) => state.connectionState);
   const backends = useFacadeStore((state) => state.backends);
   const connections = useServerStore((state) => state.connections);
+  const recoveryState = useRecoveryStore((s) => s);
 
   return useMemo(
     () =>
-      backends.map((backend) => ({
-        backendId: backend.backendId,
-        name: backend.name,
-        isLocal: isLocalBackendId(backend.backendId),
-        isReachable: canReachBackend(facadeConnectionState, backend),
-        status: getEffectiveBackendStatus(facadeConnectionState, backend),
-        latencyMs: connections[backend.backendId]?.latencyMs,
-        isThisInstance: backend.isThisInstance,
-        backend,
-      })),
-    [backends, connections, facadeConnectionState],
+      backends.map((backend) => {
+        const viewState = recoveryState.getBackendViewState(backend.backendId);
+        return {
+          backendId: backend.backendId,
+          name: backend.name,
+          isLocal: isLocalBackendId(backend.backendId),
+          isReachable: viewState === 'ready',
+          status: viewState,
+          latencyMs: connections[backend.backendId]?.latencyMs,
+          isThisInstance: backend.isThisInstance,
+          backend,
+        };
+      }),
+    [backends, connections, recoveryState],
   );
 }

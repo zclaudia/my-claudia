@@ -79,7 +79,7 @@ vi.mock('../../services/api', () => ({
   ),
 }));
 
-vi.mock('../../utils/backendConnection', () => ({
+vi.mock('../../stores/recoveryStore', () => ({
   isBackendReady: (...args: any[]) => mockIsBackendReady(...args),
 }));
 

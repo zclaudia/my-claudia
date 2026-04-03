@@ -17,6 +17,7 @@ const HEALTH_PROBE_INTERVAL_MS = 25_000;
 export interface AppLifecycleManagerOptions {
   onBackground?: () => void;
   onResume?: () => void;
+  onNetworkOffline?: () => void;
 }
 
 class AppLifecycleManager {
@@ -44,6 +45,7 @@ class AppLifecycleManager {
 
   private handleOffline = (): void => {
     console.log('[AppLifecycleManager] Network offline');
+    this.options.onNetworkOffline?.();
   };
 
   start(facade: BackendFacade, options?: AppLifecycleManagerOptions): void {

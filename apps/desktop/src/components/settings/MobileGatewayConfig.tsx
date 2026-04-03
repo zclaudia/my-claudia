@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useGatewayStore } from '../../stores/gatewayStore';
-import { useFacadeStore } from '../../stores/facadeStore';
+import { useRecoveryStore } from '../../stores/recoveryStore';
 
 export function MobileGatewayConfig() {
   const {
@@ -9,13 +9,9 @@ export function MobileGatewayConfig() {
     setDirectGatewayConfig,
     clearDirectGatewayConfig,
   } = useGatewayStore();
-  const connectionState = useFacadeStore((s) => s.connectionState);
-  const isGatewayConnected = connectionState === 'connected';
-  const controlPlaneError = useFacadeStore((s) => {
-    // Find any backend with an error
-    const errBackend = s.backends.find(b => b.lastError);
-    return errBackend?.lastError ?? null;
-  });
+  const transportStatus = useRecoveryStore((s) => s.transport.status);
+  const isGatewayConnected = transportStatus === 'connected';
+  const controlPlaneError = useRecoveryStore((s) => s.transport.error);
 
   const [url, setUrl] = useState(directGatewayUrl || '');
   const [secret, setSecret] = useState(directGatewaySecret || '');
@@ -47,7 +43,7 @@ export function MobileGatewayConfig() {
         <div className="flex items-center gap-2">
           <span className={`w-2 h-2 rounded-full ${isGatewayConnected ? 'bg-success' : 'bg-destructive'}`} />
           <span className="text-sm">
-            {isGatewayConnected ? 'Gateway connected' : `Gateway ${connectionState}`}
+            {isGatewayConnected ? 'Gateway connected' : `Gateway ${transportStatus}`}
           </span>
         </div>
         {directGatewayUrl && (

@@ -31,12 +31,19 @@ beforeEach(() => {
 });
 
 describe('FileViewerWindow', () => {
-  it('renders file path in the header', () => {
+  async function mockPendingApiLoad() {
+    const { getFileContent } = await import('../../../services/api');
+    (getFileContent as any).mockImplementationOnce(() => new Promise(() => {}));
+  }
+
+  it('renders file path in the header', async () => {
+    await mockPendingApiLoad();
     render(<FileViewerWindow filePath="src/app.ts" projectRoot="/project" />);
     expect(screen.getByText('src/app.ts')).toBeInTheDocument();
   });
 
-  it('shows loading state initially', () => {
+  it('shows loading state initially', async () => {
+    await mockPendingApiLoad();
     render(<FileViewerWindow filePath="src/app.ts" projectRoot="/project" />);
     expect(screen.getByText('Loading...')).toBeInTheDocument();
   });
@@ -57,7 +64,8 @@ describe('FileViewerWindow', () => {
     expect(screen.queryByTestId('syntax-highlighter')).not.toBeInTheDocument();
   });
 
-  it('renders close button when onClose is provided', () => {
+  it('renders close button when onClose is provided', async () => {
+    await mockPendingApiLoad();
     const onClose = vi.fn();
     const { container } = render(
       <FileViewerWindow filePath="src/app.ts" projectRoot="/project" onClose={onClose} />
@@ -67,7 +75,8 @@ describe('FileViewerWindow', () => {
     expect(buttons.length).toBeGreaterThan(0);
   });
 
-  it('does not render close button when onClose is not provided', () => {
+  it('does not render close button when onClose is not provided', async () => {
+    await mockPendingApiLoad();
     const { container } = render(
       <FileViewerWindow filePath="src/app.ts" projectRoot="/project" />
     );

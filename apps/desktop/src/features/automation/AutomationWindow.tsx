@@ -872,9 +872,13 @@ function AutomationBackendSelector({
 
   const getStatusColor = (option: AutomationBackendOption) => {
     switch (option.status) {
-      case 'connected':
+      case 'ready':
         return 'bg-success';
-      case 'connecting':
+      case 'transport_reconnecting':
+      case 'backend_opening':
+      case 'backend_recovering':
+      case 'catalog_syncing':
+      case 'session_syncing':
         return 'bg-warning animate-pulse';
       case 'error':
         return 'bg-destructive';

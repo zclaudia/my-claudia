@@ -5,7 +5,7 @@ import { useServerStore } from '../stores/serverStore';
 import { useFacadeStore } from '../stores/facadeStore';
 import { useConnection } from '../contexts/ConnectionContext';
 import type { BackendSnapshot } from '@my-claudia/shared';
-import { canReachBackend } from '../utils/backendConnection';
+import { useRecoveryStore } from '../stores/recoveryStore';
 
 function shouldShowMobileDebug(): boolean {
   if (typeof window === 'undefined') return false;
@@ -34,6 +34,19 @@ export function MobileSetup() {
   const [error, setError] = useState<string | null>(null);
   const [debugVisible, setDebugVisible] = useState(() => shouldShowMobileDebug());
   const logoTapCountRef = useRef(0);
+  const connectIntervalRef = useRef<number | null>(null);
+  const connectTimeoutRef = useRef<number | null>(null);
+
+  const clearConnectTimers = () => {
+    if (connectIntervalRef.current !== null) {
+      window.clearInterval(connectIntervalRef.current);
+      connectIntervalRef.current = null;
+    }
+    if (connectTimeoutRef.current !== null) {
+      window.clearTimeout(connectTimeoutRef.current);
+      connectTimeoutRef.current = null;
+    }
+  };
 
   useEffect(() => {
     setGatewayUrl(directGatewayUrl || '');
@@ -43,20 +56,27 @@ export function MobileSetup() {
     setGatewaySecret(directGatewaySecret || '');
   }, [directGatewaySecret]);
 
+  const transportStatus = useRecoveryStore((s) => s.transport.status);
+  const transportError = useRecoveryStore((s) => s.transport.error);
+
   useEffect(() => {
     if (!connecting) return;
 
-    if (facadeConnectionState === 'connected') {
+    if (transportStatus === 'connected') {
+      clearConnectTimers();
       setConnecting(false);
       setError(null);
       return;
     }
 
-    if (facadeConnectionState === 'error') {
+    if (transportStatus === 'error') {
+      clearConnectTimers();
       setConnecting(false);
-      setError(facadeConnectionError || 'Connection failed.');
+      setError(transportError || facadeConnectionError || 'Connection failed.');
     }
-  }, [connecting, facadeConnectionState, facadeConnectionError]);
+  }, [connecting, transportStatus, transportError, facadeConnectionError]);
+
+  useEffect(() => clearConnectTimers, []);
 
   const handleConnect = () => {
     const url = gatewayUrl.trim();
@@ -71,31 +91,27 @@ export function MobileSetup() {
     setConnecting(true);
     useFacadeStore.setState({ connectionState: 'connecting', connectionError: null });
 
-    // Save direct config (persisted) and set runtime values
     setDirectGatewayConfig(url, secret);
+    clearConnectTimers();
 
-    // The useGatewayConnection hook will pick up the new values
-    // and create the transport automatically.
-    // We give it a moment, then check connection status via polling.
-    const checkInterval = setInterval(() => {
-      if (useFacadeStore.getState().connectionState === 'connected') {
+    connectIntervalRef.current = window.setInterval(() => {
+      if (useRecoveryStore.getState().transport.status === 'connected') {
         setConnecting(false);
-        clearInterval(checkInterval);
+        clearConnectTimers();
       }
     }, 500);
 
-    // Timeout after 15 seconds
-    setTimeout(() => {
-      clearInterval(checkInterval);
-      if (useFacadeStore.getState().connectionState !== 'connected') {
+    connectTimeoutRef.current = window.setTimeout(() => {
+      if (useRecoveryStore.getState().transport.status !== 'connected') {
         setConnecting(false);
         setError('Connection timed out. Please check the URL and secret.');
       }
+      clearConnectTimers();
     }, 15000);
   };
 
   const handleBackendSelect = (backend: BackendSnapshot) => {
-    if (!canReachBackend(facadeConnectionState, backend)) return;
+    if (useRecoveryStore.getState().getBackendViewState(backend.backendId) === 'offline') return;
     const serverId = backend.backendId;
     setActiveServer(serverId);
     setLastActiveBackend(serverId);
@@ -103,9 +119,10 @@ export function MobileSetup() {
   };
 
   const { showLocalBackend } = useGatewayStore();
-  const isGatewayConnected = facadeConnectionState === 'connected';
+  const isGatewayConnected = useRecoveryStore((s) => s.transport.status) === 'connected';
   const onlineBackends = backends.filter(
-    b => canReachBackend(facadeConnectionState, b) && shouldShowNonCurrentInstanceBackend(b, currentInstanceId, showLocalBackend)
+    b => useRecoveryStore.getState().getBackendViewState(b.backendId) !== 'offline'
+      && shouldShowNonCurrentInstanceBackend(b, currentInstanceId, showLocalBackend)
   );
   const showDebug = debugVisible;
 

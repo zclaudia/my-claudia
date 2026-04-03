@@ -68,6 +68,7 @@ vi.mock('../../services/api', async (importOriginal) => {
 import { Sidebar } from '../Sidebar';
 import { useProjectStore } from '../../stores/projectStore';
 import { useProviderMetaStore } from '../../stores/providerMetaStore';
+import { useRecoveryStore } from '../../stores/recoveryStore';
 import { useServerStore } from '../../stores/serverStore';
 import { useSupervisionStore } from '../../stores/supervisionStore';
 import { usePermissionStore } from '../../stores/permissionStore';
@@ -112,6 +113,15 @@ function setupStores(overrides: Record<string, any> = {}) {
     ...overrides.serverStore,
   } as any);
 
+  useRecoveryStore.setState({
+    backends: {
+      local: {
+        status: 'ready',
+      },
+    },
+    ...overrides.recoveryStore,
+  } as any);
+
   useSupervisionStore.setState({ agents: {}, ...overrides.supervisionStore } as any);
   usePermissionStore.setState({ pendingRequests: [], ...overrides.permissionStore } as any);
   usePromptRequestStore.setState({ pendingRequests: [], ...overrides.askStore } as any);
@@ -122,6 +132,12 @@ function setupStores(overrides: Record<string, any> = {}) {
     requestForceScrollToBottom: vi.fn(),
     ...overrides.uiStore,
   } as any);
+}
+
+async function advanceDebounce(ms: number) {
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(ms);
+  });
 }
 
 describe('Sidebar', () => {
@@ -429,9 +445,9 @@ describe('Sidebar', () => {
 
   it('disables New Project button when disconnected', () => {
     setupStores({
-      serverStore: {
-        connections: {
-          local: { status: 'disconnected', error: null, isLocalConnection: true, features: [] },
+      recoveryStore: {
+        backends: {
+          local: { status: 'offline' },
         },
       },
     });
@@ -748,6 +764,7 @@ describe('Sidebar', () => {
   });
 
   it('shows "No results" when search returns empty', async () => {
+    vi.useFakeTimers();
     (api.searchMessages as ReturnType<typeof vi.fn>).mockResolvedValue([]);
     (api.getSearchHistory as ReturnType<typeof vi.fn>).mockResolvedValue([]);
 
@@ -759,14 +776,14 @@ describe('Sidebar', () => {
     });
 
     // Wait for debounce (300ms)
-    await act(async () => {
-      await new Promise(r => setTimeout(r, 350));
-    });
+    await advanceDebounce(350);
 
     expect(container.textContent).toContain('No results');
+    vi.useRealTimers();
   });
 
   it('displays search results', async () => {
+    vi.useFakeTimers();
     (api.searchMessages as ReturnType<typeof vi.fn>).mockResolvedValue([
       { id: 'r1', sessionId: 'sess-1', sessionName: 'Test Session', content: 'Hello world', ownerBackendId: 'local' },
     ]);
@@ -779,15 +796,15 @@ describe('Sidebar', () => {
       fireEvent.change(searchInput, { target: { value: 'hello' } });
     });
 
-    await act(async () => {
-      await new Promise(r => setTimeout(r, 350));
-    });
+    await advanceDebounce(350);
 
     expect(container.textContent).toContain('Test Session');
     expect(container.textContent).toContain('Hello world');
+    vi.useRealTimers();
   });
 
   it('selects session from search results', async () => {
+    vi.useFakeTimers();
     (api.searchMessages as ReturnType<typeof vi.fn>).mockResolvedValue([
       { id: 'r1', sessionId: 'sess-1', sessionName: 'Test Session', content: 'Hello world', ownerBackendId: 'local' },
     ]);
@@ -799,9 +816,7 @@ describe('Sidebar', () => {
     await act(async () => {
       fireEvent.change(searchInput, { target: { value: 'hello' } });
     });
-    await act(async () => {
-      await new Promise(r => setTimeout(r, 350));
-    });
+    await advanceDebounce(350);
 
     // Click the search result
     const resultButtons = Array.from(container.querySelectorAll('button')).filter(b => b.textContent?.includes('Test Session'));
@@ -809,9 +824,11 @@ describe('Sidebar', () => {
       fireEvent.click(resultButtons[0]);
       expect(selectionMocks.selectSession).toHaveBeenCalledWith('sess-1', { backendId: 'local' });
     }
+    vi.useRealTimers();
   });
 
   it('selects remote session from search results using owner backend id', async () => {
+    vi.useFakeTimers();
     (api.searchMessages as ReturnType<typeof vi.fn>).mockResolvedValue([
       { id: 'r1', sessionId: 'sess-2', sessionName: 'Remote Session', content: 'Hello remote', ownerBackendId: 'backend-1' },
     ]);
@@ -823,18 +840,18 @@ describe('Sidebar', () => {
     await act(async () => {
       fireEvent.change(searchInput, { target: { value: 'remote' } });
     });
-    await act(async () => {
-      await new Promise(r => setTimeout(r, 350));
-    });
+    await advanceDebounce(350);
 
     const resultButtons = Array.from(container.querySelectorAll('button')).filter(b => b.textContent?.includes('Remote Session'));
     if (resultButtons.length > 0) {
       fireEvent.click(resultButtons[0]);
       expect(selectionMocks.selectSession).toHaveBeenCalledWith('sess-2', { backendId: 'backend-1' });
     }
+    vi.useRealTimers();
   });
 
   it('shows search result type badge for file results', async () => {
+    vi.useFakeTimers();
     (api.searchMessages as ReturnType<typeof vi.fn>).mockResolvedValue([
       { id: 'r1', sessionId: 'sess-1', sessionName: 'Sess', content: 'file content', resultType: 'file', ownerBackendId: 'local' },
     ]);
@@ -846,14 +863,14 @@ describe('Sidebar', () => {
     await act(async () => {
       fireEvent.change(searchInput, { target: { value: 'file' } });
     });
-    await act(async () => {
-      await new Promise(r => setTimeout(r, 350));
-    });
+    await advanceDebounce(350);
 
     expect(container.textContent).toContain('File');
+    vi.useRealTimers();
   });
 
   it('shows search result type badge for tool results', async () => {
+    vi.useFakeTimers();
     (api.searchMessages as ReturnType<typeof vi.fn>).mockResolvedValue([
       { id: 'r1', sessionId: 'sess-1', sessionName: 'Sess', content: 'tool content', resultType: 'tool', ownerBackendId: 'local' },
     ]);
@@ -865,14 +882,14 @@ describe('Sidebar', () => {
     await act(async () => {
       fireEvent.change(searchInput, { target: { value: 'tool' } });
     });
-    await act(async () => {
-      await new Promise(r => setTimeout(r, 350));
-    });
+    await advanceDebounce(350);
 
     expect(container.textContent).toContain('Tool');
+    vi.useRealTimers();
   });
 
   it('shows Load More button when there are more results', async () => {
+    vi.useFakeTimers();
     const fiftyResults = Array.from({ length: 50 }, (_, i) => ({
       id: `r${i}`, sessionId: 'sess-1', sessionName: `Session ${i}`, content: `content ${i}`,
     }));
@@ -885,11 +902,10 @@ describe('Sidebar', () => {
     await act(async () => {
       fireEvent.change(searchInput, { target: { value: 'content' } });
     });
-    await act(async () => {
-      await new Promise(r => setTimeout(r, 350));
-    });
+    await advanceDebounce(350);
 
     expect(container.textContent).toContain('Load More');
+    vi.useRealTimers();
   });
 
   it('shows search filter button', () => {
@@ -913,9 +929,9 @@ describe('Sidebar', () => {
 
   it('does not create session when disconnected', async () => {
     setupStores({
-      serverStore: {
-        connections: {
-          local: { status: 'disconnected', error: null, isLocalConnection: true, features: [] },
+      recoveryStore: {
+        backends: {
+          local: { status: 'offline' },
         },
       },
     });
@@ -1204,6 +1220,7 @@ describe('Sidebar', () => {
   // ---- normalizeSearchPreview ----
 
   it('normalizes search preview whitespace', async () => {
+    vi.useFakeTimers();
     (api.searchMessages as ReturnType<typeof vi.fn>).mockResolvedValue([
       { id: 'r1', sessionId: 'sess-1', sessionName: 'Sess', content: '  hello   world  \n\n  foo  ' },
     ]);
@@ -1215,14 +1232,14 @@ describe('Sidebar', () => {
     await act(async () => {
       fireEvent.change(searchInput, { target: { value: 'hello' } });
     });
-    await act(async () => {
-      await new Promise(r => setTimeout(r, 350));
-    });
+    await advanceDebounce(350);
 
     expect(container.textContent).toContain('hello world foo');
+    vi.useRealTimers();
   });
 
   it('shows "No preview text" for empty content', async () => {
+    vi.useFakeTimers();
     (api.searchMessages as ReturnType<typeof vi.fn>).mockResolvedValue([
       { id: 'r1', sessionId: 'sess-1', sessionName: 'Sess', content: '   ' },
     ]);
@@ -1234,16 +1251,16 @@ describe('Sidebar', () => {
     await act(async () => {
       fireEvent.change(searchInput, { target: { value: 'x' } });
     });
-    await act(async () => {
-      await new Promise(r => setTimeout(r, 350));
-    });
+    await advanceDebounce(350);
 
     expect(container.textContent).toContain('No preview text');
+    vi.useRealTimers();
   });
 
   // ---- Search history ----
 
   it('shows search history on focus when no query and history exists', async () => {
+    vi.useFakeTimers();
     (api.getSearchHistory as ReturnType<typeof vi.fn>).mockResolvedValue([
       { id: 'h1', query: 'old search', resultCount: 5 },
     ]);
@@ -1251,27 +1268,25 @@ describe('Sidebar', () => {
     const { container } = render(<Sidebar collapsed={false} onToggle={vi.fn()} />);
 
     // Wait for history to load
-    await act(async () => {
-      await new Promise(r => setTimeout(r, 50));
-    });
+    await advanceDebounce(50);
 
     const searchInput = container.querySelector('input[placeholder="Search messages..."]')!;
     fireEvent.focus(searchInput);
 
     expect(container.textContent).toContain('Recent Searches');
     expect(container.textContent).toContain('old search');
+    vi.useRealTimers();
   });
 
   it('clears search history', async () => {
+    vi.useFakeTimers();
     (api.getSearchHistory as ReturnType<typeof vi.fn>).mockResolvedValue([
       { id: 'h1', query: 'old search', resultCount: 5 },
     ]);
 
     const { container } = render(<Sidebar collapsed={false} onToggle={vi.fn()} />);
 
-    await act(async () => {
-      await new Promise(r => setTimeout(r, 50));
-    });
+    await advanceDebounce(50);
 
     const searchInput = container.querySelector('input[placeholder="Search messages..."]')!;
     fireEvent.focus(searchInput);
@@ -1283,9 +1298,11 @@ describe('Sidebar', () => {
       });
       expect(api.clearSearchHistory).toHaveBeenCalled();
     }
+    vi.useRealTimers();
   });
 
   it('selects search history item', async () => {
+    vi.useFakeTimers();
     (api.getSearchHistory as ReturnType<typeof vi.fn>).mockResolvedValue([
       { id: 'h1', query: 'old search', resultCount: 5 },
     ]);
@@ -1293,9 +1310,7 @@ describe('Sidebar', () => {
 
     const { container } = render(<Sidebar collapsed={false} onToggle={vi.fn()} />);
 
-    await act(async () => {
-      await new Promise(r => setTimeout(r, 50));
-    });
+    await advanceDebounce(50);
 
     const searchInput = container.querySelector('input[placeholder="Search messages..."]')!;
     fireEvent.focus(searchInput);
@@ -1304,13 +1319,12 @@ describe('Sidebar', () => {
     if (historyBtn) {
       fireEvent.click(historyBtn);
       // Wait for the 300ms debounce in handleSearch
-      await act(async () => {
-        await new Promise(r => setTimeout(r, 400));
-      });
+      await advanceDebounce(400);
       // The search input should now have the history query
       // and search should be triggered
       expect(api.searchMessages).toHaveBeenCalled();
     }
+    vi.useRealTimers();
   });
 
   // ---- PluginPermissionDialog ----

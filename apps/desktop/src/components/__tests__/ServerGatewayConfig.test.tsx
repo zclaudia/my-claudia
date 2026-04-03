@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { render, fireEvent, waitFor } from '@testing-library/react';
+import { render, fireEvent, waitFor, act } from '@testing-library/react';
 
 // Mock API
 vi.mock('../../services/api', () => ({
@@ -39,6 +39,8 @@ describe('ServerGatewayConfig', () => {
   });
 
   it('shows loading state initially', () => {
+    (apiModule.getServerGatewayConfig as any).mockImplementationOnce(() => new Promise(() => {}));
+    (apiModule.getServerGatewayStatus as any).mockImplementationOnce(() => new Promise(() => {}));
     const { container } = render(<ServerGatewayConfig />);
     expect(container.textContent).toContain('Loading...');
   });

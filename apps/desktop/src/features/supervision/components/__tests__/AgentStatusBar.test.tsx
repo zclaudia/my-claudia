@@ -5,6 +5,12 @@ const mockInitSupervisionAgent = vi.fn();
 const mockUpdateSupervisionAgentAction = vi.fn();
 const mockSetAgent = vi.fn();
 const mockSelectSession = vi.fn();
+const mockProviders = [{ id: 'provider-1', name: 'Default Provider', isDefault: true }];
+const mockSupervisionState = { setAgent: mockSetAgent };
+const mockProjectState = {
+  selectSession: mockSelectSession,
+  providers: mockProviders,
+};
 
 vi.mock('../../../../services/api', () => ({
   initSupervisionAgent: (...args: unknown[]) => mockInitSupervisionAgent(...args),
@@ -14,25 +20,17 @@ vi.mock('../../../../services/api', () => ({
 
 vi.mock('../../store', () => ({
   useSupervisionStore: (selector: (s: any) => any) => {
-    const state = { setAgent: mockSetAgent };
-    return selector(state);
+    return selector(mockSupervisionState);
   },
 }));
 
 vi.mock('../../../../stores/projectStore', () => ({
   useProjectStore: Object.assign(
     (selector: (s: any) => any) => {
-      const state = {
-        selectSession: mockSelectSession,
-        providers: [{ id: 'provider-1', name: 'Default Provider', isDefault: true }],
-      };
-      return selector(state);
+      return selector(mockProjectState);
     },
     {
-      getState: () => ({
-        selectSession: mockSelectSession,
-        providers: [{ id: 'provider-1', name: 'Default Provider', isDefault: true }],
-      }),
+      getState: () => mockProjectState,
     },
   ),
 }));

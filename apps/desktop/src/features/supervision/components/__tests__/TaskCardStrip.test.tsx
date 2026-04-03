@@ -3,8 +3,12 @@ import { render } from '@testing-library/react';
 import { TaskCardStrip } from '../TaskCardStrip';
 import { useSupervisionStore } from '../../store';
 
+const { mockGetSupervisionTasks } = vi.hoisted(() => ({
+  mockGetSupervisionTasks: vi.fn(() => new Promise(() => {})),
+}));
+
 vi.mock('../../../../services/api', () => ({
-  getSupervisionTasks: vi.fn().mockResolvedValue([]),
+  getSupervisionTasks: mockGetSupervisionTasks,
   openTaskSession: vi.fn(),
   getSessions: vi.fn().mockResolvedValue([]),
   retryTask: vi.fn(),
@@ -24,6 +28,7 @@ vi.mock('../../../../stores/projectStore', () => ({
 
 describe('TaskCardStrip', () => {
   beforeEach(() => {
+    mockGetSupervisionTasks.mockImplementation(() => new Promise(() => {}));
     useSupervisionStore.setState({ tasks: {}, agents: {}, lastCheckpoint: {} });
   });
 

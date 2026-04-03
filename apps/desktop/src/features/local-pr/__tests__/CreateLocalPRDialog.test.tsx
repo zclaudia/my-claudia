@@ -27,13 +27,21 @@ beforeEach(() => {
   vi.clearAllMocks();
 });
 
+async function keepInitialLoadPending() {
+  const { getProjectWorktrees } = await import('../../../services/api');
+  const { listLocalPRs } = await import('../api');
+  (getProjectWorktrees as any).mockImplementationOnce(() => new Promise(() => {}));
+  (listLocalPRs as any).mockImplementationOnce(() => new Promise(() => {}));
+}
+
 describe('CreateLocalPRDialog', () => {
   const defaultProps = {
     projectId: 'proj-1',
     onClose: vi.fn(),
   };
 
-  it('renders the dialog title', () => {
+  it('renders the dialog title', async () => {
+    await keepInitialLoadPending();
     render(<CreateLocalPRDialog {...defaultProps} />);
     expect(screen.getByText('Create Local PR')).toBeInTheDocument();
   });
@@ -48,19 +56,22 @@ describe('CreateLocalPRDialog', () => {
     expect(screen.getByPlaceholderText('Additional context for the reviewer')).toBeInTheDocument();
   });
 
-  it('renders cancel and submit buttons', () => {
+  it('renders cancel and submit buttons', async () => {
+    await keepInitialLoadPending();
     render(<CreateLocalPRDialog {...defaultProps} />);
     expect(screen.getByText('Cancel')).toBeInTheDocument();
     expect(screen.getByText('Create PR')).toBeInTheDocument();
   });
 
-  it('calls onClose when cancel is clicked', () => {
+  it('calls onClose when cancel is clicked', async () => {
+    await keepInitialLoadPending();
     render(<CreateLocalPRDialog {...defaultProps} />);
     fireEvent.click(screen.getByText('Cancel'));
     expect(defaultProps.onClose).toHaveBeenCalled();
   });
 
-  it('calls onClose when X button is clicked', () => {
+  it('calls onClose when X button is clicked', async () => {
+    await keepInitialLoadPending();
     const { container } = render(<CreateLocalPRDialog {...defaultProps} />);
     // X button is in the header area
     const headerButtons = container.querySelectorAll('.flex.items-center.justify-between button');
@@ -81,17 +92,20 @@ describe('CreateLocalPRDialog', () => {
     });
   });
 
-  it('renders auto-review checkbox', () => {
+  it('renders auto-review checkbox', async () => {
+    await keepInitialLoadPending();
     render(<CreateLocalPRDialog {...defaultProps} />);
     expect(screen.getByText('Enable auto AI review')).toBeInTheDocument();
   });
 
-  it('renders target branch selector', () => {
+  it('renders target branch selector', async () => {
+    await keepInitialLoadPending();
     render(<CreateLocalPRDialog {...defaultProps} />);
     expect(screen.getByText('Auto-detect (main/master)')).toBeInTheDocument();
   });
 
-  it('shows loading state for worktrees initially', () => {
+  it('shows loading state for worktrees initially', async () => {
+    await keepInitialLoadPending();
     render(<CreateLocalPRDialog {...defaultProps} />);
     expect(screen.getByText(/Loading worktrees/)).toBeInTheDocument();
   });

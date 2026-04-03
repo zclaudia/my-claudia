@@ -12,6 +12,8 @@ const {
   mockUseGatewayConnection,
   mockFacadeStoreState,
   mockUseFacadeStore,
+  mockRecoveryStoreState,
+  mockUseRecoveryStore,
   mockIsBackendReady,
 } = vi.hoisted(() => {
   const serverState: Record<string, any> = {
@@ -41,6 +43,15 @@ const {
   });
   facadeHook.getState = vi.fn(() => facadeState);
 
+  const recoveryState: Record<string, any> = {
+    backends: {},
+  };
+  const recoveryHook: any = vi.fn((selector?: any) => {
+    if (selector) return selector(recoveryState);
+    return recoveryState;
+  });
+  recoveryHook.getState = vi.fn(() => recoveryState);
+
   return {
     mockServerStoreState: serverState,
     mockUseServerStore: serverHook,
@@ -48,6 +59,8 @@ const {
     mockUseGatewayConnection: vi.fn(() => gw),
     mockFacadeStoreState: facadeState,
     mockUseFacadeStore: facadeHook,
+    mockRecoveryStoreState: recoveryState,
+    mockUseRecoveryStore: recoveryHook,
     mockIsBackendReady: vi.fn(() => false),
   };
 });
@@ -66,7 +79,8 @@ vi.mock('../../stores/facadeStore', () => ({
   useFacadeStore: mockUseFacadeStore,
 }));
 
-vi.mock('../../utils/backendConnection', () => ({
+vi.mock('../../stores/recoveryStore', () => ({
+  useRecoveryStore: mockUseRecoveryStore,
   isBackendReady: mockIsBackendReady,
 }));
 
@@ -85,6 +99,7 @@ describe('hooks/useMultiServerSocket', () => {
     mockFacadeStoreState.facade = null;
     mockFacadeStoreState.backends = [];
     mockFacadeStoreState.connectionState = 'idle';
+    mockRecoveryStoreState.backends = {};
 
     mockGatewayConnection.isBackendConnected.mockReturnValue(false);
     mockIsBackendReady.mockReturnValue(false);
@@ -308,8 +323,6 @@ describe('hooks/useMultiServerSocket', () => {
       });
 
       it('returns true when backend is found and isBackendReady returns true', () => {
-        const backend = { backendId: 'backend-1', online: true, runtimeState: 'ready' };
-        mockFacadeStoreState.backends = [backend];
         mockIsBackendReady.mockReturnValue(true);
 
         const { result } = renderHook(() => useMultiServerSocket());
@@ -320,7 +333,7 @@ describe('hooks/useMultiServerSocket', () => {
         });
 
         expect(connected).toBe(true);
-        expect(mockIsBackendReady).toHaveBeenCalledWith('idle', backend);
+        expect(mockIsBackendReady).toHaveBeenCalledWith('backend-1');
       });
 
       it('returns false when backend is found but isBackendReady returns false', () => {
@@ -402,8 +415,6 @@ describe('hooks/useMultiServerSocket', () => {
       };
       mockFacadeStoreState.facade = mockFacade;
       mockServerStoreState.activeServerId = 'server-1';
-      const backend = { backendId: 'server-1', online: true, runtimeState: 'ready' };
-      mockFacadeStoreState.backends = [backend];
       mockIsBackendReady.mockReturnValue(true);
 
       const { result } = renderHook(() => useMultiServerSocket());
@@ -419,8 +430,6 @@ describe('hooks/useMultiServerSocket', () => {
       };
       mockFacadeStoreState.facade = mockFacade;
       mockServerStoreState.activeServerId = 'server-1';
-      const backend = { backendId: 'server-1', online: false, runtimeState: 'offline' };
-      mockFacadeStoreState.backends = [backend];
       mockIsBackendReady.mockReturnValue(false);
 
       const { result } = renderHook(() => useMultiServerSocket());
@@ -475,10 +484,10 @@ describe('hooks/useMultiServerSocket', () => {
       });
 
       it('returns only connected backend ids', () => {
-        const backend1 = { backendId: 'b1', online: true, runtimeState: 'ready' };
-        const backend2 = { backendId: 'b2', online: false, runtimeState: 'offline' };
-        mockFacadeStoreState.backends = [backend1, backend2];
-        mockIsBackendReady.mockImplementation((_state: any, b: any) => b.backendId === 'b1');
+        mockRecoveryStoreState.backends = {
+          b1: { status: 'ready' },
+          b2: { status: 'opening' },
+        };
 
         const { result } = renderHook(() => useMultiServerSocket());
 
@@ -491,10 +500,10 @@ describe('hooks/useMultiServerSocket', () => {
       });
 
       it('returns all backend ids when all are connected', () => {
-        const backend1 = { backendId: 'b1', online: true, runtimeState: 'ready' };
-        const backend2 = { backendId: 'b2', online: true, runtimeState: 'ready' };
-        mockFacadeStoreState.backends = [backend1, backend2];
-        mockIsBackendReady.mockReturnValue(true);
+        mockRecoveryStoreState.backends = {
+          b1: { status: 'ready' },
+          b2: { status: 'ready' },
+        };
 
         const { result } = renderHook(() => useMultiServerSocket());
 

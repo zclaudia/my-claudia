@@ -5,11 +5,9 @@ import { describe, test, expect, beforeEach, afterEach } from 'vitest';
 import WebSocket from 'ws';
 import type { Server } from 'http';
 import { createGatewayServer } from '../server.js';
+import { closeTestServer, listenTestServer } from './test-server.js';
 
 const GATEWAY_SECRET = 'test-secret-auth';
-const TEST_PORT = 9010;
-const WS_URL = `ws://localhost:${TEST_PORT}/ws`;
-const HTTP_URL = `http://localhost:${TEST_PORT}`;
 
 // Helper: wait for WebSocket to open
 function waitForOpen(ws: WebSocket): Promise<void> {
@@ -73,19 +71,21 @@ function sendClientHello(ws: WebSocket, secret: string | null) {
 
 describe('Gateway Authentication', () => {
   let server: Server;
+  let wsUrl: string;
+  let httpUrl: string;
 
   beforeEach(async () => {
     server = createGatewayServer({ gatewaySecret: GATEWAY_SECRET });
-    await new Promise<void>((resolve) => server.listen(TEST_PORT, resolve));
+    ({ wsUrl, httpUrl } = await listenTestServer(server));
   });
 
   afterEach(async () => {
-    await new Promise<void>((resolve) => server.close(() => resolve()));
+    await closeTestServer(server);
   });
 
   describe('Backend Registration', () => {
     test('should reject backend registration with invalid secret', async () => {
-      const ws = new WebSocket(WS_URL);
+      const ws = new WebSocket(wsUrl);
       await waitForOpen(ws);
 
       sendBackendHello(ws, 'wrong-secret', { deviceId: 'test-device', instanceId: 'inst-test-device', name: 'Test Backend' });
@@ -98,7 +98,7 @@ describe('Gateway Authentication', () => {
     });
 
     test('should accept backend registration with valid secret', async () => {
-      const ws = new WebSocket(WS_URL);
+      const ws = new WebSocket(wsUrl);
       await waitForOpen(ws);
 
       sendBackendHello(ws, GATEWAY_SECRET, { deviceId: 'test-device-valid', instanceId: 'inst-test-device-valid', name: 'Test Backend' });
@@ -111,7 +111,7 @@ describe('Gateway Authentication', () => {
     });
 
     test('should handle backend reconnection', async () => {
-      const ws1 = new WebSocket(WS_URL);
+      const ws1 = new WebSocket(wsUrl);
       await waitForOpen(ws1);
 
       sendBackendHello(ws1, GATEWAY_SECRET, { deviceId: 'test-device-reconnect', instanceId: 'inst-test-device-reconnect', name: 'Test Backend' });
@@ -121,7 +121,7 @@ describe('Gateway Authentication', () => {
       const backendId = result1.backend.backendId;
 
       // Connect second WebSocket with same instanceId
-      const ws2 = new WebSocket(WS_URL);
+      const ws2 = new WebSocket(wsUrl);
       await waitForOpen(ws2);
 
       sendBackendHello(ws2, GATEWAY_SECRET, { deviceId: 'test-device-reconnect', instanceId: 'inst-test-device-reconnect', name: 'Test Backend' });
@@ -139,7 +139,7 @@ describe('Gateway Authentication', () => {
     });
 
     test('should reject non-string secrets in safeCompare', async () => {
-      const ws = new WebSocket(WS_URL);
+      const ws = new WebSocket(wsUrl);
       await waitForOpen(ws);
 
       // Send peer_hello with null secret — validation rejects non-string gatewaySecret
@@ -154,7 +154,7 @@ describe('Gateway Authentication', () => {
 
   describe('Client Authentication', () => {
     test('should reject client with invalid gateway secret', async () => {
-      const ws = new WebSocket(WS_URL);
+      const ws = new WebSocket(wsUrl);
       await waitForOpen(ws);
 
       sendClientHello(ws, 'wrong-secret');
@@ -167,7 +167,7 @@ describe('Gateway Authentication', () => {
     });
 
     test('should accept client with valid gateway secret', async () => {
-      const ws = new WebSocket(WS_URL);
+      const ws = new WebSocket(wsUrl);
       await waitForOpen(ws);
 
       sendClientHello(ws, GATEWAY_SECRET);
@@ -181,14 +181,14 @@ describe('Gateway Authentication', () => {
 
   describe('HTTP Authentication', () => {
     test('should reject request without authorization header', async () => {
-      const response = await fetch(`${HTTP_URL}/api/proxy/test-id/some-path`);
+      const response = await fetch(`${httpUrl}/api/proxy/test-id/some-path`);
       expect(response.status).toBe(401);
       const body = await response.json();
       expect(body.error.code).toBe('UNAUTHORIZED');
     });
 
     test('should reject request with invalid bearer token', async () => {
-      const response = await fetch(`${HTTP_URL}/api/proxy/test-id/some-path`, {
+      const response = await fetch(`${httpUrl}/api/proxy/test-id/some-path`, {
         headers: {
           'Authorization': 'Bearer wrong-secret'
         }
@@ -199,7 +199,7 @@ describe('Gateway Authentication', () => {
     });
 
     test('should reject request with invalid authorization format', async () => {
-      const response = await fetch(`${HTTP_URL}/api/proxy/test-id/some-path`, {
+      const response = await fetch(`${httpUrl}/api/proxy/test-id/some-path`, {
         headers: {
           'Authorization': 'Basic wrong-format'
         }
@@ -209,7 +209,7 @@ describe('Gateway Authentication', () => {
 
     test('should accept request with valid bearer token', async () => {
       // First register a backend
-      const backendWs = new WebSocket(WS_URL);
+      const backendWs = new WebSocket(wsUrl);
       await waitForOpen(backendWs);
       sendBackendHello(backendWs, GATEWAY_SECRET, { deviceId: 'http-test-device', instanceId: 'inst-http-test-device', name: 'HTTP Test Backend' });
       const regResult = await waitForMessage(backendWs, 'peer_ready');
@@ -231,7 +231,7 @@ describe('Gateway Authentication', () => {
       });
 
       // Now try HTTP proxy
-      const response = await fetch(`${HTTP_URL}/api/proxy/${backendId}/test-path`, {
+      const response = await fetch(`${httpUrl}/api/proxy/${backendId}/test-path`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${GATEWAY_SECRET}`,
@@ -253,23 +253,21 @@ describe('Gateway Authentication', () => {
 
 describe('Gateway Rate Limiting', () => {
   let server: Server;
+  let httpUrl: string;
 
   beforeEach(async () => {
     server = createGatewayServer({ gatewaySecret: GATEWAY_SECRET });
-    await new Promise<void>((resolve) => server.listen(TEST_PORT + 1, resolve));
+    ({ httpUrl } = await listenTestServer(server));
   });
 
   afterEach(async () => {
-    await new Promise<void>((resolve) => server.close(() => resolve()));
+    await closeTestServer(server);
   });
 
   test('should rate limit after 10 failed attempts', async () => {
-    const testPort = 9011;
-    const testUrl = `http://localhost:${testPort}`;
-
     // Make 10 failed requests first
     for (let i = 0; i < 10; i++) {
-      const response = await fetch(`${testUrl}/api/proxy/test-id/path`, {
+      const response = await fetch(`${httpUrl}/api/proxy/test-id/path`, {
         headers: {
           'Authorization': 'Bearer wrong-secret'
         }
@@ -278,7 +276,7 @@ describe('Gateway Rate Limiting', () => {
     }
 
     // 11th request should be rate limited
-    const response = await fetch(`${testUrl}/api/proxy/test-id/path`, {
+    const response = await fetch(`${httpUrl}/api/proxy/test-id/path`, {
       headers: {
         'Authorization': 'Bearer wrong-secret'
       }
@@ -291,18 +289,19 @@ describe('Gateway Rate Limiting', () => {
 
 describe('Invalid First Messages', () => {
   let server: Server;
+  let wsUrl: string;
 
   beforeEach(async () => {
     server = createGatewayServer({ gatewaySecret: GATEWAY_SECRET });
-    await new Promise<void>((resolve) => server.listen(TEST_PORT + 2, resolve));
+    ({ wsUrl } = await listenTestServer(server));
   });
 
   afterEach(async () => {
-    await new Promise<void>((resolve) => server.close(() => resolve()));
+    await closeTestServer(server);
   });
 
   test('should reject unknown first message type', async () => {
-    const ws = new WebSocket(`ws://localhost:9012/ws`);
+    const ws = new WebSocket(wsUrl);
     await waitForOpen(ws);
 
     ws.send(JSON.stringify({
@@ -316,7 +315,7 @@ describe('Invalid First Messages', () => {
   });
 
   test('should close connection after invalid first message', async () => {
-    const ws = new WebSocket(`ws://localhost:9012/ws`);
+    const ws = new WebSocket(wsUrl);
     await waitForOpen(ws);
 
     ws.send(JSON.stringify({
@@ -334,11 +333,11 @@ describe('Connection Timeout', () => {
 
   beforeEach(async () => {
     server = createGatewayServer({ gatewaySecret: GATEWAY_SECRET });
-    await new Promise<void>((resolve) => server.listen(TEST_PORT + 3, resolve));
+    await listenTestServer(server);
   });
 
   afterEach(async () => {
-    await new Promise<void>((resolve) => server.close(() => resolve()));
+    await closeTestServer(server);
   });
 
   test.skip('should close unauthenticated connection after timeout - requires 10s', async () => {});

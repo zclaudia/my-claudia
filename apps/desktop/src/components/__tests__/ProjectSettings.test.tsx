@@ -1,18 +1,16 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import { ProjectSettings } from '../ProjectSettings';
 import { useServerStore } from '../../stores/serverStore';
 import { useProjectStore } from '../../stores/projectStore';
 import { useProviderMetaStore } from '../../stores/providerMetaStore';
+import { useRecoveryStore } from '../../stores/recoveryStore';
 import { useSupervisionStore } from '../../stores/supervisionStore';
 
 vi.mock('../../services/api', () => ({
-  getProviders: vi.fn().mockResolvedValue([
-    { id: 'prov-1', name: 'Claude', type: 'claude', isDefault: true },
-    { id: 'prov-2', name: 'OpenAI', type: 'openai', isDefault: false },
-  ]),
+  getProviders: vi.fn(() => new Promise(() => {})),
   updateProject: vi.fn().mockResolvedValue({}),
-  getSupervisionAgent: vi.fn().mockResolvedValue(null),
+  getSupervisionAgent: vi.fn(() => new Promise(() => {})),
   initSupervisionAgent: vi.fn().mockResolvedValue({
     id: 'agent-1',
     projectId: 'proj-1',
@@ -38,6 +36,29 @@ const mockProject = {
   agentPermissionOverride: null,
 };
 
+async function renderProjectSettings(props: Partial<Parameters<typeof ProjectSettings>[0]> = {}) {
+  let view!: ReturnType<typeof render>;
+  await act(async () => {
+    view = render(
+      <ProjectSettings
+        project={mockProject as any}
+        isOpen={true}
+        onClose={() => {}}
+        {...props}
+      />
+    );
+    await Promise.resolve();
+  });
+  return view;
+}
+
+async function clickAsync(target: Element) {
+  await act(async () => {
+    fireEvent.click(target);
+    await Promise.resolve();
+  });
+}
+
 describe('ProjectSettings', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -46,6 +67,11 @@ describe('ProjectSettings', () => {
       activeServerId: 'local',
       connections: {
         local: { status: 'connected', error: null, isLocalConnection: true, features: [] },
+      },
+    } as any);
+    useRecoveryStore.setState({
+      backends: {
+        local: { status: 'ready' },
       },
     } as any);
 
@@ -72,6 +98,10 @@ describe('ProjectSettings', () => {
     } as any);
   });
 
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it('returns null when not open', () => {
     const { container } = render(
       <ProjectSettings project={mockProject as any} isOpen={false} onClose={() => {}} />
@@ -86,13 +116,13 @@ describe('ProjectSettings', () => {
     expect(container.innerHTML).toBe('');
   });
 
-  it('renders the Project Settings modal', () => {
-    render(<ProjectSettings project={mockProject as any} isOpen={true} onClose={() => {}} />);
+  it('renders the Project Settings modal', async () => {
+    await renderProjectSettings();
     expect(screen.getByText('Project Settings')).toBeTruthy();
   });
 
-  it('renders all form fields', () => {
-    render(<ProjectSettings project={mockProject as any} isOpen={true} onClose={() => {}} />);
+  it('renders all form fields', async () => {
+    await renderProjectSettings();
     expect(screen.getByText('Project Name *')).toBeTruthy();
     expect(screen.getByText('Working Directory')).toBeTruthy();
     expect(screen.getByText('Provider')).toBeTruthy();
@@ -101,8 +131,8 @@ describe('ProjectSettings', () => {
     expect(screen.getByText('Agent Permission Override')).toBeTruthy();
   });
 
-  it('populates form with project values', () => {
-    render(<ProjectSettings project={mockProject as any} isOpen={true} onClose={() => {}} />);
+  it('populates form with project values', async () => {
+    await renderProjectSettings();
     const nameInput = screen.getByDisplayValue('Test Project') as HTMLInputElement;
     expect(nameInput.value).toBe('Test Project');
     const rootPathInput = screen.getByDisplayValue('/home/user/test') as HTMLInputElement;
@@ -111,36 +141,34 @@ describe('ProjectSettings', () => {
     expect(systemPromptArea.value).toBe('Be helpful');
   });
 
-  it('calls onClose when backdrop is clicked', () => {
+  it('calls onClose when backdrop is clicked', async () => {
     const onClose = vi.fn();
-    const { container } = render(
-      <ProjectSettings project={mockProject as any} isOpen={true} onClose={onClose} />
-    );
+    const { container } = await renderProjectSettings({ onClose });
     const backdrop = container.querySelector('.fixed.inset-0');
-    if (backdrop) fireEvent.click(backdrop);
+    if (backdrop) await clickAsync(backdrop);
     expect(onClose).toHaveBeenCalled();
   });
 
-  it('calls onClose when X button is clicked', () => {
+  it('calls onClose when X button is clicked', async () => {
     const onClose = vi.fn();
-    render(<ProjectSettings project={mockProject as any} isOpen={true} onClose={onClose} />);
+    await renderProjectSettings({ onClose });
     // Find Close button (X button in header)
     const buttons = screen.getAllByRole('button');
     // First button is the close (X) button
     const closeBtn = buttons.find(b => b.querySelector('svg'));
-    if (closeBtn) fireEvent.click(closeBtn);
+    if (closeBtn) await clickAsync(closeBtn);
     expect(onClose).toHaveBeenCalled();
   });
 
-  it('updates name input', () => {
-    render(<ProjectSettings project={mockProject as any} isOpen={true} onClose={() => {}} />);
+  it('updates name input', async () => {
+    await renderProjectSettings();
     const nameInput = screen.getByDisplayValue('Test Project') as HTMLInputElement;
     fireEvent.change(nameInput, { target: { value: 'New Project Name' } });
     expect(nameInput.value).toBe('New Project Name');
   });
 
-  it('updates rootPath input', () => {
-    render(<ProjectSettings project={mockProject as any} isOpen={true} onClose={() => {}} />);
+  it('updates rootPath input', async () => {
+    await renderProjectSettings();
     const rootPathInput = screen.getByDisplayValue('/home/user/test') as HTMLInputElement;
     fireEvent.change(rootPathInput, { target: { value: '/new/path' } });
     expect(rootPathInput.value).toBe('/new/path');
@@ -166,105 +194,105 @@ describe('ProjectSettings', () => {
     expect(rootPathInput.value).toBe('/editing/path');
   });
 
-  it('updates system prompt textarea', () => {
-    render(<ProjectSettings project={mockProject as any} isOpen={true} onClose={() => {}} />);
+  it('updates system prompt textarea', async () => {
+    await renderProjectSettings();
     const textarea = screen.getByDisplayValue('Be helpful') as HTMLTextAreaElement;
     fireEvent.change(textarea, { target: { value: 'New prompt' } });
     expect(textarea.value).toBe('New prompt');
   });
 
   it('calls api.updateProject and onClose when Save is clicked', async () => {
+    vi.useFakeTimers();
     const onClose = vi.fn();
     const api = await import('../../services/api');
 
-    render(<ProjectSettings project={mockProject as any} isOpen={true} onClose={onClose} />);
+    await renderProjectSettings({ onClose });
     const saveBtn = screen.getByText('Save');
-    fireEvent.click(saveBtn);
+    await clickAsync(saveBtn);
 
-    await waitFor(() => {
-      expect(api.updateProject).toHaveBeenCalledWith(
-        'proj-1',
-        expect.objectContaining({ name: 'Test Project' })
-      );
-    });
+    expect(api.updateProject).toHaveBeenCalledWith(
+      'proj-1',
+      expect.objectContaining({ name: 'Test Project' })
+    );
     expect(screen.getByText('Project settings saved.')).toBeTruthy();
-    await waitFor(() => {
-      expect(onClose).toHaveBeenCalled();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(800);
     });
+    expect(onClose).toHaveBeenCalled();
   });
 
   it('shows error message when save fails', async () => {
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     const api = await import('../../services/api');
     vi.mocked(api.updateProject).mockRejectedValueOnce(new Error('Save failed'));
 
-    render(<ProjectSettings project={mockProject as any} isOpen={true} onClose={() => {}} />);
-    fireEvent.click(screen.getByText('Save'));
+    await renderProjectSettings();
+    await clickAsync(screen.getByText('Save'));
 
     await waitFor(() => {
       expect(screen.getByText('Save failed')).toBeTruthy();
     });
+    consoleSpy.mockRestore();
   });
 
   it('does not call api when name is empty', async () => {
     const api = await import('../../services/api');
 
-    render(<ProjectSettings project={mockProject as any} isOpen={true} onClose={() => {}} />);
+    await renderProjectSettings();
     const nameInput = screen.getByDisplayValue('Test Project') as HTMLInputElement;
     fireEvent.change(nameInput, { target: { value: '' } });
 
-    fireEvent.click(screen.getByText('Save'));
+    await clickAsync(screen.getByText('Save'));
 
-    await waitFor(() => {
-      expect(api.updateProject).not.toHaveBeenCalled();
-    });
+    expect(api.updateProject).not.toHaveBeenCalled();
   });
 
-  it('toggles permission override on/off', () => {
-    render(<ProjectSettings project={mockProject as any} isOpen={true} onClose={() => {}} />);
+  it('toggles permission override on/off', async () => {
+    await renderProjectSettings();
     // Find the toggle button for permission override
     const toggleBtns = screen.getAllByRole('button');
     const overrideToggle = toggleBtns.find(b =>
       b.className?.includes('rounded-full')
     );
     if (overrideToggle) {
-      fireEvent.click(overrideToggle);
+      await clickAsync(overrideToggle);
       // Now trust level section should be visible
       expect(screen.queryByText('Trust Level')).toBeTruthy();
     }
   });
 
-  it('shows supervisor section', () => {
-    render(<ProjectSettings project={mockProject as any} isOpen={true} onClose={() => {}} />);
+  it('shows supervisor section', async () => {
+    await renderProjectSettings();
     expect(screen.getByText('Supervisor Agent')).toBeTruthy();
   });
 
-  it('shows supervisor disabled message when supervisor not active', () => {
-    render(<ProjectSettings project={mockProject as any} isOpen={true} onClose={() => {}} />);
+  it('shows supervisor disabled message when supervisor not active', async () => {
+    await renderProjectSettings();
     expect(screen.getByText('Supervisor is not enabled for this project')).toBeTruthy();
   });
 
-  it('shows active status when agent is active', () => {
+  it('shows active status when agent is active', async () => {
     useSupervisionStore.setState({
       agents: {
         'proj-1': { id: 'agent-1', projectId: 'proj-1', phase: 'active' } as any,
       },
     } as any);
 
-    render(<ProjectSettings project={mockProject as any} isOpen={true} onClose={() => {}} />);
+    await renderProjectSettings();
     expect(screen.getByText('Active')).toBeTruthy();
   });
 
   it('calls initSupervisionAgent when supervisor toggle is clicked while disabled', async () => {
     const api = await import('../../services/api');
 
-    render(<ProjectSettings project={mockProject as any} isOpen={true} onClose={() => {}} />);
+    await renderProjectSettings();
     // The supervisor toggle is a rounded-full button near the Supervisor Agent label
     const toggleButtons = screen.getAllByRole('button').filter(b =>
       b.className?.includes('rounded-full')
     );
     // Second rounded-full button is the supervisor toggle (first is permission override)
     if (toggleButtons.length >= 2) {
-      fireEvent.click(toggleButtons[1]);
+      await clickAsync(toggleButtons[1]);
     }
 
     await waitFor(() => {
@@ -285,12 +313,12 @@ describe('ProjectSettings', () => {
       },
     } as any);
 
-    render(<ProjectSettings project={mockProject as any} isOpen={true} onClose={() => {}} />);
+    await renderProjectSettings();
     const toggleButtons = screen.getAllByRole('button').filter(b =>
       b.className?.includes('rounded-full')
     );
     if (toggleButtons.length >= 2) {
-      fireEvent.click(toggleButtons[1]);
+      await clickAsync(toggleButtons[1]);
     }
 
     await waitFor(() => {
@@ -298,32 +326,37 @@ describe('ProjectSettings', () => {
     });
   });
 
-  it('shows Cancel button that calls onClose', () => {
+  it('shows Cancel button that calls onClose', async () => {
     const onClose = vi.fn();
-    render(<ProjectSettings project={mockProject as any} isOpen={true} onClose={onClose} />);
-    fireEvent.click(screen.getByText('Cancel'));
+    await renderProjectSettings({ onClose });
+    await clickAsync(screen.getByText('Cancel'));
     expect(onClose).toHaveBeenCalled();
   });
 
-  it('renders with project having permission override', () => {
+  it('renders with project having permission override', async () => {
     const projectWithOverride = {
       ...mockProject,
       agentPermissionOverride: { trustLevel: 'aggressive' },
     };
 
-    render(<ProjectSettings project={projectWithOverride as any} isOpen={true} onClose={() => {}} />);
+    await renderProjectSettings({ project: projectWithOverride as any });
     // Trust level section should be visible since override is enabled
     expect(screen.getByText('Trust Level')).toBeTruthy();
   });
 
-  it('shows disconnected state properly', () => {
+  it('shows disconnected state properly', async () => {
     useServerStore.setState({
       activeServerId: 'local',
       connections: {
         local: { status: 'disconnected', error: null, isLocalConnection: true, features: [] },
       },
     } as any);
-    render(<ProjectSettings project={mockProject as any} isOpen={true} onClose={() => {}} />);
+    useRecoveryStore.setState({
+      backends: {
+        local: { status: 'disconnected' },
+      },
+    } as any);
+    await renderProjectSettings();
     // Component still renders but supervisor button may be disabled
     expect(screen.getByText('Project Settings')).toBeTruthy();
   });

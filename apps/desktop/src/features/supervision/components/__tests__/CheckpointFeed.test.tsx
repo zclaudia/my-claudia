@@ -23,6 +23,10 @@ describe('CheckpointFeed', () => {
     mockLastCheckpoint = {};
   });
 
+  function keepInitialLoadPending() {
+    mockGetSupervisionLogs.mockImplementationOnce(() => new Promise(() => {}));
+  }
+
   afterEach(() => {
     cleanup();
   });
@@ -38,7 +42,7 @@ describe('CheckpointFeed', () => {
   });
 
   it('renders checkpoint header', () => {
-    mockGetSupervisionLogs.mockResolvedValue([]);
+    keepInitialLoadPending();
 
     render(<CheckpointFeed projectId="proj-1" />);
     expect(screen.getByText('Checkpoints')).toBeInTheDocument();
@@ -118,7 +122,7 @@ describe('CheckpointFeed', () => {
   });
 
   it('calls getSupervisionLogs with correct project and limit', () => {
-    mockGetSupervisionLogs.mockResolvedValue([]);
+    keepInitialLoadPending();
 
     render(<CheckpointFeed projectId="proj-1" />);
 

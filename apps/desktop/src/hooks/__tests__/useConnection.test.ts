@@ -12,11 +12,16 @@ import { ConnectionContext } from '../../contexts/ConnectionContext';
 describe('useConnection', () => {
   it('throws when used outside provider', () => {
     const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const preventWindowError = (event: Event) => event.preventDefault();
+    window.addEventListener('error', preventWindowError);
 
     expect(() => {
-      renderHook(() => useConnection());
+      renderHook(() => useConnection(), {
+        onCaughtError: () => {},
+      });
     }).toThrow('useConnection must be used within ConnectionProvider');
 
+    window.removeEventListener('error', preventWindowError);
     consoleSpy.mockRestore();
   });
 

@@ -13,12 +13,10 @@ import type { ClientMessage } from '@my-claudia/shared';
 import { useGatewayStore } from '../stores/gatewayStore';
 import { getServerGatewayStatus } from '../services/api';
 import { useFacadeStore } from '../stores/facadeStore';
-import { isBackendReady } from '../utils/backendConnection';
+import { isBackendReady as isBackendReadyRecovery } from '../stores/recoveryStore';
 
 export function useGatewayConnection() {
   const facade = useFacadeStore((s) => s.facade);
-  const facadeBackends = useFacadeStore((s) => s.backends);
-  const connectionState = useFacadeStore((s) => s.connectionState);
 
   // Poll server gateway status and sync to store
   // Skip when direct config is active (mobile mode — no local server to poll)
@@ -74,9 +72,8 @@ export function useGatewayConnection() {
 
   const isBackendConnected = useCallback((backendId: string) => {
     if (!facade) return false;
-    const backend = facadeBackends.find(b => b.backendId === backendId);
-    return backend ? isBackendReady(connectionState, backend) : false;
-  }, [connectionState, facade, facadeBackends]);
+    return isBackendReadyRecovery(backendId);
+  }, [facade]);
 
   const disconnectGateway = useCallback(() => {
     facade?.disconnect();

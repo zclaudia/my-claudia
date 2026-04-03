@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, act } from '@testing-library/react';
+import type { ComponentProps } from 'react';
 import { WorkflowsPanel } from '../WorkflowsPanel';
 import type { Workflow, WorkflowRun } from '@my-claudia/shared';
 
@@ -104,25 +105,37 @@ function createWorkflow(overrides: Partial<Workflow> = {}): Workflow {
   } as Workflow;
 }
 
+function mockPendingWorkflowLoad() {
+  mockLoadWorkflows.mockImplementationOnce(() => new Promise(() => {}));
+}
+
+async function renderPanel(props: ComponentProps<typeof WorkflowsPanel>) {
+  await act(async () => {
+    render(<WorkflowsPanel {...props} />);
+  });
+}
+
 describe('WorkflowsPanel', () => {
-  it('renders the header with title', () => {
-    render(<WorkflowsPanel projectId="proj-1" />);
+  it('renders the header with title', async () => {
+    mockPendingWorkflowLoad();
+    await renderPanel({ projectId: 'proj-1' });
     expect(screen.getByText('Workflows')).toBeInTheDocument();
   });
 
-  it('does not render create controls in the panel header', () => {
-    render(<WorkflowsPanel projectId="proj-1" />);
+  it('does not render create controls in the panel header', async () => {
+    mockPendingWorkflowLoad();
+    await renderPanel({ projectId: 'proj-1' });
     expect(screen.queryByText('New')).not.toBeInTheDocument();
   });
 
-  it('calls loadWorkflows and loadTemplates on mount', () => {
-    render(<WorkflowsPanel projectId="proj-1" />);
+  it('calls loadWorkflows and loadTemplates on mount', async () => {
+    await renderPanel({ projectId: 'proj-1' });
     expect(mockLoadWorkflows).toHaveBeenCalledWith('proj-1');
     expect(mockLoadTemplates).not.toHaveBeenCalled();
   });
 
   it('shows empty state when no workflows', async () => {
-    render(<WorkflowsPanel projectId="proj-1" />);
+    await renderPanel({ projectId: 'proj-1' });
     await vi.waitFor(() => {
       expect(screen.getByText('No workflows yet')).toBeInTheDocument();
     });
@@ -132,7 +145,7 @@ describe('WorkflowsPanel', () => {
     mockWorkflows = {
       'proj-1': [createWorkflow({ id: 'wf-1', name: 'My Workflow', status: 'active' })],
     };
-    render(<WorkflowsPanel projectId="proj-1" />);
+    await renderPanel({ projectId: 'proj-1' });
     await vi.waitFor(() => {
       expect(screen.getByTestId('workflow-card-wf-1')).toBeInTheDocument();
     });
@@ -143,7 +156,7 @@ describe('WorkflowsPanel', () => {
     mockWorkflows = {
       'proj-1': [createWorkflow({ id: 'wf-2', name: 'Disabled WF', status: 'disabled' })],
     };
-    render(<WorkflowsPanel projectId="proj-1" />);
+    await renderPanel({ projectId: 'proj-1' });
     await vi.waitFor(() => {
       expect(screen.getByText('Disabled')).toBeInTheDocument();
     });
@@ -157,7 +170,10 @@ describe('WorkflowsPanel', () => {
         createWorkflow({ id: 'wf-2', status: 'active' }),
       ],
     };
-    const { container } = render(<WorkflowsPanel projectId="proj-1" />);
+    let container!: HTMLElement;
+    await act(async () => {
+      ({ container } = render(<WorkflowsPanel projectId="proj-1" />));
+    });
     await vi.waitFor(() => {
       expect(container.textContent).toContain('2');
     });
@@ -167,7 +183,7 @@ describe('WorkflowsPanel', () => {
     mockWorkflows = {
       'proj-1': [createWorkflow({ id: 'wf-1', name: 'Editable Workflow', status: 'active' })],
     };
-    render(<WorkflowsPanel projectId="proj-1" />);
+    await renderPanel({ projectId: 'proj-1' });
     await vi.waitFor(() => {
       expect(screen.getByText('Edit')).toBeInTheDocument();
     });
@@ -182,7 +198,7 @@ describe('WorkflowsPanel', () => {
     mockWorkflows = {
       'proj-1': [createWorkflow({ id: 'wf-1', name: 'Editable Workflow', status: 'active' })],
     };
-    render(<WorkflowsPanel projectId="proj-1" onViewModeChange={onViewModeChange} />);
+    await renderPanel({ projectId: 'proj-1', onViewModeChange });
     await vi.waitFor(() => {
       expect(onViewModeChange).toHaveBeenCalledWith('list');
     });
@@ -198,11 +214,13 @@ describe('WorkflowsPanel', () => {
     mockWorkflows = {
       'proj-1': [createWorkflow({ id: 'wf-1', name: 'My Workflow', status: 'active' })],
     };
-    render(<WorkflowsPanel projectId="proj-1" />);
+    await renderPanel({ projectId: 'proj-1' });
     await vi.waitFor(() => {
       expect(screen.getByTestId('workflow-card-wf-1')).toBeInTheDocument();
     });
-    fireEvent.click(screen.getByText('Trigger'));
+    await act(async () => {
+      fireEvent.click(screen.getByText('Trigger'));
+    });
     await vi.waitFor(() => {
       expect(mockTriggerWorkflow).toHaveBeenCalledWith('wf-1');
     });
@@ -213,7 +231,7 @@ describe('WorkflowsPanel', () => {
     mockWorkflows = {
       'proj-1': [createWorkflow({ id: 'wf-1', name: 'My Workflow', status: 'active' })],
     };
-    render(<WorkflowsPanel projectId="proj-1" />);
+    await renderPanel({ projectId: 'proj-1' });
     await vi.waitFor(() => {
       expect(screen.getByTestId('workflow-card-wf-1')).toBeInTheDocument();
     });
@@ -225,7 +243,7 @@ describe('WorkflowsPanel', () => {
     mockWorkflows = {
       'proj-1': [createWorkflow({ id: 'wf-1', name: 'My Workflow', status: 'active' })],
     };
-    render(<WorkflowsPanel projectId="proj-1" />);
+    await renderPanel({ projectId: 'proj-1' });
     await vi.waitFor(() => {
       expect(screen.getByTestId('workflow-card-wf-1')).toBeInTheDocument();
     });
@@ -239,15 +257,18 @@ describe('WorkflowsPanel', () => {
     mockWorkflows = {
       'proj-1': [createWorkflow({ id: 'wf-1' })],
     };
-    render(<WorkflowsPanel projectId="proj-1" />);
+    await renderPanel({ projectId: 'proj-1' });
     await vi.waitFor(() => {
       expect(mockLoadRuns).toHaveBeenCalledWith('wf-1');
     });
   });
 
-  it('shows loading spinner initially', () => {
-    mockLoadWorkflows.mockImplementation(() => new Promise(() => {}));
-    const { container } = render(<WorkflowsPanel projectId="proj-1" />);
+  it('shows loading spinner initially', async () => {
+    mockPendingWorkflowLoad();
+    let container!: HTMLElement;
+    await act(async () => {
+      ({ container } = render(<WorkflowsPanel projectId="proj-1" />));
+    });
     const spinner = container.querySelector('.animate-spin');
     expect(spinner).toBeInTheDocument();
   });
@@ -257,7 +278,7 @@ describe('WorkflowsPanel', () => {
       'proj-1': [createWorkflow({ id: 'wf-1' })],
     };
     // Don't set mockRuns - component should call loadRuns when runs don't exist
-    render(<WorkflowsPanel projectId="proj-1" />);
+    await renderPanel({ projectId: 'proj-1' });
     await vi.waitFor(() => {
       expect(screen.getByTestId('workflow-card-wf-1')).toBeInTheDocument();
     });
@@ -269,7 +290,7 @@ describe('WorkflowsPanel', () => {
     mockWorkflows = {
       'proj-1': [createWorkflow({ id: 'wf-1', name: 'Active Workflow', status: 'active' })],
     };
-    render(<WorkflowsPanel projectId="proj-1" />);
+    await renderPanel({ projectId: 'proj-1' });
     await vi.waitFor(() => {
       expect(screen.getByTestId('workflow-card-wf-1')).toBeInTheDocument();
       expect(screen.getByText('Active Workflow')).toBeInTheDocument();
@@ -280,11 +301,13 @@ describe('WorkflowsPanel', () => {
     mockWorkflows = {
       'proj-1': [createWorkflow({ id: 'wf-1', name: 'Editable Workflow', status: 'active' })],
     };
-    render(<WorkflowsPanel projectId="proj-1" />);
+    await renderPanel({ projectId: 'proj-1' });
     await vi.waitFor(() => {
       expect(screen.getByText('Edit')).toBeInTheDocument();
     });
-    fireEvent.click(screen.getByText('Edit'));
+    await act(async () => {
+      fireEvent.click(screen.getByText('Edit'));
+    });
     expect(screen.getByTestId('workflow-editor')).toBeInTheDocument();
   });
 });

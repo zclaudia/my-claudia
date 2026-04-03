@@ -895,6 +895,11 @@ describe('clearCommandCache', () => {
 describe('runClaude - retry logic', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it('retries on rate limit error when no output produced', async () => {
@@ -916,14 +921,19 @@ describe('runClaude - retry logic', () => {
     });
 
     const messages: ClaudeMessage[] = [];
-    for await (const msg of runClaude('Hello', { cwd: '/project' })) {
-      messages.push(msg);
-    }
+    const consumePromise = (async () => {
+      for await (const msg of runClaude('Hello', { cwd: '/project' })) {
+        messages.push(msg);
+      }
+    })();
+
+    await vi.runAllTimersAsync();
+    await consumePromise;
 
     expect(callCount).toBe(2);
     expect(messages).toHaveLength(1);
     expect(messages[0].type).toBe('result');
-  }, 15000);
+  });
 
   it('does not retry non-retryable errors', async () => {
     vi.mocked(query).mockImplementation(() => {
@@ -973,13 +983,17 @@ describe('runClaude - retry logic', () => {
       } as unknown as ReturnType<typeof query>;
     });
 
-    await expect(async () => {
+    const consumePromise = (async () => {
       for await (const _ of runClaude('Hello', { cwd: '/project' })) { /* consume */ }
-    }).rejects.toThrow('429 too many requests');
+    })();
+    const rejection = expect(consumePromise).rejects.toThrow('429 too many requests');
+
+    await vi.runAllTimersAsync();
+    await rejection;
 
     // Should have been called MAX_AUTO_RETRIES + 1 = 3 times
     expect(query).toHaveBeenCalledTimes(3);
-  }, 30000);
+  });
 
   it('uses parsed retry delay from error when available', async () => {
     const { extractRetryDelayMsFromError } = await import('../../utils/retry-window.js');
@@ -1002,10 +1016,16 @@ describe('runClaude - retry logic', () => {
       } as unknown as ReturnType<typeof query>;
     });
 
-    for await (const _ of runClaude('Hello', { cwd: '/project' })) { /* consume */ }
+    const consumePromise = (async () => {
+      for await (const _ of runClaude('Hello', { cwd: '/project' })) { /* consume */ }
+    })();
+
+    await vi.runAllTimersAsync();
+    await consumePromise;
+
     expect(extractRetryDelayMsFromError).toHaveBeenCalled();
     expect(callCount).toBe(2);
-  }, 15000);
+  });
 
   it('handles non-Error objects thrown', async () => {
     vi.mocked(query).mockImplementation(() => {

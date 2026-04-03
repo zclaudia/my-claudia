@@ -1,13 +1,14 @@
 import { useEffect, useCallback } from 'react';
 import { useServerStore } from '../stores/serverStore';
 import { useProjectStore } from '../stores/projectStore';
+import { useRecoveryStore } from '../stores/recoveryStore';
 import * as api from '../services/api';
 
 export function useDataLoader() {
   const activeServerId = useServerStore((s) => s.activeServerId);
-  const isActiveConnected = useServerStore((s) => {
-    if (!s.activeServerId) return false;
-    return s.connections[s.activeServerId]?.status === 'connected';
+  const isActiveConnected = useRecoveryStore((s) => {
+    if (!activeServerId) return false;
+    return s.backends[activeServerId]?.status === 'ready';
   });
   const setDataServerId = useProjectStore((s) => s.setDataServerId);
 

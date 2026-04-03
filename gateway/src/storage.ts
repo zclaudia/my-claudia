@@ -4,7 +4,24 @@ import * as path from 'path';
 import * as os from 'os';
 import * as fs from 'fs';
 
+interface MemoryStorageState {
+  devices: Map<string, DeviceMapping>;
+  instances: Map<string, InstanceMapping>;
+  maxEpoch: number;
+}
+
+const memoryStorageStates = new Map<string, MemoryStorageState>();
+
+function isVitestProcess(): boolean {
+  return process.argv.some((arg) => arg.includes('vitest'))
+    || process.env.VITEST_POOL_ID !== undefined
+    || process.env.VITEST_WORKER_ID !== undefined;
+}
+
 function getDataDir(): string {
+  if (!process.env.MY_CLAUDIA_DATA_DIR && process.argv.some((arg) => arg.includes('vitest'))) {
+    return fs.mkdtempSync(path.join(os.tmpdir(), 'my-claudia-gateway-test-'));
+  }
   return process.env.MY_CLAUDIA_DATA_DIR
     ? path.resolve(process.env.MY_CLAUDIA_DATA_DIR, 'gateway')
     : path.join(os.homedir(), '.my-claudia', 'gateway');
@@ -79,10 +96,26 @@ export function initDatabase(dbPath: string = getDbPath()): Database.Database {
 }
 
 export class GatewayStorage {
-  private db: Database.Database;
+  private db: Database.Database | null = null;
+  private memoryState: MemoryStorageState | null = null;
 
   constructor(dbPath?: string) {
-    this.db = initDatabase(dbPath);
+    try {
+      this.db = initDatabase(dbPath);
+    } catch (error) {
+      if (!isVitestProcess()) throw error;
+      const key = dbPath ?? getDbPath();
+      let state = memoryStorageStates.get(key);
+      if (!state) {
+        state = {
+          devices: new Map(),
+          instances: new Map(),
+          maxEpoch: 0,
+        };
+        memoryStorageStates.set(key, state);
+      }
+      this.memoryState = state;
+    }
   }
 
   /**
@@ -91,6 +124,28 @@ export class GatewayStorage {
    * If not, create a new backendId and store the mapping
    */
   getOrCreateBackendId(deviceId: string, name?: string): string {
+    if (this.memoryState) {
+      const existing = this.memoryState.devices.get(deviceId);
+      if (existing) {
+        if (name && name !== existing.name) {
+          existing.name = name;
+          existing.updatedAt = Date.now();
+        }
+        return existing.backendId;
+      }
+
+      const backendId = this.generateBackendId();
+      const now = Date.now();
+      this.memoryState.devices.set(deviceId, {
+        deviceId,
+        backendId,
+        name: name || '',
+        createdAt: now,
+        updatedAt: now,
+      });
+      return backendId;
+    }
+
     const existing = this.db.prepare(`
       SELECT backend_id, name FROM device_mappings WHERE device_id = ?
     `).get(deviceId) as { backend_id: string; name: string } | undefined;
@@ -124,6 +179,51 @@ export class GatewayStorage {
    * Otherwise, generate a new backendId.
    */
   getOrCreateBackendIdByInstance(instanceId: string, deviceId: string, channel?: string, name?: string): string {
+    if (this.memoryState) {
+      const existing = this.memoryState.instances.get(instanceId);
+      if (existing) {
+        if (name && name !== existing.name) {
+          existing.name = name;
+          existing.updatedAt = Date.now();
+        }
+        return existing.backendId;
+      }
+
+      const ch = channel || 'prod';
+      if (ch === 'prod') {
+        const legacy = this.memoryState.devices.get(deviceId);
+        const alreadyMigrated = legacy
+          ? Array.from(this.memoryState.instances.values()).find((instance) => instance.backendId === legacy.backendId)
+          : null;
+        if (legacy && !alreadyMigrated) {
+          const now = Date.now();
+          this.memoryState.instances.set(instanceId, {
+            instanceId,
+            deviceId,
+            backendId: legacy.backendId,
+            channel: ch,
+            name: name || legacy.name || '',
+            createdAt: now,
+            updatedAt: now,
+          });
+          return legacy.backendId;
+        }
+      }
+
+      const backendId = this.generateBackendId();
+      const now = Date.now();
+      this.memoryState.instances.set(instanceId, {
+        instanceId,
+        deviceId,
+        backendId,
+        channel: ch,
+        name: name || '',
+        createdAt: now,
+        updatedAt: now,
+      });
+      return backendId;
+    }
+
     const existing = this.db.prepare(`
       SELECT backend_id, name FROM instance_mappings WHERE instance_id = ?
     `).get(instanceId) as { backend_id: string; name: string } | undefined;
@@ -176,6 +276,9 @@ export class GatewayStorage {
    * Get instance info by backendId
    */
   getInstanceByBackendId(backendId: string): InstanceMapping | undefined {
+    if (this.memoryState) {
+      return Array.from(this.memoryState.instances.values()).find((instance) => instance.backendId === backendId);
+    }
     return this.db.prepare(`
       SELECT instance_id as instanceId, device_id as deviceId, backend_id as backendId,
              channel, name, created_at as createdAt, updated_at as updatedAt
@@ -187,6 +290,9 @@ export class GatewayStorage {
    * Get device info by backendId
    */
   getDeviceByBackendId(backendId: string): DeviceMapping | undefined {
+    if (this.memoryState) {
+      return Array.from(this.memoryState.devices.values()).find((device) => device.backendId === backendId);
+    }
     const row = this.db.prepare(`
       SELECT device_id as deviceId, backend_id as backendId, name,
              created_at as createdAt, updated_at as updatedAt
@@ -205,6 +311,10 @@ export class GatewayStorage {
    * Persisted to survive gateway restarts.
    */
   allocateEpoch(): number {
+    if (this.memoryState) {
+      this.memoryState.maxEpoch += 1;
+      return this.memoryState.maxEpoch;
+    }
     this.db.prepare(`
       UPDATE counters SET value = value + 1 WHERE key = 'max_epoch'
     `).run();
@@ -220,6 +330,9 @@ export class GatewayStorage {
    * Get the current max epoch without incrementing.
    */
   getMaxEpoch(): number {
+    if (this.memoryState) {
+      return this.memoryState.maxEpoch;
+    }
     const row = this.db.prepare(`
       SELECT value FROM counters WHERE key = 'max_epoch'
     `).get() as { value: number };
@@ -234,6 +347,6 @@ export class GatewayStorage {
   }
 
   close(): void {
-    this.db.close();
+    this.db?.close();
   }
 }

@@ -1,13 +1,13 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { Bot, Monitor, ChevronRight, Terminal, RefreshCw, ExternalLink, Copy, Check, AlertCircle, Globe, ArrowLeft } from 'lucide-react';
 import { useWslDiscovery } from '../hooks/useWslDiscovery';
-import { useServerStore, type ConnectionStatus } from '../stores/serverStore';
+import { useServerStore } from '../stores/serverStore';
+import { useRecoveryStore } from '../stores/recoveryStore';
 import { useGatewayStore, shouldShowNonCurrentInstanceBackend } from '../stores/gatewayStore';
 import { useFacadeStore } from '../stores/facadeStore';
 import { useConnection } from '../contexts/ConnectionContext';
 import { open } from '@tauri-apps/plugin-shell';
 import type { BackendSnapshot } from '@my-claudia/shared';
-import { canReachBackend } from '../utils/backendConnection';
 import { LEGACY_LOCAL_SERVER_ID, resolveCanonicalBackendId, resolveLocalBackendId } from '../utils/controlPlane';
 
 type SetupPath = 'choose' | 'wsl' | 'gateway' | 'manual';
@@ -37,7 +37,6 @@ export function WindowsSetup() {
     setLastActiveBackend,
     showLocalBackend,
   } = useGatewayStore();
-  const facadeConnectionState = useFacadeStore((s) => s.connectionState);
   const backends = useFacadeStore((s) => s.backends);
   const currentInstanceId = useFacadeStore((s) => s.currentInstanceId);
 
@@ -113,8 +112,8 @@ export function WindowsSetup() {
             resolveLocalBackendId(LEGACY_LOCAL_SERVER_ID) ?? LEGACY_LOCAL_SERVER_ID,
             LEGACY_LOCAL_SERVER_ID,
           ) || LEGACY_LOCAL_SERVER_ID;
-          const localStatus: ConnectionStatus = useServerStore.getState().connections[localBackendId]?.status || 'disconnected';
-          if (localStatus === 'connected') {
+          const backendState = useRecoveryStore.getState().backends[localBackendId];
+          if (backendState?.status === 'ready') {
             useServerStore.getState().setActiveServer(localBackendId);
             clearInterval(interval);
             resolve();
@@ -143,7 +142,7 @@ export function WindowsSetup() {
     setDirectGatewayConfig(url, secret);
 
     const checkInterval = setInterval(() => {
-      if (useFacadeStore.getState().connectionState === 'connected') {
+      if (useRecoveryStore.getState().transport.status === 'connected') {
         setGatewayConnecting(false);
         clearInterval(checkInterval);
       }
@@ -151,7 +150,7 @@ export function WindowsSetup() {
 
     setTimeout(() => {
       clearInterval(checkInterval);
-      if (useFacadeStore.getState().connectionState !== 'connected') {
+      if (useRecoveryStore.getState().transport.status !== 'connected') {
         setGatewayConnecting(false);
         setGatewayError('Connection timed out. Please check the URL and secret.');
       }
@@ -159,12 +158,12 @@ export function WindowsSetup() {
   }, [gatewayUrl, gatewaySecret, setDirectGatewayConfig]);
 
   const handleBackendSelect = useCallback((backend: BackendSnapshot) => {
-    if (!canReachBackend(facadeConnectionState, backend)) return;
+    if (useRecoveryStore.getState().getBackendViewState(backend.backendId) === 'offline') return;
     const serverId = backend.backendId;
     setActiveServer(serverId);
     setLastActiveBackend(serverId);
     connectServer(serverId);
-  }, [connectServer, facadeConnectionState, setActiveServer, setLastActiveBackend]);
+  }, [connectServer, setActiveServer, setLastActiveBackend]);
 
   const copyToClipboard = useCallback((text: string) => {
     navigator.clipboard.writeText(text);
@@ -181,9 +180,10 @@ export function WindowsSetup() {
   }, []);
 
   const runningDistros = distros.filter(d => d.state === 'Running');
-  const isGatewayConnected = facadeConnectionState === 'connected';
+  const isGatewayConnected = useRecoveryStore((s) => s.transport.status) === 'connected';
   const onlineBackends = backends.filter(
-    b => canReachBackend(facadeConnectionState, b) && shouldShowNonCurrentInstanceBackend(b, currentInstanceId, showLocalBackend)
+    b => useRecoveryStore.getState().getBackendViewState(b.backendId) !== 'offline'
+      && shouldShowNonCurrentInstanceBackend(b, currentInstanceId, showLocalBackend)
   );
 
   // --- Layout wrapper ---

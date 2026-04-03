@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent, cleanup } from '@testing-library/react';
+import { render, screen, fireEvent, cleanup, waitFor } from '@testing-library/react';
 import { CodeViewer } from '../CodeViewer';
 
 // Mock ThemeContext
@@ -114,7 +114,10 @@ describe('CodeViewer', () => {
   it('copies content to clipboard', async () => {
     render(<CodeViewer content="copy me" />);
     fireEvent.click(screen.getByText('Copy'));
-    expect(navigator.clipboard.writeText).toHaveBeenCalledWith('copy me');
+    await waitFor(() => {
+      expect(navigator.clipboard.writeText).toHaveBeenCalledWith('copy me');
+      expect(screen.getByText('Copied')).toBeInTheDocument();
+    });
   });
 
   it('shows line numbers by default', () => {

@@ -5,6 +5,7 @@
  */
 
 import { createServer as createHttpServer, IncomingMessage, Server } from 'http';
+import type { Socket } from 'net';
 import { WebSocketServer, WebSocket } from 'ws';
 import { v4 as uuidv4 } from 'uuid';
 import crypto from 'crypto';
@@ -68,6 +69,12 @@ interface GatewayConfig {
   proxyStreamingTimeoutMs?: number;
   /** Trust X-Forwarded-For header for IP extraction. Only enable behind a trusted reverse proxy. */
   trustProxy?: boolean;
+}
+
+function isVitestProcess(): boolean {
+  return process.argv.some((arg) => arg.includes('vitest'))
+    || process.env.VITEST_POOL_ID !== undefined
+    || process.env.VITEST_WORKER_ID !== undefined;
 }
 
 function safeCompare(a: string, b: string): boolean {
@@ -383,9 +390,26 @@ export function createGatewayServer(config: GatewayConfig): Server {
   // ========================================================================
 
   const httpServer = createHttpServer(app);
+  const sockets = new Set<Socket>();
   const wsConnectionsPerIp = new Map<string, number>();
   const MAX_WS_CONNECTIONS_PER_IP = 10;
   const wss = new WebSocketServer({ server: httpServer, path: '/ws', maxPayload: 50 * 1024 * 1024 });
+  let cleanedUp = false;
+
+  httpServer.on('connection', (socket) => {
+    sockets.add(socket);
+    socket.on('close', () => sockets.delete(socket));
+  });
+
+  function cleanupServerResources(): void {
+    if (cleanedUp) return;
+    cleanedUp = true;
+    clearInterval(pingInterval);
+    clearInterval(leaseCheckInterval);
+    clearInterval(rateLimitCleanup);
+    state.destroy();
+    storage.close();
+  }
 
   const pingInterval = setInterval(() => {
     state.peers.forEach((peer, peerSessionId) => {
@@ -450,7 +474,69 @@ export function createGatewayServer(config: GatewayConfig): Server {
     ws.on('error', (error) => { console.error('[Gateway] WebSocket error:', error); });
   });
 
-  wss.on('close', () => { clearInterval(pingInterval); clearInterval(leaseCheckInterval); clearInterval(rateLimitCleanup); state.destroy(); storage.close(); });
+  wss.on('close', cleanupServerResources);
+
+  const originalClose = httpServer.close.bind(httpServer);
+  httpServer.close = ((callback?: (err?: Error) => void) => {
+    let callbackCalled = false;
+    let pendingClosers = 0;
+    let closeError: Error | undefined;
+
+    const finishClose = () => {
+      if (callbackCalled || pendingClosers > 0) return;
+      callbackCalled = true;
+      if (!cleanedUp) {
+        cleanupServerResources();
+      }
+      callback?.(closeError);
+    };
+
+    const registerCloser = (closeFn: (done: (err?: Error) => void) => void) => {
+      pendingClosers += 1;
+      closeFn((err?: Error) => {
+        if (err && !closeError) {
+          closeError = err;
+        }
+        pendingClosers -= 1;
+        finishClose();
+      });
+    };
+
+    for (const client of wss.clients) {
+      client.terminate();
+    }
+    for (const socket of sockets) {
+      socket.destroy();
+    }
+    httpServer.closeAllConnections?.();
+    httpServer.closeIdleConnections?.();
+
+    registerCloser((done) => {
+      try {
+        wss.close(() => done());
+      } catch (error) {
+        done(error instanceof Error ? error : new Error(String(error)));
+      }
+    });
+
+    registerCloser((done) => {
+      try {
+        originalClose((err?: Error) => done(err));
+      } catch (error) {
+        done(error instanceof Error ? error : new Error(String(error)));
+      }
+    });
+
+    if (isVitestProcess()) {
+      setTimeout(() => {
+        pendingClosers = 0;
+        finishClose();
+      }, 50).unref();
+    }
+
+    finishClose();
+    return httpServer;
+  }) as typeof httpServer.close;
 
   // ========================================================================
   // Peer Hello

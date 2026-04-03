@@ -15,6 +15,11 @@ describe('WorkflowRunViewer', () => {
   beforeEach(() => {
     useWorkflowStore.setState({
       runs: {},
+      stepRuns: {},
+      loadRun: vi.fn().mockResolvedValue(undefined),
+      cancelRun: vi.fn().mockResolvedValue(undefined),
+      approveStep: vi.fn().mockResolvedValue(undefined),
+      rejectStep: vi.fn().mockResolvedValue(undefined),
     } as any);
   });
 

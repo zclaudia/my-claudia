@@ -37,8 +37,8 @@ vi.mock('../../services/api', async (importOriginal) => {
   for (const key of Object.keys(mod)) {
     stubbed[key] = typeof mod[key] === 'function' ? vi.fn(() => Promise.resolve(null)) : mod[key];
   }
-  stubbed.getServerInfo = vi.fn().mockResolvedValue({ sdkVersions: null });
-  stubbed.getAgentConfig = vi.fn().mockResolvedValue({});
+  stubbed.getServerInfo = vi.fn(() => new Promise(() => {}));
+  stubbed.getAgentConfig = vi.fn(() => new Promise(() => {}));
   stubbed.updateAgentConfig = vi.fn().mockResolvedValue({});
   stubbed.getNotificationConfig = vi.fn().mockResolvedValue({
     enabled: false, ntfyUrl: 'https://ntfy.sh', ntfyTopic: '', events: {
@@ -49,6 +49,8 @@ vi.mock('../../services/api', async (importOriginal) => {
   });
   stubbed.updateNotificationConfig = vi.fn().mockResolvedValue({});
   stubbed.sendTestNotification = vi.fn().mockResolvedValue({});
+  stubbed.getManagedProcesses = vi.fn(() => new Promise(() => {}));
+  stubbed.getCrashReports = vi.fn(() => new Promise(() => {}));
   return stubbed;
 });
 vi.mock('../../services/logger', () => ({
@@ -85,9 +87,33 @@ import { useGatewayStore } from '../../stores/gatewayStore';
 import { useUIStore } from '../../stores/uiStore';
 import { usePluginStore } from '../../stores/pluginStore';
 import { useProcessMonitorStore } from '../../stores/processMonitorStore';
+import { useRecoveryStore } from '../../stores/recoveryStore';
 import * as api from '../../services/api';
 import { clearLogs, getLogCount, exportLogs } from '../../services/logger';
 import { invoke } from '@tauri-apps/api/core';
+
+async function renderSettingsPanel(props: Partial<Parameters<typeof SettingsPanel>[0]> = {}) {
+  let view!: ReturnType<typeof render>;
+  await act(async () => {
+    view = render(<SettingsPanel isOpen={true} onClose={vi.fn()} {...props} />);
+    await Promise.resolve();
+  });
+  return view;
+}
+
+async function clickAsync(target: Element) {
+  await act(async () => {
+    fireEvent.click(target);
+    await Promise.resolve();
+  });
+}
+
+async function setupStoresAsync(overrides: Record<string, any> = {}) {
+  await act(async () => {
+    setupStores(overrides);
+    await Promise.resolve();
+  });
+}
 
 function setupStores(overrides: Record<string, any> = {}) {
   const localBackend = {
@@ -115,7 +141,6 @@ function setupStores(overrides: Record<string, any> = {}) {
     },
     localServerPort: 3100,
     controlPlaneMode: 'embedded-local',
-    controlPlaneState: 'ready',
     setActiveServer: vi.fn(),
     ...overrides.serverStore,
   } as any);
@@ -152,7 +177,20 @@ function setupStores(overrides: Record<string, any> = {}) {
 
   usePluginStore.setState({
     plugins: [],
+    settingsTabs: [],
+    panels: [],
     ...overrides.pluginStore,
+  } as any);
+
+  useRecoveryStore.setState({
+    backends: {
+      [localBackend.backendId]: {
+        status: overrides.recoveryStore?.[localBackend.backendId]?.status ?? 'ready',
+      },
+      [remoteBackend.backendId]: {
+        status: overrides.recoveryStore?.[remoteBackend.backendId]?.status ?? 'ready',
+      },
+    },
   } as any);
 
 }
@@ -176,87 +214,90 @@ describe('SettingsPanel', () => {
     expect(container.innerHTML).toBe('');
   });
 
-  it('renders when open', () => {
-    const { container } = render(<SettingsPanel isOpen={true} onClose={vi.fn()} />);
+  it('renders when open', async () => {
+    const { container } = await renderSettingsPanel();
     expect(container.textContent).toContain('Settings');
   });
 
-  it('renders General tab by default', () => {
-    const { container } = render(<SettingsPanel isOpen={true} onClose={vi.fn()} />);
+  it('renders General tab by default', async () => {
+    const { container } = await renderSettingsPanel();
     expect(container.textContent).toContain('Appearance');
     expect(container.textContent).toContain('Local Server');
     expect(container.textContent).toContain('Theme');
     expect(container.textContent).toContain('Font Size');
   });
 
-  it('restarts embedded server from local server section', () => {
-    const { getByText } = render(<SettingsPanel isOpen={true} onClose={vi.fn()} />);
-    fireEvent.click(getByText('Restart Embedded Server'));
+  it('restarts embedded server from local server section', async () => {
+    const { getByText } = await renderSettingsPanel();
+    await clickAsync(getByText('Restart Embedded Server'));
     expect(mockRestartEmbeddedServer).toHaveBeenCalledTimes(1);
   });
 
-  it('calls onClose when backdrop is clicked', () => {
+  it('calls onClose when backdrop is clicked', async () => {
     const onClose = vi.fn();
-    const { container } = render(<SettingsPanel isOpen={true} onClose={onClose} />);
+    const { container } = await renderSettingsPanel({ onClose });
     // Backdrop is the div behind the modal
     const backdrop = container.querySelector('.absolute.inset-0.bg-black\\/50');
     if (backdrop) {
-      fireEvent.click(backdrop);
+      await clickAsync(backdrop);
       expect(onClose).toHaveBeenCalled();
     }
   });
 
-  it('calls onClose when close button (X) is clicked', () => {
+  it('calls onClose when close button (X) is clicked', async () => {
     const onClose = vi.fn();
-    const { container } = render(<SettingsPanel isOpen={true} onClose={onClose} />);
+    const { container } = await renderSettingsPanel({ onClose });
     // Find the X close button (hidden on mobile, visible on desktop md:block)
     const closeButtons = Array.from(container.querySelectorAll('button')).filter(b =>
       b.className.includes('md:block')
     );
     if (closeButtons.length > 0) {
-      fireEvent.click(closeButtons[0]);
+      await clickAsync(closeButtons[0]);
       expect(onClose).toHaveBeenCalled();
     }
   });
 
   // ---- Tab navigation ----
 
-  it('shows all app tabs', () => {
-    const { container } = render(<SettingsPanel isOpen={true} onClose={vi.fn()} />);
+  it('shows all app tabs', async () => {
+    const { container } = await renderSettingsPanel();
     expect(container.textContent).toContain('General');
     expect(container.textContent).toContain('Claudia');
     expect(container.textContent).toContain('Plugins');
   });
 
-  it('shows server tabs', () => {
-    const { container } = render(<SettingsPanel isOpen={true} onClose={vi.fn()} />);
+  it('shows server tabs', async () => {
+    const { container } = await renderSettingsPanel();
     expect(container.textContent).toContain('Providers');
     expect(container.textContent).toContain('MCP Servers');
     expect(container.textContent).toContain('Notifications');
   });
 
 
-  it('shows Gateway tab for local server', () => {
-    const { container } = render(<SettingsPanel isOpen={true} onClose={vi.fn()} />);
+  it('shows Gateway tab for local server', async () => {
+    const { container } = await renderSettingsPanel();
     expect(container.textContent).toContain('Gateway');
   });
 
-  it('shows Import tab for local server', () => {
-    const { container } = render(<SettingsPanel isOpen={true} onClose={vi.fn()} />);
+  it('shows Import tab for local server', async () => {
+    const { container } = await renderSettingsPanel();
     expect(container.textContent).toContain('Import');
   });
 
-  it('hides Import and Gateway tabs for non-local server', () => {
-    setupStores({
-      serverStore: {
-        activeServerId: 'remote-1',
-      },
-      gatewayStore: {
-        directGatewayUrl: 'https://gateway.test',
-        directGatewaySecret: 'secret',
-      },
+  it('hides Import and Gateway tabs for non-local server', async () => {
+    await act(async () => {
+      setupStores({
+        serverStore: {
+          activeServerId: 'remote-1',
+        },
+        gatewayStore: {
+          directGatewayUrl: 'https://gateway.test',
+          directGatewaySecret: 'secret',
+        },
+      });
+      await Promise.resolve();
     });
-    const { container } = render(<SettingsPanel isOpen={true} onClose={vi.fn()} />);
+    const { container } = await renderSettingsPanel();
     // Import should not appear in sidebar tabs
     const tabButtons = Array.from(container.querySelectorAll('[data-testid="import-tab"]'));
     expect(tabButtons.length).toBe(0);
@@ -264,34 +305,34 @@ describe('SettingsPanel', () => {
 
   // ---- Tab switching ----
 
-  it('switches to Providers tab', () => {
-    const { container } = render(<SettingsPanel isOpen={true} onClose={vi.fn()} />);
+  it('switches to Providers tab', async () => {
+    const { container } = await renderSettingsPanel();
     const providersTab = container.querySelector('[data-testid="providers-tab"]');
     expect(providersTab).toBeTruthy();
-    fireEvent.click(providersTab!);
+    await clickAsync(providersTab!);
     expect(container.querySelector('[data-testid="provider-manager"]')).toBeTruthy();
   });
 
-  it('switches to Plugins tab', () => {
-    const { container } = render(<SettingsPanel isOpen={true} onClose={vi.fn()} />);
+  it('switches to Plugins tab', async () => {
+    const { container } = await renderSettingsPanel();
     const pluginsTab = container.querySelector('[data-testid="plugins-tab"]');
     expect(pluginsTab).toBeTruthy();
-    fireEvent.click(pluginsTab!);
+    await clickAsync(pluginsTab!);
     expect(container.querySelector('[data-testid="plugin-settings"]')).toBeTruthy();
     expect(container.textContent).toContain('Plugins');
   });
 
-  it('switches to MCP Servers tab', () => {
-    const { container } = render(<SettingsPanel isOpen={true} onClose={vi.fn()} />);
+  it('switches to MCP Servers tab', async () => {
+    const { container } = await renderSettingsPanel();
     const mcpTab = container.querySelector('[data-testid="mcp-servers-tab"]');
     expect(mcpTab).toBeTruthy();
-    fireEvent.click(mcpTab!);
+    await clickAsync(mcpTab!);
     expect(container.querySelector('[data-testid="mcp-settings"]')).toBeTruthy();
     expect(container.textContent).toContain('MCP Servers');
   });
 
   it('switches to Notifications tab', async () => {
-    const { container } = render(<SettingsPanel isOpen={true} onClose={vi.fn()} />);
+    const { container } = await renderSettingsPanel();
     const notifTab = container.querySelector('[data-testid="notifications-tab"]');
     expect(notifTab).toBeTruthy();
     await act(async () => {
@@ -301,91 +342,91 @@ describe('SettingsPanel', () => {
     expect(api.getNotificationConfig).toHaveBeenCalled();
   });
 
-  it('switches to Gateway tab', () => {
-    const { container } = render(<SettingsPanel isOpen={true} onClose={vi.fn()} />);
+  it('switches to Gateway tab', async () => {
+    const { container } = await renderSettingsPanel();
     const gatewayTab = container.querySelector('[data-testid="gateway-tab"]');
     expect(gatewayTab).toBeTruthy();
-    fireEvent.click(gatewayTab!);
+    await clickAsync(gatewayTab!);
     expect(container.querySelector('[data-testid="server-gateway-config"]')).toBeTruthy();
   });
 
-  it('switches to Import tab', () => {
-    const { container } = render(<SettingsPanel isOpen={true} onClose={vi.fn()} />);
+  it('switches to Import tab', async () => {
+    const { container } = await renderSettingsPanel();
     const importTab = container.querySelector('[data-testid="import-tab"]');
     expect(importTab).toBeTruthy();
-    fireEvent.click(importTab!);
+    await clickAsync(importTab!);
     expect(container.textContent).toContain('Import Data');
     expect(container.textContent).toContain('Claude CLI Sessions');
     expect(container.textContent).toContain('OpenCode Sessions');
   });
 
-  it('switches to Agent tab', () => {
-    const { container } = render(<SettingsPanel isOpen={true} onClose={vi.fn()} />);
+  it('switches to Agent tab', async () => {
+    const { container } = await renderSettingsPanel();
     const agentTab = container.querySelector('[data-testid="agent-tab"]');
     expect(agentTab).toBeTruthy();
-    fireEvent.click(agentTab!);
+    await clickAsync(agentTab!);
     // AgentSettings component renders (may show loading state in test env)
     expect(agentTab?.classList.toString()).toBeTruthy();
   });
 
   // ---- General tab: Appearance ----
 
-  it('renders ThemeToggle in general tab', () => {
-    const { container } = render(<SettingsPanel isOpen={true} onClose={vi.fn()} />);
+  it('renders ThemeToggle in general tab', async () => {
+    const { container } = await renderSettingsPanel();
     expect(container.querySelector('[data-testid="theme-toggle"]')).toBeTruthy();
   });
 
-  it('renders FontSizeToggle with options', () => {
-    const { container } = render(<SettingsPanel isOpen={true} onClose={vi.fn()} />);
+  it('renders FontSizeToggle with options', async () => {
+    const { container } = await renderSettingsPanel();
     expect(container.textContent).toContain('Small');
     expect(container.textContent).toContain('Medium');
     expect(container.textContent).toContain('Large');
   });
 
-  it('changes font size when clicking size option', () => {
+  it('changes font size when clicking size option', async () => {
     const setFontSize = vi.fn();
     setupStores({ uiStore: { fontSize: 'medium', setFontSize } });
 
-    const { container } = render(<SettingsPanel isOpen={true} onClose={vi.fn()} />);
+    const { container } = await renderSettingsPanel();
     const smallBtn = Array.from(container.querySelectorAll('button')).find(b => b.textContent === 'Small');
     expect(smallBtn).toBeTruthy();
-    fireEvent.click(smallBtn!);
+    await clickAsync(smallBtn!);
     expect(setFontSize).toHaveBeenCalledWith('small');
   });
 
-  it('changes font size to large', () => {
+  it('changes font size to large', async () => {
     const setFontSize = vi.fn();
     setupStores({ uiStore: { fontSize: 'medium', setFontSize } });
 
-    const { container } = render(<SettingsPanel isOpen={true} onClose={vi.fn()} />);
+    const { container } = await renderSettingsPanel();
     const largeBtn = Array.from(container.querySelectorAll('button')).find(b => b.textContent === 'Large');
     expect(largeBtn).toBeTruthy();
-    fireEvent.click(largeBtn!);
+    await clickAsync(largeBtn!);
     expect(setFontSize).toHaveBeenCalledWith('large');
   });
 
   // ---- Permissions tab ----
 
-  it('shows Permissions tab in sidebar', () => {
-    const { container } = render(<SettingsPanel isOpen={true} onClose={vi.fn()} />);
+  it('shows Permissions tab in sidebar', async () => {
+    const { container } = await renderSettingsPanel();
     const permissionsTab = container.querySelector('[data-testid="permissions-tab"]');
     expect(permissionsTab).toBeTruthy();
     expect(container.textContent).toContain('Permissions');
   });
 
-  it('switches to Permissions tab', () => {
-    const { container } = render(<SettingsPanel isOpen={true} onClose={vi.fn()} />);
+  it('switches to Permissions tab', async () => {
+    const { container } = await renderSettingsPanel();
     const permissionsTab = container.querySelector('[data-testid="permissions-tab"]');
     expect(permissionsTab).toBeTruthy();
-    fireEvent.click(permissionsTab!);
+    await clickAsync(permissionsTab!);
     // PermissionSettings component renders (may show loading state in test env)
     expect(permissionsTab?.classList.toString()).toBeTruthy();
   });
 
   // ---- General tab: About ----
 
-  it('shows About section with version and connection status', () => {
-    const { container } = render(<SettingsPanel isOpen={true} onClose={vi.fn()} />);
+  it('shows About section with version and connection status', async () => {
+    const { container } = await renderSettingsPanel();
     expect(container.textContent).toContain('About');
     expect(container.textContent).toContain('Version');
     expect(container.textContent).toContain('Connection');
@@ -393,7 +434,7 @@ describe('SettingsPanel', () => {
     expect(container.textContent).toContain('Server');
   });
 
-  it('shows disconnected status when not connected', () => {
+  it('shows disconnected status when not connected', async () => {
     setupStores({
       serverStore: {
         connections: {
@@ -401,13 +442,17 @@ describe('SettingsPanel', () => {
           'remote-1': { status: 'connected', error: null, isLocalConnection: false, features: [] },
         },
       },
+      recoveryStore: {
+        'local-standalone': { status: 'disconnected' },
+        'remote-1': { status: 'ready' },
+      },
     });
-    const { container } = render(<SettingsPanel isOpen={true} onClose={vi.fn()} />);
+    const { container } = await renderSettingsPanel();
     expect(container.textContent).toContain('Disconnected');
   });
 
-  it('shows embedded server status', () => {
-    const { container } = render(<SettingsPanel isOpen={true} onClose={vi.fn()} />);
+  it('shows embedded server status', async () => {
+    const { container } = await renderSettingsPanel();
     expect(container.textContent).toContain('Embedded Server');
   });
 
@@ -421,52 +466,50 @@ describe('SettingsPanel', () => {
       },
     });
 
-    const { container } = render(<SettingsPanel isOpen={true} onClose={vi.fn()} />);
+    const { container } = await renderSettingsPanel();
 
-    await act(async () => {
-      await new Promise(r => setTimeout(r, 50));
+    await waitFor(() => {
+      expect(container.textContent).toContain('sdk');
     });
-
-    expect(container.textContent).toContain('sdk');
   });
 
   // ---- General tab: Diagnostics ----
 
-  it('shows Diagnostics section with log count', () => {
-    const { container } = render(<SettingsPanel isOpen={true} onClose={vi.fn()} />);
+  it('shows Diagnostics section with log count', async () => {
+    const { container } = await renderSettingsPanel();
     // Click Debug tab to access Diagnostics
     const debugTab = container.querySelector('[data-testid="debug-tab"]');
     expect(debugTab).toBeTruthy();
-    fireEvent.click(debugTab!);
+    await clickAsync(debugTab!);
 
     expect(container.textContent).toContain('Debug');
     expect(container.textContent).toContain('Client Logs');
     expect(container.textContent).toContain('42 entries in buffer');
   });
 
-  it('clears logs when Clear button is clicked', () => {
-    const { container } = render(<SettingsPanel isOpen={true} onClose={vi.fn()} />);
+  it('clears logs when Clear button is clicked', async () => {
+    const { container } = await renderSettingsPanel();
     // Click Debug tab to access Diagnostics
     const debugTab = container.querySelector('[data-testid="debug-tab"]');
     expect(debugTab).toBeTruthy();
-    fireEvent.click(debugTab!);
+    await clickAsync(debugTab!);
 
     // Find Clear button in diagnostics (not the search history clear)
     const clearButtons = Array.from(container.querySelectorAll('button')).filter(b =>
       b.textContent === 'Clear'
     );
     if (clearButtons.length > 0) {
-      fireEvent.click(clearButtons[0]);
+      await clickAsync(clearButtons[0]);
       expect(clearLogs).toHaveBeenCalled();
     }
   });
 
   it('exports logs when Export Logs button is clicked', async () => {
-    const { container } = render(<SettingsPanel isOpen={true} onClose={vi.fn()} />);
+    const { container } = await renderSettingsPanel();
     // Click Debug tab to access Diagnostics
     const debugTab = container.querySelector('[data-testid="debug-tab"]');
     expect(debugTab).toBeTruthy();
-    fireEvent.click(debugTab!);
+    await clickAsync(debugTab!);
 
     const exportBtn = Array.from(container.querySelectorAll('button')).find(b =>
       b.textContent === 'Export Logs'
@@ -479,29 +522,29 @@ describe('SettingsPanel', () => {
     expect(exportLogs).toHaveBeenCalled();
   });
 
-  it('triggers leaked process cleanup from diagnostics', () => {
-    const { container } = render(<SettingsPanel isOpen={true} onClose={vi.fn()} />);
+  it('triggers leaked process cleanup from diagnostics', async () => {
+    const { container } = await renderSettingsPanel();
     // Click Debug tab to access Diagnostics
     const debugTab = container.querySelector('[data-testid="debug-tab"]');
     expect(debugTab).toBeTruthy();
-    fireEvent.click(debugTab!);
+    await clickAsync(debugTab!);
 
     const cleanupBtn = Array.from(container.querySelectorAll('button')).find(b =>
       b.textContent === 'Clean Leaked Processes'
     );
 
     expect(cleanupBtn).toBeTruthy();
-    fireEvent.click(cleanupBtn!);
+    await clickAsync(cleanupBtn!);
 
     expect(mockSendMessage).toHaveBeenCalledWith({ type: 'kill_leaked_processes' });
   });
 
   it('renders server cleanup results from the process monitor store', async () => {
-    const { container } = render(<SettingsPanel isOpen={true} onClose={vi.fn()} />);
+    const { container } = await renderSettingsPanel();
     // Click Debug tab to access Diagnostics
     const debugTab = container.querySelector('[data-testid="debug-tab"]');
     expect(debugTab).toBeTruthy();
-    fireEvent.click(debugTab!);
+    await clickAsync(debugTab!);
 
     act(() => {
       useProcessMonitorStore.getState().setCleanupResult({
@@ -520,17 +563,17 @@ describe('SettingsPanel', () => {
 
   // ---- Providers tab ----
 
-  it('shows ProviderManager inline when Providers tab is selected', () => {
-    const { container } = render(<SettingsPanel isOpen={true} onClose={vi.fn()} />);
+  it('shows ProviderManager inline when Providers tab is selected', async () => {
+    const { container } = await renderSettingsPanel();
     const providersTab = container.querySelector('[data-testid="providers-tab"]');
-    fireEvent.click(providersTab!);
+    await clickAsync(providersTab!);
 
     const pm = container.querySelector('[data-testid="provider-manager"]');
     expect(pm).toBeTruthy();
     expect(pm?.getAttribute('data-inline')).toBe('true');
   });
 
-  it('shows remote server notice when not local server', () => {
+  it('shows remote server notice when not local server', async () => {
     setupStores({
       serverStore: {
         activeServerId: 'remote-1',
@@ -557,9 +600,9 @@ describe('SettingsPanel', () => {
       },
     });
 
-    const { container } = render(<SettingsPanel isOpen={true} onClose={vi.fn()} />);
+    const { container } = await renderSettingsPanel();
     const providersTab = container.querySelector('[data-testid="providers-tab"]');
-    fireEvent.click(providersTab!);
+    await clickAsync(providersTab!);
 
     expect(container.textContent).toContain('Managing providers on');
     expect(container.textContent).toContain('Remote Server');
@@ -567,30 +610,30 @@ describe('SettingsPanel', () => {
 
   // ---- Import tab ----
 
-  it('opens Claude CLI import dialog', () => {
-    const { container } = render(<SettingsPanel isOpen={true} onClose={vi.fn()} />);
+  it('opens Claude CLI import dialog', async () => {
+    const { container } = await renderSettingsPanel();
     const importTab = container.querySelector('[data-testid="import-tab"]');
-    fireEvent.click(importTab!);
+    await clickAsync(importTab!);
 
     const importBtn = Array.from(container.querySelectorAll('button')).find(b =>
       b.textContent === 'Import from Claude CLI'
     );
     expect(importBtn).toBeTruthy();
-    fireEvent.click(importBtn!);
+    await clickAsync(importBtn!);
 
     expect(document.querySelector('[data-testid="import-dialog"]')).toBeTruthy();
   });
 
-  it('opens OpenCode import dialog', () => {
-    const { container } = render(<SettingsPanel isOpen={true} onClose={vi.fn()} />);
+  it('opens OpenCode import dialog', async () => {
+    const { container } = await renderSettingsPanel();
     const importTab = container.querySelector('[data-testid="import-tab"]');
-    fireEvent.click(importTab!);
+    await clickAsync(importTab!);
 
     const importBtn = Array.from(container.querySelectorAll('button')).find(b =>
       b.textContent === 'Import from OpenCode'
     );
     expect(importBtn).toBeTruthy();
-    fireEvent.click(importBtn!);
+    await clickAsync(importBtn!);
 
     expect(document.querySelector('[data-testid="import-opencode-dialog"]')).toBeTruthy();
   });
@@ -598,32 +641,22 @@ describe('SettingsPanel', () => {
   // ---- Notifications tab ----
 
   it('renders notification settings when tab is selected', async () => {
-    const { container } = render(<SettingsPanel isOpen={true} onClose={vi.fn()} />);
+    const { container } = await renderSettingsPanel();
     const notifTab = container.querySelector('[data-testid="notifications-tab"]');
 
-    await act(async () => {
-      fireEvent.click(notifTab!);
-    });
+    await clickAsync(notifTab!);
 
-    await act(async () => {
-      await new Promise(r => setTimeout(r, 50));
+    await waitFor(() => {
+      expect(container.textContent).toContain('Enable notifications');
+      expect(container.textContent).toContain('ntfy');
     });
-
-    expect(container.textContent).toContain('Enable notifications');
-    expect(container.textContent).toContain('ntfy');
   });
 
   it('toggles notification enabled state', async () => {
-    const { container } = render(<SettingsPanel isOpen={true} onClose={vi.fn()} />);
+    const { container } = await renderSettingsPanel();
     const notifTab = container.querySelector('[data-testid="notifications-tab"]');
 
-    await act(async () => {
-      fireEvent.click(notifTab!);
-    });
-
-    await act(async () => {
-      await new Promise(r => setTimeout(r, 50));
-    });
+    await clickAsync(notifTab!);
 
     // Find the enable toggle
     const toggleButtons = Array.from(container.querySelectorAll('button')).filter(b =>
@@ -631,7 +664,7 @@ describe('SettingsPanel', () => {
     );
 
     if (toggleButtons.length > 0) {
-      fireEvent.click(toggleButtons[0]);
+      await clickAsync(toggleButtons[0]);
       // Should now show ntfy config fields
       await waitFor(() => {
         expect(container.textContent).toContain('ntfy Configuration');
@@ -648,23 +681,19 @@ describe('SettingsPanel', () => {
       },
     });
 
-    const { container } = render(<SettingsPanel isOpen={true} onClose={vi.fn()} />);
+    const { container } = await renderSettingsPanel();
     const notifTab = container.querySelector('[data-testid="notifications-tab"]');
 
-    await act(async () => {
-      fireEvent.click(notifTab!);
-    });
+    await clickAsync(notifTab!);
 
-    await act(async () => {
-      await new Promise(r => setTimeout(r, 50));
+    await waitFor(() => {
+      expect(container.textContent).toContain('Permission requests');
+      expect(container.textContent).toContain('Prompt requests');
+      expect(container.textContent).toContain('Run completed');
+      expect(container.textContent).toContain('Run failed');
+      expect(container.textContent).toContain('Supervision updates');
+      expect(container.textContent).toContain('Background task alerts');
     });
-
-    expect(container.textContent).toContain('Permission requests');
-    expect(container.textContent).toContain('Prompt requests');
-    expect(container.textContent).toContain('Run completed');
-    expect(container.textContent).toContain('Run failed');
-    expect(container.textContent).toContain('Supervision updates');
-    expect(container.textContent).toContain('Background task alerts');
   });
 
   it('shows Send Test button for notifications', async () => {
@@ -673,26 +702,22 @@ describe('SettingsPanel', () => {
       events: { permissionRequest: true, promptRequest: true, runCompleted: false, runFailed: false, supervisionUpdate: false, backgroundPermission: false },
     });
 
-    const { container } = render(<SettingsPanel isOpen={true} onClose={vi.fn()} />);
+    const { container } = await renderSettingsPanel();
     const notifTab = container.querySelector('[data-testid="notifications-tab"]');
 
-    await act(async () => {
-      fireEvent.click(notifTab!);
-    });
+    await clickAsync(notifTab!);
 
-    await act(async () => {
-      await new Promise(r => setTimeout(r, 50));
+    await waitFor(() => {
+      const testBtn = Array.from(container.querySelectorAll('button')).find(b =>
+        b.textContent === 'Send Test'
+      );
+      expect(testBtn).toBeTruthy();
     });
-
-    const testBtn = Array.from(container.querySelectorAll('button')).find(b =>
-      b.textContent === 'Send Test'
-    );
-    expect(testBtn).toBeTruthy();
   });
 
   // ---- Server picker ----
 
-  it('opens server picker dropdown', () => {
+  it('opens server picker dropdown', async () => {
     setupStores({
       gatewayStore: {
         isConnected: true,
@@ -719,19 +744,19 @@ describe('SettingsPanel', () => {
       },
     });
 
-    const { container } = render(<SettingsPanel isOpen={true} onClose={vi.fn()} />);
+    const { container } = await renderSettingsPanel();
     // The server picker is in the sidebar with the server name label
     const serverPickerBtn = Array.from(container.querySelectorAll('button')).find(b =>
       b.textContent?.includes('Local') && b.className.includes('w-full')
     );
     if (serverPickerBtn) {
-      fireEvent.click(serverPickerBtn);
+      await clickAsync(serverPickerBtn);
       // Should show dropdown with server options
       expect(container.textContent).toContain('Remote');
     }
   });
 
-  it('switches server from picker', () => {
+  it('switches server from picker', async () => {
     const setActiveServer = vi.fn();
     setupStores({
       serverStore: {
@@ -759,19 +784,19 @@ describe('SettingsPanel', () => {
       },
     });
 
-    const { container } = render(<SettingsPanel isOpen={true} onClose={vi.fn()} />);
+    const { container } = await renderSettingsPanel();
     // Open server picker
     const serverPickerBtn = Array.from(container.querySelectorAll('button')).find(b =>
       b.textContent?.includes('Local') && b.className.includes('w-full')
     );
     if (serverPickerBtn) {
-      fireEvent.click(serverPickerBtn);
+      await clickAsync(serverPickerBtn);
       // Click Remote server
       const remoteBtn = Array.from(container.querySelectorAll('button')).find(b =>
         b.textContent?.includes('Remote') && !b.textContent?.includes('Local')
       );
       if (remoteBtn) {
-        fireEvent.click(remoteBtn);
+        await clickAsync(remoteBtn);
         expect(setActiveServer).toHaveBeenCalledWith('remote-1');
       }
     }
@@ -779,23 +804,23 @@ describe('SettingsPanel', () => {
 
   // ---- Gateway tab ----
 
-  it('renders ServerGatewayConfig on desktop gateway tab', () => {
-    const { container } = render(<SettingsPanel isOpen={true} onClose={vi.fn()} />);
+  it('renders ServerGatewayConfig on desktop gateway tab', async () => {
+    const { container } = await renderSettingsPanel();
     const gatewayTab = container.querySelector('[data-testid="gateway-tab"]');
-    fireEvent.click(gatewayTab!);
+    await clickAsync(gatewayTab!);
     expect(container.querySelector('[data-testid="server-gateway-config"]')).toBeTruthy();
   });
 
   // ---- Plugin settings tabs ----
 
-  it('renders plugin settings tabs when plugins define them', () => {
+  it('renders plugin settings tabs when plugins define them', async () => {
     usePluginStore.setState({
       plugins: [],
     } as any);
 
     // The pluginSettingsTabs are derived from store — mock the selector
     // For this test, we just verify the plugin tab area renders
-    const { container } = render(<SettingsPanel isOpen={true} onClose={vi.fn()} />);
+    const { container } = await renderSettingsPanel();
     // Plugins tab should always be there
     expect(container.textContent).toContain('Plugins');
   });
@@ -803,15 +828,15 @@ describe('SettingsPanel', () => {
   // ---- Reset tab on server switch ----
 
   it('resets import tab to providers when switching to non-local server', async () => {
-    const { container, rerender } = render(<SettingsPanel isOpen={true} onClose={vi.fn()} />);
+    const { container, rerender } = await renderSettingsPanel();
 
     // Switch to import tab
     const importTab = container.querySelector('[data-testid="import-tab"]');
-    fireEvent.click(importTab!);
+    await clickAsync(importTab!);
     expect(container.textContent).toContain('Import Data');
 
     // Now switch to non-local server
-    setupStores({
+    await setupStoresAsync({
       serverStore: {
         activeServerId: 'remote-1',
       },
@@ -821,23 +846,22 @@ describe('SettingsPanel', () => {
       },
     });
 
-    rerender(<SettingsPanel isOpen={true} onClose={vi.fn()} />);
-
-    // After re-render, import tab should not be available and content should change
-    // The useEffect should have reset the tab
     await act(async () => {
-      await new Promise(r => setTimeout(r, 50));
+      rerender(<SettingsPanel isOpen={true} onClose={vi.fn()} />);
+      await Promise.resolve();
     });
 
-    expect(container.querySelector('[data-testid="import-tab"]')).toBeFalsy();
+    await waitFor(() => {
+      expect(container.querySelector('[data-testid="import-tab"]')).toBeFalsy();
+    });
   });
 
   // ---- MCP Servers tab ----
 
-  it('shows MCP Servers description and component', () => {
-    const { container } = render(<SettingsPanel isOpen={true} onClose={vi.fn()} />);
+  it('shows MCP Servers description and component', async () => {
+    const { container } = await renderSettingsPanel();
     const mcpTab = container.querySelector('[data-testid="mcp-servers-tab"]');
-    fireEvent.click(mcpTab!);
+    await clickAsync(mcpTab!);
 
     expect(container.textContent).toContain('Model Context Protocol');
     expect(container.querySelector('[data-testid="mcp-settings"]')).toBeTruthy();
@@ -845,7 +869,7 @@ describe('SettingsPanel', () => {
 
   // ---- Connection status colors ----
 
-  it('shows correct status colors in server picker', () => {
+  it('shows correct status colors in server picker', async () => {
     setupStores({
       serverStore: {
         connections: {
@@ -854,7 +878,7 @@ describe('SettingsPanel', () => {
       },
     });
 
-    const { container } = render(<SettingsPanel isOpen={true} onClose={vi.fn()} />);
+    const { container } = await renderSettingsPanel();
     // The sidebar shows the active tab, status is reflected in the server picker dropdown
     // Just verifying no crash with various statuses
     expect(container).toBeTruthy();
@@ -862,10 +886,10 @@ describe('SettingsPanel', () => {
 
   // ---- Import tab content ----
 
-  it('shows import note about local server only', () => {
-    const { container } = render(<SettingsPanel isOpen={true} onClose={vi.fn()} />);
+  it('shows import note about local server only', async () => {
+    const { container } = await renderSettingsPanel();
     const importTab = container.querySelector('[data-testid="import-tab"]');
-    fireEvent.click(importTab!);
+    await clickAsync(importTab!);
 
     expect(container.textContent).toContain('Import functionality is only available when connected to a local server');
   });

@@ -3,6 +3,7 @@ import { useConnection } from '../contexts/ConnectionContext';
 import { useOwnershipStore } from '../stores/ownershipStore';
 import { useProjectStore } from '../stores/projectStore';
 import { useServerStore } from '../stores/serverStore';
+import { useRecoveryStore } from '../stores/recoveryStore';
 import { getControlPlaneMode, resolveCanonicalBackendId, resolveLocalBackendId } from '../utils/controlPlane';
 
 interface SelectSessionOptions {
@@ -20,8 +21,8 @@ export function useSelectionCoordinator() {
     const canonicalBackendId = resolveCanonicalBackendId(backendId, resolveLocalBackendId() ?? backendId ?? null);
     if (!canonicalBackendId) return;
     if (activeServerId === canonicalBackendId) {
-      const currentStatus = useServerStore.getState().connections[canonicalBackendId]?.status ?? 'disconnected';
-      if (currentStatus === 'connected') {
+      const backendReady = useRecoveryStore.getState().backends[canonicalBackendId]?.status === 'ready';
+      if (backendReady) {
         return;
       }
       connectServer(canonicalBackendId);

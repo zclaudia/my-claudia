@@ -34,7 +34,6 @@ import { useGatewayStore } from './stores/gatewayStore';
 import { useProjectStore } from './stores/projectStore';
 import { useClaudiaStore } from './stores/claudiaStore';
 import { useIsMobile } from './hooks/useMediaQuery';
-import { canReachBackend } from './utils/backendConnection';
 import { useClaudiaStatus } from './hooks/useClaudiaStatus';
 import { useAndroidBack } from './hooks/useAndroidBack';
 import { useSwipeBack } from './hooks/useSwipeBack';
@@ -50,6 +49,7 @@ import { useAutoUpdate } from './hooks/useAutoUpdate';
 import { useServerLatencyMonitor } from './hooks/useServerLatencyMonitor';
 import { useActiveSessionStream } from './hooks/useActiveSessionStream';
 import { useRecoveryCoordinator } from './hooks/useRecoveryCoordinator';
+import { useRecoveryStore } from './stores/recoveryStore';
 import { UpdateBanner } from './components/UpdateBanner';
 import { BrandMark } from './components/BrandMark';
 import { useShortcutStore } from './stores/shortcutStore';
@@ -144,7 +144,9 @@ function PluginWindowButtons() {
 
 function AppContent() {
   const { connectServer, embeddedServerStatus, embeddedServerError } = useConnection();
-  const { activeServerId, controlPlaneState } = useServerStore();
+  const activeServerId = useServerStore((s) => s.activeServerId);
+  const transportStatus = useRecoveryStore((s) => s.transport.status);
+  const controlPlaneState = transportStatus === 'connected' ? 'ready' : transportStatus === 'error' ? 'error' : 'connecting';
   const { selectedSessionId, selectedProjectId, sessions, projects, selectSession, setDashboardView } = useProjectStore();
   const { selectProject } = useSelectionCoordinator();
   const [dashboardProjectId, setDashboardProjectId] = useState<string | null>(null);
@@ -152,7 +154,6 @@ function AppContent() {
     import('./features/automation/openAutomationWindow').then(m => m.openAutomationWindow());
   }, []);
   const { directGatewayUrl, lastActiveBackendId } = useGatewayStore();
-  const facadeConnectionState = useFacadeStore((s) => s.connectionState);
   const facadeBackends = useFacadeStore((s) => s.backends);
   const { isExpanded: isAgentExpanded, setExpanded: setAgentExpanded } = useClaudiaStore();
   const { hasUnread: hasClaudiaUnread, hasRunning: hasClaudiaRunning, hasPermissionPending: hasClaudiaPermissionPending } = useClaudiaStatus();
@@ -453,28 +454,24 @@ function AppContent() {
   useEffect(() => {
     if (!isMobile || mobileAutoConnectDone.current) return;
     if (!lastActiveBackendId) return;
-    if (facadeConnectionState !== 'connected') return;
+    if (transportStatus !== 'connected') return;
 
     const backendId = lastActiveBackendId;
-    const activeBackend = facadeBackends.find((b) => b.backendId === activeServerId);
-    const activeBackendReady = activeBackend?.runtimeState === 'ready' || activeBackend?.runtimeState === 'opening';
-    // Manual selection already chose the backend in this app lifetime.
-    // Only auto-reconnect when restoring from a cold start.
+    const recoveryBackend = useRecoveryStore.getState().backends[backendId];
+    const activeBackendReady = recoveryBackend?.status === 'ready' || recoveryBackend?.status === 'opening';
     if (activeServerId === backendId && activeBackendReady) {
       mobileAutoConnectDone.current = true;
       return;
     }
 
-    // Check if the last backend is online
-    const backendOnline = facadeBackends.some((b) => b.backendId === backendId && canReachBackend(facadeConnectionState, b));
-    if (!backendOnline) return;
+    const backendViewState = useRecoveryStore.getState().getBackendViewState(backendId);
+    if (backendViewState === 'offline') return;
 
-    // Auto-connect once
     mobileAutoConnectDone.current = true;
     console.log('[App] Auto-reconnecting to last used backend:', lastActiveBackendId);
     useServerStore.getState().setActiveServer(lastActiveBackendId);
     connectServer(lastActiveBackendId);
-  }, [isMobile, lastActiveBackendId, facadeConnectionState, facadeBackends, activeServerId, connectServer]);
+  }, [isMobile, lastActiveBackendId, transportStatus, activeServerId, connectServer]);
 
   useEffect(() => {
     if (typeof window === 'undefined' || new URLSearchParams(window.location.search).has('sessionWindow')) {

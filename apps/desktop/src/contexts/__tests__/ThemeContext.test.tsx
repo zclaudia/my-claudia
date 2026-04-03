@@ -276,11 +276,16 @@ describe('ThemeContext', () => {
     it('throws when used outside ThemeProvider', () => {
       // Suppress error output from React
       const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const preventWindowError = (event: Event) => event.preventDefault();
+      window.addEventListener('error', preventWindowError);
 
       expect(() => {
-        render(<ThemeConsumer />);
+        render(<ThemeConsumer />, {
+          onCaughtError: () => {},
+        });
       }).toThrow('useTheme must be used within a ThemeProvider');
 
+      window.removeEventListener('error', preventWindowError);
       consoleSpy.mockRestore();
     });
   });

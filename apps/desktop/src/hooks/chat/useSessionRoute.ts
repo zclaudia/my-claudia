@@ -36,16 +36,17 @@ export function useSessionRoute(
   options: UseSessionRouteOptions = {},
 ): SessionRouteState {
   const { maintainDesiredState = false } = options;
+  // Facade — imperative calls + stream management only
   const facade = useFacadeStore((s) => s.facade);
-  const connectionState = useFacadeStore((s) => s.connectionState);
-  const connectionError = useFacadeStore((s) => s.connectionError);
   const backends = useFacadeStore((s) => s.backends);
   const sessionStreams = useFacadeStore((s) => s.sessionStreams);
   const activeServerId = useServerStore((s) => s.activeServerId);
-  const serverConnections = useServerStore((s) => s.connections);
   const maxOffset = useChatStore((s) =>
     sessionId ? s.pagination[sessionId]?.maxOffset ?? 0 : 0
   );
+  // Recovery store — single source of truth for status decisions
+  const transportStatus = useRecoveryStore((s) => s.transport.status);
+  const transportError = useRecoveryStore((s) => s.transport.error);
   const recoveryCoordinator = useRecoveryStore((s) => s.coordinator);
   const verifiedBackendId = useRecoveryStore((s) => s.getVerifiedSessionBackendId(sessionId));
   const recoverySelectedSessionId = useRecoveryStore((s) => s.selectedSessionId);
@@ -86,7 +87,8 @@ export function useSessionRoute(
     [backendId, sessionId]
   );
   const stream = streamKey ? sessionStreams[streamKey] ?? null : null;
-  const serverConnection = backendId ? serverConnections[backendId] ?? null : null;
+  const recoveryBackendStatus = useRecoveryStore((s) => backendId ? s.backends[backendId]?.status ?? null : null);
+  const recoveryBackendError = useRecoveryStore((s) => backendId ? s.backends[backendId]?.lastError ?? null : null);
   const catchUpSignatureRef = useRef<string | null>(null);
   const prevStreamStateRef = useRef<string | undefined>();
   const recoveryBlocksStreamOpen = !!(sessionId
@@ -139,28 +141,19 @@ export function useSessionRoute(
     facade.catchUpContent(backendId, sessionId, maxOffset);
   }, [backendId, facade, maintainDesiredState, maxOffset, sessionId, stream?.state, streamKey]);
 
-  const backendReady = backend?.runtimeState === 'ready' || (!backend && serverConnection?.status === 'connected');
-  const backendErrored = backend?.runtimeState === 'error' || (!backend && serverConnection?.status === 'error');
-  const backendOffline = (
-    backend
-      ? backend.runtimeState === 'offline' || backend.openState === 'closed'
-      : serverConnection?.status === 'disconnected'
-  );
-  const transportReady = connectionState === 'connected' || (!backend && serverConnection?.status === 'connected');
+  const backendReady = recoveryBackendStatus === 'ready';
+  const backendErrored = recoveryBackendStatus === 'error';
+  const transportReady = transportStatus === 'connected';
   const canSend = transportReady && backendReady;
   const canLoadMessages = !!backendId;
 
   let phase: SessionRoutePhase;
   if (!backendId) {
     phase = ownerBackendId ? 'offline' : 'resolving';
-  } else if (connectionState === 'error' || backendErrored || stream?.state === 'error') {
+  } else if (transportStatus === 'error' || backendErrored || stream?.state === 'error') {
     phase = 'error';
-  } else if (connectionState === 'disconnected' && !serverConnection) {
+  } else if ((transportStatus === 'idle' || transportStatus === 'stopped') && !recoveryBackendStatus) {
     phase = 'offline';
-  } else if (connectionState !== 'connected' && !(transportReady && !backend)) {
-    phase = 'opening_backend';
-  } else if (backendOffline) {
-    phase = 'opening_backend';
   } else if (!backendReady) {
     phase = 'opening_backend';
   } else if (!stream || stream.state === 'closed' || stream.state === 'opening' || stream.state === 'closing') {
@@ -175,6 +168,6 @@ export function useSessionRoute(
     canSend,
     canLoadMessages,
     ownerResolved: !!ownerBackendId,
-    lastError: stream?.lastError ?? backend?.lastError ?? connectionError ?? null,
+    lastError: stream?.lastError ?? recoveryBackendError ?? transportError ?? backend?.lastError ?? null,
   };
 }

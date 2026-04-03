@@ -1,25 +1,21 @@
 import { useEffect, useMemo } from 'react';
 import { useServerStore } from '../stores/serverStore';
-import { useFacadeStore } from '../stores/facadeStore';
+import { useRecoveryStore } from '../stores/recoveryStore';
 import { probeServerLatency } from '../services/api';
-import { isBackendReady } from '../utils/backendConnection';
 
 const PROBE_INTERVAL_MS = 15_000;
 
 export function useServerLatencyMonitor(): void {
   const setServerLatency = useServerStore((s) => s.setServerLatency);
-  const backends = useFacadeStore((s) => s.backends);
-  const connectionState = useFacadeStore((s) => s.connectionState);
+  const recoveryBackends = useRecoveryStore((s) => s.backends);
 
-  // Derive a stable key so the effect only re-runs when the set of ready
-  // backend IDs actually changes — not on every facade snapshot update.
   const readyBackendIds = useMemo(() => {
-    return backends
-      .filter((b) => isBackendReady(connectionState, b))
-      .map((b) => b.backendId)
+    return Object.entries(recoveryBackends)
+      .filter(([, b]) => b.status === 'ready')
+      .map(([id]) => id)
       .sort()
       .join(',');
-  }, [backends, connectionState]);
+  }, [recoveryBackends]);
 
   useEffect(() => {
     if (!readyBackendIds) return;

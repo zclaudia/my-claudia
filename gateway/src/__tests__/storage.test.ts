@@ -1,7 +1,7 @@
 /**
  * Unit tests for GatewayStorage
  */
-import { describe, test, expect, beforeEach, afterEach } from 'vitest';
+import { describe, test, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
@@ -21,6 +21,7 @@ describe('GatewayStorage', () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     // Close storage and clean up
     if (storage) {
       storage.close();
@@ -127,22 +128,25 @@ describe('GatewayStorage', () => {
     expect(deviceInfo!.updatedAt).toBeGreaterThan(0);
   });
 
-  test('should update updatedAt when name changes', async () => {
+  test('should update updatedAt when name changes', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2024-01-01T00:00:00.000Z'));
     storage = new GatewayStorage(dbPath);
     const deviceId = 'test-device-9';
     
     storage.getOrCreateBackendId(deviceId, 'Initial');
     const backendId = storage.getOrCreateBackendId(deviceId);
     const initialInfo = storage.getDeviceByBackendId(backendId);
+    const initialUpdatedAt = initialInfo!.updatedAt;
+    const initialCreatedAt = initialInfo!.createdAt;
     
-    // Wait a bit to ensure timestamp difference
-    await new Promise(r => setTimeout(r, 10));
+    vi.setSystemTime(new Date('2024-01-01T00:00:01.000Z'));
     
     storage.getOrCreateBackendId(deviceId, 'Updated');
     const updatedInfo = storage.getDeviceByBackendId(backendId);
     
-    expect(updatedInfo!.updatedAt).toBeGreaterThan(initialInfo!.updatedAt);
-    expect(updatedInfo!.createdAt).toBe(initialInfo!.createdAt);
+    expect(updatedInfo!.updatedAt).toBeGreaterThan(initialUpdatedAt);
+    expect(updatedInfo!.createdAt).toBe(initialCreatedAt);
   });
 });
 

@@ -3,6 +3,7 @@ import { Loader2, Server, FolderOpen } from 'lucide-react';
 import { ConnectionProvider } from '../../contexts/ConnectionContext';
 import { ChatInterface } from './ChatInterface';
 import { useServerStore } from '../../stores/serverStore';
+import { useRecoveryStore } from '../../stores/recoveryStore';
 import { useProjectStore } from '../../stores/projectStore';
 import * as api from '../../services/api';
 import { useSelectionCoordinator } from '../../hooks/useSelectionCoordinator';
@@ -149,9 +150,10 @@ function SessionChatContent({ sessionId, projectId }: SessionChatContentProps) {
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const { selectProject, selectSession } = useSelectionCoordinator();
-  const isConnected = useServerStore((s) => {
-    if (!s.activeServerId) return false;
-    return s.connections[s.activeServerId]?.status === 'connected';
+  const activeServerId = useServerStore((s) => s.activeServerId);
+  const isConnected = useRecoveryStore((s) => {
+    if (!activeServerId) return false;
+    return s.backends[activeServerId]?.status === 'ready';
   });
 
   // Once WebSocket is connected, load project/session data into the stores

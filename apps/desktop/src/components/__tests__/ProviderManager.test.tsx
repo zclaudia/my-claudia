@@ -1,7 +1,27 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import { ProviderManager } from '../ProviderManager';
 import * as api from '../../services/api';
+
+const ASYNC_TIMEOUT = 200;
+const waitForFast = (assertion: Parameters<typeof waitFor>[0]) =>
+  waitFor(assertion, { timeout: ASYNC_TIMEOUT });
+
+async function renderProviderManager(props: Partial<Parameters<typeof ProviderManager>[0]> = {}) {
+  let view!: ReturnType<typeof render>;
+  await act(async () => {
+    view = render(<ProviderManager isOpen={true} onClose={vi.fn()} {...props} />);
+    await Promise.resolve();
+  });
+  return view;
+}
+
+async function clickAsync(target: Element) {
+  await act(async () => {
+    fireEvent.click(target);
+    await Promise.resolve();
+  });
+}
 
 const mockServerState = {
   activeServerId: 'local',
@@ -10,11 +30,60 @@ const mockServerState = {
   },
 };
 
+const mockRecoveryState = {
+  backends: {
+    local: { status: 'ready' },
+  },
+};
+
+const { mockProviderMetaState, useProviderMetaStoreMock } = vi.hoisted(() => {
+  const state = {
+    getProviders: vi.fn(() => []),
+  };
+
+  const store = Object.assign(
+    vi.fn((selector?: (currentState: typeof state) => unknown) => (
+      typeof selector === 'function' ? selector(state) : state
+    )),
+    {
+      getState: () => state,
+    }
+  );
+
+  return {
+    mockProviderMetaState: state,
+    useProviderMetaStoreMock: store,
+  };
+});
+
 // Mock the serverStore with selector support
 vi.mock('../../stores/serverStore', () => ({
   useServerStore: vi.fn((selector?: (state: typeof mockServerState) => unknown) => (
     typeof selector === 'function' ? selector(mockServerState) : mockServerState
   )),
+}));
+
+vi.mock('../../stores/recoveryStore', () => ({
+  useRecoveryStore: vi.fn((selector?: (state: typeof mockRecoveryState) => unknown) => (
+    typeof selector === 'function' ? selector(mockRecoveryState) : mockRecoveryState
+  )),
+}));
+
+vi.mock('../../stores/providerMetaStore', () => ({
+  useProviderMetaStore: useProviderMetaStoreMock,
+}));
+
+const mockSetProviders = vi.fn();
+vi.mock('../../stores/projectStore', () => ({
+  useProjectStore: {
+    getState: () => ({
+      setProviders: mockSetProviders,
+    }),
+  },
+}));
+
+vi.mock('../../hooks/useAndroidBack', () => ({
+  useAndroidBack: vi.fn(),
 }));
 
 // Mock the api module
@@ -58,8 +127,10 @@ describe('ProviderManager', () => {
     vi.mocked(api.updateProvider).mockResolvedValue(undefined);
     vi.mocked(api.deleteProvider).mockResolvedValue(undefined);
     vi.mocked(api.setDefaultProvider).mockResolvedValue(undefined);
+    mockProviderMetaState.getProviders.mockReturnValue([]);
     mockServerState.activeServerId = 'local';
     mockServerState.connections.local.status = 'connected';
+    mockRecoveryState.backends.local.status = 'ready';
   });
 
   afterEach(() => {
@@ -74,23 +145,23 @@ describe('ProviderManager', () => {
   });
 
   it('renders modal when open', async () => {
-    render(<ProviderManager isOpen={true} onClose={mockOnClose} />);
+    await renderProviderManager({ onClose: mockOnClose });
 
     expect(screen.getByText('Provider Management')).toBeInTheDocument();
   });
 
-  it('shows "Connect to a server first" when disconnected', () => {
-    mockServerState.connections.local.status = 'disconnected';
+  it('shows "Connect to a server first" when disconnected', async () => {
+    mockRecoveryState.backends.local.status = 'offline';
 
-    render(<ProviderManager isOpen={true} onClose={mockOnClose} />);
+    await renderProviderManager({ onClose: mockOnClose });
 
     expect(screen.getByText('Connect to a server first')).toBeInTheDocument();
   });
 
   it('loads and displays providers on open', async () => {
-    render(<ProviderManager isOpen={true} onClose={mockOnClose} />);
+    await renderProviderManager({ onClose: mockOnClose });
 
-    await waitFor(() => {
+    await waitForFast(() => {
       expect(api.getProviders).toHaveBeenCalled();
     });
 
@@ -99,9 +170,9 @@ describe('ProviderManager', () => {
   });
 
   it('shows Default badge for default provider', async () => {
-    render(<ProviderManager isOpen={true} onClose={mockOnClose} />);
+    await renderProviderManager({ onClose: mockOnClose });
 
-    await waitFor(() => {
+    await waitForFast(() => {
       expect(screen.getByText('Claude Default')).toBeInTheDocument();
     });
 
@@ -109,9 +180,9 @@ describe('ProviderManager', () => {
   });
 
   it('shows provider type badge', async () => {
-    render(<ProviderManager isOpen={true} onClose={mockOnClose} />);
+    await renderProviderManager({ onClose: mockOnClose });
 
-    await waitFor(() => {
+    await waitForFast(() => {
       expect(screen.getByText('Claude Default')).toBeInTheDocument();
     });
 
@@ -120,9 +191,9 @@ describe('ProviderManager', () => {
   });
 
   it('shows cliPath for provider that has one', async () => {
-    render(<ProviderManager isOpen={true} onClose={mockOnClose} />);
+    await renderProviderManager({ onClose: mockOnClose });
 
-    await waitFor(() => {
+    await waitForFast(() => {
       expect(screen.getByText('/usr/local/bin/claude')).toBeInTheDocument();
     });
   });
@@ -130,28 +201,28 @@ describe('ProviderManager', () => {
   it('shows empty state when no providers', async () => {
     vi.mocked(api.getProviders).mockResolvedValue([]);
 
-    render(<ProviderManager isOpen={true} onClose={mockOnClose} />);
+    await renderProviderManager({ onClose: mockOnClose });
 
-    await waitFor(() => {
+    await waitForFast(() => {
       expect(screen.getByText(/No providers configured/)).toBeInTheDocument();
     });
   });
 
-  it('closes modal when backdrop is clicked', () => {
-    render(<ProviderManager isOpen={true} onClose={mockOnClose} />);
+  it('closes modal when backdrop is clicked', async () => {
+    await renderProviderManager({ onClose: mockOnClose });
 
     // The backdrop is the first div with bg-black/50
     const backdrop = document.querySelector('.bg-black\\/50');
     expect(backdrop).toBeInTheDocument();
-    fireEvent.click(backdrop!);
+    await clickAsync(backdrop!);
 
     expect(mockOnClose).toHaveBeenCalled();
   });
 
   it('closes modal when close button is clicked', async () => {
-    render(<ProviderManager isOpen={true} onClose={mockOnClose} />);
+    await renderProviderManager({ onClose: mockOnClose });
 
-    await waitFor(() => {
+    await waitForFast(() => {
       expect(screen.getByText('Provider Management')).toBeInTheDocument();
     });
 
@@ -160,20 +231,20 @@ describe('ProviderManager', () => {
     const closeBtn = header?.querySelector('button');
     expect(closeBtn).toBeTruthy();
     if (closeBtn) {
-      fireEvent.click(closeBtn);
+      await clickAsync(closeBtn);
       expect(mockOnClose).toHaveBeenCalled();
     }
   });
 
   describe('Add Provider Form', () => {
     it('shows add form when Add Provider button is clicked', async () => {
-      render(<ProviderManager isOpen={true} onClose={mockOnClose} />);
+      await renderProviderManager({ onClose: mockOnClose });
 
-      await waitFor(() => {
+      await waitForFast(() => {
         expect(screen.getByText('Claude Default')).toBeInTheDocument();
       });
 
-      fireEvent.click(screen.getByText('Add Provider'));
+      await clickAsync(screen.getByText('Add Provider'));
 
       // Check for form elements by their text content since labels don't have htmlFor
       expect(screen.getByText(/Name \*/)).toBeInTheDocument();
@@ -182,20 +253,20 @@ describe('ProviderManager', () => {
     });
 
     it('creates provider on form submit', async () => {
-      render(<ProviderManager isOpen={true} onClose={mockOnClose} />);
+      await renderProviderManager({ onClose: mockOnClose });
 
-      await waitFor(() => {
+      await waitForFast(() => {
         expect(screen.getByText('Claude Default')).toBeInTheDocument();
       });
 
-      fireEvent.click(screen.getByText('Add Provider'));
+      await clickAsync(screen.getByText('Add Provider'));
 
       const nameInput = screen.getByPlaceholderText(/Personal Claude/);
       fireEvent.change(nameInput, { target: { value: 'New Provider' } });
 
-      fireEvent.click(screen.getByText('Create'));
+      await clickAsync(screen.getByText('Create'));
 
-      await waitFor(() => {
+      await waitForFast(() => {
         expect(api.createProvider).toHaveBeenCalledWith(
           expect.objectContaining({
             name: 'New Provider',
@@ -206,13 +277,13 @@ describe('ProviderManager', () => {
     });
 
     it('does not submit when name is empty', async () => {
-      render(<ProviderManager isOpen={true} onClose={mockOnClose} />);
+      await renderProviderManager({ onClose: mockOnClose });
 
-      await waitFor(() => {
+      await waitForFast(() => {
         expect(screen.getByText('Claude Default')).toBeInTheDocument();
       });
 
-      fireEvent.click(screen.getByText('Add Provider'));
+      await clickAsync(screen.getByText('Add Provider'));
 
       // Create button should be disabled when name is empty
       const createButton = screen.getByText('Create');
@@ -220,16 +291,16 @@ describe('ProviderManager', () => {
     });
 
     it('goes back to list when Cancel is clicked', async () => {
-      render(<ProviderManager isOpen={true} onClose={mockOnClose} />);
+      await renderProviderManager({ onClose: mockOnClose });
 
-      await waitFor(() => {
+      await waitForFast(() => {
         expect(screen.getByText('Claude Default')).toBeInTheDocument();
       });
 
-      fireEvent.click(screen.getByText('Add Provider'));
+      await clickAsync(screen.getByText('Add Provider'));
       expect(screen.getByText('Create')).toBeInTheDocument();
 
-      fireEvent.click(screen.getByText('Cancel'));
+      await clickAsync(screen.getByText('Cancel'));
 
       expect(screen.queryByText('Create')).not.toBeInTheDocument();
       expect(screen.getByText('Add Provider')).toBeInTheDocument();
@@ -238,7 +309,7 @@ describe('ProviderManager', () => {
 
   describe('Edit Provider', () => {
     it('populates form when Edit is clicked', async () => {
-      render(<ProviderManager isOpen={true} onClose={mockOnClose} />);
+      await renderProviderManager({ onClose: mockOnClose });
 
       await waitFor(() => {
         expect(screen.getByText('Work Claude')).toBeInTheDocument();
@@ -246,7 +317,7 @@ describe('ProviderManager', () => {
 
       // Click the edit button for Work Claude
       const editButtons = screen.getAllByTitle('Edit');
-      fireEvent.click(editButtons[0]);
+      await clickAsync(editButtons[0]);
 
       await waitFor(() => {
         expect(screen.getByDisplayValue('Claude Default')).toBeInTheDocument();
@@ -254,14 +325,14 @@ describe('ProviderManager', () => {
     });
 
     it('calls updateProvider on edit submit', async () => {
-      render(<ProviderManager isOpen={true} onClose={mockOnClose} />);
+      await renderProviderManager({ onClose: mockOnClose });
 
       await waitFor(() => {
         expect(screen.getByText('Claude Default')).toBeInTheDocument();
       });
 
       const editButtons = screen.getAllByTitle('Edit');
-      fireEvent.click(editButtons[0]);
+      await clickAsync(editButtons[0]);
 
       await waitFor(() => {
         expect(screen.getByText('Update')).toBeInTheDocument();
@@ -270,7 +341,7 @@ describe('ProviderManager', () => {
       const nameInput = screen.getByDisplayValue('Claude Default');
       fireEvent.change(nameInput, { target: { value: 'Updated Name' } });
 
-      fireEvent.click(screen.getByText('Update'));
+      await clickAsync(screen.getByText('Update'));
 
       await waitFor(() => {
         expect(api.updateProvider).toHaveBeenCalledWith(
@@ -287,14 +358,14 @@ describe('ProviderManager', () => {
     it('calls deleteProvider when delete is confirmed', async () => {
       const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
 
-      render(<ProviderManager isOpen={true} onClose={mockOnClose} />);
+      await renderProviderManager({ onClose: mockOnClose });
 
       await waitFor(() => {
         expect(screen.getByText('Claude Default')).toBeInTheDocument();
       });
 
       const deleteButtons = screen.getAllByTitle('Delete');
-      fireEvent.click(deleteButtons[0]);
+      await clickAsync(deleteButtons[0]);
 
       expect(confirmSpy).toHaveBeenCalledWith('Are you sure you want to delete this provider?');
       expect(api.deleteProvider).toHaveBeenCalledWith('p1');
@@ -305,14 +376,14 @@ describe('ProviderManager', () => {
     it('does not delete when confirm is cancelled', async () => {
       const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false);
 
-      render(<ProviderManager isOpen={true} onClose={mockOnClose} />);
+      await renderProviderManager({ onClose: mockOnClose });
 
       await waitFor(() => {
         expect(screen.getByText('Claude Default')).toBeInTheDocument();
       });
 
       const deleteButtons = screen.getAllByTitle('Delete');
-      fireEvent.click(deleteButtons[0]);
+      await clickAsync(deleteButtons[0]);
 
       expect(confirmSpy).toHaveBeenCalled();
       expect(api.deleteProvider).not.toHaveBeenCalled();
@@ -323,7 +394,7 @@ describe('ProviderManager', () => {
 
   describe('Set Default Provider', () => {
     it('calls setDefaultProvider when set default is clicked', async () => {
-      render(<ProviderManager isOpen={true} onClose={mockOnClose} />);
+      await renderProviderManager({ onClose: mockOnClose });
 
       await waitFor(() => {
         expect(screen.getByText('Work Claude')).toBeInTheDocument();
@@ -331,7 +402,7 @@ describe('ProviderManager', () => {
 
       // Set default button only appears for non-default providers
       const setDefaultButtons = screen.getAllByTitle('Set as default');
-      fireEvent.click(setDefaultButtons[0]);
+      await clickAsync(setDefaultButtons[0]);
 
       expect(api.setDefaultProvider).toHaveBeenCalledWith('p2');
     });
@@ -348,7 +419,7 @@ describe('ProviderManager', () => {
         },
       ]);
 
-      render(<ProviderManager isOpen={true} onClose={mockOnClose} />);
+      await renderProviderManager({ onClose: mockOnClose });
 
       await waitFor(() => {
         expect(screen.getByText('Only Provider')).toBeInTheDocument();
@@ -362,13 +433,13 @@ describe('ProviderManager', () => {
     it('shows alert for invalid JSON in env field', async () => {
       const alertSpy = vi.spyOn(window, 'alert').mockImplementation(() => {});
 
-      render(<ProviderManager isOpen={true} onClose={mockOnClose} />);
+      await renderProviderManager({ onClose: mockOnClose });
 
       await waitFor(() => {
         expect(screen.getByText('Claude Default')).toBeInTheDocument();
       });
 
-      fireEvent.click(screen.getByText('Add Provider'));
+      await clickAsync(screen.getByText('Add Provider'));
 
       const nameInput = screen.getByPlaceholderText(/Personal Claude/);
       fireEvent.change(nameInput, { target: { value: 'New Provider' } });
@@ -376,7 +447,7 @@ describe('ProviderManager', () => {
       const envTextarea = screen.getByPlaceholderText(/ANTHROPIC_API_KEY/);
       fireEvent.change(envTextarea, { target: { value: 'invalid json' } });
 
-      fireEvent.click(screen.getByText('Create'));
+      await clickAsync(screen.getByText('Create'));
 
       await waitFor(() => {
         expect(alertSpy).toHaveBeenCalledWith('Invalid JSON in environment variables');
@@ -388,13 +459,13 @@ describe('ProviderManager', () => {
     });
 
     it('accepts valid JSON in env field', async () => {
-      render(<ProviderManager isOpen={true} onClose={mockOnClose} />);
+      await renderProviderManager({ onClose: mockOnClose });
 
       await waitFor(() => {
         expect(screen.getByText('Claude Default')).toBeInTheDocument();
       });
 
-      fireEvent.click(screen.getByText('Add Provider'));
+      await clickAsync(screen.getByText('Add Provider'));
 
       const nameInput = screen.getByPlaceholderText(/Personal Claude/);
       fireEvent.change(nameInput, { target: { value: 'New Provider' } });
@@ -402,7 +473,7 @@ describe('ProviderManager', () => {
       const envTextarea = screen.getByPlaceholderText(/ANTHROPIC_API_KEY/);
       fireEvent.change(envTextarea, { target: { value: '{"API_KEY": "test"}' } });
 
-      fireEvent.click(screen.getByText('Create'));
+      await clickAsync(screen.getByText('Create'));
 
       await waitFor(() => {
         expect(api.createProvider).toHaveBeenCalledWith(
@@ -416,55 +487,59 @@ describe('ProviderManager', () => {
 
   describe('Error handling', () => {
     it('shows alert when createProvider fails', async () => {
+      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
       const alertSpy = vi.spyOn(window, 'alert').mockImplementation(() => {});
       vi.mocked(api.createProvider).mockRejectedValueOnce(new Error('Network error'));
 
-      render(<ProviderManager isOpen={true} onClose={mockOnClose} />);
+      await renderProviderManager({ onClose: mockOnClose });
 
       await waitFor(() => {
         expect(screen.getByText('Claude Default')).toBeInTheDocument();
       });
 
-      fireEvent.click(screen.getByText('Add Provider'));
+      await clickAsync(screen.getByText('Add Provider'));
       fireEvent.change(screen.getByPlaceholderText(/Personal Claude/), { target: { value: 'New' } });
-      fireEvent.click(screen.getByText('Create'));
+      await clickAsync(screen.getByText('Create'));
 
       await waitFor(() => {
         expect(alertSpy).toHaveBeenCalledWith(expect.stringContaining('Failed to create provider'));
       });
       alertSpy.mockRestore();
+      consoleSpy.mockRestore();
     });
 
     it('shows alert when deleteProvider fails', async () => {
+      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
       const alertSpy = vi.spyOn(window, 'alert').mockImplementation(() => {});
       vi.spyOn(window, 'confirm').mockReturnValue(true);
       vi.mocked(api.deleteProvider).mockRejectedValueOnce(new Error('Delete error'));
 
-      render(<ProviderManager isOpen={true} onClose={mockOnClose} />);
+      await renderProviderManager({ onClose: mockOnClose });
 
       await waitFor(() => {
         expect(screen.getByText('Claude Default')).toBeInTheDocument();
       });
 
-      fireEvent.click(screen.getAllByTitle('Delete')[0]);
+      await clickAsync(screen.getAllByTitle('Delete')[0]);
 
       await waitFor(() => {
         expect(alertSpy).toHaveBeenCalledWith(expect.stringContaining('Failed to delete provider'));
       });
       alertSpy.mockRestore();
+      consoleSpy.mockRestore();
     });
 
     it('logs error when setDefaultProvider fails', async () => {
       const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
       vi.mocked(api.setDefaultProvider).mockRejectedValueOnce(new Error('Set default error'));
 
-      render(<ProviderManager isOpen={true} onClose={mockOnClose} />);
+      await renderProviderManager({ onClose: mockOnClose });
 
       await waitFor(() => {
         expect(screen.getByText('Work Claude')).toBeInTheDocument();
       });
 
-      fireEvent.click(screen.getAllByTitle('Set as default')[0]);
+      await clickAsync(screen.getAllByTitle('Set as default')[0]);
 
       await waitFor(() => {
         expect(consoleSpy).toHaveBeenCalledWith('Failed to set default provider:', expect.any(Error));
@@ -476,7 +551,7 @@ describe('ProviderManager', () => {
       const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
       vi.mocked(api.getProviders).mockRejectedValueOnce(new Error('Load error'));
 
-      render(<ProviderManager isOpen={true} onClose={mockOnClose} />);
+      await renderProviderManager({ onClose: mockOnClose });
 
       await waitFor(() => {
         expect(consoleSpy).toHaveBeenCalledWith('Failed to load providers:', expect.any(Error));
@@ -487,7 +562,7 @@ describe('ProviderManager', () => {
 
   describe('Inline mode', () => {
     it('renders content without modal wrapper in inline mode', async () => {
-      render(<ProviderManager isOpen={true} onClose={mockOnClose} inline={true} />);
+      await renderProviderManager({ onClose: mockOnClose, inline: true });
 
       await waitFor(() => {
         expect(screen.getByText('Claude Default')).toBeInTheDocument();
@@ -501,16 +576,16 @@ describe('ProviderManager', () => {
 
   describe('TypeSelector dropdown', () => {
     it('opens and selects a type', async () => {
-      render(<ProviderManager isOpen={true} onClose={mockOnClose} />);
+      await renderProviderManager({ onClose: mockOnClose });
 
       await waitFor(() => {
         expect(screen.getByText('Claude Default')).toBeInTheDocument();
       });
 
-      fireEvent.click(screen.getByText('Add Provider'));
+      await clickAsync(screen.getByText('Add Provider'));
 
       // Click the Type selector button
-      fireEvent.click(screen.getByText('Claude'));
+      await clickAsync(screen.getByText('Claude'));
 
       // Dropdown should show all options
       expect(screen.getByText('OpenCode')).toBeInTheDocument();
@@ -519,7 +594,7 @@ describe('ProviderManager', () => {
       expect(screen.getByText('Kimi Code')).toBeInTheDocument();
 
       // Select OpenCode
-      fireEvent.click(screen.getByText('OpenCode'));
+      await clickAsync(screen.getByText('OpenCode'));
 
       // CLI path placeholder should change to opencode-specific
       expect(screen.getByPlaceholderText('/path/to/opencode')).toBeInTheDocument();
@@ -540,13 +615,13 @@ describe('ProviderManager', () => {
         },
       ]);
 
-      render(<ProviderManager isOpen={true} onClose={mockOnClose} />);
+      await renderProviderManager({ onClose: mockOnClose });
 
       await waitFor(() => {
         expect(screen.getByText('Provider With Env')).toBeInTheDocument();
       });
 
-      fireEvent.click(screen.getByTitle('Edit'));
+      await clickAsync(screen.getByTitle('Edit'));
 
       await waitFor(() => {
         expect(screen.getByText('Update')).toBeInTheDocument();
@@ -560,19 +635,19 @@ describe('ProviderManager', () => {
 
   describe('isDefault checkbox', () => {
     it('submits isDefault flag', async () => {
-      render(<ProviderManager isOpen={true} onClose={mockOnClose} />);
+      await renderProviderManager({ onClose: mockOnClose });
 
       await waitFor(() => {
         expect(screen.getByText('Claude Default')).toBeInTheDocument();
       });
 
-      fireEvent.click(screen.getByText('Add Provider'));
+      await clickAsync(screen.getByText('Add Provider'));
       fireEvent.change(screen.getByPlaceholderText(/Personal Claude/), { target: { value: 'New' } });
 
       const checkbox = screen.getByLabelText('Set as default provider');
-      fireEvent.click(checkbox);
+      await clickAsync(checkbox);
 
-      fireEvent.click(screen.getByText('Create'));
+      await clickAsync(screen.getByText('Create'));
 
       await waitFor(() => {
         expect(api.createProvider).toHaveBeenCalledWith(
@@ -584,17 +659,17 @@ describe('ProviderManager', () => {
 
   describe('CLI path in form', () => {
     it('submits cliPath when provided', async () => {
-      render(<ProviderManager isOpen={true} onClose={mockOnClose} />);
+      await renderProviderManager({ onClose: mockOnClose });
 
       await waitFor(() => {
         expect(screen.getByText('Claude Default')).toBeInTheDocument();
       });
 
-      fireEvent.click(screen.getByText('Add Provider'));
+      await clickAsync(screen.getByText('Add Provider'));
       fireEvent.change(screen.getByPlaceholderText(/Personal Claude/), { target: { value: 'Custom' } });
       fireEvent.change(screen.getByPlaceholderText(/\/path\/to\/claude/), { target: { value: '/usr/bin/claude' } });
 
-      fireEvent.click(screen.getByText('Create'));
+      await clickAsync(screen.getByText('Create'));
 
       await waitFor(() => {
         expect(api.createProvider).toHaveBeenCalledWith(

@@ -118,17 +118,24 @@ describe('FilePreviewModal component', () => {
     });
   });
 
+  function keepInitialLoadPending() {
+    mockFetch.mockImplementationOnce(() => new Promise(() => {}));
+  }
+
   it('renders the file name in header', async () => {
+    keepInitialLoadPending();
     render(<FilePreviewModal item={mockItem as any} onClose={() => {}} />);
     expect(screen.getByText('test.txt')).toBeTruthy();
   });
 
   it('shows loading state initially', () => {
+    keepInitialLoadPending();
     render(<FilePreviewModal item={mockItem as any} onClose={() => {}} />);
     expect(screen.getByText('Loading...')).toBeTruthy();
   });
 
   it('calls onClose when backdrop is clicked', () => {
+    keepInitialLoadPending();
     const onClose = vi.fn();
     const { container } = render(<FilePreviewModal item={mockItem as any} onClose={onClose} />);
     const backdrop = container.querySelector('.fixed.inset-0');
@@ -137,6 +144,7 @@ describe('FilePreviewModal component', () => {
   });
 
   it('calls onClose when Escape key is pressed', () => {
+    keepInitialLoadPending();
     const onClose = vi.fn();
     render(<FilePreviewModal item={mockItem as any} onClose={onClose} />);
     fireEvent.keyDown(window, { key: 'Escape' });
@@ -195,12 +203,11 @@ describe('FilePreviewModal component', () => {
 
   it('renders image preview for image files', async () => {
     const imageItem = { ...mockItem, fileName: 'photo.png', mimeType: 'image/png' };
-    render(<FilePreviewModal item={imageItem as any} onClose={() => {}} />);
+    const { container } = render(<FilePreviewModal item={imageItem as any} onClose={() => {}} />);
     await waitFor(() => {
       expect(screen.queryByText('Loading...')).toBeNull();
     });
     // Image should be rendered (either img tag or loaded state)
-    const { container } = render(<FilePreviewModal item={imageItem as any} onClose={() => {}} />);
     expect(container).toBeTruthy();
   });
 

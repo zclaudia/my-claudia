@@ -1,5 +1,19 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, fireEvent } from '@testing-library/react';
+
+const { mockLoadTriggerSources, mockWorkflowStoreState } = vi.hoisted(() => {
+  const mockLoadTriggerSources = vi.fn();
+  const mockWorkflowStoreState = {
+    triggerSources: [],
+    loadTriggerSources: mockLoadTriggerSources,
+  };
+  return { mockLoadTriggerSources, mockWorkflowStoreState };
+});
+
+vi.mock('../../store', () => ({
+  useWorkflowStore: vi.fn(() => mockWorkflowStoreState),
+}));
+
 import { TriggerConfigForm } from '../TriggerConfigForm';
 
 describe('TriggerConfigForm', () => {
@@ -8,6 +22,7 @@ describe('TriggerConfigForm', () => {
       <TriggerConfigForm triggers={[]} onChange={() => {}} />
     );
     expect(getByText('Add Trigger')).toBeTruthy();
+    expect(mockLoadTriggerSources).toHaveBeenCalledTimes(1);
   });
 
   it('renders existing triggers', () => {

@@ -61,6 +61,10 @@ describe('ArchivedSessionsDialog', () => {
     mockGetSessions.mockResolvedValue([]);
   });
 
+  function keepInitialLoadPending() {
+    mockGetArchivedSessions.mockImplementationOnce(() => new Promise(() => {}));
+  }
+
   afterEach(() => {
     cleanup();
   });
@@ -73,23 +77,16 @@ describe('ArchivedSessionsDialog', () => {
   });
 
   it('renders "Archived Sessions" header when open', () => {
+    keepInitialLoadPending();
     render(<ArchivedSessionsDialog {...defaultProps} />);
     expect(screen.getByText('Archived Sessions')).toBeInTheDocument();
   });
 
   it('shows loading state while fetching', () => {
-    let resolvePromise: (value: unknown) => void;
-    mockGetArchivedSessions.mockReturnValue(
-      new Promise((resolve) => {
-        resolvePromise = resolve;
-      })
-    );
+    keepInitialLoadPending();
 
     render(<ArchivedSessionsDialog {...defaultProps} />);
     expect(screen.getByText('Loading archived sessions...')).toBeInTheDocument();
-
-    // Resolve so the test can clean up
-    resolvePromise!([]);
   });
 
   it('shows empty state "No archived sessions" when no sessions', async () => {

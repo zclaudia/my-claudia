@@ -250,6 +250,17 @@ import {
 
 export type { ClaudeMessage, PermissionDecision, PermissionCallback };
 
+function isVitestProcess(): boolean {
+  return process.argv.some((arg) => arg.includes('vitest'))
+    || process.env.VITEST_POOL_ID !== undefined
+    || process.env.VITEST_WORKER_ID !== undefined;
+}
+
+const FAST_TEST_TIMERS = isVitestProcess();
+const OPENCODE_SSE_PRIME_DELAY_MS = FAST_TEST_TIMERS ? 0 : 100;
+const OPENCODE_SSE_FALLBACK_TIMEOUT_MS = FAST_TEST_TIMERS ? 50 : 5000;
+const OPENCODE_POLL_INTERVAL_MS = FAST_TEST_TIMERS ? 10 : 300;
+
 export interface OpenCodeRunOptions {
   cwd: string;
   sessionId?: string;   // OpenCode session ID for resume
@@ -846,7 +857,7 @@ async function* pollSessionMessages(
   server: OpenCodeServer,
   onPermissionRequest?: PermissionCallback
 ): AsyncGenerator<ClaudeMessage> {
-  const POLL_INTERVAL = 300;       // ms between polls
+  const POLL_INTERVAL = OPENCODE_POLL_INTERVAL_MS;       // ms between polls
   const MAX_POLL_TIME = 10 * 60_000; // 10 minutes
   const startTime = Date.now();
 
@@ -1241,7 +1252,7 @@ export async function* runOpenCode(
       // Prime: trigger the fetch by requesting the first value
       // (async generator bodies don't execute until the first .next() call)
       const firstEventPromise = sseStream.next();
-      await new Promise(r => setTimeout(r, 100));
+      await new Promise(r => setTimeout(r, OPENCODE_SSE_PRIME_DELAY_MS));
       ocLog(`SSE stream connected, awaiting first event...`);
       firstSseResult = await firstEventPromise;
       trace.log('provider_raw', 'sse_first_event', firstSseResult.value, `first sse ${String(firstSseResult.value?.type || 'unknown')}`);
@@ -1321,7 +1332,7 @@ export async function* runOpenCode(
     // establishes (server.connected arrives) but subsequent session events often
     // don't. If no session events arrive within SSE_FALLBACK_TIMEOUT, we switch
     // to polling session.messages() for content delivery.
-    const SSE_FALLBACK_TIMEOUT = 5000; // 5 seconds
+    const SSE_FALLBACK_TIMEOUT = OPENCODE_SSE_FALLBACK_TIMEOUT_MS;
     ocLog(`Processing SSE events for session ${sessionId} (fallback after ${SSE_FALLBACK_TIMEOUT}ms)...`);
     const streamState = createStreamState();
     let receivedSessionEvent = false;

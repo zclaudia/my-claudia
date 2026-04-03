@@ -105,7 +105,6 @@ describe('XTerminal', () => {
       },
       localServerPort: null,
       controlPlaneMode: 'gateway-direct',
-      controlPlaneState: 'ready',
     });
   });
 

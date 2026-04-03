@@ -177,6 +177,15 @@ if (typeof globalThis.document === 'undefined') {
   defineProperty(globalThis, 'document', mockDocument);
 }
 
+// Many logic tests still branch on `window` or Tauri globals but do not need a
+// full jsdom DOM. Point `window` at the global object to keep them in node.
+if (typeof globalThis.window === 'undefined') {
+  defineProperty(globalThis, 'window', globalThis);
+}
+
+defineProperty(globalThis.window, 'addEventListener', vi.fn());
+defineProperty(globalThis.window, 'removeEventListener', vi.fn());
+
 // Mock window.location
 const mockLocation = {
   href: 'http://localhost:1420',
@@ -191,6 +200,10 @@ const mockLocation = {
 if (typeof globalThis.location === 'undefined') {
   defineProperty(globalThis, 'location', mockLocation);
 }
+
+defineProperty(globalThis, '__TAURI_INTERNALS__', {
+  transformCallback: vi.fn((cb: unknown) => cb),
+});
 
 // Mock requestAnimationFrame
 defineProperty(globalThis, 'requestAnimationFrame', (cb: FrameRequestCallback) => setTimeout(cb, 16));

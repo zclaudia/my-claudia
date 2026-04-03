@@ -1,6 +1,7 @@
 import '@testing-library/jest-dom';
 import React from 'react';
-import { vi } from 'vitest';
+import { afterEach, vi } from 'vitest';
+import { cleanup } from '@testing-library/react';
 
 // Mock WebSocket
 class MockWebSocket {
@@ -209,4 +210,14 @@ vi.mock('@/contexts/ConnectionContext', () => ({
 vi.stubGlobal('__resetDesktopMocks__', () => {
   mockFetch.mockReset();
   mockIndexedDB.open.mockClear();
+});
+
+afterEach(() => {
+  cleanup();
+  vi.useRealTimers();
+  mockFetch.mockReset();
+  mockIndexedDB.open.mockClear();
+  if (typeof window !== 'undefined') {
+    window.localStorage.clear();
+  }
 });

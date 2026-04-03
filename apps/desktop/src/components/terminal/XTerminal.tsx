@@ -8,6 +8,7 @@ import { useTheme } from '../../contexts/ThemeContext';
 import { xtermRegistry } from '../../utils/xtermRegistry';
 import { useTerminalStore } from '../../stores/terminalStore';
 import { useServerStore } from '../../stores/serverStore';
+import { useRecoveryStore } from '../../stores/recoveryStore';
 
 /** Convert CSS HSL string "H S% L%" to hex "#rrggbb" */
 function hslToHex(hsl: string): string {
@@ -71,12 +72,18 @@ export function XTerminal({ terminalId, projectId, workingDirectory, mode = 'ope
   const fitAddonRef = useRef<FitAddon | null>(null);
   const resizeObserverRef = useRef<ResizeObserver | null>(null);
   const clearNeedsReattach = useTerminalStore((s) => s.clearNeedsReattach);
-  const { activeServerId, activeServerStatus } = useServerStore((state) => ({
-    activeServerId: state.activeServerId,
-    activeServerStatus: state.activeServerId
-      ? state.connections[state.activeServerId]?.status ?? 'disconnected'
-      : 'disconnected',
-  }));
+  const activeServerId = useServerStore((s) => s.activeServerId);
+  const activeServerStatus = useRecoveryStore((s) => {
+    if (!activeServerId) return 'disconnected' as const;
+    const backend = s.backends[activeServerId];
+    if (!backend) return 'disconnected' as const;
+    switch (backend.status) {
+      case 'ready': return 'connected' as const;
+      case 'opening': return 'connecting' as const;
+      case 'error': return 'error' as const;
+      default: return 'disconnected' as const;
+    }
+  });
 
   const focusTerminal = (requireVisible = true) => {
     const terminal = terminalRef.current;

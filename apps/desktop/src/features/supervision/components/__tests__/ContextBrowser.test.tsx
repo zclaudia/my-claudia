@@ -3,7 +3,8 @@ import { render } from '@testing-library/react';
 import { ContextBrowser } from '../ContextBrowser';
 
 vi.mock('../../../../services/api', () => ({
-  getSupervisionContext: vi.fn().mockResolvedValue([]),
+  getSupervisionContext: vi.fn(() => new Promise(() => {})),
+  reloadSupervisionContext: vi.fn(),
 }));
 
 describe('ContextBrowser', () => {

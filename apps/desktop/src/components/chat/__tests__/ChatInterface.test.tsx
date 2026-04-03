@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, fireEvent, waitFor, act } from '@testing-library/react';
 import { useProjectStore } from '../../../stores/projectStore';
 import { useChatStore } from '../../../stores/chatStore';
@@ -9,6 +9,20 @@ import { usePermissionStore } from '../../../stores/permissionStore';
 import { useServerStore } from '../../../stores/serverStore';
 import { useFileViewerStore } from '../../../stores/fileViewerStore';
 import { useOwnershipStore } from '../../../stores/ownershipStore';
+import { useRecoveryStore } from '../../../stores/recoveryStore';
+
+const { paginationHookState, planStatusHookState } = vi.hoisted(() => ({
+  paginationHookState: new Map<string, any>(),
+  planStatusHookState: {
+    taskPlanStatus: null as any,
+    planStatusLoading: false,
+    submitPlanLoading: false,
+    discardPlanLoading: false,
+    handleRestorePlan: vi.fn(),
+    handleDiscardPlan: vi.fn(),
+    handleSubmitPlan: vi.fn(),
+  },
+}));
 
 // Mock Tauri APIs
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
@@ -188,8 +202,94 @@ vi.mock('../../../hooks/useMediaQuery', () => ({
   useIsMobile: () => false,
 }));
 
+vi.mock('../../../hooks/chat/useSessionRoute', () => ({
+  useSessionRoute: (sessionId: string) => {
+    const serverState = useServerStore.getState();
+    const ownershipState = useOwnershipStore.getState();
+    const recoveryState = useRecoveryStore.getState();
+    const activeServerId = serverState.activeServerId ?? 'local';
+    const backendId = ownershipState.sessionBackendIds[sessionId] ?? activeServerId;
+    const isConnected = recoveryState.backends[activeServerId]?.status === 'ready';
+
+    return {
+      backendId,
+      phase: isConnected ? 'ready' : 'offline',
+      canSend: isConnected,
+      canLoadMessages: true,
+      ownerResolved: backendId !== activeServerId,
+      lastError: null,
+    };
+  },
+}));
+
+vi.mock('../../../hooks/chat/useMessagePagination', () => ({
+  useMessagePagination: ({ sessionId }: { sessionId: string }) => {
+    let stable = paginationHookState.get(sessionId);
+    if (!stable) {
+      stable = {
+        messagesEndRef: { current: null },
+        messagesContainerRef: { current: null },
+        scrollToBottom: vi.fn(),
+        jumpToBottomInstant: vi.fn(),
+        loadMoreMessages: vi.fn(),
+        handleScroll: vi.fn(),
+        handleMessageWheel: vi.fn(),
+        retryLoad: vi.fn(),
+        resetRefs: vi.fn(),
+      };
+      paginationHookState.set(sessionId, stable);
+    }
+    const sessionPagination = useChatStore.getState().pagination[sessionId];
+    return {
+      ...stable,
+      initialLoadDone: Boolean(sessionPagination),
+      showScrollToBottom: false,
+      scrollMetrics: { scrollTop: 0, viewportHeight: 0 },
+      highlightedMessageId: null,
+      loadError: null,
+      sessionPagination,
+    };
+  },
+}));
+
+vi.mock('../../../hooks/chat/useProviderCapabilities', () => ({
+  useProviderCapabilities: ({ sessionId }: { sessionId: string }) => {
+    const projectState = useProjectStore.getState();
+    const currentSession = projectState.sessions.find((session) => session.id === sessionId);
+    const currentProject = currentSession
+      ? projectState.projects.find((project) => project.id === currentSession.projectId)
+      : null;
+    const providerId = currentSession?.providerId || currentProject?.providerId || null;
+
+    return {
+      providerId,
+      capabilities: null,
+      commands: [],
+      commandsCacheKey: `test:${providerId ?? '_default'}`,
+    };
+  },
+}));
+
+vi.mock('../../../hooks/chat/usePlanStatus', () => ({
+  usePlanStatus: () => planStatusHookState,
+}));
+
 import { ChatInterface } from '../ChatInterface';
 import * as api from '../../../services/api';
+
+async function clickAsync(target: Element) {
+  await act(async () => {
+    fireEvent.click(target);
+    await Promise.resolve();
+  });
+}
+
+async function blurAsync(target: Element) {
+  await act(async () => {
+    fireEvent.blur(target);
+    await Promise.resolve();
+  });
+}
 
 // Helper: default store state
 function setDefaultStores(overrides?: {
@@ -270,10 +370,35 @@ function setDefaultStores(overrides?: {
     activeServerId: 'local',
     servers: [],
     connections: {
-      local: { status: 'connected', error: null, isLocalConnection: true, features: [] },
+      local: { isLocalConnection: true, features: [] },
     },
     activeServerSupports: () => false,
     ...overrides?.serverStore,
+  } as any);
+  useRecoveryStore.setState({
+    backends: {
+      local: {
+        backendId: 'local',
+        status: 'ready',
+        desiredOpen: true,
+        channelReady: true,
+        catalogReady: true,
+        retryCount: 0,
+        lastError: null,
+        lastCloseReason: null,
+        statusEnteredAt: Date.now(),
+      },
+    },
+    transport: {
+      status: 'connected',
+      mode: 'embedded',
+      generation: 1,
+      error: null,
+      peerSessionId: null,
+      retryCount: 0,
+      lastMessageAt: Date.now(),
+      statusEnteredAt: Date.now(),
+    },
   } as any);
   useOwnershipStore.setState({
     sessionBackendIds: {},
@@ -313,8 +438,18 @@ function setDefaultStores(overrides?: {
 describe('ChatInterface', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    paginationHookState.clear();
+    planStatusHookState.taskPlanStatus = null;
+    planStatusHookState.planStatusLoading = false;
+    planStatusHookState.submitPlanLoading = false;
+    planStatusHookState.discardPlanLoading = false;
     mockIsServerConnected.mockReturnValue(true);
     setDefaultStores();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
   });
 
   // ─── Basic Rendering ─────────────────────────────────────────────────
@@ -388,13 +523,14 @@ describe('ChatInterface', () => {
   it('submits rename on Enter key', async () => {
     const { container } = render(<ChatInterface sessionId="sess-1" />);
     const renameBtn = container.querySelector('button[title="Click to rename"]');
-    fireEvent.click(renameBtn!);
+    await clickAsync(renameBtn!);
     const input = container.querySelector('input[type="text"]') as HTMLInputElement;
     fireEvent.change(input, { target: { value: 'New Name' } });
-    fireEvent.keyDown(input, { key: 'Enter' });
-    await waitFor(() => {
-      expect(api.updateSession).toHaveBeenCalledWith('sess-1', { name: 'New Name' });
+    await act(async () => {
+      fireEvent.keyDown(input, { key: 'Enter' });
+      await Promise.resolve();
     });
+    expect(api.updateSession).toHaveBeenCalledWith('sess-1', { name: 'New Name' });
   });
 
   it('cancels rename on Escape key', () => {
@@ -411,13 +547,11 @@ describe('ChatInterface', () => {
   it('submits rename on blur', async () => {
     const { container } = render(<ChatInterface sessionId="sess-1" />);
     const renameBtn = container.querySelector('button[title="Click to rename"]');
-    fireEvent.click(renameBtn!);
+    await clickAsync(renameBtn!);
     const input = container.querySelector('input[type="text"]') as HTMLInputElement;
     fireEvent.change(input, { target: { value: 'Blur Name' } });
-    fireEvent.blur(input);
-    await waitFor(() => {
-      expect(api.updateSession).toHaveBeenCalledWith('sess-1', { name: 'Blur Name' });
-    });
+    await blurAsync(input);
+    expect(api.updateSession).toHaveBeenCalledWith('sess-1', { name: 'Blur Name' });
   });
 
   // ─── Session Action Buttons ───────────────────────────────────────────
@@ -431,30 +565,24 @@ describe('ChatInterface', () => {
   it('calls resetSessionSdkSession when reset button clicked', async () => {
     const { container } = render(<ChatInterface sessionId="sess-1" />);
     const btn = container.querySelector('button[title="Reset underlying provider session"]');
-    fireEvent.click(btn!);
-    await waitFor(() => {
-      expect(api.resetSessionSdkSession).toHaveBeenCalledWith('sess-1');
-    });
+    await clickAsync(btn!);
+    expect(api.resetSessionSdkSession).toHaveBeenCalledWith('sess-1');
   });
 
   it('renders export button and calls exportSession on click', async () => {
     const { container } = render(<ChatInterface sessionId="sess-1" />);
     const btn = container.querySelector('button[title="Export as Markdown"]');
     expect(btn).toBeTruthy();
-    fireEvent.click(btn!);
-    await waitFor(() => {
-      expect(api.exportSession).toHaveBeenCalledWith('sess-1');
-    });
+    await clickAsync(btn!);
+    expect(api.exportSession).toHaveBeenCalledWith('sess-1');
   });
 
   it('renders archive button and calls archiveSessions on click', async () => {
     const { container } = render(<ChatInterface sessionId="sess-1" />);
     const btn = container.querySelector('button[title="Archive session"]');
     expect(btn).toBeTruthy();
-    fireEvent.click(btn!);
-    await waitFor(() => {
-      expect(api.archiveSessions).toHaveBeenCalledWith(['sess-1']);
-    });
+    await clickAsync(btn!);
+    expect(api.archiveSessions).toHaveBeenCalledWith(['sess-1']);
   });
 
   it('disables reset button while loading', () => {
@@ -561,16 +689,14 @@ describe('ChatInterface', () => {
     expect(container.textContent).toContain('Loading messages...');
   });
 
-  it('hides initial loading placeholder after messages load', async () => {
-    (api.getSessionMessages as any).mockResolvedValue({
-      messages: [],
-      pagination: { total: 0, hasMore: false },
+  it('hides initial loading placeholder after messages load', () => {
+    setDefaultStores({
+      chatStore: {
+        pagination: { 'sess-1': { total: 0, hasMore: false } },
+      },
     });
     const { container } = render(<ChatInterface sessionId="sess-1" />);
-    await waitFor(() => {
-      // Once initialLoadDone is true and pagination exists, placeholder should vanish
-      // The "Loading messages..." text may still briefly appear then disappear
-    });
+    expect(container.textContent).not.toContain('Loading messages...');
   });
 
   // ─── Messages Display ─────────────────────────────────────────────────
@@ -609,16 +735,14 @@ describe('ChatInterface', () => {
     });
     const { container } = render(<ChatInterface sessionId="sess-1" />);
     const sendBtn = container.querySelector('[data-testid="send-btn"]');
-    fireEvent.click(sendBtn!);
-    await waitFor(() => {
-      expect(mockSendToServer).toHaveBeenCalledWith(
-        'local',
-        expect.objectContaining({
-          type: 'run_start',
-          sessionId: 'sess-1',
-        })
-      );
-    });
+    await clickAsync(sendBtn!);
+    expect(mockSendToServer).toHaveBeenCalledWith(
+      'local',
+      expect.objectContaining({
+        type: 'run_start',
+        sessionId: 'sess-1',
+      })
+    );
   });
 
   it('routes session messages to the owner backend instead of the active server', async () => {
@@ -637,17 +761,14 @@ describe('ChatInterface', () => {
     });
 
     const { container } = render(<ChatInterface sessionId="sess-1" />);
-    fireEvent.click(container.querySelector('[data-testid="send-btn"]')!);
-
-    await waitFor(() => {
-      expect(mockSendToServer).toHaveBeenCalledWith(
-        'backend-1',
-        expect.objectContaining({
-          type: 'run_start',
-          sessionId: 'sess-1',
-        }),
-      );
-    });
+    await clickAsync(container.querySelector('[data-testid="send-btn"]')!);
+    expect(mockSendToServer).toHaveBeenCalledWith(
+      'backend-1',
+      expect.objectContaining({
+        type: 'run_start',
+        sessionId: 'sess-1',
+      }),
+    );
     expect(mockSendMessage).not.toHaveBeenCalled();
   });
 
@@ -675,16 +796,14 @@ describe('ChatInterface', () => {
     });
     const { container } = render(<ChatInterface sessionId="sess-1" />);
     const sendBtn = container.querySelector('[data-testid="send-btn"]');
-    fireEvent.click(sendBtn!);
-    await waitFor(() => {
-      expect(mockSendToServer).toHaveBeenCalledWith(
-        'local',
-        expect.objectContaining({
-          type: 'run_start',
-          mode: 'plan',
-        })
-      );
-    });
+    await clickAsync(sendBtn!);
+    expect(mockSendToServer).toHaveBeenCalledWith(
+      'local',
+      expect.objectContaining({
+        type: 'run_start',
+        mode: 'plan',
+      })
+    );
   });
 
   it('includes model override in run_start message', async () => {
@@ -697,16 +816,14 @@ describe('ChatInterface', () => {
     });
     const { container } = render(<ChatInterface sessionId="sess-1" />);
     const sendBtn = container.querySelector('[data-testid="send-btn"]');
-    fireEvent.click(sendBtn!);
-    await waitFor(() => {
-      expect(mockSendToServer).toHaveBeenCalledWith(
-        'local',
-        expect.objectContaining({
-          type: 'run_start',
-          model: 'gpt-4',
-        })
-      );
-    });
+    await clickAsync(sendBtn!);
+    expect(mockSendToServer).toHaveBeenCalledWith(
+      'local',
+      expect.objectContaining({
+        type: 'run_start',
+        model: 'gpt-4',
+      })
+    );
   });
 
   // ─── Cancel Run ───────────────────────────────────────────────────────
@@ -891,17 +1008,15 @@ describe('ChatInterface', () => {
     const { container } = render(<ChatInterface sessionId="sess-1" />);
     const buttons = container.querySelectorAll('button');
     const resumeBtn = Array.from(buttons).find(b => b.textContent?.includes('Resume'));
-    fireEvent.click(resumeBtn!);
-    await waitFor(() => {
-      expect(mockSendToServer).toHaveBeenCalledWith(
-        'local',
-        expect.objectContaining({
-          type: 'run_start',
-          sessionId: 'sess-1',
-          input: 'continue',
-        })
-      );
-    });
+    await clickAsync(resumeBtn!);
+    expect(mockSendToServer).toHaveBeenCalledWith(
+      'local',
+      expect.objectContaining({
+        type: 'run_start',
+        sessionId: 'sess-1',
+        input: 'continue',
+      })
+    );
   });
 
   it('calls dismissInterrupted on Dismiss click', async () => {
@@ -913,10 +1028,8 @@ describe('ChatInterface', () => {
     const { container } = render(<ChatInterface sessionId="sess-1" />);
     const buttons = container.querySelectorAll('button');
     const dismissBtn = Array.from(buttons).find(b => b.textContent?.includes('Dismiss'));
-    fireEvent.click(dismissBtn!);
-    await waitFor(() => {
-      expect(api.dismissInterrupted).toHaveBeenCalledWith('sess-1');
-    });
+    await clickAsync(dismissBtn!);
+    expect(api.dismissInterrupted).toHaveBeenCalledWith('sess-1');
   });
 
   it('does not show interrupted banner for normal sessions', () => {
@@ -987,10 +1100,8 @@ describe('ChatInterface', () => {
     const { container } = render(<ChatInterface sessionId="sess-1" />);
     const buttons = container.querySelectorAll('button');
     const unlockBtn = Array.from(buttons).find(b => b.textContent?.includes('Unlock'));
-    fireEvent.click(unlockBtn!);
-    await waitFor(() => {
-      expect(api.unlockSession).toHaveBeenCalledWith('sess-1');
-    });
+    await clickAsync(unlockBtn!);
+    expect(api.unlockSession).toHaveBeenCalledWith('sess-1');
   });
 
   it('hides message input for read-only sessions', () => {
@@ -1057,6 +1168,11 @@ describe('ChatInterface', () => {
   // ─── Plan Status Indicator ────────────────────────────────────────────
 
   it('shows planning mode indicator for task sessions in planning status', () => {
+    planStatusHookState.taskPlanStatus = {
+      exists: true,
+      ready: false,
+      missing: ['summary'],
+    };
     setDefaultStores({
       projectStore: {
         sessions: [{ id: 'sess-1', projectId: 'proj-1', name: 'Task', projectRole: 'task', planStatus: 'planning', taskId: 'task-1' }],
@@ -1067,6 +1183,11 @@ describe('ChatInterface', () => {
   });
 
   it('shows Submit Plan and Discard Plan buttons in planning mode', () => {
+    planStatusHookState.taskPlanStatus = {
+      exists: true,
+      ready: false,
+      missing: ['summary'],
+    };
     setDefaultStores({
       projectStore: {
         sessions: [{ id: 'sess-1', projectId: 'proj-1', name: 'Task', projectRole: 'task', planStatus: 'planning', taskId: 'task-1' }],
@@ -1358,57 +1479,6 @@ describe('ChatInterface', () => {
     });
   });
 
-  // ─── Initial message loading via API ──────────────────────────────────
-
-  it('calls getSessionMessages on mount', async () => {
-    render(<ChatInterface sessionId="sess-1" />);
-    await waitFor(() => {
-      expect(api.getSessionMessages).toHaveBeenCalledWith('sess-1', expect.objectContaining({ limit: 50 }));
-    });
-  });
-
-  it('calls getSessionMessages again when sessionId changes', async () => {
-    const { rerender } = render(<ChatInterface sessionId="sess-1" />);
-    await waitFor(() => {
-      expect(api.getSessionMessages).toHaveBeenCalledWith('sess-1', expect.any(Object));
-    });
-
-    // Add new session to store
-    useProjectStore.setState({
-      sessions: [
-        { id: 'sess-1', projectId: 'proj-1', name: 'Session 1' },
-        { id: 'sess-2', projectId: 'proj-1', name: 'Session 2' },
-      ],
-    } as any);
-
-    rerender(<ChatInterface sessionId="sess-2" />);
-    await waitFor(() => {
-      expect(api.getSessionMessages).toHaveBeenCalledWith('sess-2', expect.any(Object));
-    });
-  });
-
-  // ─── Provider commands/capabilities fetch ─────────────────────────────
-
-  it('fetches default provider type commands when no providerId', async () => {
-    render(<ChatInterface sessionId="sess-1" />);
-    await waitFor(() => {
-      expect(api.getProviderTypeCommands).toHaveBeenCalledWith('claude', '/test', expect.any(Object));
-    });
-  });
-
-  it('fetches specific provider commands when providerId is set', async () => {
-    setDefaultStores({
-      projectStore: {
-        sessions: [{ id: 'sess-1', projectId: 'proj-1', name: 'Test', providerId: 'prov-1' }],
-        providers: [{ id: 'prov-1', name: 'Claude', type: 'claude' }],
-      },
-    });
-    render(<ChatInterface sessionId="sess-1" />);
-    await waitFor(() => {
-      expect(api.getProviderCommands).toHaveBeenCalledWith('prov-1', '/test', expect.any(Object));
-    });
-  });
-
   // ─── Multiple sessions rendering correctly ────────────────────────────
 
   it('shows messages for the correct session', () => {
@@ -1443,16 +1513,14 @@ describe('ChatInterface', () => {
     });
     const { container } = render(<ChatInterface sessionId="sess-1" />);
     const sendBtn = container.querySelector('[data-testid="send-btn"]');
-    fireEvent.click(sendBtn!);
-    await waitFor(() => {
-      expect(mockSendToServer).toHaveBeenCalledWith(
-        'local',
-        expect.objectContaining({
-          type: 'run_start',
-          workingDirectory: '/test/worktree',
-        })
-      );
-    });
+    await clickAsync(sendBtn!);
+    expect(mockSendToServer).toHaveBeenCalledWith(
+      'local',
+      expect.objectContaining({
+        type: 'run_start',
+        workingDirectory: '/test/worktree',
+      })
+    );
   });
 
   // ─── Worktree selector locked in planning mode ────────────────────────
@@ -1466,60 +1534,6 @@ describe('ChatInterface', () => {
     const { container } = render(<ChatInterface sessionId="sess-1" />);
     const wt = container.querySelector('[data-testid="worktree-selector"]');
     expect(wt?.getAttribute('data-locked')).toBe('true');
-  });
-
-  // ─── Message loading placeholder vs. error ────────────────────────────
-
-  it('shows load error when getSessionMessages rejects', async () => {
-    (api.getSessionMessages as any).mockRejectedValueOnce(new Error('BACKEND_OFFLINE'));
-    const { container } = render(<ChatInterface sessionId="sess-1" />);
-    await waitFor(() => {
-      expect(container.textContent).toContain('Backend is offline');
-    });
-  });
-
-  it('shows retry button on load error', async () => {
-    (api.getSessionMessages as any).mockRejectedValueOnce(new Error('something went wrong'));
-    const { container } = render(<ChatInterface sessionId="sess-1" />);
-    await waitFor(() => {
-      const buttons = container.querySelectorAll('button');
-      const retryBtn = Array.from(buttons).find(b => b.textContent?.includes('Retry'));
-      expect(retryBtn).toBeTruthy();
-    });
-  });
-
-  it('shows timeout-friendly message on timeout error', async () => {
-    (api.getSessionMessages as any).mockRejectedValueOnce(new Error('Request timed out'));
-    const { container } = render(<ChatInterface sessionId="sess-1" />);
-    await waitFor(() => {
-      expect(container.textContent).toContain('Request timed out');
-    });
-  });
-
-  // ─── restoreToolCalls integration ─────────────────────────────────────
-
-  it('loads messages from API on mount and sets them in store', async () => {
-    const mockMessages = [
-      {
-        id: 'msg-api-1',
-        sessionId: 'sess-1',
-        role: 'assistant',
-        content: 'Hi',
-        createdAt: 1000,
-        metadata: {
-          toolCalls: [{ toolUseId: 'tc-1', name: 'bash', input: { command: 'ls' }, output: 'file.txt', isError: false }],
-        },
-      },
-    ];
-    (api.getSessionMessages as any).mockResolvedValueOnce({
-      messages: mockMessages,
-      pagination: { total: 1, hasMore: false },
-    });
-    render(<ChatInterface sessionId="sess-1" />);
-    await waitFor(() => {
-      const setMessages = useChatStore.getState().setMessages;
-      expect(setMessages).toHaveBeenCalled();
-    });
   });
 
   // ─── Advanced input toggle text ───────────────────────────────────────
@@ -1552,16 +1566,14 @@ describe('ChatInterface', () => {
     });
     const { container } = render(<ChatInterface sessionId="sess-1" />);
     const sendBtn = container.querySelector('[data-testid="send-btn"]');
-    fireEvent.click(sendBtn!);
-    await waitFor(() => {
-      expect(mockSendToServer).toHaveBeenCalledWith(
-        'local',
-        expect.objectContaining({
-          type: 'run_start',
-          permissionOverride: 'auto-approve',
-        })
-      );
-    });
+    await clickAsync(sendBtn!);
+    expect(mockSendToServer).toHaveBeenCalledWith(
+      'local',
+      expect.objectContaining({
+        type: 'run_start',
+        permissionOverride: 'auto-approve',
+      })
+    );
   });
 
   // ─── Scroll to bottom button ───────────────────────────────────────────
@@ -1603,28 +1615,6 @@ describe('ChatInterface', () => {
     const buttons = container.querySelectorAll('button');
     const archiveBtn = Array.from(buttons).find(b => b.title?.includes('Archive'));
     expect(archiveBtn).toBeTruthy();
-  });
-
-  // ─── Provider capabilities fetch ────────────────────────────────────────
-
-  it('fetches provider capabilities on mount', async () => {
-    render(<ChatInterface sessionId="sess-1" />);
-    await waitFor(() => {
-      expect(api.getProviderTypeCapabilities).toHaveBeenCalledWith('claude', expect.any(Object));
-    });
-  });
-
-  it('fetches specific provider capabilities when providerId is set', async () => {
-    setDefaultStores({
-      projectStore: {
-        sessions: [{ id: 'sess-1', projectId: 'proj-1', name: 'Test', providerId: 'prov-1' }],
-        providers: [{ id: 'prov-1', name: 'Claude', type: 'claude' }],
-      },
-    });
-    render(<ChatInterface sessionId="sess-1" />);
-    await waitFor(() => {
-      expect(api.getProviderCapabilities).toHaveBeenCalledWith('prov-1', expect.any(Object));
-    });
   });
 
   // ─── Connection status handling ─────────────────────────────────────────

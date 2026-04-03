@@ -30,6 +30,7 @@ async function openSessionInNewWindow(sessionId: string, projectId: string) {
 import { useProjectStore } from '../stores/projectStore';
 import { useProviderMetaStore } from '../stores/providerMetaStore';
 import { useServerStore } from '../stores/serverStore';
+import { useRecoveryStore } from '../stores/recoveryStore';
 import { isLegacyLocalBackendId, resolveCanonicalBackendId } from '../utils/controlPlane';
 import { useSupervisionStore } from '../stores/supervisionStore';
 import { usePermissionStore } from '../stores/permissionStore';
@@ -102,11 +103,11 @@ export function Sidebar({
     reorderSessions: storeReorderSessions,
   } = useProjectStore();
 
-  const isConnected = useServerStore((s) => {
-    if (!s.activeServerId) return false;
-    return s.connections[s.activeServerId]?.status === 'connected';
-  });
   const activeServerId = useServerStore((s) => s.activeServerId);
+  const isConnected = useRecoveryStore((s) => {
+    if (!activeServerId) return false;
+    return s.backends[activeServerId]?.status === 'ready';
+  });
   const scopedProviders = useProviderMetaStore((s) => s.getProviders(activeServerId));
   const providers = scopedProviders.length > 0 ? scopedProviders : legacyProviders;
   const {

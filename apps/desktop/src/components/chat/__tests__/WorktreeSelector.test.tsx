@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, fireEvent, waitFor } from '@testing-library/react';
+import { render, fireEvent, waitFor, act } from '@testing-library/react';
 
 // Mock Tauri APIs
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
@@ -47,13 +47,21 @@ describe('WorktreeSelector', () => {
     ]);
   });
 
-  it('renders without crashing', () => {
-    const { container } = render(<WorktreeSelector {...defaultProps} />);
+  async function renderSelector(props = defaultProps) {
+    let container!: HTMLElement;
+    await act(async () => {
+      ({ container } = render(<WorktreeSelector {...props} />));
+    });
+    return { container };
+  }
+
+  it('renders without crashing', async () => {
+    const { container } = await renderSelector();
     expect(container).toBeTruthy();
   });
 
-  it('renders the trigger button', () => {
-    const { container } = render(<WorktreeSelector {...defaultProps} />);
+  it('renders the trigger button', async () => {
+    const { container } = await renderSelector();
     expect(container.querySelector('[data-testid="selector-trigger"]')).toBeTruthy();
   });
 
@@ -135,9 +143,7 @@ describe('WorktreeSelector', () => {
 
   it('calls onChange when selecting root', async () => {
     const onChange = vi.fn();
-    const { container } = render(
-      <WorktreeSelector {...defaultProps} onChange={onChange} />
-    );
+    const { container } = await renderSelector({ ...defaultProps, onChange });
     await waitFor(() => expect(mockGetProjectWorktrees).toHaveBeenCalled());
 
     const trigger = container.querySelector('[data-testid="selector-trigger"]')!;
@@ -152,7 +158,9 @@ describe('WorktreeSelector', () => {
       (b) => b.textContent?.includes('Root (default)')
     );
     expect(rootBtn).toBeTruthy();
-    fireEvent.click(rootBtn!);
+    await act(async () => {
+      fireEvent.click(rootBtn!);
+    });
 
     expect(onChange).toHaveBeenCalledWith('');
   });

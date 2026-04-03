@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
 vi.mock('../../contexts/ConnectionContext', () => ({
   useConnection: () => ({
@@ -10,6 +10,7 @@ vi.mock('../../contexts/ConnectionContext', () => ({
 import { MobileSetup } from '../MobileSetup';
 import { useGatewayStore } from '../../stores/gatewayStore';
 import { useFacadeStore } from '../../stores/facadeStore';
+import { useRecoveryStore } from '../../stores/recoveryStore';
 import { useServerStore } from '../../stores/serverStore';
 
 describe('MobileSetup', () => {
@@ -46,6 +47,17 @@ describe('MobileSetup', () => {
       ...state,
       activeServerId: null,
     }));
+
+    useRecoveryStore.setState((state) => ({
+      ...state,
+      transport: {
+        ...state.transport,
+        status: 'idle',
+        error: null,
+      },
+      backends: {},
+      catalogs: {},
+    }));
   });
 
   it('shows the real facade connection error instead of waiting for timeout', async () => {
@@ -64,9 +76,19 @@ describe('MobileSetup', () => {
         connectionState: 'error',
         connectionError: 'UNAUTHORIZED: Invalid gateway secret',
       });
+      useRecoveryStore.setState((state) => ({
+        ...state,
+        transport: {
+          ...state.transport,
+          status: 'error',
+          error: 'UNAUTHORIZED: Invalid gateway secret',
+        },
+      }));
     });
 
-    expect(screen.getByText('UNAUTHORIZED: Invalid gateway secret')).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByText('UNAUTHORIZED: Invalid gateway secret')).toBeInTheDocument();
+    });
   });
 
   it('renders the mobile debug panel when mobileDebug=1 is present', () => {

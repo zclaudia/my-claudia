@@ -8,22 +8,12 @@ describe('serverStore', () => {
       connections: {},
       localServerPort: null,
       controlPlaneMode: 'embedded-local',
-      controlPlaneState: 'connecting',
     });
   });
 
   it('sets active server id', () => {
     useServerStore.getState().setActiveServer('backend-1');
     expect(useServerStore.getState().activeServerId).toBe('backend-1');
-  });
-
-  it('stores per-backend connection status and error', () => {
-    useServerStore.getState().setServerConnectionStatus('backend-1', 'connecting');
-    expect(useServerStore.getState().connections['backend-1']?.status).toBe('connecting');
-
-    useServerStore.getState().setServerConnectionStatus('backend-1', 'error', 'Connection failed');
-    expect(useServerStore.getState().connections['backend-1']?.status).toBe('error');
-    expect(useServerStore.getState().connections['backend-1']?.error).toBe('Connection failed');
   });
 
   it('stores local connection metadata per backend', () => {
@@ -47,20 +37,15 @@ describe('serverStore', () => {
     expect(useServerStore.getState().connections['backend-1']?.lastLatencyProbeAt).toBeTypeOf('number');
   });
 
-  it('updates control plane state', () => {
+  it('updates control plane mode', () => {
     useServerStore.getState().setControlPlaneMode('gateway-direct');
-    useServerStore.getState().setControlPlaneState('ready');
-
-    const state = useServerStore.getState();
-    expect(state.controlPlaneMode).toBe('gateway-direct');
-    expect(state.controlPlaneState).toBe('ready');
+    expect(useServerStore.getState().controlPlaneMode).toBe('gateway-direct');
   });
 
   it('returns active server connection', () => {
-    useServerStore.getState().setServerConnectionStatus('backend-1', 'connected');
+    useServerStore.getState().setServerFeatures('backend-1', ['search']);
     useServerStore.getState().setActiveServer('backend-1');
-
-    expect(useServerStore.getState().getActiveServerConnection()?.status).toBe('connected');
+    expect(useServerStore.getState().getActiveServerConnection()?.features).toEqual(['search']);
   });
 
   it('checks active server feature support', () => {

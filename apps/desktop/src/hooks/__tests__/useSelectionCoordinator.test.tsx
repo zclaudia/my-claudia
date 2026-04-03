@@ -32,6 +32,7 @@ vi.mock('../../utils/controlPlane', () => ({
 
 import { useServerStore } from '../../stores/serverStore';
 import { useProjectStore } from '../../stores/projectStore';
+import { useRecoveryStore } from '../../stores/recoveryStore';
 
 describe('useSelectionCoordinator', () => {
   beforeEach(() => {
@@ -42,12 +43,26 @@ describe('useSelectionCoordinator', () => {
     useServerStore.setState({
       activeServerId: 'backend-1',
       connections: {
-        'backend-1': { status: 'connected', error: null, isLocalConnection: false, features: [] },
+        'backend-1': { isLocalConnection: false, features: [] },
       },
       localServerPort: null,
       controlPlaneMode: 'gateway-direct',
-      controlPlaneState: 'ready',
     });
+    useRecoveryStore.setState({
+      backends: {
+        'backend-1': {
+          backendId: 'backend-1',
+          status: 'ready',
+          desiredOpen: true,
+          channelReady: true,
+          catalogReady: true,
+          retryCount: 0,
+          lastError: null,
+          lastCloseReason: null,
+          statusEnteredAt: Date.now(),
+        },
+      },
+    } as any);
     useProjectStore.setState({
       projects: [],
       sessions: [],
@@ -96,11 +111,21 @@ describe('useSelectionCoordinator', () => {
   });
 
   it('reconnects when selecting on the same backend but the connection is down', () => {
-    useServerStore.setState({
-      connections: {
-        'backend-1': { status: 'disconnected', error: null, isLocalConnection: false, features: [] },
+    useRecoveryStore.setState({
+      backends: {
+        'backend-1': {
+          backendId: 'backend-1',
+          status: 'degraded',
+          desiredOpen: true,
+          channelReady: false,
+          catalogReady: false,
+          retryCount: 0,
+          lastError: null,
+          lastCloseReason: null,
+          statusEnteredAt: Date.now(),
+        },
       },
-    });
+    } as any);
 
     const { result } = renderHook(() => useSelectionCoordinator());
 
@@ -114,11 +139,21 @@ describe('useSelectionCoordinator', () => {
   });
 
   it('reissues connect intent when the same backend is still marked connecting', () => {
-    useServerStore.setState({
-      connections: {
-        'backend-1': { status: 'connecting', error: null, isLocalConnection: false, features: [] },
+    useRecoveryStore.setState({
+      backends: {
+        'backend-1': {
+          backendId: 'backend-1',
+          status: 'opening',
+          desiredOpen: true,
+          channelReady: false,
+          catalogReady: false,
+          retryCount: 0,
+          lastError: null,
+          lastCloseReason: null,
+          statusEnteredAt: Date.now(),
+        },
       },
-    });
+    } as any);
 
     const { result } = renderHook(() => useSelectionCoordinator());
 
@@ -137,10 +172,25 @@ describe('useSelectionCoordinator', () => {
     useServerStore.setState({
       activeServerId: 'local-backend-1',
       connections: {
-        'local-backend-1': { status: 'disconnected', error: null, isLocalConnection: true, features: [] },
+        'local-backend-1': { isLocalConnection: true, features: [] },
       },
       controlPlaneMode: 'embedded-local',
     });
+    useRecoveryStore.setState({
+      backends: {
+        'local-backend-1': {
+          backendId: 'local-backend-1',
+          status: 'degraded',
+          desiredOpen: true,
+          channelReady: false,
+          catalogReady: false,
+          retryCount: 0,
+          lastError: null,
+          lastCloseReason: null,
+          statusEnteredAt: Date.now(),
+        },
+      },
+    } as any);
 
     const { result } = renderHook(() => useSelectionCoordinator());
 

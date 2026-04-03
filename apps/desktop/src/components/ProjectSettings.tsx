@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import type { Project, ProviderConfig, AgentPermissionPolicy } from '@my-claudia/shared';
 import { useServerStore } from '../stores/serverStore';
+import { useRecoveryStore } from '../stores/recoveryStore';
 import { useProjectStore } from '../stores/projectStore';
 import { useProviderMetaStore } from '../stores/providerMetaStore';
 import { useSupervisionStore } from '../stores/supervisionStore';
@@ -21,9 +22,10 @@ interface ProjectSettingsProps {
 }
 
 export function ProjectSettings({ project, isOpen, onClose }: ProjectSettingsProps) {
-  const isConnected = useServerStore((s) => {
-    if (!s.activeServerId) return false;
-    return s.connections[s.activeServerId]?.status === 'connected';
+  const activeServerId = useServerStore((s) => s.activeServerId);
+  const isConnected = useRecoveryStore((s) => {
+    if (!activeServerId) return false;
+    return s.backends[activeServerId]?.status === 'ready';
   });
   const legacyProviders = useProjectStore((s) => s.providers);
   const { updateProject } = useProjectStore();
@@ -34,7 +36,6 @@ export function ProjectSettings({ project, isOpen, onClose }: ProjectSettingsPro
   const removeAgent = useSupervisionStore((s) => s.removeAgent);
   const [supervisorLoading, setSupervisorLoading] = useState(false);
 
-  const activeServerId = useServerStore((s) => s.activeServerId);
   const scopedProviders = useProviderMetaStore((s) => s.getProviders(activeServerId));
   const storeProviders = scopedProviders.length > 0 ? scopedProviders : legacyProviders;
   const [providers, setProviders] = useState<ProviderConfig[]>(storeProviders);

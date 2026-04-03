@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, cleanup } from '@testing-library/react';
+import { render, screen, fireEvent, cleanup, act } from '@testing-library/react';
 import { TerminalPanel, TerminalActions } from '../TerminalPanel';
 import { useServerStore } from '../../../stores/serverStore';
 
@@ -71,7 +71,6 @@ beforeEach(() => {
     connections: {},
     localServerPort: null,
     controlPlaneMode: 'gateway-direct',
-    controlPlaneState: 'ready',
   });
 });
 
@@ -128,15 +127,15 @@ describe('TerminalPanel', () => {
     const { rerender } = render(<TerminalPanel projectId="proj-1" />);
     expect(screen.getByText('XTerminal: term-1')).toBeTruthy();
 
-    useServerStore.setState({
-      activeServerId: 'backend-2',
-      connections: {},
-      localServerPort: null,
-      controlPlaneMode: 'gateway-direct',
-      controlPlaneState: 'ready',
+    await act(async () => {
+      useServerStore.setState({
+        activeServerId: 'backend-2',
+        connections: {},
+        localServerPort: null,
+        controlPlaneMode: 'gateway-direct',
+      });
+      rerender(<TerminalPanel projectId="proj-1" />);
     });
-
-    rerender(<TerminalPanel projectId="proj-1" />);
     expect(screen.getByText('XTerminal: term-2')).toBeTruthy();
     expect(getTerminalId).toHaveBeenCalledWith('proj-1', 'backend-2');
   });
