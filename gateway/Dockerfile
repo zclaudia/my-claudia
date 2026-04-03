@@ -12,8 +12,8 @@ COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
 COPY shared/package.json shared/
 COPY gateway/package.json gateway/
 
-# Copy postinstall script needed by pnpm install
-COPY scripts/check-native-modules.mjs scripts/
+# Copy scripts needed by pnpm install
+COPY scripts/check-native-modules.mjs scripts/ensure-node-version.mjs scripts/
 
 # Install dependencies (workspace-aware, only for gateway + shared)
 RUN pnpm install --filter @my-claudia/gateway --filter @my-claudia/shared --frozen-lockfile
@@ -40,8 +40,8 @@ COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
 COPY shared/package.json shared/
 COPY gateway/package.json gateway/
 
-# Copy postinstall script needed by pnpm install
-COPY scripts/check-native-modules.mjs scripts/
+# Copy scripts needed by pnpm install
+COPY scripts/check-native-modules.mjs scripts/ensure-node-version.mjs scripts/
 
 # Install production dependencies only
 RUN pnpm install --filter @my-claudia/gateway --filter @my-claudia/shared --frozen-lockfile --prod
