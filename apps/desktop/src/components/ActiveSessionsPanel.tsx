@@ -30,9 +30,10 @@ export function ActiveSessionsPanel({ onSessionSelect }: ActiveSessionsPanelProp
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [, forceUpdate] = useState(0);
   const { remoteSessions, activeSessionIdsByBackend, recentlyCompletedSessions, dismissRecentlyCompleted, clearAllRecentlyCompleted } = useSessionsStore();
-  const { activeServerId } = useServerStore();
-  const { sessions: localSessions, projects } = useProjectStore();
-  const { showLocalBackend } = useGatewayStore();
+  const activeServerId = useServerStore((s) => s.activeServerId);
+  const localSessions = useProjectStore((s) => s.sessions);
+  const projects = useProjectStore((s) => s.projects);
+  const showLocalBackend = useGatewayStore((s) => s.showLocalBackend);
   const facadeBackends = useFacadeStore((s) => s.backends);
   const localBackendId = useFacadeStore((s) => s.localBackendId);
   const currentInstanceId = useFacadeStore((s) => s.currentInstanceId);

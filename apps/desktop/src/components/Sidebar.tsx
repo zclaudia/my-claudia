@@ -91,17 +91,15 @@ export function Sidebar({
   isNotificationsOpen = false,
 }: SidebarProps) {
   const requestMessageJump = useUIStore((s) => s.requestMessageJump);
-  const {
-    projects = [],
-    sessions = [],
-    providers: legacyProviders = [],
-    selectedSessionId,
-    addProject,
-    addSession,
-    deleteProject,
-    reorderProjects: storeReorderProjects,
-    reorderSessions: storeReorderSessions,
-  } = useProjectStore();
+  const projects = useProjectStore((s) => s.projects) ?? [];
+  const sessions = useProjectStore((s) => s.sessions) ?? [];
+  const legacyProviders = useProjectStore((s) => s.providers) ?? [];
+  const selectedSessionId = useProjectStore((s) => s.selectedSessionId);
+  const addProject = useProjectStore((s) => s.addProject);
+  const addSession = useProjectStore((s) => s.addSession);
+  const deleteProject = useProjectStore((s) => s.deleteProject);
+  const storeReorderProjects = useProjectStore((s) => s.reorderProjects);
+  const storeReorderSessions = useProjectStore((s) => s.reorderSessions);
 
   const activeServerId = useServerStore((s) => s.activeServerId);
   const isConnected = useRecoveryStore((s) => {

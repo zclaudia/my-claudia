@@ -1,4 +1,4 @@
-import { useRef, useEffect, useState, useCallback } from 'react';
+import { useRef, useEffect, useState, useCallback, useMemo } from 'react';
 import { AlertTriangle } from 'lucide-react';
 import { ChatInputArea } from './ChatInputArea';
 import { ChatMessagePane } from './ChatMessagePane';
@@ -89,8 +89,12 @@ export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar }:
   // Keyboard shortcuts
   useKeyboardShortcuts({ projectId: currentSession?.projectId, projectRoot: currentProject?.rootPath });
 
-  // Per-session pending permission/question requests
-  const permissionRequests = usePermissionStore(state => state.pendingRequests.filter(r => r.sessionId === sessionId || !r.sessionId));
+  // Per-session pending permission/question requests — memoize to avoid new array reference each render
+  const allPendingRequests = usePermissionStore(state => state.pendingRequests);
+  const permissionRequests = useMemo(
+    () => allPendingRequests.filter(r => r.sessionId === sessionId || !r.sessionId),
+    [allPendingRequests, sessionId],
+  );
   // Message pagination & scroll management
   const pagination = useMessagePagination({ sessionId, isConnected, isMobile });
   const { scrollToBottom, resetRefs: resetPaginationRefs } = pagination;

@@ -26,7 +26,8 @@ export function useSessionActions({
   renameValue,
   setIsRenamingSession,
 }: UseSessionActionsParams) {
-  const { addPoppedOutSession, removePoppedOutSession } = useUIStore();
+  const addPoppedOutSession = useUIStore((s) => s.addPoppedOutSession);
+  const removePoppedOutSession = useUIStore((s) => s.removePoppedOutSession);
 
   const handleSessionRename = useCallback(async () => {
     const newName = renameValue.trim();

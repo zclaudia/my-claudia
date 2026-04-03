@@ -6,7 +6,7 @@
  * ConnectionContext consumers.
  */
 
-import { useCallback } from 'react';
+import { useCallback, useMemo } from 'react';
 import type { ClientMessage } from '@my-claudia/shared';
 import { useServerStore } from '../stores/serverStore';
 import { useGatewayConnection } from './useGatewayConnection';
@@ -15,7 +15,7 @@ import { useRecoveryStore, isBackendReady as isBackendReadyRecovery } from '../s
 
 export function useMultiServerSocket() {
   const gatewayConnection = useGatewayConnection();
-  const { activeServerId } = useServerStore();
+  const activeServerId = useServerStore((s) => s.activeServerId);
   const facade = useFacadeStore((s) => s.facade);
   const recoveryBackends = useRecoveryStore((s) => s.backends);
 
@@ -70,15 +70,25 @@ export function useMultiServerSocket() {
     return [];
   }, [facade, recoveryBackends]);
 
-  return {
+  const connect = useCallback(() => {
+    if (activeServerId) connectServer(activeServerId);
+  }, [activeServerId, connectServer]);
+
+  const disconnect = useCallback(() => {
+    if (activeServerId) disconnectServer(activeServerId);
+  }, [activeServerId, disconnectServer]);
+
+  const isConnectedValue = isConnected();
+
+  return useMemo(() => ({
     connectServer,
     disconnectServer,
     sendToServer,
     isServerConnected,
     getConnectedServers,
     sendMessage,
-    isConnected: isConnected(),
-    connect: () => activeServerId && connectServer(activeServerId),
-    disconnect: () => activeServerId && disconnectServer(activeServerId),
-  };
+    isConnected: isConnectedValue,
+    connect,
+    disconnect,
+  }), [connectServer, disconnectServer, sendToServer, isServerConnected, getConnectedServers, sendMessage, isConnectedValue, connect, disconnect]);
 }

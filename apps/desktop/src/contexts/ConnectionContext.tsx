@@ -1,4 +1,4 @@
-import { createContext, useContext, useCallback, useEffect, type ReactNode } from 'react';
+import { createContext, useContext, useCallback, useEffect, useMemo, type ReactNode } from 'react';
 import { useMultiServerSocket } from '../hooks/useMultiServerSocket';
 import { useEmbeddedServer, type EmbeddedServerStatus } from '../hooks/useEmbeddedServer';
 import { useWslServer, type WslServerState } from '../hooks/useWslServer';
@@ -167,7 +167,7 @@ export function ConnectionProvider({
     usePromptRequestStore.getState().clearRequestById(requestId);
   }, [socket]);
 
-  const value: ConnectionContextValue = {
+  const value: ConnectionContextValue = useMemo(() => ({
     // Active server operations
     sendMessage: socket.sendMessage,
     isConnected: socket.isConnected,
@@ -193,7 +193,11 @@ export function ConnectionProvider({
 
     // WSL server
     wslServer,
-  };
+  }), [
+    socket, handlePermissionDecision, handlePromptAnswer,
+    embeddedServer.status, embeddedServer.error, embeddedServer.port, embeddedServer.restart,
+    wslServer,
+  ]);
 
   return (
     <ConnectionContext.Provider value={value}>

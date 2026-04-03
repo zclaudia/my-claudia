@@ -49,12 +49,10 @@ export function useMessagePagination({
   const setLoadingMore = useChatStore((s) => s.setLoadingMore);
   const sessionMessages = useChatStore((s) => s.messages[sessionId]);
 
-  const {
-    forceScrollToBottomSessionId,
-    consumeForceScrollToBottom,
-    pendingMessageJump,
-    clearMessageJump,
-  } = useUIStore();
+  const forceScrollToBottomSessionId = useUIStore((s) => s.forceScrollToBottomSessionId);
+  const consumeForceScrollToBottom = useUIStore((s) => s.consumeForceScrollToBottom);
+  const pendingMessageJump = useUIStore((s) => s.pendingMessageJump);
+  const clearMessageJump = useUIStore((s) => s.clearMessageJump);
 
   const sessionPagination = pagination[sessionId];
 

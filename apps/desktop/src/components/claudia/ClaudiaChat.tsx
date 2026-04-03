@@ -49,7 +49,11 @@ export function ClaudiaChat({ isMobile = false, hostProjectId, contextProjectId 
     isConnected,
     handlePermissionDecision,
   } = useConnection();
-  const { selectedSessionId, selectedProjectId, sessions, projects, updateSession } = useProjectStore();
+  const selectedSessionId = useProjectStore((s) => s.selectedSessionId);
+  const selectedProjectId = useProjectStore((s) => s.selectedProjectId);
+  const sessions = useProjectStore((s) => s.sessions);
+  const projects = useProjectStore((s) => s.projects);
+  const updateSession = useProjectStore((s) => s.updateSession);
   const { selectProject } = useSelectionCoordinator();
   const tasks = useClaudiaStore((s) => s.tasks);
   const addTask = useClaudiaStore((s) => s.addTask);

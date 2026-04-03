@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import { useClaudiaStore } from '../stores/claudiaStore';
 import { usePermissionStore } from '../stores/permissionStore';
 
@@ -6,26 +7,35 @@ import { usePermissionStore } from '../stores/permissionStore';
  * Used by App.tsx (to emit Tauri events) and ClaudiaChatWindow (to sync ring state).
  */
 export function useClaudiaStatus() {
-  const claudiaTaskSessionIds = useClaudiaStore((s) =>
-    s.tasks
+  const tasks = useClaudiaStore((s) => s.tasks);
+  const inlineResponses = useClaudiaStore((s) => s.inlineResponses);
+  const isExpanded = useClaudiaStore((s) => s.isExpanded);
+  const lastViewedAt = useClaudiaStore((s) => s.lastViewedAt);
+  const pendingRequests = usePermissionStore((s) => s.pendingRequests);
+
+  const claudiaTaskSessionIds = useMemo(
+    () => tasks
       .map((task) => task.sessionId)
-      .filter((sessionId): sessionId is string => Boolean(sessionId))
+      .filter((sessionId): sessionId is string => Boolean(sessionId)),
+    [tasks],
   );
 
-  const hasRunning = useClaudiaStore((s) =>
-    s.tasks.some((t) => t.status === 'running' || t.status === 'queued' || t.status === 'waiting')
-    || s.inlineResponses.some((r) => r.status === 'streaming')
+  const hasRunning = useMemo(
+    () => tasks.some((t) => t.status === 'running' || t.status === 'queued' || t.status === 'waiting')
+      || inlineResponses.some((r) => r.status === 'streaming'),
+    [tasks, inlineResponses],
   );
 
-  const hasPermissionPending = usePermissionStore((state) =>
-    state.pendingRequests.some((request) => !request.sessionId || claudiaTaskSessionIds.includes(request.sessionId))
+  const hasPermissionPending = useMemo(
+    () => pendingRequests.some((request) => !request.sessionId || claudiaTaskSessionIds.includes(request.sessionId)),
+    [pendingRequests, claudiaTaskSessionIds],
   );
 
-  const hasUnread = useClaudiaStore((s) => {
-    const taskUnread = !s.isExpanded && s.tasks.some((task) => task.updatedAt > s.lastViewedAt);
-    const inlineUnread = !s.isExpanded && s.inlineResponses.some((r) => r.updatedAt > s.lastViewedAt && r.status !== 'promoted');
+  const hasUnread = useMemo(() => {
+    const taskUnread = !isExpanded && tasks.some((task) => task.updatedAt > lastViewedAt);
+    const inlineUnread = !isExpanded && inlineResponses.some((r) => r.updatedAt > lastViewedAt && r.status !== 'promoted');
     return taskUnread || inlineUnread;
-  });
+  }, [isExpanded, tasks, inlineResponses, lastViewedAt]);
 
   return {
     claudiaTaskSessionIds,

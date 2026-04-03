@@ -147,15 +147,22 @@ function AppContent() {
   const activeServerId = useServerStore((s) => s.activeServerId);
   const transportStatus = useRecoveryStore((s) => s.transport.status);
   const controlPlaneState = transportStatus === 'connected' ? 'ready' : transportStatus === 'error' ? 'error' : 'connecting';
-  const { selectedSessionId, selectedProjectId, sessions, projects, selectSession, setDashboardView } = useProjectStore();
+  const selectedSessionId = useProjectStore((s) => s.selectedSessionId);
+  const selectedProjectId = useProjectStore((s) => s.selectedProjectId);
+  const sessions = useProjectStore((s) => s.sessions);
+  const projects = useProjectStore((s) => s.projects);
+  const selectSession = useProjectStore((s) => s.selectSession);
+  const setDashboardView = useProjectStore((s) => s.setDashboardView);
   const { selectProject } = useSelectionCoordinator();
   const [dashboardProjectId, setDashboardProjectId] = useState<string | null>(null);
   const openAutomationWindowFn = useCallback(() => {
     import('./features/automation/openAutomationWindow').then(m => m.openAutomationWindow());
   }, []);
-  const { directGatewayUrl, lastActiveBackendId } = useGatewayStore();
+  const directGatewayUrl = useGatewayStore((s) => s.directGatewayUrl);
+  const lastActiveBackendId = useGatewayStore((s) => s.lastActiveBackendId);
   const facadeBackends = useFacadeStore((s) => s.backends);
-  const { isExpanded: isAgentExpanded, setExpanded: setAgentExpanded } = useClaudiaStore();
+  const isAgentExpanded = useClaudiaStore((s) => s.isExpanded);
+  const setAgentExpanded = useClaudiaStore((s) => s.setExpanded);
   const { hasUnread: hasClaudiaUnread, hasRunning: hasClaudiaRunning, hasPermissionPending: hasClaudiaPermissionPending } = useClaudiaStatus();
   const disabledBuiltinPanels = usePluginStore((s) => s.disabledBuiltinPanels);
   const notificationUnreadCount = useNotificationFeedStore((s) => s.unreadCount);

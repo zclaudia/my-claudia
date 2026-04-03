@@ -12,12 +12,10 @@ interface UseProviderCapabilitiesOptions {
 }
 
 export function useProviderCapabilities({ sessionId, isConnected }: UseProviderCapabilitiesOptions) {
-  const {
-    providerCommands,
-    providerCapabilities,
-    setProviderCapabilities,
-    dataServerId,
-  } = useProjectStore();
+  const providerCommands = useProjectStore((s) => s.providerCommands);
+  const providerCapabilities = useProjectStore((s) => s.providerCapabilities);
+  const setProviderCapabilities = useProjectStore((s) => s.setProviderCapabilities);
+  const dataServerId = useProjectStore((s) => s.dataServerId);
   const sessions = useProjectStore((s) => s.sessions);
   const projects = useProjectStore((s) => s.projects);
   const activeServerId = useServerStore((s) => s.activeServerId);

@@ -19,7 +19,10 @@ const {
   const serverState: Record<string, any> = {
     activeServerId: null,
   };
-  const serverHook: any = vi.fn(() => serverState);
+  const serverHook: any = vi.fn((selector?: any) => {
+    if (selector) return selector(serverState);
+    return serverState;
+  });
   serverHook.getState = vi.fn(() => serverState);
 
   const gw = {
