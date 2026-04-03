@@ -118,6 +118,11 @@ export class GatewayStorage {
     }
   }
 
+  /** Assert db is available (always true when memoryState is null) */
+  private get sqlite(): Database.Database {
+    return this.db!;
+  }
+
   /**
    * Get or create a backendId for a deviceId
    * If the deviceId already exists, return the existing backendId
@@ -146,14 +151,14 @@ export class GatewayStorage {
       return backendId;
     }
 
-    const existing = this.db.prepare(`
+    const existing = this.sqlite.prepare(`
       SELECT backend_id, name FROM device_mappings WHERE device_id = ?
     `).get(deviceId) as { backend_id: string; name: string } | undefined;
 
     if (existing) {
       // Update name if provided and different
       if (name && name !== existing.name) {
-        this.db.prepare(`
+        this.sqlite.prepare(`
           UPDATE device_mappings SET name = ?, updated_at = ? WHERE device_id = ?
         `).run(name, Date.now(), deviceId);
       }
@@ -164,7 +169,7 @@ export class GatewayStorage {
     const backendId = this.generateBackendId();
     const now = Date.now();
 
-    this.db.prepare(`
+    this.sqlite.prepare(`
       INSERT INTO device_mappings (device_id, backend_id, name, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?)
     `).run(deviceId, backendId, name || null, now, now);
@@ -224,13 +229,13 @@ export class GatewayStorage {
       return backendId;
     }
 
-    const existing = this.db.prepare(`
+    const existing = this.sqlite.prepare(`
       SELECT backend_id, name FROM instance_mappings WHERE instance_id = ?
     `).get(instanceId) as { backend_id: string; name: string } | undefined;
 
     if (existing) {
       if (name && name !== existing.name) {
-        this.db.prepare(`
+        this.sqlite.prepare(`
           UPDATE instance_mappings SET name = ?, updated_at = ? WHERE instance_id = ?
         `).run(name, Date.now(), instanceId);
       }
@@ -240,19 +245,19 @@ export class GatewayStorage {
     // Try to migrate from device_mappings (one-time migration for the default channel)
     const ch = channel || 'prod';
     if (ch === 'prod') {
-      const legacy = this.db.prepare(`
+      const legacy = this.sqlite.prepare(`
         SELECT backend_id, name FROM device_mappings WHERE device_id = ?
       `).get(deviceId) as { backend_id: string; name: string } | undefined;
 
       // Only migrate if this backendId is not already claimed by another instance
       if (legacy) {
-        const alreadyMigrated = this.db.prepare(`
+        const alreadyMigrated = this.sqlite.prepare(`
           SELECT 1 FROM instance_mappings WHERE backend_id = ?
         `).get(legacy.backend_id);
 
         if (!alreadyMigrated) {
           const now = Date.now();
-          this.db.prepare(`
+          this.sqlite.prepare(`
             INSERT INTO instance_mappings (instance_id, device_id, backend_id, channel, name, created_at, updated_at)
             VALUES (?, ?, ?, ?, ?, ?, ?)
           `).run(instanceId, deviceId, legacy.backend_id, ch, name || legacy.name || null, now, now);
@@ -264,7 +269,7 @@ export class GatewayStorage {
     // Generate new backendId
     const backendId = this.generateBackendId();
     const now = Date.now();
-    this.db.prepare(`
+    this.sqlite.prepare(`
       INSERT INTO instance_mappings (instance_id, device_id, backend_id, channel, name, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, ?)
     `).run(instanceId, deviceId, backendId, ch, name || null, now, now);
@@ -279,7 +284,7 @@ export class GatewayStorage {
     if (this.memoryState) {
       return Array.from(this.memoryState.instances.values()).find((instance) => instance.backendId === backendId);
     }
-    return this.db.prepare(`
+    return this.sqlite.prepare(`
       SELECT instance_id as instanceId, device_id as deviceId, backend_id as backendId,
              channel, name, created_at as createdAt, updated_at as updatedAt
       FROM instance_mappings WHERE backend_id = ?
@@ -293,7 +298,7 @@ export class GatewayStorage {
     if (this.memoryState) {
       return Array.from(this.memoryState.devices.values()).find((device) => device.backendId === backendId);
     }
-    const row = this.db.prepare(`
+    const row = this.sqlite.prepare(`
       SELECT device_id as deviceId, backend_id as backendId, name,
              created_at as createdAt, updated_at as updatedAt
       FROM device_mappings WHERE backend_id = ?
@@ -315,11 +320,11 @@ export class GatewayStorage {
       this.memoryState.maxEpoch += 1;
       return this.memoryState.maxEpoch;
     }
-    this.db.prepare(`
+    this.sqlite.prepare(`
       UPDATE counters SET value = value + 1 WHERE key = 'max_epoch'
     `).run();
 
-    const row = this.db.prepare(`
+    const row = this.sqlite.prepare(`
       SELECT value FROM counters WHERE key = 'max_epoch'
     `).get() as { value: number };
 
@@ -333,7 +338,7 @@ export class GatewayStorage {
     if (this.memoryState) {
       return this.memoryState.maxEpoch;
     }
-    const row = this.db.prepare(`
+    const row = this.sqlite.prepare(`
       SELECT value FROM counters WHERE key = 'max_epoch'
     `).get() as { value: number };
     return row.value;
