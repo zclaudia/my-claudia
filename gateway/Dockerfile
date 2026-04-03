@@ -1,12 +1,12 @@
 # Stage 1: Build
-FROM node:20-slim AS builder
+FROM node:22.14.0-slim AS builder
 
 RUN npm install -g pnpm@9.15.0
 
 WORKDIR /app
 
 # Copy workspace root files
-COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
+COPY package.json pnpm-workspace.yaml pnpm-lock.yaml .node-version ./
 
 # Copy only shared and gateway packages
 COPY shared/package.json shared/
@@ -29,14 +29,14 @@ RUN pnpm --filter @my-claudia/shared run build && \
     pnpm --filter @my-claudia/gateway run build
 
 # Stage 2: Production
-FROM node:20-slim AS runtime
+FROM node:22.14.0-slim AS runtime
 
 RUN npm install -g pnpm@9.15.0
 
 WORKDIR /app
 
 # Copy workspace root files for pnpm
-COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
+COPY package.json pnpm-workspace.yaml pnpm-lock.yaml .node-version ./
 COPY shared/package.json shared/
 COPY gateway/package.json gateway/
 
