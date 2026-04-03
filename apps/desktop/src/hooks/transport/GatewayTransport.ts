@@ -475,6 +475,9 @@ export class GatewayTransport {
           break;
         case 'reconnect': this.ws?.close(); break;
       }
+      // Recovery action was taken — don't escalate to a connection-level error.
+      // Only log it for diagnostics.
+      return;
     }
     this.config.onError(`${msg.code}: ${msg.message}`);
   }

@@ -525,12 +525,28 @@ export class BackendFacadeRuntimeCore implements BackendFacade {
   // Internal Helpers
   // --------------------------------------------------------------------------
 
-  /** Reopen backends the user previously opened that are now visible but closed (e.g. after reconnect). */
+  /** Reopen backends the user previously opened that are now visible but closed/stuck (e.g. after reconnect). */
   private reopenDesiredBackends(): void {
     for (const backendId of this.desiredOpenBackends) {
       const backend = this.registryStore.getBackend(backendId);
-      if (backend && backend.presence && (backend.openState === 'closed' || backend.openState === 'error')) {
+      if (!backend || !backend.presence) continue;
+
+      // Reopen closed or errored backends
+      if (backend.openState === 'closed' || backend.openState === 'error') {
         this.openBackend(backendId);
+        continue;
+      }
+
+      // Unstick backends that have an open channel but failed catalog subscription
+      // (e.g. after BACKEND_EPOCH_MISMATCH during subscribe_backend_catalog).
+      // The channel is open but catalogInitialized is false, so runtimeState is 'opening'.
+      if (
+        backend.openState === 'open'
+        && backend.runtimeState === 'opening'
+        && backend.channelId
+        && !backend.catalogInitialized
+      ) {
+        this.adapter.commands.catalog.subscribe(backendId, backend.presence.epoch);
       }
     }
   }
