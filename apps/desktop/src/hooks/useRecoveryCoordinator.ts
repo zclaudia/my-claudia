@@ -51,10 +51,6 @@ export function useRecoveryCoordinator(): void {
       onResume: () => {
         const store = useRecoveryStore.getState();
         store.startRecovery(mode ?? 'direct');
-        // Re-align with facade reality — backends still connected
-        // (e.g. local embedded) go back to ready immediately.
-        const snapshot = facade.getSnapshot?.();
-        if (snapshot) store.applySnapshot(snapshot);
         timerManagerRef.current?.startReconciliation();
         setTimeout(() => timerManagerRef.current?.runReconciliationTick(), 500);
       },

@@ -149,6 +149,15 @@ export class EmbeddedFacadeClient implements BackendFacade {
         }
         break;
 
+      case 'connection_state_changed':
+        // Server-relayed gateway state change. In embedded mode, transport
+        // state is managed by the client WS lifecycle (onopen/onclose).
+        // Don't forward — gateway status is tracked via snapshot_updated.
+        if (this.latestSnapshot) {
+          this.latestSnapshot = { ...this.latestSnapshot, connectionState: msg.state };
+        }
+        break;
+
       default:
         // All other messages are BackendFacadeEvent
         for (const listener of this.eventListeners) {

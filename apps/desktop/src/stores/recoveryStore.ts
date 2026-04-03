@@ -363,10 +363,11 @@ export const useRecoveryStore = create<RecoveryState>()((set, get) => ({
         ...state.transport,
         mode: mode ?? state.transport.mode,
         generation: nextGeneration,
-        status: state.transport.status === 'connected' ? 'reconnecting' : 'connecting',
+        // Don't override transport.status — it's managed by connection_state_changed
+        // events from the WS lifecycle. If the WS is still connected (common in
+        // embedded mode), the coordinator can proceed immediately.
         error: null,
         retryCount: 0,
-        statusEnteredAt: now(),
       },
       backends,
       catalogs,
@@ -479,7 +480,9 @@ export const useRecoveryStore = create<RecoveryState>()((set, get) => ({
       transport: {
         ...state.transport,
         mode: snapshot.mode,
-        status: mapTransportStatus(snapshot.connectionState),
+        // Don't override transport.status from snapshot — the snapshot's
+        // connectionState reflects server-side state (e.g. gateway connection),
+        // not the client WS state. Transport is managed by setTransportState.
         lastMessageAt: now(),
       },
       backends,
