@@ -328,7 +328,9 @@ export const useRecoveryStore = create<RecoveryState>()((set, get) => ({
       backends[backendId] = {
         ...backend,
         status: backend.status === 'ready' ? 'degraded' : backend.status,
-        channelReady: false,
+        // Preserve channelReady — it reflects the facade's actual channel state.
+        // If the channel is still open (common in embedded mode), keeping this true
+        // lets noteCatalogSyncSucceeded restore the backend to ready after sync.
         catalogReady: false,
         retryCount: 0,
         lastCloseReason: backend.status === 'ready' ? 'transport_reconnecting' : backend.lastCloseReason,

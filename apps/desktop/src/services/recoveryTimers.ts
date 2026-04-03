@@ -113,6 +113,10 @@ export class RecoveryTimerManager {
     const t = Date.now();
 
     if (transport.status === 'connected') {
+      // In embedded mode the transport is a localhost WS — extremely reliable.
+      // If the server dies, ws.onclose handles it. No stale-message heuristic needed.
+      if (transport.mode === 'embedded') return;
+
       const STALE_THRESHOLD = 2 * 25_000; // 2× health probe interval
       if (transport.lastMessageAt && (t - transport.lastMessageAt) > STALE_THRESHOLD) {
         console.warn('[RecoveryReconcile] Transport connected but no messages for',

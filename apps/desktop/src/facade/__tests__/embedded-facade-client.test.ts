@@ -153,6 +153,61 @@ describe('EmbeddedFacadeClient', () => {
     expect(events).toEqual(['connected', 'reconnecting', 'connected']);
   });
 
+  it('suppresses server-relayed connection_state_changed events', () => {
+    const client = new EmbeddedFacadeClient(3100);
+    const events: any[] = [];
+    client.onEvent((event) => events.push(event));
+
+    client.connect();
+    const ws = MockWebSocket.instances[0];
+    ws.onopen?.();
+
+    events.length = 0;
+
+    // Server relays a gateway connection_state_changed through the WS
+    ws.onmessage?.({
+      data: JSON.stringify({ type: 'connection_state_changed', state: 'reconnecting' }),
+    });
+
+    // Should NOT be forwarded to event listeners
+    expect(events.filter(e => e.type === 'connection_state_changed')).toHaveLength(0);
+
+    // No snapshot received yet, so getSnapshot returns default (idle)
+    expect(client.getSnapshot().connectionState).toBe('idle');
+
+    // Set a known snapshot, then verify server events mutate latestSnapshot
+    ws.onmessage?.({
+      data: JSON.stringify({
+        type: 'facade_snapshot',
+        snapshot: {
+          snapshotVersion: 1, capturedAt: 1, mode: 'embedded',
+          connectionState: 'connected', localBackendId: null,
+          currentInstanceId: null, currentDeviceId: null,
+          backends: [], sessionStreams: {},
+        },
+      }),
+    });
+
+    ws.onmessage?.({
+      data: JSON.stringify({ type: 'connection_state_changed', state: 'reconnecting' }),
+    });
+
+    expect(client.getSnapshot().connectionState).toBe('reconnecting');
+    expect(events.filter(e => e.type === 'connection_state_changed')).toHaveLength(0);
+  });
+
+  it('still emits client-side connection_state_changed on ws open/close', () => {
+    const client = new EmbeddedFacadeClient(3100);
+    const states: string[] = [];
+    client.onEvent((event) => {
+      if (event.type === 'connection_state_changed') states.push(event.state);
+    });
+
+    client.connect();
+    MockWebSocket.instances[0].onopen?.();
+    expect(states).toEqual(['connected']);
+  });
+
   it('forceReconnect does not schedule a second reconnect from the old socket close', () => {
     const client = new EmbeddedFacadeClient(3100);
     client.connect();

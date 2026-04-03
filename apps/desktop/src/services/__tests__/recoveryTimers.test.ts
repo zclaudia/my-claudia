@@ -138,12 +138,13 @@ describe('RecoveryTimerManager', () => {
       // No errors since it was stopped
     });
 
-    it('reconciles stale transport by marking as reconnecting', () => {
+    it('reconciles stale transport by marking as reconnecting (direct mode)', () => {
       const staleTime = Date.now() - 60_000; // 60s ago, well past 2×25s threshold
       useRecoveryStore.setState({
         transport: {
           ...useRecoveryStore.getState().transport,
           status: 'connected',
+          mode: 'direct',
           lastMessageAt: staleTime,
         },
       } as any);
@@ -162,6 +163,33 @@ describe('RecoveryTimerManager', () => {
       mgr.runReconciliationTick();
 
       expect(useRecoveryStore.getState().transport.status).toBe('reconnecting');
+    });
+
+    it('skips stale transport detection in embedded mode', () => {
+      const staleTime = Date.now() - 60_000;
+      useRecoveryStore.setState({
+        transport: {
+          ...useRecoveryStore.getState().transport,
+          status: 'connected',
+          mode: 'embedded',
+          lastMessageAt: staleTime,
+        },
+      } as any);
+
+      mgr.setReconciliationContext({
+        getFacadeSnapshot: () => ({
+          snapshotVersion: 1, capturedAt: Date.now(), mode: 'embedded' as const,
+          connectionState: 'connected' as const, localBackendId: null,
+          currentInstanceId: null, currentDeviceId: null,
+          backends: [], sessionStreams: {},
+        }),
+        openBackend: vi.fn(),
+        syncCatalog: vi.fn(),
+      });
+
+      mgr.runReconciliationTick();
+
+      expect(useRecoveryStore.getState().transport.status).toBe('connected');
     });
 
     it('does not reconcile transport when messages are recent', () => {

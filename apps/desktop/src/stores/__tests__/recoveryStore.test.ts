@@ -210,6 +210,24 @@ describe('recoveryStore', () => {
       const b1 = useRecoveryStore.getState().backends.b1;
       expect(b1.channelReady).toBe(true);
     });
+
+    it('applySnapshot maps runtimeState ready to status ready regardless of catalogReady', () => {
+      useRecoveryStore.setState({
+        backends: {
+          b1: { backendId: 'b1', status: 'degraded', desiredOpen: true, channelReady: false, catalogReady: false, retryCount: 0, lastError: null, lastCloseReason: null, statusEnteredAt: Date.now() },
+        },
+      } as any);
+      useRecoveryStore.getState().applySnapshot({
+        snapshotVersion: 1, capturedAt: Date.now(), mode: 'embedded',
+        connectionState: 'connected', localBackendId: 'b1',
+        currentInstanceId: null, currentDeviceId: null,
+        backends: [{ backendId: 'b1', runtimeState: 'ready', online: true } as any],
+        sessionStreams: {},
+      });
+      const b1 = useRecoveryStore.getState().backends.b1;
+      expect(b1.status).toBe('ready');
+      expect(b1.channelReady).toBe(true);
+    });
   });
 
   describe('startBackendRecovery', () => {
@@ -379,7 +397,7 @@ describe('recoveryStore', () => {
   });
 
   describe('startRecovery', () => {
-    it('resets retry counts and clears channelReady/catalogReady', () => {
+    it('resets retry counts, preserves channelReady, clears catalogReady', () => {
       useRecoveryStore.setState({
         coordinator: 'ready',
         backends: {
@@ -404,11 +422,73 @@ describe('recoveryStore', () => {
       expect(state.coordinator).toBe('recovering');
       expect(state.transport.retryCount).toBe(0);
       expect(state.backends.b1.retryCount).toBe(0);
-      expect(state.backends.b1.channelReady).toBe(false);
+      expect(state.backends.b1.channelReady).toBe(true);
       expect(state.backends.b1.catalogReady).toBe(false);
       expect(state.backends.b1.status).toBe('degraded');
       expect(state.catalogs.b1.retryCount).toBe(0);
       expect(state.catalogs.b1.status).toBe('stale');
+    });
+
+    it('preserves transport.status — does not downgrade connected to reconnecting', () => {
+      useRecoveryStore.setState({
+        coordinator: 'ready',
+        transport: { ...useRecoveryStore.getState().transport, status: 'connected', generation: 5 },
+        backends: {},
+        catalogs: {},
+        activeBackendId: null,
+      } as any);
+
+      useRecoveryStore.getState().startRecovery('embedded');
+
+      const t = useRecoveryStore.getState().transport;
+      expect(t.status).toBe('connected');
+      expect(t.generation).toBe(6);
+    });
+
+    it('preserves transport.status when transport is reconnecting', () => {
+      useRecoveryStore.setState({
+        coordinator: 'ready',
+        transport: { ...useRecoveryStore.getState().transport, status: 'reconnecting', generation: 3 },
+        backends: {},
+        catalogs: {},
+        activeBackendId: null,
+      } as any);
+
+      useRecoveryStore.getState().startRecovery('direct');
+
+      expect(useRecoveryStore.getState().transport.status).toBe('reconnecting');
+    });
+  });
+
+  describe('applySnapshot transport isolation', () => {
+    it('does not override transport.status from snapshot connectionState', () => {
+      useRecoveryStore.setState({
+        transport: { ...useRecoveryStore.getState().transport, status: 'connected' },
+      } as any);
+
+      useRecoveryStore.getState().applySnapshot({
+        snapshotVersion: 1, capturedAt: Date.now(), mode: 'embedded',
+        connectionState: 'reconnecting',
+        localBackendId: null, currentInstanceId: null, currentDeviceId: null,
+        backends: [], sessionStreams: {},
+      });
+
+      expect(useRecoveryStore.getState().transport.status).toBe('connected');
+    });
+
+    it('updates transport.mode from snapshot', () => {
+      useRecoveryStore.setState({
+        transport: { ...useRecoveryStore.getState().transport, mode: 'direct' },
+      } as any);
+
+      useRecoveryStore.getState().applySnapshot({
+        snapshotVersion: 1, capturedAt: Date.now(), mode: 'embedded',
+        connectionState: 'connected',
+        localBackendId: null, currentInstanceId: null, currentDeviceId: null,
+        backends: [], sessionStreams: {},
+      });
+
+      expect(useRecoveryStore.getState().transport.mode).toBe('embedded');
     });
   });
 

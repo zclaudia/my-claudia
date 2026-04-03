@@ -14,6 +14,7 @@ import { useChatStore } from '../../stores/chatStore';
 import { useProjectStore } from '../../stores/projectStore';
 import { useSessionsStore } from '../../stores/sessionsStore';
 import { useOwnershipStore } from '../../stores/ownershipStore';
+import { useRecoveryStore } from '../../stores/recoveryStore';
 import { useTerminalStore } from '../../stores/terminalStore';
 import { xtermRegistry } from '../../utils/xtermRegistry';
 
@@ -283,6 +284,34 @@ describe('useBackendFacade run_event forwarding', () => {
     expect(useSessionsStore.getState().remoteSessions.get('remote-1')).toEqual([
       expect.objectContaining({ id: 'session-1', name: 'Active' }),
     ]);
+  });
+
+  it('catalog_snapshot initializes recoveryStore catalog as ready and stamps ownership', () => {
+    useRecoveryStore.setState({
+      backends: {
+        'remote-1': { backendId: 'remote-1', status: 'ready', desiredOpen: true, channelReady: true, catalogReady: false, retryCount: 0, lastError: null, lastCloseReason: null, statusEnteredAt: Date.now() },
+      },
+      catalogs: {},
+      nextOwnershipVersion: 1,
+    } as any);
+
+    syncToGatewayStore({
+      type: 'catalog_snapshot',
+      backendId: 'remote-1',
+      items: [
+        { sessionId: 's1', title: 'S1', createdAt: 1, updatedAt: 2, activeRunStatus: 'idle' },
+        { sessionId: 's2', title: 'S2', createdAt: 3, updatedAt: 4, activeRunStatus: 'idle' },
+      ],
+    } as any);
+
+    const catalog = useRecoveryStore.getState().catalogs['remote-1'];
+    expect(catalog).toBeDefined();
+    expect(catalog.status).toBe('ready');
+    expect(catalog.ownershipVersion).toBe(1);
+
+    const backend = useRecoveryStore.getState().backends['remote-1'];
+    expect(backend.catalogReady).toBe(true);
+    expect(backend.status).toBe('ready');
   });
 
   it('removes archived sessions on catalog upsert events', () => {

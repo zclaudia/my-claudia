@@ -164,6 +164,30 @@ describe('useSelectionCoordinator', () => {
     expect(mockConnectServer).toHaveBeenCalledWith('backend-1');
   });
 
+  it('clears session and project when switching to a different backend', () => {
+    useProjectStore.setState({
+      selectedProjectId: 'project-1',
+      selectedSessionId: 'session-1',
+    });
+    useRecoveryStore.setState({
+      backends: {
+        'backend-1': { backendId: 'backend-1', status: 'ready', desiredOpen: true, channelReady: true, catalogReady: true, retryCount: 0, lastError: null, lastCloseReason: null, statusEnteredAt: Date.now() },
+        'backend-2': { backendId: 'backend-2', status: 'ready', desiredOpen: true, channelReady: true, catalogReady: true, retryCount: 0, lastError: null, lastCloseReason: null, statusEnteredAt: Date.now() },
+      },
+    } as any);
+
+    const { result } = renderHook(() => useSelectionCoordinator());
+
+    act(() => {
+      result.current.selectBackend('backend-2');
+    });
+
+    expect(useServerStore.getState().activeServerId).toBe('backend-2');
+    expect(useProjectStore.getState().selectedSessionId).toBeNull();
+    expect(useProjectStore.getState().selectedProjectId).toBeNull();
+    expect(mockConnectServer).toHaveBeenCalledWith('backend-2');
+  });
+
   it('canonicalizes legacy local backend ids before connecting', () => {
     mockGetSessionBackendId.mockReturnValue('local');
     mockResolveCanonicalBackendId.mockImplementation((backendId: string | null | undefined) =>
