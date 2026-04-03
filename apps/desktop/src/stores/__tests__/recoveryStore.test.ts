@@ -213,7 +213,7 @@ describe('recoveryStore', () => {
   });
 
   describe('startBackendRecovery', () => {
-    it('enters recovering when active backend catalog needs sync', () => {
+    it('enters recovering when previously-synced catalog regresses to stale', () => {
       useRecoveryStore.setState({
         coordinator: 'ready',
         activeBackendId: 'b1',
@@ -222,7 +222,7 @@ describe('recoveryStore', () => {
           b1: { backendId: 'b1', status: 'ready', desiredOpen: true, channelReady: true, catalogReady: true, retryCount: 0, lastError: null, lastCloseReason: null, statusEnteredAt: Date.now() },
         },
         catalogs: {
-          b1: { backendId: 'b1', status: 'stale', ownershipVersion: 1, retryCount: 0, lastError: null, lastSyncAt: null, statusEnteredAt: Date.now() },
+          b1: { backendId: 'b1', status: 'stale', ownershipVersion: 1, retryCount: 0, lastError: null, lastSyncAt: Date.now() - 60000, statusEnteredAt: Date.now() },
         },
       } as any);
 
@@ -234,7 +234,42 @@ describe('recoveryStore', () => {
       expect(state.catalogs.b1.retryCount).toBe(0);
     });
 
-    it('enters recovering when active session needs recovery', () => {
+    it('no-ops on first boot when catalog does not exist yet', () => {
+      useRecoveryStore.setState({
+        coordinator: 'ready',
+        activeBackendId: 'b1',
+        selectedSessionId: null,
+        backends: {
+          b1: { backendId: 'b1', status: 'ready', desiredOpen: true, channelReady: true, catalogReady: true, retryCount: 0, lastError: null, lastCloseReason: null, statusEnteredAt: Date.now() },
+        },
+        catalogs: {},
+      } as any);
+
+      useRecoveryStore.getState().startBackendRecovery('b1');
+      expect(useRecoveryStore.getState().coordinator).toBe('ready');
+    });
+
+    it('no-ops on first boot when session is idle', () => {
+      useRecoveryStore.setState({
+        coordinator: 'ready',
+        activeBackendId: 'b1',
+        selectedSessionId: 's1',
+        backends: {
+          b1: { backendId: 'b1', status: 'ready', desiredOpen: true, channelReady: true, catalogReady: true, retryCount: 0, lastError: null, lastCloseReason: null, statusEnteredAt: Date.now() },
+        },
+        catalogs: {},
+        activeSession: {
+          sessionId: 's1', status: 'idle', backendId: null,
+          ownershipVersion: null, retryCount: 0, lastError: null,
+          hasGapMarker: false, lastMessageAt: null, statusEnteredAt: Date.now(),
+        },
+      } as any);
+
+      useRecoveryStore.getState().startBackendRecovery('b1');
+      expect(useRecoveryStore.getState().coordinator).toBe('ready');
+    });
+
+    it('enters recovering when active session was disrupted (stale)', () => {
       useRecoveryStore.setState({
         coordinator: 'ready',
         activeBackendId: 'b1',

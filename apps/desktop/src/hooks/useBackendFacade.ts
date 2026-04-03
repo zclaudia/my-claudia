@@ -261,12 +261,11 @@ export function syncToGatewayStore(event: BackendFacadeEvent): void {
       break;
     }
 
-    // --- Catalog events → sessionsStore ---
+    // --- Catalog events → sessionsStore + recoveryStore ---
     case 'catalog_snapshot': {
       const { backendId, items } = event;
-      useSessionsStore.getState().setRemoteSessions(backendId, items
-        .filter((item) => !item.archived)
-        .map(item => ({
+      const activeItems = items.filter((item) => !item.archived);
+      useSessionsStore.getState().setRemoteSessions(backendId, activeItems.map(item => ({
         id: item.sessionId,
         projectId: '',
         name: item.title || '',
@@ -275,6 +274,11 @@ export function syncToGatewayStore(event: BackendFacadeEvent): void {
         isActive: item.activeRunStatus === 'running',
         type: 'regular' as const,
       })));
+      const ownershipVersion = useRecoveryStore.getState().noteCatalogSyncSucceeded(backendId);
+      useOwnershipStore.getState().stampSessionOwnershipVersion(
+        activeItems.map(item => item.sessionId),
+        ownershipVersion,
+      );
       break;
     }
 

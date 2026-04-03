@@ -131,14 +131,8 @@ function mapBackendStatus(
   current: BackendRecoveryState | undefined,
 ): { status: BackendRecoveryStatus; channelReady: boolean } {
   switch (runtimeState) {
-    case 'ready': {
-      const channelReady = true;
-      const catalogReady = current?.catalogReady ?? false;
-      return {
-        status: channelReady && catalogReady ? 'ready' : 'opening',
-        channelReady,
-      };
-    }
+    case 'ready':
+      return { status: 'ready', channelReady: true };
     case 'opening':
       return { status: 'opening', channelReady: false };
     case 'visible': {
@@ -389,10 +383,14 @@ export const useRecoveryStore = create<RecoveryState>()((set, get) => ({
     const backend = state.backends[backendId];
     if (!backend) return state;
 
-    const catalogNeedsSync = !state.catalogs[backendId]
-      || state.catalogs[backendId].status !== 'ready';
+    // Only recover catalogs that were previously tracked (i.e. synced at least
+    // once). Missing catalog entry means first boot, not a disruption.
+    const catalogNeedsSync = state.catalogs[backendId] != null
+      && state.catalogs[backendId].status !== 'ready';
+    // Only recover sessions that were actively in use — idle means first boot.
     const sessionNeedsRecovery = state.selectedSessionId
-      && state.activeSession.status !== 'live';
+      && state.activeSession.status !== 'live'
+      && state.activeSession.status !== 'idle';
 
     if (!catalogNeedsSync && !sessionNeedsRecovery) return state;
 

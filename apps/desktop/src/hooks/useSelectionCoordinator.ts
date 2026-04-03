@@ -28,9 +28,11 @@ export function useSelectionCoordinator() {
       connectServer(canonicalBackendId);
       return;
     }
+    selectSessionInStore(null);
+    selectProjectInStore(null);
     setActiveServer(canonicalBackendId);
     connectServer(canonicalBackendId);
-  }, [activeServerId, connectServer, setActiveServer]);
+  }, [activeServerId, connectServer, setActiveServer, selectSessionInStore, selectProjectInStore]);
 
   const selectProject = useCallback((projectId: string | null) => {
     if (!projectId) {
