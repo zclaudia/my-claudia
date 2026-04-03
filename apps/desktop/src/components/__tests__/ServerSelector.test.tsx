@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { render, fireEvent } from '@testing-library/react';
+import { render, fireEvent, act } from '@testing-library/react';
 
 // Mock hooks
 vi.mock('../../contexts/ConnectionContext', () => ({
@@ -13,6 +13,7 @@ import { ServerSelector } from '../ServerSelector';
 import { useServerStore } from '../../stores/serverStore';
 import { useGatewayStore } from '../../stores/gatewayStore';
 import { useFacadeStore } from '../../stores/facadeStore';
+import { useRecoveryStore } from '../../stores/recoveryStore';
 
 describe('ServerSelector', () => {
   beforeEach(() => {
@@ -42,6 +43,50 @@ describe('ServerSelector', () => {
       toggleBackendSubscription: vi.fn(),
       isBackendSubscribed: () => false,
       showLocalBackend: false,
+    } as any);
+    useRecoveryStore.setState({
+      coordinator: 'ready',
+      transport: {
+        status: 'connected',
+        mode: 'embedded',
+        generation: 0,
+        error: null,
+        peerSessionId: null,
+        statusEnteredAt: Date.now(),
+      },
+      activeBackendId: 'local',
+      selectedSessionId: null,
+      backends: {
+        local: {
+          backendId: 'local',
+          status: 'ready',
+          desiredOpen: true,
+          lastError: null,
+          lastCloseReason: null,
+          statusEnteredAt: Date.now(),
+        },
+      },
+      catalogs: {
+        local: {
+          backendId: 'local',
+          status: 'ready',
+          ownershipVersion: 1,
+          lastError: null,
+          lastSyncAt: Date.now(),
+          statusEnteredAt: Date.now(),
+        },
+      },
+      activeSession: {
+        sessionId: null,
+        status: 'idle',
+        backendId: null,
+        ownershipVersion: null,
+        lastError: null,
+        hasGapMarker: false,
+        statusEnteredAt: Date.now(),
+      },
+      nextOwnershipVersion: 2,
+      backgroundAt: null,
     } as any);
   });
 
@@ -117,13 +162,21 @@ describe('ServerSelector', () => {
         local: { status: 'connecting', error: null, isLocalConnection: true, features: [] },
       },
     } as any);
+    useRecoveryStore.setState((state) => ({
+      ...state,
+      coordinator: 'recovering',
+      transport: {
+        ...state.transport,
+        status: 'connecting',
+      },
+    }));
 
     const { container } = render(<ServerSelector />);
     const button = container.querySelector('[data-testid="server-selector"]')!;
     fireEvent.click(button);
 
     const statusEl = container.querySelector('[data-testid="connection-status"]');
-    expect(statusEl!.textContent).toBe('Connecting...');
+    expect(statusEl!.textContent).toBe('Reconnecting...');
   });
 
   it('uses fallback backend connection state when activeServerId is stale', () => {
@@ -142,5 +195,28 @@ describe('ServerSelector', () => {
     const statusEl = container.querySelector('[data-testid="connection-status"]');
     expect(statusEl!.textContent).toBe('Connected');
     expect(container.textContent).toContain('Local Server');
+  });
+
+  it('updates dropdown status when recovery state changes after open', () => {
+    const { container, rerender } = render(<ServerSelector />);
+    const button = container.querySelector('[data-testid="server-selector"]')!;
+    fireEvent.click(button);
+
+    expect(container.querySelector('[data-testid="connection-status"]')!.textContent).toBe('Connected');
+
+    act(() => {
+      useRecoveryStore.setState((state) => ({
+        ...state,
+        coordinator: 'recovering',
+        transport: {
+          ...state.transport,
+          status: 'reconnecting',
+        },
+      }));
+    });
+
+    rerender(<ServerSelector />);
+
+    expect(container.querySelector('[data-testid="connection-status"]')!.textContent).toBe('Reconnecting...');
   });
 });

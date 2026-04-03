@@ -28,6 +28,7 @@ import type { ConnectionStatus } from '../stores/serverStore';
 import { isLegacyLocalBackendId } from '../utils/controlPlane';
 import { useTerminalStore } from '../stores/terminalStore';
 import { xtermRegistry } from '../utils/xtermRegistry';
+import { useRecoveryStore } from '../stores/recoveryStore';
 
 /** Map facade BackendRuntimeState to serverStore ConnectionStatus. */
 function runtimeStateToConnectionStatus(state: BackendRuntimeState): ConnectionStatus {
@@ -180,6 +181,7 @@ export function syncToGatewayStore(event: BackendFacadeEvent): void {
   switch (event.type) {
     case 'snapshot_updated': {
       const snapshot = event.snapshot;
+      useRecoveryStore.getState().applySnapshot(snapshot);
       gwStore.setConnected(snapshot.connectionState === 'connected');
       // Sync per-backend connection status to serverStore
       const resolvedLocalBackendId =
@@ -232,6 +234,7 @@ export function syncToGatewayStore(event: BackendFacadeEvent): void {
     }
 
     case 'connection_state_changed':
+      useRecoveryStore.getState().setTransportState(event.state, event.error ?? null);
       useServerStore.getState().setControlPlaneState(event.state === 'connected' ? 'ready' : event.state === 'error' ? 'error' : 'connecting');
       gwStore.setConnected(event.state === 'connected');
       if (event.state !== 'connected') {
@@ -247,6 +250,21 @@ export function syncToGatewayStore(event: BackendFacadeEvent): void {
       break;
 
     case 'backend_state_changed': {
+      const recoveryStore = useRecoveryStore.getState();
+      if (event.state === 'ready') {
+        recoveryStore.applySnapshot(useFacadeStore.getState().facade?.getSnapshot?.() ?? {
+          snapshotVersion: useFacadeStore.getState().snapshotVersion,
+          capturedAt: Date.now(),
+          mode: useFacadeStore.getState().mode ?? 'embedded',
+          connectionState: useFacadeStore.getState().connectionState,
+          localBackendId: useFacadeStore.getState().localBackendId,
+          currentInstanceId: useFacadeStore.getState().currentInstanceId,
+          currentDeviceId: useFacadeStore.getState().currentDeviceId,
+          backends: useFacadeStore.getState().backends,
+          sessionStreams: useFacadeStore.getState().sessionStreams,
+          registryRevision: useFacadeStore.getState().registryRevision,
+        });
+      }
       // Sync to serverStore
       const connStatus = runtimeStateToConnectionStatus(event.state);
       useServerStore.getState().setServerConnectionStatus(event.backendId, connStatus, event.error);

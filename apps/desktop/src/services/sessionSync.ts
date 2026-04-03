@@ -139,12 +139,12 @@ function getAuthHeaders(targetBackendId?: string): Record<string, string> {
 /**
  * Perform incremental sync - only fetch sessions updated since last sync
  */
-async function incrementalSync(backendId: string): Promise<void> {
-  if (activeSyncs.has(backendId)) return; // skip if another sync is in progress
+async function incrementalSync(backendId: string): Promise<RemoteSession[] | null> {
+  if (activeSyncs.has(backendId)) return null; // skip if another sync is in progress
   activeSyncs.add(backendId);
   try {
     const state = syncStates.get(backendId);
-    if (!state) return;
+    if (!state) return null;
 
     const requestBaseUrl = getSyncRequestBaseUrl(backendId);
     if (!requestBaseUrl) {
@@ -154,7 +154,7 @@ async function incrementalSync(backendId: string): Promise<void> {
         );
         state.missingSyncRequestUrlLogged = true;
       }
-      return;
+      return null;
     }
     state.missingSyncRequestUrlLogged = false;
 
@@ -168,14 +168,14 @@ async function incrementalSync(backendId: string): Promise<void> {
 
     if (!response.ok) {
       console.error('[SessionSync] Incremental sync failed:', response.status);
-      return;
+      return null;
     }
 
     const data = await response.json();
 
     if (!data.success) {
       console.error('[SessionSync] Sync returned error:', data.error);
-      return;
+      return null;
     }
 
     // Update local state with changed sessions
@@ -208,8 +208,10 @@ async function incrementalSync(backendId: string): Promise<void> {
 
     // Check for message gaps in the currently viewed session
     await checkAndFillMessageGaps(sessions);
+    return sessions;
   } catch (error) {
     console.error('[SessionSync] Incremental sync failed:', error);
+    return null;
   } finally {
     activeSyncs.delete(backendId);
   }
@@ -218,12 +220,12 @@ async function incrementalSync(backendId: string): Promise<void> {
 /**
  * Perform full sync - fetch all sessions and detect deletions
  */
-async function fullSync(backendId: string): Promise<void> {
-  if (activeSyncs.has(backendId)) return; // skip if another sync is in progress
+async function fullSync(backendId: string): Promise<RemoteSession[] | null> {
+  if (activeSyncs.has(backendId)) return null; // skip if another sync is in progress
   activeSyncs.add(backendId);
   try {
     const state = syncStates.get(backendId);
-    if (!state) return;
+    if (!state) return null;
 
     const requestBaseUrl = getSyncRequestBaseUrl(backendId);
     if (!requestBaseUrl) {
@@ -233,7 +235,7 @@ async function fullSync(backendId: string): Promise<void> {
         );
         state.missingSyncRequestUrlLogged = true;
       }
-      return;
+      return null;
     }
     state.missingSyncRequestUrlLogged = false;
 
@@ -248,14 +250,14 @@ async function fullSync(backendId: string): Promise<void> {
 
     if (!response.ok) {
       console.error('[SessionSync] Full sync failed:', response.status);
-      return;
+      return null;
     }
 
     const data = await response.json();
 
     if (!data.success) {
       console.error('[SessionSync] Sync returned error:', data.error);
-      return;
+      return null;
     }
 
     const { sessions, timestamp } = data.data;
@@ -283,11 +285,37 @@ async function fullSync(backendId: string): Promise<void> {
 
     // Check for message gaps in the currently viewed session
     await checkAndFillMessageGaps(sessions);
+    return sessions;
   } catch (error) {
     console.error('[SessionSync] Full sync failed:', error);
+    return null;
   } finally {
     activeSyncs.delete(backendId);
   }
+}
+
+export async function syncBackendCatalog(
+  backendId: string,
+  mode: 'full' | 'delta' = 'full',
+): Promise<{ completed: boolean; sessions: RemoteSession[] }> {
+  // Reuse the existing state tracker so ad-hoc recovery syncs and periodic syncs
+  // share the same dedupe and request URL resolution.
+  if (!syncStates.has(backendId)) {
+    syncStates.set(backendId, {
+      lastSyncTime: 0,
+      incrementalInterval: null as unknown as ReturnType<typeof setInterval>,
+      fullSyncInterval: null as unknown as ReturnType<typeof setInterval>,
+      missingSyncRequestUrlLogged: false,
+    });
+  }
+
+  const result = mode === 'delta'
+    ? await incrementalSync(backendId)
+    : await fullSync(backendId);
+  return {
+    completed: result !== null,
+    sessions: result ?? [],
+  };
 }
 
 /**

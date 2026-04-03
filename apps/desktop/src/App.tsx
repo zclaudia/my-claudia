@@ -38,8 +38,6 @@ import { canReachBackend } from './utils/backendConnection';
 import { useClaudiaStatus } from './hooks/useClaudiaStatus';
 import { useAndroidBack } from './hooks/useAndroidBack';
 import { useSwipeBack } from './hooks/useSwipeBack';
-import { eagerSyncAllBackends } from './services/sessionSync';
-import { appLifecycleManager } from './services/appLifecycleManager';
 import { useFileViewerStore } from './stores/fileViewerStore';
 import { useUIStore } from './stores/uiStore';
 import { useTerminalStore } from './stores/terminalStore';
@@ -51,6 +49,7 @@ import { initBuiltinPanels } from './plugins/builtinPanels';
 import { useAutoUpdate } from './hooks/useAutoUpdate';
 import { useServerLatencyMonitor } from './hooks/useServerLatencyMonitor';
 import { useActiveSessionStream } from './hooks/useActiveSessionStream';
+import { useRecoveryCoordinator } from './hooks/useRecoveryCoordinator';
 import { UpdateBanner } from './components/UpdateBanner';
 import { BrandMark } from './components/BrandMark';
 import { useShortcutStore } from './stores/shortcutStore';
@@ -153,7 +152,6 @@ function AppContent() {
     import('./features/automation/openAutomationWindow').then(m => m.openAutomationWindow());
   }, []);
   const { directGatewayUrl, lastActiveBackendId } = useGatewayStore();
-  const facade = useFacadeStore((s) => s.facade);
   const facadeConnectionState = useFacadeStore((s) => s.connectionState);
   const facadeBackends = useFacadeStore((s) => s.backends);
   const { isExpanded: isAgentExpanded, setExpanded: setAgentExpanded } = useClaudiaStore();
@@ -220,6 +218,7 @@ function AppContent() {
     : null;
 
   useActiveSessionStream();
+  useRecoveryCoordinator();
 
   const mobileInitDone = useRef(false);
   const hasConnected = useRef(false);
@@ -476,19 +475,6 @@ function AppContent() {
     useServerStore.getState().setActiveServer(lastActiveBackendId);
     connectServer(lastActiveBackendId);
   }, [isMobile, lastActiveBackendId, facadeConnectionState, facadeBackends, activeServerId, connectServer]);
-
-  // App lifecycle manager: handles visibility changes, network changes, and health probing.
-  // Replaces the previous simple visibilitychange listener with three-layer reconnection:
-  // 1. Foreground detection → force reconnect if backgrounded > 5s
-  // 2. Network online → force reconnect
-  // 3. Health probe every 25s → detect half-dead connections (direct gateway mode only)
-  useEffect(() => {
-    if (!facade) return;
-    appLifecycleManager.start(facade, {
-      onResume: () => eagerSyncAllBackends(),
-    });
-    return () => appLifecycleManager.stop();
-  }, [facade]);
 
   useEffect(() => {
     if (typeof window === 'undefined' || new URLSearchParams(window.location.search).has('sessionWindow')) {

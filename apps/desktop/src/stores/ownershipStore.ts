@@ -3,14 +3,18 @@ import { resolveCanonicalBackendId, resolveLocalBackendId } from '../utils/contr
 
 interface OwnershipState {
   sessionBackendIds: Record<string, string>;
+  sessionOwnershipVersions: Record<string, number>;
   projectBackendIds: Record<string, string>;
   taskOwners: Record<string, { backendId: string; projectId: string | null }>;
-  setSessionOwner: (sessionId: string, backendId: string) => void;
-  setSessionOwners: (sessionIds: string[], backendId: string) => void;
+  setSessionOwner: (sessionId: string, backendId: string, ownershipVersion?: number) => void;
+  setSessionOwners: (sessionIds: string[], backendId: string, ownershipVersion?: number) => void;
   removeSessionOwner: (sessionId: string) => void;
   removeSessionOwnersByBackend: (backendId: string) => void;
   clearSessionOwners: () => void;
   getSessionBackendId: (sessionId: string | null | undefined) => string | null;
+  getSessionOwnershipVersion: (sessionId: string | null | undefined) => number | null;
+  stampSessionOwnershipVersion: (sessionIds: string[], ownershipVersion: number) => void;
+  stampBackendOwnershipVersion: (backendId: string, ownershipVersion: number) => void;
   setProjectOwner: (projectId: string, backendId: string) => void;
   setProjectOwners: (projectIds: string[], backendId: string) => void;
   removeProjectOwner: (projectId: string) => void;
@@ -28,46 +32,68 @@ interface OwnershipState {
 
 export const useOwnershipStore = create<OwnershipState>()((set, get) => ({
   sessionBackendIds: {},
+  sessionOwnershipVersions: {},
   projectBackendIds: {},
   taskOwners: {},
 
-  setSessionOwner: (sessionId, backendId) => set((state) => ({
+  setSessionOwner: (sessionId, backendId, ownershipVersion = 0) => set((state) => ({
     sessionBackendIds: {
       ...state.sessionBackendIds,
       [sessionId]: backendId,
     },
+    sessionOwnershipVersions: {
+      ...state.sessionOwnershipVersions,
+      [sessionId]: ownershipVersion,
+    },
   })),
 
-  setSessionOwners: (sessionIds, backendId) => set((state) => {
+  setSessionOwners: (sessionIds, backendId, ownershipVersion = 0) => set((state) => {
     if (sessionIds.length === 0) return state;
 
     const next = { ...state.sessionBackendIds };
+    const nextVersions = { ...state.sessionOwnershipVersions };
     for (const sessionId of sessionIds) {
       next[sessionId] = backendId;
+      nextVersions[sessionId] = ownershipVersion;
     }
-    return { sessionBackendIds: next };
+    return {
+      sessionBackendIds: next,
+      sessionOwnershipVersions: nextVersions,
+    };
   }),
 
   removeSessionOwner: (sessionId) => set((state) => {
     if (!(sessionId in state.sessionBackendIds)) return state;
     const next = { ...state.sessionBackendIds };
+    const nextVersions = { ...state.sessionOwnershipVersions };
     delete next[sessionId];
-    return { sessionBackendIds: next };
+    delete nextVersions[sessionId];
+    return {
+      sessionBackendIds: next,
+      sessionOwnershipVersions: nextVersions,
+    };
   }),
 
   removeSessionOwnersByBackend: (backendId) => set((state) => {
     const next = { ...state.sessionBackendIds };
+    const nextVersions = { ...state.sessionOwnershipVersions };
     let changed = false;
     for (const [sessionId, ownerBackendId] of Object.entries(next)) {
       if (ownerBackendId === backendId) {
         delete next[sessionId];
+        delete nextVersions[sessionId];
         changed = true;
       }
     }
-    return changed ? { sessionBackendIds: next } : state;
+    return changed
+      ? {
+          sessionBackendIds: next,
+          sessionOwnershipVersions: nextVersions,
+        }
+      : state;
   }),
 
-  clearSessionOwners: () => set({ sessionBackendIds: {} }),
+  clearSessionOwners: () => set({ sessionBackendIds: {}, sessionOwnershipVersions: {} }),
 
   getSessionBackendId: (sessionId) => {
     if (!sessionId) return null;
@@ -75,6 +101,32 @@ export const useOwnershipStore = create<OwnershipState>()((set, get) => ({
     if (!backendId) return null;
     return resolveCanonicalBackendId(backendId, resolveLocalBackendId() ?? backendId);
   },
+
+  getSessionOwnershipVersion: (sessionId) => {
+    if (!sessionId) return null;
+    return get().sessionOwnershipVersions[sessionId] ?? null;
+  },
+
+  stampSessionOwnershipVersion: (sessionIds, ownershipVersion) => set((state) => {
+    if (sessionIds.length === 0) return state;
+    const next = { ...state.sessionOwnershipVersions };
+    for (const sessionId of sessionIds) {
+      next[sessionId] = ownershipVersion;
+    }
+    return { sessionOwnershipVersions: next };
+  }),
+
+  stampBackendOwnershipVersion: (backendId, ownershipVersion) => set((state) => {
+    const next = { ...state.sessionOwnershipVersions };
+    let changed = false;
+    for (const [sessionId, ownerBackendId] of Object.entries(state.sessionBackendIds)) {
+      if (ownerBackendId === backendId) {
+        next[sessionId] = ownershipVersion;
+        changed = true;
+      }
+    }
+    return changed ? { sessionOwnershipVersions: next } : state;
+  }),
 
   setProjectOwner: (projectId, backendId) => set((state) => ({
     projectBackendIds: {

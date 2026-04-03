@@ -15,6 +15,7 @@ const BACKGROUND_THRESHOLD_MS = 5_000;
 const HEALTH_PROBE_INTERVAL_MS = 25_000;
 
 export interface AppLifecycleManagerOptions {
+  onBackground?: () => void;
   onResume?: () => void;
 }
 
@@ -74,6 +75,7 @@ class AppLifecycleManager {
     this.backgroundSince = Date.now();
     this.stopHealthProbe();
     console.log('[AppLifecycleManager] App went to background');
+    this.options.onBackground?.();
   }
 
   private onForeground(): void {

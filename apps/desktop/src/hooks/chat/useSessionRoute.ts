@@ -4,6 +4,7 @@ import { useOwnershipStore } from '../../stores/ownershipStore';
 import { useServerStore } from '../../stores/serverStore';
 import { useChatStore } from '../../stores/chatStore';
 import { getControlPlaneMode, resolveCanonicalBackendId, resolveLocalBackendId } from '../../utils/controlPlane';
+import { useRecoveryStore } from '../../stores/recoveryStore';
 
 function getStreamKey(backendId: string, sessionId: string): string {
   return `${backendId}:${sessionId}`;
@@ -45,6 +46,11 @@ export function useSessionRoute(
   const maxOffset = useChatStore((s) =>
     sessionId ? s.pagination[sessionId]?.maxOffset ?? 0 : 0
   );
+  const recoveryCoordinator = useRecoveryStore((s) => s.coordinator);
+  const verifiedBackendId = useRecoveryStore((s) => s.getVerifiedSessionBackendId(sessionId));
+  const recoverySelectedSessionId = useRecoveryStore((s) => s.selectedSessionId);
+  const recoveryActiveBackendId = useRecoveryStore((s) => s.activeBackendId);
+  const recoveryActiveSessionStatus = useRecoveryStore((s) => s.activeSession.status);
   const ownerBackendId = useOwnershipStore((s) => {
     if (!sessionId) return null;
     const backendId = s.sessionBackendIds[sessionId] ?? null;
@@ -53,6 +59,15 @@ export function useSessionRoute(
   });
 
   const backendId = useMemo(() => {
+    if (verifiedBackendId) return verifiedBackendId;
+    if (
+      sessionId
+      && recoveryCoordinator === 'recovering'
+      && recoverySelectedSessionId === sessionId
+      && recoveryActiveBackendId
+    ) {
+      return recoveryActiveBackendId;
+    }
     if (ownerBackendId) return ownerBackendId;
 
     const localBackendId = resolveLocalBackendId(activeServerId ?? null);
@@ -60,7 +75,7 @@ export function useSessionRoute(
       return localBackendId ?? activeServerId ?? null;
     }
     return activeServerId ?? localBackendId ?? null;
-  }, [activeServerId, ownerBackendId]);
+  }, [activeServerId, ownerBackendId, recoveryActiveBackendId, recoveryCoordinator, recoverySelectedSessionId, sessionId, verifiedBackendId]);
 
   const backend = useMemo(
     () => (backendId ? backends.find((item) => item.backendId === backendId) ?? null : null),
@@ -74,6 +89,10 @@ export function useSessionRoute(
   const serverConnection = backendId ? serverConnections[backendId] ?? null : null;
   const catchUpSignatureRef = useRef<string | null>(null);
   const prevStreamStateRef = useRef<string | undefined>();
+  const recoveryBlocksStreamOpen = !!(sessionId
+    && recoveryCoordinator === 'recovering'
+    && recoverySelectedSessionId === sessionId
+    && (recoveryActiveSessionStatus === 'resolving_owner' || recoveryActiveSessionStatus === 'waiting_backend_ready'));
 
   useEffect(() => {
     catchUpSignatureRef.current = null;
@@ -101,14 +120,14 @@ export function useSessionRoute(
   }, [backendId, backendOpenState, facade, maintainDesiredState]);
 
   useEffect(() => {
-    if (!maintainDesiredState || !facade || !backendId || !sessionId) return;
+    if (!maintainDesiredState || !facade || !backendId || !sessionId || recoveryBlocksStreamOpen) return;
 
     facade.openSessionStream(backendId, sessionId);
 
     return () => {
       facade.closeSessionStream(backendId, sessionId);
     };
-  }, [backendId, facade, maintainDesiredState, sessionId]);
+  }, [backendId, facade, maintainDesiredState, recoveryBlocksStreamOpen, sessionId]);
 
   useEffect(() => {
     if (!maintainDesiredState || !facade || !backendId || !sessionId || !streamKey) return;
