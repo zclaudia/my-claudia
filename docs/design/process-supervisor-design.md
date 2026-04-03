@@ -48,11 +48,11 @@ The hard part is not raw process inspection. The hard part is making ownership e
 
 ## Goals
 
-1. Make all locally launched product-owned processes visible and manageable.
-2. Track process trees instead of single PIDs.
-3. Support explicit terminate and kill-tree operations, preferring process groups.
-4. Persist process ownership so orphaned processes can be adopted after restart.
-5. Provide a unified UI entry point for process inspection and cleanup.
+1. Make all locally launched product-owned processes visible and inspectable.
+2. Persist process ownership so process records survive app restart.
+3. Provide a unified UI entry point for process inspection and monitoring.
+4. Establish the foundation for later terminate and kill-tree operations.
+5. Avoid changing interactive command spawn semantics before monitoring is in place.
 
 ## Scope
 
@@ -76,9 +76,9 @@ Responsibilities:
 1. single spawn entrypoint for product-owned local commands
 2. process metadata registry
 3. authoritative ownership tracking
-4. process-group-first termination with tree-scan fallback
-5. orphan adoption on startup
-6. process state streaming to the desktop UI
+4. conservative orphan adoption on startup
+5. process state streaming to the desktop UI
+6. process-group-aware metadata for future termination support
 7. record garbage collection for terminal processes
 
 ## Managed Process Model
@@ -227,7 +227,7 @@ interface SpawnSpec {
   tags?: string[];
   protected?: boolean;
   parentProcessId?: string | null;
-  createProcessGroup?: boolean;        // default: true; spawn with { detached: true } to create pgid
+  createProcessGroup?: boolean;        // source-dependent; never default to true globally
 }
 
 interface SpawnResult {
@@ -260,7 +260,7 @@ The supervisor should implement the following lifecycle:
 1. create a `ManagedProcessRecord` with status `starting`
 2. persist the record before spawn completion
 3. inject process ownership markers into the child environment (for `workspace_command` and `test_run` sources)
-4. spawn the actual process with `{ detached: true }` if `createProcessGroup` is true (default)
+4. spawn the actual process with `{ detached: true }` only when the source-specific policy allows `createProcessGroup`
 5. write `pid`, `rootPid`, `pgid`, and transition to `running`
 6. if spawn fails (e.g. ENOENT), immediately transition to `failed` and persist
 7. start best-effort process-tree observation
@@ -269,7 +269,7 @@ The supervisor should implement the following lifecycle:
 
 ## Process Group Termination
 
-Process groups provide the most reliable termination strategy on Unix systems, significantly more dependable than tree-scan kill.
+Process groups provide the most reliable future termination strategy on Unix systems, significantly more dependable than tree-scan kill.
 
 ### Why process groups
 
@@ -279,7 +279,15 @@ When a process is spawned with `{ detached: true }`, Node.js calls `setsid()` wh
 - intermediate shell wrappers have exited
 - the tree structure has changed since spawn
 
-This addresses the core limitation of tree-scan kill documented in the "Important Limitation" section below.
+This addresses the core limitation of tree-scan kill documented in the "Important Limitation" section below. However, this must not be enabled by default for interactive `workspace_command` flows that rely on long-lived stdin/stdout semantics.
+
+### Compatibility rule
+
+Process-group creation is a per-source opt-in, not a universal default.
+
+- `test_run`: eligible for `createProcessGroup = true` in V1
+- `workspace_command`: default `createProcessGroup = false` in V1 because this source includes interactive long-lived commands
+- `provider_run`, `mcp_server`, `embedded_server`: deferred to later phases
 
 ### Termination flow
 
@@ -417,11 +425,11 @@ A practical version 1 can limit itself to:
 
 - `workspace_command`
 - `test_run`
-- `terminate tree` (process group first, tree scan fallback)
+- process registration and persistence
 - orphan adoption
 - read-only process list UI
 
-That already solves the concrete leak class seen with orphaned `vitest` workers, while leaving provider and MCP integration for later phases.
+That already solves the visibility and attribution gap behind the current leak class, while leaving active termination and provider/MCP integration for later phases.
 
 ## Implementation Feasibility by Layer
 
@@ -441,7 +449,7 @@ Expected backend additions:
 
 - `ProcessSupervisor` service
 - `managed_processes` table and repository
-- process startup wrappers with process-group creation
+- process startup wrappers with source-specific process-group policy
 - debug/process routes
 - adoption pass during server startup
 - GC pass for terminal records
@@ -460,7 +468,7 @@ The main frontend work is modeling:
 
 - process list query state
 - selection/filter state
-- terminate/cleanup actions
+- list rendering and owner attribution
 - polling or push-based updates
 
 This does not require a new UI framework or navigation model.
@@ -555,13 +563,14 @@ Mitigation:
 
 ### 6. Cross-platform differences
 
-Process inspection on macOS is already supported by current utilities, but Windows and Linux process-tree behavior may differ.
+Process inspection on macOS is already supported by current utilities, but macOS and Linux differ in how much process metadata can be recovered after restart.
 
 Mitigation:
 
-1. build v1 on the same primitives already used by the product
+1. build V1 around process registration and list visibility, not around aggressive post-restart process introspection
 2. keep supervisor interfaces platform-agnostic
 3. isolate platform-specific behavior inside the process-tree utility layer
+4. make environment-marker introspection optional, not required for macOS V1
 
 This risk is real, but it does not block initial implementation for the current desktop target.
 
@@ -587,7 +596,7 @@ Why:
 - server service and persistence work
 - spawn-callsite migration
 - new debug routes
-- UI list and actions
+- UI list and later actions
 - adoption logic and testing
 
 ### Value
@@ -597,7 +606,7 @@ The operational value is high.
 This design addresses:
 
 - leaked test workers
-- lack of a unified stop/kill entrypoint
+- lack of a unified process visibility and control foundation
 - missing process visibility for support and debugging
 - restart-time orphan recovery
 
@@ -610,24 +619,25 @@ It also creates a reusable base for later features:
 
 ## Recommended V1 Boundary
 
-To keep the first implementation realistic, version 1 should include only:
+To keep the first implementation realistic, version 1 should be monitoring-first and include only:
 
-1. backend `ProcessSupervisor` with process-group spawn
+1. backend `ProcessSupervisor` for registration, persistence, and query
 2. persistence table with GC
 3. integration for `workspace_command` and `test_run`
 4. conservative orphan adoption on startup
-5. `list / terminate tree / cleanup orphans` APIs
+5. read-only `list` APIs
 6. a basic `Settings > Debug > Processes` view
 7. environment tagging for `workspace_command` and `test_run` sources
 
 Version 1 should explicitly exclude:
 
+- terminate / kill-tree UI actions
 - provider integration rewrite
 - MCP full management
 - guarantees of exact full descendant capture
 - historical analytics
 
-That boundary is small enough to ship and large enough to solve the current leak class.
+That boundary is small enough to ship, and it solves the visibility gap before tackling termination semantics.
 
 ## Success Criteria
 
@@ -635,29 +645,29 @@ The design should be considered successful if all of the following become true:
 
 1. newly launched test commands always appear in the registry at root-process level
 2. a leaked `vitest` worker that remains attributable after restart appears in the process UI as `orphaned`
-3. the user can terminate the managed root and observed descendants from the UI without shell access
+3. the user can inspect running and orphaned managed roots from the UI without shell access
 4. background task and provider cleanup can progressively migrate onto the same primitives
 
 ## Orphan Adoption
 
-This is required to solve the current `vitest` leak class and must be included in the initial rollout.
+This is required to solve the current `vitest` leak visibility problem and must be included in the initial rollout.
 
 On startup (after GC pass):
 
 1. load persisted `ManagedProcessRecord`s in `starting`, `running`, `killing`, or `orphaned`
 2. check whether `rootPid` is still alive via `isProcessAlive()`
 3. if alive, verify using available evidence (in order of strength):
-   - `_MC_PROCESS_ID` environment marker match (if present in `/proc/<pid>/environ` or via `ps eww`)
    - command line match
    - cwd match
    - elapsed time vs `startedAt` plausibility check
-   - `pgid` membership verification via `ps -o pgid= -p <pid>`
+   - `pgid` membership verification via `ps -o pgid= -p <pid>` when available
+   - `_MC_PROCESS_ID` environment marker match only as an optional platform-dependent enhancement
 4. if evidence is sufficient, mark the record as `orphaned` and `adopted = true`
 5. if evidence is weak, leave it unadopted or surface it as a lower-confidence candidate in the UI
 6. if not alive, mark it as `exited`
 7. resume best-effort process-tree observation for adopted roots
 
-This allows the app to regain control of leaked command trees after restart.
+This allows the app to regain visibility into leaked managed roots after restart, even before active termination is implemented.
 
 ## Environment Tagging
 
@@ -730,7 +740,14 @@ cleanupOrphanProcesses(filter?: ProcessFilter): Promise<CleanupSummary>
 adoptPersistedProcesses(): Promise<void>
 ```
 
-Termination rules:
+Monitoring-first V1 only requires:
+
+- `spawn`
+- `getProcess`
+- `listProcesses`
+- `adoptPersistedProcesses`
+
+Termination rules for later phases:
 
 - `terminateProcessTree` should be the default UI-facing action
 - internally uses process-group kill (`kill(-pgid)`) when available, tree-scan kill as fallback
@@ -792,17 +809,20 @@ Recommended placement:
 
 - `Settings > Debug > Processes`
 
-Minimum feature set:
+Minimum feature set for V1:
 
 1. list all managed processes
 2. filter by source: `test_run`, `workspace_command`, `provider_run`, `mcp_server`
 3. filter by status: `running`, `orphaned`, `failed`, `killing`
 4. display command, cwd, runtime, PID, owner, and child-count
 5. actions:
-   - `Terminate`
-   - `Kill Tree`
-   - `Clean Orphans`
    - `Reveal Owner`
+
+Later phases can add:
+
+- `Terminate`
+- `Kill Tree`
+- `Clean Orphans`
 
 ## Source Classification
 
@@ -831,21 +851,23 @@ This supports:
 ### Phase 1
 
 - add `ManagedProcessRecord` and persistence table (with GC)
-- introduce `ProcessSupervisor` with process-group spawn
+- introduce `ProcessSupervisor` for registration and query
 - integrate only `workspace_command` and `test_run`
 - orphan adoption on server startup
 - environment tagging for `workspace_command` and `test_run`
+- add read-only `Processes` debug UI
 
 ### Phase 2
 
-- add `Processes` debug UI
-- allow terminate and orphan cleanup from the client
-- add tagging and cross-linking to owners in UI
+- add process detail view and richer owner linking
+- add `test_run` termination with process-group-first semantics
+- keep `workspace_command` as monitor-only by default
 
 ### Phase 3
 
 - integrate `backgroundTaskStore` with `processId`
-- switch task termination to supervisor-first
+- add source-specific termination policies
+- switch compatible task termination to supervisor-first
 
 ### Phase 4
 

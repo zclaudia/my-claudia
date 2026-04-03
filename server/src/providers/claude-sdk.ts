@@ -15,6 +15,7 @@ import { spawn as nodeSpawn } from 'child_process';
 import { extractRetryDelayMsFromError } from '../utils/retry-window.js';
 import { sanitizeInheritedProviderEnv } from '../utils/startup-env.js';
 import { buildMcpBridgeEntry } from '../utils/mcp-bridge-launch.js';
+import { getGlobalProcessSupervisor } from '../services/process-supervisor.js';
 
 /** Mutable handle exposed by runClaude so the adapter can call query methods (stopTask, etc.) */
 export interface ClaudeQueryHandle {
@@ -302,6 +303,16 @@ export async function* runClaude(
       env: spawnOpts.env as NodeJS.ProcessEnv,
       stdio: ['pipe', 'pipe', 'pipe'],
     });
+    getGlobalProcessSupervisor()?.observeChildProcess({
+      source: 'provider_run',
+      command: spawnOpts.command,
+      args: spawnOpts.args,
+      cwd: spawnOpts.cwd,
+      owner: {
+        sessionId: options.claudiaSessionId ?? options.sessionId,
+      },
+      tags: ['provider:claude'],
+    }, child);
     if (child.pid) {
       console.log(`[Claude SDK] CLI subprocess spawned: PID=${child.pid}`);
       if (options.queryHandle) {
@@ -833,4 +844,3 @@ export async function checkVersionCompatibility(cliPath?: string): Promise<void>
     console.warn('[Version Check] Could not check version compatibility:', (error as Error).message);
   }
 }
-

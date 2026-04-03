@@ -41,6 +41,7 @@ import { createPluginRoutes } from './routes/plugins.js';
 import { createMcpServerRoutes } from './routes/mcp-servers.js';
 import { createSystemStatsRoutes } from './routes/system-stats.js';
 import { createDebugRoutes } from './routes/debug.js';
+import { ProcessSupervisor, setGlobalProcessSupervisor } from './services/process-supervisor.js';
 import { createSystemTaskRoutes } from './routes/system-tasks.js';
 import { registerLocalPRDomain } from './domains/local-pr/register.js';
 import { registerSupervisionDomain } from './domains/supervision/register.js';
@@ -112,6 +113,9 @@ export function setupRoutesAndServices(deps: SetupDependencies): SetupResult {
     handleRunStart, getServerPort,
     setNotificationService, setProcessMonitor,
   } = deps;
+  const processSupervisor = new ProcessSupervisor(db);
+  setGlobalProcessSupervisor(processSupervisor);
+  processSupervisor.start();
 
   // Health check
   app.get('/health', (_req: Request, res: Response) => {
@@ -360,7 +364,7 @@ export function setupRoutesAndServices(deps: SetupDependencies): SetupResult {
 
   // System stats + plugin storage reader (local only)
   app.use('/api/system', localOnlyMiddleware, createSystemStatsRoutes());
-  app.use('/api/debug', localOnlyMiddleware, createDebugRoutes());
+  app.use('/api/debug', localOnlyMiddleware, createDebugRoutes(processSupervisor));
   app.use('/api', authMiddleware, createSystemTaskRoutes());
 
   // Workspace routes (Agent personality configuration)
@@ -508,6 +512,7 @@ export function setupRoutesAndServices(deps: SetupDependencies): SetupResult {
   // Register agent assistant tools (scope: agent-assistant)
   registerAgentTools({
     getDb: () => db,
+    getProcessSupervisor: () => processSupervisor,
   });
 
   // Register browser tool (lightweight URL fetcher)
@@ -653,6 +658,8 @@ export function setupRoutesAndServices(deps: SetupDependencies): SetupResult {
   const onWssClose = () => {
     clearInterval(heartbeatInterval);
     processMonitor.stop();
+    setGlobalProcessSupervisor(null);
+    processSupervisor.stop();
     supervisorService.stop();
   };
 

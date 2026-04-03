@@ -7,6 +7,7 @@ import type { MessageInput } from '@my-claudia/shared';
 import type { ClaudeMessage, SystemInfo, PermissionCallback } from './message-types.js';
 import { buildNonImageAttachmentNotes } from './attachment-utils.js';
 import { sanitizeInheritedProviderEnv } from '../utils/startup-env.js';
+import { getGlobalProcessSupervisor } from '../services/process-supervisor.js';
 import { createTraceRecorder, summarizeProviderMessage } from '../utils/provider-trace.js';
 import { buildMcpBridgeEntry } from '../utils/mcp-bridge-launch.js';
 
@@ -657,6 +658,16 @@ export async function* runKimi(
       env,
       stdio: ['ignore', 'pipe', 'pipe'],
     });
+    getGlobalProcessSupervisor()?.observeChildProcess({
+      source: 'provider_run',
+      command: binary,
+      args,
+      cwd: options.cwd,
+      owner: {
+        sessionId: options.claudiaSessionId ?? options.sessionId,
+      },
+      tags: ['provider:kimi'],
+    }, proc);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     trace.log('provider_raw', 'spawn_failed', err, 'spawn failed');
@@ -827,4 +838,3 @@ export async function abortKimiSession(sessionId: string): Promise<void> {
     }
   }
 }
-

@@ -10,6 +10,7 @@ import { toolRegistry } from '../../../plugins/tool-registry.js';
 import { MemoryStore } from '../memory/memory-store.js';
 import { isBlockedHostname } from './network-guard.js';
 import type Database from 'better-sqlite3';
+import type { ProcessSupervisor } from '../../../services/process-supervisor.js';
 
 /** Resolve the project working directory for a session */
 function resolveProjectCwd(db: Database.Database, sessionId?: string): string | null {
@@ -74,7 +75,10 @@ async function safePath(filePath: string, baseDir: string): Promise<string | nul
 const MAX_CONCURRENT_SHELLS = 5;
 let activeShells = 0;
 
-export function registerAgentTools(config: { getDb: () => Database.Database }): void {
+export function registerAgentTools(config: {
+  getDb: () => Database.Database;
+  getProcessSupervisor?: () => ProcessSupervisor;
+}): void {
   // ============================================
   // shell — execute shell commands (project-scoped)
   // ============================================
@@ -107,16 +111,56 @@ export function registerAgentTools(config: { getDb: () => Database.Database }): 
         return JSON.stringify({ error: `Too many concurrent shell commands (limit: ${MAX_CONCURRENT_SHELLS})` });
       }
 
-      const { execFile } = await import('child_process');
-      const { promisify } = await import('util');
-      const execFileAsync = promisify(execFile);
+      const processSupervisor = config.getProcessSupervisor?.();
       activeShells++;
       try {
-        const { stdout, stderr } = await execFileAsync('/bin/sh', ['-c', args.command as string], {
-          cwd,
-          timeout: 30000,
-          maxBuffer: 1024 * 1024,
+        const shellResult = processSupervisor
+          ? await processSupervisor.trackCommand({
+            command: '/bin/sh',
+            args: ['-c', args.command as string],
+            cwd,
+            owner: {
+              sessionId: context?.sessionId as string | undefined,
+            },
+          })
+          : null;
+
+        if (!shellResult?.handle.stdout || !shellResult.handle.stderr) {
+          const { execFile } = await import('child_process');
+          const { promisify } = await import('util');
+          const execFileAsync = promisify(execFile);
+          const { stdout, stderr } = await execFileAsync('/bin/sh', ['-c', args.command as string], {
+            cwd,
+            timeout: 30000,
+            maxBuffer: 1024 * 1024,
+          });
+          return JSON.stringify({ stdout: stdout.slice(0, 4000), stderr: stderr.slice(0, 1000), exitCode: 0 });
+        }
+
+        let stdout = '';
+        let stderr = '';
+        shellResult.handle.stdout.on('data', (chunk: Buffer | string) => {
+          stdout += chunk.toString();
         });
+        shellResult.handle.stderr.on('data', (chunk: Buffer | string) => {
+          stderr += chunk.toString();
+        });
+
+        const timeoutPromise = new Promise<{ code: number | null; signal: string | null }>((resolve) => {
+          setTimeout(() => resolve({ code: 124, signal: 'SIGTERM' }), 30000);
+        });
+        const result = await Promise.race([shellResult.handle.exitPromise, timeoutPromise]);
+        const exitCode = result.code ?? 1;
+        if (exitCode === 124) {
+          shellResult.handle.kill('SIGTERM');
+        }
+        if (exitCode !== 0) {
+          return JSON.stringify({
+            stdout: stdout.slice(0, 4000),
+            stderr: (stderr || 'Command exited with non-zero status').slice(0, 1000),
+            exitCode,
+          });
+        }
         return JSON.stringify({ stdout: stdout.slice(0, 4000), stderr: stderr.slice(0, 1000), exitCode: 0 });
       } catch (err: unknown) {
         const execErr = err as { stdout?: string; stderr?: string; message?: string; code?: number };

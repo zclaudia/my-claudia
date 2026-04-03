@@ -7,6 +7,7 @@ import type { ClaudeMessage, SystemInfo, PermissionDecision, PermissionCallback 
 import { fileStore } from '../storage/fileStore.js';
 import { buildNonImageAttachmentNotes } from './attachment-utils.js';
 import { sanitizeInheritedProviderEnv } from '../utils/startup-env.js';
+import { getGlobalProcessSupervisor } from '../services/process-supervisor.js';
 import { createTraceRecorder, type TraceRecorder, summarizeProviderMessage } from '../utils/provider-trace.js';
 import { buildMcpBridgeEntry } from '../utils/mcp-bridge-launch.js';
 
@@ -371,7 +372,7 @@ class OpenCodeServerManager {
    * Ensure an opencode server is running for the given cwd.
    * Reuses existing server if one is already running.
    */
-  async ensureServer(cwd: string, options: { cliPath?: string; env?: Record<string, string> }): Promise<OpenCodeServer> {
+  async ensureServer(cwd: string, options: { cliPath?: string; env?: Record<string, string>; sessionId?: string }): Promise<OpenCodeServer> {
     // Return existing server if running
     const existing = this.servers.get(cwd);
     if (existing && existing.ready) {
@@ -400,7 +401,7 @@ class OpenCodeServerManager {
     }
   }
 
-  private async startServer(cwd: string, options: { cliPath?: string; env?: Record<string, string> }): Promise<OpenCodeServer> {
+  private async startServer(cwd: string, options: { cliPath?: string; env?: Record<string, string>; sessionId?: string }): Promise<OpenCodeServer> {
     const cliPath = options.cliPath || 'opencode';
     // Pick a random port in ephemeral range
     const port = 10000 + Math.floor(Math.random() * 50000);
@@ -418,6 +419,16 @@ class OpenCodeServerManager {
       env: childEnv,
       stdio: ['pipe', 'pipe', 'pipe'],
     });
+    getGlobalProcessSupervisor()?.observeChildProcess({
+      source: 'provider_run',
+      command: cliPath,
+      args: ['serve', '--port', String(port), '--hostname', '127.0.0.1'],
+      cwd,
+      owner: {
+        sessionId: options.sessionId,
+      },
+      tags: ['provider:opencode', 'server'],
+    }, child);
 
     // Log stderr for debugging
     child.stderr?.on('data', (chunk: Buffer) => {
@@ -1036,6 +1047,7 @@ export async function* runOpenCode(
     server = await openCodeServerManager.ensureServer(options.cwd, {
       cliPath: options.cliPath,
       env: options.env,
+      sessionId: options.claudiaSessionId ?? options.sessionId,
     });
   } catch (error) {
     const errMsg = error instanceof Error ? error.message : String(error);

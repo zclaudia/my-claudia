@@ -20,6 +20,7 @@ import { buildNonImageAttachmentNotes } from './attachment-utils.js';
 import { sanitizeInheritedProviderEnv } from '../utils/startup-env.js';
 import { buildMcpBridgeEntry } from '../utils/mcp-bridge-launch.js';
 import { loadMcpServersFromDb } from '../utils/mcp-config.js';
+import { getGlobalProcessSupervisor } from '../services/process-supervisor.js';
 
 // ── Types ─────────────────────────────────────────────────────
 
@@ -320,6 +321,7 @@ export class CodexAppServerClient {
   currentMode: string | undefined;
 
   private processCwd: string | undefined;
+  private ownerSessionId: string | undefined;
 
   /** Last activity timestamp for idle cleanup */
   lastActivity: number = Date.now();
@@ -327,11 +329,12 @@ export class CodexAppServerClient {
   /** Number of in-flight turns; active clients must not be reaped */
   activeTurns = 0;
 
-  constructor(cliPath: string | undefined, env: Record<string, string>, extraArgs: string[] = [], options?: { processCwd?: string }) {
+  constructor(cliPath: string | undefined, env: Record<string, string>, extraArgs: string[] = [], options?: { processCwd?: string; ownerSessionId?: string }) {
     this.cliPath = cliPath || 'codex';
     this.env = env;
     this.extraArgs = extraArgs;
     this.processCwd = options?.processCwd;
+    this.ownerSessionId = options?.ownerSessionId;
   }
 
   // ── Process lifecycle ──
@@ -347,6 +350,16 @@ export class CodexAppServerClient {
       env: this.env,
       cwd: this.processCwd,
     });
+    getGlobalProcessSupervisor()?.observeChildProcess({
+      source: 'provider_run',
+      command: this.cliPath,
+      args,
+      cwd: this.processCwd,
+      owner: {
+        sessionId: this.ownerSessionId,
+      },
+      tags: ['provider:codex', 'app-server'],
+    }, this.process);
 
     this.process.stderr?.on('data', (data: Buffer) => {
       const text = data.toString().trim();
@@ -1084,7 +1097,10 @@ export function getOrCreateAppServerClient(options: CodexAppServerOptions): Code
   const key = getCacheKey(options, env, configSignature);
   let client = appServerClients.get(key);
   if (!client) {
-    client = new CodexAppServerClient(options.cliPath, env, extraArgs, { processCwd: configDir });
+    client = new CodexAppServerClient(options.cliPath, env, extraArgs, {
+      processCwd: configDir,
+      ownerSessionId: options.claudiaSessionId ?? options.sessionId,
+    });
     appServerClients.set(key, client);
   } else {
     // If sandbox/model args changed (e.g., mode switched from plan to default),
